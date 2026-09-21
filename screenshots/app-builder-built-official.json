@@ -1,0 +1,41 @@
+{
+  "url": "http://127.0.0.1:8081/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Crush Stream",
+      "hasCanvas": true,
+      "bodyTextLen": 344,
+      "bodyTextHash": "c18b0c0c5c23c4bed2400426c769454de981d325c0bbba6c36b2f049282a5e77",
+      "bodyTextPrefix": "STREAMED DEFORMATION Crush Stream Two cars lock onto the pad. Ca",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-official.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Crush Stream",
+      "hasCanvas": true,
+      "bodyTextLen": 109,
+      "bodyTextHash": "d803083cbeebbb9488aa337baba7d801b1d411a71426c6b41cb55891b29d2466",
+      "bodyTextPrefix": "STREAMED DEFORMATION Crush Stream TIME SCALE 1.00× APPROACH TITA",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/app-builder-built-official-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/app-builder-built-official.json",
+  "divergesFromBaseline": true,
+  "baselineReasons": [
+    "desktop: body text replaced (similar length, page start changed)",
+    "mobile: body text replaced (similar length, page start changed)"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "cons": [
+    "ss1:page.screenshot: Timeout 8000ms exceeded.\nCall log:\n  - taking page screenshot\n  - waiting for fonts to load...\n  - fonts loaded\n",
+    "ss2:page.screenshot: Timeout 8000ms exceeded.\nCall log:\n  - taking page screenshot\n  - waiting for fonts to load...\n  - fonts loaded\n",
+    "ss3:page.screenshot: Timeout 8000ms exceeded.\nCall log:\n  - taking page screenshot\n  - waiting for fonts to load...\n  - fonts loaded\n",
+    "ss4:page.screenshot: Target page, context or browser has been closed\nCall log:\n  - taking page screenshot\n  - waiting for fonts to load...\n  - fonts loaded\n"
+  ],
+  "mid": {
+    "phase": "approach",
+    "crushA": 0,
+    "bumperAz": 2.06,
+    "cellAz": 0.06,
+    "hubFLy": 0.32,
+    "crashed": [
+      false,
+      false
+    ],
+    "timeScale": 1
+  },
+  "late": {
+    "phase": "approach",
+    "crushA": 0,
+    "bumperAz": 2.06,
+    "bumperDet": false,
+    "doorY": 0,
+    "doorDet": false,
+    "hubFLy": 0.32,
+    "hullFront": {
+      "cx": 0,
+      "cz": 1.66,
+      "hx": 0.74,
+      "hz": 0.56
+    }
+  }
+}
