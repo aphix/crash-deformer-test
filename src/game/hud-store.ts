@@ -34,6 +34,12 @@ export type CrashHudState = {
   compactStage: CompactStage;
   fps: number;
   captureTrace: boolean;
+  derby: boolean;
+  derbyWinner: string | null;
+  derbyBoard: { name: string; score: number; alive: boolean }[];
+  seat: "global" | "follow" | "drive";
+  boost: number;
+  view: "third" | "first";
 };
 
 export const INITIAL_HUD: CrashHudState = {
@@ -69,6 +75,12 @@ export const INITIAL_HUD: CrashHudState = {
   compactStage: "open",
   fps: 0,
   captureTrace: false,
+  derby: false,
+  derbyWinner: null,
+  derbyBoard: [],
+  seat: "global",
+  boost: 1,
+  view: "third",
 };
 
 let snapshot: CrashHudState = INITIAL_HUD;

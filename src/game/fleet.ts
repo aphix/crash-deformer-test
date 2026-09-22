@@ -4,6 +4,7 @@ export const MAX_CARS = 32;
 export const FLEET_MIN_SEP = 5.4;
 
 export type FleetSlot = { x: number; z: number; speed: number };
+export type DerbySlot = { x: number; z: number; yaw: number; speed: number };
 
 function speedInRange(min: number, max: number, rng: () => number): number {
   const lo = Math.max(0, Math.min(min, max));
@@ -67,6 +68,32 @@ export function layoutFleet(
       z = Math.cos(ang) * r;
     }
     slots.push({ x, z, speed: spd() });
+  }
+  return slots;
+}
+
+/**
+ * Scatter around the bowl, facing tangent so they don't all donate the nose
+ * on frame one.
+ */
+export function layoutDerby(
+  count: number,
+  radius: number,
+  speed: number,
+  rng: () => number = Math.random,
+): DerbySlot[] {
+  const n = Math.max(1, Math.min(MAX_CARS, Math.round(count) || 1));
+  const slots: DerbySlot[] = [];
+  const r = Math.max(5.5, radius - 5.2);
+  const spin = rng() * Math.PI * 2;
+  for (let i = 0; i < n; i++) {
+    const a = spin + (i / n) * Math.PI * 2;
+    slots.push({
+      x: Math.sin(a) * r,
+      z: Math.cos(a) * r,
+      yaw: a + Math.PI / 2,
+      speed,
+    });
   }
   return slots;
 }

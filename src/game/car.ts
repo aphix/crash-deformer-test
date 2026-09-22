@@ -103,6 +103,7 @@ export class DeformableCar {
   roll = 0;
   pitch = 0;
   spawnSpeed = 0;
+  readonly drive = { throttle: 0, steer: 0, brake: 0, ebrake: false };
 
   private world: THREE.Scene;
   private onGlass: GlassBurst | null;
@@ -487,6 +488,35 @@ export class DeformableCar {
     this.resetLamps();
   }
 
+  spawnFacing(x: number, z: number, yaw: number, speed: number): void {
+    this.resetVisual();
+    this.yaw = yaw;
+    this.group.position.set(x, 0, z);
+    this.group.rotation.set(0, yaw, 0, "YXZ");
+    this.roll = 0;
+    this.pitch = 0;
+    this.speed = speed;
+    this.spawnSpeed = speed;
+    this.crashed = false;
+    this.angular.set(0, 0, 0);
+    this.refreshBasis();
+    this.velocity.copy(this.fwdFlat).multiplyScalar(speed);
+    this.deform.bindKinematic(this.group, this.velocity, this.angular);
+    this.resetLamps();
+    this.setHighlight(false);
+  }
+
+  setHighlight(on: boolean): void {
+    if (on) {
+      this.bodyMat.emissive.setHex(0xffe08a);
+      this.bodyMat.emissiveIntensity = 0.55;
+    } else {
+      this.bodyMat.emissive.setHex(0x000000);
+      this.bodyMat.emissiveIntensity = 0;
+    }
+    this.bodyMat.needsUpdate = true;
+  }
+
   resetVisual(): void {
     this.deform.reset();
     this.deform.restoreRest(this.body.geometry);
@@ -503,6 +533,7 @@ export class DeformableCar {
       w.visible = true;
     }
     this.bodyMat.roughness = 0.42;
+    this.setHighlight(false);
     this.group.rotation.set(0, 0, 0);
     this.interior.scale.set(1, 1, 1);
     this.interior.position.set(0, 0, 0);

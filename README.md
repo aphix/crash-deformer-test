@@ -1,6 +1,6 @@
 # Crush Stream
 
-A browser car-crash lab: two (or a fleet of) cars, Müller 2005 shape matching, a lattice fallback, jersey barriers, and a compactor. Not BeamNG — closer to Bugbear / Burnout, with a rigid cabin and a crumple box that actually folds.
+A browser car-crash lab: two (or a fleet of) cars, Müller 2005 shape matching, a lattice fallback, jersey barriers, a compactor, and a demolition derby with very basic AI.
 
 ## Run it
 
@@ -43,17 +43,26 @@ Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironmen
 | R | reset / reshuffle |
 | B | jersey barrier |
 | C | compactor |
-| G | ramp balls |
+| D | demolition derby (not while driving) |
+| G | deform rig |
+| K | ramp balls |
 | V | deform rig |
 | M | shape ↔ lattice |
 | J | JSON trace capture (off by default) |
 | JSON button | copy this run's spawn (counter = 1; no extra ticks unless capture is on) |
 | drag / scroll | orbit camera |
+| click a car | follow it |
+| WASD | drive the followed car |
+| Shift | boost (drains, recharges, fills on a derby takedown) |
+| Space | brake while driving, otherwise pause |
+| T | first / third person while driving |
+| Esc | drive → follow → whole field |
 
 HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (clear the field to return to 1×). **Defaults** resets the lot.
 
 ## Layout
 
+- `src/game/derby.ts` / `derby-ai.ts` / `car-drive.ts` / `derby-arena.ts` — derby match, AI, player seat (`DriveInput`)
 - `src/game/engine.ts` — sim loop, camera, collisions
 - `src/game/engine-fx.ts` / `engine-world.ts` — debris, sparks, smoke, audio, asphalt, barrier
 - `src/game/shape-match-core.js` — polar / clusters (hot)

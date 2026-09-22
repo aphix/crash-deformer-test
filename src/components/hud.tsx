@@ -15,6 +15,7 @@ import {
   Undo2,
   Waypoints,
   Timer,
+  Trophy,
   Volume2,
   VolumeX,
 } from "lucide-react";
@@ -31,6 +32,7 @@ type Props = {
   onToggleBarrier: () => void;
   onToggleBalls: () => void;
   onToggleCompactor: () => void;
+  onToggleDerby: () => void;
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
   onToggleAudio: () => void;
@@ -62,6 +64,7 @@ export function Hud({
   onToggleBarrier,
   onToggleBalls,
   onToggleCompactor,
+  onToggleDerby,
   onToggleOrbit,
   onToggleSlomo,
   onToggleAudio,
@@ -94,7 +97,9 @@ export function Hud({
             Crush Stream
           </h1>
           <p className="mt-2 hidden max-w-xs text-pretty text-sm leading-snug text-muted sm:block">
-            {state.showCompactor
+            {state.derby
+              ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
+              : state.showCompactor
               ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
               : state.carCount <= 2
                 ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
@@ -155,10 +160,49 @@ export function Hud({
                 : "bg-surface-2 text-muted",
             )}
           >
-            {PHASE[state.phase]}
+            {state.derby ? (state.derbyWinner ? "Winner" : "Derby") : PHASE[state.phase]}
           </span>
         </div>
       </header>
+
+      {state.derby && state.derbyBoard.length > 0 ? (
+        <div className="pointer-events-none absolute left-4 top-36 w-44 rounded-xl bg-surface/90 p-3 shadow-[var(--shadow-border)] sm:left-6 sm:top-40">
+          <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">Board</p>
+          <ul className="mt-2 space-y-1">
+            {state.derbyBoard.map((row, i) => (
+              <li key={`${i}-${row.name}`} className="flex items-baseline justify-between gap-2 font-display text-sm">
+                <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
+                <span className="tabular-nums text-muted">{row.score}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {state.seat !== "global" ? (
+        <div className="pointer-events-none absolute bottom-28 left-1/2 z-10 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 rounded-xl bg-surface/90 px-4 py-2 text-center shadow-[var(--shadow-border)]">
+          <p className="font-display text-sm text-fg">
+            {state.seat === "drive"
+              ? `Driving · ${state.view === "first" ? "first" : "third"} person · Space brake · Shift boost · T view · Esc watch`
+              : "Watching · WASD to drive · Esc back"}
+          </p>
+          {state.seat === "drive" ? (
+            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
+              <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {state.derbyWinner ? (
+        <div className="pointer-events-none absolute inset-x-0 top-[38%] z-10 flex justify-center">
+          <div className="rounded-2xl bg-surface/95 px-8 py-5 text-center shadow-[var(--shadow-border)]">
+            <p className="font-display text-[0.7rem] uppercase tracking-[0.28em] text-muted">Winner</p>
+            <p className="mt-1 font-display text-5xl font-semibold tracking-tight text-fg">{state.derbyWinner}</p>
+            <p className="mt-2 text-sm text-muted">Last engine still running</p>
+          </div>
+        </div>
+      ) : null}
 
       <div className="flex flex-col gap-3">
         <div className="flex flex-wrap items-end justify-between gap-2">
@@ -280,6 +324,15 @@ export function Hud({
           >
             <FoldHorizontal />
             <span className="hidden sm:inline">Press {state.showCompactor ? "on" : "off"}</span>
+          </Button>
+          <Button
+            onClick={onToggleDerby}
+            variant={state.derby ? "default" : "ghost"}
+            aria-pressed={state.derby}
+            aria-label="Toggle demolition derby"
+          >
+            <Trophy />
+            <span className="hidden sm:inline">Derby {state.derby ? "on" : "off"}</span>
           </Button>
           <Button
             onClick={onToggleRig}

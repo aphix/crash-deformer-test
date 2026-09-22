@@ -1207,6 +1207,17 @@ export class StreamedDeformation {
     this.prevYaw = yawSafe;
   }
 
+  /** Move the whole wreck, including planted hubs, so a bowl clip is not undone next frame. */
+  translateMasses(dx: number, dz: number, dvx: number, dvz: number): void {
+    for (const m of this.masses) {
+      m.world.x += dx;
+      m.world.z += dz;
+      if (!m.dynamic) continue;
+      m.vel.x += dvx;
+      m.vel.z += dvz;
+    }
+  }
+
   /**
    * Push the passenger cell out of overlap. Crumple-zone masses stay on the
    * contact plane so the leftover penetration becomes plastic crush.

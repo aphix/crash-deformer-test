@@ -6,9 +6,12 @@ import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, physicsSlice, satCarBarri
 import { impulseCar, pushCar, resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
-import { MAX_CARS, layoutFleet } from "./fleet.ts";
+import { MAX_CARS, layoutFleet, layoutDerby } from "./fleet.ts";
 import { makeAsphalt, makeJerseyBarrier, restoreBarrierRest, makeLamp } from "./engine-world.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "./engine-fx.ts";
+import { DerbyMatch, snapshotAiCar } from "./derby.ts";
+import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
+import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
 
 export type { CrashHudState, CrashPhase } from "./hud-store";
 
@@ -76,6 +79,7 @@ export class CrashEngine {
   audioOn = false;
   deformMode: DeformMode = "shape";
   captureTrace = false;
+  derbyMode = false;
 
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
@@ -147,6 +151,15 @@ export class CrashEngine {
   private press!: THREE.Group;
   private pressFront!: THREE.Mesh;
   private pressRear!: THREE.Mesh;
+  private derby = new DerbyMatch();
+  private seat = new DriverSeat();
+  private keys = new Set<string>();
+  private lookDragging = false;
+  private pointerTravel = 0;
+  private readonly raycaster = new THREE.Raycaster();
+  private readonly ndc = new THREE.Vector2();
+  private arena!: THREE.Group;
+  private winnerLight!: THREE.PointLight;
   private traceInitial: Record<string, unknown> | null = null;
   private traceSamples: Record<string, unknown>[] = [];
   private traceAcc = 0;
@@ -179,6 +192,10 @@ export class CrashEngine {
     this.attachStudioEnv();
 
     this.buildWorld();
+    this.arena = makeDerbyArena();
+    this.scene.add(this.arena);
+    this.winnerLight = new THREE.PointLight(0xffe08a, 0, 18, 2);
+    this.scene.add(this.winnerLight);
     this.barrier = makeJerseyBarrier();
     this.barrier.visible = false;
     this.scene.add(this.barrier);
@@ -200,6 +217,7 @@ export class CrashEngine {
     this.resizeObs.observe(canvas.parentElement ?? canvas);
 
     window.addEventListener("keydown", this.onKey);
+    window.addEventListener("keyup", this.onKeyUp);
     this.canvas.style.touchAction = "none";
     this.canvas.style.cursor = "grab";
     this.canvas.addEventListener("pointerdown", this.onPointerDown);
@@ -227,6 +245,7 @@ export class CrashEngine {
     this.disposed = true;
     this.renderer.setAnimationLoop(null);
     window.removeEventListener("keydown", this.onKey);
+    window.removeEventListener("keyup", this.onKeyUp);
     this.canvas.removeEventListener("pointerdown", this.onPointerDown);
     this.canvas.removeEventListener("pointermove", this.onPointerMove);
     this.canvas.removeEventListener("pointerup", this.onPointerUp);
@@ -300,6 +319,7 @@ export class CrashEngine {
 
   toggleBarrier(): void {
     if (this.showCompactor) return;
+    if (this.derbyMode) this.setDerby(false);
     this.showBarrier = !this.showBarrier;
     this.barrier.visible = this.showBarrier;
     if (this.showBarrier) this.orientBarrier();
@@ -309,6 +329,7 @@ export class CrashEngine {
 
   toggleBalls(): void {
     if (this.showCompactor) return;
+    if (this.derbyMode) this.setDerby(false);
     this.showBalls = !this.showBalls;
     this.scatterBalls();
     this.tryUnlockAudio();
@@ -316,10 +337,39 @@ export class CrashEngine {
   }
 
   toggleCompactor(): void {
+    if (this.derbyMode) this.setDerby(false);
     this.showCompactor = !this.showCompactor;
     this.tryUnlockAudio();
     this.randomizeAndReset();
     this.emitHud(true);
+  }
+
+  toggleDerby(): void {
+    this.setDerby(!this.derbyMode);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
+  private setDerby(on: boolean): void {
+    this.derbyMode = on;
+    this.arena.visible = on;
+    for (const p of this.poles) p.group.visible = !on;
+    if (on) {
+      this.showBarrier = false;
+      this.showBalls = false;
+      this.showCompactor = false;
+      this.barrier.visible = false;
+      this.autoSlomo = false;
+      if (this.userTimeScale == null) {
+        this.timeScale = 1;
+        this.targetScale = 1;
+      }
+    } else {
+      this.derby.end();
+      this.winnerLight.intensity = 0;
+      for (const car of this.cars) car.setHighlight(false);
+    }
   }
 
   setSquash(value: number): void {
@@ -395,6 +445,7 @@ export class CrashEngine {
     this.timeScale = 1;
     this.targetScale = 1;
     this.userFramed = false;
+    this.setDerby(false);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -477,6 +528,7 @@ export class CrashEngine {
         i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
       const car = new DeformableCar(paint, this.scene, (origin, vel, count) => this.glassDots.burst(origin, vel, count));
       car.group.visible = false;
+      car.group.userData.carIndex = i;
       this.scene.add(car.group);
       this.cars.push(car);
     }
@@ -486,6 +538,7 @@ export class CrashEngine {
     this.barrierHits = Array.from({ length: count }, () => false);
     while (this.smokeUntil.length < count) this.smokeUntil.push(0);
     this.smokeUntil.length = count;
+    if (this.seat.carIndex >= count) this.seat.clear();
   }
 
   private dressCar(car: DeformableCar): void {
@@ -498,9 +551,18 @@ export class CrashEngine {
   private onKey = (e: KeyboardEvent): void => {
     const tag = (e.target as HTMLElement | null)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
+    this.keys.add(e.code);
+    this.seat.poke(this.keys);
+    if (e.repeat) return;
     if (e.code === "Space") {
       e.preventDefault();
-      this.togglePlay();
+      if (this.seat.mode === "global") this.togglePlay();
+    } else if (e.code === "Escape") {
+      this.seat.esc();
+      this.emitHud(true);
+    } else if (e.code === "KeyT" && this.seat.mode === "drive") {
+      this.seat.toggleView();
+      this.emitHud(true);
     } else if (e.code === "KeyR") {
       e.preventDefault();
       this.reset();
@@ -512,6 +574,8 @@ export class CrashEngine {
       this.toggleBarrier();
     } else if (e.code === "KeyK") {
       this.toggleBalls();
+    } else if (e.code === "KeyD") {
+      if (this.seat.mode === "global") this.toggleDerby();
     } else if (e.code === "KeyC") {
       this.toggleCompactor();
     } else if (e.code === "KeyO") {
@@ -527,35 +591,49 @@ export class CrashEngine {
     }
   };
 
+  private onKeyUp = (e: KeyboardEvent): void => {
+    this.keys.delete(e.code);
+    this.seat.poke(this.keys);
+  };
+
   private onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return;
-    this.orbitDragging = true;
+    this.pointerTravel = 0;
+    this.lookDragging = this.seat.mode === "drive";
+    this.orbitDragging = this.seat.mode !== "drive";
     this.orbitLastX = e.clientX;
     this.orbitLastY = e.clientY;
-    this.userFramed = true;
+    if (this.orbitDragging) this.userFramed = true;
     this.canvas.setPointerCapture(e.pointerId);
     this.canvas.style.cursor = "grabbing";
   };
 
   private onPointerMove = (e: PointerEvent): void => {
-    if (!this.orbitDragging) return;
     const dx = e.clientX - this.orbitLastX;
     const dy = e.clientY - this.orbitLastY;
+    this.pointerTravel += Math.hypot(dx, dy);
     this.orbitLastX = e.clientX;
     this.orbitLastY = e.clientY;
+    if (this.lookDragging) {
+      this.seat.nudgeLook(dx, dy);
+      return;
+    }
+    if (!this.orbitDragging) return;
     this.orbitAngle -= dx * 0.005;
     this.orbitPitch = THREE.MathUtils.clamp(this.orbitPitch + dy * 0.004, 0.08, 1.22);
   };
 
   private onPointerUp = (e: PointerEvent): void => {
-    if (!this.orbitDragging) return;
+    const click = this.pointerTravel < 8;
     this.orbitDragging = false;
+    this.lookDragging = false;
     this.canvas.style.cursor = "grab";
     try {
       this.canvas.releasePointerCapture(e.pointerId);
     } catch {
       /* already released */
     }
+    if (click) this.pickCar(e.clientX, e.clientY);
   };
 
   private onWheel = (e: WheelEvent): void => {
@@ -566,6 +644,27 @@ export class CrashEngine {
     this.userFramed = true;
   };
 
+  private pickCar(clientX: number, clientY: number): void {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    const roots = this.live().map((c) => c.group);
+    const hits = this.raycaster.intersectObjects(roots, true);
+    for (const hit of hits) {
+      let obj: THREE.Object3D | null = hit.object;
+      while (obj) {
+        const idx = obj.userData.carIndex;
+        if (typeof idx === "number" && idx >= 0 && idx < this.carCount) {
+          this.seat.focus(idx);
+          this.emitHud(true);
+          return;
+        }
+        obj = obj.parent;
+      }
+    }
+  }
+
   private randomizeAndReset(): void {
     this.compactFace = COMPACTOR.startFace;
     this.compactFxAt = 0;
@@ -575,7 +674,8 @@ export class CrashEngine {
       return;
     }
     if (this.press) this.press.visible = false;
-    this.spawnFleet();
+    if (this.derbyMode) this.spawnDerby();
+    else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.visible = this.showBarrier;
     if (this.showBarrier) this.orientBarrier();
@@ -600,6 +700,30 @@ export class CrashEngine {
       extra.group.position.set(80 + i * 6, 0, 80);
       extra.velocity.set(0, 0, 0);
     }
+  }
+
+  private spawnDerby(): void {
+    const cars = this.live();
+    const slots = layoutDerby(cars.length, DERBY_RADIUS, 12);
+    this.derby.begin(cars.map((c, i) => ({ id: i, name: c.paint.name })));
+    this.winnerLight.intensity = 0;
+    for (let i = 0; i < cars.length; i++) {
+      const slot = slots[i]!;
+      const car = cars[i]!;
+      car.group.visible = true;
+      car.spawnFacing(slot.x, slot.z, slot.yaw, slot.speed);
+      this.dressCar(car);
+      car.setHighlight(false);
+    }
+    for (let i = this.carCount; i < this.cars.length; i++) {
+      const extra = this.cars[i]!;
+      extra.group.visible = false;
+      extra.setHighlight(false);
+      extra.group.position.set(80 + i * 6, 0, 80);
+      extra.velocity.set(0, 0, 0);
+    }
+    this.arena.visible = true;
+    for (const p of this.poles) p.group.visible = false;
   }
 
   private parkCompactor(): void {
@@ -920,6 +1044,13 @@ export class CrashEngine {
         this.traceAcc = 0;
         this.pushTraceSample();
       }
+      this.stepDerby(simDt);
+      this.seat.step(simDt);
+      if (this.derbyMode) {
+        for (const id of this.derby.consumeBoosts()) {
+          if (id === this.seat.carIndex && this.seat.mode === "drive") this.seat.addBoost(BOOST.takedown);
+        }
+      }
     }
 
     this.updateCamera(wallDt);
@@ -933,6 +1064,7 @@ export class CrashEngine {
   }
 
   private maybePreSlowmo(wallDt: number): void {
+    if (this.derbyMode) return;
     if (this.userTimeScale != null) return;
     if (!this.autoSlomo) return;
     if (this.showCompactor) return;
@@ -1014,6 +1146,30 @@ export class CrashEngine {
 
   private fixedStep(dt: number): void {
     const cars = this.live();
+    const driven = this.seat.mode === "drive" ? this.seat.carIndex : -1;
+    if (driven >= 0 && driven < cars.length) {
+      const car = cars[driven]!;
+      if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(this.keys), dt);
+    }
+    if (this.derbyMode && this.derby.winnerId == null) {
+      const snaps = cars.map((c, i) =>
+        snapshotAiCar(
+          i,
+          c.paint.name,
+          c.group.position.x,
+          c.group.position.z,
+          c.yaw,
+          c.velocity.x,
+          c.velocity.z,
+          c.deform.drivetrainAlive,
+          c.deform.crumpleTravel(),
+        ),
+      );
+      for (let i = 0; i < cars.length; i++) {
+        if (i === driven) continue;
+        applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps), dt);
+      }
+    }
     let nearWall = false;
     if (this.showBarrier) {
       for (const car of cars) {
@@ -1089,6 +1245,12 @@ export class CrashEngine {
             const pair = resolveCarPair(cars[a]!, cars[b]!, !(cars[a]!.crashed && cars[b]!.crashed), feed, h);
             if (pair) {
               moved = true;
+              if (this.derbyMode) {
+                const n = pair.normal;
+                const aInto = -(cars[a]!.velocity.x * n.x + cars[a]!.velocity.z * n.z);
+                const bInto = cars[b]!.velocity.x * n.x + cars[b]!.velocity.z * n.z;
+                this.derby.noteHit(a, b, aInto, bInto, pair.impulse);
+              }
               if (pair.impulse >= cinematicImpulse) {
                 cinematicImpulse = pair.impulse;
                 cinematicContact = pair.contact;
@@ -1112,7 +1274,7 @@ export class CrashEngine {
           }
         }
         for (const car of cars) {
-          if (this.resolvePoles(car, h)) moved = true;
+          if (!this.derbyMode && this.resolvePoles(car, h)) moved = true;
         }
 
         if (this.showBarrier) {
@@ -1136,10 +1298,11 @@ export class CrashEngine {
           );
         }
         car.afterContacts(h, this.bounceWorld);
+        if (this.derbyMode) this.clipDerbyCar(car);
       }
     }
 
-    if (this.phase === "approach" && cinematicContact && cinematicNormal && cinematicImpulse > 0.4) {
+    if (!this.derbyMode && this.phase === "approach" && cinematicContact && cinematicNormal && cinematicImpulse > 0.4) {
       this.beginCinematic(cinematicContact, cinematicNormal, cinematicImpulse);
     }
   }
@@ -1218,6 +1381,39 @@ export class CrashEngine {
     const bx = b.group.position.x * _bRight.x + b.group.position.z * _bRight.z;
     const pad = BARRIER_HALF.x + 0.2;
     return ax * bx < 0 && Math.abs(ax) > pad && Math.abs(bx) > pad;
+  }
+
+  private clipDerbyCar(car: DeformableCar): void {
+    const p = car.group.position;
+    const v = car.velocity;
+    const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15);
+    if (!next.hit) return;
+    const dx = next.x - p.x;
+    const dz = next.z - p.z;
+    if (car.deform.massActive) car.deform.translateMasses(dx, dz, next.vx - v.x, next.vz - v.z);
+    p.set(next.x, p.y, next.z);
+    v.set(next.vx, v.y, next.vz);
+  }
+
+  private stepDerby(dt: number): void {
+    if (!this.derbyMode) return;
+    const cars = this.live();
+    const status = this.derby.step(
+      dt,
+      cars.map((c, i) => ({ id: i, name: c.paint.name, alive: c.deform.drivetrainAlive })),
+    );
+    const winId = this.derby.winnerId;
+    if (winId != null) {
+      const champ = cars[winId];
+      for (let i = 0; i < cars.length; i++) cars[i]!.setHighlight(i === winId);
+      if (champ) {
+        this.winnerLight.position.set(champ.group.position.x, 2.1, champ.group.position.z);
+        this.winnerLight.intensity = 5.5;
+      }
+    } else {
+      this.winnerLight.intensity = 0;
+    }
+    if (status === "loop" && this.looping) this.randomizeAndReset();
   }
 
   private beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void {
@@ -1361,6 +1557,7 @@ export class CrashEngine {
   }
 
   private updatePhase(wallDt: number): void {
+    if (this.derbyMode) return;
     if (this.phase === "approach") return;
     this.wallSinceImpact += wallDt;
     if (this.phase === "impact") {
@@ -1378,14 +1575,31 @@ export class CrashEngine {
   }
 
   private updateCamera(wallDt: number): void {
-    if (this.showCompactor) {
+    const followed =
+      this.seat.mode !== "global" && this.seat.carIndex >= 0 && this.seat.carIndex < this.carCount
+        ? this.cars[this.seat.carIndex]
+        : null;
+    if (followed && followed.group.visible && this.seat.mode === "drive") {
+      this.frameDrive(followed, wallDt);
+      return;
+    }
+    if (followed && followed.group.visible) {
+      this.camLook.set(followed.group.position.x, 0.7, followed.group.position.z);
+    } else if (this.showCompactor) {
       this.camLook.set(this.carA.group.position.x, 0.55, this.carA.group.position.z);
+    } else if (this.derbyMode && this.derby.winnerId != null) {
+      const champ = this.cars[this.derby.winnerId];
+      if (champ) this.camLook.set(champ.group.position.x, 0.7, champ.group.position.z);
+    } else if (this.derbyMode) {
+      const live = this.live().filter((c) => c.deform.drivetrainAlive);
+      this.centroid(_v, live.length ? live : this.live());
+      this.camLook.set(_v.x, 0.7, _v.z);
     } else {
       this.centroid(_v);
       this.camLook.set(_v.x, 0.7, _v.z);
     }
 
-    const spinning = this.autoRotate && this.playing && !this.orbitDragging && !this.reduceMotion;
+    const spinning = this.autoRotate && this.playing && !this.orbitDragging && !this.reduceMotion && this.seat.mode !== "drive";
     if (spinning) {
       const rate = this.phase === "approach" ? 0.12 : 0.32;
       this.orbitAngle += rate * wallDt;
@@ -1411,6 +1625,38 @@ export class CrashEngine {
     } else {
       this.camera.rotation.z = 0;
     }
+    this.camera.lookAt(this.camLook);
+  }
+
+  private frameDrive(car: DeformableCar, wallDt: number): void {
+    const speed = Math.hypot(car.velocity.x, car.velocity.z);
+    const head = speed > 1.2 ? Math.atan2(car.velocity.x, car.velocity.z) : car.yaw;
+    const yaw = head + this.seat.camYaw;
+    const pitch = this.seat.camPitch;
+    if (this.seat.view === "first") {
+      const eye = _v.set(0.32, 1.08, 0.2);
+      car.group.localToWorld(eye);
+      this.camPos.copy(eye);
+      this.camLook.set(
+        eye.x + Math.sin(yaw) * 8,
+        eye.y + pitch * 2.2,
+        eye.z + Math.cos(yaw) * 8,
+      );
+    } else {
+      const dist = 7.4;
+      this.camPos.set(
+        car.group.position.x - Math.sin(yaw) * dist,
+        car.group.position.y + 2.4 + pitch * 0.6,
+        car.group.position.z - Math.cos(yaw) * dist,
+      );
+      this.camLook.set(
+        car.group.position.x + Math.sin(head) * 2.4,
+        car.group.position.y + 0.85,
+        car.group.position.z + Math.cos(head) * 2.4,
+      );
+    }
+    const k = 1 - Math.exp(-12 * wallDt);
+    this.camera.position.lerp(this.camPos, k);
     this.camera.lookAt(this.camLook);
   }
 
@@ -1662,7 +1908,7 @@ export class CrashEngine {
       const a = (i / 6) * Math.PI * 2;
       pole.intact = true;
       pole.kicked.clear();
-      pole.group.visible = true;
+      pole.group.visible = !this.derbyMode;
       pole.group.position.set(Math.sin(a) * 16, 0, Math.cos(a) * 16);
       pole.group.rotation.set(0, 0, 0);
     }
@@ -1831,6 +2077,12 @@ export class CrashEngine {
       compactStage: this.showCompactor ? compactorStage(this.compactFace) : "open",
       fps: this.fps,
       captureTrace: this.captureTrace,
+      derby: this.derbyMode,
+      derbyWinner: this.derby.winnerName,
+      derbyBoard: this.derby.hud().board.map((r) => ({ name: r.name, score: r.score, alive: r.alive })),
+      seat: this.seat.mode,
+      boost: this.seat.boost,
+      view: this.seat.view,
     });
   }
 
