@@ -41,7 +41,7 @@ type GlassState = "intact" | "cracked" | "shattered";
 
 interface GlassPane {
   mesh: THREE.Mesh;
-  mat: THREE.MeshPhysicalMaterial;
+  mat: THREE.MeshStandardMaterial;
   restPos: THREE.Vector3;
   restVerts: Float32Array | null;
   state: GlassState;
@@ -51,7 +51,6 @@ interface GlassPane {
 
 interface Lamp {
   mesh: THREE.Mesh;
-  light: THREE.Light;
   mat: THREE.MeshStandardMaterial;
   intact: boolean;
   kind: "head" | "tail";
@@ -91,7 +90,6 @@ export class DeformableCar {
   readonly deform: StreamedDeformation;
   readonly paint: CarPaint;
   readonly wheels: THREE.Group[] = [];
-  readonly headLights: THREE.SpotLight[] = [];
   readonly velocity = new THREE.Vector3();
   readonly angular = new THREE.Vector3();
   readonly forward = new THREE.Vector3(0, 0, 1);
@@ -239,14 +237,8 @@ export class DeformableCar {
         const f = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.05), mat);
         f.position.set(sx, 0.15, 0.04);
         g.add(f);
-        const spot = new THREE.SpotLight(0xfff3d6, 5.2, 24, 0.4, 0.48, 1.35);
-        spot.position.set(sx, 0.16, 0.02);
-        spot.target.position.set(sx * 0.28, -0.12, 6);
-        g.add(spot, spot.target);
-        this.headLights.push(spot);
         this.lamps.push({
           mesh: f,
-          light: spot,
           mat,
           intact: true,
           kind: "head",
@@ -266,12 +258,8 @@ export class DeformableCar {
         const r = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.04), mat);
         r.position.set(sx, 0.15, -0.04);
         g.add(r);
-        const glow = new THREE.PointLight(0xff1a14, 2.8, 6.5, 2);
-        glow.position.set(sx, 0.16, -0.18);
-        g.add(glow);
         this.lamps.push({
           mesh: r,
-          light: glow,
           mat,
           intact: true,
           kind: "tail",
@@ -315,16 +303,17 @@ export class DeformableCar {
         skin,
       });
     };
-    addPane(new THREE.Mesh(makeWindshield(), makeGlassMaterial()), this.group, ["roof", "bonnet"], "glassFront");
-    addPane(new THREE.Mesh(makeRearGlass(), makeGlassMaterial()), this.group, ["roof", "boot"], "glassRear");
-    const sideL = new THREE.Mesh(makeSideGlass(-1), makeGlassMaterial());
+    const glassMat = makeGlassMaterial();
+    addPane(new THREE.Mesh(makeWindshield(), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
+    addPane(new THREE.Mesh(makeRearGlass(), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
+    const sideL = new THREE.Mesh(makeSideGlass(-1), glassMat.clone());
     sideL.position.set(0.02, 0.52, -0.28);
     addPane(sideL, this.doorL, ["doorLeft", "roof"]);
-    const sideR = new THREE.Mesh(makeSideGlass(1), makeGlassMaterial());
+    const sideR = new THREE.Mesh(makeSideGlass(1), glassMat.clone());
     sideR.position.set(-0.02, 0.52, -0.28);
     addPane(sideR, this.doorR, ["doorRight", "roof"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(-1), makeGlassMaterial()), this.group, ["roof", "doorLeft"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(1), makeGlassMaterial()), this.group, ["roof", "doorRight"]);
+    addPane(new THREE.Mesh(makeRearSideGlass(-1), glassMat.clone()), this.group, ["roof", "doorLeft"]);
+    addPane(new THREE.Mesh(makeRearSideGlass(1), glassMat.clone()), this.group, ["roof", "doorRight"]);
   }
 
   private registerParts(): void {
@@ -556,12 +545,10 @@ export class DeformableCar {
         lamp.mat.color.setHex(0xf4f1e8);
         lamp.mat.emissive.setHex(0xf4f1e8);
         lamp.mat.emissiveIntensity = 1.15;
-        lamp.light.intensity = 5.2;
       } else {
         lamp.mat.color.setHex(0xc4121c);
         lamp.mat.emissive.setHex(0xe01018);
         lamp.mat.emissiveIntensity = 2.6;
-        lamp.light.intensity = 2.8;
       }
       lamp.mat.needsUpdate = true;
     }
@@ -643,7 +630,7 @@ export class DeformableCar {
         kind: l.kind,
         side: l.side,
         intact: l.intact,
-        on: l.intact && l.light.intensity > 0.05,
+        on: l.intact && l.mat.emissiveIntensity > 0.05,
       })),
       glass: this.glassPanes.map((g) => g.state),
     };
@@ -927,7 +914,6 @@ export class DeformableCar {
     lamp.mat.emissive.setHex(0x1a1b1c);
     lamp.mat.emissiveIntensity = 0.12;
     lamp.mat.needsUpdate = true;
-    lamp.light.intensity = 0;
   }
 
   private detachPart(p: DetachPart, impulse: number): void {

@@ -136,8 +136,6 @@ export function makeLamp(): THREE.Group {
     }),
   );
   head.position.set(0, 5.15, 0.15);
-  const light = new THREE.PointLight(0xf0e6c8, 2.4, 14, 2);
-  light.position.set(0, 5, 0.2);
-  g.add(pole, head, light);
+  g.add(pole, head);
   return g;
 }

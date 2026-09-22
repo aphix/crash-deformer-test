@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CAR_HALF, DeformableCar, type CarPaint, type Hull } from "./car.ts";
 import { leftoverCrumple, round4, vec3, snapshotPoints, applyGroundFriction, CRASH, separateSphereFromAabb, cancelClosing, satPushCap } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
@@ -159,7 +158,7 @@ export class CrashEngine {
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: (window.devicePixelRatio || 1) <= 1,
       alpha: false,
       powerPreference: "high-performance",
     });
@@ -167,7 +166,7 @@ export class CrashEngine {
     this.renderer.setClearColor(0x12141a, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.55;
+    this.renderer.toneMappingExposure = 1.45;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
@@ -176,11 +175,6 @@ export class CrashEngine {
 
     this.scene.background = new THREE.Color(0x12141a);
     this.scene.fog = new THREE.FogExp2(0x12141a, 0.008);
-    this.scene.environmentIntensity = 0.4;
-
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.06).texture;
-    pmrem.dispose();
 
     this.buildWorld();
     this.barrier = makeJerseyBarrier();
@@ -1845,9 +1839,9 @@ export class CrashEngine {
   };
 
   private buildWorld(): void {
-    const hemi = new THREE.HemisphereLight(0xb7c4d8, 0x1a1816, 1.1);
+    const hemi = new THREE.HemisphereLight(0xb7c4d8, 0x1a1816, 1.35);
     this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xf2f5ff, 2.4);
+    const dir = new THREE.DirectionalLight(0xf2f5ff, 2.6);
     dir.position.set(-10, 22, 9);
     dir.castShadow = true;
     dir.shadow.mapSize.set(1024, 1024);
@@ -1859,17 +1853,7 @@ export class CrashEngine {
     dir.shadow.camera.bottom = -24;
     dir.shadow.bias = -0.0004;
     this.scene.add(dir);
-    const pad = new THREE.SpotLight(0xe8eef8, 32, 40, 0.55, 0.6, 1.1);
-    pad.position.set(4, 18, 6);
-    pad.target.position.set(0, 0, 0);
-    pad.castShadow = true;
-    pad.shadow.mapSize.set(512, 512);
-    pad.shadow.bias = -0.0003;
-    this.scene.add(pad, pad.target);
-    const bounce = new THREE.PointLight(0xc5d0e0, 12, 28, 1.6);
-    bounce.position.set(0, 6, 0);
-    this.scene.add(bounce);
-    const fill = new THREE.DirectionalLight(0xc9d3e0, 1.35);
+    const fill = new THREE.DirectionalLight(0xc9d3e0, 0.9);
     fill.position.set(10, 12, -14);
     this.scene.add(fill);
 

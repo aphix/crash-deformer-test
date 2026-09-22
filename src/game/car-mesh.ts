@@ -713,16 +713,14 @@ export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
   });
 }
 
-export function makeGlassMaterial(): THREE.MeshPhysicalMaterial {
-  return new THREE.MeshPhysicalMaterial({
+export function makeGlassMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({
     color: 0x1a2832,
-    metalness: 0.12,
+    metalness: 0.18,
     roughness: 0.08,
     transparent: true,
-    opacity: 0.78,
-    transmission: 0.08,
-    thickness: 0.03,
-    envMapIntensity: 1.1,
+    opacity: 0.72,
+    envMapIntensity: 0.8,
     side: THREE.DoubleSide,
     depthWrite: true,
   });
