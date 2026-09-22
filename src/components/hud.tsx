@@ -1,6 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import {
   BrickWall,
+  Braces,
   CircleDot,
   ClipboardCopy,
   FoldHorizontal,
@@ -11,6 +12,7 @@ import {
   Repeat,
   RotateCcw,
   Spline,
+  Undo2,
   Waypoints,
   Timer,
   Volume2,
@@ -38,6 +40,9 @@ type Props = {
   onFxDensity: (value: number) => void;
   onCarCount: (value: number) => void;
   onSpeedRange: (min: number, max: number) => void;
+  onTimeScale: (value: number | null) => void;
+  onToggleCapture: () => void;
+  onDefaults: () => void;
   onCopyTrace: () => Promise<boolean> | boolean;
 };
 
@@ -66,9 +71,17 @@ export function Hud({
   onFxDensity,
   onCarCount,
   onSpeedRange,
+  onTimeScale,
+  onToggleCapture,
+  onDefaults,
   onCopyTrace,
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [scaleText, setScaleText] = useState("");
+
+  useEffect(() => {
+    setScaleText(state.userTimeScale == null ? "" : String(state.userTimeScale));
+  }, [state.userTimeScale]);
 
   return (
     <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 text-fg sm:p-6">
@@ -94,6 +107,37 @@ export function Hud({
             <p className="font-display text-2xl font-semibold tabular-nums leading-none">
               {state.timeScale.toFixed(2)}
               <span className="ml-0.5 text-sm font-medium text-muted">×</span>
+            </p>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={scaleText}
+              placeholder="auto"
+              onChange={(e) => {
+                const raw = e.target.value;
+                setScaleText(raw);
+                if (raw.trim() === "") onTimeScale(null);
+              }}
+              onBlur={() => {
+                if (scaleText.trim() === "") {
+                  onTimeScale(null);
+                  return;
+                }
+                const n = Number(scaleText);
+                if (Number.isFinite(n)) onTimeScale(n);
+                else setScaleText(state.userTimeScale == null ? "" : String(state.userTimeScale));
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+              }}
+              aria-label="Typed time scale, clear for normal"
+              className="mt-1 h-8 w-full rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
+            />
+          </div>
+          <div className="rounded-xl bg-surface/90 px-3 py-2 shadow-[var(--shadow-border)]">
+            <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">FPS</p>
+            <p className="font-display text-2xl font-semibold tabular-nums leading-none">
+              {Math.round(state.fps)}
             </p>
           </div>
           <div className="rounded-xl bg-surface/90 px-3 py-2 shadow-[var(--shadow-border)]">
@@ -183,6 +227,10 @@ export function Hud({
           <Button onClick={onReset} variant="secondary" aria-label="Reset crash">
             <RotateCcw />
             Reset
+          </Button>
+          <Button onClick={onDefaults} variant="secondary" aria-label="Reset all settings to defaults">
+            <Undo2 />
+            Defaults
           </Button>
           <Button onClick={onTogglePlay} aria-label={state.playing ? "Pause" : "Play"}>
             {state.playing ? (
@@ -409,6 +457,15 @@ export function Hud({
             />
           </label>
           <Button
+            onClick={onToggleCapture}
+            variant={state.captureTrace ? "default" : "ghost"}
+            aria-pressed={state.captureTrace}
+            aria-label="Toggle JSON trace capture"
+          >
+            <Braces />
+            <span className="hidden sm:inline">{state.captureTrace ? "JSON on" : "JSON off"}</span>
+          </Button>
+          <Button
             onClick={() => {
               void Promise.resolve(onCopyTrace()).then((ok) => {
                 if (!ok) return;
@@ -424,7 +481,7 @@ export function Hud({
           </Button>
           <p className="ml-auto hidden items-center gap-1 pr-2 text-xs text-subtle md:flex">
             <Gauge className="size-3.5" />
-            Space pause · R reset · L loop · B wall · K balls · G rig · O orbit · M slomo · U audio · Y shape
+            Space pause · R reset · L loop · B wall · K balls · G rig · O orbit · M slomo · U audio · Y shape · J json
           </p>
         </div>
       </div>

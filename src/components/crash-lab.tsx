@@ -71,6 +71,9 @@ export function CrashLab() {
         onFxDensity={(v) => engineRef.current?.setFxDensity(v)}
         onCarCount={(n) => engineRef.current?.setCarCount(n)}
         onSpeedRange={(min, max) => engineRef.current?.setSpeedRange(min, max)}
+        onTimeScale={(v) => engineRef.current?.setTimeScale(v)}
+        onToggleCapture={() => engineRef.current?.toggleCapture()}
+        onDefaults={() => engineRef.current?.resetDefaults()}
         onCopyTrace={async () => {
           const json = engineRef.current?.copyTraceJson();
           if (!json) return false;
