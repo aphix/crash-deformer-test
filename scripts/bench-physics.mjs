@@ -1,14 +1,11 @@
 #!/usr/bin/env node
 /**
- * Microbench the CJS kernels. Run with `npm run bench`.
+ * Microbench the JS kernels. Run with `npm run bench`.
  * Times are wall ms for a fixed inner-loop count — compare before/after a change.
  */
-import { createRequire } from "node:module";
 import { performance } from "node:perf_hooks";
-
-const require = createRequire(import.meta.url);
-const m = require("../src/game/shape-match-core.cjs");
-const p = require("../src/game/physics-core.cjs");
+import * as m from "../src/game/shape-match-core.js";
+import * as p from "../src/game/physics-core.js";
 
 function time(name, n, fn) {
   fn(); // warmup
@@ -37,7 +34,7 @@ A[8] = 1.3;
 const R = m.m3();
 const S = m.m3();
 
-console.log("shape-match-core.cjs / physics-core.cjs\n");
+console.log("shape-match-core.js / physics-core.js\n");
 
 time("m3Polar", 80_000, () => m.m3Polar(A, R, S));
 time("matchCluster", 40_000, () => m.matchCluster(c, rest, 0.25));

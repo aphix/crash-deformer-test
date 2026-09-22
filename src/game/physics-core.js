@@ -2,7 +2,7 @@
 "use strict";
 
 /**
- * Number-only crash kernels. Hand-written CJS — no TS transform, no THREE.
+ * Number-only crash kernels. Plain JS — no TS transform, no THREE.
  * physics-util.ts re-exports these and adds Vector3 helpers.
  */
 
@@ -98,7 +98,7 @@ function round4(n) {
   return Math.round(n * 10000) / 10000;
 }
 
-module.exports = {
+export {
   clamp,
   CRASH,
   TRANSFER,

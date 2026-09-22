@@ -13,7 +13,7 @@ import {
   cancelClosing,
   satPushCap,
   round4,
-} from "./physics-core.cjs";
+} from "./physics-core.js";
 
 export {
   CRASH,
@@ -35,7 +35,7 @@ export type CrushBands = { yield: number; middle: number; max: number };
 
 /**
  * Base crash-physics numbers (sedan, dry asphalt, ~50 km/h NCAP-style pulse).
- * Kernels live in physics-core.cjs so the hot path is not TS-transformed.
+ * Kernels live in physics-core.js so the hot path is not TS-transformed.
  */
 
 export function vec3(v: THREE.Vector3): { x: number; y: number; z: number } {

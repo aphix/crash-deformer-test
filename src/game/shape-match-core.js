@@ -1,6 +1,6 @@
 // @ts-nocheck
 "use strict";
-// Hand-kept CJS kernel (Müller 2005 shape matching). No TS transform.
+// Hand-kept JS kernel (Müller 2005 shape matching). No TS transform.
 
 function m3() {
   return new Float64Array(9);
@@ -490,7 +490,7 @@ function deformBeta(squash) {
   return Math.max(0, squash) * 0.9;
 }
 
-module.exports = {
+export {
   applyPlasticity,
   deformBeta,
   goalAlpha,

@@ -1,7 +1,7 @@
 /**
  * Meshless shape matching (Müller et al., SIGGRAPH 2005).
  *
- * Hot path lives in shape-match-core.cjs (plain CJS — no TS transform).
+ * Hot path lives in shape-match-core.js (plain JS — no TS transform).
  * This file is the typed façade.
  */
 export type Mat3 = Float64Array;
@@ -81,4 +81,4 @@ export {
   stiffnessIters,
   goalAlpha,
   deformBeta,
-} from "./shape-match-core.cjs";
+} from "./shape-match-core.js";

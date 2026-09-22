@@ -31,7 +31,7 @@ npm run test:game
 npm run bench
 ```
 
-Kernels in `src/game/*-core.cjs` are plain CommonJS on purpose. Node's TypeScript transform is several times slower on these loops; the sim and the tests both call the CJS.
+Kernels in `src/game/*-core.js` are plain JavaScript on purpose. TypeScript's emit is several times slower on these loops; the sim and the tests both call the JS.
 
 ## Controls
 
@@ -53,6 +53,6 @@ HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (
 
 - `src/game/engine.ts` — sim loop, camera, collisions
 - `src/game/engine-fx.ts` / `engine-world.ts` — debris, sparks, smoke, audio, asphalt, barrier
-- `src/game/shape-match-core.cjs` — polar / clusters (hot)
-- `src/game/physics-core.cjs` — crumple bands, impulses (hot)
+- `src/game/shape-match-core.js` — polar / clusters (hot)
+- `src/game/physics-core.js` — crumple bands, impulses (hot)
 - `src/game/streamed-deform.ts` — cages, masses, skin

@@ -49,7 +49,7 @@ export function CrashLab() {
         aria-label="Crash simulation canvas"
       />
       {bootError ? (
-        <p className="absolute inset-x-4 top-1/2 z-10 -translate-y-1/2 text-center text-sm text-fg">
+        <p className="absolute inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-lg bg-black/80 px-4 py-3 text-center text-sm text-red-200">
           {bootError}
         </p>
       ) : null}
