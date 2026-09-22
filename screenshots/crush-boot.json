@@ -1,0 +1,36 @@
+{
+  "url": "http://127.0.0.1:8080/",
+  "viewports": {
+    "desktop": {
+      "width": 1280,
+      "height": 800,
+      "status": 200,
+      "title": "Crush Stream",
+      "hasCanvas": true,
+      "bodyTextLen": 518,
+      "bodyTextHash": "aa939a21779f59737030e74345386757807fd69bedc385d3ed86841771deba5e",
+      "bodyTextPrefix": "STREAMED DEFORMATION Crush Stream Cars lock onto the pad. Contro",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/crush-boot.png"
+    },
+    "mobile": {
+      "width": 390,
+      "height": 844,
+      "status": 200,
+      "title": "Crush Stream",
+      "hasCanvas": true,
+      "bodyTextLen": 174,
+      "bodyTextHash": "7592aab3db152b580a8d104930fe080721d4b1003e81111e9af83afb8c8e3968",
+      "bodyTextPrefix": "STREAMED DEFORMATION Crush Stream TIME SCALE 1.00× FPS 0 T+ 0.00",
+      "horizontalOverflow": false,
+      "consoleErrors": [],
+      "pageErrors": [],
+      "screenshot": "/workspace/screenshots/crush-boot-mobile.png"
+    }
+  },
+  "brandWarnings": [],
+  "authWarnings": [],
+  "verdictFile": "/workspace/screenshots/crush-boot.json"
+}
