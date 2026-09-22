@@ -27,7 +27,8 @@ export const CRASH = {
 export function regionSoftness(name: string): number {
   if (name.startsWith("bumper")) return 1;
   if (name.startsWith("wing")) return 0.78;
-  if (name === "engineL" || name === "engineR") return 0.42;
+  // Cast lump — it displaces, it does not squash. Bugbear DeformEd tagged engine/base as their own params.
+  if (name === "engineL" || name === "engineR") return 0.16;
   if (name.startsWith("rail")) return 0.3;
   if (name.startsWith("door")) return 0.22;
   if (name === "tank" || name === "axleR") return 0.34;

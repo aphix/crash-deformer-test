@@ -208,6 +208,8 @@ describe("region yield (sedan crash box vs UHSS cage)", () => {
     assert.ok(regionSoftness("bumperFL") > regionSoftness("cell") + 0.6);
     assert.ok(regionSoftness("railL") > regionSoftness("roof"));
     assert.ok(regionSoftness("hubFL") < 0.15);
+    assert.ok(regionSoftness("engineL") < regionSoftness("railL"));
+    assert.ok(regionSoftness("engineL") > regionSoftness("cell"));
   });
 
   it("bad: a 5 m/s tap must not yield the cabin, but may nick the bumper", () => {
