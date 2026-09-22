@@ -1854,8 +1854,10 @@ export class StreamedDeformation {
   private clusterBeta(ci: number, contacting: boolean): number {
     const absorb = ci < this.cages.length ? this.cages[ci]!.spec.absorption : 0.1;
     if (this.squash < 0.03) return 0.04;
-    if (contacting) return THREE.MathUtils.lerp(0.16 + this.squash * 0.78, 0.08, THREE.MathUtils.clamp(absorb, 0, 1));
-    return deformBeta(this.squash) * (1 - absorb * 0.35);
+    // Müller T = (1-β)R + βA. High β is jelly stretch. Bugbear/Rajala: metal
+    // wants rotation + plastic rest update, not a linear squash of the whole cell.
+    if (contacting) return THREE.MathUtils.lerp(0.18 + this.squash * 0.22, 0.03, THREE.MathUtils.clamp(absorb, 0, 1));
+    return deformBeta(this.squash) * (1 - absorb * 0.5);
   }
 
   private stepShapeMatch(dt: number): void {
@@ -1864,8 +1866,8 @@ export class StreamedDeformation {
     this.overlapFrame = false;
     const alpha = contacting
       ? this.squash < 0.03
-        ? 0.88
-        : 0.14 + this.squash * 0.72
+        ? 0.9
+        : 0.32 + this.squash * 0.38
       : goalAlpha(this.squash);
     const iters = contacting ? 2 : stiffnessIters(this.squash);
     const ix = this.impactInward.x;
