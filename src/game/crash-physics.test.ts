@@ -598,7 +598,7 @@ forModes("time / quiet / reset / arm", (spawn, mode) => {
   it("good: quietTime only grows after the last notifyContact", () => {
     const s = spawn(0);
     assert.equal(s.d.quietTime(), 0);
-    s.d.update(0.4, s.geom);
+    s.d.stepStructure(0.4);
     assert.ok(Math.abs(s.d.quietTime() - 0.4) < 1e-6);
     s.d.notifyContact();
     assert.equal(s.d.quietTime(), 0);

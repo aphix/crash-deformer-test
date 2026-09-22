@@ -117,8 +117,9 @@ export function resolveCarPair(
   }
 
   // Rigid 2.15 m COM gap launches crushed cars whose noses already occupy
-  // that space. Only keep a floor while the crumple zone is still long.
-  if (leftover > 0.25 && dist > 1e-4) {
+  // that space. Only keep a floor while the crumple zone is still long and
+  // they are still closing — a settled wreck must not get a late shove.
+  if (leftover > 0.25 && closing > CRASH.grazeMps && dist > 1e-4) {
     const minSep = 2.15 + leftoverA * 0.28 + leftoverB * 0.28;
     if (dist < minSep) {
       _w.copy(carA.group.position).sub(carB.group.position).setY(0);

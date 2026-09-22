@@ -1090,6 +1090,7 @@ export class StreamedDeformation {
 
   stepStructure(dt: number): void {
     if (!this.massActive) return;
+    this.elapsed += dt;
     const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
     for (let s = 0; s < slices; s++) this.stepMassSlice(h);
@@ -1279,7 +1280,6 @@ export class StreamedDeformation {
   update(simDt: number, geometry: THREE.BufferGeometry): void {
     this.skinnedThisFrame = false;
     if (this.crushing) {
-      this.elapsed += simDt;
       this.pullSensorsFromMasses(simDt);
 
       let maxC = 0;
@@ -1999,7 +1999,6 @@ export class StreamedDeformation {
       const hub = m.name.startsWith("hub");
       if (hub) m.vel.y -= 9.6 * dt;
       else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
-      const leftover = leftoverCrumple(this.crumpleTravel());
       const quiet = this.quietTime();
       // During contact: almost no extra damping so crumple can run.
       // After the last collision, ease into rest over a few seconds.
@@ -2011,7 +2010,7 @@ export class StreamedDeformation {
       }
       m.vel.multiplyScalar(Math.pow(rate, dt));
       clampSpeed(m.vel);
-      if (quiet > 3.2 && leftover < 0.12 && m.vel.lengthSq() < 0.04) m.vel.set(0, 0, 0);
+      if (quiet > 2.4 && m.vel.lengthSq() < 0.08) m.vel.set(0, 0, 0);
       m.world.addScaledVector(m.vel, dt);
       if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) {
         m.world.copy(m.rest);
@@ -2028,10 +2027,17 @@ export class StreamedDeformation {
             ? CRASH.muScuff
             : CRASH.muSlide;
         applyGroundFriction(m.vel, dt, mu, true);
-      } else if (m.world.y < 0.16) {
-        m.world.y = 0.16;
-        if (m.vel.y < 0) m.vel.y *= -0.22;
-        applyGroundFriction(m.vel, dt, CRASH.muScuff, true);
+      } else {
+        if (m.world.y < 0.16) {
+          m.world.y = 0.16;
+          if (m.vel.y < 0) m.vel.y *= -0.22;
+        }
+        if (quiet > 0.12) {
+          const grab = THREE.MathUtils.clamp((quiet - 0.12) / 0.45, 0, 1);
+          applyGroundFriction(m.vel, dt, CRASH.muSlide * grab, true);
+        } else if (m.world.y < 0.16) {
+          applyGroundFriction(m.vel, dt, CRASH.muScuff, true);
+        }
       }
       if (m.world.y > 3.4) {
         m.world.y = 3.4;

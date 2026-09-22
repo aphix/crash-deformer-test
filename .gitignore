@@ -3,3 +3,10 @@ node_modules/
 .github_repo
 .env
 .env.*
+dist/
+.vercel/
+.output/
+.nitro/
+.tanstack/
+build/
+*.tsbuildinfo
