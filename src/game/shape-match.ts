@@ -68,12 +68,14 @@ export function m3Mul(a: Mat3, b: Mat3, out: Mat3): Mat3 {
   return out;
 }
 
+export function m3MulVecInto(m: Mat3, x: number, y: number, z: number, out: { x: number; y: number; z: number }): void {
+  out.x = m[0]! * x + m[1]! * y + m[2]! * z;
+  out.y = m[3]! * x + m[4]! * y + m[5]! * z;
+  out.z = m[6]! * x + m[7]! * y + m[8]! * z;
+}
+
 export function m3MulVec(m: Mat3, x: number, y: number, z: number): [number, number, number] {
-  return [
-    m[0]! * x + m[1]! * y + m[2]! * z,
-    m[3]! * x + m[4]! * y + m[5]! * z,
-    m[6]! * x + m[7]! * y + m[8]! * z,
-  ];
+  return [m[0]! * x + m[1]! * y + m[2]! * z, m[3]! * x + m[4]! * y + m[5]! * z, m[6]! * x + m[7]! * y + m[8]! * z];
 }
 
 export function m3Transpose(m: Mat3, out: Mat3): Mat3 {
@@ -174,6 +176,7 @@ export function m3Polar(A: Mat3, R: Mat3, S: Mat3): void {
     m3Orthonormalize(R);
   }
   m3ClampRotation(R, 0.85);
+  m3Orthonormalize(R);
   m3Transpose(R, Rt);
   m3Mul(Rt, A, S);
   S[1] = S[3] = 0.5 * (S[1]! + S[3]!);
@@ -238,6 +241,23 @@ export function m3ClampRotation(R: Mat3, maxRad: number): void {
   m3Orthonormalize(R);
 }
 
+/** Keep polar R from flipping 180° for a single frame (skin flicker in slomo). */
+export function stabilizeR(c: ShapeCluster): void {
+  let dot = 0;
+  for (let i = 0; i < 9; i++) dot += c.R[i]! * c.Rprev[i]!;
+  if (dot < 0.4) {
+    for (let i = 0; i < 9; i++) c.R[i] = c.Rprev[i]! * 0.82 + c.R[i]! * 0.18;
+    m3Orthonormalize(c.R);
+    if (m3Det(c.R) < 0) {
+      c.R[2] = -c.R[2]!;
+      c.R[5] = -c.R[5]!;
+      c.R[8] = -c.R[8]!;
+      m3Orthonormalize(c.R);
+    }
+  }
+  m3Copy(c.R, c.Rprev);
+}
+
 function m3OuterAdd(px: number, py: number, pz: number, qx: number, qy: number, qz: number, w: number, out: Mat3): void {
   out[0] += w * px * qx;
   out[1] += w * px * qy;
@@ -282,6 +302,7 @@ export interface ShapeCluster {
   M: Mat3;
   skinM: Mat3;
   skinInvT: Mat3;
+  Rprev: Mat3;
   skinCm0x: number;
   skinCm0y: number;
   skinCm0z: number;
@@ -320,6 +341,7 @@ export function makeCluster(particles: ShapeParticle[], idx: number[]): ShapeClu
     M: m3Id(),
     skinM: m3Id(),
     skinInvT: m3Id(),
+    Rprev: m3Id(),
     skinCm0x: 0,
     skinCm0y: 0,
     skinCm0z: 0,
@@ -389,7 +411,7 @@ export function matchCluster(c: ShapeCluster, particles: ShapeParticle[], beta: 
   m3Mul(_Apq, c.AqqInv, c.A);
   if (!m3Finite(c.A) || m3MaxAbs(c.A) > 12) m3Id(c.A);
   m3Polar(c.A, c.R, c.S);
-  m3ClampRotation(c.R, 0.85);
+  stabilizeR(c);
   // Müller: T = (1-β) R + β A = R ((1-β) I + β S). Never lerp toward a
   // reflected/huge A — that is what inverted the mesh.
   m3Lerp(_I, c.S, beta, _tmp);
@@ -463,6 +485,7 @@ export function resetCluster(c: ShapeCluster, particles: ShapeParticle[]): void 
   m3Id(c.M);
   m3Id(c.skinM);
   m3Id(c.skinInvT);
+  m3Id(c.Rprev);
   let msum = 0;
   c.cm0x = c.cm0y = c.cm0z = 0;
   for (const i of c.idx) {
@@ -486,6 +509,25 @@ export function resetCluster(c: ShapeCluster, particles: ShapeParticle[]): void 
     c.q0z[i] = c.qz[i] = p.z - c.cm0z;
   }
   rebuildAqqWeighted(c, particles);
+}
+
+const _skinT = { x: 0, y: 0, z: 0 };
+
+export function transformSkinPointInto(
+  c: ShapeCluster,
+  x: number,
+  y: number,
+  z: number,
+  out: { x: number; y: number; z: number } = _skinT,
+): { x: number; y: number; z: number } {
+  const m = c.skinM;
+  const dx = x - c.skinCm0x;
+  const dy = y - c.skinCm0y;
+  const dz = z - c.skinCm0z;
+  out.x = m[0]! * dx + m[1]! * dy + m[2]! * dz + c.skinCmx;
+  out.y = m[3]! * dx + m[4]! * dy + m[5]! * dz + c.skinCmy;
+  out.z = m[6]! * dx + m[7]! * dy + m[8]! * dz + c.skinCmz;
+  return out;
 }
 
 export function transformPoint(c: ShapeCluster, x: number, y: number, z: number): [number, number, number] {
@@ -558,7 +600,7 @@ export function matchSkinLocal(
   m3Mul(_Apq, _tmp2, c.A);
   if (!m3Finite(c.A) || m3MaxAbs(c.A) > 12) m3Id(c.A);
   m3Polar(c.A, c.R, c.S);
-  m3ClampRotation(c.R, 0.85);
+  stabilizeR(c);
   m3Lerp(_I, c.S, beta, _tmp);
   m3Mul(c.R, _tmp, c.skinM);
   if (!m3Finite(c.skinM) || m3MaxAbs(c.skinM) > 4) m3Id(c.skinM);

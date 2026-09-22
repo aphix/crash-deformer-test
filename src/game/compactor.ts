@@ -44,7 +44,7 @@ export function enforceWalls(d: StreamedDeformation, zFace: number, dt = 1 / 60)
   const invDt = 1 / Math.max(dt, 1 / 240);
   for (const m of d.masses) {
     if (!m.dynamic) continue;
-    const r = m.radius * 0.72;
+    const r = m.name.startsWith("bumper") || m.name.startsWith("wing") ? m.radius * 0.12 : m.radius * 0.72;
     if (m.world.z + r > face) {
       const overlap = m.world.z + r - face;
       m.world.z -= overlap;

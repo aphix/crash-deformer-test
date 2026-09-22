@@ -864,6 +864,10 @@ export class CrashEngine {
           if (this.wallSinceImpact > 0.2 && car.crashed) this.bleedAfterSlide(car, h);
         }
       }
+      for (const car of cars) {
+        if (this.showCompactor && car !== this.carA) continue;
+        car.updateDeform(simDt);
+      }
       this.updatePhase(wallDt);
       if (this.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
@@ -1018,7 +1022,14 @@ export class CrashEngine {
         }
       }
 
-      for (let k = 0; k < 3; k++) {
+      let satBusy = false;
+      for (const car of cars) {
+        if (car.velocity.lengthSq() > 1.4) {
+          satBusy = true;
+          break;
+        }
+      }
+      for (let k = 0; k < (satBusy ? 3 : 1); k++) {
         for (const car of cars) {
           if (car.deform.massActive) car.syncPose(0);
           else car.refreshBasis();
@@ -1095,11 +1106,6 @@ export class CrashEngine {
         }
         car.afterContacts(h, this.bounceWorld);
       }
-    }
-
-    for (const car of cars) {
-      if (this.showCompactor && car !== this.carA) continue;
-      car.updateDeform(dt);
     }
 
     if (this.phase === "approach" && cinematicContact && cinematicNormal && cinematicImpulse > 0.4) {

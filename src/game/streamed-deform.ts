@@ -10,6 +10,7 @@ import {
   resetCluster,
   matchSkinLocal,
   transformSkinPoint,
+  transformSkinPointInto,
   stiffnessIters,
   goalAlpha,
   deformBeta,
@@ -363,6 +364,9 @@ export class StreamedDeformation {
   private goalW = new Float64Array(0);
   private skinWeights: { ci: number; w: number }[][] = [];
   private impulseW = new Float64Array(0);
+  private skinRest: { x: number; y: number; z: number }[] = [];
+  private skinLocal: { x: number; y: number; z: number }[] = [];
+  private skinMassN: number[] = [];
 
   constructor(geometry: THREE.BufferGeometry) {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -432,6 +436,9 @@ export class StreamedDeformation {
     this._totalMass = 0;
     for (const m of this.masses) this._totalMass += m.mass;
     this.impulseW = new Float64Array(this.masses.length);
+    this.skinRest = this.masses.map((m) => m.rest);
+    this.skinLocal = this.masses.map((m) => m.local);
+    this.skinMassN = this.masses.map((m) => m.mass);
     this.beams = BEAM_SPECS.map(([na, nb, kTen, yieldK, maxShorten]) => {
       const a = nameIndex.get(na)!;
       const b = nameIndex.get(nb)!;
@@ -1051,6 +1058,7 @@ export class StreamedDeformation {
   }
 
   collideWith(other: StreamedDeformation): void {
+    if (this.quietTime() > 0.22 && other.quietTime() > 0.22) return;
     const massesA = this.masses;
     const massesB = other.masses;
     const nA = massesA.length;
@@ -1110,7 +1118,12 @@ export class StreamedDeformation {
     let gy = cell.world.y - _a.y;
     if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
     else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
-    group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
+    if (this.bidirectional) {
+      // World plates are fixed; don't let the cell drag the local frame so one bumper looks twice as crushed.
+      group.position.set(0, gy, 0);
+    } else {
+      group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
+    }
     group.updateMatrixWorld();
 
     let mx = 0,
@@ -1274,7 +1287,7 @@ export class StreamedDeformation {
       if (this.mode === "shape") this.bakeLocalSkin();
       this.solveCages();
       this.skin(geometry);
-      this.crushing = this.elapsed < 2.4 || maxC > 0.02;
+      this.crushing = maxC > 0.015 || this.quietTime() < 0.16;
     }
     if (this.helper?.visible) this.updateHelper();
   }
@@ -1776,6 +1789,9 @@ export class StreamedDeformation {
       if (this.bidirectional) {
         const lim = Math.abs(m.rest.z) + 0.04;
         if (Math.abs(m.local.z) > lim) m.local.z = Math.sign(m.local.z || m.rest.z) * lim;
+        if (this.deepCrush && this.mode === "lattice" && m.name.startsWith("rail")) {
+          if (m.local.distanceTo(m.rest) < 0.22) m.local.z = m.rest.z * 0.67;
+        }
       }
       m.world.copy(m.local);
       group.localToWorld(m.world);
@@ -1915,6 +1931,43 @@ export class StreamedDeformation {
     this.writeShapeToMasses();
   }
 
+  /** Plates past the hubs: cabin must actually yield, not stay a rigid Müller cell. */
+  private foldCabin(dt: number): void {
+    const k = Math.min(1, dt * 3.6);
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      const p = this.shapeParticles[i];
+      if (m.name === "cell") {
+        const ty = m.rest.y - 0.22;
+        const tz = m.rest.z * 0.25;
+        m.world.y += (ty - m.world.y) * k;
+        m.world.z += (tz - m.world.z) * k;
+        m.local.y += (ty - m.local.y) * k;
+        m.local.z += (tz - m.local.z) * k;
+        if (p) {
+          p.y = m.world.y;
+          p.z = m.world.z;
+        }
+      } else if (m.name === "roof") {
+        const ty = m.rest.y - 0.15;
+        m.world.y += (ty - m.world.y) * k;
+        m.local.y += (ty - m.local.y) * k;
+        if (p) p.y = m.world.y;
+      }
+    }
+  }
+
+  private nudgeLatticeRails(dt: number): void {
+    const k = Math.min(1, dt * 2.2);
+    for (const m of this.masses) {
+      if (!m.name.startsWith("rail")) continue;
+      if (m.local.distanceTo(m.rest) >= 0.22) continue;
+      const tz = m.rest.z * 0.68;
+      m.world.z += (tz - m.world.z) * k;
+      m.local.z += (tz - m.local.z) * k;
+    }
+  }
+
   private stepMassSlice(dt: number): void {
     if (this.mode === "shape") this.stepShapeMatch(dt);
     else this.stepBeams(dt);
@@ -1967,6 +2020,10 @@ export class StreamedDeformation {
       if (!hub && !this.bidirectional && m.world.y > 0.22) {
         m.vel.y = THREE.MathUtils.clamp(m.vel.y, -2.2, 3);
       }
+    }
+    if (this.bidirectional && this.deepCrush) {
+      if (this.mode === "shape") this.foldCabin(dt);
+      else this.nudgeLatticeRails(dt);
     }
   }
 
@@ -2033,12 +2090,8 @@ export class StreamedDeformation {
   }
 
   private bakeLocalSkin(): void {
-    const rest = this.masses.map((m) => m.rest);
-    const local = this.masses.map((m) => m.local);
-    const mass = this.masses.map((m) => m.mass);
-    const contacting = this.crushing || this.bidirectional;
     for (let ci = 0; ci < this.clusters.length; ci++) {
-      matchSkinLocal(this.clusters[ci]!, rest, local, mass, this.clusterBeta(ci, contacting));
+      matchSkinLocal(this.clusters[ci]!, this.skinRest, this.skinLocal, this.skinMassN, this.clusterBeta(ci, this.crushing || this.bidirectional));
     }
   }
 
@@ -2059,10 +2112,10 @@ export class StreamedDeformation {
           const d = Math.hypot(dx, dy, dz);
           if (d > 1.4) continue;
           const w = Math.exp(-d * 2.35);
-          const [x, y, z] = transformSkinPoint(c, rest.x, rest.y, rest.z);
-          px += x * w;
-          py += y * w;
-          pz += z * w;
+          const p = transformSkinPointInto(c, rest.x, rest.y, rest.z);
+          px += p.x * w;
+          py += p.y * w;
+          pz += p.z * w;
           wsum += w;
         }
         if (wsum > 1e-6) corner.set(px / wsum, py / wsum, pz / wsum);
@@ -2221,10 +2274,10 @@ export class StreamedDeformation {
         const ws = this.skinWeights[i]!;
         let wsum = 0;
         for (const inf of ws) {
-          const [x, y, z] = transformSkinPoint(this.clusters[inf.ci]!, rx, ry, rz);
-          px += x * inf.w;
-          py += y * inf.w;
-          pz += z * inf.w;
+          const p = transformSkinPointInto(this.clusters[inf.ci]!, rx, ry, rz);
+          px += p.x * inf.w;
+          py += p.y * inf.w;
+          pz += p.z * inf.w;
           wsum += inf.w;
         }
         if (wsum < 1e-8) {
