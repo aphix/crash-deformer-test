@@ -26,7 +26,8 @@ export function makeDerbyArena(): THREE.Group {
     const a = i * arc;
     const mesh = new THREE.Mesh(box, i % 2 === 0 ? mat : stripe);
     mesh.position.set(Math.sin(a) * DERBY_RADIUS, WALL_H * 0.5, Math.cos(a) * DERBY_RADIUS);
-    mesh.rotation.y = a;
+    // Box long axis is local Z. rotation.y = a points that axis down the radius.
+    mesh.rotation.y = a + Math.PI / 2;
     mesh.castShadow = true;
     mesh.receiveShadow = true;
     g.add(mesh);

@@ -137,6 +137,8 @@ export class CrashEngine {
   private barrierCrush = 0;
   private barrierHits: boolean[] = [];
   private fxPoofed = false;
+  private sparkAt = -10;
+  private deadSmokeAcc: number[] = [];
   private squash = 0.4;
   private buckle = 0.45;
   private fxDensity = 0.7;
@@ -818,6 +820,8 @@ export class CrashEngine {
     this.orbitRadius = Math.hypot(dx, dy, dz);
     this.orbitPitch = Math.asin(THREE.MathUtils.clamp(dy / Math.max(this.orbitRadius, 0.01), -0.99, 0.99));
     this.smokeUntil.fill(0);
+    this.deadSmokeAcc.length = 0;
+    this.sparkAt = -10;
     this.fxPoofed = false;
     this.barrierVel.set(0, 0, 0);
     this.barrierCrush = 0;
@@ -1037,7 +1041,16 @@ export class CrashEngine {
       this.glassDots.update(fxDt, this.bounceGround);
       this.smoke.update(fxDt, this.bounceGround, this.camera);
       for (let i = 0; i < cars.length; i++) {
-        if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) this.puffEngine(cars[i]!);
+        const car = cars[i]!;
+        if (!car.deform.drivetrainAlive) {
+          this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
+          if (this.deadSmokeAcc[i]! > 0.14) {
+            this.deadSmokeAcc[i] = 0;
+            this.puffDeadEngine(car);
+          }
+        } else if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) {
+          this.puffEngine(car);
+        }
       }
       this.traceAcc += wallDt;
       if (this.captureTrace && this.traceAcc >= 0.25) {
@@ -1304,6 +1317,19 @@ export class CrashEngine {
 
     if (!this.derbyMode && this.phase === "approach" && cinematicContact && cinematicNormal && cinematicImpulse > 0.4) {
       this.beginCinematic(cinematicContact, cinematicNormal, cinematicImpulse);
+    } else if (
+      this.derbyMode &&
+      cinematicContact &&
+      cinematicNormal &&
+      cinematicImpulse > 1.2 &&
+      this.elapsedWall - this.sparkAt > 0.16
+    ) {
+      this.sparkAt = this.elapsedWall;
+      this.sparks.poof(
+        cinematicContact,
+        cinematicNormal,
+        Math.min(56, 18 + cinematicImpulse * 0.8) * this.fxDensity,
+      );
     }
   }
 
@@ -1542,6 +1568,13 @@ export class CrashEngine {
     const until = this.elapsedWall + extra;
     const i = Math.max(0, this.cars.indexOf(car));
     this.smokeUntil[i] = Math.max(this.smokeUntil[i] ?? 0, until);
+  }
+
+  private puffDeadEngine(car: DeformableCar): void {
+    const m = car.deform.massWorld("engineL");
+    _v.copy(m);
+    _v.y = Math.max(0.35, m.y);
+    this.smoke.wisp(_v, car.velocity);
   }
 
   private puffEngine(car: DeformableCar): void {

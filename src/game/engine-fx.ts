@@ -148,7 +148,7 @@ export class SparkSystem {
     const mat = new THREE.PointsMaterial({
       map: makeDotTexture("rgba(255,248,220,1)", "rgba(255,170,70,0.7)"),
       color: 0xffffff,
-      size: 0.055,
+      size: 0.12,
       transparent: true,
       opacity: 0.95,
       depthWrite: false,
@@ -185,11 +185,11 @@ export class SparkSystem {
       this.pos[k * 3] = origin.x + (Math.random() - 0.5) * 0.22;
       this.pos[k * 3 + 1] = Math.max(0.08, origin.y) + Math.random() * 0.12;
       this.pos[k * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.22;
-      const speed = 1.1 + Math.random() * 2.4;
+      const speed = 1.4 + Math.random() * 3.2;
       this.vx[k] = (ox / mag) * speed - normal.x * 0.6;
-      this.vy[k] = (oy / mag) * speed * 0.85 + 0.8;
+      this.vy[k] = (oy / mag) * speed * 0.85 + 1.1;
       this.vz[k] = (oz / mag) * speed - normal.z * 0.6;
-      this.life[k] = 0.14 + Math.random() * 0.2;
+      this.life[k] = 0.28 + Math.random() * 0.35;
     }
     if (n > 0) this.anyAlive = true;
     this.geo.setDrawRange(0, this.n);
@@ -403,6 +403,11 @@ export class TireSmokeSystem {
 
   plume(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
     this.spawn(origin, inherit, count, 0.55, 2.2, 1.4);
+  }
+
+  /** Light, steady thread after the block is dead. Not a crash burst. */
+  wisp(origin: THREE.Vector3, inherit: THREE.Vector3): void {
+    this.spawn(origin, inherit, 1, 0.22, 1.5, 0.65);
   }
 
   private spawn(

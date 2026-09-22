@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
+import { StreamedDeformation, ENGINE_KILL_TRAVEL, type DeformMode } from "./streamed-deform.ts";
 import { CRASH, leftoverCrumple } from "./physics-util.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
@@ -368,10 +368,10 @@ forModes("drivetrain", (spawn) => {
     assert.equal(s.d.drivetrainAlive, true);
     for (let i = 0; i < 24; i++) stepWall(s, DT, 0.14);
     const eng = Math.max(travel(s.d, "engineL"), travel(s.d, "engineR"));
-    if (eng > 0.1 || s.d.partCompression("bonnet") > 0.28) {
+    if (eng > ENGINE_KILL_TRAVEL) {
       assert.equal(s.d.drivetrainAlive, false);
     } else {
-      mass(s.d, "engineL").local.z -= 0.16;
+      mass(s.d, "engineL").local.z -= ENGINE_KILL_TRAVEL + 0.05;
       s.d.updateDrivetrain();
       assert.equal(s.d.drivetrainAlive, false);
     }
@@ -395,13 +395,14 @@ forModes("drivetrain", (spawn) => {
     assert.equal(mass(s.d, "hubFL").vel.z, hub0);
   });
 
-  it("close-but-wrong: travel of 0.099 m is still alive; 0.101 m is toast (strict > 0.1)", () => {
+  it("close-but-wrong: just under ENGINE_KILL_TRAVEL is alive; just over is toast", () => {
     const s = spawn(0);
-    mass(s.d, "engineL").local.copy(mass(s.d, "engineL").rest);
-    mass(s.d, "engineL").local.z -= 0.099;
+    const eng = mass(s.d, "engineL");
+    eng.local.copy(eng.rest);
+    eng.local.z -= ENGINE_KILL_TRAVEL - 0.01;
     s.d.updateDrivetrain();
-    assert.equal(s.d.drivetrainAlive, true, "0.099 m is not yet wrecked");
-    mass(s.d, "engineL").local.z = mass(s.d, "engineL").rest.z - 0.101;
+    assert.equal(s.d.drivetrainAlive, true, `${(ENGINE_KILL_TRAVEL - 0.01).toFixed(3)} m is not yet wrecked`);
+    eng.local.z = eng.rest.z - (ENGINE_KILL_TRAVEL + 0.01);
     s.d.updateDrivetrain();
     assert.equal(s.d.drivetrainAlive, false);
   });

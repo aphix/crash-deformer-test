@@ -27,6 +27,21 @@ import {
 
 export type DeformMode = "shape" | "lattice";
 
+/** Engine block has to move this far (m) before the car is undriveable.
+ *  ESV 98S3P12: a rigid full-width barrier overloads the front above ~50 km/h
+ *  and leaves the safety cell intact below that. On this solver that is
+ *  ~0.23 m of block travel at 35 km/h and ~0.40 m at 62 km/h.
+ *  A tail-first hit does not reach the block (it lives in the nose), so the
+ *  same threshold stays driveable from the rear well past 80 km/h. */
+export const ENGINE_KILL_TRAVEL = 0.3;
+
+/** Block travel (m) a hit under ~56 km/h is allowed to leave.
+ *  A 35 km/h wall stays under this. A 62 km/h wall is faster than the gate
+ *  and uses the normal clamp, which is past ENGINE_KILL_TRAVEL.
+ *  Car-car at 25 km/h each was grinding the block past the kill after the
+ *  bumper was gone; this stops that grind. */
+export const ENGINE_LIGHT_CAP = 0.27;
+
 export type BodyPartName =
   | "bumperFront"
   | "bumperRear"
@@ -337,6 +352,8 @@ export class StreamedDeformation {
   private lastContact = -10;
   private crushing = false;
   private impulse = 0;
+  /** Closing speed of the hit that started the crash. Later spikes must not raise the durability gate. */
+  private hitSpeed = -1;
   private wrinkleAmp = 0;
   private helper: THREE.Group | null = null;
   private helperLines: THREE.LineSegments | null = null;
@@ -625,6 +642,7 @@ export class StreamedDeformation {
     this.lastContact = -10;
     this.crushing = false;
     this.impulse = 0;
+    this.hitSpeed = -1;
     this.wrinkleAmp = 0;
     this.crushAmount = 0;
     this.dirty = false;
@@ -734,7 +752,9 @@ export class StreamedDeformation {
   ): void {
     this.impactLocal.copy(localPoint);
     this.impactInward.copy(localInward).normalize();
-    this.impulse = THREE.MathUtils.clamp(impulse, 4, 70);
+    const clamped = THREE.MathUtils.clamp(impulse, 4, 70);
+    if (this.hitSpeed < 0) this.hitSpeed = clamped;
+    this.impulse = clamped;
     this.crushing = true;
     this.massActive = true;
     this.elapsed = 0;
@@ -942,8 +962,9 @@ export class StreamedDeformation {
     const el = this.massByName("engineL");
     const er = this.massByName("engineR");
     const travel = Math.max(el.local.distanceTo(el.rest), er.local.distanceTo(er.rest));
-    const bonnet = this.partCompression("bonnet");
-    if (travel > 0.1 || bonnet > 0.28) this.drivetrainAlive = false;
+    // Hood wrinkle is not a dead block. Rear hits have to cross the cabin to get here,
+    // so the same travel kills a nose around 50 km/h and a tail much later.
+    if (travel > ENGINE_KILL_TRAVEL) this.drivetrainAlive = false;
   }
 
   private massByName(name: MassName): MassNode {
@@ -1317,7 +1338,9 @@ export class StreamedDeformation {
   applyImpact(localPoint: THREE.Vector3, localInward: THREE.Vector3, impulse: number): void {
     this.impactLocal.copy(localPoint);
     this.impactInward.copy(localInward).normalize();
-    this.impulse = THREE.MathUtils.clamp(impulse, 4, 70);
+    const clamped = THREE.MathUtils.clamp(impulse, 4, 70);
+    if (this.hitSpeed < 0) this.hitSpeed = clamped;
+    this.impulse = clamped;
     this.crushing = true;
     this.dirty = true;
   }
@@ -1859,6 +1882,15 @@ export class StreamedDeformation {
         dx *= k;
         dz *= k;
       }
+      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && this.hitSpeed >= 0 && this.hitSpeed < 15.5) {
+        const sunk = Math.hypot(dx, dy, dz);
+        if (sunk > ENGINE_LIGHT_CAP) {
+          const k = ENGINE_LIGHT_CAP / sunk;
+          dx *= k;
+          dy *= k;
+          dz *= k;
+        }
+      }
       const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
       if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
       if (m.name.startsWith("hub") && !this.deepCrush) {
@@ -2115,7 +2147,7 @@ export class StreamedDeformation {
       // During contact: almost no extra damping so crumple can run.
       // After the last collision, ease into rest over a few seconds.
       let rate = 0.988;
-      if (quiet > 0.12) {
+      if (!this.drivetrainAlive && quiet > 0.12) {
         const t = THREE.MathUtils.clamp((quiet - 0.12) / 1.8, 0, 1);
         const s = t * t * (3 - 2 * t);
         rate = THREE.MathUtils.lerp(0.96, 0.18, s);

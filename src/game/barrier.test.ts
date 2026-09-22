@@ -138,3 +138,37 @@ describe("jersey barrier full-speed vs slomo", () => {
     assert.ok(car.group.position.x > 0.4, `lattice tunneled x=${car.group.position.x.toFixed(3)}`);
   });
 });
+
+/**
+ * ESV 98S3P12: a rigid full-width barrier overloads the front above ~50 km/h.
+ * The block sits at the nose, so a tail-first hit has to cross the cabin first
+ * and the same travel only kills around ~80 km/h.
+ */
+const FRONT_DISABLE_MPS = 50 / 3.6;
+const REAR_DISABLE_MPS = 80 / 3.6;
+
+describe("engine disable speeds", () => {
+  it("good: frontal wall under 50 km/h leaves the car driveable", () => {
+    const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * 0.7, "shape");
+    runFor(car, 1.3, 1 / 60);
+    assert.equal(car.deform.drivetrainAlive, true, "35 km/h wall should not kill the block");
+  });
+
+  it("good: frontal wall over 50 km/h kills the engine", () => {
+    const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * 1.25, "shape");
+    runFor(car, 1.5, 1 / 60);
+    assert.equal(car.deform.drivetrainAlive, false, "62 km/h wall should kill the block");
+  });
+
+  it("good: backing into the wall well under 80 km/h does not kill the block", () => {
+    const speed = REAR_DISABLE_MPS * 0.5;
+    const car = spawnAtBarrier(0, speed, "shape");
+    car.yaw = Math.PI / 2;
+    car.group.rotation.set(0, car.yaw, 0, "YXZ");
+    car.refreshBasis();
+    car.velocity.set(-speed, 0, 0);
+    car.deform.bindKinematic(car.group, car.velocity, car.angular);
+    runFor(car, 1.3, 1 / 60);
+    assert.equal(car.deform.drivetrainAlive, true, "40 km/h tail-first wall should still drive");
+  });
+});
