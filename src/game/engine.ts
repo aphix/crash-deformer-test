@@ -3,7 +3,8 @@ import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 import { CAR_HALF, DeformableCar, type CarPaint, type Hull } from "./car.ts";
 import { leftoverCrumple, round4, vec3, snapshotPoints, applyGroundFriction, CRASH, separateSphereFromAabb, cancelClosing, satPushCap } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
-import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, physicsSlice, satCarBarrier, satCars } from "./sat.ts";
+import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, physicsSlice, satCarBarrier } from "./sat.ts";
+import { impulseCar, pushCar, resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, layoutFleet } from "./fleet.ts";
@@ -1054,13 +1055,12 @@ export class CrashEngine {
       }
 
       let satBusy = false;
+      let wrecked = true;
       for (const car of cars) {
-        if (car.velocity.lengthSq() > 1.4) {
-          satBusy = true;
-          break;
-        }
+        if (car.velocity.lengthSq() > 1.4) satBusy = true;
+        if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
       }
-      for (let k = 0; k < (satBusy ? 3 : 1); k++) {
+      for (let k = 0; k < (satBusy && !wrecked ? 3 : 1); k++) {
         for (const car of cars) {
           if (car.deform.massActive) car.syncPose(0);
           else car.refreshBasis();
@@ -1086,7 +1086,8 @@ export class CrashEngine {
 
         for (let a = 0; a < cars.length; a++) {
           for (let b = a + 1; b < cars.length; b++) {
-            const pair = this.resolvePair(cars[a]!, cars[b]!, !(cars[a]!.crashed && cars[b]!.crashed), feed, h);
+            if (this.showBarrier && this.barrierBlocksPair(cars[a]!, cars[b]!)) continue;
+            const pair = resolveCarPair(cars[a]!, cars[b]!, !(cars[a]!.crashed && cars[b]!.crashed), feed, h);
             if (pair) {
               moved = true;
               if (pair.impulse >= cinematicImpulse) {
@@ -1144,34 +1145,6 @@ export class CrashEngine {
     }
   }
 
-  private impulseCar(car: DeformableCar, nx: number, ny: number, nz: number, j: number): void {
-    if (j === 0) return;
-    if (car.deform.massActive) {
-      car.deform.applyImpulse(nx, ny, nz, j);
-      return;
-    }
-    const inv = 1 / car.deform.totalMass;
-    car.velocity.x += nx * j * inv;
-    car.velocity.y += ny * j * inv;
-    car.velocity.z += nz * j * inv;
-  }
-
-  private pushCar(car: DeformableCar, nx: number, ny: number, nz: number, amount: number): void {
-    if (car.deform.massActive) {
-      const sep = Math.min(amount, 0.09);
-      car.deform.separateAlong(nx, ny, nz, sep);
-      car.deform.followGroup(car.group, car.velocity, car.angular, 0);
-      car.refreshBasis();
-      return;
-    }
-    car.group.position.x += nx * amount;
-    car.group.position.y += ny * amount;
-    car.group.position.z += nz * amount;
-    car.group.updateMatrixWorld();
-    car.refreshBasis();
-    car.deform.bindKinematic(car.group, car.velocity, car.angular);
-  }
-
   private resolveBarrier(
     car: DeformableCar,
     deform: boolean,
@@ -1214,14 +1187,14 @@ export class CrashEngine {
       const maxPen = car.deform.massActive ? leftover * 0.4 : 0.015;
       const extra = Math.max(0, overlap - maxPen);
       const push = Math.min(extra + 0.004, satPushCap(dt));
-      this.pushCar(car, _bn.x, 0, _bn.z, push);
+      pushCar(car, _bn.x, 0, _bn.z, push);
       if (feed && remain > 0.3) {
         const pass = car.deform.frontTransfer();
         const e = pass >= 0.97 ? 0.02 : 0;
         const invC = 1 / car.deform.totalMass;
         const invB = 1 / BARRIER_MASS;
         const j = Math.min(cancelClosing(remain, pass, invC + invB, dt, e), 18 + pass * 40);
-        this.impulseCar(car, _bn.x, 0, _bn.z, j);
+        impulseCar(car, _bn.x, 0, _bn.z, j);
         this.barrierVel.addScaledVector(_bn, -j / BARRIER_MASS);
         _r.copy(_bp).sub(car.group.position);
         car.angular.y += (_r.x * _bn.z - _r.z * _bn.x) * remain * -0.04;
@@ -1238,104 +1211,6 @@ export class CrashEngine {
       : null;
   }
 
-  private resolvePair(
-    carA: DeformableCar,
-    carB: DeformableCar,
-    deform: boolean,
-    feed: boolean,
-    dt: number,
-  ): { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 } | null {
-    const dist = carA.group.position.distanceTo(carB.group.position);
-    if (dist > 5.2) return null;
-    if (this.showBarrier && this.barrierBlocksPair(carA, carB)) return null;
-
-    const crushHit = satCars(carA, carB, _cn, _cp, (c) => c.crushHulls());
-    const hit = satCars(carA, carB, _n, _p, (c) => c.hulls());
-    if (!crushHit && !hit) return null;
-    carA.deform.notifyContact();
-    carB.deform.notifyContact();
-
-    const n = crushHit ? _cn : _n;
-    n.y = 0;
-    if (n.lengthSq() > 1e-8) n.normalize();
-    _n.y = 0;
-    if (_n.lengthSq() > 1e-8) _n.normalize();
-    _cn.y = 0;
-    if (_cn.lengthSq() > 1e-8) _cn.normalize();
-    const p = crushHit ? _cp : _p;
-    const rel = _v.copy(carA.velocity).sub(carB.velocity);
-    const closing = -rel.dot(n);
-
-    if (deform && closing > 0.2 && (crushHit ?? hit ?? 0) > 0.006) {
-      if (!carA.crashed) carA.applyImpact(p, n.clone(), closing);
-      if (!carB.crashed) carB.applyImpact(p, n.clone().negate(), closing);
-    }
-
-    let remain = Math.max(0, closing);
-    if (feed && crushHit) {
-      const remainA = carA.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
-      const remainB = carB.deform.feedOverlap(_cp, _w.copy(_cn).negate(), crushHit, Math.max(0, closing), dt);
-      remain = Math.max(0, Math.min(remainA, remainB));
-    }
-
-    const leftoverA = leftoverCrumple(carA.deform.crumpleTravelCorner());
-    const leftoverB = leftoverCrumple(carB.deform.crumpleTravelCorner());
-    const pass = Math.min(carA.deform.frontTransfer(), carB.deform.frontTransfer());
-
-    if (hit) {
-      const leftover = Math.min(leftoverA, leftoverB);
-      const maxPen = leftover * 0.1;
-      const extra = Math.max(0, hit - maxPen);
-      const push = Math.min(extra + 0.006, satPushCap(dt));
-      const both = carA.deform.massActive && carB.deform.massActive;
-      const aAmt = both ? push * 0.5 : carA.deform.massActive ? push * 0.62 : push * 0.38;
-      this.pushCar(carA, _n.x, 0, _n.z, aAmt);
-      this.pushCar(carB, -_n.x, 0, -_n.z, push - aAmt);
-    } else if (crushHit) {
-      const allowed = leftoverA * 0.45 + leftoverB * 0.45 + 0.08;
-      const extra = Math.min(crushHit - allowed, 0.04);
-      if (extra > 0.012) {
-        this.pushCar(carA, _cn.x, 0, _cn.z, extra * 0.5);
-        this.pushCar(carB, -_cn.x, 0, -_cn.z, extra * 0.5);
-      }
-    }
-
-    const minSep = 2.15 + leftoverA * 0.28 + leftoverB * 0.28;
-    if (dist < minSep && dist > 1e-4) {
-      _w.copy(carA.group.position).sub(carB.group.position).setY(0);
-      if (_w.lengthSq() > 1e-8) {
-        _w.normalize();
-        const extra = Math.min((minSep - dist) * 0.5, satPushCap(dt));
-        this.pushCar(carA, _w.x, 0, _w.z, extra);
-        this.pushCar(carB, -_w.x, 0, -_w.z, extra);
-      }
-    }
-
-    if (hit && feed && remain > 0.25) {
-      const e = pass >= 0.97 ? 0.02 : 0;
-      const invA = 1 / carA.deform.totalMass;
-      const invB = 1 / carB.deform.totalMass;
-      const jMax = 18 + pass * 36;
-      const j = Math.min(cancelClosing(remain, pass, invA + invB, dt, e), jMax);
-      this.impulseCar(carA, _n.x, 0, _n.z, j);
-      this.impulseCar(carB, -_n.x, 0, -_n.z, j);
-
-      const tAx = carA.velocity.x - carB.velocity.x;
-      const tAz = carA.velocity.z - carB.velocity.z;
-      const relT = tAx * _n.z - tAz * _n.x;
-      const mu = 0.45;
-      const jt = THREE.MathUtils.clamp(relT / (invA + invB), -mu * j, mu * j);
-      this.impulseCar(carA, _n.z, 0, -_n.x, -jt);
-      this.impulseCar(carB, _n.z, 0, -_n.x, jt);
-
-      _r.copy(_p).sub(carA.group.position);
-      carA.angular.y += (_r.x * _n.z - _r.z * _n.x) * j * 0.00008;
-      _r.copy(_p).sub(carB.group.position);
-      carB.angular.y += (_r.x * -_n.z - _r.z * -_n.x) * j * 0.00008;
-    }
-
-    return { impulse: Math.max(closing, (crushHit ?? hit ?? 0) * 6), contact: p.clone(), normal: n.clone() };
-  }
 
   /** True when the jersey slab sits between this pair so they must not SAT through it. */
   private barrierBlocksPair(a: DeformableCar, b: DeformableCar): boolean {
@@ -1736,7 +1611,7 @@ export class CrashEngine {
         // Ramp: mostly planar, a little up — not a vertical rocket off the buried center.
         _mtv.set(dx / distXz, 0.18, dz / distXz).normalize();
         const push = Math.min(overlap * 0.35, 0.018);
-        this.pushCar(car, _mtv.x, 0, _mtv.z, push);
+        pushCar(car, _mtv.x, 0, _mtv.z, push);
         car.deform.notifyContact();
 
         const vn = car.velocity.x * _mtv.x + car.velocity.z * _mtv.z;
@@ -1821,14 +1696,14 @@ export class CrashEngine {
         if (dist >= pole.radius + 0.04 || dist < 1e-5) continue;
         _mtv.multiplyScalar(1 / dist);
         const overlap = pole.radius + 0.04 - dist;
-        this.pushCar(car, _mtv.x, 0, _mtv.z, Math.min(overlap, 0.04));
+        pushCar(car, _mtv.x, 0, _mtv.z, Math.min(overlap, 0.04));
         car.deform.notifyContact();
         const vn = car.velocity.x * _mtv.x + car.velocity.z * _mtv.z;
         const closing = -vn;
         if (!pole.kicked.has(id) && closing > 0.8) {
           pole.kicked.add(id);
           const j = THREE.MathUtils.clamp(closing * 40, 80, 400);
-          this.impulseCar(car, _mtv.x, 0, _mtv.z, j);
+          impulseCar(car, _mtv.x, 0, _mtv.z, j);
           if (!car.deform.massActive && closing > 4) {
             car.applyImpact(_hb, _mtv, closing);
           } else if (car.deform.massActive) {
