@@ -1774,7 +1774,7 @@ export class StreamedDeformation {
         dx *= k;
         dz *= k;
       }
-      const latCap = this.bidirectional ? 0.85 : 0.06 + cw * 0.1;
+      const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
       if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
       if (m.name.startsWith("hub") && !this.deepCrush) {
         const popAt = m.radius * 0.5;
@@ -2307,13 +2307,16 @@ export class StreamedDeformation {
       const dy = ry - impact.y;
       const dz = rz - impact.z;
       const dist = Math.hypot(dx, dy, dz);
-      if (dist < 1.6 && wrinkle > 0.02 && ry > 0.34) {
-        const fall = Math.exp(-dist * 2.1);
+      if (dist < 0.82 && wrinkle > 0.02 && ry > 0.34) {
+        const fall = Math.exp(-dist * 3.4);
         const n0 = hash01(i, 3) - 0.5;
-        const wave = Math.sin(rx * 7 + rz * 6 + n0 * 2);
-        const amp = wrinkle * fall * 0.22 * (0.35 + b * 0.65);
-        px += Math.sign(rx || 1) * n0 * amp * 0.45;
-        py += Math.abs(wave) * amp * 0.5;
+        // Accordion folds along the crush axis (~12 cm wavelength), not a clay blob.
+        // Wreckfest impact radius sweet spot is 0.3–0.5 m; 1.6 m wrinkled the whole nose.
+        const wave = Math.sin(rz * 18 + n0 * 1.2);
+        const amp = wrinkle * fall * 0.16 * (0.35 + b * 0.65);
+        pz += wave * amp;
+        py += Math.abs(wave) * amp * 0.28;
+        px += Math.sign(rx || 1) * n0 * amp * 0.12;
       }
       const extra = Math.hypot(px - bx, py - by, pz - bz);
       const extraCap = 0.03 + b * 0.08;
