@@ -190,20 +190,35 @@ function m3ClampRotation(R, maxRad) {
   R[8] = 1 + (R[8] - 1) * t;
   m3Orthonormalize(R);
 }
-function stabilizeR(c) {
-  let dot = 0;
-  for (let i = 0; i < 9; i++) dot += c.R[i] * c.Rprev[i];
-  if (dot < 0.4) {
-    for (let i = 0; i < 9; i++) c.R[i] = c.Rprev[i] * 0.82 + c.R[i] * 0.18;
-    m3Orthonormalize(c.R);
-    if (m3Det(c.R) < 0) {
-      c.R[2] = -c.R[2];
-      c.R[5] = -c.R[5];
-      c.R[8] = -c.R[8];
-      m3Orthonormalize(c.R);
-    }
+function stabilizeMat(R, Rprev) {
+  let idle = 0;
+  for (let i = 0; i < 9; i++) {
+    const d = Rprev[i] - (i === 0 || i === 4 || i === 8 ? 1 : 0);
+    idle += d * d;
   }
-  m3Copy(c.R, c.Rprev);
+  if (idle < 1e-12) {
+    m3Copy(R, Rprev);
+    return;
+  }
+  let dot = 0;
+  for (let i = 0; i < 9; i++) dot += R[i] * Rprev[i];
+  if (dot < 0) {
+    for (let i = 0; i < 9; i++) R[i] = -R[i];
+    dot = -dot;
+  }
+  const t = dot < 0.35 ? 0.08 : dot < 0.7 ? 0.22 : 0.55;
+  for (let i = 0; i < 9; i++) R[i] = Rprev[i] * (1 - t) + R[i] * t;
+  m3Orthonormalize(R);
+  if (m3Det(R) < 0) {
+    R[2] = -R[2];
+    R[5] = -R[5];
+    R[8] = -R[8];
+    m3Orthonormalize(R);
+  }
+  m3Copy(R, Rprev);
+}
+function stabilizeR(c) {
+  stabilizeMat(c.R, c.Rprev);
 }
 function m3OuterAdd(px, py, pz, qx, qy, qz, w, out) {
   out[0] += w * px * qx;
@@ -249,6 +264,8 @@ function makeCluster(particles, idx) {
     skinM: m3Id(),
     skinInvT: m3Id(),
     Rprev: m3Id(),
+    skinR: m3Id(),
+    skinRprev: m3Id(),
     skinCm0x: 0,
     skinCm0y: 0,
     skinCm0z: 0,
@@ -381,6 +398,8 @@ function resetCluster(c, particles) {
   m3Id(c.skinM);
   m3Id(c.skinInvT);
   m3Id(c.Rprev);
+  m3Id(c.skinR);
+  m3Id(c.skinRprev);
   let msum = 0;
   c.cm0x = c.cm0y = c.cm0z = 0;
   for (const i of c.idx) {
@@ -472,10 +491,10 @@ function matchSkinLocal(c, rest, local, mass, beta) {
   if (!m3Invert(_Aqq, _tmp2)) m3Id(_tmp2);
   m3Mul(_Apq, _tmp2, c.A);
   if (!m3Finite(c.A) || m3MaxAbs(c.A) > 12) m3Id(c.A);
-  m3Polar(c.A, c.R, c.S);
-  stabilizeR(c);
+  m3Polar(c.A, c.skinR, c.S);
+  stabilizeMat(c.skinR, c.skinRprev);
   m3Lerp(_I, c.S, beta, _tmp);
-  m3Mul(c.R, _tmp, c.skinM);
+  m3Mul(c.skinR, _tmp, c.skinM);
   if (!m3Finite(c.skinM) || m3MaxAbs(c.skinM) > 4) m3Id(c.skinM);
   if (!m3Invert(c.skinM, _tmp)) m3Id(_tmp);
   m3Transpose(_tmp, c.skinInvT);

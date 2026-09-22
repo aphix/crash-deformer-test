@@ -856,7 +856,9 @@ export class CrashEngine {
       for (const car of cars) if (car.speed > vmax) vmax = car.speed;
       this.acc += simDt;
       if (this.acc > 0.05) this.acc = 0.05;
-      while (this.acc > 1e-5) {
+      const budget = now + 8;
+      let steps = 0;
+      while (this.acc > 1e-5 && steps < 8) {
         const h = physicsSlice(this.acc, vmax);
         this.fixedStep(h);
         this.elapsedSim += h;
@@ -865,6 +867,8 @@ export class CrashEngine {
           if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
           if (this.wallSinceImpact > 0.2 && car.crashed) this.bleedAfterSlide(car, h);
         }
+        steps++;
+        if (steps >= 2 && performance.now() > budget) break;
       }
       for (const car of cars) {
         if (this.showCompactor && car !== this.carA) continue;

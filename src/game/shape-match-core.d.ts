@@ -33,6 +33,8 @@ export interface ShapeCluster {
   skinM: Mat3;
   skinInvT: Mat3;
   Rprev: Mat3;
+  skinR: Mat3;
+  skinRprev: Mat3;
   skinCm0x: number;
   skinCm0y: number;
   skinCm0z: number;

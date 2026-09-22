@@ -692,15 +692,17 @@ export class DeformableCar {
   updateDeform(dt: number): void {
     this.deform.update(dt, this.body.geometry);
     if (this.crashed) {
-      const detached = (name: string) => this.parts.some((p) => p.name === name && p.detached);
-      if (!detached("hood"))
-        this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
-      if (!detached("trunk"))
-        this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
-      const origin = _zero;
-      for (const g of this.glassPanes) {
-        if (!g.skin || !g.restVerts || g.state === "shattered") continue;
-        this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, origin);
+      if (this.deform.skinnedThisFrame) {
+        const detached = (name: string) => this.parts.some((p) => p.name === name && p.detached);
+        if (!detached("hood"))
+          this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
+        if (!detached("trunk"))
+          this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
+        const origin = _zero;
+        for (const g of this.glassPanes) {
+          if (!g.skin || !g.restVerts || g.state === "shattered") continue;
+          this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, origin);
+        }
       }
       this.syncAttachedParts(dt);
       this.followGlass();

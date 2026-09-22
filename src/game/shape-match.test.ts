@@ -270,6 +270,35 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(z < 0.85, `skin did not squash z=${z}`);
     assert.ok(z > 0.4, `skin collapsed z=${z}`);
   });
+
+  it("bad: skin polar must not overwrite match R / Rprev (slomo two-state flicker)", () => {
+    const rest = [
+      [1, 0, 1],
+      [-1, 0, 1],
+      [1, 0, -1],
+      [-1, 0, -1],
+      [0, 1, 0],
+      [0, -1, 0],
+    ] as [number, number, number][];
+    const P = particlesAt(rest);
+    const c = makeCluster(P, P.map((_, i) => i));
+    for (const p of P) p.z *= 0.7;
+    matchCluster(c, P, 0.25);
+    const r0 = Array.from(c.R);
+    const rp0 = Array.from(c.Rprev);
+    const local = rest.map(([x, y, z]) => ({ x, y, z: z * 0.55 }));
+    matchSkinLocal(
+      c,
+      rest.map(([x, y, z]) => ({ x, y, z })),
+      local,
+      rest.map(() => 1),
+      0.3,
+    );
+    for (let i = 0; i < 9; i++) {
+      assert.equal(c.R[i], r0[i], `R[${i}] poisoned by skin polar`);
+      assert.equal(c.Rprev[i], rp0[i], `Rprev[${i}] poisoned by skin polar`);
+    }
+  });
 });
 
 describe("StreamedDeformation shape mode", () => {

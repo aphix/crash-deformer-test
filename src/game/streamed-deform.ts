@@ -316,6 +316,8 @@ export class StreamedDeformation {
   readonly cageCount: number;
   readonly sensorCount: number;
   dirty = false;
+  /** True after this frame's skin() — panels skip computeVertexNormals otherwise. */
+  skinnedThisFrame = false;
   crushAmount = 0;
   impactLocal = new THREE.Vector3();
   impactInward = new THREE.Vector3(0, 0, -1);
@@ -1088,7 +1090,7 @@ export class StreamedDeformation {
 
   stepStructure(dt: number): void {
     if (!this.massActive) return;
-    const slices = dt > 0.008 ? 4 : 1;
+    const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
     for (let s = 0; s < slices; s++) this.stepMassSlice(h);
     this.updateDrivetrain();
@@ -1275,6 +1277,7 @@ export class StreamedDeformation {
   }
 
   update(simDt: number, geometry: THREE.BufferGeometry): void {
+    this.skinnedThisFrame = false;
     if (this.crushing) {
       this.elapsed += simDt;
       this.pullSensorsFromMasses(simDt);
@@ -1287,9 +1290,22 @@ export class StreamedDeformation {
       if (this.mode === "shape") this.bakeLocalSkin();
       this.solveCages();
       this.skin(geometry);
-      this.crushing = maxC > 0.015 || this.quietTime() < 0.16;
+      // Plastic leftover (maxC) is not "still crushing". Keep skinning while
+      // masses are live or contact is fresh — otherwise we rewrite the mesh
+      // from a jittering polar every frame (flicker) and pay computeVertexNormals
+      // through the slomo→1× handoff (hitch).
+      this.crushing = this.bidirectional || this.quietTime() < 0.22 || this.anyMassMoving();
     }
     if (this.helper?.visible) this.updateHelper();
+  }
+
+  private anyMassMoving(): boolean {
+    for (let i = 0, n = this.masses.length; i < n; i++) {
+      const m = this.masses[i]!;
+      if (!m.dynamic) continue;
+      if (m.vel.x * m.vel.x + m.vel.y * m.vel.y + m.vel.z * m.vel.z > 0.0025) return true;
+    }
+    return false;
   }
 
   liveHulls(frontDetached = false, rearDetached = false): { cx: number; cz: number; hx: number; hz: number }[] {
@@ -1971,8 +1987,10 @@ export class StreamedDeformation {
   }
 
   private stepMassSlice(dt: number): void {
-    if (this.mode === "shape") this.stepShapeMatch(dt);
-    else this.stepBeams(dt);
+    const live = this.bidirectional || this.quietTime() < 0.22 || this.anyMassMoving();
+    if (this.mode === "shape") {
+      if (live) this.stepShapeMatch(dt);
+    } else this.stepBeams(dt);
 
     this.stepSuspension(dt);
 
@@ -2357,6 +2375,7 @@ export class StreamedDeformation {
     attr.needsUpdate = true;
     geometry.computeVertexNormals();
     this.dirty = true;
+    this.skinnedThisFrame = true;
   }
 
   private updateHelper(): void {
