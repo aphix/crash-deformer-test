@@ -1109,23 +1109,56 @@ export class StreamedDeformation {
     const yaw = yawLen > 0.15 ? Math.atan2(fx, fz) : this.prevYaw;
     const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22);
     const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5);
-    if (!Number.isFinite(yaw + pitch + roll)) {
-      group.rotation.set(0, this.prevYaw, 0, "YXZ");
-    } else {
-      group.rotation.set(pitch, yaw, roll, "YXZ");
-    }
-    group.updateMatrixWorld();
-    _a.copy(cell.rest).applyQuaternion(group.quaternion);
+    const yawSafe = Number.isFinite(yaw) ? yaw : this.prevYaw;
+    const plant = !this.bidirectional && this.quietTime() > 0.2;
     let minHub = Infinity;
     for (const m of this.masses) if (m.name.startsWith("hub") && m.world.y < minHub) minHub = m.world.y;
-    let gy = cell.world.y - _a.y;
-    if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
-    else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
-    if (this.bidirectional) {
-      // World plates are fixed; don't let the cell drag the local frame so one bumper looks twice as crushed.
-      group.position.set(0, gy, 0);
+    if (plant) {
+      group.rotation.set(0, yawSafe, 0, "YXZ");
+      group.updateMatrixWorld();
+      let hubX = 0,
+        hubZ = 0,
+        hubM = 0,
+        restx = 0,
+        restz = 0;
+      for (const m of this.masses) {
+        if (!m.name.startsWith("hub")) continue;
+        hubX += m.world.x * m.mass;
+        hubZ += m.world.z * m.mass;
+        restx += m.rest.x * m.mass;
+        restz += m.rest.z * m.mass;
+        hubM += m.mass;
+      }
+      if (hubM > 1e-8) {
+        hubX /= hubM;
+        hubZ /= hubM;
+        restx /= hubM;
+        restz /= hubM;
+      } else {
+        hubX = cell.world.x;
+        hubZ = cell.world.z;
+        restx = cell.rest.x;
+        restz = cell.rest.z;
+      }
+      _a.set(restx, cell.rest.y, restz).applyQuaternion(group.quaternion);
+      let gy = cell.world.y - _a.y;
+      if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
+      else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
+      group.position.set(hubX - _a.x, gy, hubZ - _a.z);
+      if (Number.isFinite(pitch + roll)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
     } else {
-      group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
+      if (!Number.isFinite(yawSafe + pitch + roll)) {
+        group.rotation.set(0, this.prevYaw, 0, "YXZ");
+      } else {
+        group.rotation.set(pitch, yawSafe, roll, "YXZ");
+      }
+      group.updateMatrixWorld();
+      _a.copy(cell.rest).applyQuaternion(group.quaternion);
+      let gy = cell.world.y - _a.y;
+      if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
+      else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
+      if (this.bidirectional) group.position.set(0, gy, 0);
+      else group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
     }
     group.updateMatrixWorld();
 
@@ -1160,7 +1193,7 @@ export class StreamedDeformation {
     }
     clampSpeed(velocityOut, CRASH.maxMassMps);
     if (dt > 1e-5) {
-      let dyaw = yaw - this.prevYaw;
+      let dyaw = yawSafe - this.prevYaw;
       if (dyaw > Math.PI) dyaw -= Math.PI * 2;
       if (dyaw < -Math.PI) dyaw += Math.PI * 2;
       const yawRate = THREE.MathUtils.clamp(dyaw / dt, -6, 6);
@@ -1170,7 +1203,7 @@ export class StreamedDeformation {
         THREE.MathUtils.clamp(roll * 0.4, -2, 2),
       );
     }
-    this.prevYaw = yaw;
+    this.prevYaw = yawSafe;
   }
 
   /**
@@ -1300,10 +1333,31 @@ export class StreamedDeformation {
   }
 
   private anyMassMoving(): boolean {
+    // World COM velocity is rigid slide, not crumple. Overlapping clusters
+    // used to keep solving while the wreck translated, which walks the COM.
+    let mx = 0,
+      my = 0,
+      mz = 0,
+      msum = 0;
     for (let i = 0, n = this.masses.length; i < n; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
-      if (m.vel.x * m.vel.x + m.vel.y * m.vel.y + m.vel.z * m.vel.z > 0.0025) return true;
+      mx += m.vel.x * m.mass;
+      my += m.vel.y * m.mass;
+      mz += m.vel.z * m.mass;
+      msum += m.mass;
+    }
+    if (msum < 1e-8) return false;
+    mx /= msum;
+    my /= msum;
+    mz /= msum;
+    for (let i = 0, n = this.masses.length; i < n; i++) {
+      const m = this.masses[i]!;
+      if (!m.dynamic || m.name.startsWith("hub")) continue;
+      const dx = m.vel.x - mx;
+      const dy = m.vel.y - my;
+      const dz = m.vel.z - mz;
+      if (dx * dx + dy * dy + dz * dz > 0.09) return true;
     }
     return false;
   }
@@ -1809,6 +1863,9 @@ export class StreamedDeformation {
           if (m.local.distanceTo(m.rest) < 0.22) m.local.z = m.rest.z * 0.67;
         }
       }
+      // Planted tires are the world pin. Projecting them through a pitched
+      // group was ratcheting the wreck backward every followGroup.
+      if (m.name.startsWith("hub") && !m.popped && !this.deepCrush && this.quietTime() > 0.2) continue;
       m.world.copy(m.local);
       group.localToWorld(m.world);
     }
@@ -1880,6 +1937,20 @@ export class StreamedDeformation {
     this.syncShapeFromMasses();
     const contacting = this.overlapFrame || this.bidirectional;
     this.overlapFrame = false;
+    let comX = 0,
+      comY = 0,
+      comZ = 0,
+      comM = 0;
+    for (let i = 0; i < this.shapeParticles.length; i++) {
+      const hub = this.masses[i]!;
+      if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+      const p = this.shapeParticles[i]!;
+      comX += p.x * p.mass;
+      comY += p.y * p.mass;
+      comZ += p.z * p.mass;
+      comM += p.mass;
+    }
+    comM = Math.max(comM, 1e-8);
     const alpha = contacting
       ? this.squash < 0.03
         ? 0.9
@@ -1941,6 +2012,32 @@ export class StreamedDeformation {
         p.x += ax;
         p.y += ay;
         p.z += az;
+      }
+    }
+    if (!contacting) {
+      let comX1 = 0,
+        comY1 = 0,
+        comZ1 = 0;
+      for (let i = 0; i < this.shapeParticles.length; i++) {
+        const hub = this.masses[i]!;
+        if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+        const p = this.shapeParticles[i]!;
+        comX1 += p.x * p.mass;
+        comY1 += p.y * p.mass;
+        comZ1 += p.z * p.mass;
+      }
+      const dx = (comX - comX1) / comM;
+      const dy = (comY - comY1) / comM;
+      const dz = (comZ - comZ1) / comM;
+      if (dx * dx + dy * dy + dz * dz > 1e-16) {
+        for (let i = 0; i < this.shapeParticles.length; i++) {
+          const hub = this.masses[i]!;
+          if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+          const p = this.shapeParticles[i]!;
+          p.x += dx;
+          p.y += dy;
+          p.z += dz;
+        }
       }
     }
     if (contacting) {

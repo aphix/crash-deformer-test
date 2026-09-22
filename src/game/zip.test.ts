@@ -182,4 +182,77 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       `8.9s slide ${(speedAt89 * 3.6).toFixed(0)} km/h (lat ${(latAt89 * 3.6).toFixed(0)}) peakAfter6=${(peakAfter6 * 3.6).toFixed(0)} at6=${(speedAt6 * 3.6).toFixed(0)} crashedAt=${crashedAt.toFixed(2)}\n${samples.join("\n")}`,
     );
   });
+
+  it("bad: offset 16 vs 20 m/s must not reverse-slide the wreck by 11s", () => {
+    const scene = new THREE.Scene();
+    const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
+    const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
+    place(a, {
+      paint: "Titanium",
+      spawn: { x: 7.4084, y: 0, z: 5.4548 },
+      yaw: -2.2055,
+      speed: 16.3694,
+      vel: { x: -13.1817, y: 0, z: -9.7056 },
+    });
+    place(b, {
+      paint: "Petrol",
+      spawn: { x: -7.4084, y: 0, z: -5.4548 },
+      yaw: 0.9361,
+      speed: 20.1106,
+      vel: { x: 16.1944, y: 0, z: 11.9239 },
+    });
+    const fwdA0 = { x: a.velocity.x, z: a.velocity.z };
+    const lenA0 = Math.hypot(fwdA0.x, fwdA0.z) || 1;
+    fwdA0.x /= lenA0;
+    fwdA0.z /= lenA0;
+    const fwdB0 = { x: b.velocity.x, z: b.velocity.z };
+    const lenB0 = Math.hypot(fwdB0.x, fwdB0.z) || 1;
+    fwdB0.x /= lenB0;
+    fwdB0.z /= lenB0;
+
+    let wall = 0;
+    let acc = 0;
+    let crashedAt = -1;
+    let posA2: { x: number; z: number } | null = null;
+    let posB2: { x: number; z: number } | null = null;
+    const wallDt = 1 / 60;
+    const samples: string[] = [];
+
+    while (wall < 11.05) {
+      wall += wallDt;
+      acc += wallDt;
+      if (acc > 0.05) acc = 0.05;
+      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
+      while (acc > 1e-5) {
+        const h = physicsSlice(acc, vmax);
+        stepCarPair(a, b, h);
+        bleed(a, h);
+        bleed(b, h);
+        acc -= h;
+      }
+      if (crashedAt < 0 && (a.crashed || b.crashed)) crashedAt = wall;
+      if (posA2 == null && wall >= 2) {
+        posA2 = { x: a.group.position.x, z: a.group.position.z };
+        posB2 = { x: b.group.position.x, z: b.group.position.z };
+      }
+      const alongA = a.velocity.x * fwdA0.x + a.velocity.z * fwdA0.z;
+      const alongB = b.velocity.x * fwdB0.x + b.velocity.z * fwdB0.z;
+      const t = Math.round(wall);
+      if (Math.abs(wall - t) < wallDt * 0.6 && t >= 0 && t <= 11) {
+        samples.push(
+          `t=${t} alongA=${alongA.toFixed(2)} alongB=${alongB.toFixed(2)} spA=${a.velocity.length().toFixed(2)} spB=${b.velocity.length().toFixed(2)} dist=${a.group.position.distanceTo(b.group.position).toFixed(2)} q=${a.deform.quietTime().toFixed(2)} leftover=${leftoverCrumple(a.deform.crumpleTravelCorner()).toFixed(2)}/${leftoverCrumple(b.deform.crumpleTravelCorner()).toFixed(2)} posA=${a.group.position.x.toFixed(2)},${a.group.position.z.toFixed(2)}`,
+        );
+      }
+    }
+
+    const driftA = posA2 ? Math.hypot(a.group.position.x - posA2.x, a.group.position.z - posA2.z) : 99;
+    const driftB = posB2 ? Math.hypot(b.group.position.x - posB2.x, b.group.position.z - posB2.z) : 99;
+    const alongA = a.velocity.x * fwdA0.x + a.velocity.z * fwdA0.z;
+    const alongB = b.velocity.x * fwdB0.x + b.velocity.z * fwdB0.z;
+    assert.ok(crashedAt >= 0, "setup never collided");
+    assert.ok(
+      driftA < 2.5 && driftB < 2.5 && alongA > -1.2 && alongB > -1.2,
+      `reverse slide driftA=${driftA.toFixed(2)} driftB=${driftB.toFixed(2)} alongA=${alongA.toFixed(2)} alongB=${alongB.toFixed(2)} crashedAt=${crashedAt.toFixed(2)}\n${samples.join("\n")}`,
+    );
+  });
 });
