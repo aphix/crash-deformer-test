@@ -474,7 +474,7 @@ export function Hud({
               });
             }}
             variant="secondary"
-            aria-label="Copy lattice JSON trace"
+            aria-label="Copy spawn JSON"
           >
             <ClipboardCopy />
             {copied ? "Copied" : `JSON ${state.traceSamples}`}

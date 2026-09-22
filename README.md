@@ -45,6 +45,7 @@ Kernels in `src/game/*-core.js` are plain JavaScript on purpose. TypeScript's em
 | V | deform rig |
 | M | shape ↔ lattice |
 | J | JSON trace capture (off by default) |
+| JSON button | copy this run's spawn (counter = 1; no extra ticks unless capture is on) |
 | drag / scroll | orbit camera |
 
 HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (clear the field to return to 1×). **Defaults** resets the lot.

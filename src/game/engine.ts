@@ -149,6 +149,8 @@ export class CrashEngine {
   private traceInitial: Record<string, unknown> | null = null;
   private traceSamples: Record<string, unknown>[] = [];
   private traceAcc = 0;
+  /** JSON button copied spawn while capture is off — HUD shows 1, does not tick. */
+  private setupCopied = false;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -400,6 +402,24 @@ export class CrashEngine {
   }
 
   copyTraceJson(): string {
+    if (!this.traceInitial) this.snapshotInitial();
+    if (!this.captureTrace) {
+      this.setupCopied = true;
+      this.emitHud(true);
+      return JSON.stringify(
+        {
+          version: 1,
+          kind: "setup",
+          capturedAt: new Date().toISOString(),
+          deformMode: this.deformMode,
+          autoSlomo: this.autoSlomo,
+          timeScale: this.userTimeScale,
+          ...this.traceInitial,
+        },
+        null,
+        2,
+      );
+    }
     return JSON.stringify(
       {
         version: 1,
@@ -679,43 +699,48 @@ export class CrashEngine {
     this.barrierCrush = 0;
     this.barrier.position.set(0, 0, 0);
     restoreBarrierRest(this.barrier);
+    this.setupCopied = false;
+    this.snapshotInitial();
     if (this.captureTrace) this.beginTrace();
     else {
       this.traceAcc = 0;
       this.traceSamples.length = 0;
       this.ballHits.length = 0;
-      this.traceInitial = null;
     }
   }
 
-  private beginTrace(): void {
-    this.traceAcc = 0;
-    this.traceSamples = [];
-    this.ballHits = [];
+  private snapshotInitial(): void {
     this.traceInitial = {
       barrier: this.showBarrier,
-      barrierYaw: this.barrierYaw,
+      barrierYaw: round4(this.barrierYaw),
       squash: this.squash,
       buckle: this.buckle,
       fxDensity: this.fxDensity,
       balls: this.showBalls,
       compactor: this.showCompactor,
-      compactFace: this.compactFace,
+      compactFace: round4(this.compactFace),
       carCount: this.carCount,
       speedMin: this.speedMin,
       speedMax: this.speedMax,
       cars: this.live().map((car) => ({
         paint: car.paint.name,
         spawn: {
-          x: car.group.position.x,
-          y: car.group.position.y,
-          z: car.group.position.z,
+          x: round4(car.group.position.x),
+          y: round4(car.group.position.y),
+          z: round4(car.group.position.z),
         },
-        yaw: car.yaw,
-        speed: car.spawnSpeed,
-        vel: { x: car.velocity.x, y: car.velocity.y, z: car.velocity.z },
+        yaw: round4(car.yaw),
+        speed: round4(car.spawnSpeed),
+        vel: vec3(car.velocity),
       })),
     };
+  }
+
+  private beginTrace(): void {
+    this.traceAcc = 0;
+    this.traceSamples = [];
+    this.ballHits = [];
+    this.snapshotInitial();
     this.pushTraceSample();
   }
 
@@ -1927,7 +1952,7 @@ export class CrashEngine {
       carCount: this.carCount,
       speedMin: this.speedMin,
       speedMax: this.speedMax,
-      traceSamples: this.traceSamples.length,
+      traceSamples: this.captureTrace ? this.traceSamples.length : this.setupCopied ? 1 : 0,
       wallGap: this.showCompactor ? this.compactFace * 2 : 0,
       compactStage: this.showCompactor ? compactorStage(this.compactFace) : "open",
       fps: this.fps,
