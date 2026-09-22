@@ -363,7 +363,6 @@ export class StreamedDeformation {
   private goalW = new Float64Array(0);
   private skinWeights: { ci: number; w: number }[][] = [];
   private impulseW = new Float64Array(0);
-  private skinNormTick = 0;
 
   constructor(geometry: THREE.BufferGeometry) {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -1454,7 +1453,7 @@ export class StreamedDeformation {
       arr[i * 3 + 2] = _d.z - origin.z;
     }
     attr.needsUpdate = true;
-    if ((this.skinNormTick & 1) === 0) geometry.computeVertexNormals();
+    geometry.computeVertexNormals();
   }
 
   createHelper(parent: THREE.Object3D): THREE.Group {
@@ -2298,7 +2297,7 @@ export class StreamedDeformation {
       arr[i * 3 + 2] = pz;
     }
     attr.needsUpdate = true;
-    if ((this.skinNormTick++ & 1) === 0) geometry.computeVertexNormals();
+    geometry.computeVertexNormals();
     this.dirty = true;
   }
 

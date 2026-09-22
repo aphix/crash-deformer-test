@@ -4,7 +4,7 @@ import { CAR_HALF, DeformableCar, type CarPaint, type Hull } from "./car.ts";
 import { leftoverCrumple, round4, vec3, snapshotPoints, applyGroundFriction, CRASH, separateSphereFromAabb, cancelClosing, satPushCap } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
 import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, physicsSlice, satCarBarrier, satCars } from "./sat.ts";
-import { publishHud, type CrashPhase } from "./hud-store.ts";
+import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, layoutFleet } from "./fleet.ts";
 
@@ -73,12 +73,14 @@ export class CrashEngine {
   autoSlomo = true;
   audioOn = false;
   deformMode: DeformMode = "shape";
+  captureTrace = false;
 
   private canvas: HTMLCanvasElement;
   private renderer: THREE.WebGLRenderer;
   private scene = new THREE.Scene();
   private camera: THREE.PerspectiveCamera;
   private cars: DeformableCar[] = [];
+  private liveBuf: DeformableCar[] = [];
   private carCount = 2;
   private get carA(): DeformableCar {
     return this.cars[0]!;
@@ -92,6 +94,8 @@ export class CrashEngine {
   private phase: CrashPhase = "approach";
   private timeScale = 1;
   private targetScale = 1;
+  private userTimeScale: number | null = null;
+  private fps = 0;
   private wallSinceImpact = 0;
   private impactKph: number | null = null;
   private trauma = 0;
@@ -154,7 +158,7 @@ export class CrashEngine {
       alpha: false,
       powerPreference: "high-performance",
     });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
     this.renderer.setClearColor(0x12141a, 1);
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
@@ -264,8 +268,10 @@ export class CrashEngine {
   toggleSlomo(): void {
     this.autoSlomo = !this.autoSlomo;
     if (!this.autoSlomo) {
-      this.timeScale = 1;
-      this.targetScale = 1;
+      if (this.userTimeScale == null) {
+        this.timeScale = 1;
+        this.targetScale = 1;
+      }
     }
     this.emitHud(true);
   }
@@ -344,6 +350,53 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
+  setTimeScale(value: number | null): void {
+    if (value == null || !Number.isFinite(value)) {
+      this.userTimeScale = null;
+      this.targetScale = 1;
+      this.timeScale = 1;
+    } else {
+      const v = THREE.MathUtils.clamp(value, 0.02, 2);
+      this.userTimeScale = v;
+      this.targetScale = v;
+      this.timeScale = v;
+    }
+    this.emitHud(true);
+  }
+
+  toggleCapture(): void {
+    this.captureTrace = !this.captureTrace;
+    if (this.captureTrace && this.traceSamples.length === 0) this.beginTrace();
+    this.emitHud(true);
+  }
+
+  resetDefaults(): void {
+    this.playing = INITIAL_HUD.playing;
+    this.looping = INITIAL_HUD.looping;
+    this.showRig = INITIAL_HUD.showRig;
+    this.showBarrier = INITIAL_HUD.showBarrier;
+    this.showBalls = INITIAL_HUD.showBalls;
+    this.showCompactor = INITIAL_HUD.showCompactor;
+    this.autoRotate = INITIAL_HUD.autoRotate;
+    this.autoSlomo = INITIAL_HUD.autoSlomo;
+    this.audioOn = INITIAL_HUD.audioOn;
+    this.deformMode = INITIAL_HUD.deformMode;
+    this.squash = INITIAL_HUD.squash;
+    this.buckle = INITIAL_HUD.buckle;
+    this.fxDensity = INITIAL_HUD.fxDensity;
+    this.speedMin = INITIAL_HUD.speedMin;
+    this.speedMax = INITIAL_HUD.speedMax;
+    this.captureTrace = false;
+    this.userTimeScale = null;
+    this.timeScale = 1;
+    this.targetScale = 1;
+    this.userFramed = false;
+    this.ensureCars(INITIAL_HUD.carCount);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
   copyTraceJson(): string {
     return JSON.stringify(
       {
@@ -360,7 +413,7 @@ export class CrashEngine {
         speedMin: this.speedMin,
         speedMax: this.speedMax,
         barrierYaw: this.barrierYaw,
-        sampleHz: 4,
+        captureTrace: this.captureTrace,
         initial: this.traceInitial,
         ballHits: this.ballHits,
         samples: this.traceSamples,
@@ -377,7 +430,11 @@ export class CrashEngine {
   }
 
   private live(): DeformableCar[] {
-    return this.cars.slice(0, this.carCount);
+    const n = this.carCount;
+    const buf = this.liveBuf;
+    if (buf.length !== n) buf.length = n;
+    for (let i = 0; i < n; i++) buf[i] = this.cars[i]!;
+    return buf;
   }
 
   private centroid(out: THREE.Vector3, cars = this.live()): THREE.Vector3 {
@@ -443,6 +500,8 @@ export class CrashEngine {
       this.toggleAudio();
     } else if (e.code === "KeyY") {
       this.toggleDeformMode();
+    } else if (e.code === "KeyJ") {
+      this.toggleCapture();
     }
   };
 
@@ -560,8 +619,13 @@ export class CrashEngine {
 
   private finishResetCommon(): void {
     this.phase = "approach";
-    this.timeScale = 1;
-    this.targetScale = 1;
+    if (this.userTimeScale != null) {
+      this.timeScale = this.userTimeScale;
+      this.targetScale = this.userTimeScale;
+    } else {
+      this.timeScale = 1;
+      this.targetScale = 1;
+    }
     this.wallSinceImpact = 0;
     this.elapsedWall = 0;
     this.elapsedSim = 0;
@@ -613,7 +677,13 @@ export class CrashEngine {
     this.barrierCrush = 0;
     this.barrier.position.set(0, 0, 0);
     restoreBarrierRest(this.barrier);
-    this.beginTrace();
+    if (this.captureTrace) this.beginTrace();
+    else {
+      this.traceAcc = 0;
+      this.traceSamples.length = 0;
+      this.ballHits.length = 0;
+      this.traceInitial = null;
+    }
   }
 
   private beginTrace(): void {
@@ -648,6 +718,7 @@ export class CrashEngine {
   }
 
   private pushTraceSample(): void {
+    if (!this.captureTrace) return;
     if (this.traceSamples.length >= 96) return;
     this.traceSamples.push({
       t: Math.round(this.elapsedWall * 1000) / 1000,
@@ -768,6 +839,10 @@ export class CrashEngine {
     if (this.disposed) return;
     const wallDt = Math.min((now - this.last) / 1000, 0.1);
     this.last = now;
+    if (wallDt > 1e-4) {
+      const inst = 1 / wallDt;
+      this.fps = this.fps > 1 ? this.fps * 0.85 + inst * 0.15 : inst;
+    }
 
     if (this.playing) {
       this.elapsedWall += wallDt;
@@ -806,7 +881,7 @@ export class CrashEngine {
         if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) this.puffEngine(cars[i]!);
       }
       this.traceAcc += wallDt;
-      if (this.traceAcc >= 0.25) {
+      if (this.captureTrace && this.traceAcc >= 0.25) {
         this.traceAcc = 0;
         this.pushTraceSample();
       }
@@ -823,6 +898,7 @@ export class CrashEngine {
   }
 
   private maybePreSlowmo(wallDt: number): void {
+    if (this.userTimeScale != null) return;
     if (!this.autoSlomo) return;
     if (this.showCompactor) return;
     if (this.phase !== "approach") return;
@@ -1237,7 +1313,10 @@ export class CrashEngine {
     this.phase = "impact";
     this.wallSinceImpact = 0;
     this.impactKph = impulse * 3.6;
-    if (this.autoSlomo) {
+    if (this.userTimeScale != null) {
+      this.targetScale = this.userTimeScale;
+      this.timeScale = this.userTimeScale;
+    } else if (this.autoSlomo) {
       const scale = this.reduceMotion ? 0.16 : IMPACT_SCALE;
       this.targetScale = scale;
       if (this.timeScale > scale * 1.15) this.timeScale = scale;
@@ -1269,22 +1348,35 @@ export class CrashEngine {
   }
 
   private emitContactFx(): void {
-    if (this.phase === "approach") return;
+    if (this.phase === "approach" || this.fxPoofed) return;
     const cars = this.live();
     let contact: THREE.Vector3 | null = null;
     let normal: THREE.Vector3 | null = null;
     outer: for (let i = 0; i < cars.length; i++) {
-      const massesA = cars[i]!.deform.masses;
+      const ca = cars[i]!;
+      const massesA = ca.deform.masses;
       for (let j = i + 1; j < cars.length; j++) {
-        const massesB = cars[j]!.deform.masses;
-        for (const a of massesA) {
-          for (const b of massesB) {
-            const dx = a.world.x - b.world.x;
-            const dy = a.world.y - b.world.y;
-            const dz = a.world.z - b.world.z;
-            const dist = Math.hypot(dx, dy, dz);
-            if (dist >= a.radius + b.radius + 0.08 || dist < 1e-5) continue;
-            _p.set((a.world.x + b.world.x) * 0.5, (a.world.y + b.world.y) * 0.5, (a.world.z + b.world.z) * 0.5);
+        const cb = cars[j]!;
+        const dxg = ca.group.position.x - cb.group.position.x;
+        const dzg = ca.group.position.z - cb.group.position.z;
+        if (dxg * dxg + dzg * dzg > 36) continue;
+        const massesB = cb.deform.masses;
+        for (let ia = 0, nA = massesA.length; ia < nA; ia++) {
+          const a = massesA[ia]!;
+          const ax = a.world.x;
+          const ay = a.world.y;
+          const az = a.world.z;
+          const ar = a.radius;
+          for (let ib = 0, nB = massesB.length; ib < nB; ib++) {
+            const b = massesB[ib]!;
+            const dx = ax - b.world.x;
+            const dy = ay - b.world.y;
+            const dz = az - b.world.z;
+            const maxR = ar + b.radius + 0.08;
+            const d2 = dx * dx + dy * dy + dz * dz;
+            if (d2 >= maxR * maxR || d2 < 1e-10) continue;
+            const dist = Math.sqrt(d2);
+            _p.set((ax + b.world.x) * 0.5, (ay + b.world.y) * 0.5, (az + b.world.z) * 0.5);
             _n.set(dx / dist, dy / dist, dz / dist);
             contact = _p;
             normal = _n;
@@ -1365,11 +1457,11 @@ export class CrashEngine {
     } else if (this.phase === "slowmo") {
       const hold = this.reduceMotion ? 1.4 : 6.5;
       if (this.wallSinceImpact > hold) {
-        this.targetScale = 1;
+        if (this.userTimeScale == null) this.targetScale = 1;
         this.phase = "aftermath";
       }
     } else if (this.phase === "aftermath") {
-      if (this.wallSinceImpact > 8.2) this.targetScale = 1;
+      if (this.wallSinceImpact > 8.2 && this.userTimeScale == null) this.targetScale = 1;
       if (this.looping && this.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
     }
   }
@@ -1808,6 +1900,7 @@ export class CrashEngine {
       deformMode: this.deformMode,
       phase: this.phase,
       timeScale: this.timeScale,
+      userTimeScale: this.userTimeScale,
       elapsed: this.elapsedWall,
       speedA: this.showCompactor ? 0 : (cars[0]?.velocity.length() ?? 0),
       speedB: this.showCompactor ? 0 : (cars[1]?.velocity.length() ?? 0),
@@ -1825,6 +1918,8 @@ export class CrashEngine {
       traceSamples: this.traceSamples.length,
       wallGap: this.showCompactor ? this.compactFace * 2 : 0,
       compactStage: this.showCompactor ? compactorStage(this.compactFace) : "open",
+      fps: this.fps,
+      captureTrace: this.captureTrace,
     });
   }
 
@@ -1843,7 +1938,7 @@ export class CrashEngine {
     const dir = new THREE.DirectionalLight(0xf2f5ff, 2.4);
     dir.position.set(-10, 22, 9);
     dir.castShadow = true;
-    dir.shadow.mapSize.set(2048, 2048);
+    dir.shadow.mapSize.set(1024, 1024);
     dir.shadow.camera.near = 2;
     dir.shadow.camera.far = 60;
     dir.shadow.camera.left = -24;
@@ -1856,7 +1951,7 @@ export class CrashEngine {
     pad.position.set(4, 18, 6);
     pad.target.position.set(0, 0, 0);
     pad.castShadow = true;
-    pad.shadow.mapSize.set(1024, 1024);
+    pad.shadow.mapSize.set(512, 512);
     pad.shadow.bias = -0.0003;
     this.scene.add(pad, pad.target);
     const bounce = new THREE.PointLight(0xc5d0e0, 12, 28, 1.6);
@@ -2189,6 +2284,7 @@ class SparkSystem {
   private vel = new THREE.Vector3();
   private n: number;
   private cursor = 0;
+  private anyAlive = false;
 
   constructor(scene: THREE.Scene, n = 480) {
     this.n = n;
@@ -2219,6 +2315,7 @@ class SparkSystem {
   reset(): void {
     this.life.fill(0);
     this.cursor = 0;
+    this.anyAlive = false;
     for (let i = 0; i < this.n; i++) this.pos[i * 3 + 1] = 250;
     this.geo.setDrawRange(0, this.n);
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
@@ -2246,6 +2343,7 @@ class SparkSystem {
       this.vz[k] = (oz / mag) * speed - normal.z * 0.6;
       this.life[k] = 0.14 + Math.random() * 0.2;
     }
+    if (n > 0) this.anyAlive = true;
     this.geo.setDrawRange(0, this.n);
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
@@ -2255,12 +2353,10 @@ class SparkSystem {
   }
 
   update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+    if (!this.anyAlive) return;
     let any = false;
     for (let i = 0; i < this.n; i++) {
-      if (this.life[i]! <= 0) {
-        this.pos[i * 3 + 1] = 250;
-        continue;
-      }
+      if (this.life[i]! <= 0) continue;
       any = true;
       this.life[i]! -= dt;
       if (this.life[i]! <= 0) {
@@ -2280,6 +2376,7 @@ class SparkSystem {
       this.vy[i] = this.vel.y;
       this.vz[i] = this.vel.z;
     }
+    this.anyAlive = any;
     if (any) (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
@@ -2303,6 +2400,7 @@ class GlassDotSystem {
   private vel = new THREE.Vector3();
   private n: number;
   private cursor = 0;
+  private anyAlive = false;
 
   constructor(scene: THREE.Scene, n = 320) {
     this.n = n;
@@ -2333,6 +2431,7 @@ class GlassDotSystem {
   reset(): void {
     this.life.fill(0);
     this.cursor = 0;
+    this.anyAlive = false;
     for (let i = 0; i < this.n; i++) this.pos[i * 3 + 1] = 250;
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
@@ -2350,10 +2449,12 @@ class GlassDotSystem {
       this.vz[k] = inherit.z * 0.85 + (Math.random() - 0.5) * 5.5;
       this.life[k] = 1.1 + Math.random() * 1.1;
     }
+    if (n > 0) this.anyAlive = true;
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
   update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+    if (!this.anyAlive) return;
     let any = false;
     for (let i = 0; i < this.n; i++) {
       if (this.life[i]! <= 0) continue;
@@ -2376,6 +2477,7 @@ class GlassDotSystem {
       this.vy[i] = this.vel.y;
       this.vz[i] = this.vel.z;
     }
+    this.anyAlive = any;
     if (any) (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
@@ -2401,6 +2503,7 @@ class TireSmokeSystem {
   private dummy = new THREE.Object3D();
   private n: number;
   private cursor = 0;
+  private anyAlive = false;
 
   constructor(scene: THREE.Scene, n = 420) {
     this.n = n;
@@ -2442,6 +2545,7 @@ class TireSmokeSystem {
   reset(): void {
     this.life.fill(0);
     this.cursor = 0;
+    this.anyAlive = false;
     this.hideAll();
   }
 
@@ -2476,6 +2580,7 @@ class TireSmokeSystem {
       this.maxLife[k] = L;
       this.size[k] = size + Math.random() * 0.4;
     }
+    if (n > 0) this.anyAlive = true;
   }
 
   snapshot() {
@@ -2488,15 +2593,12 @@ class TireSmokeSystem {
     camera: THREE.Camera,
   ): void {
     void _bounce;
+    if (!this.anyAlive) return;
     const damp = Math.exp(-0.7 * dt);
+    let any = false;
+    let wrote = false;
     for (let i = 0; i < this.n; i++) {
-      if (this.life[i]! <= 0) {
-        this.dummy.position.set(0, 250, 0);
-        this.dummy.scale.setScalar(0.001);
-        this.dummy.updateMatrix();
-        this.mesh.setMatrixAt(i, this.dummy.matrix);
-        continue;
-      }
+      if (this.life[i]! <= 0) continue;
       this.life[i]! -= dt;
       const fade = Math.max(0, this.life[i]! / Math.max(this.maxLife[i]!, 1e-4));
       if (fade <= 0) {
@@ -2505,8 +2607,10 @@ class TireSmokeSystem {
         this.dummy.scale.setScalar(0.001);
         this.dummy.updateMatrix();
         this.mesh.setMatrixAt(i, this.dummy.matrix);
+        wrote = true;
         continue;
       }
+      any = true;
       this.px[i]! += this.vx[i]! * dt;
       this.py[i]! += this.vy[i]! * dt;
       this.pz[i]! += this.vz[i]! * dt;
@@ -2520,9 +2624,13 @@ class TireSmokeSystem {
       this.mesh.setMatrixAt(i, this.dummy.matrix);
       const g = 0.55 + fade * 0.4;
       this.mesh.setColorAt(i, _smokeColor.setRGB(g, g, g * 0.96));
+      wrote = true;
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
-    if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    this.anyAlive = any;
+    if (wrote) {
+      this.mesh.instanceMatrix.needsUpdate = true;
+      if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;
+    }
   }
 
   dispose(): void {
