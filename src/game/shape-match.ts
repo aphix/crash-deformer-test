@@ -432,10 +432,11 @@ export function applyPlasticity(
   buckle = 0.45,
 ): void {
   if (squash < 0.03 && buckle < 0.03) return;
-  const yieldC = 0.05 + (1 - squash) * 0.1 + (1 - buckle) * 0.05;
+  const yieldC = 0.035 + (1 - squash) * 0.08 + (1 - buckle) * 0.04;
   const err = m3FrobeniusI(c.S);
   if (err < yieldC) return;
-  const creep = Math.min(0.7, (0.22 + squash * 1.1 + buckle * 0.5) * Math.max(dt, 1 / 120) * 8);
+  // Bugbear/Rajala 2008: metal yield is a lock, not a creep. High creep just looks like putty.
+  const creep = Math.min(0.85, (0.35 + squash * 1.25 + buckle * 0.55) * Math.max(dt, 1 / 120) * 10);
   m3Lerp(_I, c.S, creep, _tmp);
   m3Mul(c.Sp, _tmp, _tmp2);
   m3Copy(_tmp2, c.Sp);
@@ -448,10 +449,16 @@ export function applyPlasticity(
   const det = m3Det(c.Sp);
   if (det > 1e-6) {
     const s = Math.cbrt(1 / det);
-    const keep = 0.45;
+    // Rajala: volume restore is optional and destabilizes linear metal crush. Keep a
+    // whisper so det(Sp) cannot vanish, but do not fatten the cabin like rubber.
+    const keep = 0.08;
     const mix = 1 + (s - 1) * keep;
     for (let i = 0; i < 9; i++) c.Sp[i]! *= mix;
   }
+  // Accordion, not balloon: crash-box steel shortens, it does not get 40% wider.
+  if (c.Sp[0]! > 1.06) c.Sp[0] = 1.06;
+  if (c.Sp[4]! > 1.06) c.Sp[4] = 1.06;
+  if (c.Sp[8]! > 1.06) c.Sp[8] = 1.06;
   if (contacting) {
     const r00 = c.R[0]!,
       r11 = c.R[4]!,
