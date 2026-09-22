@@ -255,4 +255,73 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       `reverse slide driftA=${driftA.toFixed(2)} driftB=${driftB.toFixed(2)} alongA=${alongA.toFixed(2)} alongB=${alongB.toFixed(2)} crashedAt=${crashedAt.toFixed(2)}\n${samples.join("\n")}`,
     );
   });
+
+  it("bad: titanium skin must freeze after the pulse (no 12–16s polar snap)", () => {
+    const scene = new THREE.Scene();
+    const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
+    const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
+    place(a, {
+      paint: "Titanium",
+      spawn: { x: 6.037, y: 0, z: 6.9422 },
+      yaw: -2.4258,
+      speed: 9.2959,
+      vel: { x: -6.0999, y: 0, z: -7.0146 },
+    });
+    place(b, {
+      paint: "Petrol",
+      spawn: { x: -6.037, y: 0, z: -6.9422 },
+      yaw: 0.7158,
+      speed: 15.6631,
+      vel: { x: 10.2781, y: 0, z: 11.8192 },
+    });
+
+    let wall = 0;
+    let acc = 0;
+    const wallDt = 1 / 60;
+    const pos = a.body.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const arr = pos.array as Float32Array;
+    const prev = new Float32Array(arr.length);
+    let maxDelta = 0;
+    let skins = 0;
+    let frames = 0;
+    const notes: string[] = [];
+
+    while (wall < 16.05) {
+      wall += wallDt;
+      acc += wallDt;
+      if (acc > 0.05) acc = 0.05;
+      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
+      while (acc > 1e-5) {
+        const h = physicsSlice(acc, vmax);
+        stepCarPair(a, b, h);
+        bleed(a, h);
+        bleed(b, h);
+        acc -= h;
+      }
+      a.updateDeform(wallDt);
+      b.updateDeform(wallDt);
+      if (wall >= 12 && wall <= 16) {
+        frames++;
+        if (a.deform.skinnedThisFrame) skins++;
+        let d = 0;
+        for (let i = 0; i < arr.length; i++) {
+          const e = Math.abs(arr[i]! - prev[i]!);
+          if (e > d) d = e;
+        }
+        if (d > maxDelta) maxDelta = d;
+        const t = Math.round(wall * 2) / 2;
+        if (Math.abs(wall - t) < wallDt * 0.6) {
+          const snap = a.deform.snapshot();
+          notes.push(
+            `t=${t.toFixed(1)} skin=${a.deform.skinnedThisFrame ? 1 : 0} crush=${snap.crushing ? 1 : 0} q=${a.deform.quietTime().toFixed(2)} dVert=${d.toFixed(4)}`,
+          );
+        }
+      }
+      prev.set(arr);
+    }
+
+    assert.ok(a.crashed, "titanium never crashed");
+    assert.equal(skins, 0, `titanium still reskinning ${skins}/${frames} frames in 12–16s\n${notes.join("\n")}`);
+    assert.ok(maxDelta < 0.002, `titanium verts moved ${maxDelta.toFixed(4)} m in 12–16s\n${notes.join("\n")}`);
+  });
 });

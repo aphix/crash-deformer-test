@@ -1145,7 +1145,8 @@ export class StreamedDeformation {
       if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
       else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
       group.position.set(hubX - _a.x, gy, hubZ - _a.z);
-      if (Number.isFinite(pitch + roll)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
+      if (Number.isFinite(pitch + roll) && this.quietTime() < 0.35) group.rotation.set(pitch, yawSafe, roll, "YXZ");
+      else group.rotation.set(0, yawSafe, 0, "YXZ");
     } else {
       if (!Number.isFinite(yawSafe + pitch + roll)) {
         group.rotation.set(0, this.prevYaw, 0, "YXZ");
@@ -1327,7 +1328,9 @@ export class StreamedDeformation {
       // masses are live or contact is fresh — otherwise we rewrite the mesh
       // from a jittering polar every frame (flicker) and pay computeVertexNormals
       // through the slomo→1× handoff (hitch).
-      this.crushing = this.bidirectional || this.quietTime() < 0.22 || this.anyMassMoving();
+      // Contact window only. Residual bounce / cluster breathing is not crush —
+      // reskinning it every frame is the polar snap-back flicker.
+      this.crushing = this.bidirectional || this.quietTime() < 0.28;
     }
     if (this.helper?.visible) this.updateHelper();
   }
@@ -1713,6 +1716,7 @@ export class StreamedDeformation {
       crush: round4(this.crushAmount),
       elapsed: round4(this.elapsed),
       quiet: round4(this.quietTime()),
+      crushing: this.crushing,
       impulse: round4(this.impulse),
       massActive: this.massActive,
       drivetrainAlive: this.drivetrainAlive,
@@ -2084,7 +2088,7 @@ export class StreamedDeformation {
   }
 
   private stepMassSlice(dt: number): void {
-    const live = this.bidirectional || this.quietTime() < 0.22 || this.anyMassMoving();
+    const live = this.bidirectional || this.quietTime() < 0.35;
     if (this.mode === "shape") {
       if (live) this.stepShapeMatch(dt);
     } else this.stepBeams(dt);
@@ -2142,6 +2146,26 @@ export class StreamedDeformation {
       }
       if (!hub && !this.bidirectional && m.world.y > 0.22) {
         m.vel.y = THREE.MathUtils.clamp(m.vel.y, -2.2, 3);
+      }
+    }
+    if (!live && !this.bidirectional) {
+      let mx = 0,
+        mz = 0,
+        msum = 0;
+      for (const m of this.masses) {
+        if (!m.dynamic) continue;
+        mx += m.vel.x * m.mass;
+        mz += m.vel.z * m.mass;
+        msum += m.mass;
+      }
+      if (msum > 1e-8) {
+        mx /= msum;
+        mz /= msum;
+        for (const m of this.masses) {
+          if (!m.dynamic) continue;
+          m.vel.x = mx;
+          m.vel.z = mz;
+        }
       }
     }
     if (this.bidirectional && this.deepCrush) {
