@@ -700,7 +700,7 @@ export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
     roughness: 0.42,
     clearcoat: 0.72,
     clearcoatRoughness: 0.24,
-    envMapIntensity: 0.4,
+    envMapIntensity: 0.9,
     side: THREE.FrontSide,
   });
 }
@@ -710,6 +710,7 @@ export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
     color,
     metalness: 0.55,
     roughness: 0.38,
+    envMapIntensity: 0.65,
   });
 }
 
@@ -720,7 +721,7 @@ export function makeGlassMaterial(): THREE.MeshStandardMaterial {
     roughness: 0.08,
     transparent: true,
     opacity: 0.72,
-    envMapIntensity: 0.8,
+    envMapIntensity: 1.15,
     side: THREE.DoubleSide,
     depthWrite: true,
   });

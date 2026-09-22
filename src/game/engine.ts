@@ -117,6 +117,7 @@ export class CrashEngine {
   private reduceMotion = false;
   private impactLight: THREE.PointLight;
   private impactLightLife = 0;
+  private envMap: THREE.Texture | null = null;
   private debris: DebrisSystem;
   private sparks: SparkSystem;
   private glassDots: GlassDotSystem;
@@ -175,6 +176,7 @@ export class CrashEngine {
 
     this.scene.background = new THREE.Color(0x12141a);
     this.scene.fog = new THREE.FogExp2(0x12141a, 0.008);
+    this.attachStudioEnv();
 
     this.buildWorld();
     this.barrier = makeJerseyBarrier();
@@ -236,6 +238,9 @@ export class CrashEngine {
     this.glassDots.dispose();
     this.smoke.dispose();
     this.audio.dispose();
+    this.envMap?.dispose();
+    this.envMap = null;
+    this.scene.environment = null;
     this.scene.clear();
     const gl = this.renderer.getContext();
     this.renderer.dispose();
@@ -1837,6 +1842,31 @@ export class CrashEngine {
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
+
+  /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. */
+  private attachStudioEnv(): void {
+    new THREE.TextureLoader().load(
+      "/env-studio.jpg",
+      (tex) => {
+        if (this.disposed) {
+          tex.dispose();
+          return;
+        }
+        tex.colorSpace = THREE.SRGBColorSpace;
+        tex.mapping = THREE.EquirectangularReflectionMapping;
+        const gen = new THREE.PMREMGenerator(this.renderer);
+        const env = gen.fromEquirectangular(tex).texture;
+        this.scene.environment = env;
+        this.scene.environmentIntensity = 0.72;
+        this.envMap?.dispose();
+        this.envMap = env;
+        tex.dispose();
+        gen.dispose();
+      },
+      undefined,
+      () => {},
+    );
+  }
 
   private buildWorld(): void {
     const hemi = new THREE.HemisphereLight(0xb7c4d8, 0x1a1816, 1.35);

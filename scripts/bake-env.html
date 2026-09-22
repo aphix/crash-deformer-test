@@ -1,0 +1,65 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>bake env</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "/node_modules/three/build/three.module.js",
+          "three/addons/": "/node_modules/three/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <script type="module">
+      import * as THREE from "three";
+      import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
+
+      const W = 1024;
+      const H = 512;
+      const renderer = new THREE.WebGLRenderer({
+        antialias: false,
+        preserveDrawingBuffer: true,
+        alpha: false,
+      });
+      renderer.setSize(W, H);
+      renderer.outputColorSpace = THREE.SRGBColorSpace;
+      renderer.toneMapping = THREE.NoToneMapping;
+      document.body.appendChild(renderer.domElement);
+
+      const scene = new RoomEnvironment();
+      const cubeRT = new THREE.WebGLCubeRenderTarget(256, {
+        type: THREE.UnsignedByteType,
+        colorSpace: THREE.SRGBColorSpace,
+      });
+      const cubeCam = new THREE.CubeCamera(0.1, 60, cubeRT);
+      cubeCam.update(renderer, scene);
+
+      const eqScene = new THREE.Scene();
+      const eqCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+      const mat = new THREE.ShaderMaterial({
+        uniforms: { tCube: { value: cubeRT.texture } },
+        vertexShader: `
+          varying vec2 vUv;
+          void main() {
+            vUv = uv;
+            gl_Position = vec4(position.xy, 0.0, 1.0);
+          }`,
+        fragmentShader: `
+          uniform samplerCube tCube;
+          varying vec2 vUv;
+          void main() {
+            float theta = vUv.x * 6.28318530718;
+            float phi = (1.0 - vUv.y) * 3.14159265359;
+            vec3 dir = vec3(sin(phi) * sin(theta), cos(phi), sin(phi) * cos(theta));
+            gl_FragColor = textureCube(tCube, dir);
+          }`,
+      });
+      eqScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
+      renderer.render(eqScene, eqCam);
+      window.__baked = renderer.domElement.toDataURL("image/jpeg", 0.9);
+    </script>
+  </body>
+</html>
