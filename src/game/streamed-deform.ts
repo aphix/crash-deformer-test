@@ -236,6 +236,8 @@ const _n = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
 const _mat = new THREE.Matrix4();
+/** followGroup's world→local: one invert per call, not one per mass (Object3D.worldToLocal). */
+const _toLocal = new THREE.Matrix4();
 
 function hash01(i: number, salt = 1): number {
   const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
@@ -727,7 +729,7 @@ export class StreamedDeformation {
   }
 
   bindKinematic(group: THREE.Object3D, worldVel: THREE.Vector3, worldOmega: THREE.Vector3): void {
-    group.updateMatrixWorld();
+    group.updateWorldMatrix(false, false);
     const ox = group.position.x;
     const oz = group.position.z;
     for (const m of this.masses) {
@@ -1136,7 +1138,7 @@ export class StreamedDeformation {
     for (const m of this.masses) if (m.name.startsWith("hub") && m.world.y < minHub) minHub = m.world.y;
     if (plant) {
       group.rotation.set(0, yawSafe, 0, "YXZ");
-      group.updateMatrixWorld();
+      group.updateWorldMatrix(false, false);
       let hubX = 0,
         hubZ = 0,
         hubM = 0,
@@ -1174,7 +1176,7 @@ export class StreamedDeformation {
       } else {
         group.rotation.set(pitch, yawSafe, roll, "YXZ");
       }
-      group.updateMatrixWorld();
+      group.updateWorldMatrix(false, false);
       _a.copy(cell.rest).applyQuaternion(group.quaternion);
       let gy = cell.world.y - _a.y;
       if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
@@ -1182,15 +1184,15 @@ export class StreamedDeformation {
       if (this.bidirectional) group.position.set(0, gy, 0);
       else group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
     }
-    group.updateMatrixWorld();
+    group.updateWorldMatrix(false, false);
+    _toLocal.copy(group.matrixWorld).invert();
 
     let mx = 0,
       my = 0,
       mz = 0,
       mass = 0;
     for (const m of this.masses) {
-      m.local.copy(m.world);
-      group.worldToLocal(m.local);
+      m.local.copy(m.world).applyMatrix4(_toLocal);
       mx += m.vel.x * m.mass;
       my += m.vel.y * m.mass;
       mz += m.vel.z * m.mass;

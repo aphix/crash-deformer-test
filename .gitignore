@@ -10,3 +10,7 @@ dist/
 .tanstack/
 build/
 *.tsbuildinfo
+# Re-downloadable paper PDFs (URLs in .extraResearch/README.md); notes stay tracked.
+.extraResearch/papers/*.pdf
+# Local benchmark JSON and CPU profiles (scripts/bench-browser.mjs --out/--profile).
+.bench/

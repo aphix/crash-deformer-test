@@ -1784,7 +1784,12 @@ export class CrashEngine {
   };
 
   private bounceAgainstCar(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-    car.group.updateMatrixWorld();
+    // Runs per FX particle per car: reject by distance before any matrix work.
+    const ex = pos.x - car.group.position.x;
+    const ez = pos.z - car.group.position.z;
+    const reach = 3.2 + r;
+    if (ex * ex + ez * ez > reach * reach) return;
+    car.group.updateWorldMatrix(false, false);
     _ha.copy(pos);
     car.group.worldToLocal(_ha);
     if (_ha.y < 0.02 - r || _ha.y > 1.45 + r) return;

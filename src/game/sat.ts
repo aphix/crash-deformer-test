@@ -109,7 +109,6 @@ export function clipCarToBarrier(
   const push = Math.min(extra, 0.16);
   car.group.position.x += _bRight.x * side * push;
   car.group.position.z += _bRight.z * side * push;
-  car.group.updateMatrixWorld();
   car.refreshBasis();
   const vn = car.velocity.x * _bRight.x * side + car.velocity.z * _bRight.z * side;
   if (car.deform.massActive) {

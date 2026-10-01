@@ -40,7 +40,6 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
   car.group.position.x += nx * amount;
   car.group.position.y += ny * amount;
   car.group.position.z += nz * amount;
-  car.group.updateMatrixWorld();
   car.refreshBasis();
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
 }

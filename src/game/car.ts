@@ -585,8 +585,10 @@ export class DeformableCar {
     }
   }
 
+  /** Group matrix only: children are refreshed once per frame by the renderer. Recursing the
+   * ~60-node car subtree here was ~40% of frame CPU at 10+ cars. */
   refreshBasis(): void {
-    this.group.updateMatrixWorld();
+    this.group.updateWorldMatrix(false, false);
     this.forward.set(0, 0, 1).applyQuaternion(this.group.quaternion);
     this.right.set(1, 0, 0).applyQuaternion(this.group.quaternion);
     const fl = Math.hypot(this.forward.x, this.forward.z);
@@ -600,7 +602,7 @@ export class DeformableCar {
   }
 
   worldToLocalDir(world: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
-    this.group.updateMatrixWorld();
+    this.group.updateWorldMatrix(false, false);
     const inv = _inv.copy(this.group.quaternion).invert();
     return out.copy(world).applyQuaternion(inv).normalize();
   }
