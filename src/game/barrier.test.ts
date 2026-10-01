@@ -5,22 +5,13 @@ import { DeformableCar } from "./car.ts";
 import { leftoverCrumple } from "./physics-util.ts";
 import { BARRIER_HALF, clipCarToBarrier, physicsSlice, satCarBarrier } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
+import { mass, paint } from "./test-support.ts";
 
 const ORIGIN = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _cn = new THREE.Vector3();
 const _cp = new THREE.Vector3();
-
-function paint() {
-  return { name: "Test", body: 0xffffff, accent: 0x444444 };
-}
-
-function mass(car: DeformableCar, name: string) {
-  const m = car.deform.masses.find((n) => n.name === name);
-  assert.ok(m, name);
-  return m;
-}
 
 /** Jersey slab along Z, thin in X. Car drives -X into the +X face. */
 function spawnAtBarrier(z: number, speed: number, mode: DeformMode): DeformableCar {
@@ -112,8 +103,8 @@ describe("jersey barrier full-speed vs slomo", () => {
     runFor(slow, 0.5, 1 / 240);
     assert.ok(fast.group.position.x > 0.45 && slow.group.position.x > 0.45);
     const dz = Math.abs(
-      mass(fast, "bumperFL").local.z + mass(fast, "bumperFR").local.z
-        - (mass(slow, "bumperFL").local.z + mass(slow, "bumperFR").local.z),
+      mass(fast.deform, "bumperFL").local.z + mass(fast.deform, "bumperFR").local.z
+        - (mass(slow.deform, "bumperFL").local.z + mass(slow.deform, "bumperFR").local.z),
     );
     assert.ok(dz < 0.55, `slomo/full crush diverged Δz=${dz.toFixed(3)}`);
   });
@@ -121,8 +112,8 @@ describe("jersey barrier full-speed vs slomo", () => {
   it("good: an offset +Z hit crushes the corner that is actually on the slab", () => {
     const car = spawnAtBarrier(1.88, 20, "shape");
     runFor(car, 0.5, 1 / 60);
-    const fl = mass(car, "bumperFL").local.z;
-    const fr = mass(car, "bumperFR").local.z;
+    const fl = mass(car.deform, "bumperFL").local.z;
+    const fr = mass(car.deform, "bumperFR").local.z;
     const hit = car.deform.impactLocal;
     // yaw=-π/2: right is +Z, so FR hangs off the +Z end of the jersey; FL is on the slab.
     assert.ok(

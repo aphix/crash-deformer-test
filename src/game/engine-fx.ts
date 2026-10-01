@@ -1,5 +1,66 @@
 import * as THREE from "three";
 import { round4, snapshotPoints } from "./physics-util.ts";
+import type { DeformableCar } from "./car.ts";
+
+const _ha = new THREE.Vector3();
+const _hb = new THREE.Vector3();
+
+/** Asphalt bounce for FX particles. */
+export function bounceGround(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
+  if (pos.y < r) {
+    pos.y = r;
+    if (vel.y < 0) vel.y *= -0.28;
+    vel.x *= 0.86;
+    vel.z *= 0.86;
+  }
+}
+
+/** Push an FX particle out of the car's hull boxes and reflect it off the side it entered. */
+export function bounceOffCar(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
+  // Runs per FX particle per car: reject by distance before any matrix work.
+  const ex = pos.x - car.group.position.x;
+  const ez = pos.z - car.group.position.z;
+  const reach = 3.2 + r;
+  if (ex * ex + ez * ez > reach * reach) return;
+  car.group.updateWorldMatrix(false, false);
+  _ha.copy(pos);
+  car.group.worldToLocal(_ha);
+  if (_ha.y < 0.02 - r || _ha.y > 1.45 + r) return;
+  for (const h of car.hulls()) {
+    const dx = _ha.x - h.cx;
+    const dz = _ha.z - h.cz;
+    const ox = h.hx + r - Math.abs(dx);
+    const oz = h.hz + r - Math.abs(dz);
+    if (ox <= 0 || oz <= 0) continue;
+    if (ox < oz) {
+      const s = dx >= 0 ? 1 : -1;
+      _ha.x += s * ox;
+      const nx = car.rightFlat.x * s;
+      const nz = car.rightFlat.z * s;
+      const vn = vel.x * nx + vel.z * nz;
+      if (vn < 0) {
+        vel.x -= vn * nx * 1.55;
+        vel.z -= vn * nz * 1.55;
+        vel.y += Math.abs(vn) * 0.15;
+      }
+    } else {
+      const s = dz >= 0 ? 1 : -1;
+      _ha.z += s * oz;
+      const nx = car.fwdFlat.x * s;
+      const nz = car.fwdFlat.z * s;
+      const vn = vel.x * nx + vel.z * nz;
+      if (vn < 0) {
+        vel.x -= vn * nx * 1.55;
+        vel.z -= vn * nz * 1.55;
+        vel.y += Math.abs(vn) * 0.15;
+      }
+    }
+    _hb.copy(_ha);
+    car.group.localToWorld(_hb);
+    pos.copy(_hb);
+    return;
+  }
+}
 
 export class DebrisSystem {
   private mesh: THREE.InstancedMesh;
@@ -120,22 +181,38 @@ function makeDotTexture(color: string, glow: string): THREE.CanvasTexture {
   return tex;
 }
 
-export class SparkSystem {
+type DotLook = {
+  core: string;
+  glow: string;
+  size: number;
+  opacity: number;
+  /** Downward accel (m/s²). */
+  gravity: number;
+  /** Collision radius passed to the world bounce. */
+  radius: number;
+};
+
+/** Ring buffer of additive billboard dots that fall, bounce off the world, and park at y=250 when dead. */
+class DotPoints {
+  protected readonly pos: Float32Array;
+  protected readonly vx: Float32Array;
+  protected readonly vy: Float32Array;
+  protected readonly vz: Float32Array;
+  protected readonly life: Float32Array;
+  protected readonly n: number;
   private points: THREE.Points;
   private geo: THREE.BufferGeometry;
-  private pos: Float32Array;
-  private vx: Float32Array;
-  private vy: Float32Array;
-  private vz: Float32Array;
-  private life: Float32Array;
   private tmp = new THREE.Vector3();
   private vel = new THREE.Vector3();
-  private n: number;
   private cursor = 0;
   private anyAlive = false;
+  private gravity: number;
+  private radius: number;
 
-  constructor(scene: THREE.Scene, n = 480) {
+  constructor(scene: THREE.Scene, n: number, look: DotLook) {
     this.n = n;
+    this.gravity = look.gravity;
+    this.radius = look.radius;
     this.pos = new Float32Array(n * 3);
     this.vx = new Float32Array(n);
     this.vy = new Float32Array(n);
@@ -146,11 +223,11 @@ export class SparkSystem {
     this.geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
     this.geo.setDrawRange(0, n);
     const mat = new THREE.PointsMaterial({
-      map: makeDotTexture("rgba(255,248,220,1)", "rgba(255,170,70,0.7)"),
+      map: makeDotTexture(look.core, look.glow),
       color: 0xffffff,
-      size: 0.12,
+      size: look.size,
       transparent: true,
-      opacity: 0.95,
+      opacity: look.opacity,
       depthWrite: false,
       blending: THREE.AdditiveBlending,
       sizeAttenuation: true,
@@ -169,35 +246,18 @@ export class SparkSystem {
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  burst(origin: THREE.Vector3, normal: THREE.Vector3, count: number): void {
-    this.poof(origin, normal, count);
+  /** Oldest ring slot; the caller fills pos/vel/life for it. */
+  protected claim(): number {
+    const k = this.cursor;
+    this.cursor = (this.cursor + 1) % this.n;
+    return k;
   }
 
-  poof(origin: THREE.Vector3, normal: THREE.Vector3, count: number): void {
-    const n = Math.min(this.n, Math.max(0, Math.floor(count)));
-    for (let i = 0; i < n; i++) {
-      const k = this.cursor;
-      this.cursor = (this.cursor + 1) % this.n;
-      const ox = (Math.random() - 0.5) * 2;
-      const oy = Math.random();
-      const oz = (Math.random() - 0.5) * 2;
-      const mag = Math.hypot(ox, oy, oz) || 1;
-      this.pos[k * 3] = origin.x + (Math.random() - 0.5) * 0.22;
-      this.pos[k * 3 + 1] = Math.max(0.08, origin.y) + Math.random() * 0.12;
-      this.pos[k * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.22;
-      const speed = 1.4 + Math.random() * 3.2;
-      this.vx[k] = (ox / mag) * speed - normal.x * 0.6;
-      this.vy[k] = (oy / mag) * speed * 0.85 + 1.1;
-      this.vz[k] = (oz / mag) * speed - normal.z * 0.6;
-      this.life[k] = 0.28 + Math.random() * 0.35;
-    }
-    if (n > 0) this.anyAlive = true;
+  /** Publish `spawned` freshly claimed slots to the GPU. */
+  protected commit(spawned: number): void {
+    if (spawned > 0) this.anyAlive = true;
     this.geo.setDrawRange(0, this.n);
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
-  }
-
-  snapshot() {
-    return snapshotPoints(this.pos, null, null, this.life, true);
   }
 
   update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
@@ -214,8 +274,8 @@ export class SparkSystem {
       this.tmp.set(this.pos[i * 3]!, this.pos[i * 3 + 1]!, this.pos[i * 3 + 2]!);
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
       this.tmp.addScaledVector(this.vel, dt);
-      this.vel.y -= 6.5 * dt;
-      bounce(this.tmp, this.vel, 0.025);
+      this.vel.y -= this.gravity * dt;
+      bounce(this.tmp, this.vel, this.radius);
       this.tmp.y = Math.max(0.04, this.tmp.y);
       this.pos[i * 3] = this.tmp.x;
       this.pos[i * 3 + 1] = this.tmp.y;
@@ -236,59 +296,59 @@ export class SparkSystem {
   }
 }
 
-export class GlassDotSystem {
-  private points: THREE.Points;
-  private geo: THREE.BufferGeometry;
-  private pos: Float32Array;
-  private vx: Float32Array;
-  private vy: Float32Array;
-  private vz: Float32Array;
-  private life: Float32Array;
-  private tmp = new THREE.Vector3();
-  private vel = new THREE.Vector3();
-  private n: number;
-  private cursor = 0;
-  private anyAlive = false;
-
-  constructor(scene: THREE.Scene, n = 320) {
-    this.n = n;
-    this.pos = new Float32Array(n * 3);
-    this.vx = new Float32Array(n);
-    this.vy = new Float32Array(n);
-    this.vz = new Float32Array(n);
-    this.life = new Float32Array(n);
-    for (let i = 0; i < n; i++) this.pos[i * 3 + 1] = 250;
-    this.geo = new THREE.BufferGeometry();
-    this.geo.setAttribute("position", new THREE.BufferAttribute(this.pos, 3));
-    this.geo.setDrawRange(0, n);
-    const mat = new THREE.PointsMaterial({
-      map: makeDotTexture("rgba(255,255,255,1)", "rgba(210,230,245,0.55)"),
-      color: 0xffffff,
-      size: 0.042,
-      transparent: true,
-      opacity: 0.9,
-      depthWrite: false,
-      blending: THREE.AdditiveBlending,
-      sizeAttenuation: true,
+export class SparkSystem extends DotPoints {
+  constructor(scene: THREE.Scene, n = 480) {
+    super(scene, n, {
+      core: "rgba(255,248,220,1)",
+      glow: "rgba(255,170,70,0.7)",
+      size: 0.12,
+      opacity: 0.95,
+      gravity: 6.5,
+      radius: 0.025,
     });
-    this.points = new THREE.Points(this.geo, mat);
-    this.points.frustumCulled = false;
-    scene.add(this.points);
   }
 
-  reset(): void {
-    this.life.fill(0);
-    this.cursor = 0;
-    this.anyAlive = false;
-    for (let i = 0; i < this.n; i++) this.pos[i * 3 + 1] = 250;
-    (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
+  poof(origin: THREE.Vector3, normal: THREE.Vector3, count: number): void {
+    const n = Math.min(this.n, Math.max(0, Math.floor(count)));
+    for (let i = 0; i < n; i++) {
+      const k = this.claim();
+      const ox = (Math.random() - 0.5) * 2;
+      const oy = Math.random();
+      const oz = (Math.random() - 0.5) * 2;
+      const mag = Math.hypot(ox, oy, oz) || 1;
+      this.pos[k * 3] = origin.x + (Math.random() - 0.5) * 0.22;
+      this.pos[k * 3 + 1] = Math.max(0.08, origin.y) + Math.random() * 0.12;
+      this.pos[k * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.22;
+      const speed = 1.4 + Math.random() * 3.2;
+      this.vx[k] = (ox / mag) * speed - normal.x * 0.6;
+      this.vy[k] = (oy / mag) * speed * 0.85 + 1.1;
+      this.vz[k] = (oz / mag) * speed - normal.z * 0.6;
+      this.life[k] = 0.28 + Math.random() * 0.35;
+    }
+    this.commit(n);
+  }
+
+  snapshot() {
+    return snapshotPoints(this.pos, null, null, this.life, true);
+  }
+}
+
+export class GlassDotSystem extends DotPoints {
+  constructor(scene: THREE.Scene, n = 320) {
+    super(scene, n, {
+      core: "rgba(255,255,255,1)",
+      glow: "rgba(210,230,245,0.55)",
+      size: 0.042,
+      opacity: 0.9,
+      gravity: 9.6,
+      radius: 0.02,
+    });
   }
 
   burst(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
     const n = Math.min(this.n, Math.floor(count));
     for (let i = 0; i < n; i++) {
-      const k = this.cursor;
-      this.cursor = (this.cursor + 1) % this.n;
+      const k = this.claim();
       this.pos[k * 3] = origin.x + (Math.random() - 0.5) * 0.55;
       this.pos[k * 3 + 1] = Math.max(0.12, origin.y) + (Math.random() - 0.2) * 0.28;
       this.pos[k * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.4;
@@ -297,43 +357,7 @@ export class GlassDotSystem {
       this.vz[k] = inherit.z * 0.85 + (Math.random() - 0.5) * 5.5;
       this.life[k] = 1.1 + Math.random() * 1.1;
     }
-    if (n > 0) this.anyAlive = true;
-    (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
-  }
-
-  update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
-    if (!this.anyAlive) return;
-    let any = false;
-    for (let i = 0; i < this.n; i++) {
-      if (this.life[i]! <= 0) continue;
-      any = true;
-      this.life[i]! -= dt;
-      if (this.life[i]! <= 0) {
-        this.pos[i * 3 + 1] = 250;
-        continue;
-      }
-      this.tmp.set(this.pos[i * 3]!, this.pos[i * 3 + 1]!, this.pos[i * 3 + 2]!);
-      this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
-      this.tmp.addScaledVector(this.vel, dt);
-      this.vel.y -= 9.6 * dt;
-      bounce(this.tmp, this.vel, 0.02);
-      this.tmp.y = Math.max(0.04, this.tmp.y);
-      this.pos[i * 3] = this.tmp.x;
-      this.pos[i * 3 + 1] = this.tmp.y;
-      this.pos[i * 3 + 2] = this.tmp.z;
-      this.vx[i] = this.vel.x;
-      this.vy[i] = this.vel.y;
-      this.vz[i] = this.vel.z;
-    }
-    this.anyAlive = any;
-    if (any) (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
-  }
-
-  dispose(): void {
-    this.geo.dispose();
-    const mat = this.points.material as THREE.PointsMaterial;
-    mat.map?.dispose();
-    mat.dispose();
+    this.commit(n);
   }
 }
 

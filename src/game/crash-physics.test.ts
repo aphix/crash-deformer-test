@@ -3,21 +3,10 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { StreamedDeformation, ENGINE_KILL_TRAVEL, type DeformMode } from "./streamed-deform.ts";
 import { CRASH, leftoverCrumple } from "./physics-util.ts";
+import { DT, MODES, dummyGeom, mass } from "./test-support.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
 const FRONTAL_MPS = 14;
-const DT = 1 / 60;
-const MODES: DeformMode[] = ["lattice", "shape"];
-
-function dummyGeom(): THREE.BufferGeometry {
-  return new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
-}
-
-function mass(d: StreamedDeformation, name: string) {
-  const m = d.masses.find((n) => n.name === name);
-  assert.ok(m, name);
-  return m;
-}
 
 function momentumZ(d: StreamedDeformation): number {
   return d.masses.reduce((s, m) => s + m.vel.z * m.mass, 0);
@@ -446,7 +435,7 @@ describe("beams stay a live spring lattice [lattice]", () => {
   it("close-but-wrong: restoring force fires even while separating (relV >= 0), not only when approaching", () => {
     const s = spawn(0, FRONTAL_MPS, new THREE.Vector3(0, 0, -1), undefined, "lattice");
     const a = mass(s.d, "engineL");
-    const b = mass(s.d, "railL");
+    mass(s.d, "railL");
     a.world.z -= 0.12;
     a.vel.z = 2;
     const vz0 = a.vel.z;
