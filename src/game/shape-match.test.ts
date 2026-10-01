@@ -24,6 +24,7 @@ import {
   type Mat3,
 } from "./shape-match.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
+import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
 import { CAGES, MASS_SPECS, SHAPE_CLUSTERS } from "./rig-spec.ts";
 
 const FRAME = 1 / 60;
@@ -271,7 +272,7 @@ describe("plasticity", () => {
     for (const p of P) p.z *= 0.35;
     for (let i = 0; i < 12; i++) {
       matchCluster(c, P, 0.9);
-      applyPlasticity(c, P, 1 / 30, 0.8, true);
+      applyPlasticity(c, P, 1 / 30, 0.8);
     }
     assert.ok(m3FrobeniusI(c.Sp) > 0.08, `Sp never yielded ${m3FrobeniusI(c.Sp)}`);
     const qz = Math.hypot(c.qx[0]!, c.qy[0]!, c.qz[0]!);
@@ -294,10 +295,54 @@ describe("plasticity", () => {
     for (const p of P) p.z *= 0.3;
     for (let i = 0; i < 8; i++) {
       matchCluster(c, P, 1);
-      applyPlasticity(c, P, 1 / 30, 0.7, true);
+      applyPlasticity(c, P, 1 / 30, 0.7);
     }
     const det = m3Det(c.Sp);
     assert.ok(det > 0.25 && det < 2.8, `volume vanished det=${det}`);
+  });
+
+  it("close-but-wrong: a turned, strained contact leaves the plastic rest at Sp·rest, the shape the skin composes", () => {
+    const rest: [number, number, number][] = [
+      [0.5, 0.3, 1],
+      [-0.5, 0.3, 1],
+      [0.5, -0.3, 1],
+      [-0.5, -0.3, 1],
+      [0.5, 0.3, -1],
+      [-0.5, 0.3, -1],
+      [0.5, -0.3, -1],
+      [-0.5, -0.3, -1],
+    ];
+    const P = particlesAt(rest);
+    const c = makeCluster(P, P.map((_, i) => i));
+    rebuildAqqWeighted(c, P);
+    // A bent, crushed panel held in contact: 20 % squash in y, turned 0.5 rad about up.
+    const R = rotY(0.5);
+    for (const p of P) {
+      const x = R[0]! * p.x + R[2]! * p.z;
+      const z = R[6]! * p.x + R[8]! * p.z;
+      p.x = x;
+      p.y *= 0.8;
+      p.z = z;
+    }
+    for (let i = 0; i < 120; i++) {
+      matchCluster(c, P, 0.2);
+      applyPlasticity(c, P, 1 / 240, 0.4, 0.45);
+    }
+    assert.ok(m3FrobeniusI(c.Sp) > 0.05, `Sp never yielded ${m3FrobeniusI(c.Sp)}`);
+    const Sp = c.Sp;
+    let err = 0,
+      size = 0,
+      size0 = 0;
+    for (let i = 0; i < rest.length; i++) {
+      const [x, y, z] = rest[i]!;
+      const gx = Sp[0]! * x + Sp[1]! * y + Sp[2]! * z;
+      const gy = Sp[3]! * x + Sp[4]! * y + Sp[5]! * z;
+      const gz = Sp[6]! * x + Sp[7]! * y + Sp[8]! * z;
+      err = Math.max(err, Math.hypot(c.qx[i]! - gx, c.qy[i]! - gy, c.qz[i]! - gz));
+      size += Math.hypot(c.qx[i]!, c.qz[i]!);
+      size0 += Math.hypot(gx, gz);
+    }
+    assert.ok(err < 1e-9, `plastic rest is ${err.toFixed(4)} m off Sp·rest (turn-plane size ×${(size / size0).toFixed(3)})`);
   });
 });
 
@@ -389,7 +434,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
     for (const p of P) if (p.z > 0.5) p.z -= 0.45;
     for (let k = 0; k < 200; k++) {
       matchCluster(c, P, 0.2);
-      applyPlasticity(c, P, 1 / 60, 0.9, true, 0.9);
+      applyPlasticity(c, P, 1 / 60, 0.9, 0.9);
     }
     // …then let go: the particles settle on their goals, so what they keep is the plastic dent.
     for (let k = 0; k < 200; k++) {
@@ -614,5 +659,59 @@ describe("StreamedDeformation shape mode", () => {
     const lo = Math.min(...t);
     const hi = Math.max(...t);
     assert.ok(hi <= lo * 1.3, `railL travel at 1/4/8 sub-slices ${t.map((v) => v.toFixed(3)).join(" / ")}`);
+  });
+});
+
+describe("shape solver across hits, and the skin it drives", () => {
+  it("good: a later rear hit leaves an earlier front crush where it was", () => {
+    const car = makeCar();
+    const FRONT = ["bumperFL", "bumperFR", "engineL", "engineR", "wingFL", "wingFR", "railL", "railR"];
+    const OTHER = [...FRONT, "cell", "roof", "doorL", "doorR"];
+    const pairs: [string, string][] = [];
+    for (let i = 0; i < FRONT.length; i++) for (let j = i + 1; j < OTHER.length; j++) pairs.push([FRONT[i]!, OTHER[j]!]);
+    // Distance between two masses (heading- and pitch-free shape of the front structure).
+    const shape = () => pairs.map(([a, b]) => node(car.deform, a).local.distanceTo(node(car.deform, b).local));
+    const nose = (r: { noseShortL: number; noseShortR: number }) => (r.noseShortL + r.noseShortR) / 2;
+    const front = runWall(50, 1, "front", { car });
+    const first = shape();
+    const rear = runWall(30, 1, "rear", { car, after: 2.5 });
+    const second = shape();
+    assert.ok(nose(front) > 0.25, `fixture: front crush only ${nose(front).toFixed(3)} m`);
+    assert.ok(rear.tailMax > 0.1, `fixture: rear hit crushed the tail only ${rear.tailMax.toFixed(3)} m`);
+    assert.ok(nose(rear) >= 0.8 * nose(front), `nose crush ${nose(front).toFixed(3)} → ${nose(rear).toFixed(3)} m`);
+    let worst = 0,
+      which = "";
+    for (let k = 0; k < pairs.length; k++) {
+      const move = Math.abs(second[k]! - first[k]!);
+      if (move <= worst) continue;
+      worst = move;
+      which = `${pairs[k]!.join("–")} ${first[k]!.toFixed(3)} → ${second[k]!.toFixed(3)}`;
+    }
+    // The struck tail is 1.5 m away: the solver must not pull the dented front toward its old rest.
+    assert.ok(worst < 0.05, `front structure moved ${worst.toFixed(3)} m during the rear hit (${which})`);
+  });
+
+  it("good: skin vertices that share a rest position stay welded through a side hit", () => {
+    const car = makeCar();
+    const pos = car.body.geometry.getAttribute("position").array;
+    const rest = Float32Array.from(pos);
+    const first = new Map<string, number>();
+    const pairs: [number, number][] = [];
+    for (let i = 0; i < rest.length / 3; i++) {
+      const key = `${rest[i * 3]},${rest[i * 3 + 1]},${rest[i * 3 + 2]}`;
+      const j = first.get(key);
+      if (j === undefined) first.set(key, i);
+      else pairs.push([j, i]);
+    }
+    assert.ok(pairs.length > 100, `fixture: only ${pairs.length} split vertices`);
+    runWall(50, 1, "side", { car });
+    let gap = 0;
+    for (const [a, b] of pairs) gap = Math.max(gap, Math.hypot(pos[a * 3]! - pos[b * 3]!, pos[a * 3 + 1]! - pos[b * 3 + 1]!, pos[a * 3 + 2]! - pos[b * 3 + 2]!));
+    assert.ok(gap < 1e-3, `seam opened ${(gap * 1000).toFixed(2)} mm`);
+  });
+
+  it("good: the cabin-section skin stays with the cell in a 56 km/h wall hit", () => {
+    const r = runWall(56);
+    assert.ok(r.skinCabin <= 0.05, `cabin skin intrudes ${r.skinCabin.toFixed(3)} m`);
   });
 });

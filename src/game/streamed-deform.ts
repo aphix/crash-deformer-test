@@ -78,6 +78,10 @@ const SHAPE_REF_HZ = 240;
 const SHAPE_MAX_STEP = 0.14;
 /** Sim seconds a fed contact keeps the solver in contact mode: one 60 Hz frame. */
 const CONTACT_HOLD = 1 / 60;
+/** Depth (m) inside the chassisCell span's front/rear face over which non-cell skin weight blends back in. */
+const CELL_FACE_BLEND = 0.3;
+/** Largest non-cell skin weight at the span face (D1): the A-pillar foot still creases. */
+const CELL_FACE_SHARE = 0.25;
 
 function hash01(i: number, salt = 1): number {
   const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
@@ -208,6 +212,8 @@ export class StreamedDeformation {
   private cages: Cage[];
   private sensors: Sensor[];
   private restPos: Float32Array;
+  /** Lowest vertex index sharing each vertex's rest position: per-vertex noise keys on it so split seams stay shut. */
+  private readonly weld: Uint32Array;
   private influences: Influence[][];
   private vertexCount: number;
   private elapsed = 0;
@@ -235,6 +241,9 @@ export class StreamedDeformation {
   private overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
   private contactAt = -Infinity;
+  /** stepShapeMatch ran during the current / the previous structure step: the falling edge rebases the rests. */
+  private shapeRan = false;
+  private shapeWasLive = false;
   /** Body frame of the last syncShapeFromMasses: world = R_y(heading)·(local − bodyRestC) + bodyC. */
   private bodyCos = 1;
   private bodySin = 0;
@@ -265,6 +274,14 @@ export class StreamedDeformation {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
+    this.weld = new Uint32Array(this.vertexCount);
+    const firstAt = new Map<string, number>();
+    for (let i = 0; i < this.vertexCount; i++) {
+      const key = `${this.restPos[i * 3]},${this.restPos[i * 3 + 1]},${this.restPos[i * 3 + 2]}`;
+      const first = firstAt.get(key);
+      if (first === undefined) firstAt.set(key, i);
+      this.weld[i] = first ?? i;
+    }
 
     this.cages = CAGES.map((base) => {
       const box = rig.cages?.[base.name];
@@ -467,23 +484,47 @@ export class StreamedDeformation {
       m = Math.max(m, 1e-8);
       return { x: x / m, y: y / m, z: z / m };
     });
+    // D1: skin in the cabin section (the chassisCell cage's z span, above its floor) follows only
+    // the clusters that hold the cell mass, so A-pillar and footwell skin cannot ride the crushed
+    // nose into the cabin. Within CELL_FACE_BLEND of the section's front or rear face up to
+    // CELL_FACE_SHARE of the nearest other cluster blends back in, so the pillar foot still creases.
+    const span = this.cageByPart.get("chassisCell")!;
+    const cellMass = this.masses.indexOf(this.at.cell);
+    const holdsCell = this.clusters.map((c) => c.idx.includes(cellMass));
     for (let i = 0; i < this.vertexCount; i++) {
       const rx = this.restPos[i * 3]!;
       const ry = this.restPos[i * 3 + 1]!;
       const rz = this.restPos[i * 3 + 2]!;
+      const inCell = rz >= span.min.z && rz <= span.max.z && ry >= span.min.y;
       const scored: { ci: number; w: number }[] = [];
+      let other = -1,
+        otherW = 0;
       for (let ci = 0; ci < this.clusters.length; ci++) {
         const cm = cms[ci]!;
         const d = Math.hypot(rx - cm.x, ry - cm.y, rz - cm.z);
         if (d > 1.45) continue;
         if (ry > 1.02 && cm.y < 0.78) continue;
-        scored.push({ ci, w: Math.exp(-d * 2.35) });
+        const w = Math.exp(-d * 2.35);
+        if (inCell && !holdsCell[ci]) {
+          if (w > otherW) {
+            other = ci;
+            otherW = w;
+          }
+          continue;
+        }
+        scored.push({ ci, w });
       }
       scored.sort((a, b) => b.w - a.w);
       if (scored.length > 4) scored.length = 4;
       let sum = 0;
       for (const s of scored) sum += s.w;
       if (sum > 1e-8) for (const s of scored) s.w /= sum;
+      const face = Math.min(rz - span.min.z, span.max.z - rz);
+      if (inCell && other >= 0 && face < CELL_FACE_BLEND && scored.length > 0) {
+        const share = CELL_FACE_SHARE * (1 - face / CELL_FACE_BLEND);
+        for (const s of scored) s.w *= 1 - share;
+        scored.push({ ci: other, w: share });
+      }
       this.skinWeights[i] = scored;
     }
   }
@@ -505,6 +546,7 @@ export class StreamedDeformation {
     this.prevYaw = 0;
     this.overlapFrame = false;
     this.contactAt = -Infinity;
+    this.shapeWasLive = false;
     this.impactInward.set(0, 0, -1);
     this.impactLocal.set(0, 0.36, 2.1);
     for (const s of this.sensors) {
@@ -547,6 +589,12 @@ export class StreamedDeformation {
       p.z = m.rest.z;
       p.mass = m.mass;
     }
+    for (const c of this.clusters) resetCluster(c, this.shapeParticles);
+  }
+
+  /** Shape-match rest = the current body-frame shape: Sp folds into the rest and resets to I. */
+  private rebaseShapeRest(): void {
+    this.syncShapeFromMasses();
     for (const c of this.clusters) resetCluster(c, this.shapeParticles);
   }
 
@@ -1041,7 +1089,12 @@ export class StreamedDeformation {
     this.elapsed += dt;
     const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
+    this.shapeRan = false;
     for (let s = 0; s < slices; s++) this.stepMassSlice(h);
+    // The solver window closed this step: the shape the contacts left becomes every cluster's
+    // rest (Sp folded in), so a later hit cannot spring earlier damage back.
+    if (this.shapeWasLive && !this.shapeRan) this.rebaseShapeRest();
+    this.shapeWasLive = this.shapeRan;
     this.updateDrivetrain();
   }
 
@@ -1953,6 +2006,7 @@ export class StreamedDeformation {
 
   private stepShapeMatch(dt: number): void {
     this.syncShapeFromMasses();
+    this.shapeRan = true;
     const contacting = this.bidirectional || this.elapsed - this.contactAt <= CONTACT_HOLD;
     let comX = 0,
       comY = 0,
@@ -2093,7 +2147,7 @@ export class StreamedDeformation {
       }
     }
     if (contacting) {
-      for (const c of this.clusters) applyPlasticity(c, this.shapeParticles, dt, this.squash, true, this.buckle);
+      for (const c of this.clusters) applyPlasticity(c, this.shapeParticles, dt, this.squash, this.buckle);
     }
     this.writeShapeToMasses();
   }
@@ -2502,7 +2556,7 @@ export class StreamedDeformation {
       const dist = Math.hypot(dx, dy, dz);
       if (dist < 0.82 && wrinkle > 0.02 && ry > 0.34) {
         const fall = Math.exp(-dist * 3.4);
-        const n0 = hash01(i, 3) - 0.5;
+        const n0 = hash01(this.weld[i]!, 3) - 0.5;
         // Accordion folds along the crush axis (~12 cm wavelength), not a clay blob.
         // Wreckfest impact radius sweet spot is 0.3–0.5 m; 1.6 m wrinkled the whole nose.
         const wave = Math.sin(rz * 18 + n0 * 1.2);

@@ -3,6 +3,7 @@ import { DeformableCar } from "./car.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { applyGroundFriction, CRASH, leftoverCrumple } from "./physics-util.ts";
+import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { mass, paint } from "./test-support.ts";
@@ -16,6 +17,7 @@ import { mass, paint } from "./test-support.ts";
 const IMPACT_SCALE = 0.032;
 const SLOMO_HOLD = 6.5;
 const FRAME = 1 / 60;
+const CELL_SPAN = CAGES.find((c) => c.name === "chassisCell")!;
 
 export type CrashResult = {
   /** Nose shortening vs the cell at the end (m, positive = shorter). */
@@ -44,6 +46,11 @@ export type CrashResult = {
   cellShift: number;
   /** Cabin intrusion (§3.1): the larger of the lateral door inward motions and the roof drop (m). */
   cabinIntrusion: number;
+  /**
+   * Skin cabin intrusion (m): the largest lateral-inward or downward motion, relative to the cell
+   * mass, of a body-skin vertex in the cabin section (the `chassisCell` z span, above its floor).
+   */
+  skinCabin: number;
   engineGapErr: number;
   impactLocalX: number;
   drivetrainAlive: boolean;
@@ -73,6 +80,11 @@ export type ScenarioOpts = {
   after?: number;
 };
 
+export type WallOpts = ScenarioOpts & {
+  /** Hit this car instead of a fresh one. A car that has already crashed is re-aimed with its damage kept. */
+  car?: DeformableCar;
+};
+
 export function makeCar(mode: DeformMode = "shape"): DeformableCar {
   const car = new DeformableCar(paint(), new THREE.Scene());
   car.deform.setMode(mode);
@@ -87,6 +99,25 @@ function launch(car: DeformableCar, x: number, z: number, yaw: number, vx: numbe
   car.speed = Math.hypot(vx, vz);
   car.spawnSpeed = car.speed;
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
+}
+
+/**
+ * Re-aim a crashed car without the spawn reset (spawn and `bindKinematic` put the rig back to
+ * rest): the damaged lattice moves rigidly to the new pose and velocity.
+ */
+function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
+  const g = car.group;
+  g.position.set(x, 0, z);
+  g.rotation.set(0, yaw, 0, "YXZ");
+  g.updateWorldMatrix(false, false);
+  for (const m of car.deform.masses) {
+    m.world.copy(m.local).applyMatrix4(g.matrixWorld);
+    m.vel.set(vx, 0, vz);
+  }
+  car.velocity.set(vx, 0, vz);
+  car.angular.set(0, 0, 0);
+  car.speed = Math.hypot(vx, vz);
+  car.refreshBasis();
 }
 
 function holdSlab(b: JerseyBarrier): void {
@@ -245,6 +276,7 @@ class Probe {
     roofMax: 0,
     cellShift: 0,
     cabinIntrusion: 0,
+    skinCabin: 0,
     engineGapErr: 0,
     impactLocalX: 0,
     drivetrainAlive: true,
@@ -255,10 +287,26 @@ class Probe {
   };
 
   readonly car: DeformableCar;
+  /** Body-skin vertices whose rest lies in the `chassisCell` span: index and start position. */
+  private readonly cabinVerts: number[] = [];
+  private readonly cabinStart: number[] = [];
+  private readonly cellStart = new THREE.Vector3();
 
   constructor(car: DeformableCar, approach: THREE.Vector3) {
     this.car = car;
     this.dir.copy(approach).setY(0).normalize();
+    const pos = car.body.geometry.getAttribute("position").array;
+    const [, y0, z0] = CELL_SPAN.min;
+    const z1 = CELL_SPAN.max[2];
+    for (let i = 0; i < pos.length; i += 3) {
+      const x = pos[i]!,
+        y = pos[i + 1]!,
+        z = pos[i + 2]!;
+      if (y < y0 || z < z0 || z > z1) continue;
+      this.cabinVerts.push(i);
+      this.cabinStart.push(x, y, z);
+    }
+    this.cellStart.copy(mass(car.deform, "cell").local);
   }
 
   /** Called once per rendered frame; contact start uses the previous frame so the first-frame Δv counts. */
@@ -312,6 +360,18 @@ class Probe {
         const past = hx - (m.world.x - ox) * side;
         r.maxCentrePastFace = Math.max(r.maxCentrePastFace, past);
         r.maxPastFace = Math.max(r.maxPastFace, past + m.radius * 0.5);
+      }
+    }
+    if (d.skinnedThisFrame) {
+      const pos = car.body.geometry.getAttribute("position").array;
+      const cx = cell.x - this.cellStart.x,
+        cy = cell.y - this.cellStart.y;
+      for (let k = 0; k < this.cabinVerts.length; k++) {
+        const i = this.cabinVerts[k]!;
+        const x0 = this.cabinStart[k * 3]!;
+        const inward = -Math.sign(x0) * (pos[i]! - x0 - cx);
+        const drop = -(pos[i + 1]! - this.cabinStart[k * 3 + 1]! - cy);
+        r.skinCabin = Math.max(r.skinCabin, inward, drop);
       }
     }
   }
@@ -377,21 +437,31 @@ export type WallApproach = "front" | "rear" | "side";
  * the car comes from +X. `overlap` is the share of the car width on the slab,
  * measured from the car's left (−Z) side.
  */
-export function runWall(speedKph: number, overlap = 1, approach: WallApproach = "front", opts: ScenarioOpts = {}): CrashResult {
+export function runWall(speedKph: number, overlap = 1, approach: WallApproach = "front", opts: WallOpts = {}): CrashResult {
   const v = speedKph / 3.6;
-  const car = makeCar(opts.mode);
-  if (approach === "front") {
-    const z = overlap >= 1 ? 0 : BARRIER_HALF.z + 0.88 * (1 - 2 * overlap);
-    launch(car, 6.2, z, -Math.PI / 2, -v, 0);
-  } else if (approach === "rear") {
-    launch(car, 6.2, 0, Math.PI / 2, -v, 0);
+  const car = opts.car ?? makeCar(opts.mode);
+  const z = approach === "front" && overlap < 1 ? BARRIER_HALF.z + 0.88 * (1 - 2 * overlap) : 0;
+  const yaw = approach === "front" ? -Math.PI / 2 : approach === "rear" ? Math.PI / 2 : 0;
+  if (car.crashed) {
+    // Struck end 0.5 m off the face: a wreck coasting in from the spawn mark bleeds most of `v`.
+    relaunchDamaged(car, BARRIER_HALF.x + 0.5 + strikeReach(car, approach), z, yaw, -v, 0);
   } else {
-    launch(car, 2.6, 0, 0, -v, 0);
+    launch(car, approach === "side" ? 2.6 : 6.2, z, yaw, -v, 0);
   }
   const w = makeWorld([car], true, opts.slomo ?? false);
   const probe = new Probe(car, car.velocity);
   run(w, [probe], opts.after ?? 1.5);
   return probe.finish();
+}
+
+/** Car-local reach of the end that strikes the slab, from the group origin (m). */
+function strikeReach(car: DeformableCar, approach: WallApproach): number {
+  const d = car.deform;
+  if (approach === "front") return Math.max(mass(d, "bumperFL").local.z, mass(d, "bumperFR").local.z);
+  if (approach === "rear") return -Math.min(mass(d, "bumperRL").local.z, mass(d, "bumperRR").local.z);
+  let minX = Infinity;
+  for (const m of d.masses) minX = Math.min(minX, m.local.x);
+  return -minX;
 }
 
 /**
