@@ -37,29 +37,57 @@ Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironmen
 
 ## Controls
 
-| | |
+| Scene | |
 |---|---|
-| Space | pause |
-| R | reset / reshuffle |
+| Space | pause / play (handbrake while driving) |
+| R | reset / reshuffle (recover the car while driving) |
+| L | loop the crash |
 | B | jersey barrier |
-| C | compactor |
+| C | compactor (camera view while driving) |
 | I | piston rig: eight rams around a parked car (docs/PISTON_RIG.md); speed, mass, face hardness and hold-car in its panel |
 | 1–8 / 0 | piston rig: fire one ram (clockwise from front-left) / all eight |
-| D | demolition derby (not while driving) |
+| D | demolition derby (from the whole-field view) |
+| K | ramp balls |
 | G | deform rig |
 | P | control particles: size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel |
-| K | ramp balls |
-| V | deform rig |
-| M | shape ↔ lattice |
+| Y | shape ↔ lattice |
+| M | auto slow-mo |
+| O | auto-orbit camera |
+| U | audio |
 | J | JSON trace capture (off by default) |
 | JSON button | copy this run's spawn (counter = 1; no extra ticks unless capture is on) |
 | drag / scroll | orbit camera |
-| click a car | follow it |
-| WASD | drive the followed car |
-| Shift | boost (drains, recharges, fills on a derby takedown) |
-| Space | brake while driving, otherwise pause |
-| T | first / third person while driving |
+
+| Driving: keyboard + mouse | |
+|---|---|
+| click a car, Q / E | follow it, previous / next car |
+| W / ↑ | gas (brakes first while rolling backward) |
+| S / ↓ | brake; once stopped, reverse |
+| A / ←, D / → | steer left / right, relative to the car. Reversing steers like a real car: A backs the tail to the left. No turning on the spot |
+| Space | handbrake (sharper turn, slows the car) |
+| Shift | boost (drains while used under gas, recharges, fills on a derby takedown) |
+| drag | look round the car; eases back behind it 0.8 s after release |
+| V / C / T | camera: chase → far chase → hood cam |
+| R | recover: back on its wheels where it stands, at rest and repaired (derby: only when flipped and still running) |
 | Esc | drive → follow → whole field |
+
+While following, any drive key (W/A/S/D, arrows) takes the wheel.
+
+| Driving: controller (Xbox / PlayStation) | |
+|---|---|
+| RT / R2 | gas |
+| LT / L2 | brake, then reverse (analog) |
+| left stick | steer (deadzone, soft centre) |
+| A / Cross | handbrake |
+| X / Square | boost |
+| right stick | look round, snaps back on release; orbits while watching |
+| Y / Triangle | camera view |
+| LB / RB (L1 / R1) | previous / next car (starts following from the whole field) |
+| D-pad ↓ | recover |
+| Start / Options | pause |
+| Back / View / Create | same as Esc |
+
+Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
 HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (clear the field to return to 1×). **Defaults** resets the lot.
 
