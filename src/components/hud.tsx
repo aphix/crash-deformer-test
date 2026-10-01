@@ -5,6 +5,7 @@ import {
   CircleDashed,
   CircleDot,
   ClipboardCopy,
+  Crosshair,
   FoldHorizontal,
   Gauge,
   Orbit,
@@ -21,7 +22,8 @@ import {
   VolumeX,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import type { CrashHudState } from "@/game/hud-store";
+import type { CrashHudState, PistonHud } from "@/game/hud-store";
+import type { PistonConfig } from "@/game/piston-rig";
 import { cn } from "@/lib/utils";
 
 type Props = {
@@ -34,6 +36,10 @@ type Props = {
   onToggleBarrier: () => void;
   onToggleBalls: () => void;
   onToggleCompactor: () => void;
+  onTogglePistons: () => void;
+  /** 0–7 one ram (key order), 8 all. */
+  onFirePiston: (index: number) => void;
+  onPistonConfig: (patch: Partial<PistonConfig>) => void;
   onToggleDerby: () => void;
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
@@ -67,6 +73,9 @@ export function Hud({
   onToggleBarrier,
   onToggleBalls,
   onToggleCompactor,
+  onTogglePistons,
+  onFirePiston,
+  onPistonConfig,
   onToggleDerby,
   onToggleOrbit,
   onToggleSlomo,
@@ -104,6 +113,8 @@ export function Hud({
               ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
               : state.showCompactor
               ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
+              : state.showPistons
+              ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
               : state.carCount <= 2
                 ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
                 : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
@@ -181,6 +192,8 @@ export function Hud({
           </ul>
         </div>
       ) : null}
+
+      {state.showPistons ? <PistonPanel pistons={state.pistons} onFire={onFirePiston} onConfig={onPistonConfig} /> : null}
 
       {state.seat !== "global" ? (
         <div className="pointer-events-none absolute bottom-28 left-1/2 z-10 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 rounded-xl bg-surface/90 px-4 py-2 text-center shadow-[var(--shadow-border)]">
@@ -327,6 +340,15 @@ export function Hud({
           >
             <FoldHorizontal />
             <span className="hidden sm:inline">Press {state.showCompactor ? "on" : "off"}</span>
+          </Button>
+          <Button
+            onClick={onTogglePistons}
+            variant={state.showPistons ? "default" : "ghost"}
+            aria-pressed={state.showPistons}
+            aria-label="Toggle piston rig"
+          >
+            <Crosshair />
+            <span className="hidden sm:inline">Pistons {state.showPistons ? "on" : "off"}</span>
           </Button>
           <Button
             onClick={onToggleDerby}
@@ -546,7 +568,7 @@ export function Hud({
           </Button>
           <p className="ml-auto hidden items-center gap-1 pr-2 text-xs text-subtle md:flex">
             <Gauge className="size-3.5" />
-            Space pause · R reset · L loop · B wall · K balls · G rig · P particles · O orbit · M slomo · U audio · Y shape · J json
+            Space pause · R reset · L loop · B wall · K balls · C press · I pistons · 1–8/0 fire · G rig · P particles · O orbit · M slomo · U audio · Y shape · J json
           </p>
         </div>
       </div>
@@ -567,6 +589,83 @@ function Stat({
     <div className={cn("rounded-xl bg-surface/80 px-3 py-2 shadow-[var(--shadow-border)]", align === "right" && "text-right")}>
       <p className="font-display text-[0.65rem] uppercase tracking-[0.16em] text-subtle">{label}</p>
       <p className="font-display text-lg font-semibold tabular-nums leading-none sm:text-xl">{value}</p>
+    </div>
+  );
+}
+
+/** Compass order on screen (front at the top): index into the rig's key order, 8 = all. */
+const PISTON_GRID = [0, 1, 2, 7, 8, 3, 6, 5, 4] as const;
+const PISTON_NAMES = ["Front-left", "Front", "Front-right", "Right", "Rear-right", "Rear", "Rear-left", "Left"] as const;
+
+/** Piston scene controls: fire pad plus the shot config, one movable block. */
+function PistonPanel({
+  pistons,
+  onFire,
+  onConfig,
+}: {
+  pistons: PistonHud;
+  onFire: (index: number) => void;
+  onConfig: (patch: Partial<PistonConfig>) => void;
+}) {
+  const slider = (label: string, value: number, min: number, max: number, step: number, shown: string, set: (v: number) => void) => (
+    <label className="flex items-center gap-2">
+      <span className="w-14 shrink-0 font-display text-[0.6rem] uppercase tracking-[0.14em] text-subtle">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+        aria-label={label}
+        className="h-1.5 w-full cursor-pointer accent-current"
+      />
+      <span className="w-16 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
+    </label>
+  );
+  return (
+    <div className="pointer-events-auto absolute left-4 top-36 w-60 space-y-2 rounded-xl bg-surface/90 p-3 shadow-[var(--shadow-border)] sm:left-6 sm:top-40">
+      <div className="flex items-baseline justify-between">
+        <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">Pistons</p>
+        <p className="font-display text-xs tabular-nums text-muted">
+          {pistons.energyKj.toFixed(1)} kJ · EBS {pistons.ebsKph.toFixed(0)} km/h
+        </p>
+      </div>
+      <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire a piston">
+        {PISTON_GRID.map((i) => (
+          <Button
+            key={i}
+            size="sm"
+            variant={i === pistons.selected ? "default" : "secondary"}
+            disabled={pistons.busy}
+            onClick={() => onFire(i)}
+            aria-label={i === 8 ? "Fire all pistons" : `Fire ${PISTON_NAMES[i]} piston`}
+            title={i === 8 ? "All (0)" : `${PISTON_NAMES[i]} (${i + 1})`}
+          >
+            {i === 8 ? "All" : i + 1}
+          </Button>
+        ))}
+      </div>
+      {slider("Speed", pistons.speedKph, 5, 120, 1, `${pistons.speedKph.toFixed(0)} km/h`, (v) => onConfig({ speedKph: v }))}
+      {slider("Mass", pistons.massKg, 200, 3000, 50, `${pistons.massKg.toFixed(0)} kg`, (v) => onConfig({ massKg: v }))}
+      {slider(
+        "Face",
+        pistons.hardness,
+        0.2,
+        1,
+        0.05,
+        pistons.hardness >= 1 ? "steel" : `${Math.round(pistons.hardness * 100)}% car`,
+        (v) => onConfig({ hardness: v }),
+      )}
+      <Button
+        size="sm"
+        className="w-full"
+        variant={pistons.holdCar ? "default" : "ghost"}
+        aria-pressed={pistons.holdCar}
+        onClick={() => onConfig({ holdCar: !pistons.holdCar })}
+      >
+        Hold car {pistons.holdCar ? "on" : "off"}
+      </Button>
     </div>
   );
 }
