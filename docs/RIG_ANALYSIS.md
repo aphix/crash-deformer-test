@@ -904,6 +904,65 @@ numbers, so re-measure after it before tuning B1 and B4.
 
 ---
 
+## 6. Status after implementation
+
+Lane `crash-realism` landed A1, A2, B1, B2, B3, B4 and the A9 ω×r sign fix
+(commits `bc5f81b`, `9b03336` on top of main `53ea0f5`). C1–C4, A3, A10 and
+A15 are not done yet; A4, A5 and D1 belong to the shape-kernel lane.
+
+What changed, in mechanism terms:
+
+- **A1** — `StreamedDeformation.projectOutOfBox` puts every mass whose
+  half-radius sphere crosses the slab back on the face and kills its inbound
+  speed (local positions follow, so `crumpleTravelCorner` is truthful). The
+  slab (`JerseyBarrier.resolve`) then applies a constant crush force
+  `m·ebs²/(2·hitStroke)` through `brakeInbound` while a mass rests on the face,
+  so the cabin decelerates over the stroke instead of in one clip.
+  `clipCarToBarrier` opens `bumperKeep` by `leftover`. `crumpleTravelCorner`
+  now reads the struck end only (it took the max over both ends, so it always
+  read the untouched end).
+- **A2** — `updateDrivetrain` uses rearward engine travel along the hit in the
+  cell frame; side hits do not count. The engine moves only once this hit's
+  stroke packs the nose against it (`ENGINE_PACK_GAP` 0.54 m, slack 0.04 m);
+  `ENGINE_KILL_TRAVEL` is 0.15 m. This replaces `ENGINE_LIGHT_CAP`.
+- **B1** — `applyImpact(point, inward, impulse, ebs)`; pairs use
+  `ebs = closing·m_other/(m_self+m_other)`. `crushStroke(ebs, squash) =
+  (0.035·ebs + 0.02)·(0.6 + squash)` caps each node's crush along the hit
+  (0.55 m at 56 km/h, squash 0.4). Crushed nodes keep a permanent set (only
+  the last 0.08 m springs back). In car-car, once both strokes are spent the
+  packed structures stop the relative closing.
+- **B2** — `satCarBarrier` / `satCars` return the midpoint of the two split
+  corner contacts when both are hit within 30 % of each other.
+- **B3** — `clampLocal` splits travel into `along` (stroke cap) and `perp`
+  (`latCap`); side hits cap at the door band (0.278 m).
+- **B4** — rear stroke × `chassisRear/chassisFront` maxCrush (0.45/0.55).
+
+Measured with `src/game/crash-scenarios.test-util.ts` (the §3.1 frame order,
+full speed, shape mode). Base = main `53ea0f5` with the same harness.
+
+| scenario | COM travel m (base → now) | pulse ms (base → now) | nose end L/R (base → now) | tail end | engine max | past wall, centre | drivetrain | detached (now) |
+|---|---|---|---|---|---|---|---|---|
+| wall20 | 0.26 → 0.20 | 133 → 100 | 0.09/0.09 → 0.10/0.10 | −0.04 → 0.01 | 0.01 → 0.02 | 0.21 → 0.00 | alive → alive | — |
+| wall35 | 0.27 → 0.31 | 100 → 83 | 0.15/0.13 → 0.17/0.15 | −0.03 → 0.02 | 0.01 → 0.03 | 0.23 → 0.00 | alive → alive | — |
+| wall48 | 0.30 → 0.45 | 17 → 83 | 0.09/0.00 → 0.24/0.24 | −0.01 → 0.05 | 0.02 → 0.07 | 0.24 → 0.00 | alive → alive | — |
+| **wall56** | 0.28 → **0.48** | 33 → **83** | 0.05/−0.04 → **0.28/0.28** | 0.01 → 0.07 | 0.01 → 0.11 | 0.31 → **0.00** | DEAD → alive | bumperF |
+| wall64 | 0.30 → 0.55 | 17 → 67 | −0.02/−0.03 → 0.30/0.30 | 0.07 → 0.08 | 0.00 → 0.15 | 0.35 → 0.00 | DEAD → DEAD | bumperF |
+| wall80 | 0.34 → 0.68 | 200 → 83 | 0.11/−0.29 → 0.40/0.40 | 0.05 → 0.08 | 0.03 → 0.23 | 0.41 → 0.00 | DEAD → DEAD | bumperF |
+| wall56 slomo | 0.28 → 0.39 | 19 → 69 | −0.08/0.04 → 0.27/0.21 | 0.10 → 0.02 | 0.04 → 0.10 | 0.11 → 0.00 | alive → alive | bumperF |
+| offset64 40 % | 0.30 → 1.17 | 17 → 133 | −0.01/−0.04 → 0.53/0.33 | 0.07 → 0.00 | 0.00 → 0.34 | 0.27 → 0.24 | DEAD → DEAD | bumperF |
+| side50wall | 0.52 → 0.26 | 1133 → 100 | 0.58/0.31 → 0.01/−0.04; door 0.11 → 0.28 | 0.74 → 0.04 | 0.24 → 0.04 | 0.37 → 0.11 | alive → alive | doorL |
+| rear50 | 0.24 → 0.24 | 33 → 50 | 0.14/0.14 → 0.01/0.00 | −0.11 → **0.17** | 0.12 → 0.02 | 0.36 → 0.00 | alive → alive | — |
+| headon 2×28 | 1.28 → 0.65 | — | max 0.55/0.44 → **0.23/0.23** (impactLocal.x −0.49 → 0.00) | −0.03 → 0.01 | 0.44 → 0.04 | — | DEAD → **alive** | — (base: hubFL+FR popped) |
+| headon 2×56 | 1.93 → 0.83 | — | max 0.97/0.45 → **0.55/0.55** | 0.01 → 0.04 | 0.79 → 0.29 | — | DEAD → DEAD | bumperF; hubFL+FR |
+| tbone50 struck | 8.52 → 8.75 | — | door R 0.11 → 0.26 | 0.41 → 0.02 | 0.07 → 0.03 | — | alive → alive | doorR |
+
+Open against §5: offset64 still lets a mass centre 0.24 m past the slab end
+(the car pivots off the slab edge; the end face projection is not reached
+before the clip); the pulse is 67–100 ms at 56–80 km/h (inside A1's
+[60, 150] band, short of the 90–140 ms real range); the 2×56 head-on pops
+both front hubs (C4 not done).
+
+
 ## Appendix
 
 ### Sources
