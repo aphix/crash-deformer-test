@@ -1088,6 +1088,51 @@ Open:
   across the plant switch moved masses through the cell cap (zips came back),
   so it was reverted.
 
+### 6.3 Pops, pitch and pair drag: measured causes (lane `crash-realism-4`, no source change)
+
+Probes (worktree `.bench/`): `pops.ts` (owner derby with per-call group/centroid
+attribution), `pitch.ts` (one struck car, pitch per call), `drag2.ts` (crashed
+19 m/s car into a crashed 10 m/s car), `petrol.ts` (fleet-spin replay, yaw and
+L per call). Patches: `.bench/pops-anchor.diff` (the anchor fix below).
+
+- **Derby pops, main class: the plant switch.** `quiet 0.00` is read after the
+  slice; the pop slice starts planted (quiet > 0.2). Planted, the group sits on
+  the hubs and the cell is free up to its 0.12 m cap. The first contact resets
+  quiet, `followGroup` re-anchors on `cell.world − R·cell.rest`, and the group
+  and every pinned hub jump by the cell's offset inside one dt = 0 call.
+  Second class: the planted anchor is computed under a yaw-only frame and then
+  pitched, so each plant switch moves the group by tilt × height (0.07–0.10 m).
+  Anchoring both modes on the held `local` under the final rotation, with the
+  anchor's local y solved for the clamped group height (otherwise the clamp
+  leaks `δ·sin(pitch)` into x/z every call and ratchets), takes the 15 s owner
+  derby from 19 pops to 0–4. Every variant also flips tuned outcomes:
+  side-piston crush 0.222 → 0.216 m between 50 and 60 km/h (tolerance
+  0.005 m), derby elimination (4 of 5 deaths by 90 s), the fleet-spin replay
+  (a late re-hit leaves Petrol turning 0.24 rad), and the owner-derby zips.
+  Keeping the planted offset as a fixed anchor instead gives 107 pops: the
+  re-arm bases are cell-relative (§6.2) and disagree with it.
+- **Hull pushes.** With the extra ≤ 0 case still pushing 6 mm, every SAT pass
+  pushes while any overlap is left (3 × 0.006–0.03 m per slice on a wedged
+  car). A per-slice push budget (`satPushCap(dt)` per car) removes the second
+  pop class, but in the drag probe the faster car then slides through the
+  slower one.
+- **Pitch.** An incremental read (world tilt − body-frame tilt) is neutral and
+  accumulates. In `pitch.ts` a 10 m/s nose hit runs it to −0.11 rad in 0.4 s,
+  and in the derby it sits on the −0.2/+0.22 clamps (7 pops against 1). The
+  nose-up motion is real mass motion: the front hub rises 0.32 → 0.44 m even
+  with hub height left to the ground. World tilt minus the rest tilt removes
+  the −0.03 rad rest bias without memory.
+- **Pair drag (owner dump-pull).** In the headless synthetic (`drag2.ts`), main
+  shares momentum: the normal closing is gone within 0.25 s, and travel is 1.09–1.22×
+  that of a lone car at the common speed. The owner's 30 m carry did not
+  reproduce. Pushes that also exchange the closing they stand for
+  (`Δv = min(closing, push/h)`, equal and opposite) and a centroid-preserving
+  clamp are each sound, but each moves wall56 COM travel (0.637 m), the A3
+  T-bone engine gap (0.035 m) or the later-rear-hit fixture.
+- **Ground drag.** `bleedAfterSlide` gates `dragGround` on the contact-quiet
+  timer, so a rubbing pair gets roughly hub friction only. Ramping on
+  `crushElapsed` instead changes the six-car derby: deaths at 4.7 s and 4.8 s.
+
 
 ## Appendix
 
