@@ -37,14 +37,10 @@ export type DeformMode = "shape" | "lattice";
  *  same threshold stays driveable from the rear well past 80 km/h. */
 export const ENGINE_KILL_TRAVEL = 0.15;
 
-/** Block travel (m) the first hit's pulse may leave when that hit is under ~56 km/h.
- *  Car-car at 25 km/h each was grinding the block past the kill after the
- *  bumper was gone; this stops that grind. Later hits are not capped, so a
- *  wreck that keeps taking hits (derby) does eventually lose its engine. */
-export const ENGINE_LIGHT_CAP = 0.12;
-
-/** Sim seconds after the first contact that ENGINE_LIGHT_CAP protects. */
-const ENGINE_LIGHT_PULSE = 1.2;
+/** Engine slack (m) a hit too slow to pack the nose still allows (mounts, not crush).
+ *  This replaces the old first-hit ENGINE_LIGHT_CAP: the block's reach now
+ *  follows the hit's own stroke, so car-car at 25 km/h each cannot grind it. */
+const ENGINE_SLACK = 0.04;
 
 /** Packed bumper-to-block-centre length (m): bumper beam and radiator crushed flat ahead of a
  *  0.36 m block. Nose crush past the 0.84 m rest gap minus this shoves the engine back. */
@@ -1814,19 +1810,13 @@ export class StreamedDeformation {
         dx = along * ix + px;
         dz = along * iz + pz;
       }
-      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && this.hitSpeed >= 0 && this.hitSpeed < 15.5 && this.elapsed < ENGINE_LIGHT_PULSE) {
-        const sunk = Math.hypot(dx, dy, dz);
-        if (sunk > ENGINE_LIGHT_CAP) {
-          const k = ENGINE_LIGHT_CAP / sunk;
-          dx *= k;
-          dy *= k;
-          dz *= k;
-        }
-      }
       if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && !sideHit && iz < 0) {
-        // The crushed nose packs against the block: past the crumple length it shoves the engine back.
-        const line = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z) - ENGINE_PACK_GAP;
-        if (m.rest.z + dz > line) dz = line - m.rest.z;
+        // The block sits behind the crumple length: it only moves once this hit's stroke
+        // packs the nose against it, and the crushed nose shoves it back when it does.
+        const nose = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z);
+        const reach = Math.max(ENGINE_SLACK, stroke - (Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - m.rest.z - ENGINE_PACK_GAP));
+        if (dz < -reach) dz = -reach;
+        if (m.rest.z + dz > nose - ENGINE_PACK_GAP) dz = nose - ENGINE_PACK_GAP - m.rest.z;
       }
       if (m.hub && !this.deepCrush) {
         const popAt = m.radius * 0.5;

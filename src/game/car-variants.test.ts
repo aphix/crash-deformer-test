@@ -146,7 +146,7 @@ describe("rig cages wrap every style", () => {
       const geo = c.body.geometry;
       c.group.updateMatrixWorld();
       const vel = new THREE.Vector3(0, 0, -14);
-      d.beginCrush(new THREE.Vector3(0, 0.36, -2.06), new THREE.Vector3(0, 0, 1), 14, c.group, vel, new THREE.Vector3());
+      d.beginCrush(new THREE.Vector3(0, 0.36, -2.06), new THREE.Vector3(0, 0, 1), 14, 14, c.group, vel, new THREE.Vector3());
       const rl = d.masses.find((m) => m.name === "bumperRL")!;
       const z0 = rl.local.z;
       for (let i = 0; i < 24; i++) {
