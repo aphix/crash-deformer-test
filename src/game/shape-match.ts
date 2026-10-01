@@ -5,6 +5,8 @@
  * This file is the typed façade.
  */
 export type Mat3 = Float64Array;
+/** Unit quaternion, (x, y, z, w). */
+export type Quat = Float64Array;
 
 export interface ShapeParticle {
   x: number;
@@ -31,16 +33,20 @@ export interface ShapeCluster {
   cmy: number;
   cmz: number;
   AqqInv: Mat3;
+  /** Rest shape is flat (rank-2 Aqq): the cluster pins translation only, R = S = I. */
+  planar: boolean;
   Sp: Mat3;
   A: Mat3;
   R: Mat3;
   S: Mat3;
   M: Mat3;
   skinM: Mat3;
-  skinInvT: Mat3;
   Rprev: Mat3;
+  /** Unclamped rotation of the last fit: warm start of the next extraction. */
+  rotQ: Quat;
   skinR: Mat3;
   skinRprev: Mat3;
+  skinRotQ: Quat;
   skinCm0x: number;
   skinCm0y: number;
   skinCm0z: number;
@@ -53,18 +59,11 @@ export {
   m3,
   m3Id,
   m3Copy,
-  m3Zero,
   m3Mul,
-  m3MulVecInto,
-  m3MulVec,
-  m3Transpose,
-  m3AddScaled,
-  m3Lerp,
   m3Det,
-  m3Invert,
   m3FrobeniusI,
   m3Finite,
-  m3MaxAbs,
+  quatId,
   m3Polar,
   m3Orthonormalize,
   m3RotationAngle,
@@ -76,8 +75,6 @@ export {
   applyPlasticity,
   resetCluster,
   transformSkinPointInto,
-  transformPoint,
-  transformSkinPoint,
   transformNormal,
   matchSkinLocal,
   stiffnessIters,
