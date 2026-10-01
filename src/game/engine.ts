@@ -4,7 +4,7 @@ import { WheelBatch } from "./car-mesh.ts";
 import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
-import { PistonBank } from "./engine-pistons.ts";
+import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo } from "./engine-pistons.ts";
 import { DOOR_LANES, DoorRig, RAM, RAM_DEFAULTS, type DoorScenario, type RamShot } from "./door-rig.ts";
 import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
@@ -56,6 +56,8 @@ const FLEET_PAINT: CarPaint[] = [
 const FIXED = 1 / 60;
 const IMPACT_SCALE = 0.032;
 const PRE_IMPACT_LEAD = 0.07;
+/** Piston loop: the next ram is parked this long (s) before its shot, and no sooner after the last one. */
+const PISTON_PARK_LEAD = 1;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
  *  ≈0.9 m the sun throws the roof's shadow, so an off-screen car's shadow is never stale either. */
 const LOD_RADIUS = 3.5;
@@ -150,8 +152,12 @@ export class CrashEngine {
   private pistons = new PistonRig();
   private pistonBank: PistonBank;
   private pistonSelected = 0;
-  /** A shot went off since the car was parked (no auto-fire; a loop reset moves to the next piston). */
+  /** A shot went off since the car was parked; the loop (`stepPistonLoop`) re-parks for the next one. */
   private pistonFired = false;
+  /** Last shot fired all eight: show the whole bank, not just the selected ram. */
+  private pistonAll = false;
+  /** Wall seconds since the last shot (loop pacing). */
+  private pistonSinceFire = 0;
   private pistonFxAt = 0;
   private doorRig = new DoorRig();
   private doorRam: DoorRam;
@@ -373,6 +379,9 @@ export class CrashEngine {
     this.showDoors = false;
     this.tryUnlockAudio();
     this.randomizeAndReset();
+    // Frame only on entering: re-parks and loop hops keep the user's view and the orbit running. The camera
+    // starts 1.2 s of orbit short of the front-right ram so the first synced shot comes from its side.
+    if (this.showPistons) this.view.frameReset(true, this.live(), pistonBearing(2) - PISTON_ORBIT_RATE * 1.2);
     this.emitHud(true);
   }
 
@@ -381,7 +390,9 @@ export class CrashEngine {
     if (!this.showPistons || this.pistons.busy) return;
     if (this.pistonFired && this.carA.group.position.lengthSq() > 0.09) this.randomizeAndReset();
     if (index < PISTON_IDS.length) this.pistonSelected = index;
+    this.pistonAll = index >= PISTON_IDS.length;
     this.pistonFired = true;
+    this.pistonSinceFire = 0;
     this.pistons.fire(index < PISTON_IDS.length ? PISTON_IDS[index]! : "all");
     // The run-up lasts a few hundredths of a second: slow down now so it reads.
     if (this.autoSlomo && this.userTimeScale == null && this.phase === "approach") {
@@ -394,7 +405,7 @@ export class CrashEngine {
 
   setPistonConfig(patch: Partial<PistonConfig>): void {
     this.pistons.setConfig(patch);
-    this.pistonBank.sync(this.pistons, this.pistonSelected);
+    this.pistonBank.sync(this.pistons, this.pistonSelected, this.pistonAll);
     this.emitHud(true);
   }
 
@@ -870,12 +881,11 @@ export class CrashEngine {
 
   private parkPistons(): void {
     const parked = this.parkSolo();
-    if (this.pistonFired && this.looping) this.pistonSelected = (this.pistonSelected + 1) % PISTON_IDS.length;
     this.pistonFired = false;
     this.pistonFxAt = 0;
     this.pistons.attach(parked);
     this.pistonBank.group.visible = true;
-    this.pistonBank.sync(this.pistons, this.pistonSelected);
+    this.pistonBank.sync(this.pistons, this.pistonSelected, this.pistonAll);
   }
 
   private parkDoors(): void {
@@ -907,7 +917,7 @@ export class CrashEngine {
     this.glassDots.reset();
     this.smoke.reset();
 
-    this.view.frameReset(this.showCompactor || this.showPistons || this.showDoors, this.live());
+    if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.sparkAt = -10;
@@ -1019,6 +1029,7 @@ export class CrashEngine {
         car.updateDeform(simDt);
       }
       this.updatePhase(wallDt);
+      if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (this.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
         this.impactLightLife -= wallDt;
@@ -1531,7 +1542,7 @@ export class CrashEngine {
       }
     } else if (this.phase === "aftermath") {
       if (this.wallSinceImpact > 8.2 && this.userTimeScale == null) this.targetScale = 1;
-      if (this.looping && this.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
+      if (this.looping && !this.showPistons && this.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
     }
   }
 
@@ -1559,7 +1570,9 @@ export class CrashEngine {
     }
 
     let spinRate = 0;
-    if (this.autoRotate && this.playing && this.seat.mode !== "drive") spinRate = this.phase === "approach" ? 0.12 : 0.32;
+    if (this.autoRotate && this.playing && this.seat.mode !== "drive") {
+      spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.phase === "approach" ? 0.12 : 0.32;
+    }
     this.view.orbit(wallDt, spinRate, this.playing);
   }
 
@@ -1622,11 +1635,57 @@ export class CrashEngine {
     if (stage === "max") this.phase = "aftermath";
   }
 
+  /** The orbit paces the piston loop: turning, untouched by the user, and visibly moving. */
+  private pistonHopSynced(): boolean {
+    return this.autoRotate && !this.view.userFramed && !this.reduceMotion && this.seat.mode !== "drive";
+  }
+
+  /**
+   * Piston loop: park the next ram `PISTON_PARK_LEAD` before its shot, then fire it. While the
+   * orbit paces the hops each ram fires as the camera passes behind it (one per eighth of a turn,
+   * next in the orbit's direction); otherwise every `hopSeconds`, in key order.
+   */
+  private stepPistonLoop(wallDt: number): void {
+    this.pistonSinceFire += wallDt;
+    const synced = this.pistonHopSynced();
+    const bearing = this.view.bearing;
+    if (this.pistonFired) {
+      if (this.pistonSinceFire < PISTON_PARK_LEAD) return;
+      let next = (this.pistonSelected + 1) % PISTON_IDS.length;
+      if (synced) {
+        next = pistonAhead(bearing, 0);
+        if (pistonToGo(next, bearing) > PISTON_ORBIT_RATE * PISTON_PARK_LEAD) return;
+      } else if (this.pistonSinceFire < this.pistons.config.hopSeconds - PISTON_PARK_LEAD) {
+        return;
+      }
+      this.pistonSelected = next;
+      this.pistonAll = false;
+      this.randomizeAndReset();
+      this.emitHud(true);
+      return;
+    }
+    if (!synced) {
+      if (this.elapsedWall >= PISTON_PARK_LEAD) this.firePiston(this.pistonSelected);
+      return;
+    }
+    const togo = pistonToGo(this.pistonSelected, bearing);
+    if (togo <= 0 && togo > -0.3) {
+      this.firePiston(this.pistonSelected);
+      return;
+    }
+    // Parked for a ram the camera isn't heading to (orbit just took over): wait for the next one instead.
+    const ahead = pistonAhead(bearing, 0);
+    if (ahead === this.pistonSelected) return;
+    this.pistonSelected = ahead;
+    this.pistonAll = false;
+    this.pistonBank.sync(this.pistons, ahead, false);
+    this.emitHud(true);
+  }
+
   private stepPistons(dt: number): void {
     const rig = this.pistons;
-    if (this.looping && !this.pistonFired && this.elapsedWall > 1.2) this.firePiston(this.pistonSelected);
     rig.step(dt);
-    this.pistonBank.sync(rig, this.pistonSelected);
+    this.pistonBank.sync(rig, this.pistonSelected, this.pistonAll);
     if (rig.takeHit()) {
       _bn.copy(rig.hitNormal).negate();
       if (this.phase === "approach") this.beginCinematic(rig.hitPoint, _bn, rig.hitClosing);
@@ -1686,6 +1745,8 @@ export class CrashEngine {
         massKg: this.pistons.config.massKg,
         hardness: this.pistons.config.hardness,
         holdCar: this.pistons.config.holdCar,
+        hopSeconds: this.pistons.config.hopSeconds,
+        hopSynced: this.pistonHopSynced(),
         busy: this.pistons.busy,
         energyKj: pistonEnergy / 1000,
         ebsKph: Math.sqrt((2 * pistonEnergy) / carMass) * 3.6,

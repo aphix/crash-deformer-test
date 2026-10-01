@@ -288,15 +288,20 @@ export class ChaseCamera {
     this.canvas.removeEventListener("wheel", this.onWheel);
   }
 
-  /** Snap to the opening shot: fixed press angle, or broadside to the fleet's approach line. */
-  frameReset(compactor: boolean, cars: readonly DeformableCar[]): void {
+  /** Orbit bearing (rad, atan2(x, z) about `look`, unwrapped); auto-rotate increases it. */
+  get bearing(): number {
+    return this.angle;
+  }
+
+  /** Snap to the opening shot: a fixed solo-rig angle (`soloAngle`), or broadside to the fleet's approach line. */
+  frameReset(compactor: boolean, cars: readonly DeformableCar[], soloAngle = 0.85): void {
     this.userFramed = false;
     this.trauma = 0;
     if (compactor) {
       this.look.set(0, 0.55, 0);
       this.radius = 9.4;
       this.pitch = 0.44;
-      this.angle = 0.85;
+      this.angle = soloAngle;
       const cp = Math.cos(this.pitch);
       this.pos.set(
         Math.sin(this.angle) * this.radius * cp,

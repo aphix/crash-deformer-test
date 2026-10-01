@@ -8,6 +8,10 @@ export type PistonHud = {
   massKg: number;
   hardness: number;
   holdCar: boolean;
+  /** Loop seconds between shots when the orbit isn't pacing them. */
+  hopSeconds: number;
+  /** The orbit paces the loop (on, camera untouched): one shot per eighth of a turn, `hopSeconds` unused. */
+  hopSynced: boolean;
   busy: boolean;
   /** Crush energy the car takes from this shot (kJ). */
   energyKj: number;
@@ -86,7 +90,7 @@ export const INITIAL_HUD: CrashHudState = {
   showBalls: false,
   showCompactor: false,
   showPistons: false,
-  pistons: { selected: 0, speedKph: 40, massKg: 1500, hardness: 1, holdCar: false, busy: false, energyKj: 0, ebsKph: 0 },
+  pistons: { selected: 0, speedKph: 40, massKg: 1500, hardness: 1, holdCar: false, hopSeconds: 6.5, hopSynced: true, busy: false, energyKj: 0, ebsKph: 0 },
   showDoors: false,
   doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
   autoRotate: true,

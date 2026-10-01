@@ -1,5 +1,32 @@
 import * as THREE from "three";
-import { PISTON, type PistonRig } from "./piston-rig.ts";
+import { PISTON, PISTON_IDS, type PistonRig } from "./piston-rig.ts";
+
+/** Orbit rate (rad/s) held in the piston scene, so one hop is a fixed eighth of a turn: 2π / 0.12 / 8 ≈ 6.5 s. */
+export const PISTON_ORBIT_RATE = 0.12;
+const STEP = (2 * Math.PI) / PISTON_IDS.length;
+
+const wrapPi = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
+
+/**
+ * Orbit bearing (camera angle, atan2(x, z) about the pad) that looks down
+ * piston `i`'s axis from behind its ram: key order steps +45° from the
+ * front-left corner at −45°.
+ */
+export function pistonBearing(i: number): number {
+  return wrapPi((i - 1) * STEP);
+}
+
+/** Rad the orbit (bearing increasing) still has to turn from `bearing` to piston `i`, in (−π, π]. */
+export function pistonToGo(i: number, bearing: number): number {
+  return wrapPi(pistonBearing(i) - bearing);
+}
+
+/** First piston strictly more than `lead` rad ahead of `bearing` in the orbit's direction. */
+export function pistonAhead(bearing: number, lead: number): number {
+  const n = PISTON_IDS.length;
+  const k = Math.floor((bearing + lead) / STEP) + 2;
+  return ((k % n) + n) % n;
+}
 
 const HEAD_DEPTH = 0.16;
 const ROD_RADIUS = 0.06;
@@ -52,39 +79,45 @@ export class PistonBank {
     this.group.visible = false;
     this.meshes = [this.housing, this.rod, this.head, this.honey, this.stand];
     scene.add(this.group);
-    this.sync(rig, 0);
+    this.sync(rig, 0, true);
   }
 
-  /** Place one part: `along` is the centre along the ram's axis, sizes are full extents. */
-  private put(mesh: THREE.InstancedMesh, i: number, ax: number, az: number, along: number, y: number, sx: number, sy: number, sz: number): void {
+  /** Place ram `i`'s part in instance `slot`: `along` is the centre along the ram's axis, sizes are full extents. */
+  private put(mesh: THREE.InstancedMesh, slot: number, i: number, ax: number, az: number, along: number, y: number, sx: number, sy: number, sz: number): void {
     _q.setFromAxisAngle(_axis, this.yaw[i]!);
     _pos.set(0, y, along).applyQuaternion(_q);
     _pos.x += ax;
     _pos.z += az;
     _scale.set(sx, sy, sz);
-    mesh.setMatrixAt(i, _m.compose(_pos, _q, _scale));
+    mesh.setMatrixAt(slot, _m.compose(_pos, _q, _scale));
   }
 
-  sync(rig: PistonRig, selected: number): void {
+  /** `all` false shows only the `selected` ram (it sits in instance 0 and the draw count drops to 1). */
+  sync(rig: PistonRig, selected: number, all: boolean): void {
     const honeyDepth = rig.honey;
     const w = rig.config.faceWidth;
     const hgt = rig.config.faceHeight;
     const y = PISTON.faceY;
-    for (let i = 0; i < rig.heads.length; i++) {
+    const count = all ? rig.heads.length : 1;
+    for (let slot = 0; slot < count; slot++) {
+      const i = all ? slot : selected;
       const h = rig.heads[i]!;
       const back = h.plate - HEAD_DEPTH;
       const housingFront = h.restPlate - HEAD_DEPTH - ROD_SHOW;
       const rodLen = Math.max(0.01, back - housingFront);
       const block = Math.max(0, honeyDepth - h.faceSet);
-      this.put(this.head, i, h.ax, h.az, h.plate - HEAD_DEPTH * 0.5, y, w, hgt, HEAD_DEPTH);
-      this.put(this.honey, i, h.ax, h.az, h.plate + block * 0.5, y, block > 0.004 ? w * 0.94 : 0, hgt * 0.94, Math.max(block, 1e-3));
-      this.put(this.rod, i, h.ax, h.az, housingFront + rodLen * 0.5, y, ROD_RADIUS, ROD_RADIUS, rodLen);
-      this.put(this.housing, i, h.ax, h.az, housingFront - HOUSING_LENGTH * 0.5, y, HOUSING_RADIUS, HOUSING_RADIUS, HOUSING_LENGTH);
+      this.put(this.head, slot, i, h.ax, h.az, h.plate - HEAD_DEPTH * 0.5, y, w, hgt, HEAD_DEPTH);
+      this.put(this.honey, slot, i, h.ax, h.az, h.plate + block * 0.5, y, block > 0.004 ? w * 0.94 : 0, hgt * 0.94, Math.max(block, 1e-3));
+      this.put(this.rod, slot, i, h.ax, h.az, housingFront + rodLen * 0.5, y, ROD_RADIUS, ROD_RADIUS, rodLen);
+      this.put(this.housing, slot, i, h.ax, h.az, housingFront - HOUSING_LENGTH * 0.5, y, HOUSING_RADIUS, HOUSING_RADIUS, HOUSING_LENGTH);
       const standH = y - HOUSING_RADIUS;
-      this.put(this.stand, i, h.ax, h.az, housingFront - HOUSING_LENGTH * 0.5, standH * 0.5, 0.24, standH, 0.6);
-      this.head.setColorAt(i, i === selected ? SELECTED_COLOR : HEAD_COLOR);
+      this.put(this.stand, slot, i, h.ax, h.az, housingFront - HOUSING_LENGTH * 0.5, standH * 0.5, 0.24, standH, 0.6);
+      this.head.setColorAt(slot, i === selected ? SELECTED_COLOR : HEAD_COLOR);
     }
-    for (const mesh of this.meshes) mesh.instanceMatrix.needsUpdate = true;
+    for (const mesh of this.meshes) {
+      mesh.count = count;
+      mesh.instanceMatrix.needsUpdate = true;
+    }
     if (this.head.instanceColor) this.head.instanceColor.needsUpdate = true;
   }
 }

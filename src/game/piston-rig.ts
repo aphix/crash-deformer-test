@@ -28,6 +28,8 @@ export type PistonConfig = {
   faceHeight: number;
   /** Bolt the car down: its mean velocity is removed every step (a seismic floor); dents stay. */
   holdCar: boolean;
+  /** Loop: seconds from one shot to the next when the orbit isn't pacing the hops (orbit off, or the camera was moved). */
+  hopSeconds: number;
 };
 
 export const PISTON_DEFAULTS: Readonly<PistonConfig> = {
@@ -37,6 +39,7 @@ export const PISTON_DEFAULTS: Readonly<PistonConfig> = {
   faceWidth: 1.2,
   faceHeight: 0.5,
   holdCar: false,
+  hopSeconds: 6.5,
 };
 
 export const PISTON = {
@@ -288,6 +291,7 @@ export class PistonRig {
     this.config.hardness = THREE.MathUtils.clamp(this.config.hardness, 0.05, 1);
     this.config.faceWidth = THREE.MathUtils.clamp(this.config.faceWidth, 0.2, 2);
     this.config.faceHeight = THREE.MathUtils.clamp(this.config.faceHeight, 0.15, 1.2);
+    this.config.hopSeconds = THREE.MathUtils.clamp(this.config.hopSeconds, 1.5, 20);
     if (this.car && !this.busy) this.measure(this.car);
   }
 
