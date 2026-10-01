@@ -48,6 +48,24 @@ const ENGINE_PACK_GAP = 0.54;
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
+/** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
+const REARM_QUIET = 0.3;
+/** Smallest EBS (m/s, 22 km/h) that counts as a new hit on a wreck. Below it the derby's constant
+ *  shoving and nudging would re-arm every 0.3 s and grind any nose down to the block. */
+const REARM_EBS = 6;
+/** C4: a wheel separates only on an off-centre hit this hard (m/s EBS, 54 km/h)… */
+const HUB_POP_MPS = 15;
+/** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
+ *  packed bumper beam. With the 0.72 m overhang the wheel is reached after 0.30 m of corner crush. */
+const TYRE_REACH = 0.42;
+/** Throttle input this recent (s) still counts as "under power" for the settle rule. */
+const POWER_HOLD = 0.1;
+/** Steel-on-steel sliding friction for car-car mass contacts (same μ as the hull contact in pair-contact). */
+const SHEET_MU = 0.45;
+/** Yaw-rate sanity guard (rad/s) on followGroup's measured heading change; a real wreck spins < 5. */
+const YAW_RATE_GUARD = 12;
+/** Shortest sim time (s) a yaw-rate sample spans. */
+const YAW_RATE_SPAN = 1 / 60;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
 
@@ -65,6 +83,8 @@ const _d = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _n = new THREE.Vector3();
+/** sphereHit's sliding (tangential) relative velocity. */
+const _t = new THREE.Vector3();
 const _q = new THREE.Quaternion();
 const _axis = new THREE.Vector3();
 const _mat = new THREE.Matrix4();
@@ -158,8 +178,12 @@ export interface MassNode {
   dynamic: boolean;
   clipping: boolean;
   popped: boolean;
-  /** Permanent set (m) along the hit: crush this node can no longer spring back from. */
+  /** Permanent set (m) along the hit, from `baseX/baseZ`: crush this node can no longer spring back from. */
   crushSet: number;
+  /** Planar displacement from rest (m, car frame) when the current hit started: earlier hits' damage.
+   *  clampLocal caps only what this hit adds on top, so a later hit never springs an old dent back. */
+  baseX: number;
+  baseZ: number;
   bands: CrushBands;
   /** Name-class flags and region softness, resolved once so hot loops never string-match. */
   hub: boolean;
@@ -220,8 +244,14 @@ export class StreamedDeformation {
   private lastContact = -10;
   private crushing = false;
   private impulse = 0;
-  /** Closing speed of the hit that started the crash. Later spikes must not raise the durability gate. */
+  /** Equivalent barrier speed (m/s, −1 before any hit) of the current hit: the root-sum-square of every
+   *  hit's EBS on the struck end. Crush energy grows with EBS² on a linear-stiffness end, so repeated hits
+   *  on one end add stroke; spikes inside one contact never re-arm (`rearmHit`). */
   private hitSpeed = -1;
+  /** Σ EBS² per struck end (`struckEnd`: front, rear, left, right). */
+  private readonly endEbs2 = new Float64Array(4);
+  /** `elapsed` of the last throttle input (`notifyPower`). */
+  private lastPower = -10;
   private wrinkleAmp = 0;
   private helper: DeformRigHelper | null = null;
   private particleHelper: DeformParticleHelper | null = null;
@@ -238,6 +268,9 @@ export class StreamedDeformation {
   private readonly cageByPart: Map<BodyPartName, Cage>;
   private _totalMass = 1;
   private prevYaw = 0;
+  /** Heading and sim time (`elapsed`) of the last yaw-rate sample in followGroup. */
+  private rateYaw = 0;
+  private rateAt = 0;
   private overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
   private contactAt = -Infinity;
@@ -348,6 +381,8 @@ export class StreamedDeformation {
         clipping: false,
         popped: false,
         crushSet: 0,
+        baseX: 0,
+        baseZ: 0,
         bands: regionCrushBands(spec.name),
         hub: spec.name.startsWith("hub"),
         bumper: spec.name.startsWith("bumper"),
@@ -535,6 +570,8 @@ export class StreamedDeformation {
     this.crushing = false;
     this.impulse = 0;
     this.hitSpeed = -1;
+    this.endEbs2.fill(0);
+    this.lastPower = -10;
     this.wrinkleAmp = 0;
     this.crushAmount = 0;
     this.dirty = false;
@@ -544,6 +581,8 @@ export class StreamedDeformation {
     this.bidirectional = false;
     this.deepCrush = false;
     this.prevYaw = 0;
+    this.rateYaw = 0;
+    this.rateAt = 0;
     this.overlapFrame = false;
     this.contactAt = -Infinity;
     this.shapeWasLive = false;
@@ -697,6 +736,8 @@ export class StreamedDeformation {
       m.vel.z -= worldOmega.y * rx;
       m.dynamic = false;
       m.crushSet = 0;
+      m.baseX = 0;
+      m.baseZ = 0;
     }
   }
 
@@ -713,7 +754,10 @@ export class StreamedDeformation {
     this.impactLocal.copy(localPoint);
     this.impactInward.copy(localInward).normalize();
     const clamped = THREE.MathUtils.clamp(impulse, 4, 70);
-    if (this.hitSpeed < 0) this.hitSpeed = THREE.MathUtils.clamp(ebs, 0, 70);
+    if (this.hitSpeed < 0) {
+      this.hitSpeed = THREE.MathUtils.clamp(ebs, 0, 70);
+      this.endEbs2[this.struckEnd()] = this.hitSpeed * this.hitSpeed;
+    }
     this.impulse = clamped;
     this.crushing = true;
     this.massActive = true;
@@ -725,6 +769,8 @@ export class StreamedDeformation {
     for (const m of this.masses) m.dynamic = true;
     this.captureShapeRest();
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
+    this.rateYaw = this.prevYaw;
+    this.rateAt = 0;
     this.snapImpactToNearestMass();
     for (const s of this.sensors) {
       s.target = 0;
@@ -744,6 +790,46 @@ export class StreamedDeformation {
     return Math.max(0, this.elapsed - this.lastContact);
   }
 
+  /**
+   * A fresh contact on a wreck: after REARM_QUIET without contact, a hit of at least REARM_EBS takes
+   * over the hit frame and adds its EBS² to the struck end, so repeated hard hits keep crushing (and
+   * can reach the engine block) instead of reusing the first hit's stroke. False when the contact
+   * belongs to the current hit or is too soft.
+   */
+  rearmHit(localPoint: THREE.Vector3, localInward: THREE.Vector3, impulse: number, ebs: number): boolean {
+    if (!this.massActive || this.bidirectional || ebs < REARM_EBS || this.quietTime() < REARM_QUIET) return false;
+    this.impactLocal.copy(localPoint);
+    this.impactInward.copy(localInward).normalize();
+    this.snapImpactToNearestMass();
+    const end = this.struckEnd();
+    const e = Math.min(ebs, 70);
+    this.endEbs2[end] = this.endEbs2[end]! + e * e;
+    this.hitSpeed = Math.min(70, Math.sqrt(this.endEbs2[end]!));
+    this.impulse = THREE.MathUtils.clamp(impulse, 4, 70);
+    this.crushing = true;
+    this.dirty = true;
+    this.lastContact = this.elapsed;
+    for (const m of this.masses) {
+      m.baseX = m.local.x - m.rest.x;
+      m.baseZ = m.local.z - m.rest.z;
+      m.crushSet = 0;
+    }
+    return true;
+  }
+
+  /** End the current hit came in through: 0 front, 1 rear, 2 left (−x), 3 right (+x). */
+  private struckEnd(): number {
+    const ix = this.impactInward.x;
+    const iz = this.impactInward.z;
+    if (Math.abs(ix) > Math.abs(iz)) return ix > 0 ? 2 : 3;
+    return iz < 0 ? 0 : 1;
+  }
+
+  /** Throttle held this step (applyDrive): a wreck under power is not parked by the settle rule. */
+  notifyPower(): void {
+    this.lastPower = this.elapsed;
+  }
+
   /** Enable lattice masses without starting the crash cinematic (speed-bump hop). */
   armMasses(group: THREE.Object3D, worldVel: THREE.Vector3, worldOmega: THREE.Vector3): void {
     if (this.massActive) return;
@@ -751,6 +837,8 @@ export class StreamedDeformation {
     this.bindKinematic(group, worldVel, worldOmega);
     for (const m of this.masses) m.dynamic = true;
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
+    this.rateYaw = this.prevYaw;
+    this.rateAt = this.elapsed;
   }
 
   /** Pull impactLocal onto the nearest mass so L/R crush does not sit on the centerline. */
@@ -1103,14 +1191,22 @@ export class StreamedDeformation {
     const engL = this.at.engineL;
     const engR = this.at.engineR;
     const axle = this.at.axleR;
+    // Heading: the engine mid → axleR axis in world, minus the same axis's angle in the body frame
+    // the masses were last clamped into (`local`). Reading it against a fixed +z assumed that axis
+    // never tilts in the body; an asymmetric crush holds it tilted there, so every call turned the
+    // frame by the tilt and clampLocal wrote the turn back into world — up to ~1 rad per frame at a
+    // dozen calls per frame (the "wreck spins on the spot" defect).
     const fx = (engL.world.x + engR.world.x) * 0.5 - axle.world.x;
     const fy = (engL.world.y + engR.world.y) * 0.5 - axle.world.y;
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
+    const bx = (engL.local.x + engR.local.x) * 0.5 - axle.local.x;
+    const bz = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
     const yawLen = Math.hypot(fx, fz);
-    const yaw = yawLen > 0.15 ? Math.atan2(fx, fz) : this.prevYaw;
+    const yaw = yawLen > 0.15 && Math.hypot(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
+    // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
     const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22);
     const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5);
-    const yawSafe = Number.isFinite(yaw) ? yaw : this.prevYaw;
+    const yawSafe = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
     const plant = !this.bidirectional && this.quietTime() > 0.2;
     let minHub = Infinity;
     for (const m of this.masses) if (m.hub && m.world.y < minHub) minHub = m.world.y;
@@ -1188,16 +1284,22 @@ export class StreamedDeformation {
       velocityOut.set(mx / mass, 0, mz / mass);
     }
     clampSpeed(velocityOut, CRASH.maxMassMps);
-    if (dt > 1e-5) {
-      let dyaw = yawSafe - this.prevYaw;
+    const span = this.elapsed - this.rateAt;
+    if (dt > 1e-5 && span >= YAW_RATE_SPAN) {
+      // Heading change over at least a frame of sim time, so the SAT passes (dt = 0), the two pose
+      // syncs of one slice and contact jitter inside a frame are not divided by a 1/240 s slice.
+      // The clamp is only a guard against a bad fit.
+      let dyaw = yawSafe - this.rateYaw;
       if (dyaw > Math.PI) dyaw -= Math.PI * 2;
       if (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      const yawRate = THREE.MathUtils.clamp(dyaw / dt, -6, 6);
+      const yawRate = THREE.MathUtils.clamp(dyaw / span, -YAW_RATE_GUARD, YAW_RATE_GUARD);
       angularOut.set(
         THREE.MathUtils.clamp(pitch * 0.4, -2, 2),
         Number.isFinite(yawRate) ? yawRate : 0,
         THREE.MathUtils.clamp(roll * 0.4, -2, 2),
       );
+      this.rateYaw = yawSafe;
+      this.rateAt = this.elapsed;
     }
     this.prevYaw = yawSafe;
   }
@@ -1364,12 +1466,17 @@ export class StreamedDeformation {
    * Remaining crumple on the most-crushed corner of the struck end — SAT
    * bounce and the slab clip use this so a hit actually spends the zone.
    * (Taking the max over both ends read the untouched end on every hit.)
+   * Both ends are measured from the car origin, not the cell (which sits
+   * `cell.rest.z` ahead of it): from the cell a mint tail read 0.12 m longer
+   * than a mint nose, the slab clip saw a full zone until 0.26 m of tail
+   * crush and stopped a 50 km/h reverse hit at 0.23 m.
    */
   crumpleTravelCorner(): number {
     const cell = this.at.cell;
     if (this.impactInward.z > 0) {
-      const rl = cell.local.z - this.at.bumperRL.local.z - 0.36;
-      const rr = cell.local.z - this.at.bumperRR.local.z - 0.36;
+      const lag = 0.36 + 2 * cell.rest.z;
+      const rl = cell.local.z - this.at.bumperRL.local.z - lag;
+      const rr = cell.local.z - this.at.bumperRR.local.z - lag;
       return Math.max(Math.min(rl, rr), 0);
     }
     const fl = this.at.bumperFL.local.z - cell.local.z - 0.36;
@@ -1843,7 +1950,12 @@ export class StreamedDeformation {
       let dx = m.local.x - m.rest.x;
       let dy = m.local.y - m.rest.y;
       let dz = m.local.z - m.rest.z;
-      const along = dx * ix + dz * iz;
+      // Earlier hits' damage stays put: the far-side spring and the crush/lateral caps below
+      // measure only what the current hit adds on top of it.
+      const bx = this.bidirectional ? 0 : m.baseX;
+      const bz = this.bidirectional ? 0 : m.baseZ;
+      const base = bx * ix + bz * iz;
+      const along = dx * ix + dz * iz - base;
       const side = m.rest.x * ix + m.rest.z * iz;
       if (!this.bidirectional && side > 0.12) {
         // Far side of the car: allow a little spring, never grow the shell.
@@ -1887,10 +1999,14 @@ export class StreamedDeformation {
         }
         if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
       } else {
-        // Hit frame: crush runs along impactInward, the rest of the planar travel is lateral.
+        // Hit frame: crush runs along impactInward, the rest of the planar travel is lateral. The
+        // stroke is the struck end's total (rearmHit), so a node already crushed along it gets less.
         const cabin = m.name === "cell" || m.name === "roof";
         let cap = cabin ? (this.deepCrush ? 0.72 : 0.12) : Math.min(maxCrush * (0.38 + 0.72 * cw), stroke);
         if (sideHit && (m.name === "doorL" || m.name === "doorR")) cap = Math.min(cap, m.bands.max);
+        cap = Math.max(0, cap - Math.max(0, base));
+        dx -= bx;
+        dz -= bz;
         let along = dx * ix + dz * iz;
         let px = dx - along * ix;
         let pz = dz - along * iz;
@@ -1906,8 +2022,8 @@ export class StreamedDeformation {
           px *= k;
           pz *= k;
         }
-        dx = along * ix + px;
-        dz = along * iz + pz;
+        dx = along * ix + px + bx;
+        dz = along * iz + pz + bz;
       }
       if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && !sideHit && iz < 0) {
         // The block sits behind the crumple length: it only moves once this hit's stroke
@@ -1918,9 +2034,16 @@ export class StreamedDeformation {
         if (m.rest.z + dz > nose - ENGINE_PACK_GAP) dz = nose - ENGINE_PACK_GAP - m.rest.z;
       }
       if (m.hub && !this.deepCrush) {
-        const popAt = m.radius * 0.5;
-        const travel = Math.hypot(dx, dz);
-        if (!m.popped && travel > popAt) m.popped = true;
+        if (!m.popped && this.hitSpeed >= HUB_POP_MPS && !sideHit && Math.abs(this.impactLocal.x) >= 0.2 && cw > 0.6) {
+          // C4: wheels leave where real cars lose them — a hard off-centre (small overlap) hit whose
+          // struck corner has crushed through the overhang onto the tyre. A full-width hit loads
+          // the rails and leaves the wheels on, however hard.
+          const front = m.rest.z > 0;
+          const left = m.rest.x < 0;
+          const corner = front ? (left ? this.at.bumperFL : this.at.bumperFR) : left ? this.at.bumperRL : this.at.bumperRR;
+          const crushed = (corner.local.x - corner.rest.x) * ix + (corner.local.z - corner.rest.z) * iz;
+          if (front === iz < 0 && crushed >= Math.abs(corner.rest.z - m.rest.z) - TYRE_REACH) m.popped = true;
+        }
         if (!m.popped) {
           dx = 0;
           dz = 0;
@@ -2201,6 +2324,8 @@ export class StreamedDeformation {
 
     this.stepSuspension(dt);
 
+    // A car under power is driven, not a quiet wreck: the settle rule below must not park it.
+    const powered = this.elapsed - this.lastPower < POWER_HOLD;
     for (const m of this.masses) {
       if (!m.dynamic) continue;
       const hub = m.hub;
@@ -2217,7 +2342,7 @@ export class StreamedDeformation {
       }
       m.vel.multiplyScalar(Math.pow(rate, dt));
       clampSpeed(m.vel);
-      if (quiet > 2.4 && m.vel.lengthSq() < 0.08) m.vel.set(0, 0, 0);
+      if (quiet > 2.4 && !powered && m.vel.lengthSq() < 0.08) m.vel.set(0, 0, 0);
       m.world.addScaledVector(m.vel, dt);
       if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) {
         m.world.copy(m.rest);
@@ -2254,6 +2379,7 @@ export class StreamedDeformation {
         m.vel.y = THREE.MathUtils.clamp(m.vel.y, -2.2, 3);
       }
     }
+    this.holdEngineBlock();
     if (!live && !this.bidirectional) {
       let mx = 0,
         mz = 0,
@@ -2278,6 +2404,39 @@ export class StreamedDeformation {
       if (this.mode === "shape") this.foldCabin(dt);
       else this.nudgeLatticeRails(dt);
     }
+  }
+
+  /** A3: the block is one casting — engineL/engineR keep their rest spacing and share their
+   *  velocity along it (mass-weighted), whatever the crumple does around them. */
+  private holdEngineBlock(): void {
+    const a = this.at.engineL;
+    const b = this.at.engineR;
+    const wa = a.dynamic ? 1 / a.mass : 0;
+    const wb = b.dynamic ? 1 / b.mass : 0;
+    const w = wa + wb;
+    if (w < 1e-8) return;
+    const dx = b.world.x - a.world.x;
+    const dy = b.world.y - a.world.y;
+    const dz = b.world.z - a.world.z;
+    const len = Math.hypot(dx, dy, dz);
+    if (len < 1e-6) return;
+    const nx = dx / len;
+    const ny = dy / len;
+    const nz = dz / len;
+    const err = (len - a.rest.distanceTo(b.rest)) / w;
+    a.world.x += nx * err * wa;
+    a.world.y += ny * err * wa;
+    a.world.z += nz * err * wa;
+    b.world.x -= nx * err * wb;
+    b.world.y -= ny * err * wb;
+    b.world.z -= nz * err * wb;
+    const rel = ((b.vel.x - a.vel.x) * nx + (b.vel.y - a.vel.y) * ny + (b.vel.z - a.vel.z) * nz) / w;
+    a.vel.x += nx * rel * wa;
+    a.vel.y += ny * rel * wa;
+    a.vel.z += nz * rel * wa;
+    b.vel.x -= nx * rel * wb;
+    b.vel.y -= ny * rel * wb;
+    b.vel.z -= nz * rel * wb;
   }
 
   private stepSuspension(dt: number): void {
@@ -2633,8 +2792,12 @@ function sphereHit(a: MassNode, b: MassNode): void {
     const e = crumple ? (t >= 0.97 ? 0.08 : 0) : 0.18;
     const absorb = crumple ? Math.max(0.12, t) : 0.55;
     const j = (-(1 + e) * rel * absorb) / inv;
-    if (a.dynamic) a.vel.addScaledVector(_n, -j * ima);
-    if (b.dynamic) b.vel.addScaledVector(_n, j * imb);
+    // Coulomb friction: sheet metal scraping past sheet metal takes at most μ·j off the sliding velocity.
+    _t.copy(b.vel).sub(a.vel).addScaledVector(_n, -rel);
+    const slide = _t.length();
+    const jt = slide > 1e-6 ? Math.min(slide / inv, SHEET_MU * j) / slide : 0;
+    if (a.dynamic) a.vel.addScaledVector(_n, -j * ima).addScaledVector(_t, jt * ima);
+    if (b.dynamic) b.vel.addScaledVector(_n, j * imb).addScaledVector(_t, -jt * imb);
   }
 }
 

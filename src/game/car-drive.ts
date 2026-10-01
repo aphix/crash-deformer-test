@@ -24,8 +24,6 @@ export const DRIVE = {
   ebrakeDrag: 0.22,
   /** Lateral tire grip (m/s²) once crashed; the kinematic car has perfect grip. Full lock at top speed needs ~28. */
   grip: 20,
-  /** A quiet wreck zeroes masses under ~0.28 m/s; a powered wheel breaks away past that (~30 ms of accel). */
-  launch: 0.45,
 };
 
 const _zero: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
@@ -95,7 +93,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const s = Math.sin(dyaw);
   const fx = car.fwdFlat.x * c + car.fwdFlat.z * s;
   const fz = -car.fwdFlat.x * s + car.fwdFlat.z * c;
-  if (Math.abs(want) >= DRIVE.launch && Math.abs(speed) < DRIVE.launch) speed = Math.sign(want) * DRIVE.launch;
+  if (want !== 0) car.deform.notifyPower();
   const dv = speed - (car.velocity.x * fx + car.velocity.z * fz);
   const lat = car.velocity.x * fz - car.velocity.z * fx;
   const grip = -Math.sign(lat) * Math.min(Math.abs(lat), DRIVE.grip * dt);

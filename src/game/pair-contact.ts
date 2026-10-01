@@ -7,7 +7,6 @@ const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
-const _r = new THREE.Vector3();
 const _cn = new THREE.Vector3();
 const _cp = new THREE.Vector3();
 
@@ -46,15 +45,11 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
 
 /**
  * Pair SAT + crumple. Persistent overlap after the zone is spent must not
- * keep dumping cancelClosing (that is the 10s / 120 km/h zip).
+ * keep dumping cancelClosing (that is the 10s / 120 km/h zip). Every contact
+ * offers each car a hit: the first one starts its crash, a fresh hard one on
+ * a wreck re-arms a new hit (`DeformableCar.applyImpact`).
  */
-export function resolveCarPair(
-  carA: DeformableCar,
-  carB: DeformableCar,
-  deform: boolean,
-  feed: boolean,
-  dt: number,
-): PairHit | null {
+export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: boolean, dt: number): PairHit | null {
   const dist = carA.group.position.distanceTo(carB.group.position);
   if (dist > 5.2) return null;
 
@@ -73,19 +68,20 @@ export function resolveCarPair(
   const rel = _v.copy(carA.velocity).sub(carB.velocity);
   const closing = -rel.dot(n);
 
+  if (closing > 0.2 && (crushHit ?? hit ?? 0) > 0.006) {
+    // Equivalent barrier speed: each car takes the closing share the other's mass pushes into it.
+    // Before notifyContact: a wreck's re-arm reads how long it has been quiet.
+    const mA = carA.deform.totalMass;
+    const mB = carB.deform.totalMass;
+    carA.applyImpact(p, n, closing, (closing * mB) / (mA + mB));
+    carB.applyImpact(p, _w.copy(n).negate(), closing, (closing * mA) / (mA + mB));
+  }
+
   // Overlap after the wreck has settled is not a new hit — notifying every
   // slice zeroed quietTime and disabled damping for the whole clip.
   if (closing > CRASH.grazeMps) {
     carA.deform.notifyContact();
     carB.deform.notifyContact();
-  }
-
-  if (deform && closing > 0.2 && (crushHit ?? hit ?? 0) > 0.006) {
-    // Equivalent barrier speed: each car takes the closing share the other's mass pushes into it.
-    const mA = carA.deform.totalMass;
-    const mB = carB.deform.totalMass;
-    if (!carA.crashed) carA.applyImpact(p, n.clone(), closing, (closing * mB) / (mA + mB));
-    if (!carB.crashed) carB.applyImpact(p, n.clone().negate(), closing, (closing * mA) / (mA + mB));
   }
 
   let remain = Math.max(0, closing);
@@ -161,11 +157,6 @@ export function resolveCarPair(
       const jt = THREE.MathUtils.clamp(relT / (invA + invB), -mu * j, mu * j);
       impulseCar(carA, _n.z, 0, -_n.x, -jt);
       impulseCar(carB, _n.z, 0, -_n.x, jt);
-
-      _r.copy(_p).sub(carA.group.position);
-      carA.angular.y += (_r.x * _n.z - _r.z * _n.x) * j * 0.00008;
-      _r.copy(_p).sub(carB.group.position);
-      carB.angular.y += (_r.x * -_n.z - _r.z * -_n.x) * j * 0.00008;
     } else {
       // Zone spent: kill leftover closing on the cabin, not the bumper.
       const j = Math.min(cancelClosing(remain, 1, invA + invB, dt, 0), remain / (invA + invB));
@@ -204,7 +195,7 @@ export function stepCarPair(carA: DeformableCar, carB: DeformableCar, dt: number
     else carA.refreshBasis();
     if (carB.deform.massActive) carB.syncPose(0);
     else carB.refreshBasis();
-    const hit = resolveCarPair(carA, carB, !(carA.crashed && carB.crashed), k === 0, dt);
+    const hit = resolveCarPair(carA, carB, k === 0, dt);
     if (!hit) break;
   }
 

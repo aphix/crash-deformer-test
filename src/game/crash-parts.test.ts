@@ -5,7 +5,12 @@ import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";
-import { runPair } from "./crash-scenarios.test-util.ts";
+import { makeWorld, runPair, runWall, tickWorld } from "./crash-scenarios.test-util.ts";
+import { sliceSpeed } from "./sat.ts";
+import { fleetStyle } from "./fleet.ts";
+import { bounceGround, bounceOffCar, DebrisSystem } from "./engine-fx.ts";
+
+type PartRow = { name: string; hingeT: number; detached: boolean };
 
 function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") {
   const geom = dummyGeom();
@@ -140,7 +145,8 @@ describe("torsion / tension beams [lattice]", () => {
 });
 
 forModes("doors hinge then detach", (mode) => {
-  it("good: a right-side hit opens the right door, not the left", () => {
+  /** The engine's right-door hit (28 m/s closing) held for 45 frames; returns the parts by name. */
+  const rightSideHit = (): Record<string, PartRow> => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -157,11 +163,20 @@ forModes("doors hinge then detach", (mode) => {
       car.syncPose(DT);
       car.updateDeform(DT);
     }
-    const snap = car.snapshot() as { parts: { name: string; hingeT: number; detached: boolean }[] };
-    const r = snap.parts.find((p) => p.name === "doorR")!;
-    const l = snap.parts.find((p) => p.name === "doorL")!;
-    assert.ok(r.hingeT > 0.15, `right door never hinged (${r.hingeT})`);
-    assert.ok(r.hingeT > l.hingeT + 0.08, `doors tied together R=${r.hingeT} L=${l.hingeT}`);
+    const snap = car.snapshot() as { parts: PartRow[] };
+    return Object.fromEntries(snap.parts.map((p) => [p.name, p]));
+  };
+
+  it("good: a right-side hit opens the right door, not the left", () => {
+    const { doorR: r, doorL: l } = rightSideHit();
+    assert.ok(r!.hingeT > 0.15, `right door never hinged (${r!.hingeT})`);
+    assert.ok(r!.hingeT > l!.hingeT + 0.08, `doors tied together R=${r!.hingeT} L=${l!.hingeT}`);
+  });
+
+  it("bad: the right-side hit folds or breaks the right mirror and leaves the left one alone (C3)", () => {
+    const { mirrorR: r, mirrorL: l } = rightSideHit();
+    assert.ok(r!.detached || r!.hingeT > 0.3, `right mirror untouched (${r!.hingeT})`);
+    assert.ok(!l!.detached && l!.hingeT === 0, `left mirror moved (${l!.hingeT}, detached ${l!.detached})`);
   });
 
   it("good: front bumper folds then can detach on a hard nose hit", () => {
@@ -232,6 +247,177 @@ forModes("doors hinge then detach", (mode) => {
     const right = snap.lamps.find((l) => l.kind === "head" && l.side === 1)!;
     const left = snap.lamps.find((l) => l.kind === "head" && l.side === -1)!;
     if (!right.intact) assert.ok(left.intact, "right-front hit killed the left head first");
+  });
+});
+
+describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () => {
+  it("bad: a 30 km/h side slide springs the struck door but keeps it on; frontal and offset 64 km/h walls latch both doors (C1)", () => {
+    const side = runWall(30, 1, "side");
+    assert.ok(!side.detached.includes("doorL"), `30 km/h side slide tore the door off: ${side.detached.join(",")}`);
+    assert.ok(side.hinge.doorL! > 0.15, `struck door never sprang (${side.hinge.doorL})`);
+    for (const [name, r] of [["wall64", runWall(64)], ["offset64", runWall(64, 0.4)]] as const) {
+      assert.ok(!r.detached.some((p) => p.startsWith("door")), `${name} detached ${r.detached.join(",")}`);
+      assert.ok(Math.max(r.hinge.doorL!, r.hinge.doorR!) <= 0.2, `${name} doors L=${r.hinge.doorL} R=${r.hinge.doorR}`);
+    }
+  });
+
+  it("bad: a slow hit that folds the bumper hard leaves it on; a 56 km/h wall tears it off (C2)", () => {
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    car.deform.setMode("shape");
+    car.spawn(8, 12, 16);
+    car.group.updateMatrixWorld();
+    const hit = car.group.position.clone().addScaledVector(car.forward, 2.05);
+    hit.y = 0.4;
+    const inward = car.forward.clone().negate();
+    car.applyImpact(hit, inward, 16, 25 / 3.6);
+    for (let i = 0; i < 50; i++) {
+      car.deform.notifyContact();
+      car.deform.feedOverlap(hit, inward, 0.1, 16, DT);
+      car.deform.stepStructure(DT);
+      car.syncPose(DT);
+      car.updateDeform(DT);
+    }
+    const bumper = (car.snapshot() as { parts: PartRow[] }).parts.find((p) => p.name === "bumperF")!;
+    assert.ok(!bumper.detached && bumper.hingeT > 0.1, `25 km/h EBS: hingeT ${bumper.hingeT} detached ${bumper.detached}`);
+    assert.ok(runWall(56).detached.includes("bumperF"), "56 km/h wall kept the bumper");
+  });
+
+  it("bad: a wheel leaves on a hard small-overlap hit only — not in a 2×56 km/h head-on or on a 50 km/h T-bone's struck car (C4)", () => {
+    assert.deepEqual(runWall(64, 0.4).hubsPopped, ["hubFL"], "64 km/h 40 % offset");
+    for (const r of runPair(56, 56)) assert.ok(r.hubsPopped.length < 2, `2×56 head-on popped ${r.hubsPopped.join(",")}`);
+    const [struck] = runPair(0, 50, "t-bone");
+    assert.deepEqual(struck.hubsPopped, [], "T-bone struck car");
+  });
+
+  it("bad: the engine block stays one 0.60 m casting through a corner wall and a T-bone (A3)", () => {
+    const [struck, bullet] = runPair(0, 50, "t-bone");
+    for (const [name, r] of [["offset56", runWall(56, 0.4)], ["struck", struck], ["bullet", bullet]] as const) {
+      assert.ok(r.engineGapErr <= 0.012, `${name}: engineL–engineR off 0.60 by ${r.engineGapErr.toFixed(3)} m`);
+    }
+  });
+});
+
+/** The owner's "wrecks spin on the spot" capture (16-car fleet, shape mode): [paint, x, z, yaw, speed]. */
+const SPIN_FLEET: [string, number, number, number, number][] = [
+  ["Titanium", 20.8638, -8.1178, -1.1997, 28.513],
+  ["Petrol", 23.6128, -13.4449, -1.0532, 14.733],
+  ["Oxide", -2.6618, 25.8978, 3.0392, 19.6],
+  ["Ink", 4.7018, -10.6017, -0.4174, 8.143],
+  ["Bronze", 16.9026, 1.0423, -1.6324, 28.182],
+  ["Moss", 7.1054, -21.5383, -0.3187, 9.485],
+  ["Sand", -5.053, -23.6293, 0.2107, 10.532],
+  ["Slate", -22.967, -17.576, 0.9176, 6.567],
+  ["Ash", -18.2872, 7.1024, 1.9412, 8.595],
+  ["Coal", 9.5697, -3.1629, -1.2516, 15.037],
+  ["Khaki", -11.9963, 3.9944, 1.8922, 24.795],
+  ["Teal", 11.3389, 15.7196, -2.5167, 17.877],
+  ["Titanium-2", 0.1981, 17.6727, -3.1304, 8.599],
+  ["Petrol-2", -1.1815, -12.542, 0.0939, 6.018],
+  ["Oxide-2", 6.4505, 4.0158, -2.1276, 21.422],
+  ["Ink-2", -24.5784, 5.4783, 1.7901, 24.339],
+];
+
+describe("a crushed wreck keeps its heading", () => {
+  it("bad: after the 16-car fleet pile-up no wreck keeps turning on the spot", () => {
+    const cars = SPIN_FLEET.map(([name, x, z, yaw, speed], i) => {
+      const car = new DeformableCar({ body: 0xffffff, accent: 0x444444, name }, new THREE.Scene(), null, fleetStyle(i));
+      car.deform.setMode("shape");
+      car.deform.squash = 0.4;
+      car.deform.buckle = 0.45;
+      car.spawnFacing(x, z, yaw, 0);
+      car.velocity.set(Math.sin(yaw) * speed, 0, Math.cos(yaw) * speed);
+      car.speed = speed;
+      car.spawnSpeed = speed;
+      car.deform.bindKinematic(car.group, car.velocity, car.angular);
+      return car;
+    });
+    const w = makeWorld(cars, false, false);
+    const turn = cars.map(() => 0);
+    const prev = cars.map((c) => c.group.rotation.y);
+    for (let f = 0; f < 6 * 60; f++) {
+      tickWorld(w);
+      cars.forEach((c, i) => {
+        const d = c.group.rotation.y - prev[i]!;
+        prev[i] = c.group.rotation.y;
+        if (f >= 4 * 60) turn[i]! += Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
+      });
+    }
+    const worst = turn.indexOf(Math.max(...turn));
+    assert.ok(turn[worst]! < 0.1, `${SPIN_FLEET[worst]![0]} turned ${turn[worst]!.toFixed(2)} rad in the last 2 s, |ω| ${cars[worst]!.angular.y.toFixed(2)}`);
+  });
+});
+
+describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
+  it("bad: glass shards leave a yawing car with the pane's own velocity (finite difference of integrate)", () => {
+    let shard: THREE.Vector3 | null = null;
+    const car = new DeformableCar(paint(), new THREE.Scene(), (_o, v) => {
+      shard = v.clone();
+    });
+    car.spawnFacing(0, 0, 0.3, 0);
+    car.crashed = true;
+    car.velocity.set(0, 0, 0);
+    car.angular.set(0, 2, 0);
+    car.group.updateMatrixWorld(true);
+    // A pane hung off the body's centre (door glass), so ω × r is not zero.
+    const pane = car["glassPanes"].find((g) => g.mesh.getWorldPosition(new THREE.Vector3()).distanceTo(car.group.position) > 0.5)!;
+    const p0 = pane.mesh.getWorldPosition(new THREE.Vector3());
+    car["shatterGlass"](pane);
+    const h = 1e-4;
+    car.integrate(h);
+    car.group.updateMatrixWorld(true);
+    const fd = pane.mesh.getWorldPosition(new THREE.Vector3()).sub(p0).divideScalar(h);
+    const v = shard as THREE.Vector3 | null;
+    assert.ok(v, "no shard burst");
+    const err = Math.hypot(v.x - fd.x, v.z - fd.z);
+    assert.ok(Math.hypot(fd.x, fd.z) > 0.5, `pane barely moves (${fd.x.toFixed(2)},${fd.z.toFixed(2)})`);
+    assert.ok(err < 0.05 * Math.hypot(fd.x, fd.z), `shard v=(${v.x.toFixed(2)},${v.z.toFixed(2)}) pane v=(${fd.x.toFixed(2)},${fd.z.toFixed(2)})`);
+  });
+
+  it("bad: physics slices follow a wreck's real velocity, not its stale drive speed (A10)", () => {
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    car.speed = 0;
+    car.velocity.set(24, 0, -7);
+    assert.equal(sliceSpeed([car]), 25);
+  });
+
+  it("bad: sliding debris loses the same speed per second at 60 Hz and 240 Hz (A15)", () => {
+    const slide = (hz: number) => {
+      const debris = new DebrisSystem(new THREE.Scene(), 1);
+      debris.burst(new THREE.Vector3(0, -0.05, 0), new THREE.Vector3(0, 0, -1), 1);
+      debris["vx"][0] = 6;
+      debris["vy"][0] = 0;
+      debris["vz"][0] = 0;
+      debris["life"][0] = 10;
+      for (let i = 0; i < hz * 0.5; i++) debris.update(1 / hz, bounceGround);
+      return debris.snapshot().items[0]!.x;
+    };
+    const x60 = slide(60);
+    const x240 = slide(240);
+    assert.ok(Math.abs(x60 - x240) < 0.05 * x240, `0.5 s slide: ${x60.toFixed(3)} m at 60 Hz vs ${x240.toFixed(3)} m at 240 Hz`);
+  });
+
+  it("bad: debris touching a car's leading flank is swept along with it, not left inside (A15)", () => {
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    car.spawnFacing(0, 0, 0, 0);
+    car.velocity.set(8, 0, 0);
+    const pos = new THREE.Vector3(0.85, 0.6, 0);
+    const vel = new THREE.Vector3();
+    bounceOffCar(car, pos, vel, 0.03);
+    assert.ok(vel.x > 8, `debris vx ${vel.x.toFixed(2)} after the 8 m/s flank swept it`);
+  });
+
+  it("bad: two wrecks scraping flank to flank trade sliding speed through Coulomb friction (A15)", () => {
+    const a = spawnOffset(0, 0, "shape");
+    const b = spawnOffset(0, 0, "shape");
+    for (const m of b.d.masses) {
+      m.world.x += 1.5;
+      m.vel.set(-4, 0, 6);
+    }
+    for (const m of a.d.masses) m.vel.set(0, 0, 0);
+    const pz = (d: StreamedDeformation) => d.masses.reduce((s, m) => s + m.vel.z * m.mass, 0);
+    a.d.collideWith(b.d);
+    // 11 kg·m/s reaches it through the normals alone; Coulomb friction (μ 0.45) hands over ~147.
+    assert.ok(pz(a.d) > 60, `the struck wreck took ${pz(a.d).toFixed(1)} kg·m/s of the 6 m/s slide`);
   });
 });
 

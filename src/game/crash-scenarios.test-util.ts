@@ -198,7 +198,7 @@ function fixedStep(w: CrashWorld, dt: number): number {
       for (let a = 0; a < cars.length; a++) {
         for (let b = a + 1; b < cars.length; b++) {
           if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-          const pair = resolveCarPair(cars[a]!, cars[b]!, !(cars[a]!.crashed && cars[b]!.crashed), feed, h);
+          const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
           if (pair) {
             moved = true;
             strongest = Math.max(strongest, pair.impulse);

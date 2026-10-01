@@ -1,18 +1,28 @@
 import * as THREE from "three";
-import { round4, snapshotPoints } from "./physics-util.ts";
+import { applyGroundFriction, round4, snapshotPoints } from "./physics-util.ts";
 import type { DeformableCar } from "./car.ts";
 
 const _ha = new THREE.Vector3();
 const _hb = new THREE.Vector3();
+const _pv = new THREE.Vector3();
 
-/** Asphalt bounce for FX particles. */
+/** Sliding friction of metal and glass bits on asphalt. */
+const FX_GROUND_MU = 0.6;
+
+/** Asphalt bounce for FX particles. Friction is per second, in each system's update (`groundSlide`). */
 export function bounceGround(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
   if (pos.y < r) {
     pos.y = r;
     if (vel.y < 0) vel.y *= -0.28;
-    vel.x *= 0.86;
-    vel.z *= 0.86;
   }
+}
+
+/** FX particles rest no lower than this (m): each update clamps y to it after the bounce. */
+const FX_FLOOR = 0.04;
+
+/** Coulomb slide for a particle on (or within a 5 mm hop of) its resting height after the bounce. */
+function groundSlide(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number): void {
+  if (pos.y <= Math.max(r, FX_FLOOR) + 0.005) applyGroundFriction(vel, dt, FX_GROUND_MU, true);
 }
 
 /** Push an FX particle out of the car's hull boxes and reflect it off the side it entered. */
@@ -35,31 +45,27 @@ export function bounceOffCar(car: DeformableCar, pos: THREE.Vector3, vel: THREE.
     if (ox < oz) {
       const s = dx >= 0 ? 1 : -1;
       _ha.x += s * ox;
-      const nx = car.rightFlat.x * s;
-      const nz = car.rightFlat.z * s;
-      const vn = vel.x * nx + vel.z * nz;
-      if (vn < 0) {
-        vel.x -= vn * nx * 1.55;
-        vel.z -= vn * nz * 1.55;
-        vel.y += Math.abs(vn) * 0.15;
-      }
+      bounceRelative(car, pos, vel, car.rightFlat.x * s, car.rightFlat.z * s);
     } else {
       const s = dz >= 0 ? 1 : -1;
       _ha.z += s * oz;
-      const nx = car.fwdFlat.x * s;
-      const nz = car.fwdFlat.z * s;
-      const vn = vel.x * nx + vel.z * nz;
-      if (vn < 0) {
-        vel.x -= vn * nx * 1.55;
-        vel.z -= vn * nz * 1.55;
-        vel.y += Math.abs(vn) * 0.15;
-      }
+      bounceRelative(car, pos, vel, car.fwdFlat.x * s, car.fwdFlat.z * s);
     }
     _hb.copy(_ha);
     car.group.localToWorld(_hb);
     pos.copy(_hb);
     return;
   }
+}
+
+/** Reflect off a moving car panel: restitution acts on the velocity relative to that point of the car. */
+function bounceRelative(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vector3, nx: number, nz: number): void {
+  car.pointVelocity(pos, _pv);
+  const vn = (vel.x - _pv.x) * nx + (vel.z - _pv.z) * nz;
+  if (vn >= 0) return;
+  vel.x -= vn * nx * 1.55;
+  vel.z -= vn * nz * 1.55;
+  vel.y += Math.abs(vn) * 0.15;
 }
 
 export class DebrisSystem {
@@ -146,7 +152,8 @@ export class DebrisSystem {
       this.dummy.position.z += this.vz[i]! * dt;
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
       bounce(this.dummy.position, this.vel, 0.03);
-      this.dummy.position.y = Math.max(0.04, this.dummy.position.y);
+      groundSlide(this.dummy.position, this.vel, 0.03, dt);
+      this.dummy.position.y = Math.max(FX_FLOOR, this.dummy.position.y);
       this.vx[i] = this.vel.x;
       this.vy[i] = this.vel.y;
       this.vz[i] = this.vel.z;
@@ -276,7 +283,8 @@ class DotPoints {
       this.tmp.addScaledVector(this.vel, dt);
       this.vel.y -= this.gravity * dt;
       bounce(this.tmp, this.vel, this.radius);
-      this.tmp.y = Math.max(0.04, this.tmp.y);
+      groundSlide(this.tmp, this.vel, this.radius, dt);
+      this.tmp.y = Math.max(FX_FLOOR, this.tmp.y);
       this.pos[i * 3] = this.tmp.x;
       this.pos[i * 3 + 1] = this.tmp.y;
       this.pos[i * 3 + 2] = this.tmp.z;

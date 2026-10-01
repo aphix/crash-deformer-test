@@ -717,16 +717,30 @@ forModes("hubs stay planted until they pop", (spawn, mode) => {
     }
   });
 
-  it("bad: a 0.2m xz shove on one hub pops it, the other three stay", () => {
-    const s = spawn(0);
-    const h = mass(s.d, "hubFR");
-    h.local.z = h.rest.z + 0.22;
-    h.world.copy(h.local);
+  // C4: a wheel leaves only when a hard (≥ 54 km/h EBS) off-centre hit crushes its corner onto the tyre.
+  const crushCorner = (speed: number, impactX: number, inward = new THREE.Vector3(0, 0, -1)) => {
+    const s = spawn(impactX, speed, inward);
+    const b = mass(s.d, "bumperFR");
+    b.local.z = b.rest.z - 0.34;
+    b.world.copy(b.local);
+    for (const name of ["hubFL", "hubFR", "hubRL", "hubRR"] as const) {
+      const h = mass(s.d, name);
+      h.local.z = h.rest.z - 0.2;
+      h.world.copy(h.local);
+    }
     s.group.updateMatrixWorld();
     s.d.followGroup(s.group, s.vel, s.omega, DT);
-    assert.equal(h.popped, true, "hubFR should have popped");
-    assert.equal(mass(s.d, "hubFL").popped, false);
-    assert.equal(mass(s.d, "hubRL").popped, false);
+    return s;
+  };
+  const popped = (s: ReturnType<typeof spawn>) => (["hubFL", "hubFR", "hubRL", "hubRR"] as const).filter((n) => mass(s.d, n).popped);
+
+  it("bad: a 64 km/h right-corner hit that crushes the corner onto the tyre pops only hubFR", () => {
+    assert.deepEqual(popped(crushCorner(64 / 3.6, 0.62)), ["hubFR"]);
+  });
+
+  it("close-but-wrong: the same crush at 50 km/h, or square on at 64, keeps every wheel on", () => {
+    assert.deepEqual(popped(crushCorner(50 / 3.6, 0.62)), [], "50 km/h corner");
+    assert.deepEqual(popped(crushCorner(64 / 3.6, 0)), [], "64 km/h square");
   });
 
   it("close-but-wrong: deepCrush (press past the wells) is allowed to fold hubs without popping first", () => {

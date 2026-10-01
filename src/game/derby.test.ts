@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
-import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, HIT_DEBOUNCE, snapshotAiCar } from "./derby.ts";
+import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, HIT_DEBOUNCE, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { clipToDerbyBowl, DERBY_RADIUS, makeDerbyArena } from "./derby-arena.ts";
 import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
 import { layoutDerby, MAX_CARS } from "./fleet.ts";
@@ -333,8 +333,10 @@ function face(car: DeformableCar, p: THREE.Vector3): "front" | "rear" | "side" {
   return along > 0 ? "front" : "rear";
 }
 
-describe("derby match, six AI cars", () => {
-  it("good: 20 s of derby — cars keep hitting, mostly not nose to nose, and nobody sits wedged", () => {
+type DerbyRun = { hits: number; noseToNose: number; worstWedge: number; t: number; state: string; deaths: number[] };
+
+/** Six AI cars in the bowl (seed 7) in the engine's contact order, until `seconds` or the match ends. */
+function sixCarDerby(seconds: number): DerbyRun {
     const n = 6;
     const scene = new THREE.Scene();
     const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
@@ -354,7 +356,9 @@ describe("derby match, six AI cars", () => {
     let hits = 0;
     let noseToNose = 0;
     let t = 0;
-    while (t < 20) {
+    let state = "running";
+    const deaths: number[] = [];
+    while (t < seconds && state === "running") {
       let vmax = 8;
       for (const c of cars) vmax = Math.max(vmax, c.speed);
       const h = physicsSlice(1 / 60, vmax);
@@ -385,7 +389,7 @@ describe("derby match, six AI cars", () => {
           for (let b = a + 1; b < n; b++) {
             const ca = cars[a]!;
             const cb = cars[b]!;
-            const pair = resolveCarPair(ca, cb, !(ca.crashed && cb.crashed), k === 0, h);
+            const pair = resolveCarPair(ca, cb, k === 0, h);
             if (!pair) continue;
             moved = true;
             const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
@@ -406,7 +410,9 @@ describe("derby match, six AI cars", () => {
         c.afterContacts(h);
         clipDerbyCar(c);
       }
-      match.step(h, cars.map((c, i) => ({ id: i, name: `c${i}`, alive: c.deform.drivetrainAlive })));
+      state = match.step(h, cars.map((c, i) => ({ id: i, name: `c${i}`, alive: c.deform.drivetrainAlive })));
+      const dead = cars.filter((c) => !c.deform.drivetrainAlive).length;
+      while (deaths.length < dead) deaths.push(t);
       cars.forEach((c, i) => {
         const stuck = c.deform.drivetrainAlive && Math.abs(c.drive.throttle) > 0.3 && Math.hypot(c.velocity.x, c.velocity.z) < 1;
         wedged[i] = stuck ? wedged[i]! + h : 0;
@@ -414,8 +420,22 @@ describe("derby match, six AI cars", () => {
       });
       t += h;
     }
+    return { hits, noseToNose, worstWedge, t, state, deaths };
+}
+
+describe("derby match, six AI cars", () => {
+  it("good: 20 s of derby — cars keep hitting, mostly not nose to nose, and nobody sits wedged", () => {
+    const { hits, noseToNose, worstWedge } = sixCarDerby(20);
     assert.ok(hits >= 20, `only ${hits} scored hits in 20 s`);
     assert.ok(noseToNose / hits < 0.25, `${noseToNose}/${hits} hits were nose to nose`);
     assert.ok(worstWedge < 3, `a car sat on the throttle without moving for ${worstWedge.toFixed(2)} s`);
+  });
+
+  it("bad: repeated hard hits disable cars and the match ends by elimination before the 90 s stalemate", () => {
+    const run = sixCarDerby(STALEMATE);
+    const at = run.deaths.map((d) => d.toFixed(1)).join(",");
+    assert.ok(run.state === "winner" && run.t < STALEMATE - 1, `no elimination win: ${run.state} at ${run.t.toFixed(1)} s, deaths [${at}]`);
+    assert.equal(run.deaths.length, 5, `deaths [${at}]`);
+    assert.ok(run.deaths[0]! > 2, `first car died at ${run.deaths[0]!.toFixed(1)} s, before the field had met`);
   });
 });
