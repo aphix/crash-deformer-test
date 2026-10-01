@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { CAR_STYLES, type BodyStyle, type GlassQuad, type ProfileStation, type YZ } from "./car-variants.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
   [-0.74, 0.32, 1.34],
@@ -69,51 +70,42 @@ export function crushedHulls(front: number, rear: number, left: number, right: n
   ];
 }
 
-const ARCH_R = 0.42;
+const ARCH_R = 0.38;
+const WHEEL_Y = WHEEL_POS[0]![1];
+const Y_FLOOR = 0.145;
+const SEDAN = CAR_STYLES.sedan;
 
-type Slice = {
-  z: number;
-  hw: number;
-  y0: number;
-  yBelt: number;
-  yRoof: number;
-  cabinHw: number;
-  cabin: number;
-};
+/** Platform hardpoints every style shares. */
+const WINDSHIELD_BASE: YZ = [0.78, 1.03];
+const WINDSHIELD_W = { base: 1.3, top: 0.96 } as const;
+const B_PILLAR_Z = { rear: -0.13, front: -0.03 } as const;
+const GLASS_BELT_Y = 0.83;
+const GLASS_BELT_X = 0.85;
+/** Door glass pane origin in car space (door hinge + pane offset set in car.ts). */
+const DOOR_GLASS_ORIGIN = { x: 0.84, y: 1.06, z: 0.27 } as const;
 
-const PROFILE: Slice[] = [
-  { z: -2.14, hw: 0.56, y0: 0.18, yBelt: 0.48, yRoof: 0.48, cabinHw: 0.38, cabin: 0 },
-  { z: -1.92, hw: 0.76, y0: 0.16, yBelt: 0.58, yRoof: 0.58, cabinHw: 0.46, cabin: 0 },
-  { z: -1.58, hw: 0.86, y0: 0.155, yBelt: 0.72, yRoof: 0.74, cabinHw: 0.52, cabin: 0 },
-  { z: -1.18, hw: 0.88, y0: 0.155, yBelt: 0.78, yRoof: 0.88, cabinHw: 0.56, cabin: 0.2 },
-  { z: -0.78, hw: 0.89, y0: 0.155, yBelt: 0.8, yRoof: 1.28, cabinHw: 0.58, cabin: 1 },
-  { z: -0.18, hw: 0.89, y0: 0.155, yBelt: 0.82, yRoof: 1.34, cabinHw: 0.6, cabin: 1 },
-  { z: 0.42, hw: 0.88, y0: 0.155, yBelt: 0.81, yRoof: 1.3, cabinHw: 0.58, cabin: 1 },
-  { z: 0.82, hw: 0.86, y0: 0.155, yBelt: 0.76, yRoof: 1.05, cabinHw: 0.52, cabin: 0.4 },
-  { z: 1.18, hw: 0.84, y0: 0.16, yBelt: 0.66, yRoof: 0.68, cabinHw: 0.48, cabin: 0 },
-  { z: 1.58, hw: 0.78, y0: 0.17, yBelt: 0.56, yRoof: 0.56, cabinHw: 0.42, cabin: 0 },
-  { z: 1.9, hw: 0.66, y0: 0.2, yBelt: 0.5, yRoof: 0.5, cabinHw: 0.36, cabin: 0 },
-  { z: 2.14, hw: 0.46, y0: 0.22, yBelt: 0.46, yRoof: 0.46, cabinHw: 0.32, cabin: 0 },
-];
-
-const SLICES = 40;
+type Pt = { x: number; y: number };
+type V3 = readonly [number, number, number];
 
 function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function sampleSlice(z: number): Slice {
-  if (z <= PROFILE[0]!.z) return { ...PROFILE[0]!, z };
-  for (let i = 1; i < PROFILE.length; i++) {
-    const a = PROFILE[i - 1]!;
-    const b = PROFILE[i]!;
+function smooth01(t: number): number {
+  const c = THREE.MathUtils.clamp(t, 0, 1);
+  return c * c * (3 - 2 * c);
+}
+
+function sampleSlice(z: number, profile: readonly ProfileStation[]): ProfileStation {
+  if (z <= profile[0]!.z) return { ...profile[0]!, z };
+  for (let i = 1; i < profile.length; i++) {
+    const a = profile[i - 1]!;
+    const b = profile[i]!;
     if (z <= b.z) {
-      const t = (z - a.z) / (b.z - a.z);
-      const s = t * t * (3 - 2 * t);
+      const s = smooth01((z - a.z) / (b.z - a.z));
       return {
         z,
         hw: lerp(a.hw, b.hw, s),
-        y0: lerp(a.y0, b.y0, s),
         yBelt: lerp(a.yBelt, b.yBelt, s),
         yRoof: lerp(a.yRoof, b.yRoof, s),
         cabinHw: lerp(a.cabinHw, b.cabinHw, s),
@@ -121,7 +113,29 @@ function sampleSlice(z: number): Slice {
       };
     }
   }
-  return { ...PROFILE[PROFILE.length - 1]!, z };
+  return { ...profile[profile.length - 1]!, z };
+}
+
+/** Roof surface height and half-width (roof panel, glass tops, pillar tops all agree). */
+function roofAt(z: number, style: BodyStyle): { y: number; x: number } {
+  const sl = sampleSlice(z, style.profile);
+  const c = Math.max(sl.cabin, 0.25);
+  return { y: lerp(sl.yBelt, sl.yRoof, c), x: lerp(sl.hw * 0.55, sl.cabinHw, c) };
+}
+
+/** Side glass top edge: tucked under the roof cant rail. */
+function glassTopY(z: number, style: BodyStyle): number {
+  return roofAt(z, style).y - 0.075;
+}
+
+function cantX(z: number, style: BodyStyle): number {
+  return roofAt(z, style).x + 0.08;
+}
+
+/** Tumblehome: side glass leans in from the belt to the roof cant. */
+function glassX(z: number, y: number, style: BodyStyle): number {
+  const top = glassTopY(z, style);
+  return lerp(GLASS_BELT_X, cantX(z, style), THREE.MathUtils.clamp((y - GLASS_BELT_Y) / (top - GLASS_BELT_Y), 0, 1));
 }
 
 function wheelWell(z: number): number {
@@ -133,51 +147,107 @@ function wheelWell(z: number): number {
   return w;
 }
 
+/** Fender flare band just outside the arch opening. */
+function archFlare(z: number, y: number): number {
+  let f = 0;
+  for (const [, , wz] of WHEEL_POS) {
+    const dz = z - wz;
+    const r = y >= WHEEL_Y ? Math.hypot(dz, y - WHEEL_Y) : Math.abs(dz);
+    const band =
+      THREE.MathUtils.smoothstep(r, ARCH_R - 0.04, ARCH_R + 0.02) *
+      (1 - THREE.MathUtils.smoothstep(r, ARCH_R + 0.06, ARCH_R + 0.17));
+    f = Math.max(f, band);
+  }
+  return f;
+}
+
+const DOOR_Z0 = 0.0;
+const DOOR_Z1 = 0.54;
+const DOOR_EDGE = 0.04;
+
 /** Front door cut only (A-pillar to B-pillar). Rear quarter stays a solid panel. */
 function doorAperture(z: number): number {
-  const z0 = 0.0;
-  const z1 = 0.54;
-  const e = 0.04;
-  if (z <= z0 || z >= z1) return 0;
-  const a = THREE.MathUtils.smoothstep(z, z0, z0 + e);
-  const b = 1 - THREE.MathUtils.smoothstep(z, z1 - e, z1);
+  if (z <= DOOR_Z0 || z >= DOOR_Z1) return 0;
+  const a = THREE.MathUtils.smoothstep(z, DOOR_Z0, DOOR_Z0 + DOOR_EDGE);
+  const b = 1 - THREE.MathUtils.smoothstep(z, DOOR_Z1 - DOOR_EDGE, DOOR_Z1);
   return a * b;
 }
 
-/**
- * Lower body only: rocker / fender / door sill / rear quarter.
- * Greenhouse (belt→roof) is pillars + roof + glass, never lofted metal.
- */
-function sectionPoints(s: Slice): { x: number; y: number }[] {
-  const well = wheelWell(s.z);
-  const hw = s.hw;
-  const yFloor = 0.145;
-  const yBelt = s.yBelt;
-  const hole = doorAperture(s.z);
-  const archY = 0.32 + well;
-  const lift = (x: number, y: number) => {
-    if (well < 0.03 || Math.abs(x) < hw * 0.58 || y > archY + 0.02) return y;
-    const t = THREE.MathUtils.clamp((Math.abs(x) - hw * 0.58) / (hw * 0.42), 0, 1);
-    return Math.max(y, lerp(y, archY, t * t * (3 - 2 * t)));
-  };
-  const ySideTop = lerp(yBelt, 0.22, hole);
-  const xTop = hw - hole * 0.03;
+const TUB_EDGE = 0.025;
 
-  const left = [
-    { x: -xTop, y: ySideTop },
-    { x: -xTop, y: lift(-xTop, lerp(0.34, ySideTop * 0.7, 0.4)) },
-    { x: -hw, y: lift(-hw, 0.2) },
-    { x: -hw * 0.86, y: lift(-hw * 0.86, yFloor + 0.02) },
-    { x: -hw * 0.55, y: yFloor },
-    { x: -hw * 0.18, y: yFloor },
+function tubAt(z: number, style: BodyStyle): { t: number; floor: number } {
+  let t = 0;
+  let floor = Y_FLOOR;
+  for (const [z0, z1, f] of style.tubs) {
+    const w =
+      THREE.MathUtils.smoothstep(z, z0 - TUB_EDGE, z0 + TUB_EDGE) *
+      (1 - THREE.MathUtils.smoothstep(z, z1 - TUB_EDGE, z1 + TUB_EDGE));
+    if (w > t) {
+      t = w;
+      floor = f;
+    }
+  }
+  return { t, floor };
+}
+
+const SEAM_HALF = 0.012;
+
+function seamInset(z: number, style: BodyStyle): number {
+  if (style.rearDoorSeam === null) return 0;
+  return 0.009 * Math.max(0, 1 - Math.abs(z - style.rearDoorSeam) / SEAM_HALF);
+}
+
+/**
+ * Lower body ring (left half top→bottom, keel, right half bottom→top; the
+ * wrap edge is the deck). Deck crown → shoulder → character crease → door
+ * belly → rocker crease → sill. Tubs open the deck into a floor with walls;
+ * the door cut drops the side to the sill. Greenhouse is never lofted metal.
+ */
+function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
+  const { hw, yBelt: yb, z } = s;
+  const hole = doorAperture(z);
+  const tub = tubAt(z, style);
+  const well = wheelWell(z);
+  const archY = WHEEL_Y + well;
+  const inset = seamInset(z, style);
+  const half: [number, number][] = [
+    [lerp(hw - 0.22, hw - 0.06, tub.t), lerp(yb + 0.012, tub.floor, tub.t)],
+    [lerp(hw - 0.07, hw - 0.06, tub.t), lerp(yb + 0.004, yb - 0.006, tub.t)],
+    [hw - 0.02, yb - 0.022],
+    [hw + 0.004 - inset, yb - 0.1],
+    [hw - 0.012 - inset, lerp(yb - 0.1, 0.2, 0.45)],
+    [hw - 0.004 - inset, 0.2],
+    [hw - 0.045, 0.165],
+    [hw * 0.8, Y_FLOOR + 0.004],
   ];
-  const mid = { x: 0, y: yFloor };
-  const right = left.map((p) => ({ x: -p.x, y: p.y })).reverse();
-  return [...left, mid, ...right];
+  const sill: [number, number][] = [
+    [hw - 0.1, 0.235],
+    [hw - 0.06, 0.235],
+    [hw - 0.035, 0.232],
+    [hw - 0.028, 0.228],
+    [hw - 0.02, 0.224],
+  ];
+  for (let i = 0; i < sill.length; i++) {
+    const p = half[i]!;
+    p[0] = lerp(p[0], sill[i]![0], hole);
+    p[1] = lerp(p[1], sill[i]![1], hole);
+  }
+  for (let i = 3; i <= 5; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
+  for (const p of half) {
+    if (well < 0.03 || p[0] < hw * 0.58 || p[1] > archY + 0.02) continue;
+    const t = smooth01((p[0] - hw * 0.58) / (hw * 0.42));
+    p[1] = Math.max(p[1], lerp(p[1], archY, t));
+  }
+  const left = half.map(([x, y]) => ({ x: -x, y }));
+  const right = half.map(([x, y]) => ({ x, y })).reverse();
+  return [...left, { x: 0, y: Y_FLOOR }, ...right];
 }
 
 /** Side-view rest profile — tests lock this so the body cannot become a van blob. */
-export function restSideProfile(z: number): {
+export function restSideProfile(
+  z: number,
+  style: BodyStyle = SEDAN,
+): {
   hw: number;
   yBelt: number;
   ySideTop: number;
@@ -185,7 +255,7 @@ export function restSideProfile(z: number): {
   cabin: number;
   doorHole: number;
 } {
-  const s = sampleSlice(z);
+  const s = sampleSlice(z, style.profile);
   const doorHole = doorAperture(z);
   return {
     hw: s.hw,
@@ -197,19 +267,41 @@ export function restSideProfile(z: number): {
   };
 }
 
-function loftFromRings(
-  rings: { x: number; y: number }[][],
-  zs: number[],
-  u0: number,
-  u1: number,
-): THREE.BufferGeometry {
+const BASE_SLICES = 40;
+/** >1 spreads slices over the cabin and packs them into the crumple zones. */
+const SLICE_WARP = 1.166;
+
+/** Loft stations: warped base spacing (≈7 cm at nose/tail, 13 cm mid) plus feature edges. */
+function sliceZs(style: BodyStyle): number[] {
+  const p = style.profile;
+  const z0 = p[0]!.z;
+  const z1 = p[p.length - 1]!.z;
+  const knots = [DOOR_Z0, DOOR_Z0 + DOOR_EDGE, DOOR_Z1 - DOOR_EDGE, DOOR_Z1];
+  for (const [a, b] of style.tubs) knots.push(a - TUB_EDGE, a + TUB_EDGE, b - TUB_EDGE, b + TUB_EDGE);
+  const seam = style.rearDoorSeam;
+  if (seam !== null) knots.push(seam - SEAM_HALF, seam, seam + SEAM_HALF);
+  const zs = knots.filter((k) => k > z0 && k < z1);
+  const mid = (z0 + z1) * 0.5;
+  const half = (z1 - z0) * 0.5;
+  for (let i = 0; i < BASE_SLICES; i++) {
+    const t = (i / (BASE_SLICES - 1)) * 2 - 1;
+    const z = mid + half * t * (SLICE_WARP + (1 - SLICE_WARP) * t * t);
+    const end = i === 0 || i === BASE_SLICES - 1;
+    if (end || knots.every((k) => Math.abs(k - z) > 0.022)) zs.push(z);
+  }
+  return zs.sort((a, b) => a - b);
+}
+
+function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number): THREE.BufferGeometry {
   const positions: number[] = [];
   const uvs: number[] = [];
   const n = rings[0]!.length;
+  const zA = zs[0]!;
+  const zSpan = zs[zs.length - 1]! - zA;
   for (let s = 0; s < rings.length; s++) {
-    const u = u0 + ((u1 - u0) * s) / Math.max(1, rings.length - 1);
-    const ring = rings[s]!;
     const z = zs[s]!;
+    const u = u0 + ((u1 - u0) * (z - zA)) / zSpan;
+    const ring = rings[s]!;
     for (let i = 0; i < n; i++) {
       const p = ring[i]!;
       positions.push(p.x, p.y, z);
@@ -235,10 +327,8 @@ function loftFromRings(
       cx += p.x;
       cy += p.y;
     }
-    cx /= n;
-    cy /= n;
     const center = positions.length / 3;
-    positions.push(cx, cy, zs[slice]!);
+    positions.push(cx / n, cy / n, zs[slice]!);
     uvs.push(inward ? 0 : 1, 0.5);
     const base = slice * n;
     for (let i = 0; i < n; i++) {
@@ -256,67 +346,76 @@ function loftFromRings(
   return geo;
 }
 
+/** Flip winding if the area-weighted face normals point at the centroid on balance. */
 function ensureOutwardNormals(geo: THREE.BufferGeometry): void {
-  geo.computeVertexNormals();
   const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  const nrm = geo.getAttribute("normal") as THREE.BufferAttribute;
-  let bestI = 0;
-  let bestX = -Infinity;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i);
-    if (x > bestX) {
-      bestX = x;
-      bestI = i;
-    }
-  }
-  if (nrm.getX(bestI) >= 0) return;
   const idx = geo.getIndex();
   if (!idx) return;
   const a = idx.array;
-  for (let i = 0; i < a.length; i += 3) {
-    const t = a[i + 1]!;
-    a[i + 1] = a[i + 2]!;
-    a[i + 2] = t;
+  let cx = 0,
+    cy = 0,
+    cz = 0;
+  for (let i = 0; i < pos.count; i++) {
+    cx += pos.getX(i);
+    cy += pos.getY(i);
+    cz += pos.getZ(i);
   }
-  idx.needsUpdate = true;
+  const c = new THREE.Vector3(cx / pos.count, cy / pos.count, cz / pos.count);
+  const p0 = new THREE.Vector3();
+  const p1 = new THREE.Vector3();
+  const p2 = new THREE.Vector3();
+  const e1 = new THREE.Vector3();
+  const e2 = new THREE.Vector3();
+  let flux = 0;
+  for (let i = 0; i < a.length; i += 3) {
+    p0.fromBufferAttribute(pos, a[i]!);
+    p1.fromBufferAttribute(pos, a[i + 1]!);
+    p2.fromBufferAttribute(pos, a[i + 2]!);
+    e1.subVectors(p1, p0);
+    e2.subVectors(p2, p0);
+    e1.cross(e2);
+    flux += e1.dot(p0.add(p1).add(p2).multiplyScalar(1 / 3).sub(c));
+  }
+  if (flux < 0) {
+    for (let i = 0; i < a.length; i += 3) {
+      const t = a[i + 1]!;
+      a[i + 1] = a[i + 2]!;
+      a[i + 2] = t;
+    }
+    idx.needsUpdate = true;
+  }
   geo.computeVertexNormals();
 }
 
 function makeWellLiner(wx: number, wy: number, wz: number): THREE.BufferGeometry {
-  const geo = new THREE.CylinderGeometry(ARCH_R, ARCH_R, 0.24, 18, 1, true, 0, Math.PI);
+  const geo = new THREE.CylinderGeometry(ARCH_R, ARCH_R, 0.24, 14, 1, true, 0, Math.PI);
   geo.rotateZ(Math.PI / 2);
   geo.rotateY(wx > 0 ? 0 : Math.PI);
   geo.translate(wx, wy, wz);
   const uv = geo.getAttribute("uv") as THREE.BufferAttribute;
-  if (uv) {
-    for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.12, i / uv.count);
-  }
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, 0.12, i / uv.count);
   return geo;
 }
 
-function makeRoofGeometry(): THREE.BufferGeometry {
-  const z0 = -0.82;
-  const z1 = 0.58;
+function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
+  const [z0, z1] = style.roofZ;
   const segs = 16;
-  const rings: { x: number; y: number }[][] = [];
+  const rings: Pt[][] = [];
   const zs: number[] = [];
   for (let s = 0; s <= segs; s++) {
-    const t = s / segs;
-    const z = lerp(z0, z1, t);
-    const sl = sampleSlice(z);
-    const c = Math.max(sl.cabin, 0.25);
-    const yRoof = lerp(sl.yBelt, sl.yRoof, c);
-    const xRoof = lerp(sl.hw * 0.55, sl.cabinHw, c);
-    const tk = 0.045;
+    const z = lerp(z0, z1, s / segs);
+    const { y, x } = roofAt(z, style);
     rings.push([
-      { x: -xRoof, y: yRoof - tk },
-      { x: -xRoof, y: yRoof },
-      { x: -xRoof * 0.4, y: yRoof + 0.016 },
-      { x: 0, y: yRoof + 0.026 },
-      { x: xRoof * 0.4, y: yRoof + 0.016 },
-      { x: xRoof, y: yRoof },
-      { x: xRoof, y: yRoof - tk },
-      { x: 0, y: yRoof - tk - 0.008 },
+      { x: -(x + 0.08), y: y - 0.075 },
+      { x: -(x + 0.07), y: y - 0.03 },
+      { x: -x, y },
+      { x: -x * 0.45, y: y + 0.018 },
+      { x: 0, y: y + 0.026 },
+      { x: x * 0.45, y: y + 0.018 },
+      { x, y },
+      { x: x + 0.07, y: y - 0.03 },
+      { x: x + 0.08, y: y - 0.075 },
+      { x: 0, y: y - 0.085 },
     ]);
     zs.push(z);
   }
@@ -325,73 +424,119 @@ function makeRoofGeometry(): THREE.BufferGeometry {
   return geo;
 }
 
-function makePillarGeo(sign: number, z: number, x: number, y0: number, y1: number, depth: number): THREE.BufferGeometry {
-  const geo = new THREE.BoxGeometry(0.085, y1 - y0, depth, 1, 2, 1);
-  geo.translate(sign * x, (y0 + y1) * 0.5, z);
-  return geo;
-}
-
-function makeSlopedPillar(
-  x0: number,
-  y0: number,
-  z0: number,
-  x1: number,
-  y1: number,
-  z1: number,
+/**
+ * Box mapped onto four outer-face corners (+x side), thickness inward;
+ * sign -1 mirrors to the left without flipping the winding.
+ */
+function boxFromCorners(
+  sign: number,
+  c: { fb: V3; rb: V3; rt: V3; ft: V3 },
   thick: number,
-  depth: number,
+  hs = 1,
 ): THREE.BufferGeometry {
-  const dx = x1 - x0;
-  const dy = y1 - y0;
-  const dz = z1 - z0;
-  const len = Math.hypot(dx, dy, dz);
-  const geo = new THREE.BoxGeometry(thick, len, depth, 1, 4, 1);
-  const dir = new THREE.Vector3(dx, dy, dz).normalize();
-  const quat = new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir);
-  geo.applyQuaternion(quat);
-  geo.translate((x0 + x1) * 0.5, (y0 + y1) * 0.5, (z0 + z1) * 0.5);
-  return geo;
-}
-
-function makeHeader(z: number, y: number, w: number, d: number): THREE.BufferGeometry {
-  const geo = new THREE.BoxGeometry(w, 0.07, d, 1, 1, 1);
-  geo.translate(0, y, z);
-  return geo;
-}
-
-function makeBulkhead(z: number, y0: number, y1: number, w: number): THREE.BufferGeometry {
-  const geo = new THREE.BoxGeometry(w, y1 - y0, 0.045, 1, 1, 1);
-  geo.translate(0, (y0 + y1) * 0.5, z);
-  return geo;
-}
-
-export function makeChassisGeometry(): THREE.BufferGeometry {
-  const z0 = PROFILE[0]!.z;
-  const z1 = PROFILE[PROFILE.length - 1]!.z;
-  const rings: { x: number; y: number }[][] = [];
-  const zs: number[] = [];
-  for (let s = 0; s < SLICES; s++) {
-    const z = z0 + ((z1 - z0) * s) / (SLICES - 1);
-    rings.push(sectionPoints(sampleSlice(z)));
-    zs.push(z);
+  const geo = new THREE.BoxGeometry(1, 1, 1, 1, hs, 1);
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const u = pos.getX(i) + 0.5;
+    const v = pos.getY(i) + 0.5;
+    const w = pos.getZ(i) + 0.5;
+    const at = (k: number) => lerp(lerp(c.rb[k]!, c.fb[k]!, w), lerp(c.rt[k]!, c.ft[k]!, w), v);
+    const outer = at(0);
+    const x = sign > 0 ? outer - (1 - u) * thick : -(outer - u * thick);
+    pos.setXYZ(i, x, at(1), at(2));
   }
+  return geo;
+}
+
+function makeBox(w: number, h: number, d: number, x: number, y: number, z: number): THREE.BufferGeometry {
+  const geo = new THREE.BoxGeometry(w, h, d);
+  geo.translate(x, y, z);
+  return geo;
+}
+
+function makeGreenhouseFrame(style: BodyStyle): THREE.BufferGeometry[] {
+  const parts: THREE.BufferGeometry[] = [];
+  const [wsY, wsZ] = style.windshieldTop;
+  const rg = style.rearGlass;
+  const q = style.quarter;
+  const aTopZ = wsZ - 0.05;
+  for (const sign of [-1, 1]) {
+    parts.push(
+      boxFromCorners(
+        sign,
+        {
+          fb: [WINDSHIELD_W.base / 2 + 0.02, WINDSHIELD_BASE[0] + 0.01, WINDSHIELD_BASE[1] - 0.03],
+          rb: [GLASS_BELT_X, GLASS_BELT_Y, 0.76],
+          rt: [cantX(aTopZ, style), glassTopY(aTopZ, style) + 0.03, aTopZ],
+          ft: [WINDSHIELD_W.top / 2 + 0.02, wsY + 0.02, wsZ],
+        },
+        0.05,
+        2,
+      ),
+    );
+    const bz = (B_PILLAR_Z.rear + B_PILLAR_Z.front) * 0.5;
+    const bTop = glassTopY(bz, style) + 0.05;
+    const bX = cantX(bz, style) + 0.01;
+    parts.push(
+      boxFromCorners(
+        sign,
+        {
+          fb: [GLASS_BELT_X + 0.01, GLASS_BELT_Y - 0.02, B_PILLAR_Z.front],
+          rb: [GLASS_BELT_X + 0.01, GLASS_BELT_Y - 0.02, B_PILLAR_Z.rear],
+          rt: [bX, bTop, B_PILLAR_Z.rear + 0.015],
+          ft: [bX, bTop, B_PILLAR_Z.front - 0.015],
+        },
+        0.05,
+      ),
+    );
+    parts.push(
+      boxFromCorners(
+        sign,
+        {
+          fb: [GLASS_BELT_X, GLASS_BELT_Y - 0.02, q.zRearBot],
+          rb: [rg.wBase / 2 + 0.02, rg.base[0], rg.base[1] - 0.01],
+          rt: [rg.wTop / 2 + 0.02, rg.top[0] + 0.01, rg.top[1] - 0.01],
+          ft: [cantX(q.zRearTop, style), glassTopY(q.zRearTop, style) + 0.03, q.zRearTop],
+        },
+        0.05,
+      ),
+    );
+    const m = style.midPillarZ;
+    if (m !== null) {
+      const mTop = glassTopY(m, style) + 0.03;
+      const mX = cantX(m, style) + 0.012;
+      parts.push(
+        boxFromCorners(
+          sign,
+          {
+            fb: [GLASS_BELT_X + 0.012, GLASS_BELT_Y - 0.02, m + 0.04],
+            rb: [GLASS_BELT_X + 0.012, GLASS_BELT_Y - 0.02, m - 0.04],
+            rt: [mX, mTop, m - 0.035],
+            ft: [mX, mTop, m + 0.035],
+          },
+          0.04,
+        ),
+      );
+    }
+    const railLen = B_PILLAR_Z.front - q.zRearBot;
+    parts.push(makeBox(0.03, 0.03, railLen, sign * (GLASS_BELT_X + 0.015), GLASS_BELT_Y + 0.005, q.zRearBot + railLen * 0.5));
+  }
+  parts.push(makeBox(WINDSHIELD_W.top + 0.1, 0.06, 0.08, 0, wsY + 0.03, wsZ - 0.02));
+  parts.push(makeBox(rg.wTop + 0.12, 0.06, 0.08, 0, rg.top[0] + 0.04, rg.top[1] - 0.02));
+  return parts;
+}
+
+export function makeChassisGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  const zs = sliceZs(style);
+  const rings = zs.map((z) => sectionPoints(sampleSlice(z, style.profile), style));
   const body = loftFromRings(rings, zs, 0, 1);
   ensureOutwardNormals(body);
-  const roof = makeRoofGeometry();
-  const parts: THREE.BufferGeometry[] = [body, roof];
+  const parts: THREE.BufferGeometry[] = [body, makeRoofGeometry(style)];
   for (const [wx, wy, wz] of WHEEL_POS) parts.push(makeWellLiner(wx, wy, wz));
-  for (const sign of [-1, 1]) {
-    parts.push(makeSlopedPillar(sign * 0.82, 0.72, 0.92, sign * 0.56, 1.3, 0.5, 0.09, 0.14));
-    parts.push(makePillarGeo(sign, -0.08, 0.82, 0.8, 1.32, 0.1));
-    parts.push(makeSlopedPillar(sign * 0.84, 0.78, -0.92, sign * 0.56, 1.28, -0.78, 0.09, 0.14));
-    const rail = new THREE.BoxGeometry(0.045, 0.05, 1.38);
-    rail.translate(sign * 0.86, 0.82, -0.12);
-    parts.push(rail);
-  }
-  parts.push(makeHeader(0.48, 1.3, 1.1, 0.09));
-  parts.push(makeHeader(-0.78, 1.28, 1.08, 0.09));
-  parts.push(makeBulkhead(0.72, 0.34, 0.86, 1.2));
-  parts.push(makeBulkhead(-0.72, 0.34, 0.84, 1.16));
+  parts.push(...makeGreenhouseFrame(style));
+  parts.push(makeBox(1.2, 0.52, 0.045, 0, 0.6, 0.72));
+  const rb = style.rearBulkhead;
+  parts.push(makeBox(1.16, rb.yTop - 0.34, 0.045, 0, (rb.yTop + 0.34) * 0.5, rb.z));
   const merged = mergeGeometries(parts, false);
   for (const g of parts) g.dispose();
   if (!merged) throw new Error("Failed to merge chassis");
@@ -401,39 +546,36 @@ export function makeChassisGeometry(): THREE.BufferGeometry {
   return merged;
 }
 
-function makePanelShell(
-  z0: number,
-  z1: number,
-  w0: number,
-  w1: number,
-  drop: number,
-  dome: number,
-): THREE.BufferGeometry {
-  const segs = 9;
-  const rings: { x: number; y: number }[][] = [];
+/** Lid lofted on the deck line (hood / trunk), local to its hinge origin. */
+function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ): THREE.BufferGeometry {
+  const segs = 10;
+  const tk = 0.04;
+  const drop = 0.06;
+  const dome = 0.012;
+  const [oy, oz] = origin;
+  const rings: Pt[][] = [];
   const zs: number[] = [];
-  const tk = 0.048;
   for (let s = 0; s <= segs; s++) {
-    const t = s / segs;
-    const z = lerp(z0, z1, t);
-    const w = lerp(w0, w1, t * t * (3 - 2 * t));
-    const yTop = dome * (1 - (2 * t - 1) * (2 * t - 1));
+    const z = lerp(z0, z1, s / segs);
+    const sl = sampleSlice(z, style.profile);
+    const w = sl.hw - 0.075;
+    const y = sl.yBelt + 0.016 - oy;
     rings.push([
-      { x: -w, y: yTop },
-      { x: -w * 0.45, y: yTop + dome * 0.35 },
-      { x: 0, y: yTop + dome * 0.5 },
-      { x: w * 0.45, y: yTop + dome * 0.35 },
-      { x: w, y: yTop },
-      { x: w, y: yTop - drop * 0.55 },
-      { x: w, y: yTop - drop },
-      { x: w - tk, y: yTop - drop },
-      { x: w - tk, y: yTop - tk },
-      { x: -w + tk, y: yTop - tk },
-      { x: -w + tk, y: yTop - drop },
-      { x: -w, y: yTop - drop },
-      { x: -w, y: yTop - drop * 0.55 },
+      { x: -w, y },
+      { x: -w * 0.45, y: y + dome * 0.7 },
+      { x: 0, y: y + dome },
+      { x: w * 0.45, y: y + dome * 0.7 },
+      { x: w, y },
+      { x: w, y: y - drop * 0.55 },
+      { x: w, y: y - drop },
+      { x: w - tk, y: y - drop },
+      { x: w - tk, y: y - tk },
+      { x: -w + tk, y: y - tk },
+      { x: -w + tk, y: y - drop },
+      { x: -w, y: y - drop },
+      { x: -w, y: y - drop * 0.55 },
     ]);
-    zs.push(z);
+    zs.push(z - oz);
   }
   const geo = loftFromRings(rings, zs, 0, 1);
   ensureOutwardNormals(geo);
@@ -441,28 +583,83 @@ function makePanelShell(
   return geo;
 }
 
-export function makeHoodGeometry(): THREE.BufferGeometry {
-  return makePanelShell(0.02, 1.2, 0.79, 0.5, 0.34, 0.05);
-}
-
-export function makeTrunkGeometry(): THREE.BufferGeometry {
-  return makePanelShell(0.08, -1.2, 0.78, 0.6, 0.28, 0.05);
-}
-
-export function makeBumperGeometry(front: boolean): THREE.BufferGeometry {
-  const geo = new THREE.BoxGeometry(1.54, 0.2, 0.16, 16, 3, 3);
-  const s = front ? 1 : -1;
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-    let z = pos.getZ(i);
-    const wrap = Math.max(0, Math.abs(x) - 0.58);
-    z += s * -wrap * 0.65;
-    y += (1 - Math.abs(x) / 0.8) * 0.02;
-    pos.setXYZ(i, x, y, z);
+/** Hatch / tailgate: a slightly bowed vertical panel hinged at its top edge. */
+function makeTailgate(style: BodyStyle, y0: number, origin: YZ): THREE.BufferGeometry {
+  const [y1, oz] = origin;
+  const w = sampleSlice(oz, style.profile).hw - 0.05;
+  const tk = 0.03;
+  const bow = 0.02;
+  const segs = 5;
+  const rings: Pt[][] = [];
+  const hs: number[] = [];
+  for (let s = 0; s <= segs; s++) {
+    rings.push([
+      { x: -w, y: 0 },
+      { x: -w * 0.5, y: bow * 0.75 },
+      { x: 0, y: bow },
+      { x: w * 0.5, y: bow * 0.75 },
+      { x: w, y: 0 },
+      { x: w, y: -tk },
+      { x: -w, y: -tk },
+    ]);
+    hs.push(lerp(y0, y1, s / segs) - y1);
   }
-  geo.computeVertexNormals();
+  const geo = loftFromRings(rings, hs, 0, 1);
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) pos.setXYZ(i, pos.getX(i), pos.getZ(i), -pos.getY(i));
+  ensureOutwardNormals(geo);
+  geo.computeBoundingBox();
+  return geo;
+}
+
+export function makeHoodGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  return makeDeckPanel(style, 0.76, 1.98, [0.7, 0.74]);
+}
+
+/** Trunk lid, hatch or tailgate per style; local to `style.boot.origin` ([y, z]). */
+export function makeTrunkGeometry(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  const b = style.boot;
+  return b.kind === "lid" ? makeDeckPanel(style, b.z0, b.z1, b.origin) : makeTailgate(style, b.y0, b.origin);
+}
+
+const FASCIA: readonly (readonly [number, number])[] = [
+  [0.1, -0.07],
+  [0.1, 0.02],
+  [0.088, 0.062],
+  [0.05, 0.08],
+  [0.018, 0.074],
+  [-0.012, 0.062],
+  [-0.05, 0.064],
+  [-0.07, 0.088],
+  [-0.1, 0.075],
+  [-0.1, -0.07],
+];
+
+/** Bumper fascia: rounded top, intake recess, splitter lip, wrapped corners. */
+export function makeBumperGeometry(front: boolean): THREE.BufferGeometry {
+  const s = front ? 1 : -1;
+  const stations = 16;
+  const rings: Pt[][] = [];
+  const xs: number[] = [];
+  const wraps: number[] = [];
+  for (let i = 0; i <= stations; i++) {
+    const x = lerp(-0.77, 0.77, i / stations);
+    const wrap = Math.max(0, Math.abs(x) - 0.58);
+    const crown = (1 - Math.abs(x) / 0.8) * 0.02;
+    rings.push(FASCIA.map(([y, out]) => ({ x: y + crown, y: out * (1 - wrap * 1.2) })));
+    xs.push(x);
+    wraps.push(wrap);
+  }
+  const geo = loftFromRings(rings, xs, 0, 1);
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  const n = FASCIA.length;
+  for (let i = 0; i < pos.count; i++) {
+    const x = pos.getZ(i);
+    const ring = Math.min(stations, Math.floor(i / n));
+    const wrap = i < (stations + 1) * n ? wraps[ring]! : Math.max(0, Math.abs(x) - 0.58);
+    pos.setXYZ(i, x, pos.getX(i), s * (pos.getY(i) - wrap * 0.65));
+  }
+  ensureOutwardNormals(geo);
   return geo;
 }
 
@@ -473,7 +670,7 @@ export function makeDoorGeometry(sign: number): THREE.BufferGeometry {
   for (let i = 0; i < pos.count; i++) {
     let x = pos.getX(i);
     let y = pos.getY(i);
-    let z = pos.getZ(i);
+    const z = pos.getZ(i);
     x += sign * 0.012;
     if (z > 0.16) {
       y += (z - 0.16) * -0.06;
@@ -488,59 +685,101 @@ export function makeDoorGeometry(sign: number): THREE.BufferGeometry {
   return geo;
 }
 
-export function makeWindshield(): THREE.BufferGeometry {
-  const geo = new THREE.PlaneGeometry(1.08, 0.72, 10, 8);
-  geo.rotateX(-0.84);
-  geo.translate(0, 1.02, 0.76);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    const y = pos.getY(i);
-    const z = pos.getZ(i);
-    const top = THREE.MathUtils.clamp((y - 0.78) / 0.48, 0, 1);
-    x *= lerp(1, 0.72, top);
-    pos.setXYZ(i, x, y, z + (1 - Math.abs(x) / 0.7) * 0.02);
+/** Raked glass quad (windshield / rear glass), bowed by `bow` along z at the centre line. */
+function makeGlassQuad(q: GlassQuad, segX: number, segY: number, bow: number): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let j = 0; j <= segY; j++) {
+    const t = j / segY;
+    const y = lerp(q.base[0], q.top[0], t);
+    const z = lerp(q.base[1], q.top[1], t);
+    const w = lerp(q.wBase, q.wTop, t);
+    for (let i = 0; i <= segX; i++) {
+      const xn = (i / segX) * 2 - 1;
+      positions.push(xn * w * 0.5, y, z + bow * (1 - xn * xn));
+      uvs.push(i / segX, t);
+    }
   }
+  const row = segX + 1;
+  for (let j = 0; j < segY; j++) {
+    for (let i = 0; i < segX; i++) {
+      const a = j * row + i;
+      indices.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
 
-export function makeRearGlass(): THREE.BufferGeometry {
-  const geo = new THREE.PlaneGeometry(1.02, 0.58, 8, 6);
-  geo.rotateX(0.76);
-  geo.translate(0, 1.02, -0.96);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    const y = pos.getY(i);
-    const top = THREE.MathUtils.clamp((y - 0.8) / 0.4, 0, 1);
-    x *= lerp(1, 0.76, top);
-    pos.setX(i, x);
+export function makeWindshield(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  return makeGlassQuad({ base: WINDSHIELD_BASE, top: style.windshieldTop, wBase: WINDSHIELD_W.base, wTop: WINDSHIELD_W.top }, 10, 8, 0.02);
+}
+
+export function makeRearGlass(style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  return makeGlassQuad(style.rearGlass, 8, 6, -0.015);
+}
+
+/**
+ * Side glass from the belt to the roof cant, leaning in with the tumblehome.
+ * Edges run rear (s=0) → front (s=1); `zBot`/`zTop` are the edge z at the
+ * belt and at the top. Positions are relative to `origin`.
+ */
+function makeSideGlassPane(
+  sign: number,
+  style: BodyStyle,
+  zBot: readonly [number, number],
+  zTop: readonly [number, number],
+  origin: V3,
+): THREE.BufferGeometry {
+  const segS = 6;
+  const segT = 3;
+  const positions: number[] = [];
+  const uvs: number[] = [];
+  const indices: number[] = [];
+  for (let j = 0; j <= segT; j++) {
+    const t = j / segT;
+    for (let i = 0; i <= segS; i++) {
+      const s = i / segS;
+      const zt = lerp(zTop[0], zTop[1], s);
+      const z = lerp(lerp(zBot[0], zBot[1], s), zt, t);
+      const y = lerp(GLASS_BELT_Y, glassTopY(zt, style), t);
+      positions.push(sign * glassX(z, y, style) - origin[0], y - origin[1], z - origin[2]);
+      uvs.push(s, t);
+    }
   }
+  const row = segS + 1;
+  for (let j = 0; j < segT; j++) {
+    for (let i = 0; i < segS; i++) {
+      const a = j * row + i;
+      // Face outward (+x on the right) so the pane front-faces a viewer outside.
+      if (sign > 0) indices.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
+      else indices.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
+  geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
 }
 
-/** Side glass in door-hinge local space. Parent with the door. */
-export function makeSideGlass(sign: number, length = 0.52, height = 0.46): THREE.BufferGeometry {
-  const geo = new THREE.PlaneGeometry(length, height, 8, 4);
-  geo.rotateY(sign * Math.PI * 0.5);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    const z = pos.getZ(i);
-    let y = pos.getY(i);
-    if (z > length * 0.22) y += (z - length * 0.22) * -0.12;
-    pos.setY(i, y);
-  }
-  geo.computeVertexNormals();
-  return geo;
+/** Door glass in pane-local space: car.ts parents it to the door at (∓0.02, 0.52, -0.28). */
+export function makeSideGlass(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  const o = DOOR_GLASS_ORIGIN;
+  const frontTop = style.windshieldTop[1] - 0.05;
+  return makeSideGlassPane(sign, style, [0.01, 0.76], [0.03, frontTop], [sign * o.x, o.y, o.z]);
 }
 
-/** Rear quarter / B-to-C glass on the body skin (car local). */
-export function makeRearSideGlass(sign: number): THREE.BufferGeometry {
-  const geo = makeSideGlass(sign, 0.76, 0.48);
-  geo.translate(sign * 0.82, 1.06, -0.42);
-  return geo;
+/** Quarter glass from the B-pillar back to the C-pillar, on the body (car local). */
+export function makeRearSideGlass(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  const q = style.quarter;
+  return makeSideGlassPane(sign, style, [q.zRearBot, B_PILLAR_Z.rear], [q.zRearTop, B_PILLAR_Z.rear], [0, 0, 0]);
 }
 
 export function makeMirror(sign: number): THREE.Group {
@@ -772,8 +1011,35 @@ export function getCrackMap(): THREE.Texture {
   return _crackMap;
 }
 
+/** Grille slats plus the dark lamp housings the headlamp lenses sit in (one draw call). */
 export function makeGrille(): THREE.Mesh {
-  const geo = new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1);
+  const parts = [new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1)];
+  for (const sx of [-0.52, 0.52]) {
+    const housing = new THREE.BoxGeometry(0.27, 0.125, 0.06);
+    housing.translate(sx, 0.05, -0.012);
+    parts.push(housing);
+  }
+  const geo = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  if (!geo) throw new Error("Failed to merge grille");
   const mat = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.55, metalness: 0.45 });
+  return new THREE.Mesh(geo, mat);
+}
+
+/** Tail lamp housings and a lower diffuser strip, in rear-bumper space. */
+export function makeTailTrim(): THREE.Mesh {
+  const parts: THREE.BufferGeometry[] = [];
+  for (const sx of [-0.52, 0.52]) {
+    const housing = new THREE.BoxGeometry(0.31, 0.115, 0.05);
+    housing.translate(sx, 0.15, -0.05);
+    parts.push(housing);
+  }
+  const diffuser = new THREE.BoxGeometry(1.1, 0.05, 0.06);
+  diffuser.translate(0, -0.12, -0.02);
+  parts.push(diffuser);
+  const geo = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  if (!geo) throw new Error("Failed to merge tail trim");
+  const mat = new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6, metalness: 0.3 });
   return new THREE.Mesh(geo, mat);
 }

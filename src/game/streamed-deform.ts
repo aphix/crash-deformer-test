@@ -43,6 +43,13 @@ export const ENGINE_KILL_TRAVEL = 0.3;
  *  bumper was gone; this stops that grind. */
 export const ENGINE_LIGHT_CAP = 0.27;
 
+/** Per-body-style rig: cage boxes / sensor rests (by SENSORS index) that differ
+ *  from the platform tables so the cages wrap that style's roof, glass and boot. */
+export interface RigOverrides {
+  cages?: Partial<Record<BodyPartName, Pick<CageSpec, "min" | "max">>>;
+  sensors?: Partial<Record<number, SensorSpec["rest"]>>;
+}
+
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -216,12 +223,14 @@ export class StreamedDeformation {
   private skinLocal: { x: number; y: number; z: number }[] = [];
   private skinMassN: number[] = [];
 
-  constructor(geometry: THREE.BufferGeometry) {
+  constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
 
-    this.cages = CAGES.map((spec) => {
+    this.cages = CAGES.map((base) => {
+      const box = rig.cages?.[base.name];
+      const spec = box ? { ...base, ...box } : base;
       const min = new THREE.Vector3(...spec.min);
       const max = new THREE.Vector3(...spec.max);
       const restCorners: THREE.Vector3[] = [];
@@ -252,16 +261,20 @@ export class StreamedDeformation {
     this.cages.forEach((c, i) => partIndex.set(c.spec.name, i));
     this.cageByPart = new Map(this.cages.map((c) => [c.spec.name, c]));
 
-    this.sensors = SENSORS.map((spec) => ({
-      spec,
-      rest: new THREE.Vector3(...spec.rest),
-      pos: new THREE.Vector3(...spec.rest),
-      partIndex: partIndex.get(spec.part) ?? 12,
-      compression: 0,
-      target: 0,
-      delay: 0,
-      fired: false,
-    }));
+    this.sensors = SENSORS.map((base, i) => {
+      const rest = rig.sensors?.[i];
+      const spec = rest ? { ...base, rest } : base;
+      return {
+        spec,
+        rest: new THREE.Vector3(...spec.rest),
+        pos: new THREE.Vector3(...spec.rest),
+        partIndex: partIndex.get(spec.part) ?? 12,
+        compression: 0,
+        target: 0,
+        delay: 0,
+        fired: false,
+      };
+    });
     this.sensorCount = this.sensors.length;
 
     const nameIndex = new Map<MassName, number>();
