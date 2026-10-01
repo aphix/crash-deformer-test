@@ -114,6 +114,18 @@ function hash01(i: number, salt = 1): number {
 const SKIN_K = 5;
 /** Most cage influences a skin vertex keeps (lattice skin / cluster-less fallback). */
 const INF_K = 4;
+/** Parent masses per skin point (A5): the paint rides these particles. */
+const RES_K = 4;
+/** Parent slots: RES_K plus the cell-face share of the nearest non-cabin mass (D1). */
+const RES_SLOTS = 5;
+/** IDW softening (m²) of the parent weights, 1/(d² + RES_SOFT). */
+const RES_SOFT = 0.04;
+/**
+ * Strain share (β) of the cluster map a skin point's offset from its parent masses takes; the
+ * rotation is taken whole. At 1 the strain between the particles extrapolates past them: paint
+ * 0.1 m outboard of a pushed door went 8% deeper than the door (piston `right`), at 0.65 within 1%.
+ */
+const SKIN_STRAIN = 0.65;
 
 /**
  * The trilinear cage map as a polynomial in (u, v, w): 8 coefficients per axis at `out[o + axis * 8]`
@@ -316,7 +328,7 @@ export class StreamedDeformation {
   private skinW = new Float64Array(0);
   /** Skin vertex → mass index of the hub that plants it (wheel arch, below 0.55 m), else −1. */
   private skinHub = new Int32Array(0);
-  /** Per cluster: skin affine M (row-major 9) + t, so a skinned point is M·rest + t. */
+  /** Per cluster: skin map M (row-major 9), applied to a skin point's offset from its parent masses (A5). */
   private clusterXf = new Float64Array(0);
   /** Cage corner ← cluster weights (rest-only, so built once): per corner [start, end) into `cornerXf`/`cornerW`, and Σw. */
   private cornerStart = new Int32Array(0);
@@ -327,6 +339,15 @@ export class StreamedDeformation {
   private skinRest: { x: number; y: number; z: number }[] = [];
   private skinLocal: { x: number; y: number; z: number }[] = [];
   private skinMassN: number[] = [];
+  /**
+   * A5 skin anchors: per skin point (vertices, then cage corners) up to RES_SLOTS parent masses
+   * (×3 offsets into `massPos`), their weights, and their weighted rest centroid; `massPos` is the
+   * masses' local positions at the last bake.
+   */
+  private resJ = new Int32Array(0);
+  private resW = new Float64Array(0);
+  private resC = new Float64Array(0);
+  private massPos = new Float64Array(0);
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -548,14 +569,22 @@ export class StreamedDeformation {
     this.buildSkinWeights();
   }
 
-  /** Rest-only skin tables: cluster weights per vertex and per cage corner, and the hub that plants each arch vertex. */
+  /**
+   * Rest-only skin tables: cluster weights per vertex and per cage corner, the parent masses of
+   * every skin point (A5), and the hub that plants each arch vertex.
+   */
   private buildSkinWeights(): void {
     const n = this.vertexCount;
+    const points = n + this.cages.length * 8;
     this.skinN = new Uint8Array(n);
     this.skinXf = new Int32Array(n * SKIN_K);
     this.skinW = new Float64Array(n * SKIN_K);
     this.skinHub = new Int32Array(n).fill(-1);
-    this.clusterXf = new Float64Array(this.clusters.length * 12);
+    this.resJ = new Int32Array(points * RES_SLOTS);
+    this.resW = new Float64Array(points * RES_SLOTS);
+    this.resC = new Float64Array(points * 3);
+    this.massPos = new Float64Array(this.masses.length * 3);
+    this.clusterXf = new Float64Array(this.clusters.length * 9);
     const cms = this.clusters.map((c) => {
       let x = 0,
         y = 0,
@@ -578,11 +607,51 @@ export class StreamedDeformation {
     const span = this.cageByPart.get("chassisCell")!;
     const cellMass = this.masses.indexOf(this.at.cell);
     const holdsCell = this.clusters.map((c) => c.idx.includes(cellMass));
-    for (let i = 0; i < this.vertexCount; i++) {
+    const inCell = (x: number, y: number, z: number): boolean => z >= span.min.z && z <= span.max.z && y >= span.min.y;
+    // A5 parents: the RES_K nearest non-hub masses by 1/(d² + RES_SOFT), less the (RES_K+1)th's
+    // weight so a parent fades out before it is swapped (no seam where the nearest set changes).
+    // D1 again: a cabin point takes cabin masses only, plus the cell-face share of the nearest
+    // other mass. resC is the parents' weighted rest centroid.
+    const body = this.masses.flatMap((m, j) => (m.hub ? [] : [j]));
+    const cabinBody = body.filter((j) => inCell(this.masses[j]!.rest.x, this.masses[j]!.rest.y, this.masses[j]!.rest.z));
+    const outside = body.filter((j) => !cabinBody.includes(j));
+    const near = (rx: number, ry: number, rz: number, set: number[]) =>
+      set
+        .map((j) => {
+          const r = this.masses[j]!.rest;
+          return { j, w: 1 / ((rx - r.x) ** 2 + (ry - r.y) ** 2 + (rz - r.z) ** 2 + RES_SOFT) };
+        })
+        .sort((a, b) => b.w - a.w);
+    const parents = (rx: number, ry: number, rz: number, i: number): void => {
+      const cabin = inCell(rx, ry, rz);
+      const ds = near(rx, ry, rz, cabin ? cabinBody : body);
+      const floor = ds.length > RES_K ? ds[RES_K]!.w : 0;
+      ds.length = Math.min(ds.length, RES_K);
+      let sum = 0;
+      for (const d of ds) sum += d.w - floor;
+      for (const d of ds) d.w = (d.w - floor) / sum;
+      const face = Math.min(rz - span.min.z, span.max.z - rz);
+      if (cabin && face < CELL_FACE_BLEND) {
+        const share = CELL_FACE_SHARE * (1 - face / CELL_FACE_BLEND);
+        for (const d of ds) d.w *= 1 - share;
+        ds.push({ j: near(rx, ry, rz, outside)[0]!.j, w: share });
+      }
+      for (let k = 0; k < ds.length; k++) {
+        const { j, w } = ds[k]!;
+        const r = this.masses[j]!.rest;
+        this.resJ[i * RES_SLOTS + k] = j * 3;
+        this.resW[i * RES_SLOTS + k] = w;
+        this.resC[i * 3] += r.x * w;
+        this.resC[i * 3 + 1] += r.y * w;
+        this.resC[i * 3 + 2] += r.z * w;
+      }
+    };
+    for (let i = 0; i < n; i++) {
       const rx = this.restPos[i * 3]!;
       const ry = this.restPos[i * 3 + 1]!;
       const rz = this.restPos[i * 3 + 2]!;
-      const inCell = rz >= span.min.z && rz <= span.max.z && ry >= span.min.y;
+      parents(rx, ry, rz, i);
+      const cabin = inCell(rx, ry, rz);
       const scored: { ci: number; w: number }[] = [];
       let other = -1,
         otherW = 0;
@@ -592,7 +661,7 @@ export class StreamedDeformation {
         if (d > 1.45) continue;
         if (ry > 1.02 && cm.y < 0.78) continue;
         const w = Math.exp(-d * 2.35);
-        if (inCell && !holdsCell[ci]) {
+        if (cabin && !holdsCell[ci]) {
           if (w > otherW) {
             other = ci;
             otherW = w;
@@ -607,14 +676,14 @@ export class StreamedDeformation {
       for (const s of scored) sum += s.w;
       if (sum > 1e-8) for (const s of scored) s.w /= sum;
       const face = Math.min(rz - span.min.z, span.max.z - rz);
-      if (inCell && other >= 0 && face < CELL_FACE_BLEND && scored.length > 0) {
+      if (cabin && other >= 0 && face < CELL_FACE_BLEND && scored.length > 0) {
         const share = CELL_FACE_SHARE * (1 - face / CELL_FACE_BLEND);
         for (const s of scored) s.w *= 1 - share;
         scored.push({ ci: other, w: share });
       }
       this.skinN[i] = scored.length;
       for (let k = 0; k < scored.length; k++) {
-        this.skinXf[i * SKIN_K + k] = scored[k]!.ci * 12;
+        this.skinXf[i * SKIN_K + k] = scored[k]!.ci * 9;
         this.skinW[i * SKIN_K + k] = scored[k]!.w;
       }
       if (ry < 0.55) {
@@ -628,13 +697,14 @@ export class StreamedDeformation {
     this.cornerWsum = new Float64Array(this.cages.length * 8);
     for (let j = 0; j < this.cages.length * 8; j++) {
       const rest = this.cages[j >> 3]!.restCorners[j & 7]!;
+      parents(rest.x, rest.y, rest.z, n + j);
       let wsum = 0;
       for (let ci = 0; ci < this.clusters.length; ci++) {
         const cm = cms[ci]!;
         const d = Math.hypot(rest.x - cm.x, rest.y - cm.y, rest.z - cm.z);
         if (d > 1.4) continue;
         const w = Math.exp(-d * 2.35);
-        xf.push(ci * 12);
+        xf.push(ci * 9);
         ws.push(w);
         wsum += w;
       }
@@ -2601,54 +2671,63 @@ export class StreamedDeformation {
   }
 
   /**
-   * Skin = each cluster's full least-squares map of rest onto the current local particles
-   * (β = 1, plastic Sp composed in): the mesh shows where the particles are. The material β
-   * shapes only the solver's goals; a stiffer skin turns crumple shear into a polar swing
-   * that throws vertices a metre from the cluster centre off the particles.
+   * Skin (A5) = a skin point's parent masses where they are now, plus the blend of its clusters'
+   * least-squares maps of rest onto the current local particles (SKIN_STRAIN of the strain,
+   * plastic Sp composed in) on its short offset from those parents. The paint rides the
+   * particles, so a dent is as deep as they went; the clusters add the region's rotation and
+   * strain. The masses' positions are captured here, so a deferred skin flushes this solve's pose.
    */
   private bakeLocalSkin(): void {
-    for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, 1);
+    for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, SKIN_STRAIN);
+    const pos = this.massPos;
+    for (let j = 0, r = 0; j < this.masses.length; j++, r += 3) {
+      const p = this.masses[j]!.local;
+      pos[r] = p.x;
+      pos[r + 1] = p.y;
+      pos[r + 2] = p.z;
+    }
   }
 
-  /** `clusterXf` ← each cluster's skin map as M·x + t (t = cm − M·cm0), so skin points skip the centre subtraction. */
+  /** `clusterXf` ← each cluster's skin map M (row-major 9). */
   private refreshClusterXf(): void {
     const X = this.clusterXf;
-    for (let ci = 0, o = 0; ci < this.clusters.length; ci++, o += 12) {
-      const c = this.clusters[ci]!;
-      const m = c.skinM;
-      for (let k = 0; k < 9; k++) X[o + k] = m[k]!;
-      X[o + 9] = c.skinCmx - (m[0]! * c.skinCm0x + m[1]! * c.skinCm0y + m[2]! * c.skinCm0z);
-      X[o + 10] = c.skinCmy - (m[3]! * c.skinCm0x + m[4]! * c.skinCm0y + m[5]! * c.skinCm0z);
-      X[o + 11] = c.skinCmz - (m[6]! * c.skinCm0x + m[7]! * c.skinCm0y + m[8]! * c.skinCm0z);
-    }
+    for (let ci = 0, o = 0; ci < this.clusters.length; ci++, o += 9) X.set(this.clusters[ci]!.skinM, o);
   }
 
   private solveCagesFromShape(): void {
     this.refreshClusterXf();
     const X = this.clusterXf;
+    const n = this.vertexCount;
+    const pos = this.massPos;
     for (let j = 0; j < this.cages.length * 8; j++) {
       const cage = this.cages[j >> 3]!;
       const rest = cage.restCorners[j & 7]!;
-      const corner = cage.corners[j & 7]!;
       const wsum = this.cornerWsum[j]!;
-      if (!(wsum > 1e-6)) {
-        corner.copy(rest);
-        continue;
+      // A5, as a skin vertex: parents' positions + the cluster maps on the offset from them.
+      const dx = rest.x - this.resC[(n + j) * 3]!;
+      const dy = rest.y - this.resC[(n + j) * 3 + 1]!;
+      const dz = rest.z - this.resC[(n + j) * 3 + 2]!;
+      let px = dx,
+        py = dy,
+        pz = dz;
+      if (wsum > 1e-6) {
+        px = py = pz = 0;
+        for (let k = this.cornerStart[j]!, e = this.cornerStart[j + 1]!; k < e; k++) {
+          const o = this.cornerXf[k]!;
+          const w = this.cornerW[k]! / wsum;
+          px += (X[o]! * dx + X[o + 1]! * dy + X[o + 2]! * dz) * w;
+          py += (X[o + 3]! * dx + X[o + 4]! * dy + X[o + 5]! * dz) * w;
+          pz += (X[o + 6]! * dx + X[o + 7]! * dy + X[o + 8]! * dz) * w;
+        }
       }
-      const rx = rest.x;
-      const ry = rest.y;
-      const rz = rest.z;
-      let px = 0,
-        py = 0,
-        pz = 0;
-      for (let k = this.cornerStart[j]!, e = this.cornerStart[j + 1]!; k < e; k++) {
-        const o = this.cornerXf[k]!;
-        const w = this.cornerW[k]!;
-        px += (X[o]! * rx + X[o + 1]! * ry + X[o + 2]! * rz + X[o + 9]!) * w;
-        py += (X[o + 3]! * rx + X[o + 4]! * ry + X[o + 5]! * rz + X[o + 10]!) * w;
-        pz += (X[o + 6]! * rx + X[o + 7]! * ry + X[o + 8]! * rz + X[o + 11]!) * w;
+      for (let k = (n + j) * RES_SLOTS, e = k + RES_SLOTS; k < e; k++) {
+        const m = this.resJ[k]!;
+        const w = this.resW[k]!;
+        px += pos[m]! * w;
+        py += pos[m + 1]! * w;
+        pz += pos[m + 2]! * w;
       }
-      corner.set(px / wsum, py / wsum, pz / wsum);
+      cage.corners[j & 7]!.set(px, py, pz);
     }
     this.capCageCorners();
     if (this.bidirectional) this.fitCagesToMasses();
@@ -2798,6 +2877,10 @@ export class StreamedDeformation {
     const iN = this.infN;
     const iCo = this.infCo;
     const iUvw = this.infUvw;
+    const rJ = this.resJ;
+    const rW = this.resW;
+    const rC = this.resC;
+    const pos = this.massPos;
     const ix = this.impactLocal.x;
     const iy = this.impactLocal.y;
     const iz = this.impactLocal.z;
@@ -2818,12 +2901,23 @@ export class StreamedDeformation {
         pz = 0;
       const n = shape ? sN[i]! : 0;
       if (n > 0) {
+        // A5: parents' positions + the blended cluster map on the offset from their rest centroid.
+        const dx = rx - rC[r]!;
+        const dy = ry - rC[r + 1]!;
+        const dz = rz - rC[r + 2]!;
         for (let k = i * SKIN_K, e = k + n; k < e; k++) {
           const o = sXf[k]!;
           const w = sW[k]!;
-          px += (X[o]! * rx + X[o + 1]! * ry + X[o + 2]! * rz + X[o + 9]!) * w;
-          py += (X[o + 3]! * rx + X[o + 4]! * ry + X[o + 5]! * rz + X[o + 10]!) * w;
-          pz += (X[o + 6]! * rx + X[o + 7]! * ry + X[o + 8]! * rz + X[o + 11]!) * w;
+          px += (X[o]! * dx + X[o + 1]! * dy + X[o + 2]! * dz) * w;
+          py += (X[o + 3]! * dx + X[o + 4]! * dy + X[o + 5]! * dz) * w;
+          pz += (X[o + 6]! * dx + X[o + 7]! * dy + X[o + 8]! * dz) * w;
+        }
+        for (let k = i * RES_SLOTS, e = k + RES_SLOTS; k < e; k++) {
+          const j = rJ[k]!;
+          const w = rW[k]!;
+          px += pos[j]! * w;
+          py += pos[j + 1]! * w;
+          pz += pos[j + 2]! * w;
         }
       } else {
         for (let k = i * INF_K, e = k + iN[i]!; k < e; k++) {
