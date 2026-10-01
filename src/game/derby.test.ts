@@ -333,7 +333,7 @@ function face(car: DeformableCar, p: THREE.Vector3): "front" | "rear" | "side" {
   return along > 0 ? "front" : "rear";
 }
 
-type DerbyRun = { hits: number; noseToNose: number; worstWedge: number; t: number; state: string; deaths: number[]; zips: string[] };
+type DerbyRun = { hits: number; noseToNose: number; worstWedge: number; t: number; state: string; deaths: number[]; zips: string[]; pops: string[] };
 
 /** Mass centroid (x, z): with the masses live it is where the car actually is. */
 function centroid(car: DeformableCar): { x: number; z: number } {
@@ -406,8 +406,10 @@ function runDerby(cars: DeformableCar[], seconds: number): DerbyRun {
     let state = "running";
     const deaths: number[] = [];
     const zips: string[] = [];
+    const pops: string[] = [];
     while (t < seconds && state === "running") {
       const before = cars.map((c) => (c.deform.massActive ? centroid(c) : null));
+      const group0 = cars.map((c) => (c.crashed && c.deform.massActive ? { x: c.group.position.x, z: c.group.position.z } : null));
       const speed0 = cars.map((c) => Math.hypot(c.velocity.x, c.velocity.z));
       const shove = new Array<number>(n).fill(0);
       let vmax = 8;
@@ -479,13 +481,17 @@ function runDerby(cars: DeformableCar[], seconds: number): DerbyRun {
         const moved = Math.hypot(b.x - a.x, b.z - a.z);
         const v = Math.max(speed0[i]!, Math.hypot(c.velocity.x, c.velocity.z), shove[i]!);
         if (moved > 3 * v * h + 0.05) zips.push(`t=${t.toFixed(2)} ${names[i]} moved ${moved.toFixed(2)} m in ${(h * 1000).toFixed(1)} ms at ${v.toFixed(1)} m/s`);
+        const g = group0[i];
+        const jump = g ? Math.hypot(c.group.position.x - g.x, c.group.position.z - g.z) : 0;
+        if (g && jump > 3 * v * h + 0.02) pops.push(`t=${t.toFixed(2)} ${names[i]} group ${jump.toFixed(3)} m in ${(h * 1000).toFixed(1)} ms at ${v.toFixed(1)} m/s quiet ${c.deform.quietTime().toFixed(2)}`);
       });
       t += h;
     }
-    return { hits, noseToNose, worstWedge, t, state, deaths, zips };
+    return { hits, noseToNose, worstWedge, t, state, deaths, zips, pops };
 }
 
 describe("derby match, six AI cars", () => {
+  const owner = ownerDerby(15);
   it("good: 20 s of derby — cars keep hitting, mostly not nose to nose, and nobody sits wedged", () => {
     const { hits, noseToNose, worstWedge } = sixCarDerby(20);
     assert.ok(hits >= 20, `only ${hits} scored hits in 20 s`);
@@ -502,7 +508,13 @@ describe("derby match, six AI cars", () => {
   });
 
   it("bad: a re-armed wreck never outruns its own masses — owner's 9-car derby, 15 s", () => {
-    const { zips } = ownerDerby(15);
-    assert.equal(zips.length, 0, `${zips.length} zips: ${zips.slice(0, 4).join("; ")}`);
+    assert.equal(owner.zips.length, 0, `${owner.zips.length} zips: ${owner.zips.slice(0, 4).join("; ")}`);
+  });
+
+  // Measured 19 pops in 15 s (0.10–0.24 m per slice, quiet 0.00, not at the hub-plant or level-out
+  // switches): the group moves 0.11–0.14 m inside one dt=0 syncPose on a struck live wreck with
+  // no cell move from collideWith, plus 0.02 m hull pushes per SAT pass on slow wedged pairs.
+  it.todo("derby:pops — a crashed car's group never moves more than 3·v·h + 2 cm in a slice — owner's derby", () => {
+    assert.equal(owner.pops.length, 0, `${owner.pops.length} pops: ${owner.pops.slice(0, 4).join("; ")}`);
   });
 });

@@ -1046,10 +1046,48 @@ Mechanisms:
   Debris that hits a car bounces off the panel's own velocity. `sphereHit`
   applies Coulomb friction (μ 0.45).
 
-Open: slow-motion versus full speed still differs for pair and offset hits.
-Head-on 2×56 nose crush is 0.44 at full speed and 0.65 in slow motion. Offset
-64 is 0.63/0.35 at full speed and 0.48/0.22 in slow motion. Square, rear and
-side walls agree within 6 %.
+### 6.2 Slow motion and derby wrecks (lane `crash-realism-3`)
+
+- **Slow-motion head-on** (`applyImpulse`): the rear's transferred share of a
+  pair impulse now moves the rear as one body (equal Δv, momentum ∝ mass).
+  Spread per node it gave a 26 kg hub ten times the cell's Δv. The pinned hubs
+  and the clamped nose hid that, and in slow motion the cell kept about 8 m/s
+  into the stopped car until the hub plant let it ride 0.12 m up the nose.
+  2×56 head-on nose: slow motion 0.638 → 0.444, full speed 0.444. Test:
+  `crash-parts.test.ts` "slow motion crushes a 2×56 km/h head-on…".
+- **Derby zip** (`rearmHit`): a re-armed hit stores each mass's damage base
+  relative to the cell. Stored raw, it was taken in the hub-planted frame,
+  where the cell sits up to its 0.12 m cap off its rest. The next contact
+  anchors the group on the cell, so every `clampLocal` dragged the cell back
+  to the stale offset and the wreck crawled along the bowl rim. Owner 9-car
+  derby, 15 s: 194 zips → 0 (mass centroid moves more than 3·v·h + 5 cm between
+  two live slices). Test: `derby.test.ts` "a re-armed wreck never outruns its
+  own masses".
+
+Open:
+
+| case | full speed | slow motion |
+|---|---|---|
+| 2×56 head-on nose L/R | 0.444 / 0.444 | 0.444 / 0.444 |
+| offset 64, 40 % nose L/R | 0.628 / 0.353 | 0.522 / 0.245 (todo `slomo:offset64`) |
+| wall 56 nose | 0.411 | 0.438 (+6.6 %) |
+| rear 50 tail | 0.347 | 0.351 |
+
+- Offset 64: the struck corner overshoots its stroke (0.9 m), slips off the
+  slab end and springs back to the stroke cap. At quiet 0.2 s the hub plant
+  re-anchors the group, and in slow motion the cell then rides 0.12 m up the
+  nose. An incremental pitch read (axis tilt minus its body-frame tilt) brings
+  wall56 to −4 % and rear50 to −1 %, but it moves derby balance, the
+  rear/front stroke ratio and the A3 engine gap, so it is not landed.
+- Derby group pops (todo `derby:pops`): 19 slices in 15 s where a crashed
+  car's group moves 0.10–0.24 m, more than 3·v·h + 2 cm. They come at quiet
+  0.00, not at the plant (0.2 s) or level-out (0.35 s) switches. The group
+  moves 0.11–0.14 m inside one dt = 0 `syncPose` on a struck live wreck.
+  `collideWith` does not move its cell by more than 3 cm. Slow wedged pairs
+  also get 0.02 m hull pushes on every SAT pass. Blending the group anchor
+  across the plant switch moved masses through the cell cap (zips came back),
+  so it was reverted.
+
 
 ## Appendix
 
