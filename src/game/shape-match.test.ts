@@ -361,7 +361,7 @@ describe("StreamedDeformation shape mode", () => {
     const group = new THREE.Group();
     group.updateMatrixWorld();
     const vel = new THREE.Vector3(0, 0, 16);
-    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 16, group, vel, new THREE.Vector3());
+    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 16, 16, group, vel, new THREE.Vector3());
     const fl = d.masses.find((m) => m.name === "bumperFL")!;
     const z0 = fl.local.z;
     for (let i = 0; i < 24; i++) {

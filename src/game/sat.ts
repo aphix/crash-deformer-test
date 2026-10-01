@@ -9,6 +9,11 @@ const _hb = new THREE.Vector3();
 const _mtv = new THREE.Vector3();
 const _bRight = new THREE.Vector3();
 const _bFwd = new THREE.Vector3();
+/** Split hull slots (front L/R 0–1, cabin 2, rear L/R 3–4) whose contacts B2 can pair up. */
+const SPLIT_HULLS = 5;
+const _pen = new Float64Array(SPLIT_HULLS);
+const _cx = new Float64Array(SPLIT_HULLS);
+const _cz = new Float64Array(SPLIT_HULLS);
 
 export function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
   const p = car.group.position;
@@ -24,6 +29,13 @@ export function physicsSlice(dt: number, vmax: number): number {
   const maxMove = 0.07;
   const cap = maxMove / Math.max(vmax, 4);
   return Math.min(dt, Math.max(1 / 240, cap));
+}
+
+/** Fastest car this frame; `physicsSlice` sizes the sub-steps from it. */
+export function sliceSpeed(cars: readonly DeformableCar[]): number {
+  let vmax = 8;
+  for (const car of cars) if (car.speed > vmax) vmax = car.speed;
+  return vmax;
 }
 
 export function satCarBarrier(
@@ -43,8 +55,10 @@ export function satCarBarrier(
 
   let best = 0;
   let bestScore = 0;
-  let found = false;
-  for (const h of hulls) {
+  let bestI = -1;
+  for (let i = 0; i < hulls.length; i++) {
+    const h = hulls[i]!;
+    if (i < SPLIT_HULLS) _pen[i] = 0;
     hullCenter(car, h, _ha);
     const rx = _ha.x - origin.x;
     const rz = _ha.z - origin.z;
@@ -60,18 +74,21 @@ export function satCarBarrier(
     const overlapZ = BARRIER_HALF.z + rZ - Math.abs(lz);
     if (overlapX <= 0 || overlapZ <= 0) continue;
     const overlap = Math.min(overlapX, overlapZ);
+    const qx = THREE.MathUtils.clamp(lx, -hx, hx);
+    const qz = THREE.MathUtils.clamp(lz, -BARRIER_HALF.z, BARRIER_HALF.z);
+    const cx = origin.x + _bRight.x * qx + _bFwd.x * qz;
+    const cz = origin.z + _bRight.z * qx + _bFwd.z * qz;
+    if (i < SPLIT_HULLS) {
+      _pen[i] = overlap;
+      _cx[i] = cx;
+      _cz[i] = cz;
+    }
     const score = overlapX * 2 + overlapZ * 0.15;
-    if (!found || score > bestScore) {
-      found = true;
+    if (bestI < 0 || score > bestScore) {
+      bestI = i;
       best = overlap;
       bestScore = score;
-      const qx = THREE.MathUtils.clamp(lx, -hx, hx);
-      const qz = THREE.MathUtils.clamp(lz, -BARRIER_HALF.z, BARRIER_HALF.z);
-      contactOut.set(
-        origin.x + _bRight.x * qx + _bFwd.x * qz,
-        0.36,
-        origin.z + _bRight.z * qx + _bFwd.z * qz,
-      );
+      contactOut.set(cx, 0.36, cz);
       if (overlapZ < overlapX) {
         normalOut.copy(_bFwd).multiplyScalar(lz >= 0 ? 1 : -1);
       } else {
@@ -79,7 +96,24 @@ export function satCarBarrier(
       }
     }
   }
-  return found ? best : null;
+  if (bestI < 0) return null;
+  centreSquareHit(bestI, contactOut);
+  return best;
+}
+
+/**
+ * B2: when both split corner hulls of one end (0/1 front, 3/4 rear) are in
+ * contact with penetrations within 30 % of each other, the hit is square —
+ * put the contact between them so the impact snap keeps it centred.
+ */
+function centreSquareHit(bestI: number, contactOut: THREE.Vector3): void {
+  const sib = bestI === 0 || bestI === 1 ? 1 - bestI : bestI === 3 || bestI === 4 ? 7 - bestI : -1;
+  if (sib < 0) return;
+  const a = _pen[bestI]!;
+  const b = _pen[sib]!;
+  if (a <= 0 || b <= 0 || Math.min(a, b) < Math.max(a, b) * 0.7) return;
+  contactOut.x = (_cx[bestI]! + _cx[sib]!) * 0.5;
+  contactOut.z = (_cz[bestI]! + _cz[sib]!) * 0.5;
 }
 
 /** Keep the cabin from crossing the jersey face. leftover=1 → bumper still on the face. */
@@ -98,7 +132,7 @@ export function clipCarToBarrier(
   const lx = px * _bRight.x + pz * _bRight.z;
   const lz = px * _bFwd.x + pz * _bFwd.z;
   const alongFwd = Math.abs(car.fwdFlat.x * _bRight.x + car.fwdFlat.z * _bRight.z) * 2.05;
-  const bumperKeep = hx + 0.22 + alongFwd * 0.85;
+  const bumperKeep = hx + 0.22 + alongFwd * 0.85 * leftover;
   const cabinKeep = hx + 1.08;
   const minLx = THREE.MathUtils.lerp(cabinKeep, bumperKeep, leftover);
   if (Math.abs(lz) > BARRIER_HALF.z + 1.1) return false;
@@ -170,19 +204,38 @@ export function satCars(
   a.refreshBasis();
   b.refreshBasis();
   let best = 0;
-  let found = false;
-  for (const ha of hullsOf(a)) {
-    for (const hb of hullsOf(b)) {
+  let bestI = -1;
+  const hullsA = hullsOf(a);
+  const hullsB = hullsOf(b);
+  for (let i = 0; i < hullsA.length; i++) {
+    const ha = hullsA[i]!;
+    if (i < SPLIT_HULLS) _pen[i] = 0;
+    for (const hb of hullsB) {
       const hit = satTwoHulls(a, ha, b, hb);
-      if (hit && hit > best) {
-        found = true;
+      if (!hit) continue;
+      const better = hit > best;
+      const sibling = i < SPLIT_HULLS && hit > _pen[i]!;
+      if (!better && !sibling) continue;
+      const mtvX = _mtv.x;
+      const mtvZ = _mtv.z;
+      hullCenter(a, ha, _ha);
+      hullCenter(b, hb, _hb);
+      const cx = (_ha.x + _hb.x) * 0.5;
+      const cz = (_ha.z + _hb.z) * 0.5;
+      if (sibling) {
+        _pen[i] = hit;
+        _cx[i] = cx;
+        _cz[i] = cz;
+      }
+      if (better) {
+        bestI = i;
         best = hit;
-        normalOut.copy(_mtv);
-        hullCenter(a, ha, _ha);
-        hullCenter(b, hb, _hb);
-        contactOut.set((_ha.x + _hb.x) * 0.5, 0.36, (_ha.z + _hb.z) * 0.5);
+        normalOut.set(mtvX, 0, mtvZ);
+        contactOut.set(cx, 0.36, cz);
       }
     }
   }
-  return found ? best : null;
+  if (bestI < 0) return null;
+  centreSquareHit(bestI, contactOut);
+  return best;
 }

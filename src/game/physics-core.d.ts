@@ -26,6 +26,7 @@ export function regionCrushBands(name: string): CrushBands;
 export function forceTransfer(travel: number, bands: CrushBands, packed: boolean): number;
 export function leftoverPass(remain: number, pass: number): number;
 export function leftoverCrumple(travel: number): number;
+export function crushStroke(ebs: number, squash: number): number;
 export function cancelClosing(closing: number, pass: number, invSum: number, dt: number, e?: number): number;
 export function satPushCap(dt: number): number;
 export function round4(n: number): number;

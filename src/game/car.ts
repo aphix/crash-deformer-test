@@ -612,7 +612,8 @@ export class DeformableCar {
     return out.copy(world).applyQuaternion(inv).normalize();
   }
 
-  applyImpact(worldPoint: THREE.Vector3, worldInward: THREE.Vector3, impulse: number): void {
+  /** `impulse` is the closing speed (FX, glass); `ebs` the equivalent barrier speed that sizes the crush. */
+  applyImpact(worldPoint: THREE.Vector3, worldInward: THREE.Vector3, impulse: number, ebs: number): void {
     this.crashed = true;
     const localP = this.worldToLocalPoint(worldPoint, _p);
     _in.copy(worldInward);
@@ -624,7 +625,7 @@ export class DeformableCar {
       if (_in.dot(_v) < 0) _in.negate();
     }
     const localN = this.worldToLocalDir(_in, _n);
-    this.deform.beginCrush(localP, localN, impulse, this.group, this.velocity, this.angular);
+    this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
     this.deform.impulseAt(worldPoint, _in, impulse);
     this.bodyMat.roughness = Math.min(0.82, 0.42 + impulse * 0.012);
   }

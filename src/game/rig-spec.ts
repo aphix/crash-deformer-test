@@ -56,7 +56,7 @@ export const CAGES: CageSpec[] = [
   { name: "wingRR", min: [0.34, 0.16, -1.86], max: [0.88, 0.68, -0.54], absorption: 0.16, maxCrush: 0.72, maxAngle: 0.85 },
   { name: "chassisFront", min: [-0.58, 0.16, 0.42], max: [0.58, 0.5, 1.76], absorption: 0.28, maxCrush: 0.55, maxAngle: 0.55 },
   { name: "chassisCell", min: [-0.66, 0.2, -0.48], max: [0.66, 1.06, 0.64], absorption: 0.72, maxCrush: 0.16, maxAngle: 0.16 },
-  { name: "chassisRear", min: [-0.58, 0.16, -1.76], max: [0.58, 0.5, -0.32], absorption: 0.3, maxCrush: 0.5, maxAngle: 0.48 },
+  { name: "chassisRear", min: [-0.58, 0.16, -1.76], max: [0.58, 0.5, -0.32], absorption: 0.3, maxCrush: 0.45, maxAngle: 0.48 },
   { name: "skirtLeft", min: [-0.9, 0.14, -1.32], max: [-0.54, 0.36, 1.32], absorption: 0.22, maxCrush: 0.42, maxAngle: 0.5 },
   { name: "skirtRight", min: [0.54, 0.14, -1.32], max: [0.9, 0.36, 1.32], absorption: 0.22, maxCrush: 0.42, maxAngle: 0.5 },
   { name: "glassFront", min: [-0.64, 0.68, 0.38], max: [0.64, 1.36, 1.16], absorption: 0.48, maxCrush: 0.32, maxAngle: 0.35 },

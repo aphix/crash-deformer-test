@@ -81,8 +81,11 @@ export function resolveCarPair(
   }
 
   if (deform && closing > 0.2 && (crushHit ?? hit ?? 0) > 0.006) {
-    if (!carA.crashed) carA.applyImpact(p, n.clone(), closing);
-    if (!carB.crashed) carB.applyImpact(p, n.clone().negate(), closing);
+    // Equivalent barrier speed: each car takes the closing share the other's mass pushes into it.
+    const mA = carA.deform.totalMass;
+    const mB = carB.deform.totalMass;
+    if (!carA.crashed) carA.applyImpact(p, n.clone(), closing, (closing * mB) / (mA + mB));
+    if (!carB.crashed) carB.applyImpact(p, n.clone().negate(), closing, (closing * mA) / (mA + mB));
   }
 
   let remain = Math.max(0, closing);
@@ -90,6 +93,16 @@ export function resolveCarPair(
     const remainA = carA.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
     const remainB = carB.deform.feedOverlap(_cp, _w.copy(_cn).negate(), crushHit, Math.max(0, closing), dt);
     remain = Math.max(0, Math.min(remainA, remainB));
+  }
+  if (feed && crushHit && closing > 0 && carA.crashed && carB.crashed && Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) >= 0.9) {
+    // Both noses have crushed their stroke for this hit (B1): the packed
+    // structure stops the relative closing, toward the pair's common velocity.
+    const mA = carA.deform.totalMass;
+    const mB = carB.deform.totalMass;
+    const j = ((mA * mB) / (mA + mB)) * closing;
+    const comVn = (mA * carA.velocity.dot(_cn) + mB * carB.velocity.dot(_cn)) / (mA + mB);
+    carA.deform.brakeInbound(_cn.x, _cn.z, j, comVn);
+    carB.deform.brakeInbound(-_cn.x, -_cn.z, j, -comVn);
   }
 
   const leftoverA = leftoverCrumple(carA.deform.crumpleTravelCorner());

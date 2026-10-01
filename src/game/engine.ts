@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
-import { physicsSlice } from "./sat.ts";
+import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
@@ -754,8 +754,7 @@ export class CrashEngine {
       this.timeScale += (this.targetScale - this.timeScale) * Math.min(1, wallDt * (this.phase === "aftermath" ? 1.15 : 3.2));
       const simDt = wallDt * this.timeScale;
       const cars = this.live();
-      let vmax = 8;
-      for (const car of cars) if (car.speed > vmax) vmax = car.speed;
+      const vmax = sliceSpeed(cars);
       this.acc += simDt;
       if (this.acc > 0.05) this.acc = 0.05;
       const budget = now + 8;
@@ -1277,6 +1276,7 @@ export class CrashEngine {
       this.carA.deform.beginCrush(
         new THREE.Vector3(0, 0.36, 2.06),
         new THREE.Vector3(0, 0, -1),
+        18,
         18,
         this.carA.group,
         this.carA.velocity,
