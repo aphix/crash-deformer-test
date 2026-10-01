@@ -5,7 +5,7 @@ import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, HIT_DEBOUNCE, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { clipToDerbyBowl, DERBY_RADIUS, makeDerbyArena } from "./derby-arena.ts";
 import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
-import { layoutDerby, MAX_CARS } from "./fleet.ts";
+import { fleetStyle, layoutDerby, MAX_CARS } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
 import { physicsSlice } from "./sat.ts";
@@ -333,24 +333,71 @@ function face(car: DeformableCar, p: THREE.Vector3): "front" | "rear" | "side" {
   return along > 0 ? "front" : "rear";
 }
 
-type DerbyRun = { hits: number; noseToNose: number; worstWedge: number; t: number; state: string; deaths: number[] };
+type DerbyRun = { hits: number; noseToNose: number; worstWedge: number; t: number; state: string; deaths: number[]; zips: string[] };
 
-/** Six AI cars in the bowl (seed 7) in the engine's contact order, until `seconds` or the match ends. */
+/** Mass centroid (x, z): with the masses live it is where the car actually is. */
+function centroid(car: DeformableCar): { x: number; z: number } {
+  let x = 0;
+  let z = 0;
+  let m = 0;
+  for (const p of car.deform.masses) {
+    x += p.world.x * p.mass;
+    z += p.world.z * p.mass;
+    m += p.mass;
+  }
+  return { x: x / m, z: z / m };
+}
+
+/** Six AI cars in the bowl (seed 7). */
 function sixCarDerby(seconds: number): DerbyRun {
-    const n = 6;
-    const scene = new THREE.Scene();
-    const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
-    let seed = 7;
-    const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-    const slots = layoutDerby(n, DERBY_RADIUS, 12, rng);
+  const n = 6;
+  const scene = new THREE.Scene();
+  const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
+  let seed = 7;
+  const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
+  const slots = layoutDerby(n, DERBY_RADIUS, 12, rng);
+  cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, slots[i]!.speed));
+  return runDerby(cars, seconds);
+}
+
+/** The owner's 9-car derby capture (main 75deb20, fleet styles, 12 m/s): x, z, yaw. Its wrecks zipped along the rim. */
+const OWNER_DERBY: readonly (readonly [number, number, number])[] = [
+  [9.5, -5.931, 3.6997],
+  [3.465, -10.65, 4.3979],
+  [-4.192, -10.386, 5.096],
+  [-9.887, -5.262, 5.7941],
+  [-10.956, 2.325, 6.4923],
+  [-6.899, 8.823, 7.1904],
+  [0.387, 11.193, 7.8885],
+  [7.491, 8.326, 8.5866],
+  [11.09, 1.563, 9.2848],
+];
+
+function ownerDerby(seconds: number): DerbyRun {
+  const scene = new THREE.Scene();
+  const cars = OWNER_DERBY.map(([x, z, yaw], i) => {
+    const c = new DeformableCar({ body: 0xffffff, accent: 0x444444, name: `o${i}` }, scene, null, fleetStyle(i));
+    c.spawnFacing(x, z, yaw, 12);
+    return c;
+  });
+  return runDerby(cars, seconds);
+}
+
+/**
+ * AI cars in the bowl in the engine's contact order, until `seconds` or the match ends. A zip is a
+ * slice where a live wreck's mass centroid moves more than 3× its speed allows (+5 cm); the slice its
+ * masses go live is skipped (the group origin sits 0.23 m behind the mass centroid).
+ */
+function runDerby(cars: DeformableCar[], seconds: number): DerbyRun {
+    const n = cars.length;
+    const names = cars.map((c) => c.paint.name);
     const match = new DerbyMatch();
-    match.begin(cars.map((_, i) => ({ id: i, name: `c${i}` })));
-    cars.forEach((c, i) => {
-      c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, slots[i]!.speed);
+    match.begin(cars.map((_, i) => ({ id: i, name: names[i]! })));
+    for (const c of cars) {
       c.deform.squash = 0.4;
       c.deform.buckle = 0.45;
       c.deform.setMode("shape");
-    });
+    }
     const wedged = new Array<number>(n).fill(0);
     let worstWedge = 0;
     let hits = 0;
@@ -358,7 +405,11 @@ function sixCarDerby(seconds: number): DerbyRun {
     let t = 0;
     let state = "running";
     const deaths: number[] = [];
+    const zips: string[] = [];
     while (t < seconds && state === "running") {
+      const before = cars.map((c) => (c.deform.massActive ? centroid(c) : null));
+      const speed0 = cars.map((c) => Math.hypot(c.velocity.x, c.velocity.z));
+      const shove = new Array<number>(n).fill(0);
       let vmax = 8;
       for (const c of cars) vmax = Math.max(vmax, c.speed);
       const h = physicsSlice(1 / 60, vmax);
@@ -392,6 +443,9 @@ function sixCarDerby(seconds: number): DerbyRun {
             const pair = resolveCarPair(ca, cb, k === 0, h);
             if (!pair) continue;
             moved = true;
+            // The hull push shoves a car out of a rammer's way at up to the rammer's speed.
+            shove[a] = Math.max(shove[a]!, speed0[b]!);
+            shove[b] = Math.max(shove[b]!, speed0[a]!);
             const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
             const bInto = cb.velocity.x * pair.normal.x + cb.velocity.z * pair.normal.z;
             if (!match.noteHit(a, b, aInto, bInto, pair.impulse)) continue;
@@ -410,7 +464,7 @@ function sixCarDerby(seconds: number): DerbyRun {
         c.afterContacts(h);
         clipDerbyCar(c);
       }
-      state = match.step(h, cars.map((c, i) => ({ id: i, name: `c${i}`, alive: c.deform.drivetrainAlive })));
+      state = match.step(h, cars.map((c, i) => ({ id: i, name: names[i]!, alive: c.deform.drivetrainAlive })));
       const dead = cars.filter((c) => !c.deform.drivetrainAlive).length;
       while (deaths.length < dead) deaths.push(t);
       cars.forEach((c, i) => {
@@ -418,9 +472,17 @@ function sixCarDerby(seconds: number): DerbyRun {
         wedged[i] = stuck ? wedged[i]! + h : 0;
         worstWedge = Math.max(worstWedge, wedged[i]!);
       });
+      cars.forEach((c, i) => {
+        const a = before[i];
+        if (!a || !c.deform.massActive) return;
+        const b = centroid(c);
+        const moved = Math.hypot(b.x - a.x, b.z - a.z);
+        const v = Math.max(speed0[i]!, Math.hypot(c.velocity.x, c.velocity.z), shove[i]!);
+        if (moved > 3 * v * h + 0.05) zips.push(`t=${t.toFixed(2)} ${names[i]} moved ${moved.toFixed(2)} m in ${(h * 1000).toFixed(1)} ms at ${v.toFixed(1)} m/s`);
+      });
       t += h;
     }
-    return { hits, noseToNose, worstWedge, t, state, deaths };
+    return { hits, noseToNose, worstWedge, t, state, deaths, zips };
 }
 
 describe("derby match, six AI cars", () => {
@@ -437,5 +499,10 @@ describe("derby match, six AI cars", () => {
     assert.ok(run.state === "winner" && run.t < STALEMATE - 1, `no elimination win: ${run.state} at ${run.t.toFixed(1)} s, deaths [${at}]`);
     assert.equal(run.deaths.length, 5, `deaths [${at}]`);
     assert.ok(run.deaths[0]! > 2, `first car died at ${run.deaths[0]!.toFixed(1)} s, before the field had met`);
+  });
+
+  it("bad: a re-armed wreck never outruns its own masses — owner's 9-car derby, 15 s", () => {
+    const { zips } = ownerDerby(15);
+    assert.equal(zips.length, 0, `${zips.length} zips: ${zips.slice(0, 4).join("; ")}`);
   });
 });
