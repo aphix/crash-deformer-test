@@ -71,6 +71,12 @@ const _mat = new THREE.Matrix4();
 const _toLocal = new THREE.Matrix4();
 /** writeShapeToMasses' body → world scratch. */
 const _bodyOut = new Float64Array(3);
+/** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
+const SHAPE_REF_HZ = 240;
+/** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
+const SHAPE_MAX_STEP = 0.14;
+/** Sim seconds a fed contact keeps the solver in contact mode: one 60 Hz frame. */
+const CONTACT_HOLD = 1 / 60;
 
 function hash01(i: number, salt = 1): number {
   const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
@@ -221,6 +227,8 @@ export class StreamedDeformation {
   private _totalMass = 1;
   private prevYaw = 0;
   private overlapFrame = false;
+  /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
+  private contactAt = -Infinity;
   /** Body frame of the last syncShapeFromMasses: world = R_y(heading)·(local − bodyRestC) + bodyC. */
   private bodyCos = 1;
   private bodySin = 0;
@@ -490,6 +498,7 @@ export class StreamedDeformation {
     this.deepCrush = false;
     this.prevYaw = 0;
     this.overlapFrame = false;
+    this.contactAt = -Infinity;
     this.impactInward.set(0, 0, -1);
     this.impactLocal.set(0, 0.36, 2.1);
     for (const s of this.sensors) {
@@ -1017,6 +1026,12 @@ export class StreamedDeformation {
 
   stepStructure(dt: number): void {
     if (!this.massActive) return;
+    // Contact fed since the last call: latched in sim time so every slice of this call, and
+    // every sub-call of a split frame, solves the same contact.
+    if (this.overlapFrame) {
+      this.overlapFrame = false;
+      this.contactAt = this.elapsed;
+    }
     this.elapsed += dt;
     const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
@@ -1919,8 +1934,7 @@ export class StreamedDeformation {
 
   private stepShapeMatch(dt: number): void {
     this.syncShapeFromMasses();
-    const contacting = this.overlapFrame || this.bidirectional;
-    this.overlapFrame = false;
+    const contacting = this.bidirectional || this.elapsed - this.contactAt <= CONTACT_HOLD;
     let comX = 0,
       comY = 0,
       comZ = 0,
@@ -1939,12 +1953,17 @@ export class StreamedDeformation {
       this.startX[i] = this.shapeParticles[i]!.x;
       this.startZ[i] = this.shapeParticles[i]!.z;
     }
-    const alpha = contacting
+    const alphaRef = contacting
       ? this.squash < 0.03
         ? 0.9
         : 0.32 + this.squash * 0.38
       : goalAlpha(this.squash);
     const iters = contacting ? 2 : stiffnessIters(this.squash);
+    // alphaRef is the per-iteration pull at the SHAPE_REF_HZ slice: as a time constant
+    // (x += (1 − e^{−h/τ})(g − x), XPBD's first-order form) the pull per sim second holds
+    // at any slice length, so slow-mo and refresh rate leave the stiffness alone.
+    const alpha = 1 - Math.pow(1 - alphaRef, dt * SHAPE_REF_HZ);
+    const maxStep = SHAPE_MAX_STEP * dt * SHAPE_REF_HZ;
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     for (let k = 0; k < iters; k++) {
@@ -1996,7 +2015,7 @@ export class StreamedDeformation {
         const ay0 = alpha * (gy - p.y);
         const az0 = alpha * (gz - p.z);
         const step = Math.hypot(ax0, ay0, az0);
-        const kStep = step > 0.14 ? 0.14 / step : 1;
+        const kStep = step > maxStep ? maxStep / step : 1;
         const ax = ax0 * kStep;
         const ay = ay0 * kStep;
         const az = az0 * kStep;

@@ -50,7 +50,7 @@ function crashRig(impact: THREE.Vector3, inward: THREE.Vector3, speed: number, y
   group.updateMatrixWorld();
   const vel = new THREE.Vector3(0, 0, speed).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
   const omega = new THREE.Vector3();
-  d.beginCrush(impact, inward, Math.abs(speed), group, vel, omega);
+  d.beginCrush(impact, inward, Math.abs(speed), Math.abs(speed), group, vel, omega);
   return { d, group, vel, omega, geom, yaw };
 }
 
@@ -592,5 +592,27 @@ describe("StreamedDeformation shape mode", () => {
     const turned = settle(0.3);
     const worst = Math.max(...still.map((v, i) => Math.abs(v - turned[i]!)));
     assert.ok(worst < 0.01, `a 0.3 rad heading distorts the body by ${worst.toFixed(3)} m`);
+  });
+
+  it("good: the same contact feed crushes the same however the structure step is sliced", () => {
+    const H = 1 / 240;
+    const railTravel = (sub: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
+      for (let f = 0; f < 48; f++) {
+        r.d.notifyContact();
+        const a = node(r.d, "bumperFL").world;
+        const b = node(r.d, "bumperFR").world;
+        const contact = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+        r.d.feedOverlap(contact, new THREE.Vector3(0, 0, -1), 0.1, Math.max(0, r.vel.z), H);
+        for (let k = 0; k < sub; k++) r.d.stepStructure(H / sub);
+        r.d.followGroup(r.group, r.vel, r.omega, H);
+      }
+      const rail = node(r.d, "railL");
+      return rail.local.distanceTo(rail.rest);
+    };
+    const t = [1, 4, 8].map(railTravel);
+    const lo = Math.min(...t);
+    const hi = Math.max(...t);
+    assert.ok(hi <= lo * 1.3, `railL travel at 1/4/8 sub-slices ${t.map((v) => v.toFixed(3)).join(" / ")}`);
   });
 });

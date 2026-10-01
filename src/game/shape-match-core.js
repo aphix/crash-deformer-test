@@ -582,13 +582,17 @@ function matchCluster(c, particles, beta) {
   blendStretchInto(c.R, c.S, beta, 8, c.M);
 }
 const COS_PLASTIC_ROT = Math.cos(0.08);
+/** Slice rate the creep was tuned at (its old 1/120 s floor at the 1/240 s slice). */
+const CREEP_REF_HZ = 240;
 function applyPlasticity(c, particles, dt, squash, contacting, buckle = 0.45) {
   if (squash < 0.03 && buckle < 0.03) return;
   const yieldC = 0.035 + (1 - squash) * 0.08 + (1 - buckle) * 0.04;
   const S = c.S, Sp = c.Sp;
   const err = m3FrobeniusI(S);
   if (err < yieldC) return;
-  const creep = Math.min(0.85, (0.35 + squash * 1.25 + buckle * 0.55) * Math.max(dt, 1 / 120) * 10);
+  // Tuned share per 1/240 s slice, compounded per sim second: the same flow whatever the slice.
+  const creepRef = Math.min(0.85, (0.35 + squash * 1.25 + buckle * 0.55) * (1 / 120) * 10);
+  const creep = 1 - Math.pow(1 - creepRef, dt * CREEP_REF_HZ);
   {
     // Sp ← Sp·(I + creep·(S − I))
     const u = 1 - creep;
@@ -611,7 +615,8 @@ function applyPlasticity(c, particles, dt, squash, contacting, buckle = 0.45) {
   const det = m3Det(Sp);
   if (det > 1e-6) {
     const s = Math.cbrt(1 / det);
-    const keep = 0.08;
+    // 8 % of the volume error per 1/240 s slice.
+    const keep = 1 - Math.pow(0.92, dt * CREEP_REF_HZ);
     const mix = 1 + (s - 1) * keep;
     for (let i = 0; i < 9; i++) Sp[i] *= mix;
   }
