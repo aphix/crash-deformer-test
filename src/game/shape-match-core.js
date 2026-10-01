@@ -581,10 +581,9 @@ function matchCluster(c, particles, beta) {
   stabilizeMat(c.R, c.Rprev);
   blendStretchInto(c.R, c.S, beta, 8, c.M);
 }
-const COS_PLASTIC_ROT = Math.cos(0.08);
 /** Slice rate the creep was tuned at (its old 1/120 s floor at the 1/240 s slice). */
 const CREEP_REF_HZ = 240;
-function applyPlasticity(c, particles, dt, squash, contacting, buckle = 0.45) {
+function applyPlasticity(c, particles, dt, squash, buckle = 0.45) {
   if (squash < 0.03 && buckle < 0.03) return;
   const yieldC = 0.035 + (1 - squash) * 0.08 + (1 - buckle) * 0.04;
   const S = c.S, Sp = c.Sp;
@@ -623,27 +622,13 @@ function applyPlasticity(c, particles, dt, squash, contacting, buckle = 0.45) {
   if (Sp[0] > 1.06) Sp[0] = 1.06;
   if (Sp[4] > 1.06) Sp[4] = 1.06;
   if (Sp[8] > 1.06) Sp[8] = 1.06;
-  // Contact with a real rotation (> 0.08 rad) creeps the rest shape toward it: q0 ← (I + k(R − I)) q0.
-  const R = c.R;
-  const k = creep * 0.45;
-  const turn = contacting && (R[0] + R[4] + R[8] - 1) * 0.5 < COS_PLASTIC_ROT;
-  const ku = 1 - k;
-  const l0 = ku + R[0] * k, l1 = R[1] * k, l2 = R[2] * k;
-  const l3 = R[3] * k, l4 = ku + R[4] * k, l5 = R[5] * k;
-  const l6 = R[6] * k, l7 = R[7] * k, l8 = ku + R[8] * k;
+  // The plastic rest is Sp·q0. q0 itself only moves when the contact window closes and the
+  // owner rebases it onto the deformed shape (resetCluster), so a turned cluster keeps its size.
   const sp0 = Sp[0], sp1 = Sp[1], sp2 = Sp[2], sp3 = Sp[3], sp4 = Sp[4], sp5 = Sp[5], sp6 = Sp[6], sp7 = Sp[7], sp8 = Sp[8];
   const idx = c.idx, q0x = c.q0x, q0y = c.q0y, q0z = c.q0z, qx = c.qx, qy = c.qy, qz = c.qz;
   let a00 = 0, a01 = 0, a02 = 0, a11 = 0, a12 = 0, a22 = 0;
   for (let i = 0; i < idx.length; i++) {
-    let x = q0x[i], y = q0y[i], z = q0z[i];
-    if (turn) {
-      const rx = l0 * x + l1 * y + l2 * z;
-      const ry = l3 * x + l4 * y + l5 * z;
-      const rz = l6 * x + l7 * y + l8 * z;
-      q0x[i] = x = rx;
-      q0y[i] = y = ry;
-      q0z[i] = z = rz;
-    }
+    const x = q0x[i], y = q0y[i], z = q0z[i];
     const vx = sp0 * x + sp1 * y + sp2 * z;
     const vy = sp3 * x + sp4 * y + sp5 * z;
     const vz = sp6 * x + sp7 * y + sp8 * z;

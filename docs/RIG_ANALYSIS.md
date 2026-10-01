@@ -871,6 +871,14 @@ lamp break rule, and the glass crack/shatter rule.
   inward relative to the cell (today 0.13 m, 0.35 m at 80 km/h).
 - *Risk*: a visible seam at the span faces. Check the side silhouette
   screenshot in `rest-mesh.test.ts`. Skin cost is unchanged.
+- *Done* (lane shape-core-2): the span is the cage's z span above its floor at
+  any x, because the cage box itself holds only 3 of the 1431 body-skin vertices
+  (the skin sits outboard of x ±0.66); the section holds 415. Cell clusters are
+  the ones whose mass set contains `cell`. Skin inward/downward motion relative
+  to the cell (`CrashResult.skinCabin`): 0.072 → 0.037 m at 56 km/h, 0.121 →
+  0.051 m at 80 km/h, 0.038 → 0.032 m in a 2×28 head-on. Rearward skin travel
+  at the A-pillar foot (≈ 0.11 m at 56) follows the cell clusters' own fit and
+  is unchanged.
 
 **D2 — Keep the cell caps** (`clampLocal` cell/roof cap 0.12 m, `maxDy`
 0.06/0.07, `deepCrush` exceptions). Measured: door/roof control particles move
