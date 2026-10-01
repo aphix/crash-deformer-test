@@ -882,22 +882,24 @@ export class CrashEngine {
       if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(this.keys), dt);
     }
     if (this.derbyMode && this.derby.winnerId == null) {
-      const snaps = cars.map((c, i) =>
+      const snaps = this.derby.snapshots(cars.length);
+      for (let i = 0; i < cars.length; i++) {
+        const c = cars[i]!;
         snapshotAiCar(
+          snaps[i]!,
           i,
-          c.paint.name,
           c.group.position.x,
           c.group.position.z,
           c.yaw,
           c.velocity.x,
           c.velocity.z,
           c.deform.drivetrainAlive,
-          c.deform.crumpleTravel(),
-        ),
-      );
+          c.deform.masses,
+        );
+      }
       for (let i = 0; i < cars.length; i++) {
         if (i === driven) continue;
-        applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps), dt);
+        applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps, dt), dt);
       }
     }
     let nearWall = false;

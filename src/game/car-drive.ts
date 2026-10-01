@@ -19,6 +19,10 @@ export const DRIVE = {
   turn: 1.55,
   ebrakeTurn: 2.8,
   ebrakeDrag: 0.22,
+  /** Lateral tire grip (m/s²) once crashed; the kinematic car has perfect grip. Full lock at top speed needs ~28. */
+  grip: 20,
+  /** A quiet wreck zeroes masses under ~0.28 m/s; a powered wheel breaks away past that (~30 ms of accel). */
+  launch: 0.45,
 };
 
 const _zero: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
@@ -53,12 +57,13 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
   const max = (throttle < 0 ? DRIVE.maxRev : DRIVE.maxFwd) * (boosting ? 1.42 : 1);
   let speed = along;
+  let want = 0;
   if (input.ebrake || brake > 0.2) {
     const drag = input.ebrake ? DRIVE.ebrakeDrag : THREE.MathUtils.lerp(DRIVE.coast, DRIVE.brake, brake);
     speed *= Math.pow(Math.max(0.04, 1 - drag * dt), 1);
     if (Math.abs(speed) < 0.4) speed = 0;
   } else {
-    const want = throttle * max;
+    want = throttle * max;
     const rate = (Math.abs(want) > Math.abs(speed) ? DRIVE.accel : DRIVE.brake * 0.45) * (boosting ? 1.55 : 1);
     if (speed < want) speed = Math.min(want, speed + rate * dt);
     else speed = Math.max(want, speed - rate * dt);
@@ -73,13 +78,60 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
     car.velocity.set(car.fwdFlat.x * speed, 0, car.fwdFlat.z * speed);
     car.speed = Math.abs(speed);
     car.angular.set(0, steer * turn, 0);
-  } else {
-    const dv = speed - along;
-    car.velocity.x += car.fwdFlat.x * dv;
-    car.velocity.z += car.fwdFlat.z * dv;
-    car.angular.y = steer * turn;
-    if (Math.abs(dv) > 1e-5) car.deform.kickCore(car.fwdFlat.x, 0, car.fwdFlat.z, dv);
-    car.speed = car.velocity.length();
+    return;
+  }
+
+  // Crashed: the masses carry the pose and followGroup re-measures yaw and
+  // velocity from them, so writing angular.y alone never turned a wreck.
+  // Yaw the body and push every mass: a cabin-only kick (kickCore) gets
+  // averaged away by the unkicked crumple masses on a quiet wreck, and the
+  // settle clamp then parks the car for good.
+  const c = Math.cos(dyaw);
+  const s = Math.sin(dyaw);
+  const fx = car.fwdFlat.x * c + car.fwdFlat.z * s;
+  const fz = -car.fwdFlat.x * s + car.fwdFlat.z * c;
+  if (Math.abs(want) >= DRIVE.launch && Math.abs(speed) < DRIVE.launch) speed = Math.sign(want) * DRIVE.launch;
+  const dv = speed - (car.velocity.x * fx + car.velocity.z * fz);
+  const lat = car.velocity.x * fz - car.velocity.z * fx;
+  const grip = -Math.sign(lat) * Math.min(Math.abs(lat), DRIVE.grip * dt);
+  const ax = fx * dv + fz * grip;
+  const az = fz * dv - fx * grip;
+  driveMasses(car.deform.masses, c, s, ax, az);
+  car.velocity.x += ax;
+  car.velocity.z += az;
+  car.angular.y = steer * turn;
+  car.speed = car.velocity.length();
+}
+
+type DriveMass = {
+  dynamic: boolean;
+  mass: number;
+  readonly world: { x: number; z: number };
+  readonly vel: { x: number; z: number };
+};
+
+/** Rigid yaw (cos c, sin s) of every dynamic mass about their centre of mass, plus a shared Δv. */
+function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: number, az: number): void {
+  let cx = 0;
+  let cz = 0;
+  let m = 0;
+  for (const n of masses) {
+    if (!n.dynamic) continue;
+    cx += n.world.x * n.mass;
+    cz += n.world.z * n.mass;
+    m += n.mass;
+  }
+  if (m <= 1e-8) return;
+  cx /= m;
+  cz /= m;
+  for (const n of masses) {
+    if (!n.dynamic) continue;
+    const dx = n.world.x - cx;
+    const dz = n.world.z - cz;
+    n.world.x = cx + dx * c + dz * s;
+    n.world.z = cz - dx * s + dz * c;
+    n.vel.x += ax;
+    n.vel.z += az;
   }
 }
 
