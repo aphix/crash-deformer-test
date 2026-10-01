@@ -1,0 +1,80 @@
+{
+  "id": "oval",
+  "name": "Brickyard Oval",
+  "blurb": "Wide, flat-out speedway. Four lefts, one infield service road.",
+  "laps": 3,
+  "road": { "width": 18, "surface": "asphalt", "runoff": [3, 3], "runoffSurface": "concrete", "wall": [true, true], "wallHeight": 1.1 },
+  "nodes": [
+    { "x": -55, "z": 0 },
+    { "x": -55, "z": 42 },
+    { "x": -55, "z": 85 },
+    { "x": -47.63, "z": 112.5 },
+    { "x": -27.5, "z": 132.63 },
+    { "x": 0, "z": 140 },
+    { "x": 27.5, "z": 132.63 },
+    { "x": 47.63, "z": 112.5 },
+    { "x": 55, "z": 85 },
+    { "x": 55, "z": 42 },
+    { "x": 55, "z": 0 },
+    { "x": 55, "z": -42, "wall": [false, true] },
+    { "x": 55, "z": -85, "wall": [true, true] },
+    { "x": 47.63, "z": -112.5 },
+    { "x": 27.5, "z": -132.63 },
+    { "x": 0, "z": -140 },
+    { "x": -27.5, "z": -132.63 },
+    { "x": -47.63, "z": -112.5 },
+    { "x": -55, "z": -85, "wall": [false, true] },
+    { "x": -55, "z": -42, "wall": [true, true] }
+  ],
+  "checkpoints": [
+    { "node": 0 },
+    { "node": 3 },
+    { "node": 5 },
+    { "node": 7 },
+    { "node": 10 },
+    { "node": 13 },
+    { "node": 15 },
+    { "node": 17 }
+  ],
+  "shortcuts": [
+    {
+      "id": "service-road",
+      "from": 4,
+      "to": 0,
+      "width": 7,
+      "surface": "dirt",
+      "path": [
+        { "x": 49, "z": -58 },
+        { "x": 33, "z": -82 },
+        { "x": 21.2, "z": -106.2 },
+        { "x": 0, "z": -115 },
+        { "x": -21.2, "z": -106.2 },
+        { "x": -33, "z": -82 },
+        { "x": -49, "z": -58 }
+      ]
+    }
+  ],
+  "grid": { "perRow": 2, "spacing": 8, "back": 6 },
+  "props": [
+    { "prefab": "grandstand", "x": -76, "z": -36 },
+    { "prefab": "grandstand", "x": -76, "z": 0 },
+    { "prefab": "grandstand", "x": -76, "z": 36 },
+    { "prefab": "tyre-stack", "x": 40, "z": -52 },
+    { "prefab": "tyre-stack", "x": 40, "z": -49 },
+    { "prefab": "tyre-stack", "x": -40, "z": -52 },
+    { "prefab": "tyre-stack", "x": -40, "z": -49 },
+    { "prefab": "cone", "x": 12, "z": -112 },
+    { "prefab": "cone", "x": -12, "z": -112 },
+    { "prefab": "hay-bale", "x": 0, "z": -105, "yaw": 1.5708 },
+    { "prefab": "billboard", "x": 0, "z": 158, "yaw": 1.5708 },
+    { "prefab": "billboard", "x": 0, "z": -158, "yaw": 1.5708 }
+  ],
+  "along": [
+    { "prefab": "lamp", "every": 45, "side": "right", "offset": 1.5 },
+    { "prefab": "billboard", "every": 120, "side": "right", "offset": 6, "fromNode": 3, "toNode": 7 }
+  ],
+  "scatter": [
+    { "prefab": "tree", "count": 70, "near": 14, "far": 70, "seed": 7 }
+  ],
+  "environment": { "sky": "#9db3c7", "fog": 0.0028, "terrain": "grass", "hills": [] }
+}

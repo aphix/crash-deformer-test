@@ -29,6 +29,8 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/50-derby-elimination-rules.md` | Real demolition-derby elimination: aggressive-hit interval (60 s typical; 90 s / 2 min), no-movement limit (60 s), door hits, last-car-to-hit wins (CrushCalibration lane) |
 | `perplexity/90-vercel-realtime-transports.md` | Realtime multiplayer under Vercel: function WebSocket limits, WebRTC + polled signaling, TURN, PartyKit/Ably/Pusher/Liveblocks, PeerJS (Netplay lane) |
 | `perplexity/91-snapshot-netcode.md` | Snapshot interpolation vs state sync vs lockstep, quantization, delta vs acked baseline, unreliable DataChannels, BroadcastChannel (Netplay lane) |
+| `perplexity/23-race-checkpoints-laps.md` | Arcade lap counting: hidden/key checkpoint gates, designed shortcuts, spline-progress ranking, wrong way, respawn anchors, authoritative race state (RaceLead lane) |
+| `perplexity/24-racing-ai.md` | Opponent AI on a spline: pure-pursuit lookahead, curvature/grip speed planning, overtaking offsets, aggression-scaled blocking/ramming, recovery (RaceLead lane) |
 
 ## Papers (`papers/`)
 
