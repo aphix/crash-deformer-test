@@ -15,7 +15,7 @@ import {
   deformBeta,
 } from "./shape-match.ts";
 import { BEAM_SPECS, CAGES, EXTRA_CLUSTERS, MASS_SPECS, SENSORS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
-import { DeformRigHelper } from "./deform-helper.ts";
+import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
 
 /**
@@ -186,6 +186,11 @@ export class StreamedDeformation {
   private hitSpeed = -1;
   private wrinkleAmp = 0;
   private helper: DeformRigHelper | null = null;
+  private particleHelper: DeformParticleHelper | null = null;
+  /** World xyz shape-match goal per particle for the particle view; NaN = no pull last step. */
+  private goalView = new Float64Array(0);
+  /** goalView while the particle view is visible, else null so the solver skips the copy. */
+  private goalOut: Float64Array | null = null;
   readonly masses: MassNode[];
   private beams: Beam[];
   private readonly at: Record<KeyMass, MassNode>;
@@ -497,6 +502,7 @@ export class StreamedDeformation {
     this.crushAmount = 0;
     this.dirty = false;
     this.massActive = false;
+    this.goalView.fill(NaN);
     this.drivetrainAlive = true;
     this.bidirectional = false;
     this.deepCrush = false;
@@ -1209,6 +1215,7 @@ export class StreamedDeformation {
       this.crushing = this.bidirectional || this.quietTime() < 0.28;
     }
     this.helper?.update();
+    this.particleHelper?.update();
   }
 
   private anyMassMoving(): boolean {
@@ -1411,15 +1418,28 @@ export class StreamedDeformation {
       clusters: this.clusters,
       mode: () => this.mode,
     });
+    if (!this.particleHelper) {
+      this.goalView = new Float64Array(this.masses.length * 3).fill(NaN);
+      this.particleHelper = new DeformParticleHelper(parent, { particles: this.masses, goals: this.goalView });
+    }
   }
 
   setHelperVisible(v: boolean): void {
     this.helper?.setVisible(v);
   }
 
+  setParticlesVisible(v: boolean): void {
+    this.goalOut = v && this.particleHelper ? this.goalView : null;
+    if (!v) this.goalView.fill(NaN);
+    this.particleHelper?.setVisible(v);
+  }
+
   disposeHelper(): void {
     this.helper?.dispose();
     this.helper = null;
+    this.particleHelper?.dispose();
+    this.particleHelper = null;
+    this.goalOut = null;
   }
 
   get impulseValue(): number {
@@ -1749,6 +1769,8 @@ export class StreamedDeformation {
           this.goalW[pi]! += cw;
         }
       }
+      const out = k === iters - 1 ? this.goalOut : null;
+      out?.fill(NaN);
       for (let i = 0; i < this.shapeParticles.length; i++) {
         const p = this.shapeParticles[i]!;
         const hub = this.masses[i]!;
@@ -1770,6 +1792,11 @@ export class StreamedDeformation {
             gx -= ix * along;
             gz -= iz * along;
           }
+        }
+        if (out) {
+          out[i * 3] = gx;
+          out[i * 3 + 1] = gy;
+          out[i * 3 + 2] = gz;
         }
         const ax0 = alpha * (gx - p.x);
         const ay0 = alpha * (gy - p.y);
@@ -1857,7 +1884,11 @@ export class StreamedDeformation {
     const live = this.bidirectional || this.quietTime() < 0.35;
     if (this.mode === "shape") {
       if (live) this.stepShapeMatch(dt);
-    } else this.stepBeams(dt);
+      else this.goalOut?.fill(NaN);
+    } else {
+      this.goalOut?.fill(NaN);
+      this.stepBeams(dt);
+    }
 
     this.stepSuspension(dt);
 

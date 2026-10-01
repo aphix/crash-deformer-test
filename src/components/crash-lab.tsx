@@ -59,6 +59,7 @@ export function CrashLab() {
         onTogglePlay={() => engineRef.current?.togglePlay()}
         onToggleLoop={() => engineRef.current?.toggleLoop()}
         onToggleRig={() => engineRef.current?.toggleRig()}
+        onToggleParticles={() => engineRef.current?.toggleParticles()}
         onToggleBarrier={() => engineRef.current?.toggleBarrier()}
         onToggleBalls={() => engineRef.current?.toggleBalls()}
         onToggleCompactor={() => engineRef.current?.toggleCompactor()}

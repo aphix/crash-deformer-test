@@ -45,6 +45,7 @@ Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironmen
 | C | compactor |
 | D | demolition derby (not while driving) |
 | G | deform rig |
+| P | control particles: size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel |
 | K | ramp balls |
 | V | deform rig |
 | M | shape ↔ lattice |

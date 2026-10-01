@@ -60,6 +60,7 @@ export class CrashEngine {
   playing = true;
   looping = true;
   showRig = false;
+  showParticles = false;
   showBarrier = false;
   showBalls = false;
   showCompactor = false;
@@ -246,6 +247,12 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
+  toggleParticles(): void {
+    this.showParticles = !this.showParticles;
+    for (const car of this.live()) car.deform.setParticlesVisible(this.showParticles);
+    this.emitHud(true);
+  }
+
   toggleOrbit(): void {
     this.autoRotate = !this.autoRotate;
     this.emitHud(true);
@@ -391,6 +398,7 @@ export class CrashEngine {
     this.playing = INITIAL_HUD.playing;
     this.looping = INITIAL_HUD.looping;
     this.showRig = INITIAL_HUD.showRig;
+    this.showParticles = INITIAL_HUD.showParticles;
     this.showBarrier = INITIAL_HUD.showBarrier;
     this.showBalls = INITIAL_HUD.showBalls;
     this.showCompactor = INITIAL_HUD.showCompactor;
@@ -467,6 +475,7 @@ export class CrashEngine {
     car.deform.buckle = this.buckle;
     car.deform.setMode(this.deformMode);
     car.setRigVisible(this.showRig);
+    car.deform.setParticlesVisible(this.showParticles);
   }
 
   private onKey = (e: KeyboardEvent): void => {
@@ -491,6 +500,8 @@ export class CrashEngine {
       this.toggleLoop();
     } else if (e.code === "KeyG") {
       this.toggleRig();
+    } else if (e.code === "KeyP") {
+      this.toggleParticles();
     } else if (e.code === "KeyB") {
       this.toggleBarrier();
     } else if (e.code === "KeyK") {
@@ -1303,6 +1314,7 @@ export class CrashEngine {
       playing: this.playing,
       looping: this.looping,
       showRig: this.showRig,
+      showParticles: this.showParticles,
       showBarrier: this.showBarrier,
       showBalls: this.showBalls,
       showCompactor: this.showCompactor,
