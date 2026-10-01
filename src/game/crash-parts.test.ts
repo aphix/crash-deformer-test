@@ -497,4 +497,25 @@ describe("car-car crush scales with speed [shape]", () => {
   it("good: a full-overlap head-on stays centred on both cars", () => {
     for (const r of slow) assert.ok(Math.abs(r.impactLocalX) < 0.2, `impactLocal.x=${r.impactLocalX.toFixed(3)}`);
   });
+
+  it("bad: slow motion crushes a 2×56 km/h head-on the same as full speed (±15 %)", () => {
+    const slomo = runPair(56, 56, "head-on", { slomo: true });
+    for (let i = 0; i < 2; i++) {
+      for (const k of ["noseShortL", "noseShortR"] as const) {
+        const ratio = slomo[i]![k] / fast[i]![k];
+        assert.ok(Math.abs(ratio - 1) <= 0.15, `car ${i} ${k}: slomo ${slomo[i]![k].toFixed(3)} vs full ${fast[i]![k].toFixed(3)}`);
+      }
+    }
+  });
+
+  // A 40 % offset corner overshoots its stroke, slips off the slab end and springs back; then the
+  // hub plant (quiet 0.2 s) re-anchors the frame and the cell rides 0.12 m up the nose — in slow-mo
+  // only. Measured: L 0.522 vs 0.628, R 0.245 vs 0.353.
+  it.todo("slomo:offset64 — slow motion crushes a 64 km/h 40 % offset like full speed (±15 %)", () => {
+    const full = runWall(64, 0.4);
+    const slow = runWall(64, 0.4, "front", { slomo: true });
+    for (const k of ["noseShortL", "noseShortR"] as const) {
+      assert.ok(Math.abs(slow[k] / full[k] - 1) <= 0.15, `${k}: slomo ${slow[k].toFixed(3)} vs full ${full[k].toFixed(3)}`);
+    }
+  });
 });
