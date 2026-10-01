@@ -1,0 +1,1132 @@
+# Crash rig vs. real passenger-car structure
+
+Status: analysis at base `70fc3e9`, no source changes. Every code reference is
+`file:symbol` and was read in this tree. Every measured number comes from the
+throwaway harness described in the Appendix (commands and raw output are pasted
+there). Real-world numbers are cited to `.extraResearch/perplexity/` files
+(`04`, `09`–`12`) and through them to primary sources.
+
+## 0. Headline findings
+
+1. **Rigid walls do not crumple the nose. The nose ends up longer, not shorter.**
+   A 56 km/h square wall hit stops the car's centre 0.17 m after contact, in
+   about 14 ms (≈110 g average). The front control particles then carry on
+   *through* the slab face: the deepest is 0.48 m past it. Measured against
+   the cell mass, the nose ends 0.04 m shorter on the left and 0.05 m
+   **longer** on the right. The engine pair ends up 0.19 m forward relative to
+   the cell.
+   The real target is 0.35–0.55 m of dynamic crush, 0.25–0.45 m of permanent
+   crush and a 90–140 ms pulse [09]. Across 20–80 km/h the stopping distance
+   stays at 0.09–0.21 m whatever the speed. The cause is
+   `sat.ts:clipCarToBarrier` (`bumperKeep`), which stops the group. Nothing
+   stops the masses at the wall.
+2. **Car-car crush is too soft and does not scale with speed.** Head-ons at
+   2×28 and 2×56 km/h both crush the hit corner by 1.13–1.14 m. That is the
+   `clampLocal` cap. Both full-overlap hits get snapped to one corner
+   (`impactLocal.x = ∓0.49`), so the crush is lopsided (1.14 m vs 0.48 m)
+   and the cars slide 1.5–5.6 m past each other.
+3. **Side hits fold the ends instead of the door.** Every node's sideways
+   travel is capped at 0.11 m (`clampLocal` `latCap`). In a 50 km/h side slide
+   into the wall the door dents 0.11 m, but the nose shortens 0.56–0.61 m and
+   the tail 0.36–0.55 m. The struck car in a T-bone loses 0.33–0.55 m of nose.
+4. **Parts detach too readily, and mirrors never move.** The front bumper comes
+   off at every wall speed, 20 km/h included. The left door comes off in
+   frontal wall hits at 35, 48 and 64 km/h, against FMVSS 206 door retention
+   [12]. Both front wheels come off in a 2×28 km/h head-on. The mirrors stayed
+   at `hingeT = 0` in all 30 runs (38 car results): `car.ts:syncAttachedParts` tests them in
+   door-local space, so they are never "on hit".
+5. **Cluster stiffness reads the wrong cage.** `clusterBeta(ci)` uses
+   `cages[ci].spec.absorption`, but there are 22 clusters and 18 cages, and
+   they are not aligned. The front-corner clusters get glass absorption (0.48
+   and 0.50). One engine/rail/wing triplet is matched 3× per iteration on
+   each side.
+6. **The cabin is fine. Leave it alone.** In every frontal and rear wall case
+   the door and roof control particles move ≤ 0.06 m relative to the cell
+   (≤ 0.07 m in lattice mode, ≤ 0.10 m in car-car). That matches the
+   "near-zero cell intrusion" target
+   [04][09].
+
+---
+
+## 1. Inventory (as built)
+
+### 1.1 Control particles — `streamed-deform.ts:MASS_SPECS`
+
+Car-local coordinates: +z is forward, +x is the car's "right" (`doorR` side),
++y is up. Total 858 kg (real sedan: 1400–1600 kg). The spec gives a COM at
+z = +0.226, y = 0.476, which puts **58.4 %** of the load on the front axle
+(arithmetic in Appendix A3). By region: front of z = +0.4 → 342 kg; cabin →
+336 kg; rear of z = −0.4 → 180 kg.
+
+| node | rest (x, y, z) | kg | r | real member it stands for |
+|---|---|---|---|---|
+| bumperFL / FR | (∓0.52, 0.38, 2.06) | 9 / 9 | 0.28 | bumper beam ends + crash boxes + cover |
+| wingFL / FR | (∓0.68, 0.40, 1.28) | 18 / 18 | 0.26 | fender, strut tower, upper load path (shotgun) |
+| hubFL / FR | (∓0.74, 0.32, 1.34) | 26 / 26 | 0.28 | front wheel, knuckle, lower arm |
+| engineL / R | (∓0.30, 0.44, 1.22) | 88 / 88 | 0.36 | engine + transaxle block, as two halves |
+| railL / R | (∓0.52, 0.38, 0.68) | 30 / 30 | 0.26 | rear end of the front rails, dash crossmember, toe-board |
+| cell | (0, 0.55, 0.06) | 260 | 0.50 | floor pan, tunnel, seats, safety cell |
+| doorL / R | (∓0.78, 0.56, 0.08) | 22 / 22 | 0.30 | door, intrusion beam, B-pillar, sill (lumped) |
+| roof | (0, 1.18, 0.02) | 32 | 0.36 | roof panel, rails, bows |
+| tank | (0, 0.40, −0.88) | 48 | 0.32 | fuel tank, rear seat pan |
+| axleR | (0, 0.36, −1.40) | 64 | 0.32 | rear axle / subframe |
+| hubRL / RR | (∓0.74, 0.32, −1.34) | 26 / 26 | 0.28 | rear wheel |
+| bumperRL / RR | (∓0.52, 0.36, −2.06) | 8 / 8 | 0.26 | rear bumper beam + crash cans |
+
+### 1.2 Node graph
+
+Top view, front at the top. `===` marks the stiff beams (compression `yieldK`
+≥ 28 kN/m in lattice mode). Beams are listed in full in §1.3.
+
+```
+ z
++2.06   bFL ------------(700/1400)------------ bFR          bumper beam
+         | \                                   / |
+        2000\                                 /2000          bumper→wing
++1.34  hFL==wFL                             wFR==hFR        hub–wing 9000/20000, hFL===hFR 16000/36000 (under engine)
+         \    \ 3800                   3800 /    /
++1.22     \   eL ============42000=========== eR  /          engine pair (maxShorten 0.14)
+           \  |  \7000                 7000/  |  /           hub→engine 7000, hub→rail 5000
++0.68       rL ===========25000============== rR             "rails" (really dash/toe-board)
+           / |  \ 14000              14000 /  | \
+          /  |   \______  cell(260) _____/    |  \           rail→cell 14000/28000 (0.38)
++0.08   dL ==|=====7000== [roof 32] ==7000====|== dR         cell–door, dL–dR 8000/40000 (0.12)
+          \  |          ||  42000/98000       |  /           cell===roof
+-0.88      \ |        tank(48) ===28000/70000=| /            door→tank 4500/9000
+-1.34  hRL===+=======axleR(64)================+===hRR        hub–axle 8000/18000, hRL===hRR 16000/36000
+         |  1800                                1800|        hRL→dL / hRR→dR 9000/20000 (sill line)
+-2.06   bRL ------------(700/1400)------------ bRR
+       x=-0.74  -0.52   -0.30   0   +0.30   +0.52  +0.74
+```
+
+Side view (y up, front at the right):
+
+```
+ y
+1.18                     roof(32)
+                     /     ||      \           roof–engine 8000/18000 (A-pillar path), door–roof 6000/12000
+0.56          dL/dR(22) == cell(260)
+0.44                                         eL/eR(88)          wFL/wFR(18) 0.40
+0.40   tank(48)                                                  bFL/bFR(9) 0.38
+0.38                          rL/rR(30)
+0.36 bRL/bRR(8)  axleR(64)
+0.32     hRL/hRR(26)                                   hFL/hFR(26)
+     z: -2.06  -1.40 -0.88    0.06  0.68           1.22  1.34   2.06
+```
+
+What is missing compared with a body-in-white:
+
+- No node at the rail tip or crash box. The bumper reaches the "rails" only by
+  going through the wings and the engine.
+- No subframe node.
+- No A- or C-pillar nodes. `doorL/R` lumps the door, the B-pillar and the sill.
+- No sill node (`skirtLeft/Right` are cages with sensors but no mass).
+- No firewall node. `railL/R` at z = 0.68 sit where the firewall/toe-board is.
+
+### 1.3 Beams — `streamed-deform.ts:BEAM_SPECS`
+
+Each entry is `[a, b, kTen, yieldK, maxShorten]`. In the constructor,
+`minLen = max(0.1, rest·(1 − maxShorten))` and `damp = √(8·yieldK)`.
+
+In `stepBeams`, `kTen` acts in tension and `yieldK·pass` in compression. Any
+compression that happens while the beam is closing becomes plastic (`plastic`
+creeps toward the current length at `dt·8.5`, or `dt·14` under `deepCrush`).
+There is **no yield-force threshold**. A beam breaks at length > 2.2·rest.
+
+**Beams only run in `lattice` mode.** `stepMassSlice` runs `stepShapeMatch`
+in `shape` mode (the default, `hud-store.ts:INITIAL_HUD.deformMode`). In shape
+mode the beams still feed `nodePacked` through `minLen`/`plastic`.
+
+| group | beams (kTen / yieldK N/m, maxShorten) |
+|---|---|
+| bumper beam | bFL–bFR 700/1400 0.75; bRL–bRR 700/1400 0.75 |
+| front crumple chain | bF–wF 2000/4200 0.92; wF–eng 3800/8000 0.78; eng–rail 7000/14000 0.78; wF–rail 4000/9000 0.55 |
+| block | eL–eR 42000/90000 0.14; eng–cell 3500/8000 0.78; roof–eng 8000/18000 0.16 |
+| front suspension | hubF–wing 9000/20000 0.22; hubF–eng 7000/16000 0.26; hubF–rail 5000/12000 0.22; hFL–hFR 16000/36000 0.10 |
+| cell ring | rail–cell 14000/28000 0.38; rL–rR 25000/56000 0.18; cell–door 7000/14000 0.5; rail–door 5000/11000 0.48; cell–roof 42000/98000 0.14; door–roof 6000/12000 0.32; dL–dR 8000/40000 0.12 |
+| rear | cell–tank 28000/70000 0.22; tank–axleR 9000/18000 0.5; door–tank 4500/9000 0.4; bR–hubR 1800/4000 0.9; hubR–axleR 8000/18000 0.24; hubR–tank 5000/12000 0.26; hRL–hRR 16000/36000 0.10; hubR–door 9000/20000 0.2 |
+
+Compression stiffness, crumple vs. cell: 1.4–8 kN/m against 28–98 kN/m, a
+ratio of 1 : 4 to 1 : 70. Real cars aim for "an order of magnitude or more"
+[04], so the ratios are fine. In shape mode, though, what governs stiffness is
+the per-cluster β and the clamps (§1.7, §1.8).
+
+### 1.4 Cages — `streamed-deform.ts:CAGES` (16 FFD cages + 2 glass)
+
+| cage | z span | absorption | maxCrush | maxAngle |
+|---|---|---|---|---|
+| bumperFront | 1.88…2.16 | 0.10 | 0.95 | 1.20 |
+| bumperRear | −2.14…−1.86 | 0.12 | 0.90 | 1.10 |
+| bonnet | 0.72…1.88 | 0.16 | 0.88 | 1.05 |
+| boot | −1.86…−0.70 | 0.18 | 0.78 | 0.95 |
+| wingFL/FR | 0.72…1.86 | 0.14 | 0.78 | 0.95 |
+| wingRL/RR | −1.86…−0.54 | 0.16 | 0.72 | 0.85 |
+| doorLeft/Right | −0.58…0.70 | 0.22 | 0.70 | 1.15 |
+| skirtLeft/Right | −1.32…1.32 | 0.22 | 0.42 | 0.50 |
+| chassisFront | 0.42…1.76 | 0.28 | 0.55 | 0.55 |
+| chassisCell | −0.48…0.64 | 0.72 | 0.16 | 0.16 |
+| chassisRear | −1.76…−0.32 | 0.30 | 0.50 | 0.48 |
+| roof | −0.70…0.56 | 0.52 | 0.28 | 0.32 |
+| glassFront / glassRear | — | 0.48 / 0.50 | 0.32 / 0.28 | 0.35 / 0.32 |
+
+The constructor's influence loop skips the door and glass cages when skinning
+the body.
+
+### 1.5 Sensors — `streamed-deform.ts:SENSORS` (20)
+
+| index | part | index | part |
+|---|---|---|---|
+| 0 | bumperFront C | 10 / 11 | wingRL / wingRR |
+| 1 / 2 | bumperFront L / R | 12 | roof (maxCompression 0.65) |
+| 3 | bonnet | 13 | bumperRear C |
+| 4 / 5 | wingFL / FR | 14 / 15 | skirtL / skirtR (0.9) |
+| 6 / 7 | doorL / doorR front | 16 / 17 | bumperRear L / R |
+| 8 / 9 | doorL / doorR rear (0.95) | 18 | boot (0.95) |
+| | | 19 | chassisCell (0.45) |
+
+`pullSensorsFromMasses` sets a sensor's compression from the nearby masses'
+displacement: `(along·1.6 + mag·0.7)/0.2`, with falloff and an opposite-side
+damping factor of 0.15. Compression can rise by at most `max(0.022, dt·24)`
+per frame.
+
+### 1.6 Crush bands, gates, transfer — `physics-core.js`
+
+- `CRASH`: `pulseSec 0.12`, `crushMeters 0.65`, `muPeak 0.9`, `muSlide 0.75`,
+  `muScuff 0.4`, `grazeMps 1.8`, `maxMassMps 55`.
+- `regionCrushBands(name)`: `max = 0.12 + 0.72·soft`, `yield = 0.16·max`,
+  `middle = 0.48·max`.
+- `forceTransfer`: transfer to the cell is 0.1 below `middle`, 0.5 up to
+  `max`, 0.62 above `max`, and 1.0 when packed (`TRANSFER`).
+- `crushGate(closing, soft)`: no crush below `1.8 + 9·(1−soft)` m/s, full crush
+  at `7 + 26·(1−soft)` m/s.
+
+Values from `regionSoftness`, computed in Appendix A3:
+
+| region (`regionSoftness`) | soft | band max m | gate min / fatal m/s |
+|---|---|---|---|
+| bumper* | 1.00 | 0.840 | 1.80 / 7.00 |
+| wing* | 0.78 | 0.682 | 3.78 / 12.72 |
+| rail* | 0.30 | 0.336 | 8.10 / 25.20 |
+| tank, axleR | 0.34 | 0.365 | 7.74 / 24.16 |
+| door* | 0.22 | 0.278 | 8.82 / 27.28 |
+| engineL/R | 0.16 | 0.235 | 9.36 / 28.84 |
+| roof, cell | 0.08 | 0.178 | 10.08 / 30.92 |
+| hub* | 0.06 | 0.163 | 10.26 / 31.44 |
+
+- `feedOverlap`: per-slice crush is `min(overlap·(0.4+0.35·squash)·ke,
+  0.06+0.2·ke)`, with `ke = closingKeScale = clamp(v²/14², 0, 2.4)`. It
+  pushes masses along `inward` by `crush·fall·gate·soft·engineGate·pass` and
+  kills their inbound speed. It never projects masses out of the collider.
+- `kickCore` removes inbound speed from cabin masses only (weight
+  `1 − crumpleWeight`).
+
+### 1.7 Clamps, pins and drivetrain — `streamed-deform.ts`
+
+- `clampLocal` (every `followGroup`), for non-bidirectional hits:
+  - Crush cap per node: `maxCrush·(0.38 + 0.72·cornerWeight)` with
+    `maxCrush = 0.5 + 1.15·squash` (1.06 m at squash 0.4). Cell and roof are
+    capped at **0.12 m** (0.72 under `deepCrush`). Hubs are capped at 0.38 m.
+  - Lateral cap `latCap = 0.04 + 0.07·cornerWeight` (**≤ 0.11 m**); 0.55 when
+    bidirectional.
+  - Vertical caps `maxDy`: roof 0.07 (0.28 deep), cell 0.06 (0.22 deep), hubs
+    0.07, others 0.11.
+  - Engine sink is capped at `ENGINE_LIGHT_CAP = 0.27` when `hitSpeed < 15.5`.
+  - Hubs stay pinned (`dx = dz = 0`) until their planar travel exceeds
+    `radius·0.5 = 0.14 m`. Then `popped` is set and the wheel comes loose.
+- `updateDrivetrain`: the drivetrain dies when
+  `max(|engineL − rest|, |engineR − rest|) > ENGINE_KILL_TRAVEL = 0.3`.
+  This distance is **unsigned**.
+- `stepSuspension`: hub↔engine and hub↔axleR springs, k = 11000, c = 260.
+- `stepMassSlice`: only hubs get gravity. Other masses have their downward
+  velocity damped by `0.12^dt`.
+- `followGroup`: pitch is clamped to −0.2…0.22 rad and roll to ±0.5 rad. The
+  group is planted on the hubs once `quietTime > 0.2`.
+- `snapImpactToNearestMass`: a hit stays centred only if
+  `|impactLocal.x| < 0.2`. Otherwise it snaps to the nearest non-cell,
+  non-roof mass.
+
+### 1.8 Shape matching and plasticity — `shape-match-core.js`
+
+The squash and buckle defaults are 0.4 and 0.45 (`hud-store.ts:INITIAL_HUD`).
+Evaluated values are in Appendix A3.
+
+- `applyPlasticity`:
+  - Yield: plasticity starts when `‖S−I‖ > yieldC = 0.035 + 0.08(1−squash) +
+    0.04(1−buckle)` = **0.105**.
+  - Creep: `min(0.85, (0.35+1.25·squash+0.55·buckle)·max(dt,1/120)·10)`, which
+    is **0.0915** per 1/240 s slice.
+  - Cap: `‖Sp−I‖ ≤ maxE = 0.18+0.55·squash+0.4·buckle` = **0.58**.
+  - Volume restore is 8 %. Diagonal stretch is capped at 1.06.
+  - Rotational plasticity runs only while contacting and when the rotation
+    angle is > 0.08 rad.
+- `stiffnessIters` gives **4** iterations, `goalAlpha` **0.592** and
+  `deformBeta` **0.36**. While contacting, `clusterBeta` uses
+  `lerp(0.18+0.22·squash, 0.03, absorption)`.
+- Clusters are built in `StreamedDeformation` constructor:
+  - one cluster per cage via `cageClusterIndices`, skipped if it has fewer
+    than 3 masses;
+  - cages centred on x split into L and R clusters;
+  - 6 `extra` clusters.
+
+  That gives **22 clusters for 18 cages**. `clusterBeta(ci)` reads
+  `cages[ci].spec.absorption` (0.1 if `ci ≥ 18`), so most clusters use another
+  cage's absorption. The probe output (Appendix A2) shows the mapping:
+
+| ci | masses | absorption actually used (cage[ci]) |
+|---|---|---|
+| 0 | bFL, bFR, eL, eR | bumperFront 0.10 (the bumper cluster also holds the engine block) |
+| 2, 6, 10 | eL, rL, wFL (**the same set 3×**) | bonnet 0.16, doorRight 0.22, wingRR 0.16 |
+| 3, 7, 11 | eR, rR, wFR (**the same set 3×**) | boot 0.18, wingFL 0.14, chassisFront 0.28 |
+| 4 / 5 | rail, door, cell, roof (L / R) | roof 0.52 / doorLeft 0.22 |
+| 12 | rL, rR, cell, dL, dR, roof | chassisCell 0.72 (correct by coincidence) |
+| 16 / 17 | bF*, wF*, e*, r* (front-corner extras) | **glassFront 0.48 / glassRear 0.50** |
+| 18–21 | rear corner / cabin extras | 0.10 (fallback) |
+
+### 1.9 Detachable parts, hinges, glass, lamps, wheels — `car.ts`
+
+`registerParts` lists the attached parts. Each part's hinge value `hingeT`
+moves toward a target computed in `syncAttachedParts`, rising by at most
+`max(dt·3.2, 0.012)` per frame. `evaluateBreakage` detaches the part when
+`hingeT` passes a threshold.
+
+| part | hinge | sensors | target in `syncAttachedParts` | detaches (`evaluateBreakage`) |
+|---|---|---|---|---|
+| bumperF / bumperR | two-point | 1, 2 / 16, 17 | `(crush−0.04)/0.55` | hingeT > 0.7 |
+| hood | cowl | 3 | `(crush−0.1)/0.6` | hingeT > 0.78 |
+| trunk | tail | 18 | `(crush−0.1)/0.6` | hingeT > 0.78 |
+| doorL / doorR | door | 6 / 7 | `(max(local,crush)−0.08)/0.5` | hingeT > 0.58 |
+| mirrorL / mirrorR | two-point (parented to the door) | 6, 4 / 7, 5 | as two-point | hingeT > 0.5 |
+
+- **Door "on hit" rule:** `|restPos.x·ix| > 0.18 || crush > 0.16`, plus
+  `local > 0.12` in `syncAttachedParts`. So a frontal hit opens a door through
+  compression alone.
+- **Mirror "on hit" rule:** `along = −(restPos·inward) > 0.12`. But `restPos`
+  is door-local (`mirrorL.position = (−0.06, 0.32, 0)` in the constructor), so
+  `along` is at most 0.06 and the mirror is never on the hit.
+- **Glass** (`evaluateBreakage`): cracks when nearby part compression > 0.45
+  after 0.12 s. Shatters at > 0.7 after 0.2 s, or at > 0.55 with impulse > 40
+  after 0.16 s. Pane order (from `addGlass`): 0 windscreen, 1 rear glass,
+  2/3 door glass L/R, 4/5 rear quarter L/R.
+- **Lamps** break at sensor or part compression > 0.18 after 0.02 s. Each lamp
+  checks its own sensors and parts: head L = sensors 1, 4 and wingFL; head R =
+  2, 5 and wingFR; tail L = 16, 10 and wingRL; tail R = 17, 11 and wingRR.
+- **Wheels** (`nudgeWheels`): a pinned hub keeps its rest x/z and only moves
+  in y. A popped hub frees the wheel.
+
+### 1.10 Contact paths
+
+- **Wall** — `engine.ts:resolveBarrier` → `sat.ts:satCarBarrier` (crush hulls
+  and cabin hulls, both split L/R in `car-mesh.ts:CRUSH_HULLS` / `HULLS`) →
+  `feedOverlap` → `cancelClosing` impulse
+  (`j ≤ 18 + 40·pass` N·s per slice) → `sat.ts:clipCarToBarrier`. The clip
+  holds the **group** at
+  `minLx = lerp(hx + 1.08, hx + 0.22 + 2.05·0.85, leftover)` from the slab
+  centre. For a square hit at `leftover = 1` that is 0.38 + 0.22 + 1.7425 =
+  2.34 m, i.e. the centre may come only 0.26 m closer after nose contact
+  (CAR_HALF.z + hx = 2.6 m).
+  Then `kickCore` and `car.velocity` lose all inbound speed. No mass is ever
+  projected out of the slab.
+- **Car–car** — `pair-contact.ts:resolveCarPair`: SAT on the split hulls,
+  `feedOverlap` on both cars, a minimum centre gap of
+  `2.15 + 0.28·(leftoverA + leftoverB)`, `jMax = 18 + 36·pass`.
+  `engine.ts:fixedStep` also runs `collideWith` sphere contact between the two
+  cars' masses.
+- **Lamp pole** — `engine.ts:resolvePoles`: one kick per car,
+  `j = clamp(40·closing, 80, 400)` N·s, then `kickNearest`. The pole **breaks**
+  at closing > 3.5 m/s. Afterwards the car is only position-pushed
+  (`pushCar ≤ 0.04` per slice).
+
+---
+
+## 2. Real body-in-white vs. the rig
+
+Sources: real stiffness and tolerance values are from [04], [09], [11] and
+[12]. Rig values are from §1. The "measured" column refers to §3.
+
+| real member | real stiffness / tolerance | rig node / beam / cage | rig value | verdict |
+|---|---|---|---|---|
+| Bumper beam | Starts the hit and spreads load; little absorption [04] | bFL–bFR beam, `bumperFront` cage, sensors 0–2 | 700/1400 N/m; band max 0.84 m; gate 1.8→7 m/s | OK as a load spreader. Detaches too early (measured: off at 20 km/h) |
+| Crash boxes | 33–70 kN plateau over a short stroke (~0.1–0.2 m) [04] | **MISSING** (lumped into bumper*) | — | Missing. There is no staged trigger → plateau |
+| Front longitudinal rails | 40–70 kN per rail, progressive fold; carry most frontal energy [04] | `railL/R` at z = 0.68 (rear end only) + bF→wF→eng→rail chain | rail band 0.336 m; rail–cell 14 k/28 k | **Mis-placed.** No rail runs from the crash box to the dash; the load goes through the fender and the engine |
+| Subframe | Lower load path, carries the engine and the arms | **MISSING**; hFL–hFR 16 k/36 k + hub–engine stand in | — | Partial |
+| Engine / powertrain | Non-crushing, redirects load into the rails [04] | `engineL/R` 2×88 kg, pair beam 42 k/90 k (lattice only) | soft 0.16, band 0.235 m; kill at 0.3 m (unsigned) | **Wrong.** Two independent particles in shape mode; part of the bumper cluster. Measured: block moved +0.37 m *forward* in wall56, and that killed the drivetrain |
+| Strut towers / upper load path | Stiff tower plus shotgun rail | `wingFL/FR` + hub–wing 9 k/20 k | wing band 0.68 m | Acceptable; wing doubles as tower |
+| Firewall / dash / toe-board | ≈ 0–20 mm intrusion at 56 km/h [09]; IIHS Good < 5 cm [09] | `railL/R` + rL–rR 25 k/56 k + cell cap 0.12 | rail–cell shorten ≤ 0.38 | OK (measured rail shortening vs cell ≤ 0.01 m in walls, ≤ 0.66 m in head-ons) |
+| A-pillars | Near-zero intrusion [04]; IIHS hinge pillar Good < 5 cm [09] | No node; roof–engine beams + door cluster | — | Missing node. Skin in the cabin span moves 0.10–0.35 m (measured) |
+| B-pillar / door ring | Side MDB 50 km/h: IIHS Good ≥ 12.5 cm left to seat centre line [10] | `doorL/R` (22 kg) | latCap 0.11 m; door band 0.278 m | Cap is plausible but a global cap. The energy goes into the ends (measured) |
+| C-pillar | Stiff ring | **MISSING** | — | Missing (only roof/door clusters) |
+| Sills / rockers | Very stiff; IIHS rocker lateral 1–3 cm [09] | `skirtL/R` cages + sensors 14/15, no mass | cage absorption 0.22 | Missing node. Sill line is hubR–door + rail–door beams |
+| Roof rails / bows | FMVSS 216a ≥ 3× weight within 127 mm; IIHS Good ≥ 4× [11] | `roof` 32 kg, cell–roof 42 k/98 k | maxDy 0.07 m hard clamp | Over-strong but harmless. Measured: 4× weight → 0.030 m; any load → ≤ 0.068 m |
+| Floor / tunnel | Safety cell, an order of magnitude stiffer than the crumple zone [04] | `cell` 260 kg | cap 0.12 m, maxDy 0.06 | OK |
+| Door intrusion beams | Part of the door | `doorL/R` + dL–dR 8 k/40 k (cross-car) | — | OK |
+| Hinges / latches | FMVSS 206: 11 kN longitudinal, 8.9 kN transverse; doors must stay closed [12] | `car.ts` door hinge | swings open with `hingeT·1.45` rad; detaches at hingeT > 0.58 | **Too weak.** Door detaches in frontal hits ≥ 35 km/h (measured) |
+| Hood latch / hinge | Hood buckles and stays mostly latched [04] | `cowl` hinge | detaches at > 0.78 | OK (max measured 0.67 in offset64; no run detached the hood) |
+| Mirrors | Fold or break away under side contact [04] | two-point on the door | never "on hit" | **Broken** (hingeT 0 in all runs) |
+| Lamps | Break in nose/tail contact | sensor/part > 0.18 | — | OK (break from 20 km/h) |
+| Wheels / suspension | Displaced or separated mainly in small overlap [04] | hubs pinned until 0.14 m, k 11000 c 260 | — | Wrong place. Never pop in wall or offset hits; both front hubs pop in a 2×28 km/h head-on |
+| Rear rails / crash cans | Softer than the front, shorter stroke [04] | bR*, tank, axleR; `chassisRear` 0.30/0.5 | bumper band 0.84; tank/axle 0.365 | Too stiff, and inverted: rear50 shortens the **nose** 0.14 m |
+| Fuel tank | Protected by the rear structure (FMVSS 301, 80 km/h MDB) [11] | `tank` 48 kg, cell–tank 28 k/70 k | — | OK |
+| Mass / weight split | 1400–1600 kg; FWD ~60/40 | 858 kg; 58.4 % front | — | OK. Forces are tuned to this mass |
+
+---
+
+## 3. Measured crashes
+
+### 3.1 Harness
+
+Script: `.bench/rig-crash.ts`, deleted after the run. It is a line-by-line copy
+of the frame and contact order in `engine.ts`:
+
+- `engine.ts:tickInner` — the `physicsSlice` loop, then `cutDrive`, then
+  `bleedAfterSlide` after 0.2 s of wall time.
+- `engine.ts:fixedStep` — 3 slices near the wall, `collideWith`, 3 SAT passes
+  when busy, `resolveBarrier` twice, `resolveCarPair`, `resolvePoles`, then
+  `stepStructure → syncPose → clipCarToBarrier → afterContacts`.
+- `engine.ts:resolveBarrier` and `engine.ts:resolvePoles`, as written.
+
+The cars are real `DeformableCar`s in `shape` mode (the game default), with
+squash 0.4 and buckle 0.45. The frame rate is 60 fps.
+
+- `slomo=1` copies `beginCinematic`: `IMPACT_SCALE = 0.032` from contact, then
+  back to 1× after 6.5 s of wall time (the `updatePhase` hold).
+- `slomo=0` is `autoSlomo` off.
+- Each run lasts 1.5 s of sim time after contact.
+
+Differences from the game: the jersey slab is fixed (no `barrierVel`, no
+`indentBarrier`), and there is no `maybePreSlowmo`.
+
+Metrics (all relative to the **cell** mass, in metres):
+
+- `nose` = `2.00 − (bumperF*.z − cell.z)` (positive = shorter). `tail` uses
+  the rear bumpers, rest gap 2.12.
+- `engine` = `1.16 − (engine.z − cell.z)` (positive = pushed back).
+- `door` = lateral door inward motion. `roof` = roof drop.
+- `COM travel` = how far the group moved along its approach axis after first
+  contact.
+- `pulse` = time to reach 95 % of the COM Δv; `avg g` = 0.95·Δv / pulse.
+- `past wall` = how far a mass half-sphere penetrates the slab face.
+- `skin cabin` = the largest inward motion of any chassis-skin vertex inside
+  the `chassisCell` span (z −0.48…0.64, y > 0.2).
+
+Scenarios:
+
+- `wall*`: square, full-width rigid wall at that speed.
+- `offset64`: 64 km/h with 40 % overlap on the left; the car runs off the slab
+  end (rigid edge, not a deformable barrier).
+- `tbone50`: a moving car's nose into a stationary car's right door at 90°.
+  Car 1 is the bullet, 858 kg. The real test uses a 1500–1900 kg MDB.
+- `side50wall`: the car slides sideways (−x) into the slab at 50 km/h.
+- `rear50`: reversing into the slab at 50 km/h.
+- `headon28` / `headon56`: two cars, full overlap.
+- `pole32`: lateral slide into the engine's lamp pole, which breaks.
+  `pole50rigid`: the same pole made unbreakable.
+
+### 3.2 Results (shape mode; full speed unless marked `slomo`; `*` = subject car)
+
+| scenario | COM travel m | pulse ms / avg g | nose max L/R | nose end L/R | tail end | engine max | door max L/R | roof max | skin cabin | past wall | drivetrain | detached | lamps out |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| wall20 | 0.21 | 41 / 13 | 0.08 / 0.12 | 0.06 / 0.08 | −0.01 | 0.01 | 0.00 / 0.00 | 0.02 | 0.02 | 0.35 | alive | bumperF | headL |
+| wall35 | 0.16 | 17 / 55 | 0.18 / 0.17 | 0.16 / 0.13 | −0.01 | 0.01 | 0.00 / 0.00 | 0.04 | 0.09 | 0.37 | alive | bumperF, **doorL** | headL |
+| wall48 | 0.16 | 17 / 76 | 0.13 / 0.09 | 0.07 / 0.00 | −0.02 | 0.02 | 0.01 / 0.02 | 0.03 | 0.10 | 0.45 | alive | bumperF, **doorL** | headL |
+| **wall56** | 0.17 | 14 / 110 | 0.14 / 0.04 | **0.04 / −0.05** | 0.00 | 0.02 (min **−0.37**) | 0.01 / 0.04 | 0.04 | 0.13 | **0.48** | DEAD | bumperF | headL |
+| wall56 slomo | 0.17 | 12 / 126 | 0.08 / 0.26 | −0.07 / 0.05 | 0.13 | 0.02 | 0.00 / 0.02 | 0.02 | 0.10 | 0.25 | alive | bumperF | headL |
+| wall64 | 0.15 | 13 / 135 | 0.16 / 0.04 | −0.01 / −0.07 | 0.05 | 0.03 | 0.00 / 0.03 | 0.05 | 0.16 | 0.49 | DEAD | bumperF, **doorL** | headL |
+| wall80 | 0.09 | 8 / 252 | 0.23 / 0.02 | 0.08 / −0.21 | 0.06 | 0.04 | 0.03 / 0.06 | 0.05 | 0.35 | 0.57 | DEAD | bumperF | headL |
+| **offset64** | 0.15 | 13 / 135 | 0.18 / 0.05 | 0.02 / −0.06 | 0.05 | 0.03 | 0.00 / 0.02 | 0.05 | 0.13 | 0.46 | DEAD | bumperF, **doorL** | headL |
+| offset64 slomo | 0.15 | 8 / 200 | 0.12 / 0.10 | −0.20 / −0.21 | 0.03 | 0.02 | 0.00 / 0.00 | 0.01 | 0.07 | 0.34 | DEAD | bumperF, doorL | headL |
+| **tbone50** struck* | 8.33 (pushed) | — | 0.01 / **0.33** | −0.13 / 0.06 | **0.32** | 0.01 | 0.02 / **0.11** | 0.01 | 0.31 | — | alive | — | headR, tailR |
+| tbone50 bullet | 9.97 | — | 0.71 / 0.74 | 0.35 / 0.62 | 0.10 | 0.26 | 0.03 / 0.11 | 0.01 | 0.41 | — | alive | bumperF; hubFL popped | headL |
+| tbone50 slomo struck* | 5.63 | — | 0.01 / 0.55 | −0.08 / 0.39 | 0.33 | 0.06 | 0.04 / 0.16 | 0.01 | 0.24 | — | alive | **doorR**; hubFR popped | headR, tailR |
+| **side50wall** | 0.42 | 1055 / 1 | **0.61 / 0.35** | 0.57 / 0.35 | **0.55** | 0.25 | **0.11** / 0.00 | 0.01 | 0.31 | 0.56 | alive | doorL | headL, tailL |
+| side50wall slomo | 0.42 | 761 / 2 | 0.56 / 0.28 | 0.43 / 0.28 | 0.27 | 0.18 | 0.11 / 0.02 | 0.01 | 0.28 | 0.56 | alive | doorL | headL, tailL |
+| pole32 (breakable) | 4.84 | 859 / 1 | 0.02 / 0.01 | −0.01 / 0.00 | −0.01 | 0.01 | 0.01 / 0.05 | 0.00 | 0.27 | — | alive | — | headR, tailR |
+| pole50rigid | 0.07 (pinned, v still 12.4 m/s) | — | 0.01 / 0.01 | 0.01 / 0.01 | −0.02 | 0.01 | 0.00 / 0.01 | 0.00 | 0.22 | — | alive | — | headR, tailR |
+| **rear50** | 0.10 | 12 / 114 | **0.14 / 0.14** (nose!) | 0.14 / 0.14 | −0.00 (max 0.07) | 0.12 | 0.00 / 0.01 | 0.02 | 0.07 | 0.53 | alive | bumperR, trunk | tailL |
+| rear50 slomo | 0.10 | 8 / 162 | 0.11 / 0.11 | −0.01 / −0.01 | 0.15 | 0.01 | 0.00 / 0.00 | 0.01 | 0.12 | 0.47 | alive | bumperR | tailL |
+| **headon28** car0* | 2.71 | 1333 / 1 (peak 6.3) | **1.14** / 0.48 | 1.14 / 0.47 | −0.04 | 0.61 | 0.00 / 0.00 | 0.09 | **0.83** | — | DEAD | bumperF; hubFL+FR popped | headL |
+| headon28 car1 | 1.50 | 1317 / 1 | 0.48 / 0.69 | 0.48 / 0.68 | −0.03 | 0.39 | 0.02 / 0.03 | 0.02 | 0.42 | — | DEAD | bumperF, doorR; hubFL+FR | headR |
+| headon28 slomo car0* | 0.78 | 926 / 1 | 1.14 / 0.48 | 1.00 / 0.34 | 0.01 | 0.49 | 0.09 / 0.04 | 0.04 | 0.73 | — | DEAD | bumperF, doorL; hubs F | headL |
+| headon56 car0* | 5.56 | 1242 / 1 (peak 20) | 1.14 / 0.47 | 1.04 / 0.38 | 0.02 | 0.62 | 0.08 / 0.09 | 0.07 | 0.82 | — | DEAD | bumperF, doorL; hubs F | headL |
+| headon56 slomo car0* | 0.75 | 470 / 3 | 1.13 / 0.46 | 1.00 / 0.35 | 0.01 | 0.61 | 0.02 / 0.10 | 0.03 | 0.85 | — | DEAD | bumperF, doorL; hubs F | headL |
+
+Lattice mode, full speed (Appendix A1):
+
+- wall56: COM travel 0.18 m, pulse 14 ms, nose max 0.32 / 0.01, nose end
+  0.21 / −0.06, past wall 0.59 m, drivetrain DEAD.
+- side50wall: nose 0.79 m.
+- headon28: 1.13 m corner crush, both drivetrains DEAD.
+
+Lattice behaves the same way as shape mode in these cases.
+
+Glass: the windscreen (pane 0) cracks at 56–80 km/h wall and offset hits. The
+door and quarter glass on the hit side cracks or shatters in side and head-on
+cases. Mirrors stayed at `hingeT = 0` in every run.
+
+Static roof press (Appendix A2): a downward kick on the roof mass for 1 s at
+1×, 4×, 10× and 40× vehicle weight (8.4–337 kN).
+
+- Shape mode: the roof drops 0.015, 0.030, 0.061 and 0.068 m relative to the
+  cell.
+- Lattice mode: 0.068 m at every load.
+
+0.068 m is the `clampLocal` roof `maxDy` (0.07) less the cell's 0.06.
+
+### 3.3 Rig vs. real targets
+
+| metric | real target | rig (measured) | ratio |
+|---|---|---|---|
+| 56 km/h wall dynamic crush (COM travel after contact) | 0.35–0.55 m [09] (0.4–0.6 m [04]) | 0.17 m | ×0.3–0.5 |
+| 56 km/h permanent crush | 0.25–0.45 m [09] | 0.04 / −0.05 m (L/R nose vs cell) | ≈ 0 (nose lengthened on R) |
+| Crush vs speed, 20→80 km/h | ∝ v (linear-spring model) | 0.21 → 0.09 m (flat or falling) | wrong trend |
+| 56 km/h pulse / average / peak | 90–140 ms / 18–25 g / 30–45 g [09] | 14 ms / 110 g / 126 g (10 ms window) | ×7–10 too hard |
+| Rebound | 1–4 m/s [09] | cell mass reads −3.3…−5 m/s for 0.5 s while pinned, then the group jumps 0.14 m back (trace A4) | inconsistent |
+| Footwell / A-pillar intrusion | 0–20 mm (56 km/h); IIHS Good < 5 cm [09] | rig rail/door/roof vs cell ≤ 0.06 m (wall80); **skin** 0.13 m at 56 km/h | rig OK; skin not |
+| 64 km/h offset, struck-side residual | 0.30–0.60 m [09] | 0.02 m (L nose vs cell) | ≈ 0 |
+| Side 50 km/h: B-pillar / door | IIHS Good: ≥ 12.5 cm left to seat centre line (≈ 0.15–0.25 m intrusion allowed) [10] | door 0.11 m (cap); nose 0.33–0.61 m, tail 0.32–0.55 m | door OK, ends wrong |
+| Rear crush | shorter stroke than the front, softer [04] | tail 0.07–0.15 m, **nose 0.14 m** | inverted |
+| Roof | ≥ 3× (FMVSS 216a), ≥ 4× Good within 127 mm (IIHS) [11] | 4× → 0.030 m; hard limit 0.07 m | passes (no rollover path exists) |
+| Car-car 2×28 km/h (≈ 28 km/h barrier-equivalent) | ≈ 0.25–0.3 m (scaling 0.55 m @ 56) | 1.14 m hit corner, 0.48 m other | ×4 too soft |
+| Car-car 2×56 km/h | ≈ 0.55 m each | 1.13 m (the same: capped) | no speed scaling |
+| Doors | stay latched (FMVSS 206: 11 / 8.9 kN) [12] | doorL detaches in frontal hits at 35/48/64 km/h and in head-ons | wrong |
+| Wheels | separate mostly in small overlap [04] | pop in 2×28 head-ons; never in offset64 | wrong place |
+| Drivetrain | — (design target `barrier.test.ts`: alive at 35, dead at 62 km/h) | alive ≤ 48, dead ≥ 56 km/h; but caused by **forward** block motion; slomo wall56 alive | right threshold, wrong mechanism |
+
+---
+
+## 4. Gaps, ranked by visible impact
+
+1. **G1 — Wall hits do not crumple, and the nose clips through the slab.** This
+   is visible in every barrier run.
+   - The masses penetrate the slab face by 0.35–0.57 m.
+   - The permanent nose crush is about 0.
+   - The nose stretches forward relative to the cell, and that stretch also
+     kills the drivetrain.
+
+   Cause: `sat.ts:clipCarToBarrier` stops the group at a fixed 0.26 m approach
+   (`bumperKeep`), and `kickCore` stops the cell. Nothing collides the masses
+   with the slab. The `leftover` that should open the clip toward `cabinKeep`
+   comes from `crumpleTravelCorner`, and that never drops because the nose
+   never shortens.
+2. **G2 — Car-car crush is ×4 too soft, ignores speed, and one-sided.**
+   - The `clampLocal` cap (1.06 m) is reached at 2×28 km/h.
+   - `feedOverlap` crush does not depend on the share each car takes.
+   - The L/R split SAT hulls put the contact at x = ∓0.49, which defeats
+     `snapImpactToNearestMass`'s centre rule (`|x| < 0.2`). Full-overlap hits
+     become corner hits and sideswipes (cars travel 1.5–5.6 m past contact).
+3. **G3 — Side impacts fold the ends.** `clampLocal` `latCap ≤ 0.11 m` limits
+   every node's x travel. The residual motion goes along z: nose 0.33–0.61 m,
+   tail 0.32–0.55 m.
+4. **G4 — Doors detach in frontal hits** at ≥ 35 km/h. In `car.ts`, the
+   door's on-hit test lets compression alone (`crush > 0.16`) open it, with no
+   side check. Real doors stay latched (FMVSS 206) [12].
+5. **G5 — Skin cabin intrusion.** `buildSkinWeights` blends up to 4 nearest
+   clusters by centre-of-mass distance (< 1.45 m), so A-pillar and footwell
+   skin follows the front clusters. This produces 0.13 m of skin intrusion at
+   56 km/h, 0.35 m at 80 km/h and 0.83 m in a 2×28 head-on, while the cell
+   particles move ≤ 0.04 m.
+6. **G6 — `clusterBeta` index mismatch and duplicate clusters** (§1.8).
+   - The front corners are stiffened with glass absorption (0.48/0.50).
+   - The right cabin cluster gets door absorption (0.22) while the left gets
+     roof absorption (0.52), so the cabin's stiffness is asymmetric L/R.
+   - The engine/rail/wing triplets are solved 3× each side.
+7. **G7 — Rear hits shorten the nose** (0.14 m) and barely the tail (0.07 m).
+   This is the mirror image of G1.
+8. **G8 — Bumper, headlamp and wheel detachment rules ignore speed.**
+   - The bumper detaches at 20 km/h.
+   - Both front hubs pop in a 2×28 head-on.
+   - No hub pops in a 64 km/h offset hit, where real cars lose wheels.
+9. **G9 — Mirrors never fold or break.** The `syncAttachedParts` and
+   `evaluateBreakage` on-hit tests measure the mirror's `restPos` in door
+   space.
+10. **G10 — The pulse is too hard and differs between full speed and slomo.**
+    The pulse is 8–41 ms where 90–140 ms is real. At 56 km/h the drivetrain
+    dies at full speed (engine travel 0.32 m) but stays alive in slomo
+    (0.17 m). Offset64 in slomo leaves the nose 0.20 m *longer* than rest.
+11. **G11 — Engine block is not rigid.** In shape mode there is no
+    engineL–engineR constraint. The bumper cluster (ci 0) contains both engine
+    halves, so a bumper fold drags the block.
+12. **G12 — Lamp poles never dent doors.** `resolvePoles` gives a single
+    ≤ 400 N·s kick and breaks the pole at 3.5 m/s. A rigid pole pins the group
+    while `car.velocity` stays at 12.4 m/s. This only matters if poles become
+    a side-impact prop.
+
+---
+
+## 5. Implementation spec (for a later lane)
+
+The numbers below are starting values, chosen to land inside the cited
+ranges. Every new behaviour gets a test in the existing suites. The scenarios
+should use the `engine.ts:fixedStep` order (as in §3.1). `barrier.test.ts`
+`spawnAtBarrier` + `runFor` is close enough for wall cases. For pairs,
+`pair-contact.ts:stepCarPair` is already the same order.
+
+Put a reusable `runWall(speedKph, overlap)` / `runPair(...)` helper in a new
+`src/game/crash-scenarios.test-util.ts`. It returns
+`{ noseShortL, noseShortR, tailShort, comTravel, pulseMs, maxPastFace }`
+using the §3.1 definitions. Do not copy the harness into each test.
+
+### A. Rigidity and stiffness ratios
+
+**A1 — Mass-level slab contact (fixes G1, G7, G10).**
+
+- *Where*:
+  - new `StreamedDeformation.projectOutOfBox(cx, cz, hx, hz, yaw, dt): number`
+    in `streamed-deform.ts`;
+  - called from `engine.ts:resolveBarrier` right after `feedOverlap`;
+  - call it the same way in `barrier.test.ts:stepBarrier`.
+- *Change*:
+  - For every dynamic, non-pinned-hub mass whose sphere (use `0.5·radius`)
+    crosses the slab's near face, set `world` back onto the face and remove
+    the inbound normal component of `vel`.
+  - Return the summed removed momentum (Σ m·Δv) so the caller can add it to
+    the `cancelClosing` budget, which keeps momentum.
+  - Reuse module temporaries; no allocation. It is the same pattern as
+    `compactor.ts:enforceWalls`.
+- *Then* in `sat.ts:clipCarToBarrier`:
+  - Change `bumperKeep` to `hx + 0.22 + alongFwd·0.85·leftover`, so the clip
+    opens as the nose actually shortens.
+  - Compute `leftover` from the projected masses. With A1, `crumpleTravelCorner`
+    becomes truthful.
+  - Keep `cabinKeep = hx + 1.08` as the tunnelling floor.
+- *Acceptance* (`barrier.test.ts`, new `describe("rigid wall crush matches a sedan")`):
+  - `good`: 56 km/h square wall, `runFor(car, 1.3, 1/60)`. Permanent nose
+    shortening vs the cell is in [0.25, 0.50] on both corners. No mass centre
+    goes more than 0.05 m past the face. COM travel after contact is in
+    [0.35, 0.60].
+  - `good`: the pulse to 95 % Δv is in [60, 150] ms at 56 km/h.
+  - `close-but-wrong`: COM travel grows with speed:
+    `travel(35) < travel(56) < travel(80)`.
+  - `bad`: a 50 km/h reverse into the wall shortens the tail ≥ 0.15 m and the
+    nose ≤ 0.03 m.
+- *Risk*:
+  - `barrier.test.ts` `engine disable speeds`: the engine will now travel
+    *backward*, so retune `ENGINE_KILL_TRAVEL` (see A2).
+  - `jersey barrier full-speed vs slomo` (no tunnelling) has to stay green;
+    `cabinKeep` is unchanged.
+  - `crash-physics.test.ts` uses `stepWall` (feedOverlap only) and is not
+    affected.
+  - Perf: 20 sphere-vs-plane checks per slice per car. Negligible.
+
+**A2 — Signed engine travel (fixes the G1/G10 drivetrain mechanism).**
+
+- *Where*: `streamed-deform.ts:updateDrivetrain`.
+- *Change*:
+  - Travel = `max over engineL/R of ((m.rest − m.local) − (cell.rest − cell.local))·(−impactInward)`.
+    That is the rearward motion toward the cell along the hit, ignoring
+    forward stretch.
+  - Keep `ENGINE_KILL_TRAVEL` and retune after A1 so that `barrier.test.ts`
+    still holds: 35 km/h alive, 62 km/h dead, rear 40 km/h alive.
+  - The ESV 98S3P12 comment band (0.23 m at 35, 0.40 m at 62 km/h) becomes
+    rearward travel. Starting value: 0.30.
+- *Acceptance* (`crash-physics.test.ts`, `forModes("drivetrain")`): `bad`: an
+  engine displaced 0.35 m *forward* of rest (cell at rest) leaves
+  `drivetrainAlive` true after `stepStructure(1/60)`. Plus the three existing
+  `barrier.test.ts` speed cases.
+- *Risk*: `just under ENGINE_KILL_TRAVEL is alive; just over is toast`
+  (crash-physics) sets `eng.local` directly. Re-pin it along −inward.
+
+**A3 — Rigid engine block, decoupled from the bumper (fixes G11).**
+
+- *Where*:
+  - `streamed-deform.ts:stepMassSlice` (both modes);
+  - the `cageClusterIndices` fallback;
+  - the constructor's `extra` list.
+- *Change*:
+  - After `stepShapeMatch`/`stepBeams`, project `engineL–engineR` back to its
+    rest distance (0.60 m ± 2 %), mass-weighted.
+  - In `cageClusterIndices`, skip `engine*` when the cage is `bumperFront`, so
+    cluster 0 becomes `{bFL, bFR}` plus the new crash-box nodes from A4.
+- *Acceptance* (`crash-physics.test.ts`): `good`: after a 56 km/h corner
+  wall (A1 harness), `|engineL − engineR|` is within 0.012 m of 0.60.
+- *Risk*: `shape-match.test.ts` cluster-count assumptions, if any. Check
+  `snapshot().clusters` consumers.
+
+**A4 — Crash-box / rail-tip nodes (fixes the missing staged load path).**
+
+- *Where*:
+  - `streamed-deform.ts`: `MassName`, `MASS_SPECS`, `BEAM_SPECS`, the `extra`
+    clusters;
+  - `physics-core.js:regionSoftness`;
+  - `physics-core.d.ts` if typed.
+- *Change*:
+  - Add `crashBoxL/R` at (∓0.52, 0.38, 1.80), 6 kg each. Take 6 kg from each
+    `engine*` (88 → 82) so the total stays 858 kg and the 58 % front share
+    holds.
+  - `regionSoftness`: return 0.6 for `crashBox*`, placed before the `rail`
+    check. Band max is 0.55 m.
+  - Beams:
+    - `bF*–crashBox*` [2500, 5000, 0.6]
+    - `crashBox*–rail*` [6000, 12000, 0.55]
+    - `crashBox*–wingF*` [3000, 6000, 0.6]
+    - `crashBox*–engine*` [2500, 5000, 0.7]
+    - `crashBoxL–crashBoxR` [1500, 3000, 0.4]
+  - Replace the extra clusters `[bF*, wF*, eng*, rail*]` with
+    `[bF*, crashBox*, wF*, rail*]`.
+- *Acceptance*:
+  - (`crash-physics.test.ts`) `good`: the stiffness order on a 14 m/s frontal
+    `stepWall` pulse is bumper > crashBox > rail travel.
+  - (`crash-parts.test.ts`) the banana-lattice cases still pass.
+  - `every mass is connected to the cell` (crash-physics) still passes.
+- *Risk*:
+  - HUD and trace consumers that index masses (search for `masses[` and
+    `mass index`).
+  - `crash-physics.test.ts` `totalMass ... 600–1200` is still fine.
+  - About 10 % more particle work in `stepShapeMatch` and `collideWith`.
+    Re-run `npm run bench`.
+
+**A5 — Per-cluster absorption and de-duplicated clusters (fixes G6).**
+
+- *Where*: `streamed-deform.ts` constructor and `clusterBeta`.
+- *Change*:
+  - Build `private clusterAbsorb: Float64Array` alongside `this.clusters`.
+    Each cage cluster (both L/R halves) gets its own cage's absorption.
+    Extras get explicit values: front corner 0.14, rear corner 0.16, cabin
+    sides 0.72.
+  - `clusterBeta(ci)` reads `clusterAbsorb[ci]`.
+  - Before pushing a cage cluster, skip it if its sorted index set equals one
+    already pushed. This drops clusters 6, 7, 10 and 11.
+- *Acceptance* (`shape-match.test.ts` or `crash-physics.test.ts`):
+  - `bad`: no two clusters share the same mass set (`snapshot().clusters`
+    names, sorted).
+  - `good`: a right-front 14 m/s corner hit gives the FR corner a larger
+    plastic trace deviation than the cabin cluster.
+- *Risk*: stiffness shifts. Re-check `crash-parts.test.ts` "squash=0.7
+  crushes the hit corner more" and the `fleet` and `derby` durability tests.
+
+### B. Crumple / bend tolerances and fold behaviour
+
+**B1 — Energy-share crush scaling for car-car hits (fixes G2).**
+
+- *Where*:
+  - `car.ts:applyImpact`, add a required parameter
+    `ebs: number` (equivalent barrier speed);
+  - `StreamedDeformation.beginCrush` stores it as `hitSpeed`;
+  - update every caller: `engine.ts:resolveBarrier`, `resolvePoles`,
+    `resolveBalls`, `pair-contact.ts:resolveCarPair`, and the tests that call
+    `applyImpact`.
+- *Change*:
+  - Wall/prop: `ebs = closing`.
+  - Pair: `ebs = closing · m_other / (m_self + m_other)` (= closing/2 for equal
+    cars).
+  - In `clampLocal`, scale the non-bidirectional crush cap to
+    `min(maxCrush·(0.38+0.72·cw), 0.035·ebs + 0.02)`. That gives 0.57 m at
+    15.6 m/s and 0.29 m at 7.8 m/s, matching 0.55 m @ 56 km/h [09].
+- *Acceptance* (`crash-parts.test.ts`, new
+  `forModes("car-car crush scales with speed")` using `stepCarPair` for 1.5 s):
+  - 2×28 km/h: each car's max nose shortening vs the cell is in [0.15, 0.40].
+  - 2×56 km/h: in [0.35, 0.70].
+  - `close-but-wrong`: 2×56 > 1.4 × 2×28.
+- *Risk*:
+  - `fleet.test.ts` and `derby.test.ts` durability (derby cars are tuned
+    "durable" in commit 721a2fe). Derby already caps damage elsewhere;
+    re-run them.
+  - `ENGINE_LIGHT_CAP` gate `hitSpeed < 15.5`: 2×28 km/h is 15.56 m/s closing,
+    just above it, so the gate is effectively an off-by-0.06 today. With
+    `ebs`, compare against 15.5 using the per-car share.
+
+**B2 — Square hits stay centred (fixes the asymmetric half of G2 and G1).**
+
+- *Where*: `sat.ts:satCarBarrier` and `sat.ts:satCars`, the contact-point
+  choice.
+- *Change*: when both front split crush hulls (`CRUSH_HULLS[0]` and `[1]`) are
+  in contact, or both rear ones, and their penetrations are within 30 % of
+  each other, return the midpoint of the two contact points. Then the existing
+  `snapImpactToNearestMass` centre rule (`|x| < 0.2`) applies.
+- *Acceptance* (`barrier.test.ts`): `good`: a 56 km/h square wall shortens FL
+  and FR to within 25 % of each other. Today it is 0.14 vs 0.04.
+  `crash-parts.test.ts`: `good`: a 2×28 head-on gives `|impactLocal.x| < 0.2`
+  on both cars.
+- *Risk*:
+  - `barrier.test.ts` "offset +Z hit crushes the corner on the slab" must still
+    pick a corner (one hull only, so unaffected).
+  - `crash-physics.test.ts` impact-snap cases call `spawn(x)` directly and are
+    unaffected.
+
+**B3 — Lateral crush in the hit frame (fixes G3).**
+
+- *Where*: `streamed-deform.ts:clampLocal`.
+- *Change*:
+  - Split each node's planar displacement into `along` (·impactInward) and
+    `perp`.
+  - Apply the crush `cap` to `along`. Apply `latCap` (0.04 + 0.07·cw) to
+    `perp`.
+  - For door, skirt and cell-side nodes on side hits
+    (`|impactInward.x| > |impactInward.z|`), cap `along` at
+    `bands.max = 0.278 m` (doors). That gives about 0.12 m left to a 0.4 m
+    seat centre line, which is IIHS Acceptable/Good [10].
+- *Acceptance* (`barrier.test.ts`, new side case: the car slides −x into the
+  slab at 50 km/h, yaw 0):
+  - doorL inward vs the cell is in [0.12, 0.28];
+  - nose and tail shortening are each < 0.10;
+  - cell travel < 0.12.
+- *Risk*:
+  - `crash-physics.test.ts` "a right-side inward crushes doorR/wingFR more
+    than the left" must still pass.
+  - `crash-parts.test.ts` "right-side hit opens the right door" depends on
+    door compression, which goes up.
+
+**B4 — Rear softer than front, with a shorter stroke.**
+
+- *Where*: `physics-core.js:regionSoftness`, plus `CAGES` `bumperRear` and
+  `chassisRear`.
+- *Change*:
+  - Split `bumper*`: `bumperR*` → 1.0 (as now); `bumperF*` stays at 1.0.
+  - `tank`/`axleR` → 0.4 (band max 0.41 m).
+  - `chassisRear.maxCrush` 0.5 → 0.45, so the rear zone yields earlier but
+    over less length.
+  - Only after A1, when the rear can actually be measured.
+- *Acceptance* (`barrier.test.ts`, A1 harness): at 50 km/h, rear tail
+  shortening is in [0.6, 1.0] × the front nose shortening at 50 km/h, and the
+  cell moves < 0.06 m.
+- *Risk*: `barrier.test.ts` "backing into the wall well under 80 km/h does not
+  kill the block" stays true after A2, which makes the travel signed.
+
+**B5 — Pulse shape.** After A1 and B1 the pulse is set by crush length:
+≈ 2·D/v = 70 ms at 56 km/h. This needs no separate change; it is checked by
+A1's pulse test. Do not change `CRASH.pulseSec`, which drives FX timing.
+
+### C. Detachable parts
+
+**C1 — Doors stay latched unless struck from the side (fixes G4).**
+
+- *Where*: `car.ts:syncAttachedParts` and `car.ts:evaluateBreakage`.
+- *Change*: a door is "on hit" only when the hit is on its side:
+  `sign(impactInward.x) === −sign(restPos.x)` and
+  `|impactInward.x| > |impactInward.z|`.
+  - On frontal or rear hits, cap the door's `hingeT` target at 0.2. That leaves
+    it jammed ajar, the "partially open" case in [04].
+  - On side hits, detach only when `hingeT > 0.58` **and**
+    `deform.impulseValue ≥ 12.5` m/s (45 km/h).
+- *Acceptance* (`barrier.test.ts`): `bad`: 35, 48 and 64 km/h frontal walls
+  and offset64 detach no door. Today doorL detaches at all four.
+  `crash-parts.test.ts` "right-side hit opens the right door, not the left"
+  still holds.
+- *Risk*: the HUD/FX door-pop moments in head-ons go away. That is intended.
+
+**C2 — Bumper detaches by speed (fixes G8 for bumpers).**
+
+- *Where*: `car.ts:evaluateBreakage`.
+- *Change*: the `bumperF`/`bumperR` detach rule becomes
+  `hingeT > 0.7 && hitSpeed ≥ 8.3` m/s (30 km/h). Below that the bumper folds
+  (scaled as now) and stays attached. IIHS low-speed protocols treat cover
+  tears ≤ 1 cm as normal damage at bumper-test speeds [12].
+  Expose `hitSpeed` through a getter beside `impulseValue`.
+- *Acceptance* (`barrier.test.ts`):
+  - `good`: a 20 km/h wall leaves `bumperF` attached with `hingeT > 0.1`.
+  - `good`: a 56 km/h wall may detach it.
+  - `crash-parts.test.ts` "front bumper folds then can detach on a hard nose
+    hit" (impulse 40) still passes.
+- *Risk*: none known.
+
+**C3 — Mirrors fold and break on side contact (fixes G9).**
+
+- *Where*: `car.ts:syncAttachedParts` and `car.ts:evaluateBreakage`.
+- *Change*: for `mirror*`, compute the on-hit test from the car-space position
+  `doorX.position + restPos`, not `restPos`. Equivalently, treat a mirror as
+  on hit when its door is on hit (C1 side rule).
+  - Fold target is `(max(sensor 6/7, sensor 4/5) − 0.04)/0.3`.
+  - Detach at `hingeT > 0.5` (unchanged).
+- *Acceptance* (`crash-parts.test.ts`): `good`: the existing "right-side hit"
+  scenario (`applyImpact` at `right·0.9`, 45 frames) leaves `mirrorR.hingeT
+  > 0.3` and `mirrorL.hingeT === 0`.
+- *Risk*: none.
+
+**C4 — Wheel separation where real cars lose wheels (fixes G8 for hubs).**
+
+- *Where*: `streamed-deform.ts:clampLocal`, in the hub pop rule.
+- *Change*:
+  - A hub pops only when its planar travel is > 0.14 m **and**
+    `cornerWeight(hub) > 0.6` **and** `hitSpeed ≥ 15` m/s (54 km/h, using
+    B1's `ebs`).
+  - Otherwise let the hub travel up to 0.10 m rearward and stay attached
+    (wheel pushed back).
+  - Small-overlap hits (`|impactLocal.x| > 0.5`) at ≥ 15 m/s may pop the
+    hit-side front hub.
+- *Acceptance*:
+  - (`crash-parts.test.ts`) `bad`: a 2×28 km/h head-on (`stepCarPair`, 1.5 s)
+    pops no hub. Today both front hubs pop.
+  - `good`: a 64 km/h 25 %-overlap wall pops the struck-side front hub.
+- *Risk*: `crash-physics.test.ts` "hubs stay planted until they pop": the
+  "0.2 m xz shove on one hub pops it" case needs `hitSpeed ≥ 15` set in its
+  spawn, or it should be reframed as a high-speed shove.
+
+**C5 — Keep:** the hood `cowl` and trunk `tail` rules (hood measured ≤ 0.67,
+never detached at 56–64 km/h; real hoods buckle and stay latched [04]), the
+lamp break rule, and the glass crack/shatter rule.
+
+### D. Cabin integrity
+
+**D1 — Cabin skin follows the cell (fixes G5).**
+
+- *Where*: `streamed-deform.ts:buildSkinWeights`.
+- *Change*: for vertices whose rest position is inside the `chassisCell` cage
+  span (x ±0.66, y 0.2…1.06, z −0.48…0.64), only consider clusters that
+  contain `cell`. That is ci 4, 5, 12, 13, 14, 20 and 21 at base; re-derive
+  them after A5.
+  - Blend in at most 25 % from the nearest non-cell cluster within 0.3 m of
+    the span's front or rear face, so the A-pillar foot still creases.
+- *Acceptance* (`rest-mesh.test.ts` or `crash-physics.test.ts` with the real
+  chassis geometry from `car-mesh.ts:makeChassisGeometry`): `good`: after a
+  56 km/h wall (A1), no chassis vertex in the span moves more than 0.06 m
+  inward relative to the cell (today 0.13 m, 0.35 m at 80 km/h).
+- *Risk*: a visible seam at the span faces. Check the side silhouette
+  screenshot in `rest-mesh.test.ts`. Skin cost is unchanged.
+
+**D2 — Keep the cell caps** (`clampLocal` cell/roof cap 0.12 m, `maxDy`
+0.06/0.07, `deepCrush` exceptions). Measured: door/roof control particles move
+≤ 0.06 m relative to the cell in shape-mode wall and rear cases (≤ 0.07 m lattice), ≤ 0.10 m in
+head-ons. That meets the "minimal intrusion" target [04][09].
+
+### E. Do NOT change
+
+- **Mass totals and distribution** (`MASS_SPECS`: 858 kg, 58.4 % front).
+  Every force constant is tuned to this mass.
+- **Cabin rigidity**: `cell`/`roof` caps, `cell–roof` 42 k/98 k, the
+  `chassisCell` absorption of 0.72, and `kickCore`'s cabin-only weighting. They
+  already meet the targets.
+- **Roof** `maxDy` 0.07. It meets IIHS Good (4× weight → 0.030 m; the limit is
+  0.127 m) [11], and there is no rollover path to tune against.
+- **Hub planting** in `followGroup`/`clampLocal` (`quietTime > 0.2`). It stops
+  the post-crash ratchet. C4 changes only the pop rule.
+- **`barrier.test.ts` drivetrain speeds** (35 alive, 62 dead, rear 40 alive).
+  These are design targets. A2 changes the mechanism, not the targets.
+- **Shape-match kernel parameters** (`applyPlasticity` `yieldC` 0.105, creep
+  0.0915/slice, `maxE` 0.58; `stiffnessIters` 4; `goalAlpha` 0.592). The
+  measured defects come from contact and clamps, not from the kernel.
+- **Hot-path rules**: A1, A3 and B3 add no per-frame allocation. They reuse
+  module-level `_a…_n` temporaries.
+
+### Suggested order
+
+A1 + A2 together, then B2, then B1, B3, C1, C2, C3, C4, D1, then A3, A4, A5.
+Each step should land with its tests green. A1 shifts most of the measured
+numbers, so re-measure after it before tuning B1 and B4.
+
+---
+
+## Appendix
+
+### Sources
+
+- [02] `.extraResearch/perplexity/02-bugbear-wreckfest.md`: Bugbear clusters,
+  breakable joints for doors/hoods/bumpers/wheels.
+- [03] `.extraResearch/perplexity/03-burnout-deform.md`: BeamNG
+  `beamDeform`/`beamStrength`, SUPPORT beams for the cabin.
+- [04] `.extraResearch/perplexity/04-real-car-structure.md`: crash-box
+  plateaus of 33–70 kN; 400–600 mm frontal crush at 56 km/h; non-crushing
+  engine; crumple zone an order of magnitude softer than the cell; detaching
+  parts.
+- [09] `.extraResearch/perplexity/09-frontal-crush-pulse-intrusion.md`
+  (new):
+  - 56 km/h: 350–550 mm dynamic and 250–450 mm static crush, 90–140 ms pulse,
+    18–25 g average, 30–45 g peak, 1–4 m/s rebound, 0–20 mm toe-pan;
+  - IIHS bands Good 0–5 / Acceptable 5–10 / Marginal 10–15 / Poor > 15 cm;
+  - offset residual 300–600 mm.
+
+  It cites NHTSA FMVSS 208 docs
+  (https://www.nhtsa.gov/sites/nhtsa.gov/files/fmvss_208_ii.pdf), the IIHS
+  moderate-overlap protocol
+  (https://www.iihs.org/media/0e3c2eb2-f3ef-4340-9f1f-e8b041526d8b/9U5siw/Ratings/Protocols/current/Moderate_overlap_2.0_test_protocol.pdf)
+  and the ESV frontal stiffness paper
+  (https://www-nrd.nhtsa.dot.gov/departments/esv/24th/files/24ESV-000257.PDF).
+- [10] `.extraResearch/perplexity/10-side-rear-roof-intrusion.md` (new):
+  - IIHS side rating thresholds: Good ≥ 12.5 cm, Acceptable 5.0–12.4,
+    Marginal 0–4.9 cm B-pillar-to-seat-centre line
+    (https://www.iihs.org/media/2104caa9-7f7e-41fa-a4a5-af65f1cab89e/l9AWAw/Ratings/Protocols/current/side_impact_guide.pdf);
+  - 13.2 cm residual for a Camry with a 1500 kg MDB at 50 km/h
+    (https://lsdyna.ansys.com/wp-content/uploads/2022/11/iihs-side-impact-parametric-study-using-ls-dyna-r.pdf).
+  - The pole, rear-crush and side A/B items returned no citable numbers.
+- [11] `.extraResearch/perplexity/11-rear-roof-side-stiffness.md` (new):
+  - FMVSS 216a: 3.0× unloaded weight (GVWR ≤ 2722 kg), ≤ 127 mm platen travel
+    (https://www.nhtsa.gov/sites/nhtsa.gov/files/tp-216a-00.pdf);
+  - IIHS roof Good ≥ 4.0, Acceptable ≥ 3.25, Marginal ≥ 2.5
+    (https://www.iihs.org/ratings/about-our-tests/roof-strength);
+  - FMVSS 301: 1368 kg MDB, 80 km/h, 70 % overlap
+    (https://crashstats.nhtsa.dot.gov/Api/Public/Publication/812038).
+  - No citable rear or side stiffness coefficients or torsional stiffness.
+- [12] `.extraResearch/perplexity/12-detach-part-thresholds.md` (new):
+  - FMVSS 206 latch and hinge: 11,000 N longitudinal, 8,900 N transverse
+    (https://www.nhtsa.gov/sites/nhtsa.gov/files/tp-206-08_19_feb_2010.pdf,
+    https://www.govinfo.gov/content/pkg/FR-1995-07-12/html/95-17088.htm);
+  - IIHS low-speed bumper protocol: tears ≤ 1 cm and cracks ≤ 2 cm acceptable
+    (https://www.iihs.org/media/97eb5f7e-f18a-41ad-905c-baa930e8933c/8AZ1VA/Ratings/Protocols/archive/test_protocol_bumper_vV_0502.pdf).
+  - No citable mirror, hood-latch, wheel-separation, lamp or windscreen
+    numbers.
+
+The four new queries were run serially with
+`node ~/.claude/skills/ask/perplexityWithSourcesFormattedIntoSingleResponse.cjs "<question>"`
+through a 429-retry wrapper; each succeeded on the first try. The real-world
+numbers that are still missing (side/rear A–B stiffness coefficients,
+torsional stiffness, pole intrusion, mirror breakaway force) are marked
+"no citable number" above. The spec does not depend on them.
+
+### A1. Crash matrix
+
+Commands, run from the worktree `cwd` with
+`B=/mnt/c/proj/crash-deformer-test/.bench/rig-analysis`:
+
+```
+node --experimental-strip-types --no-warnings .bench/rig-crash.ts wall56,offset64,tbone50,pole32,pole50rigid,side50wall,rear50,headon28,headon56 shape 0,1 > $B/shape.json
+node --experimental-strip-types --no-warnings .bench/rig-crash.ts wall56,offset64,tbone50,side50wall,rear50,headon28 lattice 0 > $B/lattice.json
+node --experimental-strip-types --no-warnings .bench/rig-crash.ts wall20,wall35,wall48,wall56,wall64,wall80 shape 0 > $B/sweep.json
+node .bench/table.mjs $B/<file>.json
+```
+
+The three runs took 6.3 s together. Raw output follows. `engine_max(+=back)`
+is the largest rearward engine shortening vs the cell. `nose_end` is permanent.
+Glass entries are pane index : state.
+
+```
+== shape
+scenario|mode|slomo|car|COMtravel|pulse_ms|avg_g|noseL_max|noseR_max|tail_max|engine_max(+=back)|nose_end L/R|tail_end|doorL/R_max|roof_max|skin cabinIn|skin doorL/R|massPastWall|engTravel|drive|hubsPopped|detached|lampsOut|glass(!intact)
+wall56|shape|0|0*|0.17|14|110|0.14|0.04|0.08|0.02|0.04/-0.05|0.00|0.01/0.04|0.04|0.13|0.06/0.07|0.48|0.32|DEAD|-|bumperF|headL|0:cracked
+wall56|shape|1|0*|0.17|12|126|0.08|0.26|0.13|0.02|-0.07/0.05|0.13|0.00/0.02|0.02|0.10|0.03/0.04|0.25|0.17|alive|-|bumperF|headL|-
+offset64|shape|0|0*|0.15|13|135|0.18|0.05|0.08|0.03|0.02/-0.06|0.05|0.00/0.02|0.05|0.13|0.08/0.06|0.46|0.29|DEAD|-|bumperF,doorL|headL|0:cracked,2:cracked,4:cracked
+offset64|shape|1|0*|0.15|8|200|0.12|0.10|0.04|0.02|-0.20/-0.21|0.03|0.00/0.00|0.01|0.07|0.03/0.03|0.34|0.35|DEAD|-|bumperF,doorL|headL|0:cracked,2:cracked,4:cracked
+tbone50|shape|0|0*|8.33|1477|0|0.01|0.33|0.36|0.01|-0.13/0.06|0.32|0.02/0.11|0.01|0.31|0.12/0.21|-|0.08|alive|-|-|headR,tailR|-
+tbone50|shape|0|1|9.97|1443|1|0.71|0.74|0.10|0.26|0.35/0.62|0.10|0.03/0.11|0.01|0.41|0.32/0.22|-|0.27|alive|hubFL|bumperF|headL|-
+tbone50|shape|1|0*|5.63|900|0|0.01|0.55|0.39|0.06|-0.08/0.39|0.33|0.04/0.16|0.01|0.24|0.14/0.20|-|0.10|alive|hubFR|doorR|headR,tailR|3:shattered,5:shattered
+tbone50|shape|1|1|9.96|1370|1|1.02|0.70|0.08|0.33|0.66/0.17|0.03|0.20/0.11|0.02|0.67|0.39/0.14|-|0.27|alive|hubFL,hubFR|bumperF|headL|-
+pole32|shape|0|0*|4.84|859|1|0.02|0.01|0.00|0.01|-0.01/0.00|-0.01|0.01/0.05|0.00|0.27|0.06/0.09|-|0.08|alive|-|-|headR,tailR|-
+pole32|shape|1|0*|4.54|835|1|0.01|0.01|0.00|0.01|-0.01/0.01|-0.01|0.00/0.02|0.00|0.24|0.04/0.05|-|0.08|alive|-|-|headR,tailR|-
+pole50rigid|shape|0|0*|0.07|1433|0|0.01|0.01|0.00|0.01|0.01/0.01|-0.02|0.00/0.01|0.00|0.22|0.02/0.03|-|0.09|alive|-|-|headR,tailR|-
+pole50rigid|shape|1|0*|0.07|1430|0|0.01|0.01|0.00|0.01|0.01/0.01|-0.02|0.00/0.01|0.00|0.22|0.02/0.03|-|0.09|alive|-|-|headR,tailR|-
+side50wall|shape|0|0*|0.42|1055|1|0.61|0.35|0.55|0.25|0.57/0.35|0.55|0.11/0.00|0.01|0.31|0.26/0.12|0.56|0.27|alive|-|doorL|headL,tailL|2:shattered,4:shattered
+side50wall|shape|1|0*|0.42|761|2|0.56|0.28|0.36|0.18|0.43/0.28|0.27|0.11/0.02|0.01|0.28|0.17/0.10|0.56|0.21|alive|-|doorL|headL,tailL|2:cracked,4:cracked
+rear50|shape|0|0*|0.10|12|114|0.14|0.14|0.07|0.12|0.14/0.14|-0.00|0.00/0.01|0.02|0.07|0.08/0.12|0.53|0.14|alive|-|bumperR,trunk|tailL|1:shattered
+rear50|shape|1|0*|0.10|8|162|0.11|0.11|0.15|0.01|-0.01/-0.01|0.15|0.00/0.00|0.01|0.12|0.04/0.07|0.47|0.12|alive|-|bumperR|tailL|-
+headon28|shape|0|0*|2.71|1333|1|1.14|0.48|0.08|0.61|1.14/0.47|-0.04|0.00/0.00|0.09|0.83|0.17/0.10|-|0.40|DEAD|hubFL,hubFR|bumperF|headL|-
+headon28|shape|0|1|1.50|1317|1|0.48|0.69|0.10|0.39|0.48/0.68|-0.03|0.02/0.03|0.02|0.42|0.13/0.19|-|0.20|DEAD|hubFL,hubFR|bumperF,doorR|headR|3:shattered,5:shattered
+headon28|shape|1|0*|0.78|926|1|1.14|0.48|0.10|0.49|1.00/0.34|0.01|0.09/0.04|0.04|0.73|0.45/0.11|-|0.62|DEAD|hubFL,hubFR|bumperF,doorL|headL|2:shattered,4:shattered
+headon28|shape|1|1|1.26|921|1|0.38|0.98|0.08|0.46|0.25/0.95|-0.02|0.04/0.10|0.02|0.53|0.13/0.30|-|0.35|DEAD|hubFL,hubFR|bumperF|headR|-
+headon56|shape|0|0*|5.56|1242|1|1.14|0.47|0.08|0.62|1.04/0.38|0.02|0.08/0.09|0.07|0.82|0.39/0.26|-|0.63|DEAD|hubFL,hubFR|bumperF,doorL|headL|2:cracked,4:cracked
+headon56|shape|0|1|2.25|1209|1|0.47|1.10|0.09|0.60|0.39/1.04|-0.00|0.02/0.05|0.03|0.83|0.10/0.39|-|0.68|DEAD|hubFL,hubFR|bumperF,doorR|headR|3:cracked,5:cracked
+headon56|shape|1|0*|0.75|470|3|1.13|0.46|0.09|0.61|1.00/0.35|0.01|0.01/0.10|0.03|0.85|0.37/0.23|-|0.67|DEAD|hubFL,hubFR|bumperF,doorL|headL|2:shattered,4:shattered
+headon56|shape|1|1|2.05|489|3|0.41|1.03|0.07|0.62|0.39/0.86|-0.03|0.10/0.08|0.02|0.79|0.20/0.31|-|0.47|DEAD|hubFL,hubFR|bumperF,doorR|headR|3:cracked,5:cracked
+== lattice
+wall56|lattice|0|0*|0.18|14|110|0.32|0.01|0.09|0.03|0.21/-0.06|0.08|0.05/0.05|0.06|0.05|0.10/0.05|0.59|0.05|DEAD|-|bumperF|headL|0:cracked
+offset64|lattice|0|0*|0.15|8|204|0.28|0.01|0.09|0.02|0.27/-0.07|0.08|0.06/0.05|0.06|0.06|0.10/0.05|0.22|0.05|DEAD|-|bumperF|headL|0:cracked
+tbone50|lattice|0|0*|7.92|1000|0|0.01|0.54|0.42|0.07|-0.07/0.41|0.33|0.00/0.12|0.03|0.28|0.03/0.13|-|0.07|alive|hubFR,hubRR|doorR|headR,tailR|-
+tbone50|lattice|0|1|8.73|1467|1|1.17|1.17|0.08|0.34|1.12/1.07|0.01|0.04/0.02|0.08|0.30|0.03/0.05|-|0.27|alive|hubFL,hubFR|bumperF,doorL|headL|0:cracked,1:cracked,2:cracked,3:cracked,4:cracked,5:cracked
+side50wall|lattice|0|0*|0.42|562|2|0.79|0.01|0.39|0.15|0.50/-0.06|0.39|0.11/0.00|0.03|0.25|0.16/0.03|0.54|0.22|alive|-|doorL|headL,tailL|2:cracked,4:cracked
+rear50|lattice|0|0*|0.10|12|115|0.09|0.09|0.15|0.00|0.05/0.05|0.10|0.07/0.04|0.01|0.14|0.04/0.03|0.47|0.04|alive|-|bumperR,trunk|tailL|1:shattered
+headon28|lattice|0|0*|0.95|983|1|1.13|0.48|0.08|0.42|1.09/0.45|-0.01|0.03/0.03|0.07|0.33|0.02/0.04|-|0.26|DEAD|hubFL,hubFR|bumperF,doorL|headL|2:shattered,4:shattered
+headon28|lattice|0|1|0.95|991|1|0.43|1.13|0.08|0.44|0.43/1.08|-0.01|0.02/0.01|0.07|0.33|0.02/0.03|-|0.28|DEAD|hubFL,hubFR|bumperF,doorR|headR|3:shattered,5:shattered
+== sweep (shape, full speed)
+wall20|shape|0|0*|0.21|41|13|0.08|0.12|0.00|0.01|0.06/0.08|-0.01|0.00/0.00|0.02|0.02|0.03/0.02|0.35|0.13|alive|-|bumperF|headL|-
+wall35|shape|0|0*|0.16|17|55|0.18|0.17|0.01|0.01|0.16/0.13|-0.01|0.00/0.00|0.04|0.09|0.04/0.02|0.37|0.19|alive|-|bumperF,doorL|headL|-
+wall48|shape|0|0*|0.16|17|76|0.13|0.09|0.08|0.02|0.07/0.00|-0.02|0.01/0.02|0.03|0.10|0.06/0.05|0.45|0.27|alive|-|bumperF,doorL|headL|-
+wall56|shape|0|0*|0.17|14|110|0.14|0.04|0.08|0.02|0.04/-0.05|0.00|0.01/0.04|0.04|0.13|0.06/0.07|0.48|0.32|DEAD|-|bumperF|headL|0:cracked
+wall64|shape|0|0*|0.15|13|135|0.16|0.04|0.08|0.03|-0.01/-0.07|0.05|0.00/0.03|0.05|0.16|0.10/0.08|0.49|0.30|DEAD|-|bumperF,doorL|headL|0:cracked,2:cracked,4:cracked
+wall80|shape|0|0*|0.09|8|252|0.23|0.02|0.08|0.04|0.08/-0.21|0.06|0.03/0.06|0.05|0.35|0.24/0.08|0.57|0.38|DEAD|-|bumperF|headL|0:cracked
+```
+
+Other recorded per-run values:
+
+- contact detection for walls at 0.029–0.043 s;
+- `impactLocal.x = −0.49` for wall56, offset64, rear50 and head-on car 0
+  (+0.49 for car 1);
+- impactInward `[0, −1]` for frontal hits;
+- mirror `hingeT = 0` in every run;
+- `totalMass = 858`.
+
+### A2. Cluster ↔ cage probe and roof press
+
+Command: `node --experimental-strip-types --no-warnings .bench/probe.ts`
+(1.1 s).
+
+```
+cages=18 clusters=22
+cluster 0: beta reads cage[0]=bumperFront | masses bumperFL,bumperFR,engineL,engineR
+cluster 1: beta reads cage[1]=bumperRear | masses bumperRL,bumperRR,axleR
+cluster 2: beta reads cage[2]=bonnet | masses engineL,railL,wingFL
+cluster 3: beta reads cage[3]=boot | masses engineR,railR,wingFR
+cluster 4: beta reads cage[4]=roof | masses railL,doorL,cell,roof
+cluster 5: beta reads cage[5]=doorLeft | masses railR,doorR,cell,roof
+cluster 6: beta reads cage[6]=doorRight | masses engineL,railL,wingFL
+cluster 7: beta reads cage[7]=wingFL | masses engineR,railR,wingFR
+cluster 8: beta reads cage[8]=wingFR | masses axleR,tank,bumperRL
+cluster 9: beta reads cage[9]=wingRL | masses axleR,tank,bumperRR
+cluster 10: beta reads cage[10]=wingRR | masses engineL,railL,wingFL
+cluster 11: beta reads cage[11]=chassisFront | masses engineR,railR,wingFR
+cluster 12: beta reads cage[12]=chassisCell | masses railL,railR,cell,doorL,doorR,roof
+cluster 13: beta reads cage[13]=chassisRear | masses railL,wingFL,doorL,cell
+cluster 14: beta reads cage[14]=skirtLeft | masses railR,wingFR,doorR,cell
+cluster 15: beta reads cage[15]=skirtRight | masses roof,engineL,engineR,railL
+cluster 16: beta reads cage[16]=glassFront | masses bumperFL,wingFL,engineL,railL
+cluster 17: beta reads cage[17]=glassRear | masses bumperFR,wingFR,engineR,railR
+cluster 18: beta reads cage[18]=(none, 0.1) | masses bumperRL,doorL,tank,axleR
+cluster 19: beta reads cage[19]=(none, 0.1) | masses bumperRR,doorR,tank,axleR
+cluster 20: beta reads cage[20]=(none, 0.1) | masses doorL,roof,railL,cell
+cluster 21: beta reads cage[21]=(none, 0.1) | masses doorR,roof,railR,cell
+roof press 1x weight (8.4 kN, 1 s) shape: roof drop vs cell max=0.015 m end=0.009 m, cell dy=0.075
+roof press 1x weight (8.4 kN, 1 s) lattice: roof drop vs cell max=0.068 m end=0.010 m, cell dy=-0.060
+roof press 4x weight (33.7 kN, 1 s) shape: roof drop vs cell max=0.030 m end=0.028 m, cell dy=0.075
+roof press 4x weight (33.7 kN, 1 s) lattice: roof drop vs cell max=0.068 m end=0.010 m, cell dy=-0.060
+roof press 10x weight (84.2 kN, 1 s) shape: roof drop vs cell max=0.061 m end=0.010 m, cell dy=-0.060
+roof press 10x weight (84.2 kN, 1 s) lattice: roof drop vs cell max=0.068 m end=0.010 m, cell dy=-0.060
+roof press 40x weight (336.7 kN, 1 s) shape: roof drop vs cell max=0.068 m end=0.010 m, cell dy=-0.060
+roof press 40x weight (336.7 kN, 1 s) lattice: roof drop vs cell max=0.068 m end=0.010 m, cell dy=-0.060
+```
+
+The cage names come from `CAGES` order. The probe built a
+`StreamedDeformation` on a `BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6)`, as
+`crash-parts.test.ts:dummyGeom` does, and read `snapshot().clusters`. The roof
+press used `armMasses`, then `kickNearest(roof, 0, −1, 0, F·h)` +
+`stepStructure(h)` + `syncPose(h)` at h = 1/240 for 240 slices.
+
+### A3. Spec arithmetic
+
+Command: `node --experimental-strip-types -e '...'`. It imports
+`streamed-deform.ts`, `physics-core.js` and `shape-match-core.js` and
+evaluates the real functions.
+
+```
+total 858 COMz 0.226 COMy 0.476 frontAxleShare 0.584 {"front":342,"cabin":336,"rear":180}
+bumperFL soft 1 bands {"yield":0.134,"middle":0.403,"max":0.84} gate min/fatal m/s 1.80 7.00
+wingFL soft 0.78 bands {"yield":0.109,"middle":0.327,"max":0.682} gate min/fatal m/s 3.78 12.72
+engineL soft 0.16 bands {"yield":0.038,"middle":0.113,"max":0.235} gate min/fatal m/s 9.36 28.84
+railL soft 0.3 bands {"yield":0.054,"middle":0.161,"max":0.336} gate min/fatal m/s 8.10 25.20
+doorL soft 0.22 bands {"yield":0.045,"middle":0.134,"max":0.278} gate min/fatal m/s 8.82 27.28
+tank soft 0.34 bands {"yield":0.058,"middle":0.175,"max":0.365} gate min/fatal m/s 7.74 24.16
+cell soft 0.08 bands {"yield":0.028,"middle":0.085,"max":0.178} gate min/fatal m/s 10.08 30.92
+hubFL soft 0.06 bands {"yield":0.026,"middle":0.078,"max":0.163} gate min/fatal m/s 10.26 31.44
+yieldC 0.1050 creep@1/240 0.0915 maxE 0.580 iters 4 alpha 0.592 beta 0.360
+```
+
+### A4. wall56 time trace (full speed, subject car, excerpt)
+
+Command: `TRACE=1 node --experimental-strip-types .bench/rig-crash.ts wall56 shape 0`.
+
+- `gx` is the group x. The slab face is at x = 0.38.
+- `massMinX` is the smallest `world.x − radius` over all masses.
+- The other fields are the cell-relative rig metrics from §3.1.
+
+```
+t=0.0ms   vCOM=15.27 vCell=15.55 gx=2.515 massMinX=0.192  noseL=0.054 noseR=0.006 engine=0.006
+t=9.0ms   vCOM=14.94 vCell=15.55 gx=2.376 massMinX=0.057  noseL=0.130 noseR=0.010 engine=0.017
+t=13.5ms  vCOM=0.00  vCell=0.67  gx=2.342 massMinX=-0.005 noseL=0.140 noseR=0.014 engine=0.024
+t=16.7ms  vCOM=0.00  vCell=-3.33 gx=2.342 massMinX=-0.043 noseL=0.056 noseR=-0.053 engine=-0.032
+t=30.2ms  vCOM=1.08  vCell=-3.33 gx=2.373 massMinX=-0.158 noseL=-0.074 noseR=-0.201 engine=-0.176
+t=63.5ms  vCOM=1.11  vCell=-3.33 gx=2.373 massMinX=-0.204 noseL=-0.199 noseR=-0.253 engine=-0.344
+t=121.2ms vCOM=0.00  vCell=-4.92 gx=2.342 massMinX=-0.225 noseL=-0.058 noseR=-0.259 engine=-0.369
+t=371.2ms vCOM=0.00  vCell=-5.13 gx=2.343 massMinX=0.029  noseL=0.064 noseR=0.008  engine=-0.169
+t=521.2ms vCOM=0.23  vCell=-4.37 gx=2.483 massMinX=0.066  noseL=0.067 noseR=0.023  engine=-0.158
+t=671.2ms vCOM=0.00  vCell=0.00  gx=2.483 massMinX=0.011  noseL=0.040 noseR=-0.049 engine=-0.192
+```
+
+How to read it:
+
+- The group stops 0.17 m after contact, at 13.5 ms. That is the
+  `clipCarToBarrier` hold at `minLx ≈ 2.34`.
+- The front masses keep moving into the slab: `massMinX` reaches −0.236 at
+  92 ms. A mass sphere's edge is then 0.62 m past the face, so its centre is
+  at least 0.26 m past (the largest mass radius is 0.36).
+- The nose then reads longer than rest relative to the cell.
+- The cell mass's velocity stays at −3.3…−5 m/s while its position is held,
+  then the group jumps 0.14 m back at about 0.5 s.
+
+The full trace (52 lines) and the JSON files were left in the gitignored
+scratch dir `/mnt/c/proj/crash-deformer-test/.bench/rig-analysis/`. The
+scripts (`rig-crash.ts`, `probe.ts`, `summ.mjs`, `table.mjs`, `ask.mjs`) were
+deleted after the run.
