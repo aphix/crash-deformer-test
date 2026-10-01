@@ -965,7 +965,12 @@ export class StreamedDeformation {
     return this._totalMass;
   }
 
-  /** Stopping impulse lands on the crumple face so the rear keeps piling in. */
+  /**
+   * Stopping impulse lands on the crumple face so the rear keeps piling in. The rear's transferred
+   * share moves it as one body (equal Δv, momentum ∝ mass): spread per node it gave a 26 kg hub ten
+   * times the cell's Δv, the pinned hubs and the clamped nose hid it, and the cell kept ~8 m/s into
+   * the stopped car until the hubs planted and let it run 0.12 m up the nose (slow motion only).
+   */
   applyImpulse(nx: number, ny: number, nz: number, j: number): void {
     if (!this.massActive || j === 0) return;
     const pass = this.frontTransfer();
@@ -973,6 +978,8 @@ export class StreamedDeformation {
     const n = masses.length;
     const weights = this.impulseW;
     let wsum = 0;
+    let down = 0;
+    let downMass = 0;
     for (let i = 0; i < n; i++) {
       const m = masses[i]!;
       if (!m.dynamic) {
@@ -980,11 +987,12 @@ export class StreamedDeformation {
         continue;
       }
       const face = this.impactWeight(m);
-      const downstream = Math.max(0, 1 - this.crumpleWeight(m));
+      const downstream = Math.max(0, 1 - this.crumpleWeight(m)) * pass;
       // Face eats the hit; rear only sees the transferred fraction (0.1 / 0.5 / 0.62 / 1).
-      const w = face + downstream * pass;
-      weights[i] = w;
-      wsum += w;
+      weights[i] = face;
+      wsum += face + downstream;
+      down += downstream;
+      downMass += downstream * m.mass;
     }
     if (wsum < 1e-6) {
       // Graze / unknown contact: fall back to the crumple face as a whole.
@@ -998,10 +1006,11 @@ export class StreamedDeformation {
     }
     if (wsum < 1e-6) return;
     const invW = 1 / wsum;
+    const downDv = downMass > 1e-9 ? (j * down * invW) / downMass : 0;
     for (let i = 0; i < n; i++) {
       const m = masses[i]!;
       if (!m.dynamic) continue;
-      const dv = (j * weights[i]! * invW) / m.mass;
+      const dv = (j * weights[i]! * invW) / m.mass + (downMass > 1e-9 ? Math.max(0, 1 - this.crumpleWeight(m)) * pass * downDv : 0);
       m.vel.x += nx * dv;
       m.vel.y += ny * dv;
       m.vel.z += nz * dv;
