@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
-import { firePiston, PISTON_IDS, type PistonShot } from "./piston-rig.ts";
+import { firePiston, pistonLocality, PISTON_IDS, type PistonLocality, type PistonShot } from "./piston-rig.ts";
 import { transformSkinPointInto, type ShapeCluster } from "./shape-match.ts";
 import type { DeformableCar } from "./car.ts";
 import type { DeformMode, MassNode } from "./streamed-deform.ts";
@@ -29,6 +29,8 @@ type Internals = {
   infN: Uint8Array;
   infCo: Int32Array;
   infUvw: Float64Array;
+  resJ: Int32Array;
+  resW: Float64Array;
   bakeLocalSkin(): void;
   solveCagesFromShape(): void;
   capCageCorners(): void;
@@ -37,7 +39,7 @@ type Internals = {
 };
 
 // ---- Reference: the pre-typed-array skinner (per-influence objects, per-vertex centre subtraction,
-// lerp trilinear, hub scan over every mass), with the arch-pin fix applied. Kept only here.
+// lerp trilinear, hub scan over every mass), with the arch-pin fix and the particle anchor (A5). Kept only here.
 
 function hash01(i: number, salt = 1): number {
   const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
@@ -66,6 +68,25 @@ function trilinear(corners: THREE.Vector3[], u: number, v: number, w: number, ou
   return out.set(c0x + (c1x - c0x) * w, c0y + (c1y - c0y) * w, c0z + (c1z - c0z) * w);
 }
 
+/**
+ * Skin point `i`'s parent masses (A5): their weighted live position (x, y, z) and rest centroid
+ * (cx, cy, cz). The skin is that position plus each cluster map's change over rest − centroid.
+ */
+function anchor(d: Internals, i: number): { x: number; y: number; z: number; cx: number; cy: number; cz: number } {
+  const out = { x: 0, y: 0, z: 0, cx: 0, cy: 0, cz: 0 };
+  for (let k = i * 5; k < i * 5 + 5; k++) {
+    const m = d.masses[d.resJ[k]! / 3]!;
+    const w = d.resW[k]!;
+    out.x += m.local.x * w;
+    out.y += m.local.y * w;
+    out.z += m.local.z * w;
+    out.cx += m.rest.x * w;
+    out.cy += m.rest.y * w;
+    out.cz += m.rest.z * w;
+  }
+  return out;
+}
+
 function referenceSkin(d: Internals): Float32Array {
   const out = new Float32Array(d.vertexCount * 3);
   const weld = new Uint32Array(d.vertexCount);
@@ -85,7 +106,7 @@ function referenceSkin(d: Internals): Float32Array {
     const rx = d.restPos[i * 3]!;
     const ry = d.restPos[i * 3 + 1]!;
     const rz = d.restPos[i * 3 + 2]!;
-    const ws = Array.from({ length: d.skinN[i]! }, (_, k) => ({ ci: d.skinXf[i * 5 + k]! / 12, w: d.skinW[i * 5 + k]! }));
+    const ws = Array.from({ length: d.skinN[i]! }, (_, k) => ({ ci: d.skinXf[i * 5 + k]! / 9, w: d.skinW[i * 5 + k]! }));
     const infs = Array.from({ length: d.infN[i]! }, (_, k) => {
       const s = i * 4 + k;
       return { part: d.infCo[s]! / 24, u: d.infUvw[s * 4]!, v: d.infUvw[s * 4 + 1]!, w: d.infUvw[s * 4 + 2]!, weight: d.infUvw[s * 4 + 3]! };
@@ -94,12 +115,20 @@ function referenceSkin(d: Internals): Float32Array {
       py = 0,
       pz = 0;
     let wsum = 0;
-    if (shape) {
+    if (shape && ws.length > 0) {
+      const a = anchor(d, i);
+      px = a.x;
+      py = a.y;
+      pz = a.z;
       for (const inf of ws) {
         const p = transformSkinPointInto(d.clusters[inf.ci]!, rx, ry, rz);
         px += p.x * inf.w;
         py += p.y * inf.w;
         pz += p.z * inf.w;
+        const q = transformSkinPointInto(d.clusters[inf.ci]!, a.cx, a.cy, a.cz);
+        px -= q.x * inf.w;
+        py -= q.y * inf.w;
+        pz -= q.z * inf.w;
         wsum += inf.w;
       }
     }
@@ -161,9 +190,10 @@ function referenceSkin(d: Internals): Float32Array {
 }
 
 function referenceCageSolve(d: Internals): void {
-  for (const cage of d.cages) {
+  d.cages.forEach((cage, ci) => {
     for (let i = 0; i < 8; i++) {
       const rest = cage.restCorners[i]!;
+      const a = anchor(d, d.vertexCount + ci * 8 + i);
       let px = 0,
         py = 0,
         pz = 0,
@@ -176,12 +206,16 @@ function referenceCageSolve(d: Internals): void {
         px += p.x * w;
         py += p.y * w;
         pz += p.z * w;
+        const q = transformSkinPointInto(c, a.cx, a.cy, a.cz);
+        px -= q.x * w;
+        py -= q.y * w;
+        pz -= q.z * w;
         wsum += w;
       }
-      if (wsum > 1e-6) cage.corners[i]!.set(px / wsum, py / wsum, pz / wsum);
-      else cage.corners[i]!.copy(rest);
+      if (wsum > 1e-6) cage.corners[i]!.set(a.x + px / wsum, a.y + py / wsum, a.z + pz / wsum);
+      else cage.corners[i]!.set(a.x + rest.x - a.cx, a.y + rest.y - a.cy, a.z + rest.z - a.cz);
     }
-  }
+  });
   d.capCageCorners();
   if (d.bidirectional) d.fitCagesToMasses();
 }
@@ -273,6 +307,32 @@ describe("a 3 km/h piston tap leaves the skin where the particles are", () => {
         worst = Math.max(worst, Math.hypot(now[i * 3]! - rx, now[i * 3 + 2]! - rz));
       }
       assert.ok(worst <= 0.03, `arch skin moved ${worst.toFixed(3)} m in plan`);
+    });
+  }
+});
+
+describe("a 40 km/h piston shot: the paint rides the particles it struck (A5)", () => {
+  const shots = new Map<string, PistonLocality & { particle: number }>();
+  const measure = (id: (typeof PISTON_IDS)[number]) => {
+    if (!shots.has(id)) {
+      const tap = firePiston(makeCar("shape"), id, TAP);
+      const shot = firePiston(makeCar("shape"), id, { ...TAP, speedKph: 40 });
+      const struck = shot.struck.map((s, k) => s.inward - tap.struck[k]!.inward);
+      shots.set(id, { ...pistonLocality(shot, tap), particle: struck.reduce((a, b) => a + b, 0) / struck.length });
+    }
+    return shots.get(id)!;
+  };
+  for (const id of PISTON_IDS) {
+    // Cluster-only skin: corners 37%, front 44% of the particles' dent; a strain-whole anchor put
+    // the door paint 8% past the door.
+    it(`bad: ${id} paint dent is within 25% of the struck particles' and not 5% deeper`, () => {
+      const { dent, particle } = measure(id);
+      assert.ok(dent >= 0.75 * particle && dent <= 1.05 * particle, `paint ${dent.toFixed(3)} m vs particles ${particle.toFixed(3)} m`);
+    });
+    // Cluster-only skin: a rear-corner shot moved far paint 0.228 m where the far particles moved 0.140 m.
+    it(`bad: ${id} far paint moves no more than 4 cm past the far particles`, () => {
+      const { farSkin, farParticle } = measure(id);
+      assert.ok(farSkin <= farParticle + 0.04, `far paint ${farSkin.toFixed(3)} m vs far particles ${farParticle.toFixed(3)} m`);
     });
   }
 });

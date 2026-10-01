@@ -1,7 +1,9 @@
 # Control-particle density and LoD: spec
 
-Status: design, measured against `d117024` (snapshot in `.bench/particle-lod/snap`). Nothing under
-`src/` is changed by this document. Inputs: `.extraResearch/SYNTHESIS.md` §B, the HPBD, Ste08b
+Status: **gate failed, not built** (lane skin-lod, 2026-10-01, on `9367e47` plus the anchored skin;
+§6). The skin fix (A5) landed instead; the fine-patch LoD of §2–§4 stays unbuilt. The original
+design was measured against `d117024` (snapshot in `.bench/particle-lod/snap`); its "+9 to +13 mm"
+residual gain and "16–26 mm" coarsen pop were a harness artefact (§6.2). Inputs: `.extraResearch/SYNTHESIS.md` §B, the HPBD, Ste08b
 (ASM08), FalkensteinRLP2017 (RC17) and sca2016 analyses, and Perplexity notes 20–22.
 
 ## 1. Decision
@@ -18,10 +20,10 @@ fitted out the same way `measureShot` does it; tables in §5):
 |----------|--------|----------|
 | Can fine particles fix "one hit bends the whole side" (far particles move 0.065–0.140 m)? | **No.** A one-way layer reproduces the skeleton's far motion exactly: U128r far motion equals the embedding to the millimetre on all 8 pistons. The far motion is in the skeleton. | It does not go away with the car bolted down (`holdCar`: 0.076–0.173 m) or in lattice mode, which has no shape clusters (0.035–0.158 m). Corner and side shots are as bad in lattice mode as in shape mode, so the coupling is in the coarse beam/cluster graph, not the shove. |
 | An HPBD-literal fine layer, where the fine clusters own the absolute shape? | **Rejected.** It hides far motion (U128 0.029–0.109 m against 0.062–0.146 m embedded) only by springing the whole car back toward rest. It removes 31–72% of the skeleton's dent (P25 full: 0.046–0.106 m against 0.119–0.180 m), with the rear shot as the exception (0.199 against 0.201 m). | §5 table A, "P25 full" column and the U-tier far columns. |
-| A residual fine layer (fine clusters match only the deviation from the skeleton field)? | **Small, real, local gain.** Under the 1.2 m face the paint goes in **+9 to +13 mm** further on every piston. Just outside the face it changes by +2 to +12 mm. Footprint contrast (dent − ring) improves by 0 to +7 mm. Far motion changes by exactly 0. | P25r and P18r against the skeleton field, table A. |
+| A residual fine layer (fine clusters match only the deviation from the skeleton field)? | ~~**Small, real, local gain.** Under the 1.2 m face the paint goes in **+9 to +13 mm** further on every piston.~~ **Superseded (§6.2): no gain.** The +9 to +13 mm was a one-step double prolongation at refine; fixed, the patch adds 0.0–0.1 mm on every piston. Far motion changes by exactly 0. | P25r and P18r against the skeleton field, table A; §6. |
 | Finer than 0.25 m? | Not worth it on these impactors: P18r dents equal P25r dents to within 1 mm. | Table A. |
-| Narrow 0.3 m "pole" face? | Fine particles add +9 to +16 mm. The dent depth is still set by the skeleton, because the rig's contact pad couples the face to the nearest mass. A pole that misses every skeleton sphere would push one-way fine particles in without limit (risk 2). | Table B. |
-| What limits dent fidelity today? | The skin path, not the particle count. Plain displacement embedding of the skeleton (IDW of the 20 masses) shows a **0.119 m** corner dent where today's cluster skin shows **0.046 m**. On the sides the cluster skin is deeper (0.202 against 0.149 m). | Table A, "real dent" and "skel-IDW" columns. This is defect A5 in the synthesis. |
+| Narrow 0.3 m "pole" face? | ~~Fine particles add +9 to +16 mm.~~ Superseded (§6.2): 0.0 mm on 7 of 8 pistons; on the `front` pole the one-way patch is pushed 0.65 m into the car (risk 2 realised) and reads as +147 mm. | Table B; §6. |
+| What limits dent fidelity today? | The skin path, not the particle count. Plain displacement embedding of the skeleton (IDW of the 20 masses) shows a **0.119 m** corner dent where today's cluster skin shows **0.046 m**. On the sides the cluster skin is deeper (0.202 against 0.149 m). **Fixed (§6.1)**: the anchored skin shows 0.097 m at the corners. | Table A, "real dent" and "skel-IDW" columns. This is defect A5 in the synthesis. |
 | Cost | About **0.35–0.65 µs per fine particle per step** in contact (2 iterations, plasticity, prolongation, plane contact). Small layers cost up to 1.1 µs per particle because fixed overhead dominates. A 1.0 m patch at 0.25 m spacing (62 particles) costs **36–38 µs/step** in the bench. In-situ, JIT-cold, the 32–62 particle patches ran at 36–76 µs/step. The 4-iteration quiet mode costs about twice as much, so do not use it (see §3). | §5 table C. Two runs on a shared WSL box; `matchCluster` timed at 0.142 and 0.339 µs per call in the two runs. |
 
 So more than 20 particles is only worth it as a capped, contact-driven visual and plastic detail layer.
@@ -185,6 +187,7 @@ a new patch is added, up to L2's 3 patches per car.
     blended cluster rotation), then free the patch.
   - Measured: dropping the patch without baking would pop the skin by **16–26 mm** (the
     "naive-coarsen pop" column), so the bake is mandatory. With the bake the pop is 0 by construction.
+    **Superseded (§6.2):** with the refine double count fixed the residual left to pop is 1.2–1.8 mm.
 - **Skeleton rebase (A11).** When the skeleton rebases its rest, `e` is re-derived from the new
   `P^0`. `fineOffset` is unaffected because it is rest-space.
 
@@ -405,3 +408,69 @@ matchCluster, 10 members: 0.142 / 0.339 µs per call
   are not used for planning. Use `npm run bench` for skeleton cost.
 - Determinism: `shots.ts det` gave a maximum |Δ| of 0 over every fine layer between two identical
   `right` shots.
+
+## 6. Gate re-run on the anchored skin (lane skin-lod, 2026-10-01)
+
+Harness: `.bench/skin-lod/proto/` (the §5 prototype, `snap` → the lane worktree, plus `anchor.ts` and
+`gate.mjs`); per-piston skin numbers: `.bench/skin-lod/measure.ts`. Same shots as §5 (1500 kg at
+40 km/h, shot − tap, rigid motion fitted out).
+
+### 6.1 Skin fix (A5), landed
+
+Each skin vertex and cage corner sits on its parent masses (the 4 nearest non-hub masses by
+1/(d² + 0.04), minus the 5th's weight so a parent fades out before it is swapped; cabin points take
+cabin masses plus the cell-face share, D1), plus the blended cluster map on its short offset from
+them with 0.65 of the cluster strain. At strain 1 the door paint 0.1 m outboard of the door particle
+went 8% deeper than the particle.
+
+```
+piston      | skin dent before → after | struck particles | after / particles | far paint before → after (far particles)
+frontLeft   | 0.045 → 0.097            | 0.121            | 0.80              | 0.095 → 0.095 (0.077)
+front       | 0.111 → 0.245            | 0.252            | 0.97              | 0.086 → 0.081 (0.065)
+right       | 0.202 → 0.215            | 0.213            | 1.01              | 0.119 → 0.126 (0.137)
+rearRight   | 0.161 → 0.177            | 0.197            | 0.90              | 0.228 → 0.150 (0.140)
+rear        | 0.184 → 0.202            | 0.223            | 0.90              | 0.160 → 0.165 (0.133)
+```
+
+Mirrored pistons match to 1 mm. Cost: skin + cages + bake 85 → 90 µs per crushed car per skin.
+The narrow 0.3 m face is unchanged in kind (corners 0.012 → 0.010 m, front −0.049 → −0.031 m):
+its corner dent region is a third wheel-arch vertices planted on the hub, and the front one is a
+single vertex.
+
+### 6.2 Fine-patch gate
+
+Two harness defects in §5, both fixed for the re-run (`shots.ts fixrefine fixcontact`):
+
+1. **Refine double count.** The patch was activated on this step's skeleton and then prolonged by
+   the same step's ΔP. Every site kept that one-step offset (about 1 cm along the hit) as a uniform
+   residual, which shape matching cannot remove. Positive control: P25r gains +9.2 to +12.5 mm with
+   zero contact (`rearRight`, `rearLeft`: 0 touches) and the naive-coarsen pop is 20–25 mm. Fixed,
+   the gain is 0.0–0.1 mm and the pop 1.2–1.8 mm.
+2. **Contact window never open.** Piston pushes go through `projectOutOfBox`, which does not feed
+   `contactAt`, so the fine layer always ran the quiet 4-iteration mode without plasticity. With the
+   window taken from the piston planes (27–29 steps per shot) the fine clusters yield a little
+   (‖Sp − I‖ ≤ 0.03) and still spring back.
+
+`P25a` is the same residual patch embedded in the anchored skin field instead of the IDW field, so
+its residual is what the patch adds over the improved skin. `peak` is the largest push of a fine
+particle past its embedding during the shot (m ×1000): the most a perfectly plastic patch could keep.
+
+```
+piston      | skin  | IDW   | P25r as specced  Δ    pop | P25r fixed  Δ   pop  peak | P25a (over skin)  Δ  peak | gate (Δ ≥ 5 mm)
+frontLeft   | 0.097 | 0.119 | 0.128   9.2  21.9 | 0.119   0.1   1.6  38.6 | 0.097   0.0  31.2 | no
+front       | 0.245 | 0.180 | 0.192  12.5  23.9 | 0.180   0.0   1.3  38.6 | 0.245   0.0   1.3 | no
+frontRight  | 0.097 | 0.119 | 0.128   9.6  22.6 | 0.119  -0.0   1.6  17.8 | 0.097  -0.0   1.8 | no
+right       | 0.215 | 0.149 | 0.158   9.4  20.2 | 0.149  -0.0   1.3  88.7 | 0.215   0.0  33.3 | no
+rearRight   | 0.177 | 0.154 | 0.167  12.1  24.9 | 0.154   0.0   1.8  13.0 | 0.177   0.0   2.0 | no
+rear        | 0.202 | 0.201 | 0.213  12.2  23.9 | 0.201   0.0   1.2  20.6 | 0.202   0.0  19.8 | no
+rearLeft    | 0.177 | 0.154 | 0.166  11.9  24.2 | 0.154   0.0   1.6   4.6 | 0.177   0.0   1.7 | no
+left        | 0.215 | 0.149 | 0.158   9.7  20.4 | 0.149   0.1   1.3  88.7 | 0.215   0.0  33.3 | no
+gate: 0 of 8 pistons (needs ≥ 6)
+```
+
+**Decision: do not build §2–§4.** The patch adds nothing over the anchored skin on any piston. A
+re-tuned, more plastic patch cannot pass either: the face never gets more than 2 mm past the
+anchored skin on `front`, `frontRight`, `rearRight` and `rearLeft`, so at most 4 of 8 pistons could
+reach 5 mm. On the narrow face the one-way patch is pushed 0.65 m into the car on the `front` pole
+(risk 2). More than 20 particles is only worth revisiting as a denser two-way skeleton (A1), which
+changes physics and needs its own measurement.
