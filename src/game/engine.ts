@@ -1149,7 +1149,7 @@ export class CrashEngine {
           const dx = ca.group.position.x - cb.group.position.x;
           const dz = ca.group.position.z - cb.group.position.z;
           if (dx * dx + dz * dz > 28) continue;
-          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform);
+          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
         }
       }
 

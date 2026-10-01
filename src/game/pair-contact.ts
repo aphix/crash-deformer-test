@@ -181,7 +181,7 @@ export function stepCarPair(carA: DeformableCar, carB: DeformableCar, dt: number
   if (!carB.deform.massActive) carB.integrate(dt);
   else carB.syncPose(dt);
 
-  if (carA.deform.massActive || carB.deform.massActive) carA.deform.collideWith(carB.deform);
+  if (carA.deform.massActive || carB.deform.massActive) carA.deform.collideWith(carB.deform, dt);
 
   const satBusy = carA.velocity.lengthSq() > 1.4 || carB.velocity.lengthSq() > 1.4;
   const leftover = Math.min(
