@@ -1,32 +1,24 @@
-import { useEffect, useState } from "react";
+import * as Popover from "@radix-ui/react-popover";
 import {
   BrickWall,
-  Braces,
-  CircleDashed,
+  CarFront,
   CircleDot,
-  ClipboardCopy,
+  CircleHelp,
   Crosshair,
   FoldHorizontal,
-  Gauge,
-  Orbit,
   Pause,
   Play,
-  Repeat,
   RotateCcw,
-  Spline,
-  Undo2,
-  Waypoints,
-  Timer,
   Trophy,
-  Volume2,
-  VolumeX,
 } from "lucide-react";
+import { DerbyBoard, PistonPanel } from "@/components/hud-panels";
+import { HudSections } from "@/components/hud-sections";
 import { Button } from "@/components/ui/button";
-import type { CrashHudState, PistonHud } from "@/game/hud-store";
+import type { CrashHudState } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 import { cn } from "@/lib/utils";
 
-type Props = {
+export type HudProps = {
   state: CrashHudState;
   onReset: () => void;
   onTogglePlay: () => void;
@@ -63,169 +55,106 @@ const PHASE: Record<CrashHudState["phase"], string> = {
   aftermath: "Aftermath",
 };
 
+const STAGE: Record<CrashHudState["compactStage"], string> = {
+  open: "open",
+  contact: "crush zone",
+  wells: "wheel wells",
+  mid: "past hubs",
+  max: "max crush",
+};
+
 const VIEW: Record<CrashHudState["view"], string> = { third: "Chase cam", far: "Far chase", first: "Hood cam" };
 
-function seatHint(state: CrashHudState): string {
+/** Fleet is "none of the others": the engine keeps derby, press and pistons mutually exclusive. */
+type Scene = "fleet" | "derby" | "press" | "pistons";
+const SCENES = [
+  { id: "fleet", label: "Fleet", aria: "Fleet scene", Icon: CarFront },
+  { id: "derby", label: "Derby", aria: "Demolition derby scene", Icon: Trophy },
+  { id: "press", label: "Press", aria: "Car compactor scene", Icon: FoldHorizontal },
+  { id: "pistons", label: "Pistons", aria: "Piston rig scene", Icon: Crosshair },
+] as const;
+
+const SCENE_KEYS: [string, string][] = [
+  ["Space", "Pause / play"],
+  ["R", "Reset"],
+  ["L", "Loop"],
+  ["D", "Derby"],
+  ["C", "Press"],
+  ["I", "Pistons"],
+  ["1–8 · 0", "Fire ram · all"],
+  ["B", "Wall"],
+  ["K", "Balls"],
+  ["M", "Slow-mo"],
+  ["O", "Orbit"],
+  ["U", "Audio"],
+  ["Y", "Shape / lattice"],
+  ["G", "Rig"],
+  ["P", "Particles"],
+  ["J", "JSON capture"],
+];
+
+const CAMERA_KEYS: [string, string][] = [
+  ["Click · Q / E", "Follow a car"],
+  ["W A S D", "Take the wheel"],
+  ["Esc", "Step back out"],
+  ["Drag · scroll", "Orbit camera"],
+];
+
+function seatHint(state: CrashHudState): { title: string; keys: string } {
   if (state.seat === "drive") {
-    return state.pad
-      ? `Driving · ${VIEW[state.view]} · RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · right stick look · LB/RB car · D-pad ↓ recover · Back watch`
-      : `Driving · ${VIEW[state.view]} · W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · R recover · Esc watch`;
+    return {
+      title: `Driving · ${VIEW[state.view]}`,
+      keys: state.pad
+        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · right stick look · LB/RB car · D-pad ↓ recover · Back watch"
+        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · R recover · Esc watch",
+    };
   }
-  return state.pad
-    ? "Watching · RT, LT or left stick to drive · LB/RB switch car · Back exit"
-    : "Watching · W/A/S/D to drive · Q/E switch car · Esc back";
+  if (state.seat === "follow") {
+    return {
+      title: "Watching",
+      keys: state.pad ? "RT, LT or left stick to drive · LB/RB switch car · Back exit" : "W/A/S/D to drive · Q/E switch car · Esc back",
+    };
+  }
+  return { title: "Whole field", keys: "LB/RB to pick a car" };
 }
 
-export function Hud({
-  state,
-  onReset,
-  onTogglePlay,
-  onToggleLoop,
-  onToggleRig,
-  onToggleParticles,
-  onToggleBarrier,
-  onToggleBalls,
-  onToggleCompactor,
-  onTogglePistons,
-  onFirePiston,
-  onPistonConfig,
-  onToggleDerby,
-  onToggleOrbit,
-  onToggleSlomo,
-  onToggleAudio,
-  onToggleDeformMode,
-  onSquash,
-  onBuckle,
-  onFxDensity,
-  onCarCount,
-  onSpeedRange,
-  onTimeScale,
-  onToggleCapture,
-  onDefaults,
-  onCopyTrace,
-}: Props) {
-  const [copied, setCopied] = useState(false);
-  const [scaleText, setScaleText] = useState("");
-
-  useEffect(() => {
-    setScaleText(state.userTimeScale == null ? "" : String(state.userTimeScale));
-  }, [state.userTimeScale]);
-
+export function Hud(props: HudProps) {
+  const { state } = props;
   return (
-    <div className="pointer-events-none absolute inset-0 flex flex-col justify-between p-4 text-fg sm:p-6">
-      <header className="flex items-start justify-between gap-3">
-        <div className="max-w-[16rem] sm:max-w-sm">
-          <p className="font-display text-xs font-medium uppercase tracking-[0.22em] text-muted">
-            Streamed deformation
-          </p>
-          <h1 className="mt-1 font-display text-3xl font-semibold leading-none tracking-tight text-balance sm:text-4xl">
-            Crush Stream
-          </h1>
-          <p className="mt-2 hidden max-w-xs text-pretty text-sm leading-snug text-muted sm:block">
-            {state.derby
-              ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
-              : state.showCompactor
+    <div className="hud-grid pointer-events-none absolute inset-0 p-3 text-fg sm:p-6">
+      <header className="min-w-0" style={{ gridArea: "title" }}>
+        <p className="font-display text-xs font-medium uppercase tracking-[0.22em] text-muted">Streamed deformation</p>
+        <h1 className="mt-1 font-display text-3xl font-semibold leading-none tracking-tight text-balance sm:text-4xl">
+          Crush Stream
+        </h1>
+        <p className="mt-2 hidden max-w-xs text-pretty text-sm leading-snug text-muted sm:block">
+          {state.derby
+            ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
+            : state.showCompactor
               ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
               : state.showPistons
-              ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
-              : state.carCount <= 2
-                ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
-                : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
-          </p>
-        </div>
-        <div className="flex flex-col items-end gap-2">
-          <div className="rounded-xl bg-surface/90 px-3 py-2 shadow-[var(--shadow-border)]">
-            <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">Time scale</p>
-            <p className="font-display text-2xl font-semibold tabular-nums leading-none">
-              {state.timeScale.toFixed(2)}
-              <span className="ml-0.5 text-sm font-medium text-muted">×</span>
-            </p>
-            <input
-              type="text"
-              inputMode="decimal"
-              value={scaleText}
-              placeholder="auto"
-              onChange={(e) => {
-                const raw = e.target.value;
-                setScaleText(raw);
-                if (raw.trim() === "") onTimeScale(null);
-              }}
-              onBlur={() => {
-                if (scaleText.trim() === "") {
-                  onTimeScale(null);
-                  return;
-                }
-                const n = Number(scaleText);
-                if (Number.isFinite(n)) onTimeScale(n);
-                else setScaleText(state.userTimeScale == null ? "" : String(state.userTimeScale));
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") (e.target as HTMLInputElement).blur();
-              }}
-              aria-label="Typed time scale, clear for normal"
-              className="mt-1 h-8 w-full rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </div>
-          <div className="rounded-xl bg-surface/90 px-3 py-2 shadow-[var(--shadow-border)]">
-            <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">FPS</p>
-            <p className="font-display text-2xl font-semibold tabular-nums leading-none">
-              {Math.round(state.fps)}
-            </p>
-          </div>
-          <div className="rounded-xl bg-surface/90 px-3 py-2 shadow-[var(--shadow-border)]">
-            <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">T+</p>
-            <p className="font-display text-2xl font-semibold tabular-nums leading-none">
-              {state.elapsed.toFixed(2)}
-              <span className="ml-0.5 text-sm font-medium text-muted">s</span>
-            </p>
-          </div>
-          <span
-            className={cn(
-              "rounded-full px-3 py-1 font-display text-[0.7rem] uppercase tracking-[0.16em] shadow-[var(--shadow-border)]",
-              state.phase === "slowmo" || state.phase === "impact"
-                ? "bg-accent text-accent-fg"
-                : "bg-surface-2 text-muted",
-            )}
-          >
-            {state.derby ? (state.derbyWinner ? "Winner" : "Derby") : PHASE[state.phase]}
-          </span>
-          {state.pad ? (
-            <span className="rounded-full bg-surface-2 px-3 py-1 font-display text-[0.7rem] uppercase tracking-[0.16em] text-muted shadow-[var(--shadow-border)]">
-              {state.pad} connected
-            </span>
-          ) : null}
-        </div>
+                ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
+                : state.carCount <= 2
+                  ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
+                  : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
+        </p>
       </header>
 
-      {state.derby && state.derbyBoard.length > 0 ? (
-        <div className="pointer-events-none absolute left-4 top-36 w-44 rounded-xl bg-surface/90 p-3 shadow-[var(--shadow-border)] sm:left-6 sm:top-40">
-          <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">Board</p>
-          <ul className="mt-2 space-y-1">
-            {state.derbyBoard.map((row, i) => (
-              <li key={`${i}-${row.name}`} className="flex items-baseline justify-between gap-2 font-display text-sm">
-                <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
-                <span className="tabular-nums text-muted">{row.score}</span>
-              </li>
-            ))}
-          </ul>
-        </div>
-      ) : null}
+      <Readouts state={state} />
 
-      {state.showPistons ? <PistonPanel pistons={state.pistons} onFire={onFirePiston} onConfig={onPistonConfig} /> : null}
+      <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
+        {state.showPistons ? (
+          <PistonPanel pistons={state.pistons} onFire={props.onFirePiston} onConfig={props.onPistonConfig} />
+        ) : null}
+        {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} /> : null}
+      </div>
 
-      {state.seat !== "global" ? (
-        <div className="pointer-events-none absolute bottom-28 left-1/2 z-10 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 rounded-xl bg-surface/90 px-4 py-2 text-center shadow-[var(--shadow-border)]">
-          <p className="font-display text-sm text-fg">{seatHint(state)}</p>
-          {state.seat === "drive" ? (
-            <p className="mt-1 text-xs text-muted">Reversing steers like a real car: left swings the tail left.</p>
-          ) : null}
-          {state.seat === "drive" ? (
-            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
-              <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
-            </div>
-          ) : null}
-        </div>
-      ) : null}
+      <HudSections {...props} />
+
+      <div className="flex min-w-0 flex-col items-start gap-3 self-end" style={{ gridArea: "dock" }}>
+        {state.seat !== "global" || state.pad ? <DriveHint state={state} /> : null}
+        <Dock {...props} />
+      </div>
 
       {state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38%] z-10 flex justify-center">
@@ -236,453 +165,195 @@ export function Hud({
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
 
-      <div className="flex flex-col gap-3">
-        <div className="flex flex-wrap items-end justify-between gap-2">
-          <Stat
-            label={state.showCompactor ? "Press gap" : state.carCount === 1 ? "Car" : "Lead"}
-            value={state.showCompactor ? `${state.wallGap.toFixed(2)} m` : `${(state.speedA * 3.6).toFixed(0)} km/h`}
-          />
-          <div className="hidden text-center sm:block">
-            {state.showCompactor ? (
-              <p className="font-display text-sm text-muted">
-                Stage{" "}
-                <span className="tabular-nums text-fg">
-                  {state.compactStage === "open"
-                    ? "open"
-                    : state.compactStage === "contact"
-                      ? "crush zone"
-                      : state.compactStage === "wells"
-                        ? "wheel wells"
-                        : state.compactStage === "mid"
-                          ? "past hubs"
-                          : "max crush"}
-                </span>
-              </p>
-            ) : state.impactKph != null ? (
-              <p className="font-display text-sm text-muted">
-                Closing impact{" "}
-                <span className="tabular-nums text-fg">{state.impactKph.toFixed(0)} km/h</span>
-              </p>
-            ) : (
-              <p className="font-display text-sm text-muted">
-                Closing{" "}
-                <span className="tabular-nums text-fg">{state.closingKph.toFixed(0)} km/h</span>
-                {state.eta > 0 && state.eta < 8 ? (
-                  <span className="tabular-nums"> · {state.eta.toFixed(1)}s</span>
-                ) : null}
-              </p>
-            )}
-            <p className="mt-1 text-[0.7rem] uppercase tracking-[0.14em] text-subtle">
-              {state.sensorCount} sensors · {state.cageCount} cages
-            </p>
+/** Every number the sim reports, in one corner. */
+function Readouts({ state }: { state: CrashHudState }) {
+  const press = state.showCompactor;
+  const etaNote = state.eta > 0 && state.eta < 8 ? ` · ${state.eta.toFixed(1)}s` : "";
+  return (
+    <div className="hud-panel self-start p-3" style={{ gridArea: "readouts" }}>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-2 md:grid-cols-3">
+        <Readout
+          label={press ? "Press gap" : state.carCount === 1 ? "Car" : "Lead"}
+          value={press ? state.wallGap.toFixed(2) : (state.speedA * 3.6).toFixed(0)}
+          unit={press ? "m" : "km/h"}
+        />
+        {press ? (
+          <Readout label="Plate speed" value={state.closingKph.toFixed(0)} unit="km/h" />
+        ) : state.carCount !== 2 ? (
+          <Readout label={state.carCount === 1 ? "Solo" : "Fleet"} value={String(state.carCount)} unit={state.carCount === 1 ? "car" : "cars"} />
+        ) : (
+          <Readout label={state.phase === "approach" ? "Second" : "Second wreck"} value={(state.speedB * 3.6).toFixed(0)} unit="km/h" />
+        )}
+        {press ? (
+          <Readout label="Stage" value={STAGE[state.compactStage]} />
+        ) : state.impactKph != null ? (
+          <Readout label="Impact" value={state.impactKph.toFixed(0)} unit="km/h" />
+        ) : (
+          <Readout label={`Closing${etaNote}`} value={state.closingKph.toFixed(0)} unit="km/h" />
+        )}
+        <Readout label="Time scale" value={state.timeScale.toFixed(2)} unit="×" />
+        <Readout label="T+" value={state.elapsed.toFixed(2)} unit="s" />
+        <Readout label="FPS" value={String(Math.round(state.fps))} />
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          className={cn(
+            "rounded-full px-3 py-1 font-display text-[0.7rem] uppercase tracking-[0.16em] shadow-[var(--shadow-border)]",
+            state.phase === "slowmo" || state.phase === "impact" ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted",
+          )}
+        >
+          {state.derby ? (state.derbyWinner ? "Winner" : "Derby") : PHASE[state.phase]}
+        </span>
+        <span className="hud-label hidden tracking-[0.14em] sm:inline">
+          {state.sensorCount} sensors · {state.cageCount} cages
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function Readout({ label, value, unit }: { label: string; value: string; unit?: string }) {
+  return (
+    <div className="min-w-0">
+      <p className="hud-label truncate">{label}</p>
+      <p className="truncate font-display text-lg font-semibold leading-tight tabular-nums">
+        {value}
+        {unit ? <span className="ml-0.5 text-xs font-medium text-muted">{unit}</span> : null}
+      </p>
+    </div>
+  );
+}
+
+/** Seat keys and the controller pill, stacked above the dock so it can never cover a control. */
+function DriveHint({ state }: { state: CrashHudState }) {
+  const { title, keys } = seatHint(state);
+  return (
+    <div className="hud-panel w-full max-w-xl px-4 py-2.5" role="status">
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-display text-sm font-semibold uppercase tracking-[0.12em]">{title}</p>
+        {state.pad ? (
+          <span className="rounded-full bg-surface-2 px-3 py-1 font-display text-[0.7rem] uppercase tracking-[0.16em] text-muted shadow-[var(--shadow-border)]">
+            {state.pad} connected
+          </span>
+        ) : null}
+      </div>
+      <p className="mt-1 text-xs leading-relaxed text-muted">{keys}</p>
+      {state.seat === "drive" ? (
+        <>
+          <p className="mt-1 text-xs text-subtle">Reversing steers like a real car: left swings the tail left.</p>
+          <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-label="Boost">
+            <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
           </div>
-          <Stat
-            label={
-              state.showCompactor
-                ? "Plate speed"
-                : state.carCount === 1
-                  ? "Solo"
-                  : state.carCount > 2
-                    ? "Fleet"
-                    : state.phase === "approach"
-                      ? "Second"
-                      : "Second wreck"
-            }
-            value={
-              state.showCompactor
-                ? `${state.closingKph.toFixed(0)} km/h close`
-                : state.carCount !== 2
-                  ? `${state.carCount} car${state.carCount === 1 ? "" : "s"}`
-                  : `${(state.speedB * 3.6).toFixed(0)} km/h`
-            }
-            align="right"
-          />
-        </div>
+        </>
+      ) : null}
+    </div>
+  );
+}
 
-        <div className="pointer-events-auto flex flex-wrap items-center gap-2 rounded-2xl bg-surface/90 p-2 shadow-[var(--shadow-border)]">
-          <Button onClick={onReset} variant="secondary" aria-label="Reset crash">
-            <RotateCcw />
-            Reset
-          </Button>
-          <Button onClick={onDefaults} variant="secondary" aria-label="Reset all settings to defaults">
-            <Undo2 />
-            Defaults
-          </Button>
-          <Button onClick={onTogglePlay} aria-label={state.playing ? "Pause" : "Play"}>
-            {state.playing ? (
-              <>
-                <Pause />
-                Pause
-              </>
-            ) : (
-              <>
-                <Play className="ml-0.5" />
-                Play
-              </>
-            )}
-          </Button>
+/** Always-visible bar: play, reset, scene, the two fleet props, key help. */
+function Dock({ state, onTogglePlay, onReset, onToggleDerby, onToggleCompactor, onTogglePistons, onToggleBarrier, onToggleBalls }: HudProps) {
+  const scene: Scene = state.derby ? "derby" : state.showCompactor ? "press" : state.showPistons ? "pistons" : "fleet";
+  const toggleScene = { derby: onToggleDerby, press: onToggleCompactor, pistons: onTogglePistons };
+  // Barrier and balls are fleet props; the engine ignores them while the press or the rig owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons;
+  return (
+    <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-2 p-2 md:w-auto">
+      <Button onClick={onTogglePlay} aria-label={state.playing ? "Pause" : "Play"}>
+        {state.playing ? <Pause /> : <Play className="ml-0.5" />}
+        <span className="hidden sm:inline">{state.playing ? "Pause" : "Play"}</span>
+      </Button>
+      <Button onClick={onReset} variant="secondary" aria-label="Reset crash">
+        <RotateCcw />
+        <span className="hidden sm:inline">Reset</span>
+      </Button>
+      <div className="order-last grid w-full grid-cols-4 gap-1 sm:order-none sm:flex sm:w-auto" role="group" aria-label="Scene">
+        {SCENES.map(({ id, label, aria, Icon }) => (
           <Button
-            onClick={onToggleLoop}
-            variant={state.looping ? "default" : "secondary"}
-            aria-pressed={state.looping}
-            aria-label="Toggle loop"
-          >
-            <Repeat />
-            Loop {state.looping ? "on" : "off"}
-          </Button>
-          <Button
-            onClick={onToggleBarrier}
-            variant={state.showBarrier ? "default" : "ghost"}
-            aria-pressed={state.showBarrier}
-            aria-label="Toggle jersey barrier"
-          >
-            <BrickWall />
-            <span className="hidden sm:inline">Wall {state.showBarrier ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleBalls}
-            variant={state.showBalls ? "default" : "ghost"}
-            aria-pressed={state.showBalls}
-            aria-label="Toggle ramp balls"
-          >
-            <CircleDot />
-            <span className="hidden sm:inline">Balls {state.showBalls ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleCompactor}
-            variant={state.showCompactor ? "default" : "ghost"}
-            aria-pressed={state.showCompactor}
-            aria-label="Toggle car compactor"
-          >
-            <FoldHorizontal />
-            <span className="hidden sm:inline">Press {state.showCompactor ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onTogglePistons}
-            variant={state.showPistons ? "default" : "ghost"}
-            aria-pressed={state.showPistons}
-            aria-label="Toggle piston rig"
-          >
-            <Crosshair />
-            <span className="hidden sm:inline">Pistons {state.showPistons ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleDerby}
-            variant={state.derby ? "default" : "ghost"}
-            aria-pressed={state.derby}
-            aria-label="Toggle demolition derby"
-          >
-            <Trophy />
-            <span className="hidden sm:inline">Derby {state.derby ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleRig}
-            variant={state.showRig ? "default" : "ghost"}
-            aria-pressed={state.showRig}
-            aria-label="Toggle deformation rig"
-          >
-            <Spline />
-            <span className="hidden sm:inline">Rig</span>
-          </Button>
-          <Button
-            onClick={onToggleParticles}
-            variant={state.showParticles ? "default" : "ghost"}
-            aria-pressed={state.showParticles}
-            aria-label="Toggle control particles"
-          >
-            <CircleDashed />
-            <span className="hidden sm:inline">Particles</span>
-          </Button>
-          <Button
-            onClick={onToggleOrbit}
-            variant={state.autoRotate ? "default" : "ghost"}
-            aria-pressed={state.autoRotate}
-            aria-label="Toggle camera auto-rotate"
-          >
-            <Orbit />
-            <span className="hidden sm:inline">Orbit {state.autoRotate ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleSlomo}
-            variant={state.autoSlomo ? "default" : "ghost"}
-            aria-pressed={state.autoSlomo}
-            aria-label="Toggle impact slow-motion"
-          >
-            <Timer />
-            <span className="hidden sm:inline">Slomo {state.autoSlomo ? "on" : "off"}</span>
-          </Button>
-          <Button
-            onClick={onToggleDeformMode}
-            variant={state.deformMode === "shape" ? "default" : "ghost"}
-            aria-pressed={state.deformMode === "shape"}
-            aria-label="Toggle shape-matching deformer"
-          >
-            <Waypoints />
-            <span className="hidden sm:inline">{state.deformMode === "shape" ? "Shape" : "Lattice"}</span>
-          </Button>
-          <Button
-            onClick={onToggleAudio}
-            variant={state.audioOn ? "default" : "ghost"}
-            aria-pressed={state.audioOn}
-            aria-label="Toggle crash audio"
-          >
-            {state.audioOn ? <Volume2 /> : <VolumeX />}
-            <span className="hidden sm:inline">Audio {state.audioOn ? "on" : "off"}</span>
-          </Button>
-          <label className="flex min-w-[11rem] flex-1 items-center gap-2 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              Squash
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.squash}
-              onChange={(e) => onSquash(Number(e.target.value))}
-              aria-label="Crumple squash"
-              className="h-1.5 w-full cursor-pointer accent-current"
-            />
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.squash.toFixed(2)}
-              onChange={(e) => onSquash(Number(e.target.value))}
-              aria-label="Crumple squash value"
-              className="h-8 w-14 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <label className="flex min-w-[11rem] flex-1 items-center gap-2 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              Buckle
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.buckle}
-              onChange={(e) => onBuckle(Number(e.target.value))}
-              aria-label="Panel buckle"
-              className="h-1.5 w-full cursor-pointer accent-current"
-            />
-            <input
-              type="number"
-              min={0}
-              max={1}
-              step={0.01}
-              value={state.buckle.toFixed(2)}
-              onChange={(e) => onBuckle(Number(e.target.value))}
-              aria-label="Panel buckle value"
-              className="h-8 w-14 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <label className="flex min-w-[11rem] flex-1 items-center gap-2 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              FX
-            </span>
-            <input
-              type="range"
-              min={0}
-              max={1.2}
-              step={0.01}
-              value={state.fxDensity}
-              onChange={(e) => onFxDensity(Number(e.target.value))}
-              aria-label="Particle density"
-              className="h-1.5 w-full cursor-pointer accent-current"
-            />
-            <input
-              type="number"
-              min={0}
-              max={1.2}
-              step={0.01}
-              value={state.fxDensity.toFixed(2)}
-              onChange={(e) => onFxDensity(Number(e.target.value))}
-              aria-label="Particle density value"
-              className="h-8 w-14 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <label className="flex min-w-[10rem] flex-1 items-center gap-2 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              Cars
-            </span>
-            <input
-              type="range"
-              min={1}
-              max={32}
-              step={1}
-              value={state.carCount}
-              onChange={(e) => onCarCount(Number(e.target.value))}
-              aria-label="Number of cars"
-              className="h-1.5 w-full cursor-pointer accent-current"
-            />
-            <input
-              type="number"
-              min={1}
-              max={32}
-              step={1}
-              value={state.carCount}
-              onChange={(e) => onCarCount(Number(e.target.value))}
-              aria-label="Number of cars value"
-              className="h-8 w-12 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <label className="flex min-w-[7.5rem] items-center gap-1 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              Min m/s
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={48}
-              step={0.5}
-              value={state.speedMin}
-              onChange={(e) => onSpeedRange(Number(e.target.value), state.speedMax)}
-              aria-label="Minimum spawn speed"
-              className="h-8 w-14 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <label className="flex min-w-[7.5rem] items-center gap-1 px-2">
-            <span className="shrink-0 font-display text-[0.65rem] uppercase tracking-[0.14em] text-subtle">
-              Max m/s
-            </span>
-            <input
-              type="number"
-              min={0}
-              max={48}
-              step={0.5}
-              value={state.speedMax}
-              onChange={(e) => onSpeedRange(state.speedMin, Number(e.target.value))}
-              aria-label="Maximum spawn speed"
-              className="h-8 w-14 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]"
-            />
-          </label>
-          <Button
-            onClick={onToggleCapture}
-            variant={state.captureTrace ? "default" : "ghost"}
-            aria-pressed={state.captureTrace}
-            aria-label="Toggle JSON trace capture"
-          >
-            <Braces />
-            <span className="hidden sm:inline">{state.captureTrace ? "JSON on" : "JSON off"}</span>
-          </Button>
-          <Button
+            key={id}
+            variant={scene === id ? "default" : "ghost"}
+            aria-pressed={scene === id}
+            aria-label={aria}
+            className="max-sm:px-2"
             onClick={() => {
-              void Promise.resolve(onCopyTrace()).then((ok) => {
-                if (!ok) return;
-                setCopied(true);
-                window.setTimeout(() => setCopied(false), 1600);
-              });
+              if (id === scene) return;
+              if (id === "fleet") toggleScene[scene as Exclude<Scene, "fleet">]();
+              else toggleScene[id]();
             }}
-            variant="secondary"
-            aria-label="Copy spawn JSON"
           >
-            <ClipboardCopy />
-            {copied ? "Copied" : `JSON ${state.traceSamples}`}
-          </Button>
-          <p className="ml-auto hidden items-center gap-1 pr-2 text-xs text-subtle md:flex">
-            <Gauge className="size-3.5" />
-            Space pause · R reset · L loop · B wall · K balls · C press · I pistons · 1–8/0 fire · G rig · P particles · O orbit · M slomo · U audio · Y shape · J json
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function Stat({
-  label,
-  value,
-  align = "left",
-}: {
-  label: string;
-  value: string;
-  align?: "left" | "right";
-}) {
-  return (
-    <div className={cn("rounded-xl bg-surface/80 px-3 py-2 shadow-[var(--shadow-border)]", align === "right" && "text-right")}>
-      <p className="font-display text-[0.65rem] uppercase tracking-[0.16em] text-subtle">{label}</p>
-      <p className="font-display text-lg font-semibold tabular-nums leading-none sm:text-xl">{value}</p>
-    </div>
-  );
-}
-
-/** Compass order on screen (front at the top): index into the rig's key order, 8 = all. */
-const PISTON_GRID = [0, 1, 2, 7, 8, 3, 6, 5, 4] as const;
-const PISTON_NAMES = ["Front-left", "Front", "Front-right", "Right", "Rear-right", "Rear", "Rear-left", "Left"] as const;
-
-/** Piston scene controls: fire pad plus the shot config, one movable block. */
-function PistonPanel({
-  pistons,
-  onFire,
-  onConfig,
-}: {
-  pistons: PistonHud;
-  onFire: (index: number) => void;
-  onConfig: (patch: Partial<PistonConfig>) => void;
-}) {
-  const slider = (label: string, value: number, min: number, max: number, step: number, shown: string, set: (v: number) => void) => (
-    <label className="flex items-center gap-2">
-      <span className="w-14 shrink-0 font-display text-[0.6rem] uppercase tracking-[0.14em] text-subtle">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => set(Number(e.target.value))}
-        aria-label={label}
-        className="h-1.5 w-full cursor-pointer accent-current"
-      />
-      <span className="w-16 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
-    </label>
-  );
-  return (
-    <div className="pointer-events-auto absolute left-4 top-36 w-60 space-y-2 rounded-xl bg-surface/90 p-3 shadow-[var(--shadow-border)] sm:left-6 sm:top-40">
-      <div className="flex items-baseline justify-between">
-        <p className="font-display text-[0.65rem] uppercase tracking-[0.18em] text-subtle">Pistons</p>
-        <p className="font-display text-xs tabular-nums text-muted">
-          {pistons.energyKj.toFixed(1)} kJ · EBS {pistons.ebsKph.toFixed(0)} km/h
-        </p>
-      </div>
-      <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire a piston">
-        {PISTON_GRID.map((i) => (
-          <Button
-            key={i}
-            size="sm"
-            variant={i === pistons.selected ? "default" : "secondary"}
-            disabled={pistons.busy}
-            onClick={() => onFire(i)}
-            aria-label={i === 8 ? "Fire all pistons" : `Fire ${PISTON_NAMES[i]} piston`}
-            title={i === 8 ? "All (0)" : `${PISTON_NAMES[i]} (${i + 1})`}
-          >
-            {i === 8 ? "All" : i + 1}
+            <Icon className="max-sm:hidden" />
+            {label}
           </Button>
         ))}
       </div>
-      {slider("Speed", pistons.speedKph, 5, 120, 1, `${pistons.speedKph.toFixed(0)} km/h`, (v) => onConfig({ speedKph: v }))}
-      {slider("Mass", pistons.massKg, 200, 3000, 50, `${pistons.massKg.toFixed(0)} kg`, (v) => onConfig({ massKg: v }))}
-      {slider(
-        "Face",
-        pistons.hardness,
-        0.2,
-        1,
-        0.05,
-        pistons.hardness >= 1 ? "steel" : `${Math.round(pistons.hardness * 100)}% car`,
-        (v) => onConfig({ hardness: v }),
-      )}
       <Button
-        size="sm"
-        className="w-full"
-        variant={pistons.holdCar ? "default" : "ghost"}
-        aria-pressed={pistons.holdCar}
-        onClick={() => onConfig({ holdCar: !pistons.holdCar })}
+        onClick={onToggleBarrier}
+        disabled={propsLocked}
+        variant={state.showBarrier ? "default" : "ghost"}
+        aria-pressed={state.showBarrier}
+        aria-label="Toggle jersey barrier"
       >
-        Hold car {pistons.holdCar ? "on" : "off"}
+        <BrickWall />
+        <span className="hidden sm:inline">Wall</span>
       </Button>
+      <Button
+        onClick={onToggleBalls}
+        disabled={propsLocked}
+        variant={state.showBalls ? "default" : "ghost"}
+        aria-pressed={state.showBalls}
+        aria-label="Toggle ramp balls"
+      >
+        <CircleDot />
+        <span className="hidden sm:inline">Balls</span>
+      </Button>
+      <KeyHelp />
+    </div>
+  );
+}
+
+function KeyHelp() {
+  return (
+    <Popover.Root>
+      <Popover.Trigger asChild>
+        <Button variant="ghost" size="icon" className="ml-auto" aria-label="Keyboard shortcuts">
+          <CircleHelp />
+        </Button>
+      </Popover.Trigger>
+      <Popover.Portal>
+        <Popover.Content
+          side="top"
+          align="end"
+          sideOffset={12}
+          collisionPadding={12}
+          className="z-50 w-80 max-w-[calc(100vw-1.5rem)] rounded-xl bg-surface p-4 text-fg shadow-[var(--shadow-border)]"
+        >
+          <KeyList title="Scene" keys={SCENE_KEYS} />
+          <KeyList title="Cars & camera" keys={CAMERA_KEYS} className="mt-4" />
+        </Popover.Content>
+      </Popover.Portal>
+    </Popover.Root>
+  );
+}
+
+function KeyList({ title, keys, className }: { title: string; keys: [string, string][]; className?: string }) {
+  return (
+    <div className={className}>
+      <p className="hud-label">{title}</p>
+      <dl className="mt-2 grid grid-cols-2 gap-x-4 gap-y-1.5">
+        {keys.map(([key, action]) => (
+          <div key={key} className="flex items-baseline gap-2 text-xs">
+            <dt>
+              <kbd className="rounded bg-surface-2 px-1.5 py-0.5 font-display text-[0.7rem] text-fg shadow-[var(--shadow-border)]">
+                {key}
+              </kbd>
+            </dt>
+            <dd className="text-muted">{action}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

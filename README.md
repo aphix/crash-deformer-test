@@ -89,7 +89,7 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel.
 
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
-HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (clear the field to return to 1×). **Defaults** resets the lot.
+HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Press / Pistons; one at a time), the wall and ramp balls (fleet only) and a **?** key list. Every readout sits in the top-right card. Three collapsible sections hold the rest and remember whether they are open: **Playback** (loop, slow-mo, orbit, audio, typed time scale; clear the field to return to auto), **Cars & crash** (car count 1–32, spawn speed min/max, squash, buckle, FX, shape ↔ lattice, **Defaults** resets the lot) and **Debug views** (rig, particles, JSON capture and copy). The piston panel and derby board appear only in their scenes; the drive hint shows above the bar while following or driving.
 
 ## Layout
 
