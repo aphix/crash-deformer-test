@@ -48,6 +48,8 @@ const ENGINE_PACK_GAP = 0.54;
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
+/** Physics slice (s) the per-call contact shares (feedOverlap nibble and inbound-speed kill) are tuned at. */
+const CONTACT_REF_SLICE = 1 / 240;
 /** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
 const REARM_QUIET = 0.3;
 /** Smallest EBS (m/s, 22 km/h) that counts as a new hit on a wreck. Below it the derby's constant
@@ -1137,12 +1139,14 @@ export class StreamedDeformation {
     }
   }
 
-  collideWith(other: StreamedDeformation): void {
+  /** Sphere contact between two cars' masses for one physics slice of `dt` seconds. */
+  collideWith(other: StreamedDeformation, dt: number): void {
     if (this.quietTime() > 0.22 && other.quietTime() > 0.22) return;
     const massesA = this.masses;
     const massesB = other.masses;
     const nA = massesA.length;
     const nB = massesB.length;
+    const slice = dt / CONTACT_REF_SLICE;
     for (let i = 0; i < nA; i++) massesA[i]!.clipping = false;
     for (let j = 0; j < nB; j++) massesB[j]!.clipping = false;
     for (let i = 0; i < nA; i++) {
@@ -1161,7 +1165,7 @@ export class StreamedDeformation {
         if (d2 >= minD * minD) continue;
         a.clipping = true;
         b.clipping = true;
-        sphereHit(a, b);
+        sphereHit(a, b, slice);
       }
     }
   }
@@ -1497,9 +1501,11 @@ export class StreamedDeformation {
     const ke = closingKeScale(closing);
     const absorbFrac = leftover * (0.5 + s * 0.42) * live;
     const eaten = Math.max(0, closing) * absorbFrac;
-    const step = THREE.MathUtils.clamp(dt / (1 / 60), 0.35, 2.8);
+    // Per-call shares are tuned at the engine's 1/240 s slice; scale them to the slice actually
+    // taken so slow motion (1/1875 s slices, 8× the calls per sim second) crushes the same.
+    const slice = dt / CONTACT_REF_SLICE;
     // Overlap becomes local crush. Amount tracks ½mv², never (overlap/dt) velocity.
-    const crush = Math.min(Math.max(0, overlap) * (0.4 + s * 0.35) * ke, 0.06 + ke * 0.2) * Math.min(1, step) * live;
+    const crush = Math.min(Math.max(0, overlap) * (0.4 + s * 0.35) * ke, 0.06 + ke * 0.2) * Math.min(1, 0.35 * slice) * live;
     if (crush < 1e-5 && eaten < 1e-5) return closing;
     this.impulse = Math.max(this.impulse, THREE.MathUtils.clamp(closing, 0, 70));
 
@@ -1530,7 +1536,7 @@ export class StreamedDeformation {
       m.world.addScaledVector(inward, posNibble);
       const vn = m.vel.dot(inward);
       // Plastic: kill inbound speed. Never add (crush/dt) — that rockets in slomo.
-      if (vn < 0) m.vel.addScaledVector(inward, -vn * Math.min(1, fall * 0.85 + gate * 0.15));
+      if (vn < 0) m.vel.addScaledVector(inward, -vn * (1 - Math.pow(1 - Math.min(1, fall * 0.85 + gate * 0.15), slice)));
     }
     return Math.max(0, closing - eaten);
   }
@@ -2767,7 +2773,8 @@ export class StreamedDeformation {
   }
 }
 
-function sphereHit(a: MassNode, b: MassNode): void {
+/** `slice` is the call's slice over CONTACT_REF_SLICE: the overlap and inbound shares are per-slice rates. */
+function sphereHit(a: MassNode, b: MassNode, slice: number): void {
   _n.copy(b.world).sub(a.world);
   const dist = _n.length();
   const minD = a.radius + b.radius;
@@ -2784,13 +2791,13 @@ function sphereHit(a: MassNode, b: MassNode): void {
   const tA = forceTransfer(a.local.distanceTo(a.rest), a.bands, a.local.distanceTo(a.rest) >= a.bands.max * 0.97);
   const tB = forceTransfer(b.local.distanceTo(b.rest), b.bands, b.local.distanceTo(b.rest) >= b.bands.max * 0.97);
   const t = Math.min(tA, tB);
-  const overlap = (minD - dist) * (crumple ? Math.max(0.28, t) : 1);
+  const overlap = (minD - dist) * (crumple ? 1 - Math.pow(1 - Math.max(0.28, t), slice) : 1);
   if (a.dynamic) a.world.addScaledVector(_n, -overlap * (ima / inv));
   if (b.dynamic) b.world.addScaledVector(_n, overlap * (imb / inv));
   const rel = b.vel.dot(_n) - a.vel.dot(_n);
   if (rel < 0) {
     const e = crumple ? (t >= 0.97 ? 0.08 : 0) : 0.18;
-    const absorb = crumple ? Math.max(0.12, t) : 0.55;
+    const absorb = 1 - Math.pow(1 - (crumple ? Math.max(0.12, t) : 0.55), slice);
     const j = (-(1 + e) * rel * absorb) / inv;
     // Coulomb friction: sheet metal scraping past sheet metal takes at most μ·j off the sliding velocity.
     _t.copy(b.vel).sub(a.vel).addScaledVector(_n, -rel);

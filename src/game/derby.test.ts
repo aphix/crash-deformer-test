@@ -376,7 +376,7 @@ function sixCarDerby(seconds: number): DerbyRun {
           const ca = cars[a]!;
           const cb = cars[b]!;
           if (ca.group.position.distanceToSquared(cb.group.position) > 28) continue;
-          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform);
+          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
         }
       }
       for (let k = 0; k < 3; k++) {
