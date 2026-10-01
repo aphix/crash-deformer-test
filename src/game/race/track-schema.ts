@@ -148,6 +148,9 @@ export const TrackSchema = z
       if ((s.to - s.from + m) % m < 2) {
         ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut must skip at least one checkpoint" });
       }
+      if (s.to !== 0 && s.to < s.from) {
+        ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut may not skip the start/finish line" });
+      }
     });
   });
 

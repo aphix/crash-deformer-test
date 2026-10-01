@@ -77,6 +77,13 @@ export type CarRecord = {
   /** Race time the pending respawn fires, null when none. */
   respawnAt: number | null;
   deaths: number;
+  /** Last reported position (gate crossings test the move from here). */
+  x: number;
+  z: number;
+  /** Seconds of travel against the track; `wrongWay` turns on at `WRONG_WAY_ON`. */
+  wrongFor: number;
+  /** Projection hint: last nearest sample on the path being driven (−1 = none). */
+  seg: number;
 };
 
 export type RaceEvent =
@@ -104,6 +111,10 @@ export type RaceSnapshot = {
   cars: CarRecord[];
   /** Car ids in live position order. */
   order: number[];
+  /** First crossing time per (lap × gates + gate), null until someone crosses (split timing). */
+  firstAt: (number | null)[];
+  /** Race time the race closes after the first finisher, null before. */
+  overAt: number | null;
 };
 
 export type RaceResultRow = {
@@ -134,6 +145,8 @@ export type CampaignSnapshot = {
   tracks: string[];
   /** Index of the round being raced or about to be raced; tracks.length when complete. */
   round: number;
+  /** Car ids in round-1 grid order (the last tie-break). */
+  entry: number[];
   standings: CampaignRow[];
 };
 

@@ -244,7 +244,8 @@ function sampleIndex(path: TrackPath, s: number): number {
   return path.closed ? ((k % path.count) + path.count) % path.count : Math.max(0, Math.min(path.count - 1, k));
 }
 
-function pointOn(path: TrackPath, s: number, out: TrackPoint): TrackPoint {
+/** Point at arc length `s` on `path` (wrapped on a loop, clamped on an open path). */
+export function pointOn(path: TrackPath, s: number, out: TrackPoint): TrackPoint {
   const n = path.count;
   const segs = path.closed ? n : n - 1;
   let u = (s / path.length) * segs;
