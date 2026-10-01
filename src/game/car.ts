@@ -19,11 +19,13 @@ import {
   makeRearGlass,
   makeRearSideGlass,
   makeSideGlass,
+  makeTailTrim,
   makeTrimMaterial,
   makeTrunkGeometry,
   makeWheel,
   makeWindshield,
 } from "./car-mesh.ts";
+import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 
 export { CAR_HALF, HULLS, CRUSH_HULLS, WHEEL_POS };
 export type { Hull } from "./car-mesh.ts";
@@ -89,6 +91,7 @@ export class DeformableCar {
   readonly body: THREE.Mesh;
   readonly deform: StreamedDeformation;
   readonly paint: CarPaint;
+  readonly style: BodyStyle;
   readonly wheels: THREE.Group[] = [];
   readonly velocity = new THREE.Vector3();
   readonly angular = new THREE.Vector3();
@@ -131,31 +134,32 @@ export class DeformableCar {
   private mirrorL: THREE.Group;
   private mirrorR: THREE.Group;
 
-  constructor(paint: CarPaint, world: THREE.Scene, onGlass: GlassBurst | null = null) {
+  constructor(paint: CarPaint, world: THREE.Scene, onGlass: GlassBurst | null = null, style: CarStyleId = "sedan") {
     this.paint = paint;
+    this.style = CAR_STYLES[style];
     this.world = world;
     this.onGlass = onGlass;
     this.group.name = paint.name;
 
     this.bodyMat = makePaintMaterial(paint.body);
-    const bodyGeo = makeChassisGeometry();
+    const bodyGeo = makeChassisGeometry(this.style);
     this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
     this.body.castShadow = true;
     this.body.receiveShadow = true;
     this.group.add(this.body);
-    this.deform = new StreamedDeformation(bodyGeo);
+    this.deform = new StreamedDeformation(bodyGeo, this.style.rig);
     this.deform.createHelper(this.group);
 
     this.interior = makeInterior();
     this.group.add(this.interior);
 
-    this.hood = new THREE.Mesh(makeHoodGeometry(), this.bodyMat);
+    this.hood = new THREE.Mesh(makeHoodGeometry(this.style), this.bodyMat);
     this.hood.castShadow = true;
     this.hood.position.set(0, 0.7, 0.74);
     this.group.add(this.hood);
-    this.trunk = new THREE.Mesh(makeTrunkGeometry(), this.bodyMat);
+    this.trunk = new THREE.Mesh(makeTrunkGeometry(this.style), this.bodyMat);
     this.trunk.castShadow = true;
-    this.trunk.position.set(0, 0.74, -0.72);
+    this.trunk.position.set(0, this.style.boot.origin[0], this.style.boot.origin[1]);
     this.group.add(this.trunk);
 
     this.doorL = new THREE.Group();
@@ -236,7 +240,7 @@ export class DeformableCar {
           roughness: 0.2,
         });
         const f = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.05), mat);
-        f.position.set(sx, 0.15, 0.04);
+        f.position.set(sx, 0.15, 0.06);
         g.add(f);
         this.lamps.push({
           mesh: f,
@@ -257,7 +261,7 @@ export class DeformableCar {
           roughness: 0.32,
         });
         const r = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.04), mat);
-        r.position.set(sx, 0.15, -0.04);
+        r.position.set(sx, 0.15, -0.06);
         g.add(r);
         this.lamps.push({
           mesh: r,
@@ -274,7 +278,7 @@ export class DeformableCar {
         new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.6, metalness: 0.1 }),
       );
       plate.position.set(0, 0.03, -0.08);
-      g.add(plate);
+      g.add(plate, makeTailTrim());
     }
     g.position.set(0, 0.33, front ? 2.06 : -2.06);
     if (front) {
@@ -305,16 +309,17 @@ export class DeformableCar {
       });
     };
     const glassMat = makeGlassMaterial();
-    addPane(new THREE.Mesh(makeWindshield(), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
-    addPane(new THREE.Mesh(makeRearGlass(), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
-    const sideL = new THREE.Mesh(makeSideGlass(-1), glassMat.clone());
+    const style = this.style;
+    addPane(new THREE.Mesh(makeWindshield(style), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
+    addPane(new THREE.Mesh(makeRearGlass(style), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
+    const sideL = new THREE.Mesh(makeSideGlass(-1, style), glassMat.clone());
     sideL.position.set(0.02, 0.52, -0.28);
     addPane(sideL, this.doorL, ["doorLeft", "roof"]);
-    const sideR = new THREE.Mesh(makeSideGlass(1), glassMat.clone());
+    const sideR = new THREE.Mesh(makeSideGlass(1, style), glassMat.clone());
     sideR.position.set(-0.02, 0.52, -0.28);
     addPane(sideR, this.doorR, ["doorRight", "roof"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(-1), glassMat.clone()), this.group, ["roof", "doorLeft"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(1), glassMat.clone()), this.group, ["roof", "doorRight"]);
+    addPane(new THREE.Mesh(makeRearSideGlass(-1, style), glassMat.clone()), this.group, ["roof", "doorLeft"]);
+    addPane(new THREE.Mesh(makeRearSideGlass(1, style), glassMat.clone()), this.group, ["roof", "doorRight"]);
   }
 
   private registerParts(): void {

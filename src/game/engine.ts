@@ -6,7 +6,7 @@ import { physicsSlice } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
-import { MAX_CARS, layoutFleet, layoutDerby } from "./fleet.ts";
+import { MAX_CARS, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
 import { makeAsphalt, makeLamp } from "./engine-world.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
 import { ChaseCamera, centroid } from "./engine-camera.ts";
@@ -455,7 +455,12 @@ export class CrashEngine {
       const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
       const paint: CarPaint =
         i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
-      const car = new DeformableCar(paint, this.scene, (origin, vel, count) => this.glassDots.burst(origin, vel, count));
+      const car = new DeformableCar(
+        paint,
+        this.scene,
+        (origin, vel, count) => this.glassDots.burst(origin, vel, count),
+        fleetStyle(i),
+      );
       car.group.visible = false;
       car.group.userData.carIndex = i;
       this.scene.add(car.group);

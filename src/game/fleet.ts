@@ -1,7 +1,15 @@
 /** Shared spawn layout so 1–N cars never start overlapping. */
 
+import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
+
 export const MAX_CARS = 32;
 export const FLEET_MIN_SEP = 5.4;
+
+/** Body style of car slot `i` (fleet and derby share the pool): cycles every
+ *  style so any 5+ car field shows all of them; slot 0 stays the sedan. */
+export function fleetStyle(i: number): CarStyleId {
+  return CAR_STYLE_IDS[i % CAR_STYLE_IDS.length]!;
+}
 
 export type FleetSlot = { x: number; z: number; speed: number };
 export type DerbySlot = { x: number; z: number; yaw: number; speed: number };
