@@ -105,6 +105,7 @@ export class CompactorRig {
         new THREE.Vector3(0, 0.36, 2.06),
         new THREE.Vector3(0, 0, -1),
         18,
+        18,
         this.group,
         this.vel,
         this.omega,

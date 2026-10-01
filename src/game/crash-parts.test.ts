@@ -5,6 +5,7 @@ import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";
+import { runPair } from "./crash-scenarios.test-util.ts";
 
 function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") {
   const geom = dummyGeom();
@@ -16,7 +17,7 @@ function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") 
   group.updateMatrixWorld();
   const vel = new THREE.Vector3(0, 0, speed);
   const omega = new THREE.Vector3();
-  d.beginCrush(new THREE.Vector3(impactX, 0.36, 2.06), new THREE.Vector3(0, 0, -1), speed, group, vel, omega);
+  d.beginCrush(new THREE.Vector3(impactX, 0.36, 2.06), new THREE.Vector3(0, 0, -1), speed, speed, group, vel, omega);
   return { d, group, vel, omega, geom };
 }
 
@@ -148,7 +149,7 @@ forModes("doors hinge then detach", (mode) => {
     const hit = car.group.position.clone().addScaledVector(car.right, 0.9);
     hit.y = 0.5;
     const inward = car.right.clone().negate();
-    car.applyImpact(hit, inward, 28);
+    car.applyImpact(hit, inward, 28, 28);
     for (let i = 0; i < 45; i++) {
       car.deform.notifyContact();
       car.deform.feedOverlap(hit, inward, 0.08, 12, DT);
@@ -172,7 +173,7 @@ forModes("doors hinge then detach", (mode) => {
     const hit = car.group.position.clone().addScaledVector(car.forward, 2.05);
     hit.y = 0.4;
     const inward = car.forward.clone().negate();
-    car.applyImpact(hit, inward, 40);
+    car.applyImpact(hit, inward, 40, 40);
     for (let i = 0; i < 50; i++) {
       car.deform.notifyContact();
       car.deform.feedOverlap(hit, inward, 0.1, 16, DT);
@@ -194,7 +195,7 @@ forModes("doors hinge then detach", (mode) => {
     const hit = car.group.position.clone().addScaledVector(car.forward, 2.05);
     hit.y = 0.4;
     const inward = car.forward.clone().negate();
-    car.applyImpact(hit, inward, 50);
+    car.applyImpact(hit, inward, 50, 50);
     for (let i = 0; i < 60; i++) {
       car.deform.notifyContact();
       car.deform.feedOverlap(hit, inward, 0.12, 18, DT);
@@ -219,7 +220,7 @@ forModes("doors hinge then detach", (mode) => {
     const hit = car.group.position.clone().addScaledVector(car.forward, 2.0).addScaledVector(car.right, 0.7);
     hit.y = 0.4;
     const inward = car.forward.clone().negate();
-    car.applyImpact(hit, inward, 22);
+    car.applyImpact(hit, inward, 22, 22);
     for (let i = 0; i < 20; i++) {
       car.deform.notifyContact();
       car.deform.feedOverlap(hit, inward, 0.08, 10, DT);
@@ -248,8 +249,8 @@ forModes("two-car first contact stays on the map", (mode) => {
     const hit = a.group.position.clone().lerp(b.group.position, 0.5);
     hit.y = 0.4;
     const inward = b.group.position.clone().sub(a.group.position).setY(0).normalize();
-    a.applyImpact(hit, inward, 30);
-    b.applyImpact(hit, inward.clone().negate(), 30);
+    a.applyImpact(hit, inward, 30, 15);
+    b.applyImpact(hit, inward.clone().negate(), 30, 15);
     for (let i = 0; i < 20; i++) {
       a.deform.notifyContact();
       b.deform.notifyContact();
@@ -287,5 +288,27 @@ describe("particles stay in world space above the ground", () => {
     const life = new Float32Array([0.5]);
     const snap = snapshotPoints(pos, null, null, life, true);
     assert.equal(snap.items.length, 0);
+  });
+});
+
+describe("car-car crush scales with speed [shape]", () => {
+  const slow = runPair(28, 28);
+  const fast = runPair(56, 56);
+  const nose = (r: (typeof slow)[number]) => Math.max(r.noseMaxL, r.noseMaxR);
+
+  it("good: a 2×28 km/h head-on crushes each nose 0.15–0.40 m", () => {
+    for (const r of slow) assert.ok(nose(r) >= 0.15 && nose(r) <= 0.4, `nose ${nose(r).toFixed(3)}`);
+  });
+
+  it("good: a 2×56 km/h head-on crushes each nose 0.35–0.70 m", () => {
+    for (const r of fast) assert.ok(nose(r) >= 0.35 && nose(r) <= 0.7, `nose ${nose(r).toFixed(3)}`);
+  });
+
+  it("close-but-wrong: doubling the speed crushes more than 1.4× deeper", () => {
+    for (let i = 0; i < 2; i++) assert.ok(nose(fast[i]!) > 1.4 * nose(slow[i]!), `56=${nose(fast[i]!).toFixed(3)} 28=${nose(slow[i]!).toFixed(3)}`);
+  });
+
+  it("good: a full-overlap head-on stays centred on both cars", () => {
+    for (const r of slow) assert.ok(Math.abs(r.impactLocalX) < 0.2, `impactLocal.x=${r.impactLocalX.toFixed(3)}`);
   });
 });

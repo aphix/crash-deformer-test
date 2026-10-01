@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { StreamedDeformation, ENGINE_KILL_TRAVEL, type DeformMode } from "./streamed-deform.ts";
-import { CRASH, leftoverCrumple } from "./physics-util.ts";
+import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
 import { DT, MODES, dummyGeom, mass } from "./test-support.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
@@ -30,7 +30,7 @@ function spawn(
   group.updateMatrixWorld();
   const vel = new THREE.Vector3(0, 0, speed);
   const omega = new THREE.Vector3();
-  d.beginCrush(impact ?? new THREE.Vector3(impactX, 0.36, 2.06), inward, Math.abs(speed), group, vel, omega);
+  d.beginCrush(impact ?? new THREE.Vector3(impactX, 0.36, 2.06), inward, Math.abs(speed), Math.abs(speed), group, vel, omega);
   return { d, group, vel, omega, geom };
 }
 
@@ -154,9 +154,11 @@ forModes("frontal rigid barrier ~50 km/h", (spawn, mode) => {
       assert.ok(moved > 0.04, `shape nose never moved ${moved}`);
     } else {
       assert.ok(samples[2]! > 0.02, "should have started folding by ~50ms");
-      assert.ok(samples[11]! > samples[2]!, "crush should grow across the pulse, not pop");
+      assert.ok(samples[2]! > samples[0]!, "crush should grow across the pulse, not pop");
+      // B1: a 14 m/s hit crushes to its equivalent-barrier stroke, then holds — no spring-back.
+      assert.ok(samples[11]! >= samples[2]! - 0.01, `nose sprang back: ${samples[2]} → ${samples[11]}`);
       assert.ok(samples[11]! > 0.12, `nose crush too small: ${samples[11]}`);
-      assert.ok(samples[11]! < 1.4, `nose vanished: ${samples[11]}`);
+      assert.ok(samples[11]! <= crushStroke(FRONTAL_MPS, 0.4) + 0.01, `crush past the 14 m/s stroke: ${samples[11]}`);
     }
   });
 
@@ -395,6 +397,17 @@ forModes("drivetrain", (spawn) => {
     s.d.updateDrivetrain();
     assert.equal(s.d.drivetrainAlive, false);
   });
+
+  it("bad: an engine stretched 0.35 m forward of rest (cell at rest) still drives", () => {
+    const s = spawn(0);
+    for (const name of ["engineL", "engineR"]) {
+      const eng = mass(s.d, name);
+      eng.local.copy(eng.rest);
+      eng.local.z += 0.35;
+    }
+    s.d.updateDrivetrain();
+    assert.equal(s.d.drivetrainAlive, true, "forward stretch is not a dead block");
+  });
 });
 
 describe("beams stay a live spring lattice [lattice]", () => {
@@ -622,9 +635,9 @@ forModes("time / quiet / reset / arm", (spawn, mode) => {
     const d = new StreamedDeformation(geom);
     d.mode = mode;
     const group = new THREE.Group();
-    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 2, group, new THREE.Vector3(), new THREE.Vector3());
+    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 2, 2, group, new THREE.Vector3(), new THREE.Vector3());
     assert.equal(d.impulseValue, 4);
-    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 400, group, new THREE.Vector3(), new THREE.Vector3());
+    d.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 400, 400, group, new THREE.Vector3(), new THREE.Vector3());
     assert.equal(d.impulseValue, 70);
   });
 });

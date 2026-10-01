@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "./car.ts";
-import { applyGroundFriction, cancelClosing, leftoverCrumple, round4, satPushCap, vec3 } from "./physics-util.ts";
+import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "./physics-util.ts";
 import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, satCarBarrier } from "./sat.ts";
 import { impulseCar, pushCar } from "./pair-contact.ts";
 import { makeJerseyBarrier, restoreBarrierRest } from "./engine-world.ts";
@@ -62,9 +62,12 @@ export class JerseyBarrier {
   readonly vel = new THREE.Vector3();
   yaw = 0;
   crush = 0;
+  /** Car-side face normal from the last `hold`. */
+  private readonly faceN = new THREE.Vector3();
 
-  constructor(scene: THREE.Scene) {
-    this.group = makeJerseyBarrier();
+  /** `group` defaults to the textured slab; headless scenarios pass a bare group. */
+  constructor(scene: THREE.Scene, group: THREE.Group = makeJerseyBarrier()) {
+    this.group = group;
     this.group.visible = false;
     scene.add(this.group);
   }
@@ -101,15 +104,54 @@ export class JerseyBarrier {
     applyGroundFriction(this.vel, dt, 1.8, true);
   }
 
+  /** Mass-level slab contact, then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
+    this.hold(car);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.crumpleTravelCorner()));
+  }
+
+  /**
+   * Put every mass that crossed the slab back on its face (the slab takes that
+   * momentum) and leave the car-side face normal in `faceN`. True while a
+   * mass of a crashed car rests on the face.
+   */
+  private hold(car: DeformableCar): boolean {
+    const o = this.group.position;
+    const held = car.deform.projectOutOfBox(o.x, o.z, this.hx(), BARRIER_HALF.z, this.yaw);
+    const rx = Math.cos(this.yaw);
+    const rz = -Math.sin(this.yaw);
+    const side = (car.group.position.x - o.x) * rx + (car.group.position.z - o.z) * rz >= 0 ? 1 : -1;
+    this.faceN.set(rx * side, 0, rz * side);
+    if (held > 0) this.vel.addScaledVector(this.faceN, -held / BARRIER_MASS);
+    return car.crashed && car.deform.faceContacts > 0;
+  }
+
+  /**
+   * Crush force: the constant deceleration that spends this hit's stroke on
+   * the car pressing into `faceN`. It reaches the cabin through the
+   * structure, so masses already held on the face do not count against it.
+   */
+  private brake(car: DeformableCar, dt: number): void {
+    const n = this.faceN;
+    if (car.velocity.x * n.x + car.velocity.z * n.z >= 0) return;
+    const v0 = car.deform.hitSpeedValue;
+    const j = car.deform.totalMass * ((v0 * v0) / (2 * car.deform.hitStroke())) * dt;
+    const taken = car.deform.brakeInbound(n.x, n.z, j);
+    this.vel.addScaledVector(n, -taken / BARRIER_MASS);
   }
 
   resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
-    this.clip(car);
-    if (!crushHit && !overlap) return null;
+    this.hold(car);
+    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.crumpleTravelCorner()));
+    if (!crushHit && !overlap) {
+      // The crushed nose can sit on the face with the shrunken hulls clear of it.
+      if (!this.hold(car)) return null;
+      car.deform.notifyContact();
+      if (feed) this.brake(car, dt);
+      return null;
+    }
     car.deform.notifyContact();
 
     const n = crushHit ? _cn : overlap ? _bn : _cn;
@@ -123,13 +165,13 @@ export class JerseyBarrier {
     const closing = -car.velocity.dot(n);
 
     if (deform && closing > 0.2 && (crushHit ?? overlap ?? 0) > 0.004 && !car.crashed) {
-      car.applyImpact(p, n.clone(), closing);
+      car.applyImpact(p, n.clone(), closing, closing);
     }
 
-    let remain = Math.max(0, closing);
     if (feed && crushHit && crushHit > 0) {
-      remain = car.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
+      car.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
     }
+    if (this.hold(car) && feed) this.brake(car, dt);
 
     if (overlap) {
       const leftover = leftoverCrumple(car.deform.crumpleTravelCorner());
@@ -137,17 +179,6 @@ export class JerseyBarrier {
       const extra = Math.max(0, overlap - maxPen);
       const push = Math.min(extra + 0.004, satPushCap(dt));
       pushCar(car, _bn.x, 0, _bn.z, push);
-      if (feed && remain > 0.3) {
-        const pass = car.deform.frontTransfer();
-        const e = pass >= 0.97 ? 0.02 : 0;
-        const invC = 1 / car.deform.totalMass;
-        const invB = 1 / BARRIER_MASS;
-        const j = Math.min(cancelClosing(remain, pass, invC + invB, dt, e), 18 + pass * 40);
-        impulseCar(car, _bn.x, 0, _bn.z, j);
-        this.vel.addScaledVector(_bn, -j / BARRIER_MASS);
-        _r.copy(_bp).sub(car.group.position);
-        car.angular.y += (_r.x * _bn.z - _r.z * _bn.x) * remain * -0.04;
-      }
       if (feed && crushHit) {
         this.indent(_cp, _cn, Math.min(0.012, crushHit * 0.12));
       }
@@ -432,7 +463,7 @@ export function resolveLampPoles(
         const j = THREE.MathUtils.clamp(closing * 40, 80, 400);
         impulseCar(car, _mtv.x, 0, _mtv.z, j);
         if (!car.deform.massActive && closing > 4) {
-          car.applyImpact(_hb, _mtv, closing);
+          car.applyImpact(_hb, _mtv, closing, closing);
         } else if (car.deform.massActive) {
           car.deform.kickNearest(_hb, _mtv.x, 0.15, _mtv.z, closing * 8);
         }

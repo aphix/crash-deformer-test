@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, regionCrushBands, forceTransfer, type CrushBands } from "./physics-util.ts";
+import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
   type ShapeParticle,
@@ -28,20 +28,32 @@ import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
 
 export type DeformMode = "shape" | "lattice";
 
-/** Engine block has to move this far (m) before the car is undriveable.
+/** Rearward engine travel (m, vs the cell, along the hit) that leaves the car undriveable.
  *  ESV 98S3P12: a rigid full-width barrier overloads the front above ~50 km/h
- *  and leaves the safety cell intact below that. On this solver that is
- *  ~0.23 m of block travel at 35 km/h and ~0.40 m at 62 km/h.
+ *  and leaves the safety cell intact below that. With the slab stopping the
+ *  nose (A1) the block is reached once the nose packs (ENGINE_PACK_GAP): about
+ *  0.03 m at 35 km/h, 0.11 m at 56 km/h, 0.15 m at 64 km/h and 0.23 m at 80.
  *  A tail-first hit does not reach the block (it lives in the nose), so the
  *  same threshold stays driveable from the rear well past 80 km/h. */
-export const ENGINE_KILL_TRAVEL = 0.3;
+export const ENGINE_KILL_TRAVEL = 0.15;
 
-/** Block travel (m) a hit under ~56 km/h is allowed to leave.
- *  A 35 km/h wall stays under this. A 62 km/h wall is faster than the gate
- *  and uses the normal clamp, which is past ENGINE_KILL_TRAVEL.
+/** Block travel (m) the first hit's pulse may leave when that hit is under ~56 km/h.
  *  Car-car at 25 km/h each was grinding the block past the kill after the
- *  bumper was gone; this stops that grind. */
-export const ENGINE_LIGHT_CAP = 0.27;
+ *  bumper was gone; this stops that grind. Later hits are not capped, so a
+ *  wreck that keeps taking hits (derby) does eventually lose its engine. */
+export const ENGINE_LIGHT_CAP = 0.12;
+
+/** Sim seconds after the first contact that ENGINE_LIGHT_CAP protects. */
+const ENGINE_LIGHT_PULSE = 1.2;
+
+/** Packed bumper-to-block-centre length (m): bumper beam and radiator crushed flat ahead of a
+ *  0.36 m block. Nose crush past the 0.84 m rest gap minus this shoves the engine back. */
+const ENGINE_PACK_GAP = 0.54;
+
+/** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
+const SPRINGBACK = 0.08;
+/** A mass this close (m) to a rigid face still counts as resting on it. */
+const FACE_SKIN = 0.02;
 
 /** Per-body-style rig: cage boxes / sensor rests (by SENSORS index) that differ
  *  from the platform tables so the cages wrap that style's roof, glass and boot. */
@@ -138,6 +150,8 @@ export interface MassNode {
   dynamic: boolean;
   clipping: boolean;
   popped: boolean;
+  /** Permanent set (m) along the hit: crush this node can no longer spring back from. */
+  crushSet: number;
   bands: CrushBands;
   /** Name-class flags and region softness, resolved once so hot loops never string-match. */
   hub: boolean;
@@ -177,6 +191,8 @@ export class StreamedDeformation {
   drivetrainAlive = true;
   /** Both ends are crumple zones (car-compactor / two-wall squeeze). */
   bidirectional = false;
+  /** Masses resting on the face after the last projectOutOfBox call. */
+  faceContacts = 0;
   /** Walls past the wheel midpoint — cage/rails may yield. */
   deepCrush = false;
 
@@ -292,6 +308,7 @@ export class StreamedDeformation {
         dynamic: false,
         clipping: false,
         popped: false,
+        crushSet: 0,
         bands: regionCrushBands(spec.name),
         hub: spec.name.startsWith("hub"),
         bumper: spec.name.startsWith("bumper"),
@@ -603,18 +620,22 @@ export class StreamedDeformation {
       m.local.copy(m.rest);
       m.world.copy(m.rest).applyMatrix4(group.matrixWorld);
       m.vel.copy(worldVel);
+      // v = ω × r with ω = (0, ωy, 0): yaw integrates as rotation.y += ωy·dt.
       const rx = m.world.x - ox;
       const rz = m.world.z - oz;
-      m.vel.x += -worldOmega.y * rz;
-      m.vel.z += worldOmega.y * rx;
+      m.vel.x += worldOmega.y * rz;
+      m.vel.z -= worldOmega.y * rx;
       m.dynamic = false;
+      m.crushSet = 0;
     }
   }
 
+  /** `impulse` drives FX and glass; `ebs` (equivalent barrier speed, m/s) sizes the crush. */
   beginCrush(
     localPoint: THREE.Vector3,
     localInward: THREE.Vector3,
     impulse: number,
+    ebs: number,
     group: THREE.Object3D,
     worldVel: THREE.Vector3,
     worldOmega: THREE.Vector3,
@@ -622,7 +643,7 @@ export class StreamedDeformation {
     this.impactLocal.copy(localPoint);
     this.impactInward.copy(localInward).normalize();
     const clamped = THREE.MathUtils.clamp(impulse, 4, 70);
-    if (this.hitSpeed < 0) this.hitSpeed = clamped;
+    if (this.hitSpeed < 0) this.hitSpeed = THREE.MathUtils.clamp(ebs, 0, 70);
     this.impulse = clamped;
     this.crushing = true;
     this.massActive = true;
@@ -824,14 +845,25 @@ export class StreamedDeformation {
     }
   }
 
-  /** Engine/rails shifted enough that the drivetrain would be toast. */
+  /**
+   * Engine pushed back toward the cell along the hit; forward stretch is not a
+   * dead block. `local` is already the cell frame (followGroup places the group
+   * on the cell); the cell's own capped wobble in that frame is not block travel.
+   */
   updateDrivetrain(): void {
     if (!this.drivetrainAlive || !this.massActive) return;
+    // A side hit shoves the block sideways with the whole nose; it does not crush it.
+    if (Math.abs(this.impactInward.x) > Math.abs(this.impactInward.z)) return;
     const el = this.at.engineL;
     const er = this.at.engineR;
-    const travel = Math.max(el.local.distanceTo(el.rest), er.local.distanceTo(er.rest));
-    // Hood wrinkle is not a dead block. Rear hits have to cross the cabin to get here,
-    // so the same travel kills a nose around 50 km/h and a tail much later.
+    const ix = -this.impactInward.x;
+    const iy = -this.impactInward.y;
+    const iz = -this.impactInward.z;
+    const backL = (el.rest.x - el.local.x) * ix + (el.rest.y - el.local.y) * iy + (el.rest.z - el.local.z) * iz;
+    const backR = (er.rest.x - er.local.x) * ix + (er.rest.y - er.local.y) * iy + (er.rest.z - er.local.z) * iz;
+    const travel = Math.max(backL, backR);
+    // Rear hits have to cross the cabin to get here, so the same travel
+    // kills a nose around 50 km/h and a tail much later.
     if (travel > ENGINE_KILL_TRAVEL) this.drivetrainAlive = false;
   }
 
@@ -1101,6 +1133,118 @@ export class StreamedDeformation {
   }
 
   /**
+   * Crush length (m) this hit takes out of the struck end, from its
+   * equivalent barrier speed: the crumple corner on a frontal, the door band
+   * on a side hit, and (B4) the frontal stroke scaled by the chassisRear /
+   * chassisFront cage ratio on a rear hit — softer, shorter tail.
+   */
+  hitStroke(): number {
+    const ix = this.impactInward.x;
+    const iz = this.impactInward.z;
+    const stroke = Math.min((0.5 + this.squash * 1.15) * 1.1, crushStroke(Math.max(0, this.hitSpeed), this.squash));
+    if (Math.abs(ix) > Math.abs(iz)) return Math.min(this.at.doorL.bands.max, stroke);
+    if (iz <= 0) return stroke;
+    return stroke * (this.cageByPart.get("chassisRear")!.spec.maxCrush / this.cageByPart.get("chassisFront")!.spec.maxCrush);
+  }
+
+  /** Share of hitStroke the struck end has crushed so far (0 untouched, 1 spent). */
+  strokeUsed(): number {
+    const cell = this.at.cell;
+    const rest =
+      this.impactInward.z > 0
+        ? cell.rest.z - Math.max(this.at.bumperRL.rest.z, this.at.bumperRR.rest.z)
+        : Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - cell.rest.z;
+    return (rest - 0.36 - this.crumpleTravelCorner()) / Math.max(1e-3, this.hitStroke());
+  }
+
+  /**
+   * Crush force from a face moving at `refVn` along its outward normal
+   * (nx, nz): impulse `j` (N·s) comes off the masses still moving into it, as
+   * one equal Δv, never past the face's speed. Relative motion is kept, so the
+   * cabin keeps piling into the stopped nose. Returns the momentum taken (N·s).
+   */
+  brakeInbound(nx: number, nz: number, j: number, refVn = 0): number {
+    if (!this.massActive || j <= 0) return 0;
+    let moving = 0;
+    for (const m of this.masses) {
+      if (m.dynamic && m.vel.x * nx + m.vel.z * nz < refVn) moving += m.mass;
+    }
+    if (moving < 1e-6) return 0;
+    const dv = j / moving;
+    let taken = 0;
+    for (const m of this.masses) {
+      if (!m.dynamic) continue;
+      const vn = m.vel.x * nx + m.vel.z * nz - refVn;
+      if (vn >= 0) continue;
+      const cut = Math.min(-vn, dv);
+      m.vel.x += nx * cut;
+      m.vel.z += nz * cut;
+      taken += cut * m.mass;
+    }
+    return taken;
+  }
+
+  /**
+   * Rigid slab at mass level: a mass whose half-radius sphere is inside the
+   * box (centre cx/cz, half extents hx/hz, rotated by yaw) goes back out
+   * through the nearer of the car-side face or an end face and loses its
+   * inbound speed there. Planted hubs are the world pin and stay put.
+   * Returns the momentum taken out (N·s) for the caller to hand to the slab.
+   */
+  projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number): number {
+    if (!this.massActive) return 0;
+    const rx = Math.cos(yaw);
+    const rz = -Math.sin(yaw);
+    const fx = Math.sin(yaw);
+    const fz = Math.cos(yaw);
+    const cell = this.at.cell;
+    const side = (cell.world.x - cx) * rx + (cell.world.z - cz) * rz >= 0 ? 1 : -1;
+    // Group yaw from the last followGroup: keeps `local` (and so crumpleTravelCorner,
+    // which the slab clip reads) in step with the projected world positions.
+    const gc = Math.cos(this.prevYaw);
+    const gs = Math.sin(this.prevYaw);
+    let removed = 0;
+    this.faceContacts = 0;
+    for (const m of this.masses) {
+      if (!m.dynamic || (m.hub && !m.popped)) continue;
+      const ox = m.world.x - cx;
+      const oz = m.world.z - cz;
+      const r = m.radius * 0.5;
+      const lz = ox * fx + oz * fz;
+      const penX = hx + r - (ox * rx + oz * rz) * side;
+      const penZ = hz + r - Math.abs(lz);
+      if (penZ > 0 && penX > -FACE_SKIN) this.faceContacts++;
+      if (penX <= 0 || penZ <= 0) continue;
+      let nx: number;
+      let nz: number;
+      let pen: number;
+      if (penX <= penZ) {
+        nx = rx * side;
+        nz = rz * side;
+        pen = penX;
+      } else {
+        const end = lz >= 0 ? 1 : -1;
+        nx = fx * end;
+        nz = fz * end;
+        pen = penZ;
+      }
+      const dx = nx * pen;
+      const dz = nz * pen;
+      m.world.x += dx;
+      m.world.z += dz;
+      m.local.x += dx * gc - dz * gs;
+      m.local.z += dx * gs + dz * gc;
+      const vn = m.vel.x * nx + m.vel.z * nz;
+      if (vn < 0) {
+        m.vel.x -= nx * vn;
+        m.vel.z -= nz * vn;
+        removed -= vn * m.mass;
+      }
+    }
+    return removed;
+  }
+
+  /**
    * Push the passenger cell out of overlap. Crumple-zone masses stay on the
    * contact plane so the leftover penetration becomes plastic crush.
    */
@@ -1135,14 +1279,21 @@ export class StreamedDeformation {
     return Math.max(nose - cell.local.z - 0.36, cell.local.z - tail - 0.36, 0);
   }
 
-  /** Remaining crumple on the most-crushed corner — SAT bounce uses this so an offset hit actually spends the zone. */
+  /**
+   * Remaining crumple on the most-crushed corner of the struck end — SAT
+   * bounce and the slab clip use this so a hit actually spends the zone.
+   * (Taking the max over both ends read the untouched end on every hit.)
+   */
   crumpleTravelCorner(): number {
     const cell = this.at.cell;
+    if (this.impactInward.z > 0) {
+      const rl = cell.local.z - this.at.bumperRL.local.z - 0.36;
+      const rr = cell.local.z - this.at.bumperRR.local.z - 0.36;
+      return Math.max(Math.min(rl, rr), 0);
+    }
     const fl = this.at.bumperFL.local.z - cell.local.z - 0.36;
     const fr = this.at.bumperFR.local.z - cell.local.z - 0.36;
-    const rl = cell.local.z - this.at.bumperRL.local.z - 0.36;
-    const rr = cell.local.z - this.at.bumperRR.local.z - 0.36;
-    return Math.max(Math.min(fl, fr), Math.min(rl, rr), 0);
+    return Math.max(Math.min(fl, fr), 0);
   }
 
   kickAlong(nx: number, ny: number, nz: number, dv: number): void {
@@ -1459,6 +1610,11 @@ export class StreamedDeformation {
     return this.impulse;
   }
 
+  /** Equivalent barrier speed of the hit that started this crash (m/s, −1 before any hit). */
+  get hitSpeedValue(): number {
+    return this.hitSpeed;
+  }
+
   get crushElapsed(): number {
     return this.elapsed;
   }
@@ -1585,6 +1741,9 @@ export class StreamedDeformation {
     const iz = this.impactInward.z;
     const maxAway = 0.025 + this.squash * 0.04;
     const maxCrush = this.bidirectional ? 1.65 : 0.5 + this.squash * 1.15;
+    // B1/B3/B4: a hit only crushes as far as its stroke reaches (armMasses has no hit).
+    const stroke = this.hitSpeed >= 0 ? this.hitStroke() : Infinity;
+    const sideHit = Math.abs(ix) > Math.abs(iz);
     for (const m of this.masses) {
       let dx = m.local.x - m.rest.x;
       let dy = m.local.y - m.rest.y;
@@ -1622,23 +1781,40 @@ export class StreamedDeformation {
               : 0.11;
       dy = THREE.MathUtils.clamp(dy, -maxDy, maxDy * 1.25);
       const cw = this.bidirectional ? 1 : this.cornerWeight(m);
-      const cap =
-        m.name === "cell" || m.name === "roof"
-          ? this.deepCrush
-            ? 0.72
-            : 0.12
-          : m.hub
-            ? this.bidirectional
-              ? 0.95
-              : 0.38
-            : maxCrush * (0.38 + 0.72 * cw);
-      const len = Math.hypot(dx, dz);
-      if (len > cap) {
-        const k = cap / len;
-        dx *= k;
-        dz *= k;
+      const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
+      if (this.bidirectional || m.hub) {
+        const cap = m.name === "cell" || m.name === "roof" ? (this.deepCrush ? 0.72 : 0.12) : m.hub ? (this.bidirectional ? 0.95 : 0.38) : maxCrush;
+        const len = Math.hypot(dx, dz);
+        if (len > cap) {
+          const k = cap / len;
+          dx *= k;
+          dz *= k;
+        }
+        if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
+      } else {
+        // Hit frame: crush runs along impactInward, the rest of the planar travel is lateral.
+        const cabin = m.name === "cell" || m.name === "roof";
+        let cap = cabin ? (this.deepCrush ? 0.72 : 0.12) : Math.min(maxCrush * (0.38 + 0.72 * cw), stroke);
+        if (sideHit && (m.name === "doorL" || m.name === "doorR")) cap = Math.min(cap, m.bands.max);
+        let along = dx * ix + dz * iz;
+        let px = dx - along * ix;
+        let pz = dz - along * iz;
+        along = THREE.MathUtils.clamp(along, -cap, cap);
+        if (!cabin && this.hitSpeed >= 0) {
+          // Sheet metal keeps its set: only the last SPRINGBACK of crush is elastic.
+          if (along - SPRINGBACK > m.crushSet) m.crushSet = along - SPRINGBACK;
+          else if (along < m.crushSet) along = m.crushSet;
+        }
+        const perp = Math.hypot(px, pz);
+        if (perp > latCap) {
+          const k = latCap / perp;
+          px *= k;
+          pz *= k;
+        }
+        dx = along * ix + px;
+        dz = along * iz + pz;
       }
-      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && this.hitSpeed >= 0 && this.hitSpeed < 15.5) {
+      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && this.hitSpeed >= 0 && this.hitSpeed < 15.5 && this.elapsed < ENGINE_LIGHT_PULSE) {
         const sunk = Math.hypot(dx, dy, dz);
         if (sunk > ENGINE_LIGHT_CAP) {
           const k = ENGINE_LIGHT_CAP / sunk;
@@ -1647,8 +1823,11 @@ export class StreamedDeformation {
           dz *= k;
         }
       }
-      const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
-      if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
+      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && !sideHit && iz < 0) {
+        // The crushed nose packs against the block: past the crumple length it shoves the engine back.
+        const line = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z) - ENGINE_PACK_GAP;
+        if (m.rest.z + dz > line) dz = line - m.rest.z;
+      }
       if (m.hub && !this.deepCrush) {
         const popAt = m.radius * 0.5;
         const travel = Math.hypot(dx, dz);
