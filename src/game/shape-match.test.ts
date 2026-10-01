@@ -9,12 +9,12 @@ import {
   m3Polar,
   m3FrobeniusI,
   m3RotationAngle,
+  quatId,
   makeCluster,
   rebuildAqqWeighted,
   matchCluster,
   applyPlasticity,
-  transformPoint,
-  transformSkinPoint,
+  transformSkinPointInto,
   matchSkinLocal,
   transformNormal,
   deformBeta,
@@ -46,7 +46,7 @@ describe("polar decomposition", () => {
     const A = rotY(0.7);
     const R = m3();
     const S = m3();
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     assert.ok(Math.abs(R[0]! - A[0]!) < 1e-5);
     assert.ok(m3FrobeniusI(S) < 1e-4);
     assert.ok(Math.abs(m3Det(R) - 1) < 1e-4);
@@ -60,7 +60,7 @@ describe("polar decomposition", () => {
     m3Mul(rotY(0.4), S0, A);
     const R = m3();
     const S = m3();
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     assert.ok(Math.abs(S[0]! - 0.5) < 0.04, `Sxx ${S[0]}`);
     assert.ok(Math.abs(S[8]! - 1.4) < 0.04, `Szz ${S[8]}`);
   });
@@ -70,7 +70,7 @@ describe("polar decomposition", () => {
     A[0] = -1;
     const R = m3();
     const S = m3();
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     assert.ok(m3Det(R) > 0.5, `det(R)=${m3Det(R)}`);
   });
 
@@ -78,7 +78,7 @@ describe("polar decomposition", () => {
     const A = rotY(Math.PI);
     const R = m3();
     const S = m3();
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     assert.ok(m3RotationAngle(R) < 1.0, `R still flipped ${m3RotationAngle(R)}`);
     assert.ok(m3Det(R) > 0.5);
   });
@@ -89,15 +89,56 @@ describe("polar decomposition", () => {
     A[8] = -4e7;
     const R = m3();
     const S = m3();
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     for (let i = 0; i < 9; i++) {
       assert.ok(Number.isFinite(R[i]!) && Math.abs(R[i]!) < 5, `R[${i}]=${R[i]}`);
       assert.ok(Number.isFinite(S[i]!) && Math.abs(S[i]!) < 5, `S[${i}]=${S[i]}`);
     }
     A[0] = Number.NaN;
-    m3Polar(A, R, S);
+    m3Polar(A, quatId(), R, S);
     assert.equal(R[0], 1);
     assert.equal(S[0], 1);
+  });
+
+  it("good: a stale warm start (0.5 rad off about another axis) still lands on the polar rotation", () => {
+    const S0 = m3Id();
+    S0[0] = 0.7;
+    S0[4] = 1.2;
+    S0[8] = 0.9;
+    const A = m3();
+    m3Mul(rotY(0.6), S0, A);
+    const q = quatId();
+    q[0] = Math.sin(0.25);
+    q[3] = Math.cos(0.25);
+    const R = m3();
+    const S = m3();
+    m3Polar(A, q, R, S);
+    const Rt = rotY(0.6);
+    for (let i = 0; i < 9; i++) assert.ok(Math.abs(R[i]! - Rt[i]!) < 1e-6, `R[${i}]=${R[i]} vs ${Rt[i]}`);
+    for (let i = 0; i < 9; i++) assert.ok(Math.abs(S[i]! - S0[i]!) < 1e-6, `S[${i}]=${S[i]} vs ${S0[i]}`);
+  });
+
+  it("bad: an over-limit turn is clamped on output, but the warm start keeps the real turn", () => {
+    const q = quatId();
+    const R = m3();
+    const S = m3();
+    m3Polar(rotY(1.2), q, R, S);
+    const ang = m3RotationAngle(R);
+    assert.ok(ang > 0.8 && ang < 0.9, `clamped angle ${ang}`);
+    assert.ok(R[2]! > 0 && Math.abs(R[1]!) < 1e-9 && Math.abs(R[5]!) < 1e-9, "clamp left the yaw axis or reversed it");
+    const qAng = 2 * Math.acos(Math.min(1, Math.abs(q[3]!)));
+    assert.ok(Math.abs(qAng - 1.2) < 1e-6, `warm start stored the clamped turn ${qAng}`);
+  });
+
+  it("bad: a collapsed (zero) A holds the warm rotation instead of snapping or going NaN", () => {
+    const q = quatId();
+    q[1] = Math.sin(0.25);
+    q[3] = Math.cos(0.25);
+    const R = m3();
+    const S = m3();
+    m3Polar(m3(), q, R, S);
+    for (let i = 0; i < 9; i++) assert.ok(Number.isFinite(R[i]!) && Number.isFinite(S[i]!), `R/S[${i}] not finite`);
+    assert.ok(Math.abs(m3RotationAngle(R) - 0.5) < 1e-9, `rotation snapped to ${m3RotationAngle(R)}`);
   });
 });
 
@@ -204,23 +245,28 @@ describe("plasticity", () => {
 });
 
 describe("normals", () => {
-  it("good: n_new = (T^{-1})^T n_old for a uniform scale", () => {
-    const rest: [number, number, number][] = [
-      [1, 0, 0],
-      [-1, 0, 0],
-      [0, 1, 0],
-      [0, -1, 0],
-      [0, 0, 1],
-      [0, 0, -1],
+  it("good: n_new = (T^{-1})^T n_old for a z squash of the skin fit", () => {
+    const rest = [
+      { x: 1, y: 0, z: 0 },
+      { x: -1, y: 0, z: 0 },
+      { x: 0, y: 1, z: 0 },
+      { x: 0, y: -1, z: 0 },
+      { x: 0, y: 0, z: 1 },
+      { x: 0, y: 0, z: -1 },
     ];
-    const P = particlesAt(rest);
+    const P = particlesAt(rest.map((p) => [p.x, p.y, p.z] as [number, number, number]));
     const c = makeCluster(P, P.map((_, i) => i));
-    rebuildAqqWeighted(c, P);
-    for (const p of P) p.z *= 0.5;
-    matchCluster(c, P, 1);
-    const [nx, ny, nz] = transformNormal(c, 0, 0, 1);
-    assert.ok(Math.abs(nx) < 0.2 && Math.abs(ny) < 0.2, `n xy ${nx},${ny}`);
-    assert.ok(nz > 0.5, `n_z ${nz}`);
+    const local = rest.map((p) => ({ x: p.x, y: p.y, z: p.z * 0.5 }));
+    matchSkinLocal(
+      c,
+      rest,
+      local,
+      rest.map(() => 1),
+      1,
+    );
+    const n = transformNormal(c, 0, 0, 1);
+    assert.ok(Math.abs(n.x) < 0.2 && Math.abs(n.y) < 0.2, `n xy ${n.x},${n.y}`);
+    assert.ok(n.z > 1.5, `n_z ${n.z} (a 0.5 squash scales the normal by 2)`);
   });
 });
 
@@ -243,8 +289,8 @@ describe("local cell skin (Bugbear pipeline)", () => {
       rest.map(() => 1),
       0.8,
     );
-    const [x, y, z] = transformSkinPoint(c, 0.4, 0.2, 0.3);
-    assert.ok(Math.hypot(x - 0.4, y - 0.2, z - 0.3) < 0.04, `identity drifted to ${x},${y},${z}`);
+    const p = transformSkinPointInto(c, 0.4, 0.2, 0.3);
+    assert.ok(Math.hypot(p.x - 0.4, p.y - 0.2, p.z - 0.3) < 0.04, `identity drifted to ${p.x},${p.y},${p.z}`);
   });
 
   it("good: a z-squash of the particles shortens a rest vertex in z", () => {
@@ -266,7 +312,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
       rest.map(() => 1),
       1,
     );
-    const [, , z] = transformSkinPoint(c, 0, 0, 1);
+    const { z } = transformSkinPointInto(c, 0, 0, 1);
     assert.ok(z < 0.85, `skin did not squash z=${z}`);
     assert.ok(z > 0.4, `skin collapsed z=${z}`);
   });

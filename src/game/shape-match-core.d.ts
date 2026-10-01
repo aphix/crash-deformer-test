@@ -1,4 +1,6 @@
 export type Mat3 = Float64Array;
+/** Unit quaternion, (x, y, z, w). */
+export type Quat = Float64Array;
 
 export interface ShapeParticle {
   x: number;
@@ -25,16 +27,19 @@ export interface ShapeCluster {
   cmy: number;
   cmz: number;
   AqqInv: Mat3;
+  /** Rest shape is flat (rank-2 Aqq): the cluster pins translation only, R = S = I. */
+  planar: boolean;
   Sp: Mat3;
   A: Mat3;
   R: Mat3;
   S: Mat3;
   M: Mat3;
   skinM: Mat3;
-  skinInvT: Mat3;
   Rprev: Mat3;
+  rotQ: Quat;
   skinR: Mat3;
   skinRprev: Mat3;
+  skinRotQ: Quat;
   skinCm0x: number;
   skinCm0y: number;
   skinCm0z: number;
@@ -46,25 +51,12 @@ export interface ShapeCluster {
 export function m3(): Mat3;
 export function m3Id(out?: Mat3): Mat3;
 export function m3Copy(src: Mat3, out?: Mat3): Mat3;
-export function m3Zero(out: Mat3): Mat3;
 export function m3Mul(a: Mat3, b: Mat3, out: Mat3): Mat3;
-export function m3MulVecInto(
-  m: Mat3,
-  x: number,
-  y: number,
-  z: number,
-  out: { x: number; y: number; z: number },
-): void;
-export function m3MulVec(m: Mat3, x: number, y: number, z: number): [number, number, number];
-export function m3Transpose(m: Mat3, out: Mat3): Mat3;
-export function m3AddScaled(a: Mat3, b: Mat3, s: number, out: Mat3): Mat3;
-export function m3Lerp(a: Mat3, b: Mat3, t: number, out: Mat3): Mat3;
 export function m3Det(m: Mat3): number;
-export function m3Invert(m: Mat3, out: Mat3): boolean;
 export function m3FrobeniusI(m: Mat3): number;
 export function m3Finite(m: Mat3): boolean;
-export function m3MaxAbs(m: Mat3): number;
-export function m3Polar(A: Mat3, R: Mat3, S: Mat3): void;
+export function quatId(out?: Quat): Quat;
+export function m3Polar(A: Mat3, q: Quat, R: Mat3, S: Mat3): void;
 export function m3Orthonormalize(R: Mat3): void;
 export function m3RotationAngle(R: Mat3): number;
 export function m3ClampRotation(R: Mat3, maxRad: number): void;
@@ -88,9 +80,13 @@ export function transformSkinPointInto(
   z: number,
   out?: { x: number; y: number; z: number },
 ): { x: number; y: number; z: number };
-export function transformPoint(c: ShapeCluster, x: number, y: number, z: number): [number, number, number];
-export function transformSkinPoint(c: ShapeCluster, x: number, y: number, z: number): [number, number, number];
-export function transformNormal(c: ShapeCluster, x: number, y: number, z: number): [number, number, number];
+export function transformNormal(
+  c: ShapeCluster,
+  x: number,
+  y: number,
+  z: number,
+  out?: { x: number; y: number; z: number },
+): { x: number; y: number; z: number };
 export function matchSkinLocal(
   c: ShapeCluster,
   rest: { x: number; y: number; z: number }[],
