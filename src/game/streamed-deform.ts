@@ -9,13 +9,14 @@ import {
   applyPlasticity,
   resetCluster,
   matchSkinLocal,
-  transformSkinPoint,
   transformSkinPointInto,
   stiffnessIters,
   goalAlpha,
   deformBeta,
-  m3FrobeniusI,
 } from "./shape-match.ts";
+import { BEAM_SPECS, CAGES, EXTRA_CLUSTERS, MASS_SPECS, SENSORS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
+import { DeformRigHelper } from "./deform-helper.ts";
+import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
 
 /**
  * Burnout-style streamed deformation.
@@ -41,190 +42,6 @@ export const ENGINE_KILL_TRAVEL = 0.3;
  *  Car-car at 25 km/h each was grinding the block past the kill after the
  *  bumper was gone; this stops that grind. */
 export const ENGINE_LIGHT_CAP = 0.27;
-
-export type BodyPartName =
-  | "bumperFront"
-  | "bumperRear"
-  | "bonnet"
-  | "boot"
-  | "roof"
-  | "doorLeft"
-  | "doorRight"
-  | "wingFL"
-  | "wingFR"
-  | "wingRL"
-  | "wingRR"
-  | "chassisFront"
-  | "chassisCell"
-  | "chassisRear"
-  | "skirtLeft"
-  | "skirtRight"
-  | "glassFront"
-  | "glassRear";
-
-export interface CageSpec {
-  name: BodyPartName;
-  min: [number, number, number];
-  max: [number, number, number];
-  absorption: number;
-  maxCrush: number;
-  maxAngle: number;
-}
-
-export interface SensorSpec {
-  rest: [number, number, number];
-  radius: number;
-  part: BodyPartName;
-  absorption: number;
-  maxCompression: number;
-  neighbors: number[];
-}
-
-const CAGES: CageSpec[] = [
-  { name: "bumperFront", min: [-0.74, 0.16, 1.88], max: [0.74, 0.54, 2.16], absorption: 0.1, maxCrush: 0.95, maxAngle: 1.2 },
-  { name: "bumperRear", min: [-0.72, 0.16, -2.14], max: [0.72, 0.52, -1.86], absorption: 0.12, maxCrush: 0.9, maxAngle: 1.1 },
-  { name: "bonnet", min: [-0.78, 0.5, 0.72], max: [0.78, 0.78, 1.88], absorption: 0.16, maxCrush: 0.88, maxAngle: 1.05 },
-  { name: "boot", min: [-0.76, 0.5, -1.86], max: [0.76, 0.8, -0.7], absorption: 0.18, maxCrush: 0.78, maxAngle: 0.95 },
-  { name: "roof", min: [-0.58, 1.02, -0.7], max: [0.58, 1.34, 0.56], absorption: 0.52, maxCrush: 0.28, maxAngle: 0.32 },
-  { name: "doorLeft", min: [-0.9, 0.22, -0.58], max: [-0.42, 1.04, 0.7], absorption: 0.22, maxCrush: 0.7, maxAngle: 1.15 },
-  { name: "doorRight", min: [0.42, 0.22, -0.58], max: [0.9, 1.04, 0.7], absorption: 0.22, maxCrush: 0.7, maxAngle: 1.15 },
-  { name: "wingFL", min: [-0.88, 0.16, 0.72], max: [-0.34, 0.68, 1.86], absorption: 0.14, maxCrush: 0.78, maxAngle: 0.95 },
-  { name: "wingFR", min: [0.34, 0.16, 0.72], max: [0.88, 0.68, 1.86], absorption: 0.14, maxCrush: 0.78, maxAngle: 0.95 },
-  { name: "wingRL", min: [-0.88, 0.16, -1.86], max: [-0.34, 0.68, -0.54], absorption: 0.16, maxCrush: 0.72, maxAngle: 0.85 },
-  { name: "wingRR", min: [0.34, 0.16, -1.86], max: [0.88, 0.68, -0.54], absorption: 0.16, maxCrush: 0.72, maxAngle: 0.85 },
-  { name: "chassisFront", min: [-0.58, 0.16, 0.42], max: [0.58, 0.5, 1.76], absorption: 0.28, maxCrush: 0.55, maxAngle: 0.55 },
-  { name: "chassisCell", min: [-0.66, 0.2, -0.48], max: [0.66, 1.06, 0.64], absorption: 0.72, maxCrush: 0.16, maxAngle: 0.16 },
-  { name: "chassisRear", min: [-0.58, 0.16, -1.76], max: [0.58, 0.5, -0.32], absorption: 0.3, maxCrush: 0.5, maxAngle: 0.48 },
-  { name: "skirtLeft", min: [-0.9, 0.14, -1.32], max: [-0.54, 0.36, 1.32], absorption: 0.22, maxCrush: 0.42, maxAngle: 0.5 },
-  { name: "skirtRight", min: [0.54, 0.14, -1.32], max: [0.9, 0.36, 1.32], absorption: 0.22, maxCrush: 0.42, maxAngle: 0.5 },
-  { name: "glassFront", min: [-0.64, 0.68, 0.38], max: [0.64, 1.36, 1.16], absorption: 0.48, maxCrush: 0.32, maxAngle: 0.35 },
-  { name: "glassRear", min: [-0.6, 0.68, -1.38], max: [0.6, 1.34, -0.58], absorption: 0.5, maxCrush: 0.28, maxAngle: 0.32 },
-];
-
-const SENSORS: SensorSpec[] = [
-  { rest: [0, 0.36, 2.08], radius: 0.42, part: "bumperFront", absorption: 0.08, maxCompression: 1, neighbors: [1, 2, 3] },
-  { rest: [-0.62, 0.36, 1.96], radius: 0.36, part: "bumperFront", absorption: 0.1, maxCompression: 1, neighbors: [0, 4] },
-  { rest: [0.62, 0.36, 1.96], radius: 0.36, part: "bumperFront", absorption: 0.1, maxCompression: 1, neighbors: [0, 5] },
-  { rest: [0, 0.66, 1.42], radius: 0.4, part: "bonnet", absorption: 0.14, maxCompression: 1, neighbors: [0, 12] },
-  { rest: [-0.72, 0.44, 1.32], radius: 0.36, part: "wingFL", absorption: 0.12, maxCompression: 1, neighbors: [1, 6] },
-  { rest: [0.72, 0.44, 1.32], radius: 0.36, part: "wingFR", absorption: 0.12, maxCompression: 1, neighbors: [2, 7] },
-  { rest: [-0.86, 0.56, 0.26], radius: 0.4, part: "doorLeft", absorption: 0.18, maxCompression: 1, neighbors: [4, 8, 14] },
-  { rest: [0.86, 0.56, 0.26], radius: 0.4, part: "doorRight", absorption: 0.18, maxCompression: 1, neighbors: [5, 9, 15] },
-  { rest: [-0.86, 0.4, -0.52], radius: 0.36, part: "doorLeft", absorption: 0.2, maxCompression: 0.95, neighbors: [6, 10] },
-  { rest: [0.86, 0.4, -0.52], radius: 0.36, part: "doorRight", absorption: 0.2, maxCompression: 0.95, neighbors: [7, 11] },
-  { rest: [-0.72, 0.44, -1.32], radius: 0.36, part: "wingRL", absorption: 0.14, maxCompression: 1, neighbors: [8, 13] },
-  { rest: [0.72, 0.44, -1.32], radius: 0.36, part: "wingRR", absorption: 0.14, maxCompression: 1, neighbors: [9, 13] },
-  { rest: [0, 1.2, 0.06], radius: 0.42, part: "roof", absorption: 0.48, maxCompression: 0.65, neighbors: [3, 19] },
-  { rest: [0, 0.38, -2.08], radius: 0.42, part: "bumperRear", absorption: 0.12, maxCompression: 1, neighbors: [16, 17, 18] },
-  { rest: [-0.8, 0.26, 0], radius: 0.32, part: "skirtLeft", absorption: 0.18, maxCompression: 0.9, neighbors: [6, 8] },
-  { rest: [0.8, 0.26, 0], radius: 0.32, part: "skirtRight", absorption: 0.18, maxCompression: 0.9, neighbors: [7, 9] },
-  { rest: [-0.64, 0.36, -1.96], radius: 0.36, part: "bumperRear", absorption: 0.12, maxCompression: 1, neighbors: [13, 10] },
-  { rest: [0.64, 0.36, -1.96], radius: 0.36, part: "bumperRear", absorption: 0.12, maxCompression: 1, neighbors: [13, 11] },
-  { rest: [0, 0.68, -1.38], radius: 0.4, part: "boot", absorption: 0.16, maxCompression: 0.95, neighbors: [13, 12] },
-  { rest: [0, 0.6, 0.04], radius: 0.5, part: "chassisCell", absorption: 0.62, maxCompression: 0.45, neighbors: [12, 3, 18] },
-];
-
-type MassName =
-  | "bumperFL"
-  | "bumperFR"
-  | "engineL"
-  | "engineR"
-  | "railL"
-  | "railR"
-  | "cell"
-  | "doorL"
-  | "doorR"
-  | "roof"
-  | "tank"
-  | "axleR"
-  | "bumperRL"
-  | "bumperRR"
-  | "wingFL"
-  | "wingFR"
-  | "hubFL"
-  | "hubFR"
-  | "hubRL"
-  | "hubRR";
-
-interface MassSpec {
-  name: MassName;
-  rest: [number, number, number];
-  mass: number;
-  radius: number;
-}
-
-const MASS_SPECS: MassSpec[] = [
-  { name: "bumperFL", rest: [-0.52, 0.38, 2.06], mass: 9, radius: 0.28 },
-  { name: "bumperFR", rest: [0.52, 0.38, 2.06], mass: 9, radius: 0.28 },
-  { name: "engineL", rest: [-0.3, 0.44, 1.22], mass: 88, radius: 0.36 },
-  { name: "engineR", rest: [0.3, 0.44, 1.22], mass: 88, radius: 0.36 },
-  { name: "railL", rest: [-0.52, 0.38, 0.68], mass: 30, radius: 0.26 },
-  { name: "railR", rest: [0.52, 0.38, 0.68], mass: 30, radius: 0.26 },
-  { name: "cell", rest: [0, 0.55, 0.06], mass: 260, radius: 0.5 },
-  { name: "doorL", rest: [-0.78, 0.56, 0.08], mass: 22, radius: 0.3 },
-  { name: "doorR", rest: [0.78, 0.56, 0.08], mass: 22, radius: 0.3 },
-  { name: "roof", rest: [0, 1.18, 0.02], mass: 32, radius: 0.36 },
-  { name: "tank", rest: [0, 0.4, -0.88], mass: 48, radius: 0.32 },
-  { name: "axleR", rest: [0, 0.36, -1.4], mass: 64, radius: 0.32 },
-  { name: "bumperRL", rest: [-0.52, 0.36, -2.06], mass: 8, radius: 0.26 },
-  { name: "bumperRR", rest: [0.52, 0.36, -2.06], mass: 8, radius: 0.26 },
-  { name: "wingFL", rest: [-0.68, 0.4, 1.28], mass: 18, radius: 0.26 },
-  { name: "wingFR", rest: [0.68, 0.4, 1.28], mass: 18, radius: 0.26 },
-  { name: "hubFL", rest: [-0.74, 0.32, 1.34], mass: 26, radius: 0.28 },
-  { name: "hubFR", rest: [0.74, 0.32, 1.34], mass: 26, radius: 0.28 },
-  { name: "hubRL", rest: [-0.74, 0.32, -1.34], mass: 26, radius: 0.28 },
-  { name: "hubRR", rest: [0.74, 0.32, -1.34], mass: 26, radius: 0.28 },
-];
-
-/** Rectangular crumple boxes at the nose and tail — no diagonal truss. */
-const BEAM_SPECS: [MassName, MassName, number, number, number][] = [
-  ["bumperFL", "bumperFR", 700, 1400, 0.75],
-  ["bumperFL", "wingFL", 2000, 4200, 0.92],
-  ["bumperFR", "wingFR", 2000, 4200, 0.92],
-  ["wingFL", "engineL", 3800, 8000, 0.78],
-  ["wingFR", "engineR", 3800, 8000, 0.78],
-  ["engineL", "engineR", 42000, 90000, 0.14],
-  ["engineL", "railL", 7000, 14000, 0.78],
-  ["engineR", "railR", 7000, 14000, 0.78],
-  ["railL", "cell", 14000, 28000, 0.38],
-  ["railR", "cell", 14000, 28000, 0.38],
-  ["engineL", "cell", 3500, 8000, 0.78],
-  ["engineR", "cell", 3500, 8000, 0.78],
-  ["cell", "doorL", 7000, 14000, 0.5],
-  ["cell", "doorR", 7000, 14000, 0.5],
-  ["railL", "doorL", 5000, 11000, 0.48],
-  ["railR", "doorR", 5000, 11000, 0.48],
-  ["cell", "roof", 42000, 98000, 0.14],
-  ["doorL", "roof", 6000, 12000, 0.32],
-  ["doorR", "roof", 6000, 12000, 0.32],
-  ["cell", "tank", 28000, 70000, 0.22],
-  ["tank", "axleR", 9000, 18000, 0.5],
-  ["doorL", "tank", 4500, 9000, 0.4],
-  ["doorR", "tank", 4500, 9000, 0.4],
-  ["wingFL", "railL", 4000, 9000, 0.55],
-  ["wingFR", "railR", 4000, 9000, 0.55],
-  ["railL", "railR", 25000, 56000, 0.18],
-  ["doorL", "doorR", 8000, 40000, 0.12],
-  ["roof", "engineL", 8000, 18000, 0.16],
-  ["roof", "engineR", 8000, 18000, 0.16],
-  ["bumperRL", "bumperRR", 700, 1400, 0.75],
-  ["bumperRL", "hubRL", 1800, 4000, 0.9],
-  ["bumperRR", "hubRR", 1800, 4000, 0.9],
-  ["hubFL", "wingFL", 9000, 20000, 0.22],
-  ["hubFL", "engineL", 7000, 16000, 0.26],
-  ["hubFL", "railL", 5000, 12000, 0.22],
-  ["hubFR", "wingFR", 9000, 20000, 0.22],
-  ["hubFR", "engineR", 7000, 16000, 0.26],
-  ["hubFR", "railR", 5000, 12000, 0.22],
-  ["hubFL", "hubFR", 16000, 36000, 0.1],
-  ["hubRL", "axleR", 8000, 18000, 0.24],
-  ["hubRR", "axleR", 8000, 18000, 0.24],
-  ["hubRL", "tank", 5000, 12000, 0.26],
-  ["hubRR", "tank", 5000, 12000, 0.26],
-  ["hubRL", "hubRR", 16000, 36000, 0.1],
-  ["hubRL", "doorL", 9000, 20000, 0.2],
-  ["hubRR", "doorR", 9000, 20000, 0.2],
-];
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -281,6 +98,7 @@ interface Cage {
   restCorners: THREE.Vector3[];
   corners: THREE.Vector3[];
   size: THREE.Vector3;
+  glass: boolean;
 }
 
 interface Sensor {
@@ -314,6 +132,13 @@ export interface MassNode {
   clipping: boolean;
   popped: boolean;
   bands: CrushBands;
+  /** Name-class flags and region softness, resolved once so hot loops never string-match. */
+  hub: boolean;
+  bumper: boolean;
+  rail: boolean;
+  /** Bumper or wing: soft sheet metal that yields on sphere-sphere contact. */
+  crumple: boolean;
+  softness: number;
 }
 
 interface Beam {
@@ -328,6 +153,9 @@ interface Beam {
   alive: boolean;
   restDir: THREE.Vector3;
 }
+
+/** Masses the solver reads by role every step; resolved once in the constructor. */
+type KeyMass = "cell" | "engineL" | "engineR" | "axleR" | "doorL" | "doorR" | "hubFL" | "hubFR" | "hubRL" | "hubRR" | "bumperFL" | "bumperFR" | "bumperRL" | "bumperRR";
 
 export class StreamedDeformation {
   readonly cageCount: number;
@@ -357,20 +185,14 @@ export class StreamedDeformation {
   /** Closing speed of the hit that started the crash. Later spikes must not raise the durability gate. */
   private hitSpeed = -1;
   private wrinkleAmp = 0;
-  private helper: THREE.Group | null = null;
-  private helperLines: THREE.LineSegments | null = null;
-  private helperLinePos: Float32Array | null = null;
-  private helperSpheres: THREE.Mesh[] = [];
-  private massHelperMeshes: THREE.Mesh[] = [];
-  private beamHelperLines: THREE.LineSegments | null = null;
-  private beamHelperPos: Float32Array | null = null;
-  private beamHelperColor: Float32Array | null = null;
-  private clusterHelperLines: THREE.LineSegments | null = null;
-  private clusterHelperPos: Float32Array | null = null;
-  private clusterHelperColor: Float32Array | null = null;
+  private helper: DeformRigHelper | null = null;
   readonly masses: MassNode[];
   private beams: Beam[];
-  private cellIndex: number;
+  private readonly at: Record<KeyMass, MassNode>;
+  private readonly byName: Map<string, MassNode>;
+  /** Hub → mount spring pairs. */
+  private readonly suspension: readonly (readonly [MassNode, MassNode])[];
+  private readonly cageByPart: Map<BodyPartName, Cage>;
   private _totalMass = 1;
   private prevYaw = 0;
   private overlapFrame = false;
@@ -416,12 +238,14 @@ export class StreamedDeformation {
         restCorners,
         corners,
         size: max.clone().sub(min),
+        glass: spec.name.startsWith("glass"),
       };
     });
     this.cageCount = this.cages.length;
 
     const partIndex = new Map<BodyPartName, number>();
     this.cages.forEach((c, i) => partIndex.set(c.spec.name, i));
+    this.cageByPart = new Map(this.cages.map((c) => [c.spec.name, c]));
 
     this.sensors = SENSORS.map((spec) => ({
       spec,
@@ -451,9 +275,41 @@ export class StreamedDeformation {
         clipping: false,
         popped: false,
         bands: regionCrushBands(spec.name),
+        hub: spec.name.startsWith("hub"),
+        bumper: spec.name.startsWith("bumper"),
+        rail: spec.name.startsWith("rail"),
+        crumple: spec.name.startsWith("bumper") || spec.name.startsWith("wing"),
+        softness: regionSoftness(spec.name),
       };
     });
-    this.cellIndex = nameIndex.get("cell") ?? 5;
+    const cellNode = this.masses[nameIndex.get("cell") ?? 5]!;
+    const node = (name: MassName): MassNode => {
+      const i = nameIndex.get(name);
+      return i === undefined ? cellNode : this.masses[i]!;
+    };
+    this.at = {
+      cell: cellNode,
+      engineL: node("engineL"),
+      engineR: node("engineR"),
+      axleR: node("axleR"),
+      doorL: node("doorL"),
+      doorR: node("doorR"),
+      hubFL: node("hubFL"),
+      hubFR: node("hubFR"),
+      hubRL: node("hubRL"),
+      hubRR: node("hubRR"),
+      bumperFL: node("bumperFL"),
+      bumperFR: node("bumperFR"),
+      bumperRL: node("bumperRL"),
+      bumperRR: node("bumperRR"),
+    };
+    this.byName = new Map(this.masses.map((m) => [m.name, m]));
+    this.suspension = [
+      [this.at.hubFL, this.at.engineL],
+      [this.at.hubFR, this.at.engineR],
+      [this.at.hubRL, this.at.axleR],
+      [this.at.hubRR, this.at.axleR],
+    ];
     this._totalMass = 0;
     for (const m of this.masses) this._totalMass += m.mass;
     this.impulseW = new Float64Array(this.masses.length);
@@ -549,15 +405,7 @@ export class StreamedDeformation {
         this.clusters.push(makeCluster(this.shapeParticles, idx));
       }
     }
-    const extra: MassName[][] = [
-      ["bumperFL", "wingFL", "engineL", "railL"],
-      ["bumperFR", "wingFR", "engineR", "railR"],
-      ["bumperRL", "doorL", "tank", "axleR"],
-      ["bumperRR", "doorR", "tank", "axleR"],
-      ["doorL", "roof", "railL", "cell"],
-      ["doorR", "roof", "railR", "cell"],
-    ];
-    for (const names of extra) {
+    for (const names of EXTRA_CLUSTERS) {
       const idx = names.map((n) => nameIndex.get(n)!).filter((i) => i !== undefined);
       if (idx.length >= 3) this.clusters.push(makeCluster(this.shapeParticles, idx));
     }
@@ -609,7 +457,7 @@ export class StreamedDeformation {
     const side = Math.abs(cage.center.x) > 0.2 ? Math.sign(cage.center.x) : 0;
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
-      if (m.name.startsWith("hub")) continue;
+      if (m.hub) continue;
       const p = m.rest;
       if (side !== 0 && Math.sign(p.x) !== 0 && Math.sign(p.x) !== side) continue;
       if (
@@ -626,7 +474,7 @@ export class StreamedDeformation {
     if (idx.length < 3) {
       const scored = this.masses
         .map((m, i) => ({ i, d: m.rest.distanceTo(cage.center) }))
-        .filter((s) => !this.masses[s.i]!.name.startsWith("hub"))
+        .filter((s) => !this.masses[s.i]!.hub)
         .sort((a, b) => a.d - b.d);
       for (const s of scored) {
         if (s.d > 0.95) break;
@@ -684,7 +532,7 @@ export class StreamedDeformation {
 
   setMode(mode: DeformMode): void {
     this.mode = mode;
-    this.syncHelperMode();
+    this.helper?.syncMode();
   }
 
   private captureShapeRest(): void {
@@ -719,7 +567,7 @@ export class StreamedDeformation {
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
-      if (m.name.startsWith("hub") && !m.popped && !this.deepCrush) continue;
+      if (m.hub && !m.popped && !this.deepCrush) continue;
       const p = this.shapeParticles[i]!;
       m.world.set(p.x, p.y, p.z);
       m.vel.set(p.vx, p.vy, p.vz);
@@ -904,7 +752,7 @@ export class StreamedDeformation {
     let best: MassNode | null = null;
     let bestD = Infinity;
     for (const m of this.masses) {
-      if (!m.dynamic || !m.name.startsWith("hub")) continue;
+      if (!m.dynamic || !m.hub) continue;
       const d = m.world.distanceToSquared(worldPoint);
       if (d < bestD) {
         bestD = d;
@@ -920,9 +768,8 @@ export class StreamedDeformation {
     return best.name;
   }
 
-  hubPopped(name: MassName | string): boolean {
-    const m = this.masses.find((n) => n.name === name);
-    return !!m?.popped;
+  hubPopped(name: string): boolean {
+    return !!this.byName.get(name)?.popped;
   }
 
   popHub(m: MassNode): void {
@@ -930,11 +777,11 @@ export class StreamedDeformation {
   }
 
   massLocal(name: string): THREE.Vector3 {
-    return this.massByName(name as MassName).local;
+    return this.massByName(name).local;
   }
 
   massWorld(name: string): THREE.Vector3 {
-    return this.massByName(name as MassName).world;
+    return this.massByName(name).world;
   }
 
   /** Extra XZ drag once contact has ended — same Coulomb as the tires. */
@@ -952,7 +799,7 @@ export class StreamedDeformation {
     // Unpowered hubs only — cabin inertia keeps piling into the crumple.
     const k = Math.pow(0.55, Math.min(dt, 0.05));
     for (const m of this.masses) {
-      if (!m.name.startsWith("hub")) continue;
+      if (!m.hub) continue;
       m.vel.x *= k;
       m.vel.z *= k;
     }
@@ -961,24 +808,23 @@ export class StreamedDeformation {
   /** Engine/rails shifted enough that the drivetrain would be toast. */
   updateDrivetrain(): void {
     if (!this.drivetrainAlive || !this.massActive) return;
-    const el = this.massByName("engineL");
-    const er = this.massByName("engineR");
+    const el = this.at.engineL;
+    const er = this.at.engineR;
     const travel = Math.max(el.local.distanceTo(el.rest), er.local.distanceTo(er.rest));
     // Hood wrinkle is not a dead block. Rear hits have to cross the cabin to get here,
     // so the same travel kills a nose around 50 km/h and a tail much later.
     if (travel > ENGINE_KILL_TRAVEL) this.drivetrainAlive = false;
   }
 
-  private massByName(name: MassName): MassNode {
-    for (const m of this.masses) if (m.name === name) return m;
-    return this.masses[this.cellIndex]!;
+  private massByName(name: string): MassNode {
+    return this.byName.get(name) ?? this.at.cell;
   }
 
   /** How much of this mass belongs to the crumple zone facing the impact (0 = cell, 1 = bumper). */
   private crumpleWeight(m: MassNode): number {
     if (m.name === "cell" || m.name === "roof") return 0;
-    if (m.name.startsWith("hub")) return 0;
-    if (m.name.startsWith("bumper")) return 1;
+    if (m.hub) return 0;
+    if (m.bumper) return 1;
     const along = -(m.rest.x * this.impactInward.x + m.rest.z * this.impactInward.z);
     let w = THREE.MathUtils.clamp(along / 1.55, 0, 1);
     if (
@@ -1121,10 +967,10 @@ export class StreamedDeformation {
   }
 
   followGroup(group: THREE.Object3D, velocityOut: THREE.Vector3, angularOut: THREE.Vector3, dt: number): void {
-    const cell = this.massByName("cell");
-    const engL = this.massByName("engineL");
-    const engR = this.massByName("engineR");
-    const axle = this.massByName("axleR");
+    const cell = this.at.cell;
+    const engL = this.at.engineL;
+    const engR = this.at.engineR;
+    const axle = this.at.axleR;
     const fx = (engL.world.x + engR.world.x) * 0.5 - axle.world.x;
     const fy = (engL.world.y + engR.world.y) * 0.5 - axle.world.y;
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
@@ -1135,7 +981,7 @@ export class StreamedDeformation {
     const yawSafe = Number.isFinite(yaw) ? yaw : this.prevYaw;
     const plant = !this.bidirectional && this.quietTime() > 0.2;
     let minHub = Infinity;
-    for (const m of this.masses) if (m.name.startsWith("hub") && m.world.y < minHub) minHub = m.world.y;
+    for (const m of this.masses) if (m.hub && m.world.y < minHub) minHub = m.world.y;
     if (plant) {
       group.rotation.set(0, yawSafe, 0, "YXZ");
       group.updateWorldMatrix(false, false);
@@ -1145,7 +991,7 @@ export class StreamedDeformation {
         restx = 0,
         restz = 0;
       for (const m of this.masses) {
-        if (!m.name.startsWith("hub")) continue;
+        if (!m.hub) continue;
         hubX += m.world.x * m.mass;
         hubZ += m.world.z * m.mass;
         restx += m.rest.x * m.mass;
@@ -1188,26 +1034,20 @@ export class StreamedDeformation {
     _toLocal.copy(group.matrixWorld).invert();
 
     let mx = 0,
-      my = 0,
       mz = 0,
       mass = 0;
     for (const m of this.masses) {
       m.local.copy(m.world).applyMatrix4(_toLocal);
       mx += m.vel.x * m.mass;
-      my += m.vel.y * m.mass;
       mz += m.vel.z * m.mass;
       mass += m.mass;
     }
     this.clampLocal(group);
-    let hx = 0,
-      hy = 0,
-      hz = 0,
+    let hy = 0,
       hm = 0;
     for (const m of this.masses) {
-      if (!m.name.startsWith("hub")) continue;
-      hx += m.vel.x * m.mass;
+      if (!m.hub) continue;
       hy += m.vel.y * m.mass;
-      hz += m.vel.z * m.mass;
       hm += m.mass;
     }
     if (hm > 1e-6) {
@@ -1270,19 +1110,19 @@ export class StreamedDeformation {
   }
 
   crumpleTravel(): number {
-    const cell = this.massByName("cell");
-    const nose = (this.massByName("bumperFL").local.z + this.massByName("bumperFR").local.z) * 0.5;
-    const tail = (this.massByName("bumperRL").local.z + this.massByName("bumperRR").local.z) * 0.5;
+    const cell = this.at.cell;
+    const nose = (this.at.bumperFL.local.z + this.at.bumperFR.local.z) * 0.5;
+    const tail = (this.at.bumperRL.local.z + this.at.bumperRR.local.z) * 0.5;
     return Math.max(nose - cell.local.z - 0.36, cell.local.z - tail - 0.36, 0);
   }
 
   /** Remaining crumple on the most-crushed corner — SAT bounce uses this so an offset hit actually spends the zone. */
   crumpleTravelCorner(): number {
-    const cell = this.massByName("cell");
-    const fl = this.massByName("bumperFL").local.z - cell.local.z - 0.36;
-    const fr = this.massByName("bumperFR").local.z - cell.local.z - 0.36;
-    const rl = cell.local.z - this.massByName("bumperRL").local.z - 0.36;
-    const rr = cell.local.z - this.massByName("bumperRR").local.z - 0.36;
+    const cell = this.at.cell;
+    const fl = this.at.bumperFL.local.z - cell.local.z - 0.36;
+    const fr = this.at.bumperFR.local.z - cell.local.z - 0.36;
+    const rl = cell.local.z - this.at.bumperRL.local.z - 0.36;
+    const rr = cell.local.z - this.at.bumperRR.local.z - 0.36;
     return Math.max(Math.min(fl, fr), Math.min(rl, rr), 0);
   }
 
@@ -1305,9 +1145,9 @@ export class StreamedDeformation {
     if (crush < 1e-5 && eaten < 1e-5) return closing;
     this.impulse = Math.max(this.impulse, THREE.MathUtils.clamp(closing, 0, 70));
 
-    const cell = this.massByName("cell");
-    const nose = (this.massByName("bumperFL").local.z + this.massByName("bumperFR").local.z) * 0.5;
-    const tail = (this.massByName("bumperRL").local.z + this.massByName("bumperRR").local.z) * 0.5;
+    const cell = this.at.cell;
+    const nose = (this.at.bumperFL.local.z + this.at.bumperFR.local.z) * 0.5;
+    const tail = (this.at.bumperRL.local.z + this.at.bumperRR.local.z) * 0.5;
     const noseLeft = Math.max(0, nose - cell.local.z - 0.38);
     const tailLeft = Math.max(0, cell.local.z - tail - 0.38);
     const bumperLeft = THREE.MathUtils.clamp(Math.max(noseLeft, tailLeft) / 1.45, 0, 1);
@@ -1315,14 +1155,14 @@ export class StreamedDeformation {
 
     for (const m of this.masses) {
       if (!m.dynamic) continue;
-      if (m.name.startsWith("hub") && !m.popped && !this.deepCrush) continue;
+      if (m.hub && !m.popped && !this.deepCrush) continue;
       const zone = this.impactWeight(m);
       if (zone < 0.04) continue;
       const d = m.world.distanceTo(worldPoint);
       const reach = 1.05 + s * 0.35;
       if (d > reach) continue;
       const fall = (1 - d / reach) ** 2 * zone;
-      const soft = regionSoftness(m.name);
+      const soft = m.softness;
       const gate = this.bidirectional ? 1 : crushGate(closing, soft) * live;
       if (gate < 1e-4) continue;
       const engine = m.name === "engineL" || m.name === "engineR";
@@ -1368,7 +1208,7 @@ export class StreamedDeformation {
       // reskinning it every frame is the polar snap-back flicker.
       this.crushing = this.bidirectional || this.quietTime() < 0.28;
     }
-    if (this.helper?.visible) this.updateHelper();
+    this.helper?.update();
   }
 
   private anyMassMoving(): boolean {
@@ -1392,7 +1232,7 @@ export class StreamedDeformation {
     mz /= msum;
     for (let i = 0, n = this.masses.length; i < n; i++) {
       const m = this.masses[i]!;
-      if (!m.dynamic || m.name.startsWith("hub")) continue;
+      if (!m.dynamic || m.hub) continue;
       const dx = m.vel.x - mx;
       const dy = m.vel.y - my;
       const dz = m.vel.z - mz;
@@ -1401,26 +1241,19 @@ export class StreamedDeformation {
     return false;
   }
 
-  liveHulls(frontDetached = false, rearDetached = false): { cx: number; cz: number; hx: number; hz: number }[] {
+  liveHulls(frontDetached = false, rearDetached = false): Hull[] {
     void frontDetached;
     void rearDetached;
-    const fallback = [
-      { cx: -0.38, cz: 1.22, hx: 0.34, hz: 0.34 },
-      { cx: 0.38, cz: 1.22, hx: 0.34, hz: 0.34 },
-      { cx: 0, cz: 0.12, hx: 0.86, hz: 0.92 },
-      { cx: -0.38, cz: -1.22, hx: 0.34, hz: 0.34 },
-      { cx: 0.38, cz: -1.22, hx: 0.34, hz: 0.34 },
-    ];
-    const cell = this.massByName("cell");
-    const engineL = this.massByName("engineL");
-    const engineR = this.massByName("engineR");
-    const doorL = this.massByName("doorL");
-    const doorR = this.massByName("doorR");
-    const axleR = this.massByName("axleR");
-    const hubFL = this.massByName("hubFL");
-    const hubFR = this.massByName("hubFR");
-    const hubRL = this.massByName("hubRL");
-    const hubRR = this.massByName("hubRR");
+    const cell = this.at.cell;
+    const engineL = this.at.engineL;
+    const engineR = this.at.engineR;
+    const doorL = this.at.doorL;
+    const doorR = this.at.doorR;
+    const axleR = this.at.axleR;
+    const hubFL = this.at.hubFL;
+    const hubFR = this.at.hubFR;
+    const hubRL = this.at.hubRL;
+    const hubRR = this.at.hubRR;
 
     const engineZ = (engineL.local.z + engineR.local.z) * 0.5;
     const zFront = engineZ + 0.36;
@@ -1468,28 +1301,21 @@ export class StreamedDeformation {
           hz: hzR,
         },
       ],
-      fallback,
+      HULLS,
     );
   }
 
-  liveCrushHulls(frontDetached = false, rearDetached = false): { cx: number; cz: number; hx: number; hz: number }[] {
-    const fallback = [
-      { cx: -0.42, cz: 1.72, hx: 0.36, hz: 0.5 },
-      { cx: 0.42, cz: 1.72, hx: 0.36, hz: 0.5 },
-      { cx: 0, cz: 0.12, hx: 0.86, hz: 0.92 },
-      { cx: -0.42, cz: -1.6, hx: 0.36, hz: 0.58 },
-      { cx: 0.42, cz: -1.6, hx: 0.36, hz: 0.58 },
-    ];
-    const fl = this.massByName("bumperFL");
-    const fr = this.massByName("bumperFR");
-    const rl = this.massByName("bumperRL");
-    const rr = this.massByName("bumperRR");
-    const cell = this.massByName("cell");
-    const engineL = this.massByName("engineL");
-    const engineR = this.massByName("engineR");
-    const doorL = this.massByName("doorL");
-    const doorR = this.massByName("doorR");
-    const axleR = this.massByName("axleR");
+  liveCrushHulls(frontDetached = false, rearDetached = false): Hull[] {
+    const fl = this.at.bumperFL;
+    const fr = this.at.bumperFR;
+    const rl = this.at.bumperRL;
+    const rr = this.at.bumperRR;
+    const cell = this.at.cell;
+    const engineL = this.at.engineL;
+    const engineR = this.at.engineR;
+    const doorL = this.at.doorL;
+    const doorR = this.at.doorR;
+    const axleR = this.at.axleR;
 
     const engineZ = (engineL.local.z + engineR.local.z) * 0.5;
     const zFront = frontDetached ? engineZ + 0.34 : Math.max(fl.local.z, fr.local.z) + 0.12;
@@ -1537,14 +1363,12 @@ export class StreamedDeformation {
           hz: hzR,
         },
       ],
-      fallback,
+      CRUSH_HULLS,
     );
   }
 
-  private sanitizeHulls(
-    hulls: { cx: number; cz: number; hx: number; hz: number }[],
-    fallback: { cx: number; cz: number; hx: number; hz: number }[],
-  ): { cx: number; cz: number; hx: number; hz: number }[] {
+  /** Non-finite live hulls fall back to the rest hull (shared, never mutated by callers). */
+  private sanitizeHulls(hulls: Hull[], fallback: readonly Hull[]): Hull[] {
     for (let i = 0; i < hulls.length; i++) {
       const h = hulls[i]!;
       if (!Number.isFinite(h.cx) || !Number.isFinite(h.cz) || !Number.isFinite(h.hx) || !Number.isFinite(h.hz)) {
@@ -1555,7 +1379,7 @@ export class StreamedDeformation {
   }
 
   skinPanel(geometry: THREE.BufferGeometry, rest: Float32Array, name: BodyPartName, origin: THREE.Vector3): void {
-    const cage = this.cages.find((c) => c.spec.name === name);
+    const cage = this.cageByPart.get(name);
     if (!cage) return;
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
@@ -1578,127 +1402,24 @@ export class StreamedDeformation {
     geometry.computeVertexNormals();
   }
 
-  createHelper(parent: THREE.Object3D): THREE.Group {
-    if (this.helper) return this.helper;
-    const group = new THREE.Group();
-    group.name = "deform-rig";
-    const sphereGeo = new THREE.SphereGeometry(0.045, 10, 8);
-    for (const s of this.sensors) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xb9c4d4,
-        transparent: true,
-        opacity: 0.7,
-        depthTest: false,
-      });
-      const mesh = new THREE.Mesh(sphereGeo, mat);
-      mesh.position.copy(s.rest);
-      mesh.renderOrder = 3;
-      group.add(mesh);
-      this.helperSpheres.push(mesh);
-    }
-    const massGeo = new THREE.SphereGeometry(0.055, 10, 8);
-    for (const m of this.masses) {
-      const mat = new THREE.MeshBasicMaterial({
-        color: 0xd4894a,
-        transparent: true,
-        opacity: 0.85,
-        depthTest: false,
-      });
-      const mesh = new THREE.Mesh(massGeo, mat);
-      mesh.position.copy(m.local);
-      mesh.renderOrder = 4;
-      group.add(mesh);
-      this.massHelperMeshes.push(mesh);
-    }
-    const linePos = new Float32Array(this.cages.length * 12 * 2 * 3);
-    this.helperLinePos = linePos;
-    const lineGeo = new THREE.BufferGeometry();
-    lineGeo.setAttribute("position", new THREE.BufferAttribute(linePos, 3));
-    const lineMat = new THREE.LineBasicMaterial({
-      color: 0xd8d4cc,
-      transparent: true,
-      opacity: 0.35,
-      depthTest: false,
+  createHelper(parent: THREE.Object3D): void {
+    this.helper ??= new DeformRigHelper(parent, {
+      cages: this.cages,
+      sensors: this.sensors,
+      masses: this.masses,
+      beams: this.beams,
+      clusters: this.clusters,
+      mode: () => this.mode,
     });
-    const lines = new THREE.LineSegments(lineGeo, lineMat);
-    lines.renderOrder = 2;
-    group.add(lines);
-    this.helperLines = lines;
-    const beamPos = new Float32Array(this.beams.length * 2 * 3);
-    const beamColor = new Float32Array(this.beams.length * 2 * 3);
-    this.beamHelperPos = beamPos;
-    this.beamHelperColor = beamColor;
-    const beamGeo = new THREE.BufferGeometry();
-    beamGeo.setAttribute("position", new THREE.BufferAttribute(beamPos, 3));
-    beamGeo.setAttribute("color", new THREE.BufferAttribute(beamColor, 3));
-    const beamMat = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.92,
-      depthTest: false,
-    });
-    const beamLines = new THREE.LineSegments(beamGeo, beamMat);
-    beamLines.renderOrder = 3;
-    group.add(beamLines);
-    this.beamHelperLines = beamLines;
-    let star = 0;
-    for (const c of this.clusters) star += c.idx.length;
-    const clusterPos = new Float32Array(Math.max(star, 1) * 2 * 3);
-    const clusterCol = new Float32Array(Math.max(star, 1) * 2 * 3);
-    this.clusterHelperPos = clusterPos;
-    this.clusterHelperColor = clusterCol;
-    const clusterGeo = new THREE.BufferGeometry();
-    clusterGeo.setAttribute("position", new THREE.BufferAttribute(clusterPos, 3));
-    clusterGeo.setAttribute("color", new THREE.BufferAttribute(clusterCol, 3));
-    const clusterMat = new THREE.LineBasicMaterial({
-      vertexColors: true,
-      transparent: true,
-      opacity: 0.85,
-      depthTest: false,
-    });
-    const clusterLines = new THREE.LineSegments(clusterGeo, clusterMat);
-    clusterLines.renderOrder = 4;
-    group.add(clusterLines);
-    this.clusterHelperLines = clusterLines;
-    this.helper = group;
-    this.writeCageLines();
-    this.writeBeamLines();
-    this.writeClusterLines();
-    this.syncHelperMode();
-    parent.add(group);
-    group.visible = false;
-    return group;
   }
 
   setHelperVisible(v: boolean): void {
-    if (this.helper) this.helper.visible = v;
-    if (v) this.updateHelper();
+    this.helper?.setVisible(v);
   }
 
   disposeHelper(): void {
-    if (!this.helper) return;
-    this.helper.removeFromParent();
-    this.helper.traverse((obj) => {
-      if (obj instanceof THREE.Mesh) {
-        if (obj.material instanceof THREE.Material) obj.material.dispose();
-      }
-      if (obj instanceof THREE.LineSegments) {
-        obj.geometry.dispose();
-        if (obj.material instanceof THREE.Material) obj.material.dispose();
-      }
-    });
-    this.helperSpheres[0]?.geometry.dispose();
-    this.massHelperMeshes[0]?.geometry.dispose();
+    this.helper?.dispose();
     this.helper = null;
-    this.helperLines = null;
-    this.helperSpheres = [];
-    this.massHelperMeshes = [];
-    this.beamHelperLines = null;
-    this.beamHelperPos = null;
-    this.beamHelperColor = null;
-    this.clusterHelperLines = null;
-    this.clusterHelperPos = null;
-    this.clusterHelperColor = null;
   }
 
   get impulseValue(): number {
@@ -1722,7 +1443,7 @@ export class StreamedDeformation {
   }
 
   cageFrame(name: BodyPartName): { center: THREE.Vector3; quat: THREE.Quaternion; restCenter: THREE.Vector3 } | null {
-    const cage = this.cages.find((c) => c.spec.name === name);
+    const cage = this.cageByPart.get(name);
     if (!cage) return null;
     const center = new THREE.Vector3();
     const restCenter = cage.center.clone();
@@ -1859,7 +1580,7 @@ export class StreamedDeformation {
           ? this.deepCrush
             ? 0.28
             : 0.07
-          : m.name.startsWith("hub")
+          : m.hub
             ? 0.07
             : m.name === "cell"
               ? this.deepCrush
@@ -1873,7 +1594,7 @@ export class StreamedDeformation {
           ? this.deepCrush
             ? 0.72
             : 0.12
-          : m.name.startsWith("hub")
+          : m.hub
             ? this.bidirectional
               ? 0.95
               : 0.38
@@ -1895,7 +1616,7 @@ export class StreamedDeformation {
       }
       const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
       if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
-      if (m.name.startsWith("hub") && !this.deepCrush) {
+      if (m.hub && !this.deepCrush) {
         const popAt = m.radius * 0.5;
         const travel = Math.hypot(dx, dz);
         if (!m.popped && travel > popAt) m.popped = true;
@@ -1908,13 +1629,13 @@ export class StreamedDeformation {
       if (this.bidirectional) {
         const lim = Math.abs(m.rest.z) + 0.04;
         if (Math.abs(m.local.z) > lim) m.local.z = Math.sign(m.local.z || m.rest.z) * lim;
-        if (this.deepCrush && this.mode === "lattice" && m.name.startsWith("rail")) {
+        if (this.deepCrush && this.mode === "lattice" && m.rail) {
           if (m.local.distanceTo(m.rest) < 0.22) m.local.z = m.rest.z * 0.67;
         }
       }
       // Planted tires are the world pin. Projecting them through a pitched
       // group was ratcheting the wreck backward every followGroup.
-      if (m.name.startsWith("hub") && !m.popped && !this.deepCrush && this.quietTime() > 0.2) continue;
+      if (m.hub && !m.popped && !this.deepCrush && this.quietTime() > 0.2) continue;
       m.world.copy(m.local);
       group.localToWorld(m.world);
     }
@@ -1992,7 +1713,7 @@ export class StreamedDeformation {
       comM = 0;
     for (let i = 0; i < this.shapeParticles.length; i++) {
       const hub = this.masses[i]!;
-      if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+      if (hub.hub && !this.deepCrush) continue;
       const p = this.shapeParticles[i]!;
       comX += p.x * p.mass;
       comY += p.y * p.mass;
@@ -2031,7 +1752,7 @@ export class StreamedDeformation {
       for (let i = 0; i < this.shapeParticles.length; i++) {
         const p = this.shapeParticles[i]!;
         const hub = this.masses[i]!;
-        if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+        if (hub.hub && !this.deepCrush) continue;
         const w = this.goalW[i]!;
         if (w < 1e-6) continue;
         let gx = this.goalX[i]! / w;
@@ -2042,7 +1763,7 @@ export class StreamedDeformation {
           gy = p.y;
           // Plates already pin the bumpers; don't let shape-match shove them deeper.
           // Cabin / rails must still be allowed to yield once the plates pass the hubs.
-          if (hub.name.startsWith("bumper") && Math.abs(gz) < Math.abs(p.z)) gz = p.z;
+          if (hub.bumper && Math.abs(gz) < Math.abs(p.z)) gz = p.z;
         } else {
           const along = (gx - p.x) * ix + (gz - p.z) * iz;
           if (along < 0) {
@@ -2069,7 +1790,7 @@ export class StreamedDeformation {
         comZ1 = 0;
       for (let i = 0; i < this.shapeParticles.length; i++) {
         const hub = this.masses[i]!;
-        if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+        if (hub.hub && !this.deepCrush) continue;
         const p = this.shapeParticles[i]!;
         comX1 += p.x * p.mass;
         comY1 += p.y * p.mass;
@@ -2081,7 +1802,7 @@ export class StreamedDeformation {
       if (dx * dx + dy * dy + dz * dz > 1e-16) {
         for (let i = 0; i < this.shapeParticles.length; i++) {
           const hub = this.masses[i]!;
-          if (hub.name.startsWith("hub") && !this.deepCrush) continue;
+          if (hub.hub && !this.deepCrush) continue;
           const p = this.shapeParticles[i]!;
           p.x += dx;
           p.y += dy;
@@ -2124,7 +1845,7 @@ export class StreamedDeformation {
   private nudgeLatticeRails(dt: number): void {
     const k = Math.min(1, dt * 2.2);
     for (const m of this.masses) {
-      if (!m.name.startsWith("rail")) continue;
+      if (!m.rail) continue;
       if (m.local.distanceTo(m.rest) >= 0.22) continue;
       const tz = m.rest.z * 0.68;
       m.world.z += (tz - m.world.z) * k;
@@ -2142,7 +1863,7 @@ export class StreamedDeformation {
 
     for (const m of this.masses) {
       if (!m.dynamic) continue;
-      const hub = m.name.startsWith("hub");
+      const hub = m.hub;
       if (hub) m.vel.y -= 9.6 * dt;
       else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
       const quiet = this.quietTime();
@@ -2220,17 +1941,9 @@ export class StreamedDeformation {
   }
 
   private stepSuspension(dt: number): void {
-    const pairs: [MassName, MassName][] = [
-      ["hubFL", "engineL"],
-      ["hubFR", "engineR"],
-      ["hubRL", "axleR"],
-      ["hubRR", "axleR"],
-    ];
     const k = 11000;
     const c = 260;
-    for (const [hubName, mountName] of pairs) {
-      const hub = this.massByName(hubName);
-      const mount = this.massByName(mountName);
+    for (const [hub, mount] of this.suspension) {
       const restDy = hub.rest.y - mount.rest.y;
       const dy = hub.world.y - mount.world.y - restDy;
       const dv = hub.vel.y - mount.vel.y;
@@ -2334,7 +2047,7 @@ export class StreamedDeformation {
         let wsum = 0;
         _d.set(0, 0, 0);
         for (const m of this.masses) {
-          if (m.name.startsWith("hub") && !m.popped) continue;
+          if (m.hub && !m.popped) continue;
           const dist = rest.distanceTo(m.rest);
           if (dist > 1.15) continue;
           const w = Math.exp(-dist * 3.2);
@@ -2343,7 +2056,7 @@ export class StreamedDeformation {
           wsum += w;
         }
         if (wsum > 1e-6) {
-          const lid = cage.spec.name === "bonnet" || cage.spec.name === "boot" || cage.spec.name.startsWith("glass");
+          const lid = cage.spec.name === "bonnet" || cage.spec.name === "boot" || cage.glass;
           // Follow live masses. A far-side 0.12 scale left rest-sized cages
           // sticking through walls / the other car.
           const scale = lid && !this.bidirectional ? 0.45 : 1;
@@ -2529,7 +2242,7 @@ export class StreamedDeformation {
       }
       if (ry < 0.55) {
         for (const m of this.masses) {
-          if (!m.name.startsWith("hub")) continue;
+          if (!m.hub) continue;
           const d = Math.hypot(rx - m.rest.x, rz - m.rest.z);
           if (d > 0.4) continue;
           const keep = m.popped ? 0.15 : 0.82;
@@ -2549,180 +2262,6 @@ export class StreamedDeformation {
     this.dirty = true;
     this.skinnedThisFrame = true;
   }
-
-  private updateHelper(): void {
-    if (!this.helper?.visible) return;
-    for (let i = 0; i < this.sensors.length; i++) {
-      const s = this.sensors[i]!;
-      const mesh = this.helperSpheres[i];
-      if (!mesh) continue;
-      mesh.position.copy(s.pos);
-      const c = s.compression;
-      mesh.scale.setScalar(1 + c * 0.85);
-      const mat = mesh.material as THREE.MeshBasicMaterial;
-      mat.color.setRGB(0.72 + c * 0.28, 0.75 - c * 0.45, 0.8 - c * 0.65);
-    }
-    for (let i = 0; i < this.masses.length; i++) {
-      const mesh = this.massHelperMeshes[i];
-      const m = this.masses[i];
-      if (!mesh || !m) continue;
-      mesh.position.copy(m.local);
-      const mat = mesh.material as THREE.MeshBasicMaterial;
-      const travel = m.local.distanceTo(m.rest);
-      if (this.mode === "shape") mesh.scale.setScalar(1.55);
-      else mesh.scale.setScalar(1);
-      if (m.clipping) mat.color.setRGB(0.72, 0.22, 0.95);
-      else if (travel > 0.08) mat.color.setRGB(0.95, 0.18 + travel * 0.2, 0.14);
-      else if (this.mode === "shape") mat.color.setRGB(0.45, 0.85, 1);
-      else mat.color.setRGB(0.83, 0.54, 0.29);
-    }
-    this.writeCageLines();
-    this.writeBeamLines();
-    this.writeClusterLines();
-    this.syncHelperMode();
-  }
-
-  private syncHelperMode(): void {
-    if (this.beamHelperLines) this.beamHelperLines.visible = this.mode === "lattice";
-    if (this.clusterHelperLines) this.clusterHelperLines.visible = this.mode === "shape";
-  }
-
-  private writeClusterLines(): void {
-    const pos = this.clusterHelperPos;
-    const col = this.clusterHelperColor;
-    if (!pos || !col || !this.clusterHelperLines) return;
-    let o = 0;
-    let c = 0;
-    for (const cl of this.clusters) {
-      const pe = m3FrobeniusI(cl.Sp);
-      const r = 0.35 + Math.min(1, pe) * 0.6;
-      const g = 0.75 - Math.min(1, pe) * 0.45;
-      const b = 0.95;
-      let cx = 0,
-        cy = 0,
-        cz = 0,
-        w = 0;
-      for (const pi of cl.idx) {
-        const m = this.masses[pi]!;
-        cx += m.local.x * m.mass;
-        cy += m.local.y * m.mass;
-        cz += m.local.z * m.mass;
-        w += m.mass;
-      }
-      w = Math.max(w, 1e-6);
-      cx /= w;
-      cy /= w;
-      cz /= w;
-      for (const pi of cl.idx) {
-        const m = this.masses[pi]!;
-        pos[o++] = m.local.x;
-        pos[o++] = m.local.y;
-        pos[o++] = m.local.z;
-        pos[o++] = cx;
-        pos[o++] = cy;
-        pos[o++] = cz;
-        col[c++] = r;
-        col[c++] = g;
-        col[c++] = b;
-        col[c++] = r;
-        col[c++] = g;
-        col[c++] = b;
-      }
-    }
-    const attr = this.clusterHelperLines.geometry.getAttribute("position") as THREE.BufferAttribute;
-    attr.needsUpdate = true;
-    const cattr = this.clusterHelperLines.geometry.getAttribute("color") as THREE.BufferAttribute;
-    cattr.needsUpdate = true;
-  }
-
-  private writeCageLines(): void {
-    const pos = this.helperLinePos;
-    if (!pos || !this.helperLines) return;
-    const edges: [number, number][] = [
-      [0, 1],
-      [2, 3],
-      [4, 5],
-      [6, 7],
-      [0, 2],
-      [1, 3],
-      [4, 6],
-      [5, 7],
-      [0, 4],
-      [1, 5],
-      [2, 6],
-      [3, 7],
-    ];
-    let o = 0;
-    for (const cage of this.cages) {
-      for (const [a, b] of edges) {
-        const pa = cage.corners[a]!;
-        const pb = cage.corners[b]!;
-        pos[o++] = pa.x;
-        pos[o++] = pa.y;
-        pos[o++] = pa.z;
-        pos[o++] = pb.x;
-        pos[o++] = pb.y;
-        pos[o++] = pb.z;
-      }
-    }
-    const attr = this.helperLines.geometry.getAttribute("position") as THREE.BufferAttribute;
-    attr.needsUpdate = true;
-  }
-
-  private writeBeamLines(): void {
-    const pos = this.beamHelperPos;
-    const col = this.beamHelperColor;
-    if (!pos || !col || !this.beamHelperLines) return;
-    let o = 0;
-    let c = 0;
-    for (const beam of this.beams) {
-      const a = this.masses[beam.a]!;
-      const b = this.masses[beam.b]!;
-      pos[o++] = a.local.x;
-      pos[o++] = a.local.y;
-      pos[o++] = a.local.z;
-      pos[o++] = b.local.x;
-      pos[o++] = b.local.y;
-      pos[o++] = b.local.z;
-      _n.copy(b.local).sub(a.local);
-      const len = Math.max(_n.length(), 1e-5);
-      const along = _n.x * beam.restDir.x + _n.y * beam.restDir.y + _n.z * beam.restDir.z;
-      const strain = (along - beam.rest) / Math.max(beam.rest, 1e-4);
-      const shear = Math.hypot(_n.x - beam.restDir.x * along, _n.y - beam.restDir.y * along, _n.z - beam.restDir.z * along) / Math.max(beam.rest, 1e-4);
-      let r = 0.9,
-        g = 0.9,
-        bl = 0.88;
-      if (a.clipping || b.clipping) {
-        r = 0.72;
-        g = 0.2;
-        bl = 0.95;
-      } else if (strain < -0.04) {
-        const t = THREE.MathUtils.clamp(-strain / 0.35, 0, 1);
-        r = 0.95;
-        g = 0.12 + (1 - t) * 0.35;
-        bl = 0.1;
-      } else if (shear > 0.08) {
-        const t = THREE.MathUtils.clamp(shear / 0.4, 0, 1);
-        r = 0.98;
-        g = 0.42 + (1 - t) * 0.2;
-        bl = 0.08;
-      } else if (strain > 0.06) {
-        r = 0.45;
-        g = 0.75;
-        bl = 0.95;
-      }
-      col[c++] = r;
-      col[c++] = g;
-      col[c++] = bl;
-      col[c++] = r;
-      col[c++] = g;
-      col[c++] = bl;
-    }
-    const attr = this.beamHelperLines.geometry.getAttribute("position") as THREE.BufferAttribute;
-    attr.needsUpdate = true;
-    const cattr = this.beamHelperLines.geometry.getAttribute("color") as THREE.BufferAttribute;
-    cattr.needsUpdate = true;
-  }
 }
 
 function sphereHit(a: MassNode, b: MassNode): void {
@@ -2738,11 +2277,7 @@ function sphereHit(a: MassNode, b: MassNode): void {
   const imb = b.dynamic ? 1 / b.mass : 0;
   const inv = ima + imb;
   if (inv < 1e-8) return;
-  const crumple =
-    a.name.startsWith("bumper") ||
-    b.name.startsWith("bumper") ||
-    a.name.startsWith("wing") ||
-    b.name.startsWith("wing");
+  const crumple = a.crumple || b.crumple;
   const tA = forceTransfer(a.local.distanceTo(a.rest), a.bands, a.local.distanceTo(a.rest) >= a.bands.max * 0.97);
   const tB = forceTransfer(b.local.distanceTo(b.rest), b.bands, b.local.distanceTo(b.rest) >= b.bands.max * 0.97);
   const t = Math.min(tA, tB);
