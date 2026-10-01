@@ -782,87 +782,86 @@ export function makeRearSideGlass(sign: number, style: BodyStyle = SEDAN): THREE
   return makeSideGlassPane(sign, style, [q.zRearBot, B_PILLAR_Z.rear], [q.zRearTop, B_PILLAR_Z.rear], [0, 0, 0]);
 }
 
-export function makeMirror(sign: number): THREE.Group {
-  const g = new THREE.Group();
-  const arm = new THREE.Mesh(
-    new THREE.BoxGeometry(0.12, 0.04, 0.05),
-    new THREE.MeshStandardMaterial({ color: 0x2a2c32, roughness: 0.5, metalness: 0.4 }),
-  );
-  arm.position.set(sign * 0.08, 0, 0);
-  const cap = new THREE.Mesh(
-    new THREE.BoxGeometry(0.1, 0.08, 0.16),
-    new THREE.MeshStandardMaterial({ color: 0x1c1e22, roughness: 0.35, metalness: 0.55 }),
-  );
-  cap.position.set(sign * 0.16, 0.01, 0);
-  const glass = new THREE.Mesh(
-    new THREE.PlaneGeometry(0.08, 0.06),
-    new THREE.MeshStandardMaterial({ color: 0x9aa8b4, roughness: 0.08, metalness: 0.7 }),
-  );
-  glass.position.set(sign * 0.212, 0.01, 0);
-  glass.rotation.y = sign * Math.PI * 0.5;
-  g.add(arm, cap, glass);
-  return g;
+export function makeMirror(sign: number): THREE.Mesh {
+  const arm = toned(new THREE.BoxGeometry(0.12, 0.04, 0.05), 0x2a2c32, 0.5, 0.4);
+  arm.translate(sign * 0.08, 0, 0);
+  const cap = toned(new THREE.BoxGeometry(0.1, 0.08, 0.16), 0x1c1e22, 0.35, 0.55);
+  cap.translate(sign * 0.16, 0.01, 0);
+  const glass = toned(new THREE.PlaneGeometry(0.08, 0.06), 0x9aa8b4, 0.08, 0.7);
+  glass.rotateY(sign * Math.PI * 0.5);
+  glass.translate(sign * 0.212, 0.01, 0);
+  return new THREE.Mesh(mergeToned([arm, cap, glass], "mirror"), partsMaterial());
 }
 
-export function makeInterior(): THREE.Group {
-  const g = new THREE.Group();
-  const dark = new THREE.MeshStandardMaterial({ color: 0x14161c, roughness: 0.94, metalness: 0.04 });
-  const vinyl = new THREE.MeshStandardMaterial({ color: 0x1a1e24, roughness: 0.9, metalness: 0.05 });
-  const seat = new THREE.MeshStandardMaterial({ color: 0x1c2228, roughness: 0.88, metalness: 0.06 });
-  const floor = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.04, 1.28), dark);
-  floor.position.set(0, 0.34, 0.02);
-  const dash = new THREE.Mesh(new THREE.BoxGeometry(0.82, 0.2, 0.24), dark);
-  dash.position.set(0, 0.6, 0.48);
-  const liner = new THREE.Mesh(new THREE.BoxGeometry(0.78, 0.02, 1.05), vinyl);
-  liner.position.set(0, 1.08, 0.02);
-  const bulk = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.55, 0.04), vinyl);
-  bulk.position.set(0, 0.62, -0.62);
-  const wheel = new THREE.Mesh(
-    new THREE.TorusGeometry(0.11, 0.016, 8, 16),
-    new THREE.MeshStandardMaterial({ color: 0x2a2c32, roughness: 0.55, metalness: 0.2 }),
-  );
-  wheel.position.set(-0.22, 0.68, 0.36);
-  wheel.rotation.x = 0.55;
-  const mkSeat = (x: number, z: number) => {
-    const s = new THREE.Group();
-    const base = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.08, 0.36), seat);
-    base.position.set(0, 0.4, 0);
-    const back = new THREE.Mesh(new THREE.BoxGeometry(0.3, 0.32, 0.07), seat);
-    back.position.set(0, 0.58, -0.16);
-    back.rotation.x = -0.12;
-    s.add(base, back);
-    s.position.set(x, 0, z);
-    return s;
-  };
-  const mkWall = (sign: number) => {
-    const w = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.5, 1.1), vinyl);
-    w.position.set(sign * 0.4, 0.62, 0.02);
-    return w;
-  };
-  g.add(floor, dash, liner, bulk, wheel, mkSeat(-0.2, 0.06), mkSeat(0.2, 0.06), mkWall(-1), mkWall(1));
-  return g;
+/** Cabin tub, dash, headliner, bulkhead, seats, side walls and steering wheel: one draw. */
+export function makeInterior(): THREE.Mesh {
+  const dark = [0x14161c, 0.94, 0.04] as const;
+  const vinyl = [0x1a1e24, 0.9, 0.05] as const;
+  const seat = [0x1c2228, 0.88, 0.06] as const;
+  const box = (w: number, h: number, d: number, tone: readonly [number, number, number], x: number, y: number, z: number) =>
+    toned(new THREE.BoxGeometry(w, h, d), ...tone).translate(x, y, z);
+  const parts = [
+    box(0.84, 0.04, 1.28, dark, 0, 0.34, 0.02),
+    box(0.82, 0.2, 0.24, dark, 0, 0.6, 0.48),
+    box(0.78, 0.02, 1.05, vinyl, 0, 1.08, 0.02),
+    box(0.8, 0.55, 0.04, vinyl, 0, 0.62, -0.62),
+    toned(new THREE.TorusGeometry(0.11, 0.016, 8, 16), 0x2a2c32, 0.55, 0.2).rotateX(0.55).translate(-0.22, 0.68, 0.36),
+  ];
+  for (const x of [-0.2, 0.2]) {
+    parts.push(box(0.3, 0.08, 0.36, seat, x, 0.4, 0.06));
+    parts.push(toned(new THREE.BoxGeometry(0.3, 0.32, 0.07), ...seat).rotateX(-0.12).translate(x, 0.58, 0.06 - 0.16));
+  }
+  for (const sign of [-1, 1]) parts.push(box(0.03, 0.5, 1.1, vinyl, sign * 0.4, 0.62, 0.02));
+  return new THREE.Mesh(mergeToned(parts, "interior"), partsMaterial());
 }
 
-export function makeWheel(): THREE.Group {
-  const g = new THREE.Group();
-  const tire = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.32, 0.32, 0.22, 28, 1),
-    new THREE.MeshStandardMaterial({ color: 0x121214, roughness: 0.92, metalness: 0.05 }),
-  );
-  tire.rotation.z = Math.PI / 2;
-  tire.castShadow = true;
-  const rim = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.2, 0.22, 0.24, 18, 1),
-    new THREE.MeshStandardMaterial({ color: 0xc9cdd4, roughness: 0.28, metalness: 0.92 }),
-  );
-  rim.rotation.z = Math.PI / 2;
-  const hub = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.07, 0.07, 0.26, 12),
-    new THREE.MeshStandardMaterial({ color: 0x8a909a, roughness: 0.35, metalness: 0.8 }),
-  );
-  hub.rotation.z = Math.PI / 2;
-  g.add(tire, rim, hub);
-  return g;
+/** Inner door skin, in door-group space (hinge at the A-pillar). */
+export function makeDoorLining(sign: number): THREE.Mesh {
+  const geo = toned(new THREE.BoxGeometry(0.018, 0.5, 0.52), 0x1a1e24, 0.9, 0.04);
+  geo.translate(-sign * 0.024, 0, -0.28);
+  return new THREE.Mesh(geo, partsMaterial());
+}
+
+/**
+ * Every car's wheels (tyre, rim, hub) as one instanced draw plus one shadow draw. Cars keep a
+ * bare Group per wheel as the transform that spins, steers, rides the hub and pops; `sync` copies
+ * those world matrices in once the scene's matrices are current for the frame.
+ */
+export class WheelBatch {
+  readonly mesh: THREE.InstancedMesh;
+
+  constructor(capacity: number) {
+    const parts = [
+      toned(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 28, 1), 0x121214, 0.92, 0.05),
+      toned(new THREE.CylinderGeometry(0.2, 0.22, 0.24, 18, 1), 0xc9cdd4, 0.28, 0.92),
+      toned(new THREE.CylinderGeometry(0.07, 0.07, 0.26, 12), 0x8a909a, 0.35, 0.8),
+    ];
+    for (const p of parts) p.rotateZ(Math.PI / 2);
+    this.mesh = new THREE.InstancedMesh(mergeToned(parts, "wheel"), partsMaterial(), capacity);
+    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+    this.mesh.castShadow = true;
+    // Instances span the pad and move every frame; a stale bound would cull live wheels.
+    this.mesh.frustumCulled = false;
+    this.mesh.count = 0;
+  }
+
+  /** Pack the shown wheels of `cars` (world matrices must be current). */
+  sync(cars: readonly { readonly wheels: readonly THREE.Object3D[] }[]): void {
+    const max = this.mesh.instanceMatrix.count;
+    let n = 0;
+    for (const car of cars) {
+      for (const w of car.wheels) {
+        let shown = n < max;
+        for (let p: THREE.Object3D | null = w; p && shown; p = p.parent) shown = p.visible;
+        if (shown) this.mesh.setMatrixAt(n++, w.matrixWorld);
+      }
+    }
+    this.mesh.count = n;
+    const attr = this.mesh.instanceMatrix;
+    attr.clearUpdateRanges();
+    attr.addUpdateRange(0, n * 16);
+    attr.needsUpdate = true;
+  }
 }
 
 let _paintMap: THREE.CanvasTexture | null = null;
@@ -953,6 +952,72 @@ export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
   });
 }
 
+/** Roughness/metalness lookup in 0.01 steps: texel (i, j) = roughness i/100 (G), metalness j/100 (B). */
+const TONE_STEPS = 100;
+let _toneGrid: THREE.DataTexture | null = null;
+let _partsMat: THREE.MeshStandardMaterial | null = null;
+
+function toneGrid(): THREE.DataTexture {
+  if (_toneGrid) return _toneGrid;
+  const n = TONE_STEPS + 1;
+  const data = new Float32Array(n * n * 4);
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const o = (j * n + i) * 4;
+      data[o] = 1;
+      data[o + 1] = i / TONE_STEPS;
+      data[o + 2] = j / TONE_STEPS;
+      data[o + 3] = 1;
+    }
+  }
+  const t = new THREE.DataTexture(data, n, n, THREE.RGBAFormat, THREE.FloatType);
+  t.magFilter = THREE.NearestFilter;
+  t.minFilter = THREE.NearestFilter;
+  t.generateMipmaps = false;
+  t.needsUpdate = true;
+  _toneGrid = t;
+  return t;
+}
+
+/** Shared by every car's multi-tone static parts (interior, wheels, mirrors, trim): colour comes
+ * from vertex colours and roughness/metalness from `toneGrid` via UV, so dozens of tiny meshes
+ * collapse into a few draws that all reuse one program and one uniform upload. Never disposed. */
+export function partsMaterial(): THREE.MeshStandardMaterial {
+  if (_partsMat) return _partsMat;
+  const grid = toneGrid();
+  _partsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid });
+  _partsMat.userData.shared = true;
+  return _partsMat;
+}
+
+/** Paint `geo` one flat tone: vertex colour (linear, as `material.color` would be) and a UV at the
+ * tone-grid texel for this roughness/metalness. */
+function toned(geo: THREE.BufferGeometry, color: number, roughness: number, metalness: number): THREE.BufferGeometry {
+  const n = geo.getAttribute("position").count;
+  const c = new THREE.Color(color);
+  const u = (Math.round(roughness * TONE_STEPS) + 0.5) / (TONE_STEPS + 1);
+  const v = (Math.round(metalness * TONE_STEPS) + 0.5) / (TONE_STEPS + 1);
+  const col = new Float32Array(n * 3);
+  const uv = new Float32Array(n * 2);
+  for (let i = 0; i < n; i++) {
+    col[i * 3] = c.r;
+    col[i * 3 + 1] = c.g;
+    col[i * 3 + 2] = c.b;
+    uv[i * 2] = u;
+    uv[i * 2 + 1] = v;
+  }
+  geo.setAttribute("color", new THREE.BufferAttribute(col, 3));
+  geo.setAttribute("uv", new THREE.BufferAttribute(uv, 2));
+  return geo;
+}
+
+function mergeToned(parts: THREE.BufferGeometry[], what: string): THREE.BufferGeometry {
+  const geo = mergeGeometries(parts, false);
+  for (const g of parts) g.dispose();
+  if (!geo) throw new Error(`Failed to merge ${what}`);
+  return geo;
+}
+
 export function makeGlassMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
     color: 0x1a2832,
@@ -962,6 +1027,9 @@ export function makeGlassMaterial(): THREE.MeshStandardMaterial {
     opacity: 0.72,
     envMapIntensity: 1.15,
     side: THREE.DoubleSide,
+    // Panes are near-planar: each pixel sees one face, so three's back-then-front two-pass draw
+    // only doubled the draws and re-resolved the program twice per pane per frame.
+    forceSinglePass: true,
     depthWrite: true,
   });
 }
@@ -1013,33 +1081,20 @@ export function getCrackMap(): THREE.Texture {
 
 /** Grille slats plus the dark lamp housings the headlamp lenses sit in (one draw call). */
 export function makeGrille(): THREE.Mesh {
-  const parts = [new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1)];
+  const parts = [toned(new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1), 0x1a1c20, 0.55, 0.45)];
   for (const sx of [-0.52, 0.52]) {
-    const housing = new THREE.BoxGeometry(0.27, 0.125, 0.06);
-    housing.translate(sx, 0.05, -0.012);
-    parts.push(housing);
+    parts.push(toned(new THREE.BoxGeometry(0.27, 0.125, 0.06), 0x1a1c20, 0.55, 0.45).translate(sx, 0.05, -0.012));
   }
-  const geo = mergeGeometries(parts, false);
-  for (const g of parts) g.dispose();
-  if (!geo) throw new Error("Failed to merge grille");
-  const mat = new THREE.MeshStandardMaterial({ color: 0x1a1c20, roughness: 0.55, metalness: 0.45 });
-  return new THREE.Mesh(geo, mat);
+  return new THREE.Mesh(mergeToned(parts, "grille"), partsMaterial());
 }
 
-/** Tail lamp housings and a lower diffuser strip, in rear-bumper space. */
+/** Tail lamp housings, a lower diffuser strip and the number plate, in rear-bumper space. */
 export function makeTailTrim(): THREE.Mesh {
   const parts: THREE.BufferGeometry[] = [];
   for (const sx of [-0.52, 0.52]) {
-    const housing = new THREE.BoxGeometry(0.31, 0.115, 0.05);
-    housing.translate(sx, 0.15, -0.05);
-    parts.push(housing);
+    parts.push(toned(new THREE.BoxGeometry(0.31, 0.115, 0.05), 0x15171a, 0.6, 0.3).translate(sx, 0.15, -0.05));
   }
-  const diffuser = new THREE.BoxGeometry(1.1, 0.05, 0.06);
-  diffuser.translate(0, -0.12, -0.02);
-  parts.push(diffuser);
-  const geo = mergeGeometries(parts, false);
-  for (const g of parts) g.dispose();
-  if (!geo) throw new Error("Failed to merge tail trim");
-  const mat = new THREE.MeshStandardMaterial({ color: 0x15171a, roughness: 0.6, metalness: 0.3 });
-  return new THREE.Mesh(geo, mat);
+  parts.push(toned(new THREE.BoxGeometry(1.1, 0.05, 0.06), 0x15171a, 0.6, 0.3).translate(0, -0.12, -0.02));
+  parts.push(toned(new THREE.BoxGeometry(0.36, 0.11, 0.02), 0xd8d4cc, 0.6, 0.1).translate(0, 0.03, -0.08));
+  return new THREE.Mesh(mergeToned(parts, "tail trim"), partsMaterial());
 }

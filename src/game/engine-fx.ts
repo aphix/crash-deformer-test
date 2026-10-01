@@ -396,6 +396,7 @@ export class TireSmokeSystem {
       depthWrite: false,
       blending: THREE.NormalBlending,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     });
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);

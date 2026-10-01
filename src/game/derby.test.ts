@@ -172,16 +172,24 @@ describe("derby arena", () => {
     const arena = makeDerbyArena();
     const long = new THREE.Vector3();
     const radial = new THREE.Vector3();
+    const m = new THREE.Matrix4();
+    const q = new THREE.Quaternion();
+    const s = new THREE.Vector3();
     let slabs = 0;
     for (const child of arena.children) {
-      const mesh = child as THREE.Mesh;
-      if (!mesh.isMesh || mesh.geometry.type !== "BoxGeometry") continue;
-      slabs++;
-      long.set(0, 0, 1).applyQuaternion(mesh.quaternion);
-      radial.copy(mesh.position).setY(0);
-      const len = radial.length() || 1;
-      const dot = Math.abs(long.dot(radial) / len);
-      assert.ok(dot < 0.25, `slab long-axis is radial, dot=${dot.toFixed(2)}`);
+      const walls = child as THREE.InstancedMesh;
+      if (!walls.isInstancedMesh || walls.geometry.type !== "BoxGeometry") continue;
+      for (let i = 0; i < walls.count; i++) {
+        slabs++;
+        walls.getMatrixAt(i, m);
+        m.decompose(radial, q, s);
+        long.set(0, 0, 1).applyQuaternion(q);
+        radial.setY(0);
+        const len = radial.length() || 1;
+        const dot = Math.abs(long.dot(radial) / len);
+        assert.ok(dot < 0.25, `slab long-axis is radial, dot=${dot.toFixed(2)}`);
+        assert.ok(Math.abs(len - DERBY_RADIUS) < 0.01, `slab off the ring, r=${len.toFixed(2)}`);
+      }
     }
     assert.ok(slabs >= 16);
   });
