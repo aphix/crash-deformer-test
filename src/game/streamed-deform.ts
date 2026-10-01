@@ -2242,10 +2242,14 @@ export class StreamedDeformation {
     }
   }
 
+  /**
+   * Skin = each cluster's full least-squares map of rest onto the current local particles
+   * (β = 1, plastic Sp composed in): the mesh shows where the particles are. The material β
+   * shapes only the solver's goals; a stiffer skin turns crumple shear into a polar swing
+   * that throws vertices a metre from the cluster centre off the particles.
+   */
   private bakeLocalSkin(): void {
-    for (let ci = 0; ci < this.clusters.length; ci++) {
-      matchSkinLocal(this.clusters[ci]!, this.skinRest, this.skinLocal, this.skinMassN, this.clusterBeta(ci, this.crushing || this.bidirectional));
-    }
+    for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, 1);
   }
 
   private solveCagesFromShape(): void {

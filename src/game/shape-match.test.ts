@@ -374,6 +374,54 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(z > 0.4, `skin collapsed z=${z}`);
   });
 
+  it("good: a plastic dent (Sp) reaches the skin, not just the particles", () => {
+    const rest: [number, number, number][] = [
+      [0.6, 0.3, 1],
+      [-0.6, 0.3, 1],
+      [0.6, -0.3, -1],
+      [-0.6, -0.3, -1],
+      [0, 0.5, 0],
+      [0, -0.5, 0.2],
+    ];
+    const P = particlesAt(rest);
+    const c = makeCluster(P, P.map((_, i) => i));
+    // Hold the front face 0.45 m in while plasticity takes the squash into the rest…
+    for (const p of P) if (p.z > 0.5) p.z -= 0.45;
+    for (let k = 0; k < 200; k++) {
+      matchCluster(c, P, 0.2);
+      applyPlasticity(c, P, 1 / 60, 0.9, true, 0.9);
+    }
+    // …then let go: the particles settle on their goals, so what they keep is the plastic dent.
+    for (let k = 0; k < 200; k++) {
+      matchCluster(c, P, 0.2);
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i]!;
+        p.x = c.M[0]! * c.qx[i]! + c.M[1]! * c.qy[i]! + c.M[2]! * c.qz[i]! + c.cmx;
+        p.y = c.M[3]! * c.qx[i]! + c.M[4]! * c.qy[i]! + c.M[5]! * c.qz[i]! + c.cmy;
+        p.z = c.M[6]! * c.qx[i]! + c.M[7]! * c.qy[i]! + c.M[8]! * c.qz[i]! + c.cmz;
+      }
+    }
+    const dent = 1 - (P[0]!.z + P[1]!.z) / 2;
+    assert.ok(dent > 0.15, `fixture: plastic dent only ${dent.toFixed(3)} m`);
+    matchSkinLocal(c, rest.map(([x, y, z]) => ({ x, y, z })), P, P.map((p) => p.mass), 1);
+    const v = transformSkinPointInto(c, 0, 0.3, 1);
+    assert.ok(1 - v.z >= 0.8 * dent, `skin vertex at the dented face moved ${(1 - v.z).toFixed(3)} m of the particles' ${dent.toFixed(3)}`);
+  });
+
+  it("bad: a folded-over flat cluster holds its last turn instead of flipping", () => {
+    const P = particlesAt([
+      [-0.3, 0, 1.2],
+      [-0.5, 0, 0.7],
+      [-0.7, 0, 1.3],
+    ]);
+    const c = makeCluster(P, [0, 1, 2]);
+    // The first particle is shoved through the far edge: the triangle is now mirrored in-plane.
+    P[0]!.x = -1.0;
+    P[0]!.z = 0.7;
+    matchCluster(c, P, 0.2);
+    assert.ok(m3RotationAngle(c.R) < 0.05, `folded triangle swung R by ${m3RotationAngle(c.R).toFixed(3)} rad`);
+  });
+
   it("bad: skin polar must not overwrite match R / Rprev (slomo two-state flicker)", () => {
     const rest = [
       [1, 0, 1],

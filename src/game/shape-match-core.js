@@ -476,7 +476,8 @@ function planeNormalInto(a00, a01, a02, a11, a12, a22, out) {
  * A = Apq·Aqq⁻¹ only knows the in-plane columns, so replace its normal column with the
  * turned rest normal, n_cur = (A u) × (A v) / |…| for the rest plane basis u × v = n:
  * A ← A(I − n nᵀ) + n_cur nᵀ. A rigid motion R gives A = R exactly; the thin direction
- * carries no strain. Rprev turns the normal when the in-plane fit has collapsed.
+ * carries no strain. Returns false, A untouched, when the in-plane fit has collapsed or
+ * folded over (n_cur against Rprev·n): no proper rotation fits a mirrored slab.
  */
 function completePlanarInto(A, n, Rprev) {
   const nx = n[0], ny = n[1], nz = n[2];
@@ -494,18 +495,18 @@ function completePlanarInto(A, n, Rprev) {
   let my = nx * c23y + ny * c31y + nz * c12y;
   let mz = nx * c23z + ny * c31z + nz * c12z;
   const l = Math.hypot(mx, my, mz);
-  if (l > 1e-9) {
-    mx /= l;
-    my /= l;
-    mz /= l;
-  } else {
-    mx = Rprev[0] * nx + Rprev[1] * ny + Rprev[2] * nz;
-    my = Rprev[3] * nx + Rprev[4] * ny + Rprev[5] * nz;
-    mz = Rprev[6] * nx + Rprev[7] * ny + Rprev[8] * nz;
-  }
+  const px = Rprev[0] * nx + Rprev[1] * ny + Rprev[2] * nz;
+  const py = Rprev[3] * nx + Rprev[4] * ny + Rprev[5] * nz;
+  const pz = Rprev[6] * nx + Rprev[7] * ny + Rprev[8] * nz;
+  // Folded: the turned normal lies more than 90° from where the cluster last faced.
+  if (!(l > 1e-9) || mx * px + my * py + mz * pz <= 0) return false;
+  mx /= l;
+  my /= l;
+  mz /= l;
   A[0] = b0 + mx * nx; A[1] = b1 + mx * ny; A[2] = b2 + mx * nz;
   A[3] = b3 + my * nx; A[4] = b4 + my * ny; A[5] = b5 + my * nz;
   A[6] = b6 + mz * nx; A[7] = b7 + mz * ny; A[8] = b8 + mz * nz;
+  return true;
 }
 /** out = Apq · inv, Apq row-major in p0..p8. */
 function fitInto(p0, p1, p2, p3, p4, p5, p6, p7, p8, inv, out) {
@@ -570,8 +571,13 @@ function matchCluster(c, particles, beta) {
   c.cmz = cmz;
   // Σ m (x − cm) q^T = Σ m x q^T − cm (Σ m q)^T
   fitInto(p0 - cmx * ux, p1 - cmx * uy, p2 - cmx * uz, p3 - cmy * ux, p4 - cmy * uy, p5 - cmy * uz, p6 - cmz * ux, p7 - cmz * uy, p8 - cmz * uz, c.AqqInv, c.A);
-  if (c.planar) completePlanarInto(c.A, c.n, c.R);
-  m3Polar(c.A, c.rotQ, c.R, c.S);
+  if (c.planar && !completePlanarInto(c.A, c.n, c.Rprev)) {
+    // A folded flat cluster pulls back to its last orientation, unstretched.
+    m3Copy(c.Rprev, c.R);
+    m3Id(c.S);
+  } else {
+    m3Polar(c.A, c.rotQ, c.R, c.S);
+  }
   stabilizeMat(c.R, c.Rprev);
   blendStretchInto(c.R, c.S, beta, 8, c.M);
 }
@@ -752,13 +758,17 @@ function matchSkinLocal(c, rest, local, mass, beta) {
   }
   symInvertInto(a00, a01, a02, a11, a12, a22, _AqqInv);
   fitInto(p0, p1, p2, p3, p4, p5, p6, p7, p8, _AqqInv, c.A);
-  if (c.planar) {
-    planeNormalInto(a00, a01, a02, a11, a12, a22, _skinN);
-    completePlanarInto(c.A, _skinN, c.skinR);
+  if (c.planar) planeNormalInto(a00, a01, a02, a11, a12, a22, _skinN);
+  if (c.planar && !completePlanarInto(c.A, _skinN, c.skinRprev)) {
+    m3Copy(c.skinRprev, c.skinR);
+    m3Id(c.S);
+  } else {
+    m3Polar(c.A, c.skinRotQ, c.skinR, c.S);
   }
-  m3Polar(c.A, c.skinRotQ, c.skinR, c.S);
   stabilizeMat(c.skinR, c.skinRprev);
   blendStretchInto(c.skinR, c.S, beta, 4, c.skinM);
+  // The fit is local vs Sp·rest, so the plastic dent itself is Sp: skinM = R(I + β(S − I))·Sp.
+  m3Mul(c.skinM, c.Sp, c.skinM);
 }
 const _AqqInv = m3();
 const _skinN = new Float64Array([0, 1, 0]);
