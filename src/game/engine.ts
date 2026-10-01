@@ -28,6 +28,7 @@ import {
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
 import { DerbyMatch, snapshotAiCar } from "./derby.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
+import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
 
 export type { CrashHudState, CrashPhase } from "./hud-store";
@@ -150,6 +151,7 @@ export class CrashEngine {
   private derby = new DerbyMatch();
   private seat = new DriverSeat();
   private keys = new Set<string>();
+  private readonly pad = new GamepadInput();
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   private arena!: THREE.Group;
@@ -177,7 +179,9 @@ export class CrashEngine {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 180);
-    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.reduceMotion, (x, y) => this.pickCar(x, y));
+    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.reduceMotion, (x, y) =>
+      this.pickCar(x, y),
+    );
 
     this.scene.background = new THREE.Color(0x12141a);
     this.scene.fog = new THREE.FogExp2(0x12141a, 0.008);
@@ -219,6 +223,8 @@ export class CrashEngine {
 
     window.addEventListener("keydown", this.onKey);
     window.addEventListener("keyup", this.onKeyUp);
+    window.addEventListener("blur", this.onBlur);
+    this.pad.attach(() => this.emitHud(true));
     this.view.attach();
     try {
       this.randomizeAndReset();
@@ -241,6 +247,8 @@ export class CrashEngine {
     this.renderer.setAnimationLoop(null);
     window.removeEventListener("keydown", this.onKey);
     window.removeEventListener("keyup", this.onKeyUp);
+    window.removeEventListener("blur", this.onBlur);
+    this.pad.detach();
     this.view.detach();
     this.resizeObs.disconnect();
     for (const car of this.cars) car.dispose();
@@ -551,20 +559,27 @@ export class CrashEngine {
     const tag = (e.target as HTMLElement | null)?.tagName;
     if (tag === "INPUT" || tag === "TEXTAREA") return;
     this.keys.add(e.code);
-    this.seat.poke(this.keys);
+    const driving = this.seat.mode === "drive";
+    if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
     if (e.repeat) return;
     if (e.code === "Space") {
       e.preventDefault();
-      if (this.seat.mode === "global") this.togglePlay();
+      if (!driving) this.togglePlay();
     } else if (e.code === "Escape") {
       this.seat.esc();
       this.emitHud(true);
-    } else if (e.code === "KeyT" && this.seat.mode === "drive") {
-      this.seat.toggleView();
+    } else if (e.code === "KeyV" || e.code === "KeyT" || (e.code === "KeyC" && driving)) {
+      if (driving) {
+        this.seat.cycleView();
+        this.emitHud(true);
+      }
+    } else if (e.code === "KeyQ" || e.code === "KeyE") {
+      this.seat.cycle(e.code === "KeyE" ? 1 : -1, this.carCount);
       this.emitHud(true);
     } else if (e.code === "KeyR") {
       e.preventDefault();
-      this.reset();
+      if (driving) this.recoverDriven();
+      else this.reset();
     } else if (e.code === "KeyL") {
       this.toggleLoop();
     } else if (e.code === "KeyG") {
@@ -599,8 +614,42 @@ export class CrashEngine {
 
   private onKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
-    this.seat.poke(this.keys);
   };
+
+  /** Keys released while the tab is unfocused never send keyup; drop them all. */
+  private onBlur = (): void => {
+    this.keys.clear();
+  };
+
+  /** Once per frame: keys + pad → seat intent; pad button presses → seat / scene actions. */
+  private pollInput(): void {
+    const pad = this.pad.poll();
+    if (this.seat.sample(this.keys, pad)) this.emitHud(true);
+    const hit = pad.pressed;
+    if (hit === 0) return;
+    const driving = this.seat.mode === "drive";
+    if ((hit & (1 << PAD_BUTTON.start)) !== 0) this.togglePlay();
+    if ((hit & (1 << PAD_BUTTON.back)) !== 0) this.seat.esc();
+    if ((hit & (1 << PAD_BUTTON.lb)) !== 0) this.seat.cycle(-1, this.carCount);
+    if ((hit & (1 << PAD_BUTTON.rb)) !== 0) this.seat.cycle(1, this.carCount);
+    if (driving && (hit & (1 << PAD_BUTTON.north)) !== 0) this.seat.cycleView();
+    if (driving && (hit & (1 << PAD_BUTTON.down)) !== 0) this.recoverDriven();
+    this.emitHud(true);
+  }
+
+  /**
+   * R / D-pad down while driving: back on its wheels where it stands, at rest and
+   * repaired. In a derby only a flipped car that still runs may, so it is no free heal.
+   */
+  private recoverDriven(): void {
+    const car = this.seat.carIndex < this.carCount ? this.cars[this.seat.carIndex] : undefined;
+    if (!car) return;
+    car.refreshBasis();
+    const upright = car.group.matrixWorld.elements[5]! > 0.5;
+    if (this.derbyMode && (upright || !car.deform.drivetrainAlive)) return;
+    car.spawnFacing(car.group.position.x, car.group.position.z, Math.atan2(car.fwdFlat.x, car.fwdFlat.z), 0);
+    this.dressCar(car);
+  }
 
   private pickCar(clientX: number, clientY: number): void {
     const rect = this.canvas.getBoundingClientRect();
@@ -845,6 +894,7 @@ export class CrashEngine {
       const inst = 1 / wallDt;
       this.fps = this.fps > 1 ? this.fps * 0.85 + inst * 0.15 : inst;
     }
+    this.pollInput();
 
     if (this.playing) {
       this.elapsedWall += wallDt;
@@ -1037,7 +1087,7 @@ export class CrashEngine {
     const driven = this.seat.mode === "drive" ? this.seat.carIndex : -1;
     if (driven >= 0 && driven < cars.length) {
       const car = cars[driven]!;
-      if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(this.keys), dt);
+      if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(car, dt), dt);
     }
     if (this.derbyMode && this.derby.winnerId == null) {
       const snaps = this.derby.snapshots(cars.length);
@@ -1389,7 +1439,7 @@ export class CrashEngine {
   private updateCamera(wallDt: number): void {
     const followed = this.followedCar();
     if (followed && followed.group.visible && this.seat.mode === "drive") {
-      this.view.frameDrive(followed, wallDt);
+      this.view.frameDrive(followed, wallDt, this.playing);
       return;
     }
     const look = this.view.look;
@@ -1553,6 +1603,7 @@ export class CrashEngine {
       seat: this.seat.mode,
       boost: this.seat.boost,
       view: this.seat.view,
+      pad: this.pad.label,
     });
   }
 

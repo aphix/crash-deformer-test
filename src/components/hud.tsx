@@ -63,6 +63,19 @@ const PHASE: Record<CrashHudState["phase"], string> = {
   aftermath: "Aftermath",
 };
 
+const VIEW: Record<CrashHudState["view"], string> = { third: "Chase cam", far: "Far chase", first: "Hood cam" };
+
+function seatHint(state: CrashHudState): string {
+  if (state.seat === "drive") {
+    return state.pad
+      ? `Driving · ${VIEW[state.view]} · RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · right stick look · LB/RB car · D-pad ↓ recover · Back watch`
+      : `Driving · ${VIEW[state.view]} · W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · R recover · Esc watch`;
+  }
+  return state.pad
+    ? "Watching · RT, LT or left stick to drive · LB/RB switch car · Back exit"
+    : "Watching · W/A/S/D to drive · Q/E switch car · Esc back";
+}
+
 export function Hud({
   state,
   onReset,
@@ -176,6 +189,11 @@ export function Hud({
           >
             {state.derby ? (state.derbyWinner ? "Winner" : "Derby") : PHASE[state.phase]}
           </span>
+          {state.pad ? (
+            <span className="rounded-full bg-surface-2 px-3 py-1 font-display text-[0.7rem] uppercase tracking-[0.16em] text-muted shadow-[var(--shadow-border)]">
+              {state.pad} connected
+            </span>
+          ) : null}
         </div>
       </header>
 
@@ -197,11 +215,10 @@ export function Hud({
 
       {state.seat !== "global" ? (
         <div className="pointer-events-none absolute bottom-28 left-1/2 z-10 w-[min(28rem,calc(100%-2rem))] -translate-x-1/2 rounded-xl bg-surface/90 px-4 py-2 text-center shadow-[var(--shadow-border)]">
-          <p className="font-display text-sm text-fg">
-            {state.seat === "drive"
-              ? `Driving · ${state.view === "first" ? "first" : "third"} person · Space brake · Shift boost · T view · Esc watch`
-              : "Watching · WASD to drive · Esc back"}
-          </p>
+          <p className="font-display text-sm text-fg">{seatHint(state)}</p>
+          {state.seat === "drive" ? (
+            <p className="mt-1 text-xs text-muted">Reversing steers like a real car: left swings the tail left.</p>
+          ) : null}
           {state.seat === "drive" ? (
             <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-2">
               <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />

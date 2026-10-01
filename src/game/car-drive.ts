@@ -1,9 +1,12 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
+import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
+import type { PadState } from "./gamepad.ts";
 
-/** Shared by derby AI now and a player seat (WASD / boost). */
+/** Shared by derby AI and the player seat. */
 export type DriveInput = {
   throttle: number;
+  /** Yaw command: +1 swings the nose LEFT (CCW from above) whichever way the car rolls. */
   steer: number;
   brake: number;
   ebrake: boolean;
@@ -58,10 +61,12 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const max = (throttle < 0 ? DRIVE.maxRev : DRIVE.maxFwd) * (boosting ? 1.42 : 1);
   let speed = along;
   let want = 0;
-  if (input.ebrake || brake > 0.2) {
-    const drag = input.ebrake ? DRIVE.ebrakeDrag : THREE.MathUtils.lerp(DRIVE.coast, DRIVE.brake, brake);
-    speed *= Math.pow(Math.max(0.04, 1 - drag * dt), 1);
-    if (Math.abs(speed) < 0.4) speed = 0;
+  if (input.ebrake || brake > 0) {
+    let s = Math.abs(speed);
+    if (input.ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
+    // Brake force is near constant: a linear stop, never weaker than lifting off.
+    if (brake > 0) s = Math.max(0, s - DRIVE.brake * Math.max(0.45, brake) * dt);
+    speed = s < 0.4 ? 0 : Math.sign(speed) * s;
   } else {
     want = throttle * max;
     const rate = (Math.abs(want) > Math.abs(speed) ? DRIVE.accel : DRIVE.brake * 0.45) * (boosting ? 1.55 : 1);
@@ -138,23 +143,32 @@ function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: num
 export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4 };
 
 export type SeatMode = "global" | "follow" | "drive";
-export type SeatView = "third" | "first";
+export type SeatView = "third" | "far" | "first";
+const VIEWS: readonly SeatView[] = ["third", "far", "first"];
 
-/** Click follows. WASD promotes follow → drive. Esc steps back one level. */
+/** Click (or LB/RB, Q/E) follows; a pedal or the wheel promotes follow → drive; Esc steps back one level. */
 export class DriverSeat {
   mode: SeatMode = "global";
   view: SeatView = "third";
   carIndex = -1;
   boost = 1;
-  mouseIdle = 10;
-  camYaw = 0;
-  camPitch = 0.22;
-  private boostHeld = false;
+  /** This frame's merged keyboard + pad intent. */
+  readonly intent = blankIntent();
+  private readonly feel: DriveFeel = { wheel: 0, gas: 0, brake: 0 };
+  private readonly out = idleDrive();
+  private wasActive = false;
 
   focus(index: number): void {
     this.carIndex = index;
     this.mode = "follow";
-    this.view = "third";
+  }
+
+  /** Next (+1) / previous (-1) of `count` cars; from the whole field this starts following. */
+  cycle(dir: number, count: number): void {
+    if (count <= 0) return;
+    const from = this.carIndex < 0 ? (dir > 0 ? -1 : 0) : this.carIndex;
+    this.carIndex = (((from + dir) % count) + count) % count;
+    if (this.mode === "global") this.mode = "follow";
   }
 
   esc(): void {
@@ -168,33 +182,34 @@ export class DriverSeat {
     }
   }
 
-  poke(keys: ReadonlySet<string>): void {
-    const drive =
-      keys.has("KeyW") || keys.has("KeyA") || keys.has("KeyS") || keys.has("KeyD") || keys.has("Space");
-    if (this.mode === "follow" && drive && this.carIndex >= 0) this.mode = "drive";
-    this.boostHeld = keys.has("ShiftLeft") || keys.has("ShiftRight");
+  /**
+   * Read this frame's keys + pad. True when a fresh pedal / wheel press just took the seat
+   * from follow to drive (one still held through Esc or a car switch does not grab it back).
+   */
+  sample(keys: ReadonlySet<string>, pad: PadState | null): boolean {
+    const i = readIntent(keys, pad, this.intent);
+    if (this.mode !== "drive") {
+      this.feel.wheel = 0;
+      this.feel.gas = 0;
+      this.feel.brake = 0;
+    }
+    const active = i.gas >= 0.05 || i.brake >= 0.05 || Math.abs(i.wheel) >= 0.05;
+    const fresh = active && !this.wasActive;
+    this.wasActive = active;
+    if (!fresh || this.mode !== "follow" || this.carIndex < 0) return false;
+    this.mode = "drive";
+    return true;
   }
 
-  toggleView(): void {
-    this.view = this.view === "third" ? "first" : "third";
-  }
-
-  nudgeLook(dx: number, dy: number): void {
-    this.camYaw -= dx * 0.0045;
-    this.camPitch = Math.max(-0.55, Math.min(0.85, this.camPitch - dy * 0.003));
-    this.mouseIdle = 0;
+  cycleView(): void {
+    this.view = VIEWS[(VIEWS.indexOf(this.view) + 1) % VIEWS.length]!;
   }
 
   step(dt: number): void {
-    this.mouseIdle += dt;
-    if (this.mode === "drive" && this.boostHeld && this.boost > 0) {
+    if (this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0) {
       this.boost = Math.max(0, this.boost - dt / BOOST.full);
     } else {
       this.boost = Math.min(1, this.boost + dt / BOOST.recharge);
-    }
-    if (this.mouseIdle > 0.35) {
-      const k = 1 - Math.exp(-3.4 * dt);
-      this.camYaw += -this.camYaw * k;
     }
   }
 
@@ -202,23 +217,16 @@ export class DriverSeat {
     this.boost = Math.min(1, this.boost + amount);
   }
 
-  input(keys: ReadonlySet<string>): DriveInput {
-    const throttle = (keys.has("KeyW") ? 1 : 0) - (keys.has("KeyS") ? 1 : 0);
-    const steer = (keys.has("KeyA") ? 1 : 0) - (keys.has("KeyD") ? 1 : 0);
-    const brake = this.mode === "drive" && keys.has("Space") ? 1 : 0;
-    return {
-      throttle: this.mode === "drive" ? throttle : 0,
-      steer: this.mode === "drive" ? steer : 0,
-      brake,
-      ebrake: brake > 0 && Math.abs(steer) > 0.2,
-      boost: this.mode === "drive" && this.boostHeld && this.boost > 0.02 && throttle > 0,
-    };
+  /** Shaped input for one physics slice of the driven car (pooled: read it before the next call). */
+  input(car: Pick<DeformableCar, "velocity" | "fwdFlat">, dt: number): DriveInput {
+    const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
+    shapeDrive(this.intent, this.feel, along, dt, this.out);
+    this.out.boost = this.out.boost && this.boost > 0.02;
+    return this.out;
   }
 
   clear(): void {
     this.mode = "global";
     this.carIndex = -1;
-    this.view = "third";
-    this.camYaw = 0;
   }
 }

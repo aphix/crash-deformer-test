@@ -56,7 +56,9 @@ export type CrashHudState = {
   derbyBoard: { name: string; score: number; alive: boolean }[];
   seat: "global" | "follow" | "drive";
   boost: number;
-  view: "third" | "first";
+  view: "third" | "far" | "first";
+  /** Connected gamepad label ("Xbox controller", …), null when none. */
+  pad: string | null;
 };
 
 export const INITIAL_HUD: CrashHudState = {
@@ -101,6 +103,7 @@ export const INITIAL_HUD: CrashHudState = {
   seat: "global",
   boost: 1,
   view: "third",
+  pad: null,
 };
 
 let snapshot: CrashHudState = INITIAL_HUD;

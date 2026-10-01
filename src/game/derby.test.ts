@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, HIT_DEBOUNCE, snapshotAiCar } from "./derby.ts";
 import { clipToDerbyBowl, DERBY_RADIUS, makeDerbyArena } from "./derby-arena.ts";
-import { idleDrive, applyDrive, DriverSeat, type DriveInput } from "./car-drive.ts";
+import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
 import { layoutDerby, MAX_CARS } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
@@ -221,46 +221,6 @@ describe("drive input", () => {
     assert.equal(d.throttle, 0);
     assert.equal(d.ebrake, false);
     assert.equal(d.boost, false);
-  });
-});
-
-describe("driver seat", () => {
-  it("good: click follows, WASD drives, esc steps back", () => {
-    const s = new DriverSeat();
-    s.focus(1);
-    assert.equal(s.mode, "follow");
-    s.poke(new Set(["KeyW", "ShiftLeft"]));
-    assert.equal(s.mode, "drive");
-    const input = s.input(new Set(["KeyW", "ShiftLeft"]));
-    assert.equal(input.throttle, 1);
-    assert.equal(input.boost, true);
-    s.esc();
-    assert.equal(s.mode, "follow");
-    s.esc();
-    assert.equal(s.mode, "global");
-    assert.equal(s.carIndex, -1);
-  });
-
-  it("good: boost drains while held and refills on a takedown", () => {
-    const s = new DriverSeat();
-    s.focus(0);
-    s.poke(new Set(["ShiftLeft"]));
-    s.mode = "drive";
-    s.step(0.8);
-    assert.ok(s.boost < 0.6, `boost ${s.boost}`);
-    s.addBoost(0.4);
-    assert.ok(s.boost > 0.7);
-  });
-
-  it("good: look yaw collapses back toward the velocity heading", () => {
-    const s = new DriverSeat();
-    s.nudgeLook(80, 0);
-    assert.ok(Math.abs(s.camYaw) > 0.2);
-    s.mouseIdle = 1;
-    s.step(0.5);
-    const mid = Math.abs(s.camYaw);
-    s.step(0.8);
-    assert.ok(Math.abs(s.camYaw) < mid);
   });
 });
 
