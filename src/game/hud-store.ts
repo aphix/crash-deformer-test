@@ -5,6 +5,7 @@ export type CrashHudState = {
   playing: boolean;
   looping: boolean;
   showRig: boolean;
+  showParticles: boolean;
   showBarrier: boolean;
   showBalls: boolean;
   showCompactor: boolean;
@@ -46,6 +47,7 @@ export const INITIAL_HUD: CrashHudState = {
   playing: true,
   looping: true,
   showRig: false,
+  showParticles: false,
   showBarrier: false,
   showBalls: false,
   showCompactor: false,

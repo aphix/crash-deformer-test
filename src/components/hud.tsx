@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   BrickWall,
   Braces,
+  CircleDashed,
   CircleDot,
   ClipboardCopy,
   FoldHorizontal,
@@ -29,6 +30,7 @@ type Props = {
   onTogglePlay: () => void;
   onToggleLoop: () => void;
   onToggleRig: () => void;
+  onToggleParticles: () => void;
   onToggleBarrier: () => void;
   onToggleBalls: () => void;
   onToggleCompactor: () => void;
@@ -61,6 +63,7 @@ export function Hud({
   onTogglePlay,
   onToggleLoop,
   onToggleRig,
+  onToggleParticles,
   onToggleBarrier,
   onToggleBalls,
   onToggleCompactor,
@@ -344,6 +347,15 @@ export function Hud({
             <span className="hidden sm:inline">Rig</span>
           </Button>
           <Button
+            onClick={onToggleParticles}
+            variant={state.showParticles ? "default" : "ghost"}
+            aria-pressed={state.showParticles}
+            aria-label="Toggle control particles"
+          >
+            <CircleDashed />
+            <span className="hidden sm:inline">Particles</span>
+          </Button>
+          <Button
             onClick={onToggleOrbit}
             variant={state.autoRotate ? "default" : "ghost"}
             aria-pressed={state.autoRotate}
@@ -534,7 +546,7 @@ export function Hud({
           </Button>
           <p className="ml-auto hidden items-center gap-1 pr-2 text-xs text-subtle md:flex">
             <Gauge className="size-3.5" />
-            Space pause · R reset · L loop · B wall · K balls · G rig · O orbit · M slomo · U audio · Y shape · J json
+            Space pause · R reset · L loop · B wall · K balls · G rig · P particles · O orbit · M slomo · U audio · Y shape · J json
           </p>
         </div>
       </div>
