@@ -71,6 +71,7 @@ export function CrashLab() {
         onDoorConfig={(patch) => engineRef.current?.setDoorConfig(patch)}
         onToggleDoorOpen={() => engineRef.current?.toggleDoorOpen()}
         onToggleDerby={() => engineRef.current?.toggleDerby()}
+        onWatchCar={(i) => engineRef.current?.watchCar(i)}
         onToggleOrbit={() => engineRef.current?.toggleOrbit()}
         onToggleSlomo={() => engineRef.current?.toggleSlomo()}
         onToggleAudio={() => engineRef.current?.toggleAudio()}

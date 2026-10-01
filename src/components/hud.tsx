@@ -39,6 +39,8 @@ export type HudProps = {
   onDoorConfig: (patch: Partial<Pick<DoorHud, "kph" | "kg" | "side">>) => void;
   onToggleDoorOpen: () => void;
   onToggleDerby: () => void;
+  /** Follow car `index` (derby board click). */
+  onWatchCar: (index: number) => void;
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
   onToggleAudio: () => void;
@@ -165,7 +167,7 @@ export function Hud(props: HudProps) {
             onToggleOpen={props.onToggleDoorOpen}
           />
         ) : null}
-        {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} /> : null}
+        {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} onWatch={props.onWatchCar} /> : null}
       </div>
 
       <HudSections {...props} />

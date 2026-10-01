@@ -742,6 +742,13 @@ export class CrashEngine {
     }
   }
 
+  /** Follow car `index` (HUD board click). Leaves drive mode; a fresh pedal press takes the wheel again. */
+  watchCar(index: number): void {
+    if (index < 0 || index >= this.carCount) return;
+    this.seat.focus(index);
+    this.emitHud(true);
+  }
+
   private randomizeAndReset(): void {
     this.compactFace = COMPACTOR.startFace;
     this.compactFxAt = 0;
@@ -1726,7 +1733,13 @@ export class CrashEngine {
       captureTrace: this.captureTrace,
       derby: this.derbyMode,
       derbyWinner: this.derby.winnerName,
-      derbyBoard: this.derby.hud().board.map((r) => ({ name: r.name, score: r.score, alive: r.alive })),
+      derbyBoard: this.derby.hud().board.map((r) => ({
+        id: r.id,
+        name: r.name,
+        score: r.score,
+        alive: r.alive,
+        watched: this.seat.mode !== "global" && this.seat.carIndex === r.id,
+      })),
       seat: this.seat.mode,
       boost: this.seat.boost,
       view: this.seat.view,

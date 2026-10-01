@@ -3,16 +3,24 @@ import type { DoorScenario } from "@/game/door-rig";
 import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 
-/** Derby standings: name, score, struck through once the engine dies. */
-export function DerbyBoard({ board }: { board: CrashHudState["derbyBoard"] }) {
+/** Derby standings: name, score, struck through once the engine dies. A name click follows that car. */
+export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoard"]; onWatch: (id: number) => void }) {
   return (
-    <div className="hud-panel w-44 p-3">
+    <div className="hud-panel pointer-events-auto w-44 p-3">
       <p className="hud-label">Board</p>
-      <ul className="mt-2 space-y-1">
-        {board.map((row, i) => (
-          <li key={`${i}-${row.name}`} className="flex items-baseline justify-between gap-2 font-display text-sm">
-            <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
-            <span className="tabular-nums text-muted">{row.score}</span>
+      <ul className="mt-2 space-y-0.5">
+        {board.map((row) => (
+          <li key={row.id}>
+            <button
+              type="button"
+              onClick={() => onWatch(row.id)}
+              aria-pressed={row.watched}
+              aria-label={`Follow ${row.name}`}
+              className={`-mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline justify-between gap-2 rounded px-1.5 py-0.5 text-left font-display text-sm hover:bg-surface-2 ${row.watched ? "bg-surface-2" : ""}`}
+            >
+              <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
+              <span className="tabular-nums text-muted">{row.score}</span>
+            </button>
           </li>
         ))}
       </ul>

@@ -68,7 +68,8 @@ export type CrashHudState = {
   captureTrace: boolean;
   derby: boolean;
   derbyWinner: string | null;
-  derbyBoard: { name: string; score: number; alive: boolean }[];
+  /** `id` is the car index; `watched` marks the car the camera follows or drives. */
+  derbyBoard: { id: number; name: string; score: number; alive: boolean; watched: boolean }[];
   seat: "global" | "follow" | "drive";
   boost: number;
   view: "third" | "far" | "first";
