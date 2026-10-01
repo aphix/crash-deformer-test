@@ -24,6 +24,63 @@ import {
   type Mat3,
 } from "./shape-match.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
+import { CAGES, MASS_SPECS, SHAPE_CLUSTERS } from "./rig-spec.ts";
+
+const FRAME = 1 / 60;
+
+interface Rig {
+  d: StreamedDeformation;
+  group: THREE.Group;
+  vel: THREE.Vector3;
+  omega: THREE.Vector3;
+  geom: THREE.BufferGeometry;
+  /** Car-local → world turn of the spawn pose. */
+  yaw: number;
+}
+
+/** Shape-mode car at the origin turned by `yaw`, crashing along its local `inward` at `speed`. */
+function crashRig(impact: THREE.Vector3, inward: THREE.Vector3, speed: number, yaw = 0): Rig {
+  const geom = new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
+  const d = new StreamedDeformation(geom);
+  d.mode = "shape";
+  d.squash = 0.4;
+  d.buckle = 0.45;
+  const group = new THREE.Group();
+  group.rotation.set(0, yaw, 0);
+  group.updateMatrixWorld();
+  const vel = new THREE.Vector3(0, 0, speed).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+  const omega = new THREE.Vector3();
+  d.beginCrush(impact, inward, Math.abs(speed), Math.abs(speed), group, vel, omega);
+  return { d, group, vel, omega, geom, yaw };
+}
+
+function node(d: StreamedDeformation, name: string): StreamedDeformation["masses"][number] {
+  const m = d.masses.find((n) => n.name === name);
+  assert.ok(m, name);
+  return m;
+}
+
+/** One wall frame against the car-local plane normal `nLocal`, contact centred between two masses. */
+function wallFrame(r: Rig, dt: number, overlap: number, a = "bumperFL", b = "bumperFR", contactX?: number, nLocal = new THREE.Vector3(0, 0, -1)): void {
+  const n = nLocal.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, r.yaw);
+  r.d.notifyContact();
+  const pa = node(r.d, a).world;
+  const pb = node(r.d, b).world;
+  const contact = new THREE.Vector3(contactX ?? (pa.x + pb.x) * 0.5, (pa.y + pb.y) * 0.5, (pa.z + pb.z) * 0.5);
+  const closing = Math.max(0, -r.vel.dot(n));
+  r.d.feedOverlap(contact, n, overlap, closing, dt);
+  const leftover = closing * 0.18;
+  if (leftover > 0.3) r.d.applyImpulse(n.x, n.y, n.z, leftover * r.d.totalMass * dt * 4);
+  r.d.stepStructure(dt);
+  r.d.followGroup(r.group, r.vel, r.omega, dt);
+  r.d.update(dt, r.geom);
+}
+
+/** Left/right partner of a mass name (centre masses map to themselves). */
+function mirrorName(name: string): string {
+  if (!/^(bumper|wing|hub)[FR][LR]$|^(engine|rail|door)[LR]$/.test(name)) return name;
+  return name.slice(0, -1) + (name.endsWith("L") ? "R" : "L");
+}
 
 function rotY(rad: number): Mat3 {
   const c = Math.cos(rad),
@@ -317,6 +374,54 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(z > 0.4, `skin collapsed z=${z}`);
   });
 
+  it("good: a plastic dent (Sp) reaches the skin, not just the particles", () => {
+    const rest: [number, number, number][] = [
+      [0.6, 0.3, 1],
+      [-0.6, 0.3, 1],
+      [0.6, -0.3, -1],
+      [-0.6, -0.3, -1],
+      [0, 0.5, 0],
+      [0, -0.5, 0.2],
+    ];
+    const P = particlesAt(rest);
+    const c = makeCluster(P, P.map((_, i) => i));
+    // Hold the front face 0.45 m in while plasticity takes the squash into the rest…
+    for (const p of P) if (p.z > 0.5) p.z -= 0.45;
+    for (let k = 0; k < 200; k++) {
+      matchCluster(c, P, 0.2);
+      applyPlasticity(c, P, 1 / 60, 0.9, true, 0.9);
+    }
+    // …then let go: the particles settle on their goals, so what they keep is the plastic dent.
+    for (let k = 0; k < 200; k++) {
+      matchCluster(c, P, 0.2);
+      for (let i = 0; i < P.length; i++) {
+        const p = P[i]!;
+        p.x = c.M[0]! * c.qx[i]! + c.M[1]! * c.qy[i]! + c.M[2]! * c.qz[i]! + c.cmx;
+        p.y = c.M[3]! * c.qx[i]! + c.M[4]! * c.qy[i]! + c.M[5]! * c.qz[i]! + c.cmy;
+        p.z = c.M[6]! * c.qx[i]! + c.M[7]! * c.qy[i]! + c.M[8]! * c.qz[i]! + c.cmz;
+      }
+    }
+    const dent = 1 - (P[0]!.z + P[1]!.z) / 2;
+    assert.ok(dent > 0.15, `fixture: plastic dent only ${dent.toFixed(3)} m`);
+    matchSkinLocal(c, rest.map(([x, y, z]) => ({ x, y, z })), P, P.map((p) => p.mass), 1);
+    const v = transformSkinPointInto(c, 0, 0.3, 1);
+    assert.ok(1 - v.z >= 0.8 * dent, `skin vertex at the dented face moved ${(1 - v.z).toFixed(3)} m of the particles' ${dent.toFixed(3)}`);
+  });
+
+  it("bad: a folded-over flat cluster holds its last turn instead of flipping", () => {
+    const P = particlesAt([
+      [-0.3, 0, 1.2],
+      [-0.5, 0, 0.7],
+      [-0.7, 0, 1.3],
+    ]);
+    const c = makeCluster(P, [0, 1, 2]);
+    // The first particle is shoved through the far edge: the triangle is now mirrored in-plane.
+    P[0]!.x = -1.0;
+    P[0]!.z = 0.7;
+    matchCluster(c, P, 0.2);
+    assert.ok(m3RotationAngle(c.R) < 0.05, `folded triangle swung R by ${m3RotationAngle(c.R).toFixed(3)} rad`);
+  });
+
   it("bad: skin polar must not overwrite match R / Rprev (slomo two-state flicker)", () => {
     const rest = [
       [1, 0, 1],
@@ -400,5 +505,114 @@ describe("StreamedDeformation shape mode", () => {
       assert.ok(seen.has(m.name), `${m.name} is in no cluster`);
     }
     assert.ok(snap.clusters.length >= 8, `too few clusters ${snap.clusters.length}`);
+  });
+
+  it("good: the cluster table is mirror-symmetric, duplicate-free and owned by real cages", () => {
+    const key = (names: readonly string[]) => [...names].sort().join(",");
+    const sets = SHAPE_CLUSTERS.map((c) => key(c.masses));
+    assert.equal(new Set(sets).size, sets.length, "two clusters share a mass set");
+    for (const c of SHAPE_CLUSTERS) {
+      assert.ok(sets.includes(key(c.masses.map(mirrorName))), `${c.owner} [${c.masses.join(" ")}] has no mirror`);
+      assert.ok(CAGES.some((g) => g.name === c.owner), `${c.owner} is not a cage`);
+    }
+  });
+
+  it("good: mirrored ±0.62 m corner hits crush mirror-symmetrically", () => {
+    const run = (x: number) => {
+      const r = crashRig(new THREE.Vector3(x, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
+      const corner = x > 0 ? "bumperFR" : "bumperFL";
+      for (let i = 0; i < 24; i++) wallFrame(r, FRAME, 0.12, undefined, undefined, node(r.d, corner).world.x);
+      return r.d;
+    };
+    const left = run(-0.62);
+    const right = run(0.62);
+    let sum = 0;
+    for (const m of left.masses) {
+      const o = node(right, mirrorName(m.name)).local;
+      sum += Math.hypot(m.local.x + o.x, m.local.y - o.y, m.local.z - o.z);
+    }
+    assert.ok(sum < 0.02, `left/right mirror error ${sum.toFixed(3)} m`);
+  });
+
+  it("good: every rig cluster recovers a rigid 0.3 rad turn about each axis", () => {
+    const rest = MASS_SPECS.map((m) => ({ x: m.rest[0], y: m.rest[1], z: m.rest[2], vx: 0, vy: 0, vz: 0, mass: m.mass }));
+    const index = new Map(MASS_SPECS.map((m, i) => [m.name, i]));
+    for (const axis of [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)]) {
+      const turn = new THREE.Quaternion().setFromAxisAngle(axis, 0.3);
+      const moved = rest.map((p) => {
+        const v = new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(turn);
+        return { ...p, x: v.x, y: v.y, z: v.z };
+      });
+      const e = new THREE.Matrix4().makeRotationFromQuaternion(turn).elements;
+      for (const spec of SHAPE_CLUSTERS) {
+        const c = makeCluster(rest, spec.masses.map((n) => index.get(n)!));
+        matchCluster(c, moved, 0);
+        // E = Rᵀ·R_true; R is row-major, three.js elements are column-major.
+        const E = m3();
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) E[i * 3 + j] = c.R[i]! * e[j * 4]! + c.R[3 + i]! * e[j * 4 + 1]! + c.R[6 + i]! * e[j * 4 + 2]!;
+        const err = m3RotationAngle(E);
+        assert.ok(err < 0.02, `${spec.owner} [${spec.masses.join(" ")}] turn error ${err.toFixed(3)} rad about ${axis.toArray()}`);
+      }
+    }
+  });
+
+  it("good: the same local frontal crush is heading-independent", () => {
+    const noseZ = (yaw: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 16, yaw);
+      r.d.squash = 0.5;
+      const fl = node(r.d, "bumperFL");
+      const n = new THREE.Vector3(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+      for (let i = 0; i < 24; i++) {
+        r.d.notifyContact();
+        r.d.feedOverlap(fl.world, n, 0.1, 16, FRAME);
+        r.d.stepStructure(FRAME);
+        r.d.followGroup(r.group, r.vel, r.omega, FRAME);
+        r.d.update(FRAME, r.geom);
+      }
+      return fl.local.z;
+    };
+    const z = [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(noseZ);
+    assert.ok(Math.max(...z) - Math.min(...z) < 0.03, `bumperFL local z by heading ${z.map((v) => v.toFixed(3)).join(" / ")}`);
+  });
+
+  it("good: a rigidly turned undamaged car is a fixed point of the structure step", () => {
+    const settle = (yaw: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 0);
+      const c = node(r.d, "cell").world.clone();
+      const turn = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+      for (const m of r.d.masses) m.world.sub(c).applyQuaternion(turn).add(c);
+      for (let i = 0; i < 10; i++) {
+        r.d.notifyContact();
+        r.d.stepStructure(FRAME);
+        r.d.followGroup(r.group, r.vel, r.omega, FRAME);
+      }
+      return r.d.masses.flatMap((a, i) => r.d.masses.slice(i + 1).map((b) => a.world.distanceTo(b.world)));
+    };
+    const still = settle(0);
+    const turned = settle(0.3);
+    const worst = Math.max(...still.map((v, i) => Math.abs(v - turned[i]!)));
+    assert.ok(worst < 0.01, `a 0.3 rad heading distorts the body by ${worst.toFixed(3)} m`);
+  });
+
+  it("good: the same contact feed crushes the same however the structure step is sliced", () => {
+    const H = 1 / 240;
+    const railTravel = (sub: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
+      for (let f = 0; f < 48; f++) {
+        r.d.notifyContact();
+        const a = node(r.d, "bumperFL").world;
+        const b = node(r.d, "bumperFR").world;
+        const contact = new THREE.Vector3((a.x + b.x) / 2, (a.y + b.y) / 2, (a.z + b.z) / 2);
+        r.d.feedOverlap(contact, new THREE.Vector3(0, 0, -1), 0.1, Math.max(0, r.vel.z), H);
+        for (let k = 0; k < sub; k++) r.d.stepStructure(H / sub);
+        r.d.followGroup(r.group, r.vel, r.omega, H);
+      }
+      const rail = node(r.d, "railL");
+      return rail.local.distanceTo(rail.rest);
+    };
+    const t = [1, 4, 8].map(railTravel);
+    const lo = Math.min(...t);
+    const hi = Math.max(...t);
+    assert.ok(hi <= lo * 1.3, `railL travel at 1/4/8 sub-slices ${t.map((v) => v.toFixed(3)).join(" / ")}`);
   });
 });

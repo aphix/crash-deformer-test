@@ -1,6 +1,6 @@
 /**
  * Static rig layout for the streamed deformation: FFD cages, crush sensors,
- * control-particle masses, lattice beams and the extra shape-match clusters.
+ * control-particle masses, lattice beams and the shape-match clusters.
  * Data only — StreamedDeformation builds its runtime state from these tables.
  */
 
@@ -188,12 +188,33 @@ export const BEAM_SPECS: [MassName, MassName, number, number, number][] = [
   ["hubRR", "doorR", 9000, 20000, 0.2],
 ];
 
-/** Cross clusters on top of the per-cage ones: tie each corner to its rail / cabin. */
-export const EXTRA_CLUSTERS: readonly (readonly MassName[])[] = [
-  ["bumperFL", "wingFL", "engineL", "railL"],
-  ["bumperFR", "wingFR", "engineR", "railR"],
-  ["bumperRL", "doorL", "tank", "axleR"],
-  ["bumperRR", "doorR", "tank", "axleR"],
-  ["doorL", "roof", "railL", "cell"],
-  ["doorR", "roof", "railR", "cell"],
+/** One shape-match cluster: its member masses and the cage whose `absorption` sets its stiffness. */
+export interface ShapeClusterSpec {
+  owner: BodyPartName;
+  masses: readonly MassName[];
+}
+
+/**
+ * Shape-match clusters, listed in mirrored left/right pairs (centre clusters are
+ * symmetric sets), with no two clusters sharing a mass set. Hubs are never members.
+ * Every cluster is mass-only data: body styles share it whatever their cage overrides.
+ */
+export const SHAPE_CLUSTERS: readonly ShapeClusterSpec[] = [
+  { owner: "bumperFront", masses: ["bumperFL", "bumperFR", "engineL", "engineR"] },
+  { owner: "bumperRear", masses: ["bumperRL", "bumperRR", "axleR"] },
+  { owner: "bonnet", masses: ["engineL", "railL", "wingFL"] },
+  { owner: "bonnet", masses: ["engineR", "railR", "wingFR"] },
+  { owner: "doorLeft", masses: ["railL", "doorL", "cell", "roof"] },
+  { owner: "doorRight", masses: ["railR", "doorR", "cell", "roof"] },
+  { owner: "wingRL", masses: ["axleR", "tank", "bumperRL"] },
+  { owner: "wingRR", masses: ["axleR", "tank", "bumperRR"] },
+  { owner: "chassisCell", masses: ["railL", "railR", "cell", "doorL", "doorR", "roof"] },
+  { owner: "skirtLeft", masses: ["railL", "wingFL", "doorL", "cell"] },
+  { owner: "skirtRight", masses: ["railR", "wingFR", "doorR", "cell"] },
+  { owner: "glassFront", masses: ["roof", "engineL", "engineR", "railL", "railR"] },
+  // Corners: tie each bumper to its wing, engine and rail, and each tail corner to the cabin side.
+  { owner: "wingFL", masses: ["bumperFL", "wingFL", "engineL", "railL"] },
+  { owner: "wingFR", masses: ["bumperFR", "wingFR", "engineR", "railR"] },
+  { owner: "wingRL", masses: ["bumperRL", "doorL", "tank", "axleR"] },
+  { owner: "wingRR", masses: ["bumperRR", "doorR", "tank", "axleR"] },
 ];

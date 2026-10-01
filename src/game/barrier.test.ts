@@ -38,7 +38,17 @@ function stepBarrier(car: DeformableCar, dt: number, yaw = 0): void {
   clipCarToBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, leftoverCrumple(car.deform.crumpleTravelCorner()));
   const crushHit = satCarBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, _cn, _cp, car.crushHulls());
   const overlap = satCarBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, _n, _p, car.hulls());
-  if (!crushHit && !overlap) return;
+  // Like engine.ts: the structure steps every slice once live, contact or not; skipping it
+  // between contacts froze the masses (and the car) after the first contact slice.
+  if (crushHit || overlap) contact(car, dt, crushHit, overlap, yaw);
+  if (car.deform.massActive) {
+    car.deform.stepStructure(dt);
+    car.syncPose(dt);
+    car.updateDeform(dt);
+  }
+}
+
+function contact(car: DeformableCar, dt: number, crushHit: number | null, overlap: number | null, yaw: number): void {
   car.deform.notifyContact();
   const n = crushHit ? _cn : _n;
   const p = crushHit ? _cp : _p;
@@ -67,11 +77,6 @@ function stepBarrier(car: DeformableCar, dt: number, yaw = 0): void {
     }
   }
   clipCarToBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, leftoverCrumple(car.deform.crumpleTravelCorner()));
-  if (car.deform.massActive) {
-    car.deform.stepStructure(dt);
-    car.syncPose(dt);
-    car.updateDeform(dt);
-  }
 }
 
 function runFor(car: DeformableCar, simSec: number, frameDt: number): void {

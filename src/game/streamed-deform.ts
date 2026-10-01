@@ -4,7 +4,6 @@ import {
   type ShapeCluster,
   type ShapeParticle,
   makeCluster,
-  rebuildAqqWeighted,
   matchCluster,
   applyPlasticity,
   resetCluster,
@@ -14,7 +13,7 @@ import {
   goalAlpha,
   deformBeta,
 } from "./shape-match.ts";
-import { BEAM_SPECS, CAGES, EXTRA_CLUSTERS, MASS_SPECS, SENSORS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
+import { BEAM_SPECS, CAGES, MASS_SPECS, SENSORS, SHAPE_CLUSTERS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
 
@@ -70,6 +69,14 @@ const _axis = new THREE.Vector3();
 const _mat = new THREE.Matrix4();
 /** followGroup's world→local: one invert per call, not one per mass (Object3D.worldToLocal). */
 const _toLocal = new THREE.Matrix4();
+/** writeShapeToMasses' body → world scratch. */
+const _bodyOut = new Float64Array(3);
+/** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
+const SHAPE_REF_HZ = 240;
+/** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
+const SHAPE_MAX_STEP = 0.14;
+/** Sim seconds a fed contact keeps the solver in contact mode: one 60 Hz frame. */
+const CONTACT_HOLD = 1 / 60;
 
 function hash01(i: number, salt = 1): number {
   const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
@@ -220,15 +227,28 @@ export class StreamedDeformation {
   private _totalMass = 1;
   private prevYaw = 0;
   private overlapFrame = false;
+  /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
+  private contactAt = -Infinity;
+  /** Body frame of the last syncShapeFromMasses: world = R_y(heading)·(local − bodyRestC) + bodyC. */
+  private bodyCos = 1;
+  private bodySin = 0;
+  private readonly bodyC = new THREE.Vector3();
+  private readonly bodyRestC = new THREE.Vector3();
   squash = 0.4;
   buckle = 0.45;
   mode: DeformMode = "shape";
   private clusters: ShapeCluster[] = [];
+  /** Per-cluster absorption (its owner cage's), fixed at build time. */
+  private clusterAbsorb = new Float64Array(0);
+  private clusterOwner: BodyPartName[] = [];
   private shapeParticles: ShapeParticle[] = [];
   private goalX = new Float64Array(0);
   private goalY = new Float64Array(0);
   private goalZ = new Float64Array(0);
   private goalW = new Float64Array(0);
+  /** Body-frame x/z of each particle when stepShapeMatch started (net-spin removal). */
+  private startX = new Float64Array(0);
+  private startZ = new Float64Array(0);
   private skinWeights: { ci: number; w: number }[][] = [];
   private impulseW = new Float64Array(0);
   private skinRest: { x: number; y: number; z: number }[] = [];
@@ -416,31 +436,11 @@ export class StreamedDeformation {
     this.goalY = new Float64Array(this.masses.length);
     this.goalZ = new Float64Array(this.masses.length);
     this.goalW = new Float64Array(this.masses.length);
-    this.clusters = [];
-    for (const cage of this.cages) {
-      const idx = this.cageClusterIndices(cage);
-      if (idx.length < 3) continue;
-      const left: number[] = [];
-      const right: number[] = [];
-      const mid: number[] = [];
-      for (const i of idx) {
-        const x = this.masses[i]!.rest.x;
-        if (x < -0.12) left.push(i);
-        else if (x > 0.12) right.push(i);
-        else mid.push(i);
-      }
-      if (Math.abs(cage.center.x) < 0.18 && left.length >= 3 && right.length >= 3) {
-        this.clusters.push(makeCluster(this.shapeParticles, left.concat(mid)));
-        this.clusters.push(makeCluster(this.shapeParticles, right.concat(mid)));
-      } else {
-        this.clusters.push(makeCluster(this.shapeParticles, idx));
-      }
-    }
-    for (const names of EXTRA_CLUSTERS) {
-      const idx = names.map((n) => nameIndex.get(n)!).filter((i) => i !== undefined);
-      if (idx.length >= 3) this.clusters.push(makeCluster(this.shapeParticles, idx));
-    }
-    for (const c of this.clusters) rebuildAqqWeighted(c, this.shapeParticles);
+    this.startX = new Float64Array(this.masses.length);
+    this.startZ = new Float64Array(this.masses.length);
+    this.clusters = SHAPE_CLUSTERS.map((spec) => makeCluster(this.shapeParticles, spec.masses.map((n) => nameIndex.get(n)!)));
+    this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
+    this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
     this.buildSkinWeights();
   }
 
@@ -482,42 +482,6 @@ export class StreamedDeformation {
     }
   }
 
-  private cageClusterIndices(cage: Cage): number[] {
-    const pad = 0.16;
-    const idx: number[] = [];
-    const side = Math.abs(cage.center.x) > 0.2 ? Math.sign(cage.center.x) : 0;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      if (m.hub) continue;
-      const p = m.rest;
-      if (side !== 0 && Math.sign(p.x) !== 0 && Math.sign(p.x) !== side) continue;
-      if (
-        p.x >= cage.min.x - pad &&
-        p.x <= cage.max.x + pad &&
-        p.y >= cage.min.y - pad &&
-        p.y <= cage.max.y + pad &&
-        p.z >= cage.min.z - pad &&
-        p.z <= cage.max.z + pad
-      ) {
-        idx.push(i);
-      }
-    }
-    if (idx.length < 3) {
-      const scored = this.masses
-        .map((m, i) => ({ i, d: m.rest.distanceTo(cage.center) }))
-        .filter((s) => !this.masses[s.i]!.hub)
-        .sort((a, b) => a.d - b.d);
-      for (const s of scored) {
-        if (s.d > 0.95) break;
-        if (Math.abs(this.masses[s.i]!.rest.z - cage.center.z) > 1.05) continue;
-        if (side !== 0 && Math.sign(this.masses[s.i]!.rest.x) !== side && Math.abs(this.masses[s.i]!.rest.x) > 0.12) continue;
-        if (!idx.includes(s.i)) idx.push(s.i);
-        if (idx.length >= 4) break;
-      }
-    }
-    return idx;
-  }
-
   reset(): void {
     this.elapsed = 0;
     this.lastContact = -10;
@@ -534,6 +498,7 @@ export class StreamedDeformation {
     this.deepCrush = false;
     this.prevYaw = 0;
     this.overlapFrame = false;
+    this.contactAt = -Infinity;
     this.impactInward.set(0, 0, -1);
     this.impactLocal.set(0, 0.36, 2.1);
     for (const s of this.sensors) {
@@ -558,8 +523,7 @@ export class StreamedDeformation {
       b.plastic = b.rest;
       b.alive = true;
     }
-    this.syncShapeFromMasses();
-    for (const c of this.clusters) resetCluster(c, this.shapeParticles);
+    this.captureShapeRest();
   }
 
   setMode(mode: DeformMode): void {
@@ -567,42 +531,98 @@ export class StreamedDeformation {
     this.helper?.syncMode();
   }
 
+  /** Shape-match rest = the car-local rest pose; plastic state and warm starts cleared. */
   private captureShapeRest(): void {
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       const p = this.shapeParticles[i]!;
-      p.x = m.world.x;
-      p.y = m.world.y;
-      p.z = m.world.z;
-      p.vx = m.vel.x;
-      p.vy = m.vel.y;
-      p.vz = m.vel.z;
+      p.x = m.rest.x;
+      p.y = m.rest.y;
+      p.z = m.rest.z;
       p.mass = m.mass;
     }
     for (const c of this.clusters) resetCluster(c, this.shapeParticles);
   }
 
+  /**
+   * Shape particles in the car body frame: the masses' world positions turned by the best
+   * heading fit (bodyCos/bodySin about world up, through bodyC) of the shape-matched masses
+   * onto their rest, so rest, plastic Sp, goals and the impact half-space all share car-local
+   * axes at any heading. Up stays world up; pitch and roll are left to the clusters' R.
+   */
   private syncShapeFromMasses(): void {
+    let cx = 0,
+      cy = 0,
+      cz = 0,
+      rx = 0,
+      ry = 0,
+      rz = 0,
+      ms = 0;
+    for (const m of this.masses) {
+      if (m.hub && !this.deepCrush) continue;
+      cx += m.world.x * m.mass;
+      cy += m.world.y * m.mass;
+      cz += m.world.z * m.mass;
+      rx += m.rest.x * m.mass;
+      ry += m.rest.y * m.mass;
+      rz += m.rest.z * m.mass;
+      ms += m.mass;
+    }
+    ms = Math.max(ms, 1e-8);
+    cx /= ms;
+    cy /= ms;
+    cz /= ms;
+    rx /= ms;
+    ry /= ms;
+    rz /= ms;
+    // max_θ tr(R_y(θ)ᵀ Σ m (x − c)(r − r_c)ᵀ) has the closed form θ = atan2(A02 − A20, A00 + A22).
+    let sc = 0,
+      ss = 0;
+    for (const m of this.masses) {
+      if (m.hub && !this.deepCrush) continue;
+      const x = (m.world.x - cx) * m.mass,
+        z = (m.world.z - cz) * m.mass;
+      const u = m.rest.x - rx,
+        w = m.rest.z - rz;
+      sc += x * u + z * w;
+      ss += x * w - z * u;
+    }
+    const len = Math.hypot(sc, ss);
+    const c = len > 1e-9 ? sc / len : 1;
+    const s = len > 1e-9 ? ss / len : 0;
+    this.bodyCos = c;
+    this.bodySin = s;
+    this.bodyC.set(cx, cy, cz);
+    this.bodyRestC.set(rx, ry, rz);
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       const p = this.shapeParticles[i]!;
-      p.x = m.world.x;
-      p.y = m.world.y;
-      p.z = m.world.z;
-      p.vx = m.vel.x;
-      p.vy = m.vel.y;
-      p.vz = m.vel.z;
+      const x = m.world.x - cx,
+        z = m.world.z - cz;
+      p.x = c * x - s * z + rx;
+      p.y = m.world.y - cy + ry;
+      p.z = s * x + c * z + rz;
     }
   }
 
+  /** Body-frame point → world, into `out` at offset `o` (inverse of syncShapeFromMasses). */
+  private bodyToWorld(x: number, y: number, z: number, out: Float64Array, o: number): void {
+    const dx = x - this.bodyRestC.x,
+      dz = z - this.bodyRestC.z;
+    out[o] = this.bodyCos * dx + this.bodySin * dz + this.bodyC.x;
+    out[o + 1] = y - this.bodyRestC.y + this.bodyC.y;
+    out[o + 2] = this.bodyCos * dz - this.bodySin * dx + this.bodyC.z;
+  }
+
   private writeShapeToMasses(): void {
+    const w = _bodyOut;
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       if (m.hub && !m.popped && !this.deepCrush) continue;
       const p = this.shapeParticles[i]!;
-      m.world.set(p.x, p.y, p.z);
-      m.vel.set(p.vx, p.vy, p.vz);
+      this.bodyToWorld(p.x, p.y, p.z, w, 0);
+      m.world.set(w[0]!, w[1]!, w[2]!);
       if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) m.world.copy(m.rest);
       clampSpeed(m.vel);
     }
@@ -1006,6 +1026,12 @@ export class StreamedDeformation {
 
   stepStructure(dt: number): void {
     if (!this.massActive) return;
+    // Contact fed since the last call: latched in sim time so every slice of this call, and
+    // every sub-call of a split frame, solves the same contact.
+    if (this.overlapFrame) {
+      this.overlapFrame = false;
+      this.contactAt = this.elapsed;
+    }
     this.elapsed += dt;
     const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
@@ -1698,7 +1724,8 @@ export class StreamedDeformation {
         part: s.spec.part,
         compression: round4(s.compression),
       })),
-      clusters: this.clusters.map((c) => ({
+      clusters: this.clusters.map((c, ci) => ({
+        owner: this.clusterOwner[ci]!,
         n: c.idx.length,
         names: c.idx.map((i) => this.masses[i]!.name),
         cm: { x: round4(c.cmx), y: round4(c.cmy), z: round4(c.cmz) },
@@ -1897,7 +1924,7 @@ export class StreamedDeformation {
   }
 
   private clusterBeta(ci: number, contacting: boolean): number {
-    const absorb = ci < this.cages.length ? this.cages[ci]!.spec.absorption : 0.1;
+    const absorb = this.clusterAbsorb[ci]!;
     if (this.squash < 0.03) return 0.04;
     // Müller T = (1-β)R + βA. High β is jelly stretch. Bugbear/Rajala: metal
     // wants rotation + plastic rest update, not a linear squash of the whole cell.
@@ -1907,8 +1934,7 @@ export class StreamedDeformation {
 
   private stepShapeMatch(dt: number): void {
     this.syncShapeFromMasses();
-    const contacting = this.overlapFrame || this.bidirectional;
-    this.overlapFrame = false;
+    const contacting = this.bidirectional || this.elapsed - this.contactAt <= CONTACT_HOLD;
     let comX = 0,
       comY = 0,
       comZ = 0,
@@ -1923,12 +1949,21 @@ export class StreamedDeformation {
       comM += p.mass;
     }
     comM = Math.max(comM, 1e-8);
-    const alpha = contacting
+    for (let i = 0; i < this.shapeParticles.length; i++) {
+      this.startX[i] = this.shapeParticles[i]!.x;
+      this.startZ[i] = this.shapeParticles[i]!.z;
+    }
+    const alphaRef = contacting
       ? this.squash < 0.03
         ? 0.9
         : 0.32 + this.squash * 0.38
       : goalAlpha(this.squash);
     const iters = contacting ? 2 : stiffnessIters(this.squash);
+    // alphaRef is the per-iteration pull at the SHAPE_REF_HZ slice: as a time constant
+    // (x += (1 − e^{−h/τ})(g − x), XPBD's first-order form) the pull per sim second holds
+    // at any slice length, so slow-mo and refresh rate leave the stiffness alone.
+    const alpha = 1 - Math.pow(1 - alphaRef, dt * SHAPE_REF_HZ);
+    const maxStep = SHAPE_MAX_STEP * dt * SHAPE_REF_HZ;
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     for (let k = 0; k < iters; k++) {
@@ -1975,22 +2010,41 @@ export class StreamedDeformation {
             gz -= iz * along;
           }
         }
-        if (out) {
-          out[i * 3] = gx;
-          out[i * 3 + 1] = gy;
-          out[i * 3 + 2] = gz;
-        }
+        if (out) this.bodyToWorld(gx, gy, gz, out, i * 3);
         const ax0 = alpha * (gx - p.x);
         const ay0 = alpha * (gy - p.y);
         const az0 = alpha * (gz - p.z);
         const step = Math.hypot(ax0, ay0, az0);
-        const kStep = step > 0.14 ? 0.14 / step : 1;
+        const kStep = step > maxStep ? maxStep / step : 1;
         const ax = ax0 * kStep;
         const ay = ay0 * kStep;
         const az = az0 * kStep;
         p.x += ax;
         p.y += ay;
         p.z += az;
+      }
+    }
+    // Internal goals exert no net torque: remove the correction's spin about up (no hub, wheel
+    // or ground restores yaw, so overlapping plastic rests would otherwise turn the wreck).
+    const cx = comX / comM,
+      cz = comZ / comM;
+    let spin = 0,
+      inertia = 0;
+    for (let i = 0; i < this.shapeParticles.length; i++) {
+      if (this.masses[i]!.hub && !this.deepCrush) continue;
+      const p = this.shapeParticles[i]!;
+      const rx = this.startX[i]! - cx,
+        rz = this.startZ[i]! - cz;
+      spin += p.mass * (rz * (p.x - this.startX[i]!) - rx * (p.z - this.startZ[i]!));
+      inertia += p.mass * (rx * rx + rz * rz);
+    }
+    const w = inertia > 1e-8 ? spin / inertia : 0;
+    if (Math.abs(w) > 1e-12) {
+      for (let i = 0; i < this.shapeParticles.length; i++) {
+        if (this.masses[i]!.hub && !this.deepCrush) continue;
+        const p = this.shapeParticles[i]!;
+        p.x -= w * (this.startZ[i]! - cz);
+        p.z += w * (this.startX[i]! - cx);
       }
     }
     if (!contacting) {
@@ -2207,10 +2261,14 @@ export class StreamedDeformation {
     }
   }
 
+  /**
+   * Skin = each cluster's full least-squares map of rest onto the current local particles
+   * (β = 1, plastic Sp composed in): the mesh shows where the particles are. The material β
+   * shapes only the solver's goals; a stiffer skin turns crumple shear into a polar swing
+   * that throws vertices a metre from the cluster centre off the particles.
+   */
   private bakeLocalSkin(): void {
-    for (let ci = 0; ci < this.clusters.length; ci++) {
-      matchSkinLocal(this.clusters[ci]!, this.skinRest, this.skinLocal, this.skinMassN, this.clusterBeta(ci, this.crushing || this.bidirectional));
-    }
+    for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, 1);
   }
 
   private solveCagesFromShape(): void {
