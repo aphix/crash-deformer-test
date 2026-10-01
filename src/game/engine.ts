@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
+import { WheelBatch } from "./car-mesh.ts";
 import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
@@ -49,6 +50,13 @@ const FLEET_PAINT: CarPaint[] = [
 const FIXED = 1 / 60;
 const IMPACT_SCALE = 0.032;
 const PRE_IMPACT_LEAD = 0.07;
+/** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
+ *  ≈0.9 m the sun throws the roof's shadow, so an off-screen car's shadow is never stale either. */
+const LOD_RADIUS = 3.5;
+/** Projected sphere radius (CSS px) below which a car skins every 2nd / every 4th frame. */
+const LOD_SMALL_PX = 40;
+const LOD_TINY_PX = 20;
+const _lodSphere = new THREE.Sphere();
 
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -101,6 +109,7 @@ export class CrashEngine {
   private impactLightLife = 0;
   private envMap: THREE.Texture | null = null;
   private debris: DebrisSystem;
+  private readonly wheels = new WheelBatch(MAX_CARS * 4);
   private sparks: SparkSystem;
   private glassDots: GlassDotSystem;
   private smoke: TireSmokeSystem;
@@ -113,6 +122,11 @@ export class CrashEngine {
   private fxPoofed = false;
   private sparkAt = -10;
   private deadSmokeAcc: number[] = [];
+  private readonly lodFrustum = new THREE.Frustum();
+  private readonly lodMatrix = new THREE.Matrix4();
+  private lodFrame = 0;
+  /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
+  private lodStride: number[] = [];
   private squash = 0.4;
   private buckle = 0.45;
   private fxDensity = 0.7;
@@ -170,6 +184,9 @@ export class CrashEngine {
 
     this.glassDots = new GlassDotSystem(this.scene);
     this.ensureCars(2);
+    this.scene.add(this.wheels.mesh);
+    // After the renderer's scene matrix update, before culling/upload: every render path draws current wheels.
+    this.scene.onBeforeRender = () => this.wheels.sync(this.live());
 
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
@@ -217,6 +234,8 @@ export class CrashEngine {
     this.view.detach();
     this.resizeObs.disconnect();
     for (const car of this.cars) car.dispose();
+    this.wheels.mesh.geometry.dispose();
+    this.wheels.mesh.dispose();
     this.sparks.dispose();
     this.glassDots.dispose();
     this.smoke.dispose();
@@ -771,6 +790,7 @@ export class CrashEngine {
         steps++;
         if (steps >= 2 && performance.now() > budget) break;
       }
+      this.scheduleSkins(cars);
       for (const car of cars) {
         if (this.showCompactor && car !== this.carA) continue;
         car.updateDeform(simDt);
@@ -811,6 +831,7 @@ export class CrashEngine {
     }
 
     this.updateCamera(wallDt);
+    this.flushVisibleSkins();
     this.renderer.render(this.scene, this.camera);
 
     this.hudAcc += wallDt;
@@ -818,6 +839,65 @@ export class CrashEngine {
       this.hudAcc = 0;
       this.emitHud(false);
     }
+  }
+
+  /**
+   * Deform LoD. Skinning (+ normals) is the per-vertex cost, so a car outside the view frustum
+   * defers it and a small one skins every 2nd / 4th frame; the cage/shape solve always runs.
+   * Deferred cars carry `skinOwed`, which `flushVisibleSkins` settles once the camera has moved,
+   * so no car is ever drawn on-screen with a dent it has not been given. The followed car always skins.
+   */
+  private scheduleSkins(cars: DeformableCar[]): void {
+    this.updateLodFrustum();
+    this.lodFrame++;
+    const followed = this.followedCar();
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
+      const stride = car === followed ? 1 : this.skinStride(car);
+      this.lodStride[i] = stride;
+      car.deform.skinDeferred = stride === 0 || (this.lodFrame + i) % stride !== 0;
+    }
+  }
+
+  /** After the camera update: any owed car now on screen at full rate, or just entering the view, skins before it draws. */
+  private flushVisibleSkins(): void {
+    const cars = this.live();
+    let followed: DeformableCar | null | undefined;
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
+      if (!car.deform.skinOwed) continue;
+      if (followed === undefined) {
+        this.updateLodFrustum();
+        followed = this.followedCar();
+      }
+      const stride = car === followed ? 1 : this.skinStride(car);
+      if (stride === 1 || (stride > 1 && this.lodStride[i] === 0)) car.flushDeferredSkin();
+      this.lodStride[i] = stride;
+    }
+  }
+
+  private updateLodFrustum(): void {
+    this.camera.updateMatrixWorld();
+    this.lodMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
+    this.lodFrustum.setFromProjectionMatrix(this.lodMatrix);
+  }
+
+  /** 0 off-screen, else skin every Nth frame by projected size. Needs `updateLodFrustum` this frame. */
+  private skinStride(car: DeformableCar): number {
+    _lodSphere.center.set(car.group.position.x, car.group.position.y + 0.6, car.group.position.z);
+    _lodSphere.radius = LOD_RADIUS;
+    if (!this.lodFrustum.intersectsSphere(_lodSphere)) return 0;
+    const d = _v.setFromMatrixPosition(this.camera.matrixWorld).distanceTo(_lodSphere.center);
+    if (d <= LOD_RADIUS) return 1;
+    const halfHeightPx = (this.renderer.domElement.height / this.renderer.getPixelRatio()) * 0.5;
+    const px = (LOD_RADIUS / (d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)))) * halfHeightPx;
+    return px >= LOD_SMALL_PX ? 1 : px >= LOD_TINY_PX ? 2 : 4;
+  }
+
+  private followedCar(): DeformableCar | null {
+    return this.seat.mode !== "global" && this.seat.carIndex >= 0 && this.seat.carIndex < this.carCount
+      ? this.cars[this.seat.carIndex]!
+      : null;
   }
 
   private maybePreSlowmo(wallDt: number): void {
@@ -1223,10 +1303,7 @@ export class CrashEngine {
   }
 
   private updateCamera(wallDt: number): void {
-    const followed =
-      this.seat.mode !== "global" && this.seat.carIndex >= 0 && this.seat.carIndex < this.carCount
-        ? this.cars[this.seat.carIndex]
-        : null;
+    const followed = this.followedCar();
     if (followed && followed.group.visible && this.seat.mode === "drive") {
       this.view.frameDrive(followed, wallDt);
       return;
@@ -1436,6 +1513,7 @@ export class CrashEngine {
       transparent: true,
       opacity: 0.22,
       side: THREE.DoubleSide,
+      forceSinglePass: true,
     });
     this.ring = new THREE.Mesh(ringGeo, ringMat);
     this.ring.rotation.x = -Math.PI / 2;
@@ -1444,7 +1522,7 @@ export class CrashEngine {
 
     const inner = new THREE.Mesh(
       new THREE.RingGeometry(0.12, 0.22, 24),
-      new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.35, side: THREE.DoubleSide }),
+      new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, forceSinglePass: true }),
     );
     inner.rotation.x = -Math.PI / 2;
     inner.position.y = 0.03;

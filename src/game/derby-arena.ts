@@ -22,19 +22,29 @@ export function makeDerbyArena(): THREE.Group {
   const arc = (Math.PI * 2) / SEGMENTS;
   const chord = 2 * DERBY_RADIUS * Math.sin(arc * 0.5);
   const box = new THREE.BoxGeometry(WALL_T, WALL_H, chord * 0.96);
-  for (let i = 0; i < SEGMENTS; i++) {
-    const a = i * arc;
-    const mesh = new THREE.Mesh(box, i % 2 === 0 ? mat : stripe);
-    mesh.position.set(Math.sin(a) * DERBY_RADIUS, WALL_H * 0.5, Math.cos(a) * DERBY_RADIUS);
-    // Box long axis is local Z. rotation.y = a points that axis down the radius.
-    mesh.rotation.y = a + Math.PI / 2;
+  // Alternating slabs: one instanced draw per material instead of one per slab.
+  const walls = [mat, stripe].map((m) => {
+    const mesh = new THREE.InstancedMesh(box, m, SEGMENTS / 2);
     mesh.castShadow = true;
     mesh.receiveShadow = true;
-    g.add(mesh);
+    return mesh;
+  });
+  const slab = new THREE.Object3D();
+  for (let i = 0; i < SEGMENTS; i++) {
+    const a = i * arc;
+    slab.position.set(Math.sin(a) * DERBY_RADIUS, WALL_H * 0.5, Math.cos(a) * DERBY_RADIUS);
+    // Box long axis is local Z. rotation.y = a points that axis down the radius.
+    slab.rotation.y = a + Math.PI / 2;
+    slab.updateMatrix();
+    walls[i % 2]!.setMatrixAt(i >> 1, slab.matrix);
+  }
+  for (const w of walls) {
+    w.computeBoundingSphere();
+    g.add(w);
   }
   const lip = new THREE.Mesh(
     new THREE.RingGeometry(DERBY_RADIUS - 0.35, DERBY_RADIUS + 0.2, 64),
-    new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.18, side: THREE.DoubleSide }),
+    new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.18, side: THREE.DoubleSide, forceSinglePass: true }),
   );
   lip.rotation.x = -Math.PI / 2;
   lip.position.y = 0.03;

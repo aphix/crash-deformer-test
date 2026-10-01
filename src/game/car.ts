@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { StreamedDeformation } from "./streamed-deform.ts";
+import { computeNormalsFast } from "./fast-normals.ts";
 import { round4 } from "./physics-util.ts";
 import {
   CAR_HALF,
@@ -10,6 +11,7 @@ import {
   makeBumperGeometry,
   makeChassisGeometry,
   makeDoorGeometry,
+  makeDoorLining,
   makeGlassMaterial,
   makeGrille,
   makeHoodGeometry,
@@ -22,7 +24,6 @@ import {
   makeTailTrim,
   makeTrimMaterial,
   makeTrunkGeometry,
-  makeWheel,
   makeWindshield,
 } from "./car-mesh.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
@@ -130,9 +131,9 @@ export class DeformableCar {
   private doorRRest: Float32Array;
   private hoodOrigin: THREE.Vector3;
   private trunkOrigin: THREE.Vector3;
-  private interior: THREE.Group;
-  private mirrorL: THREE.Group;
-  private mirrorR: THREE.Group;
+  private interior: THREE.Mesh;
+  private mirrorL: THREE.Mesh;
+  private mirrorR: THREE.Mesh;
 
   constructor(paint: CarPaint, world: THREE.Scene, onGlass: GlassBurst | null = null, style: CarStyleId = "sedan") {
     this.paint = paint;
@@ -174,13 +175,8 @@ export class DeformableCar {
     this.doorMeshR.castShadow = true;
     this.doorL.add(this.doorMeshL);
     this.doorR.add(this.doorMeshR);
-    const innerMat = new THREE.MeshStandardMaterial({ color: 0x1a1e24, roughness: 0.9, metalness: 0.04 });
-    const innerL = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.5, 0.52), innerMat);
-    innerL.position.set(0.024, 0, -0.28);
-    const innerR = new THREE.Mesh(new THREE.BoxGeometry(0.018, 0.5, 0.52), innerMat);
-    innerR.position.set(-0.024, 0, -0.28);
-    this.doorL.add(innerL);
-    this.doorR.add(innerR);
+    this.doorL.add(makeDoorLining(-1));
+    this.doorR.add(makeDoorLining(1));
     this.group.add(this.doorL, this.doorR);
 
     this.hoodRest = this.copyRest(this.hood.geometry);
@@ -205,8 +201,9 @@ export class DeformableCar {
     this.registerParts();
     this.buildHullHelper();
 
+    // Transforms only: the engine's WheelBatch draws every car's wheels in one instanced call.
     for (const [x, y, z] of WHEEL_POS) {
-      const w = makeWheel();
+      const w = new THREE.Group();
       w.position.set(x, y, z);
       this.group.add(w);
       this.wheels.push(w);
@@ -223,7 +220,7 @@ export class DeformableCar {
     const pos = geo.getAttribute("position") as THREE.BufferAttribute;
     (pos.array as Float32Array).set(rest);
     pos.needsUpdate = true;
-    geo.computeVertexNormals();
+    computeNormalsFast(geo);
   }
 
   private makeBumper(front: boolean, paint: CarPaint): THREE.Group {
@@ -273,12 +270,7 @@ export class DeformableCar {
           parts: sx < 0 ? ["wingRL"] : ["wingRR"],
         });
       }
-      const plate = new THREE.Mesh(
-        new THREE.BoxGeometry(0.36, 0.11, 0.02),
-        new THREE.MeshStandardMaterial({ color: 0xd8d4cc, roughness: 0.6, metalness: 0.1 }),
-      );
-      plate.position.set(0, 0.03, -0.08);
-      g.add(plate, makeTailTrim());
+      g.add(makeTailTrim());
     }
     g.position.set(0, 0.33, front ? 2.06 : -2.06);
     if (front) {
@@ -717,25 +709,39 @@ export class DeformableCar {
 
   updateDeform(dt: number): void {
     this.deform.update(dt, this.body.geometry);
+    // LoD gate lifted (back on screen / large again): catch the mesh up to the cages first.
+    if (!this.deform.skinDeferred) this.deform.flushSkin(this.body.geometry);
     if (this.crashed) {
-      if (this.deform.skinnedThisFrame) {
-        const detached = (name: string) => this.parts.some((p) => p.name === name && p.detached);
-        if (!detached("hood"))
-          this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
-        if (!detached("trunk"))
-          this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
-        const origin = _zero;
-        for (const g of this.glassPanes) {
-          if (!g.skin || !g.restVerts || g.state === "shattered") continue;
-          this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, origin);
-        }
-      }
+      if (this.deform.skinnedThisFrame) this.skinPanels();
       this.syncAttachedParts(dt);
       this.followGlass();
       this.evaluateBreakage(this.deform.impulseValue, dt);
     }
     if (this.deform.massActive) this.fitInterior();
     if (this.hullHelper?.visible) this.updateHullHelper();
+  }
+
+  /** LoD catch-up once the camera has moved: write a deferred dent before this car is drawn. */
+  flushDeferredSkin(): void {
+    this.deform.skinDeferred = false;
+    if (this.deform.flushSkin(this.body.geometry) && this.crashed) this.skinPanels();
+  }
+
+  /** Bonnet, boot lid and the skinned glass follow the body skin. */
+  private skinPanels(): void {
+    let hood = true;
+    let trunk = true;
+    for (const p of this.parts) {
+      if (!p.detached) continue;
+      if (p.name === "hood") hood = false;
+      else if (p.name === "trunk") trunk = false;
+    }
+    if (hood) this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
+    if (trunk) this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
+    for (const g of this.glassPanes) {
+      if (!g.skin || !g.restVerts || g.state === "shattered") continue;
+      this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, _zero);
+    }
   }
 
   private nudgeWheels(dt: number): void {
@@ -787,7 +793,7 @@ export class DeformableCar {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) m.dispose();
+        for (const m of mats) if (!m.userData.shared) m.dispose();
       }
       if (obj instanceof THREE.Light) obj.dispose();
     });

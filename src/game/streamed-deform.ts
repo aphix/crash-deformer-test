@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { computeNormalsFast } from "./fast-normals.ts";
 import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
@@ -187,6 +188,11 @@ export class StreamedDeformation {
   dirty = false;
   /** True after this frame's skin() — panels skip computeVertexNormals otherwise. */
   skinnedThisFrame = false;
+  /** Owner's per-frame LoD verdict: the car is off-screen or tiny, so skip the vertex skin
+   *  (the cage/shape solve still runs). */
+  skinDeferred = false;
+  /** A skin was skipped since the mesh was last written — `flushSkin` before the car is seen. */
+  skinOwed = false;
   crushAmount = 0;
   impactLocal = new THREE.Vector3();
   impactInward = new THREE.Vector3(0, 0, -1);
@@ -1391,7 +1397,8 @@ export class StreamedDeformation {
 
       if (this.mode === "shape") this.bakeLocalSkin();
       this.solveCages();
-      this.skin(geometry);
+      if (this.skinDeferred) this.skinOwed = true;
+      else this.flushSkin(geometry, true);
       // Plastic leftover (maxC) is not "still crushing". Keep skinning while
       // masses are live or contact is fresh — otherwise we rewrite the mesh
       // from a jittering polar every frame (flicker) and pay computeVertexNormals
@@ -1399,6 +1406,9 @@ export class StreamedDeformation {
       // Contact window only. Residual bounce / cluster breathing is not crush —
       // reskinning it every frame is the polar snap-back flicker.
       this.crushing = this.bidirectional || this.quietTime() < 0.28;
+      // Window closed with a deferred skin: write it now, from this frame's solve — the pose an
+      // always-skinned car freezes on. Later state drifts (cm), so a late catch-up would not match.
+      if (!this.crushing && this.skinOwed) this.flushSkin(geometry);
     }
     this.helper?.update();
     this.particleHelper?.update();
@@ -1592,7 +1602,7 @@ export class StreamedDeformation {
       arr[i * 3 + 2] = _d.z - origin.z;
     }
     attr.needsUpdate = true;
-    geometry.computeVertexNormals();
+    computeNormalsFast(geometry);
   }
 
   createHelper(parent: THREE.Object3D): void {
@@ -1671,11 +1681,20 @@ export class StreamedDeformation {
     return { center, quat, restCenter };
   }
 
+  /** Write the current cage pose into the mesh if a skin is owed (or `force`). Returns true if it skinned. */
+  flushSkin(geometry: THREE.BufferGeometry, force = false): boolean {
+    if (!force && !this.skinOwed) return false;
+    this.skinOwed = false;
+    this.skin(geometry);
+    return true;
+  }
+
   restoreRest(geometry: THREE.BufferGeometry): void {
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     (attr.array as Float32Array).set(this.restPos);
     attr.needsUpdate = true;
-    geometry.computeVertexNormals();
+    computeNormalsFast(geometry);
+    this.skinOwed = false;
   }
 
   snapshot(): Record<string, unknown> {
@@ -2529,7 +2548,7 @@ export class StreamedDeformation {
       arr[i * 3 + 2] = pz;
     }
     attr.needsUpdate = true;
-    geometry.computeVertexNormals();
+    computeNormalsFast(geometry);
     this.dirty = true;
     this.skinnedThisFrame = true;
   }
