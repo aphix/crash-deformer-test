@@ -24,6 +24,63 @@ import {
   type Mat3,
 } from "./shape-match.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
+import { CAGES, SHAPE_CLUSTERS } from "./rig-spec.ts";
+
+const FRAME = 1 / 60;
+
+interface Rig {
+  d: StreamedDeformation;
+  group: THREE.Group;
+  vel: THREE.Vector3;
+  omega: THREE.Vector3;
+  geom: THREE.BufferGeometry;
+  /** Car-local → world turn of the spawn pose. */
+  yaw: number;
+}
+
+/** Shape-mode car at the origin turned by `yaw`, crashing along its local `inward` at `speed`. */
+function crashRig(impact: THREE.Vector3, inward: THREE.Vector3, speed: number, yaw = 0): Rig {
+  const geom = new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
+  const d = new StreamedDeformation(geom);
+  d.mode = "shape";
+  d.squash = 0.4;
+  d.buckle = 0.45;
+  const group = new THREE.Group();
+  group.rotation.set(0, yaw, 0);
+  group.updateMatrixWorld();
+  const vel = new THREE.Vector3(0, 0, speed).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+  const omega = new THREE.Vector3();
+  d.beginCrush(impact, inward, Math.abs(speed), group, vel, omega);
+  return { d, group, vel, omega, geom, yaw };
+}
+
+function node(d: StreamedDeformation, name: string): StreamedDeformation["masses"][number] {
+  const m = d.masses.find((n) => n.name === name);
+  assert.ok(m, name);
+  return m;
+}
+
+/** One wall frame against the car-local plane normal `nLocal`, contact centred between two masses. */
+function wallFrame(r: Rig, dt: number, overlap: number, a = "bumperFL", b = "bumperFR", contactX?: number, nLocal = new THREE.Vector3(0, 0, -1)): void {
+  const n = nLocal.clone().applyAxisAngle(THREE.Object3D.DEFAULT_UP, r.yaw);
+  r.d.notifyContact();
+  const pa = node(r.d, a).world;
+  const pb = node(r.d, b).world;
+  const contact = new THREE.Vector3(contactX ?? (pa.x + pb.x) * 0.5, (pa.y + pb.y) * 0.5, (pa.z + pb.z) * 0.5);
+  const closing = Math.max(0, -r.vel.dot(n));
+  r.d.feedOverlap(contact, n, overlap, closing, dt);
+  const leftover = closing * 0.18;
+  if (leftover > 0.3) r.d.applyImpulse(n.x, n.y, n.z, leftover * r.d.totalMass * dt * 4);
+  r.d.stepStructure(dt);
+  r.d.followGroup(r.group, r.vel, r.omega, dt);
+  r.d.update(dt, r.geom);
+}
+
+/** Left/right partner of a mass name (centre masses map to themselves). */
+function mirrorName(name: string): string {
+  if (!/^(bumper|wing|hub)[FR][LR]$|^(engine|rail|door)[LR]$/.test(name)) return name;
+  return name.slice(0, -1) + (name.endsWith("L") ? "R" : "L");
+}
 
 function rotY(rad: number): Mat3 {
   const c = Math.cos(rad),
@@ -400,5 +457,32 @@ describe("StreamedDeformation shape mode", () => {
       assert.ok(seen.has(m.name), `${m.name} is in no cluster`);
     }
     assert.ok(snap.clusters.length >= 8, `too few clusters ${snap.clusters.length}`);
+  });
+
+  it("good: the cluster table is mirror-symmetric, duplicate-free and owned by real cages", () => {
+    const key = (names: readonly string[]) => [...names].sort().join(",");
+    const sets = SHAPE_CLUSTERS.map((c) => key(c.masses));
+    assert.equal(new Set(sets).size, sets.length, "two clusters share a mass set");
+    for (const c of SHAPE_CLUSTERS) {
+      assert.ok(sets.includes(key(c.masses.map(mirrorName))), `${c.owner} [${c.masses.join(" ")}] has no mirror`);
+      assert.ok(CAGES.some((g) => g.name === c.owner), `${c.owner} is not a cage`);
+    }
+  });
+
+  it("good: mirrored ±0.62 m corner hits crush mirror-symmetrically", () => {
+    const run = (x: number) => {
+      const r = crashRig(new THREE.Vector3(x, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
+      const corner = x > 0 ? "bumperFR" : "bumperFL";
+      for (let i = 0; i < 24; i++) wallFrame(r, FRAME, 0.12, undefined, undefined, node(r.d, corner).world.x);
+      return r.d;
+    };
+    const left = run(-0.62);
+    const right = run(0.62);
+    let sum = 0;
+    for (const m of left.masses) {
+      const o = node(right, mirrorName(m.name)).local;
+      sum += Math.hypot(m.local.x + o.x, m.local.y - o.y, m.local.z - o.z);
+    }
+    assert.ok(sum < 0.02, `left/right mirror error ${sum.toFixed(3)} m`);
   });
 });

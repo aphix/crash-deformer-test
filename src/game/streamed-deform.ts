@@ -4,7 +4,6 @@ import {
   type ShapeCluster,
   type ShapeParticle,
   makeCluster,
-  rebuildAqqWeighted,
   matchCluster,
   applyPlasticity,
   resetCluster,
@@ -14,7 +13,7 @@ import {
   goalAlpha,
   deformBeta,
 } from "./shape-match.ts";
-import { BEAM_SPECS, CAGES, EXTRA_CLUSTERS, MASS_SPECS, SENSORS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
+import { BEAM_SPECS, CAGES, MASS_SPECS, SENSORS, SHAPE_CLUSTERS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
 
@@ -224,6 +223,9 @@ export class StreamedDeformation {
   buckle = 0.45;
   mode: DeformMode = "shape";
   private clusters: ShapeCluster[] = [];
+  /** Per-cluster absorption (its owner cage's), fixed at build time. */
+  private clusterAbsorb = new Float64Array(0);
+  private clusterOwner: BodyPartName[] = [];
   private shapeParticles: ShapeParticle[] = [];
   private goalX = new Float64Array(0);
   private goalY = new Float64Array(0);
@@ -416,31 +418,9 @@ export class StreamedDeformation {
     this.goalY = new Float64Array(this.masses.length);
     this.goalZ = new Float64Array(this.masses.length);
     this.goalW = new Float64Array(this.masses.length);
-    this.clusters = [];
-    for (const cage of this.cages) {
-      const idx = this.cageClusterIndices(cage);
-      if (idx.length < 3) continue;
-      const left: number[] = [];
-      const right: number[] = [];
-      const mid: number[] = [];
-      for (const i of idx) {
-        const x = this.masses[i]!.rest.x;
-        if (x < -0.12) left.push(i);
-        else if (x > 0.12) right.push(i);
-        else mid.push(i);
-      }
-      if (Math.abs(cage.center.x) < 0.18 && left.length >= 3 && right.length >= 3) {
-        this.clusters.push(makeCluster(this.shapeParticles, left.concat(mid)));
-        this.clusters.push(makeCluster(this.shapeParticles, right.concat(mid)));
-      } else {
-        this.clusters.push(makeCluster(this.shapeParticles, idx));
-      }
-    }
-    for (const names of EXTRA_CLUSTERS) {
-      const idx = names.map((n) => nameIndex.get(n)!).filter((i) => i !== undefined);
-      if (idx.length >= 3) this.clusters.push(makeCluster(this.shapeParticles, idx));
-    }
-    for (const c of this.clusters) rebuildAqqWeighted(c, this.shapeParticles);
+    this.clusters = SHAPE_CLUSTERS.map((spec) => makeCluster(this.shapeParticles, spec.masses.map((n) => nameIndex.get(n)!)));
+    this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
+    this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
     this.buildSkinWeights();
   }
 
@@ -480,42 +460,6 @@ export class StreamedDeformation {
       if (sum > 1e-8) for (const s of scored) s.w /= sum;
       this.skinWeights[i] = scored;
     }
-  }
-
-  private cageClusterIndices(cage: Cage): number[] {
-    const pad = 0.16;
-    const idx: number[] = [];
-    const side = Math.abs(cage.center.x) > 0.2 ? Math.sign(cage.center.x) : 0;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      if (m.hub) continue;
-      const p = m.rest;
-      if (side !== 0 && Math.sign(p.x) !== 0 && Math.sign(p.x) !== side) continue;
-      if (
-        p.x >= cage.min.x - pad &&
-        p.x <= cage.max.x + pad &&
-        p.y >= cage.min.y - pad &&
-        p.y <= cage.max.y + pad &&
-        p.z >= cage.min.z - pad &&
-        p.z <= cage.max.z + pad
-      ) {
-        idx.push(i);
-      }
-    }
-    if (idx.length < 3) {
-      const scored = this.masses
-        .map((m, i) => ({ i, d: m.rest.distanceTo(cage.center) }))
-        .filter((s) => !this.masses[s.i]!.hub)
-        .sort((a, b) => a.d - b.d);
-      for (const s of scored) {
-        if (s.d > 0.95) break;
-        if (Math.abs(this.masses[s.i]!.rest.z - cage.center.z) > 1.05) continue;
-        if (side !== 0 && Math.sign(this.masses[s.i]!.rest.x) !== side && Math.abs(this.masses[s.i]!.rest.x) > 0.12) continue;
-        if (!idx.includes(s.i)) idx.push(s.i);
-        if (idx.length >= 4) break;
-      }
-    }
-    return idx;
   }
 
   reset(): void {
@@ -1698,7 +1642,8 @@ export class StreamedDeformation {
         part: s.spec.part,
         compression: round4(s.compression),
       })),
-      clusters: this.clusters.map((c) => ({
+      clusters: this.clusters.map((c, ci) => ({
+        owner: this.clusterOwner[ci]!,
         n: c.idx.length,
         names: c.idx.map((i) => this.masses[i]!.name),
         cm: { x: round4(c.cmx), y: round4(c.cmy), z: round4(c.cmz) },
@@ -1897,7 +1842,7 @@ export class StreamedDeformation {
   }
 
   private clusterBeta(ci: number, contacting: boolean): number {
-    const absorb = ci < this.cages.length ? this.cages[ci]!.spec.absorption : 0.1;
+    const absorb = this.clusterAbsorb[ci]!;
     if (this.squash < 0.03) return 0.04;
     // Müller T = (1-β)R + βA. High β is jelly stretch. Bugbear/Rajala: metal
     // wants rotation + plastic rest update, not a linear squash of the whole cell.
