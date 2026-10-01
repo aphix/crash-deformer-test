@@ -1,0 +1,60 @@
+<!-- Generated: 2026-10-01 | Files scanned: 14 | Token estimate: ~1350 -->
+# Physics / deformation stack
+
+```
+DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
+  └ deform: StreamedDeformation
+      masses ── shape: SHAPE_CLUSTERS → shape-match-core.js | lattice: BEAM_SPECS
+      cages (8-corner FFD) ◄ solveCages · sensors ◄ pullSensorsFromMasses
+      skin → body.geometry position/normal
+```
+
+## Rig tables (`src/game/rig-spec.ts`)
+- `CAGES: CageSpec[]` (`name: BodyPartName, min, max, absorption, maxCrush, maxAngle`)
+- `SENSORS: SensorSpec[]` (`rest, radius, part, absorption, maxCompression, neighbors`)
+- `MASS_SPECS: MassSpec[]` (`name: MassName, rest, mass, radius`): the named control particles
+- `BEAM_SPECS`: `[MassName, MassName, number, number, number][]` lattice springs
+- `SHAPE_CLUSTERS: ShapeClusterSpec[]` (`owner, masses`): one Müller cluster per body region
+- Per-style overrides: `RigOverrides` (`streamed-deform.ts`), set as `CAR_STYLES[id].rig` in `car-variants.ts`.
+
+## `StreamedDeformation` (`streamed-deform.ts`)
+- `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()`.
+- Activation / hits: `armMasses`, `applyImpact(localPoint, localInward, impulse, ebs)`, `rearmHit`, `applyImpulse`, `impulseAt`, `kickNearest`, `kickNearestHub`, `feedOverlap`, `notifyContact`, `notifyPower`.
+- Rigid ↔ soft coupling: `bindKinematic`, `followGroup(group, velOut, angOut, dt)` (driven by `DeformableCar.syncPose`), `translateMasses`.
+- Contacts: `collideWith(other, dt)` (mass spheres car↔car), `projectOutOfBox`, `separateAlong`, `brakeInbound`.
+- `stepStructure(dt)`: 1–4 sub-slices of `stepMassSlice` (`stepShapeMatch` or `stepBeams`, then `stepSuspension`, damping, settle); `rebaseShapeRest` when the contact window closes; `updateDrivetrain`.
+- `update(simDt, geometry)`: while crushing → `pullSensorsFromMasses` → `bakeLocalSkin` (shape) → `solveCages` → `flushSkin` or mark `skinOwed`.
+- Readouts: `crumpleTravel`, `crumpleTravelCorner`, `partCompression`, `sensorCompression`, `liveHulls`, `liveCrushHulls`, `snapshot()`.
+- Flags: `massActive`, `drivetrainAlive`, `bidirectional` (compactor squeeze), `deepCrush`, `skinDeferred`, `skinOwed`.
+
+## Shape-match kernel (`shape-match-core.js`, façade `shape-match.ts`)
+Müller 2005 meshless shape matching on `ShapeCluster`s:
+`makeCluster(particles, idx)`, `matchCluster(c, particles, beta)`, `applyPlasticity(c, particles, dt, squash, buckle?)`, `resetCluster`, `rebuildAqqWeighted`, `m3Polar(A, q, R, S)` (warm-started quaternion polar), `stabilizeR`, `m3ClampRotation`, `matchSkinLocal(c, rest, local, mass, beta)`, `transformSkinPointInto`, `transformNormal`; squash knobs `stiffnessIters`, `goalAlpha`, `deformBeta`.
+
+## Crush bands (`physics-core.js`, re-exported + Vector3 helpers in `physics-util.ts`)
+- `CRASH`, `TRANSFER`; `regionSoftness(name)` → `regionCrushBands(name)` = `{ yield, middle, max }`; `forceTransfer(travel, bands, packed)`.
+- `crushGate(closing, softness)`, `closingKeScale`, `crushStroke(ebs, squash)`, `cancelClosing`, `leftoverCrumple`, `satPushCap`.
+- `physics-util.ts` adds `clampSpeed`, `applyGroundFriction`, `separateSphereFromBounds/FromAabb`.
+
+## Contact
+- `sat.ts`: `physicsSlice(dt, vmax)` (anti-tunnelling step), `sliceSpeed(cars)`, `satCarBarrier`, `clipCarToBarrier`, `satTwoHulls`, `satCars`; hulls from `car-mesh.ts` (`HULLS`, `CRUSH_HULLS`, `crushedHulls`).
+- `pair-contact.ts`: `resolveCarPair(carA, carB, feed, dt): PairHit | null`, `impulseCar`, `pushCar`, `stepCarPair(carA, carB, dt)` (one pair slice, same order as `fixedStep`).
+- `engine-props.ts`: `JerseyBarrier.resolve/clip/blocksPair`, `resolveRampBalls`, `resolveLampPoles`, `StrongestContact`.
+- `compactor.ts`: `CompactorRig`, `enforceWalls`, `compactorStage`. `piston-rig.ts`: `PistonRig`, `firePiston(car, id, shot)`, `pistonLocality`.
+
+## Skinning pipeline
+```
+buildSkinWeights (ctor: each vertex → ≤ RES_SLOTS nearest masses, IDW)
+  → bakeLocalSkin (matchSkinLocal per cluster, SKIN_STRAIN) → refreshClusterXf
+  → solveCagesFromShape / lattice cage solve → capCageCorners
+  → skin(geometry): positions + wrinkle → computeNormalsFast (fast-normals.ts)
+flushSkin(geometry, force) writes only when owed; DeformableCar.updateDeform / flushDeferredSkin;
+LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (off-screen or tiny cars skip skin, never lose it)
+```
+Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` (`skinPanels`, `syncAttachedParts`, `evaluateBreakage`, `detachPart`).
+
+## Debug views
+- G `DeformRigHelper` (`deform-helper.ts`: cages, sensors, masses) + hull lines (`car.ts` `setRigVisible`); P `DeformParticleHelper` (size = mass, colour = plastic travel / contact, shape-match pull); Y shape ↔ lattice.
+
+## Related
+`docs/RIG_ANALYSIS.md` (rig vs real structure), `docs/CRUSH_CALIBRATION.md` (squash/buckle), `docs/PISTON_RIG.md`, `docs/PARTICLE_LOD_SPEC.md` (fine-patch LoD: gate failed, not built), `.extraResearch/SYNTHESIS.md`, [architecture.md](architecture.md), [testing.md](testing.md)

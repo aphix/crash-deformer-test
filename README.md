@@ -2,38 +2,70 @@
 
 A browser car-crash lab: two (or a fleet of) cars, Müller 2005 shape matching, a lattice fallback, jersey barriers, a compactor, and a demolition derby with very basic AI.
 
+## Requirements
+
+Node 22.6 or newer (tests run TypeScript through `node --experimental-strip-types`; checked on Node 24.15 / npm 11.12) on Linux, WSL2 or macOS. The browser needs WebGL2.
+
 ## Run it
 
 ```bash
 git clone https://github.com/aphix/crash-deformer-test.git
 cd crash-deformer-test
 npm install
-npm run dev
+npm run dev          # Vite + HMR on http://localhost:8080 (binds 0.0.0.0)
+npm run dev_alt      # same app on port 5555, e.g. a second checkout next to the first
 ```
 
-That starts Vite with HMR on port 8080. Edit anything under `src/` and the preview reloads. Keep the dev server running while you work.
+Edit anything under `src/` and the page reloads. On WSL2, open `http://localhost:8080/` in the Windows browser.
 
-## Tests
+## Check it
+
+| Command | What it does | Time | State on `main` |
+|---|---|---|---|
+| `npm run typecheck` | `tsc --noEmit` | ~30 s | clean |
+| `npm run test:game` | every `src/game/*.test.ts` (`node --test`) | ~11 s | 587 tests: 536 pass, 51 todo, 0 fail. This is the gate for game changes. |
+| `npm test` | `scripts/**/*.test.mjs`, then `src/lib` + `src/game` suites | ~2 s | **fails**: 8 pre-existing failures in `scripts/grok-pwa-plugin.test.mjs` (platform template), and the `&&` stops it before the game suites. Run the second half alone with `node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts 'src/game/*.test.ts'` (642 tests: 591 pass, 51 todo). |
+| `npm run lint` | `eslint .` | ~25 s | **fails**: 3 errors, all pre-existing (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) |
+
+`todo` tests are documented targets the sim does not meet yet; they run and report, but do not fail the suite (see `docs/CODEMAPS/testing.md`).
+
+## Build
 
 ```bash
-npm test
+npm run build                         # vite build (Nitro, output in .vercel/output), then db:migrate
+npm run preview -- --port 4173        # serve that build
 ```
 
-Game physics only (faster):
+The build takes about 50 s. `db:migrate` skips itself when `DATABASE_URL` is unset (the PGLite fallback migrates itself).
+
+## Benchmark
 
 ```bash
-npm run test:game
+npm run bench    # ns/op of the JS kernels (m3Polar, matchCluster, matchSkinLocal, crushGate…), < 1 s
+npm run sweep    # squash × buckle grid over the headless crash harness, ~35 s
 ```
 
-## Bench the hot path
-
-```bash
-npm run bench
-```
+`sweep` prints a score table and writes `.bench/crush-sweep/sweep.json` and `sweep.md`. Flags: `--grid 0,0.5,1`, `--cells 0.4:0.45,0.25:0.45`, `--scenarios wall56,side50`, `--after <sim s>`, `--root <other checkout>`, `--out <dir>`. See `docs/CRUSH_CALIBRATION.md`.
 
 Kernels in `src/game/*-core.js` are plain JavaScript on purpose. TypeScript's emit is several times slower on these loops; the sim and the tests both call the JS.
 
+### Frame benchmark in a real browser
+
+With a dev server running:
+
+```bash
+node scripts/bench-browser.mjs --url http://127.0.0.1:8080/ --cars 2 --modes fleet --seconds 2 --warmup 1
+```
+
+Defaults: `--cars 2,10,16,24,32 --modes fleet,derby --seconds 8 --warmup 2`. Other flags: `--out bench.json`, `--headed`, `--vsync` (default is uncapped, so fps shows headroom), `--rig`, `--particles`, `--profile <file>`. Each row prints fps, frame-time p95/p99/max and per-frame ms for `tick`, `phys`, `deform`, `render`, plus draw calls and triangles. The first line names the GPU; `llvmpipe` or SwiftShader there means software rendering and the numbers are meaningless.
+
+- Linux / macOS: uses Playwright's Chromium (`npx playwright install chromium` once), or `CHROME_PATH`.
+- WSL2, Linux Chromium: prefix `GALLIUM_DRIVER=d3d12` so WebGL reaches the host GPU through D3D12 instead of llvmpipe.
+- WSL2, Windows browser (most representative): run the same script with Windows node from a checkout on the Windows drive (e.g. `/mnt/c/...`), `"/mnt/c/Program Files/nodejs/node.exe" scripts/bench-browser.mjs`; it drives the installed Edge (then Chrome) on native D3D11.
+
 Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment). Rebuild with `npm run bake:env` if you change the bake script.
+
+Code maps for newcomers: `docs/CODEMAPS/` (architecture, physics, frontend, testing, dependencies).
 
 ## Controls
 
@@ -93,10 +125,16 @@ HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Press / 
 
 ## Layout
 
-- `src/game/derby.ts` / `derby-ai.ts` / `car-drive.ts` / `derby-arena.ts` — derby match, AI, player seat (`DriveInput`)
-- `src/game/engine.ts` — sim loop, camera, collisions
-- `src/game/piston-rig.ts` / `engine-pistons.ts` — piston rig model and shot measurement (`firePiston`, `pistonLocality`), instanced rams
-- `src/game/engine-fx.ts` / `engine-world.ts` — debris, sparks, smoke, audio, asphalt, barrier
-- `src/game/shape-match-core.js` — polar / clusters (hot)
-- `src/game/physics-core.js` — crumple bands, impulses (hot)
-- `src/game/streamed-deform.ts` — cages, masses, skin
+All game code is in `src/game/`; `*.test.ts` sit next to the module they test. Details: `docs/CODEMAPS/`.
+
+- `engine.ts` — `CrashEngine`: frame loop (`tickInner` → `fixedStep`), scenes, HUD publish; `engine-camera.ts` camera springs, chase / hood cam; `engine-fx.ts` debris, sparks, glass, smoke, audio; `engine-world.ts` asphalt, barrier mesh, lamps; `engine-props.ts` Jersey barrier, ramp balls, lamp poles, compactor press; `engine-pistons.ts` instanced rams; `engine-trace.ts` JSON capture
+- `car.ts` — `DeformableCar`: rigid pose, parts, glass, lamps, doors; `car-mesh.ts` body geometry and hulls; `car-variants.ts` body styles (sedan, hatchback, wagon, coupe, pickup) with rig overrides
+- `streamed-deform.ts` — `StreamedDeformation`: masses, shape-match clusters / lattice beams, cages, sensors, skin; `rig-spec.ts` the rig tables; `deform-helper.ts` rig and particle debug views; `fast-normals.ts`
+- `shape-match-core.js` / `shape-match.ts` — Müller shape matching kernel and typed façade (hot)
+- `physics-core.js` / `physics-util.ts` — crush bands, force transfer, impulses (hot) and Vector3 helpers
+- `sat.ts` hull SAT and slice length; `pair-contact.ts` car-car contact
+- `fleet.ts` fleet layout; `derby.ts` / `derby-ai.ts` / `derby-arena.ts` derby match, AI, bowl; `compactor.ts` compactor rig; `piston-rig.ts` piston rig model and shot measurement (`firePiston`, `pistonLocality`)
+- `car-drive.ts` `DriverSeat`, `applyDrive`; `drive-input.ts` keyboard / pad → intent; `gamepad.ts`; `hud-store.ts` HUD state
+- `crash-scenarios.test-util.ts`, `test-support.ts` — headless harness and test helpers
+- `src/components/` — `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`
+- `scripts/bench-physics.mjs`, `scripts/crush-sweep.mjs`, `scripts/bench-browser.mjs` — benchmarks
