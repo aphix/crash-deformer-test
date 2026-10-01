@@ -2,13 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { COMPACTOR, CompactorRig, compactorStage, travelOf } from "./compactor.ts";
 import { leftoverCrumple } from "./physics-util.ts";
-import type { DeformMode } from "./streamed-deform.ts";
-
-const MODES: DeformMode[] = ["lattice", "shape"];
-
-function forModes(title: string, fn: (mode: DeformMode) => void): void {
-  for (const mode of MODES) describe(`${title} [${mode}]`, () => fn(mode));
-}
+import { forModes } from "./test-support.ts";
 
 function massAABB(d: { masses: { local: { x: number; y: number; z: number } }[] }): {
   length: number;

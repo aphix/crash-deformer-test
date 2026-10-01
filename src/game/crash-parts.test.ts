@@ -4,19 +4,7 @@ import * as THREE from "three";
 import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
-
-const DT = 1 / 60;
-const MODES: DeformMode[] = ["lattice", "shape"];
-
-function dummyGeom(): THREE.BufferGeometry {
-  return new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
-}
-
-function mass(d: StreamedDeformation, name: string) {
-  const m = d.masses.find((n) => n.name === name);
-  assert.ok(m, name);
-  return m;
-}
+import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";
 
 function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") {
   const geom = dummyGeom();
@@ -32,10 +20,6 @@ function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") 
   return { d, group, vel, omega, geom };
 }
 
-function forModes(title: string, fn: (mode: DeformMode) => void): void {
-  for (const mode of MODES) describe(`${title} [${mode}]`, () => fn(mode));
-}
-
 function stepWall(s: ReturnType<typeof spawnOffset>, dt: number, contactX: number): void {
   s.d.notifyContact();
   const fl = mass(s.d, "bumperFL").world;
@@ -47,10 +31,6 @@ function stepWall(s: ReturnType<typeof spawnOffset>, dt: number, contactX: numbe
   s.d.stepStructure(dt);
   s.d.followGroup(s.group, s.vel, s.omega, dt);
   s.d.update(dt, s.geom);
-}
-
-function paint() {
-  return { name: "Test", body: 0xffffff, accent: 0x444444 };
 }
 
 forModes("banana lattice / corner crush", (mode) => {

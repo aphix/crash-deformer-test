@@ -51,14 +51,14 @@ function writeSilhouette(): void {
   <polyline fill="none" stroke="#888" stroke-width="1" points="${belt.join(" ")}"/>
   <text x="12" y="18" fill="#aaa" font-size="11">rest side profile — white=body top, gray=belt, cyan=roof</text>
 </svg>`;
-  fs.mkdirSync("/workspace/artifacts", { recursive: true });
-  fs.writeFileSync("/workspace/artifacts/rest-silhouette.svg", svg);
+  fs.mkdirSync(new URL("../../artifacts/", import.meta.url), { recursive: true });
+  fs.writeFileSync(new URL("../../artifacts/rest-silhouette.svg", import.meta.url), svg);
 }
 
 describe("rest pose is a sedan, not a van blob", () => {
   it("writes a side silhouette for visual check", () => {
     writeSilhouette();
-    assert.ok(fs.existsSync("/workspace/artifacts/rest-silhouette.svg"));
+    assert.ok(fs.existsSync(new URL("../../artifacts/rest-silhouette.svg", import.meta.url)));
   });
 
   it("good: trunk stays at boot height, never greenhouse", () => {
