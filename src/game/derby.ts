@@ -1,7 +1,5 @@
-import { leftoverCrumple } from "./physics-util.ts";
-import { thinkDerby, engineDamage, type AiCar } from "./derby-ai.ts";
+import { DerbyBrain, blankAiCar, type AiCar } from "./derby-ai.ts";
 import { idleDrive, type DriveInput } from "./car-drive.ts";
-import { DERBY_RADIUS } from "./derby-arena.ts";
 
 export const HIT_POINTS = 1;
 export const DISABLE_POINTS = 10;
@@ -43,6 +41,9 @@ export class DerbyMatch {
   private lastAttacker = new Map<number, number>();
   private wasAlive = new Map<number, boolean>();
   private boostQueue: number[] = [];
+  readonly brain = new DerbyBrain();
+  private snaps: AiCar[] = [];
+  private readonly idle = idleDrive();
 
   begin(cars: { id: number; name: string }[]): void {
     this.active = true;
@@ -54,6 +55,7 @@ export class DerbyMatch {
     this.lastAttacker.clear();
     this.wasAlive.clear();
     this.boostQueue.length = 0;
+    this.brain.reset();
     this.board = cars.map((c) => ({
       id: c.id,
       name: c.name,
@@ -120,9 +122,17 @@ export class DerbyMatch {
     this.boostQueue.push(attacker);
   }
 
-  think(self: AiCar, others: AiCar[]): DriveInput {
-    if (!this.active || this.winnerId != null || !self.alive) return idleDrive();
-    return thinkDerby(self, others, { radius: DERBY_RADIUS, time: this.time });
+  /** Pooled per-car snapshots for one step; fill each with `snapshotAiCar`. */
+  snapshots(count: number): AiCar[] {
+    while (this.snaps.length < count) this.snaps.push(blankAiCar(this.snaps.length));
+    this.snaps.length = count;
+    return this.snaps;
+  }
+
+  /** Scratch input — apply before the next call. */
+  think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
+    if (!this.active || this.winnerId != null || !self.alive) return this.idle;
+    return this.brain.think(self, others, dt);
   }
 
   step(dt: number, aliveFlags: { id: number; name: string; alive: boolean }[]): "running" | "winner" | "loop" {
@@ -177,26 +187,70 @@ export class DerbyMatch {
   }
 }
 
+/** The few structural masses the brain reads. */
+type CrushMass = {
+  readonly name: string;
+  readonly local: { readonly z: number };
+  readonly rest: { readonly z: number };
+};
+
+function spent(nowLen: number, restLen: number): number {
+  const span = restLen - 0.36;
+  if (span <= 1e-6) return 0;
+  return Math.max(0, Math.min(1, (restLen - nowLen) / span));
+}
+
+/**
+ * Fill `out` from a live car. Nose / tail spent share come from the bumper
+ * pair vs. the cell (same 0.36 m floor as `crumpleTravel`). Crumple is
+ * plastic, so these only grow; engine block travel was tried and is mostly
+ * elastic slosh (0.5–1.0 on cars with untouched noses).
+ */
 export function snapshotAiCar(
+  out: AiCar,
   id: number,
-  name: string,
   x: number,
   z: number,
   yaw: number,
   vx: number,
   vz: number,
   drivetrainAlive: boolean,
-  crumpleTravel: number,
+  masses: readonly CrushMass[],
 ): AiCar {
-  void name;
-  return {
-    id,
-    x,
-    z,
-    yaw,
-    vx,
-    vz,
-    alive: drivetrainAlive,
-    damage: engineDamage(drivetrainAlive, crumpleTravel),
-  };
+  out.id = id;
+  out.x = x;
+  out.z = z;
+  out.yaw = yaw;
+  out.vx = vx;
+  out.vz = vz;
+  out.alive = drivetrainAlive;
+  let cellNow = 0;
+  let cellRest = 0;
+  let noseNow = 0;
+  let noseRest = 0;
+  let tailNow = 0;
+  let tailRest = 0;
+  for (const m of masses) {
+    switch (m.name) {
+      case "cell":
+        cellNow = m.local.z;
+        cellRest = m.rest.z;
+        break;
+      case "bumperFL":
+      case "bumperFR":
+        noseNow += m.local.z * 0.5;
+        noseRest += m.rest.z * 0.5;
+        break;
+      case "bumperRL":
+      case "bumperRR":
+        tailNow += m.local.z * 0.5;
+        tailRest += m.rest.z * 0.5;
+        break;
+    }
+  }
+  out.front = spent(noseNow - cellNow, noseRest - cellRest);
+  out.rear = spent(cellNow - tailNow, cellRest - tailRest);
+  // The engine sits in the nose: a flat nose is a car one hit from dead.
+  out.damage = drivetrainAlive ? Math.max(out.front, out.rear * 0.5) : 1;
+  return out;
 }
