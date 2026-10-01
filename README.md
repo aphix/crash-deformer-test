@@ -43,6 +43,8 @@ Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironmen
 | R | reset / reshuffle |
 | B | jersey barrier |
 | C | compactor |
+| I | piston rig: eight rams around a parked car (docs/PISTON_RIG.md); speed, mass, face hardness and hold-car in its panel |
+| 1–8 / 0 | piston rig: fire one ram (clockwise from front-left) / all eight |
 | D | demolition derby (not while driving) |
 | G | deform rig |
 | P | control particles: size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel |
@@ -65,6 +67,7 @@ HUD sliders: squash, buckle, FX, car count (1–32), speed min/max, time scale (
 
 - `src/game/derby.ts` / `derby-ai.ts` / `car-drive.ts` / `derby-arena.ts` — derby match, AI, player seat (`DriveInput`)
 - `src/game/engine.ts` — sim loop, camera, collisions
+- `src/game/piston-rig.ts` / `engine-pistons.ts` — piston rig model and shot measurement (`firePiston`, `pistonLocality`), instanced rams
 - `src/game/engine-fx.ts` / `engine-world.ts` — debris, sparks, smoke, audio, asphalt, barrier
 - `src/game/shape-match-core.js` — polar / clusters (hot)
 - `src/game/physics-core.js` — crumple bands, impulses (hot)

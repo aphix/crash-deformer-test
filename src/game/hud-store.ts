@@ -1,6 +1,20 @@
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
 export type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
+/** Piston scene: selected ram (0–7, key order) and the shot config (mirrors `PISTON_DEFAULTS`). */
+export type PistonHud = {
+  selected: number;
+  speedKph: number;
+  massKg: number;
+  hardness: number;
+  holdCar: boolean;
+  busy: boolean;
+  /** Crush energy the car takes from this shot (kJ). */
+  energyKj: number;
+  /** Equivalent barrier speed of that energy (km/h). */
+  ebsKph: number;
+};
+
 export type CrashHudState = {
   playing: boolean;
   looping: boolean;
@@ -9,6 +23,8 @@ export type CrashHudState = {
   showBarrier: boolean;
   showBalls: boolean;
   showCompactor: boolean;
+  showPistons: boolean;
+  pistons: PistonHud;
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
@@ -51,6 +67,8 @@ export const INITIAL_HUD: CrashHudState = {
   showBarrier: false,
   showBalls: false,
   showCompactor: false,
+  showPistons: false,
+  pistons: { selected: 0, speedKph: 40, massKg: 1500, hardness: 1, holdCar: false, busy: false, energyKj: 0, ebsKph: 0 },
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,

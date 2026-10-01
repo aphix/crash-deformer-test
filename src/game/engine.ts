@@ -3,6 +3,8 @@ import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch } from "./car-mesh.ts";
 import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
+import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
+import { PistonBank } from "./engine-pistons.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
@@ -72,6 +74,7 @@ export class CrashEngine {
   showBarrier = false;
   showBalls = false;
   showCompactor = false;
+  showPistons = false;
   autoRotate = true;
   autoSlomo = true;
   audioOn = false;
@@ -138,6 +141,12 @@ export class CrashEngine {
   private compactFace: number = COMPACTOR.startFace;
   private compactFxAt = 0;
   private press: CompactorPress;
+  private pistons = new PistonRig();
+  private pistonBank: PistonBank;
+  private pistonSelected = 0;
+  /** A shot went off since the car was parked (no auto-fire; a loop reset moves to the next piston). */
+  private pistonFired = false;
+  private pistonFxAt = 0;
   private derby = new DerbyMatch();
   private seat = new DriverSeat();
   private keys = new Set<string>();
@@ -181,6 +190,7 @@ export class CrashEngine {
     this.scene.add(this.winnerLight);
     this.barrier = new JerseyBarrier(this.scene);
     this.press = new CompactorPress(this.scene, this.compactFace);
+    this.pistonBank = new PistonBank(this.scene, this.pistons);
 
     this.glassDots = new GlassDotSystem(this.scene);
     this.ensureCars(2);
@@ -307,7 +317,7 @@ export class CrashEngine {
   }
 
   toggleBarrier(): void {
-    if (this.showCompactor) return;
+    if (this.showCompactor || this.showPistons) return;
     if (this.derbyMode) this.setDerby(false);
     this.showBarrier = !this.showBarrier;
     this.barrier.group.visible = this.showBarrier;
@@ -317,7 +327,7 @@ export class CrashEngine {
   }
 
   toggleBalls(): void {
-    if (this.showCompactor) return;
+    if (this.showCompactor || this.showPistons) return;
     if (this.derbyMode) this.setDerby(false);
     this.showBalls = !this.showBalls;
     scatterRampBalls(this.balls, this.showBalls);
@@ -328,8 +338,40 @@ export class CrashEngine {
   toggleCompactor(): void {
     if (this.derbyMode) this.setDerby(false);
     this.showCompactor = !this.showCompactor;
+    this.showPistons = false;
     this.tryUnlockAudio();
     this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
+  togglePistons(): void {
+    if (this.derbyMode) this.setDerby(false);
+    this.showPistons = !this.showPistons;
+    this.showCompactor = false;
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
+  /** Fire piston `index` (0–7 in key order) or all eight (8). A free car already shoved off the pad is parked fresh first. */
+  firePiston(index: number): void {
+    if (!this.showPistons || this.pistons.busy) return;
+    if (this.pistonFired && this.carA.group.position.lengthSq() > 0.09) this.randomizeAndReset();
+    if (index < PISTON_IDS.length) this.pistonSelected = index;
+    this.pistonFired = true;
+    this.pistons.fire(index < PISTON_IDS.length ? PISTON_IDS[index]! : "all");
+    // The run-up lasts a few hundredths of a second: slow down now so it reads.
+    if (this.autoSlomo && this.userTimeScale == null && this.phase === "approach") {
+      this.targetScale = 0.15;
+      this.timeScale = Math.min(this.timeScale, 0.15);
+    }
+    this.tryUnlockAudio();
+    this.emitHud(true);
+  }
+
+  setPistonConfig(patch: Partial<PistonConfig>): void {
+    this.pistons.setConfig(patch);
+    this.pistonBank.sync(this.pistons, this.pistonSelected);
     this.emitHud(true);
   }
 
@@ -348,6 +390,7 @@ export class CrashEngine {
       this.showBarrier = false;
       this.showBalls = false;
       this.showCompactor = false;
+      this.showPistons = false;
       this.barrier.group.visible = false;
       this.autoSlomo = false;
       if (this.userTimeScale == null) {
@@ -421,6 +464,8 @@ export class CrashEngine {
     this.showBarrier = INITIAL_HUD.showBarrier;
     this.showBalls = INITIAL_HUD.showBalls;
     this.showCompactor = INITIAL_HUD.showCompactor;
+    this.showPistons = INITIAL_HUD.showPistons;
+    this.pistons.setConfig(PISTON_DEFAULTS);
     this.autoRotate = INITIAL_HUD.autoRotate;
     this.autoSlomo = INITIAL_HUD.autoSlomo;
     this.audioOn = INITIAL_HUD.audioOn;
@@ -534,6 +579,11 @@ export class CrashEngine {
       if (this.seat.mode === "global") this.toggleDerby();
     } else if (e.code === "KeyC") {
       this.toggleCompactor();
+    } else if (e.code === "KeyI") {
+      this.togglePistons();
+    } else if (this.showPistons && /^Digit[0-8]$/.test(e.code)) {
+      const n = Number(e.code.slice(5));
+      this.firePiston(n === 0 ? PISTON_IDS.length : n - 1);
     } else if (e.code === "KeyO") {
       this.toggleOrbit();
     } else if (e.code === "KeyM") {
@@ -581,7 +631,13 @@ export class CrashEngine {
       this.finishResetCommon();
       return;
     }
+    if (this.showPistons) {
+      this.parkPistons();
+      this.finishResetCommon();
+      return;
+    }
     this.press.group.visible = false;
+    this.pistonBank.group.visible = false;
     if (this.derbyMode) this.spawnDerby();
     else this.spawnFleet();
     this.barrierHits.fill(false);
@@ -634,7 +690,8 @@ export class CrashEngine {
     for (const p of this.poles) p.group.visible = false;
   }
 
-  private parkCompactor(): void {
+  /** One car parked at the origin facing +Z, everything else put away. */
+  private parkSolo(): DeformableCar {
     this.ensureCars(Math.max(this.carCount, 1));
     const parked = this.carA;
     parked.resetVisual();
@@ -652,8 +709,6 @@ export class CrashEngine {
     parked.spawnSpeed = 0;
     parked.refreshBasis();
     this.dressCar(parked);
-    parked.deform.bidirectional = true;
-    parked.deform.deepCrush = false;
     parked.deform.bindKinematic(parked.group, parked.velocity, parked.angular);
 
     for (let i = 1; i < this.cars.length; i++) {
@@ -667,8 +722,27 @@ export class CrashEngine {
     this.barrier.group.visible = false;
     this.barrierHits.fill(false);
     for (const b of this.balls) b.mesh.visible = false;
+    this.press.group.visible = false;
+    this.pistonBank.group.visible = false;
+    return parked;
+  }
+
+  private parkCompactor(): void {
+    const parked = this.parkSolo();
+    parked.deform.bidirectional = true;
+    parked.deform.deepCrush = false;
     this.press.group.visible = true;
     this.press.sync(this.compactFace);
+  }
+
+  private parkPistons(): void {
+    const parked = this.parkSolo();
+    if (this.pistonFired && this.looping) this.pistonSelected = (this.pistonSelected + 1) % PISTON_IDS.length;
+    this.pistonFired = false;
+    this.pistonFxAt = 0;
+    this.pistons.attach(parked);
+    this.pistonBank.group.visible = true;
+    this.pistonBank.sync(this.pistons, this.pistonSelected);
   }
 
   private finishResetCommon(): void {
@@ -691,7 +765,7 @@ export class CrashEngine {
     this.glassDots.reset();
     this.smoke.reset();
 
-    this.view.frameReset(this.showCompactor, this.live());
+    this.view.frameReset(this.showCompactor || this.showPistons, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.sparkAt = -10;
@@ -736,6 +810,11 @@ export class CrashEngine {
 
   private fleetClosing(): number {
     if (this.showCompactor) return COMPACTOR.speed * 2;
+    if (this.showPistons) {
+      let u = 0;
+      for (const h of this.pistons.heads) u = Math.max(u, h.u);
+      return u;
+    }
     const cars = this.live();
     if (cars.length < 2) return cars[0]?.velocity.length() ?? 0;
     let best = 0;
@@ -792,7 +871,7 @@ export class CrashEngine {
       }
       this.scheduleSkins(cars);
       for (const car of cars) {
-        if (this.showCompactor && car !== this.carA) continue;
+        if ((this.showCompactor || this.showPistons) && car !== this.carA) continue;
         car.updateDeform(simDt);
       }
       this.updatePhase(wallDt);
@@ -904,7 +983,7 @@ export class CrashEngine {
     if (this.derbyMode) return;
     if (this.userTimeScale != null) return;
     if (!this.autoSlomo) return;
-    if (this.showCompactor) return;
+    if (this.showCompactor || this.showPistons) return;
     if (this.phase !== "approach") return;
     const scale = this.reduceMotion ? 0.16 : IMPACT_SCALE;
     if (this.timeScale <= scale * 1.2) return;
@@ -998,6 +1077,11 @@ export class CrashEngine {
     for (let i = 0; i < slices; i++) {
       if (this.showCompactor) {
         this.stepCompactor(h);
+        this.carA.afterContacts(h, this.bounceWorld);
+        continue;
+      }
+      if (this.showPistons) {
+        this.stepPistons(h);
         this.carA.afterContacts(h, this.bounceWorld);
         continue;
       }
@@ -1311,7 +1395,7 @@ export class CrashEngine {
     const look = this.view.look;
     if (followed && followed.group.visible) {
       look.set(followed.group.position.x, 0.7, followed.group.position.z);
-    } else if (this.showCompactor) {
+    } else if (this.showCompactor || this.showPistons) {
       look.set(this.carA.group.position.x, 0.55, this.carA.group.position.z);
     } else if (this.derbyMode && this.derby.winnerId != null) {
       const champ = this.cars[this.derby.winnerId];
@@ -1389,11 +1473,35 @@ export class CrashEngine {
     if (stage === "max") this.phase = "aftermath";
   }
 
+  private stepPistons(dt: number): void {
+    const rig = this.pistons;
+    if (this.looping && !this.pistonFired && this.elapsedWall > 1.2) this.firePiston(this.pistonSelected);
+    rig.step(dt);
+    this.pistonBank.sync(rig, this.pistonSelected);
+    if (rig.takeHit()) {
+      _bn.copy(rig.hitNormal).negate();
+      if (this.phase === "approach") this.beginCinematic(rig.hitPoint, _bn, rig.hitClosing);
+      else this.sparks.poof(rig.hitPoint, _bn, Math.max(10, (24 * this.fxDensity) | 0));
+    }
+    if (this.elapsedWall < this.pistonFxAt) return;
+    for (const h of rig.heads) {
+      if (!h.touching) continue;
+      this.pistonFxAt = this.elapsedWall + 0.15;
+      const s = h.face(rig.honey) + h.pad;
+      _bp.set(h.ax + h.nx * s, PISTON.faceY, h.az + h.nz * s);
+      _bn.set(-h.nx, 0.35, -h.nz).normalize();
+      this.sparks.poof(_bp, _bn, Math.max(6, (12 * this.fxDensity) | 0));
+      break;
+    }
+  }
+
   private emitHud(force: boolean): void {
     void force;
     const cars = this.live();
     const relVel = this.fleetClosing();
-    const eta = this.phase === "approach" && !this.showCompactor ? this.contactEta() : 0;
+    const eta = this.phase === "approach" && !this.showCompactor && !this.showPistons ? this.contactEta() : 0;
+    const carMass = this.carA.deform.totalMass;
+    const pistonEnergy = this.pistons.shotEnergy(carMass);
     publishHud({
       playing: this.playing,
       looping: this.looping,
@@ -1402,6 +1510,17 @@ export class CrashEngine {
       showBarrier: this.showBarrier,
       showBalls: this.showBalls,
       showCompactor: this.showCompactor,
+      showPistons: this.showPistons,
+      pistons: {
+        selected: this.pistonSelected,
+        speedKph: this.pistons.config.speedKph,
+        massKg: this.pistons.config.massKg,
+        hardness: this.pistons.config.hardness,
+        holdCar: this.pistons.config.holdCar,
+        busy: this.pistons.busy,
+        energyKj: pistonEnergy / 1000,
+        ebsKph: Math.sqrt((2 * pistonEnergy) / carMass) * 3.6,
+      },
       autoRotate: this.autoRotate,
       autoSlomo: this.autoSlomo,
       audioOn: this.audioOn,
