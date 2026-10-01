@@ -93,6 +93,15 @@ export function PistonPanel({
         pistons.hardness >= 1 ? "steel" : `${Math.round(pistons.hardness * 100)}% car`,
         (v) => onConfig({ hardness: v }),
       )}
+      {slider(
+        "Hop",
+        pistons.hopSeconds,
+        1.5,
+        15,
+        0.5,
+        pistons.hopSynced ? "orbit" : `${pistons.hopSeconds.toFixed(1)} s`,
+        (v) => onConfig({ hopSeconds: v }),
+      )}
       <Button
         size="sm"
         className="h-10 w-full"
