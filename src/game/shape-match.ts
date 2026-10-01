@@ -33,8 +33,10 @@ export interface ShapeCluster {
   cmy: number;
   cmz: number;
   AqqInv: Mat3;
-  /** Rest shape is flat (rank-2 Aqq): the cluster pins translation only, R = S = I. */
+  /** Rest shape is flat (slab or triangle): its fit takes the turned normal n as the third axis. */
   planar: boolean;
+  /** Unit normal of the plastic rest plane (planar clusters). */
+  n: Float64Array;
   Sp: Mat3;
   A: Mat3;
   R: Mat3;

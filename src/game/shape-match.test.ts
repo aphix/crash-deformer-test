@@ -24,7 +24,7 @@ import {
   type Mat3,
 } from "./shape-match.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
-import { CAGES, SHAPE_CLUSTERS } from "./rig-spec.ts";
+import { CAGES, MASS_SPECS, SHAPE_CLUSTERS } from "./rig-spec.ts";
 
 const FRAME = 1 / 60;
 
@@ -484,5 +484,65 @@ describe("StreamedDeformation shape mode", () => {
       sum += Math.hypot(m.local.x + o.x, m.local.y - o.y, m.local.z - o.z);
     }
     assert.ok(sum < 0.02, `left/right mirror error ${sum.toFixed(3)} m`);
+  });
+
+  it("good: every rig cluster recovers a rigid 0.3 rad turn about each axis", () => {
+    const rest = MASS_SPECS.map((m) => ({ x: m.rest[0], y: m.rest[1], z: m.rest[2], vx: 0, vy: 0, vz: 0, mass: m.mass }));
+    const index = new Map(MASS_SPECS.map((m, i) => [m.name, i]));
+    for (const axis of [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)]) {
+      const turn = new THREE.Quaternion().setFromAxisAngle(axis, 0.3);
+      const moved = rest.map((p) => {
+        const v = new THREE.Vector3(p.x, p.y, p.z).applyQuaternion(turn);
+        return { ...p, x: v.x, y: v.y, z: v.z };
+      });
+      const e = new THREE.Matrix4().makeRotationFromQuaternion(turn).elements;
+      for (const spec of SHAPE_CLUSTERS) {
+        const c = makeCluster(rest, spec.masses.map((n) => index.get(n)!));
+        matchCluster(c, moved, 0);
+        // E = Rᵀ·R_true; R is row-major, three.js elements are column-major.
+        const E = m3();
+        for (let i = 0; i < 3; i++) for (let j = 0; j < 3; j++) E[i * 3 + j] = c.R[i]! * e[j * 4]! + c.R[3 + i]! * e[j * 4 + 1]! + c.R[6 + i]! * e[j * 4 + 2]!;
+        const err = m3RotationAngle(E);
+        assert.ok(err < 0.02, `${spec.owner} [${spec.masses.join(" ")}] turn error ${err.toFixed(3)} rad about ${axis.toArray()}`);
+      }
+    }
+  });
+
+  it("good: the same local frontal crush is heading-independent", () => {
+    const noseZ = (yaw: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 16, yaw);
+      r.d.squash = 0.5;
+      const fl = node(r.d, "bumperFL");
+      const n = new THREE.Vector3(0, 0, -1).applyAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+      for (let i = 0; i < 24; i++) {
+        r.d.notifyContact();
+        r.d.feedOverlap(fl.world, n, 0.1, 16, FRAME);
+        r.d.stepStructure(FRAME);
+        r.d.followGroup(r.group, r.vel, r.omega, FRAME);
+        r.d.update(FRAME, r.geom);
+      }
+      return fl.local.z;
+    };
+    const z = [0, Math.PI / 2, Math.PI, -Math.PI / 2].map(noseZ);
+    assert.ok(Math.max(...z) - Math.min(...z) < 0.03, `bumperFL local z by heading ${z.map((v) => v.toFixed(3)).join(" / ")}`);
+  });
+
+  it("good: a rigidly turned undamaged car is a fixed point of the structure step", () => {
+    const settle = (yaw: number) => {
+      const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 0);
+      const c = node(r.d, "cell").world.clone();
+      const turn = new THREE.Quaternion().setFromAxisAngle(THREE.Object3D.DEFAULT_UP, yaw);
+      for (const m of r.d.masses) m.world.sub(c).applyQuaternion(turn).add(c);
+      for (let i = 0; i < 10; i++) {
+        r.d.notifyContact();
+        r.d.stepStructure(FRAME);
+        r.d.followGroup(r.group, r.vel, r.omega, FRAME);
+      }
+      return r.d.masses.flatMap((a, i) => r.d.masses.slice(i + 1).map((b) => a.world.distanceTo(b.world)));
+    };
+    const still = settle(0);
+    const turned = settle(0.3);
+    const worst = Math.max(...still.map((v, i) => Math.abs(v - turned[i]!)));
+    assert.ok(worst < 0.01, `a 0.3 rad heading distorts the body by ${worst.toFixed(3)} m`);
   });
 });

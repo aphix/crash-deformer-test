@@ -357,6 +357,8 @@ function stabilizeR(c) {
 
 // Aqq + AQQ_EPS·I keeps flat clusters invertible.
 const AQQ_EPS = 1e-3;
+// λ_min(Aqq) below this share of tr(Aqq) is a flat (slab or triangle) rest shape.
+const PLANAR_THIN = 0.01;
 function makeCluster(particles, idx) {
   const n = idx.length;
   const c = {
@@ -375,6 +377,7 @@ function makeCluster(particles, idx) {
     cmz: 0,
     AqqInv: m3(),
     planar: false,
+    n: new Float64Array([0, 1, 0]),
     Sp: m3Id(),
     A: m3Id(),
     R: m3Id(),
@@ -435,15 +438,74 @@ function rebuildAqqWeighted(c, particles) {
     a12 += my * z;
     a22 += m * z * z;
   }
-  // A flat rest shape (3 particles, or a coplanar quad like bumpers + engines) gives
-  // A = Apq·Aqq⁻¹ of rank 2 at every pose; plastic Sp and contact turns keep it flat.
-  // Such a cluster pins translation only (R = S = I): the rig is tuned for that, and
-  // letting those clusters rotate moves the door-hinge, nose-gap and barrier-corner
-  // scenarios across their thresholds.
-  const tr = (a00 + a11 + a22) / 3;
-  const det = a00 * (a11 * a22 - a12 * a12) - a01 * (a01 * a22 - a12 * a02) + a02 * (a01 * a12 - a11 * a02);
-  c.planar = det <= 1e-6 * tr * tr * tr;
+  const c00 = a11 * a22 - a12 * a12, c11 = a00 * a22 - a02 * a02, c22 = a00 * a11 - a01 * a01;
+  const det = a00 * c00 + a01 * (a02 * a12 - a01 * a22) + a02 * (a01 * a12 - a02 * a11);
+  // λ_min ≈ det / (sum of principal 2×2 minors) when one eigenvalue is much smaller than the others.
+  c.planar = det <= PLANAR_THIN * (a00 + a11 + a22) * (c00 + c11 + c22);
+  restMomentsInto(c, a00, a01, a02, a11, a12, a22);
+}
+/** AqqInv (regularised) and, for a flat cluster, the unit normal n of its rest plane. */
+function restMomentsInto(c, a00, a01, a02, a11, a12, a22) {
   symInvertInto(a00 + AQQ_EPS, a01, a02, a11 + AQQ_EPS, a12, a22 + AQQ_EPS, c.AqqInv);
+  if (c.planar) planeNormalInto(a00, a01, a02, a11, a12, a22, c.n);
+}
+/**
+ * Normal of a flat shape with second moments a: adj(a) ≈ λ1λ2·n nᵀ when λ3 ≪ λ1, λ2,
+ * so its longest column is ∥ n. A degenerate (collinear) shape keeps the old normal.
+ */
+function planeNormalInto(a00, a01, a02, a11, a12, a22, out) {
+  const c00 = a11 * a22 - a12 * a12, c01 = a02 * a12 - a01 * a22, c02 = a01 * a12 - a02 * a11;
+  const c11 = a00 * a22 - a02 * a02, c12 = a01 * a02 - a00 * a12, c22 = a00 * a11 - a01 * a01;
+  const l0 = c00 * c00 + c01 * c01 + c02 * c02;
+  const l1 = c01 * c01 + c11 * c11 + c12 * c12;
+  const l2 = c02 * c02 + c12 * c12 + c22 * c22;
+  let x = c02, y = c12, z = c22, l = l2;
+  if (l0 >= l1 && l0 >= l2) {
+    x = c00; y = c01; z = c02; l = l0;
+  } else if (l1 >= l2) {
+    x = c01; y = c11; z = c12; l = l1;
+  }
+  if (!(l > 1e-30)) return;
+  const inv = 1 / Math.sqrt(l);
+  out[0] = x * inv;
+  out[1] = y * inv;
+  out[2] = z * inv;
+}
+/**
+ * Oriented-particle moment term (Müller & Chentanez 2011) for a flat cluster: a fit
+ * A = Apq·Aqq⁻¹ only knows the in-plane columns, so replace its normal column with the
+ * turned rest normal, n_cur = (A u) × (A v) / |…| for the rest plane basis u × v = n:
+ * A ← A(I − n nᵀ) + n_cur nᵀ. A rigid motion R gives A = R exactly; the thin direction
+ * carries no strain. Rprev turns the normal when the in-plane fit has collapsed.
+ */
+function completePlanarInto(A, n, Rprev) {
+  const nx = n[0], ny = n[1], nz = n[2];
+  const anx = A[0] * nx + A[1] * ny + A[2] * nz;
+  const any = A[3] * nx + A[4] * ny + A[5] * nz;
+  const anz = A[6] * nx + A[7] * ny + A[8] * nz;
+  const b0 = A[0] - anx * nx, b1 = A[1] - anx * ny, b2 = A[2] - anx * nz;
+  const b3 = A[3] - any * nx, b4 = A[4] - any * ny, b5 = A[5] - any * nz;
+  const b6 = A[6] - anz * nx, b7 = A[7] - anz * ny, b8 = A[8] - anz * nz;
+  // cof(B)·n = nx (b2 × b3) + ny (b3 × b1) + nz (b1 × b2) over B's columns b1, b2, b3.
+  const c23x = b4 * b8 - b7 * b5, c23y = b7 * b2 - b1 * b8, c23z = b1 * b5 - b4 * b2;
+  const c31x = b5 * b6 - b8 * b3, c31y = b8 * b0 - b2 * b6, c31z = b2 * b3 - b5 * b0;
+  const c12x = b3 * b7 - b6 * b4, c12y = b6 * b1 - b0 * b7, c12z = b0 * b4 - b3 * b1;
+  let mx = nx * c23x + ny * c31x + nz * c12x;
+  let my = nx * c23y + ny * c31y + nz * c12y;
+  let mz = nx * c23z + ny * c31z + nz * c12z;
+  const l = Math.hypot(mx, my, mz);
+  if (l > 1e-9) {
+    mx /= l;
+    my /= l;
+    mz /= l;
+  } else {
+    mx = Rprev[0] * nx + Rprev[1] * ny + Rprev[2] * nz;
+    my = Rprev[3] * nx + Rprev[4] * ny + Rprev[5] * nz;
+    mz = Rprev[6] * nx + Rprev[7] * ny + Rprev[8] * nz;
+  }
+  A[0] = b0 + mx * nx; A[1] = b1 + mx * ny; A[2] = b2 + mx * nz;
+  A[3] = b3 + my * nx; A[4] = b4 + my * ny; A[5] = b5 + my * nz;
+  A[6] = b6 + mz * nx; A[7] = b7 + mz * ny; A[8] = b8 + mz * nz;
 }
 /** out = Apq · inv, Apq row-major in p0..p8. */
 function fitInto(p0, p1, p2, p3, p4, p5, p6, p7, p8, inv, out) {
@@ -506,14 +568,10 @@ function matchCluster(c, particles, beta) {
   c.cmx = cmx;
   c.cmy = cmy;
   c.cmz = cmz;
-  if (c.planar) {
-    m3Id(c.R);
-    m3Id(c.S);
-  } else {
-    // Σ m (x − cm) q^T = Σ m x q^T − cm (Σ m q)^T
-    fitInto(p0 - cmx * ux, p1 - cmx * uy, p2 - cmx * uz, p3 - cmy * ux, p4 - cmy * uy, p5 - cmy * uz, p6 - cmz * ux, p7 - cmz * uy, p8 - cmz * uz, c.AqqInv, c.A);
-    m3Polar(c.A, c.rotQ, c.R, c.S);
-  }
+  // Σ m (x − cm) q^T = Σ m x q^T − cm (Σ m q)^T
+  fitInto(p0 - cmx * ux, p1 - cmx * uy, p2 - cmx * uz, p3 - cmy * ux, p4 - cmy * uy, p5 - cmy * uz, p6 - cmz * ux, p7 - cmz * uy, p8 - cmz * uz, c.AqqInv, c.A);
+  if (c.planar) completePlanarInto(c.A, c.n, c.R);
+  m3Polar(c.A, c.rotQ, c.R, c.S);
   stabilizeMat(c.R, c.Rprev);
   blendStretchInto(c.R, c.S, beta, 8, c.M);
 }
@@ -590,7 +648,7 @@ function applyPlasticity(c, particles, dt, squash, contacting, buckle = 0.45) {
     a12 += my * vz;
     a22 += m * vz * vz;
   }
-  symInvertInto(a00 + AQQ_EPS, a01, a02, a11 + AQQ_EPS, a12, a22 + AQQ_EPS, c.AqqInv);
+  restMomentsInto(c, a00, a01, a02, a11, a12, a22);
 }
 function resetCluster(c, particles) {
   m3Id(c.Sp);
@@ -661,13 +719,6 @@ function matchSkinLocal(c, rest, local, mass, beta) {
   c.skinCmx = cp0;
   c.skinCmy = cp1;
   c.skinCmz = cp2;
-  if (c.planar) {
-    m3Id(c.skinR);
-    m3Id(c.S);
-    stabilizeMat(c.skinR, c.skinRprev);
-    blendStretchInto(c.skinR, c.S, beta, 4, c.skinM);
-    return;
-  }
   const Sp = c.Sp;
   const sp0 = Sp[0], sp1 = Sp[1], sp2 = Sp[2], sp3 = Sp[3], sp4 = Sp[4], sp5 = Sp[5], sp6 = Sp[6], sp7 = Sp[7], sp8 = Sp[8];
   let p0 = 0, p1 = 0, p2 = 0, p3 = 0, p4 = 0, p5 = 0, p6 = 0, p7 = 0, p8 = 0;
@@ -701,11 +752,16 @@ function matchSkinLocal(c, rest, local, mass, beta) {
   }
   symInvertInto(a00, a01, a02, a11, a12, a22, _AqqInv);
   fitInto(p0, p1, p2, p3, p4, p5, p6, p7, p8, _AqqInv, c.A);
+  if (c.planar) {
+    planeNormalInto(a00, a01, a02, a11, a12, a22, _skinN);
+    completePlanarInto(c.A, _skinN, c.skinR);
+  }
   m3Polar(c.A, c.skinRotQ, c.skinR, c.S);
   stabilizeMat(c.skinR, c.skinRprev);
   blendStretchInto(c.skinR, c.S, beta, 4, c.skinM);
 }
 const _AqqInv = m3();
+const _skinN = new Float64Array([0, 1, 0]);
 function stiffnessIters(squash) {
   return Math.max(2, Math.min(5, Math.round(2 + (1.05 - squash) * 3)));
 }
