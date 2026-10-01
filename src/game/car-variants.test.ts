@@ -52,9 +52,9 @@ function panelClamp(deform: StreamedDeformation, geo: THREE.BufferGeometry, part
 
 /** Roof-level body vertices are cage-skinned. An at-rest skin pass moves them only by the
  *  cage solve's own breathing (≈5 cm on the base sedan), never off the body. */
-function roofSkinDrift(style: BodyStyle, rig = style.rig): number {
+function roofSkinDrift(style: BodyStyle): number {
   const geo = makeChassisGeometry(style);
-  const d = new StreamedDeformation(geo, rig);
+  const d = new StreamedDeformation(geo, style.rig);
   const attr = geo.getAttribute("position") as THREE.BufferAttribute;
   const rest = new Float32Array(attr.array as Float32Array);
   d.applyImpact(new THREE.Vector3(0, 0.4, 2), new THREE.Vector3(0, 0, -1), 4);
@@ -166,11 +166,4 @@ describe("rig cages wrap every style", () => {
       assert.ok(r < 4.2, `${id} skin exploded, vertex radius ${r}`);
     });
   }
-
-  it("bad: without rig overrides the hatch and wagon roofs are skinned off the body", () => {
-    for (const id of ["hatchback", "wagon"] as const) {
-      const drift = roofSkinDrift(CAR_STYLES[id], {});
-      assert.ok(drift > 0.5, `${id} roof drift without overrides only ${drift.toFixed(3)} m`);
-    }
-  });
 });

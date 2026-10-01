@@ -9,7 +9,6 @@ import {
   applyPlasticity,
   resetCluster,
   matchSkinLocal,
-  transformSkinPointInto,
   stiffnessIters,
   goalAlpha,
   deformBeta,
@@ -82,6 +81,7 @@ const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
 const _c = new THREE.Vector3();
 const _d = new THREE.Vector3();
+const _panelCo = new Float64Array(24);
 const _e = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -110,33 +110,39 @@ function hash01(i: number, salt = 1): number {
   return s - Math.floor(s);
 }
 
-function trilinear(
-  corners: THREE.Vector3[],
-  u: number,
-  v: number,
-  w: number,
-  out: THREE.Vector3,
-): THREE.Vector3 {
-  const c00x = corners[0]!.x + (corners[1]!.x - corners[0]!.x) * u;
-  const c00y = corners[0]!.y + (corners[1]!.y - corners[0]!.y) * u;
-  const c00z = corners[0]!.z + (corners[1]!.z - corners[0]!.z) * u;
-  const c10x = corners[2]!.x + (corners[3]!.x - corners[2]!.x) * u;
-  const c10y = corners[2]!.y + (corners[3]!.y - corners[2]!.y) * u;
-  const c10z = corners[2]!.z + (corners[3]!.z - corners[2]!.z) * u;
-  const c01x = corners[4]!.x + (corners[5]!.x - corners[4]!.x) * u;
-  const c01y = corners[4]!.y + (corners[5]!.y - corners[4]!.y) * u;
-  const c01z = corners[4]!.z + (corners[5]!.z - corners[4]!.z) * u;
-  const c11x = corners[6]!.x + (corners[7]!.x - corners[6]!.x) * u;
-  const c11y = corners[6]!.y + (corners[7]!.y - corners[6]!.y) * u;
-  const c11z = corners[6]!.z + (corners[7]!.z - corners[6]!.z) * u;
-  const c0x = c00x + (c10x - c00x) * v;
-  const c0y = c00y + (c10y - c00y) * v;
-  const c0z = c00z + (c10z - c00z) * v;
-  const c1x = c01x + (c11x - c01x) * v;
-  const c1y = c01y + (c11y - c01y) * v;
-  const c1z = c01z + (c11z - c01z) * v;
-  out.set(c0x + (c1x - c0x) * w, c0y + (c1y - c0y) * w, c0z + (c1z - c0z) * w);
-  return out;
+/** Most cluster weights a skin vertex keeps: the 4 nearest plus the cell-face share. */
+const SKIN_K = 5;
+/** Most cage influences a skin vertex keeps (lattice skin / cluster-less fallback). */
+const INF_K = 4;
+
+/**
+ * The trilinear cage map as a polynomial in (u, v, w): 8 coefficients per axis at `out[o + axis * 8]`
+ * (A, Bu, Bv, Bw, Euv, Euw, Evw, H). Corner bits: 0 = u (x), 1 = v (y), 2 = w (z).
+ */
+function cageCoeffs(c: THREE.Vector3[], out: Float64Array, o: number): void {
+  for (let a = 0; a < 3; a++, o += 8) {
+    const c0 = c[0]!.getComponent(a);
+    const c1 = c[1]!.getComponent(a);
+    const c2 = c[2]!.getComponent(a);
+    const c3 = c[3]!.getComponent(a);
+    const c4 = c[4]!.getComponent(a);
+    const c5 = c[5]!.getComponent(a);
+    const c6 = c[6]!.getComponent(a);
+    const c7 = c[7]!.getComponent(a);
+    out[o] = c0;
+    out[o + 1] = c1 - c0;
+    out[o + 2] = c2 - c0;
+    out[o + 3] = c4 - c0;
+    out[o + 4] = c3 - c2 - c1 + c0;
+    out[o + 5] = c5 - c4 - c1 + c0;
+    out[o + 6] = c6 - c4 - c2 + c0;
+    out[o + 7] = c7 - c6 - c5 + c4 - c3 + c2 + c1 - c0;
+  }
+}
+
+/** One axis of the trilinear cage map at (u, v, w) from `cageCoeffs` (`o` = that axis' first coefficient). */
+function cageAxis(co: Float64Array, o: number, u: number, v: number, w: number): number {
+  return co[o]! + u * co[o + 1]! + v * (co[o + 2]! + u * co[o + 4]!) + w * (co[o + 3]! + u * co[o + 5]! + v * (co[o + 6]! + u * co[o + 7]!));
 }
 
 interface Cage {
@@ -238,9 +244,14 @@ export class StreamedDeformation {
   private cages: Cage[];
   private sensors: Sensor[];
   private restPos: Float32Array;
-  /** Lowest vertex index sharing each vertex's rest position: per-vertex noise keys on it so split seams stay shut. */
-  private readonly weld: Uint32Array;
-  private influences: Influence[][];
+  /** Per-vertex wrinkle phase noise in [−0.5, 0.5). */
+  private readonly wrinkleSeed: Float64Array;
+  /** Cage influences per vertex (≤ INF_K): count, `cageCo` offset, (u, v, w, weight). */
+  private readonly infN: Uint8Array;
+  private readonly infCo: Int32Array;
+  private readonly infUvw: Float64Array;
+  /** `cageCoeffs` of every cage (24 per cage), refreshed per skin. */
+  private readonly cageCo: Float64Array;
   private vertexCount: number;
   private elapsed = 0;
   private lastContact = -10;
@@ -299,7 +310,19 @@ export class StreamedDeformation {
   /** Body-frame x/z of each particle when stepShapeMatch started (net-spin removal). */
   private startX = new Float64Array(0);
   private startZ = new Float64Array(0);
-  private skinWeights: { ci: number; w: number }[][] = [];
+  /** Cluster skin weights per vertex (≤ SKIN_K): count (0 = cage fallback), `clusterXf` offset, weight. */
+  private skinN = new Uint8Array(0);
+  private skinXf = new Int32Array(0);
+  private skinW = new Float64Array(0);
+  /** Skin vertex → mass index of the hub that plants it (wheel arch, below 0.55 m), else −1. */
+  private skinHub = new Int32Array(0);
+  /** Per cluster: skin affine M (row-major 9) + t, so a skinned point is M·rest + t. */
+  private clusterXf = new Float64Array(0);
+  /** Cage corner ← cluster weights (rest-only, so built once): per corner [start, end) into `cornerXf`/`cornerW`, and Σw. */
+  private cornerStart = new Int32Array(0);
+  private cornerXf = new Int32Array(0);
+  private cornerW = new Float64Array(0);
+  private cornerWsum = new Float64Array(0);
   private impulseW = new Float64Array(0);
   private skinRest: { x: number; y: number; z: number }[] = [];
   private skinLocal: { x: number; y: number; z: number }[] = [];
@@ -309,13 +332,14 @@ export class StreamedDeformation {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
-    this.weld = new Uint32Array(this.vertexCount);
+    // Wrinkle noise per vertex, keyed on the lowest vertex index sharing its rest position so split seams stay shut.
+    this.wrinkleSeed = new Float64Array(this.vertexCount);
     const firstAt = new Map<string, number>();
     for (let i = 0; i < this.vertexCount; i++) {
       const key = `${this.restPos[i * 3]},${this.restPos[i * 3 + 1]},${this.restPos[i * 3 + 2]}`;
       const first = firstAt.get(key);
       if (first === undefined) firstAt.set(key, i);
-      this.weld[i] = first ?? i;
+      this.wrinkleSeed[i] = hash01(first ?? i, 3) - 0.5;
     }
 
     this.cages = CAGES.map((base) => {
@@ -447,17 +471,21 @@ export class StreamedDeformation {
       };
     });
 
-    this.influences = new Array(this.vertexCount);
-    const cell = partIndex.get("chassisCell") ?? 12;
+    // Lattice skin (and the cluster-less fallback): up to INF_K cage influences per vertex, packed as
+    // the cage's coefficient offset in `cageCo` + (u, v, w, weight).
+    this.infN = new Uint8Array(this.vertexCount);
+    this.infCo = new Int32Array(this.vertexCount * INF_K);
+    this.infUvw = new Float64Array(this.vertexCount * INF_K * 4);
+    this.cageCo = new Float64Array(this.cages.length * 24);
+    const skinsCage = this.cages.map((c) => !["doorLeft", "doorRight", "glassFront", "glassRear"].includes(c.spec.name));
     for (let i = 0; i < this.vertexCount; i++) {
       const x = this.restPos[i * 3]!;
       const y = this.restPos[i * 3 + 1]!;
       const z = this.restPos[i * 3 + 2]!;
       const list: Influence[] = [];
       for (let p = 0; p < this.cages.length; p++) {
+        if (!skinsCage[p]) continue;
         const cage = this.cages[p]!;
-        const name = cage.spec.name;
-        if (name === "doorLeft" || name === "doorRight" || name === "glassFront" || name === "glassRear") continue;
         const u = (x - cage.min.x) / cage.size.x;
         const v = (y - cage.min.y) / cage.size.y;
         const w = (z - cage.min.z) / cage.size.z;
@@ -465,22 +493,38 @@ export class StreamedDeformation {
         if (weight > 0.02) list.push({ part: p, u, v, w, weight });
       }
       if (list.length === 0) {
-        const cage = this.cages[cell]!;
-        list.push({
-          part: cell,
-          u: THREE.MathUtils.clamp((x - cage.min.x) / cage.size.x, 0, 1),
-          v: THREE.MathUtils.clamp((y - cage.min.y) / cage.size.y, 0, 1),
-          w: THREE.MathUtils.clamp((z - cage.min.z) / cage.size.z, 0, 1),
-          weight: 1,
-        });
+        // Beyond every cage's reach (the tail skin past the boot cage): extrapolate the nearest cage
+        // unclamped, exact at rest. Clamping into the cell box snapped it 1.6 m forward on the first skin.
+        let best = 0;
+        let bestD = Infinity;
+        for (let p = 0; p < this.cages.length; p++) {
+          if (!skinsCage[p]) continue;
+          const c = this.cages[p]!;
+          const d = Math.hypot(Math.max(c.min.x - x, 0, x - c.max.x), Math.max(c.min.y - y, 0, y - c.max.y), Math.max(c.min.z - z, 0, z - c.max.z));
+          if (d < bestD) {
+            bestD = d;
+            best = p;
+          }
+        }
+        const cage = this.cages[best]!;
+        list.push({ part: best, u: (x - cage.min.x) / cage.size.x, v: (y - cage.min.y) / cage.size.y, w: (z - cage.min.z) / cage.size.z, weight: 1 });
       } else {
         list.sort((a, b) => b.weight - a.weight);
-        if (list.length > 4) list.length = 4;
+        if (list.length > INF_K) list.length = INF_K;
         let sum = 0;
         for (const inf of list) sum += inf.weight;
         for (const inf of list) inf.weight /= sum;
       }
-      this.influences[i] = list;
+      this.infN[i] = list.length;
+      for (let k = 0; k < list.length; k++) {
+        const inf = list[k]!;
+        const s = i * INF_K + k;
+        this.infCo[s] = inf.part * 24;
+        this.infUvw[s * 4] = inf.u;
+        this.infUvw[s * 4 + 1] = inf.v;
+        this.infUvw[s * 4 + 2] = inf.w;
+        this.infUvw[s * 4 + 3] = inf.weight;
+      }
     }
 
     this.shapeParticles = this.masses.map((m) => ({
@@ -504,8 +548,14 @@ export class StreamedDeformation {
     this.buildSkinWeights();
   }
 
+  /** Rest-only skin tables: cluster weights per vertex and per cage corner, and the hub that plants each arch vertex. */
   private buildSkinWeights(): void {
-    this.skinWeights = new Array(this.vertexCount);
+    const n = this.vertexCount;
+    this.skinN = new Uint8Array(n);
+    this.skinXf = new Int32Array(n * SKIN_K);
+    this.skinW = new Float64Array(n * SKIN_K);
+    this.skinHub = new Int32Array(n).fill(-1);
+    this.clusterXf = new Float64Array(this.clusters.length * 12);
     const cms = this.clusters.map((c) => {
       let x = 0,
         y = 0,
@@ -562,8 +612,38 @@ export class StreamedDeformation {
         for (const s of scored) s.w *= 1 - share;
         scored.push({ ci: other, w: share });
       }
-      this.skinWeights[i] = scored;
+      this.skinN[i] = scored.length;
+      for (let k = 0; k < scored.length; k++) {
+        this.skinXf[i * SKIN_K + k] = scored[k]!.ci * 12;
+        this.skinW[i * SKIN_K + k] = scored[k]!.w;
+      }
+      if (ry < 0.55) {
+        this.skinHub[i] = this.masses.findIndex((m) => m.hub && Math.hypot(rx - m.rest.x, rz - m.rest.z) <= 0.4);
+      }
     }
+    // Cage corners follow the clusters within 1.4 m of their rest position (`solveCagesFromShape`).
+    const start: number[] = [0];
+    const xf: number[] = [];
+    const ws: number[] = [];
+    this.cornerWsum = new Float64Array(this.cages.length * 8);
+    for (let j = 0; j < this.cages.length * 8; j++) {
+      const rest = this.cages[j >> 3]!.restCorners[j & 7]!;
+      let wsum = 0;
+      for (let ci = 0; ci < this.clusters.length; ci++) {
+        const cm = cms[ci]!;
+        const d = Math.hypot(rest.x - cm.x, rest.y - cm.y, rest.z - cm.z);
+        if (d > 1.4) continue;
+        const w = Math.exp(-d * 2.35);
+        xf.push(ci * 12);
+        ws.push(w);
+        wsum += w;
+      }
+      start.push(xf.length);
+      this.cornerWsum[j] = wsum;
+    }
+    this.cornerStart = Int32Array.from(start);
+    this.cornerXf = Int32Array.from(xf);
+    this.cornerW = Float64Array.from(ws);
   }
 
   reset(): void {
@@ -1752,20 +1832,24 @@ export class StreamedDeformation {
     if (!cage) return;
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
-    const sx = cage.size.x || 1;
-    const sy = cage.size.y || 1;
-    const sz = cage.size.z || 1;
-    for (let i = 0; i < attr.count; i++) {
-      const x = rest[i * 3]! + origin.x;
-      const y = rest[i * 3 + 1]! + origin.y;
-      const z = rest[i * 3 + 2]! + origin.z;
-      const u = THREE.MathUtils.clamp((x - cage.min.x) / sx, -0.15, 1.15);
-      const v = THREE.MathUtils.clamp((y - cage.min.y) / sy, -0.15, 1.15);
-      const w = THREE.MathUtils.clamp((z - cage.min.z) / sz, -0.15, 1.15);
-      trilinear(cage.corners, u, v, w, _d);
-      arr[i * 3] = _d.x - origin.x;
-      arr[i * 3 + 1] = _d.y - origin.y;
-      arr[i * 3 + 2] = _d.z - origin.z;
+    const co = _panelCo;
+    cageCoeffs(cage.corners, co, 0);
+    co[0]! -= origin.x;
+    co[8]! -= origin.y;
+    co[16]! -= origin.z;
+    const isx = 1 / (cage.size.x || 1);
+    const isy = 1 / (cage.size.y || 1);
+    const isz = 1 / (cage.size.z || 1);
+    const ox = origin.x - cage.min.x;
+    const oy = origin.y - cage.min.y;
+    const oz = origin.z - cage.min.z;
+    for (let r = 0; r < attr.count * 3; r += 3) {
+      const u = THREE.MathUtils.clamp((rest[r]! + ox) * isx, -0.15, 1.15);
+      const v = THREE.MathUtils.clamp((rest[r + 1]! + oy) * isy, -0.15, 1.15);
+      const w = THREE.MathUtils.clamp((rest[r + 2]! + oz) * isz, -0.15, 1.15);
+      arr[r] = cageAxis(co, 0, u, v, w);
+      arr[r + 1] = cageAxis(co, 8, u, v, w);
+      arr[r + 2] = cageAxis(co, 16, u, v, w);
     }
     attr.needsUpdate = true;
     computeNormalsFast(geometry);
@@ -2509,32 +2593,45 @@ export class StreamedDeformation {
     for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, 1);
   }
 
+  /** `clusterXf` ← each cluster's skin map as M·x + t (t = cm − M·cm0), so skin points skip the centre subtraction. */
+  private refreshClusterXf(): void {
+    const X = this.clusterXf;
+    for (let ci = 0, o = 0; ci < this.clusters.length; ci++, o += 12) {
+      const c = this.clusters[ci]!;
+      const m = c.skinM;
+      for (let k = 0; k < 9; k++) X[o + k] = m[k]!;
+      X[o + 9] = c.skinCmx - (m[0]! * c.skinCm0x + m[1]! * c.skinCm0y + m[2]! * c.skinCm0z);
+      X[o + 10] = c.skinCmy - (m[3]! * c.skinCm0x + m[4]! * c.skinCm0y + m[5]! * c.skinCm0z);
+      X[o + 11] = c.skinCmz - (m[6]! * c.skinCm0x + m[7]! * c.skinCm0y + m[8]! * c.skinCm0z);
+    }
+  }
+
   private solveCagesFromShape(): void {
-    for (const cage of this.cages) {
-      for (let i = 0; i < 8; i++) {
-        const rest = cage.restCorners[i]!;
-        const corner = cage.corners[i]!;
-        let px = 0,
-          py = 0,
-          pz = 0,
-          wsum = 0;
-        for (let ci = 0; ci < this.clusters.length; ci++) {
-          const c = this.clusters[ci]!;
-          const dx = rest.x - c.skinCm0x;
-          const dy = rest.y - c.skinCm0y;
-          const dz = rest.z - c.skinCm0z;
-          const d = Math.hypot(dx, dy, dz);
-          if (d > 1.4) continue;
-          const w = Math.exp(-d * 2.35);
-          const p = transformSkinPointInto(c, rest.x, rest.y, rest.z);
-          px += p.x * w;
-          py += p.y * w;
-          pz += p.z * w;
-          wsum += w;
-        }
-        if (wsum > 1e-6) corner.set(px / wsum, py / wsum, pz / wsum);
-        else corner.copy(rest);
+    this.refreshClusterXf();
+    const X = this.clusterXf;
+    for (let j = 0; j < this.cages.length * 8; j++) {
+      const cage = this.cages[j >> 3]!;
+      const rest = cage.restCorners[j & 7]!;
+      const corner = cage.corners[j & 7]!;
+      const wsum = this.cornerWsum[j]!;
+      if (!(wsum > 1e-6)) {
+        corner.copy(rest);
+        continue;
       }
+      const rx = rest.x;
+      const ry = rest.y;
+      const rz = rest.z;
+      let px = 0,
+        py = 0,
+        pz = 0;
+      for (let k = this.cornerStart[j]!, e = this.cornerStart[j + 1]!; k < e; k++) {
+        const o = this.cornerXf[k]!;
+        const w = this.cornerW[k]!;
+        px += (X[o]! * rx + X[o + 1]! * ry + X[o + 2]! * rz + X[o + 9]!) * w;
+        py += (X[o + 3]! * rx + X[o + 4]! * ry + X[o + 5]! * rz + X[o + 10]!) * w;
+        pz += (X[o + 6]! * rx + X[o + 7]! * ry + X[o + 8]! * rz + X[o + 11]!) * w;
+      }
+      corner.set(px / wsum, py / wsum, pz / wsum);
     }
     this.capCageCorners();
     if (this.bidirectional) this.fitCagesToMasses();
@@ -2672,95 +2769,104 @@ export class StreamedDeformation {
   private skin(geometry: THREE.BufferGeometry): void {
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
-    const impact = this.impactLocal;
-    const wrinkle = this.wrinkleAmp * Math.min(1, this.elapsed * 6);
-    const b = this.buckle;
+    const rest = this.restPos;
     const shape = this.mode === "shape";
+    if (shape) this.refreshClusterXf();
+    const X = this.clusterXf;
+    const co = this.cageCo;
+    for (let p = 0; p < this.cages.length; p++) cageCoeffs(this.cages[p]!.corners, co, p * 24);
+    const sN = this.skinN;
+    const sXf = this.skinXf;
+    const sW = this.skinW;
+    const iN = this.infN;
+    const iCo = this.infCo;
+    const iUvw = this.infUvw;
+    const ix = this.impactLocal.x;
+    const iy = this.impactLocal.y;
+    const iz = this.impactLocal.z;
+    const wrinkle = this.wrinkleAmp * Math.min(1, this.elapsed * 6);
+    const wrinkles = wrinkle > 0.02;
+    const b = this.buckle;
+    const ampK = wrinkle * 0.16 * (0.35 + b * 0.65);
+    const extraCap = 0.03 + b * 0.08;
+    const cap = shape ? 1.35 : 2.2;
+    const roofClamp = !this.deepCrush;
 
-    for (let i = 0; i < this.vertexCount; i++) {
-      const rx = this.restPos[i * 3]!;
-      const ry = this.restPos[i * 3 + 1]!;
-      const rz = this.restPos[i * 3 + 2]!;
+    for (let i = 0, r = 0; i < this.vertexCount; i++, r += 3) {
+      const rx = rest[r]!;
+      const ry = rest[r + 1]!;
+      const rz = rest[r + 2]!;
       let px = 0,
         py = 0,
         pz = 0;
-      if (shape) {
-        const ws = this.skinWeights[i]!;
-        let wsum = 0;
-        for (const inf of ws) {
-          const p = transformSkinPointInto(this.clusters[inf.ci]!, rx, ry, rz);
-          px += p.x * inf.w;
-          py += p.y * inf.w;
-          pz += p.z * inf.w;
-          wsum += inf.w;
-        }
-        if (wsum < 1e-8) {
-          const infs = this.influences[i]!;
-          for (const inf of infs) {
-            trilinear(this.cages[inf.part]!.corners, inf.u, inf.v, inf.w, _d);
-            px += _d.x * inf.weight;
-            py += _d.y * inf.weight;
-            pz += _d.z * inf.weight;
-          }
+      const n = shape ? sN[i]! : 0;
+      if (n > 0) {
+        for (let k = i * SKIN_K, e = k + n; k < e; k++) {
+          const o = sXf[k]!;
+          const w = sW[k]!;
+          px += (X[o]! * rx + X[o + 1]! * ry + X[o + 2]! * rz + X[o + 9]!) * w;
+          py += (X[o + 3]! * rx + X[o + 4]! * ry + X[o + 5]! * rz + X[o + 10]!) * w;
+          pz += (X[o + 6]! * rx + X[o + 7]! * ry + X[o + 8]! * rz + X[o + 11]!) * w;
         }
       } else {
-        const infs = this.influences[i]!;
-        for (const inf of infs) {
-          trilinear(this.cages[inf.part]!.corners, inf.u, inf.v, inf.w, _d);
-          px += _d.x * inf.weight;
-          py += _d.y * inf.weight;
-          pz += _d.z * inf.weight;
+        for (let k = i * INF_K, e = k + iN[i]!; k < e; k++) {
+          const o = iCo[k]!;
+          const u = iUvw[k * 4]!;
+          const v = iUvw[k * 4 + 1]!;
+          const w = iUvw[k * 4 + 2]!;
+          const wt = iUvw[k * 4 + 3]!;
+          px += cageAxis(co, o, u, v, w) * wt;
+          py += cageAxis(co, o + 8, u, v, w) * wt;
+          pz += cageAxis(co, o + 16, u, v, w) * wt;
         }
       }
-      const bx = px,
-        by = py,
-        bz = pz;
-      const dx = rx - impact.x;
-      const dy = ry - impact.y;
-      const dz = rz - impact.z;
-      const dist = Math.hypot(dx, dy, dz);
-      if (dist < 0.82 && wrinkle > 0.02 && ry > 0.34) {
-        const fall = Math.exp(-dist * 3.4);
-        const n0 = hash01(this.weld[i]!, 3) - 0.5;
-        // Accordion folds along the crush axis (~12 cm wavelength), not a clay blob.
-        // Wreckfest impact radius sweet spot is 0.3–0.5 m; 1.6 m wrinkled the whole nose.
-        const wave = Math.sin(rz * 18 + n0 * 1.2);
-        const amp = wrinkle * fall * 0.16 * (0.35 + b * 0.65);
-        pz += wave * amp;
-        py += Math.abs(wave) * amp * 0.28;
-        px += Math.sign(rx || 1) * n0 * amp * 0.12;
-      }
-      const extra = Math.hypot(px - bx, py - by, pz - bz);
-      const extraCap = 0.03 + b * 0.08;
-      if (extra > extraCap) {
-        const t = extraCap / extra;
-        px = bx + (px - bx) * t;
-        py = by + (py - by) * t;
-        pz = bz + (pz - bz) * t;
-      }
-      const travel = Math.hypot(px - rx, py - ry, pz - rz);
-      const cap = shape ? 1.35 : 2.2;
-      if (travel > cap) {
-        const t = cap / travel;
-        px = rx + (px - rx) * t;
-        py = ry + (py - ry) * t;
-        pz = rz + (pz - rz) * t;
-      }
-      if (ry > 1.05 && !this.deepCrush) {
-        py = THREE.MathUtils.clamp(py, ry - 0.1, ry + 0.08);
-      }
-      if (ry < 0.55) {
-        for (const m of this.masses) {
-          if (!m.hub) continue;
-          const d = Math.hypot(rx - m.rest.x, rz - m.rest.z);
-          if (d > 0.4) continue;
-          const keep = m.popped ? 0.15 : 0.82;
-          const hx = m.popped ? m.local.x : m.rest.x;
-          const hz = m.popped ? m.local.z : m.rest.z;
-          px = px * (1 - keep) + hx * keep;
-          pz = pz * (1 - keep) + hz * keep;
-          break;
+      if (wrinkles && ry > 0.34) {
+        const dx = rx - ix;
+        const dy = ry - iy;
+        const dz = rz - iz;
+        const d2 = dx * dx + dy * dy + dz * dz;
+        if (d2 < 0.82 * 0.82) {
+          const n0 = this.wrinkleSeed[i]!;
+          // Accordion folds along the crush axis (~12 cm wavelength), not a clay blob.
+          // Wreckfest impact radius sweet spot is 0.3–0.5 m; 1.6 m wrinkled the whole nose.
+          const wave = Math.sin(rz * 18 + n0 * 1.2);
+          const amp = ampK * Math.exp(-Math.sqrt(d2) * 3.4);
+          let ox = Math.sign(rx || 1) * n0 * amp * 0.12;
+          let oy = Math.abs(wave) * amp * 0.28;
+          let oz = wave * amp;
+          const extra = Math.sqrt(ox * ox + oy * oy + oz * oz);
+          if (extra > extraCap) {
+            const t = extraCap / extra;
+            ox *= t;
+            oy *= t;
+            oz *= t;
+          }
+          px += ox;
+          py += oy;
+          pz += oz;
         }
+      }
+      const tx = px - rx;
+      const ty = py - ry;
+      const tz = pz - rz;
+      const travel2 = tx * tx + ty * ty + tz * tz;
+      if (travel2 > cap * cap) {
+        const t = cap / Math.sqrt(travel2);
+        px = rx + tx * t;
+        py = ry + ty * t;
+        pz = rz + tz * t;
+      }
+      if (roofClamp && ry > 1.05) py = THREE.MathUtils.clamp(py, ry - 0.1, ry + 0.08);
+      const h = this.skinHub[i]!;
+      if (h >= 0) {
+        // Wheel arch: plant the paint at its rest offset from the hub (the hub's rest while the wheel
+        // is on). Blending onto the hub centre folded every arch vertex ~0.34 m in, even on a tap.
+        const m = this.masses[h]!;
+        const keep = m.popped ? 0.15 : 0.82;
+        const hx = m.popped ? rx + m.local.x - m.rest.x : rx;
+        const hz = m.popped ? rz + m.local.z - m.rest.z : rz;
+        px = px * (1 - keep) + hx * keep;
+        pz = pz * (1 - keep) + hz * keep;
       }
       arr[i * 3] = px;
       arr[i * 3 + 1] = py;
