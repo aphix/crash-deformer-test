@@ -31,10 +31,11 @@ export function physicsSlice(dt: number, vmax: number): number {
   return Math.min(dt, Math.max(1 / 240, cap));
 }
 
-/** Fastest car this frame; `physicsSlice` sizes the sub-steps from it. */
+/** Fastest car this frame; `physicsSlice` sizes the sub-steps from it. A wreck's `speed` is the
+ *  last driven value, so read the velocity followGroup measured from its masses. */
 export function sliceSpeed(cars: readonly DeformableCar[]): number {
   let vmax = 8;
-  for (const car of cars) if (car.speed > vmax) vmax = car.speed;
+  for (const car of cars) vmax = Math.max(vmax, Math.hypot(car.velocity.x, car.velocity.z));
   return vmax;
 }
 

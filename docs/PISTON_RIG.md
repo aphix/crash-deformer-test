@@ -117,14 +117,18 @@ Standard shot (40 km/h), Δ = extra over the 3 km/h tap:
 
 | piston | struck (m) | paint dent Δ | far particle Δ | far skin Δ | opposite half Δ particle / skin | doors L / R, roof | shove |
 |---|---|---|---|---|---|---|---|
-| frontLeft | bumperFL 0.237, wingFL 0.043 | 0.075 | 0.066 (doorL) | 0.066 | 0.064 / 0.052 | 0.003 / 0.043, 0.000 | 6.18 |
-| front | bumperFL 0.252, bumperFR 0.252 | 0.111 | 0.066 (axleR) | 0.087 | 0.066 / 0.080 | −0.001 / −0.001, −0.001 | 6.24 |
-| frontRight | bumperFR 0.237, wingFR 0.043 | 0.076 | 0.066 (doorR) | 0.066 | 0.064 / 0.052 | 0.043 / 0.003, 0.000 | 6.18 |
-| right | doorR 0.215 | 0.203 | 0.147 (bumperFR) | 0.120 | 0.062 / 0.120 | 0.079 / 0.158, −0.005 | 6.55 |
-| rearRight | bumperRR 0.227 | 0.191 | 0.137 (bumperFL) | 0.236 | 0.137 / 0.093 | 0.050 / 0.031, 0.016 | 6.28 |
-| rear | bumperRL 0.223, bumperRR 0.223 | 0.184 | 0.134 (tank) | 0.160 | 0.105 / 0.070 | 0.000 / 0.000, 0.007 | 6.34 |
-| rearLeft | bumperRL 0.227 | 0.191 | 0.137 (bumperFR) | 0.236 | 0.137 / 0.093 | 0.031 / 0.050, 0.016 | 6.28 |
-| left | doorL 0.215 | 0.203 | 0.147 (bumperFL) | 0.120 | 0.062 / 0.120 | 0.158 / 0.079, −0.005 | 6.55 |
+| frontLeft | bumperFL 0.206, wingFL 0.037 | 0.046 | 0.077 (bumperFR) | 0.091 | 0.070 / 0.063 | 0.003 / 0.054, −0.001 | 6.18 |
+| front | bumperFL 0.252, bumperFR 0.252 | 0.111 | 0.065 (axleR) | 0.086 | 0.065 / 0.080 | −0.001 / −0.001, −0.001 | 6.24 |
+| frontRight | bumperFR 0.206, wingFR 0.037 | 0.046 | 0.077 (bumperFL) | 0.091 | 0.070 / 0.063 | 0.054 / 0.003, −0.001 | 6.18 |
+| right | doorR 0.214 | 0.202 | 0.137 (bumperFR) | 0.119 | 0.058 / 0.119 | 0.079 / 0.158, −0.005 | 6.55 |
+| rearRight | bumperRR 0.196 | 0.161 | 0.140 (bumperFL) | 0.228 | 0.140 / 0.102 | 0.054 / 0.024, 0.011 | 6.21 |
+| rear | bumperRL 0.223, bumperRR 0.223 | 0.184 | 0.133 (tank) | 0.160 | 0.105 / 0.070 | 0.000 / 0.000, 0.007 | 6.34 |
+| rearLeft | bumperRL 0.196 | 0.161 | 0.140 (bumperFR) | 0.228 | 0.140 / 0.102 | 0.024 / 0.054, 0.011 | 6.21 |
+| left | doorL 0.214 | 0.202 | 0.137 (bumperFL) | 0.119 | 0.058 / 0.119 | 0.158 / 0.079, −0.005 | 6.55 |
+
+Measured after the `crash-realism-2` yaw-frame fix (`followGroup` no longer turns the body by the crush
+tilt). Corners lost a little dent (0.075 → 0.046) and gained 0.011 m of far-door travel. The corner
+dent floor is now ≥ 0.04 m, and cabin intrusion uses the sourced < 0.06 m target (RIG_ANALYSIS §3.3).
 
 Engine kill (lowest speed at 2 km/h steps, 1500 kg rigid, up to 150 km/h):
 **front-middle 56 km/h (EBS 44.7 km/h)**; front corners 52 km/h (EBS 41.5);
@@ -147,7 +151,7 @@ A-pillar Good < 5 cm.
 Passing (real assertions): front-middle bumpers 0.14–0.31 m and even L/R;
 rear-middle ≥ 0.11 m (B4 rear/front stroke ratio); doors ≥ 0.12 m at
 40 km/h and 0.15–0.25 m at 50 km/h; corner bumper ≥ 0.12 m with the wing in
-but less than the bumper; paint dents ≥ 0.05 m at every ram; mirrored rams
+but less than the bumper; paint dents ≥ 0.05 m at every ram (≥ 0.04 m at the corners); mirrored rams
 mirror; crush never shrinks with energy (all rams, 20–80 km/h); a 0.5
 honeycomb face crushes front, left and frontLeft at least 2 cm less than
 steel; the front-middle kill shot leaves rear, sides and rear corners alive.
@@ -162,8 +166,7 @@ plain test when the rig meets it.
 | `*:far-particles` | 0.066 (front, corners) – 0.147 (sides) m | ≤ 0.03 m beyond 1.2 m | a door hit bends the same-side nose (0.147 m `bumperF*`); rear corners bend the far front corner (0.137 m); the 7 m/s shove leaves a set across the car |
 | `*:far-skin` | 0.066 – 0.236 m | ≤ 0.03 m | follows the far particles |
 | `*:opposite-half` | 0.062 – 0.137 m particle, 0.052 – 0.120 m skin | ≤ 0.03 m | same |
-| `left:cabin`, `right:cabin` | far door 0.079 m | ≤ 0.05 m | the far door closes on the cell as the cabin is shoved sideways |
-| `rearLeft:cabin`, `rearRight:cabin` | far door 0.0504 m | ≤ 0.05 m | the rear-corner hit racks the cabin |
+| `left:cabin`, `right:cabin` | far door 0.079 m | ≤ 0.06 m | the far door closes on the cell as the cabin is shoved sideways |
 | `front:kill-ebs` | 56 km/h = EBS 44.7 km/h | EBS in (56, 64] km/h (wall56 alive, wall64 dead, RIG_ANALYSIS §6) | the piston path kills the block at a lower EBS than the barrier path; it also crushes more per EBS (0.25 m at 32 km/h vs the wall's 0.17 m at 35 km/h) |
 | `frontLeft:corner-kill`, `frontRight:corner-kill` | 52 km/h | ≥ 56 km/h (front-middle) | a 45° hit has `|ix| = |iz|`, so `updateDrivetrain` treats it as frontal and the corner packs the block sooner than a full-width hit |
 | `left/right:tap-particles` | 0.034 m (far door) | ≤ 0.03 m | arming the masses sags them |

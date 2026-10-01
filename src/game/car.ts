@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { StreamedDeformation } from "./streamed-deform.ts";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { round4 } from "./physics-util.ts";
+import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
 import {
   CAR_HALF,
   HULLS,
@@ -39,6 +39,13 @@ export interface CarPaint {
 
 export type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
 export type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
+
+/** C1: only a side hit this hard (m/s EBS, 45 km/h) tears a door off; slower side hits spring it. */
+const DOOR_TEAR_MPS = 12.5;
+/** C1: frontal and rear crush can jam a door ajar (hingeT), never swing it open. */
+const DOOR_AJAR = 0.2;
+/** C2: below 30 km/h EBS a folded bumper stays on (IIHS low-speed bumper protocols). */
+const BUMPER_TEAR_MPS = 30 / 3.6;
 
 type GlassState = "intact" | "cracked" | "shattered";
 
@@ -604,9 +611,11 @@ export class DeformableCar {
     return out.copy(world).applyQuaternion(inv).normalize();
   }
 
-  /** `impulse` is the closing speed (FX, glass); `ebs` the equivalent barrier speed that sizes the crush. */
+  /**
+   * `impulse` is the closing speed (FX, glass); `ebs` the equivalent barrier speed that sizes the crush.
+   * The first hit starts the crash; on a wreck a fresh, hard enough contact re-arms a new hit (`rearmHit`).
+   */
   applyImpact(worldPoint: THREE.Vector3, worldInward: THREE.Vector3, impulse: number, ebs: number): void {
-    this.crashed = true;
     const localP = this.worldToLocalPoint(worldPoint, _p);
     _in.copy(worldInward);
     _in.y = 0;
@@ -617,9 +626,27 @@ export class DeformableCar {
       if (_in.dot(_v) < 0) _in.negate();
     }
     const localN = this.worldToLocalDir(_in, _n);
-    this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
+    const rough = Math.min(0.82, 0.42 + impulse * 0.012);
+    if (this.crashed && this.deform.massActive) {
+      if (!this.deform.rearmHit(localP, localN, impulse, ebs)) return;
+      this.bodyMat.roughness = Math.max(this.bodyMat.roughness, rough);
+    } else {
+      this.crashed = true;
+      this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
+      this.bodyMat.roughness = rough;
+    }
     this.deform.impulseAt(worldPoint, _in, impulse);
-    this.bodyMat.roughness = Math.min(0.82, 0.42 + impulse * 0.012);
+  }
+
+  /** Velocity of a world point riding the body: v + ω × r about the yaw axis, the way `integrate`
+   *  turns `angular.y` into `rotation.y` (pitch and roll here are eased poses, not rates). */
+  pointVelocity(world: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+    const w = this.angular.y;
+    return out.set(
+      this.velocity.x + w * (world.z - this.group.position.z),
+      this.velocity.y,
+      this.velocity.z - w * (world.x - this.group.position.x),
+    );
   }
 
   syncPose(dt: number): void {
@@ -808,20 +835,21 @@ export class DeformableCar {
       const right = this.deform.sensorCompression(p.attachR);
       const crush = Math.max(left, right, this.deform.partCompression(p.cage));
       const local = Math.min(left, right);
-      const along = -(p.restPos.x * ix + p.restPos.z * iz);
-      const onHit =
-        this.deform.bidirectional
-          ? Math.abs(p.restPos.z) > 0.8 || Math.abs(p.restPos.x) > 0.5
-          : p.hinge === "door"
-            ? Math.abs(p.restPos.x * ix) > 0.18 || crush > 0.16 || local > 0.12
-            : along > 0.12;
+      const onHit = this.partOnHit(p);
 
       let target = 0;
-      if (onHit) {
+      if (p.name.startsWith("mirror")) {
+        // C3: the mirror folds with the door skin under it (sensors 6/7 and 4/5), on its own side only.
+        if (onHit) target = THREE.MathUtils.clamp((Math.max(left, right) - 0.04) / 0.3, 0, 1);
+      } else if (p.hinge === "door") {
+        const open = THREE.MathUtils.clamp((Math.max(local, crush) - 0.08) / 0.5, 0, 1);
+        const endOn = !this.deform.bidirectional && Math.abs(ix) <= Math.abs(iz);
+        if (onHit) target = open;
+        else if (endOn && (crush > 0.16 || local > 0.12)) target = Math.min(open, DOOR_AJAR);
+      } else if (onHit) {
         if (p.hinge === "two-point") target = THREE.MathUtils.clamp((crush - 0.04) / 0.55, 0, 1);
         else if (p.hinge === "cowl") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
         else if (p.hinge === "tail") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
-        else if (p.hinge === "door") target = THREE.MathUtils.clamp((Math.max(local, crush) - 0.08) / 0.5, 0, 1);
       }
       p.hingeT = Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012)));
       const t = p.hingeT;
@@ -899,10 +927,19 @@ export class DeformableCar {
     }
   }
 
-  private evaluateBreakage(impulse: number, _dt: number): void {
-    void _dt;
+  /** Whether the current hit loads this part. Doors and the mirrors on them (C1/C3) take a hit only
+   *  from their own side; every other part must sit on the struck end. */
+  private partOnHit(p: DetachPart): boolean {
     const ix = this.deform.impactInward.x;
     const iz = this.deform.impactInward.z;
+    if (this.deform.bidirectional) return Math.abs(p.restPos.z) > 0.8 || Math.abs(p.restPos.x) > 0.5;
+    const side = p.cage === "doorLeft" ? -1 : p.cage === "doorRight" ? 1 : 0;
+    if (side !== 0) return Math.abs(ix) > Math.abs(iz) && Math.sign(ix) === -side;
+    return -(p.restPos.x * ix + p.restPos.z * iz) > 0.12;
+  }
+
+  private evaluateBreakage(impulse: number, _dt: number): void {
+    void _dt;
     for (const g of this.glassPanes) {
       if (g.state === "shattered") continue;
       let nearby = 0;
@@ -922,26 +959,17 @@ export class DeformableCar {
       }
     }
 
+    const ebs = this.deform.hitSpeedValue;
     for (const p of this.parts) {
       if (p.detached) continue;
       if (this.deform.bidirectional && p.hinge !== "door" && p.hinge !== "two-point") continue;
-      const along = -(p.restPos.x * ix + p.restPos.z * iz);
-      const crush = Math.max(this.deform.sensorCompression(p.attachL), this.deform.sensorCompression(p.attachR), this.deform.partCompression(p.cage));
-      const onHit =
-        p.hinge === "door"
-          ? Math.abs(p.restPos.x * ix) > 0.18 || crush > 0.16
-          : along > 0.12;
-      if (!onHit) continue;
+      if (!this.partOnHit(p)) continue;
       let should = false;
-      if (p.name.startsWith("mirror") && p.hingeT > 0.5) should = true;
-      if (p.name === "bumperF" && p.hingeT > 0.7) should = true;
-      if (p.name === "bumperR" && p.hingeT > 0.7) should = true;
-      if (p.hinge === "cowl" && p.hingeT > 0.78) should = true;
-      if (p.hinge === "tail" && p.hingeT > 0.78) should = true;
-      if ((p.name === "doorL" || p.name === "doorR") && p.hingeT > 0.58) should = true;
-      if (should) {
-        this.detachPart(p, impulse);
-      }
+      if (p.name.startsWith("mirror")) should = p.hingeT > 0.5;
+      else if (p.name.startsWith("bumper")) should = p.hingeT > 0.7 && ebs >= BUMPER_TEAR_MPS;
+      else if (p.hinge === "cowl" || p.hinge === "tail") should = p.hingeT > 0.78;
+      else if (p.hinge === "door") should = p.hingeT > 0.58 && (this.deform.bidirectional || ebs >= DOOR_TEAR_MPS);
+      if (should) this.detachPart(p, impulse);
     }
 
     for (const lamp of this.lamps) {
@@ -998,12 +1026,8 @@ export class DeformableCar {
     const origin = new THREE.Vector3();
     g.mesh.getWorldPosition(origin);
     origin.y += 0.12;
-    _p.copy(origin).sub(this.group.position);
-    const vel = new THREE.Vector3(
-      this.velocity.x - this.angular.y * _p.z,
-      this.velocity.y + 1.5 + Math.abs(this.angular.x) * 2,
-      this.velocity.z + this.angular.y * _p.x,
-    );
+    const vel = this.pointVelocity(origin, new THREE.Vector3());
+    vel.y += 1.5 + Math.abs(this.angular.x) * 2;
     this.onGlass?.(origin, vel, 56);
   }
 
@@ -1023,14 +1047,20 @@ export class DeformableCar {
       if (p.object.position.y < 0.12) {
         p.object.position.y = 0.12;
         if (p.velocity.y < 0) p.velocity.y *= -0.28;
-        p.velocity.x *= 0.96;
-        p.velocity.z *= 0.96;
-        p.angular.multiplyScalar(0.9);
+      }
+      if (p.object.position.y <= 0.12 + GROUND_BAND) {
+        // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
+        // band keeps the millimetre hops of the bounce in contact at any frame rate.
+        const slide = Math.hypot(p.velocity.x, p.velocity.z);
+        applyGroundFriction(p.velocity, dt, CRASH.muSlide, true);
+        p.angular.multiplyScalar(slide > 1e-5 ? Math.hypot(p.velocity.x, p.velocity.z) / slide : 0);
       }
     }
   }
 }
 const _qSpin = new THREE.Quaternion();
+/** Height above its rest (m) at which a loose part still slides on the ground. */
+const GROUND_BAND = 0.005;
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _v = new THREE.Vector3();

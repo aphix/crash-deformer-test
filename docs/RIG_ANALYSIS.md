@@ -915,8 +915,9 @@ numbers, so re-measure after it before tuning B1 and B4.
 ## 6. Status after implementation
 
 Lane `crash-realism` landed A1, A2, B1, B2, B3, B4 and the A9 ω×r sign fix
-(commits `bc5f81b`, `9b03336` on top of main `53ea0f5`). C1–C4, A3, A10 and
-A15 are not done yet; A4, A5 and D1 belong to the shape-kernel lane.
+(commits `bc5f81b`, `9b03336` on top of main `53ea0f5`). Lane `crash-realism-2`
+then landed C1–C4, A3, A10, A15, the rest of A9, cumulative derby damage and the
+wreck-spin fix (§6.1). A4, A5 and D1 belong to the shape-kernel lane.
 
 What changed, in mechanism terms:
 
@@ -968,8 +969,87 @@ Open against §5: offset64 still lets a mass centre 0.24 m past the slab end
 (the car pivots off the slab edge; the end face projection is not reached
 before the clip); the pulse is 67–100 ms at 56–80 km/h (inside A1's
 [60, 150] band, short of the 90–140 ms real range); the 2×56 head-on pops
-both front hubs (C4 not done).
+both front hubs (fixed in §6.1).
 
+### 6.1 Detach rules, wheels, engine block, derby damage (lane `crash-realism-2`)
+
+Measured with `crash-scenarios.test-util.ts` (full speed, shape mode) on main
+`a0cb3a2` + this lane; "base" is main before the lane.
+
+| scenario | base | now |
+|---|---|---|
+| side slide 30 km/h | doorL detached | doorL sprung (hinge 0.59), stays on |
+| side slide 50 km/h | doorL detached, mirrors untouched | doorL + mirrorL detached (EBS 13.9 ≥ 12.5) |
+| T-bone 50, struck car | doorR detached; hubFL, RL, RR popped; block gap error 0.122 m | doorR sprung 0.88, mirrorR off, no hub popped, gap error 0.002 m |
+| right-door hit, 45 frames (crash-parts) | mirrorR hinge 0 | mirrorR folds/breaks, mirrorL 0 |
+| wall 20 / 35 km/h | bumper on (0.32/0.48) | bumper on (0.36/0.59) |
+| wall 64 square / offset 40 % | doors latched | doors latched (frontal hits cap a door at 0.2 ajar) |
+| offset 64 40 % | no hub popped, block gap error 0.022 m | hubFL popped, gap error 0.002 m |
+| head-on 2×56 | hubFL + hubFR popped on both cars | no hub popped |
+| 6-car derby, seed 7, 90 s | nobody disabled, stalemate crown at 90 s | 5 disabled (12.5–32.6 s), elimination win at 32.6 s |
+| dump16 fleet replay, last 2 of 6 s | Khaki turns 115.6 rad (|ω| pinned at 6) | every car < 0.1 rad |
+
+Mechanisms:
+
+- **C1** (`car.ts:partOnHit`, `syncAttachedParts`, `evaluateBreakage`): doors
+  and their mirrors take a hit only from their own side. A frontal or rear
+  crush can jam a door at most `DOOR_AJAR` (0.2) open. A side hit tears it off
+  only at `hitSpeedValue ≥ DOOR_TEAR_MPS` (12.5 m/s EBS, 45 km/h). This uses
+  EBS, not the closing speed the spec named: a 50 km/h T-bone has 13.9 m/s
+  closing but 6.9 m/s EBS, and real side-impact doors stay shut.
+- **C2**: bumpers detach only at `hitSpeedValue ≥ 30 km/h` EBS. B1's stroke
+  scaling already kept a 20 km/h bumper on, so this gate guards rather than
+  changes today's walls.
+- **C3**: the mirror's on-hit test is its door's side rule. Its fold target is
+  the door-skin sensors under it, `(max(sensor) − 0.04)/0.3`.
+- **C4** (`streamed-deform.ts:clampLocal`): a hub pops only on an off-centre
+  (`|impactLocal.x| ≥ 0.2`, `cornerWeight > 0.6`) end-on hit at
+  `hitSpeed ≥ 15 m/s` whose struck corner has crushed to within `TYRE_REACH`
+  (0.42 m) of the hub, which means 0.30 m of corner crush.
+- **A3** (`holdEngineBlock`, every mass slice): engineL–engineR are projected
+  back to their 0.60 m rest spacing, mass-weighted, with the relative
+  velocity along the block removed.
+- **Cumulative damage** (`rearmHit`, `DeformableCar.applyImpact`): a crashed
+  car takes a new hit after `REARM_QUIET` (0.3 s) without contact if the hit's
+  EBS is at least `REARM_EBS` (6 m/s). The new hit re-aims `impactInward` and
+  `impactLocal`. Its stroke uses the root-sum-square of every EBS on the struck
+  end. Each mass's displacement at re-arm becomes its `baseX/baseZ`, and
+  clampLocal caps only what the new hit adds, so an old dent never springs
+  back when the hit frame flips. A frontal wall under 50 km/h still leaves the
+  car driveable. Below 6 m/s, constant derby shoving re-armed every 0.3 s and
+  ended matches in 10–15 s.
+- **Settle rule**: `notifyPower` (called from `applyDrive` while throttle is
+  held) keeps a powered wreck from being zeroed by the quiet-wreck rule, so
+  `DRIVE.launch` is gone. The derby durability and stall tests pass without
+  it.
+- **Tail stroke** (`crumpleTravelCorner`): the rear end is now measured from
+  the car origin. Measured from the cell, a mint tail read 0.12 m longer than
+  a mint nose, and the slab clip stopped a 50 km/h reverse hit at 0.23 m.
+  Tail/nose at 50 km/h went from 0.17/0.34 to 0.32/0.35 m.
+- **Wreck spin** (`followGroup`): yaw is the world engine→axleR angle minus
+  the same axis's angle in the body frame the masses were last clamped into.
+  Before, the clamp held that axis tilted after an asymmetric crush, so each
+  of the ~12–24 followGroup calls per frame turned the car by the tilt.
+  `angular.y` is the heading change over at least 1/60 s of sim time, with a
+  ±12 rad/s guard. Some cars in the 16-car pile-up still reach 6–12 rad/s
+  for 11–13 frames. That spin is real momentum: the mass cloud's L/I reaches
+  8.7 rad/s.
+- **A9**: `pointVelocity` gives v + ω×r with the sense `integrate` uses, and
+  glass shards and debris bounce use it. The finite-difference test matches
+  within 5 %; base had the opposite sign. The pair-contact torque on
+  `angular.y` is deleted: both cars are mass-active by then, and followGroup
+  overwrites the value before anything reads it.
+- **A10**: `sliceSpeed` reads `|velocity|`, not the stale drive `speed`.
+- **A15**: FX debris, glass dots and loose parts use `applyGroundFriction`
+  (μ 0.6 for FX, `muSlide` for parts) within a 5 mm contact band. A 0.5 s
+  slide at 60 and 240 Hz differed by 18 % before and matches within 5 % now.
+  Debris that hits a car bounces off the panel's own velocity. `sphereHit`
+  applies Coulomb friction (μ 0.45).
+
+Open: slow-motion versus full speed still differs for pair and offset hits.
+Head-on 2×56 nose crush is 0.44 at full speed and 0.65 in slow motion. Offset
+64 is 0.63/0.35 at full speed and 0.48/0.22 in slow motion. Square, rear and
+side walls agree within 6 %.
 
 ## Appendix
 
