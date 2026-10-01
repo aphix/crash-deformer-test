@@ -51,6 +51,12 @@ export type CrashResult = {
   hubsPopped: string[];
   lampsOut: string[];
   hinge: Record<string, number>;
+  /** Peak sensor compression (m): `crushAmount`, which drives the buckle wrinkle. */
+  crushMax: number;
+  /** Sum of |Δ group yaw| per frame once contact has been quiet for 0.1 s (rad). */
+  quietYawDrift: number;
+  /** Frames after first contact with |angular.y| at the ±6 rad/s clamp (≥ 5.9). */
+  spinFrames: number;
 };
 
 export type CrashWorld = {
@@ -71,13 +77,15 @@ export type ScenarioOpts = {
   slomo?: boolean;
   /** Sim seconds to keep running after first contact. */
   after?: number;
+  squash?: number;
+  buckle?: number;
 };
 
-export function makeCar(mode: DeformMode = "shape"): DeformableCar {
+export function makeCar(mode: DeformMode = "shape", squash = 0.4, buckle = 0.45): DeformableCar {
   const car = new DeformableCar(paint(), new THREE.Scene());
   car.deform.setMode(mode);
-  car.deform.squash = 0.4;
-  car.deform.buckle = 0.45;
+  car.deform.squash = squash;
+  car.deform.buckle = buckle;
   return car;
 }
 
@@ -217,6 +225,13 @@ export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
   }
 }
 
+const _fwd = new THREE.Vector3();
+/** World heading of the group's +z axis (rad), independent of the Euler order. */
+function heading(car: DeformableCar): number {
+  car.group.getWorldDirection(_fwd);
+  return Math.atan2(_fwd.x, _fwd.z);
+}
+
 /** Per-car metric accumulator (§3.1 definitions, all relative to the cell mass). */
 class Probe {
   private readonly dir = new THREE.Vector3();
@@ -252,7 +267,11 @@ class Probe {
     hubsPopped: [],
     lampsOut: [],
     hinge: {},
+    crushMax: 0,
+    quietYawDrift: 0,
+    spinFrames: 0,
   };
+  private prevYaw = 0;
 
   readonly car: DeformableCar;
 
@@ -274,11 +293,17 @@ class Probe {
       this.start.copy(w.preContact.get(car) ?? car.group.position);
       this.r.impactLocalX = car.deform.impactLocal.x;
       this.trace.push({ t: 0, v: this.v0 });
+      this.prevYaw = heading(car);
     }
     this.t += simDt;
     const d = car.deform;
     const cell = mass(d, "cell").local;
     const r = this.r;
+    const yaw = heading(car);
+    if (d.quietTime() >= 0.1) r.quietYawDrift += Math.abs(Math.atan2(Math.sin(yaw - this.prevYaw), Math.cos(yaw - this.prevYaw)));
+    this.prevYaw = yaw;
+    if (Math.abs(car.angular.y) >= 5.9) r.spinFrames++;
+    r.crushMax = Math.max(r.crushMax, d.crushAmount);
     const noseL = 2.0 - (mass(d, "bumperFL").local.z - cell.z);
     const noseR = 2.0 - (mass(d, "bumperFR").local.z - cell.z);
     const tail = Math.max(2.12 - (cell.z - mass(d, "bumperRL").local.z), 2.12 - (cell.z - mass(d, "bumperRR").local.z));
@@ -379,7 +404,7 @@ export type WallApproach = "front" | "rear" | "side";
  */
 export function runWall(speedKph: number, overlap = 1, approach: WallApproach = "front", opts: ScenarioOpts = {}): CrashResult {
   const v = speedKph / 3.6;
-  const car = makeCar(opts.mode);
+  const car = makeCar(opts.mode, opts.squash, opts.buckle);
   if (approach === "front") {
     const z = overlap >= 1 ? 0 : BARRIER_HALF.z + 0.88 * (1 - 2 * overlap);
     launch(car, 6.2, z, -Math.PI / 2, -v, 0);
@@ -399,8 +424,8 @@ export function runWall(speedKph: number, overlap = 1, approach: WallApproach = 
  * (the bullet) drives its nose into the stationary car A's right door.
  */
 export function runPair(kphA: number, kphB: number, kind: "head-on" | "t-bone" = "head-on", opts: ScenarioOpts = {}): [CrashResult, CrashResult] {
-  const a = makeCar(opts.mode);
-  const b = makeCar(opts.mode);
+  const a = makeCar(opts.mode, opts.squash, opts.buckle);
+  const b = makeCar(opts.mode, opts.squash, opts.buckle);
   if (kind === "head-on") {
     launch(a, -5, 0, Math.PI / 2, kphA / 3.6, 0);
     launch(b, 5, 0, -Math.PI / 2, -kphB / 3.6, 0);
