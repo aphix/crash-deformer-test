@@ -66,6 +66,10 @@ export function CrashLab() {
         onTogglePistons={() => engineRef.current?.togglePistons()}
         onFirePiston={(i) => engineRef.current?.firePiston(i)}
         onPistonConfig={(patch) => engineRef.current?.setPistonConfig(patch)}
+        onToggleDoors={() => engineRef.current?.toggleDoors()}
+        onFireDoor={(scenario) => engineRef.current?.fireDoorRam(scenario)}
+        onDoorConfig={(patch) => engineRef.current?.setDoorConfig(patch)}
+        onToggleDoorOpen={() => engineRef.current?.toggleDoorOpen()}
         onToggleDerby={() => engineRef.current?.toggleDerby()}
         onToggleOrbit={() => engineRef.current?.toggleOrbit()}
         onToggleSlomo={() => engineRef.current?.toggleSlomo()}

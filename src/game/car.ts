@@ -4,6 +4,7 @@ import { computeNormalsFast } from "./fast-normals.ts";
 import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
 import {
   CAR_HALF,
+  DOOR,
   HULLS,
   CRUSH_HULLS,
   WHEEL_POS,
@@ -17,6 +18,8 @@ import {
   makeHoodGeometry,
   makeInterior,
   makeMirror,
+  lampEmissiveMap,
+  makeLampUnit,
   makePaintMaterial,
   makeRearGlass,
   makeRearSideGlass,
@@ -25,10 +28,12 @@ import {
   makeTrimMaterial,
   makeTrunkGeometry,
   makeWindshield,
+  type LampKind,
 } from "./car-mesh.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
+import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
 
-export { CAR_HALF, HULLS, CRUSH_HULLS, WHEEL_POS };
+export { CAR_HALF, DOOR, HULLS, CRUSH_HULLS, WHEEL_POS };
 export type { Hull } from "./car-mesh.ts";
 
 export interface CarPaint {
@@ -47,6 +52,40 @@ const DOOR_AJAR = 0.2;
 /** C2: below 30 km/h EBS a folded bumper stays on (IIHS low-speed bumper protocols). */
 const BUMPER_TEAR_MPS = 30 / 3.6;
 
+// Door hinge and mirror model (docs/DOOR_RIG.md). Sourced: FMVSS 206 hinge 11 kN longitudinal,
+// latch/hinge 8.9 kN transverse. Guessed: masses, stop angle, plastic travel, mirror numbers.
+/** Front-door assembly (kg), guessed inside the usual 20–30 kg. */
+const DOOR_MASS = 25;
+/** Thin slab about one edge, I = m·L²/3 (kg·m²). */
+export const DOOR_INERTIA = (DOOR_MASS * DOOR.length * DOOR.length) / 3;
+/** Check-strap stop (rad); 65–70° is typical. */
+export const DOOR_OPEN_MAX = (68 * Math.PI) / 180;
+/** Hinge energy past the stop that tears the door off (J): 11 kN at the pins is ~1.8 kN at the
+ *  door through a ~6:1 strap lever, over ~0.12 m of plastic travel at the door (lever and travel guessed). */
+export const HINGE_TEAR_J = 220;
+/** One slam shut this hard tears the door off (J): 8.9 kN transverse over ~4 cm of striker and
+ *  hinge crush (travel guessed). A hard hand slam is ~17 J. */
+export const SLAM_TEAR_J = 360;
+/** Hinge friction (1/s). */
+const DOOR_DAMP = 0.8;
+/** The mirror folds about its base up to this (rad) before its stop loads. */
+export const MIRROR_FOLD_MAX = (75 * Math.PI) / 180;
+/** Energy the mirror's fold stop takes before the mirror snaps off (J), guessed. */
+export const MIRROR_BREAK_J = 30;
+
+/** A door's free swing; the crash rule's `hingeT` jams it open on top of this (C1). */
+export interface DoorHinge {
+  /** Open angle (rad, 0 = shut). */
+  theta: number;
+  /** Opening rate (rad/s, + opens). */
+  omega: number;
+  latched: boolean;
+  /** Energy the hinges have taken at the stop (J); tears at `HINGE_TEAR_J`. */
+  load: number;
+  /** The door mirror's fold about its base: its `rotation.y` (rad). */
+  mirrorFold: number;
+}
+
 type GlassState = "intact" | "cracked" | "shattered";
 
 interface GlassPane {
@@ -59,14 +98,16 @@ interface GlassPane {
   skin: "glassFront" | "glassRear" | null;
 }
 
+/** Housing + lens on the body skin (never the bumper): breaks only from its own corner's crush. */
 interface Lamp {
   mesh: THREE.Mesh;
   mat: THREE.MeshStandardMaterial;
   intact: boolean;
-  kind: "head" | "tail";
+  kind: LampKind;
   side: number;
+  /** That corner's bumper-end and wing sensors. */
   sensors: number[];
-  parts: ("bumperFront" | "bumperRear" | "wingFL" | "wingFR" | "wingRL" | "wingRR")[];
+  anchor: SkinAnchor;
 }
 
 interface DetachPart {
@@ -92,6 +133,8 @@ interface DetachPart {
   velocity: THREE.Vector3;
   angular: THREE.Vector3;
   radius: number;
+  /** Doors own their hinge; a mirror shares its door's. */
+  swing: DoorHinge | null;
 }
 
 export class DeformableCar {
@@ -122,6 +165,9 @@ export class DeformableCar {
   private wheelSpin = 0;
   private glassPanes: GlassPane[] = [];
   private parts: DetachPart[] = [];
+  /** [left, right] door and mirror parts, also listed in `parts`. */
+  private doorParts: DetachPart[] = [];
+  private mirrorParts: DetachPart[] = [];
   private lamps: Lamp[] = [];
   private hullHelper: THREE.LineSegments | null = null;
   private bumperF: THREE.Group;
@@ -172,8 +218,8 @@ export class DeformableCar {
 
     this.doorL = new THREE.Group();
     this.doorR = new THREE.Group();
-    this.doorL.position.set(-0.86, 0.54, 0.55);
-    this.doorR.position.set(0.86, 0.54, 0.55);
+    this.doorL.position.set(-DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
+    this.doorR.position.set(DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
     this.doorMeshL = new THREE.Mesh(makeDoorGeometry(-1), this.bodyMat);
     this.doorMeshL.position.set(0, 0, -0.28);
     this.doorMeshL.castShadow = true;
@@ -196,12 +242,13 @@ export class DeformableCar {
     this.bumperF = this.makeBumper(true, paint);
     this.bumperR = this.makeBumper(false, paint);
     this.group.add(this.bumperF, this.bumperR);
+    this.addLamps();
 
     this.mirrorL = makeMirror(-1);
-    this.mirrorL.position.set(-0.06, 0.32, 0);
+    this.mirrorL.position.set(-DOOR.mirrorX, DOOR.mirrorY, 0);
     this.doorL.add(this.mirrorL);
     this.mirrorR = makeMirror(1);
-    this.mirrorR.position.set(0.06, 0.32, 0);
+    this.mirrorR.position.set(DOOR.mirrorX, DOOR.mirrorY, 0);
     this.doorR.add(this.mirrorR);
 
     this.addGlass();
@@ -235,50 +282,7 @@ export class DeformableCar {
     const mesh = new THREE.Mesh(makeBumperGeometry(front), makeTrimMaterial(paint.accent));
     mesh.castShadow = true;
     g.add(mesh);
-    if (front) {
-      for (const sx of [-0.52, 0.52]) {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0xf4f1e8,
-          emissive: 0xf4f1e8,
-          emissiveIntensity: 1.15,
-          roughness: 0.2,
-        });
-        const f = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.09, 0.05), mat);
-        f.position.set(sx, 0.15, 0.06);
-        g.add(f);
-        this.lamps.push({
-          mesh: f,
-          mat,
-          intact: true,
-          kind: "head",
-          side: sx < 0 ? -1 : 1,
-          sensors: sx < 0 ? [1, 4] : [2, 5],
-          parts: sx < 0 ? ["wingFL"] : ["wingFR"],
-        });
-      }
-    } else {
-      for (const sx of [-0.52, 0.52]) {
-        const mat = new THREE.MeshStandardMaterial({
-          color: 0xc4121c,
-          emissive: 0xe01018,
-          emissiveIntensity: 2.6,
-          roughness: 0.32,
-        });
-        const r = new THREE.Mesh(new THREE.BoxGeometry(0.26, 0.08, 0.04), mat);
-        r.position.set(sx, 0.15, -0.06);
-        g.add(r);
-        this.lamps.push({
-          mesh: r,
-          mat,
-          intact: true,
-          kind: "tail",
-          side: sx < 0 ? -1 : 1,
-          sensors: sx < 0 ? [16, 10] : [17, 11],
-          parts: sx < 0 ? ["wingRL"] : ["wingRR"],
-        });
-      }
-      g.add(makeTailTrim());
-    }
+    if (!front) g.add(makeTailTrim());
     g.position.set(0, 0.33, front ? 2.06 : -2.06);
     if (front) {
       const grille = makeGrille();
@@ -286,6 +290,30 @@ export class DeformableCar {
       g.add(grille);
     }
     return g;
+  }
+
+  /** Head lamps on the nose cap's top corners, tails on the tail cap's, both just above the bumper so
+   *  they sit flush on the skin with the bumper gone. Each rides three nearby skin vertices. */
+  private addLamps(): void {
+    for (const kind of ["head", "tail"] as const) {
+      const head = kind === "head";
+      for (const side of [-1, 1]) {
+        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, emissiveMap: lampEmissiveMap() });
+        const mesh = new THREE.Mesh(makeLampUnit(kind), mat);
+        this.group.add(mesh);
+        _p.set(side * (head ? 0.48 : 0.52), head ? 0.505 : 0.51, head ? 2.11 : -2.11);
+        this.lamps.push({
+          mesh,
+          mat,
+          intact: true,
+          kind,
+          side,
+          sensors: head ? (side < 0 ? [1, 4] : [2, 5]) : side < 0 ? [16, 10] : [17, 11],
+          anchor: anchorOnSkin(this.body.geometry, _p, head ? _lampQ.identity() : _lampQ.set(0, 1, 0, 0)),
+        });
+      }
+    }
+    this.resetLamps();
   }
 
   private addGlass(): void {
@@ -330,8 +358,9 @@ export class DeformableCar {
       attachR: number,
       hinge: DetachPart["hinge"],
       radius: number,
-    ) => {
-      this.parts.push({
+      swing: DoorHinge | null = null,
+    ): DetachPart => {
+      const p: DetachPart = {
         name,
         object,
         restPos: object.position.clone(),
@@ -346,16 +375,22 @@ export class DeformableCar {
         velocity: new THREE.Vector3(),
         angular: new THREE.Vector3(),
         radius,
-      });
+        swing,
+      };
+      this.parts.push(p);
+      return p;
     };
     add("bumperF", this.bumperF, "bumperFront", 1, 2, "two-point", 0.42);
     add("bumperR", this.bumperR, "bumperRear", 16, 17, "two-point", 0.4);
     add("hood", this.hood, "bonnet", 3, 3, "cowl", 0.5);
     add("trunk", this.trunk, "boot", 18, 18, "tail", 0.48);
-    add("doorL", this.doorL, "doorLeft", 6, 6, "door", 0.4);
-    add("doorR", this.doorR, "doorRight", 7, 7, "door", 0.4);
-    add("mirrorL", this.mirrorL, "doorLeft", 6, 4, "two-point", 0.1);
-    add("mirrorR", this.mirrorR, "doorRight", 7, 5, "two-point", 0.1);
+    const doorL = add("doorL", this.doorL, "doorLeft", 6, 6, "door", 0.4, { theta: 0, omega: 0, latched: true, load: 0, mirrorFold: 0 });
+    const doorR = add("doorR", this.doorR, "doorRight", 7, 7, "door", 0.4, { theta: 0, omega: 0, latched: true, load: 0, mirrorFold: 0 });
+    this.doorParts = [doorL, doorR];
+    this.mirrorParts = [
+      add("mirrorL", this.mirrorL, "doorLeft", 6, 4, "two-point", 0.1, doorL.swing),
+      add("mirrorR", this.mirrorR, "doorRight", 7, 5, "two-point", 0.1, doorR.swing),
+    ];
   }
 
   private buildHullHelper(): void {
@@ -552,6 +587,13 @@ export class DeformableCar {
       p.detached = false;
       p.folding = false;
       p.hingeT = 0;
+      if (p.swing) {
+        p.swing.theta = 0;
+        p.swing.omega = 0;
+        p.swing.latched = true;
+        p.swing.load = 0;
+        p.swing.mirrorFold = 0;
+      }
       p.object.position.copy(p.restPos);
       p.object.quaternion.copy(p.restQuat);
       p.object.rotation.set(0, 0, 0);
@@ -573,20 +615,34 @@ export class DeformableCar {
     this.resetLamps();
   }
 
+  /** Relight every lamp and re-seat it on the (rest) skin. */
   private resetLamps(): void {
     for (const lamp of this.lamps) {
       lamp.intact = true;
-      if (lamp.kind === "head") {
-        lamp.mat.color.setHex(0xf4f1e8);
-        lamp.mat.emissive.setHex(0xf4f1e8);
-        lamp.mat.emissiveIntensity = 1.15;
-      } else {
-        lamp.mat.color.setHex(0xc4121c);
-        lamp.mat.emissive.setHex(0xe01018);
-        lamp.mat.emissiveIntensity = 2.6;
-      }
-      lamp.mat.needsUpdate = true;
+      lamp.mat.color.setHex(0xffffff);
+      lamp.mat.emissive.setHex(lamp.kind === "head" ? 0xf4f1e8 : 0xe01018);
+      // Tail stays below ACES's bright-red-to-yellow knee so the lens reads red under its own glow.
+      lamp.mat.emissiveIntensity = lamp.kind === "head" ? 1.15 : 1.1;
     }
+    this.poseLamps();
+  }
+
+  /** Seat each lamp on the skinned body; after every skin write (4 anchors, no allocation). */
+  private poseLamps(): void {
+    const pos = (this.body.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
+    for (const l of this.lamps) poseOnSkin(l.anchor, pos, l.mesh.position, l.mesh.quaternion);
+  }
+
+  get lampCount(): number {
+    return this.lamps.length;
+  }
+
+  /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken. */
+  lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): LampKind | null {
+    const l = this.lamps[i]!;
+    dir.set(0, 0, 1).applyQuaternion(l.mesh.quaternion).applyQuaternion(this.group.quaternion);
+    pos.copy(l.mesh.position).applyQuaternion(this.group.quaternion).add(this.group.position);
+    return l.intact ? l.kind : null;
   }
 
   /** Group matrix only: children are refreshed once per frame by the renderer. Recursing the
@@ -738,6 +794,7 @@ export class DeformableCar {
     this.deform.update(dt, this.body.geometry);
     // LoD gate lifted (back on screen / large again): catch the mesh up to the cages first.
     if (!this.deform.skinDeferred) this.deform.flushSkin(this.body.geometry);
+    if (this.deform.skinnedThisFrame) this.poseLamps();
     if (this.crashed) {
       if (this.deform.skinnedThisFrame) this.skinPanels();
       this.syncAttachedParts(dt);
@@ -751,7 +808,9 @@ export class DeformableCar {
   /** LoD catch-up once the camera has moved: write a deferred dent before this car is drawn. */
   flushDeferredSkin(): void {
     this.deform.skinDeferred = false;
-    if (this.deform.flushSkin(this.body.geometry) && this.crashed) this.skinPanels();
+    if (!this.deform.flushSkin(this.body.geometry)) return;
+    this.poseLamps();
+    if (this.crashed) this.skinPanels();
   }
 
   /** Bonnet, boot lid and the skinned glass follow the body skin. */
@@ -852,46 +911,138 @@ export class DeformableCar {
         else if (p.hinge === "tail") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
       }
       p.hingeT = Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012)));
-      const t = p.hingeT;
+      this.posePart(p);
+    }
+  }
 
-      p.object.position.copy(p.restPos);
-      p.object.quaternion.copy(p.restQuat);
-      p.object.scale.set(1, 1, 1);
+  /** Rest pose plus the hinge value `hingeT` (crash) and, on doors and mirrors, the free swing. */
+  private posePart(p: DetachPart): void {
+    const t = p.hingeT;
+    p.object.position.copy(p.restPos);
+    p.object.quaternion.copy(p.restQuat);
+    p.object.scale.set(1, 1, 1);
 
-      if (p.hinge === "two-point") {
-        if (p.name.startsWith("bumper")) {
-          p.folding = t > 0.04;
-          const fl = this.deform.massLocal(p.name === "bumperF" ? "bumperFL" : "bumperRL");
-          const fr = this.deform.massLocal(p.name === "bumperF" ? "bumperFR" : "bumperRR");
-          p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
-          const span = Math.abs(fl.z - (p.name === "bumperF" ? 2.06 : -2.06));
-          p.object.scale.set(1 + t * 0.04, Math.max(0.45, 1 - t * 0.28), Math.max(0.18, 1 - span * 0.45));
-        } else {
-          p.folding = t > 0.08;
-          const side = p.name === "mirrorL" ? -1 : 1;
-          p.object.rotation.z += side * t * 1.4;
-          p.object.position.y -= t * 0.12;
-          p.object.position.x += side * t * 0.18;
-        }
-      } else if (p.hinge === "cowl") {
-        p.folding = t > 0.06;
-        p.object.position.z -= t * 0.08;
-        p.object.position.y += t * 0.26;
-        p.object.rotation.x = -t * 0.5;
-      } else if (p.hinge === "tail") {
-        p.folding = t > 0.06;
-        p.object.position.z += t * 0.08;
-        p.object.position.y += t * 0.22;
-        p.object.rotation.x = t * 0.5;
-      } else if (p.hinge === "door") {
+    if (p.hinge === "two-point") {
+      if (p.name.startsWith("bumper")) {
+        p.folding = t > 0.04;
+        const fl = this.deform.massLocal(p.name === "bumperF" ? "bumperFL" : "bumperRL");
+        const fr = this.deform.massLocal(p.name === "bumperF" ? "bumperFR" : "bumperRR");
+        p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
+        const span = Math.abs(fl.z - (p.name === "bumperF" ? 2.06 : -2.06));
+        p.object.scale.set(1 + t * 0.04, Math.max(0.45, 1 - t * 0.28), Math.max(0.18, 1 - span * 0.45));
+      } else {
         p.folding = t > 0.08;
-        const sign = p.name === "doorL" ? -1 : 1;
-        p.object.rotation.y = -sign * t * 1.45;
-        p.object.position.x += sign * t * 0.06;
-        p.object.updateWorldMatrix(true, false);
-        _box.setFromObject(p.object);
-        if (_box.min.y < 0.04) p.object.position.y += 0.04 - _box.min.y;
+        const side = p.name === "mirrorL" ? -1 : 1;
+        p.object.rotation.z += side * t * 1.4;
+        p.object.rotation.y = p.swing!.mirrorFold;
+        p.object.position.y -= t * 0.12;
+        p.object.position.x += side * t * 0.18;
       }
+    } else if (p.hinge === "cowl") {
+      p.folding = t > 0.06;
+      p.object.position.z -= t * 0.08;
+      p.object.position.y += t * 0.26;
+      p.object.rotation.x = -t * 0.5;
+    } else if (p.hinge === "tail") {
+      p.folding = t > 0.06;
+      p.object.position.z += t * 0.08;
+      p.object.position.y += t * 0.22;
+      p.object.rotation.x = t * 0.5;
+    } else if (p.hinge === "door") {
+      p.folding = t > 0.08;
+      const sign = p.name === "doorL" ? -1 : 1;
+      p.object.rotation.y = -sign * Math.max(t * 1.45, p.swing!.theta);
+      p.object.position.x += sign * t * 0.06;
+      p.object.updateWorldMatrix(true, false);
+      _box.setFromObject(p.object);
+      if (_box.min.y < 0.04) p.object.position.y += 0.04 - _box.min.y;
+    }
+  }
+
+  /** Door hinge state; `side` −1 is the left door, +1 the right. */
+  doorHinge(side: number): DoorHinge {
+    return this.doorParts[side < 0 ? 0 : 1]!.swing!;
+  }
+
+  /** Whether a door or mirror has left the car; a mirror rides off on its torn door. */
+  partOff(name: "doorL" | "doorR" | "mirrorL" | "mirrorR"): boolean {
+    const i = name.endsWith("L") ? 0 : 1;
+    const door = this.doorParts[i]!.detached;
+    return name.startsWith("door") ? door : door || this.mirrorParts[i]!.detached;
+  }
+
+  /** Unlatch a door and leave it at rest `theta` open (rad, up to the stop); 0 shuts and latches it. */
+  setDoorOpen(side: number, theta: number): void {
+    const p = this.doorParts[side < 0 ? 0 : 1]!;
+    if (p.detached) return;
+    const h = p.swing!;
+    h.theta = THREE.MathUtils.clamp(theta, 0, DOOR_OPEN_MAX);
+    h.omega = 0;
+    h.latched = h.theta === 0;
+    this.posePart(p);
+  }
+
+  /**
+   * The check strap takes `energy` (J) past the stop. Once the total passes `HINGE_TEAR_J` the
+   * door tears off with `push` (car-space m/s on top of the car's velocity). Returns whether it did.
+   */
+  loadDoorStop(side: number, energy: number, push: THREE.Vector3): boolean {
+    const p = this.doorParts[side < 0 ? 0 : 1]!;
+    if (p.detached) return false;
+    p.swing!.load += energy;
+    if (p.swing!.load < HINGE_TEAR_J) return false;
+    this.detachPart(p, 0, push);
+    return true;
+  }
+
+  /** Fold a mirror about its base (rad, its `rotation.y` in door space). */
+  setMirrorFold(side: number, angle: number): void {
+    const m = this.mirrorParts[side < 0 ? 0 : 1]!;
+    if (m.detached) return;
+    m.swing!.mirrorFold = angle;
+    this.posePart(m);
+  }
+
+  /** Snap a mirror off its door with `push` (car-space m/s). */
+  breakMirror(side: number, push: THREE.Vector3): void {
+    this.detachPart(this.mirrorParts[side < 0 ? 0 : 1]!, 0, push);
+  }
+
+  /** Free door swing: hinge friction, then the check-strap stop, or the latch / slam overload at 0. */
+  swingDoors(dt: number): void {
+    for (let i = 0; i < 2; i++) {
+      const p = this.doorParts[i]!;
+      if (p.detached) continue;
+      const h = p.swing!;
+      const sign = i === 0 ? -1 : 1;
+      if (!h.latched) {
+        h.theta += h.omega * dt;
+        h.omega *= Math.exp(-DOOR_DAMP * dt);
+        if (h.theta >= DOOR_OPEN_MAX && h.omega > 0) {
+          h.theta = DOOR_OPEN_MAX;
+          // The trailing edge's velocity is what the strap stops.
+          _push.set(sign * Math.cos(h.theta), 0, Math.sin(h.theta)).multiplyScalar(h.omega * DOOR.length);
+          const e = 0.5 * DOOR_INERTIA * h.omega * h.omega;
+          // The strap's detent holds it on the stop.
+          h.omega = 0;
+          if (this.loadDoorStop(sign, e, _push)) continue;
+        } else if (h.theta <= 0 && h.omega < 0) {
+          h.theta = 0;
+          if (0.5 * DOOR_INERTIA * h.omega * h.omega >= SLAM_TEAR_J) {
+            // Wrenched out of its hinges against the frame: it leaves outward and rearward at its
+            // centre's swing speed.
+            _push.set(sign * 1.2, 0.6, 0.5 * DOOR.length * h.omega);
+            this.detachPart(p, 0, _push);
+            continue;
+          }
+          h.theta = 0;
+          h.omega = 0;
+          h.latched = true;
+        }
+      }
+      this.posePart(p);
+      const m = this.mirrorParts[i]!;
+      if (!m.detached) this.posePart(m);
     }
   }
 
@@ -976,20 +1127,20 @@ export class DeformableCar {
       if (!lamp.intact) continue;
       let crush = 0;
       for (const s of lamp.sensors) crush = Math.max(crush, this.deform.sensorCompression(s));
-      for (const part of lamp.parts) crush = Math.max(crush, this.deform.partCompression(part));
       if (crush > 0.18 && this.deform.crushElapsed > 0.02) this.breakLamp(lamp);
     }
   }
 
   private breakLamp(lamp: Lamp): void {
     lamp.intact = false;
-    lamp.mat.color.setHex(0x3a3c40);
+    lamp.mat.color.setHex(0x5a5c60);
     lamp.mat.emissive.setHex(0x1a1b1c);
     lamp.mat.emissiveIntensity = 0.12;
-    lamp.mat.needsUpdate = true;
   }
 
-  private detachPart(p: DetachPart, impulse: number): void {
+  /** Hand a part to the world. `push` (car-space m/s on top of the car's velocity) replaces the
+   *  crash launch: outward from the body by `impulse`, popped up by `hingeT`. */
+  private detachPart(p: DetachPart, impulse: number, push?: THREE.Vector3): void {
     if (p.detached) return;
     p.detached = true;
     this.group.updateMatrixWorld();
@@ -1001,12 +1152,18 @@ export class DeformableCar {
     this.world.add(p.object);
     p.object.position.copy(wpos);
     p.object.quaternion.copy(wquat);
-    _p.copy(wpos).sub(this.group.position).setY(0);
-    if (_p.lengthSq() < 1e-6) _p.set(p.restPos.x, 0, p.restPos.z).applyQuaternion(this.group.quaternion);
-    _p.normalize();
-    p.velocity.copy(this.velocity);
-    p.velocity.addScaledVector(_p, 2.2 + Math.min(5, impulse * 0.06));
-    p.velocity.y += 2.1 + p.hingeT * 1.2;
+    if (push) {
+      p.velocity.copy(push).applyQuaternion(this.group.quaternion).add(this.velocity);
+    } else {
+      _p.copy(wpos).sub(this.group.position).setY(0);
+      if (_p.lengthSq() < 1e-6) _p.set(p.restPos.x, 0, p.restPos.z).applyQuaternion(this.group.quaternion);
+      _p.normalize();
+      p.velocity.copy(this.velocity);
+      p.velocity.addScaledVector(_p, 2.2 + Math.min(5, impulse * 0.06));
+      p.velocity.y += 2.1 + p.hingeT * 1.2;
+      p.object.position.addScaledVector(_p, 0.14);
+      p.object.position.y += 0.08;
+    }
     p.angular.set(
       (Math.random() - 0.5) * 6,
       (Math.random() - 0.5) * 5,
@@ -1015,8 +1172,6 @@ export class DeformableCar {
     if (p.hinge === "door") p.angular.y += (p.name === "doorL" ? -1 : 1) * (3.2 + p.hingeT * 2.4);
     else if (p.hinge === "cowl") p.angular.x -= 3.4;
     else if (p.hinge === "tail") p.angular.x += 3.4;
-    p.object.position.addScaledVector(_p, 0.14);
-    p.object.position.y += 0.08;
   }
 
   private shatterGlass(g: GlassPane): void {
@@ -1059,6 +1214,7 @@ export class DeformableCar {
   }
 }
 const _qSpin = new THREE.Quaternion();
+const _push = new THREE.Vector3();
 /** Height above its rest (m) at which a loose part still slides on the ground. */
 const GROUND_BAND = 0.005;
 const _p = new THREE.Vector3();
@@ -1068,3 +1224,4 @@ const _in = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _zero = new THREE.Vector3();
 const _box = new THREE.Box3();
+const _lampQ = new THREE.Quaternion();

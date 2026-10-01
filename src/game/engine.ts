@@ -5,6 +5,8 @@ import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } f
 import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
 import { PistonBank } from "./engine-pistons.ts";
+import { DOOR_LANES, DoorRig, RAM, RAM_DEFAULTS, type DoorScenario, type RamShot } from "./door-rig.ts";
+import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
@@ -27,6 +29,7 @@ import {
 } from "./engine-props.ts";
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
 import { DerbyMatch, snapshotAiCar } from "./derby.ts";
+import { LampLights } from "./lamp-lights.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
@@ -76,6 +79,7 @@ export class CrashEngine {
   showBalls = false;
   showCompactor = false;
   showPistons = false;
+  showDoors = false;
   autoRotate = true;
   autoSlomo = true;
   audioOn = false;
@@ -114,6 +118,7 @@ export class CrashEngine {
   private envMap: THREE.Texture | null = null;
   private debris: DebrisSystem;
   private readonly wheels = new WheelBatch(MAX_CARS * 4);
+  private readonly lampLights: LampLights;
   private sparks: SparkSystem;
   private glassDots: GlassDotSystem;
   private smoke: TireSmokeSystem;
@@ -148,6 +153,11 @@ export class CrashEngine {
   /** A shot went off since the car was parked (no auto-fire; a loop reset moves to the next piston). */
   private pistonFired = false;
   private pistonFxAt = 0;
+  private doorRig = new DoorRig();
+  private doorRam: DoorRam;
+  /** Last finished door shot, for the HUD. */
+  private doorShot: RamShot | null = null;
+  private doorFx = false;
   private derby = new DerbyMatch();
   private seat = new DriverSeat();
   private keys = new Set<string>();
@@ -195,6 +205,7 @@ export class CrashEngine {
     this.barrier = new JerseyBarrier(this.scene);
     this.press = new CompactorPress(this.scene, this.compactFace);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
+    this.doorRam = new DoorRam(this.scene);
 
     this.glassDots = new GlassDotSystem(this.scene);
     this.ensureCars(2);
@@ -216,6 +227,7 @@ export class CrashEngine {
 
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
+    this.lampLights = new LampLights(this.scene, MAX_CARS * 4);
 
     this.resize();
     this.resizeObs = new ResizeObserver(() => this.resize());
@@ -257,6 +269,7 @@ export class CrashEngine {
     this.sparks.dispose();
     this.glassDots.dispose();
     this.smoke.dispose();
+    this.lampLights.dispose();
     this.audio.dispose();
     this.envMap?.dispose();
     this.envMap = null;
@@ -325,7 +338,7 @@ export class CrashEngine {
   }
 
   toggleBarrier(): void {
-    if (this.showCompactor || this.showPistons) return;
+    if (this.showCompactor || this.showPistons || this.showDoors) return;
     if (this.derbyMode) this.setDerby(false);
     this.showBarrier = !this.showBarrier;
     this.barrier.group.visible = this.showBarrier;
@@ -335,7 +348,7 @@ export class CrashEngine {
   }
 
   toggleBalls(): void {
-    if (this.showCompactor || this.showPistons) return;
+    if (this.showCompactor || this.showPistons || this.showDoors) return;
     if (this.derbyMode) this.setDerby(false);
     this.showBalls = !this.showBalls;
     scatterRampBalls(this.balls, this.showBalls);
@@ -347,6 +360,7 @@ export class CrashEngine {
     if (this.derbyMode) this.setDerby(false);
     this.showCompactor = !this.showCompactor;
     this.showPistons = false;
+    this.showDoors = false;
     this.tryUnlockAudio();
     this.randomizeAndReset();
     this.emitHud(true);
@@ -356,6 +370,7 @@ export class CrashEngine {
     if (this.derbyMode) this.setDerby(false);
     this.showPistons = !this.showPistons;
     this.showCompactor = false;
+    this.showDoors = false;
     this.tryUnlockAudio();
     this.randomizeAndReset();
     this.emitHud(true);
@@ -383,6 +398,50 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
+  toggleDoors(): void {
+    if (this.derbyMode) this.setDerby(false);
+    this.showDoors = !this.showDoors;
+    this.showCompactor = false;
+    this.showPistons = false;
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
+  /** Fire a sketch scene (A/B/C) on the selected side; a car missing that side's door or mirror is parked fresh first. */
+  fireDoorRam(scenario: DoorScenario): void {
+    if (!this.showDoors || this.doorRig.phase === "run") return;
+    const side = this.doorRig.side;
+    if (this.carA.partOff(side < 0 ? "doorL" : "doorR") || this.carA.partOff(side < 0 ? "mirrorL" : "mirrorR")) {
+      this.randomizeAndReset();
+    }
+    this.doorShot = null;
+    this.doorFx = false;
+    this.doorRig.fire(scenario, side);
+    // A fast ram crosses the car in a few tenths of a second: slow it down so it reads.
+    if (this.autoSlomo && this.userTimeScale == null) this.targetScale = this.doorRig.kph > 15 ? 0.3 : 1;
+    this.tryUnlockAudio();
+    this.emitHud(true);
+  }
+
+  setDoorConfig(patch: { kph?: number; kg?: number; side?: -1 | 1 }): void {
+    if (patch.kph != null) this.doorRig.kph = THREE.MathUtils.clamp(patch.kph, 1, 120);
+    if (patch.kg != null) this.doorRig.kg = THREE.MathUtils.clamp(patch.kg, 5, 5000);
+    if (patch.side != null && this.doorRig.phase === "idle") {
+      this.doorRig.side = patch.side;
+      this.doorRam.sync(this.doorRig);
+    }
+    this.emitHud(true);
+  }
+
+  /** Swing the selected door between shut (latched) and the B/C start angle. */
+  toggleDoorOpen(): void {
+    if (!this.showDoors || this.doorRig.phase === "run") return;
+    const side = this.doorRig.side;
+    this.carA.setDoorOpen(side, this.carA.doorHinge(side).theta > 0.01 ? 0 : DOOR_LANES.overOpen.open);
+    this.emitHud(true);
+  }
+
   toggleDerby(): void {
     this.setDerby(!this.derbyMode);
     this.tryUnlockAudio();
@@ -399,6 +458,7 @@ export class CrashEngine {
       this.showBalls = false;
       this.showCompactor = false;
       this.showPistons = false;
+      this.showDoors = false;
       this.barrier.group.visible = false;
       this.autoSlomo = false;
       if (this.userTimeScale == null) {
@@ -474,6 +534,9 @@ export class CrashEngine {
     this.showCompactor = INITIAL_HUD.showCompactor;
     this.showPistons = INITIAL_HUD.showPistons;
     this.pistons.setConfig(PISTON_DEFAULTS);
+    this.showDoors = INITIAL_HUD.showDoors;
+    this.doorRig.kph = RAM_DEFAULTS.kph;
+    this.doorRig.kg = RAM_DEFAULTS.kg;
     this.autoRotate = INITIAL_HUD.autoRotate;
     this.autoSlomo = INITIAL_HUD.autoSlomo;
     this.audioOn = INITIAL_HUD.audioOn;
@@ -596,6 +659,13 @@ export class CrashEngine {
       this.toggleCompactor();
     } else if (e.code === "KeyI") {
       this.togglePistons();
+    } else if (e.code === "KeyN") {
+      this.toggleDoors();
+    } else if (this.showDoors && /^Digit[1-5]$/.test(e.code)) {
+      const n = Number(e.code.slice(5));
+      if (n <= 3) this.fireDoorRam(n === 1 ? "mirror" : n === 2 ? "overOpen" : "shut");
+      else if (n === 4) this.toggleDoorOpen();
+      else this.setDoorConfig({ side: this.doorRig.side < 0 ? 1 : -1 });
     } else if (this.showPistons && /^Digit[0-8]$/.test(e.code)) {
       const n = Number(e.code.slice(5));
       this.firePiston(n === 0 ? PISTON_IDS.length : n - 1);
@@ -685,8 +755,14 @@ export class CrashEngine {
       this.finishResetCommon();
       return;
     }
+    if (this.showDoors) {
+      this.parkDoors();
+      this.finishResetCommon();
+      return;
+    }
     this.press.group.visible = false;
     this.pistonBank.group.visible = false;
+    this.doorRam.group.visible = false;
     if (this.derbyMode) this.spawnDerby();
     else this.spawnFleet();
     this.barrierHits.fill(false);
@@ -773,6 +849,7 @@ export class CrashEngine {
     for (const b of this.balls) b.mesh.visible = false;
     this.press.group.visible = false;
     this.pistonBank.group.visible = false;
+    this.doorRam.group.visible = false;
     return parked;
   }
 
@@ -792,6 +869,15 @@ export class CrashEngine {
     this.pistons.attach(parked);
     this.pistonBank.group.visible = true;
     this.pistonBank.sync(this.pistons, this.pistonSelected);
+  }
+
+  private parkDoors(): void {
+    const parked = this.parkSolo();
+    this.doorRig.attach(parked);
+    this.doorShot = null;
+    this.doorFx = false;
+    this.doorRam.group.visible = true;
+    this.doorRam.sync(this.doorRig);
   }
 
   private finishResetCommon(): void {
@@ -814,7 +900,7 @@ export class CrashEngine {
     this.glassDots.reset();
     this.smoke.reset();
 
-    this.view.frameReset(this.showCompactor || this.showPistons, this.live());
+    this.view.frameReset(this.showCompactor || this.showPistons || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.sparkAt = -10;
@@ -864,6 +950,7 @@ export class CrashEngine {
       for (const h of this.pistons.heads) u = Math.max(u, h.u);
       return u;
     }
+    if (this.showDoors) return this.doorRig.u;
     const cars = this.live();
     if (cars.length < 2) return cars[0]?.velocity.length() ?? 0;
     let best = 0;
@@ -921,7 +1008,7 @@ export class CrashEngine {
       }
       this.scheduleSkins(cars);
       for (const car of cars) {
-        if ((this.showCompactor || this.showPistons) && car !== this.carA) continue;
+        if ((this.showCompactor || this.showPistons || this.showDoors) && car !== this.carA) continue;
         car.updateDeform(simDt);
       }
       this.updatePhase(wallDt);
@@ -961,6 +1048,7 @@ export class CrashEngine {
 
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
+    this.lampLights.update(this.live(), this.camera, this.followedCar());
     this.renderer.render(this.scene, this.camera);
 
     this.hudAcc += wallDt;
@@ -1033,7 +1121,7 @@ export class CrashEngine {
     if (this.derbyMode) return;
     if (this.userTimeScale != null) return;
     if (!this.autoSlomo) return;
-    if (this.showCompactor || this.showPistons) return;
+    if (this.showCompactor || this.showPistons || this.showDoors) return;
     if (this.phase !== "approach") return;
     const scale = this.reduceMotion ? 0.16 : IMPACT_SCALE;
     if (this.timeScale <= scale * 1.2) return;
@@ -1133,6 +1221,10 @@ export class CrashEngine {
       if (this.showPistons) {
         this.stepPistons(h);
         this.carA.afterContacts(h, this.bounceWorld);
+        continue;
+      }
+      if (this.showDoors) {
+        this.stepDoors(h);
         continue;
       }
       for (const car of cars) {
@@ -1445,7 +1537,7 @@ export class CrashEngine {
     const look = this.view.look;
     if (followed && followed.group.visible) {
       look.set(followed.group.position.x, 0.7, followed.group.position.z);
-    } else if (this.showCompactor || this.showPistons) {
+    } else if (this.showCompactor || this.showPistons || this.showDoors) {
       look.set(this.carA.group.position.x, 0.55, this.carA.group.position.z);
     } else if (this.derbyMode && this.derby.winnerId != null) {
       const champ = this.cars[this.derby.winnerId];
@@ -1545,11 +1637,31 @@ export class CrashEngine {
     }
   }
 
+  private stepDoors(dt: number): void {
+    const rig = this.doorRig;
+    const was = rig.phase;
+    this.carA.integrate(dt);
+    rig.step(dt);
+    this.doorRam.sync(rig);
+    if (rig.touched && !this.doorFx) {
+      this.doorFx = true;
+      rig.centre(_bp);
+      _bp.z += rig.lane.dir * RAM.length * 0.5;
+      _bn.set(0, 0.35, -rig.lane.dir).normalize();
+      this.sparks.poof(_bp, _bn, Math.max(6, (14 * this.fxDensity) | 0));
+    }
+    if (was !== "idle" && rig.phase === "idle") {
+      this.doorShot = rig.result();
+      this.emitHud(true);
+    }
+  }
+
   private emitHud(force: boolean): void {
     void force;
     const cars = this.live();
     const relVel = this.fleetClosing();
-    const eta = this.phase === "approach" && !this.showCompactor && !this.showPistons ? this.contactEta() : 0;
+    const eta =
+      this.phase === "approach" && !this.showCompactor && !this.showPistons && !this.showDoors ? this.contactEta() : 0;
     const carMass = this.carA.deform.totalMass;
     const pistonEnergy = this.pistons.shotEnergy(carMass);
     publishHud({
@@ -1570,6 +1682,21 @@ export class CrashEngine {
         busy: this.pistons.busy,
         energyKj: pistonEnergy / 1000,
         ebsKph: Math.sqrt((2 * pistonEnergy) / carMass) * 3.6,
+      },
+      showDoors: this.showDoors,
+      doors: {
+        side: this.doorRig.side,
+        kph: this.doorRig.kph,
+        kg: this.doorRig.kg,
+        open: this.carA.doorHinge(this.doorRig.side).theta > 0.01,
+        busy: this.doorRig.phase === "run",
+        energyJ: 0.5 * this.doorRig.kg * (this.doorRig.kph / 3.6) ** 2,
+        shot: this.doorShot && {
+          detached: this.doorShot.detached,
+          doorDeg: this.doorShot.doorDeg,
+          latched: this.doorShot.latched,
+          bodyMm: Math.max(this.doorShot.bodyParticleMm, this.doorShot.bodyVertexMm),
+        },
       },
       autoRotate: this.autoRotate,
       autoSlomo: this.autoSlomo,
