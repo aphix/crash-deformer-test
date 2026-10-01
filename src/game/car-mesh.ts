@@ -663,6 +663,24 @@ export function makeBumperGeometry(front: boolean): THREE.BufferGeometry {
   return geo;
 }
 
+/**
+ * Door and mirror dimensions in car space. The door group's origin is the hinge axis at the
+ * A-pillar, (±hingeX, hingeY, hingeZ); the skin box spans z −0.57…0.01 and y ±0.31 around it.
+ */
+export const DOOR = {
+  hingeX: 0.86,
+  hingeY: 0.54,
+  hingeZ: 0.55,
+  /** Hinge axis to trailing edge (m). */
+  length: 0.57,
+  halfHeight: 0.31,
+  /** Mirror base in door space (±mirrorX, mirrorY, 0); the cap reaches `mirrorReach` out and is ±`mirrorHalfDepth` deep. */
+  mirrorX: 0.06,
+  mirrorY: 0.32,
+  mirrorReach: 0.21,
+  mirrorHalfDepth: 0.08,
+} as const;
+
 /** Door skin in hinge-local space. Parent at the A-pillar (sign*0.86, 0.54, 0.55). */
 export function makeDoorGeometry(sign: number): THREE.BufferGeometry {
   const geo = new THREE.BoxGeometry(0.05, 0.62, 0.58, 2, 5, 6);
@@ -1079,22 +1097,39 @@ export function getCrackMap(): THREE.Texture {
   return _crackMap;
 }
 
-/** Grille slats plus the dark lamp housings the headlamp lenses sit in (one draw call). */
+/** Grille slats in front-bumper space; the headlamps sit on the body (`makeLampUnit`). */
 export function makeGrille(): THREE.Mesh {
-  const parts = [toned(new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1), 0x1a1c20, 0.55, 0.45)];
-  for (const sx of [-0.52, 0.52]) {
-    parts.push(toned(new THREE.BoxGeometry(0.27, 0.125, 0.06), 0x1a1c20, 0.55, 0.45).translate(sx, 0.05, -0.012));
-  }
-  return new THREE.Mesh(mergeToned(parts, "grille"), partsMaterial());
+  return new THREE.Mesh(toned(new THREE.BoxGeometry(0.72, 0.16, 0.06, 4, 2, 1), 0x1a1c20, 0.55, 0.45), partsMaterial());
 }
 
-/** Tail lamp housings, a lower diffuser strip and the number plate, in rear-bumper space. */
+/** Lower diffuser strip and the number plate, in rear-bumper space; the tail lamps sit on the body. */
 export function makeTailTrim(): THREE.Mesh {
-  const parts: THREE.BufferGeometry[] = [];
-  for (const sx of [-0.52, 0.52]) {
-    parts.push(toned(new THREE.BoxGeometry(0.31, 0.115, 0.05), 0x15171a, 0.6, 0.3).translate(sx, 0.15, -0.05));
-  }
-  parts.push(toned(new THREE.BoxGeometry(1.1, 0.05, 0.06), 0x15171a, 0.6, 0.3).translate(0, -0.12, -0.02));
-  parts.push(toned(new THREE.BoxGeometry(0.36, 0.11, 0.02), 0xd8d4cc, 0.6, 0.1).translate(0, 0.03, -0.08));
+  const parts = [
+    toned(new THREE.BoxGeometry(1.1, 0.05, 0.06), 0x15171a, 0.6, 0.3).translate(0, -0.12, -0.02),
+    toned(new THREE.BoxGeometry(0.36, 0.11, 0.02), 0xd8d4cc, 0.6, 0.1).translate(0, 0.03, -0.08),
+  ];
   return new THREE.Mesh(mergeToned(parts, "tail trim"), partsMaterial());
+}
+
+export type LampKind = "head" | "tail";
+
+/** Lamp unit in lamp space (lens toward +z, origin on the body skin): dark housing plus lens, one draw.
+ *  uv picks the `lampEmissiveMap` texel — housing 0, lens 1 — so a per-lamp emissive lights the lens alone. */
+export function makeLampUnit(kind: LampKind): THREE.BufferGeometry {
+  const head = kind === "head";
+  const housing = toned(new THREE.BoxGeometry(head ? 0.27 : 0.31, 0.11, 0.05), head ? 0x1a1c20 : 0x15171a, 0, 0);
+  const lens = toned(new THREE.BoxGeometry(head ? 0.22 : 0.26, head ? 0.085 : 0.075, 0.03), head ? 0xf4f1e8 : 0xc4121c, 0, 0);
+  (housing.getAttribute("uv").array as Float32Array).fill(0.25);
+  (lens.getAttribute("uv").array as Float32Array).fill(0.75);
+  return mergeToned([housing.translate(0, 0, 0.015), lens.translate(0, 0, 0.03)], "lamp unit");
+}
+
+let _lampEmissive: THREE.DataTexture | null = null;
+
+/** 2×1 emissive mask for `makeLampUnit`: black housing texel, white lens texel. Shared, never disposed. */
+export function lampEmissiveMap(): THREE.DataTexture {
+  if (_lampEmissive) return _lampEmissive;
+  _lampEmissive = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]), 2, 1);
+  _lampEmissive.needsUpdate = true;
+  return _lampEmissive;
 }

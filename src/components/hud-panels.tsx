@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
-import type { CrashHudState, PistonHud } from "@/game/hud-store";
+import type { DoorScenario } from "@/game/door-rig";
+import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 
 /** Derby standings: name, score, struck through once the engine dies. */
@@ -93,6 +94,85 @@ export function PistonPanel({
       >
         Hold car {pistons.holdCar ? "on" : "off"}
       </Button>
+    </div>
+  );
+}
+
+function doorSlider(label: string, value: number, min: number, max: number, step: number, shown: string, set: (v: number) => void) {
+  return (
+    <label className="flex items-center gap-2">
+      <span className="hud-label w-12 shrink-0">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+        aria-label={label}
+        className="h-10 w-full cursor-pointer accent-current"
+      />
+      <span className="w-16 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
+    </label>
+  );
+}
+
+const DOOR_SHOTS: { id: DoorScenario; label: string; title: string }[] = [
+  { id: "mirror", label: "A", title: "A · shut door, ram grazes the mirror (1)" },
+  { id: "overOpen", label: "B", title: "B · open door, ram from behind past the stop (2)" },
+  { id: "shut", label: "C", title: "C · open door, ram from the front toward shut (3)" },
+];
+
+/** Doors scene controls: A/B/C fire pad, side and door toggles, the ram config and the last shot. */
+export function DoorPanel({
+  doors,
+  onFire,
+  onConfig,
+  onToggleOpen,
+}: {
+  doors: DoorHud;
+  onFire: (scenario: DoorScenario) => void;
+  onConfig: (patch: Partial<Pick<DoorHud, "kph" | "kg" | "side">>) => void;
+  onToggleOpen: () => void;
+}) {
+  const shot = doors.shot;
+  return (
+    <div className="hud-panel pointer-events-auto max-h-full w-64 space-y-1 overflow-y-auto p-3">
+      <div className="flex items-baseline justify-between">
+        <p className="hud-label">Doors</p>
+        <p className="font-display text-xs tabular-nums text-muted">{doors.energyJ.toFixed(0)} J</p>
+      </div>
+      <div className="grid grid-cols-3 gap-1 pb-1" role="group" aria-label="Fire the door ram">
+        {DOOR_SHOTS.map(({ id, label, title }) => (
+          <Button key={id} size="sm" className="h-10" disabled={doors.busy} onClick={() => onFire(id)} aria-label={title} title={title}>
+            {label}
+          </Button>
+        ))}
+      </div>
+      <div className="grid grid-cols-2 gap-1 pb-1">
+        <Button size="sm" className="h-10" variant="secondary" disabled={doors.busy} onClick={() => onConfig({ side: doors.side < 0 ? 1 : -1 })} title="Side (5)">
+          {doors.side < 0 ? "Left door" : "Right door"}
+        </Button>
+        <Button
+          size="sm"
+          className="h-10"
+          variant={doors.open ? "default" : "ghost"}
+          aria-pressed={doors.open}
+          disabled={doors.busy}
+          onClick={onToggleOpen}
+          title="Door open (4)"
+        >
+          Door {doors.open ? "open" : "shut"}
+        </Button>
+      </div>
+      {doorSlider("Speed", doors.kph, 1, 60, 1, `${doors.kph.toFixed(0)} km/h`, (v) => onConfig({ kph: v }))}
+      {doorSlider("Mass", doors.kg, 10, 1500, 10, `${doors.kg.toFixed(0)} kg`, (v) => onConfig({ kg: v }))}
+      {shot ? (
+        <p className="font-display text-xs tabular-nums text-muted">
+          Off: {shot.detached.length > 0 ? shot.detached.join(", ") : "nothing"} · door {shot.doorDeg.toFixed(0)}°
+          {shot.latched ? " latched" : ""} · body Δ {shot.bodyMm.toFixed(1)} mm
+        </p>
+      ) : null}
     </div>
   );
 }

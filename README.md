@@ -46,6 +46,8 @@ Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironmen
 | C | compactor (camera view while driving) |
 | I | piston rig: eight rams around a parked car (docs/PISTON_RIG.md); speed, mass, face hardness and hold-car in its panel |
 | 1–8 / 0 | piston rig: fire one ram (clockwise from front-left) / all eight |
+| N | doors scene: one ram down a parked car's side (docs/DOOR_RIG.md); speed, mass, side and door open/shut in its panel |
+| 1–3 / 4 / 5 | doors scene: fire A (mirror graze, shut door) / B (open door from behind, past the stop) / C (open door from the front, toward shut); 4 opens or shuts the door; 5 swaps side |
 | D | demolition derby (from the whole-field view) |
 | K | ramp balls |
 | G | deform rig |
@@ -89,13 +91,14 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel.
 
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
-HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Press / Pistons; one at a time), the wall and ramp balls (fleet only) and a **?** key list. Every readout sits in the top-right card. Three collapsible sections hold the rest and remember whether they are open: **Playback** (loop, slow-mo, orbit, audio, typed time scale; clear the field to return to auto), **Cars & crash** (car count 1–32, spawn speed min/max, squash, buckle, FX, shape ↔ lattice, **Defaults** resets the lot) and **Debug views** (rig, particles, JSON capture and copy). The piston panel and derby board appear only in their scenes; the drive hint shows above the bar while following or driving.
+HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Press / Pistons / Doors; one at a time), the wall and ramp balls (fleet only) and a **?** key list. Every readout sits in the top-right card. Three collapsible sections hold the rest and remember whether they are open: **Playback** (loop, slow-mo, orbit, audio, typed time scale; clear the field to return to auto), **Cars & crash** (car count 1–32, spawn speed min/max, squash, buckle, FX, shape ↔ lattice, **Defaults** resets the lot) and **Debug views** (rig, particles, JSON capture and copy). The piston and door panels and the derby board appear only in their scenes; the drive hint shows above the bar while following or driving.
 
 ## Layout
 
 - `src/game/derby.ts` / `derby-ai.ts` / `car-drive.ts` / `derby-arena.ts` — derby match, AI, player seat (`DriveInput`)
 - `src/game/engine.ts` — sim loop, camera, collisions
 - `src/game/piston-rig.ts` / `engine-pistons.ts` — piston rig model and shot measurement (`firePiston`, `pistonLocality`), instanced rams
+- `src/game/door-rig.ts` / `engine-doors.ts` — door hinge / mirror knock rig (`fireRam`), instanced ram
 - `src/game/engine-fx.ts` / `engine-world.ts` — debris, sparks, smoke, audio, asphalt, barrier
 - `src/game/shape-match-core.js` — polar / clusters (hot)
 - `src/game/physics-core.js` — crumple bands, impulses (hot)

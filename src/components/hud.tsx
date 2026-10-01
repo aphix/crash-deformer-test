@@ -5,16 +5,18 @@ import {
   CircleDot,
   CircleHelp,
   Crosshair,
+  DoorOpen,
   FoldHorizontal,
   Pause,
   Play,
   RotateCcw,
   Trophy,
 } from "lucide-react";
-import { DerbyBoard, PistonPanel } from "@/components/hud-panels";
+import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { Button } from "@/components/ui/button";
-import type { CrashHudState } from "@/game/hud-store";
+import type { DoorScenario } from "@/game/door-rig";
+import type { CrashHudState, DoorHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +34,10 @@ export type HudProps = {
   /** 0–7 one ram (key order), 8 all. */
   onFirePiston: (index: number) => void;
   onPistonConfig: (patch: Partial<PistonConfig>) => void;
+  onToggleDoors: () => void;
+  onFireDoor: (scenario: DoorScenario) => void;
+  onDoorConfig: (patch: Partial<Pick<DoorHud, "kph" | "kg" | "side">>) => void;
+  onToggleDoorOpen: () => void;
   onToggleDerby: () => void;
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
@@ -65,13 +71,14 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 
 const VIEW: Record<CrashHudState["view"], string> = { third: "Chase cam", far: "Far chase", first: "Hood cam" };
 
-/** Fleet is "none of the others": the engine keeps derby, press and pistons mutually exclusive. */
-type Scene = "fleet" | "derby" | "press" | "pistons";
+/** Fleet is "none of the others": the engine keeps derby, press, pistons and doors mutually exclusive. */
+type Scene = "fleet" | "derby" | "press" | "pistons" | "doors";
 const SCENES = [
   { id: "fleet", label: "Fleet", aria: "Fleet scene", Icon: CarFront },
   { id: "derby", label: "Derby", aria: "Demolition derby scene", Icon: Trophy },
   { id: "press", label: "Press", aria: "Car compactor scene", Icon: FoldHorizontal },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene", Icon: Crosshair },
+  { id: "doors", label: "Doors", aria: "Door and mirror knock scene", Icon: DoorOpen },
 ] as const;
 
 const SCENE_KEYS: [string, string][] = [
@@ -82,6 +89,8 @@ const SCENE_KEYS: [string, string][] = [
   ["C", "Press"],
   ["I", "Pistons"],
   ["1–8 · 0", "Fire ram · all"],
+  ["N", "Doors"],
+  ["1–3 · 4 · 5", "Door ram A–C · open · side"],
   ["B", "Wall"],
   ["K", "Balls"],
   ["M", "Slow-mo"],
@@ -134,9 +143,11 @@ export function Hud(props: HudProps) {
               ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
               : state.showPistons
                 ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
-                : state.carCount <= 2
-                  ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
-                  : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
+                : state.showDoors
+                  ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
+                  : state.carCount <= 2
+                    ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
+                    : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
         </p>
       </header>
 
@@ -145,6 +156,14 @@ export function Hud(props: HudProps) {
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? (
           <PistonPanel pistons={state.pistons} onFire={props.onFirePiston} onConfig={props.onPistonConfig} />
+        ) : null}
+        {state.showDoors ? (
+          <DoorPanel
+            doors={state.doors}
+            onFire={props.onFireDoor}
+            onConfig={props.onDoorConfig}
+            onToggleOpen={props.onToggleDoorOpen}
+          />
         ) : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} /> : null}
       </div>
@@ -255,11 +274,25 @@ function DriveHint({ state }: { state: CrashHudState }) {
 }
 
 /** Always-visible bar: play, reset, scene, the two fleet props, key help. */
-function Dock({ state, onTogglePlay, onReset, onToggleDerby, onToggleCompactor, onTogglePistons, onToggleBarrier, onToggleBalls }: HudProps) {
-  const scene: Scene = state.derby ? "derby" : state.showCompactor ? "press" : state.showPistons ? "pistons" : "fleet";
-  const toggleScene = { derby: onToggleDerby, press: onToggleCompactor, pistons: onTogglePistons };
-  // Barrier and balls are fleet props; the engine ignores them while the press or the rig owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons;
+function Dock(props: HudProps) {
+  const { state, onTogglePlay, onReset, onToggleBarrier, onToggleBalls } = props;
+  const scene: Scene = state.derby
+    ? "derby"
+    : state.showCompactor
+      ? "press"
+      : state.showPistons
+        ? "pistons"
+        : state.showDoors
+          ? "doors"
+          : "fleet";
+  const toggleScene = {
+    derby: props.onToggleDerby,
+    press: props.onToggleCompactor,
+    pistons: props.onTogglePistons,
+    doors: props.onToggleDoors,
+  };
+  // Barrier and balls are fleet props; the engine ignores them while the press or a rig owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors;
   return (
     <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-2 p-2 md:w-auto">
       <Button onClick={onTogglePlay} aria-label={state.playing ? "Pause" : "Play"}>
@@ -270,7 +303,7 @@ function Dock({ state, onTogglePlay, onReset, onToggleDerby, onToggleCompactor, 
         <RotateCcw />
         <span className="hidden sm:inline">Reset</span>
       </Button>
-      <div className="order-last grid w-full grid-cols-4 gap-1 sm:order-none sm:flex sm:w-auto" role="group" aria-label="Scene">
+      <div className="order-last grid w-full grid-cols-5 gap-1 sm:order-none sm:flex sm:w-auto" role="group" aria-label="Scene">
         {SCENES.map(({ id, label, aria, Icon }) => (
           <Button
             key={id}

@@ -15,6 +15,19 @@ export type PistonHud = {
   ebsKph: number;
 };
 
+/** Doors scene: ram lane side, shot config, the selected door's state and the last shot's outcome. */
+export type DoorHud = {
+  /** −1 left door, +1 right. */
+  side: -1 | 1;
+  kph: number;
+  kg: number;
+  open: boolean;
+  busy: boolean;
+  /** Ram kinetic energy (J). */
+  energyJ: number;
+  shot: { detached: string[]; doorDeg: number; latched: boolean; bodyMm: number } | null;
+};
+
 export type CrashHudState = {
   playing: boolean;
   looping: boolean;
@@ -25,6 +38,8 @@ export type CrashHudState = {
   showCompactor: boolean;
   showPistons: boolean;
   pistons: PistonHud;
+  showDoors: boolean;
+  doors: DoorHud;
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
@@ -71,6 +86,8 @@ export const INITIAL_HUD: CrashHudState = {
   showCompactor: false,
   showPistons: false,
   pistons: { selected: 0, speedKph: 40, massKg: 1500, hardness: 1, holdCar: false, busy: false, energyKj: 0, ebsKph: 0 },
+  showDoors: false,
+  doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,
