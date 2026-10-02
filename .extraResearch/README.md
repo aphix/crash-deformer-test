@@ -26,6 +26,7 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/20-adaptive-particle-lod.md` | Adaptive/LoD shape matching (Steinemann 2008), refine/coarsen with plastic state |
 | `perplexity/21-vehicle-node-counts.md` | Node counts and CPU cost of real-time vehicle soft bodies (BeamNG numbers; others unsourced) |
 | `perplexity/22-hierarchical-two-tier.md` | Two-tier coarse skeleton + fine surface particle layer, HPBD, activation islands, JS/Wasm budgets |
+| `perplexity/50-derby-elimination-rules.md` | Real demolition-derby elimination: aggressive-hit interval (60 s typical; 90 s / 2 min), no-movement limit (60 s), door hits, last-car-to-hit wins (CrushCalibration lane) |
 | `perplexity/90-vercel-realtime-transports.md` | Realtime multiplayer under Vercel: function WebSocket limits, WebRTC + polled signaling, TURN, PartyKit/Ably/Pusher/Liveblocks, PeerJS (Netplay lane) |
 | `perplexity/91-snapshot-netcode.md` | Snapshot interpolation vs state sync vs lockstep, quantization, delta vs acked baseline, unreliable DataChannels, BroadcastChannel (Netplay lane) |
 
