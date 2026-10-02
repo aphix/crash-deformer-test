@@ -31,6 +31,21 @@ Keys: `F` FX tier · `H` night · `X` wet asphalt (also HUD Playback → Night /
 | Night: moonlight, dark sky, bloomed pole heads, additive fake light pools under intact poles (a toppled pole's pool goes out). Sky, ambient, sun, fill, env and smoke go `WorldStage.nightDepth` = 72 % of the way from day to full night (full night read too dark; 62–83 % is the agreed range; mean frame luminance day 0.0199, full night 0.0045, 72 % 0.0074) | `engine-world.ts` `WorldStage` | all | 6 decal quads at night |
 | Wet asphalt: a satin sheen (roughness 0.38, no metalness) on the dry albedo; marks stay matte. The old mirror (roughness 0.2, env ×1.8, darker albedo) glared: ground luminance +35 % vs dry, now +16 %, car/ground contrast 2.67 (dry 2.47) | `engine-world.ts` | all | none |
 
+## Thrown drivers (ragdolls)
+A crash-test dummy flies out of a car that one hit disables: through the windshield on a head-on, or through the struck side's front window on a side hit. Nothing is thrown on a rear hit, or on a hit that leaves the car running. The dummy is cosmetic and local: no dummy state enters the sim or the snapshots.
+- **Trigger** (`ragdoll-trigger.ts` `EjectionWatch`): fires on the edge where the drivetrain dies (a derby kill or wreck, or a race DNF by damage), once per car per run. The hit must be head-on or from a side (`impactInward`), and the peak closing speed over the 0.35 s before it must be at least 6 m/s. That speed is rebuilt from replicated velocities, so a netplay client decides the same way as the host from the same snapshots. Measured basis: single-hit frontal kills close at 15.6 m/s or more; derby side kills peaked at 9.8, 7.9, 6.8 and 1.9 m/s.
+- **Body** (`engine-ragdoll.ts` `RagdollSystem`): its own Rapier world (`rapier.ts` `loadRapier`, the game's one `@dimforge/rapier3d` 0.19.3: its own chunk plus a separate `.wasm`, 618 kB over the wire). It loads in the background once `CrashEngine.ready` resolves; boot never waits for it, and a car disabled before it is in throws nobody.
+  - 4 pooled 10-box dummies on spherical joints, drawn as one instanced mesh; a fifth throw recycles the oldest. Each lives 10 s.
+  - Off a course, the ground (flat pad or disc) and the derby bowl wall are fixed colliders built once at a run's first throw and shared by every dummy; on a course, each throw gets a heightfield patch and the walls near it.
+  - Every car (and the jersey barrier) is a kinematic box that follows its pose: cars push dummies, and nothing pushes back.
+  - A dummy ignores cars for its first 0.35 s, because it starts inside its own crushed cabin.
+- **Glass**: the authority (host or offline) smashes the exit pane with `smashGlass`, and clients take it from the glass bits.
+- **Cosmetic**: the cars never feel a dummy; sim digests are identical with ragdolls on and off in every scene (`ragdoll-trigger.test.ts` and the lane's 9-scene digest run).
+- **Sandbox only** (neither a race nor a derby):
+  - the camera rides with the dummy unless it follows another car or the user framed the shot;
+  - the clock drops to 0.3× while it rides (skipped with auto slow-mo off or a fixed time scale).
+- The jointed body follows Matthias von Bargen's [rapierjs-ragdoll](https://github.com/mattvb91/rapierjs-ragdoll) (MIT License; the notice is in the `engine-ragdoll.ts` header).
+
 ## Race tracks
 `engine-marks.ts` exports `markMapUniforms`, `applyMarkMap(material)` and `setMarkBounds(minX, minZ, maxX, maxZ)`.
 - A track's road, runoff and terrain materials call `applyMarkMap` once. It samples by world xz, so it works on hilly courses.

@@ -104,7 +104,8 @@ export function makeCar(mode: DeformMode = "shape", squash?: number, buckle?: nu
   return car;
 }
 
-function launch(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
+/** Place `car` at (x, z) facing `yaw` and send it off at (vx, vz) m/s, the rig bound to it. */
+export function launch(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
   car.spawnFacing(x, z, yaw, 0);
   car.velocity.set(vx, 0, vz);
   car.speed = Math.hypot(vx, vz);
