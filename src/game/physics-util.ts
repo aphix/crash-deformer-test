@@ -1,22 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { activeGround } from "./ground.ts";
-import {
-  CRASH,
-  TRANSFER,
-  regionSoftness,
-  crushGate,
-  dtImpulseScale,
-  closingKeScale,
-  regionCrushBands,
-  forceTransfer,
-  leftoverPass,
-  leftoverCrumple,
-  crushStroke,
-  cancelClosing,
-  satPushCap,
-  round4,
-} from "./physics-core.js";
+import { CRASH, round4 } from "./physics-core.js";
 
 export {
   CRASH,
@@ -33,9 +18,8 @@ export {
   cancelClosing,
   satPushCap,
   round4,
-};
-
-export type CrushBands = { yield: number; middle: number; max: number };
+  type CrushBands,
+} from "./physics-core.js";
 
 /**
  * Base crash-physics numbers (sedan, dry asphalt, ~50 km/h NCAP-style pulse).

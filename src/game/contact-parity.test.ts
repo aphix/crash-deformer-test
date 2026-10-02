@@ -1,13 +1,14 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { carDoorPass, carFront, carSandwich, crushMismatch, pistonFront, pressUntil, ramDoorPass, shortening, type CarState } from "./contact-parity.test-util.ts";
+import { assertSameDigest } from "./test-support.ts";
 
 // docs/CONTACT_PARITY.md: one hit, two deliveries (scene rig vs other cars), same outcome.
 const CAR_KG = 858;
 const PENDING = "contact parity: scene rigs and car-car still take different paths (docs/CONTACT_PARITY.md)";
 
 function sameParts(x: CarState, y: CarState, what: string): void {
-  assert.deepEqual(x.detached, y.detached, `${what}: parts off car [${x.detached}] vs rig [${y.detached}]`);
+  assertSameDigest(x.detached, y.detached, `${what}: parts off car [${x.detached}] vs rig [${y.detached}]`);
   assert.ok(Math.abs(x.doorDeg - y.doorDeg) <= 3, `${what}: door ${x.doorDeg.toFixed(1)}° vs ${y.doorDeg.toFixed(1)}°`);
   assert.equal(x.latched, y.latched, `${what}: latch`);
   assert.ok(Math.abs(x.mirrorFoldDeg - y.mirrorFoldDeg) <= 3, `${what}: mirror fold ${x.mirrorFoldDeg.toFixed(1)}° vs ${y.mirrorFoldDeg.toFixed(1)}°`);

@@ -15,6 +15,7 @@ import { Track, blankProjection, projectPath } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
 import { setGround } from "../ground.ts";
 import type { CarPose, Entrant } from "./types.ts";
+import { assertSameNumbers } from "../test-support.ts";
 
 const DT = 1 / 60;
 
@@ -165,8 +166,9 @@ describe("race AI", () => {
     const rolls = Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1));
     assert.ok(rolls.every((a) => a >= 0 && a <= 0.6));
     assert.ok(Math.max(...rolls) - Math.min(...rolls) > 0.3, "a spread, not one value");
-    assert.deepEqual(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1)), "same seed, same field");
-    assert.notDeepEqual(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 5, id + 1)), "a new race rolls again");
+    assertSameNumbers(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1)), "same seed, same field");
+    const reroll = Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 5, id + 1));
+    assert.ok(reroll.some((a, i) => a !== rolls[i]), "a new race rolls again");
     assert.ok(Array.from({ length: 15 }, (_, id) => fieldAggression(0, 4, id)).every((a) => a === 0));
     assert.ok(mood(0, 0, 1) < 0 && mood(1, 1, 0) > 0);
   });

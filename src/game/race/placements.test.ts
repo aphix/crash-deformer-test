@@ -6,6 +6,7 @@ import { placeProps, propColliders, type Placed } from "./placements.ts";
 import { Track, blankProjection, projectPath, type TrackPath } from "./track.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
 import stunt from "./tracks/stunt.json" with { type: "json" };
+import { assertSameDigest } from "../test-support.ts";
 
 /** Distance (m) from (x, z) beyond the wall line of a corridor (< 0 = on road or runoff). */
 function gap(path: TrackPath, x: number, z: number): number {
@@ -32,8 +33,8 @@ describe("placements", () => {
     const a = placeProps(new Track(oval));
     const b = placeProps(new Track(structuredClone(oval)));
     assert.ok(a.length > oval.props.length);
-    assert.deepEqual(a, b);
-    assert.deepEqual(propColliders(a), propColliders(b));
+    assertSameDigest(a, b, "props");
+    assertSameDigest(propColliders(a), propColliders(b), "colliders");
   });
 
   it("oval: along and scatter props keep off every corridor, scatter stays in its band and clear of the start line", () => {

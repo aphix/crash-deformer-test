@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { blankPad, PAD_BUTTON, PAD_DEAD, padLabel, readPad, stickScale, triggerValue, type PadSource } from "./gamepad.ts";
 import { blankIntent, readIntent, shapeDrive } from "./drive-input.ts";
 import { idleDrive } from "./car-drive.ts";
+import { assertSameDigest } from "./test-support.ts";
 
 /** A connected standard-mapping pad: `down` lists held button indices. */
 function pad(axes: number[], down: number[] = [], lt = 0, rt = 0): PadSource {
@@ -66,7 +67,7 @@ describe("gamepad poll", () => {
     readPad(pad([-1, 0, 1, 0], [PAD_BUTTON.south], 1, 1), s);
     assert.ok(s.connected && s.lx < -0.9 && s.rt === 1);
     readPad(null, s);
-    assert.deepEqual({ ...s }, blankPad());
+    assertSameDigest({ ...s }, blankPad(), "unplugged pad");
     readPad({ ...pad([-1, 0, 0, 0]), connected: false }, s);
     assert.equal(s.lx, 0);
   });

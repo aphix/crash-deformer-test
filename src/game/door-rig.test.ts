@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
 import { DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, SLAM_TEAR_J } from "./car.ts";
 import { fireRam, type DoorScenario, type RamShot } from "./door-rig.ts";
+import { assertSameDigest } from "./test-support.ts";
 
 /**
  * Door/mirror knock scenes (docs/DOOR_RIG.md, sketch docs/door-mirror-sketch.png). A ram on a lane
@@ -70,7 +71,7 @@ describe("door rig: the ram knocks off only what the sketch says (A/B/C)", () =>
     for (const c of CASES) {
       it(`${c.scenario} ${suffix}, ${c.level}: off [${c.off.join(", ")}], body still`, () => {
         const r = fireRam(makeCar(), c.scenario, { kph: c.kph, kg: c.kg, side });
-        assert.deepEqual([...r.detached].sort(), c.off.map((p) => p + suffix).sort());
+        assertSameDigest([...r.detached].sort(), c.off.map((p) => p + suffix).sort(), `detached [${[...r.detached].sort()}]`);
         const doorOn = !c.off.includes("door");
         if (doorOn && c.scenario !== "overOpen") assert.ok(r.latched, "door should be shut and latched");
         assert.ok(r.bodyParticleMm <= BODY_TOL_MM, `control particles moved ${r.bodyParticleMm} mm`);
