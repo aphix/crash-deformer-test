@@ -1,9 +1,8 @@
 import * as THREE from "three";
-import { DeformableCar } from "./car.ts";
+import type { DeformableCar } from "./car.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "./physics-util.ts";
 import { carCrushHulls, satCars } from "./sat.ts";
 import { TYRE_HALF_W, TYRE_R } from "./streamed-deform.ts";
-import { partContactPair } from "./external-contact.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -337,73 +336,4 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
     pushPair(carB, -n.x, -n.z, (depth * mA) / (mA + mB), dt);
   }
   return true;
-}
-
-/** One physics slice for a pair — same order as CrashEngine.fixedStep. */
-export function stepCarPair(carA: DeformableCar, carB: DeformableCar, dt: number): void {
-  if (!carA.deform.massActive) carA.integrate(dt);
-  else carA.syncPose(dt);
-  if (!carB.deform.massActive) carB.integrate(dt);
-  else carB.syncPose(dt);
-
-  if (carA.deform.massActive || carB.deform.massActive) carA.deform.collideWith(carB.deform, dt);
-  partContactPair(carA, carB);
-
-  const satBusy = carA.velocity.lengthSq() > 1.4 || carB.velocity.lengthSq() > 1.4;
-  const leftover = Math.min(
-    leftoverCrumple(carA.deform.crumpleTravelCorner()),
-    leftoverCrumple(carB.deform.crumpleTravelCorner()),
-  );
-  const wrecked = carA.crashed && carB.crashed && leftover < 0.2;
-  const iters = satBusy && !wrecked ? 3 : 1;
-  for (let k = 0; k < iters; k++) {
-    if (carA.deform.massActive) carA.syncPose(0);
-    else carA.refreshBasis();
-    if (carB.deform.massActive) carB.syncPose(0);
-    else carB.refreshBasis();
-    const hit = resolveCarPair(carA, carB, k === 0, dt);
-    if (!hit) break;
-  }
-
-  if (carA.deform.massActive) {
-    carA.deform.stepStructure(dt);
-    carA.syncPose(dt);
-  }
-  if (carB.deform.massActive) {
-    carB.deform.stepStructure(dt);
-    carB.syncPose(dt);
-  }
-  carA.afterContacts(dt);
-  carB.afterContacts(dt);
-}
-
-/** Warm-up crashes: car A at (x, z) facing `yaw` at 14 m/s into car B parked at the origin facing `yawB`, or driving at `vB`. */
-const WARM_HITS = [
-  // Head-on, 14 m/s each (100 km/h closing), noses 1.7 m apart.
-  [0, -6, 0, Math.PI, 14],
-  // T-bone into a parked car's door.
-  [-4.5, 0, Math.PI / 2, 0, 0],
-] as const;
-
-/**
- * Run two throwaway crashes through `stepCarPair` (1 s each) so V8 has compiled the crush path before play.
- * Cold, a race's first crashes ran it unoptimised: single frames took 21–27 ms of physics headless (oval, 8 cars),
- * 26–48 ms in the browser (docs/PERF_HITCH.md); after this warm-up, ≤ 7.4 ms. Returns whether every hit crashed
- * both cars (else it no longer warms the code it is for).
- */
-export function warmCrashPath(): boolean {
-  const scene = new THREE.Scene();
-  const paint = { body: 0x808080, accent: 0x404040, name: "warm-up" };
-  let crashed = true;
-  for (const [x, z, yaw, yawB, vB] of WARM_HITS) {
-    const a = new DeformableCar(paint, scene);
-    const b = new DeformableCar(paint, scene);
-    a.spawnFacing(x, z, yaw, 14);
-    b.spawnFacing(0, 0, yawB, vB);
-    for (let i = 0; i < 240; i++) stepCarPair(a, b, 1 / 240);
-    crashed &&= a.crashed && b.crashed && a.deform.massActive && b.deform.massActive;
-    a.dispose();
-    b.dispose();
-  }
-  return crashed;
 }

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { DeformableCar } from "./car.ts";
 
 /** Inside the lamp ring (16 m) and well inside the 48 m pad: the bowl for up to 12 cars. */
 export const DERBY_RADIUS = 16.4;
@@ -126,4 +127,15 @@ export function clipToDerbyBowl(
     nvz -= nz * outward * 1.15;
   }
   return { x: px, z: pz, vx: nvx, vz: nvz, hit: true };
+}
+
+/** Keep a car (its masses too, once live) inside the bowl of `radius`; 2.15 m pad for the car's half-length. */
+export function clipDerbyCar(car: DeformableCar, radius: number): void {
+  const p = car.group.position;
+  const v = car.velocity;
+  const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15, radius);
+  if (!next.hit) return;
+  if (car.deform.massActive) car.deform.translateMasses(next.x - p.x, next.z - p.z, next.vx - v.x, next.vz - v.z);
+  p.set(next.x, p.y, next.z);
+  v.set(next.vx, v.y, next.vz);
 }

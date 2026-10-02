@@ -46,7 +46,7 @@ Müller 2005 meshless shape matching on `ShapeCluster`s:
 
 ## Contact
 - `sat.ts`: `physicsSlice(dt, vmax)` (anti-tunnelling step), `sliceSpeed(cars)`, `satCarBarrier`, `clipCarToBarrier`, `satTwoHulls`, `satCars`; hulls from `car-mesh.ts` (`HULLS`, `CRUSH_HULLS`).
-- `pair-contact.ts`: `resolveCarPair(carA, carB, feed, dt): PairHit | null`, `impulseCar`, `pushCar`, `stepCarPair(carA, carB, dt)` (one pair slice, same order as `fixedStep`).
+- `pair-contact.ts`: `resolveCarPair(carA, carB, feed, dt): PairHit | null`, `impulseCar`, `pushCar`. `world-step.ts`: `stepWorld(world, dt)`, the one fixed step (engine and every harness), and `warmCrashPath`.
 - `engine-props.ts`: `JerseyBarrier.resolve/clip/blocksPair`, `resolveRampBalls`, `resolveLampPoles`, `StrongestContact`.
 - `external-contact.ts`: the shared striker contact (`ContactBox`, `partContact` door/mirror colliders, `bodyContact`, `strikeEbs`, `partContactPair` car-car hook after `collideWith`); `DeformableCar.noteContactEnd` squeeze rule. `compactor.ts`: `CompactorRig` (plates as kinematic striker boxes on the parked car), `compactorStage`. `piston-rig.ts`: `PistonRig`; the shot harness (`firePiston(car, id, shot)`, `pistonLocality`, `fitRigid`) is in `piston-rig.test-util.ts`. See `docs/CONTACT_PARITY.md`.
 

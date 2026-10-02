@@ -2,11 +2,9 @@ import * as THREE from "three";
 import { DriverSeat } from "../car-drive.ts";
 import { DeformableCar } from "../car.ts";
 import { RaceDirector } from "../engine-race.ts";
-import { partContactPair } from "../external-contact.ts";
+import { newWorld, stepWorld, type World as StepWorld } from "../world-step.ts";
 import { fleetClass, fleetStyle } from "../fleet.ts";
 import { INITIAL_HUD } from "../hud-store.ts";
-import { resolveCarPair } from "../pair-contact.ts";
-import { leftoverCrumple } from "../physics-util.ts";
 import { physicsSlice, sliceSpeed } from "../sat.ts";
 import { armKill, assignClass, carClass, HANDLING } from "../vehicle-classes.ts";
 import { describe, it } from "node:test";
@@ -20,10 +18,9 @@ import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnap
 /**
  * The whole race stack headless, as the browser runs it minus the renderer: `RaceDirector` (rules
  * session, race AI, traffic and its bubble, walls, props, respawns, the rival aggression roll),
- * real `DeformableCar`s with their classes, `applyDrive`, and `CrashEngine.fixedStep`'s race-mode
- * physics order (integrate / syncPose, mass pair contact, part contact, SAT pair resolve, structure
- * step, wall and prop clip, rules step, `cutDrive`) at the engine's slice sizes, one 60 Hz frame at
- * a time. Not a test file itself.
+ * real `DeformableCar`s with their classes, `applyDrive`, and `CrashEngine.fixedStep` in race mode
+ * (the director drives, `stepWorld` with the director's walls and props, the rules step), one 60 Hz
+ * frame at a time. Not a test file itself.
  */
 
 export const FRAME = 1 / 60;
@@ -34,6 +31,7 @@ export type World = {
   seat: DriverSeat;
   /** Called for every car pair in physical contact (the slice's first SAT pass), car indices a < b. */
   onPairContact: ((a: number, b: number) => void) | null;
+  step: StepWorld;
 };
 
 export function makeWorld(): World {
@@ -80,61 +78,20 @@ export function makeWorld(): World {
     hitFx: () => {},
     buildArt: () => null,
   });
-  return { cars, live, race, seat, onPairContact: null };
+  const step = newWorld(liveBuf);
+  step.collide = (car, i) => race.collide(car, i);
+  const w: World = { cars, live, race, seat, onPairContact: null, step };
+  step.pairHit = (a, b, _hit, first) => {
+    if (first) w.onPairContact?.(a, b);
+  };
+  return w;
 }
 
-/** `CrashEngine.fixedStep` in race mode (no barrier, balls, poles, derby). */
+/** `CrashEngine.fixedStep` in race mode. */
 function fixedStep(w: World, dt: number): void {
-  const cars = w.live();
+  w.step.cars = w.live();
   w.race.drive(dt);
-  const slices = dt > 0.012 ? 2 : 1;
-  const h = dt / slices;
-  for (let i = 0; i < slices; i++) {
-    for (const car of cars) {
-      if (!car.deform.massActive) car.integrate(h);
-      if (car.deform.massActive) car.syncPose(h);
-      else car.refreshBasis();
-    }
-    for (let a = 0; a < cars.length; a++) {
-      for (let b = a + 1; b < cars.length; b++) {
-        const ca = cars[a]!;
-        const cb = cars[b]!;
-        const dx = ca.group.position.x - cb.group.position.x;
-        const dz = ca.group.position.z - cb.group.position.z;
-        if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5) continue;
-        if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        partContactPair(ca, cb);
-      }
-    }
-    let satBusy = false;
-    let wrecked = true;
-    for (const car of cars) {
-      if (car.velocity.lengthSq() > 1.4) satBusy = true;
-      if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
-    }
-    for (let k = 0; k < (satBusy && !wrecked ? 3 : 1); k++) {
-      for (const car of cars) {
-        if (car.deform.massActive) car.syncPose(0);
-        else car.refreshBasis();
-      }
-      let moved = false;
-      for (let a = 0; a < cars.length; a++) {
-        for (let b = a + 1; b < cars.length; b++) {
-          if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5) continue;
-          if (!resolveCarPair(cars[a]!, cars[b]!, k === 0, h)) continue;
-          moved = true;
-          if (k === 0) w.onPairContact?.(a, b);
-        }
-      }
-      if (!moved) break;
-    }
-    for (const car of cars) {
-      if (car.deform.massActive) car.deform.stepStructure(h);
-      if (car.deform.massActive) car.syncPose(h);
-      car.afterContacts(h);
-    }
-    for (let ci = 0; ci < cars.length; ci++) w.race.collide(cars[ci]!, ci);
-  }
+  stepWorld(w.step, dt);
   w.race.step(dt);
 }
 

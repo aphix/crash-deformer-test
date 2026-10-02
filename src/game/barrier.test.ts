@@ -2,11 +2,11 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { leftoverCrumple } from "./physics-util.ts";
-import { BARRIER_HALF, clipCarToBarrier, physicsSlice, satCarBarrier } from "./sat.ts";
+import { physicsSlice } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { mass, paint } from "./test-support.ts";
-import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
+import { makeCar, makeWorld, runWall } from "./crash-scenarios.test-util.ts";
+import { stepWorld } from "./world-step.ts";
 
 /** Engine-block travel toward the cabin at rest after a hit (m). */
 function blockTravel(car: DeformableCar): number {
@@ -83,12 +83,6 @@ describe("crumple absorbs while it has stroke, then passes the load on [shape]",
   });
 });
 
-const ORIGIN = new THREE.Vector3();
-const _n = new THREE.Vector3();
-const _p = new THREE.Vector3();
-const _cn = new THREE.Vector3();
-const _cp = new THREE.Vector3();
-
 /** Jersey slab along Z, thin in X. Car drives -X into the +X face. */
 function spawnAtBarrier(z: number, speed: number, mode: DeformMode): DeformableCar {
   const scene = new THREE.Scene();
@@ -104,59 +98,14 @@ function spawnAtBarrier(z: number, speed: number, mode: DeformMode): DeformableC
   return car;
 }
 
-function stepBarrier(car: DeformableCar, dt: number, yaw = 0): void {
-  if (!car.deform.massActive) car.integrate(dt);
-  else car.syncPose(dt);
-  car.refreshBasis();
-  clipCarToBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, leftoverCrumple(car.deform.crumpleTravelCorner()));
-  const crushHit = satCarBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, _cn, _cp, car.crushHulls());
-  const overlap = satCarBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, _n, _p, car.hulls());
-  // Like engine.ts: the structure steps every slice once live, contact or not; skipping it
-  // between contacts froze the masses (and the car) after the first contact slice.
-  if (crushHit || overlap) contact(car, dt, crushHit, overlap, yaw);
-  if (car.deform.massActive) {
-    car.deform.stepStructure(dt);
-    car.syncPose(dt);
-    car.updateDeform(dt);
-  }
-}
-
-function contact(car: DeformableCar, dt: number, crushHit: number | null, overlap: number | null, yaw: number): void {
-  car.deform.notifyContact();
-  const n = crushHit ? _cn : _n;
-  const p = crushHit ? _cp : _p;
-  const closing = -car.velocity.dot(n);
-  if (closing > 0.2 && (crushHit ?? overlap ?? 0) > 0.004 && !car.crashed) {
-    car.applyImpact(p.clone(), n.clone(), closing, closing);
-  }
-  if (crushHit && crushHit > 0 && car.deform.massActive) {
-    car.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
-  }
-  car.deform.projectOutOfBox(ORIGIN.x, ORIGIN.z, BARRIER_HALF.x, BARRIER_HALF.z, yaw);
-  if (overlap) {
-    const leftover = leftoverCrumple(car.deform.crumpleTravelCorner());
-    const incoming = Math.max(0, -car.velocity.dot(_n)) * dt;
-    const maxPen = car.deform.massActive ? leftover * 0.4 : 0.015;
-    const extra = Math.max(0, overlap - maxPen);
-    const push = car.deform.massActive
-      ? Math.min(extra + 0.004, 0.12)
-      : Math.min(Math.max(overlap, incoming) + 0.012, 0.22);
-    car.group.position.addScaledVector(_n, push);
-    car.group.updateMatrixWorld();
-    car.refreshBasis();
-    if (!car.deform.massActive) car.deform.bindKinematic(car.group, car.velocity, car.angular);
-    if (closing > 0.3 && leftover > 0.05) {
-      car.velocity.addScaledVector(_n, closing * leftover * 0.35);
-    }
-  }
-  clipCarToBarrier(car, yaw, ORIGIN, BARRIER_HALF.x, leftoverCrumple(car.deform.crumpleTravelCorner()));
-}
-
+/** `simSec` of the engine's step against the held slab, in steps of at most `frameDt` (tiny wall frames are slomo). */
 function runFor(car: DeformableCar, simSec: number, frameDt: number): void {
+  const w = makeWorld([car], true, false).world;
   let t = 0;
   while (t < simSec) {
     const h = physicsSlice(Math.min(frameDt, simSec - t), car.speed);
-    stepBarrier(car, h);
+    stepWorld(w, h);
+    car.updateDeform(h);
     t += h;
   }
 }

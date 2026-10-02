@@ -2,11 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { physicsSlice } from "./sat.ts";
-import { stepCarPair } from "./pair-contact.ts";
-import { applyGroundFriction, leftoverCrumple, CRASH } from "./physics-util.ts";
-
-const IMPACT_SCALE = 0.032;
+import { makeWorld, tickWorld } from "./crash-scenarios.test-util.ts";
+import { leftoverCrumple } from "./physics-util.ts";
 
 /** Exact spawn from the 2026-09-22 setup JSON. */
 const SETUP = {
@@ -41,13 +38,6 @@ function place(car: DeformableCar, spec: (typeof SETUP.cars)[number]): void {
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
 }
 
-function bleed(car: DeformableCar, dt: number): void {
-  if (!car.crashed) return;
-  const q = car.deform.quietTime();
-  const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
-  applyGroundFriction(car.velocity, dt, mu, true);
-}
-
 describe("captured two-car spawn must not zip at slomo handoff", () => {
   it("bad: 10 s wall with built-in slomo must stay well under crash speed", () => {
     const scene = new THREE.Scene();
@@ -56,12 +46,8 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
     place(a, SETUP.cars[0]!);
     place(b, SETUP.cars[1]!);
 
+    const w = makeWorld([a, b], false, true);
     let wall = 0;
-    let timeScale = 1;
-    let targetScale = 1;
-    let phase: "approach" | "impact" | "slowmo" | "aftermath" = "approach";
-    let wallSinceImpact = 0;
-    let acc = 0;
     let peakKph = 0;
     let kphAt10 = 0;
     const closing0 = a.velocity.clone().sub(b.velocity).length() * 3.6;
@@ -69,30 +55,7 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
     const wallDt = 1 / 60;
     while (wall < 10.02) {
       wall += wallDt;
-      if (phase !== "approach") wallSinceImpact += wallDt;
-      if (phase === "impact" && wallSinceImpact > 0.12) phase = "slowmo";
-      else if (phase === "slowmo" && wallSinceImpact > 6.5) {
-        targetScale = 1;
-        phase = "aftermath";
-      }
-      timeScale += (targetScale - timeScale) * Math.min(1, wallDt * (phase === "aftermath" ? 1.15 : 3.2));
-
-      acc += wallDt * timeScale;
-      if (acc > 0.05) acc = 0.05;
-      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
-      while (acc > 1e-5) {
-        const h = physicsSlice(acc, vmax);
-        stepCarPair(a, b, h);
-        bleed(a, h);
-        bleed(b, h);
-        acc -= h;
-        if (phase === "approach" && (a.crashed || b.crashed)) {
-          phase = "impact";
-          wallSinceImpact = 0;
-          targetScale = IMPACT_SCALE;
-          if (timeScale > IMPACT_SCALE * 1.15) timeScale = IMPACT_SCALE;
-        }
-      }
+      tickWorld(w, wallDt);
 
       const kph = Math.max(a.velocity.length(), b.velocity.length()) * 3.6;
       if (kph > peakKph) peakKph = kph;
@@ -129,8 +92,8 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       vel: { x: 14.1463, y: 0, z: 23.8791 },
     });
 
+    const w = makeWorld([a, b], false, false);
     let wall = 0;
-    let acc = 0;
     let crashedAt = -1;
     let speedAt89 = 0;
     let latAt89 = 0;
@@ -141,16 +104,7 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
 
     while (wall < 10.02) {
       wall += wallDt;
-      acc += wallDt;
-      if (acc > 0.05) acc = 0.05;
-      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
-      while (acc > 1e-5) {
-        const h = physicsSlice(acc, vmax);
-        stepCarPair(a, b, h);
-        bleed(a, h);
-        bleed(b, h);
-        acc -= h;
-      }
+      tickWorld(w, wallDt);
       if (crashedAt < 0 && (a.crashed || b.crashed)) crashedAt = wall;
       const sa = a.velocity.length();
       const sb = b.velocity.length();
@@ -208,8 +162,8 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
     fwdB0.x /= lenB0;
     fwdB0.z /= lenB0;
 
+    const w = makeWorld([a, b], false, false);
     let wall = 0;
-    let acc = 0;
     let crashedAt = -1;
     let posA2: { x: number; z: number } | null = null;
     let posB2: { x: number; z: number } | null = null;
@@ -218,16 +172,7 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
 
     while (wall < 11.05) {
       wall += wallDt;
-      acc += wallDt;
-      if (acc > 0.05) acc = 0.05;
-      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
-      while (acc > 1e-5) {
-        const h = physicsSlice(acc, vmax);
-        stepCarPair(a, b, h);
-        bleed(a, h);
-        bleed(b, h);
-        acc -= h;
-      }
+      tickWorld(w, wallDt);
       if (crashedAt < 0 && (a.crashed || b.crashed)) crashedAt = wall;
       if (posA2 == null && wall >= 2) {
         posA2 = { x: a.group.position.x, z: a.group.position.z };
@@ -273,8 +218,8 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       vel: { x: 10.2781, y: 0, z: 11.8192 },
     });
 
+    const w = makeWorld([a, b], false, false);
     let wall = 0;
-    let acc = 0;
     const wallDt = 1 / 60;
     const pos = a.body.geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = pos.array as Float32Array;
@@ -286,18 +231,7 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
 
     while (wall < 16.05) {
       wall += wallDt;
-      acc += wallDt;
-      if (acc > 0.05) acc = 0.05;
-      const vmax = Math.max(a.velocity.length(), b.velocity.length(), 4);
-      while (acc > 1e-5) {
-        const h = physicsSlice(acc, vmax);
-        stepCarPair(a, b, h);
-        bleed(a, h);
-        bleed(b, h);
-        acc -= h;
-      }
-      a.updateDeform(wallDt);
-      b.updateDeform(wallDt);
+      tickWorld(w, wallDt);
       if (wall >= 12 && wall <= 16) {
         frames++;
         if (a.deform.skinnedThisFrame) skins++;

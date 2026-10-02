@@ -3,14 +3,13 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DerbyBrain, blankAiCar, DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { DerbyMatch, heatLimit, snapshotAiCar, type DerbyDecided } from "./derby.ts";
-import { clipToDerbyBowl, DERBY_RADIUS, derbyRadius } from "./derby-arena.ts";
+import { clipDerbyCar, clipToDerbyBowl, DERBY_RADIUS, derbyRadius } from "./derby-arena.ts";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { fleetStyle, layoutDerby, type DerbySlot } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
 import { physicsSlice } from "./sat.ts";
-import { resolveCarPair } from "./pair-contact.ts";
-import { partContactPair } from "./external-contact.ts";
+import { newWorld, stepWorld } from "./world-step.ts";
 import { armKill, assignClass, carClass, HANDLING } from "./vehicle-classes.ts";
 import { INITIAL_HUD } from "./hud-store.ts";
 
@@ -221,7 +220,7 @@ function centroid(c: DeformableCar): { x: number; z: number } {
 }
 
 /**
- * A derby of `n` AI cars through the engine's stack (the `fixedStep` derby path, one slice per step,
+ * A derby of `n` AI cars through the engine's stack (`stepWorld` with the derby's hit credit and bowl,
  * cars dressed as `dressCar` does at the game's defaults), at the default slider, to the end of the heat.
  * Spins: |yaw rate| > 5 rad/s for > 0.2 s in the first 2 min, split by a car contact in the 0.3 s before the spin began.
  * Zips: a live mass centroid moving more than 3·v·h + 5 cm in a step. Impacts: AI hits closing ≥ 3 m/s,
@@ -239,6 +238,8 @@ function runField(n: number, seed: number): Field {
     cars.map((_, i) => ({ id: i, name: `c${i}` })),
     { seed },
   );
+  const w = newWorld(cars);
+  w.afterCar = (c) => clipDerbyCar(c, radius);
   cars.forEach((c, i) => {
     c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, slots[i]!.speed);
     c.deform.squash = INITIAL_HUD.squash;
@@ -295,61 +296,21 @@ function runField(n: number, seed: number): Field {
         tactic[i] = now;
       }
     });
-    for (const c of cars) {
-      if (c.deform.massActive) c.syncPose(h);
-      else c.integrate(h);
-    }
-    for (let a = 0; a < n; a++) {
-      for (let b = a + 1; b < n; b++) {
-        const ca = cars[a]!;
-        const cb = cars[b]!;
-        if (ca.group.position.distanceToSquared(cb.group.position) > 28) continue;
-        if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        partContactPair(ca, cb);
-      }
-    }
-    for (let k = 0; k < 3; k++) {
-      for (const c of cars) {
-        if (c.deform.massActive) c.syncPose(0);
-        else c.refreshBasis();
-      }
-      let moved = false;
-      for (let a = 0; a < n; a++) {
-        for (let b = a + 1; b < n; b++) {
-          const ca = cars[a]!;
-          const cb = cars[b]!;
-          const pair = resolveCarPair(ca, cb, k === 0, h);
-          if (!pair) continue;
-          moved = true;
-          touched[a] = t;
-          touched[b] = t;
-          shove[a] = Math.max(shove[a]!, speed0[b]!);
-          shove[b] = Math.max(shove[b]!, speed0[a]!);
-          const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
-          const bInto = cb.velocity.x * pair.normal.x + cb.velocity.z * pair.normal.z;
-          if (!match.noteHit(a, b, aInto, bInto, pair.impulse)) continue;
-          const attacker = aInto >= bInto ? ca : cb;
-          if (attacker.deform.drivetrainAlive && aInto + bInto >= 3) out.impacts[face(attacker, pair.contact)]++;
-        }
-      }
-      if (!moved) break;
-    }
-    for (const c of cars) {
-      if (c.deform.massActive) {
-        c.deform.stepStructure(h);
-        c.syncPose(h);
-        if (!c.deform.drivetrainAlive) c.deform.cutDrive(h);
-      }
-      c.afterContacts(h);
-      const p = c.group.position;
-      const v = c.velocity;
-      const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15, radius);
-      if (next.hit) {
-        if (c.deform.massActive) c.deform.translateMasses(next.x - p.x, next.z - p.z, next.vx - v.x, next.vz - v.z);
-        p.set(next.x, p.y, next.z);
-        v.set(next.vx, v.y, next.vz);
-      }
-    }
+    w.pairHit = (a, b, pair) => {
+      const ca = cars[a]!;
+      const cb = cars[b]!;
+      touched[a] = t;
+      touched[b] = t;
+      shove[a] = Math.max(shove[a]!, speed0[b]!);
+      shove[b] = Math.max(shove[b]!, speed0[a]!);
+      const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
+      const bInto = cb.velocity.x * pair.normal.x + cb.velocity.z * pair.normal.z;
+      if (!match.noteHit(a, b, aInto, bInto, pair.impulse)) return;
+      const attacker = aInto >= bInto ? ca : cb;
+      if (attacker.deform.drivetrainAlive && aInto + bInto >= 3) out.impacts[face(attacker, pair.contact)]++;
+    };
+    stepWorld(w, h);
+    for (const c of cars) if (c.deform.massActive && !c.deform.drivetrainAlive) c.deform.cutDrive(h);
     state = match.step(
       h,
       cars.map((c, i) => ({ id: i, name: `c${i}`, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })),

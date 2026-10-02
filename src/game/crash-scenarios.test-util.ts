@@ -1,22 +1,21 @@
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { JerseyBarrier } from "./engine-props.ts";
-import { partContactPair } from "./external-contact.ts";
-import { resolveCarPair, tyreOverlap } from "./pair-contact.ts";
-import { bleedAfterSlide, leftoverCrumple } from "./physics-util.ts";
+import { JerseyBarrier, type ContactHit } from "./engine-props.ts";
+import { tyreOverlap } from "./pair-contact.ts";
+import { beginImpact, easeTimeScale, phaseClock, stepPhase, type PhaseClock } from "./phase.ts";
+import { bleedAfterSlide } from "./physics-util.ts";
 import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { mass, paint } from "./test-support.ts";
+import { newWorld, stepWorld, type World } from "./world-step.ts";
 
 /**
- * Headless crash scenarios in the `CrashEngine.tickInner` / `fixedStep` order
- * (docs/RIG_ANALYSIS.md §3.1). The jersey slab is the real `JerseyBarrier`,
- * held fixed (no slide, no dent). Not a test file itself.
+ * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
+ * `CrashEngine.tickInner`'s slices (docs/RIG_ANALYSIS.md §3.1). The jersey slab is the real
+ * `JerseyBarrier`, held fixed (no slide, no dent). Not a test file itself.
  */
 
-const IMPACT_SCALE = 0.032;
-const SLOMO_HOLD = 6.5;
 const FRAME = 1 / 60;
 const CELL_SPAN = CAGES.find((c) => c.name === "chassisCell")!;
 
@@ -74,17 +73,13 @@ export type CrashResult = {
 
 export type CrashWorld = {
   cars: DeformableCar[];
-  barrier: JerseyBarrier | null;
   acc: number;
-  timeScale: number;
-  targetScale: number;
-  impact: boolean;
-  wallSinceImpact: number;
+  clock: PhaseClock;
   slomo: boolean;
   /** Group position at the start of the last slice before each car's first contact. */
   preContact: Map<DeformableCar, THREE.Vector3>;
-  /** Called after each car's afterContacts in every slice (the probes' zip check). */
-  afterSlice?: (car: DeformableCar, h: number) => void;
+  /** The engine's step; the probes hook `afterCar` (their zip check). */
+  world: World;
 };
 
 export type ScenarioOpts = {
@@ -146,124 +141,37 @@ function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, 
   car.refreshBasis();
 }
 
-function holdSlab(b: JerseyBarrier): void {
-  b.vel.set(0, 0, 0);
-  b.crush = 0;
-}
-
-/** `CrashEngine.fixedStep` minus poles, balls, derby and compactor. Returns the strongest contact impulse. */
-function fixedStep(w: CrashWorld, dt: number): number {
-  const { cars, barrier } = w;
-  let nearWall = false;
-  if (barrier) for (const car of cars) if (car.group.position.lengthSq() < 160) nearWall = true;
-  const slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
-  const h = dt / slices;
-  let strongest = 0;
-  for (let i = 0; i < slices; i++) {
-    for (const car of cars) {
-      if (!car.crashed) {
-        const pre = w.preContact.get(car) ?? new THREE.Vector3();
-        w.preContact.set(car, pre.copy(car.group.position));
-      }
-      if (!car.deform.massActive) car.integrate(h);
-      if (car.deform.massActive) car.syncPose(h);
-      else car.refreshBasis();
-    }
-    for (let a = 0; a < cars.length; a++) {
-      for (let b = a + 1; b < cars.length; b++) {
-        const ca = cars[a]!;
-        const cb = cars[b]!;
-        if (barrier && barrier.blocksPair(ca, cb)) continue;
-        const dx = ca.group.position.x - cb.group.position.x;
-        const dz = ca.group.position.z - cb.group.position.z;
-        if (dx * dx + dz * dz > 28) continue;
-        if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        partContactPair(ca, cb);
-      }
-    }
-    let satBusy = false;
-    let wrecked = true;
-    for (const car of cars) {
-      if (car.velocity.lengthSq() > 1.4) satBusy = true;
-      if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
-    }
-    for (let k = 0; k < (satBusy && !wrecked ? 3 : 1); k++) {
-      for (const car of cars) {
-        if (car.deform.massActive) car.syncPose(0);
-        else car.refreshBasis();
-      }
-      const feed = k === 0;
-      let moved = false;
-      if (barrier) {
-        for (const car of cars) {
-          const hit = barrier.resolve(car, true, feed, h);
-          holdSlab(barrier);
-          if (hit) {
-            moved = true;
-            strongest = Math.max(strongest, hit.impulse);
-          }
-        }
-      }
-      for (let a = 0; a < cars.length; a++) {
-        for (let b = a + 1; b < cars.length; b++) {
-          if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-          const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
-          if (pair) {
-            moved = true;
-            strongest = Math.max(strongest, pair.impulse);
-          }
-        }
-      }
-      if (barrier) {
-        for (const car of cars) {
-          if (barrier.resolve(car, false, false, h)) moved = true;
-          holdSlab(barrier);
-        }
-      }
-      if (!moved) break;
-    }
-    for (const car of cars) {
-      if (car.deform.massActive) car.deform.stepStructure(h);
-      if (car.deform.massActive) car.syncPose(h);
-      if (barrier) barrier.clip(car);
-      car.afterContacts(h);
-      w.afterSlice?.(car, h);
-    }
+/** The real slab held fixed: every resolve hands back the slide and dent it took. */
+class HeldBarrier extends JerseyBarrier {
+  override resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
+    const hit = super.resolve(car, deform, feed, dt);
+    this.vel.set(0, 0, 0);
+    this.crush = 0;
+    return hit;
   }
-  return strongest;
 }
 
-/** One rendered frame of `CrashEngine.tickInner` (physics part) plus `updatePhase` timing. */
+/** One rendered frame of `CrashEngine.tickInner`: the physics part and the phase clock (sandbox impact rule). */
 export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
-  w.timeScale += (w.targetScale - w.timeScale) * Math.min(1, wallDt * (w.impact && w.wallSinceImpact > SLOMO_HOLD ? 1.15 : 3.2));
-  const simDt = wallDt * w.timeScale;
+  easeTimeScale(w.clock, wallDt);
+  const simDt = wallDt * w.clock.timeScale;
   const vmax = sliceSpeed(w.cars);
   w.acc = Math.min(0.05, w.acc + simDt);
   let steps = 0;
-  let strongest = 0;
   while (w.acc > 1e-5 && steps < 8) {
     const h = physicsSlice(w.acc, vmax);
-    strongest = Math.max(strongest, fixedStep(w, h));
+    stepWorld(w.world, h);
+    const hit = w.world.strongest;
+    if (w.clock.phase === "approach" && hit.contact && hit.impulse > 0.4) beginImpact(w.clock, w.slomo);
     w.acc -= h;
     for (const car of w.cars) {
       if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
-      if (w.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
+      if (w.clock.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
     }
     steps++;
   }
   for (const car of w.cars) car.updateDeform(simDt);
-  if (!w.impact && strongest > 0.4) {
-    w.impact = true;
-    w.wallSinceImpact = 0;
-    if (w.slomo) {
-      w.targetScale = IMPACT_SCALE;
-      if (w.timeScale > IMPACT_SCALE * 1.15) w.timeScale = IMPACT_SCALE;
-    }
-  }
-  if (w.impact) {
-    w.wallSinceImpact += wallDt;
-    if (w.wallSinceImpact > SLOMO_HOLD) w.targetScale = 1;
-  }
+  stepPhase(w.clock, wallDt);
 }
 
 const _fwd = new THREE.Vector3();
@@ -368,7 +276,7 @@ class Probe {
 
   /** Called once per rendered frame; contact start uses the previous frame so the first-frame Δv counts. */
   sample(simDt: number, w: CrashWorld): void {
-    const barrier = w.barrier;
+    const barrier = w.world.barrier;
     const car = this.car;
     if (!this.contact && !car.crashed) {
       this.v0 = car.velocity.dot(this.dir);
@@ -469,13 +377,13 @@ class Probe {
 function run(w: CrashWorld, probes: Probe[], after: number): void {
   const limit = 60 * 120;
   let sinceContact = 0;
-  w.afterSlice = (car, h) => {
+  w.world.afterCar = (car, h) => {
     for (const p of probes) if (p.car === car) p.slice(h);
   };
   for (let frame = 0; frame < limit; frame++) {
-    const before = w.timeScale;
+    const before = w.clock.timeScale;
     tickWorld(w);
-    const simDt = FRAME * (before + w.timeScale) * 0.5;
+    const simDt = FRAME * (before + w.clock.timeScale) * 0.5;
     for (const p of probes) p.sample(simDt, w);
     if (probes.some((p) => p.contact)) sinceContact += simDt;
     if (sinceContact >= after) return;
@@ -483,18 +391,13 @@ function run(w: CrashWorld, probes: Probe[], after: number): void {
 }
 
 export function makeWorld(cars: DeformableCar[], barrier: boolean, slomo: boolean): CrashWorld {
-  const scene = new THREE.Scene();
-  return {
-    cars,
-    barrier: barrier ? new JerseyBarrier(scene, new THREE.Group()) : null,
-    acc: 0,
-    timeScale: 1,
-    targetScale: 1,
-    impact: false,
-    wallSinceImpact: 0,
-    slomo,
-    preContact: new Map(),
+  const preContact = new Map<DeformableCar, THREE.Vector3>();
+  const world = newWorld(cars, barrier ? new HeldBarrier(new THREE.Scene(), new THREE.Group()) : null);
+  world.beforeSlice = () => {
+    for (const car of cars) if (!car.crashed) preContact.set(car, (preContact.get(car) ?? new THREE.Vector3()).copy(car.group.position));
+    return false;
   };
+  return { cars, acc: 0, clock: phaseClock(), slomo, preContact, world };
 }
 
 export type WallApproach = "front" | "rear" | "side";

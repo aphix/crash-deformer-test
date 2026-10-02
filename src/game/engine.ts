@@ -1,16 +1,16 @@
 import * as THREE from "three";
 import { beginFakeFall, CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch, getCrackMap, makeGlassMaterial } from "./car-mesh.ts";
-import { bleedAfterSlide, leftoverCrumple, separateSphereFromAabb } from "./physics-util.ts";
+import { bleedAfterSlide, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
 import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo } from "./engine-pistons.ts";
 import { DOOR_LANES, DoorRig, RAM, RAM_DEFAULTS, type DoorScenario, type RamShot } from "./door-rig.ts";
 import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
-import { resolveCarPair, warmCrashPath } from "./pair-contact.ts";
-import { partContactPair } from "./external-contact.ts";
-import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-store.ts";
+import { INITIAL_HUD, KNOB_RANGES, publishHud } from "./hud-store.ts";
+import { beginImpact, easeTimeScale, impactScale, phaseClock, stepPhase } from "./phase.ts";
+import { newWorld, stepWorld, warmCrashPath } from "./world-step.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, VAPOR_DEPTH, edgeAction, fleetClass, fleetStyle, layoutFleet, layoutDerby, respawnSlot } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
@@ -24,7 +24,7 @@ import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "./ground.ts";
 import {
   CompactorPress,
   JerseyBarrier,
-  StrongestContact,
+  type ContactHit,
   buildRampBalls,
   resetLampPoles,
   resolveLampPoles,
@@ -39,14 +39,12 @@ import { LampLights } from "./lamp-lights.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { gameKey } from "./drive-input.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
-import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, WinnerSpot } from "./derby-arena.ts";
+import { makeDerbyArena, clipDerbyCar, DERBY_RADIUS, derbyRadius, WinnerSpot } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
 import type { DerbyNetState } from "./net/codec.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { TrackArt } from "./race/track-art.ts";
 import type { RaceCommand } from "./race/types.ts";
-
-export type { CrashHudState, CrashPhase } from "./hud-store";
 
 const PAINT_A: CarPaint = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const PAINT_B: CarPaint = { body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" };
@@ -68,7 +66,6 @@ const FLEET_PAINT: CarPaint[] = [
 const FIXED = 1 / 60;
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
-const IMPACT_SCALE = 0.032;
 const PRE_IMPACT_LEAD = 0.07;
 /** Piston loop: the next ram is parked this long (s) before its shot, and no sooner after the last one. */
 const PISTON_PARK_LEAD = 1;
@@ -126,16 +123,11 @@ export class CrashEngine {
   private disposed = false;
   private acc = 0;
   private last = 0;
-  private phase: CrashPhase = "approach";
-  private timeScale = 1;
-  private targetScale = 1;
-  private userTimeScale: number | null = null;
+  private readonly clock = phaseClock();
   private fps = 0;
-  private wallSinceImpact = 0;
   private impactKph: number | null = null;
   private elapsedWall = 0;
   private elapsedSim = 0;
-  private reduceMotion = false;
   private impactLight: THREE.PointLight;
   private stage!: WorldStage;
   private cine: Cinematics;
@@ -214,7 +206,7 @@ export class CrashEngine {
   private winnerSpot!: WinnerSpot;
   private view: ChaseCamera;
   private trace: TraceRecorder;
-  private readonly strongest = new StrongestContact();
+  private readonly world = newWorld([]);
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
   readonly net = new NetPlay({
     cars: () => this.live(),
@@ -223,12 +215,12 @@ export class CrashEngine {
     setCarCount: (n) => (this.race.active || this.derbyMode || this.net.client ? this.ensureCars(n) : this.setCarCount(n)),
     matchCar: (i, style, cls) => this.matchCar(i, style, cls),
     setRealism: (v) => this.setRealism(v),
-    phase: () => this.phase,
-    timeScale: () => this.timeScale,
+    phase: () => this.clock.phase,
+    timeScale: () => this.clock.timeScale,
     mirrorClock: (phase, timeScale) => {
-      this.phase = phase;
-      this.timeScale = timeScale;
-      this.targetScale = timeScale;
+      this.clock.phase = phase;
+      this.clock.timeScale = timeScale;
+      this.clock.targetScale = timeScale;
     },
     race: () => (this.race.active ? this.race : null),
     enterRace: () => {
@@ -268,7 +260,7 @@ export class CrashEngine {
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
-    this.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.clock.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -285,7 +277,7 @@ export class CrashEngine {
     this.renderer.shadowMap.type = THREE.PCFShadowMap;
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 180);
-    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.reduceMotion, (x, y) =>
+    this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.clock.reduceMotion, (x, y) =>
       this.pickCar(x, y),
     );
 
@@ -311,7 +303,7 @@ export class CrashEngine {
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
-    this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.reduceMotion);
+    this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|low|high` picks the starting tier (bench A/B); the HUD default otherwise.
     const fxParam = new URLSearchParams(window.location.search).get("fx");
     this.cine.setTier(FX_TIERS.find((t) => t === fxParam) ?? INITIAL_HUD.fxTier);
@@ -554,9 +546,9 @@ export class CrashEngine {
   toggleSlomo(): void {
     this.autoSlomo = !this.autoSlomo;
     if (!this.autoSlomo) {
-      if (this.userTimeScale == null) {
-        this.timeScale = 1;
-        this.targetScale = 1;
+      if (this.clock.userTimeScale == null) {
+        this.clock.timeScale = 1;
+        this.clock.targetScale = 1;
       }
     }
     this.emitHud(true);
@@ -668,9 +660,9 @@ export class CrashEngine {
     this.pistonSinceFire = 0;
     this.pistons.fire(index < PISTON_IDS.length ? PISTON_IDS[index]! : "all");
     // The run-up lasts a few hundredths of a second: slow down now so it reads.
-    if (this.autoSlomo && this.userTimeScale == null && this.phase === "approach") {
-      this.targetScale = 0.15;
-      this.timeScale = Math.min(this.timeScale, 0.15);
+    if (this.autoSlomo && this.clock.userTimeScale == null && this.clock.phase === "approach") {
+      this.clock.targetScale = 0.15;
+      this.clock.timeScale = Math.min(this.clock.timeScale, 0.15);
     }
     this.tryUnlockAudio();
     this.emitHud(true);
@@ -705,7 +697,7 @@ export class CrashEngine {
     this.doorFx = false;
     this.doorRig.fire(scenario, side);
     // A fast ram crosses the car in a few tenths of a second: slow it down so it reads.
-    if (this.autoSlomo && this.userTimeScale == null) this.targetScale = this.doorRig.kph > 15 ? 0.3 : 1;
+    if (this.autoSlomo && this.clock.userTimeScale == null) this.clock.targetScale = this.doorRig.kph > 15 ? 0.3 : 1;
     this.tryUnlockAudio();
     this.emitHud(true);
   }
@@ -748,9 +740,9 @@ export class CrashEngine {
       this.showPistons = false;
       this.showDoors = false;
       this.barrier.group.visible = false;
-      if (this.userTimeScale == null) {
-        this.timeScale = 1;
-        this.targetScale = 1;
+      if (this.clock.userTimeScale == null) {
+        this.clock.timeScale = 1;
+        this.clock.targetScale = 1;
       }
     } else {
       this.derby.end();
@@ -794,9 +786,9 @@ export class CrashEngine {
       this.press.group.visible = false;
       this.pistonBank.group.visible = false;
       this.doorRam.group.visible = false;
-      if (this.userTimeScale == null) {
-        this.timeScale = 1;
-        this.targetScale = 1;
+      if (this.clock.userTimeScale == null) {
+        this.clock.timeScale = 1;
+        this.clock.targetScale = 1;
       }
       this.sandboxCars = this.carCount;
     }
@@ -872,14 +864,14 @@ export class CrashEngine {
 
   setTimeScale(value: number | null): void {
     if (value == null || !Number.isFinite(value)) {
-      this.userTimeScale = null;
-      this.targetScale = 1;
-      this.timeScale = 1;
+      this.clock.userTimeScale = null;
+      this.clock.targetScale = 1;
+      this.clock.timeScale = 1;
     } else {
       const v = THREE.MathUtils.clamp(value, 0.02, 2);
-      this.userTimeScale = v;
-      this.targetScale = v;
-      this.timeScale = v;
+      this.clock.userTimeScale = v;
+      this.clock.targetScale = v;
+      this.clock.timeScale = v;
     }
     this.emitHud(true);
   }
@@ -914,9 +906,9 @@ export class CrashEngine {
     this.speedMin = INITIAL_HUD.speedMin;
     this.speedMax = INITIAL_HUD.speedMax;
     this.captureTrace = false;
-    this.userTimeScale = null;
-    this.timeScale = 1;
-    this.targetScale = 1;
+    this.clock.userTimeScale = null;
+    this.clock.timeScale = 1;
+    this.clock.targetScale = 1;
     this.view.userFramed = false;
     this.setDerby(false);
     this.setNight(INITIAL_HUD.night);
@@ -933,7 +925,7 @@ export class CrashEngine {
   copyTraceJson(): string {
     if (!this.trace.initial) this.trace.snapshotInitial(this.traceSetup(), this.live());
     if (!this.captureTrace) {
-      const json = this.trace.setupJson(this.deformMode, this.autoSlomo, this.userTimeScale);
+      const json = this.trace.setupJson(this.deformMode, this.autoSlomo, this.clock.userTimeScale);
       this.emitHud(true);
       return json;
     }
@@ -1446,15 +1438,15 @@ export class CrashEngine {
   }
 
   private finishResetCommon(): void {
-    this.phase = "approach";
-    if (this.userTimeScale != null) {
-      this.timeScale = this.userTimeScale;
-      this.targetScale = this.userTimeScale;
+    this.clock.phase = "approach";
+    if (this.clock.userTimeScale != null) {
+      this.clock.timeScale = this.clock.userTimeScale;
+      this.clock.targetScale = this.clock.userTimeScale;
     } else {
-      this.timeScale = 1;
-      this.targetScale = 1;
+      this.clock.timeScale = 1;
+      this.clock.targetScale = 1;
     }
-    this.wallSinceImpact = 0;
+    this.clock.wallSinceImpact = 0;
     this.elapsedWall = 0;
     this.elapsedSim = 0;
     this.impactKph = null;
@@ -1499,8 +1491,8 @@ export class CrashEngine {
     return {
       wall: this.elapsedWall,
       sim: this.elapsedSim,
-      phase: this.phase,
-      timeScale: this.timeScale,
+      phase: this.clock.phase,
+      timeScale: this.clock.timeScale,
       closing: this.fleetClosing(),
       barrierHit: this.barrierHits.some(Boolean),
     };
@@ -1557,8 +1549,8 @@ export class CrashEngine {
       this.elapsedWall += wallDt;
       // A netplay client mirrors the host's phase and slow-mo (`net.frame`) instead of running its own.
       if (!this.net.client) this.maybePreSlowmo(wallDt);
-      this.timeScale += (this.targetScale - this.timeScale) * Math.min(1, wallDt * (this.phase === "aftermath" ? 1.15 : 3.2));
-      const simDt = wallDt * this.timeScale * this.cine.timeWarp;
+      easeTimeScale(this.clock, wallDt);
+      const simDt = wallDt * this.clock.timeScale * this.cine.timeWarp;
       const cars = this.live();
       const vmax = sliceSpeed(cars);
       this.acc += simDt;
@@ -1572,7 +1564,7 @@ export class CrashEngine {
         this.acc -= h;
         for (const car of cars) {
           if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
-          if (this.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
+          if (this.clock.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
         }
         steps++;
         if (steps >= 2 && performance.now() > budget) break;
@@ -1586,7 +1578,7 @@ export class CrashEngine {
       }
       if (!this.net.client) this.updatePhase(wallDt);
       if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
-      if (this.phase !== "approach") this.emitContactFx();
+      if (this.clock.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
         this.impactLightLife -= wallDt;
         this.impactLight.intensity = Math.max(0, this.impactLightLife * 90);
@@ -1641,7 +1633,7 @@ export class CrashEngine {
     this.cine.render(this.scene, this.camera, wallDt);
 
     this.hudAcc += wallDt;
-    if (this.hudAcc > (this.timeScale < 0.5 ? 0.05 : 0.12)) {
+    if (this.hudAcc > (this.clock.timeScale < 0.5 ? 0.05 : 0.12)) {
       this.hudAcc = 0;
       this.emitHud(false);
     }
@@ -1735,17 +1727,17 @@ export class CrashEngine {
 
   private maybePreSlowmo(wallDt: number): void {
     if (this.derbyMode || this.race.active) return;
-    if (this.userTimeScale != null) return;
+    if (this.clock.userTimeScale != null) return;
     if (!this.autoSlomo) return;
     if (this.showCompactor || this.showPistons || this.showDoors) return;
-    if (this.phase !== "approach") return;
-    const scale = this.reduceMotion ? 0.16 : IMPACT_SCALE;
-    if (this.timeScale <= scale * 1.2) return;
+    if (this.clock.phase !== "approach") return;
+    const scale = impactScale(this.clock);
+    if (this.clock.timeScale <= scale * 1.2) return;
     const eta = this.contactEta();
     if (!Number.isFinite(eta)) return;
     if (eta > Math.max(PRE_IMPACT_LEAD, wallDt + FIXED)) return;
-    this.timeScale = scale;
-    this.targetScale = scale;
+    this.clock.timeScale = scale;
+    this.clock.targetScale = scale;
   }
 
   private contactEta(): number {
@@ -1818,141 +1810,22 @@ export class CrashEngine {
         applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps, dt), dt);
       }
     }
-    let nearWall = false;
-    if (this.showBarrier) {
-      for (const car of cars) {
-        if (car.group.position.lengthSq() < 160) {
-          nearWall = true;
-          break;
-        }
-      }
-    }
-    const slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
-    const h = dt / slices;
-    const strongest = this.strongest;
-    strongest.clear();
-
-    for (let i = 0; i < slices; i++) {
-      if (this.showCompactor) {
-        this.stepCompactor(h);
-        this.carA.afterContacts(h, this.bounceWorld);
-        continue;
-      }
-      if (this.showPistons) {
-        this.stepPistons(h);
-        this.carA.afterContacts(h, this.bounceWorld);
-        continue;
-      }
-      if (this.showDoors) {
-        this.stepDoors(h);
-        continue;
-      }
-      for (const car of cars) {
-        if (!car.deform.massActive) car.integrate(h);
-        if (car.deform.massActive) car.syncPose(h);
-        else car.refreshBasis();
-      }
-
-      for (let a = 0; a < cars.length; a++) {
-        for (let b = a + 1; b < cars.length; b++) {
-          const ca = cars[a]!;
-          const cb = cars[b]!;
-          if (this.showBarrier && this.barrier.blocksPair(ca, cb)) continue;
-          const dx = ca.group.position.x - cb.group.position.x;
-          const dz = ca.group.position.z - cb.group.position.z;
-          // Cars on different levels (one on a bridge, one under it) never touch; nor does a fake falling off the fleet disc.
-          if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5 || ca.falling || cb.falling) continue;
-          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-          partContactPair(ca, cb);
-        }
-      }
-
-      let satBusy = false;
-      let wrecked = true;
-      for (const car of cars) {
-        if (car.velocity.lengthSq() > 1.4) satBusy = true;
-        if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
-      }
-      for (let k = 0; k < (satBusy && !wrecked ? 3 : 1); k++) {
-        for (const car of cars) {
-          if (car.deform.massActive) car.syncPose(0);
-          else car.refreshBasis();
-        }
-
-        const feed = k === 0;
-        let moved = false;
-        if (this.showBarrier) {
-          for (let ci = 0; ci < cars.length; ci++) {
-            const car = cars[ci]!;
-            const hit = this.barrier.resolve(car, true, feed, h);
-            if (hit) {
-              this.barrierHits[ci] = true;
-              moved = true;
-              strongest.offer(hit);
-            }
-          }
-        }
-
-        for (let a = 0; a < cars.length; a++) {
-          for (let b = a + 1; b < cars.length; b++) {
-            if (this.showBarrier && this.barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-            if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5 || cars[a]!.falling || cars[b]!.falling) continue;
-            const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
-            if (pair) {
-              moved = true;
-              if (this.derbyMode) {
-                const n = pair.normal;
-                const aInto = -(cars[a]!.velocity.x * n.x + cars[a]!.velocity.z * n.z);
-                const bInto = cars[b]!.velocity.x * n.x + cars[b]!.velocity.z * n.z;
-                this.derby.noteHit(a, b, aInto, bInto, pair.impulse);
-              }
-              strongest.offer(pair);
-            }
-          }
-        }
-
-        if (this.showBalls) {
-          for (const car of cars) {
-            const ballHit = resolveRampBalls(
-              this.balls,
-              car,
-              this.debris,
-              this.sparks,
-              this.fxDensity,
-              this.elapsedWall,
-              this.trace.ballHits,
-            );
-            if (ballHit) {
-              moved = true;
-              strongest.offer(ballHit);
-            }
-          }
-        }
-        for (const car of cars) {
-          if (!this.derbyMode && !this.race.active && resolveLampPoles(this.poles, car, this.debris, this.sparks, this.fxDensity)) moved = true;
-        }
-
-        if (this.showBarrier) {
-          for (const car of cars) {
-            if (this.barrier.resolve(car, false, false, h)) moved = true;
-          }
-        }
-        if (!moved) break;
-      }
-
-      for (const car of cars) {
-        if (car.deform.massActive) car.deform.stepStructure(h);
-        if (car.deform.massActive) car.syncPose(h);
-        if (this.showBarrier) this.barrier.clip(car);
-        car.afterContacts(h, this.bounceWorld);
-        if (this.derbyMode) this.clipDerbyCar(car);
-      }
-      if (this.race.active) for (let ci = 0; ci < cars.length; ci++) this.race.collide(cars[ci]!, ci);
-    }
+    const w = this.world;
+    w.cars = cars;
+    w.barrier = this.showBarrier ? this.barrier : null;
+    w.barrierHits = this.barrierHits;
+    w.bounce = this.bounceWorld;
+    w.beforeSlice = this.showCompactor || this.showPistons || this.showDoors ? this.rigSlice : null;
+    w.pairHit = this.derbyMode ? this.derbyHit : null;
+    w.ballHit = this.showBalls ? this.ballHit : null;
+    w.poleHit = this.derbyMode || this.race.active ? null : this.poleHit;
+    w.afterCar = this.derbyMode ? this.clipDerby : null;
+    w.collide = this.race.active ? this.raceCollide : null;
+    stepWorld(w, dt);
     if (this.race.active) this.race.step(dt);
 
-    const { impulse, contact, normal } = strongest;
-    if (!this.derbyMode && !this.race.active && this.phase === "approach" && contact && normal && impulse > 0.4) {
+    const { impulse, contact, normal } = w.strongest;
+    if (!this.derbyMode && !this.race.active && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
     } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16) {
       this.sparkAt = this.elapsedWall;
@@ -1960,17 +1833,36 @@ export class CrashEngine {
     }
   }
 
-  private clipDerbyCar(car: DeformableCar): void {
-    const p = car.group.position;
-    const v = car.velocity;
-    const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15, this.derbyR);
-    if (!next.hit) return;
-    const dx = next.x - p.x;
-    const dz = next.z - p.z;
-    if (car.deform.massActive) car.deform.translateMasses(dx, dz, next.vx - v.x, next.vz - v.z);
-    p.set(next.x, p.y, next.z);
-    v.set(next.vx, v.y, next.vz);
-  }
+  /** A rig scene's slice: the rig drives the car (the press and pistons also step its loose parts). */
+  private readonly rigSlice = (h: number): boolean => {
+    if (this.showCompactor) {
+      this.stepCompactor(h);
+      this.carA.afterContacts(h, this.bounceWorld);
+    } else if (this.showPistons) {
+      this.stepPistons(h);
+      this.carA.afterContacts(h, this.bounceWorld);
+    } else {
+      this.stepDoors(h);
+    }
+    return true;
+  };
+
+  /** Derby hit credit: how hard each car drove into the other along the contact normal. */
+  private readonly derbyHit = (a: number, b: number, hit: ContactHit): void => {
+    const ca = this.world.cars[a]!;
+    const cb = this.world.cars[b]!;
+    const n = hit.normal;
+    this.derby.noteHit(a, b, -(ca.velocity.x * n.x + ca.velocity.z * n.z), cb.velocity.x * n.x + cb.velocity.z * n.z, hit.impulse);
+  };
+
+  private readonly ballHit = (car: DeformableCar): ContactHit | null =>
+    resolveRampBalls(this.balls, car, this.debris, this.sparks, this.fxDensity, this.elapsedWall, this.trace.ballHits);
+
+  private readonly poleHit = (car: DeformableCar): boolean => resolveLampPoles(this.poles, car, this.debris, this.sparks, this.fxDensity) !== null;
+
+  private readonly clipDerby = (car: DeformableCar): void => clipDerbyCar(car, this.derbyR);
+
+  private readonly raceCollide = (car: DeformableCar, i: number): void => this.race.collide(car, i);
 
   private stepDerby(dt: number): void {
     if (!this.derbyMode) return;
@@ -1988,23 +1880,11 @@ export class CrashEngine {
   }
 
   private beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void {
-    this.phase = "impact";
-    this.wallSinceImpact = 0;
+    beginImpact(this.clock, this.autoSlomo);
     this.impactKph = impulse * 3.6;
-    if (this.userTimeScale != null) {
-      this.targetScale = this.userTimeScale;
-      this.timeScale = this.userTimeScale;
-    } else if (this.autoSlomo) {
-      const scale = this.reduceMotion ? 0.16 : IMPACT_SCALE;
-      this.targetScale = scale;
-      if (this.timeScale > scale * 1.15) this.timeScale = scale;
-    } else {
-      this.targetScale = 1;
-      this.timeScale = 1;
-    }
     this.view.kick(this.carCount);
     const rigScene = this.showPistons || this.showCompactor || this.showDoors;
-    this.cine.impact(contact, normal, impulse, !rigScene && this.autoSlomo && this.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed);
+    this.cine.impact(contact, normal, impulse, !rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed);
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
@@ -2023,7 +1903,7 @@ export class CrashEngine {
   }
 
   private emitContactFx(): void {
-    if (this.phase === "approach" || this.fxPoofed) return;
+    if (this.clock.phase === "approach" || this.fxPoofed) return;
     const cars = this.live();
     let contact: THREE.Vector3 | null = null;
     let normal: THREE.Vector3 | null = null;
@@ -2124,20 +2004,9 @@ export class CrashEngine {
 
   private updatePhase(wallDt: number): void {
     if (this.derbyMode || this.race.active) return;
-    if (this.phase === "approach") return;
-    this.wallSinceImpact += wallDt;
-    if (this.phase === "impact") {
-      if (this.wallSinceImpact > 0.12) this.phase = "slowmo";
-    } else if (this.phase === "slowmo") {
-      const hold = this.reduceMotion ? 1.4 : 6.5;
-      if (this.wallSinceImpact > hold) {
-        if (this.userTimeScale == null) this.targetScale = 1;
-        this.phase = "aftermath";
-      }
-    } else if (this.phase === "aftermath") {
-      if (this.wallSinceImpact > 8.2 && this.userTimeScale == null) this.targetScale = 1;
-      if (this.looping && !this.showPistons && this.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
-    }
+    const settled = this.clock.phase === "aftermath";
+    stepPhase(this.clock, wallDt);
+    if (settled && this.looping && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
   }
 
   private updateCamera(wallDt: number): void {
@@ -2173,7 +2042,7 @@ export class CrashEngine {
 
     let spinRate = 0;
     if (this.autoRotate && this.playing && this.seat.mode !== "drive") {
-      spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.phase === "approach" ? 0.12 : 0.32;
+      spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.clock.phase === "approach" ? 0.12 : 0.32;
     }
     this.view.orbit(wallDt, spinRate, this.playing);
   }
@@ -2264,21 +2133,21 @@ export class CrashEngine {
         _bp.z = -this.compactor.face;
         _bn.set(0, 0, 1);
         this.sparks.poof(_bp, _bn, Math.max(10, (18 * this.fxDensity) | 0));
-        if (this.phase === "approach") {
+        if (this.clock.phase === "approach") {
           this.beginCinematic(_bp, _bn, COMPACTOR.speed * 8);
-          if (this.autoSlomo) this.targetScale = this.reduceMotion ? 0.28 : 0.42;
+          if (this.autoSlomo) this.clock.targetScale = this.clock.reduceMotion ? 0.28 : 0.42;
         }
       }
     }
     const stage = compactorStage(this.compactor.face);
-    if (stage === "contact" || stage === "wells") this.phase = this.phase === "approach" ? "impact" : this.phase;
-    if (stage === "mid") this.phase = "slowmo";
-    if (stage === "max") this.phase = "aftermath";
+    if (stage === "contact" || stage === "wells") this.clock.phase = this.clock.phase === "approach" ? "impact" : this.clock.phase;
+    if (stage === "mid") this.clock.phase = "slowmo";
+    if (stage === "max") this.clock.phase = "aftermath";
   }
 
   /** The orbit paces the piston loop: turning, untouched by the user, and visibly moving. */
   private pistonHopSynced(): boolean {
-    return this.autoRotate && !this.view.userFramed && !this.reduceMotion && this.seat.mode !== "drive";
+    return this.autoRotate && !this.view.userFramed && !this.clock.reduceMotion && this.seat.mode !== "drive";
   }
 
   /**
@@ -2329,7 +2198,7 @@ export class CrashEngine {
     this.pistonBank.sync(rig, this.pistonSelected, this.pistonAll);
     if (rig.takeHit()) {
       _bn.copy(rig.hitNormal).negate();
-      if (this.phase === "approach") this.beginCinematic(rig.hitPoint, _bn, rig.hitClosing);
+      if (this.clock.phase === "approach") this.beginCinematic(rig.hitPoint, _bn, rig.hitClosing);
       else this.sparks.poof(rig.hitPoint, _bn, Math.max(10, (24 * this.fxDensity) | 0));
     }
     if (this.elapsedWall < this.pistonFxAt) return;
@@ -2360,7 +2229,7 @@ export class CrashEngine {
     if (was !== "idle" && rig.phase === "idle") {
       this.doorShot = rig.result();
       // The shot is over, and so is fireDoorRam's slow-mo.
-      if (this.userTimeScale == null) this.targetScale = 1;
+      if (this.clock.userTimeScale == null) this.clock.targetScale = 1;
       this.emitHud(true);
     }
   }
@@ -2370,7 +2239,7 @@ export class CrashEngine {
     const cars = this.live();
     const relVel = this.fleetClosing();
     const eta =
-      this.phase === "approach" && !this.showCompactor && !this.showPistons && !this.showDoors ? this.contactEta() : 0;
+      this.clock.phase === "approach" && !this.showCompactor && !this.showPistons && !this.showDoors ? this.contactEta() : 0;
     const carMass = this.carA.deform.totalMass;
     const pistonEnergy = this.pistons.shotEnergy(carMass);
     publishHud({
@@ -2416,9 +2285,9 @@ export class CrashEngine {
       night: this.stage.night,
       wet: this.stage.wet,
       deformMode: this.deformMode,
-      phase: this.phase,
-      timeScale: this.timeScale,
-      userTimeScale: this.userTimeScale,
+      phase: this.clock.phase,
+      timeScale: this.clock.timeScale,
+      userTimeScale: this.clock.userTimeScale,
       elapsed: this.elapsedWall,
       speedA: this.showCompactor ? 0 : (cars[0]?.velocity.length() ?? 0),
       speedB: this.showCompactor ? 0 : (cars[1]?.velocity.length() ?? 0),

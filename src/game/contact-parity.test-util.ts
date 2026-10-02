@@ -118,7 +118,7 @@ function runOut(cars: DeformableCar[], cap: number, settle = 1.5): number {
     tickWorld(w, FRAME);
     const moving = cars.some((c) => speedOf(c) > 0.3 && c.crashed);
     quiet = moving ? 0 : quiet + FRAME;
-    if (w.impact && quiet > settle) break;
+    if (w.clock.phase !== "approach" && quiet > settle) break;
   }
   return t;
 }

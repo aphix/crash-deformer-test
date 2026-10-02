@@ -35,24 +35,26 @@ tickInner(now)                               wallDt ≤ 0.1 s
  ├ pollInput()                               keys + pad → DriverSeat
  ├ simDt = wallDt × timeScale (slow-mo ramp, hit-stop); acc ≤ 0.05
  ├ while acc: h = physicsSlice(acc, sliceSpeed(cars))   ≤ 8 steps, 8 ms budget
- │   fixedStep(h)  → 1–3 slices:
+ │   fixedStep(h):
  │     applyDrive (player seat, derby AI via DerbyBrain.think, net.drive for remote peers on the host; in a race, race.drive drives every car)
- │     integrate / syncPose
- │     collideWith (mass spheres) + partContactPair (doors / mirrors), car pairs ≤ ~5.3 m
- │     contact loop ×1..3: barrier.resolve · resolveCarPair · resolveRampBalls · resolveLampPoles
- │     deform.stepStructure(h) → syncPose → barrier.clip → afterContacts → clipDerbyCar → race.collide (walls, props)
- │     (rig scenes: stepCompactor / stepPistons / stepDoors instead)
- │   race.step(h) (rules: gates, laps, respawns), cutDrive, bleedAfterSlide
+ │     stepWorld(world, h)  (world-step.ts; every headless harness calls it too) → 1–3 slices:
+ │       integrate / syncPose
+ │       collideWith (mass spheres) + partContactPair (doors / mirrors), car pairs ≤ ~5.3 m
+ │       contact loop ×1..3: barrier.resolve · resolveCarPair (derby hit credit) · ramp balls · lamp poles
+ │       deform.stepStructure(h) → syncPose → barrier.clip → afterContacts → clipDerbyCar → race.collide (walls, props)
+ │       (rig scenes: stepCompactor / stepPistons / stepDoors instead)
+ │     race.step(h) (rules: gates, laps, respawns); the strongest hit starts the impact (beginImpact)
+ │   cutDrive, bleedAfterSlide
  ├ stepEdge()                               fleet disc: `edgeAction` (fleet.ts): 2 m below the top a car becomes a fake (`beginFakeFall`: soft body off, ballistic drop + constant spin), 20 m below it vaporizes (`setVaporized`: smoke, hidden, out of the sim), the driven one respawns after 2 s (`respawnOnDisc`)
  ├ scheduleSkins(cars) → car.updateDeform(simDt)   LoD stride / frustum → skin
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
- ├ updatePhase · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step · race.frame
+ ├ updatePhase (stepPhase) · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step · race.frame
  ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit
  ├ flushVisibleSkins() · lampLights.update · stage.syncPools (night)
  ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain
  └ emitHud(false)  every 0.05–0.12 s
 ```
-`phase`: `approach → impact → slowmo → aftermath` (`CrashPhase` in `hud-store.ts`); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
+`phase`: `approach → impact → slowmo → aftermath` (`phase.ts`: `CrashPhase`, `PhaseClock`, `easeTimeScale`, `beginImpact`, `stepPhase`, shared with the headless harnesses); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
 
 ## Scenes (one at a time; toggles in `engine.ts`)
 | Scene | Key | Entry | Code |

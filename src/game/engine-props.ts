@@ -10,7 +10,7 @@ import type { DebrisSystem, SparkSystem } from "./engine-fx.ts";
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
 
-type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
+export type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
 
 export type LampPole = {
   group: THREE.Group;

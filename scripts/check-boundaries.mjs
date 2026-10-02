@@ -27,12 +27,12 @@ const CONTEXTS = [
   ["contact", 4, ["src/game/sat.ts", "src/game/pair-contact.ts", "src/game/external-contact.ts"]],
   ["scenes", 5, ["src/game/fleet.ts", "src/game/derby-arena.ts", "src/game/compactor.ts", "src/game/piston-rig.ts", "src/game/door-rig.ts", "src/game/engine-props.ts"]],
   ["ai", 6, ["src/game/derby-ai.ts", "src/game/ai-aggression.ts", "src/game/race/race-ai.ts", "src/game/race/traffic.ts"]],
-  ["match", 7, ["src/game/derby.ts", "src/game/race/session.ts", "src/game/race/campaign.ts", "src/game/race/types.ts"]],
+  ["match", 7, ["src/game/derby.ts", "src/game/phase.ts", "src/game/race/session.ts", "src/game/race/campaign.ts", "src/game/race/types.ts"]],
   ["present", 8, ["src/game/engine-fx.ts", "src/game/engine-camera.ts", "src/game/engine-cine.ts", "src/game/engine-post.ts", "src/game/engine-marks.ts", "src/game/engine-world.ts", "src/game/engine-pistons.ts", "src/game/engine-doors.ts", "src/game/race/track-art.ts", "src/game/race/prefabs.ts"]],
   ["net", 8, ["src/game/net/"]],
   // The HUD store is the read model of the whole sim and its presentation settings, so it sits above both.
   ["hud", 9, ["src/game/hud-store.ts", "src/game/race/menu-nav.ts"]],
-  ["engine", 10, ["src/game/engine.ts", "src/game/engine-race.ts", "src/game/engine-trace.ts"]],
+  ["engine", 10, ["src/game/engine.ts", "src/game/world-step.ts", "src/game/engine-race.ts", "src/game/engine-trace.ts"]],
   ["ui", 11, ["src/components/", "src/routes/", "src/router.tsx"]],
   ["platform", -1, ["src/lib/"]],
 ];
@@ -44,6 +44,7 @@ const SCENE_GRAPH = /^(Mesh|InstancedMesh|SkinnedMesh|Object3D|Scene|Group|Line|
 // queries they call. Their bodies allocate nothing.
 const HOT = {
   "src/game/engine.ts": ["tickInner", "fixedStep", "stepDerby", "scheduleSkins", "flushVisibleSkins", "updateCamera"],
+  "src/game/world-step.ts": ["stepWorld"],
   "src/game/car.ts": ["syncPose", "updateDeform", "hulls", "crushHulls"],
   "src/game/streamed-deform.ts": ["stepStructure", "stepMassSlice", "stepShapeMatch", "stepBeams", "stepSuspension", "update", "collideWith", "pullSensorsFromMasses", "bakeLocalSkin", "solveCages", "flushSkin", "liveHulls", "liveCrushHulls"],
   "src/game/sat.ts": ["physicsSlice", "sliceSpeed", "satCars", "satTwoHulls", "satCarBarrier", "clipCarToBarrier"],

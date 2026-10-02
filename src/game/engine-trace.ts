@@ -2,7 +2,7 @@ import type { DeformableCar } from "./car.ts";
 import { compactorStage } from "./compactor.ts";
 import type { DebrisSystem, SparkSystem, TireSmokeSystem } from "./engine-fx.ts";
 import { BALL_EXPOSE, type JerseyBarrier, type RampBall } from "./engine-props.ts";
-import type { CrashPhase } from "./hud-store.ts";
+import type { CrashPhase } from "./phase.ts";
 import { leftoverCrumple, round4, vec3 } from "./physics-util.ts";
 import { BARRIER_MASS } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";

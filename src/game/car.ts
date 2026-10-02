@@ -44,7 +44,7 @@ export interface CarPaint {
   name: string;
 }
 
-type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
+export type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
 type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
 
 /** G-key hull overlay: each 2D contact hull drawn as a box over this height band (m, display only). */

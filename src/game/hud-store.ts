@@ -2,8 +2,8 @@ import type { FxTier } from "./engine-post.ts";
 import { crushStroke } from "./physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
 import type { RaceHud } from "./race/types.ts";
+import type { CrashPhase } from "./phase.ts";
 
-export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
 type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
 /** Piston scene: selected ram (0–7, key order) and the shot config (mirrors `PISTON_DEFAULTS`). */

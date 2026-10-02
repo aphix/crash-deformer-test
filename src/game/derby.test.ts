@@ -3,14 +3,13 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, SCORE_GAP, STALEMATE, snapshotAiCar } from "./derby.ts";
-import { clipToDerbyBowl, DERBY_RADIUS, makeDerbyArena } from "./derby-arena.ts";
+import { clipDerbyCar, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, makeDerbyArena } from "./derby-arena.ts";
 import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
 import { fleetStyle, layoutDerby, MAX_CARS } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
 import { physicsSlice } from "./sat.ts";
-import { stepCarPair, resolveCarPair } from "./pair-contact.ts";
-import { partContactPair } from "./external-contact.ts";
+import { newWorld, stepWorld } from "./world-step.ts";
 import { CAGES } from "./rig-spec.ts";
 import { armKill, carClass, DEFAULT_REALISM } from "./vehicle-classes.ts";
 
@@ -269,10 +268,11 @@ describe("derby durability and the default two-car stall", () => {
     b.velocity.set(0, 0, half);
     a.deform.bindKinematic(a.group, a.velocity, a.angular);
     b.deform.bindKinematic(b.group, b.velocity, b.angular);
+    const w = newWorld([a, b]);
     let t = 0;
     while (t < 1.6) {
       const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
-      stepCarPair(a, b, h);
+      stepWorld(w, h);
       t += h;
     }
     const travel = (car: DeformableCar) => {
@@ -307,6 +307,8 @@ describe("derby durability and the default two-car stall", () => {
       { id: 0, name: "Titanium" },
       { id: 1, name: "Petrol" },
     ]);
+    const w = newWorld([a, b]);
+    w.afterCar = (car) => clipDerbyCar(car, derbyRadius(2));
     let t = 0;
     let minD = Infinity;
     while (t < 5.05) {
@@ -317,8 +319,7 @@ describe("derby durability and the default two-car stall", () => {
       );
       applyDrive(a, match.think(snaps[0]!, snaps, h), h);
       applyDrive(b, match.think(snaps[1]!, snaps, h), h);
-      stepCarPair(a, b, h);
-      for (const car of [a, b]) clipDerbyCar(car);
+      stepWorld(w, h);
       match.step(h, [
         { id: 0, name: "Titanium", alive: a.deform.drivetrainAlive, x: a.group.position.x, z: a.group.position.z },
         { id: 1, name: "Petrol", alive: b.deform.drivetrainAlive, x: b.group.position.x, z: b.group.position.z },
@@ -333,16 +334,6 @@ describe("derby durability and the default two-car stall", () => {
     assert.ok(minD < 6.5, `never met, closest ${minD.toFixed(2)} m`);
   });
 });
-
-function clipDerbyCar(car: DeformableCar): void {
-  const p = car.group.position;
-  const v = car.velocity;
-  const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15);
-  if (!next.hit) return;
-  if (car.deform.massActive) car.deform.translateMasses(next.x - p.x, next.z - p.z, next.vx - v.x, next.vz - v.z);
-  p.set(next.x, p.y, next.z);
-  v.set(next.vx, v.y, next.vz);
-}
 
 /** Which face of `car` the world point sits on. */
 function face(car: DeformableCar, p: THREE.Vector3): "front" | "rear" | "side" {
@@ -437,6 +428,8 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
     const names = cars.map((c) => c.paint.name);
     const match = new DerbyMatch();
     match.begin(cars.map((_, i) => ({ id: i, name: names[i]! })));
+    const w = newWorld(cars);
+    w.afterCar = (c) => clipDerbyCar(c, derbyRadius(n));
     for (const c of cars) {
       c.deform.squash = knobs.squash;
       c.deform.buckle = 0.45;
@@ -465,53 +458,20 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
         snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses),
       );
       cars.forEach((c, i) => applyDrive(c, match.think(snaps[i]!, snaps, h), h));
-      for (const c of cars) {
-        if (c.deform.massActive) c.syncPose(h);
-        else c.integrate(h);
-      }
-      for (let a = 0; a < n; a++) {
-        for (let b = a + 1; b < n; b++) {
-          const ca = cars[a]!;
-          const cb = cars[b]!;
-          if (ca.group.position.distanceToSquared(cb.group.position) > 28) continue;
-          if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-          partContactPair(ca, cb);
-        }
-      }
-      for (let k = 0; k < 3; k++) {
-        for (const c of cars) {
-          if (c.deform.massActive) c.syncPose(0);
-          else c.refreshBasis();
-        }
-        let moved = false;
-        for (let a = 0; a < n; a++) {
-          for (let b = a + 1; b < n; b++) {
-            const ca = cars[a]!;
-            const cb = cars[b]!;
-            const pair = resolveCarPair(ca, cb, k === 0, h);
-            if (!pair) continue;
-            moved = true;
-            // The hull push shoves a car out of a rammer's way at up to the rammer's speed.
-            shove[a] = Math.max(shove[a]!, speed0[b]!);
-            shove[b] = Math.max(shove[b]!, speed0[a]!);
-            const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
-            const bInto = cb.velocity.x * pair.normal.x + cb.velocity.z * pair.normal.z;
-            if (!match.noteHit(a, b, aInto, bInto, pair.impulse)) continue;
-            hits++;
-            if (face(ca, pair.contact) === "front" && face(cb, pair.contact) === "front") noseToNose++;
-          }
-        }
-        if (!moved) break;
-      }
-      for (const c of cars) {
-        if (c.deform.massActive) {
-          c.deform.stepStructure(h);
-          c.syncPose(h);
-          if (!c.deform.drivetrainAlive) c.deform.cutDrive(h);
-        }
-        c.afterContacts(h);
-        clipDerbyCar(c);
-      }
+      w.pairHit = (a, b, pair) => {
+        const ca = cars[a]!;
+        const cb = cars[b]!;
+        // The hull push shoves a car out of a rammer's way at up to the rammer's speed.
+        shove[a] = Math.max(shove[a]!, speed0[b]!);
+        shove[b] = Math.max(shove[b]!, speed0[a]!);
+        const aInto = -(ca.velocity.x * pair.normal.x + ca.velocity.z * pair.normal.z);
+        const bInto = cb.velocity.x * pair.normal.x + cb.velocity.z * pair.normal.z;
+        if (!match.noteHit(a, b, aInto, bInto, pair.impulse)) return;
+        hits++;
+        if (face(ca, pair.contact) === "front" && face(cb, pair.contact) === "front") noseToNose++;
+      };
+      stepWorld(w, h);
+      for (const c of cars) if (c.deform.massActive && !c.deform.drivetrainAlive) c.deform.cutDrive(h);
       state = match.step(h, cars.map((c, i) => ({ id: i, name: names[i]!, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })));
       const dead = cars.filter((c) => !c.deform.drivetrainAlive).length;
       while (deaths.length < dead) deaths.push(t);
