@@ -1,4 +1,4 @@
-import { type ReactNode, useRef, useState } from "react";
+import { type ReactNode, useId, useRef, useState } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -6,7 +6,9 @@ import {
   Crown,
   Eye,
   Flag,
+  Focus,
   Minus,
+  PanelsTopLeft,
   Play,
   Plus,
   RotateCcw,
@@ -171,6 +173,26 @@ export function SpectateBar({ race, pad, onCommand }: { race: RaceHud; pad: bool
         <ChevronRight />
       </Button>
     </div>
+  );
+}
+
+/** Race focus view ↔ full sandbox HUD; the engine binds H to the same command. `compact` hides the label on phones. */
+export function RaceViewToggle({ race, onCommand, compact }: { race: RaceHud; onCommand: Send; compact?: boolean }) {
+  const label = race.fullUi ? "Race view" : "Full menu";
+  return (
+    <Button
+      variant="ghost"
+      onMouseDown={keepFocus}
+      onClick={() => onCommand({ type: "fullUi", on: !race.fullUi })}
+      aria-label={label}
+      aria-keyshortcuts="H"
+      title={`${label} (H)`}
+      className="text-muted hover:text-fg"
+    >
+      {race.fullUi ? <Focus /> : <PanelsTopLeft />}
+      <span className={cn(compact && "hidden sm:inline")}>{label}</span>
+      <kbd className="hidden rounded bg-surface-2 px-1.5 font-display text-xs text-muted shadow-[var(--shadow-border)] sm:inline">H</kbd>
+    </Button>
   );
 }
 
@@ -373,6 +395,10 @@ function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCom
               <Flag />
               End race
             </NavButton>
+            <NavButton variant="secondary" onClick={() => onCommand({ type: "fullUi", on: !race.fullUi })} aria-keyshortcuts="H">
+              {race.fullUi ? <Focus /> : <PanelsTopLeft />}
+              {race.fullUi ? "Race view" : "Full menu"}
+            </NavButton>
             <NavButton variant="ghost" onClick={quit}>
               Quit to menu
             </NavButton>
@@ -419,6 +445,7 @@ function Stepper({
   step,
   shown,
   slider,
+  hint,
   onSet,
 }: {
   label: string;
@@ -428,8 +455,11 @@ function Stepper({
   step: number;
   shown: string;
   slider?: boolean;
+  /** One line under the row, inside the focus ring. */
+  hint?: string;
   onSet: (value: number) => void;
 }) {
+  const hintId = useId();
   const set = (v: number) => onSet(Math.min(max, Math.max(min, Math.round(v * 100) / 100)));
   return (
     <div
@@ -442,9 +472,10 @@ function Stepper({
       aria-valuemax={max}
       aria-valuenow={value}
       aria-valuetext={shown}
-      className={cn("flex min-h-11 items-center gap-2 rounded-lg bg-surface-2 py-1 pl-3 pr-1 shadow-[var(--shadow-border)]", FOCUS_WITHIN)}
+      aria-describedby={hint ? hintId : undefined}
+      className={cn("flex min-h-11 flex-wrap items-center gap-x-2 rounded-lg bg-surface-2 py-1 pl-3 pr-1 shadow-[var(--shadow-border)]", FOCUS_WITHIN)}
     >
-      <span className="hud-label w-24 shrink-0 text-muted sm:w-28">{label}</span>
+      <span className="hud-label w-24 shrink-0 text-muted sm:w-32">{label}</span>
       {slider ? (
         <input
           type="range"
@@ -467,6 +498,11 @@ function Stepper({
       <Button variant="ghost" size="icon" tabIndex={-1} data-step="1" aria-label={`More ${label.toLowerCase()}`} disabled={value >= max} onClick={() => set(value + step)}>
         <Plus />
       </Button>
+      {hint ? (
+        <p id={hintId} className="basis-full pb-1.5 pr-2 text-xs leading-snug text-muted">
+          {hint}
+        </p>
+      ) : null}
     </div>
   );
 }
@@ -510,13 +546,14 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
         <Stepper label="Laps" value={o.laps} min={3} max={5} step={1} shown={String(o.laps)} onSet={(laps) => options({ laps })} />
         <Stepper label="AI cars" value={o.aiCount} min={1} max={15} step={1} shown={String(o.aiCount)} onSet={(aiCount) => options({ aiCount })} />
         <Stepper
-          label="Aggression"
+          label="Max aggression"
           value={o.aggression}
           min={0}
           max={1}
           step={0.05}
           shown={`${Math.round(o.aggression * 100)}%`}
           slider
+          hint="Each rival rolls its own 0–max, kept all campaign · 0 avoids hits · 50% hits weaker cars when safe · 100% rams"
           onSet={(aggression) => options({ aggression })}
         />
         <div
@@ -530,7 +567,7 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
           }}
           className={cn("flex min-h-11 items-center gap-2 rounded-lg bg-surface-2 py-1 pl-3 pr-1 shadow-[var(--shadow-border)]", FOCUS_WITHIN)}
         >
-          <span className="hud-label w-24 shrink-0 text-muted sm:w-28">Wrecks</span>
+          <span className="hud-label w-24 shrink-0 text-muted sm:w-32">Wrecks</span>
           <div className="grid flex-1 grid-cols-2 gap-1 rounded-md bg-surface p-1">
             <button type="button" tabIndex={-1} data-step="-1" aria-pressed={!o.noReset} onClick={() => setNoReset(false)} className={segment(!o.noReset)}>
               Respawn
