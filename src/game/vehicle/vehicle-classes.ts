@@ -10,7 +10,7 @@ export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police"
 /** Netplay wire order (a snapshot sends the index): append only. */
 export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster", "police"];
 
-interface ClassStats {
+export interface ClassStats {
   id: VehicleClassId;
   label: string;
   /** Body mesh this class spawns with. */

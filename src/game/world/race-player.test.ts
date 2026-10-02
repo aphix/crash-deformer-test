@@ -11,7 +11,9 @@ import oval from "./tracks/oval.json" with { type: "json" };
  * through the open infield; before the fix a car beside the dirt or straight across the infield
  * crossed the shortcut's mouth gate, missed the next one and lost the whole lap without a word.
  */
-const LAPS = 3;
+// 2 laps: a detour lap at the scripted 15 m/s costs ~9 s against the AI's ~17 s laps at 200 km/h, so over
+// 3 laps the grass line was flagged home a lap down ("+1 lap", scored right) instead of on the AI's count.
+const LAPS = 2;
 const track = new Track(oval);
 const sc = track.shortcuts[0]!;
 const fromS = track.gates[sc.from]!.s + 30;
@@ -42,7 +44,8 @@ describe("the player's car is scored like the AI's", () => {
       assert.equal(o.you.status, "finished", `you ${o.you.status} on ${o.you.laps} laps`);
       assert.equal(o.you.laps, LAPS);
       assert.ok(o.ai.every((a) => a.laps === LAPS), "the AI on the same distance");
-      assert.ok(o.samples > 100);
+      // A sample every 0.5 s: 2 laps at 200 km/h are over in ~40 s.
+      assert.ok(o.samples > 50, `${o.samples} samples`);
       assert.equal(o.hudLapMismatch, 0, "HUD lap = rules lap");
       assert.equal(o.hudPlaceMismatch, 0, "HUD place = rules place");
     });

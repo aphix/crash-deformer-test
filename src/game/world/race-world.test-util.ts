@@ -239,6 +239,9 @@ export type PlayerOutcome = {
   samples: number;
 };
 
+/** The scripted player's top speed (m/s) on a detour: faster, it missed the grass line's tight bottom and wall-pinned. */
+const DETOUR_SPEED = 15;
+
 /**
  * One race with the PLAYER slot driven through the real seat (analog wheel and gas → `shapeDrive`
  * → `applyDrive`), as a pad would, along `line`. Every 30 frames the HUD's lap and place are
@@ -290,7 +293,12 @@ export function playerRace(w: World, track: Track, line: PlayerLine, laps: numbe
     seat.intent.analogWheel = true;
     seat.intent.analogGas = true;
     seat.intent.wheel = racing ? Math.max(-1, Math.min(1, a * 3)) : 0;
-    seat.intent.gas = racing ? 1 : 0;
+    // Flat out on the loop; a detour (off the road, points 8 m apart) at `DETOUR_SPEED`, braking for it
+    // from 40 m before as a pad player would: flat out at 200 km/h it overshot the first point by 20 m
+    // onto the service road's gates, or wall-pinned and respawned until DNF.
+    const slow = !!d && (detourK >= 0 || (detourLap !== h.you?.lap && p.s > d.fromS - 40 && p.s <= d.fromS)) && car.velocity.length() > DETOUR_SPEED;
+    seat.intent.gas = racing && !slow ? 1 : 0;
+    seat.intent.brake = racing && slow ? 1 : 0;
     if (racing && line.respawnAt !== undefined && !pressed && h.time >= line.respawnAt) {
       r.requestRespawn();
       pressed = true;
