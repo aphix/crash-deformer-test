@@ -329,7 +329,7 @@ function DrivingSection({ state, engine }: HudProps) {
     <>
       <div className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">Car</span>
-        <div className={cn(TRACK, "grid-cols-4")} role="group" aria-label="Your car's class">
+        <div className={cn(TRACK, "grid-cols-5")} role="group" aria-label="Your car's class">
           {VEHICLE_CLASS_IDS.map((id) => (
             <Button
               key={id}

@@ -4,6 +4,7 @@ import { applyGroundFriction, CRASH } from "./physics-util.ts";
 import { DOOR } from "./car-mesh.ts";
 import { getCrackMap } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "./ground.ts";
+import { MASS_SPECS } from "./rig-spec.ts";
 import {
   CarCore,
   BUMPER_TEAR_MPS,
@@ -31,6 +32,15 @@ const _n = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
+
+/** Police light bar: shears off once the roof mass under it sinks this far (m below its rest height; a
+ *  56 km/h frontal sinks it ~0.07), or on any hit at or above this EBS (60 km/h, arcade: a big crash throws
+ *  it). Guessed, tuned by eye. (The roof sensor's compression is no measure: a 20 km/h frontal reads 0.36.) */
+const BAR_TEAR_SINK = 0.12;
+const BAR_TEAR_MPS = 60 / 3.6;
+const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
+/** Netplay part slots: the most parts any style has (8, plus the police light bar), so every car shares one layout. */
+const PART_SLOTS = 9;
 
 /** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt; none past the fleet disc's rim. */
 function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce): void {
@@ -296,6 +306,11 @@ export abstract class CarParts extends CarCore {
     const ebs = this.deform.hitSpeedValue;
     for (const p of this.parts) {
       if (p.detached) continue;
+      if (p.hinge === "bar") {
+        const sink = ROOF_REST_Y - this.deform.massLocal("roof").y;
+        if (sink > BAR_TEAR_SINK || (ebs >= BAR_TEAR_MPS && this.deform.crushElapsed > 0.05)) this.detachPart(p, impulse);
+        continue;
+      }
       if (this.deform.bidirectional && p.hinge !== "door" && p.hinge !== "two-point") continue;
       if (!this.partOnHit(p)) continue;
       let should = false;
@@ -412,13 +427,14 @@ export abstract class CarParts extends CarCore {
     w.angular.copy(_n).multiplyScalar(Math.hypot(w.velocity.x, w.velocity.z) / TYRE_R);
   }
 
-  /** Netplay: array sizes for a `PartNetState`. */
+  /** Netplay: array sizes for a `PartNetState`; parts are `PART_SLOTS` on every style (one shared layout). */
   partNetSizes(): { parts: number; lamps: number; glass: number; wheels: number } {
-    return { parts: this.parts.length, lamps: this.lamps.length, glass: this.glassPanes.length, wheels: this.wheels.length };
+    return { parts: PART_SLOTS, lamps: this.lamps.length, glass: this.glassPanes.length, wheels: this.wheels.length };
   }
 
   /** Netplay host: part, lamp and glass state, and each loose part's world pose. */
   readPartNetState(out: PartNetState): void {
+    out.flags.fill(0, this.parts.length);
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i]!;
       const s = p.swing;

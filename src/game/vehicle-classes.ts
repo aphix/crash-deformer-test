@@ -6,8 +6,9 @@
 import * as THREE from "three";
 import type { CarStyleId } from "./car-variants.ts";
 
-export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster";
-export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster"];
+export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police";
+/** Netplay wire order (a snapshot sends the index): append only. */
+export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster", "police"];
 
 interface ClassStats {
   id: VehicleClassId;
@@ -41,30 +42,32 @@ interface ClassStats {
   wheelScale: number;
 }
 
+const SEDAN: ClassStats = {
+  id: "sedan",
+  label: "Sedan",
+  style: "sedan",
+  mass: 1400,
+  topSpeed: 18,
+  revSpeed: 11,
+  accel: 16,
+  torque: 0.3,
+  brake: 28,
+  turn: 1.55,
+  grip: 40,
+  drift: 0.35,
+  boostTop: 1.42,
+  boostAccel: 1.55,
+  durability: 1,
+  lift: 0,
+  wheelScale: 1,
+};
+
 /**
  * Stat budget: what a class wins on the straights it pays back in corners, so
  * a mixed loop lands within ~5 % (vehicle-classes.test.ts runs that lap).
  */
 export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
-  sedan: {
-    id: "sedan",
-    label: "Sedan",
-    style: "sedan",
-    mass: 1400,
-    topSpeed: 18,
-    revSpeed: 11,
-    accel: 16,
-    torque: 0.3,
-    brake: 28,
-    turn: 1.55,
-    grip: 40,
-    drift: 0.35,
-    boostTop: 1.42,
-    boostAccel: 1.55,
-    durability: 1,
-    lift: 0,
-    wheelScale: 1,
-  },
+  sedan: SEDAN,
   muscle: {
     id: "muscle",
     label: "Muscle",
@@ -122,6 +125,8 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     lift: 0.48,
     wheelScale: 1.7,
   },
+  /** The sedan's drive on the black-and-white body with the light bar. */
+  police: { ...SEDAN, id: "police", label: "Police", style: "police" },
 };
 
 /** The class each body style drives as unless assigned another (the monster truck rides the pickup body). */
@@ -131,6 +136,7 @@ export const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
   wagon: "sedan",
   coupe: "muscle",
   pickup: "truck",
+  police: "police",
 };
 
 export function classStats(id: VehicleClassId): ClassStats {

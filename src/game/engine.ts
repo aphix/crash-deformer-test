@@ -158,7 +158,8 @@ export class CrashEngine extends EngineInput {
 
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
-    this.lampLights = new LampLights(this.scene, MAX_CARS * 4);
+    // Four body lamps per car plus at most one lit siren (police flash red, then blue).
+    this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,

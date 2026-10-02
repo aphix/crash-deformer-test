@@ -310,3 +310,52 @@ export const lampEmissiveMap = once((): THREE.DataTexture => {
   t.needsUpdate = true;
   return t;
 });
+
+/** Light bar lens texels in `sirenEmissiveMap` order: housing, red lens, blue lens. */
+const SIREN_U = [1 / 6, 3 / 6, 5 / 6] as const;
+
+/** Roof light bar in bar space (origin on the roof crown, +z forward): housing on two feet, a red lens
+ *  on the left (−x) and a blue one on the right, one draw. `LIGHT_BAR_LENS` lists each lens's vertices. */
+export function makeLightBar(): THREE.BufferGeometry {
+  const box = (w: number, h: number, d: number, x: number, y: number, tone: number, texel: 0 | 1 | 2) => {
+    const g = toned(new THREE.BoxGeometry(w, h, d), tone, 0, 0).translate(x, y, 0);
+    const uv = g.getAttribute("uv").array as Float32Array;
+    for (let i = 0; i < uv.length; i += 2) {
+      uv[i] = SIREN_U[texel];
+      uv[i + 1] = 0.5;
+    }
+    return g;
+  };
+  return mergeToned(
+    [
+      box(1.06, 0.05, 0.25, 0, 0.04, 0x16181c, 0),
+      box(0.06, 0.07, 0.2, 0, 0.1, 0x8a909a, 0),
+      box(0.08, 0.06, 0.18, -0.4, 0, 0x16181c, 0),
+      box(0.08, 0.06, 0.18, 0.4, 0, 0x16181c, 0),
+      box(0.47, 0.075, 0.22, -0.27, 0.1, 0x8c1218, 1),
+      box(0.47, 0.075, 0.22, 0.27, 0.1, 0x1a36a8, 2),
+    ],
+    "light bar",
+  );
+}
+
+/** [first vertex, count] of the red and blue lens in `makeLightBar` (a box is 24 vertices). */
+export const LIGHT_BAR_LENS = [
+  [96, 24],
+  [120, 24],
+] as const;
+
+/** 3×1 emissive mask for `makeLightBar`: black housing, pure red lens, pure blue lens. The bar material's
+ *  emissive colour picks the lit lens: (k, 0, 0) lights only red, (0, 0, k) only blue (any green or
+ *  cross-channel in a texel tints the dark lens: the first cut lit the blue lens magenta). Shared, never disposed. */
+const sirenEmissiveMap = once((): THREE.DataTexture => {
+  const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255, 255, 0, 0, 255, 0, 0, 255, 255]), 3, 1);
+  t.needsUpdate = true;
+  return t;
+});
+
+/** Per-car light bar material: emissive stays black until `setSirens` flashes it. */
+export function makeSirenMaterial(): THREE.MeshStandardMaterial {
+  return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, emissive: 0x000000, emissiveMap: sirenEmissiveMap() });
+}
+

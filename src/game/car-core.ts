@@ -15,27 +15,38 @@ import {
   makeSideGlass,
   makeTrunkGeometry,
   makeWindshield,
+  roofCrownY,
 } from "./car-mesh.ts";
 import {
+  LIGHT_BAR_LENS,
   lampEmissiveMap,
   makeDoorLining,
   makeGlassMaterial,
   makeGrille,
   makeInterior,
   makeLampUnit,
+  makeLightBar,
   makeMirror,
   makePaintMaterial,
+  makeSirenMaterial,
   makeTailTrim,
   makeTrimMaterial,
   type LampKind,
 } from "./car-materials.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
-import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
+import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp-lights.ts";
 
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();
+
+/** Light bar seat on the roof crown (car z, m): over the front seats, behind the windshield header. */
+const LIGHT_BAR_Z = -0.02;
+/** Siren flash: red, then blue, each half of this period (s). */
+const SIREN_PERIOD = 0.5;
+/** Lit lens emissive gain past the bloom threshold; red stays under ACES's red-to-orange knee (as the tail lamps). */
+const SIREN_GAIN = { red: 1.3, blue: 2.4 } as const;
 
 export interface CarPaint {
   body: number;
@@ -169,13 +180,15 @@ export interface DetachPart {
     | "bumperRear"
     | "bonnet"
     | "boot"
+    | "roof"
     | "doorLeft"
     | "doorRight"
     | "wingFL"
     | "wingFR";
   attachL: number;
   attachR: number;
-  hinge: "cowl" | "tail" | "two-point" | "door";
+  /** "bar": the police light bar, skinned with the roof cage, no hinge motion. */
+  hinge: "cowl" | "tail" | "two-point" | "door" | "bar";
   detached: boolean;
   folding: boolean;
   hingeT: number;
@@ -270,6 +283,15 @@ export abstract class CarCore {
   protected interior: THREE.Mesh;
   private mirrorL: THREE.Mesh;
   private mirrorR: THREE.Mesh;
+  /** Police roof light bar (skinned with the roof cage), its part, rest shape and seat; null on other styles. */
+  protected lightBar: THREE.Mesh | null = null;
+  protected lightBarPart: DetachPart | null = null;
+  protected lightBarRest: Float32Array | null = null;
+  protected readonly lightBarOrigin = new THREE.Vector3();
+  private sirenMat: THREE.MeshStandardMaterial | null = null;
+  private sirensOn = false;
+  /** Lens lit this frame: 0 none, 1 red, 2 blue. */
+  private sirenLit = 0;
 
   constructor(paint: CarPaint, world: THREE.Scene, onGlass: GlassBurst | null = null, style: CarStyleId = "sedan") {
     this.paint = paint;
@@ -278,7 +300,10 @@ export abstract class CarCore {
     this.onGlass = onGlass;
     this.group.name = paint.name;
 
-    this.bodyMat = makePaintMaterial(paint.body);
+    // A livery (police) fixes the paint: black body and bumpers, white doors.
+    const livery = this.style.livery;
+    this.bodyMat = makePaintMaterial(livery?.body ?? paint.body);
+    const doorMat = livery ? makePaintMaterial(livery.doors) : this.bodyMat;
     const bodyGeo = makeChassisGeometry(this.style);
     this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
     this.body.castShadow = true;
@@ -298,15 +323,25 @@ export abstract class CarCore {
     this.trunk.castShadow = true;
     this.trunk.position.set(0, this.style.boot.origin[0], this.style.boot.origin[1]);
     this.group.add(this.trunk);
+    if (this.style.lightBar) {
+      this.sirenMat = makeSirenMaterial();
+      this.lightBar = new THREE.Mesh(makeLightBar(), this.sirenMat);
+      this.lightBar.name = "lightBar";
+      this.lightBar.castShadow = true;
+      this.lightBar.position.set(0, roofCrownY(LIGHT_BAR_Z, this.style), LIGHT_BAR_Z);
+      this.lightBarOrigin.copy(this.lightBar.position);
+      this.group.add(this.lightBar);
+      this.lightBarRest = this.copyRest(this.lightBar.geometry);
+    }
 
     this.doorL = new THREE.Group();
     this.doorR = new THREE.Group();
     this.doorL.position.set(-DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
     this.doorR.position.set(DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
-    this.doorMeshL = new THREE.Mesh(makeDoorGeometry(-1), this.bodyMat);
+    this.doorMeshL = new THREE.Mesh(makeDoorGeometry(-1), doorMat);
     this.doorMeshL.position.set(0, 0, -0.28);
     this.doorMeshL.castShadow = true;
-    this.doorMeshR = new THREE.Mesh(makeDoorGeometry(1), this.bodyMat);
+    this.doorMeshR = new THREE.Mesh(makeDoorGeometry(1), doorMat);
     this.doorMeshR.position.set(0, 0, -0.28);
     this.doorMeshR.castShadow = true;
     this.doorL.add(this.doorMeshL);
@@ -322,8 +357,8 @@ export abstract class CarCore {
     this.hoodOrigin = this.hood.position.clone();
     this.trunkOrigin = this.trunk.position.clone();
 
-    this.bumperF = this.makeBumper(true, paint);
-    this.bumperR = this.makeBumper(false, paint);
+    this.bumperF = this.makeBumper(true, livery?.accent ?? paint.accent);
+    this.bumperR = this.makeBumper(false, livery?.accent ?? paint.accent);
     this.group.add(this.bumperF, this.bumperR);
     this.addLamps();
 
@@ -361,9 +396,9 @@ export abstract class CarCore {
     computeNormalsFast(geo);
   }
 
-  private makeBumper(front: boolean, paint: CarPaint): THREE.Group {
+  private makeBumper(front: boolean, accent: number): THREE.Group {
     const g = new THREE.Group();
-    const mesh = new THREE.Mesh(makeBumperGeometry(front), makeTrimMaterial(paint.accent));
+    const mesh = new THREE.Mesh(makeBumperGeometry(front), makeTrimMaterial(accent));
     mesh.castShadow = true;
     g.add(mesh);
     if (!front) g.add(makeTailTrim());
@@ -477,6 +512,8 @@ export abstract class CarCore {
       add("mirrorL", this.mirrorL, "doorLeft", 6, 4, "two-point", 0.1, doorL.swing),
       add("mirrorR", this.mirrorR, "doorRight", 7, 5, "two-point", 0.1, doorR.swing),
     ];
+    // Last, so every style's other parts keep their indices (netplay, tests). Roof sensor 12 on both ends.
+    if (this.lightBar) this.lightBarPart = add("lightBar", this.lightBar, "roof", 12, 12, "bar", 0.3);
   }
 
   private buildHullHelper(): void {
@@ -552,15 +589,57 @@ export abstract class CarCore {
   }
 
   get lampCount(): number {
-    return this.lamps.length;
+    return this.lamps.length + (this.lightBar ? LIGHT_BAR_LENS.length : 0);
   }
 
-  /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken. */
-  lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): LampKind | null {
-    const l = this.lamps[i]!;
+  /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken.
+   *  Past the body lamps come the light bar's sirens, red then blue: lit only while flashing. */
+  lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): GlowKind | null {
+    const l = this.lamps[i];
+    if (!l) return this.sirenWorld(i - this.lamps.length, pos, dir);
     dir.set(0, 0, 1).applyQuaternion(l.mesh.quaternion).applyQuaternion(this.group.quaternion);
     pos.copy(l.mesh.position).applyQuaternion(this.group.quaternion).add(this.group.position);
     return l.intact ? l.kind : null;
+  }
+
+  /** Siren `k` (0 red, 1 blue) when lit on an attached bar: its lens centre on the skinned bar, axis up. */
+  private sirenWorld(k: number, pos: THREE.Vector3, dir: THREE.Vector3): GlowKind | null {
+    const bar = this.lightBar;
+    if (!bar || this.lightBarPart!.detached || this.sirenLit !== k + 1) return null;
+    const [first, count] = LIGHT_BAR_LENS[k]!;
+    const a = bar.geometry.getAttribute("position");
+    pos.set(0, 0, 0);
+    for (let v = first; v < first + count; v++) {
+      pos.x += a.getX(v);
+      pos.y += a.getY(v);
+      pos.z += a.getZ(v);
+    }
+    pos.multiplyScalar(1 / count).add(bar.position).applyQuaternion(this.group.quaternion).add(this.group.position);
+    dir.set(0, 1, 0).applyQuaternion(this.group.quaternion);
+    return k === 0 ? "red" : "blue";
+  }
+
+  /** Police: sirens on or off (a no-op on a car without a light bar). */
+  setSirens(on: boolean): void {
+    this.sirensOn = on && this.lightBar !== null;
+    if (!this.sirensOn) this.lightSiren(0);
+  }
+
+  get sirens(): boolean {
+    return this.sirensOn;
+  }
+
+  /** Once a frame (`LampLights.update`): red for the first half of `SIREN_PERIOD`, blue for the second;
+   *  dark once the bar is torn off. */
+  flashSirens(now: number): void {
+    if (!this.sirensOn) return;
+    this.lightSiren(this.lightBarPart!.detached ? 0 : now % SIREN_PERIOD < SIREN_PERIOD / 2 ? 1 : 2);
+  }
+
+  /** The bar's emissive colour picks its lit lens (see `makeSirenMaterial`). */
+  private lightSiren(lit: number): void {
+    this.sirenLit = lit;
+    this.sirenMat?.emissive.setRGB(lit === 1 ? SIREN_GAIN.red : 0, 0, lit === 2 ? SIREN_GAIN.blue : 0);
   }
 
   /** Group matrix only: children are refreshed once per frame by the renderer. Recursing the
