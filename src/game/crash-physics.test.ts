@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { StreamedDeformation, ENGINE_KILL_TRAVEL, TYRE_R, type DeformMode } from "./streamed-deform.ts";
 import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
-import { DT, MODES, dummyGeom, mass } from "./test-support.ts";
+import { DT, MODES, assertSameDigest, dummyGeom, mass } from "./test-support.ts";
+import { runPair } from "./crash-scenarios.test-util.ts";
+import { warmCrashPath } from "./pair-contact.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
 const FRONTAL_MPS = 14;
@@ -985,5 +987,13 @@ forModes("squash slider + leftover + no sink", (spawn, mode) => {
     const dRest = Math.abs(mass(rest.d, "cell").vel.z - cell0);
     const dPack = Math.abs(mass(packed.d, "cell").vel.z - cell0);
     assert.ok(dPack > dRest * 2, `rest cabin ${dRest.toFixed(3)} packed ${dPack.toFixed(3)} [${mode}]`);
+  });
+});
+
+describe("boot crash warm-up (docs/PERF_HITCH.md)", () => {
+  it("every warm-up hit crashes both cars, and a later crash is bit-identical with or without it", () => {
+    const before = runPair(48, 48, "head-on");
+    assert.ok(warmCrashPath(), "a warm-up hit no longer crashes both cars, so it no longer compiles the crush path");
+    assertSameDigest(runPair(48, 48, "head-on"), before, "48 km/h head-on after the warm-up");
   });
 });

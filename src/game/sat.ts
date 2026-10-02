@@ -160,10 +160,11 @@ export function clipCarToBarrier(
 export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): number | null {
   hullCenter(a, ha, _ha);
   hullCenter(b, hb, _hb);
-  const axes = [a.rightFlat, a.fwdFlat, b.rightFlat, b.fwdFlat];
   let minOverlap = Infinity;
   _mtv.set(0, 0, 0);
-  for (const axis of axes) {
+  // The four axes (a right, a forward, b right, b forward) without an array per hull pair.
+  for (let k = 0; k < 4; k++) {
+    const axis = k === 0 ? a.rightFlat : k === 1 ? a.fwdFlat : k === 2 ? b.rightFlat : b.fwdFlat;
     const ax = axis.x;
     const az = axis.z;
     const len = Math.hypot(ax, az);
@@ -189,12 +190,16 @@ export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hu
   return minOverlap;
 }
 
+const carHulls = (c: DeformableCar): Hull[] => c.hulls();
+/** The crush-hull getter for `satCars`, made once (a closure per call allocated on every SAT pass). */
+export const carCrushHulls = (c: DeformableCar): Hull[] => c.crushHulls();
+
 export function satCars(
   a: DeformableCar,
   b: DeformableCar,
   normalOut: THREE.Vector3,
   contactOut: THREE.Vector3,
-  hullsOf: (car: DeformableCar) => Hull[] = (c) => c.hulls(),
+  hullsOf: (car: DeformableCar) => Hull[] = carHulls,
 ): number | null {
   const pa = a.group.position;
   const pb = b.group.position;

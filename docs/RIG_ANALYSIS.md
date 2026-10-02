@@ -1443,6 +1443,37 @@ Probes: `.bench/cr9/probe.ts` (ten-car derby, per-call ledger with `ATTR`/`CALLS
   191.8 s, time 300 s (first deaths 14.1 / 45.6 / 19.8 s), and the five-seed wreck
   test passes (≥ 4/5): chaotic heats move with the last digit.
 
+### 6.10 Physics spikes, SAT allocation, dirty re-sync (lane `crash-realism-11`)
+
+Probes in the main checkout's `.bench/cr11/`:
+- `racespike.ts`: headless 8-car races through `race-world.test-util`'s `frame`, with per-frame time, optional per-call wrappers, GC events, an allocation profile and `WARM=prod`.
+- `resync.ts`: 24-car derby in the engine's `fixedStep` order, with a contact and state digest, `CHECK` (does a clean re-sync change anything), `TIME` (per-call cost) and `ALLOC` (sampled allocation per frame).
+- `mapcheck*.ts`: hidden-class changes across a first crash.
+
+- **Race physics spikes (PERF_HITCH: `fixedStep` 26–48 ms single frames).**
+  - Headless on the oval, the first pile-up frames (t = 6.7 s, the first `beginCrush`) took 12–29 ms cold against a 0.7 ms median. Their GC overlap was 0–9 ms. Wrapped, the time is spread over every deform method, which is the signature of unoptimised code.
+  - `--trace-opt`: 139 optimisations in f400–410 against 7 in the five frames before.
+  - Fix: `warmCrashPath` (pair-contact) runs a 100 km/h head-on and a T-bone through `stepCarPair` (1 s each, about 0.2 s of CPU) while the boot warm-up compiles programs.
+  - Interleaved, 6 rounds, oval 15 s: max frame cold 12.4 / 12.5 / 13.4 / 13.9 / 16.6 / 29.3 ms; warmed 6.9 / 7.2 / 8.1 / 8.5 / 9.3 ms. One warmed round was 25.6 ms, but its whole run was slow (p50 0.98 vs 0.75), which is box load.
+  - Each new car's first `beginCrush` still marks 45–84 functions for lazy deopt ("dependent prototype chain changed", within its `hitSpeed`/`wear` writes), warmed or not. Cause not found; the warmed frames stay under 10 ms regardless.
+  - Test: a warm-up hit must crash both cars, and a 48 km/h head-on after the warm-up is digest-identical to one before it. Mutated to 0 m/s it fails: "a warm-up hit no longer crashes both cars, so it no longer compiles the crush path". In the browser this is not re-measured.
+- **SAT allocation.**
+  - `liveHulls` / `liveCrushHulls` built 5 hull literals and an array per call, two calls per car per SAT pass. They now rewrite two per-car buffers (`setHull` copies the rest hull when an extent is non-finite, instead of storing the shared `HULLS` object).
+  - `satTwoHulls` built a 4-axis array per hull pair. `resolveCarPair` built two getter closures per call.
+  - Measured at 24 cars, seed 1, 900 frames: sampled allocation 1130 → 913 KB per frame (`satTwoHulls` 196 → 92, `live*Hulls` 116 → 0). Contact digest `93c73ab517e0ec97` and state digest `1a849113ee11ac2d` are identical (15877 pair hits). CPU per call is unchanged within noise (`resolveCarPair` 0.73–0.93 vs 0.73–0.80 µs).
+- **Dirty-flag re-sync: not landed.**
+  - `syncPose(0)` is not idempotent. Of 11335 re-syncs of a car that nothing moved since its last sync, 11278 changed its masses (3047 by more than 1 µm, at most 11 mm): `clampLocal` re-clamps in the frame its own last clamp turned.
+  - Skipping them changes the contacts (15877 → 17693 pair hits, different digest), so no skip can keep contacts identical.
+  - The prize was small anyway: `syncPose(0)` costs 155 µs of 2.33 ms per frame at 24 cars, and the skip saved 45 % of those calls.
+- **Top physics costs per frame, 24-car derby** (calls × µs per call = µs; frame 2.33 ms CPU):
+  1. `resolveCarPair`: 783 × 0.50 = 390 (276 pairs × 2.84 SAT passes)
+  2. `followGroup`: 96 × 3.15 = 302, of which `clampLocal` 96 × 2.21 = 212
+  3. `stepStructure`: 15.4 × 15.5 = 240
+  4. `syncPose(0)`: 46 × 3.35 = 155
+  5. `syncPose(h)`: 31 × 3.79 = 117
+
+  Then `think` + `applyDrive` at 95.
+
 ## Appendix
 
 ### Sources
