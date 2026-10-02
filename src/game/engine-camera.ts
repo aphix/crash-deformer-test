@@ -3,6 +3,7 @@ import type { DeformableCar } from "./car.ts";
 import { DRIVE, type DriverSeat, type SeatView } from "./car-drive.ts";
 import type { PadState } from "./gamepad.ts";
 import { DISC_RADIUS } from "./ground.ts";
+import { wrapPiClosed } from "./scalar.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -23,10 +24,6 @@ export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): TH
     n++;
   }
   return n === 0 ? out : out.multiplyScalar(1 / n);
-}
-
-function wrapPi(a: number): number {
-  return Math.atan2(Math.sin(a), Math.cos(a));
 }
 
 /** Critically damped spring, exact for any dt: no overshoot, ~98% settled after 6/omega s. */
@@ -122,7 +119,7 @@ export class DriveCam {
 
   /** Mouse drag (px): drag right looks right, drag down looks down; eases back after `lookDelay`. */
   nudge(dx: number, dy: number): void {
-    this.lookYaw.snap(wrapPi(this.lookYaw.x - dx * 0.005));
+    this.lookYaw.snap(wrapPiClosed(this.lookYaw.x - dx * 0.005));
     this.lookPitch.snap(THREE.MathUtils.clamp(this.lookPitch.x + dy * 0.004, -0.35, 0.9));
     this.idle = 0;
     this.returnOmega = CHASE.lookOmega;
@@ -144,7 +141,7 @@ export class DriveCam {
     let yawT = Math.atan2(fwd.x, fwd.z);
     if (along > 3 && view !== "first") {
       // Look a little into a slide.
-      yawT += THREE.MathUtils.clamp(wrapPi(Math.atan2(vel.x, vel.z) - yawT), -0.5, 0.5) * 0.4;
+      yawT += THREE.MathUtils.clamp(wrapPiClosed(Math.atan2(vel.x, vel.z) - yawT), -0.5, 0.5) * 0.4;
     }
 
     const enter = this.car !== car;
@@ -155,7 +152,7 @@ export class DriveCam {
     this.car = car;
     this.lastCarPos.copy(p);
     if (cut) this.heading.snap(yawT);
-    else this.heading.step(this.heading.x + wrapPi(yawT - this.heading.x), view === "first" ? CHASE.eyeOmega : CHASE.headOmega, dt);
+    else this.heading.step(this.heading.x + wrapPiClosed(yawT - this.heading.x), view === "first" ? CHASE.eyeOmega : CHASE.headOmega, dt);
 
     if (rx !== 0 || ry !== 0) {
       this.lookYaw.step(-rx * CHASE.stickYaw, CHASE.stickOmega, dt);

@@ -15,7 +15,7 @@ import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, VAPOR_DEPTH, edgeAction, fleetClass, fleetStyle, layoutFleet, layoutDerby, respawnSlot } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
 import { armKill, assignClass, carClass, CLASSES, damageStage, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
-import { WorldStage, makeLamp, makePoolTexture } from "./engine-world.ts";
+import { WorldStage, makeJerseyBarrier, makeLamp, makePoolTexture } from "./engine-world.ts";
 import { Cinematics } from "./engine-cine.ts";
 import { FX_TIERS, type FxTier } from "./engine-post.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
@@ -289,7 +289,7 @@ export class CrashEngine {
     this.arena = makeDerbyArena();
     this.scene.add(this.arena);
     this.winnerSpot = new WinnerSpot(this.scene, makePoolTexture());
-    this.barrier = new JerseyBarrier(this.scene);
+    this.barrier = new JerseyBarrier(this.scene, makeJerseyBarrier());
     this.press = new CompactorPress(this.scene, this.compactor.face);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
     this.doorRam = new DoorRam(this.scene);
@@ -1856,9 +1856,19 @@ export class CrashEngine {
   };
 
   private readonly ballHit = (car: DeformableCar): ContactHit | null =>
-    resolveRampBalls(this.balls, car, this.debris, this.sparks, this.fxDensity, this.elapsedWall, this.trace.ballHits);
+    resolveRampBalls(this.balls, car, this.elapsedWall, this.trace.ballHits, this.ballBreak);
 
-  private readonly poleHit = (car: DeformableCar): boolean => resolveLampPoles(this.poles, car, this.debris, this.sparks, this.fxDensity) !== null;
+  private readonly ballBreak = (at: THREE.Vector3, n: THREE.Vector3, closing: number): void => {
+    this.debris.burst(at, n, Math.min(48, 14 + closing * 1.2) * this.fxDensity);
+    this.sparks.poof(at, n, Math.min(28, 8 + closing * 0.6) * this.fxDensity);
+  };
+
+  private readonly poleHit = (car: DeformableCar): boolean => resolveLampPoles(this.poles, car, this.poleBreak) !== null;
+
+  private readonly poleBreak = (at: THREE.Vector3, n: THREE.Vector3, closing: number): void => {
+    this.debris.burst(at, n, Math.min(40, 10 + closing) * this.fxDensity);
+    this.sparks.poof(at, n, Math.min(22, 6 + closing * 0.5) * this.fxDensity);
+  };
 
   private readonly clipDerby = (car: DeformableCar): void => clipDerbyCar(car, this.derbyR);
 
