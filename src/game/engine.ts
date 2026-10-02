@@ -239,6 +239,8 @@ export class CrashEngine {
     exitRace: () => {
       if (!this.race.active) return;
       this.setRace(false);
+      // Race unload leaves the flat track ground: back to the fleet's disc, poles and props like a host's Z.
+      this.randomizeAndReset();
       this.emitHud(true);
     },
     startRace: () => this.raceCommand({ type: "start" }),
@@ -520,6 +522,8 @@ export class CrashEngine {
   }
 
   togglePlay(): void {
+    // The host owns the scene: on a netplay client the scene actions are no-ops (viewing toggles stay local).
+    if (this.net.client) return;
     this.playing = !this.playing;
     this.tryUnlockAudio();
     this.emitHud(true);
@@ -599,8 +603,8 @@ export class CrashEngine {
   }
 
   toggleBarrier(): void {
-    // A fleet prop: ignored while the press, a rig or the race owns the pad (the HUD locks it too).
-    if (this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
+    // A fleet prop: the host's (netplay), and ignored while the press, a rig or the race owns the pad (the HUD locks it too).
+    if (this.net.client || this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
     this.showBarrier = !this.showBarrier;
     if (this.derbyMode) {
       // Out of the bowl like every scene switch: the reset brings back the disc ground, poles and fresh spots, and places the barrier.
@@ -615,7 +619,7 @@ export class CrashEngine {
   }
 
   toggleBalls(): void {
-    if (this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
+    if (this.net.client || this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
     this.showBalls = !this.showBalls;
     if (this.derbyMode) {
       this.setDerby(false);
@@ -628,6 +632,7 @@ export class CrashEngine {
   }
 
   toggleCompactor(): void {
+    if (this.net.client) return;
     if (this.derbyMode) this.setDerby(false);
     if (this.race.active) this.setRace(false);
     this.showCompactor = !this.showCompactor;
@@ -639,6 +644,7 @@ export class CrashEngine {
   }
 
   togglePistons(): void {
+    if (this.net.client) return;
     if (this.derbyMode) this.setDerby(false);
     if (this.race.active) this.setRace(false);
     this.showPistons = !this.showPistons;
@@ -677,6 +683,7 @@ export class CrashEngine {
   }
 
   toggleDoors(): void {
+    if (this.net.client) return;
     if (this.derbyMode) this.setDerby(false);
     if (this.race.active) this.setRace(false);
     this.showDoors = !this.showDoors;
@@ -722,6 +729,7 @@ export class CrashEngine {
   }
 
   toggleDerby(): void {
+    if (this.net.client) return;
     if (this.race.active) this.setRace(false);
     this.setDerby(!this.derbyMode);
     this.tryUnlockAudio();
@@ -752,6 +760,7 @@ export class CrashEngine {
 
   /** Race scene on / off (scene picker, X). */
   toggleRace(): void {
+    if (this.net.client) return;
     this.setRace(!this.race.active);
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -828,6 +837,7 @@ export class CrashEngine {
 
   /** The player's car (slot 0) becomes `id`, rebuilt on that class's body; the field respawns and the camera follows it. */
   setPlayerClass(id: VehicleClassId): void {
+    if (this.net.client) return;
     if (!(id in CLASSES)) return;
     this.playerClass = id;
     const old = this.cars[0];
@@ -843,6 +853,7 @@ export class CrashEngine {
   }
 
   setCarCount(n: number): void {
+    if (this.net.client) return;
     // The race sets its own field (setup menu); the sandbox slider must not reshape it.
     if (this.race.active) return;
     this.ensureCars(n);
@@ -930,6 +941,7 @@ export class CrashEngine {
   }
 
   reset(): void {
+    if (this.net.client) return;
     this.tryUnlockAudio();
     this.randomizeAndReset();
     this.emitHud(true);
@@ -1137,7 +1149,8 @@ export class CrashEngine {
   /** Pad buttons during a race (no menu up): Start / Back pause, LB/RB spectate, Y view, D-pad ↓ respawn. */
   private racePad(hit: number): void {
     const press = (b: number) => (hit & (1 << b)) !== 0;
-    if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.race.command({ type: "pause" });
+    // Through raceCommand: a client may not pause (the host runs the race), so it can't get stuck in a pause it can't leave.
+    if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.raceCommand({ type: "pause" });
     if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
     if (press(PAD_BUTTON.rb)) this.race.cycle(1);
     if (this.seat.mode === "drive" && press(PAD_BUTTON.north)) this.seat.cycleView();
@@ -1307,7 +1320,10 @@ export class CrashEngine {
    */
   private applyNetDerby(s: DerbyNetState | null, self: number): void {
     if (!s) {
-      if (this.derbyMode) this.setDerby(false);
+      if (this.derbyMode) {
+        this.setDerby(false);
+        this.randomizeAndReset();
+      }
       this.emitHud(true);
       return;
     }
