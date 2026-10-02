@@ -40,6 +40,24 @@ function deepLink(search: string): { join: boolean; code: string; tx: NetTx } | 
   return { join: net === "join", code, tx: params.get("tx") === "bc" ? "bc" : "rtc" };
 }
 
+/** A client's session problem as the panel words it (net-play.ts `NetStatus.problem`). */
+const PROBLEM = {
+  version: "Different game version: reload",
+  "host-lost": "Host left: waiting for a new host…",
+  "host-paused": "Host paused",
+} as const;
+
+/** Why the session is stuck, if it is: the relay's refusal ("room full", "host taken", …) or the host's state. */
+function NetNotice({ status }: { status: NetStatus }) {
+  const refusal = status.relayError;
+  const text = refusal ? refusal[0]!.toUpperCase() + refusal.slice(1) : status.problem && PROBLEM[status.problem];
+  return text ? (
+    <p className="font-display text-accent" role="alert">
+      {text}
+    </p>
+  ) : null;
+}
+
 /**
  * Multiplayer: host or join a room (docs/MULTIPLAYER.md). `?net=join&room=CODE[&tx=bc]` joins from
  * the URL; `?net=host&room=CODE` only fills in the panel, so a link alone never makes a visitor host.
@@ -117,6 +135,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             {status.public ? `Public ${status.public}` : status.role === "host" ? "Hosting" : "Joined"} <span className="tabular-nums">{status.room}</span> ·{" "}
             {status.tx === "rtc" ? "WebRTC" : "this browser"}
           </p>
+          <NetNotice status={status} />
           <p className="text-muted">
             {status.peers.length + 1}/{ROOM_MAX} players · car {status.car < 0 ? "…" : status.car}
             {status.role === "host" ? " (host)" : ""} · {status.snapHz.toFixed(0)} snapshots/s · {(status.bytesPerSec / 1024).toFixed(1)} KB/s
