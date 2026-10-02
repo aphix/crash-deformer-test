@@ -92,6 +92,15 @@ test("the wrapped command sees an explicit override, not the file value", async 
   assert.equal(stdout, "true");
 });
 
+test("a leading NAME=value arg wins over the process env and is not run as the command", async () => {
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [WRAPPER, "VITE_AUTH_ENABLED=cli", "OTHER=a=b", process.execPath, "-e", `${PRINT_FLAG}process.stdout.write(","+process.env.OTHER);`],
+    { env: { ...process.env, VITE_AUTH_ENABLED: "true" } },
+  );
+  assert.equal(stdout, "cli,a=b");
+});
+
 test("the wrapper propagates the command's exit code", async () => {
   await assert.rejects(
     execFileAsync(process.execPath, [WRAPPER, process.execPath, "-e", "process.exit(3)"]),

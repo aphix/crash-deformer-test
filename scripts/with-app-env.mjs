@@ -66,6 +66,22 @@ export function mergeAppEnv(appEnv, processEnv) {
 }
 
 /**
+ * Split leading `NAME=value` args off the command, shell-style, so npm scripts
+ * can set a build var (`NITRO_PRESET=node-server`) on Windows too. Like a shell
+ * assignment, they win over both the file and the process environment.
+ */
+export function splitEnvArgs(argv) {
+  const env = {};
+  let i = 0;
+  for (; i < argv.length; i++) {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(argv[i]);
+    if (!m) break;
+    env[m[1]] = m[2];
+  }
+  return { env, argv: argv.slice(i) };
+}
+
+/**
  * Translate a child's `exit` `(code, signal)` into this process's exit status.
  *
  * Do not re-raise the signal with `process.kill(process.pid, signal)`: under
@@ -105,12 +121,13 @@ export function isMainModule(moduleUrl) {
 }
 
 function main(argv) {
-  const [command, ...args] = argv;
+  const { env: assigned, argv: rest } = splitEnvArgs(argv);
+  const [command, ...args] = rest;
   if (!command) {
-    console.error("usage: node scripts/with-app-env.mjs <command> [args…]");
+    console.error("usage: node scripts/with-app-env.mjs [NAME=value…] <command> [args…]");
     process.exit(2);
   }
-  const env = mergeAppEnv(readAppEnv(projectRoot()), process.env);
+  const env = { ...mergeAppEnv(readAppEnv(projectRoot()), process.env), ...assigned };
   const child = spawn(command, args, { stdio: "inherit", env });
   // The dev server is long-running and is stopped by signalling this wrapper.
   for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {

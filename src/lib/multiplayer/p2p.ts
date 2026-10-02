@@ -11,6 +11,9 @@
 
 export type SignalKind = "offer" | "answer" | "ice";
 
+/** The relay route under the app's base path (Vite `base`, e.g. "/crush/"). */
+const RTC_URL = `${import.meta.env.BASE_URL}api/rtc`;
+
 /**
  * Wire contract between this client and the signaling relay the app provides
  * at /api/rtc (see the multiplayer-p2p skill for a reference implementation).
@@ -140,7 +143,7 @@ export class P2PRoom {
     this.peers.clear();
     // Leaving the roster is the teardown broadcast: everyone's next poll
     // drops this peer and closes their side of the pair.
-    void fetch("/api/rtc", {
+    void fetch(RTC_URL, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ op: "leave", room: this.opts.room, peer: this.opts.selfId }),
@@ -202,7 +205,7 @@ export class P2PRoom {
       name: this.opts.name ?? "",
       since: String(this.cursor),
     });
-    const res = await fetch(`/api/rtc?${params}`);
+    const res = await fetch(`${RTC_URL}?${params}`);
     if (this.closed) return;
     if (!res.ok) throw new Error(`signaling poll failed: ${res.status}`);
     const body = (await res.json()) as RtcPollResponse;
@@ -463,7 +466,7 @@ export class P2PRoom {
     for (let attempt = 0; ; attempt++) {
       if (this.closed) return;
       try {
-        const res = await fetch("/api/rtc", {
+        const res = await fetch(RTC_URL, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify({
