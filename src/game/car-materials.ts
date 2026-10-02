@@ -359,3 +359,48 @@ export function makeSirenMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, emissive: 0x000000, emissiveMap: sirenEmissiveMap() });
 }
 
+/** Lug pitches across one repeat of `treadNormalMap` (u runs around the tyre). */
+export const TREAD_LUGS = 4;
+
+/** Tread normal map: `TREAD_LUGS` lug pitches across u, the tread width across v with a flat margin
+ *  (v < 0.06 / > 0.94), so shoulders and rims pinned to v = 0 read flat. Built in code (no DOM). Shared. */
+export const treadNormalMap = once((): THREE.DataTexture => {
+  const w = 128;
+  const h = 64;
+  /** Rubber height in [0, 1]: two circumferential grooves, chevron sipes on the centre rib, lug slots on the shoulders. */
+  const height = (u: number, v: number): number => {
+    if (v < 0.06 || v > 0.94) return 1;
+    const t = (v - 0.06) / 0.88;
+    if (Math.abs(t - 0.33) < 0.035 || Math.abs(t - 0.67) < 0.035) return 0;
+    const lug = (u * TREAD_LUGS) % 1;
+    if (t < 0.33 || t > 0.67) return Math.abs(lug - 0.5) < 0.09 ? 0.25 : 1;
+    const chevron = (lug + Math.abs(t - 0.5) * 0.9) % 1;
+    return Math.abs(chevron - 0.5) < 0.05 ? 0.4 : 1;
+  };
+  const data = new Uint8Array(w * h * 4);
+  const n = new THREE.Vector3();
+  const k = 2.2;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const v = y / h;
+      const dx = (height((x + 1) / w, v) - height((x - 1 + w) / w, v)) * k;
+      const dy = (height(x / w, Math.min(1, (y + 1) / h)) - height(x / w, Math.max(0, (y - 1) / h))) * k;
+      n.set(-dx, -dy, 1).normalize();
+      const o = (y * w + x) * 4;
+      data[o] = Math.round((n.x * 0.5 + 0.5) * 255);
+      data[o + 1] = Math.round((n.y * 0.5 + 0.5) * 255);
+      data[o + 2] = Math.round((n.z * 0.5 + 0.5) * 255);
+      data[o + 3] = 255;
+    }
+  }
+  const t = new THREE.DataTexture(data, w, h);
+  t.wrapS = THREE.RepeatWrapping;
+  t.minFilter = THREE.LinearMipmapLinearFilter;
+  t.magFilter = THREE.LinearFilter;
+  t.generateMipmaps = true;
+  t.anisotropy = 4;
+  // Its own uv set (`uv1`): `uv` is the tone-grid lookup on every toned part.
+  t.channel = 1;
+  t.needsUpdate = true;
+  return t;
+});
