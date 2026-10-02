@@ -22,8 +22,9 @@ RestartSec=5
 Nice=5
 CPUWeight=20
 IOWeight=20
-MemoryHigh=768M
-MemoryMax=1G
+# PGLite peaks at ~1.2 GB while it opens its database, then settles at ~0.4-0.6 GB.
+MemoryHigh=1536M
+MemoryMax=2G
 OOMScoreAdjust=500
 TasksMax=256
 

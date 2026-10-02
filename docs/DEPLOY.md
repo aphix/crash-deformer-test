@@ -69,7 +69,8 @@ commit arrives or someone deletes the marker.
 
 Limits: the deploy unit runs at `Nice=10`, `CPUWeight=20`, `CPUQuota=200%`, idle I/O class,
 `MemoryMax=4G`, `OOMScoreAdjust=500`; `crush.service` at `Nice=5`, `CPUWeight=20`,
-`MemoryMax=1G`, `OOMScoreAdjust=500`, `ProtectSystem=strict` with only its data dir writable.
+`MemoryMax=2G`, `OOMScoreAdjust=500`, `ProtectSystem=strict` with only its data dir writable.
+(PGLite is the memory cost: ~1.2 GB peak while it opens a database, ~0.4-0.6 GB after.)
 On a box shared with other services, those services win any contention and are never the OOM
 killer's first pick.
 
