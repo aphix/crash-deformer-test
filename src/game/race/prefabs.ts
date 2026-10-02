@@ -1,16 +1,14 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { makeJerseyBarrier, makeLamp } from "../engine-world.ts";
+import { makeAsphalt, makeJerseyBarrier, makeLamp } from "../engine-world.ts";
 import type { PrefabId } from "./catalog.ts";
 
 /**
- * Prefab meshes, one geometry + material per part, built to be drawn as one InstancedMesh per
- * part. At scale 1 a prefab fills `PREFABS[id].size` [w, h, d]; its origin sits on the ground at
- * the footprint centre, +Z forward, front (seats, billboard face, lamp arm) on +X. Large props
- * reach a little below the origin so they do not float on a slope.
+ * Prefab meshes and the race's shared procedural textures. Every prefab is one geometry + one
+ * material, drawn as one InstancedMesh. At scale 1 a prefab fills `PREFABS[id].size` [w, h, d];
+ * its origin sits on the ground at the footprint centre, +Z forward, front (seats, billboard face,
+ * lamp arm) on +X. Large props reach a little below the origin so they do not float on a slope.
  */
-
-export type PrefabPart = { geometry: THREE.BufferGeometry; material: THREE.Material };
 
 const C = {
   black: 0x1b1c20,
@@ -18,6 +16,7 @@ const C = {
   orange: 0xff6a1a,
   concrete: 0xb7b1a4,
   concreteDark: 0xa39d90,
+  barrier: 0xc4bfb3,
   light: 0xd8d4cc,
   metal: 0x2a2c32,
   truss: 0xc8cbd0,
@@ -27,32 +26,230 @@ const C = {
   woodDark: 0x6b4626,
   rock: 0x7a766e,
   trunk: 0x5a4030,
-  leaf: [0x2f5a2c, 0x35632f, 0x3b6d34],
-  wall: 0x8d8a84,
-  glass: 0x2a3440,
-  roof: 0x55524d,
+  leaf: [0x2f5a2c, 0x3b6d34],
+  roof: 0x6a665f,
+  lampHead: 0xfff4d6,
   seatBlue: 0x2f5d9a,
   seatRed: 0xb3261e,
 };
 
-/** Flat-shaded vertex-colour material shared by every plain part (and the track art). */
-export function plainMaterial(): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.05 });
+/** World metres per texture tile. */
+export const TILE = { asphalt: 8, concrete: 4, detail: 12 };
+
+/** Billboard canvas: the ad on top, a metal-coloured strip (posts) along the bottom. */
+const BILL_W = 512;
+const BILL_AD = 256;
+const BILL_STRIP = 32;
+
+/**
+ * The race's shared textures, built once per track art. `*Gain` is the reciprocal of the texture's
+ * mean linear colour: a material with `color = gain` and `map = texture` shows its vertex colour on
+ * average, so `SURFACES` colours stay the colours you see.
+ */
+export type RaceTextures = {
+  asphalt: THREE.CanvasTexture;
+  asphaltGain: THREE.Color;
+  concrete: THREE.CanvasTexture;
+  concreteGain: THREE.Color;
+  /** Natural ground (grass, dirt, gravel, sand, cobble). */
+  detail: THREE.CanvasTexture;
+  detailGain: THREE.Color;
+  /** One window bay (2.95 m × 3.5 m) of a building facade; its bottom-left corner is plain wall. */
+  windows: THREE.CanvasTexture;
+  billboard: THREE.CanvasTexture;
+};
+
+function canvas(w: number, h: number): [HTMLCanvasElement, CanvasRenderingContext2D] {
+  const c = document.createElement("canvas");
+  c.width = w;
+  c.height = h;
+  return [c, c.getContext("2d")!];
+}
+
+function texture(c: HTMLCanvasElement, repeat: boolean): THREE.CanvasTexture {
+  const tex = new THREE.CanvasTexture(c);
+  if (repeat) tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+/** 1 / mean linear colour of a canvas. */
+function gainOf(c: HTMLCanvasElement): THREE.Color {
+  const lut = new Float32Array(256);
+  const col = new THREE.Color();
+  for (let i = 0; i < 256; i++) lut[i] = col.setRGB(i / 255, 0, 0, THREE.SRGBColorSpace).r;
+  const px = c.getContext("2d")!.getImageData(0, 0, c.width, c.height).data;
+  let r = 0;
+  let g = 0;
+  let b = 0;
+  for (let i = 0; i < px.length; i += 4) {
+    r += lut[px[i]!]!;
+    g += lut[px[i + 1]!]!;
+    b += lut[px[i + 2]!]!;
+  }
+  const n = px.length / 4;
+  return new THREE.Color(n / r, n / g, n / b);
+}
+
+/** Soft blob drawn at (x, y) and its wrapped copies, so the canvas tiles seamlessly. */
+function blob(ctx: CanvasRenderingContext2D, size: number, x: number, y: number, r: number, rgba: string): void {
+  for (const ox of [-size, 0, size]) {
+    for (const oy of [-size, 0, size]) {
+      const cx = x + ox;
+      const cy = y + oy;
+      if (cx + r < 0 || cy + r < 0 || cx - r > size || cy - r > size) continue;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, r);
+      g.addColorStop(0, rgba);
+      g.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = g;
+      ctx.fillRect(cx - r, cy - r, r * 2, r * 2);
+    }
+  }
+}
+
+function makeDetail(): HTMLCanvasElement {
+  const S = 512;
+  const [c, ctx] = canvas(S, S);
+  ctx.fillStyle = "#c8c8c8";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 90; i++) {
+    const light = Math.random() > 0.5;
+    blob(ctx, S, Math.random() * S, Math.random() * S, 20 + Math.random() * 70, light ? "rgba(255,255,255,0.16)" : "rgba(40,40,40,0.16)");
+  }
+  for (let i = 0; i < 14000; i++) {
+    const n = Math.random();
+    ctx.fillStyle = n > 0.5 ? `rgba(255,255,255,${(n - 0.5) * 0.35})` : `rgba(0,0,0,${(0.5 - n) * 0.35})`;
+    ctx.fillRect(Math.random() * S, Math.random() * S, n > 0.93 || n < 0.07 ? 3 : 1.5, n > 0.93 || n < 0.07 ? 2 : 1.5);
+  }
+  return c;
+}
+
+function makeConcrete(): HTMLCanvasElement {
+  const S = 256;
+  const [c, ctx] = canvas(S, S);
+  ctx.fillStyle = "#d2d2d2";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 30; i++) blob(ctx, S, Math.random() * S, Math.random() * S, 12 + Math.random() * 40, Math.random() > 0.5 ? "rgba(255,255,255,0.12)" : "rgba(50,46,40,0.12)");
+  for (let i = 0; i < 3500; i++) {
+    const n = Math.random();
+    ctx.fillStyle = n > 0.6 ? `rgba(255,255,255,${n * 0.18})` : `rgba(30,28,24,${(1 - n) * 0.2})`;
+    ctx.fillRect(Math.random() * S, Math.random() * S, n > 0.92 ? 2 : 1, 1);
+  }
+  // Panel joint, once per tile.
+  ctx.fillStyle = "rgba(40,38,34,0.22)";
+  ctx.fillRect(0, 0, 2, S);
+  return c;
+}
+
+function makeWindows(): HTMLCanvasElement {
+  const S = 256;
+  const [c, ctx] = canvas(S, S);
+  ctx.fillStyle = "#dcd7cd";
+  ctx.fillRect(0, 0, S, S);
+  for (let i = 0; i < 1500; i++) {
+    ctx.fillStyle = `rgba(0,0,0,${Math.random() * 0.06})`;
+    ctx.fillRect(Math.random() * S, Math.random() * S, 2, 2);
+  }
+  // Window: canvas y runs down, so the sill (bottom of the bay) is at high y.
+  const x0 = 38;
+  const x1 = 218;
+  const y0 = 48;
+  const y1 = 190;
+  const glass = ctx.createLinearGradient(0, y0, 0, y1);
+  glass.addColorStop(0, "#3e5266");
+  glass.addColorStop(1, "#1f2933");
+  ctx.fillStyle = "#5c5a55";
+  ctx.fillRect(x0 - 6, y0 - 6, x1 - x0 + 12, y1 - y0 + 12);
+  ctx.fillStyle = glass;
+  ctx.fillRect(x0, y0, x1 - x0, y1 - y0);
+  ctx.fillStyle = "rgba(255,255,255,0.14)";
+  ctx.beginPath();
+  ctx.moveTo(x0 + 30, y0);
+  ctx.lineTo(x0 + 80, y0);
+  ctx.lineTo(x0 + 20, y1);
+  ctx.lineTo(x0, y1);
+  ctx.lineTo(x0, y0 + 60);
+  ctx.fill();
+  ctx.fillStyle = "#5c5a55";
+  ctx.fillRect((x0 + x1) / 2 - 3, y0, 6, y1 - y0);
+  ctx.fillStyle = "#b9b3a8";
+  ctx.fillRect(x0 - 10, y1 + 6, x1 - x0 + 20, 10);
+  return c;
+}
+
+function makeBillboard(): HTMLCanvasElement {
+  const [c, ctx] = canvas(BILL_W, BILL_AD + BILL_STRIP);
+  ctx.fillStyle = "#f2efe6";
+  ctx.fillRect(0, 0, 512, 256);
+  ctx.fillStyle = "#c8261c";
+  ctx.fillRect(0, 0, 512, 64);
+  ctx.fillRect(0, 192, 512, 64);
+  ctx.fillStyle = "#16171b";
+  ctx.font = "bold 92px sans-serif";
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillText("CRUSH", 256, 130);
+  ctx.fillStyle = "#f2efe6";
+  ctx.font = "bold 40px sans-serif";
+  ctx.fillText("STREAM", 256, 34);
+  ctx.fillText("RACEWAY", 256, 224);
+  ctx.fillStyle = "#2a2c32";
+  ctx.fillRect(0, BILL_AD, BILL_W, BILL_STRIP);
+  return c;
+}
+
+export function makeRaceTextures(): RaceTextures {
+  const asphalt = makeAsphalt();
+  asphalt.repeat.set(1, 1);
+  const concrete = makeConcrete();
+  const detail = makeDetail();
+  return {
+    asphalt,
+    asphaltGain: gainOf(asphalt.image as HTMLCanvasElement),
+    concrete: texture(concrete, true),
+    concreteGain: gainOf(concrete),
+    detail: texture(detail, true),
+    detailGain: gainOf(detail),
+    windows: texture(makeWindows(), true),
+    billboard: texture(makeBillboard(), false),
+  };
+}
+
+/** Materials the prefabs draw with (shared with the track art where it says so). */
+export type PrefabMaterials = {
+  /** Flat-shaded vertex colours (most props, gantry). */
+  plain: THREE.Material;
+  /** Vertex colours × concrete texture (barrier blocks, walls). */
+  concrete: THREE.Material;
+  building: THREE.Material;
+  billboard: THREE.Material;
+};
+
+export function makePrefabMaterials(tex: RaceTextures): PrefabMaterials {
+  return {
+    plain: new THREE.MeshStandardMaterial({ vertexColors: true, flatShading: true, roughness: 0.85, metalness: 0.05 }),
+    concrete: new THREE.MeshStandardMaterial({ vertexColors: true, map: tex.concrete, color: tex.concreteGain, roughness: 0.92, metalness: 0.04 }),
+    building: new THREE.MeshStandardMaterial({ vertexColors: true, map: tex.windows, roughness: 0.8, metalness: 0.05 }),
+    billboard: new THREE.MeshStandardMaterial({ map: tex.billboard, emissiveMap: tex.billboard, emissive: 0xffffff, emissiveIntensity: 0.25, roughness: 0.6 }),
+  };
 }
 
 /** A coloured piece: geometry already in prefab space and its sRGB colour. */
 export type Piece = [THREE.BufferGeometry, number];
 
-/** Merge pieces into one non-indexed geometry with a per-vertex `color` (position, normal, color only). */
+/** Merge pieces into one non-indexed geometry with position, normal, uv (zero when a piece has none) and a per-vertex `color`. */
 export function painted(pieces: readonly Piece[]): THREE.BufferGeometry {
   const col = new THREE.Color();
   const parts = pieces.map(([g, hex]) => {
     const n = g.index ? g.toNonIndexed() : g;
     if (n !== g) g.dispose();
-    for (const name of Object.keys(n.attributes)) if (name !== "position" && name !== "normal") n.deleteAttribute(name);
+    for (const name of Object.keys(n.attributes)) if (name !== "position" && name !== "normal" && name !== "uv") n.deleteAttribute(name);
     n.clearGroups();
-    col.setHex(hex);
     const count = n.getAttribute("position").count;
+    if (!n.getAttribute("normal")) n.computeVertexNormals();
+    if (!n.getAttribute("uv")) n.setAttribute("uv", new THREE.BufferAttribute(new Float32Array(count * 2), 2));
+    col.setHex(hex);
     const c = new Float32Array(count * 3);
     for (let i = 0; i < count; i++) col.toArray(c, i * 3);
     n.setAttribute("color", new THREE.BufferAttribute(c, 3));
@@ -69,8 +266,15 @@ export function box(w: number, h: number, d: number, x: number, y: number, z: nu
 }
 
 /** Vertical cylinder / cone from y0 to y1 at (x, z). */
-function cyl(rTop: number, rBottom: number, y0: number, y1: number, seg: number, x = 0, z = 0): THREE.BufferGeometry {
-  return new THREE.CylinderGeometry(rTop, rBottom, y1 - y0, seg).translate(x, (y0 + y1) / 2, z);
+function cyl(rTop: number, rBottom: number, y0: number, y1: number, seg: number, open = false): THREE.BufferGeometry {
+  return new THREE.CylinderGeometry(rTop, rBottom, y1 - y0, seg, 1, open).translate(0, (y0 + y1) / 2, 0);
+}
+
+/** Every uv of `g` set to (u, v). */
+function uvAt(g: THREE.BufferGeometry, u: number, v: number): THREE.BufferGeometry {
+  const a = g.getAttribute("uv") as THREE.BufferAttribute;
+  for (let i = 0; i < a.count; i++) a.setXY(i, u, v);
+  return g;
 }
 
 function cone(): Piece[] {
@@ -78,15 +282,15 @@ function cone(): Piece[] {
   const r = (y: number) => 0.165 - ((y - 0.04) / 0.66) * 0.14;
   return [
     [box(0.4, 0.04, 0.4, 0, 0.02, 0), C.black],
-    [cyl(0.025, 0.165, 0.04, 0.7, 10), C.orange],
-    [cyl(r(0.44) + 0.006, r(0.3) + 0.006, 0.3, 0.44, 10), C.white],
+    [cyl(0.025, 0.165, 0.04, 0.7, 8, true), C.orange],
+    [cyl(r(0.44) + 0.006, r(0.3) + 0.006, 0.3, 0.44, 8, true), C.white],
   ];
 }
 
 function tyreStack(): Piece[] {
   const out: Piece[] = [];
   for (let i = 0; i < 4; i++) {
-    const g = new THREE.TorusGeometry(0.25, 0.125, 6, 12).rotateX(Math.PI / 2).translate(0, 0.125 + i * 0.25, 0);
+    const g = new THREE.TorusGeometry(0.25, 0.125, 5, 10).rotateX(Math.PI / 2).translate(0, 0.125 + i * 0.25, 0);
     out.push([g, i % 2 ? C.white : C.black]);
   }
   return out;
@@ -130,25 +334,29 @@ function rock(): Piece[] {
 
 function tree(): Piece[] {
   return [
-    [cyl(0.16, 0.24, -0.2, 2.2, 6), C.trunk],
-    [new THREE.ConeGeometry(1.6, 3.4, 7).translate(0, 3.3, 0), C.leaf[0]!],
-    [new THREE.ConeGeometry(1.2, 2.8, 7).translate(0, 5.0, 0), C.leaf[1]!],
-    [new THREE.ConeGeometry(0.75, 1.9, 7).translate(0, 6.05, 0), C.leaf[2]!],
+    [cyl(0.15, 0.24, -0.2, 2.0, 5, true), C.trunk],
+    [new THREE.ConeGeometry(1.6, 3.8, 6).translate(0, 3.3, 0), C.leaf[0]!],
+    [new THREE.ConeGeometry(1.05, 3.0, 6).translate(0, 5.5, 0), C.leaf[1]!],
   ];
 }
 
+/** Facade plane of width w (m) from y −1.5 to 13.5, uv in window bays (2.95 m × 3.5 m, floors from y 0). */
+function facade(w: number): THREE.BufferGeometry {
+  const h = 15;
+  const g = new THREE.PlaneGeometry(w, h).translate(0, h / 2 - 1.5, 0);
+  const uv = g.getAttribute("uv") as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setXY(i, (uv.getX(i) * w) / 2.95, (uv.getY(i) * h - 1.5) / 3.5);
+  return g;
+}
+
 function building(): Piece[] {
-  const out: Piece[] = [
-    [box(11.8, 15, 11.8, 0, 6, 0), C.wall],
-    [box(12, 0.5, 12, 0, 13.75, 0), C.roof],
-  ];
-  for (let f = 0; f < 4; f++) {
-    const y = 2 + f * 3.2;
-    for (const s of [-1, 1]) {
-      out.push([box(0.2, 1.3, 10.4, s * 5.9, y, 0), C.glass]);
-      out.push([box(10.4, 1.3, 0.2, 0, y, s * 5.9), C.glass]);
-    }
+  const half = 5.9;
+  const out: Piece[] = [];
+  for (let i = 0; i < 4; i++) {
+    out.push([facade(half * 2).translate(0, 0, half).rotateY((i * Math.PI) / 2), 0xffffff]);
   }
+  // Roof slab and parapet sample the plain wall at the tile's bottom-left corner.
+  out.push([uvAt(box(12, 0.5, 12, 0, 13.75, 0), 0.05, 0.05), C.roof]);
   return out;
 }
 
@@ -167,37 +375,15 @@ function grandstand(): Piece[] {
   return out;
 }
 
-function billboardTexture(): THREE.CanvasTexture {
-  const c = document.createElement("canvas");
-  c.width = 512;
-  c.height = 256;
-  const ctx = c.getContext("2d")!;
-  ctx.fillStyle = "#f2efe6";
-  ctx.fillRect(0, 0, 512, 256);
-  ctx.fillStyle = "#c8261c";
-  ctx.fillRect(0, 0, 512, 64);
-  ctx.fillRect(0, 192, 512, 64);
-  ctx.fillStyle = "#16171b";
-  ctx.font = "bold 92px sans-serif";
-  ctx.textAlign = "center";
-  ctx.textBaseline = "middle";
-  ctx.fillText("CRUSH", 256, 130);
-  ctx.fillStyle = "#f2efe6";
-  ctx.font = "bold 40px sans-serif";
-  ctx.fillText("STREAM", 256, 34);
-  ctx.fillText("RACEWAY", 256, 224);
-  const tex = new THREE.CanvasTexture(c);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.anisotropy = 4;
-  return tex;
-}
-
-function billboard(plain: THREE.Material): PrefabPart[] {
-  const map = billboardTexture();
-  const panel = new THREE.MeshStandardMaterial({ map, emissiveMap: map, emissive: 0xffffff, emissiveIntensity: 0.25, roughness: 0.6 });
+function billboard(): Piece[] {
+  const s0 = BILL_STRIP / (BILL_AD + BILL_STRIP);
+  const panel = box(0.3, 2.5, 6, 0, 3.25, 0);
+  const uv = panel.getAttribute("uv") as THREE.BufferAttribute;
+  for (let i = 0; i < uv.count; i++) uv.setY(i, s0 + uv.getY(i) * (1 - s0));
   return [
-    { geometry: painted([[box(0.15, 2.2, 0.15, 0, 1, -2.2), C.metal], [box(0.15, 2.2, 0.15, 0, 1, 2.2), C.metal]]), material: plain },
-    { geometry: box(0.3, 2.5, 6, 0, 3.25, 0), material: panel },
+    [uvAt(box(0.15, 2.2, 0.15, 0, 1, -2.2), 0.5, s0 / 2), 0xffffff],
+    [uvAt(box(0.15, 2.2, 0.15, 0, 1, 2.2), 0.5, s0 / 2), 0xffffff],
+    [panel, 0xffffff],
   ];
 }
 
@@ -215,73 +401,69 @@ function pylon(): Piece[] {
   return out;
 }
 
-/** Parts of a group's meshes with each child's transform baked in, then `m` applied. */
-function bake(g: THREE.Group, m: THREE.Matrix4): PrefabPart[] {
-  g.updateMatrixWorld(true);
-  const out: PrefabPart[] = [];
+/** Free a group's geometries, materials and their maps. */
+function disposeGroup(g: THREE.Group): void {
   g.traverse((o) => {
-    if (o instanceof THREE.Mesh) {
-      out.push({ geometry: (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld).applyMatrix4(m), material: o.material as THREE.Material });
-    }
+    if (!(o instanceof THREE.Mesh)) return;
+    (o.geometry as THREE.BufferGeometry).dispose();
+    const m = o.material as THREE.MeshStandardMaterial;
+    m.map?.dispose();
+    m.dispose();
   });
+}
+
+function lamp(): Piece[] {
+  const g = makeLamp();
+  g.updateMatrixWorld(true);
+  // makeLamp is 5.2 m with the head on +Z; fit it to 4.4 m with the arm towards the road (+X).
+  const k = 4.4 / 5.2;
+  const fit = new THREE.Matrix4().makeRotationY(Math.PI / 2).scale(new THREE.Vector3(k, k, k));
+  const out: Piece[] = [];
+  g.traverse((o) => {
+    if (!(o instanceof THREE.Mesh)) return;
+    const m = o.material as THREE.MeshStandardMaterial;
+    const geo = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld).applyMatrix4(fit);
+    out.push([geo, m.emissiveIntensity > 0 ? C.lampHead : m.color.getHex()]);
+  });
+  disposeGroup(g);
   return out;
 }
 
-function disposeGroup(g: THREE.Group): void {
-  g.traverse((o) => {
-    if (o instanceof THREE.Mesh) (o.geometry as THREE.BufferGeometry).dispose();
-  });
-}
-
-function lamp(): PrefabPart[] {
-  const g = makeLamp();
-  // makeLamp is 5.2 m with the head on +Z; fit it to 4.4 m with the arm towards the road (+X).
-  const k = 4.4 / 5.2;
-  const parts = bake(g, new THREE.Matrix4().makeRotationY(Math.PI / 2).scale(new THREE.Vector3(k, k, k)));
-  disposeGroup(g);
-  return parts;
-}
-
-function barrierBlock(): PrefabPart[] {
+function barrierBlock(): Piece[] {
   const g = makeJerseyBarrier();
   // One 1.78 m × 0.61 m jersey segment stretched to the catalog's 2 m × 0.64 m block.
   const seg = g.children.find((o): o is THREE.Mesh => o instanceof THREE.Mesh && o.geometry instanceof THREE.ExtrudeGeometry)!;
   const geometry = (seg.geometry as THREE.BufferGeometry).clone().scale(0.64 / 0.61, 1, 2 / 1.78);
-  const material = seg.material as THREE.Material;
-  g.traverse((o) => {
-    if (o instanceof THREE.Mesh && o.material !== material) (o.material as THREE.Material).dispose();
-  });
   disposeGroup(g);
-  return [{ geometry, material }];
+  return [[geometry, C.barrier]];
 }
 
-/** Mesh parts of prefab `id` at scale 1; plain parts use `plain` (see `plainMaterial`). */
-export function prefabParts(id: PrefabId, plain: THREE.Material): PrefabPart[] {
-  const one = (pieces: Piece[]): PrefabPart[] => [{ geometry: painted(pieces), material: plain }];
+/** Prefab `id` at scale 1: one geometry and the material (from `mats`) it draws with. */
+export function prefabPart(id: PrefabId, mats: PrefabMaterials): { geometry: THREE.BufferGeometry; material: THREE.Material } {
   switch (id) {
     case "cone":
-      return one(cone());
+      return { geometry: painted(cone()), material: mats.plain };
     case "tyre-stack":
-      return one(tyreStack());
+      return { geometry: painted(tyreStack()), material: mats.plain };
     case "hay-bale":
-      return one(hayBale());
+      return { geometry: painted(hayBale()), material: mats.plain };
     case "crate":
-      return one(crate());
+      return { geometry: painted(crate()), material: mats.plain };
     case "barrier-block":
-      return barrierBlock();
+      return { geometry: painted(barrierBlock()), material: mats.concrete };
     case "rock":
-      return one(rock());
+      return { geometry: painted(rock()), material: mats.plain };
     case "tree":
-      return one(tree());
+      return { geometry: painted(tree()), material: mats.plain };
     case "building":
-      return one(building());
+      return { geometry: painted(building()), material: mats.building };
     case "grandstand":
-      return one(grandstand());
+      return { geometry: painted(grandstand()), material: mats.plain };
     case "billboard":
-      return billboard(plain);
+      return { geometry: painted(billboard()), material: mats.billboard };
     case "lamp":
-      return lamp();
+      return { geometry: painted(lamp()), material: mats.plain };
     case "gantry":
-      return one(pylon());
+      return { geometry: painted(pylon()), material: mats.plain };
   }
 }
