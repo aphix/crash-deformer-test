@@ -140,6 +140,9 @@ export abstract class EngineCore {
   /** Slot 0's class and body: the HUD's pick for the player's car (`setPlayerClass`, `setDriver`). */
   protected playerClass: VehicleClassId = fleetClass(0);
   protected playerStyle: CarStyleId = fleetStyle(0);
+  /** Race police chase: cars `policeFrom … policeFrom + policeCount − 1` are built as police (`setPolice`). */
+  private policeFrom = 0;
+  private policeCount = 0;
   protected buckle = INITIAL_HUD.buckle;
   protected fxDensity = 0.7;
   protected speedMin = 0;
@@ -217,8 +220,8 @@ export abstract class EngineCore {
 
   protected buildCar(
     i: number,
-    cls: VehicleClassId = i === 0 ? this.playerClass : fleetClass(i),
-    style: CarStyleId = i === 0 ? this.playerStyle : fleetStyle(i),
+    cls: VehicleClassId = i === 0 ? this.playerClass : this.isPolice(i) ? "police" : fleetClass(i),
+    style: CarStyleId = i === 0 ? this.playerStyle : this.isPolice(i) ? "police" : fleetStyle(i),
   ): DeformableCar {
     const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
     const paint: CarPaint =
@@ -230,6 +233,31 @@ export abstract class EngineCore {
     this.scene.add(car.group);
     this.queueWarm();
     return car;
+  }
+
+  /** Race police chase: car `i` (never the player's) is in the police range set by `setPolice`. */
+  private isPolice(i: number): boolean {
+    return i > 0 && i >= this.policeFrom && i < this.policeFrom + this.policeCount;
+  }
+
+  /**
+   * Race police chase: cars `from … from + count − 1` are police cruisers; every police car below `from`
+   * is rebuilt as its fleet self. Cars past the range keep their look until a field needs them (no
+   * rebuild churn between races).
+   */
+  protected setPolice(from: number, count: number): void {
+    this.policeFrom = from;
+    this.policeCount = count;
+    for (let i = 1; i < Math.min(this.cars.length, from + count); i++) {
+      const old = this.cars[i]!;
+      if ((old.style.id === "police") === this.isPolice(i)) continue;
+      this.scene.remove(old.group);
+      old.dispose();
+      const car = this.buildCar(i);
+      car.group.visible = old.group.visible;
+      this.dressCar(car);
+      this.cars[i] = car;
+    }
   }
 
   /** Netplay client: car `i` takes the host's body style and class, rebuilt only when either differs. */

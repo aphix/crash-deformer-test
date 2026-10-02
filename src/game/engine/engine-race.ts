@@ -6,6 +6,7 @@ import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { Campaign } from "../match/campaign.ts";
 import { SURFACES } from "../world/catalog.ts";
+import type { PoliceBrain } from "../ai/police.ts";
 import { onSurface } from "../ai/race-ai.ts";
 import { RaceSession } from "../match/session.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
@@ -58,6 +59,9 @@ export class RaceDirector extends RaceField {
     this.session = null;
     this.brain = null;
     this.traffic = null;
+    this.police = null;
+    // Police cruisers go back to fleet cars before the sandbox shows them.
+    this.host.setPolice(MAX_CARS, 0);
     this.campaign = null;
     this.spectating = false;
     this.unload();
@@ -173,16 +177,18 @@ export class RaceDirector extends RaceField {
     this.host.seat.focus(id);
   }
 
-  /** Q/E, LB/RB: next / previous car still on track (never our own racing car), when watching is allowed. */
+  /** Q/E, LB/RB: next / previous car still on track (never our own racing car), then the police cars out on the course, when watching is allowed. */
   cycle(dir: 1 | -1): void {
     const s = this.session;
     if (!s || !this.mayWatch()) return;
-    const n = this.entrants.length;
+    const racers = this.entrants.length;
+    const n = this.police ? this.policeFrom + this.police.count : racers;
     let i = this.host.seat.carIndex;
     for (let k = 0; k < n; k++) {
       i = (((i + dir) % n) + n) % n;
-      const st = s.cars[this.rowOf[i]!]!.status;
-      if (!this.mine(i) && (st === "racing" || st === "respawning" || st === "finished")) {
+      const st = i < racers ? s.cars[this.rowOf[i]!]!.status : null;
+      const ok = st === null ? i >= this.policeFrom && !this.dormant[i] : !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
+      if (ok) {
         this.spectating = true;
         this.host.seat.focus(i);
         return;
@@ -198,6 +204,11 @@ export class RaceDirector extends RaceField {
   /** The current field: who is in it, slot kinds and rolled aggression (read-only). */
   get racers(): readonly Entrant[] {
     return this.entrants;
+  }
+
+  /** This race's police chase stats (null with police off). */
+  get policeStats(): Readonly<PoliceBrain["stats"]> | null {
+    return this.police?.stats ?? null;
   }
 
   /** A network peer's latest input for car `carId` (slot kind "remote"); held until the next one arrives. */
@@ -298,12 +309,19 @@ export class RaceDirector extends RaceField {
     const snaps = this.snaps;
     const racers = this.entrants.length;
     const traffic = this.traffic;
+    const police = s.phase === "finished" ? null : this.police;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
       const p = car.group.position;
       const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
       if (i >= racers) {
-        const input = traffic && !this.dormant[i] ? traffic.think(snaps[i]!, snaps, dt) : this.hold;
+        const input = this.dormant[i]
+          ? this.hold
+          : i >= this.policeFrom
+            ? (police?.think(snaps[i]!, snaps, dt) ?? this.hold)
+            : traffic
+              ? traffic.think(snaps[i]!, snaps, dt)
+              : this.hold;
         applyDrive(car, onSurface(input, surf, this.scratch), dt);
         continue;
       }
@@ -346,7 +364,8 @@ export class RaceDirector extends RaceField {
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
       if (this.dormant[i]) continue;
-      const alive = this.judge(i, car, dt, racing);
+      // Police are never "still" dead: a parked unit waits; only a dead drivetrain or a roll knocks it out.
+      const alive = this.judge(i, car, dt, racing && i < this.policeFrom);
       if (i >= this.entrants.length) {
         this.deadFor[i] = alive ? 0 : this.deadFor[i]! + dt;
         continue;
@@ -366,6 +385,9 @@ export class RaceDirector extends RaceField {
     if (this.bubbleAcc >= BUBBLE_EVERY) {
       this.bubbleAcc = 0;
       this.bubble();
+      this.patrol(BUBBLE_EVERY);
+      // A watched police car was put away: watch the next car.
+      if (this.spectating && this.dormant[this.host.seat.carIndex]) this.cycle(1);
     }
   }
 
@@ -440,7 +462,8 @@ export class RaceDirector extends RaceField {
       }
     }
     const winner = s && s.winnerId != null ? s.cars[this.rowOf[s.winnerId]!]!.name : null;
-    const watched = this.spectating && seat.carIndex >= 0 ? (this.entrants[seat.carIndex]?.name ?? null) : null;
+    const watched =
+      this.spectating && seat.carIndex >= 0 ? (this.entrants[seat.carIndex]?.name ?? (seat.carIndex >= this.policeFrom ? "Police" : null)) : null;
     return {
       menu: this.menu,
       mode: this.campaign ? "campaign" : "single",
@@ -541,6 +564,7 @@ export class RaceDirector extends RaceField {
     this.session = null;
     this.brain = null;
     this.traffic = null;
+    this.police = null;
     this.spectating = false;
     this.menu = "setup";
     this.host.setPaused(false);

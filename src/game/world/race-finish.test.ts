@@ -113,3 +113,47 @@ describe("race: spectator only", () => {
     }
   });
 });
+
+describe("race: police chase", () => {
+  it("police on: stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycles onto them, police never race, the race closes", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "options", options: { trackId: "oval", laps: 2, aiCount: 4, spectate: true, police: true } });
+      w.race.reseed(1);
+      w.race.command({ type: "start" });
+      const racers = w.race.racers.length;
+      let parkedDark = 0;
+      let chasingLit = 0;
+      let watched = false;
+      const state = { acc: 0 };
+      const bound = 4.5 + 2 * 3 * (new Track(oval).length / 9);
+      for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) {
+        frame(w, state);
+        if (n % 30 !== 0) continue;
+        const out = w.live().filter((c, i) => i >= racers && c.group.visible);
+        assert.ok(out.every((c) => c.style.id === "police"), "only police cars join the racers (oval has no traffic)");
+        for (const c of out) {
+          if (c.sirens) chasingLit++;
+          else if (c.velocity.length() < 0.3) parkedDark++;
+        }
+        if (!watched && out.length > 0) {
+          for (let k = 0; k < racers + out.length && w.seat.carIndex < racers; k++) w.race.command({ type: "cycle", dir: 1 });
+          assert.ok(w.seat.carIndex >= racers, "cycling never reached a police car on the course");
+          assert.equal(w.race.hud().spectating, "Police");
+          watched = true;
+        }
+      }
+      assert.equal(w.race.phase, "finished", "the race closed");
+      assert.ok(w.race.policeStats!.pursuits >= 1, `pursuits ${w.race.policeStats!.pursuits}`);
+      assert.ok(parkedDark > 0, "no parked police car with its sirens off was ever seen");
+      assert.ok(chasingLit > 0, "no police car ever ran its sirens");
+      const results = w.race.hud().results!;
+      assert.equal(results.length, racers);
+      assert.ok(results.every((r) => r.id < racers && w.live()[r.id]!.style.id !== "police"), "a police car is in the results");
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+});

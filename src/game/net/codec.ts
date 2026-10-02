@@ -69,6 +69,8 @@ export interface CarFrame {
   /** Fleet disc edge (EdgeFall): gone in smoke (`setVaporized`), or a falling fake past the rim (no mesh updates). */
   vaporized: boolean;
   falling: boolean;
+  /** Police sirens flashing (race police chase). */
+  sirens: boolean;
   /** Index into `CAR_STYLE_IDS` / `VEHICLE_CLASS_IDS`: the body the client must build for this car. */
   style: number;
   cls: number;
@@ -108,6 +110,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
     crashed: false,
     vaporized: false,
     falling: false,
+    sirens: false,
     style: 0,
     cls: 0,
     wreck: false,
@@ -342,7 +345,7 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
   w.u16(Math.round(Math.max(0, Math.min(6, s.timeScale)) * 10000));
   for (let i = 0; i < s.count; i++) {
     const f = s.cars[i]!;
-    w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0));
+    w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0));
     w.u8((f.style & 15) | ((f.cls & 15) << 4));
     w.f32(f.x);
     w.f32(f.y);
@@ -378,6 +381,7 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
     f.wreck = (flags & 2) !== 0;
     f.vaporized = (flags & 4) !== 0;
     f.falling = (flags & 8) !== 0;
+    f.sirens = (flags & 16) !== 0;
     const body = r.u8();
     f.style = body & 15;
     f.cls = body >> 4;

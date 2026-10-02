@@ -59,9 +59,11 @@ export type RaceOptions = {
   aggression: number;
   /** Watch only: this browser's car is one more AI racer and the camera follows the field (no player car). */
   spectate: boolean;
+  /** Police chase: packs of police cars park beside the course from a third of the first lap on and hunt the racers. */
+  police: boolean;
 };
 
-export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false };
+export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false, police: false };
 
 /** Per-step input to the rules for one car (same order as the entrants). */
 export type CarPose = {
