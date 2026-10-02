@@ -3,7 +3,11 @@
 import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
 import { CLASSES, STYLE_CLASS, type VehicleClassId } from "./vehicle-classes.ts";
 
+/** Car pool size: the per-car typed arrays (derby/race AI, race, traffic), wheel batch and lamp pool are sized for it,
+ *  `setCarCount` clamps to it and the HUD Cars slider stops at it. Set in the initial export (7a09b34), not measured. */
 export const MAX_CARS = 32;
+/** Closest two fleet spawns sit, centre to centre (m): one 4.44 m car (2 × CAR_HALF.z) plus ~1 m. From the initial
+ *  export (7a09b34); fleet.test.ts holds every layout to it and `respawnSlot` keeps it from every other car. */
 export const FLEET_MIN_SEP = 5.4;
 
 /** Slot cycle (fleet and derby share the pool): every body style in its own class, then a monster truck. */
