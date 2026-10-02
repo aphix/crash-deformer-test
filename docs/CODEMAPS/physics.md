@@ -18,12 +18,12 @@ DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
 - Per-style overrides: `RigOverrides` (`deform-rig.ts`), set as `CAR_STYLES[id].rig` in `car-variants.ts`.
 
 ## `StreamedDeformation` (`streamed-deform.ts`)
-One class in layers, each `extends` the one before: `deform-rig.ts` `DeformRig` (fields, constructor, skin tables) →
+One class in layers, each `extends` the one before: `deform-rig.ts` `DeformRig` (fields, constructor, skin tables, `initRunState`; builders in `deform-build.ts`) →
 `deform-hit.ts` (reset, mode, shape rest, kinematic bind, crush start, re-arm, impulses) → `deform-state.ts` (mass and
 hub queries, drivetrain, crush weights, `update`, live hulls, debug helpers) → `deform-contact.ts` (`collideWith`,
 `stepStructure`, `followGroup`, stroke, pushes, `applyImpact`) → `deform-solve.ts` (clamp, beams, shape match, mass
 slices, ground, suspension) → `streamed-deform.ts` `StreamedDeformation` (sensors, cages, skin bake, netplay state).
-- `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()`.
+- `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()` = `initRunState()`, the constructor's last step: every per-run field and structure (sensors, cages, masses, beams, clusters, shape particles, copied back from their as-built clone) as built, settings kept, so a reset car replays like a fresh one (`deform-reset.test.ts`, `race/race-replay.test.ts`).
 - Activation / hits: `armMasses`, `applyImpact(localPoint, localInward, impulse, ebs)`, `rearmHit`, `applyImpulse`, `impulseAt`, `kickNearest`, `kickNearestHub`, `feedOverlap`, `notifyContact`, `notifyPower`.
 - Rigid ↔ soft coupling: `bindKinematic`, `followGroup(group, velOut, angOut, dt)` (driven by `DeformableCar.syncPose`), `translateMasses`.
 - Contacts: `collideWith(other, dt)` (mass spheres car↔car), `projectOutOfBox`, `separateAlong`, `brakeInbound`.
