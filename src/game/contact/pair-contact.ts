@@ -56,13 +56,25 @@ function pushPair(car: DeformableCar, nx: number, nz: number, amount: number, dt
   pushCar(car, nx, 0, nz, car.deform.massActive ? car.deform.takePush(amount, dt) : amount);
 }
 
+/** Centre-to-centre gap (m, about a car's width) that `closingCap` stops a pair's closing before. */
+const STOP_GAP = 2;
+
+/**
+ * Most closing impulse (N·s) one slice may cancel: 18 + 36·pass lets a hit grind on through the crumple,
+ * raised to the impulse that stops the closing before the centres come within STOP_GAP. Uncapped, a derby
+ * shove spun a pinned car past 5 rad/s (ten-car derby, 4 of 12 heats; main 1) and slid a squeezed one
+ * 6–9 cm a slice (3 of 12; main 0). The bare cap shoved a t-bone's struck car at ~17 m/s² while the bullet
+ * ground on, and from 58 m/s its nose came out of the struck car's far side (barrier.test.ts).
+ */
+function closingCap(remain: number, pass: number, invSum: number, dist: number, dt: number): number {
+  return Math.max(18 + pass * 36, (remain * remain * dt) / (2 * Math.max(dist - STOP_GAP, 0.05) * invSum));
+}
+
 /**
  * Pair SAT + crumple. Persistent overlap after the zone is spent must not
  * keep dumping cancelClosing (that is the 10s / 120 km/h zip). Every contact
  * offers each car a hit: the first one starts its crash, a fresh hard one on
- * a wreck re-arms a new hit (`DeformableCar.applyImpact`). The closing impulse is uncapped: a per-slice cap
- * (18 + 36·pass N·s) shoved a t-bone's struck car at ~17 m/s² while the bullet ground on, and from 58 m/s
- * its nose came out of the struck car's far side (barrier.test.ts).
+ * a wreck re-arms a new hit (`DeformableCar.applyImpact`). The closing impulse is capped by `closingCap`.
  */
 export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: boolean, dt: number): PairHit | null {
   const dist = carA.group.position.distanceTo(carB.group.position);
@@ -182,7 +194,7 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const invA = 1 / carA.deform.totalMass;
     const invB = 1 / carB.deform.totalMass;
     if (!packed) {
-      const j = cancelClosing(remain, pass, invA + invB, dt, e);
+      const j = Math.min(cancelClosing(remain, pass, invA + invB, dt, e), closingCap(remain, pass, invA + invB, dist, dt));
       impulseCar(carA, _n.x, 0, _n.z, j);
       impulseCar(carB, -_n.x, 0, -_n.z, j);
 
