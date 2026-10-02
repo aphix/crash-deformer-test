@@ -303,10 +303,32 @@ moves toward a target computed in `syncAttachedParts`, rising by at most
 - **Mirror "on hit" rule:** `along = −(restPos·inward) > 0.12`. But `restPos`
   is door-local (`mirrorL.position = (−0.06, 0.32, 0)` in the constructor), so
   `along` is at most 0.06 and the mirror is never on the hit.
-- **Glass** (`evaluateBreakage`): cracks when nearby part compression > 0.45
-  after 0.12 s. Shatters at > 0.7 after 0.2 s, or at > 0.55 with impulse > 40
-  after 0.16 s. Pane order (from `addGlass`): 0 windscreen, 1 rear glass,
-  2/3 door glass L/R, 4/5 rear quarter L/R.
+- **Glass** (`evaluateBreakage`, owner rule 2026-10-02: some impact cracks a
+  pane, a frame clearly moved or compressed past rest shatters it). A pane
+  reads its frame's strain, `cageStrain`: the largest change of any
+  corner-to-corner distance of a cage from rest, so rigid motion reads 0. The
+  windscreen and rear glass read their own cage (`glassFront`, `glassRear`);
+  door and quarter glass read their door's (`doorLeft`, `doorRight`). Strain
+  > 0.05 m cracks. Tempered glass (rear, doors, quarters) shatters at
+  > 0.11 m; the laminated windscreen only at > 0.25 m, once its frame has
+  collapsed. Pane order (from `addGlass`): 0 windscreen, 1 rear glass, 2/3
+  door glass L/R, 4/5 rear quarter L/R. Lane ragdoll's probe over the
+  standard crashes (peak strain in m; i intact, c cracked, s shattered; the
+  old part-compression rule left every pane intact except the T-bone's and
+  the 50 km/h side hit's cracks):
+
+  | crash (crash-scenarios) | windscreen | rear | door L | door R | quarter L/R |
+  |---|---|---|---|---|---|
+  | head-on 56+56 (dead) | s 0.297 | s 0.165 | s 0.161 | s 0.161 | s / s |
+  | head-on 28+28 | c 0.067 | i 0.027 | i 0.042 | i 0.042 | i / i |
+  | T-bone 0/50, struck (right) | c 0.224 | s 0.149 | i 0.048 | s 0.115 | i / s |
+  | T-bone 0/50, bullet | c 0.117 | c 0.104 | s 0.139 | s 0.139 | s / s |
+  | wall 56 (dead) | s 0.255 | s 0.144 | c 0.105 | c 0.105 | c / c |
+  | wall 35 | c 0.104 | i 0.040 | i 0.035 | i 0.035 | i / i |
+  | offset 40 % 64 (dead) | s 0.374 | s 0.185 | s 0.404 | s 0.201 | s / s |
+  | side wall 50 (left) | c 0.226 | s 0.215 | s 0.174 | i 0.049 | s / i |
+  | side wall 30 (left) | c 0.118 | c 0.104 | c 0.091 | c 0.051 | c / c |
+  | rear wall 50 | c 0.095 | s 0.115 | c 0.082 | c 0.082 | c / c |
 - **Lamps** break at sensor or part compression > 0.18 after 0.02 s. Each lamp
   checks its own sensors and parts: head L = sensors 1, 4 and wingFL; head R =
   2, 5 and wingFR; tail L = 16, 10 and wingRL; tail R = 17, 11 and wingRR.

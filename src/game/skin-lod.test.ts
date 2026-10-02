@@ -9,14 +9,20 @@ const DT = 1 / 60;
 const CONTACT = 24;
 const SETTLED = 80;
 
-/** Every attached mesh's position buffer in traversal order (body, bonnet, boot, skinned glass, ...). */
+/**
+ * Every drawn mesh's position buffer in traversal order (body, bonnet, boot, skinned glass, ...). A shattered pane is
+ * hidden: its buffer is never drawn, and a reset rewrites it from rest.
+ */
 function meshPositions(c: DeformableCar): Float32Array[] {
   const out: Float32Array[] = [];
   c.group.traverse((o) => {
-    if (o instanceof THREE.Mesh) out.push(o.geometry.getAttribute("position").array as Float32Array);
+    if (o instanceof THREE.Mesh && o.visible) out.push(o.geometry.getAttribute("position").array as Float32Array);
   });
   return out;
 }
+
+/** Every pane's state, one string (assert.equal: a bounded compare, no deep diff). */
+const glassStates = (c: DeformableCar) => c["glassPanes"].map((g) => g.state).join();
 
 const bodyPositions = (c: DeformableCar) => c.body.geometry.getAttribute("position").array as Float32Array;
 
@@ -61,6 +67,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
 
     lod.flushDeferredSkin();
     assert.equal(lod.deform.skinOwed, false);
+    assert.equal(glassStates(lod), glassStates(ref), "deferred car's glass broke differently");
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6, "catch-up pose differs from the always-skinned car");
   });
 
@@ -73,6 +80,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     lod.updateDeform(DT);
     ref.updateDeform(DT);
     assert.equal(lod.deform.skinOwed, false);
+    assert.equal(glassStates(lod), glassStates(ref));
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6);
   });
 
@@ -82,6 +90,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     crashFront(ref, false, SETTLED);
     crashFront(lod, true, SETTLED);
     assert.equal(lod.deform.skinOwed, false);
+    assert.equal(glassStates(lod), glassStates(ref), "deferred car's glass broke differently");
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6, "deferred car froze a different dent");
   });
 
