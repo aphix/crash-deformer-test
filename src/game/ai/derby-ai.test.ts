@@ -212,11 +212,18 @@ function centroid(c: DeformableCar): { x: number; z: number } {
 }
 
 /**
+ * One manoeuvre per run of a move: the brain re-picks its tactic every slice, and a J-turn flips in and out
+ * of `jturn` slice by slice (main, seeds 1/2/3/11: of 350 entries, 309 came < 0.05 s after the last, 33 more
+ * than 5 s after, 8 in between). Counting tactic changes counted those flips, not J-turns.
+ */
+const MOVE_GAP = 1;
+
+/**
  * A derby of `n` AI cars through the engine's stack (`stepWorld` with the derby's hit credit and bowl,
  * cars dressed as `dressCar` does at the game's defaults), at the default slider, to the end of the heat.
  * Spins: |yaw rate| > 5 rad/s for > 0.2 s in the first 2 min, split by a car contact in the 0.3 s before the spin began.
  * Zips: a live mass centroid moving more than 3·v·h + 5 cm in a step. Impacts: AI hits closing ≥ 3 m/s,
- * by the attacker's face.
+ * by the attacker's face. Moves: swings, J-turns and sideswipes, each a manoeuvre (`MOVE_GAP`).
  */
 function runField(n: number, seed: number): Field {
   const scene = new THREE.Scene();
@@ -262,7 +269,8 @@ function runField(n: number, seed: number): Field {
   /** Per car: [t, yaw] pairs spanning about 0.1 s, for the contact peak. */
   const ring = cars.map((): number[] => []);
   const touched = new Array<number>(n).fill(-9);
-  const tactic = new Array<string>(n).fill("");
+  /** Per car, when it was last in each move: back in it within MOVE_GAP s is the same manoeuvre. */
+  const lastIn = { swing: new Array<number>(n).fill(-9), jturn: new Array<number>(n).fill(-9), sideswipe: new Array<number>(n).fill(-9) };
   const alive = new Array<boolean>(n).fill(true);
   let t = 0;
   let state = "running";
@@ -281,11 +289,9 @@ function runField(n: number, seed: number): Field {
     cars.forEach((c, i) => {
       applyDrive(c, match.think(snaps[i]!, snaps, h), h);
       const now = match.brain.tacticOf(i);
-      if (now !== tactic[i]) {
-        if (now === "swing") out.swings++;
-        else if (now === "jturn") out.jturns++;
-        else if (now === "sideswipe") out.sideswipes++;
-        tactic[i] = now;
+      if (now === "swing" || now === "jturn" || now === "sideswipe") {
+        if (t - lastIn[now][i]! > MOVE_GAP) out[now === "swing" ? "swings" : now === "jturn" ? "jturns" : "sideswipes"]++;
+        lastIn[now][i] = t;
       }
     });
     w.pairHit = (a, b, pair) => {
@@ -378,10 +384,12 @@ describe("derby, ten AI cars at the default slider", () => {
     }
   });
 
-  // The contact-spin steer cap must leave the owner's tactics alone. Seeds 1–5 on 943ae5c (before it):
-  // swings 35, J-turns 434, sideswipes 126 (J-turn share 0.73), every heat ≥ 1 swing and sideswipe; after
-  // it (d516b54) 29 / 387 / 121 (0.72); with derby wear 32 / 418 / 130 (0.72).
-  it("good: every heat has a tail swing and a sideswipe, and J-turns stay most of the moves", () => {
+  // The contact-spin steer cap must leave the owner's tactics alone. Counted as manoeuvres (`MOVE_GAP`) on main
+  // c877552 with the pair impulse uncapped, seeds 1/2/3/11: swings 20, J-turns 36, sideswipes 53 (J-turn share
+  // 0.33); seeds 1–5 0.25, seeds 1–9 and 11 0.28. The old count of tactic flips read 0.73–0.78 there (one J-turn
+  // was dozens of flips) and swung with how long each J-turn sat on its edge: 0.43 at 200 km/h class tops.
+  // At those tops the AI drove 45–55 m/s targets into the bowl and its J-turn share fell to 0.19 (24 of 128).
+  it("good: every heat has a tail swing and a sideswipe, and J-turns keep their share of the moves", () => {
     let swings = 0;
     let jturns = 0;
     let sideswipes = 0;
@@ -391,7 +399,7 @@ describe("derby, ten AI cars at the default slider", () => {
       jturns += r.jturns;
       sideswipes += r.sideswipes;
     }
-    assert.ok(jturns / (swings + jturns + sideswipes) >= 0.73 * 0.7, rows.join("\n"));
+    assert.ok(jturns / (swings + jturns + sideswipes) >= 0.33 * 0.7, rows.join("\n"));
   });
 
   // Measured on 3aa4301 (derby kill travel, seeds 1–5): wreck 2/5 (72.6 s, 112.4 s), count-out 1, time 2;

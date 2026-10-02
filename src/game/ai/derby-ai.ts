@@ -90,6 +90,12 @@ function smooth(lo: number, hi: number, v: number): number {
   return t * t * (3 - 2 * t);
 }
 
+/**
+ * The arena pace (m/s) the brain's forward throttle is a share of: the 65 km/h top it was tuned at. A car's
+ * throttle is a share of its class top (200 km/h), so `DerbyMatch.think` scales it down to this; at the
+ * class top a cruise (0.82–1) meant 45–55 m/s in a 16 m bowl.
+ */
+export const DERBY_PACE = 18;
 /** Below this with throttle held, the car is pinned or wedged. */
 export const STUCK_SPEED = 1;
 /** Shoving the target this slowly counts (at 60 %) toward backing off for a run-up. */
@@ -528,7 +534,7 @@ export class DerbyBrain {
   /** Nose first: at its front wheel from the side, never head-on (banned in every rule book). */
   private attackForward(self: AiCar, tgt: AiCar, p: Personality, d: number, speed: number): void {
     const out = this.out;
-    this.intercept(self, tgt, p, Math.max(speed, DRIVE.maxFwd * p.cruise * 0.7), _aim);
+    this.intercept(self, tgt, p, Math.max(speed, DERBY_PACE * p.cruise * 0.7), _aim);
     const ofx = Math.sin(tgt.yaw);
     const ofz = Math.cos(tgt.yaw);
     const rx = self.x - _aim.x;

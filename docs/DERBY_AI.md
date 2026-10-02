@@ -39,6 +39,11 @@ Low aggression also raises the dogpile penalty (`1.2 + 1.8·(1 − a)` per hunte
 is `DEFAULT_DERBY_AGGRESSION = 1` (the whole spread, sandbaggers to brawlers; race defaults to 0.35).
 `DerbyMatch.begin(cars, { aggression, seed })` takes the slider; with no seed every match rolls anew.
 
+Pace: the brain's forward throttle is a share of `DERBY_PACE` (18 m/s, the 65 km/h top it was tuned at);
+`DerbyMatch.think` scales it to the car's class top. At the 200 km/h tops unscaled, a cruise meant 45–55 m/s in
+the 16 m bowl: ten-car seeds 1/2/3/11 ran speed p90 11–12.4 m/s (main 8–9.5), seed 2 zipped 12 times, two heats
+failed the rear-first rule and the J-turn share fell to 0.19.
+
 ## Rules (`DERBY_RULES`, one place to tune)
 
 - Hit clock 60 s: an aggressive hit (≥ 2 m/s into a live car; pushing doesn't count) at least every
@@ -68,7 +73,9 @@ decides the heat.
 `INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs seeds 1,2;
 `DERBY_SEEDS=1,2,3,4,5` for the full set. Asserted per seed: a winner by the heat time limit; no
 AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
-2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first.
+2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first; every
+heat ≥ 1 swing and sideswipe, and a J-turn share ≥ 0.7× main's. Moves count as manoeuvres: back in the same move
+within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
 Todo, owned by CrashRealism8: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
 ≥ 4/5 heats won by wrecking within 300 s with no death before 8 s.
 
