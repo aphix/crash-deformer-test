@@ -4,7 +4,7 @@ Visual and camera effects that read sim state only. Nothing here feeds back into
 physics tests are unchanged. The only sim-side effect is the hit-stop, which scales the sim clock
 (`timeWarp`) for 0.09 s on the driven car's big hits, the same way slow-mo already does.
 
-**Tiers.** Choose them with HUD Playback → FX `off / low / high`, the `F` key (cycles), or `?fx=off|low|high` in the URL (for bench A/B). The default is `high`.
+**Tiers.** Choose them with HUD Playback → FX `off / low / high`, the `F` key (cycles), or `?fx=off|low|high` in the URL (for bench A/B). The default is `low` (Defaults restores it); `high` stays selectable.
 - `off`: the renderer draws straight to the canvas as before. There's no post chain, no mark map, no crash cam, no hit punch, and no tyre smoke from slip. Sparks and glass use the plain look.
 - `prefers-reduced-motion`: no shake, flash, chromatic punch, radial blur or crash-cam moves at any tier. The crash-cam cuts still happen but hold still.
 
@@ -25,8 +25,8 @@ Keys: `F` FX tier · `H` night · `X` wet asphalt (also HUD Playback → Night /
 | Tyre smoke from slip (thin, wide, slow-rising puffs; dust-tinted on ruts, turf-tinted on grass), separate instanced system | `engine-cine.ts`, `engine-fx.ts` `TireSmokeSystem(…, soft)` | low, high | one instanced draw while alive |
 | Spark streaks (additive line from each spark back along its velocity) and HDR spark / glass colour for bloom | `engine-fx.ts` `SparkSystem.streaked`, `glow()` | low, high | one line draw while sparks live |
 | Limping engine smoke (thin thread at `damageStage === "limping"`; dead engines keep the heavier trail) | `engine.ts` tick | all | particle spawns only |
-| Night: moonlight, dark sky, bloomed pole heads, additive fake light pools under intact poles (a toppled pole's pool goes out) | `engine-world.ts` `WorldStage` | all | 6 decal quads at night |
-| Wet asphalt: glossy, darker ground; marks stay matte | `engine-world.ts` | all | none |
+| Night: moonlight, dark sky, bloomed pole heads, additive fake light pools under intact poles (a toppled pole's pool goes out). Sky, ambient, sun, fill, env and smoke go `WorldStage.nightDepth` = 72 % of the way from day to full night (full night read too dark; 62–83 % is the agreed range; mean frame luminance day 0.0199, full night 0.0045, 72 % 0.0074) | `engine-world.ts` `WorldStage` | all | 6 decal quads at night |
+| Wet asphalt: a satin sheen (roughness 0.38, no metalness) on the dry albedo; marks stay matte. The old mirror (roughness 0.2, env ×1.8, darker albedo) glared: ground luminance +35 % vs dry, now +16 %, car/ground contrast 2.67 (dry 2.47) | `engine-world.ts` | all | none |
 
 ## Race tracks
 `engine-marks.ts` exports `markMapUniforms`, `applyMarkMap(material)` and `setMarkBounds(minX, minZ, maxX, maxZ)`.

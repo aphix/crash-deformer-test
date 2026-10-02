@@ -190,6 +190,12 @@ const NIGHT = {
   smoke: 0.4,
 } as const;
 
+const _night = new THREE.Color();
+/** `out` = the day colour moved `k` of the way to the night one (linear working space). */
+function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
+  out.setHex(day).lerp(_night.setHex(night), k);
+}
+
 /**
  * Lights, sky colour and the asphalt disc, plus the time of day (day / night) and a wet-road option.
  * Night drops the sun to moonlight so the cars' own lamps, the pole heads (bloomed) and their fake light
@@ -205,6 +211,9 @@ export class WorldStage {
   private readonly scene: THREE.Scene;
   night = false;
   wet = false;
+  /** Share of the full DAY → NIGHT darkening that night applies (sky, ambient, sun, fill, env, smoke). At 1 the
+   * owner found night too dark; 0.62–0.83 is the agreed range. The lamp heads always glow at full night strength. */
+  nightDepth = 0.72;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -243,12 +252,17 @@ export class WorldStage {
 
   /** Environment-map strength for the current time of day (the studio env loads async). */
   get envIntensity(): number {
-    return this.night ? NIGHT.env : DAY.env;
+    return THREE.MathUtils.lerp(DAY.env, NIGHT.env, this.depth);
   }
 
   /** Smoke brightness for the current time of day. */
   get smokeShade(): number {
-    return this.night ? NIGHT.smoke : DAY.smoke;
+    return THREE.MathUtils.lerp(DAY.smoke, NIGHT.smoke, this.depth);
+  }
+
+  /** How far toward full night the lighting sits: `nightDepth` at night, 0 by day. */
+  private get depth(): number {
+    return this.night ? this.nightDepth : 0;
   }
 
   setNight(on: boolean): void {
@@ -271,24 +285,25 @@ export class WorldStage {
   }
 
   private apply(): void {
-    const t = this.night ? NIGHT : DAY;
+    const k = this.depth;
+    if (!(this.scene.background instanceof THREE.Color)) this.scene.background = new THREE.Color();
     const sky = this.scene.background;
-    if (sky instanceof THREE.Color) sky.setHex(t.sky);
-    else this.scene.background = new THREE.Color(t.sky);
-    if (this.scene.fog) this.scene.fog.color.setHex(t.sky);
-    this.hemi.color.setHex(t.hemi[0]);
-    this.hemi.intensity = t.hemi[1];
-    this.sun.color.setHex(t.sun[0]);
-    this.sun.intensity = t.sun[1];
-    this.fill.color.setHex(t.fill[0]);
-    this.fill.intensity = t.fill[1];
-    if (this.scene.environment) this.scene.environmentIntensity = t.env;
-    lampHead.emissiveIntensity = t.lamp;
+    mixHex(sky, DAY.sky, NIGHT.sky, k);
+    this.scene.fog?.color.copy(sky);
+    mixHex(this.hemi.color, DAY.hemi[0], NIGHT.hemi[0], k);
+    this.hemi.intensity = THREE.MathUtils.lerp(DAY.hemi[1], NIGHT.hemi[1], k);
+    mixHex(this.sun.color, DAY.sun[0], NIGHT.sun[0], k);
+    this.sun.intensity = THREE.MathUtils.lerp(DAY.sun[1], NIGHT.sun[1], k);
+    mixHex(this.fill.color, DAY.fill[0], NIGHT.fill[0], k);
+    this.fill.intensity = THREE.MathUtils.lerp(DAY.fill[1], NIGHT.fill[1], k);
+    if (this.scene.environment) this.scene.environmentIntensity = this.envIntensity;
+    lampHead.emissiveIntensity = this.night ? NIGHT.lamp : DAY.lamp;
     lampPool.visible = this.night;
+    // Wet is a satin sheen on the dry albedo. The old mirror (roughness 0.2, env 1.8, darker albedo) laid a
+    // bright glare band over the ground: ground luminance +35 % vs dry; this one +16 %, car/ground contrast 2.67
+    // (dry 2.47, old wet 2.56).
     const m = this.groundMat;
-    m.color.setHex(this.wet ? 0x1b1d23 : 0x2a2c34);
-    m.roughness = this.wet ? 0.2 : 0.88;
+    m.roughness = this.wet ? 0.38 : 0.88;
     m.metalness = this.wet ? 0 : 0.06;
-    m.envMapIntensity = this.wet ? 1.8 : 1;
   }
 }

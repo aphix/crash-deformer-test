@@ -258,9 +258,9 @@ export class CrashEngine {
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.reduceMotion);
-    // `?fx=off|low|high` picks the starting tier (bench A/B); high otherwise.
+    // `?fx=off|low|high` picks the starting tier (bench A/B); the HUD default otherwise.
     const fxParam = new URLSearchParams(window.location.search).get("fx");
-    this.cine.setTier(FX_TIERS.find((t) => t === fxParam) ?? "high");
+    this.cine.setTier(FX_TIERS.find((t) => t === fxParam) ?? INITIAL_HUD.fxTier);
     this.audio = new CrashAudio();
     this.trace = new TraceRecorder({
       barrier: this.barrier,
@@ -723,6 +723,7 @@ export class CrashEngine {
     this.view.userFramed = false;
     this.setDerby(false);
     this.setRealism(INITIAL_HUD.realism);
+    this.cine.setTier(INITIAL_HUD.fxTier);
     if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
