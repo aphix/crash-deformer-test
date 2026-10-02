@@ -52,6 +52,8 @@ export interface P2PRoomOptions {
   onMessage?: (from: string, data: unknown, channel: "state" | "reliable") => void;
   /** Fires once, on the first successful signaling poll (registration). */
   onConnected?: () => void;
+  /** Binary frames from either channel (`sendBinary`). */
+  onBinary?: (from: string, data: ArrayBuffer) => void;
 }
 
 interface PeerSlot {
@@ -160,6 +162,14 @@ export class P2PRoom {
     const targets = peerId ? [this.peers.get(peerId)] : [...this.peers.values()];
     for (const slot of targets) {
       if (slot?.reliable?.readyState === "open") slot.reliable.send(wire);
+    }
+  }
+
+  /** Binary on the unreliable "state" channel (no JSON): to one peer, or to all when peerId is omitted. */
+  sendBinary(data: Uint8Array<ArrayBuffer>, peerId?: string): void {
+    const targets = peerId ? [this.peers.get(peerId)] : this.peers.values();
+    for (const slot of targets) {
+      if (slot?.state?.readyState === "open") slot.state.send(data);
     }
   }
 
@@ -315,10 +325,15 @@ export class P2PRoom {
   private attachChannel(slot: PeerSlot, channel: RTCDataChannel): void {
     if (channel.label === "state") slot.state = channel;
     else slot.reliable = channel;
+    channel.binaryType = "arraybuffer";
     channel.onopen = () => {
       slot.lastProgressAt = Date.now();
     };
     channel.onmessage = (e) => {
+      if (typeof e.data !== "string") {
+        this.opts.onBinary?.(slot.info.id, e.data as ArrayBuffer);
+        return;
+      }
       let msg: { t: string; d?: unknown };
       try {
         msg = JSON.parse(e.data as string) as { t: string; d?: unknown };

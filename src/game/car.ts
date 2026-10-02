@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { StreamedDeformation, TYRE_R } from "./streamed-deform.ts";
+import { StreamedDeformation, TYRE_R, type DeformNetState } from "./streamed-deform.ts";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
 import {
@@ -89,6 +89,20 @@ export interface DoorHinge {
   load: number;
   /** The door mirror's fold about its base: its `rotation.y` (rad). */
   mirrorFold: number;
+}
+
+/** Netplay state of a car's detachable parts, lamps and glass (docs/MULTIPLAYER.md), preallocated from `partNetSizes()`. */
+export interface PartNetState {
+  /** Per part: 1 detached, 2 folding, 4 its door swing is latched. */
+  readonly flags: Uint8Array;
+  /** Per part × 3: hingeT, swing theta (rad), swing mirrorFold (rad); 0 without a swing. */
+  readonly hinge: Float32Array;
+  /** Per part × 7: world position xyz and quaternion xyzw, while detached. */
+  readonly pose: Float32Array;
+  /** Bit i: lamp i intact. */
+  lamps: number;
+  /** 2 bits per pane: 0 intact, 1 cracked, 2 shattered. */
+  glass: number;
 }
 
 type GlassState = "intact" | "cracked" | "shattered";
@@ -1263,6 +1277,115 @@ export class DeformableCar {
     // Rolls on about its axle (the car's x) at the hub's ground speed.
     _n.set(1, 0, 0).applyQuaternion(this.group.quaternion);
     w.angular.copy(_n).multiplyScalar(Math.hypot(w.velocity.x, w.velocity.z) / TYRE_R);
+  }
+
+  /** Netplay: array sizes for a `PartNetState`. */
+  partNetSizes(): { parts: number; lamps: number; glass: number } {
+    return { parts: this.parts.length, lamps: this.lamps.length, glass: this.glassPanes.length };
+  }
+
+  /** Netplay host: part, lamp and glass state, and each loose part's world pose. */
+  readPartNetState(out: PartNetState): void {
+    for (let i = 0; i < this.parts.length; i++) {
+      const p = this.parts[i]!;
+      const s = p.swing;
+      out.flags[i] = (p.detached ? 1 : 0) | (p.folding ? 2 : 0) | (s?.latched ? 4 : 0);
+      out.hinge[i * 3] = p.hingeT;
+      out.hinge[i * 3 + 1] = s ? s.theta : 0;
+      out.hinge[i * 3 + 2] = s ? s.mirrorFold : 0;
+      if (!p.detached) continue;
+      p.object.position.toArray(out.pose, i * 7);
+      p.object.quaternion.toArray(out.pose, i * 7 + 3);
+    }
+    let lamps = 0;
+    for (let i = 0; i < this.lamps.length; i++) if (this.lamps[i]!.intact) lamps |= 1 << i;
+    let glass = 0;
+    for (let i = 0; i < this.glassPanes.length; i++) {
+      const s = this.glassPanes[i]!.state;
+      glass |= (s === "cracked" ? 1 : s === "shattered" ? 2 : 0) << (i * 2);
+    }
+    out.lamps = lamps;
+    out.glass = glass;
+  }
+
+  /**
+   * Netplay client: take the host's deform and part state with no physics, breakage, launch or FX,
+   * so the skin, hulls, parts, lamps and glass match the host's. Set the pose first.
+   */
+  writeNetState(deform: DeformNetState, parts: PartNetState): void {
+    this.deform.writeNetState(deform, this.group, this.body.geometry);
+    for (let i = 0; i < this.parts.length; i++) {
+      const p = this.parts[i]!;
+      const f = parts.flags[i]!;
+      const loose = (f & 1) !== 0;
+      if (loose !== p.detached) {
+        p.object.removeFromParent();
+        if (loose) this.world.add(p.object);
+        else if (p.name === "mirrorL") this.doorL.add(p.object);
+        else if (p.name === "mirrorR") this.doorR.add(p.object);
+        else this.group.add(p.object);
+        p.detached = loose;
+      }
+      p.folding = (f & 2) !== 0;
+      p.hingeT = parts.hinge[i * 3]!;
+      if (p.swing) {
+        p.swing.theta = parts.hinge[i * 3 + 1]!;
+        p.swing.mirrorFold = parts.hinge[i * 3 + 2]!;
+        p.swing.latched = (f & 4) !== 0;
+        p.swing.omega = 0;
+      }
+      if (!loose) continue;
+      p.object.position.fromArray(parts.pose, i * 7);
+      p.object.quaternion.fromArray(parts.pose, i * 7 + 3);
+    }
+    // Mirrors pose on their door, which shares their swing: every swing is set before any pose.
+    for (const p of this.parts) if (!p.detached) this.posePart(p);
+
+    let relight = false;
+    for (let i = 0; i < this.lamps.length; i++) if ((parts.lamps >> i) & 1 && !this.lamps[i]!.intact) relight = true;
+    if (relight) this.resetLamps();
+    for (let i = 0; i < this.lamps.length; i++) if (!((parts.lamps >> i) & 1) && this.lamps[i]!.intact) this.breakLamp(this.lamps[i]!);
+
+    for (let i = 0; i < this.glassPanes.length; i++) {
+      const g = this.glassPanes[i]!;
+      const want = (parts.glass >> (i * 2)) & 3;
+      const have = g.state === "intact" ? 0 : g.state === "cracked" ? 1 : 2;
+      if (want === have) continue;
+      if (want < have) {
+        g.state = "intact";
+        g.mesh.visible = true;
+        g.mesh.position.copy(g.restPos);
+        if (g.restVerts) this.restoreRest(g.mesh.geometry, g.restVerts);
+        g.mat.opacity = 0.78;
+        g.mat.map = null;
+        g.mat.roughness = 0.06;
+        g.mat.needsUpdate = true;
+      }
+      if (want >= 1 && g.state === "intact") {
+        g.state = "cracked";
+        g.mat.map = getCrackMap();
+        g.mat.opacity = 0.55;
+        g.mat.roughness = 0.32;
+        g.mat.needsUpdate = true;
+      }
+      if (want === 2) {
+        g.state = "shattered";
+        g.mesh.visible = false;
+      }
+    }
+
+    if (this.deform.skinnedThisFrame) {
+      this.poseLamps();
+      this.skinPanels();
+    }
+    this.followGlass();
+    this.fitInterior();
+    if (this.hullHelper?.visible) this.updateHullHelper();
+  }
+
+  /** Netplay client, every frame: wheels spin and ride their hubs as `afterContacts` does on the host. */
+  netFrame(dt: number): void {
+    this.nudgeWheels(dt);
   }
 }
 

@@ -13,6 +13,7 @@ import { partContactPair } from "./external-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
+import type { CarStyleId } from "./car-variants.ts";
 import { assignClass, carClass, CLASSES, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
 import { makeAsphalt, makeLamp } from "./engine-world.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
@@ -35,6 +36,7 @@ import { LampLights } from "./lamp-lights.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
+import { NetPlay } from "./net/net-play.ts";
 
 export type { CrashHudState, CrashPhase } from "./hud-store";
 
@@ -179,6 +181,14 @@ export class CrashEngine {
   private view: ChaseCamera;
   private trace: TraceRecorder;
   private readonly strongest = new StrongestContact();
+  /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
+  readonly net = new NetPlay({
+    cars: () => this.live(),
+    setCarCount: (n) => this.setCarCount(n),
+    matchCar: (i, style, cls) => this.matchCar(i, style, cls),
+    setRealism: (v) => this.setRealism(v),
+    seat: this.seat,
+  });
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -271,6 +281,7 @@ export class CrashEngine {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
     this.pad.detach();
+    this.net.leave();
     this.view.detach();
     this.resizeObs.disconnect();
     for (const car of this.cars) car.dispose();
@@ -633,22 +644,32 @@ export class CrashEngine {
     if (this.seat.carIndex >= count) this.seat.clear();
   }
 
-  private buildCar(i: number): DeformableCar {
+  private buildCar(
+    i: number,
+    cls: VehicleClassId = i === 0 ? this.playerClass : fleetClass(i),
+    style: CarStyleId = i === 0 ? CLASSES[cls].style : fleetStyle(i),
+  ): DeformableCar {
     const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
     const paint: CarPaint =
       i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
-    const cls = i === 0 ? this.playerClass : fleetClass(i);
-    const car = new DeformableCar(
-      paint,
-      this.scene,
-      (origin, vel, count) => this.glassDots.burst(origin, vel, count),
-      i === 0 ? CLASSES[cls].style : fleetStyle(i),
-    );
+    const car = new DeformableCar(paint, this.scene, (origin, vel, count) => this.glassDots.burst(origin, vel, count), style);
     assignClass(car, cls);
     car.group.visible = false;
     car.group.userData.carIndex = i;
     this.scene.add(car.group);
     return car;
+  }
+
+  /** Netplay client: car `i` takes the host's body style and class, rebuilt only when either differs. */
+  matchCar(i: number, style: CarStyleId, cls: VehicleClassId): void {
+    const old = this.cars[i];
+    if (!old || (old.style.id === style && carClass(old) === cls)) return;
+    this.scene.remove(old.group);
+    old.dispose();
+    const car = this.buildCar(i, cls, style);
+    car.group.visible = i < this.carCount;
+    this.dressCar(car);
+    this.cars[i] = car;
   }
 
   private dressCar(car: DeformableCar): void {
@@ -1046,7 +1067,7 @@ export class CrashEngine {
       if (this.acc > 0.05) this.acc = 0.05;
       const budget = now + 8;
       let steps = 0;
-      while (this.acc > 1e-5 && steps < 8) {
+      while (!this.net.client && this.acc > 1e-5 && steps < 8) {
         const h = physicsSlice(this.acc, vmax);
         this.fixedStep(h);
         this.elapsedSim += h;
@@ -1060,9 +1081,11 @@ export class CrashEngine {
       }
       this.scheduleSkins(cars);
       for (const car of cars) {
+        if (this.net.client) break;
         if ((this.showCompactor || this.showPistons || this.showDoors) && car !== this.carA) continue;
         car.updateDeform(simDt);
       }
+      this.net.frame(wallDt);
       this.updatePhase(wallDt);
       if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (this.phase !== "approach") this.emitContactFx();
@@ -1231,6 +1254,7 @@ export class CrashEngine {
       if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(car, dt), dt);
       if (this.seat.selfRight(car.group.matrixWorld.elements[5]!, car.velocity.length(), dt)) this.recoverDriven();
     }
+    this.net.drive(cars, dt, driven);
     if (this.derbyMode && this.derby.winnerId == null) {
       const snaps = this.derby.snapshots(cars.length);
       for (let i = 0; i < cars.length; i++) {
