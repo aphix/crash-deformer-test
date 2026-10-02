@@ -1473,6 +1473,20 @@ Probes in the main checkout's `.bench/cr11/`:
   5. `syncPose(h)`: 31 × 3.79 = 117
 
   Then `think` + `applyDrive` at 95.
+- **Corner pistons: far door and paint** (`.bench/cr11/corner.ts`, 1500 kg at 40 km/h). Not fixed.
+  - Far door, `frontLeft` → `doorR`, 0.049 m against the 0.06 cabin limit (`frontRight` mirrors it). The door holds −0.005 m through the whole contact (0–0.35 s). It closes to 0.049 m between quiet 0.25 s and 0.45 s, in the slide after the hit (7 m/s diagonal), and keeps that as set.
+  - Cause: unequal ground drag. `stepMassSlice` brakes the hubs at full μ, but ramps the body masses' drag in from quiet 0.12 s to 0.57 s (from ad6982b's "ice-skating" fix, not a calibration). The braked hubs shear the body.
+  - Measured with temporary toggles:
+
+    | variant | frontLeft far door (m) | left far door (m) | shove (m) |
+    |---|---|---|---|
+    | as is | 0.049 | 0.082 | 6.18 |
+    | no body drag | 0.061 | 0.082 | 9.87 |
+    | body at full μ from 0.12 s | −0.008 | 0.072 | 4.89 |
+    | hubs on the body's ramp | −0.009 | 0.068 | 6.50 |
+
+  - Equal drag fixes the door, but the full-μ variant fails 7 tests: the corner struck depth on both corners, side MDB 0.15–0.25 m, both corners' crush monotonicity, contact parity at 40 km/h, and rear far paint. It was reverted. Landing it needs those re-anchored or the hubs-on-the-ramp variant gated.
+  - Paint: the `frontLeft` dent of 0.088 m is the mean over a 0.3 m sphere (28 vertices). The 5 nose/bumper vertices average 0.175 m, which matches `bumperFL`'s 0.188 m. The 23 wing/arch vertices average 0.069 m, and a quarter of them bulge out 0.033–0.037 m. The median is 0.110 m. This is geometry plus the wing grading behind the bumper (`wingFL` 0.030 m), not a skin defect.
 
 ## Appendix
 
