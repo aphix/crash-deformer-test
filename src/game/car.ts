@@ -162,7 +162,11 @@ export class DeformableCar {
   roll = 0;
   pitch = 0;
   spawnSpeed = 0;
-  readonly drive = { throttle: 0, steer: 0, brake: 0, ebrake: false };
+  /**
+   * Last slice's drive (applyDrive writes it). spin / lock / slide are 0–1 wheel slip for tyre FX:
+   * launch wheelspin, brake lock-up, sideways slide; `drift` is the drift assist's own state.
+   */
+  readonly drive = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false, spin: 0, lock: 0, slide: 0, drift: 0 };
 
   private world: THREE.Scene;
   private onGlass: GlassBurst | null;

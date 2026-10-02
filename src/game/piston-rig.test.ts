@@ -102,8 +102,6 @@ const TODO: Partial<Record<string, string>> = {
   "rearLeft:tap-skin": "0.140 m vs ≤ 0.03 m: the 3-particle rear cluster fits a ~0.19 rad tilt from the moved rear bumper particles (tap-particles)",
   "left:tap-skin": "0.095 m vs ≤ 0.03 m: cluster-fit rotations from tap particle noise, extrapolated to the bumper skin",
   "front:kill-ebs": "kills at 56 km/h = EBS 44.7 km/h vs (56, 64] km/h: the piston path kills the block at a lower EBS than the barrier path",
-  "frontLeft:corner-kill": "kills at 52 km/h vs ≥ 56 km/h (front-middle): a 45° corner counts as frontal in updateDrivetrain and packs the block sooner",
-  "frontRight:corner-kill": "kills at 52 km/h vs ≥ 56 km/h (front-middle): a 45° corner counts as frontal in updateDrivetrain and packs the block sooner",
   "frontLeft:lattice-tap-skin": "0.081 m vs ≤ 0.03 m: the cages follow 0.03–0.06 m of tap particle noise (tail jump fixed in skin)",
   "front:lattice-tap-skin": "0.048 m vs ≤ 0.03 m: the cages follow the tap's particle noise",
   "frontRight:lattice-tap-skin": "0.081 m vs ≤ 0.03 m: the cages follow the tap's particle noise",

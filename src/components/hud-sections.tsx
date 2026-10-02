@@ -14,9 +14,10 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { HudProps } from "@/components/hud";
+import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
 import { Button } from "@/components/ui/button";
 
-type SectionId = "playback" | "tuning" | "debug";
+type SectionId = "playback" | "driving" | "tuning" | "debug";
 const SECTIONS_KEY = "crush.hud.sections";
 const FIELD = "h-10 w-16 shrink-0 rounded-md bg-surface-2 px-2 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]";
 
@@ -49,6 +50,9 @@ export function HudSections(props: HudProps) {
     >
       <Section id="playback" title="Playback">
         <PlaybackSection {...props} />
+      </Section>
+      <Section id="driving" title="Driving">
+        <DrivingSection {...props} />
       </Section>
       <Section id="tuning" title="Cars & crash">
         <TuningSection {...props} />
@@ -293,5 +297,35 @@ function DebugSection({ state, onToggleRig, onToggleParticles, onToggleCapture, 
         {copied ? "Copied" : `JSON ${state.traceSamples}`}
       </Button>
     </div>
+  );
+}
+
+/** Class of the player's car and the one arcade ↔ realistic axis (assists, grip, when damage kills). */
+function DrivingSection({ state, onPlayerClass, onRealism }: HudProps) {
+  return (
+    <>
+      <div className="flex items-center gap-2">
+        <span className="hud-label w-14 shrink-0">Car</span>
+        <div className="grid flex-1 grid-cols-4 gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Your car's class">
+          {VEHICLE_CLASS_IDS.map((id) => (
+            <Button
+              key={id}
+              size="sm"
+              className="h-10 px-1"
+              variant={state.playerClass === id ? "default" : "ghost"}
+              aria-pressed={state.playerClass === id}
+              onClick={() => onPlayerClass(id)}
+            >
+              {CLASSES[id].label}
+            </Button>
+          ))}
+        </div>
+      </div>
+      <SliderField label="Realism" name="Arcade to realistic handling and damage" value={state.realism} min={0} max={1} step={0.05} digits={2} onValue={onRealism} />
+      <div className="flex justify-between pl-16 pr-[4.5rem] text-xs text-subtle" aria-hidden>
+        <span>Arcade</span>
+        <span>Realistic</span>
+      </div>
+    </>
   );
 }

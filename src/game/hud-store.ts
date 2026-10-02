@@ -1,3 +1,5 @@
+import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
+
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
 export type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
@@ -79,6 +81,10 @@ export type CrashHudState = {
   view: "third" | "far" | "first";
   /** Connected gamepad label ("Xbox controller", …), null when none. */
   pad: string | null;
+  /** Arcade (0) ↔ realistic (1) handling and damage. */
+  realism: number;
+  /** The player's car class (slot 0). */
+  playerClass: VehicleClassId;
 };
 
 export const INITIAL_HUD: CrashHudState = {
@@ -126,6 +132,8 @@ export const INITIAL_HUD: CrashHudState = {
   boost: 1,
   view: "third",
   pad: null,
+  realism: DEFAULT_REALISM,
+  playerClass: "sedan",
 };
 
 let snapshot: CrashHudState = INITIAL_HUD;
