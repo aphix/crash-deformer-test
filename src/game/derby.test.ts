@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
-import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, HIT_DEBOUNCE, STALEMATE, snapshotAiCar } from "./derby.ts";
+import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, SCORE_GAP, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { clipToDerbyBowl, DERBY_RADIUS, makeDerbyArena } from "./derby-arena.ts";
 import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
 import { fleetStyle, layoutDerby, MAX_CARS } from "./fleet.ts";
@@ -124,21 +124,26 @@ describe("derby AI", () => {
 });
 
 describe("derby scoring", () => {
-  it("good: hits debounce so buckle chatter is one point", () => {
+  it("good: buckle chatter and soft taps don't score — one point per hard hit per pair per gap", () => {
     const m = new DerbyMatch();
     m.begin([
       { id: 0, name: "Titanium" },
       { id: 1, name: "Petrol" },
+      { id: 2, name: "Oxide" },
     ]);
     assert.equal(m.noteHit(0, 1, 8, 2, 6), true);
-    assert.equal(m.noteHit(0, 1, 8, 2, 6), false);
-    m.time = HIT_DEBOUNCE + 0.05;
-    assert.equal(m.noteHit(0, 1, 8, 2, 6), true);
+    assert.equal(m.noteHit(0, 1, 8, 2, 6), false, "same contact twice");
+    m.time = SCORE_GAP / 2;
+    m.noteHit(0, 1, 8, 2, 6);
+    m.noteHit(0, 2, 3, 0, 6);
+    assert.equal(m.row(0)!.score, HIT_POINTS, "inside the gap, or a 3 m/s tap, scored");
+    m.time = SCORE_GAP + 0.05;
+    m.noteHit(0, 1, 8, 2, 6);
     assert.equal(m.row(0)!.score, HIT_POINTS * 2);
     assert.equal(m.row(0)!.hits, 2);
   });
 
-  it("good: disabling is 10 on top of the last hit, last survivor wins regardless of points", () => {
+  it("good: a disable is a bonus on top of the last hit, last survivor wins regardless of points", () => {
     const m = new DerbyMatch();
     m.begin([
       { id: 0, name: "Titanium" },
@@ -146,10 +151,9 @@ describe("derby scoring", () => {
     ]);
     m.noteHit(1, 0, 9, 1, 10);
     for (let i = 0; i < 6; i++) {
-      m.time += HIT_DEBOUNCE + 0.05;
+      m.time += SCORE_GAP + 0.05;
       m.noteHit(1, 0, 9, 1, 8);
     }
-    assert.ok(m.row(1)!.score > 4);
     m.step(0.05, [
       { id: 0, name: "Titanium", alive: false, x: 0, z: 0 },
       { id: 1, name: "Petrol", alive: true, x: 0, z: 5 },
@@ -167,7 +171,7 @@ describe("derby scoring", () => {
       { id: 1, name: "Ink" },
     ]);
     for (let i = 0; i < 8; i++) {
-      m.time += HIT_DEBOUNCE + 0.02;
+      m.time += SCORE_GAP + 0.02;
       m.noteHit(0, 1, 10, 0, 9);
     }
     m.step(0.02, [
