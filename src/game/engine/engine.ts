@@ -48,6 +48,18 @@ const _p = new THREE.Vector3();
 const _bn = new THREE.Vector3();
 const _bp = new THREE.Vector3();
 
+/**
+ * Lit shaders skip a point or spot light's BRDF where the light adds nothing: past its range, outside its cone,
+ * or at intensity 0. Every lit program carries the lamp pool's 4 spots and 4 points (`lamp-lights.ts`: changing
+ * the count relinks every program), the impact flash and the derby winner's spot, and three ran the full BRDF
+ * for each of them on every fragment. Exact: three already zeroes such a light's colour and clears `visible`.
+ */
+const RE_DIRECT = "RE_Direct( directLight, ";
+const SKIP_DARK = `if ( directLight.visible ) ${RE_DIRECT}`;
+const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
+if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
+if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
+
 export class CrashEngine extends EngineInput {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
