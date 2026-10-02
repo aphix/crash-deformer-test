@@ -602,7 +602,7 @@ export class CrashEngine extends EngineInput {
     if (settled && this.looping && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
   }
 
-  /** `updateCamera`'s derby centroid set, refilled per frame. */
+  /** `aimRigs`'s derby centroid set, refilled per frame. */
   private readonly aliveBuf: DeformableCar[] = [];
 
   /** What the trackside and dutch cams read, only when they pick a shot: the scene's solids and the rival racers. */
@@ -638,7 +638,15 @@ export class CrashEngine extends EngineInput {
     return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }
 
+  /** The rigs' shot, then the rear-view hold over it (undone before the next frame's rigs, so they never see it). */
   private updateCamera(wallDt: number): void {
+    this.view.unflip();
+    this.aimRigs(wallDt);
+    const back = this.view.rear ? this.followedCar() : null;
+    if (back?.group.visible) this.view.lookBack(back);
+  }
+
+  private aimRigs(wallDt: number): void {
     if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
     const followed = this.followedCar();
     // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps

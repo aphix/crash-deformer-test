@@ -240,7 +240,7 @@ function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number): void
 
 /**
  * Orbit / chase / first-person rig over the shared PerspectiveCamera, plus canvas pointer input:
- * left-drag orbits (or looks round the driven or spectated car), wheel zooms, a short tap picks via `onClick`.
+ * left-drag orbits (or looks round the driven or spectated car), wheel or a two-finger pinch zooms, a short tap picks via `onClick`.
  * The right stick orbits too (looks round while driving or spectating).
  */
 export class ChaseCamera {
@@ -252,6 +252,8 @@ export class ChaseCamera {
   trauma = 0;
   /** User dragged or zoomed since the last reset; cinematics stop re-aiming. */
   userFramed = false;
+  /** Rear-view hold, set by the input poll every frame (Backquote, R3, the touch button). */
+  rear = false;
   readonly drive = new DriveCam();
   readonly cine = new CineCam();
   readonly dutch = new DutchCam();
@@ -273,6 +275,16 @@ export class ChaseCamera {
   private lastX = 0;
   private lastY = 0;
   private readonly approachSide = new THREE.Vector3(1, 0, 0);
+  /** `lookBack` parks the rigs' own shot here and `unflip` puts it back, so the rigs never see the rear view. */
+  private flipped = false;
+  private readonly rigPos = new THREE.Vector3();
+  private readonly rigQuat = new THREE.Quaternion();
+  /** Canvas pointers: the drag's id, and a second finger that pinch-zooms (`pinchDist` px from the first). */
+  private dragId = -1;
+  private pinchId = -1;
+  private pinchX = 0;
+  private pinchY = 0;
+  private pinchDist = 0;
 
   readonly camera: THREE.PerspectiveCamera;
   private readonly canvas: HTMLCanvasElement;
@@ -326,6 +338,8 @@ export class ChaseCamera {
   frameReset(compactor: boolean, cars: readonly DeformableCar[], soloAngle = 0.85): void {
     this.userFramed = false;
     this.trauma = 0;
+    // This snap replaces any shot `lookBack` parked.
+    this.flipped = false;
     if (compactor) {
       this.look.set(0, 0.55, 0);
       this.radius = 9.4;
@@ -439,6 +453,29 @@ export class ChaseCamera {
   }
 
   /**
+   * Rear view: the chase offset mirrored ahead of `car`, looking back past it, snapped (no spring). The rigs'
+   * shot is parked for `unflip`, so a release shows it again on the next frame.
+   */
+  lookBack(car: DeformableCar): void {
+    this.rigPos.copy(this.camera.position);
+    this.rigQuat.copy(this.camera.quaternion);
+    this.flipped = true;
+    const p = car.group.position;
+    const f = car.fwdFlat;
+    const c = this.seat.view === "far" ? CHASE.far : CHASE.third;
+    this.camera.position.set(p.x + f.x * c.dist, p.y + c.height, p.z + f.z * c.dist);
+    this.camera.lookAt(p.x - f.x * c.dist, p.y + c.aimUp, p.z - f.z * c.dist);
+  }
+
+  /** Undo last frame's `lookBack`; call before the rigs run. */
+  unflip(): void {
+    if (!this.flipped) return;
+    this.flipped = false;
+    this.camera.position.copy(this.rigPos);
+    this.camera.quaternion.copy(this.rigQuat);
+  }
+
+  /**
    * A followed car off the fleet disc's rim: the eye eases to shoulder height just inside the rim on the car's
    * bearing and stays there, the aim eases onto the car and keeps it centred as it drops; `hold` (vaporized)
    * keeps the last aim. The chase is released, so a respawn blends back in.
@@ -500,6 +537,18 @@ export class ChaseCamera {
 
   private onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return;
+    // A second finger on the canvas pinch-zooms (the touch wheel); it never orbits or picks.
+    if (this.dragId !== -1) {
+      if (this.pinchId !== -1) return;
+      this.pinchId = e.pointerId;
+      this.pinchX = e.clientX;
+      this.pinchY = e.clientY;
+      this.pinchDist = Math.hypot(this.lastX - e.clientX, this.lastY - e.clientY);
+      this.pointerTravel = Infinity;
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    this.dragId = e.pointerId;
     this.pointerTravel = 0;
     this.lookDragging = this.rig === "chase";
     this.dragging = this.seat.mode !== "drive";
@@ -511,11 +560,22 @@ export class ChaseCamera {
   };
 
   private onPointerMove = (e: PointerEvent): void => {
+    if (e.pointerId === this.pinchId) {
+      this.pinchX = e.clientX;
+      this.pinchY = e.clientY;
+      this.pinch();
+      return;
+    }
+    if (e.pointerId !== this.dragId) return;
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
     this.pointerTravel += Math.hypot(dx, dy);
     this.lastX = e.clientX;
     this.lastY = e.clientY;
+    if (this.pinchId !== -1) {
+      this.pinch();
+      return;
+    }
     if (this.lookDragging) {
       this.drive.nudge(dx, dy);
       return;
@@ -525,7 +585,22 @@ export class ChaseCamera {
     this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.004, 0.08, 1.22);
   };
 
+  /** Two fingers apart zoom in, together zoom out, on the wheel's radius range. */
+  private pinch(): void {
+    const d = Math.hypot(this.lastX - this.pinchX, this.lastY - this.pinchY);
+    if (this.pinchDist > 0 && d > 0) this.radius = THREE.MathUtils.clamp((this.radius * this.pinchDist) / d, 4.2, 32);
+    this.pinchDist = d;
+    this.userFramed = true;
+  }
+
   private onPointerUp = (e: PointerEvent): void => {
+    if (e.pointerId === this.pinchId) {
+      this.pinchId = -1;
+      return;
+    }
+    if (e.pointerId !== this.dragId) return;
+    this.dragId = -1;
+    this.pinchId = -1;
     const click = this.pointerTravel < 8;
     this.dragging = false;
     this.lookDragging = false;

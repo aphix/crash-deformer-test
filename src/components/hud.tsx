@@ -4,6 +4,8 @@ import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizo
 import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { FullscreenButton, TouchControls } from "@/components/touch-controls";
+import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
@@ -73,6 +75,7 @@ const CAMERA_KEYS: [string, string][] = [
   ["Click · Q / E", "Follow a car"],
   ["W A S D", "Take the wheel"],
   ["Esc", "Step back out"],
+  ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
   ["V", "Camera view: chase, trackside, wheel, orbit"],
 ];
@@ -82,24 +85,24 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
     return {
       title: `Racing · ${CAM_LABEL[state.view]}`,
       keys: state.pad
-        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · D-pad ↓ respawn · Start pause"
-        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · R respawn · Esc pause",
+        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · R3 look back · D-pad ↓ respawn · Start pause"
+        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · ` look back · R respawn · Esc pause",
     };
   }
   if (state.seat === "drive") {
     return {
       title: `Driving · ${CAM_LABEL[state.view]}`,
       keys: state.pad
-        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · right stick look · LB/RB car · D-pad ↓ recover · Back watch"
-        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · R recover · Esc watch",
+        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · R3 look back · right stick look · LB/RB car · D-pad ↓ recover · Back watch"
+        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · ` look back · R recover · Esc watch",
     };
   }
   if (state.seat === "follow") {
     return {
       title: state.cam ? `Watching · ${CAM_LABEL[state.cam]}` : "Watching",
       keys: state.pad
-        ? "RT, LT or left stick to drive · LB/RB switch car · Y camera · right stick look · Back exit"
-        : "W/A/S/D to drive · Q/E switch car · V camera · drag look · Esc back",
+        ? "RT, LT or left stick to drive · LB/RB switch car · Y camera · right stick look · R3 look back · Back exit"
+        : "W/A/S/D to drive · Q/E switch car · V camera · drag look · ` look back · Esc back",
     };
   }
   return { title: "Whole field", keys: "LB/RB to pick a car" };
@@ -107,6 +110,8 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
 
 export function Hud(props: HudProps) {
   const { state, engine } = props;
+  // Phones and tablets get the thumb pad and touch hints; a fine pointer keeps the desktop HUD as it was.
+  const touch = useCoarsePointer();
   const raceCommand = (cmd: RaceCommand) => engine.current?.raceCommand(cmd);
   // Race focus view: race panels only; the sandbox HUD comes back with the Full menu toggle (H).
   const focus = state.race !== null && !state.race.fullUi;
@@ -158,9 +163,13 @@ export function Hud(props: HudProps) {
         {state.race ? (
           <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
         ) : null}
-        {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} /> : null}
+        {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} touch={touch} /> : null}
+        {touch ? <TouchControls {...props} /> : null}
         {focus && state.race ? (
-          <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
+          <div className="flex items-center gap-1">
+            <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
+            <FullscreenButton className="hud-ink pointer-events-auto text-fg/80 hover:bg-surface/60 hover:text-fg sm:h-8" />
+          </div>
         ) : (
           <Dock {...props} raceCommand={raceCommand} settingsShown={settingsShown} onToggleSettings={() => setSettings(settingsShown ? "hidden" : "shown")} />
         )}
@@ -240,8 +249,8 @@ function Readout({ label, value, unit }: { label: string; value: string; unit?: 
   );
 }
 
-/** Seat keys and the controller label, inked straight onto the view above the dock so it never covers a control. */
-function DriveHint({ state }: { state: CrashHudState }) {
+/** Seat keys and the controller label, inked straight onto the view above the dock so it never covers a control. Touch screens drop the key list: their buttons carry captions. */
+function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
   const { title, keys } = seatHint(state);
   return (
     <div className="hud-ink w-full max-w-md" role="status">
@@ -249,7 +258,7 @@ function DriveHint({ state }: { state: CrashHudState }) {
         {title}
         {state.pad ? <span className="hud-label ml-2 text-fg/80">{state.pad} connected</span> : null}
       </p>
-      <p className="text-xs leading-snug text-fg/80">{keys}</p>
+      {touch ? null : <p className="text-xs leading-snug text-fg/80">{keys}</p>}
       {state.seat === "drive" ? (
         <div className="mt-1 h-1 w-40 overflow-hidden rounded-full bg-surface-2/80" aria-label="Boost">
           <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
@@ -353,6 +362,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <SlidersHorizontal />
       </Button>
       <KeyHelp />
+      <FullscreenButton className={BAR_BUTTON} />
     </div>
   );
 }
