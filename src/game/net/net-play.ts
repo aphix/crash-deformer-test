@@ -1,6 +1,8 @@
 import { z } from "zod";
 import type { DeformableCar } from "../car.ts";
 import type { CrashPhase } from "../hud-store.ts";
+import type { RaceDirector } from "../engine-race.ts";
+import type { RaceSnapshot } from "../race/types.ts";
 import { applyDrive, idleDrive, type DriveInput, type DriverSeat } from "../car-drive.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "../car-variants.ts";
 import { carClass, HANDLING, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle-classes.ts";
@@ -20,12 +22,18 @@ import {
 } from "./codec.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";
-import { PUBLIC_PREFIX } from "@/lib/multiplayer/rooms";
+import { PUBLIC_PREFIX, ROOM_MAX } from "@/lib/multiplayer/rooms";
 
 /** `GET api/rtc?list=public` (signaling.server.ts `listPublic`), fullest room first. */
 const PUBLIC_LIST = z.object({
   rooms: z.array(z.object({ room: z.string().startsWith(PUBLIC_PREFIX).max(64), players: z.number().int() })),
 });
+
+/** `MSG.race` body. `snap` is the host's `RaceSnapshot` (null between races); a peer's data, so applied guarded. */
+const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), snap: z.unknown() });
+
+/** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */
+export type NetRace = Pick<RaceDirector, "options" | "phase" | "setSeats" | "setRemoteInput" | "requestRespawn" | "snapshot" | "applySnapshot" | "showLobby">;
 
 /** Wire order of the crash phases (`Snapshot.phase`). */
 const PHASES: readonly CrashPhase[] = ["approach", "impact", "slowmo", "aftermath"];
@@ -47,6 +55,12 @@ export interface NetGame {
   timeScale(): number;
   /** Client: show the host's phase and run FX at its time scale. */
   mirrorClock(phase: CrashPhase, timeScale: number): void;
+  /** Race mode's director, null outside race mode. */
+  race(): NetRace | null;
+  /** Race mode on / off, and (host) start a race with the current seats. */
+  enterRace(): void;
+  exitRace(): void;
+  startRace(): void;
   readonly seat: DriverSeat;
 }
 
@@ -59,6 +73,8 @@ export interface NetStatus {
   selfId: string;
   /** This peer's car (host 0); −1 until the host assigns one. */
   car: number;
+  /** Seconds until a public race starts (host lobby, mirrored to clients), null otherwise. */
+  lobby: number | null;
   peers: readonly NetPeer[];
   /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
   snapHz: number;
@@ -72,6 +88,16 @@ const REDUNDANT = 3;
 /** Clients draw this far (s) behind the host's newest snapshot. */
 const INTERP_DELAY = 0.1;
 const RING = 8;
+/** A public-race client with no host snapshot this long (ms) after joining hosts a fresh room. */
+const HOST_WAIT_MS = 5000;
+/** A public host waits this long (s) for players before the AI fills the empty seats and the race starts. */
+export const LOBBY_S = 15;
+/** Seconds a finished public race shows its results before the next one starts (late joiners race then). */
+const RESULTS_HOLD = 12;
+/** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */
+const RACE_EVERY = 6;
+/** A client in race mode with no race message from its host this long (ms) leaves race mode. */
+const RACE_GONE_MS = 2000;
 
 /**
  * Host-authoritative netplay (docs/MULTIPLAYER.md). The host simulates and broadcasts snapshots; each
@@ -121,6 +147,19 @@ export class NetPlay {
   private readonly applied: number[] = [];
   private readonly idle = idleDrive();
   private helloAcc = 0;
+  /** `performance.now()` at join, and whether any host snapshot has arrived since. */
+  private joinedAt = 0;
+  private heardHost = false;
+  /** Seconds left in the public-race lobby (host counts down, clients mirror it); null outside one. */
+  private lobbyLeft: number | null = null;
+  /** Host: seconds the finished public race has been showing its results. */
+  private finishedFor = 0;
+  /** Client: R was pressed; rides on the next input packet. */
+  private respawnWanted = false;
+  /** Client: `performance.now()` of the host's last race message (race mode follows the host's). */
+  private raceAt = 0;
+  /** A closed tab never runs the engine's dispose: leave the room so the relay drops us at once. */
+  private readonly onPageHide = (): void => this.leave();
 
   constructor(game: NetGame) {
     this.game = game;
@@ -137,11 +176,14 @@ export class NetPlay {
 
   join(room: string, tx: NetTx = "bc"): void {
     this.start("client", room, tx);
+    this.joinedAt = performance.now();
+    this.heardHost = false;
   }
 
   /**
-   * Public race: join the fullest open public room over WebRTC (the relay lists rooms with a live
-   * host and a free seat), or host a new one when none is open.
+   * Public race: join the fullest open public room over WebRTC (the relay lists rooms whose host
+   * polled in the last few seconds and that have a free seat), or host a new one when none is open.
+   * A joined room whose host never sends a snapshot within `HOST_WAIT_MS` is abandoned for a fresh one.
    */
   async publicRace(): Promise<void> {
     let open: string | undefined;
@@ -152,12 +194,32 @@ export class NetPlay {
     } catch {
       // Offline or relay down: host a room of our own, which others can still find later.
     }
-    if (open) this.join(open, "rtc");
-    else this.host(`${PUBLIC_PREFIX}${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
+    if (open) {
+      this.join(open, "rtc");
+      this.isPublic = true;
+    } else this.hostPublic();
+  }
+
+  /** Host a fresh public room on the race course: the lobby counts `LOBBY_S` down, then the race starts. */
+  private hostPublic(): void {
+    this.host(`${PUBLIC_PREFIX}${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
     this.isPublic = true;
+    this.game.enterRace();
+    // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
+    const race = this.game.race();
+    race?.showLobby(race.options.trackId);
+    this.lobbyLeft = LOBBY_S;
+    this.syncSeats();
+  }
+
+  /** Client: ask the host to put this peer's car back on the track (race R / D-pad down). */
+  requestRespawn(): void {
+    this.respawnWanted = true;
   }
 
   leave(): void {
+    if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
+    if (this.role === "client" && this.game.race()) this.game.exitRace();
     this.transport?.close();
     this.transport = null;
     this.role = "off";
@@ -171,6 +233,8 @@ export class NetPlay {
     this.applied.length = 0;
     this.snapHz = 0;
     this.bytesPerSec = 0;
+    this.lobbyLeft = null;
+    this.finishedFor = 0;
   }
 
   status(): NetStatus {
@@ -180,6 +244,7 @@ export class NetPlay {
       tx: this.tx,
       selfId: this.transport?.selfId ?? "",
       car: this.car,
+      lobby: this.lobbyLeft == null ? null : Math.max(0, Math.ceil(this.lobbyLeft)),
       peers: this.transport?.peers() ?? [],
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,
@@ -187,9 +252,9 @@ export class NetPlay {
     };
   }
 
-  /** Host, each fixed step after the local seat: every remote peer's car takes its latest input. */
+  /** Host, each fixed step after the local seat: every remote peer's car takes its latest input (race mode drives them itself). */
   drive(cars: DeformableCar[], dt: number, driven: number): void {
-    if (this.role !== "host") return;
+    if (this.role !== "host" || this.game.race()) return;
     for (const car of this.slots.values()) {
       if (car === driven || car >= cars.length || !this.hasInput[car]) continue;
       applyDrive(cars[car]!, this.inputs[car]!, dt);
@@ -220,6 +285,7 @@ export class NetPlay {
     this.room = room;
     this.tx = tx;
     this.isPublic = false;
+    if (typeof window !== "undefined") window.addEventListener("pagehide", this.onPageHide);
   }
 
   private layoutOf(car: DeformableCar): NetLayout {
@@ -238,18 +304,31 @@ export class NetPlay {
       else if (type === MSG.input) {
         const car = this.slots.get(from);
         if (car === undefined) return;
-        readInput(this.r, (this.inputs[car] ??= idleDrive()));
+        const input = (this.inputs[car] ??= idleDrive());
+        const respawn = readInput(this.r, input);
         this.hasInput[car] = true;
+        const race = this.game.race();
+        if (race) {
+          race.setRemoteInput(car, input);
+          if (respawn) race.requestRespawn(car);
+        }
       }
     } else if (type === MSG.assign) {
       this.r.u8();
       const car = this.r.u8();
       if (car === this.car) return;
       this.car = car;
-      this.game.seat.focus(car);
+      if (!this.game.race()) this.game.seat.focus(car);
     } else if (type === MSG.snapshot) {
       this.takeSnapshot(data);
+    } else if (type === MSG.race) {
+      this.takeRace(data);
     }
+  }
+
+  /** Netplay host: seat every peer's car as `remote` in the next race field. */
+  private syncSeats(): void {
+    this.game.race()?.setSeats([...this.slots.values()]);
   }
 
   // ── host ──────────────────────────────────────────────────────────────────
@@ -261,7 +340,8 @@ export class NetPlay {
       for (const used = new Set(this.slots.values()); used.has(car); ) car++;
       this.slots.set(peer, car);
       this.hasInput[car] = false;
-      if (car >= this.game.cars().length) this.game.setCarCount(car + 1);
+      if (car >= this.game.cars().length && !this.game.race()) this.game.setCarCount(car + 1);
+      this.syncSeats();
       this.keyframeDue = true;
     }
     this.w.off = 0;
@@ -271,15 +351,21 @@ export class NetPlay {
   }
 
   private hostFrame(wallDt: number, t: NetTransport): void {
+    const race = this.game.race();
+    if (race && this.isPublic) this.runPublicRace(race, wallDt);
     this.sendAcc += wallDt;
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = Math.min(this.sendAcc - 1 / SEND_HZ, 1 / SEND_HZ);
     const peers = t.peers();
+    let left = false;
     for (const [id, car] of this.slots) {
       if (peers.some((p) => p.id === id)) continue;
       this.slots.delete(id);
       this.hasInput[car] = false;
+      race?.setRemoteInput(car, this.idle);
+      left = true;
     }
+    if (left) this.syncSeats();
     const cars = this.game.cars();
     if (cars.length === 0) return;
     const L = this.layoutOf(cars[0]!);
@@ -335,9 +421,68 @@ export class NetPlay {
     t.send(this.w.done());
     this.statSnaps++;
     this.statBytes += this.w.off;
+    if (race && (s.keyframe || this.seq % RACE_EVERY === 0)) this.sendRace(race, t);
+  }
+
+  /**
+   * Public race on the host: the lobby counts down (`LOBBY_S`, sooner once the room is full), then
+   * the race starts with every peer seated and the AI in the empty slots; a finished race shows its
+   * results for `RESULTS_HOLD` s and the next one starts, seating whoever joined meanwhile.
+   */
+  private runPublicRace(race: NetRace, wallDt: number): void {
+    const phase = race.phase;
+    if (phase === null) {
+      this.lobbyLeft = (this.lobbyLeft ?? LOBBY_S) - wallDt;
+      if (this.lobbyLeft > 0 && this.slots.size < ROOM_MAX - 1) return;
+    } else if (phase === "finished") {
+      this.finishedFor += wallDt;
+      if (this.finishedFor < RESULTS_HOLD) return;
+    } else {
+      this.lobbyLeft = null;
+      this.finishedFor = 0;
+      return;
+    }
+    this.lobbyLeft = null;
+    this.finishedFor = 0;
+    this.syncSeats();
+    this.game.startRace();
+  }
+
+  /** The rules state (or, between races, the lobby countdown and course) to every client. */
+  private sendRace(race: NetRace, t: NetTransport): void {
+    const json = JSON.stringify({ lobby: this.lobbyLeft, trackId: race.options.trackId, snap: race.snapshot() });
+    const body = new TextEncoder().encode(json);
+    const msg = new Uint8Array(body.length + 1);
+    msg[0] = MSG.race;
+    msg.set(body, 1);
+    t.send(msg);
+    this.statBytes += msg.length;
   }
 
   // ── client ────────────────────────────────────────────────────────────────
+
+  /** The host's race state: race mode on, then its session (or its lobby) adopted. Never stepped here. */
+  private takeRace(data: Uint8Array): void {
+    let parsed: z.infer<typeof RACE_MSG>;
+    try {
+      parsed = RACE_MSG.parse(JSON.parse(new TextDecoder().decode(data.subarray(1))));
+    } catch {
+      return;
+    }
+    this.lobbyLeft = parsed.lobby;
+    this.raceAt = performance.now();
+    this.game.enterRace();
+    const race = this.game.race();
+    if (!race) return;
+    try {
+      // A peer's JSON in the host's RaceSnapshot shape: RaceSession.restore reads it as is, guarded here.
+      const snap = parsed.snap as RaceSnapshot | null;
+      if (snap) race.applySnapshot(snap, this.car);
+      else race.showLobby(parsed.trackId);
+    } catch {
+      // Malformed race state from the host: keep the last good one.
+    }
+  }
 
   private takeSnapshot(data: Uint8Array): void {
     const cars = this.game.cars();
@@ -354,9 +499,20 @@ export class NetPlay {
     this.offset = Math.min(performance.now() / 1000 - s.time, this.offset + 0.001);
     this.statSnaps++;
     this.statBytes += data.byteLength;
+    this.heardHost = true;
   }
 
   private clientFrame(wallDt: number, t: NetTransport): void {
+    if (this.isPublic && !this.heardHost && performance.now() - this.joinedAt > HOST_WAIT_MS) {
+      // The room's host is gone (its relay row outlives it by up to 30 s): start a fresh public room.
+      this.hostPublic();
+      return;
+    }
+    // The host left race mode (race messages stop): so does this client.
+    if (this.game.race() && this.heardHost && performance.now() - this.raceAt > RACE_GONE_MS) {
+      this.game.exitRace();
+      this.lobbyLeft = null;
+    }
     if (this.car < 0) {
       this.helloAcc += wallDt;
       if (this.helloAcc >= 0.5) {
@@ -373,7 +529,8 @@ export class NetPlay {
     if (count !== this.game.cars().length) {
       this.game.setCarCount(count);
       this.applied.length = 0;
-      if (this.car >= 0) this.game.seat.focus(this.car);
+      // In race mode the race director seats this peer (applySnapshot); in Fleet it follows its car.
+      if (this.car >= 0 && !this.game.race()) this.game.seat.focus(this.car);
     }
     const latest = this.ring[newest]!;
     if (Math.abs(latest.realism - HANDLING.realism) > 0.5 / 255) this.game.setRealism(latest.realism);
@@ -446,7 +603,8 @@ export class NetPlay {
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = 0;
     this.w.off = 0;
-    writeInput(this.w, input);
+    writeInput(this.w, input, this.respawnWanted);
+    this.respawnWanted = false;
     t.send(this.w.done());
   }
 }

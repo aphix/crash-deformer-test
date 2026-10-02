@@ -28,6 +28,7 @@ import {
   type RaceHudRow,
   type RaceMenu,
   type RaceOptions,
+  type RacePhase,
   type RaceSnapshot,
 } from "./race/types.ts";
 
@@ -51,8 +52,6 @@ export interface RaceHost {
   buildArt(track: Track, placed: readonly Placed[]): TrackArt | null;
 }
 
-/** The car this browser drives. */
-const PLAYER = 0;
 /** Seconds upside down before a car counts as dead. */
 const FLIP_DEAD = 2.5;
 /** Seconds an AI car sits still mid-race before it counts as dead (respawned). */
@@ -107,8 +106,12 @@ export class RaceDirector {
   options: RaceOptions = { ...DEFAULT_RACE_OPTIONS };
   /** Full sandbox HUD and hotkeys (true) or the race focus view (false). */
   fullUi = false;
+  /** The car this browser drives: 0 on a host or offline, the host-assigned car on a netplay client. */
+  self = 0;
   /** Bumped per new field so each race rolls fresh rival aggression. */
   private seed = 0;
+  /** Cars driven by network peers (netplay host, `setSeats`): `remote` slots in the next field. */
+  private seats = new Set<number>();
   /** Traffic cars put away by the observer bubble. */
   private readonly dormant = new Uint8Array(MAX_CARS);
   private bubbleAcc = 0;
@@ -295,9 +298,9 @@ export class RaceDirector {
   watch(id: number): void {
     if (!this.session || id < 0 || id >= this.entrants.length) return;
     if (!this.mayWatch()) return;
-    if (id === PLAYER && this.entrants[PLAYER]!.kind === "player") {
+    if (id === this.self && this.entrants[this.self]!.kind === "player") {
       this.spectating = false;
-      this.host.seat.focus(PLAYER);
+      this.host.seat.focus(this.self);
       return;
     }
     this.spectating = true;
@@ -313,7 +316,7 @@ export class RaceDirector {
     for (let k = 0; k < n; k++) {
       i = (((i + dir) % n) + n) % n;
       const st = s.cars[this.rowOf[i]!]!.status;
-      if (i !== PLAYER && (st === "racing" || st === "respawning" || st === "finished")) {
+      if (i !== this.self && (st === "racing" || st === "respawning" || st === "finished")) {
         this.spectating = true;
         this.host.seat.focus(i);
         return;
@@ -337,16 +340,70 @@ export class RaceDirector {
     return this.session ? this.session.snapshot() : null;
   }
 
-  /** Client: adopt the host's rules state; a client renders it and never steps its own session. */
-  applySnapshot(snap: RaceSnapshot): void {
-    const tr = this.load(snap.trackId);
-    this.session = RaceSession.restore(tr, snap);
-    snap.cars.forEach((c, k) => (this.rowOf[c.id] = k));
+  /** Netplay host: the cars network peers drive. The next field (start, setup) seats them as `remote`. */
+  setSeats(cars: readonly number[]): void {
+    this.seats = new Set(cars);
   }
 
-  /** R / D-pad down: the player asks to be put back on the track. */
-  requestRespawn(): void {
-    if (this.session && this.menu == null && !this.spectating) this.session.requestRespawn(PLAYER);
+  /** The rules phase (null outside a race), without a snapshot. */
+  get phase(): RacePhase | null {
+    return this.session ? this.session.phase : null;
+  }
+
+  /**
+   * Netplay client: adopt the host's rules state; a client renders it and never steps its own
+   * session. `self` is this peer's car: it races only if the host seated it (`remote` in the host's
+   * field); a peer who joined mid-race spectates until the next race. The host's own car shows as
+   * "Host". A new race (or the first one seen) puts this peer in its seat or on the leader.
+   */
+  applySnapshot(snap: RaceSnapshot, self: number): void {
+    const prev = this.session;
+    const fresh = !prev || prev.track.id !== snap.trackId || snap.time < prev.time;
+    const tr = this.load(snap.trackId);
+    const entrants: Entrant[] = [];
+    let seated = false;
+    for (const c of snap.cars) {
+      if (c.id === self && c.kind === "remote") {
+        c.kind = "player";
+        c.name = "You";
+        seated = true;
+      } else if (c.kind === "player") {
+        c.kind = "remote";
+        c.name = "Host";
+      }
+      entrants[c.id] = { id: c.id, name: c.name, kind: c.kind, aggression: 0 };
+    }
+    this.session = RaceSession.restore(tr, snap);
+    this.entrants = entrants;
+    this.self = self;
+    snap.cars.forEach((c, k) => (this.rowOf[c.id] = k));
+    if (!fresh) return;
+    this.menu = null;
+    this.overFor = 0;
+    this.spectating = !seated;
+    const seat = this.host.seat;
+    if (seated) {
+      seat.focus(self);
+      seat.mode = "drive";
+      seat.boost = 1;
+    } else this.watchLeader();
+  }
+
+  /**
+   * Netplay lobby, no menu: a public host waits for players on the course with its field parked (it
+   * starts the race itself when the lobby ends); a client shows the host's course until the race starts.
+   */
+  showLobby(trackId: string): void {
+    this.load(trackId);
+    this.session = null;
+    this.menu = null;
+  }
+
+  /** R / D-pad down (this browser), or a netplay peer's request for its car `id` (host). */
+  requestRespawn(id = this.self): void {
+    if (!this.session) return;
+    if (id === this.self && (this.menu != null || this.spectating)) return;
+    this.session.requestRespawn(id);
   }
 
   /** Start of a physics slice: every car's input from its controller slot. */
@@ -485,11 +542,11 @@ export class RaceDirector {
           watched: seat.mode !== "global" && seat.carIndex === id,
         });
       }
-      const me = this.entrants[PLAYER]?.kind === "player" ? s.cars[this.rowOf[PLAYER]!] : undefined;
+      const me = this.entrants[this.self]?.kind === "player" ? s.cars[this.rowOf[this.self]!] : undefined;
       if (me) {
-        const car = cars[PLAYER];
+        const car = cars[this.self];
         you = {
-          id: PLAYER,
+          id: this.self,
           place: me.place,
           lap: Math.min(s.laps, me.lap + 1),
           lapTime: s.phase === "racing" && me.status !== "finished" ? Math.max(0, s.time - me.lapStart) : 0,
@@ -533,8 +590,8 @@ export class RaceDirector {
   private mayWatch(): boolean {
     const s = this.session;
     if (!s) return false;
-    if (this.entrants[PLAYER]?.kind !== "player") return true;
-    const st = s.cars[this.rowOf[PLAYER]!]!.status;
+    if (this.entrants[this.self]?.kind !== "player") return true;
+    const st = s.cars[this.rowOf[this.self]!]!.status;
     return this.spectating || st === "out" || st === "finished" || st === "dnf" || s.phase === "finished";
   }
 
@@ -543,7 +600,7 @@ export class RaceDirector {
     if (!s) return;
     for (const id of s.order()) {
       const st = s.cars[this.rowOf[id]!]!.status;
-      if (id !== PLAYER && (st === "racing" || st === "respawning" || st === "finished")) {
+      if (id !== this.self && (st === "racing" || st === "respawning" || st === "finished")) {
         this.host.seat.focus(id);
         return;
       }
@@ -577,7 +634,7 @@ export class RaceDirector {
     if (!this.campaign) return;
     for (const r of this.campaign.standings()) {
       const e = this.entrants[r.id];
-      if (e) e.aggression = r.aggression;
+      if (e?.kind === "ai") e.aggression = r.aggression;
     }
   }
 
@@ -597,24 +654,28 @@ export class RaceDirector {
     return id ? (this.courses.find((c) => c.id === id)?.name ?? null) : null;
   }
 
-  /** Player plus `aiCount` AI cars; ids are car indices, the player is car 0. Each rival rolls its aggression in [0, slider]. */
+  /**
+   * Player plus `aiCount` cars; ids are car indices, this browser's car is `self` (0). Cars seated by
+   * `setSeats` are network peers' (`remote`); the AI fills the rest, each rolling its aggression in [0, slider].
+   */
   private field(): Entrant[] {
-    const n = this.options.aiCount + 1;
+    let n = this.options.aiCount + 1;
+    for (const id of this.seats) n = Math.max(n, id + 1);
     this.host.setCarCount(n);
     const cars = this.host.live();
     this.seed++;
-    return cars.map((car, i) =>
-      i === PLAYER
-        ? { id: i, name: "You", kind: "player", aggression: 0 }
-        : { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) },
-    );
+    return cars.map((car, i): Entrant => {
+      if (i === this.self) return { id: i, name: "You", kind: "player", aggression: 0 };
+      if (this.seats.has(i)) return { id: i, name: `Player ${i}`, kind: "remote", aggression: 0 };
+      return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) };
+    });
   }
 
-  /** Single race: the AI field in car order, the player at the back. */
+  /** Single race: the AI field in car order, then the network peers, this browser's car at the back. */
   private defaultGrid(): number[] {
-    const ids = this.entrants.map((e) => e.id).filter((id) => id !== PLAYER);
-    ids.push(PLAYER);
-    return ids;
+    const ai = this.entrants.filter((e) => e.kind === "ai").map((e) => e.id);
+    const remote = this.entrants.filter((e) => e.kind === "remote").map((e) => e.id);
+    return [...ai, ...remote, this.self];
   }
 
   private start(trackId: string, grid: readonly number[]): void {
@@ -664,7 +725,7 @@ export class RaceDirector {
     this.spectating = false;
     this.menu = null;
     const seat = this.host.seat;
-    seat.focus(PLAYER);
+    seat.focus(this.self);
     seat.mode = "drive";
     seat.boost = 1;
     this.host.setPaused(false);
@@ -755,7 +816,7 @@ export class RaceDirector {
         this.stillFor[e.id] = 0;
         this.markTime[e.id] = s.time;
         this.markProgress[e.id] = s.cars[this.rowOf[e.id]!]!.progress;
-      } else if (e.type === "out" && e.id === PLAYER && this.entrants[PLAYER]?.kind === "player") {
+      } else if (e.type === "out" && e.id === this.self && this.entrants[this.self]?.kind === "player") {
         if (s.phase !== "finished") this.menu = "dead";
       } else if (e.type === "over") {
         this.overFor = 0;
