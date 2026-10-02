@@ -32,7 +32,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
   max: "max crush",
 };
 
-const VIEW: Record<CrashHudState["view"], string> = { third: "Chase cam", far: "Far chase", first: "Hood cam" };
+/** Camera names: the drive views and the spectator cams. */
+const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit" };
 
 /** Fleet is "none of the others": the engine keeps derby, race, press, pistons and doors mutually exclusive. */
 type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors";
@@ -73,12 +74,13 @@ const CAMERA_KEYS: [string, string][] = [
   ["W A S D", "Take the wheel"],
   ["Esc", "Step back out"],
   ["Drag · scroll", "Orbit camera"],
+  ["V", "Camera view: chase, trackside, wheel, orbit"],
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {
   if (state.race && state.seat === "drive") {
     return {
-      title: `Racing · ${VIEW[state.view]}`,
+      title: `Racing · ${CAM_LABEL[state.view]}`,
       keys: state.pad
         ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · D-pad ↓ respawn · Start pause"
         : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · R respawn · Esc pause",
@@ -86,7 +88,7 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
   }
   if (state.seat === "drive") {
     return {
-      title: `Driving · ${VIEW[state.view]}`,
+      title: `Driving · ${CAM_LABEL[state.view]}`,
       keys: state.pad
         ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · right stick look · LB/RB car · D-pad ↓ recover · Back watch"
         : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · drag look · V view · R recover · Esc watch",
@@ -94,8 +96,10 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
   }
   if (state.seat === "follow") {
     return {
-      title: "Watching",
-      keys: state.pad ? "RT, LT or left stick to drive · LB/RB switch car · Back exit" : "W/A/S/D to drive · Q/E switch car · Esc back",
+      title: state.cam ? `Watching · ${CAM_LABEL[state.cam]}` : "Watching",
+      keys: state.pad
+        ? "RT, LT or left stick to drive · LB/RB switch car · Y camera · right stick look · Back exit"
+        : "W/A/S/D to drive · Q/E switch car · V camera · drag look · Esc back",
     };
   }
   return { title: "Whole field", keys: "LB/RB to pick a car" };
@@ -151,7 +155,9 @@ export function Hud(props: HudProps) {
       {focus || !settingsShown ? null : <HudSections {...props} />}
 
       <div className="flex min-w-0 flex-col items-start gap-2 self-end" style={{ gridArea: "dock" }}>
-        {state.race ? <SpectateBar race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}
+        {state.race ? (
+          <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
+        ) : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} /> : null}
         {focus && state.race ? (
           <RaceViewToggle race={state.race} onCommand={raceCommand} bare />

@@ -15,6 +15,7 @@ import {
   Skull,
   TriangleAlert,
   Trophy,
+  Video,
 } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
@@ -171,8 +172,8 @@ function StandingRow({ row, lead, onWatch }: { row: RaceHudRow; lead: number; on
   );
 }
 
-/** Follow-cam chip above the dock while spectating: the car's name and previous / next. */
-export function SpectateBar({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
+/** Follow-cam chip above the dock while spectating: the car's name, previous / next, and the camera (`cam`, its name; `onCam` cycles it). */
+export function SpectateBar({ race, pad, cam, onCommand, onCam }: { race: RaceHud; pad: boolean; cam: string | null; onCommand: Send; onCam: () => void }) {
   if (race.spectating === null || race.menu !== null) return null;
   return (
     <div className="hud-panel pointer-events-auto flex items-center gap-1 p-1" role="status">
@@ -186,6 +187,12 @@ export function SpectateBar({ race, pad, onCommand }: { race: RaceHud; pad: bool
       <Button variant="ghost" size="icon" className="sm:size-8" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
         <ChevronRight />
       </Button>
+      {cam ? (
+        <Button variant="ghost" className="h-10 gap-1.5 px-2 sm:h-8" aria-label="Camera view" title={`Camera view · ${pad ? "Y" : "V"}`} onMouseDown={keepFocus} onClick={onCam}>
+          <Video />
+          <span className="text-xs">{cam}</span>
+        </Button>
+      ) : null}
     </div>
   );
 }

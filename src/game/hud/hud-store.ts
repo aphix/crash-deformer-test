@@ -3,6 +3,7 @@ import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { RaceHud } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
+import type { SpecView } from "../present/engine-camera.ts";
 
 type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
@@ -91,6 +92,8 @@ export type CrashHudState = {
   seat: "global" | "follow" | "drive";
   boost: number;
   view: "third" | "far" | "first";
+  /** The followed (not driven) car's camera (View cycles it); null unless following a car off the rigs. */
+  cam: SpecView | null;
   /** Connected gamepad label ("Xbox controller", …), null when none. */
   pad: string | null;
   /** Arcade (0) ↔ realistic (1) handling and damage. */
@@ -176,6 +179,7 @@ export const INITIAL_HUD: CrashHudState = {
   seat: "global",
   boost: 1,
   view: "third",
+  cam: null,
   pad: null,
   realism: DEFAULT_REALISM,
   playerClass: "sedan",

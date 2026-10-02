@@ -12,6 +12,7 @@ import { fieldAggression } from "../ai/ai-aggression.ts";
 import { RaceSession } from "../match/session.ts";
 import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
 import type { TrackArt } from "../present/track-art.ts";
+import { raceSight, type Sight } from "../present/spectate-cam.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
@@ -167,6 +168,11 @@ export abstract class RaceField {
       const t = parseTrack(json);
       return { id: t.id, name: t.name, blurb: t.blurb };
     });
+  }
+
+  /** The loaded course's solids for the spectator cams' sight lines (built once per course); null off a race. */
+  courseSight(): Sight | null {
+    return this.track ? raceSight(this.track, this.placed) : null;
   }
 
 

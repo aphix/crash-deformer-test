@@ -93,7 +93,8 @@ Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C cop
 | Esc / Start / Back | pause menu |
 | R / D-pad ↓ | respawn |
 | Q / E, LB / RB | previous / next car while spectating |
-| V / C / T, Y / Triangle | camera view |
+| V / C / T, Y / Triangle, the Spectating bar's camera button | camera view. Driving: chase → far chase → hood cam. Spectating: those three, then **Trackside** (a fixed eye ahead of the car beside the track, clear of walls and props, tracking it past, then the next spot), **Wheel cam** (a dutch-angle mount on a wheel well, looking forward or back, cutting every few seconds to the well that shows the most rivals) and **Orbit** |
+| drag (one finger on a phone) | while spectating: look round the car in the chase views and keep that angle (the eye stays where you put it; nothing to steer); orbit in Orbit |
 | H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu; B and K stay off while racing) |
 
 | Driving: keyboard + mouse | |
@@ -109,7 +110,7 @@ Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C cop
 | R | recover: back on its wheels where it stands, at rest and repaired (derby: only when flipped and still running) |
 | Esc | drive → follow → whole field |
 
-While following, any drive key (W/A/S/D, arrows) takes the wheel.
+While following, any drive key (W/A/S/D, arrows) takes the wheel. V (Y) cycles the same spectator cams as in a race; following opens on the orbit.
 
 | Driving: controller (Xbox / PlayStation) | |
 |---|---|

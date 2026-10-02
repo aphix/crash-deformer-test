@@ -252,17 +252,14 @@ export abstract class EngineInput extends EngineRigs {
     // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
     if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
-    if (this.race.active && this.raceKey(e.code, driving)) return;
+    if (this.race.active && this.raceKey(e.code)) return;
     if (e.code === "Space") {
       if (!driving) this.togglePlay();
     } else if (e.code === "Escape") {
       this.seat.esc();
       this.emitHud();
     } else if (e.code === "KeyV" || e.code === "KeyT" || (e.code === "KeyC" && driving)) {
-      if (driving) {
-        this.seat.cycleView();
-        this.emitHud();
-      }
+      this.cycleCamera();
     } else if (e.code === "KeyQ" || e.code === "KeyE") {
       this.seat.cycle(e.code === "KeyE" ? 1 : -1, this.carCount);
       this.emitHud();
@@ -321,7 +318,7 @@ export abstract class EngineInput extends EngineRigs {
    * Keys during a race (no menu up). True when consumed. Race keys always work; the sandbox's hotkeys
    * only in the full view (H), so the focus view can't be knocked out of the race by a stray key.
    */
-  private raceKey(code: string, driving: boolean): boolean {
+  private raceKey(code: string): boolean {
     switch (code) {
       case "Escape":
         this.raceCommand({ type: "pause" });
@@ -337,8 +334,7 @@ export abstract class EngineInput extends EngineRigs {
       case "KeyV":
       case "KeyT":
       case "KeyC":
-        if (driving) this.seat.cycleView();
-        this.emitHud();
+        this.cycleCamera();
         return true;
       case "KeyH":
         this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
@@ -374,7 +370,7 @@ export abstract class EngineInput extends EngineRigs {
     if ((hit & (1 << PAD_BUTTON.back)) !== 0) this.seat.esc();
     if ((hit & (1 << PAD_BUTTON.lb)) !== 0) this.seat.cycle(-1, this.carCount);
     if ((hit & (1 << PAD_BUTTON.rb)) !== 0) this.seat.cycle(1, this.carCount);
-    if (driving && (hit & (1 << PAD_BUTTON.north)) !== 0) this.seat.cycleView();
+    if ((hit & (1 << PAD_BUTTON.north)) !== 0) this.cycleCamera();
     if (driving && (hit & (1 << PAD_BUTTON.down)) !== 0) this.recoverDriven();
     this.emitHud();
   }
@@ -386,8 +382,15 @@ export abstract class EngineInput extends EngineRigs {
     if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.raceCommand({ type: "pause" });
     if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
     if (press(PAD_BUTTON.rb)) this.race.cycle(1);
-    if (this.seat.mode === "drive" && press(PAD_BUTTON.north)) this.seat.cycleView();
+    if (press(PAD_BUTTON.north)) this.cycleCamera();
     if (press(PAD_BUTTON.down)) this.requestRespawn();
+    this.emitHud();
+  }
+
+  /** View (V / T / Y, the HUD camera button): the driven car's chase view, or the followed car's spectator cam (not on the rigs). */
+  cycleCamera(): void {
+    if (this.seat.mode === "drive") this.seat.cycleView();
+    else if (this.seat.mode === "follow" && !this.rigScene) this.view.cycleSpec(this.race.chase);
     this.emitHud();
   }
 
