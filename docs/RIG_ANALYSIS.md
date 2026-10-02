@@ -1133,6 +1133,68 @@ L per call). Patches: `.bench/pops-anchor.diff` (the anchor fix below).
   timer, so a rubbing pair gets roughly hub friction only. Ramping on
   `crushElapsed` instead changes the six-car derby: deaths at 4.7 s and 4.8 s.
 
+### 6.4 Pops, wheels, accumulation and pair drag (lane `crash-realism-5`)
+
+Probes in the lane worktree's `.bench/` (`pops.ts`, `side.ts`, `corner.ts`,
+`accum.ts`, `gap.ts`, `hrow.ts`, `pairdrag.ts`, `spinpeak.ts`).
+
+- **Derby pops (owner 9-car derby, 15 s): 19 → 7** (≤ 0.07 m, zips 0). Both
+  plant modes anchor on the clamp-held `local` under the final rotation, the
+  anchor's local y is solved for the clamped group height, popped hubs leave
+  the plant anchor, and a slice's pair pushes share one `satPushCap`
+  (`takePush`). The rest are the plant switch at 0.35 s quiet (tilt × lever in
+  one call) and one slow wedged pair push. Ramping the level-out took it to 0
+  but moved the tap, A3 and tail/nose bands; `derby:pops` stays a todo.
+- **Side-ram severity re-expressed** (approved): see `PISTON_RIG.md`. Fit row
+  0.103 0.191 0.214 0.222 0.216 0.221 0.221 (20–80 km/h); door body-frame
+  crush on its 0.278 m cap from 35 km/h at every speed.
+- **45° corner kill** (`updateDrivetrain`): only the block's travel along the
+  car toward the cabin counts, whatever the current hit's direction (a later
+  side/rear hit no longer hides a packed block). Corner kill ≥ front-middle.
+- **Graded drivetrain** for the handling model: `engineTravel` (worst block
+  travel, only rises), per-car `killTravel` (default 0.15 m), `drivetrainHealth`
+  (1 − travel/kill, 0 dead), `wheelsOn`.
+- **Crumple absorbs, then passes the load on.** Audit: `CAGES.absorption`
+  (`rig-spec.ts:46–63`) is only the shape-match β of each cage's clusters
+  (`streamed-deform.ts` `clusterBeta`), not an energy share. The energy model
+  is a linear spring per struck end: `rearmHit` adds each hit's EBS² and the
+  stroke is `crushStroke(√ΣEBS²)`; the slab brakes with the constant force that
+  spends the hit over that stroke (`engine-props.ts` `brake`); `forceTransfer`
+  passes 0.1/0.5/0.62 of an impulse downstream by node band and 1 once packed
+  (`nodePacked`); the block moves only once the nose packs to 0.54 m ahead of
+  it (`clampLocal`, `ENGINE_PACK_GAP`). Defect: the barrier never re-armed a
+  wreck (`resolve(deform = !crashed)`, `applyImpact` gated on `!crashed`,
+  `notifyContact` before arming), so repeated wall hits reused the first
+  hit's stroke: 43 km/h ×6 → block 0.075 0.079 0.078 … Fixed: a returning
+  wreck arms on its first face touch. Now 0.075 0.222 0.368 0.530 0.562;
+  35 km/h hits kill at hit 2 (three carry one 61 km/h hit's energy). With
+  `killTravel` = 10 the block saturates at 0.64 m. Not done: a per-zone energy
+  ledger (absorbed + transmitted ≈ input) — `brakeInbound` applies the
+  plateau as one Δv over every inbound mass and the clamps move positions
+  without an energy account, so per-zone absorption is not separable today.
+- **Squeezed wheels** (owner screenshot): a planted hub is pinned at rest +
+  the shove a squeezing face gives it (press plates, `projectOutOfBox` when
+  `bidirectional`), meets the face with its tyre (0.32 m tread, 0.11 m
+  sidewall), and pops past one wheel diameter (0.64 m); a popped wheel drops
+  into the world as a loose body; four gone kill the drivetrain. One-sided
+  faces leave planted hubs alone: shoving them there freed the corner rams'
+  tyres (crush 0.481 at 65 km/h vs 0.420 at 70). `wheelsDetach` and
+  `frameCrush` (default on) turn the pops and the past-midpoint cell crush off
+  for race mode or NPC traffic. No sourced separation threshold was found
+  (`.extraResearch/perplexity/13-wheel-separation-frame-crush.md`).
+- **Pair drag**: the mass drag ramps on `sinceHit()` (reset only by a hit),
+  not the contact-quiet timer, unless the car is under power, and skips an
+  airborne wreck. T-bone grind over 1 s: 0.36 g → ≥ 0.85× a lone wreck
+  (0.96 g).
+- **Open.** Pitch: world tilt − rest tilt reads a resting car at 0.000 rad
+  (was −0.031) and a 10 m/s nose hit peaks at 0.081 rad, but moves the A3 gap
+  (+0.088 m), the side/rear taps (0.036 m > 0.03), the tail/nose ratio and
+  the derby elimination: the bias is baked into frames captured at pitch 0 and
+  first read at −0.03. Spin: the 16-car replay peaks at Khaki 7.1, Bronze 5.7,
+  Slate 5.5 rad/s (0.1 s window); attribution on Khaki: `clampLocal`
+  write-back 3.87 rad mass yaw / 18.4 rad/s ΣΔL/I, `separateAlong` 1.59 rad,
+  sphere contacts 0.98 rad. The fixedStep dirty-flag re-sync was not started.
+
 
 ## Appendix
 
