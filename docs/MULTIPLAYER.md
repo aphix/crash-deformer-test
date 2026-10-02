@@ -24,8 +24,13 @@ https://gafferongames.com/post/snapshot_compression/), summarized in `.extraRese
 The pick is the template's own P2P kit: `src/lib/multiplayer/p2p.ts` (`P2PRoom`: full-mesh WebRTC,
 perfect negotiation, an unreliable `state` channel and a reliable channel, ping RTT), signaled by
 `src/routes/api/rtc.ts` → `src/lib/multiplayer/signaling.server.ts` (the reference relay from
-`.grok/skills/multiplayer-p2p`; two tables created on first use). It runs today on `vite dev`
-against PGLite, and on Vercel against Neon once `DATABASE_URL` is set. The game code only sees
+`.grok/skills/multiplayer-p2p`). Its two tables are `migrations/0002_webrtc_signaling.sql`. Shipping
+a top-level migration is what gets a deploy its Neon database (the `neon` skill): without one the
+deploy has no `DATABASE_URL`, every serverless instance runs its own throwaway PGLite, and peers
+whose polls land on different instances never see each other. Measured with two instances of one
+node-server build and no shared database: each roster holds only its own peer, and a signal across
+instances gets 403. `db:migrate` applies the file on deploy; the PGLite fallback (`vite dev`, the
+VPS node server) applies it before its first query. The game code only sees
 `NetTransport` (`src/game/net/transport.ts`):
 
 ```ts
@@ -145,16 +150,25 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 
 - zod on every input: ids `[A-Za-z0-9_-]{1,64}`, the peer tag `[a-z]{0,12}` (the game sends only
   `host` / `client`, never a name), signal kind enum, payload ≤ 32 KB, POST body ≤ 40 KB.
-- Token buckets, in-process: per client IP (`x-forwarded-for` first hop, which the VPS nginx
-  overwrites; Vercel sets it) 15 req/s, burst 60; per room 80 req/s, burst 240; 429 past either.
-  Exact on the VPS's single node process, per instance on serverless.
+- Token buckets, in process (`src/lib/multiplayer/rate-limit.ts`; exact on the VPS's single node
+  process, per instance on serverless), 429 past any of them:
+  - per peer id, keyed by client IP + peer id: 10 req/s, burst 100. One peer polls every 0.4 s while
+    connecting and posts an offer or answer plus a few ICE candidates per pair, ~30 requests in an
+    8-peer handshake;
+  - per client IP (`x-forwarded-for` first hop, which the VPS nginx overwrites; Vercel sets it):
+    a full room's worth, 80 req/s, burst 800, because friends share one NAT;
+  - per room: the same 80 req/s, burst 800; the public-room list: one peer's budget per IP.
 - Only room members may signal each other (403); an inbox holds at most 400 signals (429).
 - Peers expire 30 s after their last poll and signals after 60 s; joins and ~2 % of polls prune, so
   an empty room disappears within 30 s. Stored: a random peer id, its role tag, SDP/ICE, nothing
   past those TTLs. Works on PGLite in one long-lived node process.
 - Errors are logged by name only (driver messages can carry connection strings or hosts).
 - Measured on `vite dev`: invalid room or tag → 400; ninth peer → 409; signal from a non-member →
-  403; 200 rapid requests from one IP → 160 × 200, 40 × 429.
+  403. Eight pages from one IP (no `x-forwarded-for`: one shared address) pressing Public race:
+  with the old per-IP-only limit (15/s, burst 60) 130 × 429, a split into two rooms and no full
+  mesh; now one room, all 8 peers with 7 connected each in 4.9–6.1 s, ~30 requests per peer,
+  0 × 429 (three runs). One peer id posting 400 leaves at once: 316 × 200, 84 × 429 (the dev
+  server serialises requests at ~11/s, so most of the flood arrives slower than the burst drains).
 
 ## Race mode
 
@@ -167,6 +181,17 @@ Race (lane/race-mode) was built for this: every car takes one `DriveInput` per s
 - `RaceDirector.snapshot()` / `applySnapshot(snap)`: the host sends the `RaceSnapshot` JSON on the
   reliable channel when it changes (lap, gate, event); clients render the HUD from it and never
   step the session. Track id travels in `assign`; tracks are JSON so both sides load the same course.
+
+## Derby mode (after race; agreed with DerbyAI2, lane/derby-ai-2)
+
+- **Arena:** `derbyRadius(count)` is a pure function of the car count, so clients size the bowl
+  from the snapshot's car count. Nothing extra goes on the wire.
+- **Seats:** in `fixedStep`'s derby loop the AI skips `i === driven || this.net.remote(i)`.
+  Netplay adds that check and `NetPlay.remote(i)`. `net.drive` skips cars the match has counted
+  out (`DerbyMatch.isOut(id)`), as the engine does for the local player.
+- **Match state:** clients never step `DerbyMatch`. Until it has a `snapshot()` / `restore()`,
+  the host sends the board rows (with `out` and `clock`), `decided`, `winnerId`, `winnerName` and the
+  match time on the reliable channel whenever they change.
 
 ## State APIs
 

@@ -20,7 +20,7 @@
     "preview:stop": "node scripts/preview.mjs stop",
     "typecheck": "tsc --noEmit",
     "check:auth": "node scripts/check-auth-invariant.mjs",
-    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test --test-concurrency=4 src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts 'src/game/**/*.test.ts'",
+    "test": "node --test 'scripts/**/*.test.mjs' && node --experimental-strip-types --test --test-concurrency=4 src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts src/lib/multiplayer/rate-limit.test.ts 'src/game/**/*.test.ts'",
     "test:game": "node --experimental-strip-types --test --test-concurrency=4 'src/game/**/*.test.ts'",
     "bench": "node scripts/bench-physics.mjs",
     "sweep": "node --experimental-strip-types --no-warnings scripts/crush-sweep.mjs",

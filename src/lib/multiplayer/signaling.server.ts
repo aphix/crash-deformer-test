@@ -2,19 +2,22 @@
  * WebRTC signaling over the app database (Neon deployed, PGLite on a node server or in preview).
  * Only rendezvous traffic passes through here — roster + SDP/ICE relay while a mesh forms; game
  * data then flows peer-to-peer. Mounted at /api/rtc (under the app's base path); the client side
- * lives in `@/lib/multiplayer`.
+ * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql`, applied by
+ * `db:migrate` on deploy and by the PGLite fallback before its first query.
  *
  * The GET poll is the whole peer lifecycle: the first poll (since=0) IS the join — it registers
  * the peer, returns the roster, and prunes stale rows. `GET ?list=public` lists open public rooms.
  *
  * The repo and server are public, so every input is validated, rooms are capped, requests are
- * rate-limited per client IP and per room (in-process: exact on one long-lived node server, per
- * instance on serverless), nothing identifying is stored beyond a random peer id and a role tag,
+ * rate-limited per peer (keyed by client IP + peer id), per client IP and per room (in-process: exact
+ * on one long-lived node server, per instance on serverless), nothing identifying is stored beyond a
+ * random peer id and a role tag,
  * and errors are logged by name only.
  */
 import { z } from "zod";
 import { getSql, type Sql } from "@/lib/db";
 import type { PeerRow, RtcPollResponse, SignalRow } from "./p2p";
+import { RateLimiter } from "./rate-limit";
 import { PUBLIC_PREFIX, ROOM_MAX } from "./rooms";
 
 const ID = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
@@ -40,76 +43,14 @@ const SIGNAL_TTL_SECONDS = 60;
 /** Signals a peer may have waiting in one room (offers, answers and ICE while a mesh forms). */
 const INBOX_MAX = 400;
 
-/** Token bucket: `rate` requests per second, bursts up to `burst`. */
-interface Bucket {
-  tokens: number;
-  at: number;
-}
-const LIMITS = { ip: { rate: 15, burst: 60 }, room: { rate: 80, burst: 240 } } as const;
-const BUCKETS_MAX = 20_000;
+/** One limiter per process, on globalThis so dev HMR keeps the buckets. */
+const globalRef = globalThis as typeof globalThis & { __rtcLimiter__?: RateLimiter };
+const limiter = (globalRef.__rtcLimiter__ ??= new RateLimiter());
 
-const globalRef = globalThis as typeof globalThis & {
-  __rtcSchemaPromise__?: Promise<void>;
-  __rtcBuckets__?: Map<string, Bucket>;
-};
-
-/** False once `key` has spent its bucket. Stale buckets are swept when the map grows large. */
-function allow(key: string, limit: { rate: number; burst: number }, now = Date.now()): boolean {
-  const buckets = (globalRef.__rtcBuckets__ ??= new Map());
-  let b = buckets.get(key);
-  if (!b) {
-    if (buckets.size >= BUCKETS_MAX) {
-      for (const [k, v] of buckets) if (now - v.at > 60_000) buckets.delete(k);
-      if (buckets.size >= BUCKETS_MAX) return false;
-    }
-    b = { tokens: limit.burst, at: now };
-    buckets.set(key, b);
-  }
-  b.tokens = Math.min(limit.burst, b.tokens + ((now - b.at) / 1000) * limit.rate);
-  b.at = now;
-  if (b.tokens < 1) return false;
-  b.tokens -= 1;
-  return true;
-}
-
-/** The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared bucket. */
-function clientKey(request: Request): string {
+/** The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. */
+function clientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return `ip:${fwd || request.headers.get("x-real-ip") || "direct"}`;
-}
-
-/**
- * Tables are created on first use (IF NOT EXISTS) so no migration ships. Memoized on globalThis (the
- * db.ts pattern) so dev HMR never runs two ensures concurrently; a failed ensure clears the slot.
- */
-function ensureSchema(sql: Sql): Promise<void> {
-  globalRef.__rtcSchemaPromise__ ??= (async () => {
-    await sql.query(
-      `CREATE TABLE IF NOT EXISTS webrtc_peers (
-         room TEXT NOT NULL,
-         peer_id TEXT NOT NULL,
-         name TEXT NOT NULL DEFAULT '',
-         last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
-         PRIMARY KEY (room, peer_id)
-       )`,
-    );
-    await sql.query(
-      `CREATE TABLE IF NOT EXISTS webrtc_signals (
-         id BIGSERIAL PRIMARY KEY,
-         room TEXT NOT NULL,
-         to_peer TEXT NOT NULL,
-         from_peer TEXT NOT NULL,
-         kind TEXT NOT NULL,
-         payload JSONB NOT NULL,
-         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-       )`,
-    );
-    await sql.query(`CREATE INDEX IF NOT EXISTS webrtc_signals_inbox ON webrtc_signals (room, to_peer, id)`);
-  })().catch((err) => {
-    globalRef.__rtcSchemaPromise__ = undefined;
-    throw err;
-  });
-  return globalRef.__rtcSchemaPromise__;
+  return fwd || request.headers.get("x-real-ip") || "direct";
 }
 
 async function roster(sql: Sql, room: string): Promise<PeerRow[]> {
@@ -169,10 +110,10 @@ async function listPublic(sql: Sql): Promise<Response> {
 }
 
 /** GET ?room&peer&name&since — join (since=0), heartbeat, and inbox. */
-async function handleGet(url: URL): Promise<Response> {
+async function handleGet(url: URL, ip: string): Promise<Response> {
   if (url.searchParams.get("list") === "public") {
+    if (!limiter.list(ip)) return json({ error: "rate limited" }, 429);
     const sql = await getSql();
-    await ensureSchema(sql);
     return listPublic(sql);
   }
   const parsed = z
@@ -185,10 +126,9 @@ async function handleGet(url: URL): Promise<Response> {
     });
   if (!parsed.success) return json({ error: "invalid query" }, 400);
   const { room, peer, name, since } = parsed.data;
-  if (!allow(`room:${room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
+  if (!limiter.peer(ip, peer, room)) return json({ error: "rate limited" }, 429);
 
   const sql = await getSql();
-  await ensureSchema(sql);
   if (since === 0 || Math.random() < 0.02) await prune(sql);
   const peers = await roster(sql, room);
   if (!peers.some((p) => p.id === peer) && peers.length >= ROOM_MAX) return json({ error: "room full" }, 409);
@@ -206,7 +146,7 @@ async function handleGet(url: URL): Promise<Response> {
   return json(body);
 }
 
-async function handlePost(request: Request): Promise<Response> {
+async function handlePost(request: Request, ip: string): Promise<Response> {
   const length = Number(request.headers.get("content-length") ?? 0);
   if (length > 40_000) return json({ error: "too large" }, 413);
   let body: unknown;
@@ -218,9 +158,8 @@ async function handlePost(request: Request): Promise<Response> {
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) return json({ error: "invalid request" }, 400);
   const msg = parsed.data;
-  if (!allow(`room:${msg.room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
+  if (!limiter.peer(ip, msg.op === "signal" ? msg.from : msg.peer, msg.room)) return json({ error: "rate limited" }, 429);
   const sql = await getSql();
-  await ensureSchema(sql);
 
   if (msg.op === "signal") {
     // Only members of the room may signal each other, and an inbox never grows without bound.
@@ -245,11 +184,11 @@ async function handlePost(request: Request): Promise<Response> {
 
 /** Request entrypoint for the /api/rtc route (GET poll / list, POST signal / leave). */
 export async function handleSignaling(request: Request): Promise<Response> {
-  const ip = clientKey(request);
-  if (!allow(ip, LIMITS.ip)) return json({ error: "rate limited" }, 429);
+  const ip = clientIp(request);
+  if (!limiter.ip(ip)) return json({ error: "rate limited" }, 429);
   try {
-    if (request.method === "GET") return await handleGet(new URL(request.url));
-    if (request.method === "POST") return await handlePost(request);
+    if (request.method === "GET") return await handleGet(new URL(request.url), ip);
+    if (request.method === "POST") return await handlePost(request, ip);
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
     // Name only: driver messages can carry connection strings, hosts or query values.
