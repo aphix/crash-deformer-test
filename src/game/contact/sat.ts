@@ -3,6 +3,8 @@ import { DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
+/** The slab's top (m): `makeJerseyBarrier`'s profile peak. A car whose every mass clears it flies over (a ramp jump). */
+export const BARRIER_TOP = 0.81;
 export const BARRIER_MASS = 14000;
 
 const _ha = new THREE.Vector3();

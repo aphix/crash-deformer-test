@@ -19,6 +19,8 @@ import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CompactorPress, JerseyBarrier } from "../scenes/engine-props.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { FleetRamps } from "../scenes/fleet-ramps.ts";
+import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { LampLights } from "../vehicle/lamp-lights.ts";
@@ -148,6 +150,8 @@ export class CrashEngine extends EngineInput {
     this.scene.add(this.arena);
     this.winnerSpot = new WinnerSpot(this.scene, makePoolTexture());
     this.barrier = new JerseyBarrier(this.scene, makeJerseyBarrier());
+    this.ramps = new FleetRamps(this.scene);
+    this.corkscrew = new Corkscrew(this.scene);
     this.press = new CompactorPress(this.scene, this.compactor.face);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
     this.doorRam = new DoorRam(this.scene);
@@ -550,7 +554,7 @@ export class CrashEngine extends EngineInput {
     w.ballHit = this.showBalls ? this.ballHit : null;
     w.poleHit = this.derbyMode || this.race.active ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    w.collide = this.race.active ? this.raceCollide : null;
+    w.collide = this.race.active ? this.raceCollide : this.showRamps ? this.rampCollide : null;
     stepWorld(w, dt);
     if (this.race.active) this.race.step(dt);
 

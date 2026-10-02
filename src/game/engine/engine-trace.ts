@@ -17,6 +17,8 @@ export type TraceSetup = {
   buckle: number;
   fxDensity: number;
   balls: boolean;
+  /** The fleet's jump ramps, lined up with `barrierYaw`. */
+  ramps: boolean;
   compactor: boolean;
   compactFace: number;
   carCount: number;
@@ -79,6 +81,7 @@ export class TraceRecorder {
       buckle: setup.buckle,
       fxDensity: setup.fxDensity,
       balls: setup.balls,
+      ramps: setup.ramps,
       compactor: setup.compactor,
       compactFace: round4(setup.compactFace),
       carCount: setup.carCount,

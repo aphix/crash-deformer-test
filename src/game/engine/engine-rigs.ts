@@ -75,6 +75,7 @@ export abstract class EngineRigs extends EngineScenes {
 
   /** A rig scene's slice: the rig drives the car (the press and pistons also step its loose parts). */
   protected readonly rigSlice = (h: number): boolean => {
+    if (this.showCorkscrew) return this.stepCorkscrew(h);
     if (this.showCompactor) {
       this.stepCompactor(h);
       this.carA.afterContacts(h, this.bounceWorld);
@@ -108,6 +109,25 @@ export abstract class EngineRigs extends EngineScenes {
     if (stage === "contact" || stage === "wells") this.clock.phase = this.clock.phase === "approach" ? "impact" : this.clock.phase;
     if (stage === "mid") this.clock.phase = "slowmo";
     if (stage === "max") this.clock.phase = "aftermath";
+  }
+
+  /** The corkscrew owns the car from its mouth to rest: slow-mo off the lip, the impact on the pad. */
+  private stepCorkscrew(dt: number): boolean {
+    const cork = this.corkscrew;
+    const owned = cork.step(this.carA, dt);
+    if (cork.tookOff) {
+      cork.tookOff = false;
+      // The roll reads in slow motion (the door ram's rule); the landing's impact phase hands time back.
+      if (this.autoSlomo && this.clock.userTimeScale == null) this.clock.targetScale = 0.35;
+    }
+    const hit = cork.landed;
+    if (hit) {
+      cork.landed = null;
+      this.beginCinematic(hit.at, _bn.set(0, 1, 0), hit.speed);
+    }
+    // Rolled back out without flying: no impact to start the loop's aftermath, so start it here.
+    if (cork.finished && this.clock.phase === "approach") this.clock.phase = "aftermath";
+    return owned;
   }
 
 

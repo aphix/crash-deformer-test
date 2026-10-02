@@ -1,6 +1,6 @@
 import type { RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal } from "lucide-react";
+import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
@@ -39,8 +39,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 /** Camera names: the drive views and the spectator cams. */
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit" };
 
-/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors and range mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "range";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew and range mutually exclusive. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "range";
 const SCENES = [
   { id: "fleet", label: "Fleet", aria: "Fleet scene" },
   { id: "derby", label: "Derby", aria: "Demolition derby scene" },
@@ -48,6 +48,7 @@ const SCENES = [
   { id: "press", label: "Press", aria: "Car compactor scene" },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene" },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene" },
+  { id: "corkscrew", label: "Corkscrew", aria: "Corkscrew ramp scene" },
   { id: "range", label: "Range", aria: "Ejection range scene" },
 ] as const;
 
@@ -63,8 +64,10 @@ const SCENE_KEYS: [string, string][] = [
   ["1–8 · 0", "Fire ram · all"],
   ["N", "Doors"],
   ["1–3 · 4 · 5", "Door ram A–C · open · side"],
+  [",", "Corkscrew"],
   ["B", "Wall"],
   ["K", "Balls"],
+  [".", "Ramps"],
   ["M", "Slow-mo"],
   ["O", "Orbit"],
   ["U", "Audio"],
@@ -146,6 +149,8 @@ export function Hud(props: HudProps) {
                       ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
                       : state.range
                         ? "One car, 100 km/h, into a hood-height wall. The driver goes over it; the signs count the metres."
+                      : state.showCorkscrew
+                        ? "One car into a twisting channel at a spawn speed: too slow rolls back, then half a roll onto the roof, a full roll back onto its wheels, a roll and a half."
                         : state.carCount <= 2
                           ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
                           : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
@@ -277,7 +282,7 @@ function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
 
 const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 
-/** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the two fleet props, settings and key help. */
+/** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the three fleet props, settings and key help. */
 function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onToggleSettings: () => void }) {
   const { state, engine, raceCommand, settingsShown, onToggleSettings } = props;
   const scene: Scene = state.race
@@ -292,7 +297,9 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
             ? "doors"
             : state.range
               ? "range"
-              : "fleet";
+              : state.showCorkscrew
+                ? "corkscrew"
+                : "fleet";
   const toggleScene = {
     derby: () => engine.current?.toggleDerby(),
     race: () => engine.current?.toggleRace(),
@@ -300,9 +307,10 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
     pistons: () => engine.current?.togglePistons(),
     doors: () => engine.current?.toggleDoors(),
     range: () => engine.current?.toggleRange(),
+    corkscrew: () => engine.current?.toggleCorkscrew(),
   };
-  // Barrier and balls are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.range !== null || state.race !== null;
+  // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.range !== null || state.race !== null;
   return (
     <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto">
       {state.race ? <RaceViewToggle race={state.race} onCommand={raceCommand} compact /> : null}
@@ -318,7 +326,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <RotateCcw />
       </Button>
       <div
-        className="order-last grid w-full grid-cols-7 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto"
+        className="order-last grid w-full grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto"
         role="group"
         aria-label="Scene"
       >
@@ -360,6 +368,17 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         title="Ramp balls (K)"
       >
         <CircleDot />
+      </Button>
+      <Button
+        onClick={() => engine.current?.toggleRamps()}
+        disabled={propsLocked}
+        variant={state.showRamps ? "default" : "ghost"}
+        className={BAR_BUTTON}
+        aria-pressed={state.showRamps}
+        aria-label="Toggle jump ramps"
+        title="Jump ramps (.)"
+      >
+        <TriangleRight />
       </Button>
       <Button
         onClick={onToggleSettings}

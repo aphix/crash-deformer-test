@@ -48,6 +48,41 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
 }
 
+/** Wall restitution and the closing speed (m/s) that crumples a car on a wall. */
+const WALL_E = 0.15;
+const WALL_CRUSH = 5.5;
+/** Car footprint half extents (m) for wall contact, and its probes (car-local x, z): corners and side midpoints. */
+const WALL_HALF_W = 0.95;
+export const WALL_HALF_L = 2.3;
+export const WALL_PROBES: readonly (readonly [number, number])[] = [
+  [-WALL_HALF_W, WALL_HALF_L],
+  [WALL_HALF_W, WALL_HALF_L],
+  [-WALL_HALF_W, -WALL_HALF_L],
+  [WALL_HALF_W, -WALL_HALF_L],
+  [-WALL_HALF_W, 0],
+  [WALL_HALF_W, 0],
+];
+
+/**
+ * Push `car` out of a wall or a solid prop along the unit normal (nx, nz) by `pen`, bounce its `closing` speed with
+ * `WALL_E`, and crumple it at `at` (normal `n`) past `WALL_CRUSH`: race walls and props, the fleet's ramp faces.
+ */
+export function wallBounce(car: DeformableCar, nx: number, nz: number, pen: number, closing: number, at: THREE.Vector3, n: THREE.Vector3): void {
+  const pos = car.group.position;
+  const v = car.velocity;
+  const dvx = closing > 0 ? nx * closing * (1 + WALL_E) : 0;
+  const dvz = closing > 0 ? nz * closing * (1 + WALL_E) : 0;
+  if (car.deform.massActive) car.deform.translateMasses(nx * pen, nz * pen, dvx, dvz);
+  pos.x += nx * pen;
+  pos.z += nz * pen;
+  v.x += dvx;
+  v.z += dvz;
+  if (closing > WALL_CRUSH) {
+    if (!car.deform.massActive) car.applyImpact(at, n, closing, closing);
+    else car.deform.kickNearest(at, nx, 0.1, nz, closing * 8);
+  }
+}
+
 /**
  * A pair push, within a wreck's per-slice budget (`takePush`): the three SAT passes of one slice
  * each pushing a full `satPushCap` moved a wedged wreck 0.11 m in 6 ms (derby group pops).

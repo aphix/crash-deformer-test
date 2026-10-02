@@ -200,6 +200,7 @@ export abstract class EngineInput extends EngineRigs {
     this.showParticles = INITIAL_HUD.showParticles;
     this.showBarrier = INITIAL_HUD.showBarrier;
     this.showBalls = INITIAL_HUD.showBalls;
+    this.showRamps = INITIAL_HUD.showRamps;
     if (this.rigScene) this.sceneId = "fleet";
     this.pistons.setConfig(PISTON_DEFAULTS);
     this.doorRig.kph = RAM_DEFAULTS.kph;
@@ -290,6 +291,10 @@ export abstract class EngineInput extends EngineRigs {
       this.togglePistons();
     } else if (e.code === "KeyN") {
       this.toggleDoors();
+    } else if (e.code === "Comma") {
+      this.toggleCorkscrew();
+    } else if (e.code === "Period") {
+      this.toggleRamps();
     } else if (this.showDoors && /^Digit[1-5]$/.test(e.code)) {
       const n = Number(e.code.slice(5));
       if (n <= 3) this.fireDoorRam(n === 1 ? "mirror" : n === 2 ? "overOpen" : "shut");

@@ -3,7 +3,7 @@ import type { DeformNetState } from "../deform/streamed-deform.ts";
 import { applyGroundFriction, CRASH, hypot2, round4 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { getCrackMap } from "./car-materials.ts";
-import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "../world/ground.ts";
+ import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 
@@ -20,6 +20,8 @@ const _gn = new THREE.Vector3();
 const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
+/** A grounded car's two-sample climb rate this far (m/s) off its face's is a step, not a slope (`integrate`). */
+const STEP_RISE = 3;
 
 export class DeformableCar extends CarParts {
   spawn(x: number, z: number, speed: number): void {
@@ -269,17 +271,21 @@ export class DeformableCar extends CarParts {
       if (pos.y <= gy) {
         const was = ground.heightAt(pos.x - this.velocity.x * dt, pos.z - this.velocity.z * dt, y0);
         pos.y = gy;
-        this.velocity.y = (gy - was) / dt;
-        if (!this.crashed) this.alignToGround(ground, gy);
+        const n = ground.normalAt(pos.x, pos.z, _gn, gy);
+        // Rising at the face's own rate: across a step between the two samples (onto a fleet ramp past its side
+        // or end, a kerb) the difference was a launch (24 m/s for a 0.2 m kerb in one slice).
+        const rise = (gy - was) / dt;
+        const face = -(n.x * this.velocity.x + n.z * this.velocity.z) / n.y;
+        this.velocity.y = Math.abs(rise - face) < STEP_RISE ? rise : face;
+        if (!this.crashed) this.alignToGround(n);
       }
     }
     this.refreshBasis();
     this.stepLooseParts(dt);
   }
 
-  /** Pitch and roll a driven car onto the ground plane under it (yaw kept). */
-  private alignToGround(ground: Ground, y: number): void {
-    const n = ground.normalAt(this.group.position.x, this.group.position.z, _gn, y);
+  /** Pitch and roll a driven car onto the ground plane (unit normal `n`) under it (yaw kept). */
+  private alignToGround(n: THREE.Vector3): void {
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
     // YXZ takes local up to (−sin r·x̂ + cos r sin p·f̂ + cos r cos p·ŷ), x̂ = (fz, 0, −fx) the local +x:

@@ -4,7 +4,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
-import { impulseCar } from "../contact/pair-contact.ts";
+import { impulseCar, wallBounce, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
@@ -63,43 +63,8 @@ const TRAFFIC_DEAD = 6;
 /** Where put-away traffic waits (far off every course). */
 const PARK_X = 4000;
 const PARK_Z = 4000;
-/** Wall restitution and the closing speed (m/s) that crumples a car on a wall. */
-const WALL_E = 0.15;
-const WALL_CRUSH = 5.5;
-/** Car footprint half extents (m) for wall contact: corners and side midpoints. */
-const HALF_W = 0.95;
-const HALF_L = 2.3;
-const PROBES: readonly (readonly [number, number])[] = [
-  [-HALF_W, HALF_L],
-  [HALF_W, HALF_L],
-  [-HALF_W, -HALF_L],
-  [HALF_W, -HALF_L],
-  [-HALF_W, 0],
-  [HALF_W, 0],
-];
-
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
-
-/**
- * Push `car` out of a wall or a solid prop along the unit normal (nx, nz) by `pen`, bounce its `closing` speed with
- * `WALL_E`, and crumple it at `_c` / `_n` (the caller sets both) past `WALL_CRUSH`.
- */
-function wallBounce(car: DeformableCar, nx: number, nz: number, pen: number, closing: number): void {
-  const pos = car.group.position;
-  const v = car.velocity;
-  const dvx = closing > 0 ? nx * closing * (1 + WALL_E) : 0;
-  const dvz = closing > 0 ? nz * closing * (1 + WALL_E) : 0;
-  if (car.deform.massActive) car.deform.translateMasses(nx * pen, nz * pen, dvx, dvz);
-  pos.x += nx * pen;
-  pos.z += nz * pen;
-  v.x += dvx;
-  v.z += dvz;
-  if (closing > WALL_CRUSH) {
-    if (!car.deform.massActive) car.applyImpact(_c, _n, closing, closing);
-    else car.deform.kickNearest(_c, nx, 0.1, nz, closing * 8);
-  }
-}
 
 /**
  * The race field: course loading (track, art, ground, props), the grid, spawns and respawns, the traffic bubble and
@@ -508,7 +473,7 @@ export abstract class RaceField {
     let side = 0;
     let cx = 0;
     let cz = 0;
-    for (const [ox, oz] of PROBES) {
+    for (const [ox, oz] of WALL_PROBES) {
       const wx = rx * ox + fx * oz;
       const wz = rz * ox + fz * oz;
       // Left of travel = (tz, −tx).
@@ -532,7 +497,7 @@ export abstract class RaceField {
     const closing = Math.max(0, -vn);
     _c.set(cx, 0.5, cz);
     _n.set(nx, 0, nz);
-    wallBounce(car, nx, nz, pen, closing);
+    wallBounce(car, nx, nz, pen, closing, _c, _n);
     if (closing >= 1.5) this.host.hitFx(_c, _n, closing);
   }
 
@@ -542,7 +507,7 @@ export abstract class RaceField {
     const v = car.velocity;
     for (const col of this.colliders) {
       if (this.knocked[col.index]) continue;
-      const reach = (col.kind === "circle" ? col.r : Math.max(col.hx, col.hz)) + HALF_L + 0.3;
+      const reach = (col.kind === "circle" ? col.r : Math.max(col.hx, col.hz)) + WALL_HALF_L + 0.3;
       const dx = pos.x - col.x;
       const dz = pos.z - col.z;
       if (dx * dx + dz * dz > reach * reach) continue;
@@ -554,7 +519,7 @@ export abstract class RaceField {
       let cz = 0;
       const cos = Math.cos(col.yaw);
       const sin = Math.sin(col.yaw);
-      for (const [ox, oz] of PROBES) {
+      for (const [ox, oz] of WALL_PROBES) {
         const px = pos.x + car.rightFlat.x * ox + car.fwdFlat.x * oz;
         const pz = pos.z + car.rightFlat.z * ox + car.fwdFlat.z * oz;
         const ex = px - col.x;
@@ -605,7 +570,7 @@ export abstract class RaceField {
         if (closing > 2) this.host.hitFx(_c, _n, closing * 0.4);
         continue;
       }
-      wallBounce(car, nx, nz, pen, closing);
+      wallBounce(car, nx, nz, pen, closing, _c, _n);
       if (closing > 1.5) this.host.hitFx(_c, _n, closing);
     }
   }

@@ -6,6 +6,7 @@ import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
 import { RANGE } from "../scenes/range.ts";
 import { makeRangeArt } from "../present/range-art.ts";
+import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
 import { type ContactHit, resetLampPoles, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
@@ -36,7 +37,12 @@ export abstract class EngineScenes extends EngineHud {
       this.randomizeAndReset();
     } else {
       this.barrier.group.visible = this.showBarrier;
-      if (this.showBarrier) this.barrier.orient(this.carA.group.position);
+      // With the ramps up the slab takes their line; alone it faces the lead car broadside.
+      if (this.showBarrier && this.showRamps) {
+        this.barrier.yaw = this.ramps.group.rotation.y;
+        this.barrier.group.rotation.y = this.barrier.yaw;
+      } else if (this.showBarrier) this.barrier.orient(this.carA.group.position);
+      this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
     }
     this.tryUnlockAudio();
     this.emitHud();
@@ -50,6 +56,24 @@ export abstract class EngineScenes extends EngineHud {
       this.randomizeAndReset();
     } else {
       scatterRampBalls(this.balls, this.showBalls);
+    }
+    this.tryUnlockAudio();
+    this.emitHud();
+  }
+
+  /** The jump ramps on the slab's ends (`FleetRamps`): a fleet prop like the slab and the balls. */
+  toggleRamps(): void {
+    if (this.net.client || this.rigScene || this.race.active) return;
+    this.showRamps = !this.showRamps;
+    if (this.derbyMode) {
+      this.setDerby(false);
+      this.randomizeAndReset();
+    } else {
+      // On the slab's ends where it stands; alone, end-on to the lead car so it jumps them.
+      if (!this.showBarrier) this.barrier.orient(this.carA.group.position, true);
+      this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
+      this.ramps.group.visible = this.showRamps;
+      setGround(this.showRamps ? this.ramps : DISC_GROUND);
     }
     this.tryUnlockAudio();
     this.emitHud();
@@ -99,6 +123,10 @@ export abstract class EngineScenes extends EngineHud {
     this.setScene("range");
   }
 
+  toggleCorkscrew(): void {
+    this.setScene("corkscrew");
+  }
+
   toggleDerby(): void {
     this.setScene("derby");
   }
@@ -111,7 +139,9 @@ export abstract class EngineScenes extends EngineHud {
     if (on) {
       this.showBarrier = false;
       this.showBalls = false;
+      this.showRamps = false;
       this.barrier.group.visible = false;
+      this.ramps.group.visible = false;
       if (this.clock.userTimeScale == null) {
         this.clock.timeScale = 1;
         this.clock.targetScale = 1;
@@ -146,12 +176,15 @@ export abstract class EngineScenes extends EngineHud {
       if (this.derbyMode) this.setDerby(false);
       this.showBarrier = false;
       this.showBalls = false;
+      this.showRamps = false;
       this.sceneId = "race";
       this.barrier.group.visible = false;
+      this.ramps.group.visible = false;
       scatterRampBalls(this.balls, false);
       this.press.group.visible = false;
       this.pistonBank.group.visible = false;
       this.doorRam.group.visible = false;
+      this.corkscrew.group.visible = false;
       if (this.clock.userTimeScale == null) {
         this.clock.timeScale = 1;
         this.clock.targetScale = 1;
@@ -186,8 +219,10 @@ export abstract class EngineScenes extends EngineHud {
       this.finishResetCommon();
       return;
     }
-    // The fleet's ground ends at the disc's rim; the derby bowl, the rigs and the range keep the endless pad.
-    setGround(this.derbyMode || this.showCompactor || this.showPistons || this.showDoors || this.showRange ? null : DISC_GROUND);
+    // The fleet's ground ends at the disc's rim (with the ramps, they and the slab's top too); the derby bowl, the rigs
+    // and the range keep the endless pad, and the corkscrew's far landings get a pad drawn three times wider.
+    setGround(this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -203,15 +238,24 @@ export abstract class EngineScenes extends EngineHud {
       this.finishResetCommon();
       return;
     }
+    if (this.showCorkscrew) {
+      this.parkCorkscrew();
+      this.finishResetCommon();
+      return;
+    }
     this.press.group.visible = false;
     this.pistonBank.group.visible = false;
     this.doorRam.group.visible = false;
+    this.corkscrew.group.visible = false;
     if (this.derbyMode) this.spawnDerby();
     else if (this.showRange) this.spawnRange();
     else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.group.visible = this.showBarrier;
-    if (this.showBarrier) this.barrier.orient(this.carA.group.position);
+    // With the ramps up the slab lies end-on to the lead car, so the jump runs along its line (owner's sketch).
+    if (this.showBarrier || this.showRamps) this.barrier.orient(this.carA.group.position, this.showRamps);
+    this.ramps.group.visible = this.showRamps;
+    this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
     scatterRampBalls(this.balls, this.showBalls);
     resetLampPoles(this.poles, !this.derbyMode && !this.showRange);
     this.finishResetCommon();
@@ -399,11 +443,15 @@ export abstract class EngineScenes extends EngineHud {
     }
 
     this.barrier.group.visible = false;
+    this.ramps.group.visible = false;
     this.barrierHits.fill(false);
     for (const b of this.balls) b.mesh.visible = false;
+    // The corkscrew's run passes through two of the lamp posts' spots.
+    for (const p of this.poles) p.group.visible = !this.showCorkscrew;
     this.press.group.visible = false;
     this.pistonBank.group.visible = false;
     this.doorRam.group.visible = false;
+    this.corkscrew.group.visible = false;
     return parked;
   }
 
@@ -430,6 +478,15 @@ export abstract class EngineScenes extends EngineHud {
     this.doorFx = false;
     this.doorRam.group.visible = true;
     this.doorRam.sync(this.doorRig);
+  }
+
+  /** One car lined up 6 m short of the corkscrew's mouth at a spawn-slider speed: the speed decides the stunt. */
+  private parkCorkscrew(): void {
+    const car = this.parkSolo();
+    car.spawnFacing(0, CORKSCREW.mouthZ - 6, 0, layoutFleet(1, this.speedMin, this.speedMax)[0]!.speed);
+    this.dressCar(car);
+    this.corkscrew.reset();
+    this.corkscrew.group.visible = true;
   }
 
   private finishResetCommon(): void {
@@ -495,6 +552,12 @@ export abstract class EngineScenes extends EngineHud {
 
   protected readonly raceCollide = (car: DeformableCar, i: number): void => this.race.collide(car, i);
 
+  /** The fleet ramps' side and back faces; a hit can start the crash cinematic like any other. */
+  protected readonly rampCollide = (car: DeformableCar): void => {
+    const hit = this.ramps.contact(car);
+    if (hit) this.world.strongest.offer(hit);
+  };
+
   protected stepDerby(dt: number): void {
     if (!this.derbyMode) return;
     const cars = this.live();
@@ -530,7 +593,7 @@ export abstract class EngineScenes extends EngineHud {
    * fake shrinks away over its last 4 m (also on a netplay client, which mirrors the host's events).
    */
   protected stepEdge(): void {
-    if (activeGround() !== DISC_GROUND) return;
+    if (activeGround() !== DISC_GROUND && activeGround() !== this.ramps) return;
     const cars = this.live();
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
