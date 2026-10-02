@@ -2,20 +2,27 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { DRIVE, type DriverSeat, type SeatView } from "./car-drive.ts";
 import type { PadState } from "./gamepad.ts";
+import { DISC_RADIUS } from "./ground.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+/** `watchFall`: the eye stands this far (m) inside the fleet disc's rim, at shoulder height (m) over the disc. */
+const FALL_EYE_IN = 1.5;
+const FALL_EYE_Y = 1.5;
 
-/** Mean car position (zero for an empty fleet). */
+/** Mean position of the cars still on the disc (falling and vaporized ones skipped; zero for an empty fleet). */
 export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): THREE.Vector3 {
   out.set(0, 0, 0);
-  const n = cars.length;
-  if (n === 0) return out;
-  for (const car of cars) out.add(car.group.position);
-  return out.multiplyScalar(1 / n);
+  let n = 0;
+  for (const car of cars) {
+    if (car.falling || car.vaporized) continue;
+    out.add(car.group.position);
+    n++;
+  }
+  return n === 0 ? out : out.multiplyScalar(1 / n);
 }
 
 function wrapPi(a: number): number {
@@ -240,6 +247,10 @@ export class ChaseCamera {
   private pitch = 0.4;
   private dragging = false;
   private lookDragging = false;
+  /** Watching a car fall off the fleet disc (`watchFall`): the eye it settles at and the eased aim. */
+  private fallWatch = false;
+  private readonly fallEye = new THREE.Vector3();
+  private readonly fallAim = new THREE.Vector3();
   private pointerTravel = 0;
   private lastX = 0;
   private lastY = 0;
@@ -334,6 +345,7 @@ export class ChaseCamera {
 
   /** Ease toward the orbit around `look`; `spinRate` rad/s auto-rotates unless dragging or reduced motion. */
   orbit(wallDt: number, spinRate: number, shake: boolean): void {
+    this.fallWatch = false;
     // Leaving the driver's seat: keep orbiting from where the chase camera was.
     if (this.drive.release()) this.adoptPose();
     const rx = this.pad.rx;
@@ -363,8 +375,30 @@ export class ChaseCamera {
 
   /** Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. */
   frameDrive(car: DeformableCar, wallDt: number, shake: boolean): void {
+    this.fallWatch = false;
     this.drive.update(this.camera, car, this.seat.view, wallDt, this.pad.rx, this.pad.ry);
     if (shake && this.seat.view !== "first") this.shake();
+  }
+
+  /**
+   * A followed car off the fleet disc's rim: the eye eases to shoulder height just inside the rim on the car's
+   * bearing and stays there, the aim eases onto the car and keeps it centred as it drops; `hold` (vaporized)
+   * keeps the last aim. The chase is released, so a respawn blends back in.
+   */
+  watchFall(car: DeformableCar, wallDt: number, hold: boolean): void {
+    const p = car.group.position;
+    if (!this.fallWatch) {
+      this.fallWatch = true;
+      this.drive.release();
+      const a = Math.atan2(p.x, p.z);
+      const r = DISC_RADIUS - FALL_EYE_IN;
+      this.fallEye.set(Math.sin(a) * r, FALL_EYE_Y, Math.cos(a) * r);
+      this.camera.getWorldDirection(this.fallAim).multiplyScalar(this.camera.position.distanceTo(p)).add(this.camera.position);
+    }
+    if (!hold) this.fallAim.lerp(p, 1 - Math.exp(-8 * wallDt));
+    this.camera.position.lerp(this.fallEye, 1 - Math.exp(-3 * wallDt));
+    this.camera.lookAt(this.fallAim);
+    easeFov(this.camera, this.baseFov, wallDt);
   }
 
   private shake(): void {

@@ -32,7 +32,7 @@ import {
 } from "./car-mesh.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
-import { activeGround, FLAT_GROUND, type Ground } from "./ground.ts";
+import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "./ground.ts";
 
 export { CAR_HALF, DOOR, HULLS, CRUSH_HULLS, WHEEL_POS };
 export type { Hull } from "./car-mesh.ts";
@@ -179,6 +179,15 @@ export class DeformableCar {
 
   speed = 0;
   crashed = false;
+  /**
+   * Off the fleet disc and 2 m down (`CrashEngine.stepEdge`): a frozen copy of the car as it was (mesh, parts,
+   * lamps) dropping ballistically at `velocity` with the constant spin `fallSpin`; no physics, contacts or skin.
+   */
+  falling = false;
+  /** World angular velocity (rad/s) of the fake fall. */
+  readonly fallSpin = new THREE.Vector3();
+  /** Fell 20 m below the fleet disc and burst into smoke (`CrashEngine.setVaporized`): hidden and out of the sim until respawned. */
+  vaporized = false;
   yaw = 0;
   roll = 0;
   pitch = 0;
@@ -581,6 +590,10 @@ export class DeformableCar {
   }
 
   resetVisual(): void {
+    this.vaporized = false;
+    this.falling = false;
+    this.fallSpin.set(0, 0, 0);
+    this.group.scale.setScalar(1);
     this.deform.reset();
     this.deform.restoreRest(this.body.geometry);
     this.restoreRest(this.hood.geometry, this.hoodRest);
@@ -819,6 +832,15 @@ export class DeformableCar {
   }
 
   integrate(dt: number): void {
+    if (this.vaporized) return;
+    if (this.falling) {
+      this.velocity.y -= 9.6 * dt;
+      this.group.position.addScaledVector(this.velocity, dt);
+      const spin = this.fallSpin.length();
+      if (spin > 1e-6) this.group.quaternion.premultiply(_qSpin.setFromAxisAngle(_n.copy(this.fallSpin).multiplyScalar(1 / spin), spin * dt));
+      this.stepLooseParts(dt);
+      return;
+    }
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
@@ -847,8 +869,9 @@ export class DeformableCar {
     }
     const ground = activeGround();
     const pos = this.group.position;
-    if (ground === FLAT_GROUND) {
-      if (pos.y < 0) {
+    if (ground === FLAT_GROUND || ground === DISC_GROUND) {
+      // The flat pad; the fleet's disc only inside its rim (y hint: where the car was before this step).
+      if (pos.y < 0 && ground.heightAt(pos.x, pos.z, pos.y - this.velocity.y * dt) !== NO_FLOOR) {
         pos.y = 0;
         if (this.velocity.y < 0) this.velocity.y = 0;
       }
@@ -880,6 +903,7 @@ export class DeformableCar {
   }
 
   updateDeform(dt: number): void {
+    if (this.vaporized || this.falling) return;
     this.deform.update(dt, this.body.geometry);
     // LoD gate lifted (back on screen / large again): catch the mesh up to the cages first.
     if (!this.deform.skinDeferred) this.deform.flushSkin(this.body.geometry);
@@ -1042,7 +1066,9 @@ export class DeformableCar {
       p.object.position.x += sign * t * 0.06;
       p.object.updateWorldMatrix(true, false);
       _box.setFromObject(p.object);
-      if (_box.min.y < 0.04) p.object.position.y += 0.04 - _box.min.y;
+      // Keep the door's bottom off the ground (not where there is none: off the fleet disc's rim).
+      const g = p.object.getWorldPosition(_doorW);
+      if (_box.min.y < 0.04 && activeGround().heightAt(g.x, g.z, g.y) !== NO_FLOOR) p.object.position.y += 0.04 - _box.min.y;
     }
   }
 
@@ -1434,7 +1460,7 @@ export class DeformableCar {
   }
 }
 
-/** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt. */
+/** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt; none past the fleet disc's rim. */
 function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce): void {
   p.velocity.y -= 9.6 * dt;
   p.object.position.addScaledVector(p.velocity, dt);
@@ -1446,6 +1472,8 @@ function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce
   }
   p.angular.multiplyScalar(Math.pow(0.72, dt));
   bounce?.(p.object.position, p.velocity, Math.min(0.22, p.radius * 0.45));
+  const q = p.object.position;
+  if (activeGround().heightAt(q.x, q.z, q.y) === NO_FLOOR) return;
   if (p.object.position.y < floor) {
     p.object.position.y = floor;
     if (p.velocity.y < 0) p.velocity.y *= -0.28;
@@ -1480,3 +1508,42 @@ const _zero = new THREE.Vector3();
 const _gn = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
+
+/**
+ * Start the fake fall. Host: the masses' mean velocity and the rigid spin that best fits their motion
+ * (Σ m r × v / Σ m |r|² about their centre), or the kinematic car's own; the soft body then stops
+ * (`massActive` off; its state is left as it is). Netplay client: pass the host's `spin` after setting
+ * the pose and `velocity`.
+ */
+export function beginFakeFall(car: DeformableCar, spin?: THREE.Vector3): void {
+  const d = car.deform;
+  if (spin) car.fallSpin.copy(spin);
+  else if (d.massActive) {
+    let mass = 0;
+    _fallC.set(0, 0, 0);
+    _fallV.set(0, 0, 0);
+    for (const m of d.masses) {
+      mass += m.mass;
+      _fallC.addScaledVector(m.world, m.mass);
+      _fallV.addScaledVector(m.vel, m.mass);
+    }
+    _fallC.multiplyScalar(1 / mass);
+    _fallV.multiplyScalar(1 / mass);
+    car.fallSpin.set(0, 0, 0);
+    let inertia = 0;
+    for (const m of d.masses) {
+      _fallR.subVectors(m.world, _fallC);
+      inertia += m.mass * _fallR.lengthSq();
+      car.fallSpin.addScaledVector(_fallR.cross(_v.subVectors(m.vel, _fallV)), m.mass);
+    }
+    car.fallSpin.multiplyScalar(1 / Math.max(inertia, 1e-6));
+    // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion.
+    car.velocity.copy(_fallV).add(_fallR.subVectors(car.group.position, _fallC).cross(_v.copy(car.fallSpin)).negate());
+  } else car.fallSpin.copy(car.angular);
+  d.massActive = false;
+  car.falling = true;
+}
+const _fallC = new THREE.Vector3();
+const _fallV = new THREE.Vector3();
+const _fallR = new THREE.Vector3();
+const _doorW = new THREE.Vector3();

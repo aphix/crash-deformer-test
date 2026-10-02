@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
-import { activeGround } from "./ground.ts";
+import { activeGround, NO_FLOOR } from "./ground.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, type Assists, type Drivability } from "./vehicle-classes.ts";
 
 /** Shared by derby AI and the player seat. */
@@ -63,7 +63,9 @@ const _dmg: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
 export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): void {
   if (dt <= 0) return;
   const d = car.drive;
-  if (!car.deform.drivetrainAlive) {
+  const p = car.group.position;
+  // Off the fleet disc's rim nothing is under the tyres: the car keeps its ballistic velocity.
+  if (!car.deform.drivetrainAlive || activeGround().heightAt(p.x, p.z, p.y) === NO_FLOOR) {
     d.throttle = 0;
     d.steer = 0;
     d.brake = 0;

@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { activeGround } from "./ground.ts";
+import { activeGround, NO_FLOOR } from "./ground.ts";
 import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, satPushCap, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
@@ -1606,10 +1606,13 @@ export class StreamedDeformation {
       }
     }
     let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
-    // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad).
+    // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad; past the fleet
+    // disc's rim none: the group follows the anchor down).
     const floor = activeGround().heightAt(wx, wz, wy);
-    if (minHub - floor > 0.5) gy = THREE.MathUtils.clamp(gy, floor, floor + 0.12);
-    else gy = THREE.MathUtils.clamp(gy, floor, floor + 0.08);
+    if (floor !== NO_FLOOR) {
+      if (minHub - floor > 0.5) gy = THREE.MathUtils.clamp(gy, floor, floor + 0.12);
+      else gy = THREE.MathUtils.clamp(gy, floor, floor + 0.08);
+    }
     // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
     // solve the anchor's local y for that height so its x/z stay exactly held.
     _a.set(lx, 0, lz).applyQuaternion(group.quaternion);
@@ -2818,6 +2821,13 @@ export class StreamedDeformation {
     const ground = activeGround();
     for (const m of this.masses) {
       if (!m.dynamic) continue;
+      // Past the fleet disc's rim: gravity alike on every mass and no ground rules, so the car falls whole.
+      if (ground.heightAt(m.world.x, m.world.z, m.world.y) === NO_FLOOR) {
+        m.vel.y -= 9.6 * dt;
+        clampSpeed(m.vel);
+        m.world.addScaledVector(m.vel, dt);
+        continue;
+      }
       const hub = m.hub;
       if (hub) m.vel.y -= 9.6 * dt;
       else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
@@ -2839,6 +2849,8 @@ export class StreamedDeformation {
         m.vel.set(0, 0, 0);
       }
       const floor = ground.heightAt(m.world.x, m.world.z, m.world.y);
+      // This step carried it past the rim: no ground rules either (`floor + k` is -Infinity).
+      if (floor === NO_FLOOR) continue;
       const grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
       if (hub) {
         if (m.world.y < floor + 0.28) {
