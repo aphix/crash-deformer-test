@@ -102,11 +102,17 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             {status.tx === "rtc" ? "WebRTC" : "this browser"}
           </p>
           <p className="text-muted">
-            {status.peers.length + 1}/{ROOM_MAX} players · car {status.car < 0 ? "…" : status.car + 1} · {status.snapHz.toFixed(0)} snapshots/s ·{" "}
-            {(status.bytesPerSec / 1024).toFixed(1)} KB/s
+            {status.peers.length + 1}/{ROOM_MAX} players · car {status.car < 0 ? "…" : status.car}
+            {status.role === "host" ? " (host)" : ""} · {status.snapHz.toFixed(0)} snapshots/s · {(status.bytesPerSec / 1024).toFixed(1)} KB/s
           </p>
+          {status.lobby != null ? (
+            <p className="font-display" role="status">
+              {status.role === "host" ? "Waiting for players…" : "Waiting for the race…"} starts in {status.lobby} s
+              {status.role === "host" ? "; AI drives the empty seats" : ""}
+            </p>
+          ) : null}
           <ul className="space-y-0.5" aria-label="Connected peers">
-            {status.peers.length === 0 ? <li className="text-subtle">No peers yet</li> : null}
+            {status.peers.length === 0 ? <li className="text-subtle">{status.public ? "Waiting for players…" : "No peers yet"}</li> : null}
             {status.peers.map((p) => (
               <li key={p.id} className="flex justify-between tabular-nums">
                 <span>{p.id}</span>

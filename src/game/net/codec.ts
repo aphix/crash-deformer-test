@@ -6,7 +6,8 @@ import type { DeformNetState } from "../streamed-deform.ts";
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep
  * every mesh and hull point well inside 1 mm of the host's.
  */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4 } as const;
+/** `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`). */
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5 } as const;
 
 /** Quantization steps. */
 export const Q = {
@@ -348,16 +349,17 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   }
 }
 
-/** Client → host: this peer's shaped drive input (5 bytes). */
-export function writeInput(w: Writer, input: DriveInput): void {
+/** Client → host: this peer's shaped drive input, and whether it asks for a race respawn (5 bytes). */
+export function writeInput(w: Writer, input: DriveInput, respawn = false): void {
   w.u8(MSG.input);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.throttle)) * 127) & 0xff);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.steer)) * 127) & 0xff);
   w.u8(Math.round(Math.max(0, Math.min(1, input.brake)) * 255));
-  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0));
+  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | (respawn ? 4 : 0));
 }
 
-export function readInput(r: Reader, out: DriveInput): void {
+/** Reads a client's input into `out`; returns its respawn request. */
+export function readInput(r: Reader, out: DriveInput): boolean {
   r.u8();
   out.throttle = ((r.u8() << 24) >> 24) / 127;
   out.steer = ((r.u8() << 24) >> 24) / 127;
@@ -365,4 +367,5 @@ export function readInput(r: Reader, out: DriveInput): void {
   const bits = r.u8();
   out.ebrake = (bits & 1) !== 0;
   out.boost = (bits & 2) !== 0;
+  return (bits & 4) !== 0;
 }

@@ -130,8 +130,18 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
 - **Public race**: the button asks the relay for open public rooms (`GET api/rtc?list=public`:
-  rooms named `pub-…` with a live `host`-tagged peer and a free seat, fullest first) and joins the
-  first, or hosts a new `pub-XXXXXX` room when none is open. The panel shows players `n/8`.
+  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 5 s, fullest
+  first) and joins the first, or hosts a new `pub-XXXXXX` room on the race course when none is open.
+  - **Lobby**: the public host is car 0 on the course with no menu; the Net panel says "Waiting for
+    players… starts in N s; AI drives the empty seats". After `LOBBY_S` = 15 s (or at once when the
+    room fills) the race starts with every peer seated as a `remote` slot and AI in the rest. A
+    finished race shows its results for 12 s, then the next one starts, seating whoever joined.
+  - **Dead rooms**: a host that closes its tab sends `leave` on `pagehide`; one that crashes stops
+    polling and drops off the list within 5 s. A client that joined a room whose host has gone
+    (no snapshot within 5 s) hosts a fresh public room itself. Measured: host tab closed, second page
+    presses Public race 0.5 s later. Before: it joined the dead room and sat at 0 snapshots/s for the
+    whole 10 s probe. Now, normal close: a fresh room at once. `leave` dropped (a crashed tab):
+    two runs, one joined the dead room and hosted a fresh one after 5.0 s, the other got a fresh room at once.
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
 - **Join**: the client sends `hello` every 0.5 s until the host answers `assign` (its car index: the
   lowest free index ≥ 1; the host grows the field if needed) and makes its next snapshot a
@@ -172,15 +182,24 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 
 ## Race mode
 
-Race (lane/race-mode) was built for this: every car takes one `DriveInput` per step from its slot
-(`SlotKind = "player" | "ai" | "remote"`), and `RaceSession` is deterministic with
-`snapshot()` / `RaceSession.restore()`. Agreed hooks with RaceLead:
+Race multiplayer runs through race mode's controller slots (`SlotKind = "player" | "ai" | "remote"`)
+and the deterministic `RaceSession` (agreed with RaceLead):
 
-- `RaceDirector.setRemoteInput(carId, input)` copies into a preallocated per-car `DriveInput`,
-  applied in `drive()` for `kind === "remote"` (the Fleet prototype's `net.drive` becomes this call).
-- `RaceDirector.snapshot()` / `applySnapshot(snap)`: the host sends the `RaceSnapshot` JSON on the
-  reliable channel when it changes (lap, gate, event); clients render the HUD from it and never
-  step the session. Track id travels in `assign`; tracks are JSON so both sides load the same course.
+- Host: `RaceDirector.setSeats(peerCars)` makes peers `remote` slots in the next field (named
+  "Player N"); the AI fills the rest. Each input packet goes to `setRemoteInput(car, input)` (a
+  seat with no input yet holds still on the grid, never AI-driven); an input's respawn bit calls
+  `requestRespawn(car)` (the host's own menu or spectating never blocks a peer's request).
+- Host → clients: the `RaceSnapshot` JSON (or, between races, the lobby countdown and course) as
+  a `MSG.race` frame every 6th snapshot (5 Hz) and with each keyframe, ~1.2 KB for 4 cars.
+- Client: `applySnapshot(snap, self)` restores the session and rebuilds the entrants: its own car
+  becomes "You" (`player`), the host's "Host"; a new race seats it in drive mode, a peer not in the
+  field (joined mid-race) spectates the leader until the next race. Clients never step the session,
+  and only viewing commands reach the director (start, pause, end, options are the host's).
+  Cars still come from the 30 Hz pose/wreck snapshots, as in Fleet.
+- Measured (`.bench/net/race2.mjs`, two pages over WebRTC, oval, 1 lap, 3 AI): B lands in A's public
+  room as car 1, the lobby ends, B's input drives car 1 on the host (168 m covered). The standings
+  (order and laps of all 4 cars) agree on both pages in 21/21 samples every 2 s, and the final results
+  are identical (place, laps, status).
 
 ## Derby mode (after race; agreed with DerbyAI2, lane/derby-ai-2)
 

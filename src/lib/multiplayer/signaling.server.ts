@@ -96,15 +96,21 @@ interface PublicRoom {
   players: number;
 }
 
-/** GET ?list=public — open public rooms (a live host, a free seat), fullest first. */
+/**
+ * A host polls every 2 s once its pairs are up (p2p.ts IDLE_POLL_MS): one that has not polled for
+ * `HOST_FRESH_SECONDS` closed its tab or lost its network, and its room is not offered any more.
+ */
+const HOST_FRESH_SECONDS = 5;
+
+/** GET ?list=public — open public rooms (a host that polled recently, a free seat), fullest first. */
 async function listPublic(sql: Sql): Promise<Response> {
   const rows = await sql.query<{ room: string; players: number }>(
     `SELECT room, count(*)::int AS players FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)
      GROUP BY room
-     HAVING bool_or(name = 'host') AND count(*) < $3
+     HAVING bool_or(name = 'host' AND last_seen > now() - make_interval(secs => $4)) AND count(*) < $3
      ORDER BY players DESC, room LIMIT 20`,
-    [`${PUBLIC_PREFIX}%`, PEER_TTL_SECONDS, ROOM_MAX],
+    [`${PUBLIC_PREFIX}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
   );
   return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players) })) });
 }

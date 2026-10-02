@@ -63,6 +63,8 @@ const FLEET_PAINT: CarPaint[] = [
 ];
 
 const FIXED = 1 / 60;
+/** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
+const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
 const IMPACT_SCALE = 0.032;
 const PRE_IMPACT_LEAD = 0.07;
 /** Piston loop: the next ram is parked this long (s) before its shot, and no sooner after the last one. */
@@ -193,7 +195,8 @@ export class CrashEngine {
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
   readonly net = new NetPlay({
     cars: () => this.live(),
-    setCarCount: (n) => this.setCarCount(n),
+    // The host's field size, in race mode too (where the sandbox setter is a no-op: the race owns it).
+    setCarCount: (n) => (this.race.active ? this.ensureCars(n) : this.setCarCount(n)),
     matchCar: (i, style, cls) => this.matchCar(i, style, cls),
     setRealism: (v) => this.setRealism(v),
     phase: () => this.phase,
@@ -203,6 +206,18 @@ export class CrashEngine {
       this.timeScale = timeScale;
       this.targetScale = timeScale;
     },
+    race: () => (this.race.active ? this.race : null),
+    enterRace: () => {
+      if (this.race.active) return;
+      this.setRace(true);
+      this.emitHud(true);
+    },
+    exitRace: () => {
+      if (!this.race.active) return;
+      this.setRace(false);
+      this.emitHud(true);
+    },
+    startRace: () => this.raceCommand({ type: "start" }),
     seat: this.seat,
   });
   /** Sandbox floor, grid and rings: hidden while a race course is up. */
@@ -581,10 +596,17 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
-  /** HUD → race. The HUD never touches race state itself. */
+  /** HUD → race. The HUD never touches race state itself. A netplay client only views: the host runs the race. */
   raceCommand(cmd: RaceCommand): void {
+    if (this.net.client && !CLIENT_RACE_COMMANDS.has(cmd.type)) return;
     this.race.command(cmd);
     this.emitHud(true);
+  }
+
+  /** R / D-pad down: back on the track (a netplay client asks the host). */
+  private requestRespawn(): void {
+    if (this.net.client) this.net.requestRespawn();
+    else this.race.requestRespawn();
   }
 
   private setRace(on: boolean): void {
@@ -895,7 +917,7 @@ export class CrashEngine {
         this.raceCommand({ type: "pause" });
         return true;
       case "KeyR":
-        this.race.requestRespawn();
+        this.requestRespawn();
         return true;
       case "KeyQ":
       case "KeyE":
@@ -954,7 +976,7 @@ export class CrashEngine {
     if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
     if (press(PAD_BUTTON.rb)) this.race.cycle(1);
     if (this.seat.mode === "drive" && press(PAD_BUTTON.north)) this.seat.cycleView();
-    if (press(PAD_BUTTON.down)) this.race.requestRespawn();
+    if (press(PAD_BUTTON.down)) this.requestRespawn();
     this.emitHud(true);
   }
 
@@ -1283,7 +1305,6 @@ export class CrashEngine {
         if ((this.showCompactor || this.showPistons || this.showDoors) && car !== this.carA) continue;
         car.updateDeform(simDt);
       }
-      this.net.frame(wallDt);
       if (!this.net.client) this.updatePhase(wallDt);
       if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (this.phase !== "approach") this.emitContactFx();
@@ -1328,6 +1349,8 @@ export class CrashEngine {
       }
     }
 
+    // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
+    this.net.frame(wallDt);
     if (this.race.active) this.race.frame(this.playing ? wallDt : 0);
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
