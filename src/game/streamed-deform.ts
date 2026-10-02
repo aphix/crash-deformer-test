@@ -59,6 +59,11 @@ const HUB_POP_MPS = 15;
 /** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
  *  packed bumper beam. With the 0.72 m overhang the wheel is reached after 0.30 m of corner crush. */
 const TYRE_REACH = 0.42;
+/** Tyre (m): radius along the car (TYRE_REACH's 0.32) and half-width across it, for the faces' hub contact. */
+export const TYRE_R = 0.32;
+const TYRE_HALF_W = 0.11;
+/** A face that shoves a planted hub this far (m, one wheel diameter) off its rest tears the wheel off. */
+const WHEEL_DIAMETER = 2 * TYRE_R;
 /** Throttle input this recent (s) still counts as "under power" for the settle rule. */
 const POWER_HOLD = 0.1;
 /** Steel-on-steel sliding friction for car-car mass contacts (same μ as the hull contact in pair-contact). */
@@ -198,6 +203,10 @@ export interface MassNode {
   dynamic: boolean;
   clipping: boolean;
   popped: boolean;
+  /** Car-frame push (m) a squeezing face (press plates, `projectOutOfBox` when bidirectional) has given a planted
+   *  hub: clampLocal pins it at rest + shove and pops it past WHEEL_DIAMETER. Pinned at rest, plates passed through the tyres. */
+  shoveX: number;
+  shoveZ: number;
   /** Permanent set (m) along the hit, from `baseX/baseZ`: crush this node can no longer spring back from. */
   crushSet: number;
   /** Planar displacement from rest (m, car frame) when the current hit started: earlier hits' damage.
@@ -255,8 +264,18 @@ export class StreamedDeformation {
   bidirectional = false;
   /** Masses resting on the face after the last projectOutOfBox call. */
   faceContacts = 0;
-  /** Walls past the wheel midpoint — cage/rails may yield. */
-  deepCrush = false;
+  /** Walls past both wheel midpoints: the cage and rails may yield. Reads false while `frameCrush` is off. */
+  get deepCrush(): boolean {
+    return this.squeezed && this.frameCrush;
+  }
+  set deepCrush(v: boolean) {
+    this.squeezed = v;
+  }
+  private squeezed = false;
+  /** A squeeze past both wheel midpoints may crush the frame (`deepCrush`). Off: the cell holds (race mode). */
+  frameCrush = true;
+  /** Wheels may separate (C4 corner hits, kerb launches, a face shoving the hub a wheel diameter). Off: never. */
+  wheelsDetach = true;
 
   private cages: Cage[];
   private sensors: Sensor[];
@@ -435,6 +454,8 @@ export class StreamedDeformation {
         dynamic: false,
         clipping: false,
         popped: false,
+        shoveX: 0,
+        shoveZ: 0,
         crushSet: 0,
         baseX: 0,
         baseZ: 0,
@@ -766,6 +787,8 @@ export class StreamedDeformation {
       m.dynamic = false;
       m.clipping = false;
       m.popped = false;
+      m.shoveX = 0;
+      m.shoveZ = 0;
     }
     for (const b of this.beams) {
       b.plastic = b.rest;
@@ -1149,7 +1172,23 @@ export class StreamedDeformation {
   }
 
   popHub(m: MassNode): void {
-    m.popped = true;
+    if (this.wheelsDetach) m.popped = true;
+  }
+
+  /**
+   * A rigid face moved planted hub `m` by (dx, dz) in world: keep it as the hub's shove (car frame), the
+   * pin clampLocal holds it at. Without detachable wheels the shove stops at a wheel diameter.
+   */
+  shoveHub(m: MassNode, dx: number, dz: number): void {
+    const gc = Math.cos(this.prevYaw);
+    const gs = Math.sin(this.prevYaw);
+    m.shoveX += dx * gc - dz * gs;
+    m.shoveZ += dx * gs + dz * gc;
+    const len = Math.hypot(m.shoveX, m.shoveZ);
+    if (!this.wheelsDetach && len > WHEEL_DIAMETER) {
+      m.shoveX *= WHEEL_DIAMETER / len;
+      m.shoveZ *= WHEEL_DIAMETER / len;
+    }
   }
 
   massLocal(name: string): THREE.Vector3 {
@@ -1158,6 +1197,10 @@ export class StreamedDeformation {
 
   massWorld(name: string): THREE.Vector3 {
     return this.massByName(name).world;
+  }
+
+  massVel(name: string): THREE.Vector3 {
+    return this.massByName(name).vel;
   }
 
   /** Extra XZ drag once contact has ended — same Coulomb as the tires. */
@@ -1558,7 +1601,9 @@ export class StreamedDeformation {
    * Rigid slab at mass level: a mass whose half-radius sphere is inside the
    * box (centre cx/cz, half extents hx/hz, rotated by yaw) goes back out
    * through the nearer of the car-side face or an end face and loses its
-   * inbound speed there. Planted hubs are the world pin and stay put.
+   * inbound speed there. Planted hubs are the world pin and stay put on a one-sided
+   * hit (the car moves away from the face); squeezed (`bidirectional`) the car
+   * cannot, so the face meets the tyre and shoves the hub (`shoveHub`).
    * Returns the momentum taken out (N·s) for the caller to hand to the slab.
    */
   projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number): number {
@@ -1576,14 +1621,22 @@ export class StreamedDeformation {
     let removed = 0;
     this.faceContacts = 0;
     for (const m of this.masses) {
-      // Planted hubs pin the wreck, until a squeeze reaches past the wheel centres (`deepCrush`).
-      if (!m.dynamic || (m.hub && !m.popped && !this.deepCrush)) continue;
+      const planted = m.hub && !m.popped;
+      // Planted hubs pin the wreck on a one-sided hit; a squeeze (`bidirectional`) or a face past the wheel
+      // centres (`deepCrush`) meets the tyres.
+      if (!m.dynamic || (planted && !this.bidirectional && !this.deepCrush)) continue;
       const ox = m.world.x - cx;
       const oz = m.world.z - cz;
-      const r = m.radius * 0.5;
+      let r = m.radius * 0.5;
+      let rEnd = r;
+      if (planted) {
+        // The face meets the tyre: its tread (TYRE_R) along the car, its sidewall across it.
+        r = Math.hypot(TYRE_HALF_W * (rx * gc - rz * gs), TYRE_R * (rx * gs + rz * gc));
+        rEnd = Math.hypot(TYRE_HALF_W * (fx * gc - fz * gs), TYRE_R * (fx * gs + fz * gc));
+      }
       const lz = ox * fx + oz * fz;
       const penX = hx + r - (ox * rx + oz * rz) * side;
-      const penZ = hz + r - Math.abs(lz);
+      const penZ = hz + rEnd - Math.abs(lz);
       if (penZ > 0 && penX > -FACE_SKIN) this.faceContacts++;
       if (penX <= 0 || penZ <= 0) continue;
       let nx: number;
@@ -1605,6 +1658,7 @@ export class StreamedDeformation {
       m.world.z += dz;
       m.local.x += dx * gc - dz * gs;
       m.local.z += dx * gs + dz * gc;
+      if (planted && !this.deepCrush) this.shoveHub(m, dx, dz);
       const vn = m.vel.x * nx + m.vel.z * nz;
       if (vn < 0) {
         m.vel.x -= nx * vn;
@@ -2198,14 +2252,16 @@ export class StreamedDeformation {
       const cw = this.bidirectional ? 1 : this.cornerWeight(m);
       const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
       if (this.bidirectional || m.hub) {
-        const cap = m.name === "cell" || m.name === "roof" ? (this.deepCrush ? 0.72 : 0.12) : m.hub ? (this.bidirectional ? 0.95 : 0.38) : maxCrush;
+        // A hub keeps at least the shove a face gave it, popped or not.
+        const shove = m.hub ? Math.hypot(m.shoveX, m.shoveZ) : 0;
+        const cap = m.name === "cell" || m.name === "roof" ? (this.deepCrush ? 0.72 : 0.12) : m.hub ? Math.max(this.bidirectional ? 0.95 : 0.38, shove) : maxCrush;
         const len = Math.hypot(dx, dz);
         if (len > cap) {
           const k = cap / len;
           dx *= k;
           dz *= k;
         }
-        if (Math.abs(dx) > latCap) dx = Math.sign(dx) * latCap;
+        if (Math.abs(dx) > Math.max(latCap, Math.abs(m.shoveX))) dx = Math.sign(dx) * Math.max(latCap, Math.abs(m.shoveX));
       } else {
         // Hit frame: crush runs along impactInward, the rest of the planar travel is lateral. The
         // stroke is the struck end's total (rearmHit), so a node already crushed along it gets less.
@@ -2250,11 +2306,12 @@ export class StreamedDeformation {
           const left = m.rest.x < 0;
           const corner = front ? (left ? this.at.bumperFL : this.at.bumperFR) : left ? this.at.bumperRL : this.at.bumperRR;
           const crushed = (corner.local.x - corner.rest.x) * ix + (corner.local.z - corner.rest.z) * iz;
-          if (front === iz < 0 && crushed >= Math.abs(corner.rest.z - m.rest.z) - TYRE_REACH) m.popped = true;
+          if (front === iz < 0 && crushed >= Math.abs(corner.rest.z - m.rest.z) - TYRE_REACH) this.popHub(m);
         }
+        if (!m.popped && Math.hypot(m.shoveX, m.shoveZ) > WHEEL_DIAMETER) this.popHub(m);
         if (!m.popped) {
-          dx = 0;
-          dz = 0;
+          dx = m.shoveX;
+          dz = m.shoveZ;
         }
       }
       m.local.set(m.rest.x + dx, m.rest.y + dy, m.rest.z + dz);
@@ -2271,6 +2328,8 @@ export class StreamedDeformation {
       m.world.copy(m.local);
       group.localToWorld(m.world);
     }
+    // A car on no wheels is out, like a dead engine.
+    if (this.at.hubFL.popped && this.at.hubFR.popped && this.at.hubRL.popped && this.at.hubRR.popped) this.drivetrainAlive = false;
   }
 
   private stepBeams(dt: number): void {

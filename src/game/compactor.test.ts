@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { COMPACTOR, CompactorRig as Rig, compactorStage, travelOf } from "./compactor.ts";
 import { makeCar } from "./crash-scenarios.test-util.ts";
 import { leftoverCrumple } from "./physics-util.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import { TYRE_R, type DeformMode } from "./streamed-deform.ts";
 import { forModes } from "./test-support.ts";
 
 /** The press scene's rig on a parked car of `mode`. */
@@ -143,6 +143,18 @@ forModes("compactor until wheel wells", (mode) => {
       hub < (mode === "shape" ? 0.99 : 0.28),
       `hubs already past midpoint travel=${hub.toFixed(3)}`,
     );
+  });
+
+  // Planted hubs were pinned at rest, so the plates passed straight through the tyres (owner screenshot).
+  it("bad: the plates never sit inside a planted tyre — the hubs ride them back", () => {
+    const r = new CompactorRig(mode);
+    const face = COMPACTOR.midFace + 0.1;
+    r.runTo(face);
+    for (const name of ["hubFL", "hubFR", "hubRL", "hubRR"] as const) {
+      const h = r.d.masses.find((m) => m.name === name)!;
+      assert.equal(h.popped, false, `${name} popped before a wheel diameter`);
+      assert.ok(Math.abs(h.world.z) + TYRE_R <= face + 0.01, `${name} tyre reaches ${(Math.abs(h.world.z) + TYRE_R).toFixed(3)} past the plate at ${face.toFixed(3)}`);
+    }
   });
 });
 

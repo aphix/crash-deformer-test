@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { StreamedDeformation } from "./streamed-deform.ts";
+import { StreamedDeformation, TYRE_R } from "./streamed-deform.ts";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
 import {
@@ -149,6 +149,8 @@ export class DeformableCar {
   readonly paint: CarPaint;
   readonly style: BodyStyle;
   readonly wheels: THREE.Group[] = [];
+  /** Per wheel: off its popped hub and loose in the world (`dropWheel`), with its own motion. */
+  private readonly looseWheels: (LooseBody & { loose: boolean })[] = [];
   readonly velocity = new THREE.Vector3();
   readonly angular = new THREE.Vector3();
   readonly forward = new THREE.Vector3(0, 0, 1);
@@ -275,6 +277,7 @@ export class DeformableCar {
       w.position.set(x, y, z);
       this.group.add(w);
       this.wheels.push(w);
+      this.looseWheels.push({ object: w, velocity: new THREE.Vector3(), angular: new THREE.Vector3(), radius: TYRE_R, loose: false });
     }
     this.group.castShadow = true;
   }
@@ -580,6 +583,14 @@ export class DeformableCar {
     this.wheelSpin = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
+      const loose = this.looseWheels[i]!;
+      if (loose.loose) {
+        this.world.remove(w);
+        this.group.add(w);
+        loose.loose = false;
+        loose.velocity.set(0, 0, 0);
+        loose.angular.set(0, 0, 0);
+      }
       const rest = WHEEL_POS[i]!;
       w.position.set(rest[0], rest[1], rest[2]);
       w.rotation.set(0, 0, 0);
@@ -888,6 +899,7 @@ export class DeformableCar {
     const hubs = ["hubFL", "hubFR", "hubRL", "hubRR"] as const;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
+      if (this.looseWheels[i]!.loose) continue;
       const rest = WHEEL_POS[i]!;
       w.rotation.x = this.wheelSpin;
       if (!this.deform.massActive) {
@@ -897,16 +909,12 @@ export class DeformableCar {
       const hub = this.deform.massLocal(hubs[i]!);
       const popped = this.deform.hubPopped(hubs[i]!);
       if (!popped) {
-        w.position.set(rest[0], THREE.MathUtils.clamp(hub.y, 0.16, 0.55), rest[2]);
+        // Follows its hub along the car too: a face's shove, or a squeeze past the hubs, moves it off rest.
+        w.position.set(hub.x, THREE.MathUtils.clamp(hub.y, 0.16, 0.55), hub.z);
         w.visible = true;
         continue;
       }
-      w.position.set(
-        hub.x,
-        THREE.MathUtils.clamp(hub.y, 0.04, 1.4),
-        hub.z,
-      );
-      w.visible = true;
+      this.dropWheel(i, hubs[i]!);
     }
   }
 
@@ -1233,32 +1241,64 @@ export class DeformableCar {
   }
 
   private stepLooseParts(dt: number, bounce?: WorldBounce): void {
-    for (const p of this.parts) {
-      if (!p.detached) continue;
-      p.velocity.y -= 9.6 * dt;
-      p.object.position.addScaledVector(p.velocity, dt);
-      const spin = p.angular.length();
-      if (spin > 1e-5) {
-        _n.copy(p.angular).multiplyScalar(1 / spin);
-        _qSpin.setFromAxisAngle(_n, spin * dt);
-        p.object.quaternion.premultiply(_qSpin);
-      }
-      p.angular.multiplyScalar(Math.pow(0.72, dt));
-      bounce?.(p.object.position, p.velocity, Math.min(0.22, p.radius * 0.45));
-      if (p.object.position.y < 0.12) {
-        p.object.position.y = 0.12;
-        if (p.velocity.y < 0) p.velocity.y *= -0.28;
-      }
-      if (p.object.position.y <= 0.12 + GROUND_BAND) {
-        // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
-        // band keeps the millimetre hops of the bounce in contact at any frame rate.
-        const slide = Math.hypot(p.velocity.x, p.velocity.z);
-        applyGroundFriction(p.velocity, dt, CRASH.muSlide, true);
-        p.angular.multiplyScalar(slide > 1e-5 ? Math.hypot(p.velocity.x, p.velocity.z) / slide : 0);
-      }
-    }
+    for (const p of this.parts) if (p.detached) stepLoose(p, dt, 0.12, bounce);
+    for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
+  }
+
+  /** A popped hub's wheel leaves the car: a world object launched at the hub's speed, out and up. */
+  private dropWheel(i: number, hub: string): void {
+    const w = this.looseWheels[i]!;
+    w.loose = true;
+    this.group.updateMatrixWorld();
+    w.object.getWorldQuaternion(_lampQ);
+    this.group.remove(w.object);
+    this.world.add(w.object);
+    w.object.position.copy(this.deform.massWorld(hub));
+    w.object.position.y = Math.max(TYRE_R, w.object.position.y);
+    w.object.quaternion.copy(_lampQ);
+    _p.copy(w.object.position).sub(this.group.position).setY(0);
+    if (_p.lengthSq() > 1e-6) _p.normalize();
+    w.velocity.copy(this.deform.massVel(hub)).addScaledVector(_p, 1.2);
+    w.velocity.y = Math.max(w.velocity.y, 0) + 1;
+    // Rolls on about its axle (the car's x) at the hub's ground speed.
+    _n.set(1, 0, 0).applyQuaternion(this.group.quaternion);
+    w.angular.copy(_n).multiplyScalar(Math.hypot(w.velocity.x, w.velocity.z) / TYRE_R);
   }
 }
+
+/** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt. */
+function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce): void {
+  p.velocity.y -= 9.6 * dt;
+  p.object.position.addScaledVector(p.velocity, dt);
+  const spin = p.angular.length();
+  if (spin > 1e-5) {
+    _n.copy(p.angular).multiplyScalar(1 / spin);
+    _qSpin.setFromAxisAngle(_n, spin * dt);
+    p.object.quaternion.premultiply(_qSpin);
+  }
+  p.angular.multiplyScalar(Math.pow(0.72, dt));
+  bounce?.(p.object.position, p.velocity, Math.min(0.22, p.radius * 0.45));
+  if (p.object.position.y < floor) {
+    p.object.position.y = floor;
+    if (p.velocity.y < 0) p.velocity.y *= -0.28;
+  }
+  if (p.object.position.y <= floor + GROUND_BAND) {
+    // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
+    // band keeps the millimetre hops of the bounce in contact at any frame rate.
+    const slide = Math.hypot(p.velocity.x, p.velocity.z);
+    applyGroundFriction(p.velocity, dt, CRASH.muSlide, true);
+    p.angular.multiplyScalar(slide > 1e-5 ? Math.hypot(p.velocity.x, p.velocity.z) / slide : 0);
+  }
+}
+
+/** What `stepLoose` moves: a detached part, or a wheel off its hub. */
+interface LooseBody {
+  object: THREE.Object3D;
+  velocity: THREE.Vector3;
+  angular: THREE.Vector3;
+  radius: number;
+}
+
 const _qSpin = new THREE.Quaternion();
 const _push = new THREE.Vector3();
 /** Height above its rest (m) at which a loose part still slides on the ground. */

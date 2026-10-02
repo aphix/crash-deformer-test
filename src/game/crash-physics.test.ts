@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { StreamedDeformation, ENGINE_KILL_TRAVEL, type DeformMode } from "./streamed-deform.ts";
+import { StreamedDeformation, ENGINE_KILL_TRAVEL, TYRE_R, type DeformMode } from "./streamed-deform.ts";
 import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
 import { DT, MODES, dummyGeom, mass } from "./test-support.ts";
 
@@ -753,6 +753,53 @@ forModes("hubs stay planted until they pop", (spawn, mode) => {
     s.d.followGroup(s.group, s.vel, s.omega, DT);
     assert.equal(h.popped, false);
     assert.ok(Math.abs(h.local.z - h.rest.z) > 0.04, "deepCrush pinned the hub anyway");
+  });
+
+  it("bad: a squeezing slab face 0.1 m into a planted tyre's tread shoves the hub back, and the shove stays", () => {
+    const s = spawn(0, 0);
+    s.d.bidirectional = true;
+    const h = mass(s.d, "hubFL");
+    // A slab square to the car (normal −z) whose near face is 0.1 m inside the tyre (hub z + TYRE_R).
+    const face = h.world.z + TYRE_R - 0.1;
+    s.d.projectOutOfBox(h.world.x, face + 0.5, 0.5, 0.06, Math.PI / 2);
+    s.d.followGroup(s.group, s.vel, s.omega, DT);
+    assert.ok(h.local.z - h.rest.z < -0.09, `hub held at ${(h.local.z - h.rest.z).toFixed(3)} m: the face is inside the tyre`);
+    s.d.followGroup(s.group, s.vel, s.omega, DT);
+    assert.ok(h.local.z - h.rest.z < -0.09, "the pin pulled the hub back into the face");
+    assert.equal(h.popped, false);
+  });
+
+  it("bad: a face that shoves a planted hub past one wheel diameter tears it off; wheelsDetach off holds it on", () => {
+    const on = spawn(0, 0);
+    on.d.shoveHub(mass(on.d, "hubFR"), 0, -(2 * TYRE_R + 0.01));
+    on.d.followGroup(on.group, on.vel, on.omega, DT);
+    assert.equal(mass(on.d, "hubFR").popped, true, "a wheel diameter of shove left the wheel on");
+    const held = spawn(0, 0);
+    held.d.wheelsDetach = false;
+    held.d.shoveHub(mass(held.d, "hubFR"), 0, -1);
+    held.d.followGroup(held.group, held.vel, held.omega, DT);
+    const hub = mass(held.d, "hubFR");
+    assert.equal(hub.popped, false, "wheelsDetach off still popped the wheel");
+    assert.ok(Math.abs(hub.local.z - hub.rest.z) <= 2 * TYRE_R + 1e-6, `shoved ${(hub.local.z - hub.rest.z).toFixed(3)} m past a diameter`);
+  });
+
+  it("bad: a car with all four wheels gone is out, like a dead engine; three is still running", () => {
+    const s = spawn(0, 0);
+    for (const name of ["hubFL", "hubFR", "hubRL"] as const) s.d.popHub(mass(s.d, name));
+    s.d.followGroup(s.group, s.vel, s.omega, DT);
+    assert.equal(s.d.drivetrainAlive, true, "three wheels gone already killed it");
+    s.d.popHub(mass(s.d, "hubRR"));
+    s.d.followGroup(s.group, s.vel, s.omega, DT);
+    assert.equal(s.d.drivetrainAlive, false, "no wheels and still driving");
+  });
+
+  it("close-but-wrong: frameCrush off keeps the frame whole past the hub midpoints (race mode)", () => {
+    const s = spawn(0);
+    s.d.frameCrush = false;
+    s.d.deepCrush = true;
+    assert.equal(s.d.deepCrush, false);
+    s.d.frameCrush = true;
+    assert.equal(s.d.deepCrush, true, "the squeeze was forgotten while the frame was held");
   });
 });
 
