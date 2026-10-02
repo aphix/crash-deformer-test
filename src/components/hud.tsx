@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import type { DoorScenario } from "@/game/door-rig";
 import type { CrashHudState, DoorHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
+import type { VehicleClassId } from "@/game/vehicle-classes";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {
@@ -54,6 +55,8 @@ export type HudProps = {
   onToggleCapture: () => void;
   onDefaults: () => void;
   onCopyTrace: () => Promise<boolean> | boolean;
+  onRealism: (value: number) => void;
+  onPlayerClass: (id: VehicleClassId) => void;
 };
 
 const PHASE: Record<CrashHudState["phase"], string> = {

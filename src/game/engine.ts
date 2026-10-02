@@ -12,7 +12,8 @@ import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
-import { MAX_CARS, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
+import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
+import { assignClass, carClass, CLASSES, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
 import { makeAsphalt, makeLamp } from "./engine-world.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
 import { ChaseCamera, centroid } from "./engine-camera.ts";
@@ -140,6 +141,8 @@ export class CrashEngine {
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   private lodStride: number[] = [];
   private squash = 0.4;
+  /** Slot 0's class: the HUD's pick for the player's car. */
+  private playerClass: VehicleClassId = fleetClass(0);
   private buckle = 0.45;
   private fxDensity = 0.7;
   private speedMin = 0;
@@ -501,6 +504,29 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
+  /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
+  setRealism(value: number): void {
+    HANDLING.realism = THREE.MathUtils.clamp(value, 0, 1);
+    for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism);
+    this.emitHud(true);
+  }
+
+  /** The player's car (slot 0) becomes `id`, rebuilt on that class's body; the field respawns and the camera follows it. */
+  setPlayerClass(id: VehicleClassId): void {
+    if (!(id in CLASSES)) return;
+    this.playerClass = id;
+    const old = this.cars[0];
+    if (old && carClass(old) !== id) {
+      this.scene.remove(old.group);
+      old.dispose();
+      this.cars[0] = this.buildCar(0);
+      this.cars[0].group.visible = true;
+    }
+    this.randomizeAndReset();
+    this.seat.focus(0);
+    this.emitHud(true);
+  }
+
   setCarCount(n: number): void {
     this.ensureCars(n);
     this.tryUnlockAudio();
@@ -597,22 +623,7 @@ export class CrashEngine {
   private ensureCars(n: number): void {
     const count = THREE.MathUtils.clamp(Math.round(n) || 1, 1, MAX_CARS);
     this.carCount = count;
-    while (this.cars.length < count) {
-      const i = this.cars.length;
-      const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
-      const paint: CarPaint =
-        i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
-      const car = new DeformableCar(
-        paint,
-        this.scene,
-        (origin, vel, count) => this.glassDots.burst(origin, vel, count),
-        fleetStyle(i),
-      );
-      car.group.visible = false;
-      car.group.userData.carIndex = i;
-      this.scene.add(car.group);
-      this.cars.push(car);
-    }
+    while (this.cars.length < count) this.cars.push(this.buildCar(this.cars.length));
     for (let i = 0; i < this.cars.length; i++) {
       this.cars[i]!.group.visible = i < count;
     }
@@ -622,12 +633,34 @@ export class CrashEngine {
     if (this.seat.carIndex >= count) this.seat.clear();
   }
 
+  private buildCar(i: number): DeformableCar {
+    const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
+    const paint: CarPaint =
+      i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
+    const cls = i === 0 ? this.playerClass : fleetClass(i);
+    const car = new DeformableCar(
+      paint,
+      this.scene,
+      (origin, vel, count) => this.glassDots.burst(origin, vel, count),
+      i === 0 ? CLASSES[cls].style : fleetStyle(i),
+    );
+    assignClass(car, cls);
+    car.group.visible = false;
+    car.group.userData.carIndex = i;
+    this.scene.add(car.group);
+    return car;
+  }
+
   private dressCar(car: DeformableCar): void {
     car.deform.squash = this.squash;
     car.deform.buckle = this.buckle;
     car.deform.setMode(this.deformMode);
     car.setRigVisible(this.showRig);
     car.deform.setParticlesVisible(this.showParticles);
+    // Re-dress after a respawn re-attached its parts, and arm the slider's kill travel.
+    const cls = carClass(car);
+    assignClass(car, cls);
+    car.deform.killTravel = killTravel(cls, HANDLING.realism);
   }
 
   private onKey = (e: KeyboardEvent): void => {
@@ -1196,6 +1229,7 @@ export class CrashEngine {
     if (driven >= 0 && driven < cars.length) {
       const car = cars[driven]!;
       if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(car, dt), dt);
+      if (this.seat.selfRight(car.group.matrixWorld.elements[5]!, car.velocity.length(), dt)) this.recoverDriven();
     }
     if (this.derbyMode && this.derby.winnerId == null) {
       const snaps = this.derby.snapshots(cars.length);
@@ -1787,6 +1821,8 @@ export class CrashEngine {
       boost: this.seat.boost,
       view: this.seat.view,
       pad: this.pad.label,
+      realism: HANDLING.realism,
+      playerClass: this.playerClass,
     });
   }
 

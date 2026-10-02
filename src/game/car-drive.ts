@@ -262,6 +262,7 @@ export class DriverSeat {
   private readonly feel: DriveFeel = { wheel: 0, gas: 0, brake: 0 };
   private readonly out = idleDrive();
   private wasActive = false;
+  private flippedFor = 0;
 
   focus(index: number): void {
     this.carIndex = index;
@@ -274,6 +275,22 @@ export class DriverSeat {
     const from = this.carIndex < 0 ? (dir > 0 ? -1 : 0) : this.carIndex;
     this.carIndex = (((from + dir) % count) + count) % count;
     if (this.mode === "global") this.mode = "follow";
+  }
+
+  /**
+   * True once the driven car has sat on its roof or side (`upY`, the body's up·world-up, under 0.35), nearly
+   * still, for the slider's self-right delay; the caller then rights it. The realistic end leaves it to R.
+   */
+  selfRight(upY: number, speed: number, dt: number): boolean {
+    const wait = assists(HANDLING.realism, _assist).selfRight;
+    if (this.mode !== "drive" || upY > 0.35 || speed > 2.5 || wait === Infinity) {
+      this.flippedFor = 0;
+      return false;
+    }
+    this.flippedFor += dt;
+    if (this.flippedFor < wait) return false;
+    this.flippedFor = 0;
+    return true;
   }
 
   esc(): void {

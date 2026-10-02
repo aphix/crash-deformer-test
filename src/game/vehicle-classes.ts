@@ -57,7 +57,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     torque: 0.3,
     brake: 28,
     turn: 1.55,
-    grip: 30,
+    grip: 40,
     drift: 0.35,
     boostTop: 1.42,
     boostAccel: 1.55,
@@ -76,7 +76,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     torque: 0.6,
     brake: 26,
     turn: 1.36,
-    grip: 27,
+    grip: 36,
     drift: 0.85,
     boostTop: 1.42,
     boostAccel: 1.55,
@@ -95,7 +95,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     torque: 0.5,
     brake: 24,
     turn: 1.5,
-    grip: 28,
+    grip: 37,
     drift: 0.25,
     boostTop: 1.45,
     boostAccel: 1.6,
@@ -114,7 +114,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     torque: 0.7,
     brake: 22,
     turn: 1.3,
-    grip: 25,
+    grip: 33,
     drift: 0.2,
     boostTop: 1.45,
     boostAccel: 1.6,
@@ -124,7 +124,8 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
   },
 };
 
-const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
+/** The class each body style drives as unless assigned another (the monster truck rides the pickup body). */
+export const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
   sedan: "sedan",
   hatchback: "sedan",
   wagon: "sedan",
@@ -136,8 +137,11 @@ export function classStats(id: VehicleClassId): ClassStats {
   return CLASSES[id];
 }
 
+/** Where the arcade ↔ realistic slider starts: arcade-leaning, per the design pillars. */
+export const DEFAULT_REALISM = 0.25;
+
 /** The arcade ↔ realistic axis. 0 = Burnout (assists on, near-indestructible), 1 = sourced crash data. */
-export const HANDLING = { realism: 0.25 };
+export const HANDLING = { realism: DEFAULT_REALISM };
 
 const assigned = new WeakMap<object, VehicleClassId>();
 

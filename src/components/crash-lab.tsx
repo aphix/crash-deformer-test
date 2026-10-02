@@ -84,6 +84,8 @@ export function CrashLab() {
         onTimeScale={(v) => engineRef.current?.setTimeScale(v)}
         onToggleCapture={() => engineRef.current?.toggleCapture()}
         onDefaults={() => engineRef.current?.resetDefaults()}
+        onRealism={(v) => engineRef.current?.setRealism(v)}
+        onPlayerClass={(id) => engineRef.current?.setPlayerClass(id)}
         onCopyTrace={async () => {
           const json = engineRef.current?.copyTraceJson();
           if (!json) return false;

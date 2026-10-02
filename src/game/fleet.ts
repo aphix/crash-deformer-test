@@ -1,14 +1,23 @@
 /** Shared spawn layout so 1–N cars never start overlapping. */
 
 import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
+import { CLASSES, STYLE_CLASS, type VehicleClassId } from "./vehicle-classes.ts";
 
 export const MAX_CARS = 32;
 export const FLEET_MIN_SEP = 5.4;
 
-/** Body style of car slot `i` (fleet and derby share the pool): cycles every
- *  style so any 5+ car field shows all of them; slot 0 stays the sedan. */
+/** Slot cycle (fleet and derby share the pool): every body style in its own class, then a monster truck. */
+const SLOT_STYLES: readonly CarStyleId[] = [...CAR_STYLE_IDS, CLASSES.monster.style];
+const SLOT_CLASSES: readonly VehicleClassId[] = [...CAR_STYLE_IDS.map((s) => STYLE_CLASS[s]), "monster"];
+
+/** Vehicle class of car slot `i`: any 6+ car field has every class; slot 0 stays a sedan. */
+export function fleetClass(i: number): VehicleClassId {
+  return SLOT_CLASSES[i % SLOT_CLASSES.length]!;
+}
+
+/** Body style of car slot `i`: any 5+ car field shows every style; slot 0 stays the sedan. */
 export function fleetStyle(i: number): CarStyleId {
-  return CAR_STYLE_IDS[i % CAR_STYLE_IDS.length]!;
+  return SLOT_STYLES[i % SLOT_STYLES.length]!;
 }
 
 export type FleetSlot = { x: number; z: number; speed: number };
