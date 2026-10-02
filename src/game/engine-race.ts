@@ -90,11 +90,6 @@ const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
-function hash01(id: number, k: number): number {
-  const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
 }
