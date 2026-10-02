@@ -11,6 +11,8 @@ src/routes/index.tsx   "/" → Home
       ├ components/net-panel.tsx  NetPanel        top-centre "Net" button → host / join / Public race, invite link + QR
       └ components/hud.tsx  Hud(HudProps)
           ├ hud-panels.tsx  PistonPanel · DoorPanel · DerbyBoard   (only in their scene)
+          ├ race-hud.tsx  RaceReadouts · RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle;
+          │   use-pad-menu.ts: pad / keyboard menu focus (race/menu-nav.ts); HUD → engine.raceCommand(cmd)
           ├ hud-sections.tsx  HudSections   accordion: Playback · Driving · Cars & crash · Debug views
           └ ui/button.tsx
 src/routes/api/rtc.ts  /api/rtc → src/lib/multiplayer/signaling.server.ts (signaling relay, the only server route the game uses)
@@ -42,7 +44,7 @@ fixedStep(h)
   applyDrive(car, input: DriveInput, dt)   same call for derby AI (DerbyBrain.think) and remote peers (NetPlay.drive)
 ```
 - `DriverSeat` (`car-drive.ts`): `mode: "global" | "follow" | "drive"`, `view: "third" | "far" | "first"`, `focus(i)`, `cycle(dir, n)`, `esc()`, `cycleView()`, `step(dt)` (boost), `addBoost(amount)`.
-- Scene / FX keys in `onKey`: Space R L G P B K D C I N O M U Y J F H X, digits for the piston and door rigs. The controls tables live in `README.md`.
+- Scene / FX keys in `onKey`: Space R L G P B K D C I N O M U Y J F H X Z, digits for the piston and door rigs. In a race, `raceKey` / `racePad` take Esc R Q E V C T H first; with a race menu open the HUD reads keys and pad itself. The controls tables live in `README.md`.
 - Click a car: `ChaseCamera` tap → `CrashEngine.pickCar(x, y)` (raycast) → `seat.focus(i)`.
 
 ## Camera (`src/game/engine-camera.ts`, `engine-cine.ts`)

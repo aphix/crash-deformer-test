@@ -9,7 +9,7 @@ Versions are those installed from `package-lock.json` (2026-10-02).
 | `three` | 0.186.0 | renderer, scene graph, `BufferGeometry` skinning target, math types (`src/game/**`); `three/addons` `Pass` (post chain) and `BufferGeometryUtils` |
 | `react` / `react-dom` | 19.2 | HUD (`src/components/hud*.tsx`, `net-panel.tsx`, `crash-lab.tsx`), `useSyncExternalStore` on `hud-store.ts` |
 | `@tanstack/react-start` / `react-router` | 1.168 / 1.170 | app shell, file routes (`src/routes/`, generated `src/routeTree.gen.ts`), SSR and the `/api/rtc` server route via Nitro |
-| `zod` | 4.5 | validates `/api/rtc` requests (`signaling.server.ts`) and the public-room list the client reads (`net/net-play.ts`) |
+| `zod` | 4.5 | validates `/api/rtc` requests (`signaling.server.ts`), the public-room list the client reads (`net/net-play.ts`) and the race track JSON (`race/track-schema.ts`) |
 | `@radix-ui/react-accordion`, `react-popover`, `lucide-react`, `class-variance-authority`, `tailwindcss` 4 | | HUD sections, key-list popover, icons, `ui/button.tsx`, styling (`src/styles.css`) |
 
 The game and HUD import from `src/lib/` only `utils.ts` (`cn`), `preview-host-bridge.ts`, `qr.ts` (invite QR) and `multiplayer/` (`P2PRoom` WebRTC mesh, `rooms.ts`). The template's other server dependencies (`better-auth`, `kysely` 0.28, `@electric-sql/pglite` 0.5, `pg`, …) serve `src/lib/` auth / app-data and the signaling tables.

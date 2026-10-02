@@ -38,7 +38,7 @@ Müller 2005 meshless shape matching on `ShapeCluster`s:
 - `physics-util.ts` adds `clampSpeed`, `applyGroundFriction`, `separateSphereFromBounds/FromAabb`.
 
 ## Ground (`ground.ts`)
-`Ground` = height, up-normal, grip and surface at (x, z). `activeGround()` is read by `car-drive.ts` (wheels, grip) and `engine-marks.ts` (mark channel by surface); `setGround(g)` swaps in a track heightfield, `FLAT_GROUND` is the default y = 0 asphalt with grip 1.
+`Ground` = height, up-normal, grip and surface at (x, z) on a layer (`STEP_UP`: a car under a bridge sees the road, a car on it the deck). `activeGround()` is read by `car.ts`, `car-drive.ts` (wheels, grip), `streamed-deform.ts`, `physics-util.ts` and `engine-marks.ts` (mark channel by surface). `RaceDirector` (`engine-race.ts`) calls `setGround` with the course's `TrackGround` and restores `FLAT_GROUND` (y = 0 asphalt, grip 1) on exit.
 
 ## Doors and mirrors
 - `DeformableCar` (`car.ts`): `DoorHinge` per side (`doorHinge(side)`; latch, check-strap stop, slam overload), `setDoorOpen`, `loadDoorStop`, `swingDoors(dt)`, `partOff("doorL" | "doorR" | "mirrorL" | "mirrorR")`.

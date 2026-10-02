@@ -1,11 +1,11 @@
-<!-- Generated: 2026-10-02 | Files scanned: 30 | Token estimate: ~1300 -->
+<!-- Generated: 2026-10-02 | Files scanned: 38 | Token estimate: ~1400 -->
 # Testing and harnesses
 
 Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node ≥ 22.6 (verified on 24.15).
 
-| Command | Runs | Status at 9f8c0e6 |
+| Command | Runs | Status at f9e42be |
 |---|---|---|
-| `npm run test:app` | `src/game/**/*.test.ts`, `src/lib/multiplayer/**/*.test.ts`, `scripts/with-app-env.test.mjs` | 685 tests: 634 pass, 51 todo, 0 fail (~60 s). **The gate.** |
+| `npm run test:app` | `src/game/**/*.test.ts`, `src/lib/multiplayer/**/*.test.ts`, `scripts/with-app-env.test.mjs` | 746 tests: 695 pass, 51 todo, 0 fail. **The gate.** |
 | `npm run test:game` | `src/game/**/*.test.ts` only | subset of `test:app` |
 | `npm test` | `scripts/**/*.test.mjs` **&&** `src/lib` suites + `src/game/**` | exits 1: 9 of 196 script tests fail (8 in `scripts/grok-pwa-plugin.test.mjs`, platform template; 1 in `scripts/migration-plan.test.mjs`, which predates `migrations/0002_webrtc_signaling.sql`), so the `&&` never reaches the app suites |
 
@@ -31,6 +31,9 @@ Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node
 | `fleet.test.ts` / `derby.test.ts` | layouts, pile-up heading; derby AI, scoring, bowl clip, six-car match |
 | `gamepad.test.ts` / `drive-input.test.ts` | pad mapping, steering feel, pedals, `DriverSeat`, drive camera |
 | `net/net.test.ts` | netplay codec; a client car reproduces the host's final mesh and collision points |
+| `race/track.test.ts` / `placements.test.ts` | gate direction, walls, banking, bridge decks, layout validation; prop placement |
+| `race/session.test.ts` / `race-finish.test.ts` | race rules and campaign; a race finishing through the real stack (`race/race-world.test-util.ts`) |
+| `race/race-ai.test.ts` / `traffic.test.ts` / `menu-nav.test.ts` | race AI, NPC traffic, controller menu focus (`navTarget`, `stickDir`) |
 
 Outside `src/game/`: `src/lib/multiplayer/rate-limit.test.ts` (signaling rate limits per peer / IP) and `scripts/with-app-env.test.mjs` (the wrapper that merges `.grok/app-env.json` into the environment of `dev`, `build` and `preview`).
 

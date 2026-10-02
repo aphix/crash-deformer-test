@@ -4,7 +4,7 @@
 
 <p align="center"><b>Play: <a href="https://baconwhiskey.org/crush/">https://baconwhiskey.org/crush/</a></b></p>
 
-Crush Stream is a car-crash sandbox that runs in the browser. Every car is a soft body: named control particles are shape-matched (Müller et al. 2005) inside crush cages, so a head-on folds the bonnet, a T-bone dents the door, and a press flattens the roof. You can watch a fleet of up to 32 cars pile up in slow motion, drive one yourself in a demolition derby, crush a parked car with a press, eight pistons or a door ram, or bring friends into a room over WebRTC. It's built with three.js, plain TypeScript classes and a small React HUD, and needs no install beyond a WebGL2 browser.
+Crush Stream is a car-crash sandbox that runs in the browser. Every car is a soft body: named control particles are shape-matched (Müller et al. 2005) inside crush cages, so a head-on folds the bonnet, a T-bone dents the door, and a press flattens the roof. You can watch a fleet of up to 32 cars pile up in slow motion, drive one yourself in a demolition derby or a circuit race, crush a parked car with a press, eight pistons or a door ram, or bring friends into a room over WebRTC. It's built with three.js, plain TypeScript classes and a small React HUD, and needs no install beyond a WebGL2 browser.
 
 ![Two sedans meeting head-on in slow motion, bonnets folding up and debris glowing in the bloom](docs/images/hero.webp)
 
@@ -22,6 +22,7 @@ One scene at a time, from the bottom bar or a key:
 
 - **Fleet** (R): 1–32 cars on collision courses, with an optional jersey barrier (B) and ramp balls (K).
 - **Derby** (D): a walled bowl where AI cars hunt each other until one is left running. Take the wheel of any of them.
+- **Race** (Z): circuit racing against AI; see [Race mode](#race-mode) below.
 - **Press** (C): two plates close on a parked car.
 - **Pistons** (I): eight rams around a parked car; fire one (1–8) or all (0). See [`docs/PISTON_RIG.md`](docs/PISTON_RIG.md).
 - **Doors** (N): one ram runs down a parked car's side, grazing the mirror, driving an open door past its stop or slamming it shut. See [`docs/DOOR_RIG.md`](docs/DOOR_RIG.md).
@@ -49,8 +50,12 @@ Three tiers, **off / low / high** (F key, HUD, or `?fx=off|low|high` in the URL)
 ### Multiplayer
 Press **Net** (top centre) to host or join a room by code, or hit **Public race** to join the first open public room (or open one if there is none). A private room gives you a **Copy invite link** button and a QR code for phones. Rooms hold up to 8 players. One machine (the host) simulates and everyone else draws its snapshots, so the crushed meshes and contact points match on every screen. Peers talk over WebRTC data channels, and the server (`/api/rtc`) only relays the handshake. A "This browser (tabs)" link is there for local testing. See [`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md).
 
-### Race mode (coming)
-Tracks, surfaces and race AI are in progress. Only the groundwork is on `main`: the surface and prefab tables (`src/game/race/catalog.ts`) and the swappable ground (`ground.ts`).
+### Race mode
+Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon (a stunt course), for 2–16 racers over 3–5 laps, with NPC traffic on the city course. Hidden checkpoint gates count the laps, and every course has at least one designed shortcut. You can respawn, or play no-reset where a wrecked car is out. AI racers have an aggression dial, and a campaign runs over every course with points and standings. The arcade HUD has a focus view (H toggles the full menu), and the menus work with a controller. Pick **Race** in the bottom bar or press Z. See [`docs/RACE_DESIGN.md`](docs/RACE_DESIGN.md).
+
+| Crossover Canyon, with the race HUD | Harbour Streets, at the start |
+|---|---|
+| ![Racing under a concrete crossover in a sandy canyon, with standings, lap, time and speed on the HUD](docs/images/race.webp) | ![A white sedan on the city grid between office blocks, the field ahead under the start lights](docs/images/race-city.webp) |
 
 ## Controls
 
@@ -79,6 +84,15 @@ Tracks, surfaces and race AI are in progress. Only the groundwork is on `main`: 
 | J | JSON trace capture (off by default) |
 | JSON button | copy this run's spawn (counter = 1; no extra ticks unless capture is on) |
 | drag / scroll | orbit camera |
+| Z | race mode (setup menu) |
+
+| Racing (no menu open) | |
+|---|---|
+| Esc / Start / Back | pause menu |
+| R / D-pad ↓ | respawn |
+| Q / E, LB / RB | previous / next car while spectating |
+| V / C / T, Y / Triangle | camera view |
+| H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu) |
 
 | Driving: keyboard + mouse | |
 |---|---|
@@ -111,7 +125,7 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel.
 
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
-HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Press / Pistons / Doors), the wall and ramp balls (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
+HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Press / Pistons / Doors), the wall and ramp balls (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
 - **Playback**: loop, slow-mo, orbit, audio, night, wet, FX tier, and a typed time scale (clear it to return to auto).
 - **Driving**: your car's class and the realism slider.
 - **Cars & crash**: car count 1–32, spawn speed min/max, stroke, wrinkle, FX density, shape ↔ lattice, and **Defaults**, which resets them all.
@@ -137,7 +151,7 @@ Edit anything under `src/` and the page reloads. On WSL2, open `http://localhost
 
 | Command | What it does | State on `main` |
 |---|---|---|
-| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`, ~60 s) | 685 tests: 634 pass, 51 todo, 0 fail. **This is the gate.** |
+| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`; 1–4 min) | 746 tests: 695 pass, 51 todo, 0 fail. **This is the gate.** |
 | `npm run test:game` | the `src/game/**` suites only | subset of the above |
 | `npm run typecheck` | `tsc --noEmit` | clean |
 | `npm run lint` | `oxlint` (`.oxlintrc.json`; see [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md)) | **fails**: 3 known errors (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) and 2 warnings |
@@ -185,6 +199,7 @@ The live build is a Nitro `node-server` build served under a base path (`APP_BAS
 - [`docs/HANDLING.md`](docs/HANDLING.md): classes, the realism axis, and damage that changes driving.
 - [`docs/CINEMATIC.md`](docs/CINEMATIC.md): FX tiers, post chain, crash cam, tyre marks and their cost.
 - [`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md): transport choice, host-authoritative snapshots and the codec.
+- [`docs/RACE_DESIGN.md`](docs/RACE_DESIGN.md): race mode as built: module map, race state machine, AI, traffic and track JSON.
 - [`.extraResearch/`](.extraResearch/): the papers behind the solver (shape matching, PBD/XPBD, oriented particles…), each with an analysis note, plus [`SYNTHESIS.md`](.extraResearch/SYNTHESIS.md).
 
 ## Project layout
@@ -199,6 +214,7 @@ All game code is in `src/game/`, and the `*.test.ts` files sit next to the modul
   - `engine-pistons.ts`: instanced rams.
   - `engine-doors.ts`: the door ram mesh.
   - `engine-trace.ts`: JSON capture.
+  - `engine-race.ts`: `RaceDirector`, the race glue (slots, rules step, respawns, traffic, menus, campaign, HUD model).
   - `engine-cine.ts`: cinematic director (tiers, crash cam, hit-stop, tyre smoke).
   - `engine-post.ts`: HDR post chain and bloom.
   - `engine-marks.ts`: GPU tyre-mark map.
@@ -211,18 +227,18 @@ All game code is in `src/game/`, and the `*.test.ts` files sit next to the modul
 - `shape-match-core.js` / `shape-match.ts`: the Müller shape-matching kernel and its typed façade (hot path).
 - `physics-core.js` / `physics-util.ts`: crush bands, force transfer and impulses (hot path), plus Vector3 helpers.
 - `sat.ts`: hull SAT and slice length. `pair-contact.ts`: car-car contact. `external-contact.ts`: the shared striker contact (door / mirror colliders, body crush).
-- `ground.ts`: the active ground (height, normal, grip, surface).
-- `fleet.ts`: fleet layout. `derby.ts` / `derby-ai.ts` / `derby-arena.ts`: derby match, AI and bowl.
+- `ground.ts`: the active ground (height, normal, grip, surface); race tracks swap in their heightfield.
+- `fleet.ts`: fleet layout. `derby.ts` / `derby-ai.ts` / `derby-arena.ts`: derby match, AI and bowl. `ai-aggression.ts`: the aggression roll shared by derby and race AI.
 - `compactor.ts`: the compactor rig. `piston-rig.ts`: piston rig and shot measurement. `door-rig.ts`: the door / mirror knock rig (`fireRam`).
 - `net/`: netplay.
   - `net-play.ts`: host / client roles.
   - `codec.ts`: binary snapshots.
   - `transport.ts`, `rtc-transport.ts`: BroadcastChannel and WebRTC transports.
-- `race/catalog.ts`: race surface / prefab tables (race mode is coming).
+- `race/`: race mode. `track-schema.ts` / `track.ts` and `tracks/*.json` (the courses), `session.ts` (rules), `campaign.ts`, `race-ai.ts`, `traffic.ts`, `placements.ts` / `prefabs.ts` / `track-art.ts` (props and meshes), `catalog.ts` (surfaces, prefab specs), `menu-nav.ts`.
 - `hud-store.ts`: HUD state. `crash-scenarios.test-util.ts`, `test-support.ts`: the headless harness and test helpers.
 
 Outside `src/game/`:
-- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`.
+- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`, `race-hud.tsx` and `use-pad-menu.ts` (race HUD and controller menus).
 - `src/lib/multiplayer/`: the WebRTC mesh (`p2p.ts`), the signaling relay (`signaling.server.ts`, mounted at `src/routes/api/rtc.ts`), room rules and rate limits.
 - `deploy/`: systemd units, deploy script, nginx snippet. `migrations/`: SQL migrations.
 - `scripts/bench-physics.mjs`, `scripts/crush-sweep.mjs`, `scripts/bench-browser.mjs`: benchmarks.
