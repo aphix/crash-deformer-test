@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { STEP_UP, type Ground } from "../ground.ts";
+import { clamp01, wrapPi } from "../scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type TrackJson } from "./track-schema.ts";
 
@@ -91,14 +92,26 @@ export function blankPoint(): TrackPoint {
   return { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 };
 }
 
+/** Segment k → k + 1 of a path (wrapping) and where a point falls along it: f = 0 at k, 1 at k + 1, unclamped. */
+type PathSegment = { b: number; ex: number; ez: number; len2: number; f: number };
+
+export function blankSegment(): PathSegment {
+  return { b: 0, ex: 0, ez: 0, len2: 0, f: 0 };
+}
+
+export function segmentAt(p: TrackPath, k: number, x: number, z: number, out: PathSegment): PathSegment {
+  const b = (out.b = (k + 1) % p.count);
+  const ex = (out.ex = p.x[b]! - p.x[k]!);
+  const ez = (out.ez = p.z[b]! - p.z[k]!);
+  out.len2 = ex * ex + ez * ez || 1e-12;
+  out.f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / out.len2;
+  return out;
+}
+
 export type WallHit = { x: number; z: number; nx: number; nz: number; k: number };
 
 /** A spot on the course: position (y = the path's height there, for picking the ground layer) and heading. */
 export type Placement = { x: number; y: number; z: number; yaw: number };
-
-function wrapPi(a: number): number {
-  return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
-}
 
 type NodeAttrs = {
   y: number[];
@@ -364,10 +377,6 @@ function segDist(g: Gate, x: number, z: number): number {
   const ez = g.bz - g.az;
   const f = clamp01(((x - g.ax) * ex + (z - g.az) * ez) / (ex * ex + ez * ez || 1));
   return Math.hypot(x - g.ax - ex * f, z - g.az - ez * f);
-}
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 export class Track {
@@ -702,6 +711,7 @@ export class TrackGround implements Ground {
   private deckPath: TrackPath | null = null;
   /** Surface index of the last deck `deckAt` found. */
   private deckSurface = 0;
+  private readonly seg = blankSegment();
 
   private indexDecks(p: TrackPath): void {
     this.deckPath = p;
@@ -731,11 +741,7 @@ export class TrackGround implements Ground {
     if (!list || !p) return -Infinity;
     let best = -Infinity;
     for (const k of list) {
-      const b = (k + 1) % p.count;
-      const ex = p.x[b]! - p.x[k]!;
-      const ez = p.z[b]! - p.z[k]!;
-      const len2 = ex * ex + ez * ez || 1e-12;
-      const f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+      const { b, ex, ez, len2, f } = segmentAt(p, k, x, z, this.seg);
       if (f < -0.02 || f > 1.02) continue;
       const lat = ((x - p.x[k]! - ex * f) * ez - (z - p.z[k]! - ez * f) * ex) / Math.sqrt(len2);
       const half = p.half[k]!;

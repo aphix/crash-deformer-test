@@ -5,6 +5,7 @@ import { MAX_CARS } from "../fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "./catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "./track.ts";
 import { classStats } from "../vehicle-classes.ts";
+import { clamp, hash01, wrapPi } from "../scalar.ts";
 
 /** Steering authority on a surface: `applyDrive` scales the yaw rate by this (front-axle grip). */
 export function steerGrip(grip: number): number {
@@ -37,19 +38,6 @@ const LANE_RATE = 3.2;
 const COMMIT = 45;
 /** A boost burst starts only with at least this much meter (no stutter on the dregs). */
 const BURST_MIN = 0.5;
-
-function wrapPi(a: number): number {
-  return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
-function hash01(id: number, k: number): number {
-  const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
-  return x - Math.floor(x);
-}
 
 function surfaceAt(path: TrackPath, k: number): Surface {
   return SURFACES[SURFACE_IDS[path.surface[k]!]!];

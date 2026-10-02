@@ -1,5 +1,5 @@
 import { PREFABS, type PrefabId } from "./catalog.ts";
-import { blankPoint, blankProjection, pointOn, projectPath, type Projection, type Track, type TrackPath } from "./track.ts";
+import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmentAt, type Projection, type Track, type TrackPath } from "./track.ts";
 
 /**
  * Where every prop of a track stands, and what it collides with. Pure and deterministic
@@ -83,15 +83,12 @@ function standY(track: Track, x: number, z: number): number {
   const field = ground.heightAt(x, z, -1e9);
   const top = ground.heightAt(x, z);
   if (top - field < 0.5) return field;
+  const seg = blankSegment();
   for (const p of track.paths()) {
     const segs = p.closed ? p.count : p.count - 1;
     for (let k = 0; k < segs; k++) {
       if (p.deck[k]) continue;
-      const b = (k + 1) % p.count;
-      const ex = p.x[b]! - p.x[k]!;
-      const ez = p.z[b]! - p.z[k]!;
-      const len2 = ex * ex + ez * ez || 1e-12;
-      const f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+      const { ex, ez, len2, f } = segmentAt(p, k, x, z, seg);
       if (f < 0 || f > 1) continue;
       const lat = ((x - p.x[k]!) * ez - (z - p.z[k]!) * ex) / Math.sqrt(len2);
       if (Math.abs(lat) <= p.half[k]! + (lat > 0 ? p.runL[k]! : p.runR[k]!)) return field;

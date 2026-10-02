@@ -1,3 +1,4 @@
+import { clamp } from "../scalar.ts";
 import { blankPoint, blankProjection, crossGate, pointOn, projectPath, type Track, type TrackPath } from "./track.ts";
 import type {
   CarPose,
@@ -48,10 +49,6 @@ export function startLights(time: number): 0 | 1 | 2 | 3 {
 const NO_EVENTS: readonly RaceEvent[] = [];
 
 const RANK_GROUP: Record<CarStatus, number> = { finished: 0, racing: 1, respawning: 1, dnf: 1, out: 2 };
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
 
 function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
   return {

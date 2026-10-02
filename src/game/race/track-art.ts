@@ -1,9 +1,10 @@
 import * as THREE from "three";
+import { clamp } from "../scalar.ts";
 import { applyMarkMap } from "../engine-marks.ts";
 import { PREFABS, SURFACE_IDS, SURFACES, type PrefabId, type SurfaceId } from "./catalog.ts";
 import type { Placed } from "./placements.ts";
 import { TILE, box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type Piece, type RaceTextures } from "./prefabs.ts";
-import { blankPoint, pointOn, type Track, type TrackGround, type TrackPath } from "./track.ts";
+import { blankPoint, blankSegment, pointOn, segmentAt, type Track, type TrackGround, type TrackPath } from "./track.ts";
 
 /**
  * The visible course: terrain (with a far skirt), road / runoff ribbons for the loop, shortcuts and
@@ -164,10 +165,6 @@ function mottle(x: number, z: number): number {
   return 0.9 + 0.2 * (a + (b - a) * fv);
 }
 
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
-
 /** Path height at lateral `lat` of sample k (banked plane, flat beyond the road edge): the ground layer hint. */
 function levelAt(p: TrackPath, k: number, lat: number): number {
   const h = p.half[k]!;
@@ -231,6 +228,7 @@ const IDX_CELL = 8;
 /** Path segments by 8 m cell: which road covers a point, and whether a point lies on another road. */
 class RoadIndex {
   private readonly cells = new Map<number, number[]>();
+  private readonly seg = blankSegment();
 
   constructor(private readonly paths: readonly TrackPath[]) {
     paths.forEach((p, pi) => {
@@ -270,11 +268,7 @@ class RoadIndex {
       const k = e & 0xffff;
       const p = this.paths[pi]!;
       if (p.deck[k]) continue;
-      const b = (k + 1) % p.count;
-      const ex = p.x[b]! - p.x[k]!;
-      const ez = p.z[b]! - p.z[k]!;
-      const len2 = ex * ex + ez * ez || 1e-12;
-      const f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+      const { ex, ez, len2, f } = segmentAt(p, k, x, z, this.seg);
       if (f < (!p.closed && k === 0 ? 0 : -0.1) || f > (!p.closed && k === p.count - 2 ? 1 : 1.1)) continue;
       const lat = ((x - p.x[k]!) * ez - (z - p.z[k]!) * ex) / Math.sqrt(len2);
       if (Math.abs(lat) <= p.half[k]! + (lat > 0 ? p.runL[k]! : p.runR[k]!) - inset) return pi;
@@ -291,11 +285,8 @@ class RoadIndex {
       if (pi === self) continue;
       const k = e & 0xffff;
       const p = this.paths[pi]!;
-      const b = (k + 1) % p.count;
-      const ex = p.x[b]! - p.x[k]!;
-      const ez = p.z[b]! - p.z[k]!;
-      const len2 = ex * ex + ez * ez || 1e-12;
-      const f = clamp(((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2, 0, 1);
+      const { b, ex, ez, len2, f: along } = segmentAt(p, k, x, z, this.seg);
+      const f = clamp(along, 0, 1);
       if (Math.abs(p.y[k]! + (p.y[b]! - p.y[k]!) * f - y) > 2.5) continue;
       const dx = x - p.x[k]! - ex * f;
       const dz = z - p.z[k]! - ez * f;

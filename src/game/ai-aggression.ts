@@ -1,13 +1,10 @@
+import { hash01 } from "./scalar.ts";
+
 /**
  * The aggression model every AI shares (race rivals, derby drivers). The field's slider is a
  * maximum: each rival rolls its own value in [0, max] (`fieldAggression`) and keeps it for a whole
  * campaign. `mood` turns that value and both cars' damage into "go for it" (> 0) or "keep clear" (< 0).
  */
-
-function hash01(id: number, k: number): number {
-  const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
-  return x - Math.floor(x);
-}
 
 /** Rival `id`'s aggression in a field whose slider is `max`: uniform in [0, max], fixed by `seed`. */
 export function fieldAggression(max: number, seed: number, id: number): number {
