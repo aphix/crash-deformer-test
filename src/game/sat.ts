@@ -244,8 +244,13 @@ export function satCars(
       if (better) {
         bestI = i;
         best = hit;
-        normalOut.set(mtvX, 0, mtvZ);
-        contactOut.set(cx, 0.36, cz);
+        // Field writes, not set(): out of line here, set() boxed its doubles.
+        normalOut.x = mtvX;
+        normalOut.y = 0;
+        normalOut.z = mtvZ;
+        contactOut.x = cx;
+        contactOut.y = 0.36;
+        contactOut.z = cz;
       }
     }
   }

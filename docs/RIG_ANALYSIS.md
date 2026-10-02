@@ -1545,6 +1545,36 @@ Probes are in the main checkout's `.bench/cr12/`. `race.ts` is a headless 8-car 
     - The per-call floors in `satPushCap` and the barrier push (+0.004 m): scaling them by dt below 1/240 s left slow motion at 0.272.
   - Next: find what keeps the full-speed masses closing (or kills them in slow motion) per slice in `JerseyBarrier.clip`/`resolve`.
 
+### 6.12 Physics allocation under 2 MB/s, deopt waves (lane `crash-realism-13`)
+Probes are in the main checkout's `.bench/cr13/`: `race.ts` is CR12's oval race with a `@@MEASURE` marker; `race-boot.ts` runs `warmCrashPath` first, as the engine's boot does; `sites.mjs` sums the per-site table; `base/` is an f8821eb `src` copy. Behaviour is unchanged: the oval digests `5d53cca21c62fa26` (60 s) and `76e603e87adcb9d6` (30 s after 30 s), and the 24-car derby contact `a29f0ad17ec53683` / state `6958479bfc11c070` digests, are identical to f8821eb.
+- **Cause 1: inlining budget.** TurboFan inlines at most 920 bytecode bytes into one function, and it charges a callee its size plus what that callee's own optimized code inlined: `TrackGround.heightAt` costs 309, `frictionAt` 275, `hypot2` 150, `applyMatrix4` 259. Ties go to the later call site. Every call left out boxes its double arguments and result.
+  - `stepMassSlice` (41 KB/frame): the per-mass loop asked the ground twice and called the friction twice. It is now four loops: `sampleGround` (before the move), `moveMasses`, `sampleGround` (after it, with the grip) and `groundMasses`, with one friction call. The ground answers go through `Float64Array`s. A mass's step reads only that mass, so the order is the same per mass.
+  - `followGroup` (16 KB/frame, 134 calls/frame): the per-mass `applyMatrix4` and the later matrix calls used up the budget before the two `hypot2` and the anchor's `heightAt`. Those now sit in `measurePose()`, which takes no doubles and writes its results to `pose`, a `Float64Array`.
+  - `applyDrive`: the ground queries go through `floorUnder`/`gripUnder` (physics-util), which take a point and write to a typed array. `driveMasses` takes its four doubles in a typed array. THREE `clamp`/`lerp` became the same `Math.max/min` arithmetic. `assists()` reruns only when realism changes.
+  - Out-of-line results: `yawMomentum` keeps its held angular momentum in `spinHeld[slot]`, and clampLocal reads `measureStroke()` from `strokeOut`, so it no longer gets a returned double or passes one as an argument. `resolveCarPair` rewrites one module `PairHit`; `StrongestContact` copies it into vectors it owns, instead of keeping two `clone()`s per hit. `satCars` and `sphereHit` use field arithmetic instead of `set`/`addScaledVector`. Two hot `for…of` loops (`separateAlong`, `feedOverlap`) are now indexed.
+- **Cause 2: deopt waves from field generalization.** A field first written as a Smi (`wear = 0`, `hitSpeed = -1`) changes its map the first time it gets a double. Code that relied on the map deoptimises ("dependent prototype chain changed" / "wrong map"), and the functions run unoptimised until they re-tier, which can take seconds: `applyDrive` sat in Maglev for 365 frames after one deopt. This is CR11's unexplained "each new car's first `beginCrush` marks 45–84 functions for lazy deopt". The boot's `warmCrashPath` cars do not cover it, because race cars branch off their transition tree. With `warmCrashPath` first and a 60 s oval:
+  - f8821eb: the first crash (f402) generalized `crushAmount` (+105 maps), `wear` (+97), `hitSpeed` (+76), `lastPower` (+65) and `wrinkleAmp` (+63), and later `impulse` (+77, f556). That was 75 and 79 lazy deopts. Also inside the measured window: `hitAt`/`baseX`/`baseZ` at the first `rearmHit` (104 deopts) and `crushSet` (70).
+  - Fix: these fields, the masses' `shoveX/shoveZ/crushSet/baseX/baseZ`, the sensors' `compression` and `car.drive`'s numbers are declared `-0`, a double from construction. The constructor writes the `-1`/`-10` sentinels over it. f402 now has 9 deopts and f556 has none.
+- **Race, steady 30 s (WARM=30), KB per frame**, physics files (streamed-deform, car-drive, physics-core, physics-util, pair-contact, shape-match-core, external-contact, sat, engine-props): **129.5 → 27.4 (7.95 → 1.68 MB/s)**. The whole race went from 186 to 70 KB/frame.
+
+  | site | f8821eb | lane |
+  |---|---|---|
+  | `stepMassSlice` (incl. the new loops) | 41.0 | 0 |
+  | `followGroup` / `measurePose` | 15.6 | 0 |
+  | `applyDrive` (with its Math natives) | 13.8 | 9.4 |
+  | `resolveCarPair` | 4.9 | 0.4 |
+  | `stepShapeMatch` | 4.6 | 1.9 |
+  | `hypot2` | 4.5 | 0.3 |
+  | `clampLocal` | 3.5 | 3.9 |
+  | `liveCrushHulls` / `liveHulls` | 2.8 / 1.4 | 0 / 0 |
+  | `hitStroke` / `yawMomentum` | 2.6 / 2.4 | 0 / 0 |
+  | `skin` / `skinPanel` | 2.5 / 2.1 | 0 / 0.4 |
+  | `satCars` | 1.1 | 0.1 |
+
+  What is left in `applyDrive` is mostly time spent out of TurboFan. The race still deopts it on branches it first takes mid-race ("Insufficient type feedback") and on `CLASSES[carClass(car)]` ("wrong name"), and it re-tiers slowly.
+- **GC, 60 s headless oval, scavenges:** default heap 62–63 → 40–41. With a 1 MB semi-space, 1000–1004 → 651–655. Major GCs are 0–1 on both.
+- **Pile-up guard** (`physics-alloc.test.ts`, 24 cars, positive `heapUsed` steps): f8821eb 657–672 KB per frame, lane 421–425. The bound went from 1200 to 540. In the pile-up the biggest sites left are `clampLocal` (96 KB/frame: `hypot2` calls left out of line), `collideWith`, `satCars`' returned overlap and `stepShapeMatch`'s `matchCluster`/`applyPlasticity` arguments (shape-match-core).
+
 ## Appendix
 
 ### Sources
