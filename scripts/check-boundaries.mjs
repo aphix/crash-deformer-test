@@ -3,8 +3,10 @@
  * Structural checks for `src/` (rules in `docs/ARCHITECTURE.md`). Each check prints one count;
  * a non-zero count is a defect to fix, never a baseline to allow. Exit 1 when any count is non-zero.
  *
- *   node scripts/check-boundaries.mjs          counts only
- *   node scripts/check-boundaries.mjs --list   every violation, one per line
+ *   node scripts/check-boundaries.mjs            counts only
+ *   node scripts/check-boundaries.mjs --list     every violation, one per line
+ *   node scripts/check-boundaries.mjs --ratchet  exit 1 only when a count rises above its cap in
+ *                                                scripts/boundary-caps.json (a missing cap is 0)
  */
 import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -13,6 +15,7 @@ import ts from "typescript";
 
 const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..");
 const LIST = process.argv.includes("--list");
+const CAPS = process.argv.includes("--ratchet") ? JSON.parse(readFileSync(path.join(ROOT, "scripts/boundary-caps.json"), "utf8")) : null;
 
 // Bounded contexts, lowest layer first. A production file may import its own context or a context
 // on a strictly lower layer. `platform` (src/lib) is importable only by the contexts in PLATFORM_USERS.
@@ -58,9 +61,12 @@ const MAX_FUNCTION_LINES = 150;
 const isTest = (f) => /\.test(-util)?\.ts$|\/test-support\.ts$/.test(f);
 const contextOf = (f) => CONTEXTS.find(([, , pats]) => pats.some((p) => (p.endsWith("/") ? f.startsWith(p) : f === p)));
 
-const files = execFileSync("git", ["ls-files", "src"], { cwd: ROOT, encoding: "utf8" })
-  .split("\n")
-  .filter((f) => /\.(ts|tsx|js|mjs)$/.test(f) && !f.endsWith(".d.ts") && f !== "src/routeTree.gen.ts");
+// Tracked and new (untracked, not ignored) files as they are on disk, so a lane's pre-commit gate sees its new files.
+const lsFiles = (dir) =>
+  execFileSync("git", ["ls-files", "--cached", "--others", "--exclude-standard", dir], { cwd: ROOT, encoding: "utf8" })
+    .split("\n")
+    .filter((f) => f && existsSync(path.join(ROOT, f)));
+const files = lsFiles("src").filter((f) => /\.(ts|tsx|js|mjs)$/.test(f) && !f.endsWith(".d.ts") && f !== "src/routeTree.gen.ts");
 
 function resolveImport(from, spec) {
   let base;
@@ -187,7 +193,7 @@ check("C4", "scene-graph names in rule/data contexts", c4);
 // C5: exports nobody imports (src/** and scripts/**), and production exports only tests import.
 // Route entry modules are consumed by the router.
 const importers = new Map(); // target -> name -> Set(from)
-const scriptFiles = execFileSync("git", ["ls-files", "scripts"], { cwd: ROOT, encoding: "utf8" }).split("\n").filter((f) => /\.(mjs|ts)$/.test(f));
+const scriptFiles = lsFiles("scripts").filter((f) => /\.(mjs|ts)$/.test(f));
 const importSources = [...parsed.values()].flatMap((p) => p.imports.map((im) => ({ ...im, from: p.sf.fileName })));
 for (const f of scriptFiles) {
   const sf = ts.createSourceFile(f, readFileSync(path.join(ROOT, f), "utf8"), ts.ScriptTarget.Latest, true);
@@ -326,10 +332,14 @@ for (const [f, p] of parsed) {
 check("C10", "module-level mutable bindings", c10);
 
 let total = 0;
+let over = 0;
 for (const [id, title, items] of results) {
   total += items.length;
-  console.log(`${id} ${String(items.length).padStart(4)}  ${title}`);
+  const cap = CAPS?.[id] ?? 0;
+  if (CAPS && items.length > cap) over++;
+  const note = !CAPS || items.length === cap ? "" : items.length > cap ? `  ABOVE cap ${cap}` : `  below cap ${cap}: lower it in scripts/boundary-caps.json`;
+  console.log(`${id} ${String(items.length).padStart(4)}  ${title}${note}`);
   if (LIST) for (const it of items) console.log(`       ${it}`);
 }
 console.log(`total ${total}`);
-process.exitCode = total ? 1 : 0;
+process.exitCode = (CAPS ? over : total) ? 1 : 0;
