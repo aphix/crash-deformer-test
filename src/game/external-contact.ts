@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { CAR_HALF, DOOR, DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, type DeformableCar } from "./car.ts";
-import { impulseCar } from "./pair-contact.ts";
 
 /**
  * One contact model for anything that strikes a car: the Doors ram, a press plate, a piston face
@@ -169,6 +168,8 @@ type Lane = {
 const _lane: Lane = { dir: 1, inner: 0, width: 0, bottom: 0, top: 0, face: 0, length: 0, u: 0, kg: 0 };
 const _push = new THREE.Vector3();
 const SIDES = [-1, 1] as const;
+/** cos 15°: how far off the car's axis a striker may run and still sweep a door/mirror lane. */
+const PARALLEL = 0.966;
 /** Striker ↔ door restitution. */
 const DOOR_RESTITUTION = 0.2;
 
@@ -297,9 +298,12 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
   const lz = rx * az.x + rz * az.z;
   const uz = (box.vx - car.velocity.x) * az.x + (box.vz - car.velocity.z) * az.z;
   if (Math.abs(uz) < 0.05) return partHit;
-  // The box's car-frame bounds (its own axes: right (c, −s), forward (s, c)).
+  // The box's car-frame bounds (its own axes: right (c, −s), forward (s, c)). Only a striker
+  // running along the car (within `PARALLEL`) sweeps a lane its bounds describe; an angled one
+  // reaches the side as a body hit, and the crash rules take the door and mirror then.
   const c = Math.cos(box.yaw);
   const s = Math.sin(box.yaw);
+  if (Math.abs(s * az.x + c * az.z) < PARALLEL) return partHit;
   const ex = box.hx * Math.abs(c * ax.x - s * ax.z) + box.hz * Math.abs(s * ax.x + c * ax.z);
   const ez = box.hx * Math.abs(c * az.x - s * az.z) + box.hz * Math.abs(s * az.x + c * az.z);
   const lane = _lane;
@@ -314,8 +318,9 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
   for (const side of SIDES) {
     if (side * lx + ex <= 0) continue;
     lane.inner = side * lx - ex;
-    // Past the open door's trailing edge and the mirror cap: nothing to meet.
-    if (lane.inner > DOOR.hingeX + DOOR.length) continue;
+    // Past the open door's trailing edge and the mirror cap: nothing to meet. Reaching inside the
+    // body's width is a body hit: the crash rules (C1–C3) take the door and mirror then.
+    if (lane.inner > DOOR.hingeX + DOOR.length || lane.inner < CAR_HALF.x) continue;
     lane.width = 2 * ex;
     hitMirror(car, side, lane);
     hitDoor(car, side, lane);
@@ -329,6 +334,13 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
 const _ba = makeBox();
 const _bb = makeBox();
 
+/** Take `du` (m/s) off a striker car's speed along (`nx`, `nz`): the whole car, every particle alike. */
+function slowStriker(car: DeformableCar, nx: number, nz: number, du: number): void {
+  car.velocity.x -= nx * du;
+  car.velocity.z -= nz * du;
+  if (car.deform.massActive) shiftVelocities(car, -nx * du, -nz * du);
+}
+
 /**
  * Car-car share of the shared contact model, once per physics slice per close pair, right after
  * the pair's `collideWith`: each body against the other's doors and mirrors. Car-car does not
@@ -339,7 +351,7 @@ export function partContactPair(a: DeformableCar, b: DeformableCar): void {
   carBox(a, _ba);
   carBox(b, _bb);
   let hit = partContact(a, _bb);
-  if (hit.du > 0) impulseCar(b, hit.nx, 0, hit.nz, -_bb.kg * hit.du);
+  if (hit.du > 0) slowStriker(b, hit.nx, hit.nz, hit.du);
   hit = partContact(b, _ba);
-  if (hit.du > 0) impulseCar(a, hit.nx, 0, hit.nz, -_ba.kg * hit.du);
+  if (hit.du > 0) slowStriker(a, hit.nx, hit.nz, hit.du);
 }
