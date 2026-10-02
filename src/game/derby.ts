@@ -3,9 +3,11 @@ import { idleDrive, type DriveInput } from "./car-drive.ts";
 import { fieldAggression } from "./ai-aggression.ts";
 import { derbyRadius } from "./derby-arena.ts";
 
+/** One point per aggressive hit (the hit clock's definition), at most one per pair per `HIT_DEBOUNCE`. */
 export const HIT_POINTS = 1;
-export const DISABLE_POINTS = 10;
-export const HIT_DEBOUNCE = 0.45;
+/** Bonus for the last hit before an engine dies. A typical heat reads single digits to low teens. */
+export const DISABLE_POINTS = 3;
+export const HIT_DEBOUNCE = 2;
 export const WINNER_HOLD = 4.4;
 export const STALEMATE = 90;
 
@@ -138,8 +140,8 @@ export class DerbyMatch {
   }
 
   /**
-   * A contact. Debounced per pair. The aggressor (closing into the other)
-   * gets HIT_POINTS.
+   * A contact. Debounced per pair. The aggressor (closing into the other) gets HIT_POINTS when the hit is
+   * aggressive (≥ `DERBY_RULES.hitSpeed` into a live car), which also resets its hit clock; pushes don't.
    */
   noteHit(a: number, b: number, aIntoB: number, bIntoA: number, closing: number): boolean {
     if (!this.active || this.winnerId != null) return false;
@@ -150,13 +152,13 @@ export class DerbyMatch {
     this.lastHitAt.set(key, this.time);
     const attacker = aIntoB >= bIntoA ? a : b;
     const victim = attacker === a ? b : a;
+    this.lastAttacker.set(victim, attacker);
     const row = this.row(attacker);
-    if (row && row.alive) {
+    if ((attacker === a ? aIntoB : bIntoA) >= DERBY_RULES.hitSpeed && this.row(victim)?.alive && row?.alive) {
       row.score += HIT_POINTS;
       row.hits += 1;
+      this.lastAggro.set(attacker, this.time);
     }
-    this.lastAttacker.set(victim, attacker);
-    if ((attacker === a ? aIntoB : bIntoA) >= DERBY_RULES.hitSpeed && this.row(victim)?.alive) this.lastAggro.set(attacker, this.time);
     this.boostQueue.push(attacker);
     return true;
   }
