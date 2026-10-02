@@ -45,16 +45,16 @@ function step(car: DeformableCar, input: DriveInput, h = H): void {
 }
 
 /**
- * Launch targets (docs/HANDLING.md § Acceleration): each class's real 0–100 km/h and time to top speed scaled
- * to arcade pace (0–100 × ~0.4, time to top × ~0.5, first gear as punchy as the old launch so derby hits
- * keep their pace), real order kept (muscle and monster quickest, truck slowest off the line); top speeds within 5 % of 200 km/h.
+ * Launch targets (docs/HANDLING.md § Acceleration), 0–100 km/h and time to top (s) at each end of the realism slider.
+ * Realistic: the sourced 0–60 mph (sedan 6.1, muscle 4.3, truck 7.9, monster about 4), time to top about 2× the arcade.
+ * Arcade: about 0.4× and 0.5× of those, real order kept (muscle and monster quickest, truck slowest off the line).
  */
-const LAUNCH: Record<VehicleClassId, { zeroTo100: number; topKmh: number; toTop: number; gears: number }> = {
-  sedan: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },
-  muscle: { zeroTo100: 1.95, topKmh: 210, toTop: 9.5, gears: 5 },
-  truck: { zeroTo100: 2.5, topKmh: 195, toTop: 12.7, gears: 4 },
-  monster: { zeroTo100: 2, topKmh: 190, toTop: 11.5, gears: 4 },
-  police: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },
+const LAUNCH: Record<VehicleClassId, { topKmh: number; gears: number; arcade: [number, number]; real: [number, number] }> = {
+  sedan: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
+  muscle: { topKmh: 210, gears: 5, arcade: [1.95, 9.5], real: [4.3, 19] },
+  truck: { topKmh: 195, gears: 4, arcade: [2.5, 12.7], real: [7.9, 25.7] },
+  monster: { topKmh: 190, gears: 4, arcade: [2, 11.5], real: [4, 23.1] },
+  police: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
 };
 
 // --- a mixed test loop: rounded rectangle, two hairpins and two sweepers ------
@@ -170,12 +170,15 @@ describe("vehicle classes", () => {
   });
 
   for (const id of VEHICLE_CLASS_IDS) {
-    const L = LAUNCH[id];
-    it(`good: ${id} — 0–100 km/h in ${L.zeroTo100} s, ${L.topKmh} km/h top after ${L.toTop} s (±5 %), the pull stepping down at ${L.gears - 1} shifts`, () => {
+    for (const end of ["arcade", "real"] as const) {
+      const L = LAUNCH[id];
+      const [zeroTo100, toTop] = L[end];
+      it(`good: ${id}, ${end} end — 0–100 km/h in ${zeroTo100} s, ${L.topKmh} km/h top after ${toTop} s (±5 %), the pull stepping down at ${L.gears - 1} shifts`, () => {
+      HANDLING.realism = end === "arcade" ? 0 : 1;
       const car = classCar(id);
       const input = { ...idleDrive(), throttle: 1 };
       const v = [0];
-      for (let t = 0; t < 30; t += H) {
+      for (let t = 0; t < 32; t += H) {
         step(car, input);
         v.push(along(car));
       }
@@ -193,12 +196,13 @@ describe("vehicle classes", () => {
         if (after > before) rises++;
       }
       const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s, shifts [${shifts.join(", ")}]`;
-      assert.ok(t100 > 0 && Math.abs(t100 / L.zeroTo100 - 1) <= 0.05, got);
+      assert.ok(t100 > 0 && Math.abs(t100 / zeroTo100 - 1) <= 0.05, got);
       assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);
-      assert.ok(Math.abs(tTop / L.toTop - 1) <= 0.05, got);
+      assert.ok(Math.abs(tTop / toTop - 1) <= 0.05, got);
       assert.equal(shifts.length, L.gears - 1, got);
       assert.equal(rises, 0, got);
-    });
+      });
+    }
   }
 
   for (const id of VEHICLE_CLASS_IDS) {

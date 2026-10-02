@@ -21,10 +21,11 @@ export interface ClassStats {
   topSpeed: number;
   revSpeed: number;
   /**
-   * Gear buckets, low to high: each gear's top end (× `topSpeed`) and its fixed thrust (m/s²), falling
-   * as the gears rise. No clutch or revs: the pull steps down at each shift (docs/HANDLING.md § Acceleration).
+   * Gear buckets, low to high: each gear's top end (× `topSpeed`) and its fixed thrust (m/s²) at the arcade and
+   * the realistic end of `HANDLING.realism` (lerped between), falling as the gears rise. No clutch or revs: the
+   * pull steps down at each shift. The realistic thrusts give the sourced 0–100 km/h (docs/HANDLING.md § Acceleration).
    */
-  gears: readonly (readonly [upTo: number, thrust: number])[];
+  gears: readonly (readonly [upTo: number, arcade: number, real: number])[];
   /** 0–1 torque feel: how much the rear spins up on a launch. */
   torque: number;
   /** Service brake (m/s²). */
@@ -53,11 +54,11 @@ const SEDAN: ClassStats = {
   topSpeed: 200 / 3.6,
   revSpeed: 11,
   gears: [
-    [0.24, 17.2],
-    [0.42, 10.7],
-    [0.6, 6.1],
-    [0.8, 3.5],
-    [1, 2],
+    [0.24, 17.2, 6.9],
+    [0.42, 10.7, 4.3],
+    [0.6, 6.1, 2.44],
+    [0.8, 3.5, 1.93],
+    [1, 2, 1.1],
   ],
   torque: 0.3,
   brake: 28,
@@ -85,11 +86,11 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     topSpeed: 210 / 3.6,
     revSpeed: 11,
     gears: [
-      [0.24, 20.4],
-      [0.42, 12.7],
-      [0.6, 7.7],
-      [0.8, 4.7],
-      [1, 2.8],
+      [0.24, 20.4, 9.2],
+      [0.42, 12.7, 5.73],
+      [0.6, 7.7, 3.47],
+      [0.8, 4.7, 2.43],
+      [1, 2.8, 1.45],
     ],
     torque: 0.6,
     brake: 26,
@@ -110,10 +111,10 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     topSpeed: 195 / 3.6,
     revSpeed: 10,
     gears: [
-      [0.3, 16.3],
-      [0.53, 7.8],
-      [0.76, 4.3],
-      [1, 1.8],
+      [0.3, 16.3, 5],
+      [0.53, 7.8, 2.48],
+      [0.76, 4.3, 2.2],
+      [1, 1.8, 1.08],
     ],
     torque: 0.5,
     brake: 24,
@@ -134,10 +135,10 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     topSpeed: 190 / 3.6,
     revSpeed: 10,
     gears: [
-      [0.3, 17.1],
-      [0.53, 11.5],
-      [0.76, 5],
-      [1, 1.8],
+      [0.3, 17.1, 8.4],
+      [0.53, 11.5, 5.65],
+      [0.76, 5, 2.45],
+      [1, 1.8, 0.88],
     ],
     torque: 0.7,
     brake: 22,
