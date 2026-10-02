@@ -739,3 +739,18 @@ describe("car-car crush scales with speed [shape]", () => {
     }
   });
 });
+
+describe("named panes (ragdoll ejection)", () => {
+  it("good: smashGlass breaks that pane alone, once, with a shard burst at the car; glassWorld finds each front pane on its side", () => {
+    const bursts: THREE.Vector3[] = [];
+    const car = new DeformableCar(paint(), new THREE.Scene(), (origin) => bursts.push(origin.clone()));
+    car.spawn(4, 9, 0);
+    const at = (name: "windshield" | "doorL" | "doorR") => car.group.worldToLocal(car.glassWorld(name, new THREE.Vector3()));
+    assert.ok(at("windshield").z > 0.6 && Math.abs(at("windshield").x) < 0.05, `windshield at ${at("windshield").toArray()}`);
+    assert.ok(at("doorL").x < -0.6 && at("doorR").x > 0.6, `doors at ${at("doorL").x} / ${at("doorR").x}`);
+    assert.equal(car.smashGlass("doorL"), true);
+    assert.equal(car.smashGlass("doorL"), false, "a shattered pane smashed twice");
+    assert.deepEqual(car.snapshot().glass, ["intact", "intact", "shattered", "intact", "intact", "intact"]);
+    assert.equal(bursts.length, 1);
+  });
+});

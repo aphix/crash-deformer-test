@@ -2,8 +2,10 @@ import * as THREE from "three";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DeformableCar, WHEEL_POS } from "./car.ts";
-import { CAR_STYLES, CAR_STYLE_IDS, type BodyStyle, type CarStyleId } from "./car-variants.ts";
+import { CAR_STYLES, CAR_STYLE_IDS, FLEET_STYLE_IDS, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { makeChassisGeometry, makeRearGlass, makeTrunkGeometry, makeWindshield } from "./car-mesh.ts";
+import { makeLightBar } from "./car-materials.ts";
+import { runWall } from "./crash-scenarios.test-util.ts";
 import { fleetStyle } from "./fleet.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
 import { assertSameDigest, assertSameNumbers } from "./test-support.ts";
@@ -16,6 +18,7 @@ const cars: Record<CarStyleId, DeformableCar> = {
   wagon: new DeformableCar(PAINT, scene, null, "wagon"),
   coupe: new DeformableCar(PAINT, scene, null, "coupe"),
   pickup: new DeformableCar(PAINT, scene, null, "pickup"),
+  police: new DeformableCar(PAINT, scene, null, "police"),
 };
 
 /** Highest visible surface at (x=0, z): roof, glass, deck or bed floor — never the debug rig. */
@@ -88,10 +91,10 @@ describe("body styles share one platform", () => {
     });
   }
 
-  it("good: a 10-car field shows every style, slot 0 stays the sedan", () => {
+  it("good: a 10-car field shows every fleet style, slot 0 stays the sedan, police never spawn on their own", () => {
     const field = Array.from({ length: 10 }, (_, i) => fleetStyle(i));
     assert.equal(field[0], "sedan");
-    assertSameDigest([...new Set(field)].sort(), [...CAR_STYLE_IDS].sort(), "styles in a 10-car field");
+    assertSameDigest([...new Set(field)].sort(), [...FLEET_STYLE_IDS].sort(), "styles in a 10-car field");
   });
 });
 
@@ -128,12 +131,16 @@ describe("rig cages wrap every style", () => {
   for (const id of CAR_STYLE_IDS) {
     const style = CAR_STYLES[id];
 
-    it(`good: ${id} boot and glass sit inside their cages (no clamp at rest)`, () => {
+    it(`good: ${id} boot, glass and any light bar sit inside their cages (no clamp at rest)`, () => {
       const d = new StreamedDeformation(makeChassisGeometry(style), style.rig);
       const [oy, oz] = style.boot.origin;
       assert.ok(panelClamp(d, makeTrunkGeometry(style), "boot", new THREE.Vector3(0, oy, oz)) < 1e-4, `${id} boot`);
       assert.ok(panelClamp(d, makeWindshield(style), "glassFront", new THREE.Vector3()) < 1e-4, `${id} windshield`);
       assert.ok(panelClamp(d, makeRearGlass(style), "glassRear", new THREE.Vector3()) < 1e-4, `${id} rear glass`);
+      if (style.lightBar) {
+        const bar = cars[id].group.getObjectByName("lightBar")!;
+        assert.ok(panelClamp(d, makeLightBar(), "roof", bar.position) < 1e-4, `${id} light bar`);
+      }
     });
 
     it(`good: ${id} roof and pillars stay put through an at-rest skin pass`, () => {
@@ -167,4 +174,58 @@ describe("rig cages wrap every style", () => {
       assert.ok(r < 4.2, `${id} skin exploded, vertex radius ${r}`);
     });
   }
+});
+
+/** A police car through a square `kph` wall hit (shape mode), and its bar. */
+function copThroughWall(kph: number): { car: DeformableCar; detached: string[]; bar: THREE.Mesh } {
+  const car = new DeformableCar(PAINT, new THREE.Scene(), null, "police");
+  car.deform.setMode("shape");
+  const bar = car.group.getObjectByName("lightBar");
+  assert.ok(bar instanceof THREE.Mesh, "police car has no light bar");
+  return { car, detached: runWall(kph, 1, "front", { car }).detached, bar };
+}
+
+/** Same hit on a sedan: its torn-off parts. */
+function sedanThroughWall(kph: number): string[] {
+  const car = new DeformableCar(PAINT, new THREE.Scene(), null, "sedan");
+  car.deform.setMode("shape");
+  return runWall(kph, 1, "front", { car }).detached;
+}
+
+describe("police cruiser", () => {
+  it("good: black body, white doors whatever the fleet paint, and a light bar on top of the sedan roof", () => {
+    const c = cars.police;
+    assert.equal((c.body.material as THREE.MeshStandardMaterial).color.getHex(), new THREE.Color(CAR_STYLES.police.livery!.body).getHex());
+    const paints = new Set<number>();
+    c.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.material instanceof THREE.MeshPhysicalMaterial && o.material.clearcoat > 0) paints.add(o.material.color.getHex());
+    });
+    assert.ok(paints.has(new THREE.Color(CAR_STYLES.police.livery!.doors).getHex()), "no white door paint");
+    assert.ok(!paints.has(new THREE.Color(PAINT.body).getHex()), "the fleet paint leaked onto the police car");
+    const z = c.group.getObjectByName("lightBar")!.position.z;
+    assert.ok(topAt("police", z) > topAt("sedan", z) + 0.1, `bar top ${topAt("police", z)} vs sedan roof ${topAt("sedan", z)}`);
+  });
+
+  it("good: a 56 km/h wall keeps the bar on, bent with the roof; every other part fares as the sedan's", () => {
+    const { detached, bar } = copThroughWall(56);
+    assertSameDigest(detached, sedanThroughWall(56), "parts off at 56 km/h");
+    const rest = makeLightBar().getAttribute("position").array;
+    const now = bar.geometry.getAttribute("position").array;
+    let moved = 0;
+    for (let i = 0; i < rest.length; i++) moved = Math.max(moved, Math.abs(now[i]! - rest[i]!));
+    assert.ok(moved > 0.005 && moved < 0.3, `bar skin moved ${moved.toFixed(3)} m with the roof`);
+  });
+
+  it("edge: a 64 km/h wall throws the bar clear of the car, its sirens dark; the rest tears as the sedan's", () => {
+    const { car, detached, bar } = copThroughWall(64);
+    assert.ok(detached.includes("lightBar"), `parts off: ${detached}`);
+    assertSameDigest(detached.filter((n) => n !== "lightBar"), sedanThroughWall(64), "other parts off at 64 km/h");
+    assert.ok(bar.parent !== car.group && bar.position.y < 0.5, `the bar is still up at y=${bar.position.y.toFixed(2)}, not on the ground`);
+    car.setSirens(true);
+    const p = new THREE.Vector3();
+    for (const now of [0.1, 0.35]) {
+      car.flashSirens(now);
+      for (let i = 4; i < car.lampCount; i++) assert.equal(car.lampWorld(i, p, new THREE.Vector3()), null, `siren ${i} lit at t=${now} off a torn bar`);
+    }
+  });
 });

@@ -170,4 +170,32 @@ describe("lamp light pool", () => {
     assert.equal(lights.glow.geometry.drawRange.count, 6);
     assert.equal(lightCount(scene), count, "the pool added or hid a light");
   });
+
+  it("good: police sirens flash red then blue, each lit lens taking a pooled point in its colour; off, nothing", () => {
+    const { lights, scene, camera, far } = rig();
+    const cop = new DeformableCar(paint(), scene, null, "police");
+    cop.spawnFacing(-3, 8, 0, 0);
+    const count = lightCount(scene);
+    // A tail point is dim red (0.5); a siren point is bright (3), red or blue.
+    const sirenPoints = () => lights.points.filter((p) => p.intensity > 1);
+    lights.update([far, cop], camera, far, 0.1);
+    assert.equal(sirenPoints().length, 0, "a siren lit with the sirens off");
+    assert.equal(lights.glow.geometry.drawRange.count, 8);
+
+    cop.setSirens(true);
+    for (const [now, red] of [[0.1, true], [0.35, false], [0.6, true]] as const) {
+      lights.update([far, cop], camera, far, now);
+      const lit = sirenPoints();
+      assert.equal(lit.length, 1, `t=${now}: ${lit.length} siren points`);
+      assert.equal(lit[0]!.color.r > lit[0]!.color.b, red, `t=${now}: wrong colour`);
+      assert.ok(lit[0]!.position.y > 1.4, `t=${now}: siren light at y=${lit[0]!.position.y.toFixed(2)}, not over the roof`);
+      assert.equal(lights.glow.geometry.drawRange.count, 9);
+    }
+    assert.equal(lightCount(scene), count, "sirens added or hid a light");
+
+    cop.setSirens(false);
+    lights.update([far, cop], camera, far, 0.1);
+    assert.equal(sirenPoints().length, 0, "sirens stayed lit after setSirens(false)");
+    assert.equal(new DeformableCar(paint(), scene).lampCount, 4, "a car without a light bar grew siren slots");
+  });
 });

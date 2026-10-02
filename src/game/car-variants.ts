@@ -6,10 +6,13 @@
  */
 import type { RigOverrides } from "./deform-rig.ts";
 
-export type CarStyleId = "sedan" | "hatchback" | "wagon" | "coupe" | "pickup";
+export type CarStyleId = "sedan" | "hatchback" | "wagon" | "coupe" | "pickup" | "police";
 
-/** Spawn order: a 5+ car field shows every style. */
-export const CAR_STYLE_IDS: readonly CarStyleId[] = ["sedan", "hatchback", "wagon", "coupe", "pickup"];
+/** Spawn order: a 5+ car field shows every fleet style. Police spawn only on request (pursuit, HUD class). */
+export const FLEET_STYLE_IDS: readonly CarStyleId[] = ["sedan", "hatchback", "wagon", "coupe", "pickup"];
+
+/** Every body in netplay wire order (a snapshot sends the index): append only. */
+export const CAR_STYLE_IDS: readonly CarStyleId[] = [...FLEET_STYLE_IDS, "police"];
 
 /** One side-profile station (car space, +z forward). */
 export interface ProfileStation {
@@ -42,6 +45,13 @@ type BootSpec =
   /** Vertical tail panel (hatch / tailgate) from y0 up to origin, hinged at its top edge. */
   | { kind: "tailgate"; y0: number; origin: YZ };
 
+/** Paint a style fixes whatever the fleet paint (police black-and-white). */
+interface Livery {
+  body: number;
+  doors: number;
+  accent: number;
+}
+
 export interface BodyStyle {
   id: CarStyleId;
   /** Stations rear → front; z ≥ 0.82 is the shared front clip. */
@@ -61,6 +71,10 @@ export interface BodyStyle {
   rearDoorSeam: number | null;
   boot: BootSpec;
   rig: RigOverrides;
+  /** Fixed paint, or none (the fleet paint). */
+  livery?: Livery;
+  /** Roof light bar with red / blue sirens (`DeformableCar.setSirens`). */
+  lightBar?: boolean;
 }
 
 function st(z: number, hw: number, yBelt: number, yRoof = yBelt, cabinHw = 0.5, cabin = 0): ProfileStation {
@@ -223,10 +237,23 @@ const PICKUP: BodyStyle = {
   },
 };
 
+/**
+ * Sedan shell in black-and-white with a roof light bar. The roof cage reaches over the bar, so the
+ * bar skins with the roof (`skinPanel`) instead of clamping flat at the cage top.
+ */
+const POLICE: BodyStyle = {
+  ...SEDAN,
+  id: "police",
+  livery: { body: 0x0c0d0f, doors: 0xeef0f2, accent: 0x16171a },
+  lightBar: true,
+  rig: { cages: { roof: { min: [-0.58, 1.02, -0.7], max: [0.58, 1.52, 0.56] } } },
+};
+
 export const CAR_STYLES: Readonly<Record<CarStyleId, BodyStyle>> = {
   sedan: SEDAN,
   hatchback: HATCHBACK,
   wagon: WAGON,
   coupe: COUPE,
   pickup: PICKUP,
+  police: POLICE,
 };

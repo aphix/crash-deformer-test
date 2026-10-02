@@ -63,6 +63,7 @@ export class DeformableCar extends CarParts {
     this.restoreRest(this.trunk.geometry, this.trunkRest);
     this.restoreRest(this.doorMeshL.geometry, this.doorLRest);
     this.restoreRest(this.doorMeshR.geometry, this.doorRRest);
+    if (this.lightBar) this.restoreRest(this.lightBar.geometry, this.lightBarRest!);
     this.wheelSpin = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
@@ -316,7 +317,7 @@ export class DeformableCar extends CarParts {
     if (this.crashed) this.skinPanels();
   }
 
-  /** Bonnet, boot lid and the skinned glass follow the body skin. */
+  /** Bonnet, boot lid, the police light bar and the skinned glass follow the body skin. */
   private skinPanels(): void {
     let hood = true;
     let trunk = true;
@@ -327,6 +328,7 @@ export class DeformableCar extends CarParts {
     }
     if (hood) this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
     if (trunk) this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
+    if (this.lightBar && !this.lightBarPart!.detached) this.deform.skinPanel(this.lightBar.geometry, this.lightBarRest!, "roof", this.lightBarOrigin);
     for (const g of this.glassPanes) {
       if (!g.skin || !g.restVerts || g.state === "shattered") continue;
       this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, _zero);

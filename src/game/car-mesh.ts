@@ -61,6 +61,11 @@ function roofAt(z: number, style: BodyStyle): { y: number; x: number } {
   return { y: lerp(sl.yBelt, sl.yRoof, c), x: lerp(sl.hw * 0.55, sl.cabinHw, c) };
 }
 
+/** Height of the roof panel's centre-line crown at `z` (the top ring point of `makeRoofGeometry`). */
+export function roofCrownY(z: number, style: BodyStyle): number {
+  return roofAt(z, style).y + ROOF_CROWN;
+}
+
 /** Side glass top edge: tucked under the roof cant rail. */
 function glassTopY(z: number, style: BodyStyle): number {
   return roofAt(z, style).y - 0.075;
@@ -339,6 +344,9 @@ function makeWellLiner(wx: number, wy: number, wz: number): THREE.BufferGeometry
   return geo;
 }
 
+/** Roof crown above the cant line at the centre line (m): the roof panel's gentle dome. */
+const ROOF_CROWN = 0.026;
+
 function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
   const [z0, z1] = style.roofZ;
   const segs = 16;
@@ -352,7 +360,7 @@ function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
       { x: -(x + 0.07), y: y - 0.03 },
       { x: -x, y },
       { x: -x * 0.45, y: y + 0.018 },
-      { x: 0, y: y + 0.026 },
+      { x: 0, y: y + ROOF_CROWN },
       { x: x * 0.45, y: y + 0.018 },
       { x, y },
       { x: x + 0.07, y: y - 0.03 },

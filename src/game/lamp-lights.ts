@@ -11,6 +11,9 @@ const POINT_POOL = 4;
 
 const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };
 const TAIL = { color: 0xff2414, intensity: 0.5, distance: 2.5, decay: 2 };
+/** A lit siren washes the car and the road round it; it outranks every tail lamp but the followed car's. It sits
+ *  `out` m over the lens: closer, it blew the lens itself out to orange under ACES (first cut: 6 at 0.3 m). */
+const SIREN = { red: 0xff1810, blue: 0x2848ff, intensity: 3, distance: 8, out: 0.8, rank: 1e8 };
 /** Headlamp aim: a point AIM m ahead dipped DIP m (≈5°), so the beam pools on the road. */
 const AIM = 10;
 const DIP = 0.9;
@@ -22,6 +25,11 @@ const GLOW_SIZE = 0.7;
 const GLOW_OUT = 0.1;
 const GLOW_HEAD = [0.8, 0.7, 0.55] as const;
 const GLOW_TAIL = [0.55, 0.03, 0.015] as const;
+const GLOW_RED = [1, 0.06, 0.04] as const;
+const GLOW_BLUE = [0.08, 0.2, 1] as const;
+
+/** What a lamp slot shows: a body lamp, or a police light bar's red or blue siren. */
+export type GlowKind = LampKind | "red" | "blue";
 
 /** A lamp seated on one body-skin facet (see `anchorOnSkin`). */
 export interface SkinAnchor {
@@ -90,8 +98,10 @@ function frameAt(pos: ArrayLike<number>, [a, b, c]: readonly [number, number, nu
 interface LampHost {
   readonly group: THREE.Object3D;
   readonly lampCount: number;
-  /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken. */
-  lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): LampKind | null;
+  /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken or dark. */
+  lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): GlowKind | null;
+  /** Advance the siren flash to `now` (s); no-op without sirens on. */
+  flashSirens(now: number): void;
 }
 
 /** The best `size` candidates by ascending score, in place: no allocation per offer. */
@@ -99,6 +109,7 @@ class Ranking {
   readonly score: Float64Array;
   readonly pos: THREE.Vector3[];
   readonly dir: THREE.Vector3[];
+  readonly kind: GlowKind[];
   readonly size: number;
   count = 0;
 
@@ -107,9 +118,10 @@ class Ranking {
     this.score = new Float64Array(size);
     this.pos = Array.from({ length: size }, () => new THREE.Vector3());
     this.dir = Array.from({ length: size }, () => new THREE.Vector3());
+    this.kind = Array.from({ length: size }, (): GlowKind => "tail");
   }
 
-  offer(s: number, p: THREE.Vector3, d: THREE.Vector3): void {
+  offer(s: number, p: THREE.Vector3, d: THREE.Vector3, kind: GlowKind): void {
     const k = this.size;
     if (this.count === k && (k === 0 || s >= this.score[k - 1]!)) return;
     let j = this.count < k ? this.count++ : k - 1;
@@ -119,17 +131,20 @@ class Ranking {
       this.score[j] = this.score[j - 1]!;
       this.pos[j] = this.pos[j - 1]!;
       this.dir[j] = this.dir[j - 1]!;
+      this.kind[j] = this.kind[j - 1]!;
     }
     this.score[j] = s;
     this.pos[j] = sp.copy(p);
     this.dir[j] = sd.copy(d);
+    this.kind[j] = kind;
   }
 }
 
 /**
  * Every intact lamp glows (one additive point sprite each, one draw for all cars); the fixed light
  * pools go to the highest-priority intact lamps each frame: the followed car first, then the nearest
- * on-screen lamps. White spots for headlamps, short red points for tail lamps.
+ * on-screen lamps. White spots for headlamps, short red points for tail lamps; a lit police siren takes
+ * a point too, recoloured red or blue (colour and range are uniforms: the lights hash never changes).
  */
 export class LampLights {
   readonly spots: THREE.SpotLight[] = [];
@@ -174,8 +189,8 @@ export class LampLights {
     scene.add(this.glow);
   }
 
-  /** After the cars' skin and the camera are final for the frame, before render. */
-  update(cars: readonly LampHost[], camera: THREE.Camera, followed: LampHost | null): void {
+  /** After the cars' skin and the camera are final for the frame, before render. `now` (s) clocks the sirens. */
+  update(cars: readonly LampHost[], camera: THREE.Camera, followed: LampHost | null, now = performance.now() / 1000): void {
     camera.updateMatrixWorld();
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.viewProj);
@@ -187,11 +202,12 @@ export class LampLights {
     let n = 0;
     for (const car of cars) {
       if (!car.group.visible) continue;
+      car.flashSirens(now);
       for (let i = 0; i < car.lampCount; i++) {
         const kind = car.lampWorld(i, _pos, _dir);
         if (!kind || n * 3 >= gp.length) continue;
         _e.copy(_pos).addScaledVector(_dir, GLOW_OUT).toArray(gp, n * 3);
-        const c = kind === "head" ? GLOW_HEAD : GLOW_TAIL;
+        const c = kind === "head" ? GLOW_HEAD : kind === "tail" ? GLOW_TAIL : kind === "red" ? GLOW_RED : GLOW_BLUE;
         gc[n * 3] = c[0];
         gc[n * 3 + 1] = c[1];
         gc[n * 3 + 2] = c[2];
@@ -199,7 +215,8 @@ export class LampLights {
         let score = _pos.distanceToSquared(_cam);
         if (car === followed) score -= 1e9;
         else if (!this.frustum.containsPoint(_pos)) score += 1e9;
-        (kind === "head" ? this.heads : this.tails).offer(score, _pos, _dir);
+        if (kind === "head") this.heads.offer(score, _pos, _dir, kind);
+        else this.tails.offer(kind === "tail" ? score : score - SIREN.rank, _pos, _dir, kind);
       }
     }
     this.glow.geometry.setDrawRange(0, n);
@@ -225,8 +242,12 @@ export class LampLights {
         l.intensity = 0;
         continue;
       }
-      l.position.copy(this.tails.pos[k]!).addScaledVector(this.tails.dir[k]!, TAIL_OUT);
-      l.intensity = TAIL.intensity;
+      const kind = this.tails.kind[k]!;
+      const tail = kind === "tail";
+      l.position.copy(this.tails.pos[k]!).addScaledVector(this.tails.dir[k]!, tail ? TAIL_OUT : SIREN.out);
+      l.color.setHex(tail ? TAIL.color : kind === "red" ? SIREN.red : SIREN.blue);
+      l.distance = tail ? TAIL.distance : SIREN.distance;
+      l.intensity = tail ? TAIL.intensity : SIREN.intensity;
     }
   }
 
