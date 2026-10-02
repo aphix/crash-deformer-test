@@ -327,7 +327,7 @@ between levels, and a checkpoint over the other level.
 | `shortcuts[]` | `{ id, from, to, width = 7, surface = "dirt", path: [{x, z, y?}] }` | designed route; open the main walls at its mouths. Its end points take the main road's surface height there (banked plane, flat over the runoff); an authored end `y` is ignored |
 | `grid` | `{ perRow = 2, spacing = 8, back = 6 }` | staggered slots behind the line |
 | `props[]` | `{ prefab, x, z, yaw = 0, scale = 1, size? }` | placed prefabs |
-| `along[]` | `{ prefab, every, side = "both", offset = 1.5, fromNode?, toNode?, route?, scale = 1 }` | repeated beside the wall line (or along side street `route`); copies on any road are skipped |
+| `along[]` | `{ prefab, every, side = "both", offset = 1.5, fromNode?, toNode?, route?, scale = 1 }` | repeated beside the wall line (or along side street `route`); copies on any road are skipped, and so is any non-knock copy whose drawn footprint a bend turns onto its own road or runoff (the lot inside a corner stays empty). `course-intrusion.test.ts` holds every course to ≤ 0.1 m |
 | `scatter[]` | `{ prefab, count, near = 6, far = 60, seed = 1, scaleMin = 0.8, scaleMax = 1.25 }` | seeded scenery off every corridor |
 | `traffic` | `{ count = 0, speed = 9, lanes = [], routes = [] }`? | `lanes: [{ offset, dir: 1 \| -1 }]` on the race loop; `routes: [{ id, path, loop = false, width = 9, surface = "asphalt", count, lanes }]` side streets (open the race walls where they cross) |
 | `environment` | `{ sky = "#12141a", fog = 0.0035, terrain = "grass", hills: [{x, z, radius, height}] }` | look and base terrain |

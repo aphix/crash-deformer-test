@@ -74,6 +74,56 @@ function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: n
   return Math.sqrt(dx * dx + dz * dz);
 }
 
+/** Distance (m) from segment (u0, v0)→(u1, v1) to the box |u| ≤ hw, |v| ≤ hd; 0 when they touch. */
+function segBoxDist(u0: number, v0: number, u1: number, v1: number, hw: number, hd: number): number {
+  // Liang–Barsky clip: any part of the segment inside the box?
+  const du = u1 - u0;
+  const dv = v1 - v0;
+  let t0 = 0;
+  let t1 = 1;
+  const clip = (p: number, q: number): boolean => {
+    if (p === 0) return q >= 0;
+    const r = q / p;
+    if (p < 0) t0 = Math.max(t0, r);
+    else t1 = Math.min(t1, r);
+    return t0 <= t1;
+  };
+  if (clip(-du, u0 + hw) && clip(du, hw - u0) && clip(-dv, v0 + hd) && clip(dv, hd - v0)) return 0;
+  // Apart: the gap closes at an endpoint or a box corner.
+  const toBox = (u: number, v: number) => Math.hypot(Math.max(Math.abs(u) - hw, 0), Math.max(Math.abs(v) - hd, 0));
+  let d = Math.min(toBox(u0, v0), toBox(u1, v1));
+  for (const cu of [-hw, hw]) for (const cv of [-hd, hd]) d = Math.min(d, segDist(cu, cv, u0, v0, u1, v1));
+  return d;
+}
+
+/**
+ * Clearance (m) from a drawn footprint (oriented box: centre x, z; `yaw`; half-extents hw on local x,
+ * hd on local z) to `path`'s road + runoff; ≤ 0 when it reaches onto them. Exact for the corridor as
+ * the union of its segments, each widened by its half width + runoff on the box's side.
+ */
+function boxClear(path: TrackPath, x: number, z: number, yaw: number, hw: number, hd: number): number {
+  const c = Math.cos(yaw);
+  const sn = Math.sin(yaw);
+  const reach = Math.hypot(hw, hd);
+  const segs = path.closed ? path.count : path.count - 1;
+  let best = Infinity;
+  for (let k = 0; k < segs; k++) {
+    const b = (k + 1) % path.count;
+    const ax = path.x[k]!;
+    const az = path.z[k]!;
+    const ex = path.x[b]! - ax;
+    const ez = path.z[b]! - az;
+    const lat = (x - ax) * ez - (z - az) * ex;
+    const w = path.half[k]! + (lat > 0 ? path.runL[k]! : path.runR[k]!);
+    if (segDist(x, z, ax, az, ax + ex, az + ez) - reach - w >= best) continue;
+    // Segment ends in the box's frame: local x = (cos yaw, −sin yaw), local z = (sin yaw, cos yaw).
+    const u0 = (ax - x) * c - (az - z) * sn;
+    const v0 = (ax - x) * sn + (az - z) * c;
+    best = Math.min(best, segBoxDist(u0, v0, u0 + ex * c - ez * sn, v0 + ex * sn + ez * c, hw, hd) - w);
+  }
+  return best;
+}
+
 /**
  * Height a prop stands at: the ground (terrain or a road at ground level), or a bridge deck when
  * the point is on a deck's road / runoff and not also on a road passing underneath.
@@ -146,6 +196,13 @@ export function placeProps(track: Track): Placed[] {
     const segs = path.closed ? path.count : path.count - 1;
     const others = corridors.filter((c) => c !== path);
     const r = footRadius(a.prefab, a.scale, a.scale);
+    // On its own corridor the drawn footprint (oriented box) must clear the road and runoff too: on a
+    // bend the box turns into the road, so a lot inside a corner stays empty. A knock prop (hay bale,
+    // cone) may stand on that runoff when the author's `offset` puts it there.
+    const size = PREFABS[a.prefab].size;
+    const hw = (size[0] * a.scale) / 2;
+    const hd = (size[2] * a.scale) / 2;
+    const ownClear = PREFABS[a.prefab].body !== "knock";
     for (let j = 0; j < n; j++) {
       const s = from + j * step;
       pointOn(path, s, pt);
@@ -158,14 +215,16 @@ export function placeProps(track: Track): Placed[] {
         const lat = sign * (pt.half + (sign > 0 ? path.runL[k]! : path.runR[k]!) + a.offset);
         const x = pt.x + pt.tz * lat;
         const z = pt.z - pt.tx * lat;
-        // Never on another road (its own corridor is the author's call via `offset`).
+        const yaw = sign > 0 ? heading + Math.PI : heading;
+        // Never on another road: the footprint's bounding circle keeps off it (lots stay clear of junctions).
         if (others.some((c) => wallGap(c, x, z, proj) < r)) continue;
+        if (ownClear && boxClear(path, x, z, yaw, hw, hd) < 0) continue;
         out.push({
           prefab: a.prefab,
           x,
           y: standY(track, x, z),
           z,
-          yaw: sign > 0 ? heading + Math.PI : heading,
+          yaw,
           sx: a.scale,
           sy: a.scale,
           sz: a.scale,
