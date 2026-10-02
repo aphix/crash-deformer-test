@@ -14,3 +14,7 @@ build/
 .extraResearch/papers/*.pdf
 # Local benchmark JSON and CPU profiles (scripts/bench-browser.mjs --out/--profile).
 .bench/
+
+# QA screenshots stay local (older tracked ones remain)
+screenshots/*
+!screenshots/.gitkeep
