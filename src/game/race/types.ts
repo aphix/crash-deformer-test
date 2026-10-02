@@ -150,18 +150,32 @@ export type CampaignSnapshot = {
   standings: CampaignRow[];
 };
 
-/** UI → engine. The HUD never touches race state; it sends these. */
+/**
+ * UI → engine (`CrashEngine.raceCommand`). The HUD never touches race state; it sends these.
+ * setup menu: options / start / campaign / quit · pause menu: resume / retry / end / quit ·
+ * dead menu: retry / end / spectate · results: retry / next / quit · standings: next / quit.
+ */
 export type RaceCommand =
-  | { type: "open" }
   | { type: "options"; options: Partial<RaceOptions> }
+  /** Single race on `options.trackId`. */
   | { type: "start" }
+  /** New campaign over `CAMPAIGN` from round 1. */
   | { type: "campaign" }
+  /** Same course again (a campaign round restarts with the same grid). */
   | { type: "retry" }
+  /** Results → next course (single) or the standings screen (campaign); standings → next round. */
   | { type: "next" }
   | { type: "pause" }
   | { type: "resume" }
+  /** Close the race now: running cars DNF, results menu. */
   | { type: "end" }
-  | { type: "spectate"; dir: 1 | -1 }
+  /** Dead menu → follow the live cars (no control). */
+  | { type: "spectate" }
+  /** Spectating: next / previous live car. */
+  | { type: "cycle"; dir: 1 | -1 }
+  /** Spectating or finished: follow car `id` (standings click). Ignored while the player still races. */
+  | { type: "watch"; id: number }
+  /** Back to the setup menu (from pause / results / standings), or leave race mode from setup. */
   | { type: "quit" };
 
 export type RaceMenu = "setup" | "pause" | "dead" | "results" | "standings" | null;
@@ -170,30 +184,35 @@ export type RaceHudRow = {
   id: number;
   name: string;
   place: number;
+  /** Completed laps. */
   lap: number;
   status: CarStatus;
-  /** Seconds behind the leader on the road (null for the leader / not comparable). */
+  /** Seconds behind the car in P1: finish-time gap for finishers, last shared checkpoint split otherwise; null for P1 / unknown. */
   gap: number | null;
   bestLap: number | null;
   you: boolean;
   watched: boolean;
 };
 
-/** What the HUD reads (built by the engine glue for the local viewer). */
+/** What the HUD reads (built by the engine glue for the local viewer); null in `CrashHudState.race` outside race mode. */
 export type RaceHud = {
   menu: RaceMenu;
+  /** "campaign" while a campaign is running (results → standings → next round). */
+  mode: "single" | "campaign";
   options: RaceOptions;
   courses: { id: string; name: string; blurb: string }[];
   phase: RacePhase | null;
   trackName: string;
   laps: number;
   noReset: boolean;
+  /** Race clock (s): negative before green. */
   time: number;
   lights: 0 | 1 | 2 | 3;
   /** The local player's car, null when there is none in this race. */
   you: {
     id: number;
     place: number;
+    /** Lap being driven, 1-based, capped at `laps`. */
     lap: number;
     lapTime: number;
     lastLap: number | null;
@@ -203,14 +222,22 @@ export type RaceHud = {
     /** Seconds until the pending respawn, null when none. */
     respawnIn: number | null;
     finishTime: number | null;
+    /** Seconds behind the first car through the last checkpoint (0 when you led it). */
+    split: number | null;
     speedKph: number;
   } | null;
+  /** Cars in the race. */
   field: number;
+  /** Live order (all cars). */
   standings: RaceHudRow[];
-  /** Car the camera follows while spectating, null otherwise. */
+  /** Name of the car the camera follows while spectating, null otherwise. */
   spectating: string | null;
   winnerName: string | null;
   winBy: WinBy | null;
+  /** Final classification once the race is over, else null. */
   results: RaceResultRow[] | null;
+  /** Campaign table (after each round) while `mode` is "campaign". */
   campaign: CampaignSnapshot | null;
+  /** Name of the next course for the results/standings button, null when there is none (campaign over). */
+  nextCourse: string | null;
 };

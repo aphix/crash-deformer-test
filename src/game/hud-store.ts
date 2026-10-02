@@ -1,6 +1,7 @@
 import type { FxTier } from "./engine-post.ts";
 import { crushStroke } from "./physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
+import type { RaceHud } from "./race/types.ts";
 
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
 export type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
@@ -83,6 +84,8 @@ export type CrashHudState = {
   derbyWinner: string | null;
   /** `id` is the car index; `watched` marks the car the camera follows or drives. */
   derbyBoard: { id: number; name: string; score: number; alive: boolean; watched: boolean }[];
+  /** Race scene state for the HUD; null outside race mode. */
+  race: RaceHud | null;
   seat: "global" | "follow" | "drive";
   boost: number;
   view: "third" | "far" | "first";
@@ -166,6 +169,7 @@ export const INITIAL_HUD: CrashHudState = {
   derby: false,
   derbyWinner: null,
   derbyBoard: [],
+  race: null,
   seat: "global",
   boost: 1,
   view: "third",
