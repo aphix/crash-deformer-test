@@ -17,7 +17,7 @@ export type Entrant = {
 
 export type RaceOptions = {
   trackId: string;
-  /** 3–5 in the menu; the rules accept any ≥ 1. */
+  /** 1–5 in the menu; the rules accept any ≥ 1. */
   laps: number;
   /** A dead car is out for good; last car alive also wins. */
   noReset: boolean;
@@ -25,9 +25,11 @@ export type RaceOptions = {
   aiCount: number;
   /** Field aggression 0–1; each AI gets a personal spread around it. */
   aggression: number;
+  /** Watch only: this browser's car is one more AI racer and the camera follows the field (no player car). */
+  spectate: boolean;
 };
 
-export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35 };
+export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false };
 
 /** Per-step input to the rules for one car (same order as the entrants). */
 export type CarPose = {

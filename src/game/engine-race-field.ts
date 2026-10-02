@@ -171,6 +171,7 @@ export abstract class RaceField {
   /**
    * Player plus `aiCount` cars; ids are car indices, this browser's car is `self` (0). Cars seated by
    * `setSeats` are network peers' (`remote`); the AI fills the rest, each rolling its aggression in [0, slider].
+   * Spectate (`options.spectate`): this browser's car is one more AI racer, so there is no player car.
    */
   protected field(): Entrant[] {
     let n = this.options.aiCount + 1;
@@ -179,17 +180,17 @@ export abstract class RaceField {
     const cars = this.host.live();
     this.seed++;
     return cars.map((car, i): Entrant => {
-      if (i === this.self) return { id: i, name: "You", kind: "player", aggression: 0 };
+      if (i === this.self && !this.options.spectate) return { id: i, name: "You", kind: "player", aggression: 0 };
       if (this.seats.has(i)) return { id: i, name: `Player ${i}`, kind: "remote", aggression: 0 };
       return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) };
     });
   }
 
-  /** Single race: the AI field in car order, then the network peers, this browser's car at the back. */
+  /** Single race: the AI field in car order, then the network peers, this browser's car (if it races) at the back. */
   protected defaultGrid(): number[] {
     const ai = this.entrants.filter((e) => e.kind === "ai").map((e) => e.id);
     const remote = this.entrants.filter((e) => e.kind === "remote").map((e) => e.id);
-    return [...ai, ...remote, this.self];
+    return this.entrants[this.self]?.kind === "player" ? [...ai, ...remote, this.self] : [...ai, ...remote];
   }
 
   protected start(trackId: string, grid: readonly number[]): void {
@@ -237,12 +238,18 @@ export abstract class RaceField {
     this.knocked.fill(0);
     this.art?.reset();
     this.overFor = 0;
-    this.spectating = false;
     this.menu = null;
     const seat = this.host.seat;
-    seat.focus(this.self);
-    seat.mode = "drive";
-    seat.boost = 1;
+    if (this.entrants[this.self]?.kind === "player") {
+      this.spectating = false;
+      seat.focus(this.self);
+      seat.mode = "drive";
+      seat.boost = 1;
+    } else {
+      // Spectator race: no car of ours; the camera follows pole (Q/E, LB/RB, standings switch cars).
+      this.spectating = true;
+      seat.focus(this.grid[0]!);
+    }
     this.host.setPaused(false);
   }
 
