@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformNetState } from "./streamed-deform.ts";
-import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
+import { applyGroundFriction, CRASH, hypot2, round4 } from "./physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { getCrackMap } from "./car-materials.ts";
 import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "./ground.ts";
@@ -287,9 +287,11 @@ export class DeformableCar extends CarParts {
     const n = ground.normalAt(this.group.position.x, this.group.position.z, _gn, y);
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
-    // Nose up on an upslope (normal leans back), right side up where the ground rises to the right.
-    this.pitch = Math.atan2(n.x * fx + n.z * fz, n.y);
-    this.roll = Math.atan2(n.x * fz - n.z * fx, n.y);
+    // YXZ takes local up to (−sin r·x̂ + cos r sin p·f̂ + cos r cos p·ŷ), x̂ = (fz, 0, −fx) the local +x:
+    // pitch from n·f̂ against n.y, roll from −n·x̂ against the rest. A rise toward +x lifts the +x wheels.
+    const nf = n.x * fx + n.z * fz;
+    this.pitch = Math.atan2(nf, n.y);
+    this.roll = Math.atan2(n.z * fx - n.x * fz, hypot2(nf, n.y));
     this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
 
