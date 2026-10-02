@@ -6,6 +6,7 @@ import { CAR_STYLES, CAR_STYLE_IDS, type BodyStyle, type CarStyleId } from "./ca
 import { makeChassisGeometry, makeRearGlass, makeTrunkGeometry, makeWindshield } from "./car-mesh.ts";
 import { fleetStyle } from "./fleet.ts";
 import { StreamedDeformation } from "./streamed-deform.ts";
+import { assertSameDigest, assertSameNumbers } from "./test-support.ts";
 
 const PAINT = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const scene = new THREE.Scene();
@@ -73,7 +74,7 @@ describe("body styles share one platform", () => {
 
   for (const id of CAR_STYLE_IDS) {
     it(`good: ${id} keeps the sedan's wheels, width and length (±0.12 m)`, () => {
-      cars[id].wheels.forEach((w, i) => assert.deepEqual(w.position.toArray(), WHEEL_POS[i]));
+      cars[id].wheels.forEach((w, i) => assertSameNumbers(w.position.toArray(), WHEEL_POS[i]!, `${id} wheel ${i}`));
       const b = chassisBox(CAR_STYLES[id]);
       const len = b.max.z - b.min.z;
       assert.ok(Math.abs(len - (sedan.max.z - sedan.min.z)) <= 0.12, `${id} length ${len}`);
@@ -81,16 +82,16 @@ describe("body styles share one platform", () => {
     });
 
     it(`good: ${id} keeps the sedan's collision hulls and mass rig`, () => {
-      assert.deepEqual(cars[id].deform.liveHulls(), cars.sedan.deform.liveHulls());
+      assertSameDigest(cars[id].deform.liveHulls(), cars.sedan.deform.liveHulls(), `${id} hulls`);
       const rig = (c: DeformableCar) => c.deform.masses.map((m) => [m.name, m.mass, ...m.rest.toArray()]);
-      assert.deepEqual(rig(cars[id]), rig(cars.sedan));
+      assertSameDigest(rig(cars[id]), rig(cars.sedan), `${id} mass rig`);
     });
   }
 
   it("good: a 10-car field shows every style, slot 0 stays the sedan", () => {
     const field = Array.from({ length: 10 }, (_, i) => fleetStyle(i));
     assert.equal(field[0], "sedan");
-    assert.deepEqual([...new Set(field)].sort(), [...CAR_STYLE_IDS].sort());
+    assertSameDigest([...new Set(field)].sort(), [...CAR_STYLE_IDS].sort(), "styles in a 10-car field");
   });
 });
 
