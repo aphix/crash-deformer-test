@@ -20,13 +20,14 @@ The template's other dependencies (`better-auth`, `pglite`, `kysely`, `pg`, `zod
 | `nitro` | 3.0 beta | server build; output in `.vercel/output` |
 | `typescript` | 5.9 | `npm run typecheck` (`tsc --noEmit`); tests run TS directly via `node --experimental-strip-types` |
 | `playwright` | 1.63 | `scripts/bench-browser.mjs` (Chromium / Edge frame bench) |
-| `eslint`, `prettier` | 9 / 3 | `npm run lint`, `npm run format` |
+| `oxlint`, `oxlint-plugin-eslint` | 1.86 | `npm run lint` (`.oxlintrc.json`: ESLint `js` + `typescript-eslint` recommended, React hooks / refresh; `oxlint-plugin-eslint` supplies `no-undef` and `no-restricted-syntax` for `.js`). See [../TOOLCHAIN.md](../TOOLCHAIN.md). |
+| `prettier` | 3 | `npm run format` |
 | `@types/three`, `@types/node` | | types only |
 
 No test framework dependency: tests use `node:test` and `node:assert/strict`.
 
 ## Hand-written JS kernels
-`src/game/physics-core.js` and `src/game/shape-match-core.js` are plain JavaScript with `// @ts-nocheck`, typed by sibling `.d.ts` files and re-exported through `physics-util.ts` / `shape-match.ts`. They work on numbers and typed arrays, not THREE objects. Kept as JS because the TypeScript emit was several times slower on these loops; the sim and the tests import the same JS. Measure with `npm run bench`. Side effect: `npm run lint` reports the two `@ts-nocheck` headers as errors (`@typescript-eslint/ban-ts-comment`).
+`src/game/physics-core.js` and `src/game/shape-match-core.js` are plain JavaScript with `// @ts-nocheck`, typed by sibling `.d.ts` files and re-exported through `physics-util.ts` / `shape-match.ts`. They work on numbers and typed arrays, not THREE objects. Kept as JS because the TypeScript emit was several times slower on these loops; the sim and the tests import the same JS. Measure with `npm run bench`. Side effect: `npm run lint` reports the two `@ts-nocheck` headers as errors (`no-warning-comments`, which stands in for `typescript-eslint`'s `ban-ts-comment` on `.js` files, where oxlint's own `typescript/ban-ts-comment` doesn't run).
 
 ## Related
 [architecture.md](architecture.md) · [testing.md](testing.md)
