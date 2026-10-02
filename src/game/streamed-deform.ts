@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { activeGround, NO_FLOOR } from "./ground.ts";
-import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, satPushCap, type CrushBands } from "./physics-util.ts";
+import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, satPushCap, hypot2, hypot3, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
   type ShapeParticle,
@@ -111,8 +111,6 @@ const _axis = new THREE.Vector3();
 const _mat = new THREE.Matrix4();
 /** followGroup's world→local: one invert per call, not one per mass (Object3D.worldToLocal). */
 const _toLocal = new THREE.Matrix4();
-/** writeShapeToMasses' body → world scratch. */
-const _bodyOut = new Float64Array(3);
 /** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
 const SHAPE_REF_HZ = 240;
 /** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
@@ -921,7 +919,8 @@ export class StreamedDeformation {
       ry = 0,
       rz = 0,
       ms = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (m.hub && !this.deepCrush) continue;
       cx += m.world.x * m.mass;
       cy += m.world.y * m.mass;
@@ -941,7 +940,8 @@ export class StreamedDeformation {
     // max_θ tr(R_y(θ)ᵀ Σ m (x − c)(r − r_c)ᵀ) has the closed form θ = atan2(A02 − A20, A00 + A22).
     let sc = 0,
       ss = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (m.hub && !this.deepCrush) continue;
       const x = (m.world.x - cx) * m.mass,
         z = (m.world.z - cz) * m.mass;
@@ -950,7 +950,7 @@ export class StreamedDeformation {
       sc += x * u + z * w;
       ss += x * w - z * u;
     }
-    const len = Math.hypot(sc, ss);
+    const len = hypot2(sc, ss);
     const c = len > 1e-9 ? sc / len : 1;
     const s = len > 1e-9 ? ss / len : 0;
     this.bodyCos = c;
@@ -978,14 +978,17 @@ export class StreamedDeformation {
   }
 
   private writeShapeToMasses(): void {
-    const w = _bodyOut;
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       if (m.hub && !m.popped && !this.deepCrush) continue;
       const p = this.shapeParticles[i]!;
-      this.bodyToWorld(p.x, p.y, p.z, w, 0);
-      m.world.set(w[0]!, w[1]!, w[2]!);
+      // bodyToWorld inlined: as a call it boxed p.x/y/z for every mass.
+      const dx = p.x - this.bodyRestC.x,
+        dz = p.z - this.bodyRestC.z;
+      m.world.x = this.bodyCos * dx + this.bodySin * dz + this.bodyC.x;
+      m.world.y = p.y - this.bodyRestC.y + this.bodyC.y;
+      m.world.z = this.bodyCos * dz - this.bodySin * dx + this.bodyC.z;
       if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) m.world.copy(m.rest);
       clampSpeed(m.vel);
     }
@@ -1277,7 +1280,7 @@ export class StreamedDeformation {
     const gs = Math.sin(this.prevYaw);
     m.shoveX += dx * gc - dz * gs;
     m.shoveZ += dx * gs + dz * gc;
-    const len = Math.hypot(m.shoveX, m.shoveZ);
+    const len = hypot2(m.shoveX, m.shoveZ);
     if (!this.wheelsDetach && len > WHEEL_DIAMETER) {
       m.shoveX *= WHEEL_DIAMETER / len;
       m.shoveZ *= WHEEL_DIAMETER / len;
@@ -1412,7 +1415,8 @@ export class StreamedDeformation {
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     const alongM = -(m.rest.x * ix + m.rest.z * iz);
-    for (const beam of this.beams) {
+    for (let bi = 0; bi < this.beams.length; bi++) {
+      const beam = this.beams[bi]!;
       const a = this.masses[beam.a]!;
       const b = this.masses[beam.b]!;
       if (a !== m && b !== m) continue;
@@ -1434,7 +1438,8 @@ export class StreamedDeformation {
   frontTransfer(): number {
     let sum = 0;
     let wsum = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       const w = this.impactWeight(m);
       if (w < 0.05) continue;
       sum += this.nodeTransfer(m) * w;
@@ -1589,7 +1594,7 @@ export class StreamedDeformation {
     const fx = (engL.world.x + engR.world.x) * 0.5 - axle.world.x;
     const fy = (engL.world.y + engR.world.y) * 0.5 - axle.world.y;
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
-    const yawLen = Math.hypot(fx, fz);
+    const yawLen = hypot2(fx, fz);
     // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
     const plant = !this.bidirectional && this.quietTime() > 0.2;
     // A planted wreck levels out from 0.35 s quiet and a hit tilts it back, each eased over LEVEL_TIME of
@@ -1611,10 +1616,13 @@ export class StreamedDeformation {
     const az = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
     const bx = ax * cr - ay * sr;
     const bz = (ax * sr + ay * cr) * sp + az * cp;
-    const yaw = yawLen > 0.15 && Math.hypot(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
+    const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
     const yawSafe = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
     let minHub = Infinity;
-    for (const m of this.masses) if (m.hub && m.world.y < minHub) minHub = m.world.y;
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      if (m.hub && m.world.y < minHub) minHub = m.world.y;
+    }
     if (tilt) group.rotation.set(pitch, yawSafe, roll, "YXZ");
     else group.rotation.set(0, yawSafe, 0, "YXZ");
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
@@ -1633,7 +1641,8 @@ export class StreamedDeformation {
         hz = 0,
         hlx = 0,
         hlz = 0;
-      for (const m of this.masses) {
+      for (let mi = 0; mi < this.masses.length; mi++) {
+        const m = this.masses[mi]!;
         if (!m.hub || m.popped) continue;
         hx += m.world.x * m.mass;
         hy += m.world.y * m.mass;
@@ -1673,7 +1682,8 @@ export class StreamedDeformation {
     let mx = 0,
       mz = 0,
       mass = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       m.local.copy(m.world).applyMatrix4(_toLocal);
       mx += m.vel.x * m.mass;
       mz += m.vel.z * m.mass;
@@ -1682,7 +1692,8 @@ export class StreamedDeformation {
     this.clampLocal(group);
     let hy = 0,
       hm = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (!m.hub) continue;
       hy += m.vel.y * m.mass;
       hm += m.mass;
@@ -1701,12 +1712,11 @@ export class StreamedDeformation {
       let dyaw = yawSafe - this.rateYaw;
       if (dyaw > Math.PI) dyaw -= Math.PI * 2;
       if (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      const yawRate = THREE.MathUtils.clamp(dyaw / span, -YAW_RATE_GUARD, YAW_RATE_GUARD);
-      angularOut.set(
-        THREE.MathUtils.clamp(pitch * 0.4, -2, 2),
-        Number.isFinite(yawRate) ? yawRate : 0,
-        THREE.MathUtils.clamp(roll * 0.4, -2, 2),
-      );
+      const yawRate = Math.max(-YAW_RATE_GUARD, Math.min(YAW_RATE_GUARD, dyaw / span));
+      // Field writes, not set(): an out-of-line set() boxed all three per call.
+      angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
+      angularOut.y = Number.isFinite(yawRate) ? yawRate : 0;
+      angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
       this.rateYaw = yawSafe;
       this.rateAt = this.elapsed;
     }
@@ -1758,13 +1768,15 @@ export class StreamedDeformation {
   brakeInbound(nx: number, nz: number, j: number, refVn = 0): number {
     if (!this.massActive || j <= 0) return 0;
     let moving = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (m.dynamic && m.vel.x * nx + m.vel.z * nz < refVn) moving += m.mass;
     }
     if (moving < 1e-6) return 0;
     const dv = j / moving;
     let taken = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (!m.dynamic) continue;
       const vn = m.vel.x * nx + m.vel.z * nz - refVn;
       if (vn >= 0) continue;
@@ -1811,8 +1823,8 @@ export class StreamedDeformation {
       let rEnd = r;
       if (planted) {
         // The face meets the tyre: its tread (TYRE_R) along the car, its sidewall across it.
-        r = Math.hypot(TYRE_HALF_W * (rx * gc - rz * gs), TYRE_R * (rx * gs + rz * gc));
-        rEnd = Math.hypot(TYRE_HALF_W * (fx * gc - fz * gs), TYRE_R * (fx * gs + fz * gc));
+        r = hypot2(TYRE_HALF_W * (rx * gc - rz * gs), TYRE_R * (rx * gs + rz * gc));
+        rEnd = hypot2(TYRE_HALF_W * (fx * gc - fz * gs), TYRE_R * (fx * gs + fz * gc));
       }
       const lz = ox * fx + oz * fz;
       const penX = hx + r - (ox * rx + oz * rz) * side;
@@ -2223,7 +2235,8 @@ export class StreamedDeformation {
 
   partCompression(name: BodyPartName): number {
     let max = 0;
-    for (const s of this.sensors) {
+    for (let si = 0; si < this.sensors.length; si++) {
+      const s = this.sensors[si]!;
       if (this.cages[s.partIndex]?.spec.name === name && s.compression > max) max = s.compression;
     }
     return max;
@@ -2370,7 +2383,8 @@ export class StreamedDeformation {
     // call and let a capped door drift 36–118 µm off its cap (left piston 60–80 km/h).
     const unturn = !squeeze && !pinned;
     if (unturn) this.holdTurn();
-    for (const m of this.masses) {
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
       let dx = m.local.x - m.rest.x;
       let dy = m.local.y - m.rest.y;
       let dz = m.local.z - m.rest.z;
@@ -2410,14 +2424,14 @@ export class StreamedDeformation {
                 ? 0.22
                 : 0.06
               : 0.11;
-      dy = THREE.MathUtils.clamp(dy, -maxDy, maxDy * 1.25);
+      dy = Math.max(-maxDy, Math.min(maxDy * 1.25, dy));
       const cw = squeeze ? 1 : this.cornerWeight(m);
       const latCap = squeeze ? 0.55 : 0.04 + cw * 0.07;
       if (squeeze || m.hub) {
         // A hub keeps at least the shove a face gave it, popped or not.
-        const shove = m.hub ? Math.hypot(m.shoveX, m.shoveZ) : 0;
+        const shove = m.hub ? hypot2(m.shoveX, m.shoveZ) : 0;
         const cap = m.name === "cell" || m.name === "roof" ? (deep ? 0.72 : 0.12) : m.hub ? Math.max(squeeze ? 0.95 : 0.38, shove) : maxCrush;
-        const len = Math.hypot(dx, dz);
+        const len = hypot2(dx, dz);
         if (len > cap) {
           const k = cap / len;
           dx *= k;
@@ -2432,7 +2446,7 @@ export class StreamedDeformation {
           const rx = m.rest.x + dx - c.local.x;
           const ry = m.rest.y + dy - c.local.y;
           const rz = m.rest.z + dz - c.local.z;
-          const len = Math.hypot(rx, ry, rz);
+          const len = hypot3(rx, ry, rz);
           const restLen = m.rest.distanceTo(c.rest);
           const dev = restLen - len;
           const set = m.crushSet;
@@ -2457,13 +2471,13 @@ export class StreamedDeformation {
         let along = dx * ix + dz * iz;
         let px = dx - along * ix;
         let pz = dz - along * iz;
-        along = THREE.MathUtils.clamp(along, -cap, cap);
+        along = Math.max(-cap, Math.min(cap, along));
         if (!cabin && this.hitSpeed >= 0) {
           // Sheet metal keeps its set: only the last SPRINGBACK of crush is elastic.
           if (along - SPRINGBACK > m.crushSet) m.crushSet = along - SPRINGBACK;
           else if (along < m.crushSet) along = m.crushSet;
         }
-        const perp = Math.hypot(px, pz);
+        const perp = hypot2(px, pz);
         if (perp > latCap) {
           const k = latCap / perp;
           px *= k;
@@ -2494,13 +2508,15 @@ export class StreamedDeformation {
           const crushed = (corner.local.x - corner.rest.x) * ix + (corner.local.z - corner.rest.z) * iz;
           if (front === iz < 0 && crushed >= Math.abs(corner.rest.z - m.rest.z) - TYRE_REACH) this.popHub(m);
         }
-        if (!m.popped && Math.hypot(m.shoveX, m.shoveZ) > WHEEL_DIAMETER) this.popHub(m);
+        if (!m.popped && hypot2(m.shoveX, m.shoveZ) > WHEEL_DIAMETER) this.popHub(m);
         if (!m.popped) {
           dx = m.shoveX;
           dz = m.shoveZ;
         }
       }
-      m.local.set(m.rest.x + dx, m.rest.y + dy, m.rest.z + dz);
+      m.local.x = m.rest.x + dx;
+      m.local.y = m.rest.y + dy;
+      m.local.z = m.rest.z + dz;
       if (squeeze) {
         const lim = Math.abs(m.rest.z) + 0.04;
         if (Math.abs(m.local.z) > lim) m.local.z = Math.sign(m.local.z || m.rest.z) * lim;
@@ -2585,7 +2601,8 @@ export class StreamedDeformation {
     let mass = 0,
       cx = 0,
       cz = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       cx += m.world.x * m.mass;
       cz += m.world.z * m.mass;
       mass += m.mass;
@@ -2594,7 +2611,8 @@ export class StreamedDeformation {
     cz /= mass;
     let l = 0,
       inertia = 0;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       const rx = m.world.x - cx;
       const rz = m.world.z - cz;
       l += m.mass * (rz * m.vel.x - rx * m.vel.z);
@@ -2602,7 +2620,8 @@ export class StreamedDeformation {
     }
     if (Number.isNaN(target) || inertia < 1e-9) return l;
     const w = (target - l) / inertia;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       m.vel.x += w * (m.world.z - cz);
       m.vel.z -= w * (m.world.x - cx);
     }
@@ -2754,7 +2773,7 @@ export class StreamedDeformation {
         const ax0 = alpha * (gx - p.x);
         const ay0 = alpha * (gy - p.y);
         const az0 = alpha * (gz - p.z);
-        const step = Math.hypot(ax0, ay0, az0);
+        const step = hypot3(ax0, ay0, az0);
         const kStep = step > maxStep ? maxStep / step : 1;
         const ax = ax0 * kStep;
         const ay = ay0 * kStep;
@@ -2814,7 +2833,7 @@ export class StreamedDeformation {
       }
     }
     if (contacting) {
-      for (const c of this.clusters) applyPlasticity(c, this.shapeParticles, dt, this.squash, this.buckle);
+      for (let ci = 0; ci < this.clusters.length; ci++) applyPlasticity(this.clusters[ci]!, this.shapeParticles, dt, this.squash, this.buckle);
     }
     this.writeShapeToMasses();
   }
@@ -2872,7 +2891,10 @@ export class StreamedDeformation {
     const powered = this.elapsed - this.lastPower < POWER_HOLD;
     // A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad), read per mass on its own layer.
     const ground = activeGround();
-    for (const m of this.masses) {
+    const quiet = this.quietTime();
+    const scuffed = this.drivetrainAlive && leftoverCrumple(this.crumpleTravel()) > 0.28;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
       if (!m.dynamic) continue;
       // Past the fleet disc's rim: gravity alike on every mass and no ground rules, so the car falls whole.
       if (ground.heightAt(m.world.x, m.world.z, m.world.y) === NO_FLOOR) {
@@ -2884,14 +2906,13 @@ export class StreamedDeformation {
       const hub = m.hub;
       if (hub) m.vel.y -= 9.6 * dt;
       else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
-      const quiet = this.quietTime();
       // During contact: almost no extra damping so crumple can run.
       // After the last collision, ease into rest over a few seconds.
       let rate = 0.988;
       if (!this.drivetrainAlive && quiet > 0.12) {
-        const t = THREE.MathUtils.clamp((quiet - 0.12) / 1.8, 0, 1);
+        const t = Math.max(0, Math.min(1, (quiet - 0.12) / 1.8));
         const s = t * t * (3 - 2 * t);
-        rate = THREE.MathUtils.lerp(0.96, 0.18, s);
+        rate = (1 - s) * 0.96 + s * 0.18;
       }
       m.vel.multiplyScalar(Math.pow(rate, dt));
       clampSpeed(m.vel);
@@ -2910,11 +2931,7 @@ export class StreamedDeformation {
           m.world.y = floor + 0.28;
           if (m.vel.y < 0) m.vel.y = 0;
         }
-        const mu = !this.drivetrainAlive
-          ? CRASH.muSlide
-          : leftoverCrumple(this.crumpleTravel()) > 0.28
-            ? CRASH.muScuff
-            : CRASH.muSlide;
+        const mu = !this.drivetrainAlive ? CRASH.muSlide : scuffed ? CRASH.muScuff : CRASH.muSlide;
         applyGroundFriction(m.vel, dt, mu * grip, true);
       } else {
         if (m.world.y < floor + 0.16) {
@@ -2922,7 +2939,7 @@ export class StreamedDeformation {
           if (m.vel.y < 0) m.vel.y *= -0.22;
         }
         if (quiet > 0.12) {
-          const grab = THREE.MathUtils.clamp((quiet - 0.12) / 0.45, 0, 1);
+          const grab = Math.max(0, Math.min(1, (quiet - 0.12) / 0.45));
           applyGroundFriction(m.vel, dt, CRASH.muSlide * grab * grip, true);
         } else if (m.world.y < floor + 0.16) {
           applyGroundFriction(m.vel, dt, CRASH.muScuff * grip, true);
@@ -2933,7 +2950,7 @@ export class StreamedDeformation {
         m.vel.y = 0;
       }
       if (!hub && !this.bidirectional && m.world.y > floor + 0.22) {
-        m.vel.y = THREE.MathUtils.clamp(m.vel.y, -2.2, 3);
+        m.vel.y = Math.max(-2.2, Math.min(3, m.vel.y));
       }
     }
     this.holdEngineBlock();
@@ -2941,7 +2958,8 @@ export class StreamedDeformation {
       let mx = 0,
         mz = 0,
         msum = 0;
-      for (const m of this.masses) {
+      for (let mi = 0; mi < this.masses.length; mi++) {
+        const m = this.masses[mi]!;
         if (!m.dynamic) continue;
         mx += m.vel.x * m.mass;
         mz += m.vel.z * m.mass;
@@ -2950,7 +2968,8 @@ export class StreamedDeformation {
       if (msum > 1e-8) {
         mx /= msum;
         mz /= msum;
-        for (const m of this.masses) {
+        for (let mi = 0; mi < this.masses.length; mi++) {
+          const m = this.masses[mi]!;
           if (!m.dynamic) continue;
           m.vel.x = mx;
           m.vel.z = mz;
@@ -2975,7 +2994,7 @@ export class StreamedDeformation {
     const dx = b.world.x - a.world.x;
     const dy = b.world.y - a.world.y;
     const dz = b.world.z - a.world.z;
-    const len = Math.hypot(dx, dy, dz);
+    const len = hypot3(dx, dy, dz);
     if (len < 1e-6) return;
     const nx = dx / len;
     const ny = dy / len;
@@ -2999,7 +3018,9 @@ export class StreamedDeformation {
   private stepSuspension(dt: number): void {
     const k = 11000;
     const c = 260;
-    for (const [hub, mount] of this.suspension) {
+    for (let si = 0; si < this.suspension.length; si++) {
+      const hub = this.suspension[si]![0];
+      const mount = this.suspension[si]![1];
       const restDy = hub.rest.y - mount.rest.y;
       const dy = hub.world.y - mount.world.y - restDy;
       const dv = hub.vel.y - mount.vel.y;
@@ -3012,12 +3033,14 @@ export class StreamedDeformation {
   private pullSensorsFromMasses(dt: number): void {
     const inward = this.impactInward;
     const cap = Math.max(0.022, dt * 24);
-    for (const s of this.sensors) {
+    for (let si = 0; si < this.sensors.length; si++) {
+      const s = this.sensors[si]!;
       const far = s.rest.x * inward.x + s.rest.z * inward.z;
       if (!this.bidirectional && far > 0.18) continue;
       const doorOnly = s.spec.part === "doorLeft" || s.spec.part === "doorRight";
       let best = 0;
-      for (const m of this.masses) {
+      for (let mi = 0; mi < this.masses.length; mi++) {
+        const m = this.masses[mi]!;
         if (doorOnly && m.name !== "doorL" && m.name !== "doorR") continue;
         const d = s.rest.distanceTo(m.rest);
         const reach = s.spec.radius * 2.2 + 0.22;
@@ -3038,7 +3061,8 @@ export class StreamedDeformation {
       s.pos.copy(s.rest);
       let wsum = 0;
       _d.set(0, 0, 0);
-      for (const m of this.masses) {
+      for (let mi = 0; mi < this.masses.length; mi++) {
+        const m = this.masses[mi]!;
         const dist = s.rest.distanceTo(m.rest);
         if (dist > s.spec.radius * 2.4 + 0.3) continue;
         const w = Math.exp(-dist * 1.35);

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { DeformableCar, type Hull } from "./car.ts";
+import { hypot2 } from "./physics-util.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
 export const BARRIER_MASS = 14000;
@@ -14,6 +15,8 @@ const SPLIT_HULLS = 5;
 const _pen = new Float64Array(SPLIT_HULLS);
 const _cx = new Float64Array(SPLIT_HULLS);
 const _cz = new Float64Array(SPLIT_HULLS);
+/** satTwoHulls' overlap: a returned double was boxed on every hull pair. */
+const _overlap = new Float64Array(1);
 
 export function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
   const p = car.group.position;
@@ -35,7 +38,7 @@ export function physicsSlice(dt: number, vmax: number): number {
  *  last driven value, so read the velocity followGroup measured from its masses. */
 export function sliceSpeed(cars: readonly DeformableCar[]): number {
   let vmax = 8;
-  for (const car of cars) vmax = Math.max(vmax, Math.hypot(car.velocity.x, car.velocity.z));
+  for (let i = 0; i < cars.length; i++) vmax = Math.max(vmax, hypot2(cars[i]!.velocity.x, cars[i]!.velocity.z));
   return vmax;
 }
 
@@ -157,7 +160,8 @@ export function clipCarToBarrier(
   return true;
 }
 
-export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): number | null {
+/** Whether the hulls overlap; the depth goes to `_overlap[0]`, the axis (b → a) to `_mtv`. */
+export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): boolean {
   hullCenter(a, ha, _ha);
   hullCenter(b, hb, _hb);
   let minOverlap = Infinity;
@@ -167,7 +171,7 @@ export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hu
     const axis = k === 0 ? a.rightFlat : k === 1 ? a.fwdFlat : k === 2 ? b.rightFlat : b.fwdFlat;
     const ax = axis.x;
     const az = axis.z;
-    const len = Math.hypot(ax, az);
+    const len = hypot2(ax, az);
     if (len < 1e-6) continue;
     const nx = ax / len;
     const nz = az / len;
@@ -180,14 +184,17 @@ export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hu
       Math.abs(b.rightFlat.x * nx + b.rightFlat.z * nz) * hb.hx +
       Math.abs(b.fwdFlat.x * nx + b.fwdFlat.z * nz) * hb.hz;
     const overlap = Math.min(ca + ra, cb + rb) - Math.max(ca - ra, cb - rb);
-    if (overlap <= 0) return null;
+    if (overlap <= 0) return false;
     if (overlap < minOverlap) {
       minOverlap = overlap;
-      _mtv.set(nx, 0, nz);
+      _mtv.x = nx;
+      _mtv.y = 0;
+      _mtv.z = nz;
     }
   }
   if ((_ha.x - _hb.x) * _mtv.x + (_ha.z - _hb.z) * _mtv.z < 0) _mtv.negate();
-  return minOverlap;
+  _overlap[0] = minOverlap;
+  return true;
 }
 
 const carHulls = (c: DeformableCar): Hull[] => c.hulls();
@@ -216,9 +223,10 @@ export function satCars(
   for (let i = 0; i < hullsA.length; i++) {
     const ha = hullsA[i]!;
     if (i < SPLIT_HULLS) _pen[i] = 0;
-    for (const hb of hullsB) {
-      const hit = satTwoHulls(a, ha, b, hb);
-      if (!hit) continue;
+    for (let j = 0; j < hullsB.length; j++) {
+      const hb = hullsB[j]!;
+      if (!satTwoHulls(a, ha, b, hb)) continue;
+      const hit = _overlap[0]!;
       const better = hit > best;
       const sibling = i < SPLIT_HULLS && hit > _pen[i]!;
       if (!better && !sibling) continue;

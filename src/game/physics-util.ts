@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { activeGround } from "./ground.ts";
-import { CRASH, round4 } from "./physics-core.js";
+import { CRASH, hypot2, round4 } from "./physics-core.js";
 
 export {
   CRASH,
@@ -18,6 +18,8 @@ export {
   cancelClosing,
   satPushCap,
   round4,
+  hypot2,
+  hypot3,
   type CrushBands,
 } from "./physics-core.js";
 
@@ -43,7 +45,7 @@ export function clampSpeed(vel: THREE.Vector3, max = CRASH.maxMassMps): void {
 
 export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, grounded: boolean): void {
   if (!grounded || dt <= 0) return;
-  const s = Math.hypot(vel.x, vel.z);
+  const s = hypot2(vel.x, vel.z);
   if (s < 1e-5) {
     vel.x = 0;
     vel.z = 0;

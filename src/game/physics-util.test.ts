@@ -21,6 +21,8 @@ import {
   TRANSFER,
   cancelClosing,
   satPushCap,
+  hypot2,
+  hypot3,
 } from "./physics-util.ts";
 
 describe("CRASH constants (researched sedan / NCAP)", () => {
@@ -84,6 +86,24 @@ describe("leftoverCrumple", () => {
   it("close-but-wrong: 1.499 is not yet a full zone (strict /1.5, not round-to-1)", () => {
     const a = leftoverCrumple(1.499);
     assert.ok(a < 1 && a > 0.99, `got ${a}`);
+  });
+});
+
+describe("hypot2 / hypot3", () => {
+  it("edge: bit-identical to Math.hypot (replays and contact digests depend on it), signs, ±0, NaN, Infinity, extremes", () => {
+    const special = [0, -0, 1, -1, 3, 4, 1e-300, 5e-324, 1.7e308, -1.7e308, Infinity, -Infinity, NaN, 0.1, 1 / 3];
+    let seed = 7;
+    const rnd = () => {
+      seed = (seed * 16807) % 2147483647;
+      return (seed / 2147483647 - 0.5) * 10 ** ((seed % 13) - 6);
+    };
+    const cases: number[][] = [];
+    for (const a of special) for (const b of special) cases.push([a, b, special[(cases.length * 7) % special.length]!]);
+    for (let i = 0; i < 20000; i++) cases.push([rnd(), rnd(), rnd()]);
+    for (const [a, b, c] of cases) {
+      assert.ok(Object.is(hypot2(a!, b!), Math.hypot(a!, b!)), `hypot2(${a}, ${b}) ${hypot2(a!, b!)} vs ${Math.hypot(a!, b!)}`);
+      assert.ok(Object.is(hypot3(a!, b!, c!), Math.hypot(a!, b!, c!)), `hypot3(${a}, ${b}, ${c}) ${hypot3(a!, b!, c!)} vs ${Math.hypot(a!, b!, c!)}`);
+    }
   });
 });
 

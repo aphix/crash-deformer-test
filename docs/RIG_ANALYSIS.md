@@ -1488,6 +1488,47 @@ Probes in the main checkout's `.bench/cr11/`:
   - Equal drag fixes the door, but the full-μ variant fails 7 tests: the corner struck depth on both corners, side MDB 0.15–0.25 m, both corners' crush monotonicity, contact parity at 40 km/h, and rear far paint. It was reverted. Landing it needs those re-anchored or the hubs-on-the-ramp variant gated.
   - Paint: the `frontLeft` dent of 0.088 m is the mean over a 0.3 m sphere (28 vertices). The 5 nose/bumper vertices average 0.175 m, which matches `bumperFL`'s 0.188 m. The 23 wing/arch vertices average 0.069 m, and a quarter of them bulge out 0.033–0.037 m. The median is 0.110 m. This is geometry plus the wing grading behind the bumper (`wingFL` 0.030 m), not a skin defect.
 
+### 6.11 Physics allocation (lane `crash-realism-12`)
+Probes are in the main checkout's `.bench/cr12/`. `race.ts` is a headless 8-car oval race through `frame()`. It records allocation with the sampling heap profiler (collected objects included), GC counts by kind, and a state digest every 10 frames. `derby.ts` is CR11's 24-car `resync.ts` with per-site output. `pile.ts` is the 24-car pile-up from `physics-alloc.test.ts` with the profiler attached.
+- **Cause.** Almost none of it is `new`. TurboFan boxes every double it passes to a call it did not inline: arguments, return values, and the result of `Math.hypot`, which is never inlined and also allocates a scratch array. `for…of` over arrays left iterator objects in functions that did not inline the iterator. `parts.some(closure)` in the hull getters allocated two closures per SAT pass.
+- **Fixes.** Behaviour is unchanged: the oval digest `5d53cca21c62fa26` (60 s), `76e603e87adcb9d6` (30 s after 30 s), and the derby contact `a29f0ad17ec53683` and state `6958479bfc11c070` digests are identical to 75bc12d.
+  - `hypot2`/`hypot3` in physics-core are bit-identical ports of V8's `Math.hypot`; a test checks 20 000 random and special-value cases. Their Infinity/NaN returns avoid a global load, which had made every inlined result tagged. shape-match-core keeps its own `hypot3`, because kernels import nothing (C3). Checked against `Math.hypot` on 3 million random and all special-value triples.
+  - `satTwoHulls` returns a flag and puts the depth in a scratch.
+  - Hot `for…of` loops are indexed loops.
+  - `clampLocal`, `stepMassSlice` and `followGroup` use `Math.max/min` instead of `THREE.MathUtils.clamp`/`lerp`, and field writes instead of `set()`. `stepMassSlice` also hoists `quietTime()` and the scuff check out of the mass loop.
+  - `writeShapeToMasses` inlines `bodyToWorld`, and the hull getters loop instead of using closures.
+- **Per site, KB per frame** (base → lane):
+
+  | site | race, steady 30 s | 24-car pile-up |
+  |---|---|---|
+  | `satTwoHulls` | 64.7 → 0 | 1107 → 0.1 |
+  | `clampLocal` (with its `Math.hypot`) | 122.4 → 20.6 | 561 → 104 |
+  | `stepMassSlice` | 87.8 → 41.7 | 9.5 → 3.1 |
+  | `followGroup` | 26.0 → 15.9 | 101.5 → 51.6 |
+  | `stepShapeMatch` | 10.6 → 4.5 | 154 → 48.8 |
+  | `yawMomentum` | 4.4 → 2.4 | 18.0 → 17.7 |
+  | `liveHulls` / `liveCrushHulls` | 2.0 / 3.1 → 2.0 / 3.0 | 0 → 0 |
+  | hull getters (`carHulls`/`carCrushHulls`) | 1.3 → 0 | 203 → 0 |
+  | `tyreStop` | 1.9 → 1.0 | 9.4 → 9.3 |
+  | `skin` | 1.7 → 2.4 | 0 → 0 |
+  | `applyDrive` | 13.6 → 14.1 | 11.9 → 12.2 |
+  | `hypot2` (not inlined, boxed result) | 0 → 13.0 | 0 → 60.5 |
+  | **total** | 460 → 213 (28.3 → 13.1 MB/s) | 2750 → 689 |
+
+  The race total includes the race AI, session and test harness, about 3 MB/s. The physics files went from about 26 to about 9.6 MB/s.
+- **GC, 60 s headless oval.**
+  - Default heap: 130 → 63 scavenges, with 0 major GCs on both.
+  - With a 1 MB semi-space to mimic the browser's young generation: 2063 → 985 scavenges. Major GCs were 0–1 on both across runs, so the headless count does not separate them.
+- **Guard.** `physics-alloc.test.ts` warms a 24-car pile-up for 600 frames. It then sums positive `heapUsed` steps over 300 frames, which can only undercount. Measured: lane 560–670 KB per frame, 75bc12d 2280–2300. The bound is 1200, so 75bc12d fails it.
+- **Not reached: the 2 MB/s target.** What is left is boxed arguments to calls that TurboFan stops inlining once a large method has used up its inlining budget:
+  - the per-mass `Ground` queries and `applyGroundFriction` in `stepMassSlice`
+  - `heightAt`, `hypot2` and `group.rotation.set` in `followGroup`
+  - `driveMasses`/`heightAt` in `applyDrive`
+  - the squeeze branch of `clampLocal`
+  - `resolveCarPair`'s result object and its two `clone()`s. `StrongestContact` in engine-props keeps those references, so reusing them needs that class to copy.
+
+  A larger budget flag made it worse (`clampLocal` 339 KB per frame). The way forward is per-call-site: pass objects instead of doubles, or split the per-mass bodies out.
+
 ## Appendix
 
 ### Sources

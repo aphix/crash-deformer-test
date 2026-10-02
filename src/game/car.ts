@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { StreamedDeformation, TYRE_R, type DeformNetState } from "./streamed-deform.ts";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { applyGroundFriction, CRASH, round4 } from "./physics-util.ts";
+import { applyGroundFriction, CRASH, hypot2, round4 } from "./physics-util.ts";
 import {
   CAR_HALF,
   DOOR,
@@ -488,16 +488,18 @@ export class DeformableCar {
 
   hulls() {
     if (!this.deform.massActive) return HULLS;
-    const frontOff = this.parts.some((p) => p.name === "bumperF" && p.detached);
-    const rearOff = this.parts.some((p) => p.name === "bumperR" && p.detached);
-    return this.deform.liveHulls(frontOff, rearOff);
+    return this.deform.liveHulls(this.bumperOff("bumperF"), this.bumperOff("bumperR"));
   }
 
   crushHulls() {
     if (!this.deform.massActive) return CRUSH_HULLS;
-    const frontOff = this.parts.some((p) => p.name === "bumperF" && p.detached);
-    const rearOff = this.parts.some((p) => p.name === "bumperR" && p.detached);
-    return this.deform.liveCrushHulls(frontOff, rearOff);
+    return this.deform.liveCrushHulls(this.bumperOff("bumperF"), this.bumperOff("bumperR"));
+  }
+
+  /** A loop, not `parts.some(…)`: the hull getters run per SAT pass and allocated two closures each. */
+  private bumperOff(name: "bumperF" | "bumperR"): boolean {
+    for (let i = 0; i < this.parts.length; i++) if (this.parts[i]!.name === name && this.parts[i]!.detached) return true;
+    return false;
   }
 
   spawn(x: number, z: number, speed: number): void {
@@ -642,7 +644,7 @@ export class DeformableCar {
     this.group.updateWorldMatrix(false, false);
     this.forward.set(0, 0, 1).applyQuaternion(this.group.quaternion);
     this.right.set(1, 0, 0).applyQuaternion(this.group.quaternion);
-    const fl = Math.hypot(this.forward.x, this.forward.z);
+    const fl = hypot2(this.forward.x, this.forward.z);
     if (fl > 1e-6) this.fwdFlat.set(this.forward.x / fl, 0, this.forward.z / fl);
     else this.fwdFlat.set(0, 0, 1);
     this.rightFlat.set(this.fwdFlat.z, 0, -this.fwdFlat.x);
