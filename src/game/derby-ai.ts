@@ -110,6 +110,18 @@ const ENGAGED = 3.8;
 const NOSE = 1.7;
 const MODE_REV = 0;
 const MODE_FWD = 1;
+/**
+ * Within SPIN_HOLD s of another car's centre coming inside SPIN_NEAR m (about a car length: touching or
+ * about to) a driver stops adding lock the way the car already turns from SPIN_EASE rad/s and lets go
+ * of it by SPIN_LET_GO (the yaw rate seen over SPIN_LAG s). Its own steer took a shoved car past 5 rad/s
+ * in and just after contact (derby seed 5 c2: applyDrive turned it 0.36 rad in 0.1 s on top of the
+ * hit's spin). In the open the J-turn keeps its full lock.
+ */
+const SPIN_NEAR = 4.6;
+const SPIN_HOLD = 0.6;
+const SPIN_EASE = 3.5;
+const SPIN_LET_GO = 4.5;
+const SPIN_LAG = 0.05;
 
 /** What a driver is doing this tick (`tacticOf`). */
 export const TACTICS = ["idle", "unstick", "hold", "layback", "reverse", "jturn", "nose", "swing", "sideswipe"] as const;
@@ -164,6 +176,10 @@ export class DerbyBrain {
   private readonly moveFor = new Float64Array(MAX_CARS);
   private readonly moveSteer = new Float64Array(MAX_CARS);
   private readonly moveKind = new Uint8Array(MAX_CARS);
+  /** Heading at the last decision, the yaw rate seen since (rad/s, SPIN_LAG low-pass) and seconds left near a car. */
+  private readonly yawWas = new Float64Array(MAX_CARS);
+  private readonly spin = new Float64Array(MAX_CARS);
+  private readonly nearFor = new Float64Array(MAX_CARS);
 
   constructor(radius = DERBY_RADIUS) {
     this.radius = radius;
@@ -192,6 +208,9 @@ export class DerbyBrain {
     this.freedAt.fill(-Infinity);
     this.tactic.fill(T_IDLE);
     this.moveFor.fill(0);
+    this.yawWas.fill(Number.NaN);
+    this.spin.fill(0);
+    this.nearFor.fill(0);
   }
 
   /** Driver `id`'s aggression, 0 … 1 (the match rolls it with `fieldAggression`). */
@@ -221,6 +240,20 @@ export class DerbyBrain {
    * apply it before the next call.
    */
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
+    const out = this.decide(self, others, dt);
+    const i = self.id;
+    if (i < 0 || i >= MAX_CARS || dt <= 0) return out;
+    if (Number.isNaN(this.yawWas[i]!)) this.yawWas[i] = self.yaw;
+    const rate = wrapPi(self.yaw - this.yawWas[i]!) / dt;
+    this.yawWas[i] = self.yaw;
+    this.spin[i]! += (rate - this.spin[i]!) * Math.min(1, dt / SPIN_LAG);
+    this.nearFor[i]! -= dt;
+    for (const o of others) if (o.id !== i && Math.hypot(o.x - self.x, o.z - self.z) < SPIN_NEAR) this.nearFor[i] = SPIN_HOLD;
+    if (this.nearFor[i]! > 0 && out.steer * this.spin[i]! > 0) out.steer *= 1 - smooth(SPIN_EASE, SPIN_LET_GO, Math.abs(this.spin[i]!));
+    return out;
+  }
+
+  private decide(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;
     out.throttle = 0;
     out.steer = 0;

@@ -1379,6 +1379,50 @@ per-call centroid moves, `CALLS=1 WIN=<s> ATTR=<car>@<t>`), `flow.ts`, `rehit.ts
   0.050, 0.90×), the three wall hits by 0.022–0.046 m; derby seeds 1–5 zip 0
   (90 s probe); `derby:pops` todo 12 → 4 pops.
 
+### 6.9 Derby contact spin, wreck pacing (lane `crash-realism-10`)
+
+Probes: `.bench/cr9/probe.ts` (ten-car derby, per-call ledger with `ATTR`/`CALLS`),
+`.bench/cr10/door.ts` (side-piston door vs its cap per clamp call), `six.ts`
+(the six-car realistic derby with death attribution), `seeds.sh` (peaks per seed).
+
+- **Contact spin ≤ 5 rad/s.** Peak heading rate over 0.1 s within 0.6 s of a pair
+  contact, ten cars, 120 s: 71ad020 4.74 / 4.71 / 6.41 / 6.42 / 4.67 rad/s (seeds
+  1–5), now 4.07 / 4.61 / 4.48 / 4.33 / 4.57, and seeds 6–15 4.25–4.97; 0 spins in
+  all 15, 0 zips except one in seed 11 (c5 at 82.49 s, 0.07 m: a `clampLocal`
+  write-back moved a wreck squeezed between two cars 0.048 m, not attributed
+  further). Free driving still peaks at 4.86 (the J-turn). Four sources, each a
+  per-call ledger entry first:
+  (1) `clampLocal`'s write-back turned the cloud after a shove-bent engine → axle
+  axis (seed 3 c4 0.45 rad in 0.15 s, ΔL = 0); it now undoes its net turn about
+  the centroid (`holdTurn` / `undoTurn`), except for a squeeze and a planted wreck.
+  Undoing it on a planted wreck turned the body against its hubs each call and
+  left the side piston's door 36 / 60 / 118 µm under its 0.2784 m cap at 60 / 65
+  / 80 km/h (a real offset, not float: base sits on the cap within 1 µm on 151–169
+  calls, the unplanted-only undo the same).
+  (2) `collideWith`'s overlap push undoes its turn the same way (seed 4 c9
+  0.256 rad); the sphere impulse keeps the real one.
+  (3) `separateAlong`'s uneven push (crumple masses lag) changed Σ m r × v of a
+  wreck whose nose and cabin move apart, and the next clamp kept it: −2.48 rad/s of
+  L/I in 0.6 s of shoving (seed 4 c0, peak 6.49). It hands the angular momentum
+  back, as `clampLocal` does.
+  (4) The AI's own steer: `applyDrive` 0.40–0.68 rad in 0.15 s on top of the hit
+  (seed 8 c0 0.673 rad, 4.5 rad/s, just after the other car left). Physics alone
+  (1–3) read 5.53 / 4.88 / 6.22 / 6.24 / 5.79. Within 0.6 s of another car's centre
+  inside 4.6 m a driver stops adding lock the way the car already turns from
+  3.5 rad/s and lets go by 4.5 (`derby-ai.ts` `SPIN_*`). Tried: in the open it cut
+  J-turns (seed 4 139 → 36) and the tail-first share failed (F47/R37); only while
+  a car is near, a car leaving contact still stacked full lock (seed 8 6.16);
+  sparing J-turns and swings put seeds 1 and 5 at 5.70 / 5.62; at √28 m seed 1's
+  tail-first share fell to 39.8 % (F32/R43/S33).
+  The `derby:contact-spin` todo is now a test on CI seeds 1–3 (71ad020: "seed 3:
+  contact peak c4 6.41 rad/s at t=15.4").
+- **Engine casting through the clamp (A3).** The mounts cap engineL and engineR
+  separately, and `clampLocal` and `separateAlong` both pulled the 0.60 m block
+  apart between slices (T-bone struck car 0.0106 m on 943ae5c, 0.0121 m after the
+  turn undo vs the 0.012 limit). `clampLocal` now holds the block's rest spacing
+  in the frame it clamps into (0.0000 m), except under a squeeze, whose held press
+  kept its per-mass caps (engineL sprang 444 → 363 mm with it).
+
 ## Appendix
 
 ### Sources
