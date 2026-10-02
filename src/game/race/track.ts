@@ -323,6 +323,8 @@ export class Track {
   /** Main checkpoint chain in driving order; gates[0] is the start/finish line (s = 0). */
   readonly gates: Gate[];
   readonly shortcuts: Shortcut[];
+  /** Arc length (m) of each JSON node on the main loop. */
+  readonly nodeS: readonly number[];
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   private baked: TrackGround | null = null;
   private readonly pt = blankPoint();
@@ -343,6 +345,7 @@ export class Track {
         throw new Error(`${this.id}: turn radius ${(1 / r).toFixed(1)} m at s=${k} is inside its own corridor (${inner.toFixed(1)} m)`);
       }
     }
+    this.nodeS = this.json.nodes.map((_, i) => (i === 0 ? 0 : sAtParam(path, param, i)));
     this.gates = this.json.checkpoints.map((c) => gateAt(path, c.node === 0 && c.t === 0 ? 0 : sAtParam(path, param, c.node + c.t), 1.5));
     this.shortcuts = this.json.shortcuts.map((sc) => {
       const n = sc.path.length;
