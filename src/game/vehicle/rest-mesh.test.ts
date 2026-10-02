@@ -14,7 +14,7 @@ import {
   CAR_HALF,
 } from "./car-mesh.ts";
 import { makeWheelGeometry } from "./car-materials.ts";
-import { TYRE_R } from "./deform-state.ts";
+import { TYRE_R } from "../deform/deform-state.ts";
 
 function bbox(geo: THREE.BufferGeometry) {
   geo.computeBoundingBox();
