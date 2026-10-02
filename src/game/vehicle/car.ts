@@ -161,6 +161,9 @@ export class DeformableCar extends CarParts {
       this.bodyMat.roughness = Math.max(this.bodyMat.roughness, rough);
     } else {
       this.crashed = true;
+      // The masses take a flying body too (`syncPose` hands it back to `stepAir` while every hub is clear): left
+      // airborne, nothing ever landed it and its drive stayed idled (8 s, stopped, on the stunt course).
+      this.airborne = false;
       this.ride(0);
       this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
       this.bodyMat.roughness = rough;

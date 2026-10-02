@@ -184,4 +184,27 @@ describe("fleet ramps", () => {
     if (car.velocity.x > 0.1) failures.push(`still driving in at ${car.velocity.x.toFixed(2)} m/s`);
     assert.deepEqual(failures, []);
   });
+
+  it("a car struck just before touchdown is a wreck on its masses: once it stops it is not flying (drive idled)", (t) => {
+    const { ramps, w, car } = scene(true);
+    car.spawnFacing(0, -14, 0, 14);
+    const p = car.group.position;
+    let hitAt = -1;
+    let time = 0;
+    let stopped = 0;
+    let stuck = 0;
+    run(w, 5, () => {
+      time += FRAME;
+      if (hitAt < 0 && car.airborne && time > 0.5 && p.y - ramps.heightAt(p.x, p.z, p.y) < 0.4) {
+        hitAt = time;
+        car.applyImpact(new THREE.Vector3(p.x + 1, p.y + 0.5, p.z), new THREE.Vector3(-1, 0, 0), 20, 12);
+      }
+      if (hitAt < 0 || car.velocity.length() > 0.3) return;
+      stopped += FRAME;
+      if (car.airborne) stuck += FRAME;
+    });
+    t.diagnostic(`struck at ${hitAt.toFixed(2)} s, stopped ${stopped.toFixed(2)} s, of it flying ${stuck.toFixed(2)} s; masses ${car.deform.massActive}`);
+    assert.ok(hitAt > 0 && stopped > 1, `struck at ${hitAt.toFixed(2)} s, stopped ${stopped.toFixed(2)} s`);
+    assert.ok(stuck < 0.25, `stopped yet flying for ${stuck.toFixed(2)} s`);
+  });
 });
