@@ -22,7 +22,8 @@ vec3 tap(vec2 uv) {
   vec3 c = min(texture2D(tSrc, uv).rgb, vec3(24.0));
 #ifdef PREFILTER
   float br = max(c.r, max(c.g, c.b));
-  float knee = uThreshold * 0.5;
+  // Narrow knee: nothing under 1.44 blooms, so capped car paint (≤ 1.1, car-mesh.ts) never feeds it.
+  float knee = uThreshold * 0.1;
   float soft = clamp(br - uThreshold + knee, 0.0, 2.0 * knee);
   soft = soft * soft / (4.0 * knee + 1e-4);
   c *= max(soft, br - uThreshold) / max(br, 1e-4);
