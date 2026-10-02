@@ -270,8 +270,9 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
   results within the grid + 2 laps at 3 × the reference lap (course length at 9 m/s) with ≥ 4 of 5
   home on full distance or out. Run k races with field seed k (`RaceDirector.reseed`), so each run
   rolls its own rival aggressions through the start command, as a player's race does; grid, classes
-  and body styles are fixed by car index in a single race. 2 seeds by default, `RACE_FINISH_RUNS=5`
-  for the full sweep.
+  and body styles are fixed by car index in a single race. 2 seeds at the default slider by default;
+  `RACE_FINISH_RUNS=5` runs 5 seeds at the default slider and 5 more with the slider at 1 (a ramming
+  field: rivals roll up to 1).
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
   oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
   service road and straight across the infield. The player finishes on the AI's lap count, and the

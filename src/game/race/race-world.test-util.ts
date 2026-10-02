@@ -15,7 +15,7 @@ import { setGround } from "../ground.ts";
 import { parseTrack } from "./track-schema.ts";
 import { Track, blankPoint, blankProjection } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
-import type { CarRecord, RaceResultRow, RaceSnapshot } from "./types.ts";
+import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnapshot } from "./types.ts";
 
 /**
  * The whole race stack headless, as the browser runs it minus the renderer: `RaceDirector` (rules
@@ -176,11 +176,14 @@ function dnfCause(w: World, track: Track, c: CarRecord): string {
 
 const RACE_LAPS = 2;
 
-/** One race of 4 AI rivals (plus the AI-driven player slot); the field rolls its random picks with `seed`. */
-export function raceOnce(w: World, track: Track, bound: number, seed: number): Outcome {
+/**
+ * One race of 4 AI rivals (plus the AI-driven player slot) with the aggression slider at `slider`;
+ * the field rolls its random picks (each rival's aggression in [0, slider]) with `seed`.
+ */
+export function raceOnce(w: World, track: Track, bound: number, seed: number, slider: number): Outcome {
   const r = w.race;
   r.command({ type: "quit" });
-  r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount: 4, noReset: false } });
+  r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount: 4, noReset: false, aggression: slider } });
   // The start command's new field rolls with this seed: the same path a player's race takes.
   r.reseed(seed);
   r.command({ type: "start" });
@@ -210,38 +213,43 @@ export function raceOnce(w: World, track: Track, bound: number, seed: number): O
 }
 
 /**
- * The real-stack finish sweep for one course: 4 AI rivals and the AI-driven player slot, 2 laps,
- * `RACE_FINISH_RUNS` races (default 2; 5 for the full sweep). Run k races with field seed k, the
- * game's own random picks: each rival's aggression rolled under the default slider. (Grid order,
- * classes and body styles are fixed by car index in a single race, so the seed is all that varies.)
+ * The real-stack finish sweep for one course: 4 AI rivals and the AI-driven player slot, 2 laps.
+ * Run k races with field seed k, the game's own random picks: each rival's aggression rolled under
+ * the slider. (Grid order, classes and body styles are fixed by car index in a single race, so the
+ * seed is all that varies.) By default 2 seeds at the default slider; `RACE_FINISH_RUNS=n` runs n
+ * seeds at the default slider and n more with the slider at 1, a ramming field.
  */
 export function finishSweep(course: string): void {
+  const full = process.env.RACE_FINISH_RUNS !== undefined;
   const runs = Number(process.env.RACE_FINISH_RUNS ?? 2);
   if (!Number.isInteger(runs) || runs < 1) throw new Error(`RACE_FINISH_RUNS must be a whole number ≥ 1, got "${process.env.RACE_FINISH_RUNS}"`);
+  const sliders = full ? [DEFAULT_RACE_OPTIONS.aggression, 1] : [DEFAULT_RACE_OPTIONS.aggression];
   describe("race finish through the real stack", () => {
-    it(`${course}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} seeded races`, (t) => {
-      const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
-      // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
-      // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.
-      const refLap = track.length / 9;
-      const bound = 4.5 + RACE_LAPS * 3 * refLap;
-      const w = makeWorld();
-      w.race.enter();
-      try {
-        for (let run = 1; run <= runs; run++) {
-          const o = raceOnce(w, track, bound, run);
-          const dnf = o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ");
-          t.diagnostic(
-            `${course} seed ${run} (aggression ${o.aggression.map((a) => a.toFixed(2)).join("/")}): finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
-          );
-          assert.ok(Number.isFinite(o.closedAt), `${course} seed ${run}: no results within ${bound.toFixed(0)} s`);
-          assert.ok(o.finished + o.out >= 4, `${course} seed ${run}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
+    for (const slider of sliders) {
+      it(`${course}, aggression slider ${slider}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} seeded races`, (t) => {
+        const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
+        // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
+        // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.
+        const refLap = track.length / 9;
+        const bound = 4.5 + RACE_LAPS * 3 * refLap;
+        const w = makeWorld();
+        w.race.enter();
+        try {
+          for (let run = 1; run <= runs; run++) {
+            const o = raceOnce(w, track, bound, run, slider);
+            const dnf = o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ");
+            t.diagnostic(
+              `${course} slider ${slider} seed ${run} (aggression ${o.aggression.map((a) => a.toFixed(2)).join("/")}): finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
+            );
+            assert.ok(Number.isFinite(o.closedAt), `${course} slider ${slider} seed ${run}: no results within ${bound.toFixed(0)} s`);
+            assert.ok(o.finished + o.out >= 4, `${course} slider ${slider} seed ${run}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
+          }
+        } finally {
+          w.race.exit();
+          setGround(null);
         }
-      } finally {
-        w.race.exit();
-        setGround(null);
-      }
-    });
+      });
+    }
   });
 }
 
