@@ -630,14 +630,16 @@ export class CrashEngine {
   }
 
   private onKey = (e: KeyboardEvent): void => {
-    const tag = (e.target as HTMLElement | null)?.tagName;
-    if (tag === "INPUT" || tag === "TEXTAREA") return;
+    const target = e.target as HTMLElement | null;
+    // Text fields keep their keys; a focused range slider does not swallow drive keys.
+    if (target?.tagName === "TEXTAREA" || (target?.tagName === "INPUT" && (target as HTMLInputElement).type !== "range")) return;
     this.keys.add(e.code);
     const driving = this.seat.mode === "drive";
     if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
+    // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
+    if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
     if (e.code === "Space") {
-      e.preventDefault();
       if (!driving) this.togglePlay();
     } else if (e.code === "Escape") {
       this.seat.esc();
