@@ -578,6 +578,19 @@ export abstract class DeformState extends DeformHit {
     return max;
   }
 
+  /** A cage's frame strain (m): the largest change of any corner-to-corner distance from rest. Rigid motion reads 0. */
+  cageStrain(name: BodyPartName): number {
+    const cage = this.cageByPart.get(name);
+    if (!cage) return 0;
+    const c = cage.corners;
+    const r = cage.restCorners;
+    let max = 0;
+    for (let a = 0; a < 8; a++) {
+      for (let b = a + 1; b < 8; b++) max = Math.max(max, Math.abs(c[a]!.distanceTo(c[b]!) - r[a]!.distanceTo(r[b]!)));
+    }
+    return max;
+  }
+
   sensorCompression(index: number): number {
     return this.sensors[index]?.compression ?? 0;
   }
