@@ -1,3 +1,4 @@
+import type { RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
@@ -5,55 +6,15 @@ import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
-import type { DoorScenario } from "@/game/door-rig";
-import type { FxTier } from "@/game/engine-post";
-import type { CrashHudState, DoorHud } from "@/game/hud-store";
-import type { PistonConfig } from "@/game/piston-rig";
-import type { VehicleClassId } from "@/game/vehicle-classes";
+import type { CrashEngine } from "@/game/engine";
+import type { CrashHudState } from "@/game/hud-store";
 import type { RaceCommand } from "@/game/race/types";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {
   state: CrashHudState;
-  onReset: () => void;
-  onTogglePlay: () => void;
-  onToggleLoop: () => void;
-  onToggleRig: () => void;
-  onToggleParticles: () => void;
-  onToggleBarrier: () => void;
-  onToggleBalls: () => void;
-  onToggleCompactor: () => void;
-  onTogglePistons: () => void;
-  /** 0–7 one ram (key order), 8 all. */
-  onFirePiston: (index: number) => void;
-  onPistonConfig: (patch: Partial<PistonConfig>) => void;
-  onToggleDoors: () => void;
-  onFireDoor: (scenario: DoorScenario) => void;
-  onDoorConfig: (patch: Partial<Pick<DoorHud, "kph" | "kg" | "side">>) => void;
-  onToggleDoorOpen: () => void;
-  onToggleDerby: () => void;
-  /** Follow car `index` (derby board click). */
-  onWatchCar: (index: number) => void;
-  onToggleRace: () => void;
-  onRaceCommand: (cmd: RaceCommand) => void;
-  onToggleOrbit: () => void;
-  onToggleSlomo: () => void;
-  onToggleAudio: () => void;
-  onFxTier: (tier: FxTier) => void;
-  onToggleNight: () => void;
-  onToggleWet: () => void;
-  onToggleDeformMode: () => void;
-  onSquash: (value: number) => void;
-  onBuckle: (value: number) => void;
-  onFxDensity: (value: number) => void;
-  onCarCount: (value: number) => void;
-  onSpeedRange: (min: number, max: number) => void;
-  onTimeScale: (value: number | null) => void;
-  onToggleCapture: () => void;
-  onDefaults: () => void;
-  onCopyTrace: () => Promise<boolean> | boolean;
-  onRealism: (value: number) => void;
-  onPlayerClass: (id: VehicleClassId) => void;
+  /** The engine once booted (null before): controls call it directly. */
+  engine: RefObject<CrashEngine | null>;
 };
 
 const PHASE: Record<CrashHudState["phase"], string> = {
@@ -141,7 +102,8 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
 }
 
 export function Hud(props: HudProps) {
-  const { state } = props;
+  const { state, engine } = props;
+  const raceCommand = (cmd: RaceCommand) => engine.current?.raceCommand(cmd);
   // Race focus view: race panels only; the sandbox HUD comes back with the Full menu toggle (H).
   const focus = state.race !== null && !state.race.fullUi;
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
@@ -180,30 +142,21 @@ export function Hud(props: HudProps) {
       {state.race ? <RaceReadouts race={state.race} boost={state.seat === "drive" ? state.boost : null} /> : <Readouts state={state} />}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
-        {state.showPistons ? (
-          <PistonPanel pistons={state.pistons} onFire={props.onFirePiston} onConfig={props.onPistonConfig} />
-        ) : null}
-        {state.showDoors ? (
-          <DoorPanel
-            doors={state.doors}
-            onFire={props.onFireDoor}
-            onConfig={props.onDoorConfig}
-            onToggleOpen={props.onToggleDoorOpen}
-          />
-        ) : null}
-        {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} onWatch={props.onWatchCar} /> : null}
-        {state.race ? <RaceStandings race={state.race} onCommand={props.onRaceCommand} /> : null}
+        {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}
+        {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
+        {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
+        {state.race ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
       </div>
 
       {focus || !settingsShown ? null : <HudSections {...props} />}
 
       <div className="flex min-w-0 flex-col items-start gap-2 self-end" style={{ gridArea: "dock" }}>
-        {state.race ? <SpectateBar race={state.race} pad={state.pad !== null} onCommand={props.onRaceCommand} /> : null}
+        {state.race ? <SpectateBar race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} /> : null}
         {focus && state.race ? (
-          <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} bare />
+          <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
         ) : (
-          <Dock {...props} settingsShown={settingsShown} onToggleSettings={() => setSettings(settingsShown ? "hidden" : "shown")} />
+          <Dock {...props} raceCommand={raceCommand} settingsShown={settingsShown} onToggleSettings={() => setSettings(settingsShown ? "hidden" : "shown")} />
         )}
       </div>
 
@@ -218,7 +171,7 @@ export function Hud(props: HudProps) {
           </div>
         </div>
       ) : null}
-      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={props.onRaceCommand} /> : null}
+      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}
     </div>
   );
 }
@@ -303,8 +256,8 @@ function DriveHint({ state }: { state: CrashHudState }) {
 const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 
 /** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the two fleet props, settings and key help. */
-function Dock(props: HudProps & { settingsShown: boolean; onToggleSettings: () => void }) {
-  const { state, onTogglePlay, onReset, onToggleBarrier, onToggleBalls, settingsShown, onToggleSettings } = props;
+function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onToggleSettings: () => void }) {
+  const { state, engine, raceCommand, settingsShown, onToggleSettings } = props;
   const scene: Scene = state.race
     ? "race"
     : state.derby
@@ -317,26 +270,26 @@ function Dock(props: HudProps & { settingsShown: boolean; onToggleSettings: () =
             ? "doors"
             : "fleet";
   const toggleScene = {
-    derby: props.onToggleDerby,
-    race: props.onToggleRace,
-    press: props.onToggleCompactor,
-    pistons: props.onTogglePistons,
-    doors: props.onToggleDoors,
+    derby: () => engine.current?.toggleDerby(),
+    race: () => engine.current?.toggleRace(),
+    press: () => engine.current?.toggleCompactor(),
+    pistons: () => engine.current?.togglePistons(),
+    doors: () => engine.current?.toggleDoors(),
   };
   // Barrier and balls are fleet props; the engine ignores them while the press, a rig or the race owns the pad.
   const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.race !== null;
   return (
     <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto">
-      {state.race ? <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} compact /> : null}
+      {state.race ? <RaceViewToggle race={state.race} onCommand={raceCommand} compact /> : null}
       <Button
-        onClick={onTogglePlay}
+        onClick={() => engine.current?.togglePlay()}
         className={BAR_BUTTON}
         aria-label={state.playing ? "Pause" : "Play"}
         title={state.playing ? "Pause (Space)" : "Play (Space)"}
       >
         {state.playing ? <Pause /> : <Play className="ml-0.5" />}
       </Button>
-      <Button onClick={onReset} variant="secondary" className={BAR_BUTTON} aria-label="Reset crash" title="Reset (R)">
+      <Button onClick={() => engine.current?.reset()} variant="secondary" className={BAR_BUTTON} aria-label="Reset crash" title="Reset (R)">
         <RotateCcw />
       </Button>
       <div
@@ -362,7 +315,7 @@ function Dock(props: HudProps & { settingsShown: boolean; onToggleSettings: () =
         ))}
       </div>
       <Button
-        onClick={onToggleBarrier}
+        onClick={() => engine.current?.toggleBarrier()}
         disabled={propsLocked}
         variant={state.showBarrier ? "default" : "ghost"}
         className={BAR_BUTTON}
@@ -373,7 +326,7 @@ function Dock(props: HudProps & { settingsShown: boolean; onToggleSettings: () =
         <BrickWall />
       </Button>
       <Button
-        onClick={onToggleBalls}
+        onClick={() => engine.current?.toggleBalls()}
         disabled={propsLocked}
         variant={state.showBalls ? "default" : "ghost"}
         className={BAR_BUTTON}
