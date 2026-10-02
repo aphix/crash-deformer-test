@@ -142,7 +142,7 @@ export const INITIAL_HUD: CrashHudState = {
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,
-  fxTier: "high",
+  fxTier: "low",
   night: false,
   wet: false,
   deformMode: "shape",
