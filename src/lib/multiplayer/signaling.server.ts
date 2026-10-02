@@ -2,7 +2,8 @@
  * WebRTC signaling over the app database (Neon deployed, PGLite on a node server or in preview).
  * Only rendezvous traffic passes through here — roster + SDP/ICE relay while a mesh forms; game
  * data then flows peer-to-peer. Mounted at /api/rtc (under the app's base path); the client side
- * lives in `@/lib/multiplayer`.
+ * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql`, applied by
+ * `db:migrate` on deploy and by the PGLite fallback before its first query.
  *
  * The GET poll is the whole peer lifecycle: the first poll (since=0) IS the join — it registers
  * the peer, returns the roster, and prunes stale rows. `GET ?list=public` lists open public rooms.
@@ -49,7 +50,6 @@ const LIMITS = { ip: { rate: 15, burst: 60 }, room: { rate: 80, burst: 240 } } a
 const BUCKETS_MAX = 20_000;
 
 const globalRef = globalThis as typeof globalThis & {
-  __rtcSchemaPromise__?: Promise<void>;
   __rtcBuckets__?: Map<string, Bucket>;
 };
 
@@ -76,40 +76,6 @@ function allow(key: string, limit: { rate: number; burst: number }, now = Date.n
 function clientKey(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
   return `ip:${fwd || request.headers.get("x-real-ip") || "direct"}`;
-}
-
-/**
- * Tables are created on first use (IF NOT EXISTS) so no migration ships. Memoized on globalThis (the
- * db.ts pattern) so dev HMR never runs two ensures concurrently; a failed ensure clears the slot.
- */
-function ensureSchema(sql: Sql): Promise<void> {
-  globalRef.__rtcSchemaPromise__ ??= (async () => {
-    await sql.query(
-      `CREATE TABLE IF NOT EXISTS webrtc_peers (
-         room TEXT NOT NULL,
-         peer_id TEXT NOT NULL,
-         name TEXT NOT NULL DEFAULT '',
-         last_seen TIMESTAMPTZ NOT NULL DEFAULT now(),
-         PRIMARY KEY (room, peer_id)
-       )`,
-    );
-    await sql.query(
-      `CREATE TABLE IF NOT EXISTS webrtc_signals (
-         id BIGSERIAL PRIMARY KEY,
-         room TEXT NOT NULL,
-         to_peer TEXT NOT NULL,
-         from_peer TEXT NOT NULL,
-         kind TEXT NOT NULL,
-         payload JSONB NOT NULL,
-         created_at TIMESTAMPTZ NOT NULL DEFAULT now()
-       )`,
-    );
-    await sql.query(`CREATE INDEX IF NOT EXISTS webrtc_signals_inbox ON webrtc_signals (room, to_peer, id)`);
-  })().catch((err) => {
-    globalRef.__rtcSchemaPromise__ = undefined;
-    throw err;
-  });
-  return globalRef.__rtcSchemaPromise__;
 }
 
 async function roster(sql: Sql, room: string): Promise<PeerRow[]> {
@@ -172,7 +138,6 @@ async function listPublic(sql: Sql): Promise<Response> {
 async function handleGet(url: URL): Promise<Response> {
   if (url.searchParams.get("list") === "public") {
     const sql = await getSql();
-    await ensureSchema(sql);
     return listPublic(sql);
   }
   const parsed = z
@@ -188,7 +153,6 @@ async function handleGet(url: URL): Promise<Response> {
   if (!allow(`room:${room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
 
   const sql = await getSql();
-  await ensureSchema(sql);
   if (since === 0 || Math.random() < 0.02) await prune(sql);
   const peers = await roster(sql, room);
   if (!peers.some((p) => p.id === peer) && peers.length >= ROOM_MAX) return json({ error: "room full" }, 409);
@@ -220,7 +184,6 @@ async function handlePost(request: Request): Promise<Response> {
   const msg = parsed.data;
   if (!allow(`room:${msg.room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
   const sql = await getSql();
-  await ensureSchema(sql);
 
   if (msg.op === "signal") {
     // Only members of the room may signal each other, and an inbox never grows without bound.

@@ -24,8 +24,13 @@ https://gafferongames.com/post/snapshot_compression/), summarized in `.extraRese
 The pick is the template's own P2P kit: `src/lib/multiplayer/p2p.ts` (`P2PRoom`: full-mesh WebRTC,
 perfect negotiation, an unreliable `state` channel and a reliable channel, ping RTT), signaled by
 `src/routes/api/rtc.ts` → `src/lib/multiplayer/signaling.server.ts` (the reference relay from
-`.grok/skills/multiplayer-p2p`; two tables created on first use). It runs today on `vite dev`
-against PGLite, and on Vercel against Neon once `DATABASE_URL` is set. The game code only sees
+`.grok/skills/multiplayer-p2p`). Its two tables are `migrations/0002_webrtc_signaling.sql`. Shipping
+a top-level migration is what gets a deploy its Neon database (the `neon` skill): without one the
+deploy has no `DATABASE_URL`, every serverless instance runs its own throwaway PGLite, and peers
+whose polls land on different instances never see each other. Measured with two instances of one
+node-server build and no shared database: each roster holds only its own peer, and a signal across
+instances gets 403. `db:migrate` applies the file on deploy; the PGLite fallback (`vite dev`, the
+VPS node server) applies it before its first query. The game code only sees
 `NetTransport` (`src/game/net/transport.ts`):
 
 ```ts
