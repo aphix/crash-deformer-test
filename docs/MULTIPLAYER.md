@@ -158,6 +158,8 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     whole 10 s probe. Now, normal close: a fresh room at once. `leave` dropped (a crashed tab):
     two runs, one joined the dead room and hosted a fresh one after 5.0 s, the other got a fresh room at once.
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
+  The Net panel shows the relay's refusal ("Room full", "Host taken", …; `P2PRoom.error` →
+  `NetStatus.relayError`) until a poll gets through, and the client's session `problem` the same way.
 - **Join**: the client sends `hello` every 0.5 s (the first at once) until a host answers `assign`
   (its car index: the lowest free index ≥ 1; the host grows the field if needed) and makes its next
   snapshot a keyframe. The client adopts the snapshot's car count, each car's body style and class
