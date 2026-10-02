@@ -118,16 +118,19 @@ build() {
     printf '%s\n' "$sha" | as_user tee "$rel/REVISION" >/dev/null
 }
 
-# The page and the signaling route (which opens the database) both answer.
+# The page and the signaling route both answer. The first signaling request
+# opens the database (several seconds under the deploy's CPU cap), so it gets a
+# longer timeout; retries stay quiet until the last one.
 health() {
   local url="http://127.0.0.1:$1$base" i
   for ((i = 0; i < 45; i++)); do
-    if curl -fsS -o /dev/null --max-time 5 "$url" &&
-      [[ $(curl -fsS --max-time 5 "${url}api/rtc?room=deploycheck&peer=deploycheck") == *'"peers"'* ]]; then
+    if curl -fs -o /dev/null --max-time 5 "$url" &&
+      [[ $(curl -fs --max-time 30 "${url}api/rtc?room=deploycheck&peer=deploycheck") == *'"peers"'* ]]; then
       return 0
     fi
     sleep 1
   done
+  curl -fsS -o /dev/null --max-time 5 "$url" || true
   return 1
 }
 
