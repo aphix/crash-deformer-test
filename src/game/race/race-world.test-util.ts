@@ -153,10 +153,13 @@ export type Outcome = {
   lapped: number;
   out: number;
   dnf: { name: string; cause: string }[];
+  /** Slowest completed lap of any car (s). */
   slowestLap: number;
   winner: number;
   closedAt: number;
   respawns: number;
+  /** Each AI rival's rolled aggression, in car order. */
+  aggression: number[];
 };
 
 /** Why a car was still running when the race closed. */
@@ -173,10 +176,13 @@ function dnfCause(w: World, track: Track, c: CarRecord): string {
 
 const RACE_LAPS = 2;
 
-export function raceOnce(w: World, track: Track, bound: number): Outcome {
+/** One race of 4 AI rivals (plus the AI-driven player slot); the field rolls its random picks with `seed`. */
+export function raceOnce(w: World, track: Track, bound: number, seed: number): Outcome {
   const r = w.race;
   r.command({ type: "quit" });
   r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount: 4, noReset: false } });
+  // The start command's new field rolls with this seed: the same path a player's race takes.
+  r.reseed(seed);
   r.command({ type: "start" });
   // The seat only follows: the player's car is driven by the race AI like the others.
   w.seat.mode = "follow";
@@ -189,7 +195,7 @@ export function raceOnce(w: World, track: Track, bound: number): Outcome {
   snap = r.snapshot()!;
   const home = snap.cars.filter((c) => c.status === "finished");
   const full = home.filter((c) => c.lap >= RACE_LAPS);
-  const laps = full.flatMap((c) => c.lapTimes);
+  const laps = snap.cars.flatMap((c) => c.lapTimes);
   return {
     finished: full.length,
     lapped: home.length - full.length,
@@ -199,19 +205,21 @@ export function raceOnce(w: World, track: Track, bound: number): Outcome {
     winner: full.length ? Math.min(...full.map((c) => c.finishTime!)) : NaN,
     closedAt: snap.phase === "finished" ? snap.time : NaN,
     respawns: snap.cars.reduce((n, c) => n + c.deaths, 0),
+    aggression: r.racers.filter((e) => e.kind === "ai").map((e) => e.aggression),
   };
 }
 
 /**
- * The real-stack finish sweep for one course: 5 AI cars, 2 laps, `RACE_FINISH_RUNS` back-to-back races
- * on one world (5 for the full sweep). The race AI has no seed (no Math.random, per-car hashes), so runs
- * differ only by what the previous race leaves behind.
+ * The real-stack finish sweep for one course: 4 AI rivals and the AI-driven player slot, 2 laps,
+ * `RACE_FINISH_RUNS` races (default 2; 5 for the full sweep). Run k races with field seed k, the
+ * game's own random picks: each rival's aggression rolled under the default slider. (Grid order,
+ * classes and body styles are fixed by car index in a single race, so the seed is all that varies.)
  */
 export function finishSweep(course: string): void {
   const runs = Number(process.env.RACE_FINISH_RUNS ?? 2);
   if (!Number.isInteger(runs) || runs < 1) throw new Error(`RACE_FINISH_RUNS must be a whole number ≥ 1, got "${process.env.RACE_FINISH_RUNS}"`);
   describe("race finish through the real stack", () => {
-    it(`${course}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} races`, (t) => {
+    it(`${course}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} seeded races`, (t) => {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
       // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
       // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.
@@ -221,13 +229,13 @@ export function finishSweep(course: string): void {
       w.race.enter();
       try {
         for (let run = 1; run <= runs; run++) {
-          const o = raceOnce(w, track, bound);
+          const o = raceOnce(w, track, bound, run);
           const dnf = o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ");
           t.diagnostic(
-            `${course} run ${run}: finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
+            `${course} seed ${run} (aggression ${o.aggression.map((a) => a.toFixed(2)).join("/")}): finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
           );
-          assert.ok(Number.isFinite(o.closedAt), `${course} run ${run}: no results within ${bound.toFixed(0)} s`);
-          assert.ok(o.finished + o.out >= 4, `${course} run ${run}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
+          assert.ok(Number.isFinite(o.closedAt), `${course} seed ${run}: no results within ${bound.toFixed(0)} s`);
+          assert.ok(o.finished + o.out >= 4, `${course} seed ${run}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
         }
       } finally {
         w.race.exit();
