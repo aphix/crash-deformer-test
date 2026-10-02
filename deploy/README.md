@@ -56,7 +56,9 @@ systemd-analyze verify /etc/systemd/system/crush.service /etc/systemd/system/cru
 systemctl daemon-reload
 ```
 
-`daemon-reload` restarts nothing. `crush.service` stays inactive until the first release exists.
+`daemon-reload` restarts nothing (it does re-draw the random delay of other timers that use
+`RandomizedDelaySec`, e.g. a certbot renewal timer). `crush.service` stays inactive until the first
+release exists.
 
 ## 3. First deploy
 
