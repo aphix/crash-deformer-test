@@ -1,4 +1,4 @@
-/** Scalar helpers every context shares (kernel: no imports, no state). */
+/** Scalar helpers every context shares (kernel: no imports; `once` memoizes a constant, nothing here holds state). */
 
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -22,4 +22,13 @@ export function wrapPiClosed(a: number): number {
 export function hash01(id: number, k: number): number {
   const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
   return x - Math.floor(x);
+}
+
+/**
+ * `make()` on the first call, that same value after: a lazily built shared constant (a texture, a material, a
+ * table) that never changes once made, so a second engine or a test sharing it inherits nothing.
+ */
+export function once<T>(make: () => T): () => T {
+  let value: T | undefined;
+  return () => (value ??= make());
 }

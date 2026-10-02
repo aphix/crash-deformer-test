@@ -48,7 +48,7 @@ flowchart BT
 | 7 | **match**: rules, scoring, campaigns | `derby.ts`, `race/session.ts`, `race/campaign.ts`, `race/types.ts` | `DerbyMatch`, `RaceSession`, `Campaign`, race event/HUD types | `race/session.ts`, `derby.ts` | DerbyAI2 (`derby.ts`) |
 | 8 | **present**: FX, camera, cinematics, post, marks, world art | `engine-fx.ts`, `engine-camera.ts`, `engine-cine.ts`, `engine-post.ts`, `engine-marks.ts`, `engine-world.ts`, `engine-pistons.ts`, `engine-doors.ts`, `race/track-art.ts`, `race/prefabs.ts` | `DebrisSystem`, `SparkSystem`, `ChaseCamera`, `Cinematics`, `PostFX`, `FxTier`, `SkidMarks`, `WorldStage`, `PistonBank`, `DoorRam`, `TrackArt` | one file per system | PerfHitch |
 | 8 | **net**: replication | `net/**` | `NetPlay`, `encode/decode` frames, `NetTransport` | `net/net-play.ts` | Netplay |
-| 9 | **hud**: the read model the UI renders | `hud-store.ts`, `race/menu-nav.ts` | `publishHud`, `subscribeHud`, `getHudSnapshot`, `CrashHudState`, `KNOB_RANGES`, `INITIAL_HUD`, `navTarget` | `hud-store.ts` | none |
+| 9 | **hud**: the read model the UI renders | `hud-store.ts`, `race/menu-nav.ts` | `HudStore` (one per engine: CrashLab makes it, the engine publishes), `CrashHudState`, `KNOB_RANGES`, `INITIAL_HUD`, `navTarget` | `hud-store.ts` | none |
 | 10 | **engine**: orchestration, the frame loop | `engine.ts` and its layers `engine-core.ts`, `engine-warm.ts`, `engine-hud.ts`, `engine-scenes.ts`, `engine-rigs.ts`, `engine-input.ts`; `world-step.ts`, `engine-race.ts` (`RaceDirector`: rules glue, menus, netplay, HUD) over `engine-race-field.ts` (`RaceField`: course, grid, spawns, respawns, traffic bubble, wall / prop contacts), `engine-trace.ts` | `CrashEngine` (the only public entry), `RaceDirector` | `engine.ts` | shared: CrashRealism8 (`fixedStep`), PerfHitch (renderer), Netplay (race wiring) |
 | 11 | **ui**: React shell and HUD | `src/components/**`, `src/routes/**`, `src/router.tsx` | React components | `components/crash-lab.tsx` | HudLayout (`hud*.tsx`, `net-panel.tsx`) |
 | - | **platform**: template server/client helpers | `src/lib/**` | `P2PRoom`, signaling, `qr`, `cn` | `src/lib/multiplayer` | Netplay (`multiplayer/`) |
@@ -75,9 +75,10 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 - **O1.** `CrashEngine` is the single composition root: it constructs the cars, rigs, directors, `NetPlay`, FX systems and
   camera, and hands each one what it needs. No other production module constructs another context's top-level object
   (tests may build any object directly).
-- **O2.** No module-level mutable state. World state (the active ground, the HUD snapshot, texture caches) hangs off an object
-  the engine owns, so a second engine, a replay or a test never inherits it. Module-scope `const` scratch vectors are fine
-  (rule H3). *Check C10* (module-level `let`/`var`); exported `const` objects mutated at runtime (e.g. `HANDLING.realism` in
+- **O2.** No module-level mutable state. World state (the active ground, the HUD snapshot) hangs off an object the engine
+  owns, so a second engine, a replay or a test never inherits it. Module-scope `const` scratch vectors are fine (rule H3),
+  and so is a lazily built constant (a texture, a material, a table) behind `scalar.ts` `once`: it never changes once made.
+  *Check C10* (module-level `let`/`var`); exported `const` objects mutated at runtime (e.g. `HANDLING.realism` in
   `vehicle-classes.ts`) are the same defect and are fixed with them (not yet counted by a check).
 - **O3.** One writer per piece of state: the context that owns a value is the only one that assigns it (e.g. `setGround` is
   called by the race director only). Other contexts read it through the owner's API.

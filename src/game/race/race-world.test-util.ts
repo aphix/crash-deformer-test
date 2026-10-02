@@ -77,6 +77,7 @@ export function makeWorld(): World {
     leave: () => {},
     hitFx: () => {},
     buildArt: () => null,
+    markBounds: () => {},
   });
   const step = newWorld(liveBuf);
   step.collide = (car, i) => race.collide(car, i);

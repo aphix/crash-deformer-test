@@ -20,10 +20,10 @@ components/preview-host-bridge.tsx  PreviewHostBridge (platform preview hook, re
 ```
 `CrashLab` loads the engine with a dynamic `import("@/game/engine")`; boot errors render as text. The engine sets `window.__crush = this` (used by `scripts/bench-browser.mjs` and the `.bench` probes).
 
-## HUD state (`src/game/hud-store.ts`)
+## HUD state (`src/game/hud-store.ts` `HudStore`)
 ```
-CrashEngine.emitHud() ──► publishHud(next: CrashHudState)   module snapshot + listeners Set
-CrashLab: useSyncExternalStore(subscribeHud, getHudSnapshot) ──► <Hud state=…>
+CrashEngine.emitHud() ──► HudStore.publish(next: CrashHudState)   snapshot + listeners Set, one store per engine
+CrashLab: new HudStore() ─► new CrashEngine(canvas, store); useSyncExternalStore(store.subscribe, store.get) ──► <Hud state=…>
 Hud button ──► engineRef.current?.toggleX() / setX(v) ──► engine state ──► emitHud()
 ```
 - `CrashHudState`: scene toggles (playing, looping, showRig, showParticles, showBarrier, showBalls, showCompactor, showPistons, doors, derby, autoRotate, autoSlomo, audioOn, deformMode), cinematic (`fxTier`, `night`, `wet`), `PistonHud`, `DoorHud`, telemetry (`phase: CrashPhase`, timeScale, speeds, closingKph, impactKph, fps, `compactStage`), tunables (squash shown as stroke, buckle shown as wrinkle, fxDensity, carCount, speedMin/Max), driving (`playerClass`, `realism`, boost, seat / view / pad label), derby board.

@@ -4,7 +4,6 @@ import type { DeformableCar } from "./car.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "./fleet.ts";
 import { setGround } from "./ground.ts";
-import { setMarkBounds } from "./engine-marks.ts";
 import { impulseCar } from "./pair-contact.ts";
 import { Campaign } from "./race/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "./race/placements.ts";
@@ -37,6 +36,8 @@ export interface RaceHost {
   hitFx(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
   /** The course's art (null headless: rules, AI, contacts and physics run without it). */
   buildArt(track: Track, placed: readonly Placed[]): TrackArt | null;
+  /** Re-target the tyre-mark map to the course's bounds (headless: nothing to draw). */
+  markBounds(minX: number, minZ: number, maxX: number, maxZ: number): void;
 }
 
 /** Seconds upside down before a car counts as dead. */
@@ -282,7 +283,7 @@ export abstract class RaceField {
     setGround(tr.ground());
     // Tyre marks cover the course instead of the sandbox disc.
     const b = tr.bounds;
-    setMarkBounds(b.minX, b.minZ, b.maxX, b.maxZ);
+    this.host.markBounds(b.minX, b.minZ, b.maxX, b.maxZ);
     this.seg.fill(-1);
     return tr;
   }
@@ -297,7 +298,7 @@ export abstract class RaceField {
     this.placed = [];
     this.colliders = [];
     setGround(null);
-    setMarkBounds(-48, -48, 48, 48);
+    this.host.markBounds(-48, -48, 48, 48);
   }
 
   /** Handle the rules' events: respawn teleports, the dead menu, the end. */

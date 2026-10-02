@@ -1,5 +1,5 @@
 import { compactorStage } from "./compactor.ts";
-import { publishHud } from "./hud-store.ts";
+import type { HudStore } from "./hud-store.ts";
 import { HANDLING } from "./vehicle-classes.ts";
 import { EngineWarm } from "./engine-warm.ts";
 
@@ -7,6 +7,9 @@ import { EngineWarm } from "./engine-warm.ts";
  * HUD publish: the engine's state as one `CrashHudState` snapshot.
  */
 export abstract class EngineHud extends EngineWarm {
+  /** The UI's store (CrashLab's, passed to the constructor): one per engine. */
+  protected hudStore!: HudStore;
+
   protected emitHud(): void {
     const cars = this.live();
     const relVel = this.fleetClosing();
@@ -14,7 +17,7 @@ export abstract class EngineHud extends EngineWarm {
       this.clock.phase === "approach" && !this.rigScene ? this.contactEta() : 0;
     const carMass = this.carA.deform.totalMass;
     const pistonEnergy = this.pistons.shotEnergy(carMass);
-    publishHud({
+    this.hudStore.publish({
       playing: this.playing,
       looping: this.looping,
       showRig: this.showRig,

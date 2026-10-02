@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR_STYLES, type BodyStyle, type GlassQuad, type ProfileStation, type YZ } from "./car-variants.ts";
+import { once } from "./scalar.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
   [-0.74, 0.32, 1.34],
@@ -848,12 +849,7 @@ export class WheelBatch {
   }
 }
 
-let _paintMap: THREE.CanvasTexture | null = null;
-let _roughMap: THREE.CanvasTexture | null = null;
-let _crackMap: THREE.Texture | null = null;
-
-function makePaintMaps(): { map: THREE.CanvasTexture; roughness: THREE.CanvasTexture } {
-  if (_paintMap && _roughMap) return { map: _paintMap, roughness: _roughMap };
+const makePaintMaps = once((): { map: THREE.CanvasTexture; roughness: THREE.CanvasTexture } => {
   const w = 1024;
   const h = 512;
   const paint = document.createElement("canvas");
@@ -901,16 +897,16 @@ function makePaintMaps(): { map: THREE.CanvasTexture; roughness: THREE.CanvasTex
   rctx.fillStyle = "#9a9a9a";
   rctx.fillRect(0, h * 0.78, w, h * 0.22);
 
-  _paintMap = new THREE.CanvasTexture(paint);
-  _paintMap.colorSpace = THREE.SRGBColorSpace;
-  _paintMap.anisotropy = 8;
-  _paintMap.wrapS = _paintMap.wrapT = THREE.RepeatWrapping;
-  _roughMap = new THREE.CanvasTexture(rough);
-  _roughMap.colorSpace = THREE.NoColorSpace;
-  _roughMap.anisotropy = 4;
-  _roughMap.wrapS = _roughMap.wrapT = THREE.RepeatWrapping;
-  return { map: _paintMap, roughness: _roughMap };
-}
+  const paintTex = new THREE.CanvasTexture(paint);
+  paintTex.colorSpace = THREE.SRGBColorSpace;
+  paintTex.anisotropy = 8;
+  paintTex.wrapS = paintTex.wrapT = THREE.RepeatWrapping;
+  const roughTex = new THREE.CanvasTexture(rough);
+  roughTex.colorSpace = THREE.NoColorSpace;
+  roughTex.anisotropy = 4;
+  roughTex.wrapS = roughTex.wrapT = THREE.RepeatWrapping;
+  return { map: paintTex, roughness: roughTex };
+});
 
 /**
  * Soft shoulder on a car material's final linear radiance: untouched up to 0.7, rolling off to at most 1.1.
@@ -961,11 +957,7 @@ export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
 
 /** Roughness/metalness lookup in 0.01 steps: texel (i, j) = roughness i/100 (G), metalness j/100 (B). */
 const TONE_STEPS = 100;
-let _toneGrid: THREE.DataTexture | null = null;
-let _partsMat: THREE.MeshStandardMaterial | null = null;
-
-function toneGrid(): THREE.DataTexture {
-  if (_toneGrid) return _toneGrid;
+const toneGrid = once((): THREE.DataTexture => {
   const n = TONE_STEPS + 1;
   const data = new Float32Array(n * n * 4);
   for (let j = 0; j < n; j++) {
@@ -982,17 +974,13 @@ function toneGrid(): THREE.DataTexture {
   t.minFilter = THREE.NearestFilter;
   t.generateMipmaps = false;
   t.needsUpdate = true;
-  _toneGrid = t;
   return t;
-}
+});
 
 /** Shared by every car's multi-tone static parts (interior, mirrors, trim; the wheels have their own copy): colour
  * comes from vertex colours and roughness/metalness from `toneGrid` via UV, so dozens of tiny meshes
  * collapse into a few draws that all reuse one program and one uniform upload. Never disposed. */
-function partsMaterial(): THREE.MeshStandardMaterial {
-  _partsMat ??= makePartsMaterial();
-  return _partsMat;
-}
+const partsMaterial = once(makePartsMaterial);
 
 function makePartsMaterial(): THREE.MeshStandardMaterial {
   const grid = toneGrid();
@@ -1047,12 +1035,10 @@ export function makeGlassMaterial(): THREE.MeshStandardMaterial {
   });
 }
 
-export function getCrackMap(): THREE.Texture {
-  if (_crackMap) return _crackMap;
+export const getCrackMap = once((): THREE.Texture => {
   if (typeof document === "undefined") {
     const t = new THREE.DataTexture(new Uint8Array([180, 200, 210, 48]), 1, 1);
     t.needsUpdate = true;
-    _crackMap = t;
     return t;
   }
   const c = document.createElement("canvas");
@@ -1087,10 +1073,10 @@ export function getCrackMap(): THREE.Texture {
     ctx.lineTo(Math.random() * 512, Math.random() * 512);
     ctx.stroke();
   }
-  _crackMap = new THREE.CanvasTexture(c);
-  _crackMap.colorSpace = THREE.SRGBColorSpace;
-  return _crackMap;
-}
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+});
 
 /** Grille slats in front-bumper space; the headlamps sit on the body (`makeLampUnit`). */
 export function makeGrille(): THREE.Mesh {
@@ -1119,12 +1105,9 @@ export function makeLampUnit(kind: LampKind): THREE.BufferGeometry {
   return mergeToned([housing.translate(0, 0, 0.015), lens.translate(0, 0, 0.03)], "lamp unit");
 }
 
-let _lampEmissive: THREE.DataTexture | null = null;
-
 /** 2×1 emissive mask for `makeLampUnit`: black housing texel, white lens texel. Shared, never disposed. */
-export function lampEmissiveMap(): THREE.DataTexture {
-  if (_lampEmissive) return _lampEmissive;
-  _lampEmissive = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]), 2, 1);
-  _lampEmissive.needsUpdate = true;
-  return _lampEmissive;
-}
+export const lampEmissiveMap = once((): THREE.DataTexture => {
+  const t = new THREE.DataTexture(new Uint8Array([0, 0, 0, 255, 255, 255, 255, 255]), 2, 1);
+  t.needsUpdate = true;
+  return t;
+});

@@ -30,14 +30,6 @@ export const markMapUniforms = {
   },
 };
 
-let boundsEpoch = 0;
-
-/** Re-target the mark map to a world rect (a race track's bounds) and wipe it. */
-export function setMarkBounds(minX: number, minZ: number, maxX: number, maxZ: number): void {
-  markMapUniforms.uMarkRect.value.set(minX, minZ, 1 / Math.max(1e-3, maxX - minX), 1 / Math.max(1e-3, maxZ - minZ));
-  boundsEpoch++;
-}
-
 /** Patch a ground / road MeshStandardMaterial to darken by the mark map, sampled at its world xz. */
 export function applyMarkMap(material: THREE.MeshStandardMaterial): void {
   const prev = material.onBeforeCompile;
@@ -144,7 +136,6 @@ export class SkidMarks {
   private quads = 0;
   private fadeAcc = 0;
   private needsClear = true;
-  private epoch = -1;
   private any = false;
 
   constructor(maxCars: number) {
@@ -309,14 +300,16 @@ export class SkidMarks {
     return this.any;
   }
 
+  /** Re-target the mark map to a world rect (a race track's bounds); the next flush wipes it. */
+  setBounds(minX: number, minZ: number, maxX: number, maxZ: number): void {
+    markMapUniforms.uMarkRect.value.set(minX, minZ, 1 / Math.max(1e-3, maxX - minX), 1 / Math.max(1e-3, maxZ - minZ));
+    this.needsClear = true;
+  }
+
   /** Draw this frame's stamps and the periodic fade into the map. Call once per frame before the main render. */
   flush(renderer: THREE.WebGLRenderer, wallDt: number): void {
     const rt = this.rt;
     if (!rt || !this.on) return;
-    if (this.epoch !== boundsEpoch) {
-      this.epoch = boundsEpoch;
-      this.needsClear = true;
-    }
     this.fadeAcc += wallDt;
     const fade = this.fadeAcc >= FADE_EVERY;
     if (!this.needsClear && this.quads === 0 && !fade) return;
