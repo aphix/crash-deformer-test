@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
 import { DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, SLAM_TEAR_J } from "./car.ts";
-import { fireRam, type DoorScenario, type RamShot } from "./door-rig.ts";
+import type { DoorScenario, RamShot } from "./door-rig.ts";
+import { fireRam } from "./door-rig.test-util.ts";
 import { assertSameDigest } from "./test-support.ts";
 
 /**

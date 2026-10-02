@@ -11,9 +11,9 @@ front at the top:
 - **C**: the door is open. The ram runs front→rear and swings it shut. A light push re-closes it and
   latches it; a hard push slams it off.
 
-Code: `car.ts` (hinge state and rules), `door-rig.ts` (`DoorRig`, `fireRam`, DOM-free),
+Code: `car.ts` (hinge state and rules), `door-rig.ts` (`DoorRig`, DOM-free),
 `engine-doors.ts` (ram visuals), the `doors` scene in `engine.ts`, and `DoorPanel` in
-`hud-panels.tsx`. Tests: `door-rig.test.ts`.
+`hud-panels.tsx`. Tests: `door-rig.test.ts`, with the headless `fireRam` in `door-rig.test-util.ts`.
 
 ## Hinge model (`car.ts`)
 

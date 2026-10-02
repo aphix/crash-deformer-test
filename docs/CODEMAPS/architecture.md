@@ -61,7 +61,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Ramp balls | K | `toggleBalls` | `engine-props.ts` `buildRampBalls`, `resolveRampBalls` |
 | Compactor | C | `toggleCompactor` | `compactor.ts` `CompactorRig`, `engine-props.ts` `CompactorPress` |
 | Pistons | I, 0–8 | `togglePistons`, `firePiston` | `piston-rig.ts`, `engine-pistons.ts` `PistonBank` |
-| Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`, `fireRam`; `engine-doors.ts` `DoorRam` |
+| Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`; `engine-doors.ts` `DoorRam` |
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
 | Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `race/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |
 

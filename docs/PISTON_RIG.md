@@ -84,7 +84,7 @@ loop reset.
 ## API for other suites
 
 ```ts
-import { firePiston, pistonLocality } from "./piston-rig.ts";
+import { firePiston, pistonLocality } from "./piston-rig.test-util.ts";
 const shot = firePiston(makeCar("shape"), "front", { speedKph: 40, massKg: 1500, hardness: 1 });
 const tap = firePiston(makeCar("shape"), "front", { speedKph: 3, massKg: 1500, hardness: 1 });
 shot.struck;            // [{ name, inward }] — travel along the hit, rigid motion removed
