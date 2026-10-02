@@ -4,25 +4,40 @@ import { MAX_CARS } from "../fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "./catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "./track.ts";
 
-/** Steering authority on a surface: the race glue scales every car's steer by this. */
+/** Steering authority on a surface: `applyDrive` scales the yaw rate by this (front-axle grip). */
 export function steerGrip(grip: number): number {
   return 0.45 + 0.55 * grip;
 }
 
-/** A car's drive input on `surf`: steer authority × `steerGrip`, forward throttle × the surface's top-speed share. */
+/** A car's drive input on `surf`: forward throttle × the surface's top-speed share (grip itself is `applyDrive`'s, per axle). */
 export function onSurface(input: DriveInput, surf: Surface, out: DriveInput): DriveInput {
   out.throttle = input.throttle > 0 ? input.throttle * surf.speed : input.throttle;
-  out.steer = input.steer * steerGrip(surf.grip);
+  out.steer = input.steer;
   out.brake = input.brake;
   out.ebrake = input.ebrake;
   out.boost = input.boost;
   return out;
 }
 
+/** Rival `id`'s aggression in a field whose slider is `max`: uniform in [0, max], fixed by `seed`. */
+export function fieldAggression(max: number, seed: number, id: number): number {
+  return clamp(max, 0, 1) * hash01(id * 13 + seed * 7919, 3);
+}
+
+/**
+ * How much `self` wants a fight with `o`: > 0 attack, < 0 keep clear. 0 aggression never attacks;
+ * 1 always does, whatever its own state; at 0.5 it attacks only a car more wrecked than itself and
+ * thinks twice the more wrecked it is.
+ */
+export function mood(aggression: number, selfDamage: number, otherDamage: number): number {
+  if (aggression <= 0) return -1;
+  return 2 * aggression - 1 + 0.8 * (otherDamage - selfDamage) - (1 - aggression) * selfDamage;
+}
+
 /** Corner speed margin: plan for this share of the drive model's full-lock yaw rate. */
 const CORNER_MARGIN = 0.8;
-/** Planned braking (m/s²): a share of `DRIVE.brake`. */
-const PLAN_DECEL = DRIVE.brake * 0.5;
+/** Planned braking: this share of the car's class brake. */
+const PLAN_BRAKE = 0.5;
 /** Look this far (m) ahead for traffic. */
 const SCAN = 18;
 /** Two cars closer than this sideways (m) share a line. */
@@ -84,6 +99,10 @@ export class RaceBrain {
   private readonly out: DriveInput = idleDrive();
   private readonly traits: Personality[] = [];
   private readonly aggression = new Float64Array(MAX_CARS);
+  /** Per car: class full-lock yaw rate, top speed, brake (sedan until `setClass`). */
+  private readonly turn = new Float64Array(MAX_CARS).fill(DRIVE.turn);
+  private readonly top = new Float64Array(MAX_CARS).fill(DRIVE.maxFwd);
+  private readonly brake = new Float64Array(MAX_CARS).fill(DRIVE.brake);
   private readonly seg = new Int32Array(MAX_CARS);
   private readonly route = new Int16Array(MAX_CARS);
   private readonly routeSeg = new Int32Array(MAX_CARS);
@@ -128,9 +147,16 @@ export class RaceBrain {
     this.lastThrottle.fill(0);
   }
 
-  /** 0 clean racer … 1 rams and blocks. */
+  /** 0 avoids every hit … 1 rams regardless of its own state (see `mood`). */
   setAggression(id: number, a: number): void {
     this.aggression[id] = clamp(a, 0, 1);
+  }
+
+  /** The car's class figures, so lines and braking points fit what it can do. */
+  setClass(id: number, s: { turn: number; topSpeed: number; brake: number }): void {
+    this.turn[id] = s.turn;
+    this.top[id] = s.topSpeed;
+    this.brake[id] = s.brake;
   }
 
   /** Forget a car's route, line and recovery (after a respawn teleport). */
@@ -191,7 +217,7 @@ export class RaceBrain {
 
     const k = proj.k;
     const surf = surfaceAt(path, k);
-    const turnMax = DRIVE.turn * (0.35 + 0.65 * Math.min(1, speed / 8)) * steerGrip(surf.grip);
+    const turnMax = this.turn[i]! * (0.35 + 0.65 * Math.min(1, speed / 8)) * steerGrip(surf.grip);
     const fx = Math.sin(self.yaw);
     const fz = Math.cos(self.yaw);
     const along = self.vx * fx + self.vz * fz;
@@ -215,7 +241,7 @@ export class RaceBrain {
     const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
-    let target = this.plan(path, route, proj.s, speed);
+    let target = this.plan(i, path, route, proj.s, speed);
     if (!Number.isNaN(this.follow)) target = Math.min(target, Math.max(0, this.follow - 0.5));
     const err = target - along;
     if (Math.abs(alpha) > 1.9 && speed < 6) {
@@ -227,7 +253,7 @@ export class RaceBrain {
     } else if (err < -1.5) {
       out.brake = clamp(-err / 6, 0.2, 1);
     } else {
-      out.throttle = clamp(target / (DRIVE.maxFwd * surf.speed), 0, 1);
+      out.throttle = clamp(target / (this.top[i]! * surf.speed), 0, 1);
     }
 
     // L0: wedged against something.
@@ -275,10 +301,12 @@ export class RaceBrain {
   }
 
   /** Highest speed now that still makes every turn ahead within the braking budget. */
-  private plan(path: TrackPath, route: number, s: number, speed: number): number {
+  private plan(i: number, path: TrackPath, route: number, s: number, speed: number): number {
     const tr = this.track;
-    let best = DRIVE.maxFwd;
-    const reach = (speed * speed) / (2 * PLAN_DECEL) + 12;
+    const top = this.top[i]!;
+    const decel = this.brake[i]! * PLAN_BRAKE;
+    let best = top;
+    const reach = (speed * speed) / (2 * decel) + 12;
     for (let d = 0; d <= reach; d += 3) {
       let pp = path;
       let ss = s + d;
@@ -289,9 +317,9 @@ export class RaceBrain {
       const k = sampleAt(pp, ss);
       const surf = surfaceAt(pp, k);
       const curv = Math.abs(pp.curv[k]!);
-      const yawMax = DRIVE.turn * steerGrip(surf.grip) * CORNER_MARGIN;
-      const corner = Math.min(DRIVE.maxFwd * surf.speed, curv > 1e-4 ? yawMax / curv : Infinity);
-      const allow = Math.sqrt(corner * corner + 2 * PLAN_DECEL * d);
+      const yawMax = this.turn[i]! * steerGrip(surf.grip) * CORNER_MARGIN;
+      const corner = Math.min(top * surf.speed, curv > 1e-4 ? yawMax / curv : Infinity);
+      const allow = Math.sqrt(corner * corner + 2 * decel * d);
       if (allow < best) best = allow;
     }
     return best;
@@ -321,6 +349,7 @@ export class RaceBrain {
     let blockerAhead = Infinity;
     let blockerSide = 0;
     let blockerAlong = 0;
+    let blockerDamage = 0;
     for (const o of others) {
       if (o.id === i || !o.alive) continue;
       const dx = o.x - self.x;
@@ -331,21 +360,28 @@ export class RaceBrain {
       const oAlong = o.vx * fx + o.vz * fz;
       const inWay = Math.abs(side) < LINE_W + 0.4 || Math.abs(lat + side - this.lane[i]!) < LINE_W;
       if (ahead > 0.5 && ahead < SCAN && inWay && along > oAlong + 0.3 && ahead < blockerAhead) {
+        blockerDamage = o.damage;
         blocker = o.id;
         blockerAhead = ahead;
         blockerSide = side;
         blockerAlong = oAlong;
       }
       if (o.id >= this.racers) continue;
-      if (ahead < -1 && ahead > -11 && Math.abs(side) < 4.5 && oAlong > along + 0.5 && aggr > 0.35) {
-        want += (lat + side - want) * (aggr - 0.35) * 1.2;
-      } else if (Math.abs(ahead) < 3 && Math.abs(side) < 3.6 && aggr > 0.6) {
-        want += Math.sign(side) * (aggr - 0.6) * 4;
+      // Rivals: fight or keep clear by mood (aggression, and both cars' damage).
+      const m = mood(aggr, self.damage, o.damage);
+      if (ahead < -1 && ahead > -11 && Math.abs(side) < 4.5 && oAlong > along + 0.5) {
+        // Coming through from behind: close the door on it, or give it room.
+        if (m > 0.15) want += (lat + side - want) * Math.min(1, m) * 1.2;
+        else if (m < -0.4) want += Math.sign(want - lat - side || 1) * -m * 2;
+      } else if (Math.abs(ahead) < 3 && Math.abs(side) < 3.6) {
+        // Alongside: lean on it, or shy away.
+        if (m > 0.3) want += Math.sign(side) * m * 2.4;
+        else if (m < -0.4) want -= Math.sign(side) * -m * 1.5;
       }
     }
     if (blocker >= 0) {
       const oLat = lat + blockerSide;
-      if (blocker < this.racers && aggr > 0.55 && hash01(i * 7 + blocker, 21) < aggr) return clamp(oLat, -room, room);
+      if (blocker < this.racers && mood(aggr, self.damage, blockerDamage) > 0) return clamp(oLat, -room, room);
       const left = oLat + LINE_W + 0.9;
       const right = oLat - LINE_W - 0.9;
       const leftOk = left <= room;

@@ -98,8 +98,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const ground = activeGround();
   const px = car.group.position.x;
   const pz = car.group.position.z;
-  const muF = ground.frictionAt(px + fx0 * DRIVE.axle, pz + fz0 * DRIVE.axle);
-  const muR = ground.frictionAt(px - fx0 * DRIVE.axle, pz - fz0 * DRIVE.axle);
+  const py = car.group.position.y;
+  const muF = ground.frictionAt(px + fx0 * DRIVE.axle, pz + fz0 * DRIVE.axle, py);
+  const muR = ground.frictionAt(px - fx0 * DRIVE.axle, pz - fz0 * DRIVE.axle, py);
 
   // Pedals: speed along the nose.
   const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);

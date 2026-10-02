@@ -8,7 +8,7 @@ import { blankAiCar, type AiCar } from "../derby-ai.ts";
 import { snapshotAiCar } from "../derby.ts";
 import { fleetStyle } from "../fleet.ts";
 import { SURFACES } from "./catalog.ts";
-import { RaceBrain, onSurface } from "./race-ai.ts";
+import { RaceBrain, fieldAggression, mood, onSurface } from "./race-ai.ts";
 import { RaceSession } from "./session.ts";
 import { Track, blankProjection, projectPath } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
@@ -130,15 +130,44 @@ describe("race AI", () => {
     assert.ok(charge.throttle > 0 && charge.brake === 0, "and keeps the throttle in");
   });
 
-  it("an aggressive driver closes the door on a faster car coming through; a clean one holds its line", () => {
+  it("an aggressive driver closes the door on a faster car coming through; a clean one gives it room", () => {
     const me = at(0, pt.x, pt.z, 12);
     const fast = at(1, pt.x + 3, pt.z - 5, 18);
     const clean = new RaceBrain(oval, 2);
     const brute = new RaceBrain(oval, 2);
     brute.setAggression(0, 1);
-    const holds = lane(clean, me, [me, fast], 40);
+    const yields = lane(clean, me, [me, fast], 40);
     const blocks = lane(brute, me, [me, fast], 40);
-    assert.ok(blocks > holds + 0.02, `block steer ${blocks.toFixed(3)} vs clean ${holds.toFixed(3)} (left is +)`);
+    assert.ok(blocks > 0.02, `aggressive steers into its path (left is +), steer ${blocks.toFixed(3)}`);
+    assert.ok(yields < -0.02, `clean moves away from it, steer ${yields.toFixed(3)}`);
+  });
+
+  it("at middling aggression a driver only goes for a rival more wrecked than itself; at full it goes for anyone", () => {
+    const me = at(0, pt.x + 6, pt.z, 17);
+    const wrecked = { ...at(1, pt.x + 6, pt.z + 9, 8), damage: 0.6 };
+    const healthy = at(1, pt.x + 6, pt.z + 9, 8);
+    const mid = () => {
+      const b = new RaceBrain(oval, 2);
+      b.setAggression(0, 0.5);
+      return b;
+    };
+    assert.ok(Math.abs(lane(mid(), me, [me, wrecked], 40)) < 0.06, "rams the wrecked car");
+    assert.ok(lane(mid(), me, [me, healthy], 40) < -0.05, "passes the healthy one");
+    const hurtMe = { ...me, damage: 0.8 };
+    assert.ok(lane(mid(), hurtMe, [hurtMe, wrecked], 40) < -0.05, "but not when it is the more wrecked of the two");
+    const brute = new RaceBrain(oval, 2);
+    brute.setAggression(0, 1);
+    assert.ok(Math.abs(lane(brute, hurtMe, [hurtMe, healthy], 40)) < 0.06, "full aggression rams regardless of its own state");
+  });
+
+  it("the field's aggression slider is a maximum: every rival rolls its own value under it", () => {
+    const rolls = Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1));
+    assert.ok(rolls.every((a) => a >= 0 && a <= 0.6));
+    assert.ok(Math.max(...rolls) - Math.min(...rolls) > 0.3, "a spread, not one value");
+    assert.deepEqual(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1)), "same seed, same field");
+    assert.notDeepEqual(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 5, id + 1)), "a new race rolls again");
+    assert.ok(Array.from({ length: 15 }, (_, id) => fieldAggression(0, 4, id)).every((a) => a === 0));
+    assert.ok(mood(0, 0, 1) < 0 && mood(1, 1, 0) > 0);
   });
 
   it("follows a slower car when the road is too narrow to pass", () => {

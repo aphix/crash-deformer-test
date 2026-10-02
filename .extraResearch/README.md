@@ -31,6 +31,8 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/91-snapshot-netcode.md` | Snapshot interpolation vs state sync vs lockstep, quantization, delta vs acked baseline, unreliable DataChannels, BroadcastChannel (Netplay lane) |
 | `perplexity/23-race-checkpoints-laps.md` | Arcade lap counting: hidden/key checkpoint gates, designed shortcuts, spline-progress ranking, wrong way, respawn anchors, authoritative race state (RaceLead lane) |
 | `perplexity/24-racing-ai.md` | Opponent AI on a spline: pure-pursuit lookahead, curvature/grip speed planning, overtaking offsets, aggression-scaled blocking/ramming, recovery (RaceLead lane) |
+| `perplexity/25-stunt-track-design.md` | Stunt circuit layout: figure-8 crossovers, tunnels, kicker/tabletop jumps, wall-ride banks, readability at speed, fairness for AI, cheap browser rendering (RaceLead lane) |
+| `perplexity/26-race-traffic.md` | Ambient NPC traffic: spawn/despawn bubbles out of view, lane graphs, cross traffic at junctions for T-bones, density, crash reactions, multiplayer cost (RaceLead lane) |
 
 ## Papers (`papers/`)
 
