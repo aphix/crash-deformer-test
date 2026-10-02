@@ -45,6 +45,14 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
 }
 
 /**
+ * A pair push, within a wreck's per-slice budget (`takePush`): the three SAT passes of one slice
+ * each pushing a full `satPushCap` moved a wedged wreck 0.11 m in 6 ms (derby group pops).
+ */
+function pushPair(car: DeformableCar, nx: number, nz: number, amount: number, dt: number): void {
+  pushCar(car, nx, 0, nz, car.deform.massActive ? car.deform.takePush(amount, dt) : amount);
+}
+
+/**
  * Pair SAT + crumple. Persistent overlap after the zone is spent must not
  * keep dumping cancelClosing (that is the 10s / 120 km/h zip). Every contact
  * offers each car a hit: the first one starts its crash, a fresh hard one on
@@ -114,14 +122,14 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const push = Math.min(extra + 0.006, satPushCap(dt));
     const both = carA.deform.massActive && carB.deform.massActive;
     const aAmt = both ? push * 0.5 : carA.deform.massActive ? push * 0.62 : push * 0.38;
-    pushCar(carA, _n.x, 0, _n.z, aAmt);
-    pushCar(carB, -_n.x, 0, -_n.z, push - aAmt);
+    pushPair(carA, _n.x, _n.z, aAmt, dt);
+    pushPair(carB, -_n.x, -_n.z, push - aAmt, dt);
   } else if (crushHit) {
     const allowed = leftoverA * 0.45 + leftoverB * 0.45 + 0.08;
     const extra = Math.min(crushHit - allowed, 0.04);
     if (extra > 0.012) {
-      pushCar(carA, _cn.x, 0, _cn.z, extra * 0.5);
-      pushCar(carB, -_cn.x, 0, -_cn.z, extra * 0.5);
+      pushPair(carA, _cn.x, _cn.z, extra * 0.5, dt);
+      pushPair(carB, -_cn.x, -_cn.z, extra * 0.5, dt);
     }
   }
 
@@ -135,8 +143,8 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
       if (_w.lengthSq() > 1e-8) {
         _w.normalize();
         const extra = Math.min((minSep - dist) * 0.5, satPushCap(dt));
-        pushCar(carA, _w.x, 0, _w.z, extra);
-        pushCar(carB, -_w.x, 0, -_w.z, extra);
+        pushPair(carA, _w.x, _w.z, extra, dt);
+        pushPair(carB, -_w.x, -_w.z, extra, dt);
       }
     }
   }

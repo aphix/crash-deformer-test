@@ -513,9 +513,10 @@ describe("derby match, six AI cars", () => {
     assert.equal(owner.zips.length, 0, `${owner.zips.length} zips: ${owner.zips.slice(0, 4).join("; ")}`);
   });
 
-  // Measured 19 pops in 15 s (0.10–0.24 m per slice, quiet 0.00, not at the hub-plant or level-out
-  // switches): the group moves 0.11–0.14 m inside one dt=0 syncPose on a struck live wreck with
-  // no cell move from collideWith, plus 0.02 m hull pushes per SAT pass on slow wedged pairs.
+  // Was 19 pops in 15 s (0.10–0.24 m): the first contact on a planted wreck re-anchored the group on
+  // the cell's rest inside one dt = 0 syncPose. Now 7 (≤ 0.07 m): the plant switch levels the frame
+  // at 0.35 s quiet in one call (tilt × lever), and one slice's satPushCap push (3.4 cm at 5 ms) on a
+  // slow wedged pair. Ramping the level-out took it to 0 but moved the tap and A3 bands (RIG_ANALYSIS §6.4).
   it.todo("derby:pops — a crashed car's group never moves more than 3·v·h + 2 cm in a slice — owner's derby", () => {
     assert.equal(owner.pops.length, 0, `${owner.pops.length} pops: ${owner.pops.slice(0, 4).join("; ")}`);
   });

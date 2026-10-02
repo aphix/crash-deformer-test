@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, type CrushBands } from "./physics-util.ts";
+import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, satPushCap, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
   type ShapeParticle,
@@ -301,6 +301,9 @@ export class StreamedDeformation {
   /** Heading and sim time (`elapsed`) of the last yaw-rate sample in followGroup. */
   private rateYaw = 0;
   private rateAt = 0;
+  /** Hull push (m) taken at sim time `pushAt` (takePush). */
+  private pushUsed = 0;
+  private pushAt = -1;
   private overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
   private contactAt = -Infinity;
@@ -1397,54 +1400,51 @@ export class StreamedDeformation {
     const plant = !this.bidirectional && this.quietTime() > 0.2;
     let minHub = Infinity;
     for (const m of this.masses) if (m.hub && m.world.y < minHub) minHub = m.world.y;
+    if (Number.isFinite(pitch + roll) && (!plant || this.quietTime() < 0.35)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
+    else group.rotation.set(0, yawSafe, 0, "YXZ");
+    // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
+    // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
+    // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
+    // cell's up-to-cap offset or by tilt × height at each plant switch, inside one dt = 0 call.
+    let wx = cell.world.x,
+      wy = cell.world.y,
+      wz = cell.world.z,
+      lx = cell.local.x,
+      lz = cell.local.z;
     if (plant) {
-      group.rotation.set(0, yawSafe, 0, "YXZ");
-      group.updateWorldMatrix(false, false);
-      let hubX = 0,
-        hubZ = 0,
-        hubM = 0,
-        restx = 0,
-        restz = 0;
+      let hubM = 0,
+        hx = 0,
+        hy = 0,
+        hz = 0,
+        hlx = 0,
+        hlz = 0;
       for (const m of this.masses) {
-        if (!m.hub) continue;
-        hubX += m.world.x * m.mass;
-        hubZ += m.world.z * m.mass;
-        restx += m.rest.x * m.mass;
-        restz += m.rest.z * m.mass;
+        if (!m.hub || m.popped) continue;
+        hx += m.world.x * m.mass;
+        hy += m.world.y * m.mass;
+        hz += m.world.z * m.mass;
+        hlx += m.local.x * m.mass;
+        hlz += m.local.z * m.mass;
         hubM += m.mass;
       }
       if (hubM > 1e-8) {
-        hubX /= hubM;
-        hubZ /= hubM;
-        restx /= hubM;
-        restz /= hubM;
-      } else {
-        hubX = cell.world.x;
-        hubZ = cell.world.z;
-        restx = cell.rest.x;
-        restz = cell.rest.z;
+        wx = hx / hubM;
+        wy = hy / hubM;
+        wz = hz / hubM;
+        lx = hlx / hubM;
+        lz = hlz / hubM;
       }
-      _a.set(restx, cell.rest.y, restz).applyQuaternion(group.quaternion);
-      let gy = cell.world.y - _a.y;
-      if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
-      else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
-      group.position.set(hubX - _a.x, gy, hubZ - _a.z);
-      if (Number.isFinite(pitch + roll) && this.quietTime() < 0.35) group.rotation.set(pitch, yawSafe, roll, "YXZ");
-      else group.rotation.set(0, yawSafe, 0, "YXZ");
-    } else {
-      if (!Number.isFinite(yawSafe + pitch + roll)) {
-        group.rotation.set(0, this.prevYaw, 0, "YXZ");
-      } else {
-        group.rotation.set(pitch, yawSafe, roll, "YXZ");
-      }
-      group.updateWorldMatrix(false, false);
-      _a.copy(cell.rest).applyQuaternion(group.quaternion);
-      let gy = cell.world.y - _a.y;
-      if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
-      else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
-      if (this.bidirectional) group.position.set(0, gy, 0);
-      else group.position.set(cell.world.x - _a.x, gy, cell.world.z - _a.z);
     }
+    let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
+    if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
+    else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
+    // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
+    // solve the anchor's local y for that height so its x/z stay exactly held.
+    _a.set(lx, 0, lz).applyQuaternion(group.quaternion);
+    _b.set(0, 1, 0).applyQuaternion(group.quaternion);
+    _a.addScaledVector(_b, (wy - gy - _a.y) / _b.y);
+    if (this.bidirectional) group.position.set(0, gy, 0);
+    else group.position.set(wx - _a.x, gy, wz - _a.z);
     group.updateWorldMatrix(false, false);
     _toLocal.copy(group.matrixWorld).invert();
 
@@ -1613,6 +1613,20 @@ export class StreamedDeformation {
       }
     }
     return removed;
+  }
+
+  /**
+   * Hull push (m) this car may still take now, out of `amount`: one slice's pairs and SAT passes share
+   * one `satPushCap(dt)` — three passes each pushing a full cap moved a wedged wreck 0.11 m in 6 ms.
+   */
+  takePush(amount: number, dt: number): number {
+    if (this.pushAt !== this.elapsed) {
+      this.pushAt = this.elapsed;
+      this.pushUsed = 0;
+    }
+    const ok = Math.max(0, Math.min(amount, satPushCap(dt) - this.pushUsed));
+    this.pushUsed += ok;
+    return ok;
   }
 
   /**
