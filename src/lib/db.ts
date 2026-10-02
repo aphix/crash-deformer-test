@@ -127,9 +127,17 @@ async function createPgliteSql(): Promise<Sql> {
       // Shut a data dir down cleanly on stop. Left unclean, the next open crash-recovers it, and
       // that instance keeps a timer armed forever, so its server never exits on SIGTERM
       // (measured: a 90 s stop timeout and a SIGKILL on every deploy; docs/DEPLOY.md).
+      // The server's own handler (srvx) closes the HTTP server and the process then ends by itself,
+      // but srvx skips that when CI or TEST is set. A signal listener also cancels Node's default
+      // exit, so with nobody else listening this one must end the process (measured: alive 20 s
+      // after SIGTERM under CI=true without it).
       for (const signal of ["SIGTERM", "SIGINT"] as const) {
         process.once(signal, () => {
-          pg.close().catch((err) => console.error("[db] PGLite close failed:", err));
+          pg.close()
+            .catch((err) => console.error("[db] PGLite close failed:", err))
+            .finally(() => {
+              if (process.listenerCount(signal) === 0) process.exit(0);
+            });
         });
       }
     }
