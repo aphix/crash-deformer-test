@@ -37,8 +37,8 @@ export type CarState = {
   tailMm: number;
 };
 
-export function parkCar(): DeformableCar {
-  const car = makeCar();
+export function parkCar(squash?: number): DeformableCar {
+  const car = makeCar("shape", squash);
   car.spawnFacing(0, 0, 0, 0);
   return car;
 }
@@ -233,16 +233,16 @@ export function carSandwich(kph: number): Sandwich {
 
 // ── Piston vs car ──────────────────────────────────────────────────────────────────────────
 
-export function pistonFront(kph: number, kg: number, hardness: number): CarState {
-  const a = makeCar();
+export function pistonFront(kph: number, kg: number, hardness: number, squash?: number): CarState {
+  const a = makeCar("shape", squash);
   firePiston(a, "front", { speedKph: kph, massKg: kg, hardness, after: 1.5 });
   return carState(a);
 }
 
 /** A car of the same mass at the same speed square into the parked car's nose. */
-export function carFront(kph: number): { a: CarState; b: CarState } {
-  const a = parkCar();
-  const b = makeCar();
+export function carFront(kph: number, squash?: number): { a: CarState; b: CarState } {
+  const a = parkCar(squash);
+  const b = makeCar("shape", squash);
   launch(b, 0, 2 * CAR_HALF.z + 0.25, Math.PI, kph);
   runOut([a, b], 8);
   return { a: carState(a), b: carState(b) };
