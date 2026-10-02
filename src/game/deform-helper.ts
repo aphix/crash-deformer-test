@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { m3FrobeniusI, type ShapeCluster } from "./shape-match.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { once } from "./scalar.ts";
 
 /** What the rig view reads from a StreamedDeformation. Never written through. */

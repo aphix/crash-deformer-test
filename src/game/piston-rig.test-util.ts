@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { PISTON, PISTON_IDS, PistonHead, PistonRig, type PistonConfig, type PistonId } from "./piston-rig.ts";
-import type { MassNode } from "./streamed-deform.ts";
+import type { MassNode } from "./deform-rig.ts";
 
 /** Piston shot harness for the piston, skin and contact-parity suites: fire one shot, measure it. Not a test file itself. */
 

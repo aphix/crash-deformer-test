@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { StreamedDeformation, TYRE_R, type DeformMode } from "./streamed-deform.ts";
+import { StreamedDeformation } from "./streamed-deform.ts";
+import { TYRE_R } from "./deform-state.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";

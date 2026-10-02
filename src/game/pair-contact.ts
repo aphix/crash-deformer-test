@@ -2,7 +2,8 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "./physics-util.ts";
 import { carCrushHulls, satCars } from "./sat.ts";
-import { TYRE_HALF_W, TYRE_R } from "./streamed-deform.ts";
+import { TYRE_HALF_W } from "./deform-contact.ts";
+import { TYRE_R } from "./deform-state.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();

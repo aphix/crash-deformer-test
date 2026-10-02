@@ -15,9 +15,14 @@ DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
 - `MASS_SPECS: MassSpec[]` (`name: MassName, rest, mass, radius`): the named control particles
 - `BEAM_SPECS`: `[MassName, MassName, number, number, number][]` lattice springs
 - `SHAPE_CLUSTERS: ShapeClusterSpec[]` (`owner, masses`): one Müller cluster per body region
-- Per-style overrides: `RigOverrides` (`streamed-deform.ts`), set as `CAR_STYLES[id].rig` in `car-variants.ts`.
+- Per-style overrides: `RigOverrides` (`deform-rig.ts`), set as `CAR_STYLES[id].rig` in `car-variants.ts`.
 
 ## `StreamedDeformation` (`streamed-deform.ts`)
+One class in layers, each `extends` the one before: `deform-rig.ts` `DeformRig` (fields, constructor, skin tables) →
+`deform-hit.ts` (reset, mode, shape rest, kinematic bind, crush start, re-arm, impulses) → `deform-state.ts` (mass and
+hub queries, drivetrain, crush weights, `update`, live hulls, debug helpers) → `deform-contact.ts` (`collideWith`,
+`stepStructure`, `followGroup`, stroke, pushes, `applyImpact`) → `deform-solve.ts` (clamp, beams, shape match, mass
+slices, ground, suspension) → `streamed-deform.ts` `StreamedDeformation` (sensors, cages, skin bake, netplay state).
 - `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()`.
 - Activation / hits: `armMasses`, `applyImpact(localPoint, localInward, impulse, ebs)`, `rearmHit`, `applyImpulse`, `impulseAt`, `kickNearest`, `kickNearestHub`, `feedOverlap`, `notifyContact`, `notifyPower`.
 - Rigid ↔ soft coupling: `bindKinematic`, `followGroup(group, velOut, angOut, dt)` (driven by `DeformableCar.syncPose`), `translateMasses`.
@@ -41,7 +46,7 @@ Müller 2005 meshless shape matching on `ShapeCluster`s:
 `Ground` = height, up-normal, grip and surface at (x, z) on a layer (`STEP_UP`: a car under a bridge sees the road, a car on it the deck). `activeGround()` is read by `car.ts`, `car-drive.ts` (wheels, grip), `streamed-deform.ts`, `physics-util.ts` and `engine-marks.ts` (mark channel by surface). `RaceDirector` (`engine-race.ts`) calls `setGround` with the course's `TrackGround` and restores `FLAT_GROUND` (y = 0 asphalt, grip 1) on exit.
 
 ## Doors and mirrors
-- `DeformableCar` (`car.ts`): `DoorHinge` per side (`doorHinge(side)`; latch, check-strap stop, slam overload), `setDoorOpen`, `loadDoorStop`, `swingDoors(dt)`, `partOff("doorL" | "doorR" | "mirrorL" | "mirrorR")`.
+- `DeformableCar` (`car.ts`, layers `car-core.ts` `CarCore` → `car-parts.ts` `CarParts` → `DeformableCar`): `DoorHinge` per side (`doorHinge(side)`; latch, check-strap stop, slam overload), `setDoorOpen`, `loadDoorStop`, `swingDoors(dt)`, `partOff("doorL" | "doorR" | "mirrorL" | "mirrorR")`.
 - `door-rig.ts`: `DoorRig` (`attach`, `fire(scenario, side)`, `phase` idle / run), `DOOR_SCENARIOS` `mirror` (A) / `overOpen` (B) / `shut` (C), `DOOR_LANES`, `RAM_DEFAULTS`; the headless shot `fireRam` is in `door-rig.test-util.ts`. The ram is a striker box run through `external-contact.ts`; `engine-doors.ts` `DoorRam` only draws it. See `docs/DOOR_RIG.md`.
 
 ## Contact
@@ -59,10 +64,10 @@ buildSkinWeights (ctor: each vertex → ≤ RES_SLOTS nearest masses, IDW)
 flushSkin(geometry, force) writes only when owed; DeformableCar.updateDeform / flushDeferredSkin;
 LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (off-screen or tiny cars skip skin, never lose it)
 ```
-Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` (`skinPanels`, `syncAttachedParts`, `evaluateBreakage`, `detachPart`).
+Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` / `car-parts.ts` (`skinPanels`, `syncAttachedParts`, `evaluateBreakage`, `detachPart`).
 
 ## Debug views
-- G `DeformRigHelper` (`deform-helper.ts`: cages, sensors, masses) + hull lines (`car.ts` `setRigVisible`); P `DeformParticleHelper` (size = mass, colour = plastic travel / contact, shape-match pull); Y shape ↔ lattice.
+- G `DeformRigHelper` (`deform-helper.ts`: cages, sensors, masses) + hull lines (`car-core.ts` hull overlay, `car.ts` `setRigVisible`); P `DeformParticleHelper` (size = mass, colour = plastic travel / contact, shape-match pull); Y shape ↔ lattice.
 
 ## Related
 `docs/RIG_ANALYSIS.md` (rig vs real structure), `docs/CRUSH_CALIBRATION.md` (squash/buckle), `docs/PISTON_RIG.md`, `docs/PARTICLE_LOD_SPEC.md` (fine-patch LoD: gate failed, not built), `.extraResearch/SYNTHESIS.md`, [architecture.md](architecture.md), [testing.md](testing.md)

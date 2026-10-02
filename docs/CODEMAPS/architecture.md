@@ -12,7 +12,7 @@ src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools
   │  crash FX) → engine-warm.ts (shader warm-up) → engine-hud.ts (emitHud) → engine-scenes.ts (sceneId, setScene,
   │  reset / spawn / park, derby netplay, disc edge) → engine-rigs.ts (press, pistons, doors) → engine-input.ts
   │  (keys, pad, picks, HUD commands) → engine.ts CrashEngine (constructor, netplay host, frame loop, LoD, camera)
-  ├─ cars: DeformableCar[]        car.ts ─► StreamedDeformation (streamed-deform.ts); lamp-lights.ts LampLights
+  ├─ cars: DeformableCar[]        car.ts (layers car-core.ts → car-parts.ts) ─► StreamedDeformation (streamed-deform.ts, layers deform-*.ts); lamp-lights.ts LampLights
   ├─ classes / handling           vehicle-classes.ts (CLASSES, HANDLING.realism, killTravel), car-drive.ts
   ├─ contacts                     sat.ts, pair-contact.ts, external-contact.ts, engine-props.ts
   ├─ scenes                       fleet.ts, derby*.ts, compactor.ts, piston-rig.ts + engine-pistons.ts,
@@ -29,7 +29,7 @@ src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools
 ## Module boundaries
 - `*-core.js` (`physics-core.js`, `shape-match-core.js`): number-only hot kernels, no THREE; typed by `*.d.ts`, re-exported by `physics-util.ts` / `shape-match.ts`.
 - `rig-spec.ts`, `vehicle-classes.ts`, `race/catalog.ts`, `race/tracks/*.json`: data tables. `race/` rules, campaign, AI, traffic and placements never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
-- `streamed-deform.ts`: owns masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
+- `streamed-deform.ts` and its `deform-*.ts` layers: own masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
 - `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop. `engine-cine.ts` and friends read sim state only; the hit-stop is their one sim-side effect (`timeWarp`).
 - `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt (derby, rigs). The fleet / barrier / balls scenes set `DISC_GROUND`: the same plane inside `DISC_RADIUS` (48 m), and `NO_FLOOR` (-Infinity, grip 0) past it. Every `floor + k` clamp tests `=== NO_FLOOR` first (`car.integrate`, `followGroup`, the `stepStructure` mass loop, `applyDrive`).
 

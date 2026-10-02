@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
+import { CAR_HALF, DeformableCar } from "./car.ts";
+import type { CarPaint } from "./car-core.ts";
 import { WheelBatch } from "./car-mesh.ts";
 import { COMPACTOR, CompactorRig } from "./compactor.ts";
 import { PistonRig } from "./piston-rig.ts";
@@ -9,7 +10,7 @@ import { DoorRam } from "./engine-doors.ts";
 import { INITIAL_HUD } from "./hud-store.ts";
 import { beginImpact, phaseClock } from "./phase.ts";
 import { newWorld } from "./world-step.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
 import { armKill, assignClass, carClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";

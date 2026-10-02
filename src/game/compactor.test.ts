@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { COMPACTOR, CompactorRig as Rig, compactorStage, travelOf } from "./compactor.ts";
 import { makeCar } from "./crash-scenarios.test-util.ts";
 import { leftoverCrumple } from "./physics-util.ts";
-import { TYRE_R, type DeformMode } from "./streamed-deform.ts";
+import { TYRE_R } from "./deform-state.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { forModes } from "./test-support.ts";
 
 /** The press scene's rig on a parked car of `mode`. */

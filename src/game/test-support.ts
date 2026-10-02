@@ -2,10 +2,10 @@ import { describe } from "node:test";
 import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import type { CarPaint } from "./car.ts";
+import type { CarPaint } from "./car-core.ts";
 import type { DriveInput } from "./car-drive.ts";
 import { blankAiCar, type AiCar, type DerbyBrain } from "./derby-ai.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 
 /** Shared fixtures for the physics/deform suites; not a test file itself. */
 

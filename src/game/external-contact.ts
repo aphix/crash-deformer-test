@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { CAR_HALF, DOOR, DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, type DeformableCar } from "./car.ts";
+import { CAR_HALF, DOOR, type DeformableCar } from "./car.ts";
+import { DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX } from "./car-core.ts";
 
 /**
  * One contact model for anything that strikes a car: the Doors ram, a press plate, a piston face

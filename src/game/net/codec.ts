@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { DriveInput } from "../car-drive.ts";
-import type { PartNetState } from "../car.ts";
+import type { PartNetState } from "../car-core.ts";
 import type { DerbyBoardRow, DerbyDecided } from "../derby.ts";
 import type { RaceSnapshot } from "../race/types.ts";
 import type { DeformNetState } from "../streamed-deform.ts";
