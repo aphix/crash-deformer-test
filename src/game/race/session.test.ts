@@ -191,6 +191,28 @@ describe("race rules", () => {
     assert.equal(early.cars[0]!.next, 4, "still owes checkpoint 4");
   });
 
+  it("a shortcut still counts when the car cuts in past its mouth gate or misses its exit gate", () => {
+    const sc = ovalTrack.shortcuts[0]!;
+    const L = ovalTrack.length;
+    const along = (from: number, to: number) =>
+      samples((s) => {
+        const p = pointOn(sc.path, s, _pt);
+        return { x: p.x, z: p.z };
+      }, from, to, 1);
+    const exit = blankProjection();
+    ovalTrack.project(sc.path.x[sc.path.count - 1]!, sc.path.z[sc.path.count - 1]!, -1, exit);
+    const approach = centreline(ovalTrack, L - 6, L + ovalTrack.gateS(4) + 10);
+    const home = centreline(ovalTrack, L + exit.s + 6, 2 * L + 10);
+    // Straight onto the service road between its first two gates.
+    const cutIn = [...approach, ...along((sc.gates[0]!.s + sc.gates[1]!.s) / 2, sc.path.length), ...home];
+    const a = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
+    assert.equal(count(runTo(a, [polyline(cutIn, 25)], 60), "lap"), 1, "cut in past the mouth");
+    // Off the service road before its last gate, straight back onto the main road.
+    const early = [...approach, ...along(0, sc.gates[sc.gates.length - 2]!.s + 3), ...home];
+    const b = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
+    assert.equal(count(runTo(b, [polyline(early, 25)], 60), "lap"), 1, "left before the exit gate");
+  });
+
   it("wrong way: flagged after holding against the track, cleared after turning round", () => {
     const s = new RaceSession(square, field(1), { laps: 3, noReset: false });
     const go = fromGrid(square, 0, 15);
