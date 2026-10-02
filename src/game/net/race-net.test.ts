@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "../ground.ts";
 import { frame, makeWorld, type World } from "../race/race-world.test-util.ts";
+import { readRace, writeRace } from "./codec.ts";
 
 /** Host world with network peers seated on `seats`, a 3-car AI field, the oval, started. */
 function hostRace(seats: number[]): World {
@@ -13,13 +14,15 @@ function hostRace(seats: number[]): World {
   return w;
 }
 
-/** A client world that adopted the host's rules state as car `self` (wire: JSON). */
+/** A client world that adopted the host's rules state as car `self`, through the race message a client decodes. */
 function clientOf(host: World, self: number): World {
   const c = makeWorld();
   c.race.enter();
   // The host's field size (NetPlay sets it from snapshots); the setup park makes aiCount + 1 cars.
   c.race.command({ type: "options", options: { trackId: "oval", aiCount: host.live().length - 1 } });
-  c.race.applySnapshot(JSON.parse(JSON.stringify(host.race.snapshot())), self);
+  const wire = readRace(writeRace({ lobby: null, trackId: "oval", snap: host.race.snapshot() }));
+  assert.ok(wire?.snap, "the host's race state passes the client's checks");
+  c.race.applySnapshot(wire.snap, self);
   return c;
 }
 
