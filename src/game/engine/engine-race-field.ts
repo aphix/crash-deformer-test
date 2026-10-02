@@ -8,6 +8,7 @@ import { impulseCar } from "../contact/pair-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
+import { POLICE_CAP, PoliceBrain, type PoliceWorld } from "../ai/police.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { RaceSession } from "../match/session.ts";
 import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
@@ -28,6 +29,11 @@ interface RaceHost {
   /** Cars in play; index = car id. */
   live(): DeformableCar[];
   setCarCount(n: number): void;
+  /**
+   * Cars `from … from + count − 1` wear the police look; every police car below `from` goes back to
+   * its fleet look (cars past the range keep theirs until a field needs them). Call before `setCarCount`.
+   */
+  setPolice(from: number, count: number): void;
   /** Apply the sandbox's deform settings to a freshly spawned car. */
   dress(car: DeformableCar): void;
   setPaused(on: boolean): void;
@@ -134,6 +140,29 @@ export abstract class RaceField {
   protected session: RaceSession | null = null;
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
   protected traffic: TrafficBrain | null = null;
+  /** Police chase (`options.police`): its cars are ids `policeFrom…`, after the racers and traffic; `policeFrom` is the car count without police. */
+  protected police: PoliceBrain | null = null;
+  protected policeFrom = MAX_CARS;
+  /** Per racer id: still racing (the police's quarry), refreshed each patrol. */
+  private readonly hunt = new Uint8Array(MAX_CARS);
+  private readonly patrolWorld: PoliceWorld = {
+    park: (id, x, y, z, yaw) => {
+      const car = this.host.live()[id]!;
+      this.dormant[id] = 0;
+      this.deadFor[id] = 0;
+      this.flipFor[id] = 0;
+      this.seg[id] = -1;
+      car.group.visible = true;
+      this.place(car, x, z, yaw, y);
+    },
+    store: (id) => this.putAway(id, this.host.live()[id]!),
+    seen: (x, z) => this.seen(x, z),
+    down: (id) => this.deadFor[id]! > 0,
+    sirens: (id, on) => {
+      const car = this.host.live()[id]!;
+      if (car.sirens !== on) car.setSirens(on);
+    },
+  };
   /** Seconds a traffic car has been dead (put away after `TRAFFIC_DEAD`). */
   protected readonly deadFor = new Float64Array(MAX_CARS);
   protected brain: RaceBrain | null = null;
@@ -184,6 +213,7 @@ export abstract class RaceField {
   protected field(): Entrant[] {
     let n = this.options.aiCount + 1;
     for (const id of this.seats.keys()) n = Math.max(n, id + 1);
+    this.host.setPolice(n, 0);
     this.host.setCarCount(n);
     const cars = this.host.live();
     this.seed++;
@@ -210,12 +240,16 @@ export abstract class RaceField {
     const traffic = tr.json.traffic ? new TrafficBrain(tr, racers) : null;
     const tcount = traffic ? Math.min(traffic.count, MAX_CARS - racers) : 0;
     this.traffic = tcount > 0 ? traffic : null;
-    this.host.setCarCount(racers + tcount);
+    this.policeFrom = racers + tcount;
+    const pcount = this.options.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
+    this.host.setPolice(this.policeFrom, pcount);
+    this.host.setCarCount(this.policeFrom + pcount);
     this.grid = [...grid];
     const ordered = this.grid.map((id) => this.entrants[id]!);
     this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: this.options.noReset });
     this.brain = new RaceBrain(tr, racers);
-    const n = racers + tcount;
+    this.police = pcount > 0 ? new PoliceBrain(tr, this.brain, this.policeFrom, pcount, this.seed) : null;
+    const n = this.policeFrom + pcount;
     while (this.snaps.length < n) this.snaps.push(blankAiCar(this.snaps.length));
     while (this.poses.length < racers) this.poses.push({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true });
     this.snaps.length = n;
@@ -230,6 +264,10 @@ export abstract class RaceField {
         car.group.visible = true;
         this.place(car, spot.x, spot.z, spot.yaw, spot.y);
       });
+    }
+    for (let i = this.policeFrom; i < n; i++) {
+      this.putAway(i, cars[i]!);
+      this.police!.setClass(i, classStats(carClass(cars[i]!)));
     }
     this.grid.forEach((id, k) => {
       this.rowOf[id] = k;
@@ -331,6 +369,7 @@ export abstract class RaceField {
         const k = this.track!.project(e.x, e.z, this.seg[e.id]!, this.proj).k;
         this.place(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
         this.brain?.respawned(e.id);
+        this.police?.respawned(e.id, s.time);
         this.seg[e.id] = -1;
         this.flipFor[e.id] = 0;
         this.stillFor[e.id] = 0;
@@ -361,7 +400,7 @@ export abstract class RaceField {
       if (st === "racing" || st === "respawning") observers.push(this.snaps[i]!);
     }
     if (observers.length === 0) return;
-    for (let i = racers; i < cars.length; i++) {
+    for (let i = racers; i < this.policeFrom; i++) {
       const car = cars[i]!;
       if (this.dormant[i]) {
         const spot = traffic.spawnPoint(i, observers, this.snaps, this.seen);
@@ -377,6 +416,20 @@ export abstract class RaceField {
       for (const o of observers) near = Math.min(near, Math.hypot(o.x - p.x, o.z - p.z));
       if (near > DORMANT || this.deadFor[i]! > TRAFFIC_DEAD || traffic.atEnd(i, p.x, p.z)) this.putAway(i, car);
     }
+  }
+
+  /** Police patrol beat (`dt` s): knock-outs, wake-ups, pursuits, reinforcements and stakeouts (`PoliceBrain.update`). */
+  protected patrol(dt: number): void {
+    const police = this.police;
+    const s = this.session;
+    if (!police || !s) return;
+    let lead = 0;
+    for (let i = 0; i < this.entrants.length; i++) {
+      const rec = s.cars[this.rowOf[i]!]!;
+      this.hunt[i] = rec.status === "racing" ? 1 : 0;
+      lead = Math.max(lead, rec.progress);
+    }
+    police.update(s.time, dt, this.snaps, this.hunt, lead, this.patrolWorld);
   }
 
   /** Park a traffic car off the course, hidden and still, until the bubble wakes it. */

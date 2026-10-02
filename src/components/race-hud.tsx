@@ -619,6 +619,7 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
           onSet={(aggression) => options({ aggression })}
         />
         <Choice label="Wrecks" off="Respawn" on="No reset" value={o.noReset} onSet={(noReset) => options({ noReset })} />
+        <Choice label="Police" off="Off" on="Chase" value={o.police} onSet={(police) => options({ police })} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-1.5">
         <NavButton className="col-span-2" onClick={() => onCommand({ type: "start" })}>

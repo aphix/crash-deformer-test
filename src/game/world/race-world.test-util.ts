@@ -39,6 +39,16 @@ export function makeWorld(): World {
   const cars: DeformableCar[] = [];
   const liveBuf: DeformableCar[] = [];
   let count = 0;
+  // The engine's police range (`setPolice`): those slots are police cruisers.
+  let policeFrom = 0;
+  let policeCount = 0;
+  const isPolice = (i: number) => i > 0 && i >= policeFrom && i < policeFrom + policeCount;
+  const build = (i: number): DeformableCar => {
+    const police = isPolice(i);
+    const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: `Car${i}` }, scene, null, police ? "police" : fleetStyle(i));
+    assignClass(car, police ? "police" : fleetClass(i));
+    return car;
+  };
   const live = (): DeformableCar[] => {
     liveBuf.length = count;
     for (let i = 0; i < count; i++) liveBuf[i] = cars[i]!;
@@ -56,13 +66,13 @@ export function makeWorld(): World {
     seat,
     live,
     setCarCount: (n) => {
-      while (cars.length < n) {
-        const i = cars.length;
-        const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: `Car${i}` }, scene, null, fleetStyle(i));
-        assignClass(car, fleetClass(i));
-        cars.push(car);
-      }
+      while (cars.length < n) cars.push(build(cars.length));
       count = n;
+    },
+    setPolice: (from, n) => {
+      policeFrom = from;
+      policeCount = n;
+      for (let i = 1; i < Math.min(cars.length, from + n); i++) if ((cars[i]!.style.id === "police") !== isPolice(i)) cars[i] = build(i);
     },
     // The engine's `dressCar` at the sandbox defaults.
     dress: (car) => {

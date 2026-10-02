@@ -524,6 +524,7 @@ export class NetPlay {
       f.crashed = car.crashed;
       f.vaporized = car.vaporized;
       f.falling = car.falling;
+      f.sirens = car.sirens;
       f.style = CAR_STYLE_IDS.indexOf(car.style.id);
       f.cls = VEHICLE_CLASS_IDS.indexOf(carClass(car));
       f.wreck = false;

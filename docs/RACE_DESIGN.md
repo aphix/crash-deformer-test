@@ -25,6 +25,7 @@ planning, aggression), `25-stunt-track-design.md` (crossovers, jumps, readabilit
 | `src/game/match/campaign.ts` | `Campaign`: points, standings, grids, pegged rival aggression | none |
 | `src/game/ai/race-ai.ts` | `RaceBrain` (racing driver), `onSurface` | none |
 | `src/game/ai/traffic.ts` | `TrafficBrain` (loop lanes + side streets, observer bubble) | none |
+| `src/game/ai/police.ts` | `PoliceBrain` (police chase: stakeouts, pursuits, packs, attacks) | none |
 | `src/game/world/placements.ts` | `placeProps`, `propColliders` | none |
 | `src/game/present/prefabs.ts`, `track-art.ts` | prefab meshes; `TrackArt`: terrain, ribbons, decks + pillars, tunnels, markings, walls, start gantry, instanced props, knocked props, Cinematic tags | THREE |
 | `src/game/hud/menu-nav.ts` | spatial focus maths for controller menus | none |
@@ -120,6 +121,9 @@ the grid is the AI field in car order, `start()` follows pole in spectate mode, 
 standings reach every car (our own AI one too), the HUD has no readouts, "You" row or finish card,
 and nothing can take the wheel. Touch, keys and pad all switch cars through `raceCommand({ type:
 "cycle", dir })` (the spectate bar shows while `RaceHud.spectating` is non-null) and `{ type: "watch", id }`.
+With the police chase on, cycling runs on past the racers to every police car out on the course
+(parked or chasing; `RaceHud.spectating` reads "Police"); a watched police car that is put away hands
+the camera to the next car.
 
 ## Aggression (`ai-aggression.ts`)
 The setup slider is the field's **maximum**. Each rival rolls `fieldAggression(max, seed, id)`,
@@ -204,6 +208,48 @@ Observer bubble (every racer still on track is an observer; checked every 0.25 s
 farther than 120 m from all of them, dead for 6 s, or off the end of an open street is put away
 (hidden, parked off the world, no AI, no contacts); a put-away car wakes on its lane 55–100 m from
 the nearest observer, 14 m clear of every car, and never inside the local camera's view.
+
+## Police chase (`PoliceBrain`)
+Setup "Police: Off / Chase" (`RaceOptions.police`, off by default; a tap toggles it on touch). The
+director gives the police their own car slots after the racers and traffic (`policeFrom`, up to
+`POLICE_CAP` = 6 and the free slots), built as CarAssets' police cruiser (`"police"` body and class);
+they are never entrants, so rules, standings and results never see them, and a race with police
+off builds none (police-off race digests equal main's: oval / rally / city / stunt, seeds 1–2).
+- Stakeouts: from a third of the leader's first lap, every 6–16 s a pack of 2 parks on the run-off
+  90–140 m ahead of a random racer still racing, either side, out of the local camera's view, nosed
+  toward the road; the second car faces the oncoming racers.
+- Wake: a racer within 40 m, or 1.6 s off at its speed (or a knock), wakes the whole pack onto it.
+- Pursuit: sirens on (`setSirens`, sent to netplay clients in the car frame's flags), the racing line
+  at aggression 1 with unlimited boost to catch up. Within 35 m on the same stretch it attacks by
+  place in the pack: PIT from the rear quarter, door slams, getting ahead to block and brake-check.
+  Ahead of its target a unit pulls out into its path 1.6 s before it arrives; one facing it rams it
+  head-on from 3 s off (the main source of takedowns: closing speeds up to 60–70 m/s). Wedged, it
+  backs off for another run.
+- Packs build: 5 s sustained within 45 m calls one more car (parked 70 m ahead out of view, else
+  coming up from 70 m behind already chasing), up to 5.
+- Stand-down: a target that finishes, dies or respawns (left alone 4 s) hands the pack to another
+  racer within 45 m, else the pack gives up, as it does after 160 m off for 4 s or 40 s of pursuit.
+  Given-up units drive off and are put away out of view (or after 20 s); a knocked-out unit (dead
+  drivetrain or upside down) after 6 s; a stakeout nobody came near after 45 s.
+
+Measured (`police-sweep.mts`: 4 AI + the AI-driven slot, 2 laps, slider 0.35, seeds 1–5; "contacts"
+counts physical police↔racer contacts a pair apart ≥ 0.5 s, a takedown is a racer death ≤ 3 s after
+one). Every race closed within the finish sweep's bound, at both the 65 km/h drive and the 200 km/h
+one (lane/drive-speed). Per course, 5 seeds, 200 km/h:
+
+| course | pursuits | largest pack | contacts | takedowns | police knocked out |
+|---|---|---|---|---|---|
+| oval | 2 | 4–5 | 22–52 | 6 | 1 |
+| rally | 2–4 | 4–5 | 12–46 | 0 | 0 |
+| city | 2–4 | 4–5 | 22–41 | 5 | 4 |
+| stunt | 3–4 | 4 | 22–36 | 6 | 7 |
+
+At 65 km/h: takedowns oval 6, rally 1, city 8, stunt 3; police knocked out 5 / 0 / 3 / 3.
+
+Browser frame cost, city, Watch, 7 AI + our car, 30 s windows once ≥ 3 police are out (police off:
+the same race time), two rounds: CrashEngine tick mean 6.59 / 6.50 ms off, 7.72 / 7.95 ms on (p99
+13.9 / 14.3 vs 15.4 / 16.0 ms; 20 cars vs 25–26). The first build with 8 police cost 3.7 ms more per
+tick (5.65 vs 9.31 ms) and 66 of 1628 frames over 33 ms against 1, hence the cap of 6.
 
 ## Ground, surfaces, decks
 ```ts
@@ -294,7 +340,7 @@ meter while driving), standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
 card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps
-1–5, AI cars 1–15, max aggression with its hint, respawn / no reset, Start race, Campaign, Back), pause (Resume,
+1–5, AI cars 1–15, max aggression with its hint, respawn / no reset, Police Off / Chase, Start race, Campaign, Back), pause (Resume,
 Restart, End race, Full menu / Race view, Quit to menu), dead, results (Next course / Standings,
 Retry, Menu), campaign standings (Next round / champion, Menu). D-pad / left stick move focus
 spatially (350 ms then 120 ms repeat), ←/→ adjust, A confirms, B backs out, Start resumes. Campaign results
@@ -320,6 +366,9 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
 - `race-finish.test.ts` also: a 1-lap oval race closes on laps with every car home on lap 1, placed
   and gapped by finish time; a Watch race (all-AI field, camera on pole, cycling reaches all five
   cars, closes with no You row) and a Watch campaign (all-AI standings).
+- `race-finish.test.ts` police chase: a Watch oval race with police on closes; parked police cars
+  show no sirens and chasing ones do; cycling reaches a police car ("Police" on the spectate bar);
+  at least one pursuit; no police car is in the results.
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
   oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
   service road and straight across the infield. The player finishes on the AI's lap count, and the

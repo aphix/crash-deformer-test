@@ -171,6 +171,7 @@ export class CrashEngine extends EngineInput {
       seat: this.seat,
       live: () => this.live(),
       setCarCount: (n) => this.ensureCars(n),
+      setPolice: (from, count) => this.setPolice(from, count),
       dress: (car) => this.dressCar(car),
       setPaused: (on) => {
         this.playing = !on;

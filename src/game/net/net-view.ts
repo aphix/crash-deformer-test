@@ -68,6 +68,7 @@ export function drawSnapshots(
     if (fa.vaporized !== car.vaporized) game.setVaporized(i, fa.vaporized);
     if (car.falling && !fa.falling) car.group.scale.setScalar(1);
     car.falling = fa.falling;
+    if (car.sirens !== fa.sirens) car.setSirens(fa.sirens);
 
     // The newest wreck section at or before the render time, once.
     let w = -1;
