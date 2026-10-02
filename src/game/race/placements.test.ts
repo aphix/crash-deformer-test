@@ -4,10 +4,7 @@ import * as THREE from "three";
 import { PREFABS } from "./catalog.ts";
 import { placeProps, propColliders, type Placed } from "./placements.ts";
 import { Track, blankProjection, projectPath, type TrackPath } from "./track.ts";
-import type { TrackFile } from "./track-schema.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
-
-const ovalFile = oval as TrackFile;
 
 /** Distance (m) from (x, z) beyond the wall line of a corridor (< 0 = on road or runoff). */
 function gap(path: TrackPath, x: number, z: number): number {
@@ -31,15 +28,15 @@ function onCorridor(track: Track, placed: Placed[]): string[] {
 
 describe("placements", () => {
   it("the same track places the same props and colliders every time", () => {
-    const a = placeProps(new Track(ovalFile));
-    const b = placeProps(new Track(structuredClone(ovalFile)));
-    assert.ok(a.length > ovalFile.props!.length);
+    const a = placeProps(new Track(oval));
+    const b = placeProps(new Track(structuredClone(oval)));
+    assert.ok(a.length > oval.props.length);
     assert.deepEqual(a, b);
     assert.deepEqual(propColliders(a), propColliders(b));
   });
 
   it("oval: along and scatter props keep off every corridor, scatter stays in its band and clear of the start line", () => {
-    const t = new Track(ovalFile);
+    const t = new Track(oval);
     const placed = placeProps(t);
     assert.deepEqual(onCorridor(t, placed), []);
     const trees = placed.filter((p) => p.prefab === "tree");
@@ -57,7 +54,7 @@ describe("placements", () => {
   });
 
   it("along copies that would land on a shortcut's road are skipped", () => {
-    const t = new Track({ ...ovalFile, along: [{ prefab: "lamp", every: 6, side: "left", offset: 1 }], scatter: [] });
+    const t = new Track({ ...oval, along: [{ prefab: "lamp", every: 6, side: "left", offset: 1 }], scatter: [] });
     const placed = placeProps(t);
     const lamps = placed.filter((p) => p.prefab === "lamp");
     assert.ok(lamps.length > 0 && lamps.length < Math.round(t.length / 6), `${lamps.length} lamps`);
@@ -65,7 +62,7 @@ describe("placements", () => {
   });
 
   it("along props face the road: front (+X) points at the centreline on both sides", () => {
-    const t = new Track({ ...ovalFile, along: [{ prefab: "billboard", every: 30, side: "both", offset: 4 }], scatter: [] });
+    const t = new Track({ ...oval, along: [{ prefab: "billboard", every: 30, side: "both", offset: 4 }], scatter: [] });
     const boards = placeProps(t).filter((p) => p.prefab === "billboard").slice(2);
     assert.ok(boards.length > 10);
     for (const b of boards) {
@@ -79,7 +76,7 @@ describe("placements", () => {
 
   it("colliders scale with the prop", () => {
     const t = new Track({
-      ...ovalFile,
+      ...oval,
       props: [
         { prefab: "crate", x: 0, z: 0 },
         { prefab: "crate", x: 0, z: 10, scale: 2 },
@@ -105,7 +102,7 @@ describe("placements", () => {
 
   it("a box collider of a yawed prop covers its rotated footprint, and no more", () => {
     const t = new Track({
-      ...ovalFile,
+      ...oval,
       props: [{ prefab: "billboard", x: 3, z: -7, yaw: 0.6, size: [0.5, 5, 9] }],
       along: [],
       scatter: [],
