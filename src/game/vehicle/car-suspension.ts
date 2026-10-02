@@ -13,7 +13,7 @@ import { WHEEL_POS } from "./car-mesh.ts";
  * bounce) and total travel (m), split evenly into bump and droop with a hard stop at each end. Per corner mass m:
  * k = m (2πf)², c = 2ζ √(k m); per unit mass ω² and 2ζω. Ranges: `.extraResearch` 2026-10-02-suspension-*.
  */
-export const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; travel: number }>> = {
+const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; travel: number }>> = {
   sedan: { hz: 1.3, zeta: 0.3, travel: 0.13 },
   muscle: { hz: 1.6, zeta: 0.3, travel: 0.11 },
   police: { hz: 1.5, zeta: 0.35, travel: 0.13 },

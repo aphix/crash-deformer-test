@@ -148,8 +148,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   if (dt <= 0) return;
   const d = car.drive;
   const p = car.group.position;
-  // Off the fleet disc's rim nothing is under the tyres, and in the air no wheel is on the ground: the car keeps
-  // its ballistic velocity and spin.
+  // Off the fleet disc's rim or in the air (no wheel down): the car keeps its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
   if (alive) floorUnder(p, _ground, 0);
   if (!alive || _ground[0] === NO_FLOOR || car.airborne) return idleDriveState(d);
