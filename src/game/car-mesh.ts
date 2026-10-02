@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR_STYLES, type BodyStyle, type GlassQuad, type ProfileStation, type YZ } from "./car-variants.ts";
-import { toned, mergeToned, makePartsMaterial } from "./car-materials.ts";
+import { makePartsMaterial, makeWheelGeometry, treadNormalMap } from "./car-materials.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
   [-0.74, 0.32, 1.34],
@@ -759,15 +759,11 @@ export class WheelBatch {
   readonly mesh: THREE.InstancedMesh;
 
   constructor(capacity: number) {
-    const parts = [
-      toned(new THREE.CylinderGeometry(0.32, 0.32, 0.22, 28, 1), 0x121214, 0.92, 0.05),
-      toned(new THREE.CylinderGeometry(0.2, 0.22, 0.24, 18, 1), 0xc9cdd4, 0.28, 0.92),
-      toned(new THREE.CylinderGeometry(0.07, 0.07, 0.26, 12), 0x8a909a, 0.35, 0.8),
-    ];
-    for (const p of parts) p.rotateZ(Math.PI / 2);
     // Its own copy of the parts material (and shadow depth material): on the material the plain part meshes use,
     // three re-ran program selection (`getProgram`, an allocation) on every instanced ↔ plain switch, twice a frame.
-    this.mesh = new THREE.InstancedMesh(mergeToned(parts, "wheel"), makePartsMaterial(), capacity);
+    const mat = makePartsMaterial();
+    mat.normalMap = treadNormalMap();
+    this.mesh = new THREE.InstancedMesh(makeWheelGeometry(), mat, capacity);
     this.mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;

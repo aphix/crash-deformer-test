@@ -13,6 +13,8 @@ import {
   restSideProfile,
   CAR_HALF,
 } from "./car-mesh.ts";
+import { makeWheelGeometry } from "./car-materials.ts";
+import { TYRE_R } from "./deform-state.ts";
 
 function bbox(geo: THREE.BufferGeometry) {
   geo.computeBoundingBox();
@@ -198,5 +200,39 @@ describe("rest car is closed from the side (no rollcage hole)", () => {
   it("close-but-wrong: glass must be outside |x|=0.75, not an interior liner", () => {
     const x = hitX(g, 1.05, -0.4);
     assert.ok(x !== null && x > 0.75, `glass inset at x=${x} — looks like a rollcage`);
+  });
+});
+
+describe("wheel (tyre, rim, hub)", () => {
+  const geo = makeWheelGeometry();
+  const pos = geo.getAttribute("position");
+  const nrm = geo.getAttribute("normal");
+  const uv1 = geo.getAttribute("uv1");
+  const radius = (i: number) => Math.hypot(pos.getY(i), pos.getZ(i));
+
+  it("good: the tread crown is the rig's tyre radius, so the wheel neither floats nor sinks", () => {
+    let r = 0;
+    for (let i = 0; i < pos.count; i++) r = Math.max(r, radius(i));
+    assert.ok(Math.abs(r - TYRE_R) < 1e-6, `crown ${r} vs TYRE_R ${TYRE_R}`);
+  });
+
+  it("good: mirror-symmetric across the axle plane, so one instance serves the left and right wheels", () => {
+    const b = bbox(geo);
+    assert.ok(Math.abs(b.min.x + b.max.x) < 1e-6 && b.sx < 0.24, `x ${b.min.x}..${b.max.x}`);
+  });
+
+  it("bad: tread faces pointing into the wheel (inverted lathe) render the tyre inside out", () => {
+    for (let i = 0; i < pos.count; i++) {
+      if (radius(i) < TYRE_R - 0.002) continue;
+      const out = (nrm.getY(i) * pos.getY(i) + nrm.getZ(i) * pos.getZ(i)) / radius(i);
+      assert.ok(out > 0.8, `tread vertex ${i} normal points ${out.toFixed(2)} outward`);
+    }
+  });
+
+  it("edge: only the tread samples the tread pattern; sidewalls, rim and hub read its flat rows", () => {
+    for (let i = 0; i < pos.count; i++) {
+      const v = uv1.getY(i);
+      if (radius(i) < 0.3) assert.ok(v === 0 || v === 1, `vertex ${i} at r=${radius(i).toFixed(3)} samples tread row ${v}`);
+    }
   });
 });

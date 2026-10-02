@@ -45,8 +45,9 @@ const _lampQ = new THREE.Quaternion();
 const LIGHT_BAR_Z = -0.02;
 /** Siren flash: red, then blue, each half of this period (s). */
 const SIREN_PERIOD = 0.5;
-/** Lit lens emissive gain past the bloom threshold; red stays under ACES's red-to-orange knee (as the tail lamps). */
-const SIREN_GAIN = { red: 1.3, blue: 2.4 } as const;
+/** Lit lens emissive gain past the bloom threshold; each stays under the ACES knee where it washes out
+ *  (red to orange, as the tail lamps; blue to lavender, seen at 2.4). */
+const SIREN_GAIN = { red: 1.3, blue: 1.5 } as const;
 
 export interface CarPaint {
   body: number;
