@@ -61,7 +61,7 @@ export function makeWorld(): World {
       car.deform.setMode(INITIAL_HUD.deformMode);
       const cls = carClass(car);
       assignClass(car, cls);
-      car.deform.killTravel = killTravel(cls, HANDLING.realism);
+      car.deform.killTravel = killTravel(cls, HANDLING.realism, "default");
     },
     setPaused: () => {},
     leave: () => {},
