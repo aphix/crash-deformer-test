@@ -36,9 +36,10 @@ VPS node server) applies it before its first query. The game code only sees
 ```ts
 interface NetTransport {
   readonly selfId: string;
+  readonly error?: string | null; // why the relay refused this peer (room full, host seat taken)
   onMessage: ((from: string, data: Uint8Array) => void) | null;
   send(data: Uint8Array<ArrayBuffer>, to?: string): void; // unreliable, unordered; to = one peer, else all
-  peers(): readonly { id: string; rttMs: number | null }[];
+  peers(): readonly { id: string; rttMs: number | null; host?: boolean }[]; // host: the relay roster's tag
   close(): void;
 }
 ```
@@ -82,7 +83,11 @@ host-only.
 Body + skin + parts form one **wreck section** (659 bytes + 20 per loose part or wheel), sent only for
 `crashed` cars. Header: type u8, keyframe u8, seq u16, host time f64 (s), car count u8, realism u8
 (the host's `HANDLING.realism`, which the client adopts), crash phase u8, time scale u16 = 17 bytes. Input (client → host): type,
-throttle i8, steer i8, brake u8, ebrake/boost bits = 5 bytes.
+throttle i8, steer i8, brake u8, ebrake/boost/respawn bits = 5 bytes. `hello` (client → any host):
+type, `NET_VERSION` u8. `assign` (host → one client): type, car u8 (255: refused), `NET_VERSION` u8.
+`hold` (hidden host → all): type only. `NET_VERSION` (`codec.ts`) is bumped on any layout change:
+a host answers another build's hello with a refusal and a client refuses another build's assign, so
+mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 
 Host-only (never sent): masses' velocities and `world` (client sets `world = group · local`),
 cluster plastic `Sp` and shape rests, beams, contact timers (`contactAt`, `lastContact`, `prevYaw`,
@@ -149,13 +154,39 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     whole 10 s probe. Now, normal close: a fresh room at once. `leave` dropped (a crashed tab):
     two runs, one joined the dead room and hosted a fresh one after 5.0 s, the other got a fresh room at once.
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
-- **Join**: the client sends `hello` every 0.5 s until the host answers `assign` (its car index: the
-  lowest free index ≥ 1; the host grows the field if needed) and makes its next snapshot a
-  keyframe. The client adopts the snapshot's car count, each car's body style and class
+- **Join**: the client sends `hello` every 0.5 s (the first at once) until a host answers `assign`
+  (its car index: the lowest free index ≥ 1; the host grows the field if needed) and makes its next
+  snapshot a keyframe. The client adopts the snapshot's car count, each car's body style and class
   (`CrashEngine.matchCar`) and the host's realism, then follows its car; a pedal takes the wheel.
   Join mid-session works the same: the keyframe carries every wreck.
-- **Leave**: a peer missing from the transport roster frees its slot and the car stops taking
-  input (it coasts in Fleet).
+- **Who speaks for the room**: the first version-matched `assign` pins its sender as the host; with
+  a relay roster it must be the peer tagged `host` (the relay freezes that tag and allows one per
+  room). Snapshots, race, derby and `hold` messages from any other peer are dropped. Decoding is
+  checked: a snapshot that is truncated, has 0 or more than 32 cars, a non-finite clock or position,
+  or a body style or class this build lacks is dropped whole, and the next one applies (the ring
+  slot is cleared first, `lastSeq` only moves on success). A race state is applied only with laps
+  1–99, at most 32 cars and a finite clock; a derby board at most 32 rows with finite clocks.
+- **Leave**: a peer that leaves (or whose tab closes) drops off the transport roster; the host keeps
+  its car for `SLOT_GRACE_MS` (10 s) after its last message, then frees it. A host that leaves frees
+  every seat (`setSeats([])`), so a solo race or derby after it has no ghost players.
+- **Link blips**: the host keeps a slot through the grace period, so a peer back within 10 s drives
+  its car on. A client that hears nothing from its host for `HOST_LOST_MS` (3 s; the Net panel says
+  "host lost") forgets it, keeps its car, camera and seat, and sends `hello` again: the same host
+  seats it in the same car (its slot, or the lowest free car once the slot lapsed), a restarted host
+  seats it anew and the client takes that host's clock and sequence from scratch. A peer whose slot
+  lapsed but who never noticed (it still hears the host) is re-seated by its next input. A public
+  client with no host for 5 s hosts a fresh public room.
+  Measured (`.bench/net/blip2.mjs` in the main checkout, two pages over WebRTC on `vite dev`): B
+  drives car 1 at 17.6 m/s, stops, then closes its `RTCPeerConnection` and holds the throttle. B
+  reports "host lost" from 3.2 s; `P2PRoom`'s watchdog rebuilds the pair at ~7.4 s; the host's copy of
+  car 1 passes 3 m/s under B's input 8.0 s after the close, the host's slot held throughout. Before,
+  the host dropped the slot the moment the pair left "connected" and B, still holding car 1, never
+  sent `hello` again: its input was ignored for good (`net-session.test.ts` reproduces both).
+- **Hidden tabs**: a hidden tab draws no frames. A peer's input older than 0.5 s turns idle on the
+  host, so a stalled or hidden guest's car coasts instead of holding full throttle; a guest whose tab
+  hides also sends an idle input at once. A hidden host sends `hold` every second (browsers throttle
+  hidden timers to 1 Hz, later 1/min); its guests show "host paused" and wait while it stays on the
+  transport roster.
 - **Host migration (spec only)**: the host already knows every client; the lowest remaining peer id
   becomes host. Its last snapshot gives poses, particles and parts but not the physics-only state
   above, so the new host re-arms each wreck from the snapshot (masses at `world = group · local`,
@@ -315,13 +346,18 @@ shrank to scale 0.23 before it vanished.
 ## Prototype status (2026-10-01)
 
 Code: `src/game/net/` (`transport.ts` `NetTransport` + `BroadcastTransport`, `rtc-transport.ts`,
-`codec.ts`, `net-play.ts`, `net.test.ts`), `src/components/net-panel.tsx`, `src/routes/api/rtc.ts` +
+`codec.ts`, `net-play.ts`, `net-ports.ts` (the engine as netplay sees it), `net-view.ts` (a client
+draws the snapshot ring), `net.test.ts`, `net-session.test.ts`, `race-net.test.ts`),
+`src/components/net-panel.tsx`, `src/routes/api/rtc.ts` +
 `src/lib/multiplayer/signaling.server.ts` (the kit's reference relay).
 
 Unit tests (`net.test.ts`): codec round trip within each quantization step, i16 clamping, input
 round trip; a host car crashed into the wall (shape and lattice) replicated through the wire onto a
 fresh car matches its skin within 2 mm, hulls within 1 mm, identical part/lamp/glass states and
-graded damage; a client torn up by an earlier crash re-attaches its parts for the host's next wreck.
+graded damage; a client torn up by an earlier crash re-attaches its parts for the host's next wreck;
+the codec refuses values a host never sends. `net-session.test.ts` runs a host and a guest `NetPlay`
+through an in-memory room on a fake clock: blips, lapsed slots, a restarted host, rogue and broken
+messages, another build, stale input, hidden tabs, and a public room whose host leaves.
 
 Smoke (`.bench/net/smoke.mjs` in the main checkout, two pages on `vite dev`, Fleet, host's car 0 a
 muscle car, realism 0.6, auto-loop off, cars parked): B holds W; A sees B's car move within
@@ -337,6 +373,6 @@ Measured payload, 2 cars: steady 1.96–2.07 KB/s at 28–30 Hz (estimate 70 B �
 cars crushing peaked at 42.3 KB/s (estimate 2.1 + 2 × 19.8 = 41.7 KB/s). Over WebRTC the host page
 ran ~16 fps early on, so it sent 16–18 Hz (1.1–1.2 KB/s), peak 29.5 KB/s.
 
-Known gaps: Fleet only (Derby AI and scene props are not synced and would double-drive remote
-cars); no client prediction; scene keys on a client act locally until the next snapshot /
-keyframe; host migration is spec only.
+Known gaps: no client prediction; host migration is spec only; a peer that closes its tab keeps its
+car (idle) for the 10 s grace period; scene and mode switches on a client are the host's (see
+`CrashEngine` toggles).
