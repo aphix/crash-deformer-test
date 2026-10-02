@@ -1251,17 +1251,16 @@ export class StreamedDeformation {
    */
   updateDrivetrain(): void {
     if (!this.drivetrainAlive || !this.massActive) return;
-    // A side hit shoves the block sideways with the whole nose; it does not crush it.
-    if (Math.abs(this.impactInward.x) > Math.abs(this.impactInward.z)) return;
-    // Only the block's travel along the car toward the cabin packs it into the firewall. Measured along
-    // the hit, a 45° corner hit counted the nose's sideways shove too and killed at 52 km/h, below the
-    // front-middle's 56.
-    const back = this.impactInward.z < 0 ? 1 : -1;
     const el = this.at.engineL;
     const er = this.at.engineR;
-    const travel = Math.max((el.rest.z - el.local.z) * back, (er.rest.z - er.local.z) * back);
-    // Rear hits have to cross the cabin to get here, so the same travel
-    // kills a nose around 50 km/h and a tail much later.
+    // Only the block's travel along the car toward the cabin packs it into the firewall (measured along
+    // the hit, a 45° corner counted the nose's sideways shove and killed at 52 km/h, below the
+    // front-middle's 56). It counts whatever the current hit's direction: a side or rear hit on a nose an
+    // earlier hit had packed returned early or measured the other way, and derby cars ran 0.25 m back alive.
+    let travel = Math.max(el.rest.z - el.local.z, er.rest.z - er.local.z);
+    // A rear hit has to cross the cabin to get here: its push along the hit counts too, so the same travel
+    // kills a nose around 50 km/h and a tail much later. A side hit shoves the block sideways only.
+    if (this.impactInward.z > Math.abs(this.impactInward.x)) travel = Math.max(travel, el.local.z - el.rest.z, er.local.z - er.rest.z);
     if (travel > this.engineTravel) this.engineTravel = travel;
     if (travel > this.killTravel) this.drivetrainAlive = false;
   }

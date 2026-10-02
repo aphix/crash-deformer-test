@@ -398,6 +398,20 @@ forModes("drivetrain", (spawn) => {
     assert.equal(s.d.drivetrainAlive, false);
   });
 
+  // CrushCalibration's seed-7 derby: live cars ran with the block 0.25 m back, because a side- or
+  // rear-classed later hit made updateDrivetrain return early or measure the other way.
+  it("bad: a block an earlier nose hit packed back still kills after a side or rear hit takes over", () => {
+    for (const inward of [new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)]) {
+      const s = spawn(0);
+      const eng = mass(s.d, "engineL");
+      eng.local.z = eng.rest.z - (ENGINE_KILL_TRAVEL + 0.03);
+      s.d.impactInward.copy(inward);
+      s.d.updateDrivetrain();
+      assert.equal(s.d.drivetrainAlive, false, `block ${(ENGINE_KILL_TRAVEL + 0.03).toFixed(2)} m back survived a hit along ${inward.toArray().join(",")}`);
+      assert.equal(s.d.drivetrainHealth, 0);
+    }
+  });
+
   it("bad: an engine stretched 0.35 m forward of rest (cell at rest) still drives", () => {
     const s = spawn(0);
     for (const name of ["engineL", "engineR"]) {
