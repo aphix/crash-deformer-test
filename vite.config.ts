@@ -164,6 +164,15 @@ export default defineConfig(({ command, isPreview }) => ({
     strictPort: true,
   },
   resolve: { tsconfigPaths: true },
+  build: {
+    // three.js gets its own vendor chunk (596 kB): it changes only on a three upgrade, so it stays cached across
+    // game deploys. Measured: engine 760 → 404 kB, routes 430 → 188 kB; total client JS unchanged (1.59 MB).
+    rolldownOptions: {
+      output: { codeSplitting: { groups: [{ name: "three", test: /[\\/]node_modules[\\/]three[\\/]/ }] } },
+    },
+    // Sized for the three chunk alone; every other client chunk is under the 500 kB default.
+    chunkSizeWarningLimit: 700,
+  },
   plugins: [
     pgliteBootstrapPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.

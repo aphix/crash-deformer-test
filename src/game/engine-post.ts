@@ -1,9 +1,13 @@
 import * as THREE from "three";
-import { FullScreenQuad } from "three/addons/postprocessing/Pass.js";
 
-/** Cinematic FX quality: `off` renders straight to the canvas exactly as before; `low` / `high` add the post chain. */
-export type FxTier = "off" | "low" | "high";
-export const FX_TIERS: readonly FxTier[] = ["off", "low", "high"];
+/**
+ * Cinematic FX quality, cheapest first. `off` and `minimal` render straight to the canvas (no post chain);
+ * `minimal` keeps the director's camera moves, tyre marks and smoke, `off` drops those too; `low` / `high`
+ * add the post chain.
+ */
+export type FxTier = "off" | "minimal" | "low" | "high";
+export const FX_TIERS: readonly FxTier[] = ["off", "minimal", "low", "high"];
+type PostTier = Exclude<FxTier, "off" | "minimal">;
 
 const VERT = /* glsl */ `
 varying vec2 vUv;
@@ -113,21 +117,37 @@ void main() {
   gl_FragColor.rgb = g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain;
 }`;
 
-type TierSpec = { bloomMips: number; bloomDiv: number; radial: boolean; grain: number };
-const TIER: Record<Exclude<FxTier, "off">, TierSpec> = {
-  low: { bloomMips: 3, bloomDiv: 4, radial: false, grain: 0 },
-  high: { bloomMips: 5, bloomDiv: 2, radial: true, grain: 0.03 },
+/** Bloom runs over `mips` targets of the shared chain starting at `mip0` (the chain halves from ½ canvas res). */
+type TierSpec = { mip0: number; mips: number; radial: boolean; grain: number };
+const TIER: Record<PostTier, TierSpec> = {
+  low: { mip0: 1, mips: 3, radial: false, grain: 0 },
+  high: { mip0: 0, mips: 5, radial: true, grain: 0.03 },
 };
+/** Length of the shared bloom chain: ½, ¼, ⅛, 1/16, 1/32 of the canvas. */
+const CHAIN = 5;
 
 /** Look shared by both post tiers (tuned against the studio env at exposure 1.45). `contrast` is the S-curve mix. */
 export const GRADE = { bloom: 0.45, threshold: 1.6, scatter: 0.8, vignette: 0.55, saturation: 1.12, contrast: 0.22 };
 
 const _size = new THREE.Vector2();
 
+/** One clip-space triangle covering the screen (three's `FullScreenQuad`, kept as a plain mesh so it can be precompiled). */
+function fullScreenTriangle(): THREE.Mesh {
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute("position", new THREE.Float32BufferAttribute([-1, 3, 0, -1, -1, 0, 3, -1, 0], 3));
+  geo.setAttribute("uv", new THREE.Float32BufferAttribute([0, 2, 0, 0, 2, 0], 2));
+  const mesh = new THREE.Mesh(geo);
+  mesh.frustumCulled = false;
+  return mesh;
+}
+const QUAD_CAMERA = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+
 /**
  * Post chain behind one `render(scene, camera)` call. The scene renders linear HDR into a half-float target
  * (MSAA when the canvas had it), bloom is a dual-filter mip chain, and one composite pass writes the canvas.
  * `flash` / `punch` / `radial` are per-frame drive values the director (`engine-cine.ts`) sets.
+ * Targets are allocated once and only resized with the canvas, and each tier has its own composite, so a tier
+ * switch allocates and compiles nothing.
  */
 export class PostFX {
   /** 0–1+: exposure lift for a hit flash. */
@@ -141,13 +161,14 @@ export class PostFX {
   letterbox = 0;
   private tierNow: FxTier = "off";
   private readonly renderer: THREE.WebGLRenderer;
-  private sceneRT: THREE.WebGLRenderTarget | null = null;
-  private mips: THREE.WebGLRenderTarget[] = [];
-  private readonly quad = new FullScreenQuad();
+  /** The low / high tiers' HDR scene target (the warm-up draws into it once). */
+  readonly sceneRT: THREE.WebGLRenderTarget;
+  private readonly mips: THREE.WebGLRenderTarget[] = [];
+  private readonly quad = fullScreenTriangle();
   private readonly down: THREE.ShaderMaterial;
   private readonly downPre: THREE.ShaderMaterial;
   private readonly up: THREE.ShaderMaterial;
-  private readonly composite: THREE.ShaderMaterial;
+  private readonly composites: Record<PostTier, THREE.ShaderMaterial>;
   private width = 1;
   private height = 1;
 
@@ -168,27 +189,36 @@ export class PostFX {
     this.up = blit(UP, { uScatter: { value: GRADE.scatter } });
     this.up.blending = THREE.AdditiveBlending;
     this.up.transparent = true;
-    this.composite = new THREE.ShaderMaterial({
-      vertexShader: VERT,
-      fragmentShader: COMPOSITE,
-      uniforms: {
-        tScene: { value: null },
-        tBloom: { value: null },
-        uBloom: { value: GRADE.bloom },
-        uFlash: { value: 0 },
-        uPunch: { value: 0 },
-        uRadial: { value: 0 },
-        uCenter: { value: this.center },
-        uGrain: { value: 0 },
-        uSeed: { value: 0 },
-        uVignette: { value: GRADE.vignette },
-        uSat: { value: GRADE.saturation },
-        uContrast: { value: GRADE.contrast },
-        uLetterbox: { value: 0 },
-      },
-      depthTest: false,
-      depthWrite: false,
-    });
+    const composite = (spec: TierSpec) =>
+      new THREE.ShaderMaterial({
+        vertexShader: VERT,
+        fragmentShader: COMPOSITE,
+        uniforms: {
+          tScene: { value: null },
+          tBloom: { value: null },
+          uBloom: { value: GRADE.bloom },
+          uFlash: { value: 0 },
+          uPunch: { value: 0 },
+          uRadial: { value: 0 },
+          uCenter: { value: this.center },
+          uGrain: { value: spec.grain },
+          uSeed: { value: 0 },
+          uVignette: { value: GRADE.vignette },
+          uSat: { value: GRADE.saturation },
+          uContrast: { value: GRADE.contrast },
+          uLetterbox: { value: 0 },
+        },
+        defines: spec.radial ? { BLOOM: "", RADIAL: "" } : { BLOOM: "" },
+        depthTest: false,
+        depthWrite: false,
+      });
+    this.composites = { low: composite(TIER.low), high: composite(TIER.high) };
+    // Match the canvas: the renderer asked for MSAA only at a device pixel ratio of 1.
+    const samples = renderer.getContextAttributes()?.antialias ? 4 : 0;
+    this.sceneRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, stencilBuffer: false });
+    for (let i = 0; i < CHAIN; i++) {
+      this.mips.push(new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false }));
+    }
   }
 
   get tier(): FxTier {
@@ -196,17 +226,7 @@ export class PostFX {
   }
 
   setTier(tier: FxTier): void {
-    if (tier === this.tierNow) return;
     this.tierNow = tier;
-    this.release();
-    if (tier === "off") return;
-    const spec = TIER[tier];
-    const defines: Record<string, string> = { BLOOM: "" };
-    if (spec.radial) defines.RADIAL = "";
-    this.composite.defines = defines;
-    this.composite.needsUpdate = true;
-    this.composite.uniforms.uGrain!.value = spec.grain;
-    this.allocate();
   }
 
   /** Follow the renderer's drawing-buffer size (canvas size × pixel ratio). */
@@ -214,17 +234,43 @@ export class PostFX {
     this.renderer.getDrawingBufferSize(_size);
     this.width = Math.max(1, _size.x);
     this.height = Math.max(1, _size.y);
-    if (this.tierNow === "off") return;
-    this.release();
-    this.allocate();
+    this.sceneRT.setSize(this.width, this.height);
+    let w = this.width;
+    let h = this.height;
+    for (const m of this.mips) {
+      w = Math.max(1, Math.round(w / 2));
+      h = Math.max(1, Math.round(h / 2));
+      m.setSize(w, h);
+    }
+  }
+
+  /**
+   * Link every program the chain can draw (async where the driver allows) so a tier switch never compiles:
+   * `scene` for both outputs (this HDR target at low / high, the canvas at off), each pass, each tier's
+   * composite. `offscreen` scenes draw into other render targets (the mark map), which share the HDR programs.
+   */
+  warm(scene: THREE.Scene, camera: THREE.Camera, offscreen: readonly (readonly [THREE.Object3D, THREE.Camera])[]): Promise<unknown> {
+    const r = this.renderer;
+    const prev = r.getRenderTarget();
+    const jobs: Promise<unknown>[] = [];
+    r.setRenderTarget(this.sceneRT);
+    jobs.push(r.compileAsync(scene, camera));
+    for (const [root, cam] of offscreen) jobs.push(r.compileAsync(root, cam));
+    for (const m of [this.down, this.downPre, this.up]) jobs.push(this.compilePass(m));
+    r.setRenderTarget(null);
+    jobs.push(r.compileAsync(scene, camera));
+    for (const m of Object.values(this.composites)) jobs.push(this.compilePass(m));
+    r.setRenderTarget(prev);
+    return Promise.all(jobs);
   }
 
   render(scene: THREE.Scene, camera: THREE.Camera): void {
     const r = this.renderer;
-    if (this.tierNow === "off" || !this.sceneRT) {
+    if (this.tierNow === "off" || this.tierNow === "minimal") {
       r.render(scene, camera);
       return;
     }
+    const spec = TIER[this.tierNow];
     // Several render() calls make up one frame: keep renderer.info a whole-frame count.
     r.info.autoReset = false;
     r.info.reset();
@@ -232,11 +278,12 @@ export class PostFX {
     r.render(scene, camera);
 
     const mips = this.mips;
+    const end = spec.mip0 + spec.mips;
     let src: THREE.Texture = this.sceneRT.texture;
     let sw = this.width;
     let sh = this.height;
-    for (let i = 0; i < mips.length; i++) {
-      const m = i === 0 ? this.downPre : this.down;
+    for (let i = spec.mip0; i < end; i++) {
+      const m = i === spec.mip0 ? this.downPre : this.down;
       m.uniforms.tSrc!.value = src;
       (m.uniforms.uTexel!.value as THREE.Vector2).set(1 / sw, 1 / sh);
       this.blit(m, mips[i]!);
@@ -246,67 +293,46 @@ export class PostFX {
     }
     const ac = r.autoClear;
     r.autoClear = false;
-    for (let i = mips.length - 1; i > 0; i--) {
+    for (let i = end - 1; i > spec.mip0; i--) {
       this.up.uniforms.tSrc!.value = mips[i]!.texture;
       (this.up.uniforms.uTexel!.value as THREE.Vector2).set(1 / mips[i]!.width, 1 / mips[i]!.height);
       this.blit(this.up, mips[i - 1]!);
     }
     r.autoClear = ac;
 
-    const u = this.composite.uniforms;
+    const composite = this.composites[this.tierNow];
+    const u = composite.uniforms;
     u.tScene!.value = this.sceneRT.texture;
-    u.tBloom!.value = mips[0]!.texture;
+    u.tBloom!.value = mips[spec.mip0]!.texture;
     u.uFlash!.value = this.flash;
     u.uPunch!.value = this.punch;
     u.uRadial!.value = this.radial;
     u.uLetterbox!.value = this.letterbox;
     u.uSeed!.value = (u.uSeed!.value as number) + 17.31;
     if ((u.uSeed!.value as number) > 1e4) u.uSeed!.value = 0;
-    this.blit(this.composite, null);
+    this.blit(composite, null);
     r.info.autoReset = true;
   }
 
   dispose(): void {
-    this.release();
-    this.quad.dispose();
+    this.sceneRT.dispose();
+    for (const m of this.mips) m.dispose();
+    this.quad.geometry.dispose();
     this.down.dispose();
     this.downPre.dispose();
     this.up.dispose();
-    this.composite.dispose();
+    this.composites.low.dispose();
+    this.composites.high.dispose();
+  }
+
+  private compilePass(material: THREE.ShaderMaterial): Promise<unknown> {
+    this.quad.material = material;
+    return this.renderer.compileAsync(this.quad, QUAD_CAMERA);
   }
 
   private blit(material: THREE.ShaderMaterial, target: THREE.WebGLRenderTarget | null): void {
     this.quad.material = material;
     this.renderer.setRenderTarget(target);
-    this.quad.render(this.renderer);
-  }
-
-  private allocate(): void {
-    const spec = TIER[this.tierNow as Exclude<FxTier, "off">];
-    // Match the canvas: the renderer asked for MSAA only at a device pixel ratio of 1.
-    const samples = this.renderer.getContextAttributes()?.antialias ? 4 : 0;
-    this.sceneRT = new THREE.WebGLRenderTarget(this.width, this.height, {
-      type: THREE.HalfFloatType,
-      samples,
-      depthBuffer: true,
-      stencilBuffer: false,
-    });
-    let w = this.width;
-    let h = this.height;
-    for (let i = 0; i < spec.bloomMips; i++) {
-      const div = i === 0 ? spec.bloomDiv : 2;
-      w = Math.max(1, Math.round(w / div));
-      h = Math.max(1, Math.round(h / div));
-      this.mips.push(
-        new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, depthBuffer: false, stencilBuffer: false }),
-      );
-    }
-  }
-
-  private release(): void {
-    this.sceneRT?.dispose();
-    this.sceneRT = null;
-    for (const m of this.mips) m.dispose();
-    this.mips = [];
+    this.renderer.render(this.quad, QUAD_CAMERA);
   }
 }

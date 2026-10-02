@@ -790,7 +790,10 @@ export function makeInterior(): THREE.Mesh {
     parts.push(toned(new THREE.BoxGeometry(0.3, 0.32, 0.07), ...seat).rotateX(-0.12).translate(x, 0.58, 0.06 - 0.16));
   }
   for (const sign of [-1, 1]) parts.push(box(0.03, 0.5, 1.1, vinyl, sign * 0.4, 0.62, 0.02));
-  return new THREE.Mesh(mergeToned(parts, "interior"), partsMaterial());
+  const mesh = new THREE.Mesh(mergeToned(parts, "interior"), partsMaterial());
+  // The engine's distance detail keeps it on far cars: it shows through the glass.
+  mesh.name = "interior";
+  return mesh;
 }
 
 /** Inner door skin, in door-group space (hinge at the A-pillar). */
