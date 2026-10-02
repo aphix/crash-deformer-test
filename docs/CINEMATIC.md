@@ -13,7 +13,8 @@ Keys: `F` FX tier · `H` night · `X` wet asphalt (also HUD Playback → Night /
 | Effect | Module | Tier | Cost (see bench) |
 |---|---|---|---|
 | HDR scene target (half-float, MSAA when the canvas had it) + one composite pass: ACES tone map, display-space grade (saturation, warm-high / cool-low split tone, end-preserving S-curve), vignette | `engine-post.ts` `PostFX` | low, high | one full-screen pass |
-| Bloom: dual-filter (Kawase) mip chain, soft threshold 1.6 linear (sparks, lamp heads, headlamps, night pools) | `engine-post.ts` | low (3 mips from ¼ res), high (5 mips from ½ res) | 2×mips small passes |
+| Bloom: dual-filter (Kawase) mip chain. Threshold 1.6 linear with a narrow knee, so only values above 1.44 bloom: sparks, glass, night lamp heads | `engine-post.ts` | low (3 mips from ¼ res), high (5 mips from ½ res) | 2×mips small passes |
+| Car paint highlight cap: car body, trim and parts materials roll their linear radiance off above 0.7 to at most 1.1. Lit paint (sun specular, clearcoat, other cars' headlamps up close) then never blooms, and it tone-maps to ≤ ~240/255. Before the cap, a white body reached 14 linear and a fifth of it rendered near-white | `car-mesh.ts` `capHighlights` | all | 4 ALU ops per car fragment |
 | Film grain (display space) | `engine-post.ts` | high | in composite |
 | Boost radial blur toward screen centre (driven car above top speed) | `engine-post.ts` + `engine-cine.ts` | high | 7 extra taps, only while boosting |
 | Impact punch: FOV kick, shake (trauma), exposure flash, chromatic split + vignette squeeze, scaled by impulse | `engine-cine.ts` `kick` | low, high | uniforms only |

@@ -946,28 +946,51 @@ function makePaintMaps(): { map: THREE.CanvasTexture; roughness: THREE.CanvasTex
   return { map: _paintMap, roughness: _roughMap };
 }
 
+/**
+ * Soft shoulder on a car material's final linear radiance: untouched up to 0.7, rolling off to at most 1.1.
+ * A white body under the sun reached 14 (sun specular through roughness 0.42 + clearcoat), which bloomed
+ * (post threshold 1.6) and pushed a fifth of the body to near-white after exposure 1.45. Capped, lit paint
+ * stays below the bloom threshold and tone-maps to ≤ ~240/255 at every FX tier; only emissive FX bloom.
+ */
+const HIGHLIGHT_CAP = /* glsl */ `
+float capM = max(outgoingLight.r, max(outgoingLight.g, outgoingLight.b));
+if (capM > 0.7) outgoingLight *= (0.7 + 0.4 * (1.0 - exp((0.7 - capM) / 0.4))) / capM;
+#include <opaque_fragment>`;
+
+function capHighlights<T extends THREE.MeshStandardMaterial>(m: T): T {
+  m.onBeforeCompile = (shader) => {
+    shader.fragmentShader = shader.fragmentShader.replace("#include <opaque_fragment>", HIGHLIGHT_CAP);
+  };
+  m.customProgramCacheKey = () => "car-highlight-cap";
+  return m;
+}
+
 export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
   const maps = typeof document === "undefined" ? { map: null, roughness: null } : makePaintMaps();
-  return new THREE.MeshPhysicalMaterial({
-    color,
-    map: maps.map ?? undefined,
-    roughnessMap: maps.roughness ?? undefined,
-    metalness: 0.2,
-    roughness: 0.42,
-    clearcoat: 0.72,
-    clearcoatRoughness: 0.24,
-    envMapIntensity: 0.9,
-    side: THREE.FrontSide,
-  });
+  return capHighlights(
+    new THREE.MeshPhysicalMaterial({
+      color,
+      map: maps.map ?? undefined,
+      roughnessMap: maps.roughness ?? undefined,
+      metalness: 0.2,
+      roughness: 0.42,
+      clearcoat: 0.72,
+      clearcoatRoughness: 0.24,
+      envMapIntensity: 0.9,
+      side: THREE.FrontSide,
+    }),
+  );
 }
 
 export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
-  return new THREE.MeshStandardMaterial({
-    color,
-    metalness: 0.55,
-    roughness: 0.38,
-    envMapIntensity: 0.65,
-  });
+  return capHighlights(
+    new THREE.MeshStandardMaterial({
+      color,
+      metalness: 0.55,
+      roughness: 0.38,
+      envMapIntensity: 0.65,
+    }),
+  );
 }
 
 /** Roughness/metalness lookup in 0.01 steps: texel (i, j) = roughness i/100 (G), metalness j/100 (B). */
@@ -1003,7 +1026,9 @@ function toneGrid(): THREE.DataTexture {
 export function partsMaterial(): THREE.MeshStandardMaterial {
   if (_partsMat) return _partsMat;
   const grid = toneGrid();
-  _partsMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid });
+  _partsMat = capHighlights(
+    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid }),
+  );
   _partsMat.userData.shared = true;
   return _partsMat;
 }
