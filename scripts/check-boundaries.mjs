@@ -32,7 +32,7 @@ const CONTEXTS = [
   ["net", 8, ["src/game/net/"]],
   // The HUD store is the read model of the whole sim and its presentation settings, so it sits above both.
   ["hud", 9, ["src/game/hud-store.ts", "src/game/race/menu-nav.ts"]],
-  ["engine", 10, ["src/game/engine.ts", "src/game/engine-core.ts", "src/game/engine-warm.ts", "src/game/engine-hud.ts", "src/game/engine-scenes.ts", "src/game/engine-rigs.ts", "src/game/engine-input.ts", "src/game/world-step.ts", "src/game/engine-race.ts", "src/game/engine-trace.ts"]],
+  ["engine", 10, ["src/game/engine.ts", "src/game/engine-core.ts", "src/game/engine-warm.ts", "src/game/engine-hud.ts", "src/game/engine-scenes.ts", "src/game/engine-rigs.ts", "src/game/engine-input.ts", "src/game/world-step.ts", "src/game/engine-race.ts", "src/game/engine-race-field.ts", "src/game/engine-trace.ts"]],
   ["ui", 11, ["src/components/", "src/routes/", "src/router.tsx"]],
   ["platform", -1, ["src/lib/"]],
 ];
