@@ -221,9 +221,11 @@ export function Hud(props: HudProps) {
       {state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-[38%] z-10 flex justify-center">
           <div className="rounded-2xl bg-surface/95 px-8 py-5 text-center shadow-[var(--shadow-border)]">
-            <p className="font-display text-[0.7rem] uppercase tracking-[0.28em] text-muted">Winner</p>
+            <p className="font-display text-[0.7rem] uppercase tracking-[0.28em] text-muted">{state.derbyDecided === "time" ? "Time!" : "Winner"}</p>
             <p className="mt-1 font-display text-5xl font-semibold tracking-tight text-fg">{state.derbyWinner}</p>
-            <p className="mt-2 text-sm text-muted">Last engine still running</p>
+            <p className="mt-2 text-sm text-muted">
+              {state.derbyDecided === "time" ? "Winner on points" : state.derbyDecided === "countout" ? "Last car in the fight; the rest counted out" : "Last engine still running"}
+            </p>
           </div>
         </div>
       ) : null}

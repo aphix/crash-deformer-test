@@ -27,6 +27,8 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/21-vehicle-node-counts.md` | Node counts and CPU cost of real-time vehicle soft bodies (BeamNG numbers; others unsourced) |
 | `perplexity/22-hierarchical-two-tier.md` | Two-tier coarse skeleton + fine surface particle layer, HPBD, activation islands, JS/Wasm budgets |
 | `perplexity/50-derby-elimination-rules.md` | Real demolition-derby elimination: aggressive-hit interval (60 s typical; 90 s / 2 min), no-movement limit (60 s), door hits, last-car-to-hit wins (CrushCalibration lane) |
+| `perplexity/40-derby-driver-techniques.md` | Real derby driving: rear-first hits to protect radiator/engine, aim at front wheels/radiator, sideswipes, walls, J-turns, sandbagging, finishing weakened cars (DerbyAI2) |
+| `perplexity/41-derby-rules-door-timer.md` | Derby rule books: driver's door hits DQ, hit clocks (30/60/90/120 s), head-ons banned, stalled car counted out after ~1 min (DerbyAI2) |
 | `perplexity/90-vercel-realtime-transports.md` | Realtime multiplayer under Vercel: function WebSocket limits, WebRTC + polled signaling, TURN, PartyKit/Ably/Pusher/Liveblocks, PeerJS (Netplay lane) |
 | `perplexity/91-snapshot-netcode.md` | Snapshot interpolation vs state sync vs lockstep, quantization, delta vs acked baseline, unreliable DataChannels, BroadcastChannel (Netplay lane) |
 | `perplexity/23-race-checkpoints-laps.md` | Arcade lap counting: hidden/key checkpoint gates, designed shortcuts, spline-progress ranking, wrong way, respawn anchors, authoritative race state (RaceLead lane) |

@@ -578,18 +578,6 @@ export class DeformableCar {
     this.velocity.copy(this.fwdFlat).multiplyScalar(speed);
     this.deform.bindKinematic(this.group, this.velocity, this.angular);
     this.resetLamps();
-    this.setHighlight(false);
-  }
-
-  setHighlight(on: boolean): void {
-    if (on) {
-      this.bodyMat.emissive.setHex(0xffe08a);
-      this.bodyMat.emissiveIntensity = 0.55;
-    } else {
-      this.bodyMat.emissive.setHex(0x000000);
-      this.bodyMat.emissiveIntensity = 0;
-    }
-    this.bodyMat.needsUpdate = true;
   }
 
   resetVisual(): void {
@@ -616,7 +604,6 @@ export class DeformableCar {
       w.visible = true;
     }
     this.bodyMat.roughness = 0.42;
-    this.setHighlight(false);
     this.group.rotation.set(0, 0, 0);
     this.interior.scale.set(1, 1, 1);
     this.interior.position.set(0, 0, 0);

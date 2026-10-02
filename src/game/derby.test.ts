@@ -24,24 +24,28 @@ function decide(brain: DerbyBrain, self: AiCar, others: AiCar[], dt = 2): DriveI
 }
 
 describe("derby AI", () => {
-  it("good: a brawler with the better nose takes the head-on; equal noses swing for the flank", () => {
-    assert.ok(personality(2).aggression > 0.45);
+  it("good: never head-on (banned in the rule books): even a brawler facing a flat nose swings wide or backs in", () => {
+    const brain = new DerbyBrain();
+    brain.setAggression(2, 1);
     const me = car(2, { z: -8 });
     const flat = car(1, { z: 8, yaw: Math.PI, vz: -8, front: 0.8, damage: 0.8 });
-    const straight = decide(new DerbyBrain(), me, [me, flat]);
-    assert.ok(straight.throttle > 0.5, `wanted a charge, got ${straight.throttle}`);
-    assert.ok(Math.abs(straight.steer) < 0.15, `head-on should be straight, steer ${straight.steer}`);
-    const mint = car(1, { z: 8, yaw: Math.PI, vz: -8 });
-    const wide = decide(new DerbyBrain(), me, [me, mint]);
-    assert.ok(Math.abs(wide.steer) > 0.3, `equal noses should swing wide, steer ${wide.steer}`);
+    const input = decide(brain, me, [me, flat]);
+    assert.ok(Math.abs(input.steer) > 0.3 || input.throttle < 0, `charged nose first: steer ${input.steer} throttle ${input.throttle}`);
   });
 
-  it("good: a spent nose backs in tail-first; the same car mint drives at it", () => {
-    const foe = car(1, { z: 5 });
-    const spent = car(0, { front: 0.7, damage: 0.7 });
-    assert.ok(decide(new DerbyBrain(), spent, [spent, foe]).throttle < 0, "front-damaged car donated its block");
-    const mint = car(0);
-    assert.ok(decide(new DerbyBrain(), mint, [mint, foe]).throttle > 0, "mint car reversed for no reason");
+  it("good: the tail is the bumper: a target behind gets backed into; one ahead gets a handbrake J-turn first", () => {
+    const parked = car(0, { vz: 0 });
+    const behind = car(1, { z: -10 });
+    const back = decide(new DerbyBrain(), parked, [parked, behind]);
+    assert.ok(back.throttle < -0.5, `didn't back in: throttle ${back.throttle}`);
+    const spent = car(0, { vz: 0, front: 0.7, damage: 0.7 });
+    assert.ok(decide(new DerbyBrain(), spent, [spent, behind]).throttle < 0, "front-damaged car donated its block");
+    const rolling = car(0, { vz: 8 });
+    const ahead = car(1, { z: 12, vz: 0 });
+    const brain = new DerbyBrain();
+    const turn = decide(brain, rolling, [rolling, ahead]);
+    assert.equal(brain.tacticOf(0), "jturn");
+    assert.ok(turn.ebrake && turn.throttle === 0 && Math.abs(turn.steer) > 0.5, `no J-turn: ${JSON.stringify(turn)}`);
   });
 
   it("good: near the wall we turn off it, not into the concrete", () => {
@@ -52,9 +56,11 @@ describe("derby AI", () => {
   });
 
   it("good: leads a crossing target instead of aiming where it was", () => {
-    const me = car(3, { z: -10 });
-    const parked = car(1, { yaw: Math.PI / 2, vz: 0 });
-    const crossing = car(1, { yaw: Math.PI / 2, vx: 8, vz: 0 });
+    // Backing at it tail first: facing away, rolling backwards toward it.
+    const me = car(3, { z: -10, yaw: Math.PI, vz: 8 });
+    // It faces us, so we back straight down its nose lane; crossing, it drags the aim sideways.
+    const parked = car(1, { yaw: Math.PI, vz: 0 });
+    const crossing = car(1, { yaw: Math.PI, vx: 8, vz: 0 });
     const atParked = decide(new DerbyBrain(), me, [me, parked]);
     const atCrossing = decide(new DerbyBrain(), me, [me, crossing]);
     assert.ok(
@@ -63,20 +69,29 @@ describe("derby AI", () => {
     );
   });
 
-  it("good: a second hunter takes the other victim instead of dogpiling the nearest", () => {
-    // Two parked victims side by side, same exposure to both hunters; A is a hair closer.
-    const a = car(4, { x: -2.8, vz: 0 });
-    const b = car(5, { x: 3, vz: 0 });
-    const south = car(2, { z: -10 });
-    const north = car(3, { z: 10, yaw: Math.PI, vz: -8 });
+  it("good: a cautious second hunter takes the other victim; at full aggression a wreck is fair game for both", () => {
+    // Two parked victims; A is nearer both hunters, who are backing toward them tail first.
+    const a = car(4, { x: -2.2, vz: 0 });
+    const b = car(5, { x: 3.6, vz: 0 });
+    const south = car(2, { z: -10, yaw: Math.PI, vz: 8 });
+    const north = car(3, { z: 10, vz: -8 });
     const all = [south, north, a, b];
     const alone = new DerbyBrain();
     decide(alone, north, all);
     assert.equal(alone.huntersOf(4), 1, "the lone hunter should take the nearer victim");
     const pair = new DerbyBrain();
+    pair.setAggression(2, 0.2);
+    pair.setAggression(3, 0.2);
     decide(pair, south, all);
     decide(pair, north, all);
     assert.deepEqual([pair.huntersOf(4), pair.huntersOf(5)], [1, 1]);
+    const wreck = car(5, { x: 3.6, vz: 0, front: 0.8, damage: 0.8 });
+    const brutes = new DerbyBrain();
+    brutes.setAggression(2, 1);
+    brutes.setAggression(3, 1);
+    decide(brutes, south, [south, north, a, wreck]);
+    decide(brutes, north, [south, north, a, wreck]);
+    assert.deepEqual([brutes.huntersOf(4), brutes.huntersOf(5)], [0, 2], "the weakened car should draw both brutes");
   });
 
   it("good: throttle with no motion backs out, and a second wedge tries the other gear", () => {
@@ -84,19 +99,20 @@ describe("derby AI", () => {
     const me = car(3, { z: -3, vz: 0 });
     const foe = car(1, { z: 3, yaw: Math.PI / 2, vz: 0 });
     const others = [me, foe];
-    assert.ok(decide(brain, me, others).throttle > 0);
+    const push = decide(brain, me, others).throttle;
+    assert.ok(Math.abs(push) > 0.35, `not pushing: ${push}`);
     let backed = 0;
     for (let k = 0; k < 15 && backed === 0; k++) {
       const input = decide(brain, me, others, 0.1);
       if (brain.recovering(3)) backed = input.throttle;
     }
-    assert.ok(backed < 0, "never backed out of a dead push");
+    assert.ok(backed * push < 0, "never backed out of a dead push");
     let escape = 0;
-    for (let k = 0; k < 40 && escape <= 0; k++) {
+    for (let k = 0; k < 40 && escape * backed >= 0; k++) {
       const input = decide(brain, me, others, 0.1);
       if (brain.recovering(3)) escape = input.throttle;
     }
-    assert.ok(escape > 0, "kept reversing into the same blocked side");
+    assert.ok(escape * backed < 0, "kept trying the same blocked gear");
   });
 
   it("good: drivers differ by id but are the same driver every match", () => {
@@ -135,8 +151,8 @@ describe("derby scoring", () => {
     }
     assert.ok(m.row(1)!.score > 4);
     m.step(0.05, [
-      { id: 0, name: "Titanium", alive: false },
-      { id: 1, name: "Petrol", alive: true },
+      { id: 0, name: "Titanium", alive: false, x: 0, z: 0 },
+      { id: 1, name: "Petrol", alive: true, x: 0, z: 5 },
     ]);
     assert.equal(m.row(1)!.disables, 1);
     assert.equal(m.row(1)!.score, 7 * HIT_POINTS + DISABLE_POINTS);
@@ -155,8 +171,8 @@ describe("derby scoring", () => {
       m.noteHit(0, 1, 10, 0, 9);
     }
     m.step(0.02, [
-      { id: 0, name: "Oxide", alive: false },
-      { id: 1, name: "Ink", alive: true },
+      { id: 0, name: "Oxide", alive: false, x: 0, z: 0 },
+      { id: 1, name: "Ink", alive: true, x: 0, z: 5 },
     ]);
     assert.equal(m.winnerId, 1);
     assert.ok(m.row(0)!.score > m.row(1)!.score);
@@ -300,8 +316,8 @@ describe("derby durability and the default two-car stall", () => {
       stepCarPair(a, b, h);
       for (const car of [a, b]) clipDerbyCar(car);
       match.step(h, [
-        { id: 0, name: "Titanium", alive: a.deform.drivetrainAlive },
-        { id: 1, name: "Petrol", alive: b.deform.drivetrainAlive },
+        { id: 0, name: "Titanium", alive: a.deform.drivetrainAlive, x: a.group.position.x, z: a.group.position.z },
+        { id: 1, name: "Petrol", alive: b.deform.drivetrainAlive, x: b.group.position.x, z: b.group.position.z },
       ]);
       minD = Math.min(minD, Math.hypot(a.group.position.x - b.group.position.x, a.group.position.z - b.group.position.z));
       t += h;
@@ -492,7 +508,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
         c.afterContacts(h);
         clipDerbyCar(c);
       }
-      state = match.step(h, cars.map((c, i) => ({ id: i, name: names[i]!, alive: c.deform.drivetrainAlive })));
+      state = match.step(h, cars.map((c, i) => ({ id: i, name: names[i]!, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })));
       const dead = cars.filter((c) => !c.deform.drivetrainAlive).length;
       while (deaths.length < dead) deaths.push(t);
       cars.forEach((c, i) => {

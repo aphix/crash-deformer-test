@@ -1,6 +1,7 @@
 import { DRIVE, idleDrive, type DriveInput } from "./car-drive.ts";
 import { DERBY_RADIUS } from "./derby-arena.ts";
 import { MAX_CARS } from "./fleet.ts";
+import { mood } from "./ai-aggression.ts";
 
 export type AiCar = {
   id: number;
@@ -16,16 +17,38 @@ export type AiCar = {
   front: number;
   /** Spent share of the tail crumple zone. */
   rear: number;
+  /** Seconds since this car's last aggressive hit on a live car (the hit clock, `DERBY_RULES.hitClock`). */
+  idle: number;
 };
 
 export function blankAiCar(id: number): AiCar {
-  return { id, x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true, damage: 0, front: 0, rear: 0 };
+  return { id, x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true, damage: 0, front: 0, rear: 0, idle: 0 };
 }
 
+/**
+ * Count-out rules from fair rule books (docs/DERBY_AI.md; .extraResearch/perplexity/41 and 50): an
+ * aggressive hit on a live car at least every 60 s (the common clock; some books run 90 s or 2 min), and
+ * a car that hasn't moved for 60 s is out. One place to tune them.
+ */
+export const DERBY_RULES = {
+  /** Seconds without an aggressive hit on a live car before a car is counted out. */
+  hitClock: 60,
+  /** Closing speed (m/s) into the other car that makes a hit aggressive; a push or a nudge doesn't. */
+  hitSpeed: 2,
+  /** Seconds without getting `stillRadius` from where it stopped before a car is counted out. */
+  stillClock: 60,
+  /** Metres a stopped car has to move for the still clock to restart (rocking in a wedge doesn't count). */
+  stillRadius: 2,
+};
+
+/** The derby field's aggression slider: a maximum, each driver rolls its own under it (ai-aggression.ts). */
+export const DEFAULT_DERBY_AGGRESSION = 1;
+
+/** The steering wheel sits at local x −0.22 (car-mesh `makeInterior`): the driver's door is the −x side. */
+const DRIVER_SIDE = -1;
+
 export type Personality = {
-  /** 0 cautious … 1 brawler: head-on and dogpile tolerance. */
-  aggression: number;
-  /** 0 … 1: how early a crumpled nose turns the car around to back in. */
+  /** 0 … 1: how much this driver keeps the tail as its bumper and how early a crumpled nose turns it round. */
   reverse: number;
   /** Seconds of throttle without motion before backing out. */
   patience: number;
@@ -46,10 +69,9 @@ function hash01(id: number, k: number): number {
   return x - Math.floor(x);
 }
 
-/** Same id → same driver, every match. */
+/** Same id → same driver, every match. Aggression is not a trait: the match rolls it (`setAggression`). */
 export function personality(id: number): Personality {
   return {
-    aggression: 0.2 + 0.8 * hash01(id, 1),
     reverse: hash01(id, 2),
     patience: 0.55 + 0.4 * hash01(id, 3),
     commit: 1 + 2 * hash01(id, 4),
@@ -84,23 +106,42 @@ const GRIND_RANGE = 4.6;
 const RESCORE = 0.14;
 /** Contact range: closer than this counts as engaged, not orbiting. */
 const ENGAGED = 3.8;
-const MODE_FWD = 0;
-const MODE_ARMOUR = 1;
-const MODE_TACTICAL = 2;
+/** Nose point (front wheel / radiator) ahead of a car's origin. */
+const NOSE = 1.7;
+const MODE_REV = 0;
+const MODE_FWD = 1;
+
+/** What a driver is doing this tick (`tacticOf`). */
+export const TACTICS = ["idle", "unstick", "hold", "layback", "reverse", "jturn", "nose", "swing", "sideswipe"] as const;
+export type Tactic = (typeof TACTICS)[number];
+const T_IDLE = 0;
+const T_UNSTICK = 1;
+const T_HOLD = 2;
+const T_LAYBACK = 3;
+const T_REVERSE = 4;
+const T_JTURN = 5;
+const T_NOSE = 6;
+const T_SWING = 7;
+const T_SIDESWIPE = 8;
 
 /**
- * Layered derby driver (one per match, memory per car id):
- *  L0 unstick: throttle without motion (or a slow shove on the target) → back off toward open space, then re-engage
- *  L1 boards: bend onto the tangent before the wall, J-turn off it when nosed in
- *  L2 target: utility over reach time, exposed flank/rear, damage, attackers already on it,
- *     with commitment so picks don't flicker and an orbit breaker so pairs don't circle
- *  L3 strike: lead the target, T-bone its front quarter, swing wide of its nose unless clearly healthier,
- *     back in with the tail once our own nose is spent (or the target sits right behind us)
+ * Layered derby driver (one per match, memory per car id), modelled on real derby driving
+ * (docs/DERBY_AI.md):
+ * L0 unstick: throttle without motion (or a slow shove on the target) -> back off toward open space.
+ * L1 boards: bend onto the tangent before the wall, J-turn off it when nosed in.
+ * L2 target: utility over reach time, the target's exposed front, damage, mood and hunters already on it,
+ *    with commitment so picks don't flicker and an orbit breaker so pairs don't circle.
+ * L3 strike, by the shared aggression model (`mood`): keep clear until the hit clock runs down, or
+ *    hit — tail first into the front wheel by default, a handbrake swing of the tail into a passing
+ *    nose, a sideswipe on a car alongside, the nose only for a driver spoiling for it. Never head-on,
+ *    never the driver's door.
  */
 export class DerbyBrain {
-  readonly radius: number;
+  /** Bowl radius (the match sets it per field size). */
+  radius: number;
   private readonly out: DriveInput = idleDrive();
   private readonly traits: Personality[] = [];
+  private readonly aggression = new Float64Array(MAX_CARS);
   private readonly target = new Int16Array(MAX_CARS);
   private readonly claims = new Int16Array(MAX_CARS);
   private readonly held = new Float64Array(MAX_CARS);
@@ -118,10 +159,16 @@ export class DerbyBrain {
   private readonly lastThrottle = new Float64Array(MAX_CARS);
   private readonly age = new Float64Array(MAX_CARS);
   private readonly freedAt = new Float64Array(MAX_CARS);
+  private readonly tactic = new Uint8Array(MAX_CARS);
+  /** A committed swing or sideswipe: seconds left, its steer and kind. */
+  private readonly moveFor = new Float64Array(MAX_CARS);
+  private readonly moveSteer = new Float64Array(MAX_CARS);
+  private readonly moveKind = new Uint8Array(MAX_CARS);
 
   constructor(radius = DERBY_RADIUS) {
     this.radius = radius;
     for (let i = 0; i < MAX_CARS; i++) this.traits.push(personality(i));
+    this.aggression.fill(0.5);
     this.reset();
   }
 
@@ -139,10 +186,21 @@ export class DerbyBrain {
     this.recoverThrottle.fill(0);
     this.recoverSteer.fill(0);
     this.tighten.fill(0);
-    this.mode.fill(MODE_FWD);
+    this.mode.fill(MODE_REV);
     this.lastThrottle.fill(0);
     this.age.fill(0);
     this.freedAt.fill(-Infinity);
+    this.tactic.fill(T_IDLE);
+    this.moveFor.fill(0);
+  }
+
+  /** Driver `id`'s aggression, 0 … 1 (the match rolls it with `fieldAggression`). */
+  setAggression(id: number, a: number): void {
+    this.aggression[id] = Math.max(0, Math.min(1, a));
+  }
+
+  aggressionOf(id: number): number {
+    return this.aggression[id] ?? 0;
   }
 
   /** How many cars are currently hunting `id`. */
@@ -152,6 +210,10 @@ export class DerbyBrain {
 
   recovering(id: number): boolean {
     return (this.recover[id] ?? 0) > 0;
+  }
+
+  tacticOf(id: number): Tactic {
+    return TACTICS[this.tactic[id] ?? T_IDLE]!;
   }
 
   /**
@@ -167,13 +229,16 @@ export class DerbyBrain {
     out.boost = false;
     const i = self.id;
     if (i < 0 || i >= MAX_CARS) return out;
+    this.tactic[i] = T_IDLE;
     if (!self.alive) {
       this.setTarget(i, -1);
       this.lastThrottle[i] = 0;
       this.recover[i] = 0;
+      this.moveFor[i] = 0;
       return out;
     }
     const p = this.traits[i]!;
+    const a = this.aggression[i]!;
     const speed = Math.hypot(self.vx, self.vz);
     this.age[i]! += dt;
 
@@ -183,6 +248,7 @@ export class DerbyBrain {
       out.throttle = this.recoverThrottle[i]!;
       out.steer = this.recoverSteer[i]!;
       this.lastThrottle[i] = 0;
+      this.tactic[i] = T_UNSTICK;
       if (this.recover[i]! <= 0) this.rescoreIn[i] = 0;
       return out;
     }
@@ -198,6 +264,8 @@ export class DerbyBrain {
       out.throttle = this.recoverThrottle[i]!;
       out.steer = this.recoverSteer[i]!;
       this.lastThrottle[i] = 0;
+      this.moveFor[i] = 0;
+      this.tactic[i] = T_UNSTICK;
       return out;
     }
 
@@ -209,7 +277,7 @@ export class DerbyBrain {
     let tgt = findCar(others, this.target[i]!);
     if (tgt && !tgt.alive) tgt = null;
     if (!tgt || this.rescoreIn[i]! <= 0) {
-      tgt = this.pick(self, others, p, tgt);
+      tgt = this.pick(self, others, p, a, tgt);
       this.rescoreIn[i] = RESCORE + 0.1 * hash01(i, 8);
     }
     if (!tgt) {
@@ -223,17 +291,34 @@ export class DerbyBrain {
     this.trackProgress(i, d, others, tgt, p, dt);
 
     // L3 — strike.
-    const bearing = wrapPi(Math.atan2(dx, dz) - self.yaw);
     if (this.age[i]! < p.hold) {
       // At the horn some drivers stand on the brakes and line up; the field stops moving as one ring.
       out.brake = 1;
-      out.steer = clamp1(bearing * 2);
+      out.steer = clamp1(wrapPi(Math.atan2(dx, dz) - self.yaw) * 2);
       this.lastThrottle[i] = 0;
+      this.tactic[i] = T_HOLD;
       return out;
     }
-    this.chooseMode(self, p, bearing, d);
-    if (this.mode[i] === MODE_FWD) this.attackForward(self, tgt, p, d, speed);
-    else this.attackReverse(self, tgt, p, d);
+    // Keep clear while the mood says so and three or more rivals are left to soften each other up, until
+    // the hit clock is half gone (well inside the judge's count; the cautious end of the field sandbags
+    // legally). Aggression 0 never hits.
+    const due = self.idle > DERBY_RULES.hitClock * (0.5 - 0.3 * a);
+    const m = mood(a, self.damage, tgt.damage);
+    let rivals = 0;
+    for (const o of others) if (o.alive && o.id !== i) rivals++;
+    if (a <= 0 || (m <= 0 && !due && rivals > 2)) {
+      this.layBack(self, others, p, speed);
+      this.tactic[i] = T_LAYBACK;
+      this.moveFor[i] = 0;
+    } else if (!this.opening(self, others, a, due, speed, dt)) {
+      this.chooseMode(self, p, m);
+      if (this.mode[i] === MODE_FWD) {
+        this.attackForward(self, tgt, p, d, speed);
+        this.tactic[i] = T_NOSE;
+      } else {
+        this.tactic[i] = this.attackReverse(self, tgt, p, d) ? T_JTURN : T_REVERSE;
+      }
+    }
     if (this.tighten[i]! > 0 && out.throttle > 0.42) out.throttle = 0.42;
     this.lastThrottle[i] = out.throttle;
     return out;
@@ -250,15 +335,13 @@ export class DerbyBrain {
     this.closest[i] = Infinity;
   }
 
-  private cost(self: AiCar, o: AiCar, p: Personality, speed: number, curId: number): number {
+  private cost(self: AiCar, o: AiCar, a: number, speed: number, curId: number): number {
     const i = self.id;
     const dx = o.x - self.x;
     const dz = o.z - self.z;
     const d = Math.hypot(dx, dz) || 1e-3;
     // Where we sit around the target: +1 at its nose, -1 behind it.
     const cosA = -(Math.sin(o.yaw) * dx + Math.cos(o.yaw) * dz) / d;
-    const flank = 1 - Math.abs(cosA);
-    const behind = Math.max(0, -cosA);
     const nose = Math.max(0, cosA);
     const rev = this.mode[i] !== MODE_FWD;
     const heading = rev ? self.yaw + Math.PI : self.yaw;
@@ -267,19 +350,21 @@ export class DerbyBrain {
     // A car running away at our speed is never caught; a parked one is a gift.
     const flee = (o.vx * dx + o.vz * dz) / d;
     if (flee > 0) c += flee * 0.15;
+    // Tail first, its front is the target; the nose would rather have its flank.
     if (rev) c -= nose * 0.8;
-    else c += nose * (2.2 - 1.6 * p.aggression) - flank * 1.4 - behind * 0.6;
-    const weak = o.damage;
-    c -= weak * 2;
+    else c += nose * (2.2 - 1.6 * a) - (1 - Math.abs(cosA)) * 1.4;
+    // Weakened cars first, more so the hungrier the driver (mood carries both cars' damage).
+    c -= 2 * mood(a, self.damage, o.damage);
+    // Spread out: the cautious end of the field won't pile on; a car about to drop is fair game.
     const hunters = this.claims[o.id]! - (curId === o.id ? 1 : 0);
-    c += hunters * (1.2 + 1.8 * (1 - p.aggression)) * (weak > 0.75 ? 0.4 : 1);
+    c += hunters * (1.2 + 1.8 * (1 - a)) * (o.damage > 0.75 ? 0.3 : 1);
     if (o.id === curId) c -= 0.9;
     if (this.shunId[i] === o.id && this.shunFor[i]! > 0) c += 8;
-    if (o.id >= 0 && o.id < MAX_CARS && this.target[o.id] === i && d < 12) c -= 0.6 * p.aggression;
+    if (o.id >= 0 && o.id < MAX_CARS && this.target[o.id] === i && d < 12) c -= 0.6 * a;
     return c;
   }
 
-  private pick(self: AiCar, others: readonly AiCar[], p: Personality, cur: AiCar | null): AiCar | null {
+  private pick(self: AiCar, others: readonly AiCar[], p: Personality, a: number, cur: AiCar | null): AiCar | null {
     const i = self.id;
     const curId = cur ? cur.id : -1;
     const speed = Math.hypot(self.vx, self.vz);
@@ -288,7 +373,7 @@ export class DerbyBrain {
     let curCost = Infinity;
     for (const o of others) {
       if (o.id === i || !o.alive) continue;
-      const c = this.cost(self, o, p, speed, curId);
+      const c = this.cost(self, o, a, speed, curId);
       if (o.id === curId) curCost = c;
       if (c < bestCost) {
         bestCost = c;
@@ -322,19 +407,84 @@ export class DerbyBrain {
     this.closest[i] = d;
   }
 
-  private chooseMode(self: AiCar, p: Personality, bearing: number, d: number): void {
+  /**
+   * The tail is the bumper (the engine and radiator live in the nose). The nose only for a driver
+   * spoiling for it with a nose to spare, or once the tail is the worse end.
+   */
+  private chooseMode(self: AiCar, p: Personality, m: number): void {
     const i = self.id;
-    const m = this.mode[i]!;
-    // Armour: nose spent past this driver's comfort, tail still the better bumper.
-    const margin = m === MODE_ARMOUR ? -0.1 : 0.1;
-    if (self.front > 0.55 - 0.3 * p.reverse && self.rear + margin < self.front) {
-      this.mode[i] = MODE_ARMOUR;
-      return;
+    const fwd = this.mode[i] === MODE_FWD;
+    const brawl = self.front < 0.3 && m > 0.35 + 0.4 * p.reverse - (fwd ? 0.1 : 0);
+    const tailSpent = self.rear > 0.7 && self.rear > self.front + (fwd ? 0.05 : 0.2);
+    this.mode[i] = brawl || tailSpent ? MODE_FWD : MODE_REV;
+  }
+
+  /**
+   * Chances that pass by: a handbrake swing that whips our tail into a nose beside our rear wheel,
+   * or a sideswipe on a car coming alongside. Committed for a beat once started.
+   */
+  private opening(self: AiCar, others: readonly AiCar[], a: number, due: boolean, speed: number, dt: number): boolean {
+    const i = self.id;
+    if (this.moveFor[i]! > 0) {
+      this.moveFor[i]! -= dt;
+      if (speed < 1.5) {
+        this.moveFor[i] = 0;
+        return false;
+      }
+      this.applyMove(i);
+      return true;
     }
-    // Tactical: target sat right behind — back into it instead of a three-point turn.
-    const ab = Math.abs(bearing);
-    const behind = m === MODE_TACTICAL ? ab > 1.9 && d < 8 : ab > 2.35 && d < 6;
-    this.mode[i] = p.reverse > 0.5 && self.rear < 0.6 && behind ? MODE_TACTICAL : MODE_FWD;
+    const fx = Math.sin(self.yaw);
+    const fz = Math.cos(self.yaw);
+    const fwd = self.vx * fx + self.vz * fz;
+    if (fwd < 4) return false;
+    for (const o of others) {
+      if (o.id === i || !o.alive) continue;
+      const rx = o.x - self.x;
+      const rz = o.z - self.z;
+      if (rx * rx + rz * rz > 36) continue;
+      if (!due && mood(a, self.damage, o.damage) <= -0.2) continue;
+      const ofx = Math.sin(o.yaw);
+      const ofz = Math.cos(o.yaw);
+      // Its nose in our frame (along +forward, lateral +left).
+      const nx = rx + ofx * NOSE;
+      const nz = rz + ofz * NOSE;
+      const na = nx * fx + nz * fz;
+      const nl = nx * fz - nz * fx;
+      const facing = -Math.sign(nl) * (ofx * fz - ofz * fx);
+      if (fwd < 13 && na > -3.2 && na < -0.6 && Math.abs(nl) > 0.9 && Math.abs(nl) < 3.2 && facing > 0.3) {
+        // Its nose sits by our rear wheel: handbrake and steer away, the tail swings into its radiator.
+        this.moveKind[i] = T_SWING;
+        this.moveSteer[i] = -Math.sign(nl) * 0.85;
+        this.moveFor[i] = 0.45;
+        this.applyMove(i);
+        return true;
+      }
+      const ca = rx * fx + rz * fz;
+      const cl = rx * fz - rz * fx;
+      const passing = (o.vx - self.vx) * fx + (o.vz - self.vz) * fz;
+      // Us in its frame: is its driver's door the side we'd rub?
+      const ua = -(rx * ofx + rz * ofz);
+      const ul = -(rx * ofz - rz * ofx);
+      const door = ul * DRIVER_SIDE > 0 && ua > -1 && ua < 1.1;
+      if (!door && passing < -2 && ca > -1.5 && ca < 3 && Math.abs(cl) > 1.7 && Math.abs(cl) < 4.2) {
+        this.moveKind[i] = T_SIDESWIPE;
+        this.moveSteer[i] = Math.sign(cl) * 0.55;
+        this.moveFor[i] = 0.4;
+        this.applyMove(i);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private applyMove(i: number): void {
+    const out = this.out;
+    out.steer = this.moveSteer[i]!;
+    const swing = this.moveKind[i] === T_SWING;
+    out.ebrake = swing;
+    out.throttle = swing ? 0 : 0.8;
+    this.tactic[i] = this.moveKind[i]!;
   }
 
   private intercept(self: AiCar, tgt: AiCar, p: Personality, ownSpeed: number, aim: { x: number; z: number }): void {
@@ -355,6 +505,7 @@ export class DerbyBrain {
     aim.z = pz;
   }
 
+  /** Nose first: at its front wheel from the side, never head-on (banned in every rule book). */
   private attackForward(self: AiCar, tgt: AiCar, p: Personality, d: number, speed: number): void {
     const out = this.out;
     this.intercept(self, tgt, p, Math.max(speed, DRIVE.maxFwd * p.cruise * 0.7), _aim);
@@ -366,19 +517,17 @@ export class DerbyBrain {
     const cosA = (ofx * rx + ofz * rz) / rd;
     const lat = (ofz * rx - ofx * rz) / rd;
     const side = lat > 0.05 ? 1 : lat < -0.05 ? -1 : p.side;
-    const headOnOk = self.front + 0.25 < tgt.front && p.aggression > 0.45;
-    // Front quarter from the side: the engine bay, not the bumper.
-    let ax = _aim.x + ofx * 0.8;
-    let az = _aim.z + ofz * 0.8;
-    if (!headOnOk) {
-      // In its front cone: swing out to its flank instead of trading noses.
-      const w = smooth(0.15, 0.5, cosA);
-      if (w > 0) {
-        const wx = _aim.x + ofz * side * 4.5 - ofx * 0.5;
-        const wz = _aim.z - ofx * side * 4.5 - ofz * 0.5;
-        ax += (wx - ax) * w;
-        az += (wz - az) * w;
-      }
+    // Its front wheel; on the driver's side the bumper corner, clear of the door.
+    const reach = side === DRIVER_SIDE ? 2 : 1.5;
+    let ax = _aim.x + ofx * reach;
+    let az = _aim.z + ofz * reach;
+    // In its front cone: swing out to its flank instead of trading noses.
+    const w = smooth(0.15, 0.5, cosA);
+    if (w > 0) {
+      const wx = _aim.x + ofz * side * 4.5 - ofx * 0.5;
+      const wz = _aim.z - ofx * side * 4.5 - ofz * 0.5;
+      ax += (wx - ax) * w;
+      az += (wz - az) * w;
     }
     const lim = this.radius - 4;
     const ar = Math.hypot(ax, az);
@@ -391,8 +540,7 @@ export class DerbyBrain {
     out.steer = clamp1(err * 2);
     out.throttle = ae < 0.3 ? p.cruise : ae < 0.8 ? 0.72 : ae < 1.5 ? 0.5 : 0.38;
     if (ae > 1 && speed > 9) out.ebrake = true;
-    const striking = d < 5 && ae < 0.5;
-    if (striking) {
+    if (d < 5 && ae < 0.5 && w < 0.5) {
       out.throttle = 1;
       out.ebrake = false;
       return;
@@ -407,18 +555,52 @@ export class DerbyBrain {
     this.boards(self, p, speed);
   }
 
-  /** Tail first: what's left of our nose stays out of it. */
-  private attackReverse(self: AiCar, tgt: AiCar, p: Personality, d: number): void {
+  /**
+   * Tail first into its front wheel on our side (the bumper corner on the driver's side). From beside or
+   * behind it, stage wide of that corner so the run-in meets the wheel, not the door. Nose toward it and
+   * rolling: a handbrake J-turn brings the tail round in one go. Returns true while J-turning.
+   */
+  private attackReverse(self: AiCar, tgt: AiCar, p: Personality, d: number): boolean {
     const out = this.out;
     this.intercept(self, tgt, p, DRIVE.maxRev * 0.85, _aim);
-    const err = wrapPi(Math.atan2(_aim.x - self.x, _aim.z - self.z) - self.yaw - Math.PI);
+    const ofx = Math.sin(tgt.yaw);
+    const ofz = Math.cos(tgt.yaw);
+    const rx = self.x - tgt.x;
+    const rz = self.z - tgt.z;
+    const rd = Math.hypot(rx, rz) || 1e-3;
+    const lat = (ofz * rx - ofx * rz) / rd;
+    const ahead = (ofx * rx + ofz * rz) / rd;
+    const side = lat > 0.1 ? 1 : lat < -0.1 ? -1 : p.side;
+    // Its radiator and front wheel on our side, square on so the push packs its block back: aim down a
+    // lane out from its nose, the further out the further off its axis we are, so the run-in straightens.
+    // Circling without closing in (it keeps its own tail to us): take whatever end is there, tail to tail.
+    const direct = this.chase[self.id]! > 1.2 || this.tighten[self.id]! > 0;
+    const reach = direct ? 0 : (side === DRIVER_SIDE ? 2.1 : 1.6) + Math.min(6, 0.45 * d) * (1 - Math.max(0, ahead));
+    const wide = direct ? 0 : (0.3 + 3.1 * smooth(-0.3, 0.5, -ahead)) * side;
+    let ax = _aim.x + ofx * reach + ofz * wide;
+    let az = _aim.z + ofz * reach - ofx * wide;
+    const lim = this.radius - 3;
+    const ar = Math.hypot(ax, az);
+    if (ar > lim) {
+      ax *= lim / ar;
+      az *= lim / ar;
+    }
+    const err = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw - Math.PI);
     const ae = Math.abs(err);
     out.steer = clamp1(err * 1.8);
     out.throttle = ae < 0.45 ? -1 : ae < 1.2 ? -0.75 : -0.5;
-    if (ae > 2.3 && d > 9) {
-      // Nose toward a distant target: pivot forward to bring the tail round.
-      out.throttle = 0.45;
+    if (ae > 2.3 && d > 6) {
       out.steer = Math.sign(err) || p.side;
+      const fwd = self.vx * Math.sin(self.yaw) + self.vz * Math.cos(self.yaw);
+      if (fwd > 5) {
+        // Rolling at it nose first: handbrake and lock, the tail comes round (just under 5 rad/s).
+        out.throttle = 0;
+        out.steer *= 0.85;
+        out.ebrake = true;
+        return true;
+      }
+      // Slow: pivot forward to bring the tail round.
+      out.throttle = 0.45;
     }
     const r = Math.hypot(self.x, self.z);
     if (r > this.radius - 3.6 && out.throttle < 0) {
@@ -428,6 +610,32 @@ export class DerbyBrain {
         out.throttle = 0.6;
         out.steer = Math.sign(err) || p.side;
       }
+    }
+    return false;
+  }
+
+  /**
+   * Keeping clear: rolling (a parked car is a target and a sandbagger), away from anyone within ~10 m,
+   * whichever end points away (forward away shows it the bumper), off the boards.
+   */
+  private layBack(self: AiCar, others: readonly AiCar[], p: Personality, speed: number): void {
+    const out = this.out;
+    const r = Math.hypot(self.x, self.z);
+    this.openSpace(self, others, 14, 0.8 * smooth(this.radius - 9, this.radius - 4, r), _aim);
+    if (Math.hypot(_aim.x, _aim.z) < 0.25) {
+      out.throttle = 0.35;
+      this.boards(self, p, speed);
+      return;
+    }
+    const away = Math.atan2(_aim.x, _aim.z);
+    const err = wrapPi(away - self.yaw);
+    if (Math.abs(err) < 2) {
+      out.steer = clamp1(err * 2);
+      out.throttle = 0.55;
+      this.boards(self, p, speed);
+    } else {
+      out.steer = clamp1(wrapPi(away - self.yaw - Math.PI) * 1.8);
+      out.throttle = -0.55;
     }
   }
 
@@ -462,24 +670,29 @@ export class DerbyBrain {
     if (noseOut > 0.55 && speed > 7) out.ebrake = true;
   }
 
-  private beginRecovery(self: AiCar, others: readonly AiCar[], p: Personality): void {
-    const i = self.id;
-    const r = Math.hypot(self.x, self.z);
-    // Open space: toward the middle, away from whoever is close.
-    const centre = r > 6 ? 1 / r : 0.3 / Math.max(r, 1);
-    let ox = -self.x * centre;
-    let oz = -self.z * centre;
+  /** Direction (into `dir`) away from whoever is inside `reach`, plus `pull` toward the middle. */
+  private openSpace(self: AiCar, others: readonly AiCar[], reach: number, pull: number, dir: { x: number; z: number }): void {
+    const r = Math.max(1, Math.hypot(self.x, self.z));
+    let ox = (-self.x * pull) / r;
+    let oz = (-self.z * pull) / r;
     for (const o of others) {
-      if (o.id === i) continue;
+      if (o.id === self.id) continue;
       const dx = o.x - self.x;
       const dz = o.z - self.z;
       const dd = Math.hypot(dx, dz);
-      if (dd > 7 || dd < 1e-3) continue;
-      const w = (7 - dd) / 7 / dd;
+      if (dd > reach || dd < 1e-3) continue;
+      const w = (reach - dd) / reach / dd;
       ox -= dx * w;
       oz -= dz * w;
     }
-    const err = wrapPi(Math.atan2(ox, oz) - self.yaw);
+    dir.x = ox;
+    dir.z = oz;
+  }
+
+  private beginRecovery(self: AiCar, others: readonly AiCar[], p: Personality): void {
+    const i = self.id;
+    this.openSpace(self, others, 7, Math.hypot(self.x, self.z) > 6 ? 1 : 0.3, _aim);
+    const err = wrapPi(Math.atan2(_aim.x, _aim.z) - self.yaw);
     // Either gear swings the nose the same way in this drive model.
     this.recoverSteer[i] = Math.abs(err) < 0.15 ? p.side : Math.sign(err);
     // Opposite of the gear that got us here — unless the last escape just ended
