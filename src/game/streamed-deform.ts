@@ -1848,7 +1848,12 @@ export class StreamedDeformation {
     this.kickCore(nx, ny, nz, dv);
   }
 
-  feedOverlap(worldPoint: THREE.Vector3, inward: THREE.Vector3, overlap: number, closing: number, dt = 1 / 60): number {
+  /**
+   * Contact crush from a face pressing in along `inward`. `refVn` is the face's speed along `inward`: a
+   * fixed slab's 0, or a car-car pair's common velocity, so the struck car's contact masses are driven
+   * to it (its side crushes) rather than the bullet's nose stopping dead against a car that gets no momentum.
+   */
+  feedOverlap(worldPoint: THREE.Vector3, inward: THREE.Vector3, overlap: number, closing: number, dt = 1 / 60, refVn = 0): number {
     if (!this.massActive) return closing;
     this.overlapFrame = true;
     const leftover = leftoverCrumple(this.crumpleTravel());
@@ -1890,8 +1895,8 @@ export class StreamedDeformation {
       const pass = this.crumpleWeight(m) < 0.45 ? passFront : 1;
       const posNibble = crush * fall * gate * soft * engineGate * pass;
       m.world.addScaledVector(inward, posNibble);
-      const vn = m.vel.dot(inward);
-      // Plastic: kill inbound speed. Never add (crush/dt) — that rockets in slomo.
+      const vn = m.vel.dot(inward) - refVn;
+      // Plastic: kill inbound speed relative to the face. Never add (crush/dt) — that rockets in slomo.
       if (vn < 0) m.vel.addScaledVector(inward, -vn * (1 - Math.pow(1 - Math.min(1, fall * 0.85 + gate * 0.15), slice)));
     }
     return Math.max(0, closing - eaten);

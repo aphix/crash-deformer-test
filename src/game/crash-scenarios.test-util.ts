@@ -3,7 +3,7 @@ import { DeformableCar } from "./car.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { partContactPair } from "./external-contact.ts";
 import { resolveCarPair } from "./pair-contact.ts";
-import { applyGroundFriction, CRASH, leftoverCrumple } from "./physics-util.ts";
+import { bleedAfterSlide, leftoverCrumple } from "./physics-util.ts";
 import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
@@ -142,17 +142,6 @@ function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, 
 function holdSlab(b: JerseyBarrier): void {
   b.vel.set(0, 0, 0);
   b.crush = 0;
-}
-
-function bleedAfterSlide(car: DeformableCar, dt: number): void {
-  if (!car.crashed) return;
-  const q = car.deform.quietTime();
-  const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
-  applyGroundFriction(car.velocity, dt, mu, true);
-  if (car.deform.massActive) {
-    const t = car.deform.powered ? q : car.deform.sinceHit();
-    car.deform.dragGround(dt, THREE.MathUtils.clamp((t - 0.08) / 1.1, 0, 1));
-  }
 }
 
 /** `CrashEngine.fixedStep` minus poles, balls, derby and compactor. Returns the strongest contact impulse. */

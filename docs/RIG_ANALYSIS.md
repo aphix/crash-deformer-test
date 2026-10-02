@@ -1244,6 +1244,39 @@ re-armed hit, `creep.ts`, `single.ts`) and `.bench/pops.ts` (now `SQUASH`/`REAR`
   the falling edge the non-hub masses now take their mean vertical velocity:
   43/43 mm. The parity test runs at squash 0.4 and 0.32.
 
+### 6.6 T-bone door, derby lethality, pile-up spin (lane `crash-realism-7`)
+
+Probes in `.bench/cr7/` of the main checkout (`tbone-trace.ts` per-frame cell
+positions and door depth, `tbone-attr.ts` per-call Δ position / Δ momentum of
+both cars, `tbone-gap.ts` the test metric against any `ROOT`, `bench.ts` the
+24/32-car headless pile-up timing).
+
+- **T-bone door: the 0.26 m "door" was a pass-through, not a crush.** On
+  `b9c5647`, on main with 9e36c2e's in-contact ground drag, and with the
+  `q > 0.08` drag gate restored, the struck door stays ≤ 0.01 m for the first
+  0.9 s. Attribution over the first 0.2 s: the struck car moved 1.23 m, 1.14 m
+  of it from `separateAlong` (position only) and 0.09 m from `stepStructure`;
+  its momentum changed by 0.03 m/s (`collideWith`); `applyImpulse` never ran
+  (the cabin hulls never overlap, so the impulse branch is unreachable); the
+  bullet's `feedOverlap` took 2.7 m/s off the bullet. The bullet's nose was
+  stopped against a fixed face (`vn` killed to 0 in the world frame) while the
+  struck car got no momentum. Without mass drag the pair then slid at
+  6.8 m/s until the bullet accelerated to 12.5 m/s and drove through the
+  struck car: its cell ended 3.6 m (gated) to 5 m (`b9c5647`) past the struck
+  cell, and the door particle read 0.24–0.26 m as it passed. 9e36c2e's drag
+  only stopped the pair before that.
+- **Fix:** `feedOverlap` takes the face's speed (`refVn`); `resolveCarPair`
+  passes the pair's common velocity along the normal when the contact meets
+  either car on its side, so both cars' contact masses go to it. The door now
+  intrudes 0.242 / 0.263 m (squash 0.32 / 0.4) within 0.1 s, the bullet's cell
+  stays 2.41 m from the struck cell, the far door, tail and bullet nose
+  (0.242 / 0.263 m) are unchanged. End-on pairs keep the fixed-face kill:
+  with the common velocity the 40 km/h frontal parity car's tail crushed
+  88 mm (piston 43 mm), because a nose driven to the common speed drags a
+  tail whose beams yield at any force. `bleedAfterSlide` is one function
+  (`physics-util.ts`) for the engine and the test harness, with 9e36c2e's
+  semantics.
+
 ## Appendix
 
 ### Sources
