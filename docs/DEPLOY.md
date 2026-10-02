@@ -40,6 +40,9 @@ data dir left unclean (its previous owner was killed or never closed it) crash-r
 keeps a PGLite timer (`__setitimer_js`) armed forever, so it never exits on SIGTERM. On the box that
 was a 90 s stop timeout and a SIGKILL on every deploy, which left the store unclean again for the
 next release. With the close, the same scenario exits in about 2 s and leaves the store clean.
+Normally the server's own SIGTERM handler (srvx) closes the HTTP server and the process ends by
+itself; srvx skips that when `CI` or `TEST` is set, and a signal listener cancels Node's default
+exit, so `db.ts` ends the process itself when no other listener for the signal remains.
 
 Signaling rows live 30-60 s, so a persistent PGLite store matters little: it keeps rooms across a
 restart that happens mid-handshake, nothing more.
@@ -65,20 +68,41 @@ flowchart LR
 One pass of `deploy/crush-deploy.sh`:
 
 1. Take a lock (a pass that is still building makes the next tick exit at once).
-2. `git fetch` the branch. Same commit as `current/REVISION`, or a commit marked failed: exit. This
-   is the whole cost of an idle poll.
+2. `git fetch` the branch. Same commit as `current/REVISION`, a commit marked failed, or a commit
+   whose last build attempt is still inside its retry wait: exit. This is the whole cost of an idle
+   poll.
 3. Defer if the 1-minute load average is at or above the core count.
 4. As the `crush` user: check out the commit, `npm ci`, `npm run build:node` with `APP_BASE`, copy
    `.output` to `releases/<UTC stamp>-<sha>`.
-5. Start that release on `CRUSH_CHECK_PORT` with an in-memory database. The page and
-   `api/rtc` must both answer within 45 s.
+5. Start that release on `CRUSH_CHECK_PORT` with an in-memory database. The page and `api/rtc`
+   must both answer, and the client smoke must pass: the page's entry script and every built JS
+   chunk (entry, routes, engine, three.js) come back 200 with a JavaScript MIME type. That catches
+   a wrong base path or a missing chunk, which the server checks cannot see. The box never runs the
+   test suite.
 6. Point `current` at it with `ln -sfn` + `mv -T` (atomic rename), `systemctl restart crush.service`,
-   and check the live port the same way.
+   and check the live port (page and `api/rtc`, now on the real PGLite store).
 7. Keep the newest `CRUSH_KEEP` releases (never the live or the previous one).
 
-Failure at 4 or 5 leaves the live release untouched. Failure at 6 swaps `current` back and
-restarts again. Either way the commit is recorded as `state/failed-<sha>` and skipped until a newer
-commit arrives or someone deletes the marker.
+Every health check gives up after `CRUSH_HEALTH_TIMEOUT` seconds in all (default 120), so a release
+that accepts connections but never answers cannot hold the pass for long.
+
+Failures:
+
+- **Build (4).** It may be transient (an npm registry or network blip, a run killed by the unit's
+  timeout or memory cap), so the commit is retried. `state/tries-<sha>` counts attempts; it is
+  written before the build starts, so a killed run counts too. Attempt *n* waits *n* ×
+  `CRUSH_BUILD_BACKOFF_MIN` minutes (default 10) after the last one, and after `CRUSH_BUILD_TRIES`
+  failed attempts (default 3) the commit is given up. The live release is untouched throughout.
+- **Pre-swap check (5).** The release built but does not work: given up at once, live untouched.
+- **Live check (6).** The commit is given up, `current` is swapped back to the previous release,
+  the unit restarts, and the rollback is health-checked too. The journal says whether the rollback
+  passes; if it does not (say the new release migrated the store into a shape the old one cannot
+  open), it says the app is down. On the first deploy there is nothing to go back to, so the unit is
+  stopped and `current` removed; `Restart=always` cannot crash-loop the bad release because the unit
+  needs `current/`.
+
+A given-up commit is recorded as `state/failed-<sha>` and skipped until a newer commit arrives or
+someone deletes the marker.
 
 Limits: the deploy unit runs at `Nice=10`, `CPUWeight=20`, `CPUQuota=200%`, idle I/O class,
 `MemoryMax=4G`, `OOMScoreAdjust=500`; `crush.service` at `Nice=5`, `CPUWeight=20`,
@@ -114,7 +138,7 @@ deliberately *not* changed; the nginx snippet maps its root paths instead (see B
 | `vite.config.ts` | `base: APP_BASE`; Nitro `preset: NITRO_PRESET \|\| "vercel"`, `baseURL: base`; for `node-server`, `traceDeps: ["@electric-sql/pglite*"]` | serves everything under the sub-path; builds the node target; ships PGLite's `.wasm`/`.data`, which load from beside its module | app answers at `/` only, or `.output/` lacks PGLite's files and signaling cannot open its database |
 | `scripts/with-app-env.mjs` | leading `NAME=value` arguments become env vars | `build:node` sets `NITRO_PRESET=node-server` through it, on Windows too | `build:node` tries to run `NITRO_PRESET=node-server` as a command and fails |
 | `package.json` | `build:node`, `start:node` scripts | `crush-deploy.sh` runs `npm run build:node` | every commit fails to build and is skipped (the old release keeps serving) |
-| `src/lib/db.ts` | `new PGlite({ dataDir: process.env.PGLITE_DATA_DIR })`; with a data dir, `pg.close()` on SIGTERM/SIGINT | `crush.service` keeps the signaling store in the release-independent `shared/` dir, and a restart must not hang | without the data dir: still works, in memory, rooms mid-handshake are lost on each restart. Without the close: every restart hangs until `TimeoutStopSec` (site down meanwhile) and ends in a SIGKILL |
+| `src/lib/db.ts` | `new PGlite({ dataDir: process.env.PGLITE_DATA_DIR })`; with a data dir, `pg.close()` on SIGTERM/SIGINT, then `process.exit(0)` if no other listener for that signal remains | `crush.service` keeps the signaling store in the release-independent `shared/` dir, and a restart must not hang | without the data dir: still works, in memory, rooms mid-handshake are lost on each restart. Without the close: every restart hangs until `TimeoutStopSec` (site down meanwhile) and ends in a SIGKILL. Without the exit: under `CI`/`TEST` (srvx then installs no SIGTERM handler) the server never exits on SIGTERM |
 | `src/lib/multiplayer/p2p.ts` | `RTC_URL = ${import.meta.env.BASE_URL}api/rtc`, used by the poll, signal and leave fetches | signaling lives under the base (`/crush/api/rtc`) | browsers call `/api/rtc` at the site root, which 404s: no peer ever connects, and those 404s go to the site's main access log, where a 4xx-probe jail can ban the players |
 | `src/lib/multiplayer/p2p.ts` | `sendBinary()`, `onBinary`, `binaryType = "arraybuffer"` on both data channels (netplay) | host snapshots and client inputs are binary frames (`RtcTransport`) | WebRTC netplay carries no snapshots: the client never gets a car |
 | `src/lib/multiplayer/signaling.server.ts`, `rate-limit.ts`, `migrations/0002_webrtc_signaling.sql` | in-process token buckets per peer (client IP + peer id), per IP and per room; room cap (`ROOM_MAX`, `rooms.ts`); `GET ?list=public`; tables from migration 0002 (netplay) | in-process limits are exact on one long-lived node server; the IP is the `X-Forwarded-For` first hop, which the nginx snippet overwrites with the real client address; PGLite applies 0002 before its first query | relay is unlimited, public room listing 400s, or signaling has no tables |
@@ -147,7 +171,8 @@ protection on `main` is the control for that, the same as with any CD system.
 
 ## Rolling back
 
-Automatic: a release that fails its checks never goes live, or is swapped back (step 6).
+Automatic: a release that fails its checks never goes live, or is swapped back and the rollback
+health-checked (step 6).
 
 By hand, on the box, from the deploy root:
 

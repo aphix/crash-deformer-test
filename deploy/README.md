@@ -146,9 +146,15 @@ systemctl list-timers crush-deploy.timer
 | App log | `journalctl -u crush.service` |
 | Deploy now | `systemctl start crush-deploy.service` |
 | Retry a commit marked failed | `rm $ROOT/state/failed-<sha>` |
+| Skip a build's retry wait | `rm $ROOT/state/tries-<sha>` (resets its attempt count) |
 | Roll back by hand | see below |
 | Pause deploys | `systemctl stop crush-deploy.timer` |
 | Update the deploy script | step 2's `install` + `mv` line; units: re-render + `daemon-reload` |
+
+Build failures are retried: attempt *n* waits *n* × `CRUSH_BUILD_BACKOFF_MIN` minutes (default 10)
+and the commit is marked failed after `CRUSH_BUILD_TRIES` attempts (default 3). Health checks give
+up after `CRUSH_HEALTH_TIMEOUT` seconds (default 120). All three can be set in `$ENV`; see
+docs/DEPLOY.md for what fails how.
 
 Roll back by hand, from `$ROOT`. Marking the bad commit failed keeps the next poll from
 redeploying it; the next *new* commit on the branch deploys as usual.
