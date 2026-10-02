@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { physicsSlice } from "./sat.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { mass, paint } from "./test-support.ts";
 import { makeCar, makeWorld, runWall } from "./crash-scenarios.test-util.ts";
 import { stepWorld } from "./world-step.ts";

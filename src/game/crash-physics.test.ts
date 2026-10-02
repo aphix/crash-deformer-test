@@ -1,7 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { StreamedDeformation, ENGINE_KILL_TRAVEL, TYRE_R, type DeformMode } from "./streamed-deform.ts";
+import { StreamedDeformation } from "./streamed-deform.ts";
+import { TYRE_R } from "./deform-state.ts";
+import { ENGINE_KILL_TRAVEL, type DeformMode } from "./deform-rig.ts";
 import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
 import { DT, MODES, assertSameDigest, dummyGeom, mass } from "./test-support.ts";
 import { runPair } from "./crash-scenarios.test-util.ts";

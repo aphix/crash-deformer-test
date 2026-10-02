@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { DeformableCar, type WorldBounce } from "./car.ts";
+import { DeformableCar } from "./car.ts";
+import type { WorldBounce } from "./car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "./engine-props.ts";
 import { partContactPair } from "./external-contact.ts";
 import { resolveCarPair } from "./pair-contact.ts";

@@ -4,7 +4,7 @@
  * greenhouse, rear glass, boot / bed and rear overhang shaping, plus the rig
  * cages that have to wrap those panels so skinning does not distort them.
  */
-import type { RigOverrides } from "./streamed-deform.ts";
+import type { RigOverrides } from "./deform-rig.ts";
 
 export type CarStyleId = "sedan" | "hatchback" | "wagon" | "coupe" | "pickup";
 

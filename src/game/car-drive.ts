@@ -68,6 +68,66 @@ const _axle = new THREE.Vector3();
 const _turn = new Float64Array(4);
 /** [0]: the realism `_assist` was last filled for (NaN: never). */
 const _assistFor = new Float64Array([NaN]);
+/**
+ * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] realism, [6] dt; out [7] top,
+ * [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
+ */
+const _pedal = new Float64Array(12);
+
+/** No floor or no drivetrain: the pedals and tyre FX go idle (the drift state stays). */
+function idleDriveState(d: DeformableCar["drive"]): void {
+  d.throttle = 0;
+  d.steer = 0;
+  d.brake = 0;
+  d.ebrake = false;
+  d.spin = 0;
+  d.lock = 0;
+  d.slide = 0;
+  d.boost = false;
+}
+
+/** applyDrive's pedals: speed along the nose (`_pedal` layout above). */
+function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, input: DriveInput, boosting: boolean, io: Float64Array): void {
+  const throttle = io[0]!;
+  const brake = io[1]!;
+  const along = io[2]!;
+  const muF = io[3]!;
+  const muR = io[4]!;
+  const realism = io[5]!;
+  const dt = io[6]!;
+  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);
+  let speed = along;
+  let want = 0;
+  let spin = 0;
+  let lock = 0;
+  if (input.ebrake || brake > 0) {
+    let s = Math.abs(speed);
+    if (input.ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
+    // Brake force is near constant: a linear stop, never weaker than lifting off.
+    if (brake > 0) s = Math.max(0, s - k.brake * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
+    speed = s < 0.4 ? 0 : Math.sign(speed) * s;
+    // ABS hides most of the lock-up at the arcade end.
+    if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
+  } else {
+    want = throttle * top;
+    const v = Math.abs(speed);
+    let rate = k.brake * DRIVE.coast;
+    if (Math.abs(want) > v) {
+      const x = Math.min(1, v / k.topSpeed);
+      rate = k.accel * (1 + k.torque * (1 - 2 * x)) * dmg.power * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
+      if (throttle > 0.5 && along > -0.5) {
+        spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (boosting ? 1 : 0.7) : 0, (1 - muR) * throttle * 0.6);
+      }
+    }
+    if (speed < want) speed = Math.min(want, speed + rate * dt);
+    else speed = Math.max(want, speed - rate * dt);
+  }
+  io[7] = top;
+  io[8] = speed;
+  io[9] = want;
+  io[10] = spin;
+  io[11] = lock;
+}
 
 /**
  * Arcade drive, per class. Steer +1 swings the nose LEFT (+yaw with this
@@ -85,17 +145,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   // Off the fleet disc's rim nothing is under the tyres: the car keeps its ballistic velocity.
   const alive = car.deform.drivetrainAlive;
   if (alive) floorUnder(p, _ground, 0);
-  if (!alive || _ground[0] === NO_FLOOR) {
-    d.throttle = 0;
-    d.steer = 0;
-    d.brake = 0;
-    d.ebrake = false;
-    d.spin = 0;
-    d.lock = 0;
-    d.slide = 0;
-    d.boost = false;
-    return;
-  }
+  if (!alive || _ground[0] === NO_FLOOR) return idleDriveState(d);
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
   // assists() reads only realism, so it reruns when that changes: called out of line, it boxed realism per step.
@@ -137,33 +187,19 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const muR = _ground[2]!;
 
   // Pedals: speed along the nose.
-  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);
-  let speed = along;
-  let want = 0;
-  let spin = 0;
-  let lock = 0;
-  if (input.ebrake || brake > 0) {
-    let s = Math.abs(speed);
-    if (input.ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
-    // Brake force is near constant: a linear stop, never weaker than lifting off.
-    if (brake > 0) s = Math.max(0, s - k.brake * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
-    speed = s < 0.4 ? 0 : Math.sign(speed) * s;
-    // ABS hides most of the lock-up at the arcade end.
-    if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
-  } else {
-    want = throttle * top;
-    const v = Math.abs(speed);
-    let rate = k.brake * DRIVE.coast;
-    if (Math.abs(want) > v) {
-      const x = Math.min(1, v / k.topSpeed);
-      rate = k.accel * (1 + k.torque * (1 - 2 * x)) * dmg.power * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
-      if (throttle > 0.5 && along > -0.5) {
-        spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (boosting ? 1 : 0.7) : 0, (1 - muR) * throttle * 0.6);
-      }
-    }
-    if (speed < want) speed = Math.min(want, speed + rate * dt);
-    else speed = Math.max(want, speed - rate * dt);
-  }
+  _pedal[0] = throttle;
+  _pedal[1] = brake;
+  _pedal[2] = along;
+  _pedal[3] = muF;
+  _pedal[4] = muR;
+  _pedal[5] = realism;
+  _pedal[6] = dt;
+  pedals(k, dmg, input, boosting, _pedal);
+  const top = _pedal[7]!;
+  const speed = _pedal[8]!;
+  const want = _pedal[9]!;
+  const spin = _pedal[10]!;
+  const lock = _pedal[11]!;
 
   // Wheel: yaw rate, slide state, damage pull.
   const v = Math.abs(speed);

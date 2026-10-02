@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { makeCar } from "./crash-scenarios.test-util.ts";
 import { PISTON, PISTON_IDS, PistonRig, type PistonId } from "./piston-rig.ts";
 import { firePiston, pistonLocality, PISTON_FAR, PISTON_STRUCK, type PistonShot, type PistonShotResult } from "./piston-rig.test-util.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import type { DeformableCar } from "./car.ts";
 
 /**

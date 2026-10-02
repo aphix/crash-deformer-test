@@ -5,7 +5,7 @@ import { BALL_EXPOSE, type JerseyBarrier, type RampBall } from "./engine-props.t
 import type { CrashPhase } from "./phase.ts";
 import { leftoverCrumple, round4, vec3 } from "./physics-util.ts";
 import { BARRIER_MASS } from "./sat.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 
 type TraceRecord = Record<string, unknown>;
 

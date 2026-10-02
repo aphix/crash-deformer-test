@@ -5,7 +5,7 @@ import { tyreOverlap } from "./pair-contact.ts";
 import { beginImpact, easeTimeScale, phaseClock, stepPhase, type PhaseClock } from "./phase.ts";
 import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
-import type { DeformMode } from "./streamed-deform.ts";
+import type { DeformMode } from "./deform-rig.ts";
 import { mass, paint } from "./test-support.ts";
 import { newWorld, stepWorld, type World } from "./world-step.ts";
 

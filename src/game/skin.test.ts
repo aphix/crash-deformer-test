@@ -6,7 +6,7 @@ import { PISTON_IDS } from "./piston-rig.ts";
 import { firePiston, pistonLocality, type PistonLocality, type PistonShot } from "./piston-rig.test-util.ts";
 import { transformSkinPointInto, type ShapeCluster } from "./shape-match.ts";
 import type { DeformableCar } from "./car.ts";
-import type { DeformMode, MassNode } from "./streamed-deform.ts";
+import type { DeformMode, MassNode } from "./deform-rig.ts";
 import { forModes } from "./test-support.ts";
 
 /** The deformer internals the reference skin reads (private in production). */
