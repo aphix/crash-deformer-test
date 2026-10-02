@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 /** Number boxes and the time-scale field: 44 px tall on phones, 32 px from `sm`. */
 export const FIELD =
   "h-11 w-14 shrink-0 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)] sm:h-8";
@@ -44,17 +46,57 @@ export function RangeRow({
       {"shown" in end ? (
         <span className="w-14 shrink-0 text-right font-display text-xs tabular-nums text-fg">{end.shown}</span>
       ) : (
-        <input
-          type="number"
-          min={min}
-          max={max}
-          step={step}
-          value={value.toFixed(end.digits)}
-          onChange={(e) => onValue(Number(e.target.value))}
-          aria-label={`${name} value`}
-          className={FIELD}
-        />
+        <NumberField value={value} digits={end.digits} min={min} max={max} step={step} label={`${name} value`} onValue={onValue} />
       )}
     </label>
+  );
+}
+
+/**
+ * Typed number box. While focused it shows the user's own text (a controlled `toFixed` value would rewrite "0" as "0.00"
+ * mid-typing), commits each keystroke that parses inside [min, max], and on blur or Enter commits an out-of-range entry
+ * (the engine clamps it) and shows the engine's value again.
+ */
+export function NumberField({
+  value,
+  digits,
+  min,
+  max,
+  step,
+  label,
+  onValue,
+}: {
+  value: number;
+  digits: number;
+  min: number;
+  max: number;
+  step: number;
+  label: string;
+  onValue: (v: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  return (
+    <input
+      type="number"
+      min={min}
+      max={max}
+      step={step}
+      value={draft ?? value.toFixed(digits)}
+      onChange={(e) => {
+        setDraft(e.target.value);
+        const n = e.target.value.trim() === "" ? NaN : Number(e.target.value);
+        if (n >= min && n <= max) onValue(n);
+      }}
+      onBlur={() => {
+        const n = draft == null || draft.trim() === "" ? NaN : Number(draft);
+        if (Number.isFinite(n) && (n < min || n > max)) onValue(n);
+        setDraft(null);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") e.currentTarget.blur();
+      }}
+      aria-label={label}
+      className={FIELD}
+    />
   );
 }

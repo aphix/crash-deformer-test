@@ -69,8 +69,10 @@ export function usePadMenu(root: RefObject<HTMLElement | null>, id: string, acti
       if (dir) move(dir);
       else if (e.key === "Enter" || e.key === " ") {
         if (!e.repeat) activate();
-      } else if (e.key === "Escape") latest.current.onBack?.();
-      else if (e.key === "Tab") {
+      } else if (e.key === "Escape") {
+        // A held Esc auto-repeats: the press that opened this menu (pause) must not close it again.
+        if (!e.repeat) latest.current.onBack?.();
+      } else if (e.key === "Tab") {
         const list = items();
         const n = list.length;
         if (n > 0) {

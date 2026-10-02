@@ -16,7 +16,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { HudProps } from "@/components/hud";
-import { FIELD, RangeRow } from "@/components/hud-controls";
+import { FIELD, NumberField, RangeRow } from "@/components/hud-controls";
 import type { CrashEngine } from "@/game/engine";
 import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
 import { Button } from "@/components/ui/button";
@@ -187,26 +187,25 @@ function TuningSection({ state, engine }: HudProps) {
       <div className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">Spawn</span>
         <span className="flex-1 text-xs text-muted">m/s</span>
-        <input
-          type="number"
-          min={0}
-          max={48}
-          step={0.5}
+        {/* Each box live-commits only inside the other's bound, so typing never re-sorts the pair under the user. */}
+        <NumberField
           value={state.speedMin}
-          onChange={(e) => engine.current?.setSpeedRange(Number(e.target.value), state.speedMax)}
-          aria-label="Minimum spawn speed"
-          className={FIELD}
+          digits={1}
+          min={0}
+          max={state.speedMax}
+          step={0.5}
+          label="Minimum spawn speed"
+          onValue={(n) => engine.current?.setSpeedRange(n, state.speedMax)}
         />
         <span className="text-xs text-muted">to</span>
-        <input
-          type="number"
-          min={0}
+        <NumberField
+          value={state.speedMax}
+          digits={1}
+          min={state.speedMin}
           max={48}
           step={0.5}
-          value={state.speedMax}
-          onChange={(e) => engine.current?.setSpeedRange(state.speedMin, Number(e.target.value))}
-          aria-label="Maximum spawn speed"
-          className={FIELD}
+          label="Maximum spawn speed"
+          onValue={(n) => engine.current?.setSpeedRange(state.speedMin, n)}
         />
       </div>
       <RangeRow

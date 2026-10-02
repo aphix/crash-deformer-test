@@ -37,6 +37,7 @@ import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.
 import { DerbyMatch, snapshotAiCar } from "./derby.ts";
 import { LampLights } from "./lamp-lights.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
+import { gameKey } from "./drive-input.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, WinnerSpot } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
@@ -598,22 +599,30 @@ export class CrashEngine {
   }
 
   toggleBarrier(): void {
-    if (this.showCompactor || this.showPistons || this.showDoors) return;
-    if (this.derbyMode) this.setDerby(false);
-    if (this.race.active) this.setRace(false);
+    // A fleet prop: ignored while the press, a rig or the race owns the pad (the HUD locks it too).
+    if (this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
     this.showBarrier = !this.showBarrier;
-    this.barrier.group.visible = this.showBarrier;
-    if (this.showBarrier) this.barrier.orient(this.carA.group.position);
+    if (this.derbyMode) {
+      // Out of the bowl like every scene switch: the reset brings back the disc ground, poles and fresh spots, and places the barrier.
+      this.setDerby(false);
+      this.randomizeAndReset();
+    } else {
+      this.barrier.group.visible = this.showBarrier;
+      if (this.showBarrier) this.barrier.orient(this.carA.group.position);
+    }
     this.tryUnlockAudio();
     this.emitHud(true);
   }
 
   toggleBalls(): void {
-    if (this.showCompactor || this.showPistons || this.showDoors) return;
-    if (this.derbyMode) this.setDerby(false);
-    if (this.race.active) this.setRace(false);
+    if (this.showCompactor || this.showPistons || this.showDoors || this.race.active) return;
     this.showBalls = !this.showBalls;
-    scatterRampBalls(this.balls, this.showBalls);
+    if (this.derbyMode) {
+      this.setDerby(false);
+      this.randomizeAndReset();
+    } else {
+      scatterRampBalls(this.balls, this.showBalls);
+    }
     this.tryUnlockAudio();
     this.emitHud(true);
   }
@@ -731,7 +740,6 @@ export class CrashEngine {
       this.showPistons = false;
       this.showDoors = false;
       this.barrier.group.visible = false;
-      this.autoSlomo = false;
       if (this.userTimeScale == null) {
         this.timeScale = 1;
         this.targetScale = 1;
@@ -884,6 +892,7 @@ export class CrashEngine {
     this.showDoors = INITIAL_HUD.showDoors;
     this.doorRig.kph = RAM_DEFAULTS.kph;
     this.doorRig.kg = RAM_DEFAULTS.kg;
+    this.doorRig.side = INITIAL_HUD.doors.side;
     this.autoRotate = INITIAL_HUD.autoRotate;
     this.autoSlomo = INITIAL_HUD.autoSlomo;
     this.audioOn = INITIAL_HUD.audioOn;
@@ -899,6 +908,8 @@ export class CrashEngine {
     this.targetScale = 1;
     this.view.userFramed = false;
     this.setDerby(false);
+    this.setNight(INITIAL_HUD.night);
+    this.setWet(INITIAL_HUD.wet);
     this.setRealism(INITIAL_HUD.realism);
     this.cine.setTier(INITIAL_HUD.fxTier);
     if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
@@ -987,9 +998,7 @@ export class CrashEngine {
   }
 
   private onKey = (e: KeyboardEvent): void => {
-    const target = e.target as HTMLElement | null;
-    // Text fields keep their keys; a focused range slider does not swallow drive keys.
-    if (target?.tagName === "TEXTAREA" || (target?.tagName === "INPUT" && (target as HTMLInputElement).type !== "range")) return;
+    if (!gameKey(e)) return;
     // A race menu owns the keyboard (and the pad) through the HUD.
     if (this.race.menuOpen) return;
     this.keys.add(e.code);
@@ -2334,6 +2343,8 @@ export class CrashEngine {
     }
     if (was !== "idle" && rig.phase === "idle") {
       this.doorShot = rig.result();
+      // The shot is over, and so is fireDoorRam's slow-mo.
+      if (this.userTimeScale == null) this.targetScale = 1;
       this.emitHud(true);
     }
   }

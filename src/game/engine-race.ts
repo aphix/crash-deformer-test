@@ -624,7 +624,6 @@ export class RaceDirector {
     }
     if (this.menu === "standings" && this.campaign) {
       if (this.campaign.done) {
-        this.campaign = null;
         this.toSetup();
         return;
       }
@@ -737,6 +736,7 @@ export class RaceDirector {
 
   /** Setup menu: the chosen course with the field parked on its grid, no race running. */
   private toSetup(): void {
+    this.campaign = null;
     this.session = null;
     this.brain = null;
     this.traffic = null;
