@@ -262,7 +262,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
 
   if (!car.deform.massActive) {
     car.yaw += dyaw;
-    car.group.rotation.set(0, car.yaw, 0, "YXZ");
+    // Keep integrate's ground tilt: levelling here flattened a car on every slice above the ground (crest, lip, bank edge).
+    car.group.rotation.set(car.pitch, car.yaw, car.roll, "YXZ");
     car.refreshBasis();
     // Vertical speed is the world's (ramps, jumps): drive only steers the ground-plane velocity.
     car.velocity.set(nvx, car.velocity.y, nvz);

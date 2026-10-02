@@ -195,7 +195,8 @@ interface Ground {
 runoff, smoothstep back to the base terrain (gaussian `hills`) over 24 m; every path (main, shortcuts,
 streets) is stamped; deck spans are skipped (their ends are rounded abutments) and answered
 analytically from the path at its own height, so a bridge and the road under it coexist.
-Who reads it: driven cars (`car.ts` integrate: ride the ground; where it falls away faster than
+Who reads it: driven cars (`car.ts` integrate: ride the ground, pitched and rolled onto its normal under the
+origin and held there between slices (`ramp.test.ts`: 4 tyres on a 10–30° wedge, every heading); where it falls away faster than
 gravity follows — a ramp lip, a crest at speed — fly, and land on whatever layer is below), per-axle
 grip in `applyDrive`, crashed cars' masses (hub / body floor and ceiling, grip), `followGroup`'s
 height clamp, `dragGround`, `bleedAfterSlide`. Car pairs more than 2.5 m apart in height never touch.
