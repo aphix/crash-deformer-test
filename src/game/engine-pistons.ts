@@ -1,11 +1,10 @@
 import * as THREE from "three";
 import { PISTON, PISTON_IDS, type PistonRig } from "./piston-rig.ts";
+import { wrapPiClosed } from "./scalar.ts";
 
 /** Orbit rate (rad/s) held in the piston scene, so one hop is a fixed eighth of a turn: 2π / 0.12 / 8 ≈ 6.5 s. */
 export const PISTON_ORBIT_RATE = 0.12;
 const STEP = (2 * Math.PI) / PISTON_IDS.length;
-
-const wrapPi = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
 
 /**
  * Orbit bearing (camera angle, atan2(x, z) about the pad) that looks down
@@ -13,12 +12,12 @@ const wrapPi = (a: number): number => Math.atan2(Math.sin(a), Math.cos(a));
  * front-left corner at −45°.
  */
 export function pistonBearing(i: number): number {
-  return wrapPi((i - 1) * STEP);
+  return wrapPiClosed((i - 1) * STEP);
 }
 
 /** Rad the orbit (bearing increasing) still has to turn from `bearing` to piston `i`, in (−π, π]. */
 export function pistonToGo(i: number, bearing: number): number {
-  return wrapPi(pistonBearing(i) - bearing);
+  return wrapPiClosed(pistonBearing(i) - bearing);
 }
 
 /** First piston strictly more than `lead` rad ahead of `bearing` in the orbit's direction. */

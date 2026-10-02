@@ -2158,9 +2158,7 @@ export class StreamedDeformation {
     return false;
   }
 
-  liveHulls(frontDetached = false, rearDetached = false): Hull[] {
-    void frontDetached;
-    void rearDetached;
+  liveHulls(): Hull[] {
     const cell = this.at.cell;
     const engineL = this.at.engineL;
     const engineR = this.at.engineR;

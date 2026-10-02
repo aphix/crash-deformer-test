@@ -517,8 +517,8 @@ function groupSpeed(cars: DeformableCar[]): number {
 /** Mean deceleration (m/s²) of `cars` over `secs` of engine ticks, after the impact clock has run. */
 function slideDecel(cars: DeformableCar[], secs: number): number {
   const w = makeWorld(cars, false, false);
-  w.impact = true;
-  w.wallSinceImpact = 1;
+  w.clock.phase = "slowmo";
+  w.clock.wallSinceImpact = 1;
   for (let f = 0; f < 12; f++) tickWorld(w);
   const v0 = groupSpeed(cars);
   for (let f = 0; f < secs * 60; f++) tickWorld(w);

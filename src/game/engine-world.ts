@@ -106,19 +106,6 @@ export function makeJerseyBarrier(): THREE.Group {
   return g;
 }
 
-export function restoreBarrierRest(group: THREE.Group): void {
-  group.traverse((obj) => {
-    if (!(obj instanceof THREE.Mesh)) return;
-    const rest = obj.userData.rest as Float32Array | undefined;
-    if (!rest) return;
-    const geo = obj.geometry as THREE.BufferGeometry;
-    const attr = geo.getAttribute("position") as THREE.BufferAttribute;
-    (attr.array as Float32Array).set(rest);
-    attr.needsUpdate = true;
-    geo.computeVertexNormals();
-  });
-}
-
 /** One head material for every lamp pole, so night mode lights them all at once. */
 const lampHead = new THREE.MeshStandardMaterial({
   color: 0xf0e6c8,

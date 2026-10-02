@@ -4,13 +4,11 @@ import type { Hull } from "./car-mesh.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "./physics-util.ts";
 import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, satCarBarrier } from "./sat.ts";
 import { impulseCar, pushCar } from "./pair-contact.ts";
-import { makeJerseyBarrier, restoreBarrierRest } from "./engine-world.ts";
-import type { DebrisSystem, SparkSystem } from "./engine-fx.ts";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
 
-type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
+export type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
 
 export type LampPole = {
   group: THREE.Group;
@@ -69,8 +67,8 @@ export class JerseyBarrier {
   /** Car-side face normal from the last `hold`. */
   private readonly faceN = new THREE.Vector3();
 
-  /** `group` defaults to the textured slab; headless scenarios pass a bare group. */
-  constructor(scene: THREE.Scene, group: THREE.Group = makeJerseyBarrier()) {
+  /** `group` is the slab's mesh from the scene that owns it; headless scenarios pass a bare group. */
+  constructor(scene: THREE.Scene, group: THREE.Group) {
     this.group = group;
     this.group.visible = false;
     scene.add(this.group);
@@ -93,7 +91,17 @@ export class JerseyBarrier {
     this.vel.set(0, 0, 0);
     this.crush = 0;
     this.group.position.set(0, 0, 0);
-    restoreBarrierRest(this.group);
+    // Undo the dents (`indent`): every mesh back to its rest positions.
+    this.group.traverse((obj) => {
+      if (!(obj instanceof THREE.Mesh)) return;
+      const rest = obj.userData.rest as Float32Array | undefined;
+      if (!rest) return;
+      const geo = obj.geometry as THREE.BufferGeometry;
+      const attr = geo.getAttribute("position") as THREE.BufferAttribute;
+      (attr.array as Float32Array).set(rest);
+      attr.needsUpdate = true;
+      geo.computeVertexNormals();
+    });
   }
 
   /** Half-thickness shrinks as the slab is dented. */
@@ -356,18 +364,19 @@ function nearestHullPoint(car: DeformableCar, h: Hull, c: THREE.Vector3, px: num
   _hb.set(px + car.rightFlat.x * qx + car.fwdFlat.x * qz, y, pz + car.rightFlat.z * qx + car.fwdFlat.z * qz);
 }
 
+/** A prop broke at `at` (outward `normal`) under a hit closing at `closing` m/s: the scene's debris and sparks. */
+type PropBreak = (at: THREE.Vector3, normal: THREE.Vector3, closing: number) => void;
+
 /**
- * Half-buried ramp balls: ramp the car up a little, pop the nearest hub on a hard kick,
- * and log each first kick per car into `log` stamped with wall time `t`.
+ * Half-buried ramp balls: ramp the car up a little, pop the nearest hub on a hard kick (a shattered ball
+ * calls `onBreak`), and log each first kick per car into `log` stamped with wall time `t`.
  */
 export function resolveRampBalls(
   balls: readonly RampBall[],
   car: DeformableCar,
-  debris: DebrisSystem,
-  sparks: SparkSystem,
-  fxDensity: number,
   t: number,
   log: Record<string, unknown>[],
+  onBreak: PropBreak,
 ): ContactHit | null {
   let hit: ContactHit | null = null;
   const px = car.group.position.x;
@@ -410,8 +419,7 @@ export function resolveRampBalls(
         if (broken) {
           ball.intact = false;
           ball.mesh.visible = false;
-          debris.burst(_hb, _mtv, Math.min(48, 14 + closing * 1.2) * fxDensity);
-          sparks.poof(_hb, _mtv, Math.min(28, 8 + closing * 0.6) * fxDensity);
+          onBreak(_hb, _mtv, closing);
           if (hub) {
             const node = car.deform.masses.find((m) => m.name === hub);
             if (node) car.deform.popHub(node);
@@ -448,14 +456,8 @@ export function resetLampPoles(poles: readonly LampPole[], visible: boolean): vo
   }
 }
 
-/** Thin lamp posts: shove the car, dent it on a hard hit, and fold over above 3.5 m/s. */
-export function resolveLampPoles(
-  poles: readonly LampPole[],
-  car: DeformableCar,
-  debris: DebrisSystem,
-  sparks: SparkSystem,
-  fxDensity: number,
-): ContactHit | null {
+/** Thin lamp posts: shove the car, dent it on a hard hit, and fold over above 3.5 m/s (calling `onBreak`). */
+export function resolveLampPoles(poles: readonly LampPole[], car: DeformableCar, onBreak: PropBreak): ContactHit | null {
   let hit: ContactHit | null = null;
   const px = car.group.position.x;
   const pz = car.group.position.z;
@@ -487,8 +489,7 @@ export function resolveLampPoles(
           pole.intact = false;
           pole.group.rotation.z = Math.atan2(_mtv.x, _mtv.z) ? 1.15 * Math.sign(_mtv.x || 1) : 1.15;
           pole.group.rotation.x = _mtv.z > 0 ? -1.05 : 1.05;
-          debris.burst(_hb, _mtv, Math.min(40, 10 + closing) * fxDensity);
-          sparks.poof(_hb, _mtv, Math.min(22, 6 + closing * 0.5) * fxDensity);
+          onBreak(_hb, _mtv, closing);
         }
       }
       hit = { impulse: Math.max(closing, 2), contact: _hb.clone(), normal: _mtv.clone() };

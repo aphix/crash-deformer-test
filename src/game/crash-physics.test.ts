@@ -5,7 +5,7 @@ import { StreamedDeformation, ENGINE_KILL_TRAVEL, TYRE_R, type DeformMode } from
 import { CRASH, crushStroke, leftoverCrumple } from "./physics-util.ts";
 import { DT, MODES, assertSameDigest, dummyGeom, mass } from "./test-support.ts";
 import { runPair } from "./crash-scenarios.test-util.ts";
-import { warmCrashPath } from "./pair-contact.ts";
+import { warmCrashPath } from "./world-step.ts";
 
 /** ~50 km/h NCAP-style rigid barrier. */
 const FRONTAL_MPS = 14;
