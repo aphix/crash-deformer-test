@@ -231,7 +231,14 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
 - Stakeouts: from a third of the leader's first lap, every 6–16 s a pack of 2 parks on the run-off
   90–140 m ahead of a random racer still racing, either side, out of the local camera's view, nosed
   toward the road; the second car faces the oncoming racers.
-- Wake: a racer within 40 m, or 1.6 s off at its speed (or a knock), wakes the whole pack onto it.
+- Wake: each unit stays parked until a racer's road progress passes its own spot (by under 30 m, so
+  a car arriving a patrol beat late still counts; or a knock) and then joins its pack's pursuit (the
+  first unit passed sets the target): no unit moves before someone has driven past it.
+- Lead-in (2 s): full throttle along the road toward where the target is heading (the centreline
+  1 s of its speed ahead of it, at most 1 s of the unit's own speed and at least 20 m ahead of the
+  unit), its aim blended in from its own heading over the first second; a unit facing back against
+  the traffic turns round at full lock and half throttle. It never steers at the target's side, so
+  it falls in behind it instead of T-boning it from the run-off.
 - Pursuit: sirens on (`setSirens`, sent to netplay clients in the car frame's flags), the racing line
   at aggression 1 with unlimited boost to catch up. Within 35 m on the same stretch it attacks by
   place in the pack: PIT from the rear quarter, door slams, getting ahead to block and brake-check.
@@ -258,6 +265,14 @@ one (lane/drive-speed). Per course, 5 seeds, 200 km/h:
 | stunt | 3–4 | 4 | 22–36 | 6 | 7 |
 
 At 65 km/h: takedowns oval 6, rally 1, city 8, stunt 3; police knocked out 5 / 0 / 3 / 3.
+
+Waking on the pass and leading in from behind (same sweep, main ab458a2 → this rule, per course over
+seeds 1–5): pursuits oval 10 → 15, rally 11 → 12, city 17 → 14, stunt 17 → 17; police contacts
+89 → 38, 127 → 86, 163 → 169, 151 → 99; takedowns 4 → 0, 1 → 0, 5 → 1, 5 → 0; police knocked out
+1 → 0, 0 → 0, 4 → 2, 3 → 1; largest pack on the oval 4–5 → 2 (elsewhere 3–5). The packs now chase
+from behind, so the head-on rams from a stakeout facing the racers, which caused most takedowns,
+no longer happen; the attacks after the lead-in (PIT, slams, blocks, rams once ahead) are unchanged.
+Every race closed; police-off digests are identical to main.
 
 Browser frame cost, city, Watch, 7 AI + our car, 30 s windows once ≥ 3 police are out (police off:
 the same race time), two rounds: CrashEngine tick mean 6.59 / 6.50 ms off, 7.72 / 7.95 ms on (p99
@@ -381,7 +396,11 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
   cars, closes with no You row) and a Watch campaign (all-AI standings).
 - `race-finish.test.ts` police chase: a Watch oval race with police on closes; parked police cars
   show no sirens and chasing ones do; cycling reaches a police car ("Police" on the spectate bar);
-  at least one pursuit; no police car is in the results.
+  at least one pursuit; no police car is in the results. A second oval race checks that no parked
+  unit pulls away before a racer is past its spot (unless knocked), that over each lead-in the
+  angle between the unit's velocity and its target's (where the target drove that stretch) shrinks,
+  that no contact with its target in the lead-in is a T-bone (normal across the target's flank with
+  the unit crossways), and that the pursuit after it still makes contact.
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
   oval, 2 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
   service road and straight across the infield (detours driven at up to 15 m/s, braking for them from

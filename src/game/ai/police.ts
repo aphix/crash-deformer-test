@@ -36,9 +36,20 @@ const PARK_ANGLE = 0.25;
 const ANGLED_RUN = 3;
 /** A parking spot keeps this far (m) from every car. */
 const PARK_CLEAR = 10;
-/** A racer this close (m), or `PULL_OUT` s off at its speed, wakes a parked unit; so does a knock that leaves it moving faster than `KNOCK` m/s. */
-const WAKE = 40;
+/**
+ * A parked unit wakes once a racer's road progress is past its spot by up to `PASSED` m (a patrol beat at top
+ * speed covers ~14 m); so does a knock that leaves it moving faster than `KNOCK` m/s.
+ */
+const PASSED = 30;
 const KNOCK = 2;
+/**
+ * A woken unit leads in for `LEAD_IN` s: full throttle at the road the target is driving, `LEAD_AHEAD` s (at least
+ * `LEAD_MIN` m) ahead of the unit but never past where the target will be in `LEAD_AHEAD` s, its aim blended from
+ * its own heading over the first half; then it pursues.
+ */
+const LEAD_IN = 2;
+const LEAD_AHEAD = 1;
+const LEAD_MIN = 20;
 /** A unit this close (m) to its target sustains the pursuit; a pack this far off for `LOSE_TIME` s gives up. */
 const ENGAGE = 45;
 const LOSE = 160;
@@ -102,7 +113,8 @@ const LINE_STATE = { next: -1, lap: 0 };
  * Police chase (race option, NFS Hot Pursuit style): cars `first … first + count − 1`, after the
  * racers and traffic. From a third of the first lap on, stakeouts park a pack of `PACK_START` on the
  * run-off ahead of a racer (out of view, either side, never on the racing line; the second car faces
- * the oncoming racers). A racer coming near wakes the pack: it chases that racer, driving the racing
+ * the oncoming racers). Each unit stays parked until a racer passes its spot on the road; then it leads in
+ * for `LEAD_IN` s, full throttle along the road toward where that racer is heading (never across at its side), and chases it, driving the racing
  * line (`RaceBrain` at aggression 1, boosting to catch up) and within `ATTACK` m attacking by its
  * place in the pack — PIT from the rear quarter, getting ahead to block and brake-check, door slams
  * from either side; ahead of the racer it pulls out into its path, and one facing it rams it head-on.
@@ -129,6 +141,9 @@ export class PoliceBrain {
   private readonly stuck: Float64Array;
   private readonly back: Float64Array;
   private readonly backSteer: Float64Array;
+  /** Per unit: seconds of lead-in left, and its parking spot's road arc (m). */
+  private readonly leadIn: Float64Array;
+  private readonly parkS: Float64Array;
   /** Per pack slot: in use, its target (−1: a stakeout still waiting), sustained, lost and pursuit seconds. */
   private readonly packLive: Uint8Array;
   private readonly target: Int16Array;
@@ -146,7 +161,7 @@ export class PoliceBrain {
   private dice = 0;
   /** Scratch: the last `nearest` call's distance and the last `spot` found. */
   private nearD = Infinity;
-  private readonly spotAt = { x: 0, y: 0, z: 0, yaw: 0 };
+  private readonly spotAt = { x: 0, y: 0, z: 0, yaw: 0, s: 0 };
 
   constructor(track: Track, line: RaceBrain, first: number, count: number, seed: number) {
     this.track = track;
@@ -160,6 +175,8 @@ export class PoliceBrain {
     this.stuck = new Float64Array(count);
     this.back = new Float64Array(count);
     this.backSteer = new Float64Array(count);
+    this.leadIn = new Float64Array(count);
+    this.parkS = new Float64Array(count);
     this.packLive = new Uint8Array(count);
     this.target = new Int16Array(count).fill(-1);
     this.sustain = new Float64Array(count);
@@ -217,6 +234,11 @@ export class PoliceBrain {
     this.seg[self.id] = this.proj.k;
     const sT = projectPath(path, tg.x, tg.z, this.seg[t]!, this.proj).s;
     this.seg[t] = this.proj.k;
+    if (this.leadIn[u]! > 0) {
+      this.leadIn[u]! -= dt;
+      this.lead(u, self, sS, sT + Math.hypot(tg.vx, tg.vz) * LEAD_AHEAD, speed, out);
+      return out;
+    }
     const L = this.track.length;
     const arc = sT - sS - L * Math.round((sT - sS) / L);
     // Ahead of its target, a unit pulls out into its path once it is `PULL_OUT` s off (at racing speed a
@@ -313,6 +335,23 @@ export class PoliceBrain {
     out.boost = out.throttle > 0 && (along < -6 || headOn) && Math.abs(alpha) < 0.35;
   }
 
+  /** Lead-in: full throttle along the road toward where the target is heading (`sTo`), never straight at its side. */
+  private lead(u: number, self: AiCar, sS: number, sTo: number, speed: number, out: DriveInput): void {
+    const L = this.track.length;
+    const far = sTo - sS - L * Math.round((sTo - sS) / L);
+    const s = sS + Math.max(LEAD_MIN, Math.min(speed * LEAD_AHEAD, far));
+    const pt = this.track.pointAt(((s % L) + L) % L, this.pt);
+    const blend = Math.min(1, (2 * (LEAD_IN - this.leadIn[u]!)) / LEAD_IN);
+    const alpha = blend * wrapPi(Math.atan2(pt.x - self.x, pt.z - self.z) - self.yaw);
+    const reach = Math.max(4, Math.hypot(pt.x - self.x, pt.z - self.z));
+    const turnMax = this.turn[self.id]! * (0.35 + 0.65 * Math.min(1, speed / 8));
+    // An aim behind its shoulder (the stakeout car facing the oncoming racers): full lock, half throttle.
+    const behind = Math.abs(alpha) > 1.5;
+    out.steer = behind ? Math.sign(alpha) : clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / reach / Math.max(0.2, turnMax), -1, 1);
+    out.throttle = behind ? 0.5 : 1;
+    out.boost = Math.abs(alpha) < 0.35;
+  }
+
   /**
    * One patrol pass (the director's bubble beat, `dt` s): knock-outs, wake-ups, pursuits kept, lost or
    * reinforced, stakeouts, units stored. `hunt[id]` is 1 for a racer still racing; `lead` is the
@@ -337,9 +376,10 @@ export class PoliceBrain {
         continue;
       }
       if (st === "parked") {
-        const near = this.nearest(car, cars, hunt, time);
-        const wake = near >= 0 ? Math.max(WAKE, Math.hypot(cars[near]!.vx, cars[near]!.vz) * PULL_OUT) : 0;
-        if (near >= 0 && (this.nearD < wake || Math.hypot(car.vx, car.vz) > KNOCK)) this.wake(u, near);
+        // Held back until a racer passes its spot (or a knock moves it).
+        let r = this.passer(u, cars, hunt, time);
+        if (r < 0 && Math.hypot(car.vx, car.vz) > KNOCK) r = this.nearest(car, cars, hunt, time);
+        if (r >= 0) this.wake(u, r);
         else if (this.since[u]! > PARK_MAX && !world.seen(car.x, car.z)) this.store(u, world);
         continue;
       }
@@ -442,6 +482,7 @@ export class PoliceBrain {
     this.role[u] = role;
     this.stuck[u] = 0;
     this.back[u] = 0;
+    this.parkS[u] = s.s;
     this.setState(u, "parked");
     if (!this.packLive[p]) {
       this.packLive[p] = 1;
@@ -482,24 +523,22 @@ export class PoliceBrain {
       this.spotAt.y = pt.y;
       this.spotAt.z = z;
       this.spotAt.yaw = Math.atan2(fx, fz);
+      this.spotAt.s = ws;
       return true;
     }
     return false;
   }
 
-  /** Wake unit `u`: its whole stakeout goes after `racer` (a reinforcement joins its pack's pursuit). */
+  /** Wake unit `u` (a racer passed it): it joins its pack's pursuit, or starts one after `racer`. Its pack-mates further on wait for their own pass. */
   private wake(u: number, racer: number): void {
     const p = this.pack[u]!;
-    if (this.target[p]! >= 0) {
-      this.setState(u, "pursuit");
-      return;
-    }
+    this.setState(u, "pursuit");
+    if (this.target[p]! >= 0) return;
     this.target[p] = racer;
     this.sustain[p] = 0;
     this.lost[p] = 0;
     this.age[p] = 0;
     this.stats.pursuits++;
-    for (let v = 0; v < this.count; v++) if (this.pack[v] === p && this.state[v] === "parked") this.setState(v, "pursuit");
   }
 
   /** Pack `p` gives up: its units drive off and are stored out of view. */
@@ -521,7 +560,9 @@ export class PoliceBrain {
     this.setState(u, "stored");
   }
 
+  /** Parked → pursuit starts the lead-in. */
   private setState(u: number, st: UnitState): void {
+    if (st === "pursuit" && this.state[u] === "parked") this.leadIn[u] = LEAD_IN;
     this.state[u] = st;
     this.since[u] = 0;
   }
@@ -550,6 +591,25 @@ export class PoliceBrain {
       const d = Math.hypot(cars[i]!.x - c.x, cars[i]!.z - c.z);
       if (d < this.nearD) {
         this.nearD = d;
+        best = i;
+      }
+    }
+    return best;
+  }
+
+  /** The racer most recently past unit `u`'s spot along the road, by under `PASSED` m (−1 none). */
+  private passer(u: number, cars: readonly AiCar[], hunt: Uint8Array, time: number): number {
+    const path = this.track.path;
+    const L = this.track.length;
+    let best = -1;
+    let bestD = PASSED;
+    for (let i = 0; i < this.line.racers; i++) {
+      if (!this.huntable(i, hunt, time)) continue;
+      const s = projectPath(path, cars[i]!.x, cars[i]!.z, this.seg[i]!, this.proj).s;
+      this.seg[i] = this.proj.k;
+      const d = s - this.parkS[u]! - L * Math.round((s - this.parkS[u]!) / L);
+      if (d >= 0 && d < bestD) {
+        bestD = d;
         best = i;
       }
     }
