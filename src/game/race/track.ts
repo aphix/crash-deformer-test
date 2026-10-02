@@ -358,6 +358,18 @@ export function projectPath(path: TrackPath, x: number, z: number, hint: number,
   return out;
 }
 
+/** Height of a path's stamped road at (x, z): its banked plane, held flat past the edge (`stampPath`'s road and runoff). */
+function roadHeight(p: TrackPath, x: number, z: number): number {
+  const pr = projectPath(p, x, z, -1, blankProjection());
+  const k = pr.k;
+  const { b, f: fu } = segmentAt(p, k, x, z, blankSegment());
+  const f = clamp01(fu);
+  const lat = pr.lateral;
+  const half = p.half[k]! + (p.half[b]! - p.half[k]!) * f;
+  const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
+  return p.y[k]! + (p.y[b]! - p.y[k]!) * f - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
+}
+
 /** An unwalled side path (shortcut or traffic street) of one width and surface. */
 function sidePath(pts: readonly { x: number; z: number; y?: number }[], width: number, surface: SurfaceId, closed: boolean): { path: TrackPath; param: Float64Array } {
   const n = pts.length;
@@ -414,7 +426,11 @@ export class Track {
     this.nodeS = this.json.nodes.map((_, i) => (i === 0 ? 0 : sAtParam(path, param, i)));
     this.gates = this.json.checkpoints.map((c) => gateAt(path, c.node === 0 && c.t === 0 ? 0 : sAtParam(path, param, c.node + c.t), 1.5));
     this.shortcuts = this.json.shortcuts.map((sc) => {
-      const sub = sidePath(sc.path, sc.width, sc.surface, false);
+      // The mouths sit on the main road's surface: authored at centreline height, a mouth on a bank's low inside
+      // edge stamped a lip up to 1.7 m high across the main road (stunt's quarry-cut).
+      const last = sc.path.length - 1;
+      const pts = sc.path.map((q, i) => (i === 0 || i === last ? { x: q.x, z: q.z, y: roadHeight(path, q.x, q.z) } : q));
+      const sub = sidePath(pts, sc.width, sc.surface, false);
       const n = sc.path.length;
       const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i), SHORTCUT_REACH));
       return { id: sc.id, from: sc.from, to: sc.to, path: sub.path, gates };
@@ -548,7 +564,11 @@ export class Track {
   }
 }
 
-type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array };
+/**
+ * `road`: 1 where the main loop stamped road or runoff (a side path's blend skirt may not replace it).
+ * `under`: the field as the main loop left it; a side path's skirt eases back to it, not to the bare terrain.
+ */
+type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; road: Uint8Array; under: Float32Array };
 
 /** Heightfield + surface grid baked from a track: road plane (banked), shoulders, eased back to the base terrain. */
 export class TrackGround implements Ground {
@@ -573,11 +593,13 @@ export class TrackGround implements Ground {
     const cells = this.nx * this.nz;
     this.heights = new Float32Array(cells);
     this.surf = new Uint8Array(cells).fill(this.terrain);
-    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf };
+    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, road: new Uint8Array(cells), under: this.heights };
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) this.heights[j * this.nx + i] = this.base(this.minX + i * CELL, this.minZ + j * CELL);
     }
-    for (const p of track.paths()) this.stampPath(p, stamp);
+    this.stampPath(track.path, stamp, false);
+    stamp.under = this.heights.slice();
+    for (const p of track.paths()) if (p !== track.path) this.stampPath(p, stamp, true);
     this.indexDecks(track.path);
   }
 
@@ -592,7 +614,8 @@ export class TrackGround implements Ground {
     return h;
   }
 
-  private stampPath(p: TrackPath, st: Stamp): void {
+  /** `side`: a shortcut or traffic street, stamped after the main loop. */
+  private stampPath(p: TrackPath, st: Stamp, side: boolean): void {
     const segs = p.closed ? p.count : p.count - 1;
     for (let k = 0; k < segs; k++) {
       // Bridge spans are analytic decks, not terrain: the ground under them stays.
@@ -622,15 +645,19 @@ export class TrackGround implements Ground {
           const d2 = (x - cx) * (x - cx) + (z - cz) * (z - cz);
           if (d2 > reach * reach) continue;
           const c = j * this.nx + i;
-          if (d2 >= st.d2[c]!) continue;
-          st.d2[c] = d2;
           const perp = ((x - cx) * ez - (z - cz) * ex) / len;
           const lat = beyond ? Math.sign(perp || 1) * Math.sqrt(d2) : perp;
-          const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f;
           const half = p.half[k]! + (p.half[b]! - p.half[k]!) * f;
-          const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
           const run = lat > 0 ? p.runL[k]! : p.runR[k]!;
           const a = Math.abs(lat);
+          const road = a <= half + run;
+          // Nearest centreline wins, except that a side path's blend skirt never replaces the main loop's road or
+          // runoff: a shortcut's mouth skirt dented a banked turn's inside edge 0.35 m (stunt's quarry-cut).
+          if (d2 >= st.d2[c]! || (side && !road && st.road[c])) continue;
+          st.d2[c] = d2;
+          if (!side) st.road[c] = road ? 1 : 0;
+          const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f;
+          const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
           const edge = yc - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
           if (a <= half) {
             st.h[c] = edge;
@@ -641,7 +668,7 @@ export class TrackGround implements Ground {
           } else {
             const t = Math.min(1, (a - half - run) / BLEND);
             const e = t * t * (3 - 2 * t);
-            st.h[c] = edge + (this.base(x, z) - edge) * e;
+            st.h[c] = edge + ((side ? st.under[c]! : this.base(x, z)) - edge) * e;
             st.surf[c] = this.terrain;
           }
         }
