@@ -10,6 +10,8 @@ import { cn } from "@/lib/utils";
 const NET_SPOT = "absolute right-2 top-2 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:-translate-x-1/2";
 /** Buttons and fields: 44 px tall on phones, 32 px from `sm`. */
 const NET_CONTROL = "h-11 sm:h-8";
+/** Generated codes: 8 of these 32 characters (no I, O, 0 or 1) from `crypto.getRandomValues`, 40 bits, unguessable. */
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 /** The invite link as a QR code: one SVG path, black on a white quiet zone so phones read it on a dark HUD. */
 function InviteQr({ link }: { link: string }) {
@@ -27,8 +29,21 @@ function InviteQr({ link }: { link: string }) {
 }
 
 /**
- * Multiplayer: host or join a room (docs/MULTIPLAYER.md). `?net=host|join&room=CODE[&tx=rtc]`
- * starts it from the URL. Shows peers, ping and the snapshot rate.
+ * `?net=host|join&room=CODE[&tx=bc]`, the code uppercased as the Room field does; null unless the field
+ * would accept it (`[A-Z0-9]`, ≤ 12: never a public `pub-…` room). Only `join` starts on load.
+ */
+function deepLink(search: string): { join: boolean; code: string; tx: NetTx } | null {
+  const params = new URLSearchParams(search);
+  const net = params.get("net");
+  const code = (params.get("room") ?? "").toUpperCase();
+  if ((net !== "host" && net !== "join") || !/^[A-Z0-9]{1,12}$/.test(code)) return null;
+  return { join: net === "join", code, tx: params.get("tx") === "bc" ? "bc" : "rtc" };
+}
+
+/**
+ * Multiplayer: host or join a room (docs/MULTIPLAYER.md). `?net=join&room=CODE[&tx=bc]` joins from
+ * the URL; `?net=host&room=CODE` only fills in the panel, so a link alone never makes a visitor host.
+ * A code the Room field would not accept is ignored. Shows peers, ping and the snapshot rate.
  */
 export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) {
   const [open, setOpen] = useState(false);
@@ -38,18 +53,19 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    let pending = params.get("net");
-    const code = params.get("room") ?? "";
-    const urlTx: NetTx = params.get("tx") === "bc" ? "bc" : "rtc";
-    if (pending && code) setOpen(true);
+    const link = deepLink(window.location.search);
+    if (link) {
+      setOpen(true);
+      setRoom(link.code);
+      setTx(link.tx);
+    }
+    let pendingJoin = link?.join;
     const id = window.setInterval(() => {
       const e = engine.current;
       if (!e) return;
-      if (pending && code) {
-        if (pending === "host") e.net.host(code, urlTx);
-        else e.net.join(code, urlTx);
-        pending = null;
+      if (pendingJoin && link) {
+        e.net.join(link.code, link.tx);
+        pendingJoin = false;
       }
       setStatus(e.net.status());
     }, 500);
@@ -69,7 +85,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
   const start = (role: "host" | "join") => {
     const e = engine.current;
     if (!e) return;
-    const code = room.trim().toUpperCase() || Math.random().toString(36).slice(2, 6).toUpperCase();
+    const code = room.trim().toUpperCase() || Array.from(crypto.getRandomValues(new Uint8Array(8)), (b) => CODE_CHARS[b & 31]).join("");
     setRoom(code);
     if (role === "host") e.net.host(code, tx);
     else e.net.join(code, tx);
