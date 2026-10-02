@@ -115,7 +115,7 @@ function makeDetail(): HTMLCanvasElement {
   ctx.fillRect(0, 0, S, S);
   for (let i = 0; i < 90; i++) {
     const light = Math.random() > 0.5;
-    blob(ctx, S, Math.random() * S, Math.random() * S, 20 + Math.random() * 70, light ? "rgba(255,255,255,0.16)" : "rgba(40,40,40,0.16)");
+    blob(ctx, S, Math.random() * S, Math.random() * S, 20 + Math.random() * 70, light ? "rgba(255,255,255,0.09)" : "rgba(40,40,40,0.09)");
   }
   for (let i = 0; i < 14000; i++) {
     const n = Math.random();
