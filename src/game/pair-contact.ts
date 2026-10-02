@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import type { DeformableCar } from "./car.ts";
+import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "./physics-util.ts";
-import { satCars } from "./sat.ts";
+import { carCrushHulls, satCars } from "./sat.ts";
 import { TYRE_HALF_W, TYRE_R } from "./streamed-deform.ts";
 import { partContactPair } from "./external-contact.ts";
 
@@ -64,8 +64,8 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
   const dist = carA.group.position.distanceTo(carB.group.position);
   if (dist > 5.2) return null;
 
-  const crushHit = satCars(carA, carB, _cn, _cp, (c) => c.crushHulls());
-  const hit = satCars(carA, carB, _n, _p, (c) => c.hulls());
+  const crushHit = satCars(carA, carB, _cn, _cp, carCrushHulls);
+  const hit = satCars(carA, carB, _n, _p);
   if (!crushHit && !hit) {
     // Crushed noses can leave both hull pairs apart while the tyres, which never crush, already meet: in a
     // 100 km/h head-on the hulls missed for a frame and the tyres passed 0.25 m through each other.
@@ -363,4 +363,35 @@ export function stepCarPair(carA: DeformableCar, carB: DeformableCar, dt: number
   }
   carA.afterContacts(dt);
   carB.afterContacts(dt);
+}
+
+/** Warm-up crashes: car A at (x, z) facing `yaw` at 14 m/s into car B parked at the origin facing `yawB`, or driving at `vB`. */
+const WARM_HITS = [
+  // Head-on, 14 m/s each (100 km/h closing), noses 1.7 m apart.
+  [0, -6, 0, Math.PI, 14],
+  // T-bone into a parked car's door.
+  [-4.5, 0, Math.PI / 2, 0, 0],
+] as const;
+
+/**
+ * Run two throwaway crashes through `stepCarPair` (1 s each) so V8 has compiled the crush path before play.
+ * Cold, a race's first crashes ran it unoptimised: single frames took 21–27 ms of physics headless (oval, 8 cars),
+ * 26–48 ms in the browser (docs/PERF_HITCH.md); after this warm-up, ≤ 7.4 ms. Returns whether every hit crashed
+ * both cars (else it no longer warms the code it is for).
+ */
+export function warmCrashPath(): boolean {
+  const scene = new THREE.Scene();
+  const paint = { body: 0x808080, accent: 0x404040, name: "warm-up" };
+  let crashed = true;
+  for (const [x, z, yaw, yawB, vB] of WARM_HITS) {
+    const a = new DeformableCar(paint, scene);
+    const b = new DeformableCar(paint, scene);
+    a.spawnFacing(x, z, yaw, 14);
+    b.spawnFacing(0, 0, yawB, vB);
+    for (let i = 0; i < 240; i++) stepCarPair(a, b, 1 / 240);
+    crashed &&= a.crashed && b.crashed && a.deform.massActive && b.deform.massActive;
+    a.dispose();
+    b.dispose();
+  }
+  return crashed;
 }

@@ -78,7 +78,7 @@ One blank-WebGL control per course. The lane rows were measured before two follo
 - **GPU process (all but a handful, in both builds and every tier).** With the GPU at P8 the game is GPU-process-bound at 60–90 ms a frame, so nearly every frame is over 50 ms. The blank-WebGL control in the same setup holds 16.7 ms. This is the host's GPU power state, and it is not something the game can remove. In that state `minimal` was faster than main's `low` on every course (p50 60.9 vs 67.8 oval, 67.0 vs 67.8 rally, 83.1 vs 85.6 city, 63.5 vs 70.4 stunt), with 9–32 fewer draw calls.
 - **Program links: 0 in the lane** (main: 1–3 per course run, 75–330 ms).
 - **GC:** 1–2 pauses a minute, 30–64 ms, both builds.
-- **Physics:** single frames with `fixedStep` at 26–50 ms, both builds (CrashRealism8).
+- **Physics:** single frames with `fixedStep` at 26–50 ms, both builds. Attributed headless (RIG_ANALYSIS §6.10): the crush path's first run is unoptimised. On the 8-car oval the first pile-up frames (t = 6.7 s) took 12–29 ms against a 0.7 ms median. `warmCrashPath` now runs two throwaway crashes during the boot warm-up, which brings those frames to 7–9 ms (6 interleaved rounds). Not re-measured in the browser.
 
 ## Verification after the follow-ups (lane, minimal, 20 s, load 54–62, GPU at P8)
 | course | p50 | p95 | p99 | max | programs linked | largest frames |

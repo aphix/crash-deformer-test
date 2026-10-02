@@ -8,7 +8,7 @@ import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo }
 import { DOOR_LANES, DoorRig, RAM, RAM_DEFAULTS, type DoorScenario, type RamShot } from "./door-rig.ts";
 import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
-import { resolveCarPair } from "./pair-contact.ts";
+import { resolveCarPair, warmCrashPath } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
 import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
@@ -398,7 +398,10 @@ export class CrashEngine {
       car.setRigVisible(true);
       car.deform.setParticlesVisible(true);
     }
-    await this.warmScene();
+    const scene = this.warmScene();
+    // While the GPU process compiles: the crush path's first run, unoptimised, cost 26–48 ms frames mid-race.
+    warmCrashPath();
+    await scene;
     for (const car of this.live()) {
       car.setRigVisible(this.showRig);
       car.deform.setParticlesVisible(this.showParticles);

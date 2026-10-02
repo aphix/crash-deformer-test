@@ -281,6 +281,15 @@ export interface DeformNetState {
   killTravel: number;
 }
 
+/** Write one live hull, or its rest hull (`fallback`) when any extent is non-finite. */
+function setHull(h: Hull, fallback: Hull, cx: number, cz: number, hx: number, hz: number): void {
+  const ok = Number.isFinite(cx) && Number.isFinite(cz) && Number.isFinite(hx) && Number.isFinite(hz);
+  h.cx = ok ? cx : fallback.cx;
+  h.cz = ok ? cz : fallback.cz;
+  h.hx = ok ? hx : fallback.hx;
+  h.hz = ok ? hz : fallback.hz;
+}
+
 export class StreamedDeformation {
   readonly cageCount: number;
   readonly sensorCount: number;
@@ -349,6 +358,9 @@ export class StreamedDeformation {
   private hitSpeed = -1;
   /** Σ EBS² per struck end (`struckEnd`: front, rear, left, right). */
   private readonly endEbs2 = new Float64Array(4);
+  /** `liveHulls` / `liveCrushHulls` output, rewritten by each call (a SAT pass allocated 10 hulls per car). */
+  private readonly hullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
+  private readonly crushHullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
   /** The current hit is a re-armed one (`rearmHit`), not the crash's first. */
   private rearmed = false;
   /** `elapsed` of the last throttle input (`notifyPower`). */
@@ -2092,41 +2104,13 @@ export class StreamedDeformation {
       0.8,
     );
 
-    return this.sanitizeHulls(
-      [
-        {
-          cx: (hubFL.local.x + engineL.local.x) * 0.5,
-          cz: (zFront + zFrontBack) * 0.5,
-          hx: 0.32,
-          hz: hzF,
-        },
-        {
-          cx: (hubFR.local.x + engineR.local.x) * 0.5,
-          cz: (zFront + zFrontBack) * 0.5,
-          hx: 0.32,
-          hz: hzF,
-        },
-        {
-          cx: cell.local.x,
-          cz: (zFrontBack + zRearFront) * 0.5,
-          hx: midHx,
-          hz: Math.max(0.12, (zFrontBack - zRearFront) * 0.5),
-        },
-        {
-          cx: (hubRL.local.x + axleR.local.x) * 0.5,
-          cz: (zRear + zRearFront) * 0.5,
-          hx: 0.32,
-          hz: hzR,
-        },
-        {
-          cx: (hubRR.local.x + axleR.local.x) * 0.5,
-          cz: (zRear + zRearFront) * 0.5,
-          hx: 0.32,
-          hz: hzR,
-        },
-      ],
-      HULLS,
-    );
+    const out = this.hullBuf;
+    setHull(out[0]!, HULLS[0]!, (hubFL.local.x + engineL.local.x) * 0.5, (zFront + zFrontBack) * 0.5, 0.32, hzF);
+    setHull(out[1]!, HULLS[1]!, (hubFR.local.x + engineR.local.x) * 0.5, (zFront + zFrontBack) * 0.5, 0.32, hzF);
+    setHull(out[2]!, HULLS[2]!, cell.local.x, (zFrontBack + zRearFront) * 0.5, midHx, Math.max(0.12, (zFrontBack - zRearFront) * 0.5));
+    setHull(out[3]!, HULLS[3]!, (hubRL.local.x + axleR.local.x) * 0.5, (zRear + zRearFront) * 0.5, 0.32, hzR);
+    setHull(out[4]!, HULLS[4]!, (hubRR.local.x + axleR.local.x) * 0.5, (zRear + zRearFront) * 0.5, 0.32, hzR);
+    return out;
   }
 
   liveCrushHulls(frontDetached = false, rearDetached = false): Hull[] {
@@ -2154,52 +2138,13 @@ export class StreamedDeformation {
       0.8,
     );
 
-    return this.sanitizeHulls(
-      [
-        {
-          cx: fl.local.x * 0.85,
-          cz: (zFront + zFrontBack) * 0.5,
-          hx: 0.34,
-          hz: hzF,
-        },
-        {
-          cx: fr.local.x * 0.85,
-          cz: (zFront + zFrontBack) * 0.5,
-          hx: 0.34,
-          hz: hzF,
-        },
-        {
-          cx: cell.local.x,
-          cz: (zFrontBack + zRearFront) * 0.5,
-          hx: midHx,
-          hz: Math.max(0.12, (zFrontBack - zRearFront) * 0.5),
-        },
-        {
-          cx: rl.local.x * 0.85,
-          cz: (zRear + zRearFront) * 0.5,
-          hx: 0.34,
-          hz: hzR,
-        },
-        {
-          cx: rr.local.x * 0.85,
-          cz: (zRear + zRearFront) * 0.5,
-          hx: 0.34,
-          hz: hzR,
-        },
-      ],
-      CRUSH_HULLS,
-    );
-  }
-
-  /** Non-finite live hulls fall back to the rest hull (shared, never mutated by callers). */
-  private sanitizeHulls(hulls: Hull[], fallback: readonly Hull[]): Hull[] {
-    for (let i = 0; i < hulls.length; i++) {
-      const h = hulls[i]!;
-      if (!Number.isFinite(h.cx) || !Number.isFinite(h.cz) || !Number.isFinite(h.hx) || !Number.isFinite(h.hz)) {
-        hulls[i] = fallback[i]!;
-      }
-    }
-    return hulls;
+    const out = this.crushHullBuf;
+    setHull(out[0]!, CRUSH_HULLS[0]!, fl.local.x * 0.85, (zFront + zFrontBack) * 0.5, 0.34, hzF);
+    setHull(out[1]!, CRUSH_HULLS[1]!, fr.local.x * 0.85, (zFront + zFrontBack) * 0.5, 0.34, hzF);
+    setHull(out[2]!, CRUSH_HULLS[2]!, cell.local.x, (zFrontBack + zRearFront) * 0.5, midHx, Math.max(0.12, (zFrontBack - zRearFront) * 0.5));
+    setHull(out[3]!, CRUSH_HULLS[3]!, rl.local.x * 0.85, (zRear + zRearFront) * 0.5, 0.34, hzR);
+    setHull(out[4]!, CRUSH_HULLS[4]!, rr.local.x * 0.85, (zRear + zRearFront) * 0.5, 0.34, hzR);
+    return out;
   }
 
   skinPanel(geometry: THREE.BufferGeometry, rest: Float32Array, name: BodyPartName, origin: THREE.Vector3): void {
