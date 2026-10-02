@@ -1,4 +1,4 @@
-<!-- Generated: 2026-10-01 | Files scanned: 14 | Token estimate: ~1350 -->
+<!-- Generated: 2026-10-02 | Files scanned: 18 | Token estimate: ~1700 -->
 # Physics / deformation stack
 
 ```
@@ -26,6 +26,7 @@ DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
 - `update(simDt, geometry)`: while crushing → `pullSensorsFromMasses` → `bakeLocalSkin` (shape) → `solveCages` → `flushSkin` or mark `skinOwed`.
 - Readouts: `crumpleTravel`, `crumpleTravelCorner`, `partCompression`, `sensorCompression`, `liveHulls`, `liveCrushHulls`, `snapshot()`.
 - Flags: `massActive`, `drivetrainAlive`, `bidirectional` (compactor squeeze), `deepCrush`, `skinDeferred`, `skinOwed`.
+- `killTravel`: rearward engine travel that kills the drivetrain, set per car by `CrashEngine.dressCar` from `vehicle-classes.ts` `killTravel(class, HANDLING.realism, "derby" | "default")`: a lerp from the arcade end (`ARCADE_KILL_TRAVEL` 0.55 m for a sedan) to the realistic end (`REAL_KILL_TRAVEL` 0.15 m), both scaled by class `durability` and capped at `KILL_CEILING`, × `DERBY_KILL_SCALE` in derby. `damageStage` / `drivability` turn the damage into a driving penalty (`docs/HANDLING.md`).
 
 ## Shape-match kernel (`shape-match-core.js`, façade `shape-match.ts`)
 Müller 2005 meshless shape matching on `ShapeCluster`s:
@@ -35,6 +36,13 @@ Müller 2005 meshless shape matching on `ShapeCluster`s:
 - `CRASH`, `TRANSFER`; `regionSoftness(name)` → `regionCrushBands(name)` = `{ yield, middle, max }`; `forceTransfer(travel, bands, packed)`.
 - `crushGate(closing, softness)`, `closingKeScale`, `crushStroke(ebs, squash)`, `cancelClosing`, `leftoverCrumple`, `satPushCap`.
 - `physics-util.ts` adds `clampSpeed`, `applyGroundFriction`, `separateSphereFromBounds/FromAabb`.
+
+## Ground (`ground.ts`)
+`Ground` = height, up-normal, grip and surface at (x, z) on a layer (`STEP_UP`: a car under a bridge sees the road, a car on it the deck). `activeGround()` is read by `car.ts`, `car-drive.ts` (wheels, grip), `streamed-deform.ts`, `physics-util.ts` and `engine-marks.ts` (mark channel by surface). `RaceDirector` (`engine-race.ts`) calls `setGround` with the course's `TrackGround` and restores `FLAT_GROUND` (y = 0 asphalt, grip 1) on exit.
+
+## Doors and mirrors
+- `DeformableCar` (`car.ts`): `DoorHinge` per side (`doorHinge(side)`; latch, check-strap stop, slam overload), `setDoorOpen`, `loadDoorStop`, `swingDoors(dt)`, `partOff("doorL" | "doorR" | "mirrorL" | "mirrorR")`.
+- `door-rig.ts`: `DoorRig` (`attach`, `fire(scenario, side)`, `phase` idle / run), `fireRam` headless shot, `DOOR_SCENARIOS` `mirror` (A) / `overOpen` (B) / `shut` (C), `DOOR_LANES`, `RAM_DEFAULTS`. The ram is a striker box run through `external-contact.ts`; `engine-doors.ts` `DoorRam` only draws it. See `docs/DOOR_RIG.md`.
 
 ## Contact
 - `sat.ts`: `physicsSlice(dt, vmax)` (anti-tunnelling step), `sliceSpeed(cars)`, `satCarBarrier`, `clipCarToBarrier`, `satTwoHulls`, `satCars`; hulls from `car-mesh.ts` (`HULLS`, `CRUSH_HULLS`, `crushedHulls`).
