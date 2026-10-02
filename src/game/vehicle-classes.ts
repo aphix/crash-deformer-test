@@ -169,8 +169,8 @@ const KILL_CEILING = 0.63;
  * seed 1 nose-heavy (F55/R64); ×0.69 / 300 a death at 4.7 s; ×0.69 / 500 3/5. A derby is a wrecking
  * contest; a race or fleet car keeps the sourced tolerance and no wear limit.
  */
-export const DERBY_KILL_SCALE = 0.7935;
-export const DERBY_WRECK_ENERGY = 400;
+const DERBY_KILL_SCALE = 0.7935;
+const DERBY_WRECK_ENERGY = 400;
 
 /** Engine-kill travel (m) for a class at `realism`, in a derby or anywhere else. */
 export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "default"): number {
