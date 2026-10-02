@@ -167,28 +167,41 @@ tall, the name field uses 16 px text so phones don't zoom on focus, and the menu
 focused text field its caret and space.
 
 ## AI (`RaceBrain`)
-Deterministic, allocation-free, memory per car id; figures per car class (`setClass`: turn, top
-speed, brake, boost top from `classStats`).
+Deterministic, allocation-free, memory per car id; figures per car class (`setClass(id, classStats(…))`:
+top speed, brake, full-lock yaw, lateral grip, boost top).
+- Pace: the traffic distances below (scan 18 m, following gap 9 m, hunt 25 m) were tuned at 18 m/s;
+  above it they stretch × `pace = v / 18`, so they hold the same time ahead at 200 km/h.
 - Line: inside of the next turn plus a personal offset; lanes change at 3.2 m/s, up to twice that in a
   shove or block (× `1 + fight`).
 - Rivals, only at racing pace (both cars rolling at ≥ 5 m/s; two hungry cars that met slow once
   brawled on a wall until both were out): ram a slower rival on our line (and boost into it);
   late-block a rival coming through from behind; shove a rival alongside door to door; hunt a rival
-  up to 25 m ahead and 5 m sideways, onto its line to push it or, with fight > 0.3, offset 1 m for a
-  PIT tap at its rear quarter and a door-to-door shove, boosting to catch it. Clean drivers give a car
-  coming through room and shy away from one alongside, both × `shy`.
+  up to 25 m × pace ahead and 5 m sideways, onto its line to push it or, with fight > 0.3, offset 1 m
+  for a PIT tap at its rear quarter and a door-to-door shove, boosting to catch it. Clean drivers give
+  a car coming through room and shy away from one alongside, both × `shy`.
 - Following: behind a car on our line at our own pace (≥ 3 m/s) a driver keeps a gap of
-  `9 m × (0.4 + 0.6·shy)` centre to centre, matching its speed at the gap's edge and slower inside it;
-  boost used to put a clean driver's nose on a rival's bumper for 20 s at a time.
+  `9 m × pace × (0.4 + 0.6·shy)` centre to centre, matching its speed at the gap's edge and slower
+  inside it; boost used to put a clean driver's nose on a rival's bumper for 20 s at a time, and a
+  fixed 9 m gap (0.25 s at 130 km/h) let clean fields rear-end each other.
 - Pursuit: a point `Ld = clamp(5 + 0.5 v, 7, 18)` m ahead; `ω = 2 v sin α / Ld`; steer = ω / (class
   full-lock yaw × `0.35 + 0.65·min(1, v/8)` × steer grip) — the same yaw model as `applyDrive`.
-- Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `v_corner = 0.8 · turn · steerGrip / |κ|`
-  capped at the surface's top speed, `a` = half the class brake. Throttle asks for that speed itself
-  (`applyDrive` runs up to throttle × top at the class's full rate), so a rival reaches the same top
-  speed as a player flat out.
+- Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `a` = half the class brake,
+  `v_corner = cornerSpeed(class, 0.8 / |κ|, surface grip)` (vehicle-classes.ts: the least of top
+  speed, `√(grip·r)` at `HANDLING.realism` and full-lock yaw × steer grip × r — every turn planned
+  as if 20 % tighter, so a fifth of both the yaw rate and the lateral grip stays in hand) capped at
+  the surface's top speed. At 200 km/h the yaw term alone let cars into every corner faster than
+  `applyDrive`'s lateral grip cap carries them. Throttle asks for that speed itself (`applyDrive` runs
+  up to throttle × top at the class's gear rate), so a rival reaches the same top speed as a player
+  flat out.
+- Junctions: a shortcut leaves and rejoins the loop at an angle (26°–106° on the four courses) that
+  neither path's curvature shows. Both are planned as corners turning that angle over the pursuit's
+  18 m look-ahead (`0.8 · 18 / angle` m radius on the shortcut's surface): the mouth from the run in
+  to it while short of it, the end from the shortcut's last heading onto the loop. Unplanned, cars
+  reached them at 130 km/h, ran off the shortcut, missed its gates and lost the lap.
 - Boost: the player's meter rules per car (`BOOST.full` drain, `BOOST.recharge` refill). A burst starts
-  on a half-full meter, on a clear run (no car to follow), above 0.7 × top, pointed down the line, and
-  only while the plan at the boosted top still clears every turn in its braking reach.
+  on a half-full meter, on a clear run (no car to follow), pointed down the line, while the plan at the
+  boosted top (`boostTop`) still wants 2 m/s more than the car has: boost pulls harder (`boostAccel`),
+  so it fires out of corners as well as on the straights.
 - A slower car on our line: pass on the side with room; until clear of it sideways close no faster
   than `0.8 m/s per m` beyond 5 m (at least 2 m/s, so a pass never stalls), which stopped a clean pass
   at boost speed side-swiping the car it went round. A stopped or crawling car (< 3 m/s) is just driven
@@ -370,6 +383,7 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
   show no sirens and chasing ones do; cycling reaches a police car ("Police" on the spectate bar);
   at least one pursuit; no police car is in the results.
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
-  oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
-  service road and straight across the infield. The player finishes on the AI's lap count, and the
+  oval, 2 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
+  service road and straight across the infield (detours driven at up to 15 m/s, braking for them from
+  40 m before, as a player would). The player finishes on the AI's lap count, and the
   HUD's lap and place equal a rules snapshot at every sample.

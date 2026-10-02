@@ -10,7 +10,7 @@ export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster" | "police"
 /** Netplay wire order (a snapshot sends the index): append only. */
 export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster", "police"];
 
-interface ClassStats {
+export interface ClassStats {
   id: VehicleClassId;
   label: string;
   /** Body mesh this class spawns with. */
@@ -20,9 +20,13 @@ interface ClassStats {
   /** Forward / reverse top speed on asphalt (m/s). */
   topSpeed: number;
   revSpeed: number;
-  /** Mean 0 → top acceleration (m/s²). */
-  accel: number;
-  /** 0–1 torque bias: extra pull off the line, traded for less near top speed. */
+  /**
+   * Gear buckets, low to high: each gear's top end (× `topSpeed`) and its fixed thrust (m/s²) at the arcade and
+   * the realistic end of `HANDLING.realism` (lerped between), falling as the gears rise. No clutch or revs: the
+   * pull steps down at each shift. The realistic thrusts give the sourced 0–100 km/h (docs/HANDLING.md § Acceleration).
+   */
+  gears: readonly (readonly [upTo: number, arcade: number, real: number])[];
+  /** 0–1 torque feel: how much the rear spins up on a launch. */
   torque: number;
   /** Service brake (m/s²). */
   brake: number;
@@ -47,15 +51,21 @@ const SEDAN: ClassStats = {
   label: "Sedan",
   style: "sedan",
   mass: 1400,
-  topSpeed: 18,
+  topSpeed: 200 / 3.6,
   revSpeed: 11,
-  accel: 16,
+  gears: [
+    [0.24, 17.2, 6.9],
+    [0.42, 10.7, 4.3],
+    [0.6, 6.1, 2.44],
+    [0.8, 3.5, 1.93],
+    [1, 2, 1.1],
+  ],
   torque: 0.3,
   brake: 28,
   turn: 1.55,
-  grip: 40,
+  grip: 39,
   drift: 0.35,
-  boostTop: 1.42,
+  boostTop: 1.2,
   boostAccel: 1.55,
   durability: 1,
   lift: 0,
@@ -73,15 +83,21 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     label: "Muscle",
     style: "coupe",
     mass: 1650,
-    topSpeed: 19,
+    topSpeed: 210 / 3.6,
     revSpeed: 11,
-    accel: 18,
+    gears: [
+      [0.24, 20.4, 9.2],
+      [0.42, 12.7, 5.73],
+      [0.6, 7.7, 3.47],
+      [0.8, 4.7, 2.43],
+      [1, 2.8, 1.45],
+    ],
     torque: 0.6,
     brake: 26,
     turn: 1.36,
-    grip: 36,
+    grip: 35.5,
     drift: 0.85,
-    boostTop: 1.42,
+    boostTop: 1.2,
     boostAccel: 1.55,
     durability: 1.15,
     lift: 0,
@@ -92,15 +108,20 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     label: "Truck",
     style: "pickup",
     mass: 2100,
-    topSpeed: 17.8,
+    topSpeed: 195 / 3.6,
     revSpeed: 10,
-    accel: 15.5,
+    gears: [
+      [0.3, 16.3, 5],
+      [0.53, 7.8, 2.48],
+      [0.76, 4.3, 2.2],
+      [1, 1.8, 1.08],
+    ],
     torque: 0.5,
     brake: 24,
     turn: 1.5,
-    grip: 37,
+    grip: 38.5,
     drift: 0.25,
-    boostTop: 1.45,
+    boostTop: 1.22,
     boostAccel: 1.6,
     durability: 1.25,
     lift: 0.08,
@@ -111,15 +132,20 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     label: "Monster",
     style: "pickup",
     mass: 2900,
-    topSpeed: 18.6,
+    topSpeed: 190 / 3.6,
     revSpeed: 10,
-    accel: 15.5,
+    gears: [
+      [0.3, 17.1, 8.4],
+      [0.53, 11.5, 5.65],
+      [0.76, 5, 2.45],
+      [1, 1.8, 0.88],
+    ],
     torque: 0.7,
     brake: 22,
     turn: 1.3,
-    grip: 33,
+    grip: 37,
     drift: 0.2,
-    boostTop: 1.45,
+    boostTop: 1.22,
     boostAccel: 1.6,
     durability: 1.7,
     lift: 0.48,

@@ -21,7 +21,9 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
 import { DriverRows } from "@/components/race-driver";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
+import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
+import { formatSpeed } from "@/game/hud/speed-units";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;
@@ -72,6 +74,7 @@ function useSplitFlash(split: number | null, time: number): boolean {
 export function RaceReadouts({ race, boost }: { race: RaceHud; boost: number | null }) {
   const you = race.you;
   const flash = useSplitFlash(you?.split ?? null, race.time);
+  const unit = useSpeedUnit();
   if (!you || race.phase === null) return null;
   return (
     <div className="flex flex-col items-end gap-1 self-start text-right font-display tabular-nums" style={{ gridArea: "readouts" }}>
@@ -99,8 +102,8 @@ export function RaceReadouts({ race, boost }: { race: RaceHud; boost: number | n
           </div>
         )}
         <p className="hud-ink text-lg font-semibold leading-none">
-          {you.speedKph.toFixed(0)}
-          <span className="ml-0.5 text-xs font-medium text-fg/70">km/h</span>
+          {formatSpeed(you.speedKph / 3.6, unit)}
+          <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
         </p>
       </div>
       <p

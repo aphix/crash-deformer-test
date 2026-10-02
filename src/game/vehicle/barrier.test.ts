@@ -5,7 +5,8 @@ import { DeformableCar } from "./car.ts";
 import { physicsSlice } from "../contact/sat.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { mass, paint } from "./test-support.ts";
-import { makeCar, makeWorld, runWall } from "../contact/crash-scenarios.test-util.ts";
+import { makeCar, makeWorld, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
+import { CLASSES, VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
 import { stepWorld } from "../engine/world-step.ts";
 
 /** Engine-block travel toward the cabin at rest after a hit (m). */
@@ -157,6 +158,72 @@ describe("jersey barrier full-speed vs slomo", () => {
     runFor(car, 0.55, 1 / 60);
     assert.ok(car.group.position.x > 0.4, `lattice tunneled x=${car.group.position.x.toFixed(3)}`);
   });
+});
+
+/**
+ * The fastest a driven car goes: every class's top speed × its boost top. resolveCarPair capped each slice's
+ * impulse at 18 + 36·pass N·s, so a t-bone into a parked car pushed the struck car at only ~17 m/s² while the
+ * bullet's closing ground on for ~0.8 s: from 58 m/s the bullet's nose came out of the struck car's far side in
+ * 1–4 of 8 contact phases. A t-bone is judged by that nose, not the origins: once the pair turns the bullet can
+ * slide off round the struck car's end, its origin passing the struck car's along X without going through it.
+ */
+const DRIVEN_TOP = Math.max(...VEHICLE_CLASS_IDS.map((id) => CLASSES[id].topSpeed * CLASSES[id].boostTop));
+
+/** Deepest front-bumper mass of `bullet` out past `struck`'s far side, inside its length (m); the bullet starts on its right. */
+function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {
+  let halfW = 0;
+  let halfL = 0;
+  for (const m of struck.deform.masses) {
+    halfW = Math.max(halfW, Math.abs(m.rest.x));
+    halfL = Math.max(halfL, Math.abs(m.rest.z));
+  }
+  let deepest = -Infinity;
+  for (const m of bullet.deform.masses) {
+    if (!m.name.startsWith("bumperF")) continue;
+    const dx = m.world.x - struck.group.position.x;
+    const dz = m.world.z - struck.group.position.z;
+    const across = dx * struck.rightFlat.x + dz * struck.rightFlat.z;
+    if (Math.abs(dx * struck.fwdFlat.x + dz * struck.fwdFlat.z) < halfL) deepest = Math.max(deepest, -across - halfW);
+  }
+  return deepest;
+}
+
+describe("no pass-through up to the top driven speed", () => {
+  it(`good: a ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h hit stops on the slab, shape and lattice`, () => {
+    for (const mode of ["shape", "lattice"] as const) {
+      const car = spawnAtBarrier(0, DRIVEN_TOP, mode);
+      runFor(car, 0.55, 1 / 60);
+      assert.ok(car.group.position.x > 0.4, `${mode} tunneled to x=${car.group.position.x.toFixed(3)}`);
+    }
+  });
+
+  for (const kind of ["head-on", "t-bone"] as const) {
+    it(`good: a ${kind} at 54–80 m/s and ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h${kind === "head-on" ? " each" : " into a parked car"} never carries one car through the other, whatever slice the contact lands in`, () => {
+      for (const v of [54, 57, 60, 65, 70, 75, 80, DRIVEN_TOP]) {
+        // Along X: a heads +X from the left (head-on) or sits broadside at the origin (t-bone); b heads −X from the
+        // right. b's start steps through one 1/240 s slice of its travel in 8 so contact lands at every phase.
+        for (let k = 0; k < 8; k++) {
+          const start = 6 + (k * v) / 240 / 8;
+          const a = makeCar();
+          const b = makeCar();
+          a.spawnFacing(kind === "head-on" ? -6 : 0, 0, kind === "head-on" ? Math.PI / 2 : 0, 0);
+          a.velocity.set(kind === "head-on" ? v : 0, 0, 0);
+          a.speed = a.velocity.length();
+          b.spawnFacing(start, 0, -Math.PI / 2, 0);
+          b.velocity.set(-v, 0, 0);
+          b.speed = v;
+          const w = makeWorld([a, b], false, false);
+          let worst = kind === "head-on" ? Infinity : -Infinity;
+          for (let f = 0; f < 90; f++) {
+            tickWorld(w);
+            worst = kind === "head-on" ? Math.min(worst, b.group.position.x - a.group.position.x) : Math.max(worst, noseThrough(a, b));
+          }
+          if (kind === "head-on") assert.ok(worst > 0, `${v.toFixed(1)} m/s from x=${start.toFixed(3)}: b's origin crossed a's along the hit by ${(-worst).toFixed(2)} m`);
+          else assert.ok(worst <= 0, `${v.toFixed(1)} m/s from x=${start.toFixed(3)}: b's nose came out ${worst.toFixed(2)} m past a's far side`);
+        }
+      }
+    });
+  }
 });
 
 /**

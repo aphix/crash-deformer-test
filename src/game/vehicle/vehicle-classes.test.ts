@@ -44,6 +44,19 @@ function step(car: DeformableCar, input: DriveInput, h = H): void {
   car.refreshBasis();
 }
 
+/**
+ * Launch targets (docs/HANDLING.md § Acceleration), 0–100 km/h and time to top (s) at each end of the realism slider.
+ * Realistic: the sourced 0–60 mph (sedan 6.1, muscle 4.3, truck 7.9, monster about 4), time to top about 2× the arcade.
+ * Arcade: about 0.4× and 0.5× of those, real order kept (muscle and monster quickest, truck slowest off the line).
+ */
+const LAUNCH: Record<VehicleClassId, { topKmh: number; gears: number; arcade: [number, number]; real: [number, number] }> = {
+  sedan: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
+  muscle: { topKmh: 210, gears: 5, arcade: [1.95, 9.5], real: [4.3, 19] },
+  truck: { topKmh: 195, gears: 4, arcade: [2.5, 12.7], real: [7.9, 25.7] },
+  monster: { topKmh: 190, gears: 4, arcade: [2, 11.5], real: [4, 23.1] },
+  police: { topKmh: 200, gears: 5, arcade: [2.45, 12], real: [6.1, 24] },
+};
+
 // --- a mixed test loop: rounded rectangle, two hairpins and two sweepers ------
 
 type Loop = { x: number[]; z: number[]; r: number[]; s: number[]; length: number };
@@ -157,6 +170,42 @@ describe("vehicle classes", () => {
   });
 
   for (const id of VEHICLE_CLASS_IDS) {
+    for (const end of ["arcade", "real"] as const) {
+      const L = LAUNCH[id];
+      const [zeroTo100, toTop] = L[end];
+      it(`good: ${id}, ${end} end — 0–100 km/h in ${zeroTo100} s, ${L.topKmh} km/h top after ${toTop} s (±5 %), the pull stepping down at ${L.gears - 1} shifts`, () => {
+      HANDLING.realism = end === "arcade" ? 0 : 1;
+      const car = classCar(id);
+      const input = { ...idleDrive(), throttle: 1 };
+      const v = [0];
+      for (let t = 0; t < 32; t += H) {
+        step(car, input);
+        v.push(along(car));
+      }
+      const top = v[v.length - 1]!;
+      const t100 = v.findIndex((x) => x >= 100 / 3.6) * H;
+      const tTop = v.findIndex((x) => x >= 0.995 * top) * H;
+      // Gear buckets: the pull holds within a gear and changes by > 10 % only at a shift, always down.
+      const shifts: string[] = [];
+      let rises = 0;
+      for (let i = 2; i < v.length && v[i]! < 0.99 * top; i++) {
+        const before = (v[i - 1]! - v[i - 2]!) / H;
+        const after = (v[i]! - v[i - 1]!) / H;
+        if (Math.abs(after / before - 1) <= 0.1) continue;
+        shifts.push(`${before.toFixed(1)}→${after.toFixed(1)} m/s² at ${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
+        if (after > before) rises++;
+      }
+      const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s, shifts [${shifts.join(", ")}]`;
+      assert.ok(t100 > 0 && Math.abs(t100 / zeroTo100 - 1) <= 0.05, got);
+      assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);
+      assert.ok(Math.abs(tTop / toTop - 1) <= 0.05, got);
+      assert.equal(shifts.length, L.gears - 1, got);
+      assert.equal(rises, 0, got);
+      });
+    }
+  }
+
+  for (const id of VEHICLE_CLASS_IDS) {
     it(`good: ${id} — chase cam, W+A swings the nose LEFT on screen and W+D RIGHT`, () => {
       for (const [key, sign] of [
         ["KeyA", -1],
@@ -257,7 +306,8 @@ describe("damage → drivability", () => {
     car.deform.engineTravel = car.deform.killTravel * 0.98;
     car.deform.impactInward.set(-1, 0, 0);
     const gas = { ...idleDrive(), throttle: 1 };
-    for (let t = 0; t < 6; t += H) step(car, gas);
+    // A limping sedan's pull is about halved: ~10 s up to its floor in the gear buckets.
+    for (let t = 0; t < 20; t += H) step(car, gas);
     const v = along(car);
     assert.ok(v >= LIMP_FLOOR * CLASSES.sedan.topSpeed - 0.05 && v < CLASSES.sedan.topSpeed * 0.9, `limping at ${v.toFixed(2)} m/s`);
     assert.ok(car.angular.y > 0.05, `no pull toward the struck (left) side: yaw ${car.angular.y.toFixed(3)}`);

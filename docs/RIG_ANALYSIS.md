@@ -350,7 +350,8 @@ moves toward a target computed in `syncAttachedParts`, rising by at most
   projected out of the slab.
 - **Car–car** — `pair-contact.ts:resolveCarPair`: SAT on the split hulls,
   `feedOverlap` on both cars, a minimum centre gap of
-  `2.15 + 0.28·(leftoverA + leftoverB)`, `jMax = 18 + 36·pass`.
+  `2.15 + 0.28·(leftoverA + leftoverB)`, and a per-slice closing impulse of at most `closingCap`: `18 + 36·pass`,
+  raised to the impulse that stops the closing before the centres come within 2 m (`STOP_GAP`).
   `engine.ts:fixedStep` also runs `collideWith` sphere contact between the two
   cars' masses.
 - **Lamp pole** — `engine.ts:resolvePoles`: one kick per car,

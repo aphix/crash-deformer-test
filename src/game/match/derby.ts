@@ -1,5 +1,5 @@
-import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_RULES, type AiCar } from "../ai/derby-ai.ts";
-import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_PACE, DERBY_RULES, type AiCar } from "../ai/derby-ai.ts";
+import { DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { derbyRadius } from "../scenes/derby-arena.ts";
 
@@ -206,12 +206,17 @@ export class DerbyMatch {
     return this.counted.has(id);
   }
 
-  /** Scratch input — apply before the next call. Counted-out cars read as dead to every driver. */
+  /**
+   * Scratch input — apply before the next call. Counted-out cars read as dead to every driver. The brain's
+   * forward throttle is a share of the arena pace (`DERBY_PACE`), the car's of its class top.
+   */
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
     if (!this.active || this.winnerId != null || !self.alive || this.counted.has(self.id)) return this.idle;
     for (const o of others) if (this.counted.has(o.id)) o.alive = false;
     self.idle = this.time - (this.lastAggro.get(self.id) ?? 0);
-    return this.brain.think(self, others, dt);
+    const out = this.brain.think(self, others, dt);
+    if (out.throttle > 0) out.throttle *= DERBY_PACE / DRIVE.maxFwd;
+    return out;
   }
 
   step(dt: number, flags: readonly DerbyCarFlag[]): "running" | "winner" | "loop" {
