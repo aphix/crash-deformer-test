@@ -159,12 +159,19 @@ export const ARCADE_KILL_TRAVEL = 0.55;
 /** Worst travel the block reaches by accumulated wrecking (~0.64 m): stay under it so a wreck can still die. */
 const KILL_CEILING = 0.63;
 
-/** Engine-kill travel (m) for a class at `realism`. */
-export function killTravel(id: VehicleClassId, realism: number): number {
+/**
+ * Derby kill travel × the race/fleet value. Ten-car derby, 5 seeds at the realistic defaults (lane
+ * crash-realism-6): ×1 ends 0/5 by elimination; ×0.67 2/5, first death 7.9 s; ×0.5 4/5, first death 15 s.
+ * A derby is a wrecking contest; a race or fleet car keeps the sourced tolerance.
+ */
+export const DERBY_KILL_SCALE = 0.5;
+
+/** Engine-kill travel (m) for a class at `realism`, in a derby or anywhere else. */
+export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "default"): number {
   const d = CLASSES[id].durability;
   const arcade = Math.min(KILL_CEILING, ARCADE_KILL_TRAVEL * (1 + (d - 1) * 0.5));
   const real = Math.min(KILL_CEILING, REAL_KILL_TRAVEL * d);
-  return THREE.MathUtils.lerp(arcade, real, THREE.MathUtils.clamp(realism, 0, 1));
+  return THREE.MathUtils.lerp(arcade, real, THREE.MathUtils.clamp(realism, 0, 1)) * (ctx === "derby" ? DERBY_KILL_SCALE : 1);
 }
 
 /** Lateral grip share kept at the realistic end (the arcade end is 1). */

@@ -556,7 +556,7 @@ export class CrashEngine {
   /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
   setRealism(value: number): void {
     HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
-    for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism);
+    for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
     this.emitHud(true);
   }
 
@@ -718,10 +718,10 @@ export class CrashEngine {
     car.deform.setMode(this.deformMode);
     car.setRigVisible(this.showRig);
     car.deform.setParticlesVisible(this.showParticles);
-    // Re-dress after a respawn re-attached its parts, and arm the slider's kill travel.
+    // Re-dress after a respawn re-attached its parts, and arm the slider's kill travel (a derby's is shorter).
     const cls = carClass(car);
     assignClass(car, cls);
-    car.deform.killTravel = killTravel(cls, HANDLING.realism);
+    car.deform.killTravel = killTravel(cls, HANDLING.realism, this.derbyMode ? "derby" : "default");
   }
 
   private onKey = (e: KeyboardEvent): void => {

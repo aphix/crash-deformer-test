@@ -9,6 +9,7 @@ import {
   assignClass,
   CLASSES,
   cornerSpeed,
+  DERBY_KILL_SCALE,
   drivability,
   HANDLING,
   killTravel,
@@ -264,28 +265,37 @@ describe("damage → drivability", () => {
 
   it("good: the slider's arcade end survives three 50 km/h wall hits", () => {
     const car = makeCar();
-    car.deform.killTravel = killTravel("sedan", 0);
+    car.deform.killTravel = killTravel("sedan", 0, "default");
     for (let i = 0; i < 3; i++) runWall(50, 1, "front", { car });
     assert.equal(car.deform.drivetrainAlive, true, `dead after 3 hits, travel ${car.deform.engineTravel.toFixed(3)} m`);
   });
 
   it("good: the realistic end follows the sourced kill band — drives on after 35 km/h, dies at 64 km/h", () => {
-    assert.equal(killTravel("sedan", 1), 0.15);
+    assert.equal(killTravel("sedan", 1, "default"), 0.15);
     const slow = makeCar();
-    slow.deform.killTravel = killTravel("sedan", 1);
+    slow.deform.killTravel = killTravel("sedan", 1, "default");
     runWall(35, 1, "front", { car: slow });
     assert.equal(slow.deform.drivetrainAlive, true, "35 km/h killed it");
     const fast = makeCar();
-    fast.deform.killTravel = killTravel("sedan", 1);
+    fast.deform.killTravel = killTravel("sedan", 1, "default");
     runWall(64, 1, "front", { car: fast });
     assert.equal(fast.deform.drivetrainAlive, false, "64 km/h left it running");
   });
 
   it("good: tougher classes take more before they die, and the monster most, at both ends", () => {
     for (const realism of [0, 1]) {
-      const order = (["sedan", "muscle", "truck", "monster"] as const).map((id) => killTravel(id, realism));
+      const order = (["sedan", "muscle", "truck", "monster"] as const).map((id) => killTravel(id, realism, "default"));
       for (let i = 1; i < order.length; i++) assert.ok(order[i]! >= order[i - 1]!, `realism ${realism}: ${order.join(" ")}`);
       assert.ok(order[3]! > order[0]!);
+    }
+  });
+
+  it("good: a derby car dies at DERBY_KILL_SCALE of the race and fleet kill travel, every class and realism", () => {
+    for (const id of VEHICLE_CLASS_IDS) {
+      for (const realism of [0, DEFAULT_REALISM, 0.5, 1]) {
+        const base = killTravel(id, realism, "default");
+        assert.ok(Math.abs(killTravel(id, realism, "derby") - base * DERBY_KILL_SCALE) < 1e-12, `${id} @ ${realism}`);
+      }
     }
   });
 });
