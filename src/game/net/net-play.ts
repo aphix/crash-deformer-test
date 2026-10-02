@@ -1,4 +1,6 @@
+import { z } from "zod";
 import type { DeformableCar } from "../car.ts";
+import type { CrashPhase } from "../hud-store.ts";
 import { applyDrive, idleDrive, type DriveInput, type DriverSeat } from "../car-drive.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "../car-variants.ts";
 import { carClass, HANDLING, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle-classes.ts";
@@ -18,6 +20,15 @@ import {
 } from "./codec.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";
+import { PUBLIC_PREFIX } from "@/lib/multiplayer/rooms";
+
+/** `GET api/rtc?list=public` (signaling.server.ts `listPublic`), fullest room first. */
+const PUBLIC_LIST = z.object({
+  rooms: z.array(z.object({ room: z.string().startsWith(PUBLIC_PREFIX).max(64), players: z.number().int() })),
+});
+
+/** Wire order of the crash phases (`Snapshot.phase`). */
+const PHASES: readonly CrashPhase[] = ["approach", "impact", "slowmo", "aftermath"];
 
 export type NetRole = "off" | "host" | "client";
 /** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
@@ -31,11 +42,18 @@ export interface NetGame {
   /** Rebuild car `i` on this body style and class when it differs. */
   matchCar(i: number, style: CarStyleId, cls: VehicleClassId): void;
   setRealism(value: number): void;
+  /** Host: the crash phase and time scale clients mirror. */
+  phase(): CrashPhase;
+  timeScale(): number;
+  /** Client: show the host's phase and run FX at its time scale. */
+  mirrorClock(phase: CrashPhase, timeScale: number): void;
   readonly seat: DriverSeat;
 }
 
 export interface NetStatus {
   role: NetRole;
+  /** A public room (`publicRace`): anyone pressing "Public race" may land in it. */
+  public: boolean;
   room: string;
   tx: NetTx;
   selfId: string;
@@ -66,6 +84,7 @@ export class NetPlay {
   private transport: NetTransport | null = null;
   private room = "";
   private tx: NetTx = "bc";
+  private isPublic = false;
   private car = -1;
   private layout: NetLayout | null = null;
   private readonly w = new Writer();
@@ -120,6 +139,24 @@ export class NetPlay {
     this.start("client", room, tx);
   }
 
+  /**
+   * Public race: join the fullest open public room over WebRTC (the relay lists rooms with a live
+   * host and a free seat), or host a new one when none is open.
+   */
+  async publicRace(): Promise<void> {
+    let open: string | undefined;
+    try {
+      const res = await fetch(`${import.meta.env.BASE_URL}api/rtc?list=public`);
+      const list = PUBLIC_LIST.safeParse(res.ok ? await res.json() : null);
+      if (list.success) open = list.data.rooms[0]?.room;
+    } catch {
+      // Offline or relay down: host a room of our own, which others can still find later.
+    }
+    if (open) this.join(open, "rtc");
+    else this.host(`${PUBLIC_PREFIX}${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
+    this.isPublic = true;
+  }
+
   leave(): void {
     this.transport?.close();
     this.transport = null;
@@ -146,6 +183,7 @@ export class NetPlay {
       peers: this.transport?.peers() ?? [],
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,
+      public: this.isPublic,
     };
   }
 
@@ -176,15 +214,19 @@ export class NetPlay {
   private start(role: NetRole, room: string, tx: NetTx): void {
     this.leave();
     const id = crypto.randomUUID().slice(0, 8);
-    this.transport = tx === "rtc" ? new RtcTransport(room, id) : new BroadcastTransport(room, id);
+    this.transport = tx === "rtc" ? new RtcTransport(room, id, role === "host" ? "host" : "client") : new BroadcastTransport(room, id);
     this.transport.onMessage = (from, data) => this.receive(from, data);
     this.role = role;
     this.room = room;
     this.tx = tx;
+    this.isPublic = false;
   }
 
   private layoutOf(car: DeformableCar): NetLayout {
-    this.layout ??= { ...car.deform.netSizes(), parts: car.partNetSizes().parts };
+    if (!this.layout) {
+      const p = car.partNetSizes();
+      this.layout = { ...car.deform.netSizes(), parts: p.parts, wheels: p.wheels };
+    }
     return this.layout;
   }
 
@@ -248,6 +290,8 @@ export class NetPlay {
     this.keyframeDue = false;
     s.count = cars.length;
     s.realism = HANDLING.realism;
+    s.phase = PHASES.indexOf(this.game.phase());
+    s.timeScale = this.game.timeScale();
     ensureFrames(s, cars.length, L);
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
@@ -333,6 +377,7 @@ export class NetPlay {
     }
     const latest = this.ring[newest]!;
     if (Math.abs(latest.realism - HANDLING.realism) > 0.5 / 255) this.game.setRealism(latest.realism);
+    this.game.mirrorClock(PHASES[latest.phase] ?? "approach", latest.timeScale);
     for (let i = 0; i < count; i++) {
       const was = this.game.cars()[i];
       const f = latest.cars[i]!;

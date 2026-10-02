@@ -103,6 +103,10 @@ export interface PartNetState {
   lamps: number;
   /** 2 bits per pane: 0 intact, 1 cracked, 2 shattered. */
   glass: number;
+  /** Bit i: wheel i is off its hub, loose in the world. */
+  wheelLoose: number;
+  /** Per wheel × 7: world position xyz and quaternion xyzw, while loose. */
+  readonly wheels: Float32Array;
 }
 
 type GlassState = "intact" | "cracked" | "shattered";
@@ -901,7 +905,8 @@ export class DeformableCar {
     }
   }
 
-  private nudgeWheels(dt: number): void {
+  /** `drop`: a popped hub throws its wheel (host); a netplay client takes loose wheels from snapshots. */
+  private nudgeWheels(dt: number, drop = true): void {
     const v = this.velocity.length();
     if (!this.deform.drivetrainAlive) {
       this.wheelSpin *= Math.pow(0.45, dt);
@@ -928,7 +933,7 @@ export class DeformableCar {
         w.visible = true;
         continue;
       }
-      this.dropWheel(i, hubs[i]!);
+      if (drop) this.dropWheel(i, hubs[i]!);
     }
   }
 
@@ -1280,8 +1285,8 @@ export class DeformableCar {
   }
 
   /** Netplay: array sizes for a `PartNetState`. */
-  partNetSizes(): { parts: number; lamps: number; glass: number } {
-    return { parts: this.parts.length, lamps: this.lamps.length, glass: this.glassPanes.length };
+  partNetSizes(): { parts: number; lamps: number; glass: number; wheels: number } {
+    return { parts: this.parts.length, lamps: this.lamps.length, glass: this.glassPanes.length, wheels: this.wheels.length };
   }
 
   /** Netplay host: part, lamp and glass state, and each loose part's world pose. */
@@ -1306,6 +1311,14 @@ export class DeformableCar {
     }
     out.lamps = lamps;
     out.glass = glass;
+    let wheels = 0;
+    for (let i = 0; i < this.wheels.length; i++) {
+      if (!this.looseWheels[i]!.loose) continue;
+      wheels |= 1 << i;
+      this.wheels[i]!.position.toArray(out.wheels, i * 7);
+      this.wheels[i]!.quaternion.toArray(out.wheels, i * 7 + 3);
+    }
+    out.wheelLoose = wheels;
   }
 
   /**
@@ -1340,6 +1353,24 @@ export class DeformableCar {
     }
     // Mirrors pose on their door, which shares their swing: every swing is set before any pose.
     for (const p of this.parts) if (!p.detached) this.posePart(p);
+
+    for (let i = 0; i < this.wheels.length; i++) {
+      const w = this.wheels[i]!;
+      const lw = this.looseWheels[i]!;
+      const loose = ((parts.wheelLoose >> i) & 1) !== 0;
+      if (loose !== lw.loose) {
+        // Back under the class hub group (assignClass), where resetVisual's re-dress puts it.
+        if (loose) this.world.add(w);
+        else (this.group.getObjectByName("classHubs") ?? this.group).add(w);
+        lw.loose = loose;
+        lw.velocity.set(0, 0, 0);
+        lw.angular.set(0, 0, 0);
+      }
+      if (!loose) continue;
+      w.position.fromArray(parts.wheels, i * 7);
+      w.quaternion.fromArray(parts.wheels, i * 7 + 3);
+      w.visible = true;
+    }
 
     let relight = false;
     for (let i = 0; i < this.lamps.length; i++) if ((parts.lamps >> i) & 1 && !this.lamps[i]!.intact) relight = true;
@@ -1385,7 +1416,7 @@ export class DeformableCar {
 
   /** Netplay client, every frame: wheels spin and ride their hubs as `afterContacts` does on the host. */
   netFrame(dt: number): void {
-    this.nudgeWheels(dt);
+    this.nudgeWheels(dt, false);
   }
 }
 
