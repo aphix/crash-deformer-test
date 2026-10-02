@@ -1,26 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, blankProjection, crossGate, type WallHit } from "./track.ts";
-import { parseTrack, type TrackFile } from "./track-schema.ts";
+import { parseTrack } from "./track-schema.ts";
+import { square } from "./track.test-util.ts";
 import { TRACKS } from "./tracks/index.ts";
-
-const square = (extra: Partial<TrackFile> = {}): TrackFile => ({
-  id: "square",
-  name: "Square",
-  road: { width: 10, runoff: [2, 2] },
-  nodes: [
-    { x: 0, z: 0 },
-    { x: 0, z: 60 },
-    { x: 0, z: 120 },
-    { x: 60, z: 140 },
-    { x: 120, z: 120 },
-    { x: 120, z: 60 },
-    { x: 120, z: 0 },
-    { x: 60, z: -20 },
-  ],
-  checkpoints: [{ node: 0 }, { node: 2 }, { node: 4 }, { node: 6 }],
-  ...extra,
-});
 
 describe("track", () => {
   for (const json of TRACKS) {

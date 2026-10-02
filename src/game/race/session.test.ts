@@ -4,27 +4,11 @@ import { Track, blankPoint, blankProjection, pointOn } from "./track.ts";
 import { CLEARANCE, COUNTDOWN, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
 import type { CarPose, Entrant, RaceEvent, RaceResultRow } from "./types.ts";
-import type { TrackFile } from "./track-schema.ts";
+import { square as squareFile } from "./track.test-util.ts";
+import { assertSameDigest } from "../test-support.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
 
 const DT = 1 / 60;
-
-const SQUARE: TrackFile = {
-  id: "square",
-  name: "Square",
-  road: { width: 10, runoff: [2, 2] },
-  nodes: [
-    { x: 0, z: 0 },
-    { x: 0, z: 60 },
-    { x: 0, z: 120 },
-    { x: 60, z: 140 },
-    { x: 120, z: 120 },
-    { x: 120, z: 60 },
-    { x: 120, z: 0 },
-    { x: 60, z: -20 },
-  ],
-  checkpoints: [{ node: 0 }, { node: 2 }, { node: 4 }, { node: 6 }],
-};
 
 function field(n: number): Entrant[] {
   return Array.from({ length: n }, (_, i) => ({ id: i, name: `Car ${i}`, kind: i === 0 ? "player" : "ai", aggression: 0 }));
@@ -107,7 +91,7 @@ function runTo(s: RaceSession, drivers: Driver[], to: number, until?: (s: RaceSe
 
 const count = (ev: RaceEvent[], type: RaceEvent["type"]) => ev.filter((e) => e.type === type).length;
 
-const square = new Track(SQUARE);
+const square = new Track(squareFile());
 const ovalTrack = new Track(oval);
 
 describe("race rules", () => {
@@ -356,11 +340,11 @@ describe("race rules", () => {
     const a = new RaceSession(square, field(3), { laps: 2, noReset: false });
     runTo(a, drivers, 9);
     const b = RaceSession.restore(square, JSON.parse(JSON.stringify(a.snapshot())));
-    assert.deepEqual(b.snapshot(), a.snapshot());
+    assertSameDigest(b.snapshot(), a.snapshot(), "restored race at 9 s");
     runTo(a, drivers, 80);
     runTo(b, drivers, 80);
     assert.equal(a.phase, "finished");
-    assert.deepEqual(b.snapshot(), a.snapshot());
+    assertSameDigest(b.snapshot(), a.snapshot(), "restored race at the finish");
   });
 
   it("end(): running cars are DNF and rank behind the finishers", () => {
@@ -446,7 +430,7 @@ describe("campaign", () => {
     assert.equal(c.trackId, null);
     assert.throws(() => c.record([]));
     const restored = Campaign.restore(JSON.parse(JSON.stringify(c.snapshot())));
-    assert.deepEqual(restored.snapshot(), c.snapshot());
+    assertSameDigest(restored.snapshot(), c.snapshot(), "restored campaign");
   });
 
   it("places past 8th score nothing; a car missing from a round keeps a 0 place", () => {
