@@ -1,8 +1,24 @@
-import { useEffect, useState, type RefObject } from "react";
+import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine";
 import type { NetStatus, NetTx } from "@/game/net/net-play";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
+import { encodeQr } from "@/lib/qr";
+
+/** The invite link as a QR code: one SVG path, black on a white quiet zone so phones read it on a dark HUD. */
+function InviteQr({ link }: { link: string }) {
+  const qr = useMemo(() => {
+    const { size, dark } = encodeQr(link);
+    let d = "";
+    for (let y = 0; y < size; y++) for (let x = 0; x < size; x++) if (dark[y * size + x]) d += `M${x + 4} ${y + 4}h1v1h-1z`;
+    return { view: size + 8, d };
+  }, [link]);
+  return (
+    <svg viewBox={`0 0 ${qr.view} ${qr.view}`} className="mx-auto block h-40 w-40 rounded bg-white" role="img" aria-label="QR code of the invite link" shapeRendering="crispEdges">
+      <path d={qr.d} fill="#000" />
+    </svg>
+  );
+}
 
 /**
  * Multiplayer: host or join a room (docs/MULTIPLAYER.md). `?net=host|join&room=CODE[&tx=rtc]`
@@ -93,9 +109,12 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             ))}
           </ul>
           {status.public ? null : (
-            <Button size="sm" variant="secondary" onClick={copyInvite} title={invite} aria-label="Copy invite link">
-              {copied ? "Link copied" : "Copy invite link"}
-            </Button>
+            <>
+              <Button size="sm" variant="secondary" onClick={copyInvite} title={invite} aria-label="Copy invite link">
+                {copied ? "Link copied" : "Copy invite link"}
+              </Button>
+              {status.tx === "rtc" ? <InviteQr link={invite} /> : null}
+            </>
           )}
           <Button size="sm" variant="secondary" onClick={() => engine.current?.net.leave()}>
             Leave

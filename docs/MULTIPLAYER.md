@@ -120,7 +120,10 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   Join, link "Internet (WebRTC)" or "This browser (tabs)"). "Copy invite link" copies
   `origin + BASE_URL + ?net=join&room=CODE` (plus `&tx=bc` for tabs); the URL form `?net=host|join
   &room=CODE[&tx=bc]` starts it on load. Every net URL is built from `import.meta.env.BASE_URL`, so
-  the app works under a base path (`APP_BASE=/crush/` on the VPS).
+  the app works under a base path (`APP_BASE=/crush/` on the VPS). Under WebRTC the panel also
+  shows the link as a QR code (`src/lib/qr.ts`: ~200-line dependency-free encoder, byte mode, level
+  M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
+  the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
 - **Public race**: the button asks the relay for open public rooms (`GET api/rtc?list=public`:
   rooms named `pub-…` with a live `host`-tagged peer and a free seat, fullest first) and joins the
   first, or hosts a new `pub-XXXXXX` room when none is open. The panel shows players `n/8`.
