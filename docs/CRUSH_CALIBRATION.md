@@ -1,9 +1,9 @@
 # Squash / buckle calibration
 
-Status: phase 2, defaults applied on lane `calib-defaults`. The sweep tables were measured on base main `b9c5647`;
-after the rebase onto `107db69` (shared striker contact) the 0.30 / 0.32 / 0.40 cells reproduce every key metric to
-0.01 m. Phase 1, the knob audit and the instrument, was measured on `0e83d6f` (§8). Every number below comes from
-`npm run sweep` (`scripts/crush-sweep.mjs`), shape mode, unless a section says otherwise.
+Status: phase 2, defaults applied on lane `calib-defaults`, rebased onto main `fe381c3` (CrashRealism6 merged). §3.0 is
+the final sweep on that tree; §3.1–§3.4 are the phase-2 decision sweep on base main `b9c5647`. Phase 1, the knob audit
+and the instrument, was measured on `0e83d6f` (§8). Every number below comes from `npm run sweep`
+(`scripts/crush-sweep.mjs`), shape mode, unless a section says otherwise.
 
 ## 0. Summary
 
@@ -11,18 +11,18 @@ after the rebase onto `107db69` (shared striker contact) the 0.30 / 0.32 / 0.40 
 |---|---|---|---|---|---|
 | squash (HUD "Stroke", shown as crush stroke @56 km/h) | 0.40 (0.56 m) | **0.32 (0.52 m)** | 0–1 (0.34–0.90 m) | **0.109–0.729 (0.40–0.75 m)** | realism: in band and best band-centring from 0.30 to 0.35, full speed and slomo (§3). 0.32 is the point in that region where the two noisy piston-corner tests pass (§5) |
 | buckle (HUD "Wrinkle", "Panel wrinkle") | 0.45 | 0.45 | 0–1 | 0–1 | no physics target: ≤ 0.035 m crush spread across 0–1 for squash 0.2–0.6 except the offset nose (§3.4); visual fold size only |
-| rig `CAGES.chassisRear.maxCrush` (data, `rig-spec.ts`) | 0.45 | **0.38** | — | — | rear stroke = 0.69 × front (was 0.82); tail ÷ 50 km/h nose 0.81–0.94 at every squash 0.2–0.45, full speed and slomo (§4) |
+| realism (Handling's "Arcade ↔ Real") | 0.25 | 0.25 | 0–1 | 0–1 (`KNOB_RANGES.realism`) | owned by Handling (when a car dies); this lane only adds it to the shared ranges and the Defaults reset |
+| rig `CAGES.chassisRear.maxCrush` (data, `rig-spec.ts`) | 0.45 | **0.38** | — | — | rear stroke = 0.69 × front (was 0.82); tail ÷ 50 km/h nose 0.78–0.86 at every squash 0.2–0.45 on `fe381c3`, full speed and slomo (§4) |
 
-- **Default car (0.32 / 0.45), full speed:** every scored target is in band except the 2×56 head-on pulse (§5.4).
-  56 km/h wall: nose 0.37 m, COM travel 0.52 m, 83 ms, 18.1 g, cabin 0.03 m. Score 0.002, centre 0.45.
-- **Slomo** (the engine's impact slow motion, `--slomo`): score 0.009, centre 0.39. Same single miss.
-- **Slomo 2×56 head-on anomaly:** squash 0.4 and up hits it. 95 % of Δv arrives only after 288–407 ms, against
-  36 ms at 0.32. Leaving 0.4 also removes this.
-- **Defaults button:** `engine.resetDefaults` copies `INITIAL_HUD`. The engine fields start from `INITIAL_HUD`. The
-  `StreamedDeformation` field defaults equal it, and `knob-defaults.test.ts` checks that agreement and that each
-  default sits inside its slider range.
-- **Owner's 1/1 setting:** score 0.473 with 16 of 38 targets missed (§6). It is now outside the slider range: the
-  maximum stroke is 0.75 m, squash 0.729.
+- **Default car (0.32 / 0.45) on `fe381c3`, full speed:** score 0.028, centre 0.55. 56 km/h wall: nose 0.37 m, COM
+  travel 0.52 m, 83 ms, 18.1 g, cabin 0.03 m. Two misses, neither from the knobs: the 2×56 head-on pulse (§5.4) and
+  the T-bone struck door, which on `fe381c3` swings on its hinge instead of intruding (0.02 m at every squash, §5.6).
+- **Slomo** (the engine's impact slow motion, `--slomo`): score 0.049, centre 0.50, same two misses.
+- **Defaults button:** `engine.resetDefaults` copies `INITIAL_HUD`, including realism and the player's car class. The
+  engine fields start from `INITIAL_HUD`. The `StreamedDeformation` field defaults equal it, and
+  `knob-defaults.test.ts` checks that agreement and that each default sits inside its slider range.
+- **Owner's 1/1 setting:** score 0.475 with 16 targets missed (§6). It is outside the slider range: the maximum
+  stroke is 0.75 m, squash 0.729.
 
 ## 1. Knob audit
 
@@ -97,9 +97,49 @@ Targets come from `docs/RIG_ANALYSIS.md` §2/§3.3 and `barrier.test.ts`. Bands 
 from the cited 56 km/h band. The `wrinkle` output (wrinkle amplitude, skin fold at the hit) is visual only, and no
 target constrains it.
 
-## 3. Phase 2 sweep (lane tree: `b9c5647` + rear 0.38 + default 0.32)
+## 3. Sweeps
 
-### 3.1 Grid, full speed (score / centre, lower is better)
+### 3.0 Final sweep on `fe381c3` (lane rebased; CrashRealism5/6, ContactParity, Netplay, Cinematic merged)
+
+Grid, full speed (score / centre; 37 cells × 10 scenarios in 76.5 s on a loaded box):
+
+| squash \ buckle | 0 | 0.2 | 0.4 | 0.6 | 0.8 | 1 |
+|---|---|---|---|---|---|---|
+| 0 | 0.102 / 1.08 | 0.111 / 1.16 | 0.112 / 1.17 | 0.112 / 1.16 | 0.116 / 1.18 | 0.115 / 1.17 |
+| 0.2 | 0.049 / 0.63 | 0.049 / 0.61 | 0.049 / 0.62 | 0.049 / 0.62 | 0.049 / 0.62 | 0.049 / 0.61 |
+| 0.4 | 0.028 / 0.63 | 0.040 / 0.67 | 0.028 / 0.63 | 0.028 / 0.65 | 0.028 / 0.66 | 0.029 / 0.66 |
+| 0.6 | 0.100 / 1.13 | 0.105 / 1.15 | 0.107 / 1.16 | 0.102 / 1.15 | 0.105 / 1.16 | 0.104 / 1.15 |
+| 0.8 | 0.255 / 1.49 | 0.247 / 1.49 | 0.247 / 1.49 | 0.253 / 1.50 | 0.252 / 1.49 | 0.256 / 1.49 |
+| 1 | 0.459 / 1.60 | 0.462 / 1.60 | 0.468 / 1.60 | 0.473 / 1.60 | 0.468 / 1.60 | 0.475 / 1.60 |
+
+Every cell's score rose by about 0.023 against `b9c5647` because of one squash-independent miss, the T-bone struck
+door (0.02 m, §5.6). Max quiet-phase yaw drift 0.27 rad, no spin-clamp frames.
+
+Squash fine sweep, buckle 0.45:
+
+| squash | stroke @56 | score / centre / misses | slomo score / centre / misses | wall56 nose / COM / pulse ms / g / cabin | wall35 nose | wall64 nose / g | offset64 nose | rear50 tail / ratio (full · slomo) | head-on 28 / 56 nose | head-on 56 pulse ms (full · slomo) | T-bone door / bullet nose |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.15 | 0.42 | 0.070 / 0.76 / 6 | 0.066 / 0.86 / 5 | 0.27 / 0.43 / 67 / 22.6 / 0.01 | 0.14 | 0.34 / 34.4 | 0.43 | 0.20 / 0.86 · 0.84 | 0.16 / 0.35 | 50 · 29 | 0.02 / 0.20 |
+| 0.20 | 0.45 | 0.049 / 0.62 / 3 | 0.052 / 0.72 / 5 | 0.31 / 0.46 / 83 / 18.1 / 0.02 | 0.16 | 0.36 / 25.8 | 0.48 | 0.22 / 0.85 · 0.86 | 0.16 / 0.39 | 50 · 32 | 0.02 / 0.21 |
+| 0.25 | 0.48 | 0.028 / 0.58 / 2 | 0.050 / 0.61 / 2 | 0.34 / 0.49 / 83 / 18.1 / 0.02 | 0.18 | 0.38 / 25.8 | 0.52 | 0.23 / 0.82 · 0.84 | 0.21 / 0.41 | 50 · 33 | 0.02 / 0.22 |
+| 0.30 | 0.51 | 0.034 / 0.61 / 3 | 0.050 / 0.52 / 2 | 0.36 / 0.51 / 83 / 18.1 / 0.03 | 0.20 | 0.42 / 25.8 | 0.65 | 0.24 / 0.84 · 0.80 | 0.21 / 0.43 | 50 · 35 | 0.02 / 0.24 |
+| **0.32** | **0.52** | **0.028 / 0.55 / 2** | **0.049 / 0.50 / 2** | 0.37 / 0.52 / 83 / 18.1 / 0.03 | 0.21 | 0.43 / 25.8 | 0.57 | 0.25 / 0.83 · 0.80 | 0.22 / 0.43 | 50 · 36 | 0.02 / 0.24 |
+| 0.35 | 0.54 | 0.029 / 0.61 / 3 | 0.049 / 0.50 / 2 | 0.39 / 0.53 / 83 / 18.1 / 0.03 | 0.22 | 0.45 / 25.8 | 0.61 | 0.26 / 0.80 · 0.80 | 0.22 / 0.49 | 50 · 37 | 0.02 / 0.25 |
+| 0.40 | 0.56 | 0.028 / 0.64 / 2 | 0.040 / 0.55 / 1 | 0.41 / 0.56 / 83 / 18.1 / 0.03 | 0.24 | 0.48 / 25.8 | 0.58 | 0.27 / 0.78 · 0.82 | 0.23 / 0.49 | 50 · 62 | 0.02 / 0.26 |
+| 0.45 | 0.59 | 0.029 / 0.75 / 3 | 0.040 / 0.68 / 1 | 0.44 / 0.59 / 83 / 18.1 / 0.03 | 0.26 | 0.51 / 20.7 | 0.61 | 0.29 / 0.78 · 0.82 | 0.25 / 0.50 | 50 · 63 | 0.02 / 0.28 |
+| 0.50 | 0.62 | 0.052 / 0.89 / 6 | 0.057 / 0.83 / 4 | 0.47 / 0.61 / 100 / 15.1 / 0.04 | 0.27 | 0.54 / 20.7 | 0.65 | 0.31 / 0.77 · 0.79 | 0.27 / 0.54 | 67 · 65 | 0.02 / 0.29 |
+
+**0.32 still holds.** It has the best band centring at full speed (0.55) and ties best in slomo (0.50); its score
+(0.028) ties 0.25 and 0.40. Two things moved since `b9c5647`:
+
+- The slomo 2×56 head-on anomaly at 0.40+ is gone (62–65 ms now, in band), so 0.40 has one fewer slomo miss
+  (score 0.040 vs 0.049). At 0.32 that pulse still reads 36 ms (§5.4).
+- The offset64 nose is noisier: 0.65 at 0.30 and 0.61 at 0.35 leave the band, 0.57 at 0.32 does not.
+
+Piston-corner margins at 0.32 grew (`.bench/crush-calibration/piston-probe.ts`): far door 0.049 m (limit 0.06,
+was 0.055) and paint ÷ particle 0.815 (floor 0.75, was 0.761). At 0.30 the far door reads 0.063 and still fails.
+
+### 3.1 Phase-2 decision grid on `b9c5647`, full speed (score / centre, lower is better)
 
 | squash \ buckle | 0 | 0.2 | 0.4 | 0.6 | 0.8 | 1 |
 |---|---|---|---|---|---|---|
@@ -196,6 +236,9 @@ least 0.06 inside both edges of the sourced 0.6–1.0 band. Tail permanent stays
 and rear cabin intrusion is ≤ 0.03 m. A first try at 0.40 (factor 0.73) left slomo at 0.97–0.999 for squash
 0.3–0.4, so I went to 0.38.
 
+On `fe381c3` (CrashRealism6's crumple ordering merged) the same check reads **0.778–0.855** at buckle 0.45 for squash
+0.2–0.45, full speed and slomo: still at least 0.14 inside both edges.
+
 ## 5. Known issues (not fixed here; numbers from the lane tree)
 
 ### 5.1 Piston-corner far-door intrusion: a noisy step function
@@ -226,10 +269,18 @@ at low squash, where the corner cluster's fitted dent stays shallower than its p
 
 ### 5.3 Derby stalemate: the last two cars push without dying
 
-`derby.test.ts` "repeated hard hits disable cars and the match ends by elimination before the 90 s stalemate"
-fails at the new defaults. On `107db69`, seed 7 has one death (49.7 s) by 90 s. The test is not re-pinned or
-loosened. The owner's 9-car derby zip test ("a re-armed wreck never outruns its own masses") also flags one slice
-at squash 0.32 (o4 moved 0.12 m in 5.7 ms at 3.7 m/s, limit 0.113 m); at 0.4 it flags none.
+**Status on `fe381c3`.** CrashRealism6 now runs the derby tests at explicit knobs (`derby.test.ts` `REALISTIC` =
+squash 0.32, rear 0.38, each car's class `killTravel` at realism 0.25, i.e. this lane's defaults; `ARCADE` = main's old
+0.4 / 0.45). The elimination target is an `it.todo`; the zip test passes at both knob sets. At `REALISTIC`, seeds
+7 / 11 / 13 / 17 / 19 die at [33.4, 39.4, 59.9, 88.2] / [51.4, 72.6, 82.0] / [22.6, 71.4] /
+[18.1, 23.6, 30.5, 37.7, 38.1] / [36.4, 36.7, 69.1, 78.9] s: 18 deaths, none before 18 s, 1 of 5 matches ends by
+elimination. CrashRealism6 measured that a sedan's 0.45 m kill travel needs ≈ 20 nose rams at 40 km/h closing, and
+that a 0.30 m kill travel (realism ≈ 0.62) ends 5/5; the remaining lever is Handling's kill travel or harder AI rams,
+not crush. The history below is the measurement that led there.
+
+On `107db69` the elimination test failed at the new defaults: seed 7 had one death (49.7 s) by 90 s. The owner's
+9-car derby zip test also flagged one slice at squash 0.32 (o4 moved 0.12 m in 5.7 ms at 3.7 m/s, limit 0.113 m); at
+0.4 it flagged none.
 
 Six-car seed probe on `107db69` (seeds 7, 11, 23, 31, 42; "elim" = the match ends before 90 s), with squash and
 the rear maxCrush varied separately:
@@ -290,25 +341,63 @@ The full-speed probe reads 50 ms (1 frame under the 60 ms floor). Slomo measures
 about half the 60–150 ms band, at every realistic squash. This is a pair-contact stiffness issue, not a knob
 issue.
 
-## 6. Owner's 1/1 setting (lane tree)
+### 5.5 Crumple absorb-then-transmit tests (CrashRealism5, `7be2ad2`) — fixed on `fe381c3`
 
-Full speed: score 0.473, 16 of 38 targets missed. Slomo: score 0.563.
+**Status.** CrashRealism6 fixed all four (`ce8b656`, `8be85c4`): the block holds on its mounts until the nose packs,
+a packed nose no longer crushes past its packed length, repeated hits build up to the same energy as one hit
+(two 35s alive, three dead, at squash 0.32 and 0.4 alike), and the 40 km/h car/rig engine sag matches (43 / 43 mm).
+Its `barrier.test.ts` now runs each crumple test at both 0.4 and 0.32 with the 52 km/h packing fixture, which
+supersedes this lane's single-squash re-pin. Full suite on `fe381c3` + this lane: 666 tests, 614 pass, 0 fail.
+
+What they measured on `7be2ad2`, when four tests written at 0.4 failed at 0.32 and passed with only the default
+put back to 0.4 (`.bench/crush-calibration/absorb-probe.ts`, `kill-probe.ts`, `packed-probe.ts`):
+
+| test | 0.30 | 0.32 | 0.35 | 0.40 | reading |
+|---|---|---|---|---|---|
+| barrier: block stays on its mounts until the nose packs (block ≤ 0.045 m while gap > 0.56) | 43 km/h: 0.046 @ gap 0.584 | 0.045 (fails, > 0.045) @ 0.576 | 0.044 @ 0.564 | 0.060 @ 0.540 (skipped: packed) | the block crept 0.036–0.046 m before packing at every squash; at 0.4 the 43 km/h check never ran |
+| barrier: repeated 35 km/h hits kill within three | hit 4 | hit 4 | hit 3 | hit 2 | single-hit kill was 54 km/h (0.32, 0.35) or 52 km/h (0.4); three 35s carry 61 km/h of EBS² |
+| contact-parity 40 km/h front, engine crush car / rig (≤ 10 mm or 15 %) | 73 / 54 | 72 / 61 | 66 / 66 | 66 / 64 | noisy; 0.32 missed by 0.2 mm |
+| barrier: a packed nose takes nothing of the next 35 km/h hit | — | fixture | — | — | 50 km/h left the nose 18 mm long of packed at 0.32 |
+
+After a packing first hit, the next 35 km/h hit crushed the nose **past** the packed length (gap before → after):
+
+| first hit | squash 0.32 | squash 0.4 |
+|---|---|---|
+| 50 km/h | 0.558 → 0.540 | 0.540 → 0.540 |
+| 52 km/h | 0.543 → 0.470 | 0.541 → 0.455 |
+| 54 km/h | 0.543 → 0.455 | 0.542 → 0.531 |
+| 56 km/h | 0.545 → 0.510 | 0.543 → 0.511 |
+
+The old test had passed only because 50 km/h at 0.4 was the one safe fixture.
+
+### 5.6 T-bone struck door swings instead of intruding (`fe381c3`, every squash)
+
+The 50 km/h T-bone's struck door particle moves 0.02 m at every squash and buckle (target 0.12–0.28 m; it was
+0.21–0.28 m on `b9c5647`). The door part ends with its hinge at 0.25 and the mirror torn off, and the bullet's
+nose still crushes 0.24 m. The same 0.022 m reads on the lane tree before and after CrashRealism6, so it came with
+main's car-car part contact (`partContactPair`, `107db69`…`a540314`), not with the knobs. Not a crush calibration
+issue; it lowers every cell's score by the same ≈ 0.023.
+
+## 6. Owner's 1/1 setting (lane tree, `fe381c3`)
+
+Full speed: score 0.475, 16 targets missed. Slomo: score 0.504. Max quiet drift 0.27 rad, no spin-clamp frames.
 
 | scenario | measurement | target |
 |---|---|---|
 | wall35 | drivetrain dead, avg g 8.1 | alive, 11–16 g |
-| wall56 | nose 0.81 m | 0.25–0.50 m |
+| wall56 | nose 0.77 m | 0.25–0.50 m |
 | wall56 | COM travel 0.91 m | 0.35–0.60 m |
 | wall56 | avg g 11.3 | 18–25 g |
 | wall56 | cabin 0.06 m | < 0.06 m |
-| wall64 | nose 0.87 m | 0.29–0.57 m |
-| offset64 | nose 1.00 m | 0.30–0.60 m |
+| wall64 | nose 0.84 m | 0.29–0.57 m |
+| offset64 | nose 0.95 m | 0.30–0.60 m |
 | rear50 | tail 0.48 m | 0.15–0.40 m |
-| head-on 2×28 | nose 0.45 m, both drivetrains dead | 0.12–0.26 m, alive |
-| head-on 2×56 | nose 0.88 m | 0.25–0.50 m |
+| head-on 2×28 | nose 0.45 m (drivetrains now survive) | 0.12–0.26 m, alive |
+| head-on 2×56 | nose 0.92 m | 0.25–0.50 m |
+| T-bone 50 | bullet nose 0.42 m | 0.08–0.30 m |
 
-No spin-clamp frames and quiet drift ≤ 0.38 rad: it is stable. The 56 km/h nose crush exceeds the 0.65 m crumple
-length, which is why the slider tops out at a 0.75 m stroke (squash 0.729). Stability did not set that cap.
+No spin-clamp frames: it is stable. The 56 km/h nose crush exceeds the 0.65 m crumple length, which is why the slider
+tops out at a 0.75 m stroke (squash 0.729). Stability did not set that cap.
 
 ## 7. HUD
 
@@ -320,7 +409,8 @@ length, which is why the slider tops out at a 0.75 m stroke (squash 0.729). Stab
 - **Wrinkle** (aria "Panel wrinkle"): buckle, 0–1.
 - **Tooltips:** both rows have one stating the meaning, the real band and, for Stroke, the default (from
   `INITIAL_HUD`).
-- **Defaults** restores exactly `INITIAL_HUD`.
+- **Defaults** restores exactly `INITIAL_HUD`, including Handling's `realism` (arcade ↔ real, `KNOB_RANGES.realism`
+  0–1) and the player's car class.
 
 ## 8. Phase 1 history (`0e83d6f`)
 
