@@ -6,7 +6,58 @@ import { leftoverCrumple } from "./physics-util.ts";
 import { BARRIER_HALF, clipCarToBarrier, physicsSlice, satCarBarrier } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { mass, paint } from "./test-support.ts";
-import { runWall } from "./crash-scenarios.test-util.ts";
+import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
+
+/** Engine-block travel toward the cabin at rest after a hit (m). */
+function blockTravel(car: DeformableCar): number {
+  return Math.max(mass(car.deform, "engineL").rest.z - mass(car.deform, "engineL").local.z, mass(car.deform, "engineR").rest.z - mass(car.deform, "engineR").local.z);
+}
+
+/** Nose-to-block length (m): 0.84 at rest, 0.54 packed (ENGINE_PACK_GAP: beam and radiator flat ahead of the block). */
+function noseGap(car: DeformableCar): number {
+  const d = car.deform;
+  return Math.min(mass(d, "bumperFL").local.z, mass(d, "bumperFR").local.z) - Math.max(mass(d, "engineL").local.z, mass(d, "engineR").local.z);
+}
+
+// Owner's crumple model: a zone with stroke left absorbs the hit; one crushed to its packed length
+// absorbs nothing more and passes the load to the next node (the block), so damage accumulates.
+describe("crumple absorbs while it has stroke, then passes the load on [shape]", () => {
+  it("good: the block stays on its mounts until the nose has packed against it (20–43 km/h)", () => {
+    for (const kph of [20, 25, 30, 35, 40, 43]) {
+      const car = makeCar();
+      runWall(kph, 1, "front", { car });
+      if (noseGap(car) > 0.56) assert.ok(blockTravel(car) <= 0.045, `${kph} km/h: block moved ${blockTravel(car).toFixed(3)} m with ${noseGap(car).toFixed(3)} m of nose left`);
+    }
+  });
+
+  it("bad: a nose packed by a 50 km/h hit takes nothing of the next 35 km/h hit; the block does", () => {
+    const car = makeCar();
+    runWall(50, 1, "front", { car });
+    const gap = noseGap(car);
+    const block = blockTravel(car);
+    assert.ok(gap < 0.56, `fixture: 50 km/h left ${gap.toFixed(3)} m of nose`);
+    runWall(35, 1, "front", { car });
+    assert.ok(gap - noseGap(car) < 0.02, `the packed nose shortened ${(gap - noseGap(car)).toFixed(3)} m more`);
+    assert.ok(blockTravel(car) - block > 0.04, `the block took ${(blockTravel(car) - block).toFixed(3)} m of the second hit`);
+  });
+
+  // Basis: rearmHit adds each hit's EBS² to the struck end (a linear spring's energy), so three
+  // 35 km/h hits carry one 61 km/h hit's energy, past the 56–62 km/h single-hit kill.
+  it("bad: repeated 35 km/h wall hits keep moving the block back and kill it within three", () => {
+    const car = makeCar();
+    const travel: number[] = [];
+    let killedAt = 0;
+    for (let k = 1; k <= 4; k++) {
+      runWall(35, 1, "front", { car });
+      travel.push(blockTravel(car));
+      if (!car.deform.drivetrainAlive && !killedAt) killedAt = k;
+    }
+    const row = travel.map((t) => t.toFixed(3)).join(" ");
+    assert.notEqual(killedAt, 1, "one 35 km/h hit killed the block");
+    for (let k = 1; k < travel.length; k++) assert.ok(travel[k]! >= travel[k - 1]! - 0.005, `block travel by hit ${row}`);
+    assert.ok(killedAt > 0 && killedAt <= 3, `killed at hit ${killedAt || "never"}; block travel by hit ${row}`);
+  });
+});
 
 const ORIGIN = new THREE.Vector3();
 const _n = new THREE.Vector3();
