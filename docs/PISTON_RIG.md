@@ -1,10 +1,10 @@
 # Piston rig
 
 Eight horizontal rams around one parked car (`I` in the app, or the
-**Pistons** button). The model is `src/game/piston-rig.ts` (DOM-free; the
+**Pistons** button). The model is `src/game/scenes/piston-rig.ts` (DOM-free; the
 engine and the tests run the same `PistonRig.step`), the rams are drawn by
-`src/game/engine-pistons.ts` (five instanced meshes), and
-`src/game/piston-rig.test.ts` is the test table below. Sketch:
+`src/game/present/engine-pistons.ts` (five instanced meshes), and
+`src/game/scenes/piston-rig.test.ts` is the test table below. Sketch:
 `docs/piston-rig-sketch.png`.
 
 ## The pistons

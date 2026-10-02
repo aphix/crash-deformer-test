@@ -1,9 +1,9 @@
 import type { RefObject } from "react";
 import { RangeRow } from "@/components/hud-controls";
 import { Button } from "@/components/ui/button";
-import type { DoorScenario } from "@/game/door-rig";
-import type { CrashEngine } from "@/game/engine";
-import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud-store";
+import type { DoorScenario } from "@/game/scenes/door-rig";
+import type { CrashEngine } from "@/game/engine/engine";
+import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud/hud-store";
 
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. */
 export function DerbyBoard({ board, engine }: { board: CrashHudState["derbyBoard"]; engine: RefObject<CrashEngine | null> }) {

@@ -7,7 +7,7 @@ Browser crash lab: TanStack Start shell → one React page → `CrashEngine` (th
 src/routes/index.tsx  Home ─► src/components/crash-lab.tsx  CrashLab (+ NetPanel)
                                    │ dynamic import("@/game/engine")
                                    ▼
-src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools handle)
+src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools handle)
   │  one class in layers, each `extends` the one before: engine-core.ts EngineCore (state, car roster, shared queries,
   │  crash FX) → engine-warm.ts (shader warm-up) → engine-hud.ts (emitHud) → engine-scenes.ts (sceneId, setScene,
   │  reset / spawn / park, derby netplay, disc edge) → engine-rigs.ts (press, pistons, doors) → engine-input.ts
@@ -28,7 +28,7 @@ src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools
 
 ## Module boundaries
 - `*-core.js` (`physics-core.js`, `shape-match-core.js`): number-only hot kernels, no THREE; typed by `*.d.ts`, re-exported by `physics-util.ts` / `shape-match.ts`.
-- `rig-spec.ts`, `vehicle-classes.ts`, `race/catalog.ts`, `race/tracks/*.json`: data tables. `race/` rules, campaign, AI, traffic and placements never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
+- `rig-spec.ts`, `vehicle-classes.ts`, `world/catalog.ts`, `world/tracks/*.json`: data tables. Race rules and campaign (`match/`), AI and traffic (`ai/`) and placements (`world/`) never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
 - `streamed-deform.ts` and its `deform-*.ts` layers: own masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
 - `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop. `engine-cine.ts` and friends read sim state only; the hit-stop is their one sim-side effect (`timeWarp`).
 - `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt (derby, rigs). The fleet / barrier / balls scenes set `DISC_GROUND`: the same plane inside `DISC_RADIUS` (48 m), and `NO_FLOOR` (-Infinity, grip 0) past it. Every `floor + k` clamp tests `=== NO_FLOOR` first (`car.integrate`, `followGroup`, the `stepStructure` mass loop, `applyDrive`).
@@ -70,7 +70,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Pistons | I, 0–8 | `togglePistons`, `firePiston` | `piston-rig.ts`, `engine-pistons.ts` `PistonBank` |
 | Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`; `engine-doors.ts` `DoorRam` |
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
-| Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `race/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |
+| Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `match/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |
 
 Rig scenes (press, pistons, doors) park one car and drive a kinematic striker through `external-contact.ts`. Lamp poles are hit in the fleet / barrier / balls contact loop and hidden in derby. A race hides the sandbox floor and swaps in its course; while a race menu is open the HUD owns the keyboard and pad. In the fleet scenes a car driven or shoved past the disc's rim falls under the real sim (`DISC_GROUND`) for 2 m, then as a frozen fake (`car.falling`: no masses, contacts or skin, skipped by the pair loops), shrinks over its last 4 m and vaporizes 20 m down. `car.vaporized` cars skip `integrate` / `updateDeform`, are hidden, and stay gone until reset unless they are the driven car. A followed falling car gets `ChaseCamera.watchFall`: the eye settles at shoulder height just inside the rim and keeps the car centred, then holds. Netplay replicates the fake and vaporize events.
 

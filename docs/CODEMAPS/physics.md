@@ -9,7 +9,7 @@ DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
       skin → body.geometry position/normal
 ```
 
-## Rig tables (`src/game/rig-spec.ts`)
+## Rig tables (`src/game/kernel/rig-spec.ts`)
 - `CAGES: CageSpec[]` (`name: BodyPartName, min, max, absorption, maxCrush, maxAngle`)
 - `SENSORS: SensorSpec[]` (`rest, radius, part, absorption, maxCompression, neighbors`)
 - `MASS_SPECS: MassSpec[]` (`name: MassName, rest, mass, radius`): the named control particles
@@ -23,7 +23,7 @@ One class in layers, each `extends` the one before: `deform-rig.ts` `DeformRig` 
 hub queries, drivetrain, crush weights, `update`, live hulls, debug helpers) → `deform-contact.ts` (`collideWith`,
 `stepStructure`, `followGroup`, stroke, pushes, `applyImpact`) → `deform-solve.ts` (clamp, beams, shape match, mass
 slices, ground, suspension) → `streamed-deform.ts` `StreamedDeformation` (sensors, cages, skin bake, netplay state).
-- `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()` = `initRunState()`, the constructor's last step: every per-run field and structure (sensors, cages, masses, beams, clusters, shape particles, copied back from their as-built clone) as built, settings kept, so a reset car replays like a fresh one (`deform-reset.test.ts`, `race/race-replay.test.ts`).
+- `constructor(geometry, rig: RigOverrides = {})`; `setMode("shape" | "lattice")` (Y key); `reset()` = `initRunState()`, the constructor's last step: every per-run field and structure (sensors, cages, masses, beams, clusters, shape particles, copied back from their as-built clone) as built, settings kept, so a reset car replays like a fresh one (`deform-reset.test.ts`, `world/race-replay.test.ts`).
 - Activation / hits: `armMasses`, `applyImpact(localPoint, localInward, impulse, ebs)`, `rearmHit`, `applyImpulse`, `impulseAt`, `kickNearest`, `kickNearestHub`, `feedOverlap`, `notifyContact`, `notifyPower`.
 - Rigid ↔ soft coupling: `bindKinematic`, `followGroup(group, velOut, angOut, dt)` (driven by `DeformableCar.syncPose`), `translateMasses`.
 - Contacts: `collideWith(other, dt)` (mass spheres car↔car), `projectOutOfBox`, `separateAlong`, `brakeInbound`.

@@ -12,7 +12,7 @@ src/routes/index.tsx   "/" → Home
       └ components/hud.tsx  Hud(HudProps)
           ├ hud-panels.tsx  PistonPanel · DoorPanel · DerbyBoard   (only in their scene)
           ├ race-hud.tsx  RaceReadouts · RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle;
-          │   use-pad-menu.ts: pad / keyboard menu focus (race/menu-nav.ts); HUD → engine.raceCommand(cmd)
+          │   use-pad-menu.ts: pad / keyboard menu focus (hud/menu-nav.ts); HUD → engine.raceCommand(cmd)
           ├ hud-sections.tsx  HudSections   accordion: Playback · Driving · Cars & crash · Debug views
           └ ui/button.tsx
 src/routes/api/rtc.ts  /api/rtc → src/lib/multiplayer/signaling.server.ts (signaling relay, the only server route the game uses)
@@ -20,7 +20,7 @@ components/preview-host-bridge.tsx  PreviewHostBridge (platform preview hook, re
 ```
 `CrashLab` loads the engine with a dynamic `import("@/game/engine")`; boot errors render as text. The engine sets `window.__crush = this` (used by `scripts/bench-browser.mjs` and the `.bench` probes).
 
-## HUD state (`src/game/hud-store.ts` `HudStore`)
+## HUD state (`src/game/hud/hud-store.ts` `HudStore`)
 ```
 CrashEngine.emitHud() ──► HudStore.publish(next: CrashHudState)   snapshot + listeners Set, one store per engine
 CrashLab: new HudStore() ─► new CrashEngine(canvas, store); useSyncExternalStore(store.subscribe, store.get) ──► <Hud state=…>
@@ -47,7 +47,7 @@ fixedStep(h)
 - Scene / FX keys in `onKey`: Space R L G P B K D C I N O M U Y J F H X Z, digits for the piston and door rigs. In a race, `raceKey` / `racePad` take Esc R Q E V C T H first; with a race menu open the HUD reads keys and pad itself. The controls tables live in `README.md`.
 - Click a car: `ChaseCamera` tap → `CrashEngine.pickCar(x, y)` (raycast) → `seat.focus(i)`.
 
-## Camera (`src/game/engine-camera.ts`, `engine-cine.ts`)
+## Camera (`src/game/present/engine-camera.ts`, `engine-cine.ts`)
 - `Spring`, `Spring3`: critically damped springs, exact for any dt. `CHASE`: third / far / hood-cam tuning, FOV, look-around.
 - `DriveCam`: chase and hood cam for the driven car; mouse / right-stick look, eases back.
 - `ChaseCamera`: orbit / zoom / tap; `frameReset`, `orbit(wallDt, spinRate, shake)`, `frameDrive`, `kick` on impact; `userFramed` stops cinematic re-aiming.

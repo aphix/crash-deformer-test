@@ -66,7 +66,7 @@ are from `0e83d6f`; the formulas are unchanged on `b9c5647`.
 
 `npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells s:b,…] [--slomo] [--scenarios a,b] [--after 1.5] [--root <tree>] [--out <dir>]`
 
-- **Imports and defaults:** the script imports `src/game/crash-scenarios.test-util.ts`, which has the
+- **Imports and defaults:** the script imports `src/game/contact/crash-scenarios.test-util.ts`, which has the
   `CrashEngine.tickInner` frame and contact order. It reads the default pair from `hud-store.ts` `INITIAL_HUD` and
   always runs it.
 - **Output:** `<out>/sweep.json` (every `CrashResult` per cell) and `<out>/sweep.md`. The default output directory

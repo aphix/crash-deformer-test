@@ -6,9 +6,9 @@ import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
-import type { CrashEngine } from "@/game/engine";
-import type { CrashHudState } from "@/game/hud-store";
-import type { RaceCommand } from "@/game/race/types";
+import type { CrashEngine } from "@/game/engine/engine";
+import type { CrashHudState } from "@/game/hud/hud-store";
+import type { RaceCommand } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {

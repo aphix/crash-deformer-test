@@ -1,9 +1,9 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { DriverSeat, type DriveInput } from "../car-drive.ts";
-import type { DeformableCar } from "../car.ts";
-import { makeCar } from "../crash-scenarios.test-util.ts";
-import { DEFAULT_RACE_OPTIONS, type RaceSnapshot } from "../race/types.ts";
+import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { DEFAULT_RACE_OPTIONS, type RaceSnapshot } from "../match/types.ts";
 import * as codec from "./codec.ts";
 import { NetPlay, type NetTx } from "./net-play.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";

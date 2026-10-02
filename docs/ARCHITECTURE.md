@@ -18,7 +18,8 @@ node scripts/dup-scan.mjs [--renamed]      # clone report (docs/audit/DUPLICATIO
 
 ## 1. Bounded contexts and the layer DAG
 
-A production file may import its own context or a context on a **strictly lower** layer. Type-only imports count: they couple
+Each context is one folder, `src/game/<context>/` (`net` too); the files column below names the files in it. A production
+file may import its own context or a context on a **strictly lower** layer. Type-only imports count: they couple
 the same way. `platform` (`src/lib`) is reachable only from `net` and `ui`.
 
 ```mermaid
@@ -39,16 +40,16 @@ flowchart BT
 | L | context | files today | public API (what other contexts use) | owner module | active lane |
 |---|---|---|---|---|---|
 | 0 | **kernel**: number-only hot kernels and rig tables | `physics-core.js`, `shape-match-core.js` (+ `.d.ts`), `rig-spec.ts` | `CRASH`, `TRANSFER`, `crushStroke`, `regionCrushBands`, `forceTransfer`, `crushGate`; `makeCluster`, `matchCluster`, `applyPlasticity`, `matchSkinLocal`; `CAGES`, `SENSORS`, `MASS_SPECS`, `BEAM_SPECS`, `SHAPE_CLUSTERS` | `physics-core.js` (crash maths), `rig-spec.ts` (rig data) | CrashRealism8 (`physics-core`) |
-| 1 | **world**: ground, surfaces, track data | `ground.ts`, `race/catalog.ts`, `race/track-schema.ts`, `race/track.ts`, `race/placements.ts`, `race/tracks/*` | `Ground`, `activeGround`, `setGround`, `SURFACES`, `TrackFile`, `Track`, `placeProps`, `propColliders` | `race/track.ts` | none |
+| 1 | **world**: ground, surfaces, track data | `ground.ts`, `world/catalog.ts`, `world/track-schema.ts`, `world/track.ts`, `world/placements.ts`, `world/tracks/*` | `Ground`, `activeGround`, `setGround`, `SURFACES`, `TrackFile`, `Track`, `placeProps`, `propColliders` | `world/track.ts` | none |
 | 2 | **deform**: masses, clusters, cages, skin | `streamed-deform.ts` and its layers `deform-rig.ts` (with its builders in `deform-build.ts`), `deform-hit.ts`, `deform-state.ts`, `deform-contact.ts`, `deform-solve.ts`; `shape-match.ts`, `physics-util.ts`, `fast-normals.ts`, `deform-helper.ts`, `hulls.ts` | `StreamedDeformation`, `RigOverrides`, `DeformMode`, `computeNormalsFast`, `bleedAfterSlide`, `applyGroundFriction`, `HULLS`, `CRUSH_HULLS`, `Hull`, debug helpers | `streamed-deform.ts` | CrashRealism8 |
 | 3 | **vehicle**: the car, its body styles, classes, drive and input | `car.ts` and its layers `car-core.ts`, `car-parts.ts`; `car-mesh.ts` (body geometry), `car-materials.ts` (shared textures / materials, small toned parts), `car-variants.ts`, `vehicle-classes.ts`, `lamp-lights.ts`, `car-drive.ts`, `drive-input.ts`, `gamepad.ts` | `DeformableCar`, `CAR_STYLES`, `CLASSES`, `HANDLING`, `killTravel`, `applyDrive`, `DriverSeat`, `DriveInput`, `GamepadInput` | `car.ts` | none |
 | 4 | **contact**: car-car, car-wall, striker contact | `sat.ts`, `pair-contact.ts`, `external-contact.ts` | `physicsSlice`, `sliceSpeed`, `satCars`, `clipCarToBarrier`, `resolveCarPair`, `impulseCar`, `ContactBox`, `partContactPair` | `pair-contact.ts` | CrashRealism8 |
 | 5 | **scenes**: rigs and props that act on cars | `fleet.ts`, `derby-arena.ts`, `compactor.ts`, `piston-rig.ts`, `door-rig.ts`, `engine-props.ts` | `layoutFleet`, `MAX_CARS`, `clipToDerbyBowl`, `CompactorRig`, `PistonRig`, `DoorRig`, `JerseyBarrier` | one file per rig | DerbyAI2 (`derby-arena.ts`) |
-| 6 | **ai**: drivers | `derby-ai.ts`, `ai-aggression.ts`, `race/race-ai.ts`, `race/traffic.ts` | `DerbyBrain`, `AiCar`, `RaceBrain`, `TrafficBrain`, `fieldAggression`, `mood` | `derby-ai.ts` / `race/race-ai.ts` | DerbyAI2 (`derby-ai.ts`) |
-| 7 | **match**: rules, scoring, campaigns | `derby.ts`, `race/session.ts`, `race/campaign.ts`, `race/types.ts` | `DerbyMatch`, `RaceSession`, `Campaign`, race event/HUD types | `race/session.ts`, `derby.ts` | DerbyAI2 (`derby.ts`) |
-| 8 | **present**: FX, camera, cinematics, post, marks, world art | `engine-fx.ts`, `engine-camera.ts`, `engine-cine.ts`, `engine-post.ts`, `engine-marks.ts`, `engine-world.ts`, `engine-pistons.ts`, `engine-doors.ts`, `race/track-art.ts` (`TrackArt`) over `race/track-mesh.ts` (shared blocks), `race/track-ground.ts` (terrain, ribbons, markings, kerbs), `race/track-structures.ts` (walls, decks, tunnels), `race/prefabs.ts` | `DebrisSystem`, `SparkSystem`, `ChaseCamera`, `Cinematics`, `PostFX`, `FxTier`, `SkidMarks`, `WorldStage`, `PistonBank`, `DoorRam`, `TrackArt` | one file per system | PerfHitch |
+| 6 | **ai**: drivers | `derby-ai.ts`, `ai-aggression.ts`, `ai/race-ai.ts`, `ai/traffic.ts` | `DerbyBrain`, `AiCar`, `RaceBrain`, `TrafficBrain`, `fieldAggression`, `mood` | `derby-ai.ts` / `ai/race-ai.ts` | DerbyAI2 (`derby-ai.ts`) |
+| 7 | **match**: rules, scoring, campaigns | `derby.ts`, `match/session.ts`, `match/campaign.ts`, `match/types.ts` | `DerbyMatch`, `RaceSession`, `Campaign`, race event/HUD types | `match/session.ts`, `derby.ts` | DerbyAI2 (`derby.ts`) |
+| 8 | **present**: FX, camera, cinematics, post, marks, world art | `engine-fx.ts`, `engine-camera.ts`, `engine-cine.ts`, `engine-post.ts`, `engine-marks.ts`, `engine-world.ts`, `engine-pistons.ts`, `engine-doors.ts`, `present/track-art.ts` (`TrackArt`) over `present/track-mesh.ts` (shared blocks), `present/track-ground.ts` (terrain, ribbons, markings, kerbs), `present/track-structures.ts` (walls, decks, tunnels), `present/prefabs.ts` | `DebrisSystem`, `SparkSystem`, `ChaseCamera`, `Cinematics`, `PostFX`, `FxTier`, `SkidMarks`, `WorldStage`, `PistonBank`, `DoorRam`, `TrackArt` | one file per system | PerfHitch |
 | 8 | **net**: replication | `net/**` | `NetPlay`, `encode/decode` frames, `NetTransport` | `net/net-play.ts` | Netplay |
-| 9 | **hud**: the read model the UI renders | `hud-store.ts`, `race/menu-nav.ts` | `HudStore` (one per engine: CrashLab makes it, the engine publishes), `CrashHudState`, `KNOB_RANGES`, `INITIAL_HUD`, `navTarget` | `hud-store.ts` | none |
+| 9 | **hud**: the read model the UI renders | `hud-store.ts`, `hud/menu-nav.ts` | `HudStore` (one per engine: CrashLab makes it, the engine publishes), `CrashHudState`, `KNOB_RANGES`, `INITIAL_HUD`, `navTarget` | `hud-store.ts` | none |
 | 10 | **engine**: orchestration, the frame loop | `engine.ts` and its layers `engine-core.ts`, `engine-warm.ts`, `engine-hud.ts`, `engine-scenes.ts`, `engine-rigs.ts`, `engine-input.ts`; `world-step.ts`, `engine-race.ts` (`RaceDirector`: rules glue, menus, netplay, HUD) over `engine-race-field.ts` (`RaceField`: course, grid, spawns, respawns, traffic bubble, wall / prop contacts), `engine-trace.ts` | `CrashEngine` (the only public entry), `RaceDirector` | `engine.ts` | shared: CrashRealism8 (`fixedStep`), PerfHitch (renderer), Netplay (race wiring) |
 | 11 | **ui**: React shell and HUD | `src/components/**`, `src/routes/**`, `src/router.tsx` | React components | `components/crash-lab.tsx` | HudLayout (`hud*.tsx`, `net-panel.tsx`) |
 | - | **platform**: template server/client helpers | `src/lib/**` | `P2PRoom`, signaling, `qr`, `cn` | `src/lib/multiplayer` | Netplay (`multiplayer/`) |
@@ -84,7 +85,7 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
   car, the drive, loose parts, FX and marks (13 production files); threading it through cars and FX would touch all of them
   and every ground test for no behaviour change, because one world steps per process (one engine per page; harnesses and
   tests run one world at a time and restore the flat ground). Its writers are the scene reset and the race director (O3).
-  Two live worlds in one process need it threaded first: `race/race-replay.test.ts` runs its worlds one after another
+  Two live worlds in one process need it threaded first: `world/race-replay.test.ts` runs its worlds one after another
   because leaving a race restores the flat ground for everyone.
 - **O3.** One writer per piece of state: the context that owns a value is the only one that assigns it (e.g. `setGround` is
   called by the engine context only: the scene reset and the race director). Other contexts read it through the owner's API.
@@ -126,7 +127,7 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 ## 6. Tuning knobs
 
 - **K1.** A knob is a named value: a row in a data table (`rig-spec.ts`, `vehicle-classes.ts` `CLASSES`, `physics-core.js`
-  `CRASH`/`TRANSFER`, `race/catalog.ts` `SURFACES`, `hud-store.ts` `KNOB_RANGES`) or a module `const`. Inline magic numbers in
+  `CRASH`/`TRANSFER`, `world/catalog.ts` `SURFACES`, `hud-store.ts` `KNOB_RANGES`) or a module `const`. Inline magic numbers in
   sim code are promoted when touched.
 - **K2.** Every knob carries a comment saying where the number comes from: a source (paper, standard, real-world figure, doc
   section) or a measurement (test, sweep cell, probe, A/B). "Guessed, feels right" is a valid source while the knob is being
@@ -181,8 +182,8 @@ total 207
 | C5 | B6 | 111 | 80 exported but used only in their own file; 23 imported only by tests (`firePiston`, `fireRam`, `pistonLocality`, `stepCarPair`, `tyreOverlap`, `travelOf`, `restSideProfile`, `cornerSpeed`, `separateSphereFromBounds`, `TrackFile`, 3 `physics-util` re-exports, 10 `shape-match` re-exports); 8 used nowhere (`crushedHulls`, `raceMaterials`, the `engine.ts:46` type re-export, 5 `shape-match` re-exports) |
 | C6 | H1 | 35 | `streamed-deform.ts` `liveHulls`/`liveCrushHulls` 12 (5 hull literals + array each); `pair-contact.ts` `resolveCarPair` 8 (2 closures; 2 returns, each a literal + 2 clones); `car.ts` `hulls`/`crushHulls` 4 closures; `derby.ts` `step` 6; `sat.ts` `satTwoHulls` axes array + `satCars` closure; `engine.ts` `stepDerby` 2, `updateCamera` 1 |
 | C7 | K2 | 17 | `car-mesh.ts` 8 (`ARCH_R`, `Y_FLOOR`, `DOOR_Z0/Z1`, `DOOR_EDGE`, `TUB_EDGE`, `SEAM_HALF`, `BASE_SLICES`); `derby-arena.ts` 3; `fleet.ts` 2 (`MAX_CARS`, `FLEET_MIN_SEP`); `physics-core.js` `FRONTAL_REF`; `sat.ts` `BARRIER_MASS`; `shape-match-core.js` `ROT_MAX_ITER`, `ROT_CLAMP` |
-| C8 | S1 | 12 | files: `streamed-deform.ts` 3380, `engine.ts` 2140, `car.ts` 1483, `race/track-art.ts` 1314, `car-mesh.ts` 1161, `engine-race.ts` 1002, `shape-match-core.js` 801; functions: `StreamedDeformation` constructor 221, `engine.ts` `fixedStep` 173, `streamed-deform.ts` `clampLocal` 162, `car-drive.ts` `applyDrive` 154, `track-art.ts` `buildTerrain` 151 |
-| C9 | T4 | 17 | `car-variants.test.ts` 76, 84, 86, 93; `contact-parity.test.ts` 10; `derby.test.ts` 119; `door-rig.test.ts` 73; `gamepad.test.ts` 69; `net/net.test.ts` 148, 214; `race/placements.test.ts` 35, 36 (98-213 props per track, the largest today); `race/race-ai.test.ts` 168, 169; `race/session.test.ts` 331, 335, 377 |
+| C8 | S1 | 12 | files: `streamed-deform.ts` 3380, `engine.ts` 2140, `car.ts` 1483, `present/track-art.ts` 1314, `car-mesh.ts` 1161, `engine-race.ts` 1002, `shape-match-core.js` 801; functions: `StreamedDeformation` constructor 221, `engine.ts` `fixedStep` 173, `streamed-deform.ts` `clampLocal` 162, `car-drive.ts` `applyDrive` 154, `track-art.ts` `buildTerrain` 151 |
+| C9 | T4 | 17 | `car-variants.test.ts` 76, 84, 86, 93; `contact-parity.test.ts` 10; `derby.test.ts` 119; `door-rig.test.ts` 73; `gamepad.test.ts` 69; `net/net.test.ts` 148, 214; `world/placements.test.ts` 35, 36 (98-213 props per track, the largest today); `ai/race-ai.test.ts` 168, 169; `match/session.test.ts` 331, 335, 377 |
 | C10 | O2 | 10 | `car-mesh.ts` 885-887, 998, 999, 1152 (lazy texture/material caches); `deform-helper.ts:461` `scaleTexture`; `engine-marks.ts:33` `boundsEpoch`; `ground.ts:40` `active`; `hud-store.ts:184` `snapshot` |
 
 Uncounted, measured by reading: T1 has 7 violations (4 copied loops, 3 copied rules: DUPLICATION.md D1-D3); O2 has at least

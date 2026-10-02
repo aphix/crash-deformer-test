@@ -1,9 +1,9 @@
-import type { DeformableCar } from "../car.ts";
-import type { DriverSeat } from "../car-drive.ts";
-import type { CarStyleId } from "../car-variants.ts";
-import type { RaceDirector } from "../engine-race.ts";
-import type { CrashPhase } from "../phase.ts";
-import type { VehicleClassId } from "../vehicle-classes.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import type { DriverSeat } from "../vehicle/car-drive.ts";
+import type { CarStyleId } from "../vehicle/car-variants.ts";
+import type { RaceDirector } from "../engine/engine-race.ts";
+import type { CrashPhase } from "../match/phase.ts";
+import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { DerbyNetState } from "./codec.ts";
 
 /** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */

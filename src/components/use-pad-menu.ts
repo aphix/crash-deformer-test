@@ -1,6 +1,6 @@
 import { type RefObject, useEffect, useRef } from "react";
-import { GamepadInput, PAD_BUTTON } from "@/game/gamepad";
-import { NavRepeat, navTarget, stickDir, type NavDir } from "@/game/race/menu-nav";
+import { GamepadInput, PAD_BUTTON } from "@/game/vehicle/gamepad";
+import { NavRepeat, navTarget, stickDir, type NavDir } from "@/game/hud/menu-nav";
 
 type PadMenuActions = {
   /** B / Esc. */

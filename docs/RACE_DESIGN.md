@@ -14,23 +14,23 @@ planning, aggression), `25-stunt-track-design.md` (crossovers, jumps, readabilit
 
 | Module | Owns | DOM / THREE |
 |---|---|---|
-| `src/game/ground.ts` | `Ground` (height, normal, grip, surface at x,z on a layer), `STEP_UP`, `FLAT_GROUND`, `activeGround()`, `setGround()` | none |
-| `src/game/ai-aggression.ts` | `fieldAggression` (rival roll under the slider), `mood` (fight or keep clear); shared with the derby AI | none |
-| `src/game/race/catalog.ts` | surfaces (grip, top-speed share, colour), prefab specs | none |
-| `src/game/race/track-schema.ts` | zod schema of the track JSON, `parseTrack`, `TrackJson` / `TrackFile` | none |
-| `src/game/race/track.ts` | `Track`: arc-length samples, gates, grid, projection, wall clip, routes, crossing checks; `TrackGround` heightfield + bridge decks | THREE maths only |
-| `src/game/race/tracks/*.json`, `tracks/index.ts` | the courses; `TRACKS` (menu order) and `CAMPAIGN` | none |
-| `src/game/race/types.ts` | contracts: entrants, options, poses, records, events, snapshot, HUD read model, commands | none |
-| `src/game/race/session.ts` | `RaceSession`: the rules | none |
-| `src/game/race/campaign.ts` | `Campaign`: points, standings, grids, pegged rival aggression | none |
-| `src/game/race/race-ai.ts` | `RaceBrain` (racing driver), `onSurface` | none |
-| `src/game/race/traffic.ts` | `TrafficBrain` (loop lanes + side streets, observer bubble) | none |
-| `src/game/race/placements.ts` | `placeProps`, `propColliders` | none |
-| `src/game/race/prefabs.ts`, `track-art.ts` | prefab meshes; `TrackArt`: terrain, ribbons, decks + pillars, tunnels, markings, walls, start gantry, instanced props, knocked props, Cinematic tags | THREE |
-| `src/game/race/menu-nav.ts` | spatial focus maths for controller menus | none |
-| `src/game/engine-race.ts` | `RaceDirector`: engine glue (slots, walls / props, rules step, respawns, traffic bubble, AI stall reset, menus, campaign, HUD model) | THREE |
+| `src/game/world/ground.ts` | `Ground` (height, normal, grip, surface at x,z on a layer), `STEP_UP`, `FLAT_GROUND`, `activeGround()`, `setGround()` | none |
+| `src/game/ai/ai-aggression.ts` | `fieldAggression` (rival roll under the slider), `mood` (fight or keep clear); shared with the derby AI | none |
+| `src/game/world/catalog.ts` | surfaces (grip, top-speed share, colour), prefab specs | none |
+| `src/game/world/track-schema.ts` | zod schema of the track JSON, `parseTrack`, `TrackJson` / `TrackFile` | none |
+| `src/game/world/track.ts` | `Track`: arc-length samples, gates, grid, projection, wall clip, routes, crossing checks; `TrackGround` heightfield + bridge decks | THREE maths only |
+| `src/game/world/tracks/*.json`, `tracks/index.ts` | the courses; `TRACKS` (menu order) and `CAMPAIGN` | none |
+| `src/game/match/types.ts` | contracts: entrants, options, poses, records, events, snapshot, HUD read model, commands | none |
+| `src/game/match/session.ts` | `RaceSession`: the rules | none |
+| `src/game/match/campaign.ts` | `Campaign`: points, standings, grids, pegged rival aggression | none |
+| `src/game/ai/race-ai.ts` | `RaceBrain` (racing driver), `onSurface` | none |
+| `src/game/ai/traffic.ts` | `TrafficBrain` (loop lanes + side streets, observer bubble) | none |
+| `src/game/world/placements.ts` | `placeProps`, `propColliders` | none |
+| `src/game/present/prefabs.ts`, `track-art.ts` | prefab meshes; `TrackArt`: terrain, ribbons, decks + pillars, tunnels, markings, walls, start gantry, instanced props, knocked props, Cinematic tags | THREE |
+| `src/game/hud/menu-nav.ts` | spatial focus maths for controller menus | none |
+| `src/game/engine/engine-race.ts` | `RaceDirector`: engine glue (slots, walls / props, rules step, respawns, traffic bubble, AI stall reset, menus, campaign, HUD model) | THREE |
 | `src/components/race-hud.tsx`, `use-pad-menu.ts` | readouts, standings, overlays, menus, focus-view toggle; pad / keyboard menu navigation | DOM |
-| `src/game/race/race-world.test-util.ts` | the whole race stack headless (director + real cars + the engine's fixed-step order) | THREE maths |
+| `src/game/world/race-world.test-util.ts` | the whole race stack headless (director + real cars + the engine's fixed-step order) | THREE maths |
 
 Rules, campaign, AI, traffic and placements never touch the scene graph or the DOM. The director
 takes its art from the host (`buildArt`), so tests and a server run it with no renderer.
@@ -253,7 +253,7 @@ proportion to their mass. Car-to-car contact is the sandbox's own.
 | `stunt` | Crossover Canyon | ≈ 1140 m | figure of eight over its own 9 m deck, banked wall-ride bowl (8–18°), kicker jump down the canyon side, tunnel through a ridge, sand terrain | quarry cut across the bowl, gravel (2 → 4) |
 
 ## Track JSON
-One file per course in `src/game/race/tracks/`, registered in `tracks/index.ts`. `parseTrack` (zod)
+One file per course in `src/game/world/tracks/`, registered in `tracks/index.ts`. `parseTrack` (zod)
 fills defaults and reports every problem as `path: message`; `new Track(json)` also rejects a turn
 tighter than its own inner corridor, a self-crossing with neither level a deck, less than 4.5 m
 between levels, and a checkpoint over the other level.

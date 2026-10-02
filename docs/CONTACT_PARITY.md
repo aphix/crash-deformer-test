@@ -4,8 +4,8 @@ The Doors ram, the press and the pistons are test benches for the same crash a c
 This file pins what "the same hit" means, measures each scene against the car-car path, lists
 where the code paths differed, and records what is shared now (as built) and what is still open.
 
-Probes: `src/game/contact-parity.test-util.ts` (scenarios, `carState` measure),
-`src/game/contact-parity.test.ts` (matched-pair tests), scratch runners `.bench/parity/probe.ts`
+Probes: `src/game/scenes/contact-parity.test-util.ts` (scenarios, `carState` measure),
+`src/game/scenes/contact-parity.test.ts` (matched-pair tests), scratch runners `.bench/parity/probe.ts`
 (table), `.bench/parity/micro.ts` (cost), `.bench/parity/shots.mjs` (screenshots).
 
 ## Matched pairs and what "equivalent" means
@@ -104,7 +104,7 @@ residual at 20 km/h is the mass-level contact (box projection vs sphere contact)
   contact `streamed-deform.ts:1310` `collideWith`. Barrier: `engine-props.ts:143` `resolve`
   (SAT → `applyImpact` → `feedOverlap` → `projectOutOfBox` → `brakeInbound`).
 
-## As built: one striker contact (`src/game/external-contact.ts`)
+## As built: one striker contact (`src/game/contact/external-contact.ts`)
 
 Every external body is a `ContactBox`: an oriented box (centre, half extents, heading), a world
 velocity, a mass (`Infinity` for a kinematic driver) and a `hardness` (share of the crush energy
