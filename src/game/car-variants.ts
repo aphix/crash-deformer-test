@@ -36,7 +36,7 @@ export interface GlassQuad {
   wTop: number;
 }
 
-export type BootSpec =
+type BootSpec =
   /** Deck lid lofted on the profile from z0 to z1, hinged at origin. */
   | { kind: "lid"; z0: number; z1: number; origin: YZ }
   /** Vertical tail panel (hatch / tailgate) from y0 up to origin, hinged at its top edge. */

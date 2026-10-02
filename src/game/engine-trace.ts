@@ -36,7 +36,7 @@ export type TraceClock = {
 };
 
 /** Long-lived scene objects the samples read; captured once at engine construction. */
-export type TraceScene = {
+type TraceScene = {
   barrier: JerseyBarrier;
   balls: readonly RampBall[];
   sparks: SparkSystem;

@@ -13,10 +13,10 @@ import { bodyContact, makeBox, partContact } from "./external-contact.ts";
  * shared contact (`external-contact.ts`): the door and mirror colliders a car running down the
  * side meets too, and the body contact if a lane reaches the skin (the stock lanes do not).
  */
-export const DOOR_SCENARIOS = ["mirror", "overOpen", "shut"] as const;
+const DOOR_SCENARIOS = ["mirror", "overOpen", "shut"] as const;
 export type DoorScenario = (typeof DOOR_SCENARIOS)[number];
 
-export type RamLane = {
+type RamLane = {
   /** Travel along the car: +1 rear→front, −1 front→rear. */
   dir: 1 | -1;
   /** |x| of the face's inner edge (m); the door skin ends at ~0.91. */
@@ -54,7 +54,7 @@ export const RAM = {
   settle: 1.5,
 } as const;
 
-export type RamPhase = "idle" | "run" | "settle";
+type RamPhase = "idle" | "run" | "settle";
 
 export type RamShot = {
   /** Parts off the car; a mirror riding its torn door counts. */

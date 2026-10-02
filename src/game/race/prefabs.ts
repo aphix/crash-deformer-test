@@ -217,7 +217,7 @@ export function makeRaceTextures(): RaceTextures {
 }
 
 /** Materials the prefabs draw with (shared with the track art where it says so). */
-export type PrefabMaterials = {
+type PrefabMaterials = {
   /** Flat-shaded vertex colours (most props, gantry). */
   plain: THREE.Material;
   /** Vertex colours × concrete texture (barrier blocks, walls). */
@@ -449,7 +449,7 @@ function barrierBlock(): Piece[] {
 }
 
 /** One drawable part of a prefab; `shared` materials belong to the scene and must not be disposed with the prefab. */
-export type PrefabPart = { geometry: THREE.BufferGeometry; material: THREE.Material; shared: boolean };
+type PrefabPart = { geometry: THREE.BufferGeometry; material: THREE.Material; shared: boolean };
 
 /** Prefab `id` at scale 1 as drawable parts (one for most; the lamp adds its head and night pool). */
 export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {

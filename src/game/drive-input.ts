@@ -2,7 +2,7 @@ import type { DriveInput } from "./car-drive.ts";
 import { PAD_BUTTON, type PadState } from "./gamepad.ts";
 
 /** One frame of player intent, keyboard and pad merged, in player-visible signs. */
-export type DriveIntent = {
+type DriveIntent = {
   /** 0..1 — W / ↑ / RT. */
   gas: number;
   /** 0..1 — S / ↓ / LT: brakes while rolling forward, reverses once stopped. */

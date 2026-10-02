@@ -30,7 +30,7 @@ DeformableCar (car.ts): rigid pose, parts, glass, lamps, doors
 
 ## Shape-match kernel (`shape-match-core.js`, façade `shape-match.ts`)
 Müller 2005 meshless shape matching on `ShapeCluster`s:
-`makeCluster(particles, idx)`, `matchCluster(c, particles, beta)`, `applyPlasticity(c, particles, dt, squash, buckle?)`, `resetCluster`, `rebuildAqqWeighted`, `m3Polar(A, q, R, S)` (warm-started quaternion polar), `stabilizeR`, `m3ClampRotation`, `matchSkinLocal(c, rest, local, mass, beta)`, `transformSkinPointInto`, `transformNormal`; squash knobs `stiffnessIters`, `goalAlpha`, `deformBeta`.
+`makeCluster(particles, idx)`, `matchCluster(c, particles, beta)`, `applyPlasticity(c, particles, dt, squash, buckle?)`, `resetCluster`, `rebuildAqqWeighted`, `m3Polar(A, q, R, S)` (warm-started quaternion polar), `matchSkinLocal(c, rest, local, mass, beta)`, `transformSkinPointInto`, `transformNormal`; squash knobs `stiffnessIters`, `goalAlpha`, `deformBeta`.
 
 ## Crush bands (`physics-core.js`, re-exported + Vector3 helpers in `physics-util.ts`)
 - `CRASH`, `TRANSFER`; `regionSoftness(name)` → `regionCrushBands(name)` = `{ yield, middle, max }`; `forceTransfer(travel, bands, packed)`.

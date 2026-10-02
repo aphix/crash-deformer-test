@@ -27,10 +27,10 @@ const SPAWN_CLEAR = 14;
 /** An open street's car this close (m) to its end is done and put away. */
 const END_MARGIN = 6;
 
-export type TrafficSpawn = { x: number; y: number; z: number; yaw: number };
+type TrafficSpawn = { x: number; y: number; z: number; yaw: number };
 
 /** One traffic car's lane: the path it drives, its lateral offset and direction. */
-export type TrafficSlot = { path: TrackPath; offset: number; dir: 1 | -1 };
+type TrafficSlot = { path: TrackPath; offset: number; dir: 1 | -1 };
 
 /**
  * NPC world traffic. Cars `firstId…` drive, in order, the course's race-loop lanes

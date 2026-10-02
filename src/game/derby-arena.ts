@@ -3,7 +3,7 @@ import * as THREE from "three";
 /** Inside the lamp ring (16 m) and well inside the 48 m pad: the bowl for up to 12 cars. */
 export const DERBY_RADIUS = 16.4;
 /** Spawn ring sits this far inside the wall (`layoutDerby`). */
-export const SPAWN_INSET = 5.2;
+const SPAWN_INSET = 5.2;
 /** Bumper-to-bumper room between tangent neighbours on the spawn ring: a 4.44 m car plus 1.2 m. */
 const SPAWN_PITCH = 5.64;
 

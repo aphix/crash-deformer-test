@@ -20,7 +20,7 @@ export function fleetStyle(i: number): CarStyleId {
   return SLOT_STYLES[i % SLOT_STYLES.length]!;
 }
 
-export type FleetSlot = { x: number; z: number; speed: number };
+type FleetSlot = { x: number; z: number; speed: number };
 export type DerbySlot = { x: number; z: number; yaw: number; speed: number };
 
 function speedInRange(min: number, max: number, rng: () => number): number {

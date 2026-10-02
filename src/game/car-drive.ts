@@ -251,7 +251,7 @@ function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: num
 
 export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4 };
 
-export type SeatMode = "global" | "follow" | "drive";
+type SeatMode = "global" | "follow" | "drive";
 export type SeatView = "third" | "far" | "first";
 const VIEWS: readonly SeatView[] = ["third", "far", "first"];
 

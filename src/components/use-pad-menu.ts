@@ -2,7 +2,7 @@ import { type RefObject, useEffect, useRef } from "react";
 import { GamepadInput, PAD_BUTTON } from "@/game/gamepad";
 import { NavRepeat, navTarget, stickDir, type NavDir } from "@/game/race/menu-nav";
 
-export type PadMenuActions = {
+type PadMenuActions = {
   /** B / Esc. */
   onBack: (() => void) | null;
   /** Start / Menu button. */

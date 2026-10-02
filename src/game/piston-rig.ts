@@ -62,7 +62,7 @@ export const PISTON = {
   releaseAfter: 0.05,
 } as const;
 
-export type PistonPhase = "idle" | "accel" | "coast" | "retract";
+type PistonPhase = "idle" | "accel" | "coast" | "retract";
 
 type Axis = { ax: number; az: number; nx: number; nz: number };
 

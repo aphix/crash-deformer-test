@@ -18,7 +18,7 @@ export const COUNTDOWN = 3;
 /** Pause before a dead car is dropped back on the track. */
 export const RESPAWN_DELAY = 3;
 /** Pause for a respawn the driver asked for (stuck, flipped). */
-export const RESPAWN_REQUEST_DELAY = 1.5;
+const RESPAWN_REQUEST_DELAY = 1.5;
 /** A respawn spot keeps this far (m) from every other car. */
 export const CLEARANCE = 6;
 /**
@@ -27,7 +27,7 @@ export const CLEARANCE = 6;
  * the winner, or `LAP_SLACK` × its own lap pace after it started its current lap, whichever is later.
  */
 export const FINISH_GRACE = 30;
-export const LAP_SLACK = 1.5;
+const LAP_SLACK = 1.5;
 /** Seconds against the track before the wrong-way flag goes up. */
 export const WRONG_WAY_ON = 0.7;
 const WRONG_DOT = -0.3;
