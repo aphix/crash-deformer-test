@@ -54,11 +54,12 @@ export interface RaceHost {
 
 /** Seconds upside down before a car counts as dead. */
 const FLIP_DEAD = 2.5;
-/** Seconds an AI car sits still mid-race before it counts as dead (respawned). */
+/** Seconds a car not driven by this browser's driver sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
 /**
- * An AI racer that gains less than `STALL_GAIN` m of track in `STALL_WINDOW` s (wedged on a wall,
- * shoving a stopped car, two wrecks hooked together) takes the reset a player has on R.
+ * A car the race AI drives (a rival, or the player's car while its seat isn't driving) that gains
+ * less than `STALL_GAIN` m of track in `STALL_WINDOW` s (wedged on a wall, shoving a stopped car, two
+ * wrecks hooked together) takes the reset a player has on R.
  */
 const STALL_WINDOW = 8;
 const STALL_GAIN = 25;
@@ -451,7 +452,7 @@ export class RaceDirector {
       if (racing && rec.status === "racing") {
         const kind = this.entrants[i]!.kind;
         if (kind === "remote") input = this.remote[i]!;
-        else if (kind === "player" && !this.spectating && this.host.seat.mode === "drive" && this.host.seat.carIndex === i) input = this.host.seat.input(car, dt);
+        else if (this.seatDrives(i)) input = this.host.seat.input(car, dt);
         else input = brain.think(snaps[i]!, snaps, rec, dt);
       } else if (rec.status === "finished") {
         // Cool-down lap on the racing line.
@@ -904,10 +905,22 @@ export class RaceDirector {
     this.host.dress(car);
   }
 
-  /** AI racers that made almost no track progress over the last window ask for a respawn (see `STALL_GAIN`). */
+  /** This browser's driver has car `i` (its own car, in drive mode, not spectating); otherwise the race AI or a peer does. */
+  private seatDrives(i: number): boolean {
+    const seat = this.host.seat;
+    return this.entrants[i]?.kind === "player" && !this.spectating && seat.mode === "drive" && seat.carIndex === i;
+  }
+
+  /** The race AI drives car `i`: an AI rival, or the player's car while its seat isn't driving. */
+  private aiDrives(i: number): boolean {
+    const kind = this.entrants[i]?.kind;
+    return kind === "ai" || (kind === "player" && !this.seatDrives(i));
+  }
+
+  /** Cars the race AI drives that made almost no track progress over the last window ask for a respawn (see `STALL_GAIN`). */
   private stalls(s: RaceSession): void {
     for (let i = 0; i < this.entrants.length; i++) {
-      if (this.entrants[i]!.kind !== "ai" || s.time - this.markTime[i]! < STALL_WINDOW) continue;
+      if (!this.aiDrives(i) || s.time - this.markTime[i]! < STALL_WINDOW) continue;
       const rec = s.cars[this.rowOf[i]!]!;
       if (rec.status === "racing" && rec.progress - this.markProgress[i]! < STALL_GAIN) s.requestRespawn(i);
       this.markTime[i] = s.time;
@@ -915,14 +928,13 @@ export class RaceDirector {
     }
   }
 
-  /** Alive for the rules: running engine, not upside down for long, AI not parked for long. */
+  /** Alive for the rules: running engine, not upside down for long, not parked for long unless this browser's driver has it. */
   private judge(i: number, car: DeformableCar, dt: number, racing: boolean): boolean {
     if (!car.deform.drivetrainAlive) return false;
     const upY = car.group.matrixWorld.elements[5]!;
     this.flipFor[i] = upY < 0.35 ? this.flipFor[i]! + dt : 0;
     if (this.flipFor[i]! > FLIP_DEAD) return false;
-    const ai = this.entrants[i]?.kind !== "player";
-    const still = racing && ai && car.velocity.lengthSq() < 0.36;
+    const still = racing && !this.seatDrives(i) && car.velocity.lengthSq() < 0.36;
     this.stillFor[i] = still ? this.stillFor[i]! + dt : 0;
     return this.stillFor[i]! <= STILL_DEAD;
   }
