@@ -84,7 +84,10 @@ Body + skin + parts form one **wreck section** (659 bytes + 20 per loose part or
 `crashed` cars. Header: type u8, keyframe u8, seq u16, host time f64 (s), car count u8, realism u8
 (the host's `HANDLING.realism`, which the client adopts), crash phase u8, time scale u16 = 17 bytes. Input (client → host): type,
 throttle i8, steer i8, brake u8, ebrake/boost/respawn bits = 5 bytes. `hello` (client → any host):
-type, `NET_VERSION` u8. `assign` (host → one client): type, car u8 (255: refused), `NET_VERSION` u8.
+type, `NET_VERSION` u8, the player's name (u8 length + UTF-8; since version 3). The host cleans the
+name as untrusted (`cleanName`: whitespace folded, control / bidi / zero-width characters dropped,
+combining marks capped, 16 characters); a hello without one (the old layout) is seated as "Player N".
+`assign` (host → one client): type, car u8 (255: refused), `NET_VERSION` u8.
 `hold` (hidden host → all): type only. `NET_VERSION` (`codec.ts`) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
@@ -262,14 +265,16 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 Race multiplayer runs through race mode's controller slots (`SlotKind = "player" | "ai" | "remote"`)
 and the deterministic `RaceSession` (agreed with RaceLead):
 
-- Host: `RaceDirector.setSeats(peerCars)` makes peers `remote` slots in the next field (named
-  "Player N"); the AI fills the rest. Each input packet goes to `setRemoteInput(car, input)` (a
+- Host: `RaceDirector.setSeats(peerCars)` makes peers `remote` slots in the next field, each under
+  the name its hello carried ("Player N" without one); the host's own car carries its player's name
+  (`RaceDirector.playerName`, from the race setup). The AI fills the rest. Each input packet goes to `setRemoteInput(car, input)` (a
   seat with no input yet holds still on the grid, never AI-driven); an input's respawn bit calls
   `requestRespawn(car)` (the host's own menu or spectating never blocks a peer's request).
 - Host → clients: the `RaceSnapshot` JSON (or, between races, the lobby countdown and course) as
   a `MSG.race` frame every 6th snapshot (5 Hz) and with each keyframe, ~1.2 KB for 4 cars.
 - Client: `applySnapshot(snap, self)` restores the session and rebuilds the entrants: its own car
-  becomes "You" (`player`), the host's "Host"; a new race seats it in drive mode, a peer not in the
+  becomes `player`, the host's `remote`, and every car keeps the host's name for it (cleaned again,
+  untrusted), so each side shows the other's chosen name; a new race seats it in drive mode, a peer not in the
   field (joined mid-race) spectates the leader until the next race. Clients never step the session,
   and only viewing commands reach the director (start, pause, end, options are the host's).
   Cars still come from the 30 Hz pose/wreck snapshots, as in Fleet.
@@ -282,8 +287,8 @@ and the deterministic `RaceSession` (agreed with RaceLead):
 
 Derby multiplayer runs through the same controller-slot path as race (agreed with DerbyAI2):
 
-- **Seats (host):** `NetGame.setSeats(peerCars)` stores the peers' cars. When a match begins,
-  `spawnDerby` grows the field to hold them, seats them (`derbySeated`, named "Player N") and bumps
+- **Seats (host):** `NetGame.setSeats(peerCars → names)` stores the peers' cars and names. When a match begins,
+  `spawnDerby` grows the field to hold them, seats them (`derbySeated`, under their hello names) and bumps
   the round. The AI loop in `fixedStep` skips `i === driven || derbySeated.has(i)`, and `net.drive`
   applies a peer's input only to a seated car the match has not counted out (`remoteDrivable`). A
   peer who leaves mid-match hands its car back to the AI. A peer who joins mid-match is not added

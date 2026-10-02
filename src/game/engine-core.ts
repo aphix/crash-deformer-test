@@ -13,7 +13,7 @@ import { newWorld } from "./world-step.ts";
 import type { DeformMode } from "./deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
-import { armKill, assignClass, carClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
 import { WorldStage, makeLamp } from "./engine-world.ts";
 import { Cinematics } from "./engine-cine.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "./engine-fx.ts";
@@ -137,8 +137,9 @@ export abstract class EngineCore {
   /** Distance detail: per far car, the parts `cullFarDetail` took off the camera's layer. */
   protected readonly farDetail = new WeakMap<DeformableCar, THREE.Object3D[]>();
   protected squash = INITIAL_HUD.squash;
-  /** Slot 0's class: the HUD's pick for the player's car. */
+  /** Slot 0's class and body: the HUD's pick for the player's car (`setPlayerClass`, `setDriver`). */
   protected playerClass: VehicleClassId = fleetClass(0);
+  protected playerStyle: CarStyleId = fleetStyle(0);
   protected buckle = INITIAL_HUD.buckle;
   protected fxDensity = 0.7;
   protected speedMin = 0;
@@ -167,8 +168,8 @@ export abstract class EngineCore {
   protected derby = new DerbyMatch();
   /** This match's bowl radius (grows with the field, `derbyRadius`). */
   protected derbyR = DERBY_RADIUS;
-  /** Netplay host: peers' cars. A derby seats them (`derbySeated`) when a match begins, which bumps `derbyRound`. */
-  protected netSeats = new Set<number>();
+  /** Netplay host: peers' cars and names. A derby seats them (`derbySeated`) when a match begins, which bumps `derbyRound`. */
+  protected netSeats: ReadonlyMap<number, string> = new Map();
   protected derbySeated = new Set<number>();
   protected derbyRound = 0;
   protected seat = new DriverSeat();
@@ -217,7 +218,7 @@ export abstract class EngineCore {
   protected buildCar(
     i: number,
     cls: VehicleClassId = i === 0 ? this.playerClass : fleetClass(i),
-    style: CarStyleId = i === 0 ? CLASSES[cls].style : fleetStyle(i),
+    style: CarStyleId = i === 0 ? this.playerStyle : fleetStyle(i),
   ): DeformableCar {
     const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
     const paint: CarPaint =

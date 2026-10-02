@@ -10,6 +10,7 @@ import { onSurface } from "./race/race-ai.ts";
 import { RaceSession } from "./race/session.ts";
 import { CAMPAIGN } from "./race/tracks/index.ts";
 import {
+  cleanName,
   type Entrant,
   type RaceCommand,
   type RaceHud,
@@ -92,12 +93,12 @@ export class RaceDirector extends RaceField {
     switch (cmd.type) {
       case "options": {
         const o = { ...this.options, ...cmd.options };
-        // The menu offers 3–5; the rules (and a host or test) take any count the track format allows.
+        // The menu offers 1–5; the rules (and a host or test) take any count the track format allows.
         o.laps = clamp(Math.round(o.laps), 1, 9);
         o.aiCount = clamp(Math.round(o.aiCount), 1, MAX_CARS - 1);
         o.aggression = clamp(o.aggression, 0, 1);
         if (!this.courses.some((c) => c.id === o.trackId)) o.trackId = this.options.trackId;
-        const moved = o.trackId !== this.options.trackId || o.aiCount !== this.options.aiCount;
+        const moved = o.trackId !== this.options.trackId || o.aiCount !== this.options.aiCount || o.spectate !== this.options.spectate;
         this.options = o;
         if (this.menu === "setup" && moved) this.park();
         return;
@@ -163,7 +164,7 @@ export class RaceDirector extends RaceField {
   watch(id: number): void {
     if (!this.session || id < 0 || id >= this.entrants.length) return;
     if (!this.mayWatch()) return;
-    if (id === this.self && this.entrants[this.self]!.kind === "player") {
+    if (this.mine(id)) {
       this.spectating = false;
       this.host.seat.focus(this.self);
       return;
@@ -172,7 +173,7 @@ export class RaceDirector extends RaceField {
     this.host.seat.focus(id);
   }
 
-  /** Q/E, LB/RB: next / previous car still on track, when watching is allowed. */
+  /** Q/E, LB/RB: next / previous car still on track (never our own racing car), when watching is allowed. */
   cycle(dir: 1 | -1): void {
     const s = this.session;
     if (!s || !this.mayWatch()) return;
@@ -181,7 +182,7 @@ export class RaceDirector extends RaceField {
     for (let k = 0; k < n; k++) {
       i = (((i + dir) % n) + n) % n;
       const st = s.cars[this.rowOf[i]!]!.status;
-      if (i !== this.self && (st === "racing" || st === "respawning" || st === "finished")) {
+      if (!this.mine(i) && (st === "racing" || st === "respawning" || st === "finished")) {
         this.spectating = true;
         this.host.seat.focus(i);
         return;
@@ -215,9 +216,9 @@ export class RaceDirector extends RaceField {
     return this.session ? this.session.snapshot() : null;
   }
 
-  /** Netplay host: the cars network peers drive. The next field (start, setup) seats them as `remote`. */
-  setSeats(cars: readonly number[]): void {
-    this.seats = new Set(cars);
+  /** Netplay host: the cars network peers drive, with their names. The next field (start, setup) seats them as `remote`. */
+  setSeats(seats: ReadonlyMap<number, string>): void {
+    this.seats = seats;
   }
 
   /** The rules phase (null outside a race), without a snapshot. */
@@ -228,8 +229,9 @@ export class RaceDirector extends RaceField {
   /**
    * Netplay client: adopt the host's rules state; a client renders it and never steps its own
    * session. `self` is this peer's car: it races only if the host seated it (`remote` in the host's
-   * field); a peer who joined mid-race spectates until the next race. The host's own car shows as
-   * "Host". A new race (or the first one seen) puts this peer in its seat or on the leader.
+   * field); a peer who joined mid-race spectates until the next race. Every car keeps the host's name
+   * for it (the host's and each peer's pick), cleaned here as untrusted. A new race (or the first one
+   * seen) puts this peer in its seat or on the leader.
    */
   applySnapshot(snap: RaceSnapshot, self: number): void {
     const prev = this.session;
@@ -240,12 +242,9 @@ export class RaceDirector extends RaceField {
     for (const c of snap.cars) {
       if (c.id === self && c.kind === "remote") {
         c.kind = "player";
-        c.name = "You";
         seated = true;
-      } else if (c.kind === "player") {
-        c.kind = "remote";
-        c.name = "Host";
-      }
+      } else if (c.kind === "player") c.kind = "remote";
+      c.name = cleanName(c.name) || `Player ${c.id}`;
       entrants[c.id] = { id: c.id, name: c.name, kind: c.kind, aggression: 0 };
     }
     this.session = RaceSession.restore(tr, snap);
@@ -479,11 +478,16 @@ export class RaceDirector extends RaceField {
     if (!s) return;
     for (const id of s.order()) {
       const st = s.cars[this.rowOf[id]!]!.status;
-      if (id !== this.self && (st === "racing" || st === "respawning" || st === "finished")) {
+      if (!this.mine(id) && (st === "racing" || st === "respawning" || st === "finished")) {
         this.host.seat.focus(id);
         return;
       }
     }
+  }
+
+  /** Car `i` is this browser's player car (a spectator race has none). */
+  private mine(i: number): boolean {
+    return i === this.self && this.entrants[i]?.kind === "player";
   }
 
   private next(): void {

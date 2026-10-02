@@ -3,6 +3,8 @@ import { PISTON_DEFAULTS, PISTON_IDS } from "./piston-rig.ts";
 import { RAM_DEFAULTS } from "./door-rig.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
 import { armKill, carClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
+import type { CarStyleId } from "./car-variants.ts";
+import { cleanName, DRIVER_CARS } from "./race/types.ts";
 import { FX_TIERS, type FxTier } from "./engine-post.ts";
 import { gameKey } from "./drive-input.ts";
 import { PAD_BUTTON } from "./gamepad.ts";
@@ -116,17 +118,36 @@ export abstract class EngineInput extends EngineRigs {
   setPlayerClass(id: VehicleClassId): void {
     if (this.net.client) return;
     if (!(id in CLASSES)) return;
-    this.playerClass = id;
-    const old = this.cars[0];
-    if (old && carClass(old) !== id) {
-      this.scene.remove(old.group);
-      old.dispose();
-      this.cars[0] = this.buildCar(0);
-      this.cars[0].group.visible = true;
-    }
+    this.setPlayerCar(id, CLASSES[id].style);
     this.randomizeAndReset();
     this.seat.focus(0);
     this.emitHud();
+  }
+
+  /**
+   * The player's pick from the race setup (the HUD keeps it in localStorage and sends it at boot and
+   * on every change): the name on the race standings and netplay seats ("" → "You"), and the car
+   * type (`DRIVER_CARS` id; unknown → the first) slot 0 is built as. A new car re-parks the field.
+   */
+  setDriver(name: string, car: string): void {
+    this.race.playerName = cleanName(name) || "You";
+    const type = DRIVER_CARS.find((c) => c.id === car) ?? DRIVER_CARS[0]!;
+    if (this.net.client || !this.setPlayerCar(type.cls, type.style)) return;
+    this.randomizeAndReset();
+    this.emitHud();
+  }
+
+  /** Slot 0 becomes class `cls` on body `style`; true when that rebuilt the car. */
+  private setPlayerCar(cls: VehicleClassId, style: CarStyleId): boolean {
+    this.playerClass = cls;
+    this.playerStyle = style;
+    const old = this.cars[0];
+    if (!old || (carClass(old) === cls && old.style.id === style)) return false;
+    this.scene.remove(old.group);
+    old.dispose();
+    this.cars[0] = this.buildCar(0);
+    this.cars[0].group.visible = true;
+    return true;
   }
 
   setCarCount(n: number): void {

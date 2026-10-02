@@ -1,6 +1,6 @@
 # Race mode (as built)
 
-Circuit racing on top of the crash sandbox: 2–16 racers plus NPC traffic, 3–5 laps from the menu,
+Circuit racing on top of the crash sandbox: 2–16 racers plus NPC traffic, 1–5 laps from the menu,
 hidden checkpoint gates, designed shortcuts, respawn or no-reset elimination, AI racers with an
 aggression dial, an arcade HUD with a focus view, controller-driven menus, and a campaign over every
 course. Scene picker **Race** or key **Z**.
@@ -110,9 +110,16 @@ down, or laps done for DNF / out), best lap, laps.
 
 ## Spectate
 Dead menu (no-reset, player out): Restart, End race, Spectate. Spectating chases a live car (LB/RB,
-Q/E, click a standings name). Watching is allowed only once the player is out, finished or
-spectating; a racing player can't be moved off their car, and `DriverSeat.drivable` lets a pedal take
-the wheel only of this browser's player slot.
+Q/E, the touch prev / next on the spectate bar, click a standings name). Watching is allowed only once
+the player is out, finished or spectating; a racing player can't be moved off their car, and
+`DriverSeat.drivable` lets a pedal take the wheel only of this browser's player slot.
+
+**Watch** (setup "You: Drive / Watch", `RaceOptions.spectate`): a spectator-only race. `field()` makes
+this browser's car one more AI racer (paint name, rolled aggression), so there is no player entrant:
+the grid is the AI field in car order, `start()` follows pole in spectate mode, cycling and the
+standings reach every car (our own AI one too), the HUD has no readouts, "You" row or finish card,
+and nothing can take the wheel. Touch, keys and pad all switch cars through `raceCommand({ type:
+"cycle", dir })` (the spectate bar shows while `RaceHud.spectating` is non-null) and `{ type: "watch", id }`.
 
 ## Aggression (`ai-aggression.ts`)
 The setup slider is the field's **maximum**. Each rival rolls `fieldAggression(max, seed, id)`,
@@ -130,6 +137,9 @@ derby AI uses the same two functions with its own thresholds.
 Standings: points, wins, the better place in the latest round, entry order. Round 1's grid is the
 entry order (player last); later grids are the standings, leader on pole. Results → Standings
 (records the round) → Next round. Retry re-runs a round without scoring it.
+A Watch campaign is the same campaign with an all-AI field: each round starts in spectate mode on
+pole, rounds advance with Next, standings and the champion show as usual. Nothing is saved: a
+campaign lives only in the running page (no storage, Menu clears it), spectator or not.
 
 ## Controller slots and multiplayer
 Slots `player | ai | remote`. `RaceDirector.drive` picks each car's `DriveInput`: player → this
@@ -137,6 +147,20 @@ browser's `DriverSeat`, ai → `RaceBrain.think`, remote → `setRemoteInput(car
 packets); traffic → `TrafficBrain`. The rules see only `CarPose`s. `RaceSession.snapshot()` /
 `restore()` round-trip the full state as JSON (`RaceDirector.snapshot()` / `applySnapshot()` for a host
 and clients); `Campaign` likewise. The HUD reads `RaceHud` and sends `RaceCommand`s.
+
+## Your name and car
+Setup rows **Name** (text, ≤ 16 characters, empty = "You") and **Car** (one button per `DRIVER_CARS`
+entry: every vehicle class on its own body, then every other body style on the class it drives as —
+Sedan, Muscle, Truck, Monster, Hatchback, Wagon today; a new class or style appears by itself). The
+HUD keeps both in localStorage (`useDriver`: `crush.driver.name`, `crush.driver.car`) and `CrashLab`
+sends them to `CrashEngine.setDriver` at boot and on every change: the name becomes
+`RaceDirector.playerName` (cleaned by `cleanName`), the car rebuilds slot 0 (class and body) and
+re-parks the grid. The player's row on the standings, results and campaign table shows the name (the
+`you` highlight is still `kind === "player"`). Netplay: a client's hello carries its name, so the host
+seats it under that name, and every peer sees every chosen name (docs/MULTIPLAYER.md). A peer's car
+type does not travel: its seat keeps the host's fleet car for that slot. Touch: every row is ≥ 44 px
+tall, the name field uses 16 px text so phones don't zoom on focus, and the menu's arrow keys leave a
+focused text field its caret and space.
 
 ## AI (`RaceBrain`)
 Deterministic, allocation-free, memory per car id; figures per car class (`setClass`: turn, top
@@ -267,8 +291,8 @@ Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, sp
 meter while driving), standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
-card and dock (first item "Race view"). Modal menus: setup (course cards, laps 3–5, AI cars 1–15,
-max aggression with its hint, respawn / no reset, Start race, Campaign, Back), pause (Resume,
+card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps
+1–5, AI cars 1–15, max aggression with its hint, respawn / no reset, Start race, Campaign, Back), pause (Resume,
 Restart, End race, Full menu / Race view, Quit to menu), dead, results (Next course / Standings,
 Retry, Menu), campaign standings (Next round / champion, Menu). D-pad / left stick move focus
 spatially (350 ms then 120 ms repeat), ←/→ adjust, A confirms, B backs out, Start resumes. Campaign results
@@ -291,6 +315,9 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
   and body styles are fixed by car index in a single race. 2 seeds at the default slider by default;
   `RACE_FINISH_RUNS=5` runs 5 seeds at the default slider and 5 more with the slider at 1 (a ramming
   field: rivals roll up to 1).
+- `race-finish.test.ts` also: a 1-lap oval race closes on laps with every car home on lap 1, placed
+  and gapped by finish time; a Watch race (all-AI field, camera on pole, cycling reaches all five
+  cars, closes with no You row) and a Watch campaign (all-AI standings).
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
   oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
   service road and straight across the infield. The player finishes on the AI's lap count, and the

@@ -24,6 +24,7 @@ import {
   writeDerby,
 } from "./codec.ts";
 import { PHASES, type MatchStage, type NetGame, type NetRace, type PublicKind } from "./net-ports.ts";
+import { cleanName } from "../race/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";
@@ -141,6 +142,8 @@ export class NetPlay {
   private keyframeDue = false;
   /** Peer id → car. */
   private readonly slots = new Map<string, number>();
+  /** Peer id → the name its hello carried (cleaned; "" when none). */
+  private readonly names = new Map<string, string>();
   /** Peers whose hello carried this build's version: their input may (re)claim a car. */
   private readonly vetted = new Set<string>();
   /** Peer id → `now()` of its last message: a peer off the transport keeps its car until this is `SLOT_GRACE_MS` old. */
@@ -267,7 +270,7 @@ export class NetPlay {
       // Back to a solo game: no seat stays a network peer's, and no peer's last input keeps driving.
       const race = this.game.race();
       for (const car of this.slots.values()) race?.setRemoteInput(car, this.idle);
-      this.game.setSeats([]);
+      this.game.setSeats(new Map());
     }
     this.setHidden(false);
     this.derbyAt = 0;
@@ -277,6 +280,7 @@ export class NetPlay {
     this.car = -1;
     this.slots.clear();
     this.vetted.clear();
+    this.names.clear();
     this.heardAt.clear();
     this.hasInput.length = 0;
     this.lastWreckLen.length = 0;
@@ -392,9 +396,9 @@ export class NetPlay {
     }
   }
 
-  /** Netplay host: every peer's car is a `remote` seat from the next race or derby match on. */
+  /** Netplay host: every peer's car is a `remote` seat from the next race or derby match on, under its name ("Player N" without one). */
   private syncSeats(): void {
-    this.game.setSeats([...this.slots.values()]);
+    this.game.setSeats(new Map([...this.slots].map(([peer, car]) => [car, this.names.get(peer) || `Player ${car}`])));
   }
 
   // ── host ──────────────────────────────────────────────────────────────────
@@ -406,9 +410,13 @@ export class NetPlay {
         this.sendAssign(from, REFUSED);
         return;
       }
+      // Untrusted: shown on every peer's standings. An older layout without it gets the default name.
+      this.r.off = 2;
+      this.names.set(from, data.length > 2 ? cleanName(this.r.str()) : "");
       this.vetted.add(from);
       this.heardAt.set(from, this.now());
       this.sendAssign(from, this.assign(from));
+      this.syncSeats();
     } else if (type === MSG.input) {
       let car = this.slots.get(from);
       if (car === undefined) {
@@ -479,6 +487,7 @@ export class NetPlay {
       // A connection blip drops a peer off the transport for a moment: its car waits `SLOT_GRACE_MS` for it.
       if (peers.some((p) => p.id === id) || now - (this.heardAt.get(id) ?? 0) < SLOT_GRACE_MS) continue;
       this.slots.delete(id);
+      this.names.delete(id);
       this.heardAt.delete(id);
       this.hasInput[car] = false;
       race?.setRemoteInput(car, this.idle);
@@ -725,6 +734,7 @@ export class NetPlay {
         this.w.off = 0;
         this.w.u8(MSG.hello);
         this.w.u8(NET_VERSION);
+        this.w.str(this.game.playerName());
         t.send(this.w.done());
       }
     }

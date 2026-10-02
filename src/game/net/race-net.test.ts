@@ -4,10 +4,11 @@ import { setGround } from "../ground.ts";
 import { frame, makeWorld, type World } from "../race/race-world.test-util.ts";
 import { readRace, writeRace } from "./codec.ts";
 
-/** Host world with network peers seated on `seats`, a 3-car AI field, the oval, started. */
-function hostRace(seats: number[]): World {
+/** Host world with network peers seated on `seats` (car → name), its player named "Ann", a 3-car AI field, the oval, started. */
+function hostRace(seats: ReadonlyMap<number, string>): World {
   const w = makeWorld();
   w.race.enter();
+  w.race.playerName = "Ann";
   w.race.setSeats(seats);
   w.race.command({ type: "options", options: { trackId: "oval", aiCount: 3, laps: 1 } });
   w.race.command({ type: "start" });
@@ -27,16 +28,16 @@ function clientOf(host: World, self: number): World {
 }
 
 describe("race netplay: seats and the replicated rules state", () => {
-  it("seats a network peer as remote on the host, and as this browser's player on its own client", (t) => {
+  it("seats a network peer as remote on the host, and as this browser's player on its own client, each under its chosen name", (t) => {
     t.after(() => setGround(null));
-    const host = hostRace([2]);
+    const host = hostRace(new Map([[2, "Zed"]]));
     const hud = host.race.hud();
     assert.deepEqual(
       hud.standings.map((r) => [r.id, r.name, r.you]).sort((a, b) => Number(a[0]) - Number(b[0])),
       [
-        [0, "You", true],
+        [0, "Ann", true],
         [1, "Car1", false],
-        [2, "Player 2", false],
+        [2, "Zed", false],
         [3, "Car3", false],
       ],
     );
@@ -44,9 +45,15 @@ describe("race netplay: seats and the replicated rules state", () => {
     const client = clientOf(host, 2);
     const ch = client.race.hud();
     assert.equal(ch.you?.id, 2, "the client's own row is its car");
-    const names = new Map(ch.standings.map((r) => [r.id, r.name]));
-    assert.equal(names.get(0), "Host");
-    assert.equal(names.get(2), "You");
+    assert.deepEqual(
+      ch.standings.map((r) => [r.id, r.name, r.you]).sort((a, b) => Number(a[0]) - Number(b[0])),
+      [
+        [0, "Ann", false],
+        [1, "Car1", false],
+        [2, "Zed", true],
+        [3, "Car3", false],
+      ],
+    );
     assert.equal(client.seat.mode, "drive");
     assert.equal(client.seat.carIndex, 2);
     host.race.exit();
@@ -55,7 +62,7 @@ describe("race netplay: seats and the replicated rules state", () => {
 
   it("drives the remote seat from the peer's input, not the AI, and respawns it on the peer's request", (t) => {
     t.after(() => setGround(null));
-    const host = hostRace([2]);
+    const host = hostRace(new Map([[2, "Zed"]]));
     const state = { acc: 0 };
     const start = host.live()[2]!.group.position.clone();
     for (let k = 0; k < 60 * 6 && host.race.phase !== "racing"; k++) frame(host, state);
@@ -78,7 +85,7 @@ describe("race netplay: seats and the replicated rules state", () => {
 
   it("lets a peer that joined mid-race spectate until the next race", (t) => {
     t.after(() => setGround(null));
-    const host = hostRace([]);
+    const host = hostRace(new Map());
     const late = clientOf(host, 4);
     assert.equal(late.race.hud().you, null, "not in this race's field");
     assert.notEqual(late.seat.carIndex, 4);

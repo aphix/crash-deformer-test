@@ -11,15 +11,17 @@ import type { DeformNetState } from "../streamed-deform.ts";
  */
 /**
  * `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`;
- * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes).
+ * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes); `hello`: type,
+ * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`).
  */
 export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7 } as const;
 
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
  * refuse each other instead of misreading snapshots. Bump on any change to a message layout.
+ * 3: hello carries the player's name.
  */
-export const NET_VERSION = 2;
+export const NET_VERSION = 3;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

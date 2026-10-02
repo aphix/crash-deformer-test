@@ -1,7 +1,39 @@
 /**
  * Race contracts shared by the rules (`session.ts`), campaign, AI, engine glue and HUD.
- * Everything here is plain JSON-able data: a host can ship it to peers as is.
+ * Everything here is plain JSON-able data: a host can ship it to peers as is. Plus the player's
+ * pick (`DRIVER_CARS`, `cleanName`), which the HUD stores and the engine and netplay read.
  */
+
+import { CAR_STYLE_IDS, type CarStyleId } from "../car-variants.ts";
+import { CLASSES, STYLE_CLASS, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle-classes.ts";
+
+/** Longest player name (characters) on the standings and on the wire. */
+export const NAME_MAX = 16;
+
+/**
+ * A player's name as typed, or as a peer sent it (untrusted, shown to everyone): whitespace runs
+ * (tabs, newlines) become one space, other control and format characters (bidi overrides,
+ * zero-width) are dropped, combining marks capped at 2 per letter, trimmed, at most `NAME_MAX`
+ * characters. "" when nothing is left.
+ */
+export function cleanName(raw: string): string {
+  const s = raw.replace(/\s+/g, " ").replace(/\p{C}/gu, "").replace(/(\p{M}{2})\p{M}+/gu, "$1").trim();
+  return [...s].slice(0, NAME_MAX).join("").trim();
+}
+
+/**
+ * The setup menu's car types: every vehicle class on its own body, then every other body style on
+ * the class it drives as. `id` is what the HUD stores; the engine builds slot 0 from `cls` and `style`.
+ */
+export const DRIVER_CARS: readonly { id: string; label: string; cls: VehicleClassId; style: CarStyleId }[] = [
+  ...VEHICLE_CLASS_IDS.map((cls) => ({ id: cls, label: CLASSES[cls].label, cls, style: CLASSES[cls].style })),
+  ...CAR_STYLE_IDS.filter((style) => CLASSES[STYLE_CLASS[style]].style !== style).map((style) => ({
+    id: style,
+    label: style[0]!.toUpperCase() + style.slice(1),
+    cls: STYLE_CLASS[style],
+    style,
+  })),
+];
 
 /** Who feeds a car's `DriveInput`: this browser's seat, a race brain, or (later) a network peer. */
 type SlotKind = "player" | "ai" | "remote";
@@ -17,7 +49,7 @@ export type Entrant = {
 
 export type RaceOptions = {
   trackId: string;
-  /** 3–5 in the menu; the rules accept any ≥ 1. */
+  /** 1–5 in the menu; the rules accept any ≥ 1. */
   laps: number;
   /** A dead car is out for good; last car alive also wins. */
   noReset: boolean;
@@ -25,9 +57,11 @@ export type RaceOptions = {
   aiCount: number;
   /** Field aggression 0–1; each AI gets a personal spread around it. */
   aggression: number;
+  /** Watch only: this browser's car is one more AI racer and the camera follows the field (no player car). */
+  spectate: boolean;
 };
 
-export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35 };
+export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false };
 
 /** Per-step input to the rules for one car (same order as the entrants). */
 export type CarPose = {

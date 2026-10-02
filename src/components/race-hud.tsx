@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
+import { DriverRows } from "@/components/race-driver";
+import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/race/types";
 import { cn } from "@/lib/utils";
 
@@ -25,10 +27,6 @@ type Send = (cmd: RaceCommand) => void;
 
 /** Seconds the split vs the leader stays up after each checkpoint. */
 const SPLIT_FLASH = 3;
-
-/** Focus ring for menu items: shown on any focus (pad and script focus are not "focus-visible"). */
-const FOCUS = "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-surface";
-const FOCUS_WITHIN = "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-surface";
 
 /** Opaque card for centre-screen moments and menus (the translucent `hud-panel` lets panels behind bleed through). */
 const CARD = "rounded-2xl bg-surface shadow-[var(--shadow-border)]";
@@ -535,17 +533,44 @@ function Stepper({
   );
 }
 
+/** A two-way row: ←/→ or a tap on a side picks it, a tap on the row flips it. */
+function Choice({ label, off, on, value, onSet }: { label: string; off: string; on: string; value: boolean; onSet: (value: boolean) => void }) {
+  const set = (v: boolean) => {
+    if (v !== value) onSet(v);
+  };
+  const segment = (lit: boolean) =>
+    cn(
+      "h-11 rounded-md px-2 font-display text-sm font-medium transition-colors duration-[var(--motion-quick)] sm:h-7",
+      lit ? "bg-accent text-accent-fg" : "text-muted hover:text-fg",
+    );
+  return (
+    <div
+      data-nav
+      data-adjust
+      tabIndex={0}
+      role="group"
+      aria-label={`${label}: ${value ? on : off}`}
+      onClick={(e) => {
+        if (e.target === e.currentTarget) set(!value);
+      }}
+      className={cn("flex min-h-11 items-center gap-2 rounded-md bg-surface-2 py-0.5 pl-2 pr-0.5 shadow-[var(--shadow-border)] sm:min-h-8", FOCUS_WITHIN)}
+    >
+      <span className="hud-label w-24 shrink-0 text-muted sm:w-32">{label}</span>
+      <div className="grid flex-1 grid-cols-2 gap-0.5 rounded-md bg-surface p-0.5">
+        <button type="button" tabIndex={-1} data-step="-1" aria-pressed={!value} onClick={() => set(false)} className={segment(!value)}>
+          {off}
+        </button>
+        <button type="button" tabIndex={-1} data-step="1" aria-pressed={value} onClick={() => set(true)} className={segment(value)}>
+          {on}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
   const o = race.options;
   const options = (patch: Partial<RaceOptions>) => onCommand({ type: "options", options: patch });
-  const setNoReset = (noReset: boolean) => {
-    if (noReset !== o.noReset) options({ noReset });
-  };
-  const segment = (on: boolean) =>
-    cn(
-      "h-11 rounded-md px-2 font-display text-sm font-medium transition-colors duration-[var(--motion-quick)] sm:h-7",
-      on ? "bg-accent text-accent-fg" : "text-muted hover:text-fg",
-    );
   return (
     <MenuShell id="setup" eyebrow="Race" title="Pick a course" pad={pad} wide adjust onBack={() => onCommand({ type: "quit" })} onStart={null}>
       <div className="grid gap-2 sm:grid-cols-3">
@@ -571,7 +596,9 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
         })}
       </div>
       <div className="mt-3 grid grid-cols-1 gap-1.5">
-        <Stepper label="Laps" value={o.laps} min={3} max={5} step={1} shown={String(o.laps)} onSet={(laps) => options({ laps })} />
+        <DriverRows />
+        <Choice label="You" off="Drive" on="Watch" value={o.spectate} onSet={(spectate) => options({ spectate })} />
+        <Stepper label="Laps" value={o.laps} min={1} max={5} step={1} shown={String(o.laps)} onSet={(laps) => options({ laps })} />
         <Stepper label="AI cars" value={o.aiCount} min={1} max={15} step={1} shown={String(o.aiCount)} onSet={(aiCount) => options({ aiCount })} />
         <Stepper
           label="Max aggression"
@@ -584,27 +611,7 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
           hint="Each rival rolls its own 0–max, kept all campaign · 0 avoids hits · 50% hits weaker cars when safe · 100% rams"
           onSet={(aggression) => options({ aggression })}
         />
-        <div
-          data-nav
-          data-adjust
-          tabIndex={0}
-          role="group"
-          aria-label={`Wrecks: ${o.noReset ? "out for good" : "respawn"}`}
-          onClick={(e) => {
-            if (e.target === e.currentTarget) setNoReset(!o.noReset);
-          }}
-          className={cn("flex min-h-11 items-center gap-2 rounded-md bg-surface-2 py-0.5 pl-2 pr-0.5 shadow-[var(--shadow-border)] sm:min-h-8", FOCUS_WITHIN)}
-        >
-          <span className="hud-label w-24 shrink-0 text-muted sm:w-32">Wrecks</span>
-          <div className="grid flex-1 grid-cols-2 gap-0.5 rounded-md bg-surface p-0.5">
-            <button type="button" tabIndex={-1} data-step="-1" aria-pressed={!o.noReset} onClick={() => setNoReset(false)} className={segment(!o.noReset)}>
-              Respawn
-            </button>
-            <button type="button" tabIndex={-1} data-step="1" aria-pressed={o.noReset} onClick={() => setNoReset(true)} className={segment(o.noReset)}>
-              No reset
-            </button>
-          </div>
-        </div>
+        <Choice label="Wrecks" off="Respawn" on="No reset" value={o.noReset} onSet={(noReset) => options({ noReset })} />
       </div>
       <div className="mt-3 grid grid-cols-2 gap-1.5">
         <NavButton className="col-span-2" onClick={() => onCommand({ type: "start" })}>
