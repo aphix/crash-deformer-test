@@ -571,6 +571,8 @@ export class RaceDirector {
 
   private start(trackId: string, grid: readonly number[]): void {
     const tr = this.load(trackId);
+    // Quitting to the menu comes back to the course just raced.
+    this.options.trackId = tr.id;
     const racers = this.entrants.length;
     const tcount = Math.min(tr.json.traffic?.count ?? 0, MAX_CARS - racers);
     this.host.setCarCount(racers + tcount);

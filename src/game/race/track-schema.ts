@@ -21,8 +21,12 @@ const node = z.object({
   /** Runoff [left, right] (m) between road edge and wall. */
   runoff: pair.optional(),
   runoffSurface: surface.optional(),
-  /** Wall present [left, right]; false opens the edge (shortcut mouths, open rally stages). */
+  /** Wall present [left, right]; false opens the edge (shortcut mouths, side streets, open rally stages). */
   wall: z.tuple([z.boolean(), z.boolean()]).optional(),
+  /** Bridge span from this node to the next: a deck at the road's own height, not stamped into the terrain, so another road can pass under it. */
+  deck: z.boolean().optional(),
+  /** Covered from this node to the next (drawn as a tunnel; no effect on driving). */
+  tunnel: z.boolean().optional(),
 });
 
 const gateRef = z.object({ node: z.number().int().min(0), t: z.number().min(0).lt(1).default(0) });
@@ -39,6 +43,26 @@ const shortcut = z.object({
   surface: surface.default("dirt"),
   /** Open spline, entry first; a gate sits on every point. */
   path: z.array(pathPoint).min(2),
+});
+
+const lane = z.object({
+  /** Lateral offset from the centreline (m, + = left of the path's direction). */
+  offset: z.number(),
+  /** +1 drives the path's direction, −1 against it. */
+  dir: z.union([z.literal(1), z.literal(-1)]),
+});
+
+/** A side street for NPC traffic: it crosses or joins the race loop, so racers meet cross traffic. */
+const route = z.object({
+  id: z.string().min(1),
+  /** Path points in order; an open street's ends should sit out of sight (cars despawn and respawn there). */
+  path: z.array(pathPoint).min(2),
+  loop: z.boolean().default(false),
+  width: z.number().min(4).max(30).default(9),
+  surface: surface.default("asphalt"),
+  /** Cars on this street. */
+  count: z.number().int().min(0).max(16),
+  lanes: z.array(lane).min(1),
 });
 
 const placement = z.object({
@@ -60,6 +84,8 @@ const along = z.object({
   offset: z.number().default(1.5),
   fromNode: z.number().int().min(0).optional(),
   toNode: z.number().int().min(0).optional(),
+  /** Repeat along this traffic route's centreline instead of the race loop (node range ignored). */
+  route: z.string().optional(),
   scale: z.number().positive().default(1),
 });
 
@@ -112,11 +138,14 @@ export const TrackSchema = z
     scatter: z.array(scatter).default([]),
     traffic: z
       .object({
-        count: z.number().int().min(0).max(16),
-        /** m/s */
+        /** Cars on the race loop's own lanes. */
+        count: z.number().int().min(0).max(16).default(0),
+        /** Cruise speed (m/s). */
         speed: z.number().min(2).max(20).default(9),
-        /** Lateral offset from the centreline (m, + = left) and direction (+1 = race direction). */
-        lanes: z.array(z.object({ offset: z.number(), dir: z.union([z.literal(1), z.literal(-1)]) })).min(1),
+        /** Race-loop lanes: offset from the centreline (m, + = left) and direction (+1 = race direction). */
+        lanes: z.array(lane).default([]),
+        /** Side streets with their own cars. */
+        routes: z.array(route).default([]),
       })
       .optional(),
     environment: z
@@ -151,6 +180,12 @@ export const TrackSchema = z
       if (s.to !== 0 && s.to < s.from) {
         ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut may not skip the start/finish line" });
       }
+    });
+    const tr = t.traffic;
+    if (tr && tr.count > 0 && tr.lanes.length === 0) ctx.addIssue({ code: "custom", path: ["traffic", "lanes"], message: "loop traffic needs at least one lane" });
+    const routeIds = new Set((tr?.routes ?? []).map((r) => r.id));
+    t.along.forEach((a, i) => {
+      if (a.route != null && !routeIds.has(a.route)) ctx.addIssue({ code: "custom", path: ["along", i, "route"], message: `no traffic route ${a.route}` });
     });
   });
 

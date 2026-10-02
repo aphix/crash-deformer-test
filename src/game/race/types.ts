@@ -135,6 +135,8 @@ export type CampaignRow = {
   id: number;
   name: string;
   kind: SlotKind;
+  /** The rival's aggression, rolled once and kept for every round of the campaign. */
+  aggression: number;
   points: number;
   wins: number;
   /** Finishing place per completed round (0 = did not start). */
@@ -176,7 +178,9 @@ export type RaceCommand =
   /** Spectating or finished: follow car `id` (standings click). Ignored while the player still races. */
   | { type: "watch"; id: number }
   /** Back to the setup menu (from pause / results / standings), or leave race mode from setup. */
-  | { type: "quit" };
+  | { type: "quit" }
+  /** Race focus view (false) hides the sandbox HUD and its hotkeys; true shows the full menu. */
+  | { type: "fullUi"; on: boolean };
 
 export type RaceMenu = "setup" | "pause" | "dead" | "results" | "standings" | null;
 
@@ -240,4 +244,6 @@ export type RaceHud = {
   campaign: CampaignSnapshot | null;
   /** Name of the next course for the results/standings button, null when there is none (campaign over). */
   nextCourse: string | null;
+  /** The full sandbox HUD (and its hotkeys) is shown; false = race focus view. */
+  fullUi: boolean;
 };

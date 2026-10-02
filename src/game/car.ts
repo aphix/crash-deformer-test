@@ -860,21 +860,30 @@ export class DeformableCar {
     }
     const ground = activeGround();
     const pos = this.group.position;
-    const gy = ground === FLAT_GROUND ? 0 : ground.heightAt(pos.x, pos.z);
-    // On a course's ground a driven car hugs crests and dips; crashed cars only land on it.
-    const hug = ground !== FLAT_GROUND && !this.crashed && pos.y < gy + 0.3 && this.velocity.y <= 0;
-    if (pos.y < gy || hug) {
-      pos.y = gy;
-      if (this.velocity.y < 0) this.velocity.y = 0;
-      if (hug) this.alignToGround(ground);
+    if (ground === FLAT_GROUND) {
+      if (pos.y < 0) {
+        pos.y = 0;
+        if (this.velocity.y < 0) this.velocity.y = 0;
+      }
+    } else {
+      // A course's ground: ride it while it holds the car up; where it falls away faster than gravity
+      // can follow (a ramp lip, a crest at speed) the car flies, and lands back on whatever is below.
+      const y0 = pos.y - this.velocity.y * dt;
+      const gy = ground.heightAt(pos.x, pos.z, y0);
+      if (pos.y <= gy) {
+        const was = ground.heightAt(pos.x - this.velocity.x * dt, pos.z - this.velocity.z * dt, y0);
+        pos.y = gy;
+        this.velocity.y = (gy - was) / dt;
+        if (!this.crashed) this.alignToGround(ground, gy);
+      }
     }
     this.refreshBasis();
     this.stepLooseParts(dt);
   }
 
   /** Pitch and roll a driven car onto the ground plane under it (yaw kept). */
-  private alignToGround(ground: Ground): void {
-    const n = ground.normalAt(this.group.position.x, this.group.position.z, _gn);
+  private alignToGround(ground: Ground, y: number): void {
+    const n = ground.normalAt(this.group.position.x, this.group.position.z, _gn, y);
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
     // Nose up on an upslope (normal leans back), right side up where the ground rises to the right.

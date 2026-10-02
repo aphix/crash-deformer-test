@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Ground } from "../ground.ts";
+import { STEP_UP, type Ground } from "../ground.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type TrackJson } from "./track-schema.ts";
 
@@ -19,6 +19,12 @@ export const BLEND = 24;
 /** Depth of the wall band (m): only cars within it are clipped, so open ground beyond is left alone. */
 const WALL_BAND = 2.5;
 const CELL = 1;
+/** Deck lookup cell (m). */
+const DECK_CELL = 8;
+
+function deckKey(i: number, j: number): number {
+  return (i + 4096) * 8192 + (j + 4096);
+}
 
 /** A gate segment a→b; crossing it along (nx, nz) counts. */
 export type Gate = { ax: number; az: number; bx: number; bz: number; nx: number; nz: number; s: number };
@@ -47,9 +53,16 @@ export type TrackPath = {
   /** Index into `SURFACE_IDS`. */
   surface: Uint8Array;
   runSurface: Uint8Array;
+  /** 1 on a bridge span (analytic deck, not in the heightfield). */
+  deck: Uint8Array;
+  /** 1 under a tunnel roof (art only). */
+  tunnel: Uint8Array;
 };
 
 export type Shortcut = { id: string; from: number; to: number; path: TrackPath; gates: Gate[] };
+
+/** A traffic side street. */
+export type Route = { id: string; path: TrackPath; count: number; lanes: readonly { offset: number; dir: 1 | -1 }[] };
 
 export type Projection = {
   /** Segment start sample. */
@@ -91,11 +104,15 @@ type NodeAttrs = {
   runSurface: number[];
   wallL: number[];
   wallR: number[];
+  deck: number[];
+  tunnel: number[];
 };
 
 /** Resolve inheritance: an omitted field takes the previous node's value; node 0 takes `road`. */
 function nodeAttrs(t: TrackJson): NodeAttrs {
-  const a: NodeAttrs = { y: [], width: [], bank: [], surface: [], runL: [], runR: [], runSurface: [], wallL: [], wallR: [] };
+  const a: NodeAttrs = { y: [], width: [], bank: [], surface: [], runL: [], runR: [], runSurface: [], wallL: [], wallR: [], deck: [], tunnel: [] };
+  let deck = false;
+  let tunnel = false;
   let y = 0;
   let width = t.road.width;
   let surface: SurfaceId = t.road.surface;
@@ -109,6 +126,8 @@ function nodeAttrs(t: TrackJson): NodeAttrs {
     run = n.runoff ?? run;
     runSurface = n.runoffSurface ?? runSurface;
     wall = n.wall ?? wall;
+    deck = n.deck ?? deck;
+    tunnel = n.tunnel ?? tunnel;
     a.y.push(y);
     a.width.push(width);
     a.bank.push((n.bank * Math.PI) / 180);
@@ -118,6 +137,8 @@ function nodeAttrs(t: TrackJson): NodeAttrs {
     a.runSurface.push(SURFACE_IDS.indexOf(runSurface));
     a.wallL.push(wall[0] ? 1 : 0);
     a.wallR.push(wall[1] ? 1 : 0);
+    a.deck.push(deck ? 1 : 0);
+    a.tunnel.push(tunnel ? 1 : 0);
   }
   return a;
 }
@@ -148,6 +169,8 @@ function samplePath(pts: THREE.Vector3[], closed: boolean, attrs: NodeAttrs): { 
     wallR: new Uint8Array(n),
     surface: new Uint8Array(n),
     runSurface: new Uint8Array(n),
+    deck: new Uint8Array(n),
+    tunnel: new Uint8Array(n),
   };
   const param = new Float64Array(n);
   const p = new THREE.Vector3();
@@ -171,6 +194,8 @@ function samplePath(pts: THREE.Vector3[], closed: boolean, attrs: NodeAttrs): { 
     path.wallR[k] = attrs.wallR[i]!;
     path.surface[k] = attrs.surface[i]!;
     path.runSurface[k] = attrs.runSurface[i]!;
+    path.deck[k] = attrs.deck[i]!;
+    path.tunnel[k] = attrs.tunnel[i]!;
   }
   for (let k = 0; k < n; k++) {
     const a = closed ? (k - 1 + n) % n : Math.max(0, k - 1);
@@ -314,6 +339,31 @@ export function projectPath(path: TrackPath, x: number, z: number, hint: number,
   return out;
 }
 
+/** An unwalled side path (shortcut or traffic street) of one width and surface. */
+function sidePath(pts: readonly { x: number; z: number; y?: number }[], width: number, surface: SurfaceId, closed: boolean): { path: TrackPath; param: Float64Array } {
+  const n = pts.length;
+  const fill = <T>(v: T) => Array.from({ length: n }, () => v);
+  const ys = pts.map((p) => p.y ?? 0);
+  const sid = SURFACE_IDS.indexOf(surface);
+  return samplePath(
+    pts.map((p, i) => new THREE.Vector3(p.x, ys[i]!, p.z)),
+    closed,
+    { y: ys, width: fill(width), bank: fill(0), surface: fill(sid), runL: fill(0), runR: fill(0), runSurface: fill(sid), wallL: fill(0), wallR: fill(0), deck: fill(0), tunnel: fill(0) },
+  );
+}
+
+/** Distance from (x, z) to gate segment a→b. */
+function segDist(g: Gate, x: number, z: number): number {
+  const ex = g.bx - g.ax;
+  const ez = g.bz - g.az;
+  const f = clamp01(((x - g.ax) * ex + (z - g.az) * ez) / (ex * ex + ez * ez || 1));
+  return Math.hypot(x - g.ax - ex * f, z - g.az - ez * f);
+}
+
+function clamp01(v: number): number {
+  return v < 0 ? 0 : v > 1 ? 1 : v;
+}
+
 export class Track {
   readonly json: TrackJson;
   readonly id: string;
@@ -325,6 +375,7 @@ export class Track {
   readonly shortcuts: Shortcut[];
   /** Arc length (m) of each JSON node on the main loop. */
   readonly nodeS: readonly number[];
+  readonly routes: Route[];
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   private baked: TrackGround | null = null;
   private readonly pt = blankPoint();
@@ -348,33 +399,23 @@ export class Track {
     this.nodeS = this.json.nodes.map((_, i) => (i === 0 ? 0 : sAtParam(path, param, i)));
     this.gates = this.json.checkpoints.map((c) => gateAt(path, c.node === 0 && c.t === 0 ? 0 : sAtParam(path, param, c.node + c.t), 1.5));
     this.shortcuts = this.json.shortcuts.map((sc) => {
+      const sub = sidePath(sc.path, sc.width, sc.surface, false);
       const n = sc.path.length;
-      const fill = <T>(v: T) => Array.from({ length: n }, () => v);
-      const ys = sc.path.map((p) => p.y ?? 0);
-      const sid = SURFACE_IDS.indexOf(sc.surface);
-      const sub = samplePath(
-        sc.path.map((p, i) => new THREE.Vector3(p.x, ys[i]!, p.z)),
-        false,
-        {
-          y: ys,
-          width: fill(sc.width),
-          bank: fill(0),
-          surface: fill(sid),
-          runL: fill(0),
-          runR: fill(0),
-          runSurface: fill(sid),
-          wallL: fill(0),
-          wallR: fill(0),
-        },
-      );
       const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i), 1));
       return { id: sc.id, from: sc.from, to: sc.to, path: sub.path, gates };
     });
+    this.routes = (this.json.traffic?.routes ?? []).map((r) => ({
+      id: r.id,
+      path: sidePath(r.path, r.width, r.surface, r.loop).path,
+      count: r.count,
+      lanes: r.lanes,
+    }));
+    this.checkCrossings();
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
     let maxZ = -Infinity;
-    for (const p of [path, ...this.shortcuts.map((s) => s.path)]) {
+    for (const p of this.paths()) {
       for (let k = 0; k < p.count; k++) {
         const r = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!);
         minX = Math.min(minX, p.x[k]! - r);
@@ -384,6 +425,49 @@ export class Track {
       }
     }
     this.bounds = { minX, maxX, minZ, maxZ };
+  }
+
+  /** Every drivable path: the main loop, the shortcuts, the traffic routes. */
+  paths(): TrackPath[] {
+    return [this.path, ...this.shortcuts.map((s) => s.path), ...this.routes.map((r) => r.path)];
+  }
+
+  /**
+   * Where the main loop passes over or under itself: no gate may sit there (a car on the other
+   * level would cross it), and one of the two levels must be a deck (the heightfield holds one).
+   */
+  private checkCrossings(): void {
+    const p = this.path;
+    const n = p.count;
+    const L = this.length;
+    const ds = L / n;
+    for (let a = 0; a < n; a += 2) {
+      for (let b = a + 2; b < n; b += 2) {
+        const apart = Math.min(b - a, n - (b - a)) * ds;
+        if (apart < 40) continue;
+        const reach = p.half[a]! + p.half[b]! + 1;
+        const dx = p.x[a]! - p.x[b]!;
+        const dz = p.z[a]! - p.z[b]!;
+        if (dx * dx + dz * dz > reach * reach) continue;
+        const dy = Math.abs(p.y[a]! - p.y[b]!);
+        if (dy > 1 && !p.deck[a] && !p.deck[b]) {
+          throw new Error(`${this.id}: the loop crosses itself ${dy.toFixed(1)} m apart in height near (${p.x[a]!.toFixed(0)}, ${p.z[a]!.toFixed(0)}) without a deck`);
+        }
+        if (dy > 1 && dy < 4.5) {
+          throw new Error(`${this.id}: only ${dy.toFixed(1)} m between the levels near (${p.x[a]!.toFixed(0)}, ${p.z[a]!.toFixed(0)}); a car needs 4.5 m`);
+        }
+        for (const g of this.gates) {
+          for (const k of [a, b]) {
+            const sk = k * ds;
+            const gap = Math.abs(sk - g.s);
+            if (Math.min(gap, L - gap) < 20) continue;
+            if (segDist(g, p.x[k]!, p.z[k]!) < p.half[k]! + 3) {
+              throw new Error(`${this.id}: checkpoint at s=${g.s.toFixed(0)} sits over another part of the loop`);
+            }
+          }
+        }
+      }
+    }
   }
 
   get laps(): number {
@@ -478,8 +562,8 @@ export class TrackGround implements Ground {
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) this.heights[j * this.nx + i] = this.base(this.minX + i * CELL, this.minZ + j * CELL);
     }
-    this.stampPath(track.path, stamp);
-    for (const sc of track.shortcuts) this.stampPath(sc.path, stamp);
+    for (const p of track.paths()) this.stampPath(p, stamp);
+    this.indexDecks(track.path);
   }
 
   /** Base terrain: gaussian hills over y = 0. */
@@ -496,7 +580,12 @@ export class TrackGround implements Ground {
   private stampPath(p: TrackPath, st: Stamp): void {
     const segs = p.closed ? p.count : p.count - 1;
     for (let k = 0; k < segs; k++) {
+      // Bridge spans are analytic decks, not terrain: the ground under them stays.
+      if (p.deck[k]) continue;
       const b = (k + 1) % p.count;
+      // Ends of the stamped run (an open path's ends, a deck's abutments) are rounded off, not stretched along.
+      const openEnd = (!p.closed && b === p.count - 1) || (p.deck[b] === 1 && b < segs);
+      const openStart = (!p.closed && k === 0) || p.deck[(k - 1 + p.count) % p.count] === 1;
       const reach = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!) + BLEND;
       const i0 = Math.max(0, Math.floor((Math.min(p.x[k]!, p.x[b]!) - reach - this.minX) / CELL));
       const i1 = Math.min(this.nx - 1, Math.ceil((Math.max(p.x[k]!, p.x[b]!) + reach - this.minX) / CELL));
@@ -511,6 +600,7 @@ export class TrackGround implements Ground {
         for (let i = i0; i <= i1; i++) {
           const x = this.minX + i * CELL;
           let f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+          const beyond = (f > 1 && openEnd) || (f < 0 && openStart);
           f = f < 0 ? 0 : f > 1 ? 1 : f;
           const cx = p.x[k]! + ex * f;
           const cz = p.z[k]! + ez * f;
@@ -519,7 +609,8 @@ export class TrackGround implements Ground {
           const c = j * this.nx + i;
           if (d2 >= st.d2[c]!) continue;
           st.d2[c] = d2;
-          const lat = ((x - cx) * ez - (z - cz) * ex) / len;
+          const perp = ((x - cx) * ez - (z - cz) * ex) / len;
+          const lat = beyond ? Math.sign(perp || 1) * Math.sqrt(d2) : perp;
           const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f;
           const half = p.half[k]! + (p.half[b]! - p.half[k]!) * f;
           const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
@@ -543,7 +634,8 @@ export class TrackGround implements Ground {
     }
   }
 
-  heightAt(x: number, z: number): number {
+  /** Bilinear heightfield (no decks). */
+  private fieldAt(x: number, z: number): number {
     const u = (x - this.minX) / CELL;
     const v = (z - this.minZ) / CELL;
     if (u < 0 || v < 0 || u >= this.nx - 1 || v >= this.nz - 1) return this.base(x, z);
@@ -558,10 +650,17 @@ export class TrackGround implements Ground {
     return a + (b - a) * fv;
   }
 
-  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T): T {
+  heightAt(x: number, z: number, y = Infinity): number {
+    const h = this.fieldAt(x, z);
+    if (this.deckCells.size === 0) return h;
+    const d = this.deckAt(x, z, y + STEP_UP);
+    return d > h ? d : h;
+  }
+
+  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y = Infinity): T {
     const e = CELL * 0.5;
-    const dx = this.heightAt(x + e, z) - this.heightAt(x - e, z);
-    const dz = this.heightAt(x, z + e) - this.heightAt(x, z - e);
+    const dx = this.heightAt(x + e, z, y) - this.heightAt(x - e, z, y);
+    const dz = this.heightAt(x, z + e, y) - this.heightAt(x, z - e, y);
     const nx = -dx;
     const ny = 2 * e;
     const nz = -dz;
@@ -572,19 +671,75 @@ export class TrackGround implements Ground {
     return out;
   }
 
-  /** Index into `SURFACE_IDS` of the nearest cell. */
-  surfaceIndex(x: number, z: number): number {
+  /** Index into `SURFACE_IDS` at (x, z) for a body at height `y` (a deck's surface when it is on one). */
+  surfaceIndex(x: number, z: number, y = Infinity): number {
+    if (this.deckCells.size > 0) {
+      const d = this.deckAt(x, z, y + STEP_UP);
+      if (d > -Infinity && d >= this.fieldAt(x, z)) return this.deckSurface;
+    }
     const i = Math.round((x - this.minX) / CELL);
     const j = Math.round((z - this.minZ) / CELL);
     if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return this.terrain;
     return this.surf[j * this.nx + i]!;
   }
 
-  frictionAt(x: number, z: number): number {
-    return SURFACES[SURFACE_IDS[this.surfaceIndex(x, z)]!].grip;
+  frictionAt(x: number, z: number, y = Infinity): number {
+    return SURFACES[SURFACE_IDS[this.surfaceIndex(x, z, y)]!].grip;
   }
 
-  surfaceAt(x: number, z: number): SurfaceId {
-    return SURFACE_IDS[this.surfaceIndex(x, z)]!;
+  surfaceAt(x: number, z: number, y = Infinity): SurfaceId {
+    return SURFACE_IDS[this.surfaceIndex(x, z, y)]!;
+  }
+
+  /** Deck segments by 8 m cell. */
+  private readonly deckCells = new Map<number, number[]>();
+  private deckPath: TrackPath | null = null;
+  /** Surface index of the last deck `deckAt` found. */
+  private deckSurface = 0;
+
+  private indexDecks(p: TrackPath): void {
+    this.deckPath = p;
+    for (let k = 0; k < p.count; k++) {
+      if (!p.deck[k]) continue;
+      const b = (k + 1) % p.count;
+      const r = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!);
+      const i0 = Math.floor((Math.min(p.x[k]!, p.x[b]!) - r) / DECK_CELL);
+      const i1 = Math.floor((Math.max(p.x[k]!, p.x[b]!) + r) / DECK_CELL);
+      const j0 = Math.floor((Math.min(p.z[k]!, p.z[b]!) - r) / DECK_CELL);
+      const j1 = Math.floor((Math.max(p.z[k]!, p.z[b]!) + r) / DECK_CELL);
+      for (let j = j0; j <= j1; j++) {
+        for (let i = i0; i <= i1; i++) {
+          const key = deckKey(i, j);
+          const list = this.deckCells.get(key);
+          if (list) list.push(k);
+          else this.deckCells.set(key, [k]);
+        }
+      }
+    }
+  }
+
+  /** Highest deck surface at (x, z) no higher than `yMax`, −∞ when none. */
+  private deckAt(x: number, z: number, yMax: number): number {
+    const list = this.deckCells.get(deckKey(Math.floor(x / DECK_CELL), Math.floor(z / DECK_CELL)));
+    const p = this.deckPath;
+    if (!list || !p) return -Infinity;
+    let best = -Infinity;
+    for (const k of list) {
+      const b = (k + 1) % p.count;
+      const ex = p.x[b]! - p.x[k]!;
+      const ez = p.z[b]! - p.z[k]!;
+      const len2 = ex * ex + ez * ez || 1e-12;
+      const f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+      if (f < -0.02 || f > 1.02) continue;
+      const lat = ((x - p.x[k]! - ex * f) * ez - (z - p.z[k]! - ez * f) * ex) / Math.sqrt(len2);
+      const half = p.half[k]!;
+      const run = lat > 0 ? p.runL[k]! : p.runR[k]!;
+      if (Math.abs(lat) > half + run) continue;
+      const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f - Math.max(-half, Math.min(half, lat)) * Math.tan(p.bank[k]!);
+      if (yc > yMax || yc <= best) continue;
+      best = yc;
+      this.deckSurface = Math.abs(lat) <= half ? p.surface[k]! : p.runSurface[k]!;
+    }
+    return best;
   }
 }
