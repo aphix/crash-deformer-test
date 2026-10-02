@@ -75,13 +75,19 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 - **O1.** `CrashEngine` is the single composition root: it constructs the cars, rigs, directors, `NetPlay`, FX systems and
   camera, and hands each one what it needs. No other production module constructs another context's top-level object
   (tests may build any object directly).
-- **O2.** No module-level mutable state. World state (the active ground, the HUD snapshot) hangs off an object the engine
+- **O2.** No module-level mutable state. World state (the HUD snapshot, the tyre-mark bounds) hangs off an object the engine
   owns, so a second engine, a replay or a test never inherits it. Module-scope `const` scratch vectors are fine (rule H3),
   and so is a lazily built constant (a texture, a material, a table) behind `scalar.ts` `once`: it never changes once made.
   *Check C10* (module-level `let`/`var`); exported `const` objects mutated at runtime (e.g. `HANDLING.realism` in
   `vehicle-classes.ts`) are the same defect and are fixed with them (not yet counted by a check).
+  The one accepted row is `ground.ts`'s active ground: a scene-scoped singleton. It is read from the per-mass loops of every
+  car, the drive, loose parts, FX and marks (13 production files); threading it through cars and FX would touch all of them
+  and every ground test for no behaviour change, because one world steps per process (one engine per page; harnesses and
+  tests run one world at a time and restore the flat ground). Its writers are the scene reset and the race director (O3).
+  Two live worlds in one process need it threaded first: `race/race-replay.test.ts` runs its worlds one after another
+  because leaving a race restores the flat ground for everyone.
 - **O3.** One writer per piece of state: the context that owns a value is the only one that assigns it (e.g. `setGround` is
-  called by the race director only). Other contexts read it through the owner's API.
+  called by the engine context only: the scene reset and the race director). Other contexts read it through the owner's API.
 - **O4.** Whoever creates a GPU resource (geometry, material, texture, render target) disposes it, in the same file. Shared
   resources are marked shared at creation and disposed by their creator.
 - **O5.** Copies of production behaviour are not allowed anywhere, tests included: a test that needs the step, a contact rule

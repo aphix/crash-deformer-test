@@ -23,9 +23,10 @@ export abstract class DeformHit extends DeformRig {
   protected abstract frontTransfer(): number;
   protected abstract impactWeight(m: MassNode): number;
 
-  /** Back to the car as built (`initRunState`); settings stay. */
+  /** Back to the car as built (`initRunState`, `rebuildRunStructures`); settings stay. */
   reset(): void {
     this.initRunState();
+    this.rebuildRunStructures();
   }
 
   setMode(mode: DeformMode): void {

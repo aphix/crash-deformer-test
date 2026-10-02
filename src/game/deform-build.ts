@@ -1,10 +1,12 @@
 import * as THREE from "three";
 import { regionSoftness, regionCrushBands } from "./physics-util.ts";
+import { makeCluster, type ShapeCluster, type ShapeParticle } from "./shape-match.ts";
 import {
   BEAM_SPECS,
   CAGES,
   MASS_SPECS,
   SENSORS,
+  SHAPE_CLUSTERS,
   type BodyPartName,
   type MassName,
 } from "./rig-spec.ts";
@@ -42,7 +44,7 @@ export function wrinkleSeeds(restPos: Float32Array, vertexCount: number): Float6
 }
 
 /** The rig's cages at rest (`rig.cages` boxes over the spec's). */
-export function makeCages(rig: RigOverrides): Cage[] {
+function makeCages(rig: RigOverrides): Cage[] {
   return CAGES.map((base) => {
     const box = rig.cages?.[base.name];
     const spec = box ? { ...base, ...box } : base;
@@ -73,7 +75,7 @@ export function makeCages(rig: RigOverrides): Cage[] {
 }
 
 /** The rig's crush sensors at rest (`rig.sensors` rests over the spec's), each on its cage's index. */
-export function makeSensors(rig: RigOverrides, partIndex: Map<BodyPartName, number>): Sensor[] {
+function makeSensors(rig: RigOverrides, partIndex: Map<BodyPartName, number>): Sensor[] {
   return SENSORS.map((base, i) => {
     const rest = rig.sensors?.[i];
     const spec = rest ? { ...base, rest } : base;
@@ -91,7 +93,7 @@ export function makeSensors(rig: RigOverrides, partIndex: Map<BodyPartName, numb
 }
 
 /** The mass nodes at rest, in `MASS_SPECS` order; fills `nameIndex` (name → index). */
-export function makeMasses(nameIndex: Map<MassName, number>): MassNode[] {
+function makeMasses(nameIndex: Map<MassName, number>): MassNode[] {
   return MASS_SPECS.map((spec, i) => {
     nameIndex.set(spec.name, i);
     const rest = new THREE.Vector3(...spec.rest);
@@ -122,7 +124,7 @@ export function makeMasses(nameIndex: Map<MassName, number>): MassNode[] {
 }
 
 /** The structure's beams at their rest lengths. */
-export function makeBeams(masses: readonly MassNode[], nameIndex: Map<MassName, number>): Beam[] {
+function makeBeams(masses: readonly MassNode[], nameIndex: Map<MassName, number>): Beam[] {
   return BEAM_SPECS.map(([na, nb, kTen, yieldK, maxShorten]) => {
     const a = nameIndex.get(na)!;
     const b = nameIndex.get(nb)!;
@@ -212,5 +214,62 @@ function axisWeight(t: number): number {
   if (t < 0) return 1 + t / 0.18;
   if (t > 1) return 1 - (t - 1) / 0.18;
   return 1;
+}
+
+/** The per-run structures: sensors, cages, masses, beams, shape particles and clusters. */
+type RunStructures = {
+  cages: Cage[];
+  sensors: Sensor[];
+  masses: MassNode[];
+  beams: Beam[];
+  shapeParticles: ShapeParticle[];
+  clusters: ShapeCluster[];
+};
+
+/** The per-run structures as built for `rig` (the constructor's). Fills `nameIndex` (mass name → index). */
+export function buildRunStructures(rig: RigOverrides, nameIndex = new Map<MassName, number>()): RunStructures {
+  const cages = makeCages(rig);
+  const partIndex = new Map<BodyPartName, number>();
+  cages.forEach((c, i) => partIndex.set(c.spec.name, i));
+  const masses = makeMasses(nameIndex);
+  const shapeParticles = masses.map((m) => ({ x: m.rest.x, y: m.rest.y, z: m.rest.z, vx: 0, vy: 0, vz: 0, mass: m.mass }));
+  return {
+    cages,
+    sensors: makeSensors(rig, partIndex),
+    masses,
+    beams: makeBeams(masses, nameIndex),
+    shapeParticles,
+    clusters: SHAPE_CLUSTERS.map((spec) => makeCluster(shapeParticles, spec.masses.map((n) => nameIndex.get(n)!))),
+  };
+}
+
+/**
+ * `reset`'s read-only template per distinct rig (by value; a handful of body styles): built once, shared by every car
+ * of that rig. A copy kept per car cost 160 KB each; building one per reset cost 0.1 ms per car.
+ */
+const templates = new Map<string, RunStructures>();
+export function runTemplate(rig: RigOverrides): RunStructures {
+  const key = JSON.stringify(rig);
+  let t = templates.get(key);
+  if (!t) templates.set(key, (t = buildRunStructures(rig)));
+  return t;
+}
+
+/**
+ * Copies `src` (`target`'s structures as built) into `target` in place: numbers, flags and strings by key (only where
+ * they differ, `Object.is`), typed arrays by `set`, nested objects and arrays recursively, so every reference into the
+ * state (the skin's views of the masses' rest and local vectors, helpers) stays valid. An object both share (a rig-spec
+ * entry) is left alone: it is never written.
+ */
+export function restoreInto(target: Record<string, unknown>, src: Record<string, unknown>): void {
+  for (const k of Object.keys(src)) {
+    const v = src[k];
+    const t = target[k];
+    if (v !== null && typeof v === "object") {
+      if (t === v) continue;
+      if (ArrayBuffer.isView(v)) (t as Float64Array).set(v as Float64Array);
+      else restoreInto(t as Record<string, unknown>, v as Record<string, unknown>);
+    } else if (!Object.is(t, v)) target[k] = v;
+  }
 }
 

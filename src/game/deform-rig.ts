@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { CrushBands } from "./physics-util.ts";
-import { type ShapeCluster, type ShapeParticle, makeCluster } from "./shape-match.ts";
+import type { ShapeCluster, ShapeParticle } from "./shape-match.ts";
 import {
   MASS_SPECS,
   SHAPE_CLUSTERS,
@@ -11,15 +11,7 @@ import {
 } from "./rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import type { Hull } from "./hulls.ts";
-import {
-  bindLattice,
-  INF_K,
-  makeBeams,
-  makeCages,
-  makeMasses,
-  makeSensors,
-  wrinkleSeeds,
-} from "./deform-build.ts";
+import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
 
 /**
  * Burnout-style streamed deformation.
@@ -128,30 +120,6 @@ export interface Beam {
 
 /** Masses the solver reads by role every step; resolved once in the constructor. */
 type KeyMass = "cell" | "engineL" | "engineR" | "axleR" | "doorL" | "doorR" | "hubFL" | "hubFR" | "hubRL" | "hubRR" | "bumperFL" | "bumperFR" | "bumperRL" | "bumperRR";
-
-/** The per-run structures as built: sensors, cages, masses, beams, shape clusters and particles. */
-type RunStructures = Pick<DeformRig, "masses"> & {
-  sensors: Sensor[];
-  cages: Cage[];
-  beams: Beam[];
-  clusters: ShapeCluster[];
-  shapeParticles: ShapeParticle[];
-};
-
-/**
- * Copies `src` (a structured clone of `target` as built) back into `target` in place: numbers, flags and strings
- * by key (only where they differ, `Object.is`: the shared rig-spec objects in it are never written), typed arrays
- * by `set`, nested objects and arrays recursively, so every reference into the state (the skin's views of the
- * masses' rest and local vectors, helpers) stays valid.
- */
-function restoreInto(target: Record<string, unknown>, src: Record<string, unknown>): void {
-  for (const k of Object.keys(src)) {
-    const v = src[k];
-    if (ArrayBuffer.isView(v)) (target[k] as Float64Array).set(v as Float64Array);
-    else if (v !== null && typeof v === "object") restoreInto(target[k] as Record<string, unknown>, v as Record<string, unknown>);
-    else if (!Object.is(target[k], v)) target[k] = v;
-  }
-}
 
 /**
  * The soft body's state and build: every field, the constructor (cages, sensors, masses, beams, lattice and
@@ -334,27 +302,27 @@ export abstract class DeformRig {
   protected readonly netImpact = new Float64Array(9);
   protected netPopped = 0;
   protected netFlags = 0;
-  /** The per-run structures as built (`initRunState` copies them back). */
-  private readonly built: RunStructures;
+  /** The style's rig overrides, kept (a shared reference) for `rebuildRunStructures`. */
+  private readonly rig: RigOverrides;
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
+    this.rig = rig;
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
     this.wrinkleSeed = wrinkleSeeds(this.restPos, this.vertexCount);
 
-    this.cages = makeCages(rig);
+    const nameIndex = new Map<MassName, number>();
+    const built = buildRunStructures(rig, nameIndex);
+    this.cages = built.cages;
     this.cageCount = this.cages.length;
 
-    const partIndex = new Map<BodyPartName, number>();
-    this.cages.forEach((c, i) => partIndex.set(c.spec.name, i));
     this.cageByPart = new Map(this.cages.map((c) => [c.spec.name, c]));
 
-    this.sensors = makeSensors(rig, partIndex);
+    this.sensors = built.sensors;
     this.sensorCount = this.sensors.length;
 
-    const nameIndex = new Map<MassName, number>();
-    this.masses = makeMasses(nameIndex);
+    this.masses = built.masses;
     const cellNode = this.masses[nameIndex.get("cell") ?? 5]!;
     const node = (name: MassName): MassNode => {
       const i = nameIndex.get(name);
@@ -389,7 +357,7 @@ export abstract class DeformRig {
     this.skinRest = this.masses.map((m) => m.rest);
     this.skinLocal = this.masses.map((m) => m.local);
     this.skinMassN = this.masses.map((m) => m.mass);
-    this.beams = makeBeams(this.masses, nameIndex);
+    this.beams = built.beams;
 
     // Lattice skin (and the cluster-less fallback): up to INF_K cage influences per vertex (`bindLattice`).
     this.infN = new Uint8Array(this.vertexCount);
@@ -398,15 +366,7 @@ export abstract class DeformRig {
     this.cageCo = new Float64Array(this.cages.length * 24);
     bindLattice(this.restPos, this.vertexCount, this.cages, this.infN, this.infCo, this.infUvw);
 
-    this.shapeParticles = this.masses.map((m) => ({
-      x: m.rest.x,
-      y: m.rest.y,
-      z: m.rest.z,
-      vx: 0,
-      vy: 0,
-      vz: 0,
-      mass: m.mass,
-    }));
+    this.shapeParticles = built.shapeParticles;
     this.goalX = new Float64Array(this.masses.length);
     this.goalY = new Float64Array(this.masses.length);
     this.goalZ = new Float64Array(this.masses.length);
@@ -415,25 +375,23 @@ export abstract class DeformRig {
     this.startZ = new Float64Array(this.masses.length);
     this.turnX = new Float64Array(this.masses.length);
     this.turnZ = new Float64Array(this.masses.length);
-    this.clusters = SHAPE_CLUSTERS.map((spec) => makeCluster(this.shapeParticles, spec.masses.map((n) => nameIndex.get(n)!)));
+    this.clusters = built.clusters;
     this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
     this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
     this.buildSkinWeights();
-    this.built = structuredClone({
-      sensors: this.sensors,
-      cages: this.cages,
-      masses: this.masses,
-      beams: this.beams,
-      clusters: this.clusters,
-      shapeParticles: this.shapeParticles,
-    });
     this.initRunState();
   }
 
+  /** The per-run structures back to as built, in place: copied from the rig's shared template (`runTemplate`). */
+  protected rebuildRunStructures(): void {
+    restoreInto(this as unknown as Record<string, unknown>, runTemplate(this.rig));
+  }
+
   /**
-   * Every per-run field to its construction value: the constructor's last step and all of `reset`, so a reset car
-   * runs exactly like a fresh one (a race replayed on the same cars, netplay). Settings (`squash`, `buckle`, `mode`,
-   * `killTravel`, `wreckEnergy`, `frameCrush`, `wheelsDetach`), helpers and the rest-only tables stay.
+   * Every per-run scalar, vector and buffer to its construction value: the constructor's last step, and `reset`'s
+   * with `rebuildRunStructures`, so a reset car runs exactly like a fresh one (a race replayed on the same cars,
+   * netplay). Settings (`squash`, `buckle`, `mode`, `killTravel`, `wreckEnergy`, `frameCrush`, `wheelsDetach`),
+   * helpers and the rest-only tables stay.
    * Fields declared `-0` (here, and the masses' and sensors' in their literals) hold a double from construction.
    * A Smi field's first double write changes the maps: each race car's first crash, first re-arm and first drive
    * as a wreck deoptimised 60–100 physics functions mid-race, which then ran unoptimised for seconds
@@ -489,7 +447,6 @@ export abstract class DeformRig {
     for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
     for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);
     this.goalView.fill(NaN);
-    restoreInto(this as unknown as Record<string, unknown>, this.built);
   }
 
   /**
