@@ -1,51 +1,56 @@
-<!-- Generated: 2026-10-01 | Files scanned: 24 | Token estimate: ~1100 -->
+<!-- Generated: 2026-10-02 | Files scanned: 34 | Token estimate: ~1480 -->
 # Architecture
 
-Browser crash lab: TanStack Start shell → one React page → `CrashEngine` (three.js, plain classes). All physics is in `src/game/`; React only renders the HUD.
+Browser crash lab: TanStack Start shell → one React page → `CrashEngine` (three.js, plain classes). All physics is in `src/game/`; React only renders the HUD. The server side is just the WebRTC signaling relay (`/api/rtc`).
 
 ```
-src/routes/index.tsx  Home ─► src/components/crash-lab.tsx  CrashLab
+src/routes/index.tsx  Home ─► src/components/crash-lab.tsx  CrashLab (+ NetPanel)
                                    │ dynamic import("@/game/engine")
                                    ▼
 src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools handle)
-  ├─ cars: DeformableCar[]        car.ts ─► StreamedDeformation (streamed-deform.ts)
-  ├─ contacts                     sat.ts, pair-contact.ts, engine-props.ts
-  ├─ scenes                       fleet.ts, derby*.ts, compactor.ts, piston-rig.ts, engine-pistons.ts
-  ├─ input/camera                 car-drive.ts, drive-input.ts, gamepad.ts, engine-camera.ts
-  ├─ FX / world                   engine-fx.ts, engine-world.ts
+  ├─ cars: DeformableCar[]        car.ts ─► StreamedDeformation (streamed-deform.ts); lamp-lights.ts LampLights
+  ├─ classes / handling           vehicle-classes.ts (CLASSES, HANDLING.realism, killTravel), car-drive.ts
+  ├─ contacts                     sat.ts, pair-contact.ts, external-contact.ts, engine-props.ts
+  ├─ scenes                       fleet.ts, derby*.ts, compactor.ts, piston-rig.ts + engine-pistons.ts,
+  │                               door-rig.ts DoorRig + engine-doors.ts DoorRam
+  ├─ input/camera                 drive-input.ts, gamepad.ts, engine-camera.ts
+  ├─ FX / world                   engine-fx.ts, engine-world.ts WorldStage (night / wet), ground.ts
+  ├─ cinematics                   engine-cine.ts Cinematics → engine-post.ts PostFX, engine-marks.ts SkidMarks
+  ├─ netplay                      net/net-play.ts NetPlay → net/codec.ts, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom)
   ├─ trace                        engine-trace.ts (J key, JSON button)
   └─ emitHud() ─► hud-store.ts publishHud ─► useSyncExternalStore in CrashLab ─► components/hud*.tsx
 ```
 
 ## Module boundaries
 - `*-core.js` (`physics-core.js`, `shape-match-core.js`): number-only hot kernels, no THREE; typed by `*.d.ts`, re-exported by `physics-util.ts` / `shape-match.ts`.
-- `rig-spec.ts`: data tables only. `car-mesh.ts` / `car-variants.ts`: geometry + per-style rig overrides.
+- `rig-spec.ts`, `vehicle-classes.ts`, `race/catalog.ts`: data tables and pure functions.
 - `streamed-deform.ts`: owns masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
-- `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop.
+- `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop. `engine-cine.ts` and friends read sim state only; the hit-stop is their one sim-side effect (`timeWarp`).
+- `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt.
 
 ## Per-frame flow (`engine.ts`)
 ```
 tickInner(now)                               wallDt ≤ 0.1 s
  ├ pollInput()                               keys + pad → DriverSeat
- ├ simDt = wallDt × timeScale (slow-mo ramp); acc ≤ 0.05
+ ├ simDt = wallDt × timeScale (slow-mo ramp, hit-stop); acc ≤ 0.05
  ├ while acc: h = physicsSlice(acc, sliceSpeed(cars))   ≤ 8 steps, 8 ms budget
  │   fixedStep(h)  → 1–3 slices:
- │     applyDrive (player seat, derby AI via DerbyBrain.think)
+ │     applyDrive (player seat, derby AI via DerbyBrain.think, net.drive for remote peers on the host)
  │     integrate / syncPose
- │     collideWith (mass spheres, car pairs ≤ ~5.3 m)
+ │     collideWith (mass spheres) + partContactPair (doors / mirrors), car pairs ≤ ~5.3 m
  │     contact loop ×1..3: barrier.resolve · resolveCarPair · resolveRampBalls · resolveLampPoles
  │     deform.stepStructure(h) → syncPose → barrier.clip → afterContacts → clipDerbyCar
- │     (compactor / pistons scenes: stepCompactor / stepPistons instead)
+ │     (rig scenes: stepCompactor / stepPistons / stepDoors instead)
  │   cutDrive, bleedAfterSlide
- ├ scheduleSkins(cars)                       LoD stride / frustum → skinDeferred
- ├ car.updateDeform(simDt)                   deform.update → cages → skin (flushSkin)
- ├ updatePhase · FX (debris, sparks, glass, smoke) · trace · stepDerby · seat.step
- ├ updateCamera(wallDt)
- ├ flushVisibleSkins()                       owed skins on screen get written
- ├ renderer.render(scene, camera)
+ ├ scheduleSkins(cars) → car.updateDeform(simDt)   LoD stride / frustum → skin
+ ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
+ ├ updatePhase · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step
+ ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit
+ ├ flushVisibleSkins() · lampLights.update · stage.syncPools (night)
+ ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain
  └ emitHud(false)  every 0.05–0.12 s
 ```
-`phase`: `approach → impact → slowmo → aftermath` (`CrashPhase` in `hud-store.ts`); `beginCinematic` fires on the first strong contact.
+`phase`: `approach → impact → slowmo → aftermath` (`CrashPhase` in `hud-store.ts`); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
 
 ## Scenes (one at a time; toggles in `engine.ts`)
 | Scene | Key | Entry | Code |
@@ -55,9 +60,13 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Ramp balls | K | `toggleBalls` | `engine-props.ts` `buildRampBalls`, `resolveRampBalls` |
 | Compactor | C | `toggleCompactor` | `compactor.ts` `CompactorRig`, `engine-props.ts` `CompactorPress` |
 | Pistons | I, 0–8 | `togglePistons`, `firePiston` | `piston-rig.ts`, `engine-pistons.ts` `PistonBank` |
+| Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`, `fireRam`; `engine-doors.ts` `DoorRam` |
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
 
-Lamp poles (`engine-props.ts` `resolveLampPoles`) are hit in the fleet / barrier / balls contact loop and hidden in derby. Doors are car parts (`car.ts` `doorL/doorR`), not a scene.
+Rig scenes (press, pistons, doors) park one car and drive a kinematic striker through `external-contact.ts`. Lamp poles are hit in the fleet / barrier / balls contact loop and hidden in derby. Race mode (tracks via `setGround`) is not on `main` yet; only `race/catalog.ts` and `ground.ts` are.
+
+## Deploy
+Nitro builds either the Vercel preset (`npm run build`) or a `node-server` (`npm run build:node`, `APP_BASE` sub-path). The self-hosted kit in `deploy/` is pull-based: a systemd timer runs `crush-deploy.sh` (fetch `main`, build a release, health-check on a spare port, swap the `current` symlink, restart `crush.service`), and nginx proxies the base path. See `docs/DEPLOY.md`.
 
 ## Related
-[physics.md](physics.md) · [frontend.md](frontend.md) · [testing.md](testing.md) · [dependencies.md](dependencies.md) · `docs/RIG_ANALYSIS.md` · `.extraResearch/SYNTHESIS.md`
+[physics.md](physics.md) · [frontend.md](frontend.md) · [testing.md](testing.md) · [dependencies.md](dependencies.md) · `docs/RIG_ANALYSIS.md` · `docs/MULTIPLAYER.md` · `docs/CINEMATIC.md` · `.extraResearch/SYNTHESIS.md`

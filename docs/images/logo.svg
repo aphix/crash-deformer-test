@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <title>Crush Stream</title>
+  <rect width="512" height="512" rx="104" fill="#15171c"/>
+  <rect x="404" y="150" width="46" height="226" rx="6" fill="#d9dde3"/>
+  <path d="M404 190h46M404 238h46M404 286h46M404 334h46" stroke="#e8432e" stroke-width="16"/>
+  <path d="M62 344V292q4-30 44-36l66-8 48-50q10-10 28-10h62q16 0 26 14l34 46 30 6-14 18 22 14-18 16 22 14-20 14 6 20z" fill="#ff7a1a"/>
+  <path d="M236 206h48q8 0 13 8l22 32h-102z" fill="#15171c"/>
+  <circle cx="130" cy="346" r="34" fill="#15171c"/>
+  <circle cx="130" cy="346" r="14" fill="#d9dde3"/>
+  <circle cx="318" cy="346" r="34" fill="#15171c"/>
+  <circle cx="318" cy="346" r="14" fill="#d9dde3"/>
+  <path d="M396 236l-26-36M398 232l-6-46M396 360l-24 32M398 366l2 40" stroke="#ffd34d" stroke-width="10" stroke-linecap="round"/>
+</svg>

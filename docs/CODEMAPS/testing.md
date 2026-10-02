@@ -1,47 +1,52 @@
-<!-- Generated: 2026-10-01 | Files scanned: 24 | Token estimate: ~1050 -->
+<!-- Generated: 2026-10-02 | Files scanned: 30 | Token estimate: ~1300 -->
 # Testing and harnesses
 
-Runner: `node --test` with `--experimental-strip-types` (no Vitest/Jest). Node ≥ 22.6 (verified on 24.15).
+Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node ≥ 22.6 (verified on 24.15).
 
-| Command | Runs | Status at e0e61ec |
+| Command | Runs | Status at 9f8c0e6 |
 |---|---|---|
-| `npm run test:game` | `src/game/*.test.ts` | 587 tests: 536 pass, 51 todo, 0 fail (~11 s) |
-| `npm test` | `scripts/**/*.test.mjs` **&&** 4 `src/lib` suites + `src/game/*.test.ts` | exits 1: 8 failures in `scripts/grok-pwa-plugin.test.mjs` (platform script, pre-existing), so the `&&` never reaches the game suites |
-
-The second half of `npm test` on its own: 642 tests, 591 pass, 51 todo, 0 fail.
+| `npm run test:app` | `src/game/**/*.test.ts`, `src/lib/multiplayer/**/*.test.ts`, `scripts/with-app-env.test.mjs` | 685 tests: 634 pass, 51 todo, 0 fail (~60 s). **The gate.** |
+| `npm run test:game` | `src/game/**/*.test.ts` only | subset of `test:app` |
+| `npm test` | `scripts/**/*.test.mjs` **&&** `src/lib` suites + `src/game/**` | exits 1: 9 of 196 script tests fail (8 in `scripts/grok-pwa-plugin.test.mjs`, platform template; 1 in `scripts/migration-plan.test.mjs`, which predates `migrations/0002_webrtc_signaling.sql`), so the `&&` never reaches the app suites |
 
 ## Game suites (`src/game/`)
 | File | Covers |
 |---|---|
 | `physics-util.test.ts` | `CRASH` constants, crush bands, transfer, `cancelClosing`, sphere separation |
-| `crash-physics.test.ts` | both modes (`forModes`), lattice beams |
-| `crash-parts.test.ts` | beams, detach / wheel rules, frame-rate independence, glass, car-car crush vs speed |
+| `crash-physics.test.ts` | both modes (`forModes`), lattice beams, frame-rate independence, glass, car-car crush vs speed |
+| `crash-parts.test.ts` | beams, detach / wheel rules by where the hit lands |
 | `shape-match.test.ts` | polar decomposition, goals, plasticity, normals, local skin, shape solver across hits |
-| `barrier.test.ts` | Jersey barrier full speed vs slow-mo, engine-kill speeds, rigid-wall crush vs NCAP/IIHS |
-| `compactor.test.ts` | `COMPACTOR` stages, crush to wheel wells / past hubs, masses and cages stay inside the plates, stiffness |
-| `piston-rig.test.ts` | ram geometry, standard shot, locality, tap, severity, kill EBS, lattice mode |
-| `skin.test.ts` | skin follows particles (3 km/h tap, 40 km/h shot) |
-| `skin-lod.test.ts` | deferred skin is owed, never lost |
+| `barrier.test.ts` | jersey barrier full speed vs slow-mo, engine-kill speeds, rigid-wall crush vs NCAP / IIHS |
+| `compactor.test.ts` | `COMPACTOR` stages, crush to wheel wells / past hubs, masses and cages stay inside the plates |
+| `piston-rig.test.ts` / `engine-pistons.test.ts` | ram geometry, standard shot, locality, tap, severity, kill EBS, lattice mode / loop hops paced by the orbit |
+| `door-rig.test.ts` | the ram knocks off only what the sketch says (A / B / C); hinge stop, latch, slam overload |
+| `contact-parity.test.ts` | a car on the Doors ram lane does what the ram does; car sandwich vs the press at matched travel (`docs/CONTACT_PARITY.md`) |
+| `skin.test.ts` / `skin-lod.test.ts` | skin follows particles (3 km/h tap, 40 km/h shot); deferred skin is owed, never lost |
 | `fast-normals.test.ts` | `computeNormalsFast` equals `computeVertexNormals` |
-| `zip.test.ts` | captured two-car spawn does not zip at the slow-mo handoff |
-| `rest-mesh.test.ts` | rest body is a sedan; writes `artifacts/rest-silhouette.svg` |
-| `car-variants.test.ts` | body styles, per-style rig cages |
+| `zip.test.ts` | a captured two-car spawn does not zip at the slow-mo handoff |
+| `rest-mesh.test.ts` / `car-variants.test.ts` | rest body is a sedan (writes `artifacts/rest-silhouette.svg`); body styles, per-style rig cages |
+| `lamps.test.ts` | a detached bumper leaves the lamps behind; lamp light pool |
+| `vehicle-classes.test.ts` | class stats, realism axis, damage → drivability |
+| `knob-defaults.test.ts` | calibrated crash knob defaults |
 | `fleet.test.ts` / `derby.test.ts` | layouts, pile-up heading; derby AI, scoring, bowl clip, six-car match |
 | `gamepad.test.ts` / `drive-input.test.ts` | pad mapping, steering feel, pedals, `DriverSeat`, drive camera |
+| `net/net.test.ts` | netplay codec; a client car reproduces the host's final mesh and collision points |
+
+Outside `src/game/`: `src/lib/multiplayer/rate-limit.test.ts` (signaling rate limits per peer / IP) and `scripts/with-app-env.test.mjs` (the wrapper that merges `.grok/app-env.json` into the environment of `dev`, `build` and `preview`).
 
 ## Harnesses
-- `src/game/crash-scenarios.test-util.ts`: headless engine frame order. `makeCar(mode, squash, buckle)`, `makeWorld(cars, barrier, slomo)`, `tickWorld(w, wallDt)` (physics part of `tickInner` + phase timing), `runWall(speedKph, overlap, approach, opts): CrashResult`, `runPair(kphA, kphB, "head-on" | "t-bone", opts)`.
+- `src/game/crash-scenarios.test-util.ts`: headless engine frame order. `makeCar(mode, squash, buckle)`, `makeWorld(cars, barrier, slomo)`, `tickWorld(w, wallDt)` (the physics part of `tickInner` + phase timing), `runWall(speedKph, overlap, approach): CrashResult`, `runPair(kphA, kphB, "head-on" | "t-bone", opts)`.
+- `src/game/contact-parity.test-util.ts`: `parkCar`, `carState`, `ramDoorPass` / `carDoorPass`, `pressUntil`, `carSandwich`, `pistonFront` / `carFront`, `shortening`, `crushMismatch`: the same hit delivered by a striker and by a car.
 - `src/game/test-support.ts`: `DT`, `MODES`, `forModes(title, fn)` (one `describe` per deform mode), `dummyGeom()`, `paint()`, `mass(d, name)`.
-- Piston rig: `firePiston(car, id, shot)` / `pistonLocality(shot, tap)` in `src/game/piston-rig.ts`; see `docs/PISTON_RIG.md`.
-- `npm run sweep` → `scripts/crush-sweep.mjs`: squash × buckle grid over `crash-scenarios`, scored against `docs/RIG_ANALYSIS.md` targets. Flags `--grid`, `--cells s:b,…`, `--scenarios`, `--after`, `--root`, `--out` (default `.bench/crush-sweep/`, writes `sweep.json` + `sweep.md`). See `docs/CRUSH_CALIBRATION.md`.
-- `npm run bench` → `scripts/bench-physics.mjs`: ns/op for the JS kernels (`m3Polar`, `matchCluster`, `applyPlasticity`, `matchSkinLocal`, `crushGate`, …); no flags.
-- `scripts/bench-browser.mjs`: Playwright frame bench through `window.__crush` (tick / physics / deform / render). Usage in `README.md`.
+- `npm run sweep` → `scripts/crush-sweep.mjs`: squash × buckle grid over `crash-scenarios`, scored against `docs/RIG_ANALYSIS.md` targets (`docs/CRUSH_CALIBRATION.md`).
+- `npm run bench` → `scripts/bench-physics.mjs`: ns/op of the JS kernels. `scripts/bench-browser.mjs`: Playwright frame bench through `window.__crush` (usage in `README.md`).
 
 ## `todo` convention
-Behaviour that is documented but not yet met stays in the suite as a todo, so the body still runs and reports, but cannot fail the run:
+Behaviour that is documented but not yet met stays in the suite as a todo, so the body still runs and reports but cannot fail the run:
 - `it.todo("name", fn)` (e.g. `crash-parts.test.ts`, `derby.test.ts`);
-- `it(name, { todo: TODO[key] }, fn)` with the reason in a `TODO` map (`piston-rig.test.ts`); a key absent from the map runs as a normal test.
+- `it(name, { todo: REASON }, fn)`: `piston-rig.test.ts` keeps the reasons in a `TODO` map (a key absent from the map runs as a normal test), `contact-parity.test.ts` uses one `PENDING` reason.
+
 `node --test` lists failing todos under "failing tests" with `# TODO`, yet exits 0. When the code meets the target, delete the todo entry so the test becomes a hard gate (`docs/PISTON_RIG.md`).
 
 ## Related
-[physics.md](physics.md) · `docs/PISTON_RIG.md` · `docs/CRUSH_CALIBRATION.md` · `docs/RIG_ANALYSIS.md`
+[physics.md](physics.md) · `docs/PISTON_RIG.md` · `docs/DOOR_RIG.md` · `docs/CONTACT_PARITY.md` · `docs/CRUSH_CALIBRATION.md` · `docs/RIG_ANALYSIS.md`
