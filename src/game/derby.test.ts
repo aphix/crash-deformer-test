@@ -351,7 +351,7 @@ function centroid(car: DeformableCar): { x: number; z: number } {
 
 /**
  * Crush knobs a derby runs at. `rear` is chassisRear's maxCrush; `realism` arms each car's class kill
- * travel as the engine does (`killTravel`), null keeps the deformer's sourced 0.15 m.
+ * travel as the engine's derby does (`killTravel(…, "derby")`), null keeps the deformer's sourced 0.15 m.
  */
 type Knobs = { squash: number; rear: number; realism: number | null };
 /** Main's knobs before the crush calibration. */
@@ -421,7 +421,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
       c.deform.squash = knobs.squash;
       c.deform.buckle = 0.45;
       c.deform.setMode("shape");
-      if (knobs.realism !== null) c.deform.killTravel = killTravel(carClass(c), knobs.realism);
+      if (knobs.realism !== null) c.deform.killTravel = killTravel(carClass(c), knobs.realism, "derby");
     }
     const wedged = new Array<number>(n).fill(0);
     let worstWedge = 0;
@@ -541,11 +541,10 @@ describe("derby match, six AI cars", () => {
   });
 
   // Target (Main): ≥ 4 of 5 matches end by physics elimination (5 of 6 dead) inside the 90 s stalemate.
-  // Physics alone reaches 0/5: every front ram's energy now counts, but at 0.45 m kill travel a sedan
-  // needs Σ EBS² ≈ 600 m²/s² on its nose (≈ 20 rams at 40 km/h closing). With kill travel 0.30 m
-  // (realism ≈ 0.62) the same physics ends 5/5 (first death 14.7 s); 0.35 m ends 1/5. Missing: harder or
-  // more nose-first AI rams, or a lower derby kill travel (Handling's killTravel), not more crush.
-  it.todo("derby:elimination — at the realistic defaults ≥ 4 of 5 six-car matches end by elimination inside the 90 s stalemate", () => {
+  // At the race/fleet kill travel (0.45 m for a sedan at realism 0.25) physics alone reached 0/5: a sedan
+  // needs Σ EBS² ≈ 600 m²/s² on its nose (≈ 20 rams at 40 km/h closing). A derby car's kill travel is
+  // DERBY_KILL_SCALE (0.5) of it, so the same accumulated wrecking ends the match.
+  it("bad: at the realistic defaults ≥ 4 of 5 six-car matches end by elimination inside the 90 s stalemate", () => {
     const wins = realRuns.filter(({ run }) => run.deaths.length >= 5 && run.deaths[4]! <= STALEMATE).length;
     assert.ok(wins >= 4, `${wins}/5 elimination wins: ${realRows}`);
   });
