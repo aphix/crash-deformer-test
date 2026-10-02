@@ -4,6 +4,12 @@ import type { CrashEngine } from "@/game/engine";
 import type { NetStatus, NetTx } from "@/game/net/net-play";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
 import { encodeQr } from "@/lib/qr";
+import { cn } from "@/lib/utils";
+
+/** Top-right on phones (the title owns the left), top-centre from `sm`. */
+const NET_SPOT = "absolute right-2 top-2 z-20 sm:left-1/2 sm:right-auto sm:top-4 sm:-translate-x-1/2";
+/** Buttons and fields: 44 px tall on phones, 32 px from `sm`. */
+const NET_CONTROL = "h-11 sm:h-8";
 
 /** The invite link as a QR code: one SVG path, black on a white quiet zone so phones read it on a dark HUD. */
 function InviteQr({ link }: { link: string }) {
@@ -52,8 +58,8 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
 
   if (!open) {
     return (
-      <div className="pointer-events-auto absolute left-1/2 top-3 z-20 -translate-x-1/2">
-        <Button size="sm" variant="secondary" onClick={() => setOpen(true)}>
+      <div className={cn("pointer-events-auto", NET_SPOT)}>
+        <Button variant="secondary" className={cn(NET_CONTROL, "px-3 text-xs")} onClick={() => setOpen(true)}>
           {status && status.role !== "off" ? `Net · ${status.role} ${status.room}` : "Net"}
         </Button>
       </div>
@@ -82,10 +88,10 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
   };
 
   return (
-    <div className="hud-panel pointer-events-auto absolute left-1/2 top-3 z-20 w-64 -translate-x-1/2 space-y-2 p-3 text-sm">
-      <div className="flex items-baseline justify-between">
+    <div className={cn("hud-panel pointer-events-auto w-60 space-y-1.5 p-2 text-xs", NET_SPOT)}>
+      <div className="flex items-center justify-between">
         <p className="hud-label">Multiplayer</p>
-        <Button size="sm" variant="ghost" onClick={() => setOpen(false)} aria-label="Close multiplayer panel">
+        <Button variant="ghost" className={cn(NET_CONTROL, "w-11 px-0 sm:w-8")} onClick={() => setOpen(false)} aria-label="Close multiplayer panel">
           ×
         </Button>
       </div>
@@ -110,13 +116,13 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
           </ul>
           {status.public ? null : (
             <>
-              <Button size="sm" variant="secondary" onClick={copyInvite} title={invite} aria-label="Copy invite link">
+              <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={copyInvite} title={invite} aria-label="Copy invite link">
                 {copied ? "Link copied" : "Copy invite link"}
               </Button>
               {status.tx === "rtc" ? <InviteQr link={invite} /> : null}
             </>
           )}
-          <Button size="sm" variant="secondary" onClick={() => engine.current?.net.leave()}>
+          <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={() => engine.current?.net.leave()}>
             Leave
           </Button>
         </>
@@ -130,7 +136,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
               placeholder="new code"
               maxLength={12}
               aria-label="Room code"
-              className="h-9 w-full rounded-md bg-surface-2 px-2 font-display uppercase"
+              className={cn(NET_CONTROL, "w-full rounded-md bg-surface-2 px-2 font-display uppercase")}
             />
           </label>
           <label className="flex items-center gap-2">
@@ -139,21 +145,21 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
               value={tx}
               onChange={(e) => setTx(e.target.value === "bc" ? "bc" : "rtc")}
               aria-label="Connection"
-              className="h-9 w-full rounded-md bg-surface-2 px-2"
+              className={cn(NET_CONTROL, "w-full rounded-md bg-surface-2 px-2")}
             >
               <option value="rtc">Internet (WebRTC)</option>
               <option value="bc">This browser (tabs)</option>
             </select>
           </label>
-          <div className="flex gap-2">
-            <Button size="sm" className="flex-1" onClick={() => start("host")}>
+          <div className="flex gap-1">
+            <Button className={cn(NET_CONTROL, "flex-1 text-xs")} onClick={() => start("host")}>
               Host
             </Button>
-            <Button size="sm" variant="secondary" className="flex-1" disabled={!room.trim()} onClick={() => start("join")}>
+            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} disabled={!room.trim()} onClick={() => start("join")}>
               Join
             </Button>
           </div>
-          <Button size="sm" variant="secondary" className="w-full" onClick={() => void engine.current?.net.publicRace()}>
+          <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={() => void engine.current?.net.publicRace()}>
             Public race
           </Button>
         </>

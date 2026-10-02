@@ -31,6 +31,45 @@ export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoar
   );
 }
 
+/** Rig panel row: label, slider, read-out. 44 px tall on phones, 24 px from `sm`. */
+function RigSlider({
+  label,
+  value,
+  min,
+  max,
+  step,
+  shown,
+  set,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  step: number;
+  shown: string;
+  set: (v: number) => void;
+}) {
+  return (
+    <label className="flex items-center gap-2">
+      <span className="hud-label w-10 shrink-0">{label}</span>
+      <input
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={value}
+        onChange={(e) => set(Number(e.target.value))}
+        aria-label={label}
+        className="h-11 w-full min-w-0 cursor-pointer accent-current sm:h-6"
+      />
+      <span className="w-14 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
+    </label>
+  );
+}
+
+/** Rig fire pads and toggles: 44 px tall on phones, 28 px from `sm`. */
+const RIG_BUTTON = "h-11 px-2 text-xs sm:h-7";
+
 /** Compass order on screen (front at the top): index into the rig's key order, 8 = all. */
 const PISTON_GRID = [0, 1, 2, 7, 8, 3, 6, 5, 4] as const;
 const PISTON_NAMES = ["Front-left", "Front", "Front-right", "Right", "Rear-right", "Rear", "Rear-left", "Left"] as const;
@@ -45,36 +84,19 @@ export function PistonPanel({
   onFire: (index: number) => void;
   onConfig: (patch: Partial<PistonConfig>) => void;
 }) {
-  const slider = (label: string, value: number, min: number, max: number, step: number, shown: string, set: (v: number) => void) => (
-    <label className="flex items-center gap-2">
-      <span className="hud-label w-12 shrink-0">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => set(Number(e.target.value))}
-        aria-label={label}
-        className="h-10 w-full cursor-pointer accent-current"
-      />
-      <span className="w-16 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
-    </label>
-  );
   return (
-    <div className="hud-panel pointer-events-auto max-h-full w-64 space-y-1 overflow-y-auto p-3">
-      <div className="flex items-baseline justify-between">
+    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
+      <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Pistons</p>
         <p className="font-display text-xs tabular-nums text-muted">
           {pistons.energyKj.toFixed(1)} kJ · EBS {pistons.ebsKph.toFixed(0)} km/h
         </p>
       </div>
-      <div className="grid grid-cols-3 gap-1 pb-1" role="group" aria-label="Fire a piston">
+      <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire a piston">
         {PISTON_GRID.map((i) => (
           <Button
             key={i}
-            size="sm"
-            className="h-10"
+            className={RIG_BUTTON}
             variant={i === pistons.selected ? "default" : "secondary"}
             disabled={pistons.busy}
             onClick={() => onFire(i)}
@@ -85,29 +107,28 @@ export function PistonPanel({
           </Button>
         ))}
       </div>
-      {slider("Speed", pistons.speedKph, 5, 120, 1, `${pistons.speedKph.toFixed(0)} km/h`, (v) => onConfig({ speedKph: v }))}
-      {slider("Mass", pistons.massKg, 200, 3000, 50, `${pistons.massKg.toFixed(0)} kg`, (v) => onConfig({ massKg: v }))}
-      {slider(
-        "Face",
-        pistons.hardness,
-        0.2,
-        1,
-        0.05,
-        pistons.hardness >= 1 ? "steel" : `${Math.round(pistons.hardness * 100)}% car`,
-        (v) => onConfig({ hardness: v }),
-      )}
-      {slider(
-        "Hop",
-        pistons.hopSeconds,
-        1.5,
-        15,
-        0.5,
-        pistons.hopSynced ? "orbit" : `${pistons.hopSeconds.toFixed(1)} s`,
-        (v) => onConfig({ hopSeconds: v }),
-      )}
+      <RigSlider label="Speed" value={pistons.speedKph} min={5} max={120} step={1} shown={`${pistons.speedKph.toFixed(0)} km/h`} set={(v) => onConfig({ speedKph: v })} />
+      <RigSlider label="Mass" value={pistons.massKg} min={200} max={3000} step={50} shown={`${pistons.massKg.toFixed(0)} kg`} set={(v) => onConfig({ massKg: v })} />
+      <RigSlider
+        label="Face"
+        value={pistons.hardness}
+        min={0.2}
+        max={1}
+        step={0.05}
+        shown={pistons.hardness >= 1 ? "steel" : `${Math.round(pistons.hardness * 100)}% car`}
+        set={(v) => onConfig({ hardness: v })}
+      />
+      <RigSlider
+        label="Hop"
+        value={pistons.hopSeconds}
+        min={1.5}
+        max={15}
+        step={0.5}
+        shown={pistons.hopSynced ? "orbit" : `${pistons.hopSeconds.toFixed(1)} s`}
+        set={(v) => onConfig({ hopSeconds: v })}
+      />
       <Button
-        size="sm"
-        className="h-10 w-full"
+        className={`${RIG_BUTTON} w-full`}
         variant={pistons.holdCar ? "default" : "ghost"}
         aria-pressed={pistons.holdCar}
         onClick={() => onConfig({ holdCar: !pistons.holdCar })}
@@ -115,25 +136,6 @@ export function PistonPanel({
         Hold car {pistons.holdCar ? "on" : "off"}
       </Button>
     </div>
-  );
-}
-
-function doorSlider(label: string, value: number, min: number, max: number, step: number, shown: string, set: (v: number) => void) {
-  return (
-    <label className="flex items-center gap-2">
-      <span className="hud-label w-12 shrink-0">{label}</span>
-      <input
-        type="range"
-        min={min}
-        max={max}
-        step={step}
-        value={value}
-        onChange={(e) => set(Number(e.target.value))}
-        aria-label={label}
-        className="h-10 w-full cursor-pointer accent-current"
-      />
-      <span className="w-16 shrink-0 text-right font-display text-xs tabular-nums text-fg">{shown}</span>
-    </label>
   );
 }
 
@@ -157,25 +159,30 @@ export function DoorPanel({
 }) {
   const shot = doors.shot;
   return (
-    <div className="hud-panel pointer-events-auto max-h-full w-64 space-y-1 overflow-y-auto p-3">
-      <div className="flex items-baseline justify-between">
+    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
+      <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Doors</p>
         <p className="font-display text-xs tabular-nums text-muted">{doors.energyJ.toFixed(0)} J</p>
       </div>
-      <div className="grid grid-cols-3 gap-1 pb-1" role="group" aria-label="Fire the door ram">
+      <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire the door ram">
         {DOOR_SHOTS.map(({ id, label, title }) => (
-          <Button key={id} size="sm" className="h-10" disabled={doors.busy} onClick={() => onFire(id)} aria-label={title} title={title}>
+          <Button key={id} className={RIG_BUTTON} disabled={doors.busy} onClick={() => onFire(id)} aria-label={title} title={title}>
             {label}
           </Button>
         ))}
       </div>
-      <div className="grid grid-cols-2 gap-1 pb-1">
-        <Button size="sm" className="h-10" variant="secondary" disabled={doors.busy} onClick={() => onConfig({ side: doors.side < 0 ? 1 : -1 })} title="Side (5)">
+      <div className="grid grid-cols-2 gap-1">
+        <Button
+          className={RIG_BUTTON}
+          variant="secondary"
+          disabled={doors.busy}
+          onClick={() => onConfig({ side: doors.side < 0 ? 1 : -1 })}
+          title="Side (5)"
+        >
           {doors.side < 0 ? "Left door" : "Right door"}
         </Button>
         <Button
-          size="sm"
-          className="h-10"
+          className={RIG_BUTTON}
           variant={doors.open ? "default" : "ghost"}
           aria-pressed={doors.open}
           disabled={doors.busy}
@@ -185,10 +192,10 @@ export function DoorPanel({
           Door {doors.open ? "open" : "shut"}
         </Button>
       </div>
-      {doorSlider("Speed", doors.kph, 1, 60, 1, `${doors.kph.toFixed(0)} km/h`, (v) => onConfig({ kph: v }))}
-      {doorSlider("Mass", doors.kg, 10, 1500, 10, `${doors.kg.toFixed(0)} kg`, (v) => onConfig({ kg: v }))}
+      <RigSlider label="Speed" value={doors.kph} min={1} max={60} step={1} shown={`${doors.kph.toFixed(0)} km/h`} set={(v) => onConfig({ kph: v })} />
+      <RigSlider label="Mass" value={doors.kg} min={10} max={1500} step={10} shown={`${doors.kg.toFixed(0)} kg`} set={(v) => onConfig({ kg: v })} />
       {shot ? (
-        <p className="font-display text-xs tabular-nums text-muted">
+        <p className="font-display text-xs leading-snug tabular-nums text-muted">
           Off: {shot.detached.length > 0 ? shot.detached.join(", ") : "nothing"} · door {shot.doorDeg.toFixed(0)}°
           {shot.latched ? " latched" : ""} · body Δ {shot.bodyMm.toFixed(1)} mm
         </p>

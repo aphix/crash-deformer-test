@@ -20,35 +20,26 @@ import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
 import { Button } from "@/components/ui/button";
 import { FX_TIERS } from "@/game/engine-post";
 import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud-store";
+import { useStoredString } from "@/components/use-stored-string";
+import { cn } from "@/lib/utils";
 
 type SectionId = "playback" | "driving" | "tuning" | "debug";
-const SECTIONS_KEY = "crush.hud.sections";
-const FIELD = "h-10 w-16 shrink-0 rounded-md bg-surface-2 px-2 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)]";
 
-/** Open sections survive reloads; first visit opens tuning on wide screens, nothing on phones. */
-function useOpenSections(): [SectionId[], (next: SectionId[]) => void] {
-  const [open, setOpen] = useState<SectionId[]>([]);
-  useEffect(() => {
-    const saved = window.localStorage.getItem(SECTIONS_KEY);
-    if (saved != null) setOpen(saved.split(",").filter(Boolean) as SectionId[]);
-    else if (window.matchMedia("(min-width: 768px)").matches) setOpen(["tuning"]);
-  }, []);
-  return [
-    open,
-    (next) => {
-      setOpen(next);
-      window.localStorage.setItem(SECTIONS_KEY, next.join(","));
-    },
-  ];
-}
+/** Number boxes and the time-scale field: 44 px tall on phones, 32 px from `sm`. */
+const FIELD =
+  "h-11 w-14 shrink-0 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)] sm:h-8";
+/** Option buttons inside a segmented track. */
+const SEGMENT = "h-10 px-1 text-xs sm:h-7";
+const TRACK = "grid flex-1 gap-0.5 rounded-md bg-surface-2 p-0.5";
 
 export function HudSections(props: HudProps) {
-  const [open, setOpen] = useOpenSections();
+  // Every section starts closed: the 3D view comes first, settings are a click away.
+  const [open, setOpen] = useStoredString("crush.hud.sections", "", "");
   return (
     <Accordion.Root
       type="multiple"
-      value={open}
-      onValueChange={(v) => setOpen(v as SectionId[])}
+      value={open.split(",").filter(Boolean)}
+      onValueChange={(v) => setOpen(v.join(","))}
       className="hud-panel hud-settings pointer-events-auto divide-y divide-border self-end overflow-y-auto"
       style={{ gridArea: "settings" }}
     >
@@ -74,13 +65,13 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
       <Accordion.Header>
         <Accordion.Trigger
           data-hud-section={id}
-          className="group flex h-11 w-full items-center justify-between rounded-xl px-3 font-display text-xs font-medium uppercase tracking-[0.16em] text-muted transition-colors duration-[var(--motion-quick)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:text-fg"
+          className="group flex h-11 w-full items-center justify-between rounded-lg px-2 font-display text-xs font-medium uppercase tracking-[0.16em] text-muted transition-colors duration-[var(--motion-quick)] hover:text-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:text-fg sm:h-8"
         >
           {title}
           <ChevronDown className="size-4 transition-transform duration-[var(--motion-fast)] ease-[var(--ease-out)] group-data-[state=open]:rotate-180" />
         </Accordion.Trigger>
       </Accordion.Header>
-      <Accordion.Content className="space-y-2 px-3 pb-3">{children}</Accordion.Content>
+      <Accordion.Content className="space-y-1.5 px-2 pb-2">{children}</Accordion.Content>
     </Accordion.Item>
   );
 }
@@ -88,7 +79,13 @@ function Section({ id, title, children }: { id: SectionId; title: string; childr
 /** On/off chip: filled when on, like every other toggle in the HUD. */
 function Toggle({ on, label, onClick, children }: { on: boolean; label: string; onClick: () => void; children: ReactNode }) {
   return (
-    <Button onClick={onClick} variant={on ? "default" : "ghost"} aria-pressed={on} aria-label={label} className="justify-start">
+    <Button
+      onClick={onClick}
+      variant={on ? "default" : "ghost"}
+      aria-pressed={on}
+      aria-label={label}
+      className="h-11 justify-start gap-1.5 px-1.5 text-xs sm:h-8"
+    >
       {children}
     </Button>
   );
@@ -118,7 +115,7 @@ function SliderField({
 }) {
   return (
     <label className="flex items-center gap-2" title={title}>
-      <span className="hud-label w-14 shrink-0">{label}</span>
+      <span className="hud-label w-12 shrink-0">{label}</span>
       <input
         type="range"
         min={min}
@@ -127,7 +124,7 @@ function SliderField({
         value={value}
         onChange={(e) => onValue(Number(e.target.value))}
         aria-label={name}
-        className="h-10 w-full min-w-0 cursor-pointer accent-current"
+        className="h-11 w-full min-w-0 cursor-pointer accent-current sm:h-6"
       />
       <input
         type="number"
@@ -162,7 +159,7 @@ function PlaybackSection({
 
   return (
     <>
-      <div className="grid grid-cols-2 gap-2">
+      <div className="grid grid-cols-3 gap-1">
         <Toggle on={state.looping} label="Toggle loop" onClick={onToggleLoop}>
           <Repeat />
           Loop
@@ -189,13 +186,17 @@ function PlaybackSection({
         </Toggle>
       </div>
       <div className="flex items-center gap-2">
-        <span className="hud-label w-14 shrink-0">FX</span>
-        <div className="grid flex-1 grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Cinematic FX quality">
+        <span className="hud-label w-12 shrink-0">FX</span>
+        <div
+          className={TRACK}
+          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length}, minmax(0, 1fr))` }}
+          role="group"
+          aria-label="Cinematic FX quality"
+        >
           {FX_TIERS.map((tier) => (
             <Button
               key={tier}
-              size="sm"
-              className="h-9 capitalize"
+              className={cn(SEGMENT, "capitalize")}
               variant={state.fxTier === tier ? "default" : "ghost"}
               aria-pressed={state.fxTier === tier}
               aria-label={`Cinematic FX ${tier}`}
@@ -207,8 +208,8 @@ function PlaybackSection({
         </div>
       </div>
       <label className="flex items-center gap-2">
-        <span className="hud-label w-14 shrink-0">Time</span>
-        <span className="flex-1 text-xs text-subtle">Fixed scale; clear for auto</span>
+        <span className="hud-label w-12 shrink-0">Time</span>
+        <span className="flex-1 text-xs text-muted">Fixed scale; clear for auto</span>
         <input
           type="text"
           inputMode="decimal"
@@ -253,8 +254,8 @@ function TuningSection({
     <>
       <SliderField label="Cars" name="Number of cars" value={state.carCount} min={1} max={32} step={1} digits={0} onValue={onCarCount} />
       <div className="flex items-center gap-2">
-        <span className="hud-label w-14 shrink-0">Spawn</span>
-        <span className="flex-1 text-xs text-subtle">m/s</span>
+        <span className="hud-label w-12 shrink-0">Spawn</span>
+        <span className="flex-1 text-xs text-muted">m/s</span>
         <input
           type="number"
           min={0}
@@ -265,7 +266,7 @@ function TuningSection({
           aria-label="Minimum spawn speed"
           className={FIELD}
         />
-        <span className="text-xs text-subtle">to</span>
+        <span className="text-xs text-muted">to</span>
         <input
           type="number"
           min={0}
@@ -301,13 +302,12 @@ function TuningSection({
       />
       <SliderField label="FX" name="Particle density" value={state.fxDensity} min={0} max={1.2} step={0.01} digits={2} onValue={onFxDensity} />
       <div className="flex items-center gap-2">
-        <span className="hud-label w-14 shrink-0">Solver</span>
-        <div className="grid flex-1 grid-cols-2 gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Deformer">
+        <span className="hud-label w-12 shrink-0">Solver</span>
+        <div className={cn(TRACK, "grid-cols-2")} role="group" aria-label="Deformer">
           {(["shape", "lattice"] as const).map((mode) => (
             <Button
               key={mode}
-              size="sm"
-              className="h-10"
+              className={SEGMENT}
               variant={state.deformMode === mode ? "default" : "ghost"}
               aria-pressed={state.deformMode === mode}
               aria-label={mode === "shape" ? "Shape-matching deformer" : "Lattice deformer"}
@@ -320,7 +320,12 @@ function TuningSection({
           ))}
         </div>
       </div>
-      <Button onClick={onDefaults} variant="secondary" className="w-full" aria-label="Reset all settings to defaults">
+      <Button
+        onClick={onDefaults}
+        variant="secondary"
+        className="h-11 w-full text-xs sm:h-8"
+        aria-label="Reset all settings to defaults"
+      >
         <Undo2 />
         Defaults
       </Button>
@@ -331,35 +336,40 @@ function TuningSection({
 function DebugSection({ state, onToggleRig, onToggleParticles, onToggleCapture, onCopyTrace }: HudProps) {
   const [copied, setCopied] = useState(false);
   return (
-    <div className="grid grid-cols-2 gap-2">
-      <Toggle on={state.showRig} label="Toggle deformation rig" onClick={onToggleRig}>
-        <Spline />
-        Rig
-      </Toggle>
-      <Toggle on={state.showParticles} label="Toggle control particles" onClick={onToggleParticles}>
-        <CircleDashed />
-        Particles
-      </Toggle>
-      <Toggle on={state.captureTrace} label="Toggle JSON trace capture" onClick={onToggleCapture}>
-        <Braces />
-        Capture
-      </Toggle>
-      <Button
-        onClick={() => {
-          void Promise.resolve(onCopyTrace()).then((ok) => {
-            if (!ok) return;
-            setCopied(true);
-            window.setTimeout(() => setCopied(false), 1600);
-          });
-        }}
-        variant="secondary"
-        aria-label="Copy spawn JSON"
-        className="justify-start"
-      >
-        <ClipboardCopy />
-        {copied ? "Copied" : `JSON ${state.traceSamples}`}
-      </Button>
-    </div>
+    <>
+      <p className="hud-label">
+        {state.sensorCount} sensors · {state.cageCount} cages
+      </p>
+      <div className="grid grid-cols-2 gap-1">
+        <Toggle on={state.showRig} label="Toggle deformation rig" onClick={onToggleRig}>
+          <Spline />
+          Rig
+        </Toggle>
+        <Toggle on={state.showParticles} label="Toggle control particles" onClick={onToggleParticles}>
+          <CircleDashed />
+          Particles
+        </Toggle>
+        <Toggle on={state.captureTrace} label="Toggle JSON trace capture" onClick={onToggleCapture}>
+          <Braces />
+          Capture
+        </Toggle>
+        <Button
+          onClick={() => {
+            void Promise.resolve(onCopyTrace()).then((ok) => {
+              if (!ok) return;
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1600);
+            });
+          }}
+          variant="secondary"
+          aria-label="Copy spawn JSON"
+          className="h-11 justify-start gap-1.5 px-1.5 text-xs sm:h-8"
+        >
+          <ClipboardCopy />
+          {copied ? "Copied" : `JSON ${state.traceSamples}`}
+        </Button>
+      </div>
+    </>
   );
 }
 
@@ -368,13 +378,12 @@ function DrivingSection({ state, onPlayerClass, onRealism }: HudProps) {
   return (
     <>
       <div className="flex items-center gap-2">
-        <span className="hud-label w-14 shrink-0">Car</span>
-        <div className="grid flex-1 grid-cols-4 gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Your car's class">
+        <span className="hud-label w-12 shrink-0">Car</span>
+        <div className={cn(TRACK, "grid-cols-4")} role="group" aria-label="Your car's class">
           {VEHICLE_CLASS_IDS.map((id) => (
             <Button
               key={id}
-              size="sm"
-              className="h-10 px-1"
+              className={SEGMENT}
               variant={state.playerClass === id ? "default" : "ghost"}
               aria-pressed={state.playerClass === id}
               onClick={() => onPlayerClass(id)}
@@ -394,7 +403,7 @@ function DrivingSection({ state, onPlayerClass, onRealism }: HudProps) {
         digits={2}
         onValue={onRealism}
       />
-      <div className="flex justify-between pl-16 pr-[4.5rem] text-xs text-subtle" aria-hidden>
+      <div className="flex justify-between pl-14 pr-16 text-xs text-muted" aria-hidden>
         <span>Arcade</span>
         <span>Realistic</span>
       </div>

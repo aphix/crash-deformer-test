@@ -78,27 +78,40 @@
     0 0 8px rgb(0 0 0 / 0.5);
 }
 
-/* Mobile: one column, settings stack above the dock. md+: settings own the right
-   column under the readouts so the middle of the 3D view stays clear. */
+/* Mobile: one column, settings (when shown) stack above the dock. md+: settings own the
+   right column under the readouts so the middle of the 3D view stays clear. */
 .hud-grid {
   display: grid;
-  gap: 0.75rem;
-  grid-template-columns: minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr) auto auto;
+  gap: 0.5rem;
+  grid-template-columns: minmax(0, 1fr);
+  grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   grid-template-areas:
-    "title readouts"
-    "context context"
-    "settings settings"
-    "dock dock";
+    "title"
+    "readouts"
+    "context"
+    "settings"
+    "dock";
+}
+
+/* Race focus view on phones: the one-line title and the race readouts share the top row. */
+@media (max-width: 767px) {
+  .hud-grid[data-focus] {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title readouts"
+      "context context"
+      "dock dock";
+  }
 }
 
 .hud-settings {
-  max-height: 45dvh;
+  max-height: 40dvh;
 }
 
 @media (min-width: 768px) {
   .hud-grid {
-    grid-template-columns: minmax(0, 1fr) 20rem;
+    grid-template-columns: minmax(0, 1fr) auto;
     grid-template-rows: auto minmax(0, 1fr) auto;
     grid-template-areas:
       "title readouts"
@@ -107,6 +120,8 @@
   }
 
   .hud-settings {
+    justify-self: end;
+    width: 17rem;
     max-height: 100%;
   }
 }
