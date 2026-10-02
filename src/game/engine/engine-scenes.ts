@@ -66,7 +66,7 @@ export abstract class EngineScenes extends EngineHud {
 
   /** The jump ramps on the slab's ends (`FleetRamps`): a fleet prop like the slab and the balls. */
   toggleRamps(): void {
-    if (this.net.client || this.rigScene || this.race.active) return;
+    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
     this.showRamps = !this.showRamps;
     if (this.derbyMode) {
       this.setDerby(false);
@@ -283,10 +283,11 @@ export abstract class EngineScenes extends EngineHud {
     }
   }
 
-  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin; the wall up, the balls away. */
+  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin; the wall up, the balls and ramps away. */
   private spawnRange(): void {
     this.showBarrier = true;
     this.showBalls = false;
+    this.showRamps = false;
     const car = this.carA;
     car.group.visible = true;
     car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6);
