@@ -19,6 +19,8 @@ export type CarState = {
   /** Right (+x) door angle (deg) and latch; the probes strike the right side. */
   doorDeg: number;
   latched: boolean;
+  /** Right mirror fold (deg); 0 once the mirror is off. */
+  mirrorFoldDeg: number;
   /** Per control particle: travel from rest in the passenger-cell frame (mm). */
   travelMm: Record<string, number>;
   /** Per control particle: crush band reached (`-` under yield, `y` yield, `m` middle, `P` packed). */

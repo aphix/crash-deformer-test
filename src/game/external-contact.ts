@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, DOOR, DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, type DeformableCar } from "./car.ts";
 import { impulseCar } from "./pair-contact.ts";
-import { CRASH } from "./physics-util.ts";
 
 /**
  * One contact model for anything that strikes a car: the Doors ram, a press plate, a piston face
@@ -330,47 +329,11 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
 const _ba = makeBox();
 const _bb = makeBox();
 
-/** Front (+z) or rear particles of a car, by rest position. */
-const END_Z = 0.8;
-
-/**
- * Tell `car` which end `other` is striking, from the particles the pair's sphere contact
- * (`collideWith`) just flagged, and how far inboard (car-frame |z|) the striker reached. Resting
- * contact (closing under `CRASH.grazeMps`, a settled pile) strikes nothing.
- */
-function noteEnds(car: DeformableCar, other: DeformableCar): void {
-  const ax = car.rightFlat;
-  const az = car.fwdFlat;
-  // The other car's speed into this one along its length (+: toward the rear).
-  const into = (car.velocity.x - other.velocity.x) * az.x + (car.velocity.z - other.velocity.z) * az.z;
-  if (Math.abs(into) < CRASH.grazeMps) return;
-  let front = false;
-  let rear = false;
-  for (const m of car.deform.masses) {
-    if (!m.clipping) continue;
-    if (m.rest.z > END_Z && into > 0) front = true;
-    else if (m.rest.z < -END_Z && into < 0) rear = true;
-  }
-  if (!front && !rear) return;
-  const p = car.group.position;
-  let reachF = Infinity;
-  let reachR = Infinity;
-  for (const m of other.deform.masses) {
-    if (!m.clipping) continue;
-    const rx = m.world.x - p.x;
-    const rz = m.world.z - p.z;
-    if (Math.abs(rx * ax.x + rz * ax.z) > CAR_HALF.x) continue;
-    const lz = rx * az.x + rz * az.z;
-    if (lz > 0) reachF = Math.min(reachF, lz);
-    else reachR = Math.min(reachR, -lz);
-  }
-  if (front) car.noteContactEnd(1, reachF);
-  if (rear) car.noteContactEnd(-1, reachR);
-}
-
 /**
  * Car-car share of the shared contact model, once per physics slice per close pair, right after
- * the pair's `collideWith`: each body against the other's doors and mirrors, then the struck ends.
+ * the pair's `collideWith`: each body against the other's doors and mirrors. Car-car does not
+ * report struck ends yet (docs/CONTACT_PARITY.md, "Open"): the squeeze mode's deform rules
+ * assume a car held at the origin.
  */
 export function partContactPair(a: DeformableCar, b: DeformableCar): void {
   carBox(a, _ba);
@@ -379,8 +342,4 @@ export function partContactPair(a: DeformableCar, b: DeformableCar): void {
   if (hit.du > 0) impulseCar(b, hit.nx, 0, hit.nz, -_bb.kg * hit.du);
   hit = partContact(b, _ba);
   if (hit.du > 0) impulseCar(a, hit.nx, 0, hit.nz, -_ba.kg * hit.du);
-  if (a.deform.massActive && b.deform.massActive) {
-    noteEnds(a, b);
-    noteEnds(b, a);
-  }
 }
