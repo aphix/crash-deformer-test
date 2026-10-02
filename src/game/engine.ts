@@ -555,7 +555,7 @@ export class CrashEngine {
 
   /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
   setRealism(value: number): void {
-    HANDLING.realism = THREE.MathUtils.clamp(value, 0, 1);
+    HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
     for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism);
     this.emitHud(true);
   }
@@ -639,6 +639,8 @@ export class CrashEngine {
     this.targetScale = 1;
     this.view.userFramed = false;
     this.setDerby(false);
+    this.setRealism(INITIAL_HUD.realism);
+    if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
     this.randomizeAndReset();

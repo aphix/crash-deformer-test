@@ -14,7 +14,7 @@ describe("calibrated crash knob defaults", () => {
   });
 
   it("good: each default sits inside its slider range", () => {
-    for (const k of ["squash", "buckle"] as const) {
+    for (const k of ["squash", "buckle", "realism"] as const) {
       const r = KNOB_RANGES[k];
       assert.ok(r.min < r.max, `${k} range ${r.min}–${r.max}`);
       assert.ok(INITIAL_HUD[k] >= r.min && INITIAL_HUD[k] <= r.max, `${k} ${INITIAL_HUD[k]} outside ${r.min}–${r.max}`);

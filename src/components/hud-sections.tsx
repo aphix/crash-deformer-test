@@ -384,7 +384,16 @@ function DrivingSection({ state, onPlayerClass, onRealism }: HudProps) {
           ))}
         </div>
       </div>
-      <SliderField label="Realism" name="Arcade to realistic handling and damage" value={state.realism} min={0} max={1} step={0.05} digits={2} onValue={onRealism} />
+      <SliderField
+        label="Realism"
+        name="Arcade to realistic handling and damage"
+        value={state.realism}
+        min={KNOB_RANGES.realism.min}
+        max={KNOB_RANGES.realism.max}
+        step={0.05}
+        digits={2}
+        onValue={onRealism}
+      />
       <div className="flex justify-between pl-16 pr-[4.5rem] text-xs text-subtle" aria-hidden>
         <span>Arcade</span>
         <span>Realistic</span>
