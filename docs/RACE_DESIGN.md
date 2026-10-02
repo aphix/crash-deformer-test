@@ -3,7 +3,7 @@
 Circuit racing on top of the crash sandbox: 2–16 racers plus NPC traffic, 3–5 laps from the menu,
 hidden checkpoint gates, designed shortcuts, respawn or no-reset elimination, AI racers with an
 aggression dial, an arcade HUD with a focus view, controller-driven menus, and a campaign over every
-course. Scene picker **Race** or key **X**.
+course. Scene picker **Race** or key **Z**.
 
 Research: `.extraResearch/perplexity/23-race-checkpoints-laps.md` (gates, key checkpoints, progress
 ranking, respawn anchors, authoritative state), `24-racing-ai.md` (pure pursuit, curvature speed
@@ -38,7 +38,7 @@ takes its art from the host (`buildArt`), so tests and a server run it with no r
 ## Race state machine
 
 ```
-            X / picker        start · campaign · retry · next
+            Z / picker        start · campaign · retry · next
  sandbox ───────────► setup ─────────────────────────────► grid ─1.5 s─► countdown ─3 s─► racing
     ▲  quit (Back)      ▲ quit                                                              │
     └───────────────────┤                                    pause ◄─ Esc / Start ─────────┤
@@ -225,8 +225,9 @@ studio floor, grid, rings and lamp poles; restores the sandbox car count on exit
 slices, `frame` before the camera, the chase camera while a race runs, `race` in the HUD state, the
 2.5 m height gate on car pairs. While a race menu is open the engine still polls the pad but ignores
 pad buttons and keys (the HUD owns them). Racing keys: Esc / Start / Back pause, R / D-pad ↓ respawn,
-Q/E LB/RB spectate, V view, H focus ↔ full view. In the focus view every sandbox hotkey (scenes, X,
-play, rig…) is swallowed; in the full view they work as in the sandbox.
+Q/E LB/RB spectate, V view, H focus ↔ full view (the sandbox's night toggle on H waits until you
+leave the race). In the focus view every sandbox hotkey (scenes, Z, play, rig, wet, night…) is
+swallowed; in the full view they work as in the sandbox.
 
 ## HUD and controller menus
 Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split), standings

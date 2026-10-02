@@ -5,6 +5,7 @@ import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { snapshotAiCar } from "./derby.ts";
 import { MAX_CARS } from "./fleet.ts";
 import { setGround } from "./ground.ts";
+import { setMarkBounds } from "./engine-marks.ts";
 import { impulseCar } from "./pair-contact.ts";
 import { Campaign } from "./race/campaign.ts";
 import { SURFACES } from "./race/catalog.ts";
@@ -716,6 +717,9 @@ export class RaceDirector {
     this.host.camera.far = 900;
     this.host.camera.updateProjectionMatrix();
     setGround(tr.ground());
+    // Tyre marks cover the course instead of the sandbox disc.
+    const b = tr.bounds;
+    setMarkBounds(b.minX, b.minZ, b.maxX, b.maxZ);
     this.seg.fill(-1);
     return tr;
   }
@@ -730,6 +734,7 @@ export class RaceDirector {
     this.placed = [];
     this.colliders = [];
     setGround(null);
+    setMarkBounds(-48, -48, 48, 48);
   }
 
   /** Handle the rules' events: respawn teleports, the dead menu, the end. */
