@@ -157,11 +157,12 @@ export function Hud(props: HudProps) {
   // Race focus view: race panels only; the sandbox HUD comes back with the Full menu toggle (H).
   const focus = state.race !== null && !state.race.fullUi;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-3 text-fg sm:p-6">
+    <div className={cn("hud-grid pointer-events-none absolute inset-0 text-fg", focus ? "p-2 sm:p-4" : "p-3 sm:p-6")}>
       {focus && state.race ? (
-        <header className="min-w-0" style={{ gridArea: "title" }}>
-          <p className="hud-label">{state.race.mode === "campaign" ? "Campaign" : "Race"}</p>
-          <p className="mt-0.5 truncate font-display text-xl font-semibold leading-tight">{state.race.trackName || "Pick a course"}</p>
+        <header className="hud-ink min-w-0 font-display" style={{ gridArea: "title" }}>
+          <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
+            {state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
+          </p>
         </header>
       ) : (
         <header className="min-w-0" style={{ gridArea: "title" }}>
@@ -211,9 +212,7 @@ export function Hud(props: HudProps) {
         {state.race ? <SpectateBar race={state.race} pad={state.pad !== null} onCommand={props.onRaceCommand} /> : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} /> : null}
         {focus && state.race ? (
-          <div className="hud-panel pointer-events-auto p-1">
-            <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} />
-          </div>
+          <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} bare />
         ) : (
           <Dock {...props} />
         )}
