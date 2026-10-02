@@ -522,11 +522,12 @@ export function beginFakeFall(car: DeformableCar, spin?: THREE.Vector3): void {
  * A crashed car's slide after the hit (`CrashEngine.tickInner`): tyre-style friction on the group, and
  * the mass ground drag. The drag ramps from the hit, not from the last car contact: a pair grinding
  * together kept resetting the contact timer and slid ~3× as far as one wreck alone, and a frictionless
- * pair pushed long enough lets the bullet drive through the struck car (T-bone, RIG_ANALYSIS §6.6). A car
- * under power keeps the contact ramp (it is driven, not sliding); `dragGround` skips an airborne wreck.
+ * pair pushed long enough lets the bullet drive through the struck car (T-bone, RIG_ANALYSIS §6.6). A driven
+ * car (under power, drivetrain alive) does not slide: its tyres are applyDrive's (`groundMasses` skips it too).
+ * A car whose drivetrain died under power keeps the contact ramp; `dragGround` skips an airborne wreck.
  */
 export function bleedAfterSlide(car: DeformableCar, dt: number): void {
-  if (!car.crashed) return;
+  if (!car.crashed || (car.deform.powered && car.deform.drivetrainAlive)) return;
   const q = car.deform.quietTime();
   const p = car.group.position;
   // × the course surface's friction where the wreck slides (1 on the flat sandbox ground).

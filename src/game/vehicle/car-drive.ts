@@ -22,7 +22,6 @@ const SEDAN = CLASSES.sedan;
 export const DRIVE = {
   maxFwd: SEDAN.topSpeed,
   maxRev: SEDAN.revSpeed,
-  accel: SEDAN.accel,
   brake: SEDAN.brake,
   turn: SEDAN.turn,
   /** Full-lock yaw with the handbrake up (× class turn). */
@@ -35,6 +34,8 @@ export const DRIVE = {
   axle: 1.34,
   /** No slide starts below this forward speed (m/s). */
   slideSpeed: 6,
+  /** A boost at full lock kicks a tail-happy class out above this forward speed (m/s): 0.55 × the old 18 m/s top. */
+  boostSlideSpeed: 10,
   /** Extra yaw in a full unassisted slide (× steer yaw). */
   slideYaw: 0.75,
   /** Lateral grip kept in a full slide: arcade end, realistic end. */
@@ -113,8 +114,10 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
     const v = Math.abs(speed);
     let rate = k.brake * DRIVE.coast;
     if (Math.abs(want) > v) {
-      const x = Math.min(1, v / k.topSpeed);
-      rate = k.accel * (1 + k.torque * (1 - 2 * x)) * dmg.power * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
+      // The gear this speed sits in; past the top gear's end (a boost) it keeps pulling in top.
+      let g = 0;
+      while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
+      rate = k.gears[g]![1] * dmg.power * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
       if (throttle > 0.5 && along > -0.5) {
         spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (boosting ? 1 : 0.7) : 0, (1 - muR) * throttle * 0.6);
       }
@@ -213,7 +216,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   if (along > DRIVE.slideSpeed) {
     if (input.ebrake && Math.abs(steer) > 0.15) target = 1;
     // Boost dumps torque on the rear: tail-happy classes step out under it at full lock.
-    else if (boosting && throttle > 0.7 && Math.abs(steer) > 0.6 && along > 0.55 * k.topSpeed) target = k.drift;
+    else if (boosting && throttle > 0.7 && Math.abs(steer) > 0.6 && along > DRIVE.boostSlideSpeed) target = k.drift;
     // Held on the gas with lock either way short of a hard counter-steer.
     if (d.drift > 0.05 && throttle > 0.25 && Math.abs(steer) > 0.1 && steer * dir > -0.6) target = Math.max(target, d.drift);
   }

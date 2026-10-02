@@ -44,6 +44,19 @@ function step(car: DeformableCar, input: DriveInput, h = H): void {
   car.refreshBasis();
 }
 
+/**
+ * Launch targets (docs/HANDLING.md § Acceleration): each class's real 0–100 km/h and time to top speed scaled
+ * to arcade pace (0–100 × ~0.4, time to top × ~0.5, first gear as punchy as the old launch so derby hits
+ * keep their pace), real order kept (muscle and monster quickest, truck slowest off the line); top speeds within 5 % of 200 km/h.
+ */
+const LAUNCH: Record<VehicleClassId, { zeroTo100: number; topKmh: number; toTop: number; gears: number }> = {
+  sedan: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },
+  muscle: { zeroTo100: 1.95, topKmh: 210, toTop: 9.5, gears: 5 },
+  truck: { zeroTo100: 2.5, topKmh: 195, toTop: 12.7, gears: 4 },
+  monster: { zeroTo100: 2, topKmh: 190, toTop: 11.5, gears: 4 },
+  police: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },
+};
+
 // --- a mixed test loop: rounded rectangle, two hairpins and two sweepers ------
 
 type Loop = { x: number[]; z: number[]; r: number[]; s: number[]; length: number };
@@ -157,6 +170,38 @@ describe("vehicle classes", () => {
   });
 
   for (const id of VEHICLE_CLASS_IDS) {
+    const L = LAUNCH[id];
+    it(`good: ${id} — 0–100 km/h in ${L.zeroTo100} s, ${L.topKmh} km/h top after ${L.toTop} s (±5 %), the pull stepping down at ${L.gears - 1} shifts`, () => {
+      const car = classCar(id);
+      const input = { ...idleDrive(), throttle: 1 };
+      const v = [0];
+      for (let t = 0; t < 30; t += H) {
+        step(car, input);
+        v.push(along(car));
+      }
+      const top = v[v.length - 1]!;
+      const t100 = v.findIndex((x) => x >= 100 / 3.6) * H;
+      const tTop = v.findIndex((x) => x >= 0.995 * top) * H;
+      // Gear buckets: the pull holds within a gear and changes by > 10 % only at a shift, always down.
+      const shifts: string[] = [];
+      let rises = 0;
+      for (let i = 2; i < v.length && v[i]! < 0.99 * top; i++) {
+        const before = (v[i - 1]! - v[i - 2]!) / H;
+        const after = (v[i]! - v[i - 1]!) / H;
+        if (Math.abs(after / before - 1) <= 0.1) continue;
+        shifts.push(`${before.toFixed(1)}→${after.toFixed(1)} m/s² at ${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
+        if (after > before) rises++;
+      }
+      const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s, shifts [${shifts.join(", ")}]`;
+      assert.ok(t100 > 0 && Math.abs(t100 / L.zeroTo100 - 1) <= 0.05, got);
+      assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);
+      assert.ok(Math.abs(tTop / L.toTop - 1) <= 0.05, got);
+      assert.equal(shifts.length, L.gears - 1, got);
+      assert.equal(rises, 0, got);
+    });
+  }
+
+  for (const id of VEHICLE_CLASS_IDS) {
     it(`good: ${id} — chase cam, W+A swings the nose LEFT on screen and W+D RIGHT`, () => {
       for (const [key, sign] of [
         ["KeyA", -1],
@@ -257,7 +302,8 @@ describe("damage → drivability", () => {
     car.deform.engineTravel = car.deform.killTravel * 0.98;
     car.deform.impactInward.set(-1, 0, 0);
     const gas = { ...idleDrive(), throttle: 1 };
-    for (let t = 0; t < 6; t += H) step(car, gas);
+    // A limping sedan's pull is about halved: ~10 s up to its floor in the gear buckets.
+    for (let t = 0; t < 20; t += H) step(car, gas);
     const v = along(car);
     assert.ok(v >= LIMP_FLOOR * CLASSES.sedan.topSpeed - 0.05 && v < CLASSES.sedan.topSpeed * 0.9, `limping at ${v.toFixed(2)} m/s`);
     assert.ok(car.angular.y > 0.05, `no pull toward the struck (left) side: yaw ${car.angular.y.toFixed(3)}`);

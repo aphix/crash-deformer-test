@@ -1,9 +1,11 @@
 import type { RefObject } from "react";
 import { RangeRow } from "@/components/hud-controls";
 import { Button } from "@/components/ui/button";
+import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { DoorScenario } from "@/game/scenes/door-rig";
 import type { CrashEngine } from "@/game/engine/engine";
 import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud/hud-store";
+import { formatSpeed } from "@/game/hud/speed-units";
 
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. */
 export function DerbyBoard({ board, engine }: { board: CrashHudState["derbyBoard"]; engine: RefObject<CrashEngine | null> }) {
@@ -42,12 +44,13 @@ const PISTON_NAMES = ["Front-left", "Front", "Front-right", "Right", "Rear-right
 
 /** Piston scene controls: fire pad plus the shot config, one movable block. */
 export function PistonPanel({ pistons, engine }: { pistons: PistonHud; engine: RefObject<CrashEngine | null> }) {
+  const unit = useSpeedUnit();
   return (
     <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
       <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Pistons</p>
         <p className="font-display text-xs tabular-nums text-muted">
-          {pistons.energyKj.toFixed(1)} kJ · EBS {pistons.ebsKph.toFixed(0)} km/h
+          {pistons.energyKj.toFixed(1)} kJ · EBS {formatSpeed(pistons.ebsKph / 3.6, unit)} {unit}
         </p>
       </div>
       <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire a piston">
@@ -71,7 +74,7 @@ export function PistonPanel({ pistons, engine }: { pistons: PistonHud; engine: R
         min={5}
         max={120}
         step={1}
-        shown={`${pistons.speedKph.toFixed(0)} km/h`}
+        shown={`${formatSpeed(pistons.speedKph / 3.6, unit)} ${unit}`}
         onValue={(v) => engine.current?.setPistonConfig({ speedKph: v })}
       />
       <RangeRow
@@ -122,6 +125,7 @@ const DOOR_SHOTS: { id: DoorScenario; label: string; title: string }[] = [
 /** Doors scene controls: A/B/C fire pad, side and door toggles, the ram config and the last shot. */
 export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject<CrashEngine | null> }) {
   const shot = doors.shot;
+  const unit = useSpeedUnit();
   return (
     <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
       <div className="flex items-baseline justify-between gap-2">
@@ -162,7 +166,7 @@ export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject
         min={1}
         max={60}
         step={1}
-        shown={`${doors.kph.toFixed(0)} km/h`}
+        shown={`${formatSpeed(doors.kph / 3.6, unit)} ${unit}`}
         onValue={(v) => engine.current?.setDoorConfig({ kph: v })}
       />
       <RangeRow

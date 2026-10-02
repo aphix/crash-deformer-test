@@ -4,10 +4,12 @@ import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizo
 import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
 import type { CrashHudState } from "@/game/hud/hud-store";
+import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
@@ -180,30 +182,31 @@ export function Hud(props: HudProps) {
 function Readouts({ state }: { state: CrashHudState }) {
   const press = state.showCompactor;
   const hot = state.phase === "slowmo" || state.phase === "impact";
+  const unit = useSpeedUnit();
   return (
     <div className="hud-panel self-start px-2 py-1.5 md:justify-self-end" style={{ gridArea: "readouts" }}>
       <dl className="grid grid-cols-4 gap-x-3 gap-y-1">
         <Readout
           label={press ? "Press gap" : state.carCount === 1 ? "Car" : "Lead"}
-          value={press ? state.wallGap.toFixed(2) : (state.speedA * 3.6).toFixed(0)}
-          unit={press ? "m" : "km/h"}
+          value={press ? state.wallGap.toFixed(2) : formatSpeed(state.speedA, unit)}
+          unit={press ? "m" : unit}
         />
         {press ? (
-          <Readout label="Plate speed" value={state.closingKph.toFixed(0)} unit="km/h" />
+          <Readout label="Plate speed" value={formatSpeed(state.closingKph / 3.6, unit)} unit={unit} />
         ) : state.carCount !== 2 ? (
           <Readout label={state.carCount === 1 ? "Solo" : "Fleet"} value={String(state.carCount)} unit={state.carCount === 1 ? "car" : "cars"} />
         ) : (
-          <Readout label={state.phase === "approach" ? "Second" : "Second wreck"} value={(state.speedB * 3.6).toFixed(0)} unit="km/h" />
+          <Readout label={state.phase === "approach" ? "Second" : "Second wreck"} value={formatSpeed(state.speedB, unit)} unit={unit} />
         )}
         {press ? (
           <Readout label="Stage" value={STAGE[state.compactStage]} />
         ) : state.impactKph != null ? (
-          <Readout label="Impact" value={state.impactKph.toFixed(0)} unit="km/h" />
+          <Readout label="Impact" value={formatSpeed(state.impactKph / 3.6, unit)} unit={unit} />
         ) : (
           <Readout
             label={state.eta > 0 && state.eta < 8 ? `Closing ${state.eta.toFixed(1)}s` : "Closing"}
-            value={state.closingKph.toFixed(0)}
-            unit="km/h"
+            value={formatSpeed(state.closingKph / 3.6, unit)}
+            unit={unit}
           />
         )}
         <div className="min-w-0">

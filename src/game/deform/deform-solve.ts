@@ -613,7 +613,7 @@ export abstract class DeformSolve extends DeformContact {
     this.sampleGround(this.floorPre, null);
     this.moveMasses(dt, powered);
     this.sampleGround(this.floorPost, this.gripPost);
-    this.groundMasses(dt, scuffed);
+    this.groundMasses(dt, scuffed, powered && this.drivetrainAlive);
     this.holdEngineBlock();
     if (!live && !this.bidirectional) {
       let mx = 0,
@@ -691,8 +691,12 @@ export abstract class DeformSolve extends DeformContact {
     }
   }
 
-  /** Floor, ceiling and ground drag of every dynamic mass after its move (`floorPost`, `gripPost`). */
-  private groundMasses(dt: number, scuffed: boolean): void {
+  /**
+   * Floor, ceiling and ground drag of every dynamic mass after its move (`floorPost`, `gripPost`). A driven car
+   * (`driven`: under power, drivetrain alive) gets no drag: its tyres are applyDrive's, whose Δv already scrubs the
+   * sideways slip, and a sliding wreck's 0.75 g on top held a dented car under ~60 km/h in the gear buckets' top gears.
+   */
+  private groundMasses(dt: number, scuffed: boolean, driven: boolean): void {
     const quiet = this.quietTime();
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
@@ -722,7 +726,7 @@ export abstract class DeformSolve extends DeformContact {
         } else if (m.world.y < floor + 0.16) mu = CRASH.muScuff * grip;
         else drag = false;
       }
-      if (drag) applyGroundFriction(m.vel, dt, mu, true);
+      if (drag && !driven) applyGroundFriction(m.vel, dt, mu, true);
       if (m.world.y > floor + 3.4) {
         m.world.y = floor + 3.4;
         m.vel.y = 0;
