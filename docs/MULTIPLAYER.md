@@ -168,6 +168,17 @@ Race (lane/race-mode) was built for this: every car takes one `DriveInput` per s
   reliable channel when it changes (lap, gate, event); clients render the HUD from it and never
   step the session. Track id travels in `assign`; tracks are JSON so both sides load the same course.
 
+## Derby mode (after race; agreed with DerbyAI2, lane/derby-ai-2)
+
+- **Arena:** `derbyRadius(count)` is a pure function of the car count, so clients size the bowl
+  from the snapshot's car count. Nothing extra goes on the wire.
+- **Seats:** in `fixedStep`'s derby loop the AI skips `i === driven || this.net.remote(i)`.
+  Netplay adds that check and `NetPlay.remote(i)`. `net.drive` skips cars the match has counted
+  out (`DerbyMatch.isOut(id)`), as the engine does for the local player.
+- **Match state:** clients never step `DerbyMatch`. Until it has a `snapshot()` / `restore()`,
+  the host sends the board rows (with `out` and `clock`), `decided`, `winnerId`, `winnerName` and the
+  match time on the reliable channel whenever they change.
+
 ## State APIs
 
 Additive, allocation-free, at the end of each class; the caller preallocates the buffers.
