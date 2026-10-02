@@ -1485,8 +1485,21 @@ export class StreamedDeformation {
     this.shapeRan = false;
     for (let s = 0; s < slices; s++) this.stepMassSlice(h);
     // The solver window closed this step: the shape the contacts left becomes every cluster's
-    // rest (Sp folded in), so a later hit cannot spring earlier damage back.
-    if (this.shapeWasLive && !this.shapeRan) this.rebaseShapeRest();
+    // rest (Sp folded in), so a later hit cannot spring earlier damage back. Nothing restores that
+    // shape any more, so a body mass's vertical bounce relative to the others would drift on until
+    // damped and freeze in as sag: the 40 km/h parity hit's block sank 63 mm under a car's nose but
+    // 45 mm under the piston, whose contact (and so window) ran 0.12 s longer. The body moves as one.
+    if (this.shapeWasLive && !this.shapeRan) {
+      this.rebaseShapeRest();
+      let vy = 0;
+      let mass = 0;
+      for (const m of this.masses) {
+        if (!m.dynamic || m.hub) continue;
+        vy += m.vel.y * m.mass;
+        mass += m.mass;
+      }
+      if (mass > 0) for (const m of this.masses) if (m.dynamic && !m.hub) m.vel.y = vy / mass;
+    }
     this.shapeWasLive = this.shapeRan;
     this.updateDrivetrain();
   }

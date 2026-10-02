@@ -45,12 +45,16 @@ describe("contact parity: two cars into nose and tail vs the press at matched tr
 describe("contact parity: a piston vs a car of the same mass and speed", () => {
   for (const kph of [20, 40]) {
     // A car's crushable nose takes its share of the closing (pair-contact EBS split): for equal
-    // masses the struck car gets half the reduced-mass energy, the piston's hardness 0.5.
+    // masses the struck car gets half the reduced-mass energy, the piston's hardness 0.5. Each at
+    // main's squash 0.4 and the calibrated 0.32: at 0.32 the 40 km/h block sank 72 mm under a car's
+    // nose vs 61 mm under the piston, a bounce frozen when the shorter car-car contact closed the solve.
     it(`${kph} km/h, ${CAR_KG} kg, crushable face`, { todo: kph === 20 ? PENDING : undefined }, () => {
-      const car = carFront(kph).a;
-      const piston = pistonFront(kph, CAR_KG, 0.5);
-      sameParts(car, piston, "front");
-      sameCrush(car, piston, "front");
+      for (const squash of [0.4, 0.32]) {
+        const car = carFront(kph, squash).a;
+        const piston = pistonFront(kph, CAR_KG, 0.5, squash);
+        sameParts(car, piston, `front, squash ${squash}`);
+        sameCrush(car, piston, `front, squash ${squash}`);
+      }
     });
   }
 });
