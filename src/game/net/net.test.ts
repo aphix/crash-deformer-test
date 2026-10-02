@@ -90,7 +90,8 @@ describe("netplay codec", () => {
     s.timeScale = 0.032;
     for (let c = 0; c < 2; c++) {
       const f = s.cars[c]!;
-      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, style: 4 + c, cls: 3 - c });
+      // Car 0 a falling fake, car 1 vaporized: each flag must come back on its own car only.
+      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, style: 4 + c, cls: 3 - c });
       const d = f.deform;
       for (let i = 0; i < d.local.length; i++) d.local[i] = Math.sin(i * 1.7) * 2.2;
       for (let i = 0; i < d.skinPos.length; i++) d.skinPos[i] = Math.cos(i * 0.9) * 2.1;
@@ -136,6 +137,8 @@ describe("netplay codec", () => {
       assert.equal(b.style, a.style);
       assert.equal(b.cls, a.cls);
       assert.equal(b.wreck, c === 0);
+      assert.equal(b.falling, c === 0);
+      assert.equal(b.vaporized, c === 1);
     }
     const a = s.cars[0]!;
     const b = got.cars[0]!;

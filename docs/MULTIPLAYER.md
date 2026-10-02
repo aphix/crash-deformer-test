@@ -74,7 +74,7 @@ host-only.
 
 | State | Why | Encoding | Bytes |
 |---|---|---|---|
-| Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, body style + vehicle class | rigid placement; velocity for wheels; the body the client must build (a host's class pick rebuilds car 0) | u8 flags, u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
+| Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, `vaporized`, `falling`, body style + vehicle class | rigid placement; velocity for wheels; the Fleet disc edge's fake fall and smoke; the body the client must build (a host's class pick rebuilds car 0) | u8 flags (1 crashed, 2 wreck follows, 4 vaporized, 8 falling), u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
 | **Body**: the 20 control particles' current body-frame positions (`MassNode.local`), popped masses, `massActive`, `drivetrainAlive`, `engineTravel`, `killTravel` | the live hulls (`liveHulls` / `liveCrushHulls`) read only `local`, so these are the collision touchpoints; engine travel over kill travel (class × realism) is the graded damage | i16×60 (0.5 mm), u32, u8, i16×2 | 129 |
 | **Skin**, as of the last skin bake: the particles (`massPos`), each shape cluster's skin map (`skinM`, 16 × 3×3), popped hubs, `deepCrush` / `bidirectional` / lattice; plus the 21 sensor compressions, impact point + inward axis, wrinkle amplitude, buckle, squash | `skin()` writes every vertex from exactly these. After the crush window closes the host mesh stays frozen at the last bake while `local` drifts and the shape-rest rebase resets every `skinM`, so the bake keeps its own copy (`bakeLocalSkin`) and the client re-skins from that | i16×60, i16×144 (1/8192), u32, i16×21, i16×9 | 472 |
 | **Parts**: per detachable part (bumpers, bonnet, boot, doors, mirrors) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states | part transforms and the panels' visibility | u8 + i16×3 per part, + f32×3 + i16×4 per loose part, u8, u16 | 59 + 20 per loose part |
@@ -270,6 +270,16 @@ the fixed steps and `updateDeform` on a client and calls `net.frame` after them.
 Loose wheels: `PartNetState.wheelLoose` (bit per wheel) and `wheels` (world pose per loose wheel)
 ride in the wreck section; a client's `netFrame` never throws a wheel itself (`nudgeWheels(dt,
 false)`). Clients never step contacts, so `partContactPair` never runs on net cars.
+
+Fleet disc edge (EdgeFall): a car past the rim falls as a frozen fake 2 m down and vaporizes 20 m
+down. Clients follow the host's pose of a falling car (roll is interpolated the short way round),
+set `falling` so their `stepEdge` shrinks it, and take no wreck or wheel updates for it. A change
+of `vaporized` calls `CrashEngine.setVaporized`, so each page plays the smoke burst itself. The host
+brings back its own driven car and every network peer's car (`NetPlay.remoteCar`) 2 s after it
+vaporizes. Measured (`.bench/net/edge2.mjs`, two pages over WebRTC): the host launched car 0 (its own)
+and car 1 (B's) off opposite rims while B watched car 0. B saw each car fall at 2.0 s, vaporize at
+3.6 s and come back at 5.6 s, 0.10–0.11 s after the host (1.9, 3.5, 5.5 s). On B, the falling car
+shrank to scale 0.23 before it vanished.
 
 ## Prototype status (2026-10-01)
 

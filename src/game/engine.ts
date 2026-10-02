@@ -239,6 +239,7 @@ export class CrashEngine {
     applyDerby: (s, self) => this.applyNetDerby(s, self),
     derbyLobby: (field) => this.netDerbyMatch(false, field),
     startDerby: (field) => this.netDerbyMatch(true, field),
+    setVaporized: (i, on) => this.setVaporized(i, on),
     seat: this.seat,
   });
   /** Sandbox floor, grid and rings: hidden while a race course is up. */
@@ -2000,7 +2001,8 @@ export class CrashEngine {
       const car = cars[i]!;
       if (car.falling) car.group.scale.setScalar(0.2 + 0.8 * THREE.MathUtils.clamp((car.group.position.y + VAPOR_DEPTH) / 4, 0, 1));
       if (this.net.client) continue;
-      const driven = i === this.seat.carIndex && this.seat.mode === "drive";
+      // Driven here or by a network peer: either comes back after vaporizing.
+      const driven = (i === this.seat.carIndex && this.seat.mode === "drive") || this.net.remoteCar(i);
       const act = edgeAction(car.group.position.y, car.falling, car.vaporized, driven, this.elapsedWall - (this.vaporAt[i] ?? 0));
       if (act === "fake") beginFakeFall(car);
       else if (act === "vaporize") this.setVaporized(i, true);
