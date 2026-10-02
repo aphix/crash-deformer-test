@@ -12,8 +12,8 @@ alternative costs: [docs/DEPLOY.md](../docs/DEPLOY.md).
 | `nginx-crush.conf` | an nginx snippet, included in the site's 443 `server` block |
 | `deploy.env.example` | `$ENV` (root, 600), filled in for the box |
 
-Templates use `@ROOT@`, `@ENV@`, `@BASE@`, `@NOSLASH@` and `@PORT@`. Pick the values once, as
-root, in one shell:
+Templates use `@ROOT@`, `@ENV@`, `@BASE@`, `@NOSLASH@`, `@PORT@` and `@ACCESS_LOG@`. Pick the
+values once, as root, in one shell:
 
 ```bash
 ROOT=<deploy root>          # e.g. a new directory under /srv
@@ -21,8 +21,9 @@ ENV=<env file>              # e.g. a new directory under /etc, holding deploy.en
 BASE=/crush/                # APP_BASE
 PORT=<unused port>          # ss -ltn shows what is taken
 CHECK_PORT=<another unused port>
+ACCESS_LOG=<nginx log file for the app>   # outside every 4xx jail's logpath, see step 4
 render() { sed -e "s|@ROOT@|$ROOT|g" -e "s|@ENV@|$ENV|g" -e "s|@BASE@|$BASE|g" \
-  -e "s|@NOSLASH@|${BASE%/}|g" -e "s|@PORT@|$PORT|g" "$1"; }
+  -e "s|@NOSLASH@|${BASE%/}|g" -e "s|@PORT@|$PORT|g" -e "s|@ACCESS_LOG@|$ACCESS_LOG|g" "$1"; }
 ```
 
 ## 1. User, directories, Node
@@ -80,6 +81,13 @@ install -m 644 -o crush -g crush crush.bundle "$ROOT/cache/crush.bundle"  # on t
 Switching back to GitHub is the same edit: `CRUSH_REPO=https://github.com/<owner>/<repo>.git`,
 `CRUSH_BRANCH=main`. The next poll deploys `main` if its commit differs from the live one.
 
+**Package manager.** `crush-deploy.sh` installs with `npm ci`, which needs `package-lock.json`. A
+cutover to another package manager (pnpm, say) that deletes the lockfile must change the install
+line in `build()` *in the same commit*, and the new script must be installed on the box (step 2)
+before that commit lands on the branch. Otherwise every new commit fails to build: it is marked
+failed and skipped while the old release keeps serving, so nothing visibly breaks and nothing
+deploys.
+
 ## 4. nginx route
 
 The snippet also claims a few root paths for the platform chrome (`/__grok/*`, `/og.jpg`,
@@ -91,6 +99,23 @@ for p in /__grok/manifest.webmanifest /__grok/icon-180.png /og.jpg /x-banner.jpg
   curl -s -o /dev/null -w "$p %{http_code}\n" --resolve <host>:443:127.0.0.1 "https://<host>$p"; done   # expect 404s
 ```
 
+**Put the app's access log outside any 4xx-probe jail's logpath.** Boxes exposed to the internet
+often run a fail2ban jail that bans an address for days, on every port, after a couple of
+400/403/404/405 lines in the main access log. Game traffic produces those honestly (a stale asset
+after a deploy, a misrouted signaling call), so the snippet sends every app location to its own
+`access_log` (`@ACCESS_LOG@`). Before choosing the file, list what the jails watch, globs
+included, and keep the error log as it is:
+
+```bash
+for j in $(fail2ban-client status | sed -n 's/.*Jail list:\s*//p' | tr ',' ' '); do
+  echo "$j: $(fail2ban-client get "$j" logpath | grep -oE '/[^ ]+' | paste -sd' ')"; done
+grep -h 'nginx_access_log\|nginx_error_log' /etc/fail2ban/paths-*.conf   # e.g. a *access.log glob
+```
+
+Pick a name none of those paths or globs match, in a directory nginx's logrotate already covers.
+nginx creates a missing log file root-owned and world-readable; it holds client addresses, so give
+it the owner and mode of its neighbours (the logrotate stanza's `create` line) once it exists.
+
 Back up the site config, add one `include`, validate, then **reload** (never restart):
 
 ```bash
@@ -101,6 +126,9 @@ render deploy/nginx-crush.conf > /etc/nginx/snippets/crush.conf
 #     include snippets/crush.conf;
 nginx -t && systemctl reload nginx
 ```
+
+Afterwards, request an app URL and a missing app URL, and check both lines land in `@ACCESS_LOG@`
+and not in the jail's log. Leave the jail configuration untouched.
 
 ## 5. Timer
 
