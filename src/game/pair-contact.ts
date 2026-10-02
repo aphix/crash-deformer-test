@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "./physics-util.ts";
 import { satCars } from "./sat.ts";
+import { TYRE_HALF_W, TYRE_R } from "./streamed-deform.ts";
 import { partContactPair } from "./external-contact.ts";
 
 const _v = new THREE.Vector3();
@@ -10,6 +11,7 @@ const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _cn = new THREE.Vector3();
 const _cp = new THREE.Vector3();
+const _tn = new THREE.Vector3();
 
 export type PairHit = {
   impulse: number;
@@ -64,7 +66,12 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
 
   const crushHit = satCars(carA, carB, _cn, _cp, (c) => c.crushHulls());
   const hit = satCars(carA, carB, _n, _p, (c) => c.hulls());
-  if (!crushHit && !hit) return null;
+  if (!crushHit && !hit) {
+    // Crushed noses can leave both hull pairs apart while the tyres, which never crush, already meet: in a
+    // 100 km/h head-on the hulls missed for a frame and the tyres passed 0.25 m through each other.
+    if (!tyreStop(carA, carB, dt, _tn)) return null;
+    return { impulse: 0, contact: _p.copy(carA.group.position).add(carB.group.position).multiplyScalar(0.5).clone(), normal: _tn.clone() };
+  }
 
   const n = crushHit ? _cn : _n;
   n.y = 0;
@@ -194,7 +201,130 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     }
   }
 
+  tyreStop(carA, carB, dt, _tn);
   return { impulse: Math.max(closing, (crushHit ?? hit ?? 0) * 6), contact: p.clone(), normal: n.clone() };
+}
+
+/** A pair's four tyre-rectangle axes (unit x, z) and both tyres' summed half-extent along each. */
+const _axes = new Float64Array(12);
+
+/** A tyre seen from above is a 2·TYRE_R × 2·TYRE_HALF_W rectangle on its hub, along its car. */
+function tyreAxes(carA: DeformableCar, carB: DeformableCar): void {
+  const fA = carA.fwdFlat,
+    rA = carA.rightFlat,
+    fB = carB.fwdFlat,
+    rB = carB.rightFlat;
+  for (let k = 0; k < 4; k++) {
+    const u = k === 0 ? fA : k === 1 ? rA : k === 2 ? fB : rB;
+    _axes[k * 3] = u.x;
+    _axes[k * 3 + 1] = u.z;
+    _axes[k * 3 + 2] =
+      TYRE_R * (Math.abs(fA.x * u.x + fA.z * u.z) + Math.abs(fB.x * u.x + fB.z * u.z)) +
+      TYRE_HALF_W * (Math.abs(rA.x * u.x + rA.z * u.z) + Math.abs(rB.x * u.x + rB.z * u.z));
+  }
+}
+
+/** Deepest overlap (m) of the two cars' tyres, negative for the closest clearance. */
+export function tyreOverlap(carA: DeformableCar, carB: DeformableCar): number {
+  tyreAxes(carA, carB);
+  let depth = -Infinity;
+  for (const a of carA.deform.masses) {
+    if (!a.hub || a.popped) continue;
+    for (const b of carB.deform.masses) {
+      if (!b.hub || b.popped) continue;
+      const dx = a.world.x - b.world.x;
+      const dz = a.world.z - b.world.z;
+      let pen = Infinity;
+      for (let k = 0; k < 12; k += 3) pen = Math.min(pen, _axes[k + 2]! - Math.abs(dx * _axes[k]! + dz * _axes[k + 1]!));
+      depth = Math.max(depth, pen);
+    }
+  }
+  return depth;
+}
+
+/**
+ * The tyres are the pair's final stop: the owner's dead-on showed them passing through each other (64 km/h
+ * head-on: 0.091 m, 72+: 0.22 m). A swept test of every tyre pair over this slice of `dt` finds the first to
+ * meet, and its normal (B → A, into `normalOut`): the closing that would carry those tyres in goes to the
+ * pair's common speed, as for packed noses (B1), and tyres already overlapping part within the push budget.
+ * Stopping only once they overlapped let one slice carry them its whole travel through (80 km/h: 0.17 m).
+ */
+function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOut: THREE.Vector3): boolean {
+  if (!carA.deform.massActive || !carB.deform.massActive) return false;
+  tyreAxes(carA, carB);
+  // A's travel relative to B over the slice.
+  const wx = (carA.velocity.x - carB.velocity.x) * dt;
+  const wz = (carA.velocity.z - carB.velocity.z) * dt;
+  let first = Infinity,
+    depth = 0;
+  for (const a of carA.deform.masses) {
+    if (!a.hub || a.popped) continue;
+    for (const b of carB.deform.masses) {
+      if (!b.hub || b.popped) continue;
+      const dx = a.world.x - b.world.x;
+      const dz = a.world.z - b.world.z;
+      let enter = -Infinity,
+        exit = Infinity,
+        ex = 0,
+        ez = 0,
+        pen = Infinity,
+        px = 0,
+        pz = 0;
+      for (let k = 0; k < 12; k += 3) {
+        const ux = _axes[k]!,
+          uz = _axes[k + 1]!,
+          r = _axes[k + 2]!;
+        const c = dx * ux + dz * uz;
+        const s = wx * ux + wz * uz;
+        if (r - Math.abs(c) < pen) {
+          pen = r - Math.abs(c);
+          px = c < 0 ? -ux : ux;
+          pz = c < 0 ? -uz : uz;
+        }
+        if (Math.abs(s) < 1e-9) {
+          if (Math.abs(c) >= r) exit = -Infinity;
+          continue;
+        }
+        const t1 = (-r - c) / s;
+        const t2 = (r - c) / s;
+        if (Math.min(t1, t2) > enter) {
+          enter = Math.min(t1, t2);
+          const side = c + enter * s;
+          ex = side < 0 ? -ux : ux;
+          ez = side < 0 ? -uz : uz;
+        }
+        exit = Math.min(exit, Math.max(t1, t2));
+      }
+      if (pen > 0) {
+        if (first > 0 || pen > depth) {
+          first = 0;
+          depth = pen;
+          normalOut.set(px, 0, pz);
+        }
+      } else if (enter <= exit && enter >= 0 && enter <= 1 && enter < first) {
+        first = enter;
+        normalOut.set(ex, 0, ez);
+      }
+    }
+  }
+  if (first > 1) return false;
+  const n = normalOut;
+  const mA = carA.deform.totalMass;
+  const mB = carB.deform.totalMass;
+  const vA = carA.velocity.x * n.x + carA.velocity.z * n.z;
+  const vB = carB.velocity.x * n.x + carB.velocity.z * n.z;
+  // Closing that the gap can't take this slice: the tyres just meet at its end.
+  const excess = (vB - vA) * (1 - first);
+  if (excess > 0) {
+    const j = ((mA * mB) / (mA + mB)) * excess;
+    carA.deform.brakeInbound(n.x, n.z, j, vA + (excess * mB) / (mA + mB));
+    carB.deform.brakeInbound(-n.x, -n.z, j, -(vB - (excess * mA) / (mA + mB)));
+  }
+  if (depth > 0) {
+    pushPair(carA, n.x, n.z, (depth * mB) / (mA + mB), dt);
+    pushPair(carB, -n.x, -n.z, (depth * mA) / (mA + mB), dt);
+  }
+  return true;
 }
 
 /** One physics slice for a pair — same order as CrashEngine.fixedStep. */

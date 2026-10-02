@@ -68,7 +68,7 @@ const HUB_POP_MPS = 15;
 const TYRE_REACH = 0.42;
 /** Tyre (m): radius along the car (TYRE_REACH's 0.32) and half-width across it, for the faces' hub contact. */
 export const TYRE_R = 0.32;
-const TYRE_HALF_W = 0.11;
+export const TYRE_HALF_W = 0.11;
 /** A face that shoves a planted hub this far (m, one wheel diameter) off its rest tears the wheel off. */
 const WHEEL_DIAMETER = 2 * TYRE_R;
 /** Throttle input this recent (s) still counts as "under power" for the settle rule. */

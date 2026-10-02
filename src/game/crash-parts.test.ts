@@ -318,6 +318,19 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
   });
 });
 
+describe("the tyres are a head-on's final stop", () => {
+  it("bad: in a 40/56/64/100 km/h head-on the two cars' tyres never pass more than 1 cm into each other", () => {
+    for (const kph of [40, 56, 64, 100]) {
+      for (const r of runPair(kph, kph, "head-on", { squash: 0.32 })) {
+        assert.ok(r.tyreOverlap <= 0.01, `${kph} km/h head-on: tyres overlap ${r.tyreOverlap.toFixed(3)} m`);
+        assert.equal(r.hubsPopped.length, 0, `${kph} km/h head-on popped ${r.hubsPopped.join(",")}`);
+        // The stop is the last limit, not a shorter crumple: 56 km/h stays in the 0.25–0.50 m nose band.
+        if (kph === 56) assert.ok(r.noseShortL >= 0.25 && r.noseShortL <= 0.5, `56 km/h nose ${r.noseShortL.toFixed(3)} m`);
+      }
+    }
+  });
+});
+
 /** 50 km/h T-bone (runPair's layout): the struck door's deepest intrusion in the first 0.3 s of
  *  contact, and the least gap (m) between the bullet's cell and the struck cell along the travel. */
 function tbone(squash: number): { door: number; gap: number } {
