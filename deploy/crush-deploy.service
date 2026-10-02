@@ -1,0 +1,31 @@
+# One pull-deploy pass (deploy/crush-deploy.sh). Template: replace @ROOT@ and
+# @ENV@, see deploy/README.md. Runs as root only to swap the `current` symlink
+# and restart crush.service; git, npm and node run as the crush user.
+[Unit]
+Description=Crush Stream pull deploy (fetch, build, check, swap, restart)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=@ENV@
+Environment=CRUSH_ROOT=@ROOT@
+ExecStart=@ROOT@/bin/crush-deploy.sh
+TimeoutStartSec=30min
+
+# A build must never starve the live services: low priority, at most two
+# cores, idle I/O class, and first in line for the OOM killer.
+Nice=10
+CPUWeight=20
+CPUQuota=200%
+IOWeight=20
+IOSchedulingClass=idle
+MemoryHigh=3G
+MemoryMax=4G
+OOMScoreAdjust=500
+TasksMax=512
+
+NoNewPrivileges=yes
+ProtectSystem=full
+ProtectHome=yes
+PrivateTmp=yes

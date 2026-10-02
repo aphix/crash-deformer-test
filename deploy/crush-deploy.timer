@@ -1,0 +1,12 @@
+# Poll the repository every two minutes. A poll with nothing new does a
+# `git fetch`, compares one hash and exits.
+[Unit]
+Description=Poll for new Crush Stream commits
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=2min
+RandomizedDelaySec=15s
+
+[Install]
+WantedBy=timers.target

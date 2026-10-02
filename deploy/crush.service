@@ -1,0 +1,43 @@
+# Crush Stream node server (the `npm run build:node` output). Template:
+# replace @ROOT@ (the deploy root) and @ENV@ (the env file), see deploy/README.md.
+# Started and restarted by crush-deploy.service; runs whatever `current` points at.
+[Unit]
+Description=Crush Stream node server
+After=network.target
+# Inactive until the first deploy has produced a release.
+ConditionPathExists=@ROOT@/current/server/index.mjs
+
+[Service]
+Type=simple
+User=crush
+Group=crush
+EnvironmentFile=@ENV@
+Environment=HOST=127.0.0.1 NODE_ENV=production PGLITE_DATA_DIR=@ROOT@/shared/pglite
+WorkingDirectory=@ROOT@/shared
+ExecStart=@ROOT@/node/bin/node @ROOT@/current/server/index.mjs
+Restart=always
+RestartSec=5
+
+# Live services on the box win every contention, and lose nothing to an OOM.
+Nice=5
+CPUWeight=20
+IOWeight=20
+MemoryHigh=768M
+MemoryMax=1G
+OOMScoreAdjust=500
+TasksMax=256
+
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+ReadWritePaths=@ROOT@/shared
+
+[Install]
+WantedBy=multi-user.target
