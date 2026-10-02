@@ -6,9 +6,9 @@ import type { PistonConfig } from "@/game/piston-rig";
 /** Derby standings: name, score, struck through once the engine dies. A name click follows that car. */
 export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoard"]; onWatch: (id: number) => void }) {
   return (
-    <div className="hud-panel pointer-events-auto w-44 p-3">
+    <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-3">
       <p className="hud-label">Board</p>
-      <ul className="mt-2 space-y-0.5">
+      <ul className="mt-2 min-h-0 space-y-0.5 overflow-y-auto overscroll-contain">
         {board.map((row) => (
           <li key={row.id}>
             <button
