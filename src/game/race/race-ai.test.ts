@@ -162,6 +162,47 @@ describe("race AI", () => {
     assert.ok(Math.abs(lane(brute, hurtMe, [hurtMe, healthy], 40)) < 0.06, "full aggression rams regardless of its own state");
   });
 
+  it("a clean driver keeps a gap behind a rival at its own pace; a hungry one boosts to catch it", () => {
+    const me = at(0, pt.x, pt.z, 17);
+    const rival = at(1, pt.x, pt.z + 6, 17);
+    const clean = new RaceBrain(oval, 2).think(me, [me, rival], { next: 1, lap: 0 }, DT);
+    assert.ok(!clean.boost && clean.brake > 0, `clean opens the gap: brake ${clean.brake.toFixed(2)}, boost ${clean.boost}`);
+    const brute = new RaceBrain(oval, 2);
+    brute.setAggression(0, 1);
+    const hunt = brute.think(me, [me, rival], { next: 1, lap: 0 }, DT);
+    assert.ok(hunt.boost && hunt.throttle > 0, `hungry boosts into it: throttle ${hunt.throttle.toFixed(2)}, boost ${hunt.boost}`);
+  });
+
+  it("door to door, a hungry driver steers into the rival and a clean one away; neither fights at a crawl", () => {
+    // Left of travel is +X on this straight: the rival sits on our left.
+    const me = at(0, pt.x, pt.z, 15);
+    const rival = at(1, pt.x + 2.6, pt.z + 0.5, 15);
+    const brute = new RaceBrain(oval, 2);
+    brute.setAggression(0, 1);
+    const shove = lane(brute, me, [me, rival], 20);
+    const shy = lane(new RaceBrain(oval, 2), me, [me, rival], 20);
+    assert.ok(shove > 0.05, `hungry steers left into it, steer ${shove.toFixed(3)}`);
+    assert.ok(shy < -0.02, `clean steers away, steer ${shy.toFixed(3)}`);
+    const slowMe = at(0, pt.x, pt.z, 2);
+    const slowRival = at(1, pt.x + 2.6, pt.z + 0.5, 2);
+    const hungry = () => {
+      const b = new RaceBrain(oval, 2);
+      b.setAggression(0, 1);
+      return b;
+    };
+    const withRival = lane(hungry(), slowMe, [slowMe, slowRival], 20);
+    const alone = lane(hungry(), slowMe, [slowMe], 20);
+    assert.ok(Math.abs(withRival - alone) < 0.01, `at a crawl it drives its line as if alone (two hungry cars wedged each other on a wall): ${withRival.toFixed(3)} vs ${alone.toFixed(3)}`);
+  });
+
+  it("closing on a parked car it slows to a crawl and steers round it, never stopping behind it", () => {
+    const me = at(0, pt.x, pt.z, 2);
+    const parked = at(1, pt.x, pt.z + 5.5, 0);
+    const out = new RaceBrain(oval, 2).think(me, [me, parked], { next: 1, lap: 0 }, DT);
+    assert.ok(out.throttle > 0 && out.brake === 0, `keeps rolling: throttle ${out.throttle.toFixed(2)}, brake ${out.brake.toFixed(2)}`);
+    assert.ok(Math.abs(lane(new RaceBrain(oval, 2), me, [me, parked], 40)) > 0.05, "and steers round it");
+  });
+
   it("the field's aggression slider is a maximum: every rival rolls its own value under it", () => {
     const rolls = Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1));
     assert.ok(rolls.every((a) => a >= 0 && a <= 0.6));

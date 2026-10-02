@@ -27,7 +27,14 @@ import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnap
  */
 
 export const FRAME = 1 / 60;
-export type World = { cars: DeformableCar[]; live: () => DeformableCar[]; race: RaceDirector; seat: DriverSeat };
+export type World = {
+  cars: DeformableCar[];
+  live: () => DeformableCar[];
+  race: RaceDirector;
+  seat: DriverSeat;
+  /** Called for every car pair in physical contact (the slice's first SAT pass), car indices a < b. */
+  onPairContact: ((a: number, b: number) => void) | null;
+};
 
 export function makeWorld(): World {
   const scene = new THREE.Scene();
@@ -73,7 +80,7 @@ export function makeWorld(): World {
     hitFx: () => {},
     buildArt: () => null,
   });
-  return { cars, live, race, seat };
+  return { cars, live, race, seat, onPairContact: null };
 }
 
 /** `CrashEngine.fixedStep` in race mode (no barrier, balls, poles, derby). */
@@ -114,7 +121,9 @@ function fixedStep(w: World, dt: number): void {
       for (let a = 0; a < cars.length; a++) {
         for (let b = a + 1; b < cars.length; b++) {
           if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5) continue;
-          if (resolveCarPair(cars[a]!, cars[b]!, k === 0, h)) moved = true;
+          if (!resolveCarPair(cars[a]!, cars[b]!, k === 0, h)) continue;
+          moved = true;
+          if (k === 0) w.onPairContact?.(a, b);
         }
       }
       if (!moved) break;

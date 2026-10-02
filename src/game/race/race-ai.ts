@@ -38,6 +38,23 @@ const LANE_RATE = 3.2;
 const COMMIT = 45;
 /** A boost burst starts only with at least this much meter (no stutter on the dregs). */
 const BURST_MIN = 0.5;
+/** An aggressive driver hunts a rival up to this far (m) ahead within this far sideways. */
+const HUNT = 25;
+const HUNT_SIDE = 5;
+/** A hunter with more fight than this comes up offset from its rival (a PIT tap at its rear quarter, then door to door) instead of pushing it from behind. */
+const PIT_FIGHT = 0.3;
+/** Lateral offset (m) from the rival's centre for a PIT tap: about half a car's width of overlap. */
+const PIT_OFFSET = 1;
+/** A car on our line closer than this (m, centre to centre) is in the way even at our own pace. */
+const GAP_KEEP = 9;
+/** Centre-to-centre distance (m) a passing car closes to behind the car it is going round, until clear sideways. */
+const PASS_NOSE = 5;
+/** Least closing speed (m/s) while going round a car, so the pass never stalls behind a parked one. */
+const PASS_CREEP = 2;
+/** A driver fights only above this speed (m/s), against a rival doing at least 0.6 of it. */
+const FIGHT_PACE = 5;
+/** The following gap is kept only behind a car doing at least this (m/s): two stopped cars waited on each other for 40 s. */
+const CRAWL = 3;
 
 function surfaceAt(path: TrackPath, k: number): Surface {
   return SURFACES[SURFACE_IDS[path.surface[k]!]!];
@@ -63,8 +80,12 @@ type RaceAiState = {
  *  L0 unstick: throttle held without motion → reverse with the nose swinging toward the line
  *  L1 route: the main loop, or a designed shortcut taken on a seeded per-lap coin
  *  L2 line: inside of the next turn plus a personal offset; a slower car ahead on our line → pass on
- *     the side with room, else follow its speed. Aggression (0–1): ram a slower rival instead of
- *     passing, close the door on a rival coming through, lean on a rival alongside.
+ *     the side with room, else follow its speed. Rivals by `mood` (ai-aggression.ts): its positive
+ *     part, `fight`, scales every contact move, so a field's contact grows with its aggression; its
+ *     negative part, `shy`, keeps a clean driver off other cars. Fight: ram a slower rival ahead on
+ *     our line, late-block a rival coming through, shove a rival alongside door to door, hunt a
+ *     rival up to `HUNT` m ahead (onto its line to push it, or a PIT tap at its rear quarter) and
+ *     boost to catch it. Aggression 0: shy only, clean racing.
  *  L3 drive: pure pursuit to a point ahead on the line; speed from the curvature and grip ahead
  *     under a braking budget. Boost on a clear run where even the boosted speed makes every turn
  *     ahead, from a meter that drains and refills like the player's seat (`BOOST`).
@@ -100,6 +121,10 @@ export class RaceBrain {
   private readonly pt: TrackPoint = blankPoint();
   /** Speed of the car we are boxed in behind this call, NaN when the way is clear. */
   private follow = Number.NaN;
+  /** Fight (0–1) of a shove or block this call: the lane swings over faster by this much. */
+  private swerve = 0;
+  /** Fight (0–1) toward the rival being hunted or rammed this call, 0 when none. */
+  private chase = 0;
   /** Main-loop arc length of each shortcut's mouth and end. */
   private readonly mouthS: number[];
   private readonly exitS: number[];
@@ -210,8 +235,10 @@ export class RaceBrain {
 
     // L2: the line (main loop only; a shortcut is narrow, drive its middle).
     this.follow = Number.NaN;
+    this.chase = 0;
+    this.swerve = 0;
     const want = route < 0 ? this.line(self, p, proj.s, path.half[k]!, proj.lateral, fx, fz, along, others) : 0;
-    const step = LANE_RATE * dt;
+    const step = LANE_RATE * (1 + this.swerve) * dt;
     this.lane[i] = route < 0 ? this.lane[i]! + clamp(want - this.lane[i]!, -step, step) : 0;
     const lane = this.lane[i]!;
 
@@ -229,9 +256,14 @@ export class RaceBrain {
 
     const top = this.top[i]!;
     let target = this.plan(i, path, route, proj.s, speed, top);
+    // Boxed in, passing or keeping a gap sets `follow`; otherwise a clear run (or a hunted rival to
+    // catch) boosts while every turn in the boosted braking reach still allows more than top.
     if (!Number.isNaN(this.follow)) target = Math.min(target, Math.max(0, this.follow - 0.5));
-    else if (this.meter[i]! > (this.burst[i] ? 0.02 : BURST_MIN) && speed > 0.7 * top && Math.abs(alpha) < 0.3) {
-      // A clear run: boost while every turn in the boosted braking reach still allows more than top.
+    else if (
+      this.meter[i]! > (this.burst[i] ? 0.02 : BURST_MIN) &&
+      speed > (this.chase > 0 ? 0.5 : 0.7) * top &&
+      Math.abs(alpha) < (this.chase > 0 ? 0.45 : 0.3)
+    ) {
       const boosted = this.plan(i, path, route, proj.s, speed, top * this.boostTop[i]!);
       if (boosted > top * surf.speed + 0.5) {
         out.boost = true;
@@ -344,6 +376,11 @@ export class RaceBrain {
     const tr = this.track;
     const room = Math.max(0, half - EDGE);
     let curv = 0;
+    // Closest car on our line inside its following gap at our own pace (not a pass, just room kept).
+    let keep = -1;
+    let keepAhead = Infinity;
+    let keepAlong = 0;
+    let keepGap = GAP_KEEP;
     for (let d = 10; d <= 34; d += 6) curv += tr.path.curv[sampleAt(tr.path, s + d)]!;
     curv /= 5;
     let want = clamp(Math.sign(curv) * Math.min(1, Math.abs(curv) * 30) * half * 0.45 + p.side * 0.8, -room, room);
@@ -352,7 +389,11 @@ export class RaceBrain {
     let blockerAhead = Infinity;
     let blockerSide = 0;
     let blockerAlong = 0;
-    let blockerDamage = 0;
+    let blockerFight = 0;
+    let prey = -1;
+    let preyAhead = Infinity;
+    let preySide = 0;
+    let preyFight = 0;
     for (const o of others) {
       if (o.id === i || !o.alive) continue;
       const dx = o.x - self.x;
@@ -362,36 +403,89 @@ export class RaceBrain {
       const side = dx * fz - dz * fx;
       const oAlong = o.vx * fx + o.vz * fz;
       const inWay = Math.abs(side) < LINE_W + 0.4 || Math.abs(lat + side - this.lane[i]!) < LINE_W;
-      if (ahead > 0.5 && ahead < SCAN && inWay && along > oAlong + 0.3 && ahead < blockerAhead) {
-        blockerDamage = o.damage;
-        blocker = o.id;
-        blockerAhead = ahead;
-        blockerSide = side;
-        blockerAlong = oAlong;
+      const rival = o.id < this.racers;
+      // Rivals: fight or keep clear by mood (aggression, and both cars' damage); traffic is only avoided.
+      // Only at racing pace, both cars rolling on: two hungry cars that met slow or stopped brawled on
+      // a wall until both were out of the race.
+      const m = rival ? mood(aggr, self.damage, o.damage) : -1;
+      const fight = along > FIGHT_PACE && oAlong > 0.6 * FIGHT_PACE ? clamp(m, 0, 1) : 0;
+      const shy = clamp(-m, 0, 1);
+      if (ahead > 0.5 && ahead < SCAN && inWay) {
+        if (along > oAlong + 0.3) {
+          // Slower and on our line: pass it, ram it, or follow it.
+          if (ahead < blockerAhead) {
+            blockerFight = fight;
+            blocker = o.id;
+            blockerAhead = ahead;
+            blockerSide = side;
+            blockerAlong = oAlong;
+          }
+        } else if (fight <= 0 && oAlong >= CRAWL) {
+          // At our pace: a clean driver keeps a following gap, a hungrier one a shorter one (boost
+          // used to close a clean driver onto a rival's bumper and hold it there for 20 s).
+          const gap = GAP_KEEP * (0.4 + 0.6 * shy);
+          if (ahead < gap && ahead < keepAhead && Math.abs(side) < LINE_W) {
+            keep = o.id;
+            keepAhead = ahead;
+            keepAlong = oAlong;
+            keepGap = gap;
+          }
+        }
       }
-      if (o.id >= this.racers) continue;
-      // Rivals: fight or keep clear by mood (aggression, and both cars' damage).
-      const m = mood(aggr, self.damage, o.damage);
+      if (!rival) continue;
+      const oLat = lat + side;
       if (ahead < -1 && ahead > -11 && Math.abs(side) < 4.5 && oAlong > along + 0.5) {
-        // Coming through from behind: close the door on it, or give it room.
-        if (m > 0.15) want += (lat + side - want) * Math.min(1, m) * 1.2;
-        else if (m < -0.4) want += Math.sign(want - lat - side || 1) * -m * 2;
-      } else if (Math.abs(ahead) < 3 && Math.abs(side) < 3.6) {
-        // Alongside: lean on it, or shy away.
-        if (m > 0.3) want += Math.sign(side) * m * 2.4;
-        else if (m < -0.4) want -= Math.sign(side) * -m * 1.5;
+        // Coming through from behind: a late block onto its line, or room for it.
+        if (fight > 0) {
+          want += (oLat - want) * Math.min(1, fight * 1.5);
+          this.swerve = Math.max(this.swerve, fight);
+        } else want += Math.sign(want - oLat || 1) * shy * 2;
+      } else if (Math.abs(ahead) < 4 && Math.abs(side) < 4) {
+        // Alongside: a door-to-door shove into it, or shy away.
+        if (fight > 0) {
+          want += (oLat - want) * Math.min(1, fight * 1.5);
+          this.swerve = Math.max(this.swerve, fight);
+        } else want -= Math.sign(side) * shy * 1.5;
+      } else if (fight > 0 && ahead >= 4 && ahead < preyAhead && ahead < HUNT && Math.abs(side) < HUNT_SIDE) {
+        prey = o.id;
+        preyAhead = ahead;
+        preySide = side;
+        preyFight = fight;
       }
+    }
+    if (prey >= 0) {
+      // Hunting a rival ahead: onto its line to push it from behind or, with more fight, offset by
+      // `PIT_OFFSET` on the side it already leans to (ours by habit when dead ahead), so the nose
+      // catches its rear quarter and the car comes up door to door for the shove.
+      const off = preyFight > PIT_FIGHT ? (Math.abs(preySide) > 0.3 ? Math.sign(preySide) : -p.side) * PIT_OFFSET : 0;
+      const aim = lat + preySide - off;
+      want += (aim - want) * Math.min(1, preyFight * 1.5);
+      this.chase = preyFight;
     }
     if (blocker >= 0) {
       const oLat = lat + blockerSide;
-      if (blocker < this.racers && mood(aggr, self.damage, blockerDamage) > 0) return clamp(oLat, -room, room);
+      if (blockerFight > 0) {
+        // A rival in the way: push it from behind (and boost into it).
+        this.chase = blockerFight;
+        return clamp(oLat, -room, room);
+      }
       const left = oLat + LINE_W + 0.9;
       const right = oLat - LINE_W - 0.9;
       const leftOk = left <= room;
       const rightOk = right >= -room;
       if (leftOk && (!rightOk || Math.abs(left - want) <= Math.abs(right - want))) want = left;
       else if (rightOk) want = right;
-      else if (blockerAhead < 10) this.follow = blockerAlong;
+      if (!leftOk && !rightOk) {
+        if (blockerAhead < 10) this.follow = blockerAlong;
+      } else if (blockerAlong >= CRAWL && Math.abs(blockerSide) < LINE_W + 0.5) {
+        // Passing a moving car but not yet clear of it sideways: close no faster than the gap allows
+        // (a pass at boost speed side-swiped the car it was going round), so the nose waits beside its
+        // tail. A stopped or crawling car is just driven round (capping speed behind one jammed the city's hairpins).
+        this.follow = blockerAlong + 0.5 + clamp((blockerAhead - PASS_NOSE) * 0.8, PASS_CREEP, 6);
+      }
+    } else if (keep >= 0) {
+      // Its speed at the gap's edge, slower inside it (`follow` is read 0.5 m/s under).
+      this.follow = keepAlong + 0.5 - 0.8 * (keepGap - keepAhead);
     }
     return clamp(want, -room, room);
   }

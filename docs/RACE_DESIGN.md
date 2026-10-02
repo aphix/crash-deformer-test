@@ -86,9 +86,11 @@ With speed > 1.5 m/s, `c = v̂ · tangent`; while `c < −0.3` a timer grows, ot
 the rate; `wrongWay` on at 0.7 s, off at 0.
 
 ## Death, respawn, elimination
-- Dead for the rules: drivetrain dead, upside down for 2.5 s, or (AI) still for 8 s.
-- Player reset: R / D-pad ↓, 1.5 s. AI reset: an AI racer that gains < 25 m of track in 8 s (wedged
-  on a wall, shoving a stopped car, two wrecks hooked together) takes the same reset.
+- Dead for the rules: drivetrain dead, upside down for 2.5 s, or still for 8 s while the race AI or a
+  peer drives it (not while this browser's driver has it).
+- Player reset: R / D-pad ↓, 1.5 s. AI reset: a car the race AI drives (a rival, or the player's car
+  while its seat isn't driving) that gains < 25 m of track in 8 s (wedged on a wall, shoving a stopped
+  car, two wrecks hooked together) takes the same reset.
 - Default: `respawning` for 3 s, then back on the centreline (or the shortcut being driven) at the
   wreck's clamped progress, never past `next` (≥ 3 m short), facing the tangent, ≥ 6 m from every car
   (centre, ±½ half-width, then 6 m further back, up to 12 tries), on the layer it was racing on
@@ -118,9 +120,10 @@ uniform in [0, max]; a new race rolls again (the director bumps its seed per fie
 rolls are made once and stored on `CampaignRow.aggression`, re-applied every round.
 `mood(a, self, other) = a ≤ 0 ? −1 : 2a − 1 + 0.8(other − self) − (1 − a)·self` (damage 0 mint … 1 dead):
 0 never attacks and gives way; 1 attacks whatever its own state; 0.5 attacks only a car more wrecked
-than itself, less willingly the more wrecked it is. The race AI rams a slower rival ahead when
-mood > 0, closes the door on one coming through at > 0.15, leans on one alongside at > 0.3, and
-yields / shies away below −0.4. The derby AI uses the same two functions with its own thresholds.
+than itself, less willingly the more wrecked it is. The race AI splits it into `fight = clamp(mood, 0,
+1)` and `shy = clamp(−mood, 0, 1)`; every contact move scales with `fight`, so a field's contact grows
+with its aggression, and `shy` keeps a clean driver off other cars (aggression 0: fight 0, shy 1). The
+derby AI uses the same two functions with its own thresholds.
 
 ## Campaign
 `CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
@@ -138,8 +141,17 @@ and clients); `Campaign` likewise. The HUD reads `RaceHud` and sends `RaceComman
 ## AI (`RaceBrain`)
 Deterministic, allocation-free, memory per car id; figures per car class (`setClass`: turn, top
 speed, brake, boost top from `classStats`).
-- Line: inside of the next turn plus a personal offset; lanes change at 3.2 m/s; mood-driven
-  contact choices (above).
+- Line: inside of the next turn plus a personal offset; lanes change at 3.2 m/s, up to twice that in a
+  shove or block (× `1 + fight`).
+- Rivals, only at racing pace (both cars rolling at ≥ 5 m/s; two hungry cars that met slow once
+  brawled on a wall until both were out): ram a slower rival on our line (and boost into it);
+  late-block a rival coming through from behind; shove a rival alongside door to door; hunt a rival
+  up to 25 m ahead and 5 m sideways, onto its line to push it or, with fight > 0.3, offset 1 m for a
+  PIT tap at its rear quarter and a door-to-door shove, boosting to catch it. Clean drivers give a car
+  coming through room and shy away from one alongside, both × `shy`.
+- Following: behind a car on our line at our own pace (≥ 3 m/s) a driver keeps a gap of
+  `9 m × (0.4 + 0.6·shy)` centre to centre, matching its speed at the gap's edge and slower inside it;
+  boost used to put a clean driver's nose on a rival's bumper for 20 s at a time.
 - Pursuit: a point `Ld = clamp(5 + 0.5 v, 7, 18)` m ahead; `ω = 2 v sin α / Ld`; steer = ω / (class
   full-lock yaw × `0.35 + 0.65·min(1, v/8)` × steer grip) — the same yaw model as `applyDrive`.
 - Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `v_corner = 0.8 · turn · steerGrip / |κ|`
@@ -149,7 +161,10 @@ speed, brake, boost top from `classStats`).
 - Boost: the player's meter rules per car (`BOOST.full` drain, `BOOST.recharge` refill). A burst starts
   on a half-full meter, on a clear run (no car to follow), above 0.7 × top, pointed down the line, and
   only while the plan at the boosted top still clears every turn in its braking reach.
-- Traffic ahead on our line: pass on the side with room, else follow its speed.
+- A slower car on our line: pass on the side with room; until clear of it sideways close no faster
+  than `0.8 m/s per m` beyond 5 m (at least 2 m/s, so a pass never stalls), which stopped a clean pass
+  at boost speed side-swiping the car it went round. A stopped or crawling car (< 3 m/s) is just driven
+  round. No room: follow its speed.
 - Shortcuts: a seeded coin per car, lap and shortcut (0.3 + 0.4·aggression); heads for the mouth.
 - Unstick: throttle without motion → reverse with the nose swinging toward the line.
 
