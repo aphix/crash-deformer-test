@@ -42,8 +42,9 @@ Race AI plans with `classStats(id)` and `cornerSpeed(stats, radius, grip)`.
 Each class has 4 or 5 gear buckets (`ClassStats.gears`): a gear's top end as a share of the class top speed, and a fixed
 thrust (m/s²) that falls with each shift. No clutch or revs; the pull steps down at every shift. Each gear has an arcade
 and a realistic thrust, lerped by `HANDLING.realism` (no extra knob). Boost multiplies the thrust ×1.55–1.6 and lifts the
-top ×1.2–1.22, pulling on in top gear past the class top: 252 km/h on the muscle car, the fastest a driven car goes
-(`barrier.test.ts` crashes every hit up to it).
+top ×1.2–1.22, pulling on in top gear past the class top. In a race, drafting another car lifts the top a further ×1.02
+while it lasts (`DRAFT.top`, `applyDrive`'s `topScale`; see RACE_DESIGN.md "Drafting"): 257 km/h on a boosted muscle car
+in a draft, the fastest a driven car goes (`barrier.test.ts` crashes every hit up to it).
 
 | Class | Gear top ends (× top) | Thrust per gear, arcade (m/s²) | Thrust per gear, realistic (m/s²) |
 |---|---|---|---|
@@ -95,6 +96,7 @@ City has traffic: the muscle and truck AI each died once there (best laps 24.67 
 - **Speed-sensitive steering**: lock fades with speed (never under 40 %), and grows from zero through a crawl, so the car never pivots on the spot.
 - **Slides**: Space at speed with lock kicks the tail out; boost at full lock does it on tail-happy classes. Keep the gas on with lock either way (a counter-steer short of full opposite lock included) and the drift assist holds the body angle while the car carries its speed round; release the wheel or lift off and it catches itself. Full opposite lock catches it twice as fast.
 - **Boost** multiplies the gear thrust ×1.55–1.6 and the top speed ×1.2–1.22 (see Acceleration).
+- **Draft** (race mode only): in another racer's trail the top speed is ×1.02, the thrust unchanged, so a car already flat out creeps up on the one ahead.
 - **Recovery**: a driven car stuck on its roof or side rights itself after 1.2 s at the arcade end (3 s at mid slider); past 0.6 only R rights it.
 - **Surface grip** comes from the active `Ground` (`frictionAt`) under each axle: low front grip loses steering, low rear grip loses traction and launches with wheelspin.
 - Tyre FX read `car.drive.spin` (launch wheelspin), `lock` (brake lock-up) and `slide` (sideways slip), each 0–1.

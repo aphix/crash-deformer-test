@@ -37,6 +37,12 @@ const TELEPORT = 25;
 /** A respawn lands at least this far short of the next gate. */
 const GATE_MARGIN = 3;
 const RESPAWN_TRIES = 12;
+/**
+ * Drafting: a racing car `near`–`far` m straight behind another racing car (along its travel), within `half` m of
+ * its line, both doing over `speed` m/s that way. Every `every` s of it unbroken earns `bonus` of a boost meter;
+ * while it lasts its top speed is × `top` (`applyDrive`'s `topScale`).
+ */
+export const DRAFT = { near: 2, far: 15, half: 1.5, speed: 15, every: 2, bonus: 0.05, top: 1.02 };
 
 /** 0 off, 1 red, 2 yellow, 3 green (held 1.5 s after the start). */
 export function startLights(time: number): 0 | 1 | 2 | 3 {
@@ -78,6 +84,8 @@ function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
     z,
     wrongFor: 0,
     seg: -1,
+    draft: 0,
+    drafts: 0,
   };
 }
 
@@ -179,8 +187,35 @@ export class RaceSession {
     const span = this.time - from;
     this.finishers.length = 0;
     for (let i = 0; i < this.cars.length; i++) this.stepCar(i, poses[i]!, from, span);
+    this.drafting(poses, span);
     this.sortRank();
     this.settle();
+  }
+
+  /** `DRAFT`: each racing car's unbroken seconds in another's trail, and the boost bonuses that earned. */
+  private drafting(poses: readonly CarPose[], dt: number): void {
+    for (let i = 0; i < this.cars.length; i++) {
+      const c = this.cars[i]!;
+      const p = poses[i]!;
+      let trail = false;
+      for (let j = 0; j < this.cars.length && !trail && c.status === "racing" && p.alive; j++) {
+        const q = poses[j]!;
+        const v = Math.hypot(q.vx, q.vz);
+        if (j === i || !q.alive || this.cars[j]!.status !== "racing" || v < DRAFT.speed) continue;
+        const fx = q.vx / v;
+        const fz = q.vz / v;
+        const back = (q.x - p.x) * fx + (q.z - p.z) * fz;
+        const off = Math.abs((p.x - q.x) * fz - (p.z - q.z) * fx);
+        trail = back >= DRAFT.near && back <= DRAFT.far && off <= DRAFT.half && p.vx * fx + p.vz * fz >= DRAFT.speed;
+      }
+      if (!trail) {
+        c.draft = 0;
+        continue;
+      }
+      const was = Math.floor(c.draft / DRAFT.every);
+      c.draft += dt;
+      if (Math.floor(c.draft / DRAFT.every) > was) c.drafts++;
+    }
   }
 
   /** The driver asks to be put back (stuck / flipped). Refused in no-reset races and outside racing. */

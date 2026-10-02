@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, blankPoint, blankProjection, pointOn } from "../world/track.ts";
-import { CLEARANCE, COUNTDOWN, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
+import { CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
 import type { CarPose, Entrant, RaceEvent, RaceResultRow } from "./types.ts";
 import { square as squareFile } from "../world/track.test-util.ts";
@@ -439,5 +439,46 @@ describe("campaign", () => {
     const st = c.standings();
     assert.equal(st.find((r) => r.id === 8)!.points, 0);
     assert.deepEqual(st.find((r) => r.id === 9)!.places, [0]);
+  });
+});
+
+describe("drafting", () => {
+  /** Straight up +z from green at `v` m/s, `x` m across; the rule needs no road. */
+  const straight =
+    (x: number, z0: number, v: number): Driver =>
+    (t) => ({ x, z: z0 + v * Math.max(0, t), vx: 0, vz: v });
+  const leader = straight(0, 20, 30);
+  const race = () => new RaceSession(square, field(2), { laps: 9, noReset: false });
+
+  it("a car held in a leader's trail earns one bonus per DRAFT.every s; the leader earns none", () => {
+    const s = race();
+    const follower = straight(0.5, 12, 30);
+    runTo(s, [leader, follower], DRAFT.every - 0.1);
+    assert.equal(s.cars[1]!.drafts, 0, "a bonus before the first interval");
+    assert.ok(s.cars[1]!.draft > DRAFT.every - 0.2, `drafting for ${s.cars[1]!.draft} s`);
+    runTo(s, [leader, follower], DRAFT.every + 0.1);
+    assert.equal(s.cars[1]!.drafts, 1);
+    runTo(s, [leader, follower], 4 * DRAFT.every + 0.5);
+    assert.equal(s.cars[1]!.drafts, 4);
+    assert.equal(s.cars[0]!.drafts, 0, "the car in front drafted");
+    assert.equal(s.cars[0]!.draft, 0);
+  });
+
+  it("none outside the trail: off its line, too far back, too close, under the speed floor, or a broken run", () => {
+    const cases: [string, Driver, Driver][] = [
+      ["2.5 m off its line", leader, straight(2.5, 12, 30)],
+      ["20 m back", leader, straight(0, 0, 30)],
+      ["1 m back", leader, straight(0, 19, 30)],
+      ["both at 12 m/s", straight(0, 20, 12), straight(0, 12, 12)],
+      // In the trail 1.5 s, out 0.5 s, back for the rest: no stretch reaches DRAFT.every.
+      ["a broken run", leader, (t) => ({ ...straight(0, 12, 30)(t), x: t > 1.5 && t < 2 ? 3 : 0 })],
+    ];
+    for (const [name, lead, follower] of cases) {
+      const s = race();
+      runTo(s, [lead, follower], 3.4);
+      assert.equal(s.cars[1]!.drafts, 0, name);
+      assert.equal(s.cars[0]!.drafts, 0, name);
+      if (name !== "a broken run") assert.equal(s.cars[1]!.draft, 0, `${name}: counted as drafting`);
+    }
   });
 });

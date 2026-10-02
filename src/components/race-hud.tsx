@@ -96,6 +96,7 @@ export function RaceReadouts({ race, boost }: { race: RaceHud; boost: number | n
         <Clock label="Best" value={you.bestLap === null ? "–" : fmtTime(you.bestLap)} />
       </dl>
       <div className="flex items-center gap-2">
+        {boost !== null && you.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
         {boost === null ? null : (
           <div className="h-1 w-16 overflow-hidden rounded-full bg-fg/25 shadow-[var(--shadow-border)]" role="meter" aria-label="Boost" aria-valuenow={Math.round(boost * 100)}>
             <div className="h-full bg-accent" style={{ width: `${Math.round(boost * 100)}%` }} />
