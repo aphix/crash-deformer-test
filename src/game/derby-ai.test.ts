@@ -244,7 +244,7 @@ function runField(n: number, seed: number): Field {
     c.deform.setMode(INITIAL_HUD.deformMode);
     const cls = carClass(c);
     assignClass(c, cls);
-    c.deform.killTravel = killTravel(cls, HANDLING.realism);
+    c.deform.killTravel = killTravel(cls, HANDLING.realism, "derby");
   });
   const out: Field = {
     seed,
@@ -410,6 +410,11 @@ describe("derby, ten AI cars at the default slider", () => {
     }
   });
 
-  it.todo("derby:contact-spin — no car spins > 5 rad/s for 0.2 s in pair contact either (5–9 rad/s now; CR6: physics yaw artifact)");
-  it.todo("derby:wreck — ≥ 4/5 ten-car heats end last car standing by wrecking inside the heat (CR6: lethality at the realistic defaults)");
+  it("bad: heats end by wrecking — last car standing inside the heat in ≥ 80 % of seeds, nobody dead before 8 s", () => {
+    const wrecks = runs.filter((r) => r.decided === "wreck").length;
+    assert.ok(wrecks >= Math.ceil(0.8 * runs.length), `${wrecks}/${runs.length} won by wreck:\n${rows.join("\n")}`);
+    for (const r of runs) assert.ok(r.deaths.length === 0 || r.deaths[0]! > 8, `seed ${r.seed}: first death at ${r.deaths[0]} s`);
+  });
+
+  it.todo("derby:contact-spin — no car spins > 5 rad/s for 0.2 s in pair contact either (5–9 rad/s now; CrashRealism7: physics yaw artifact)");
 });
