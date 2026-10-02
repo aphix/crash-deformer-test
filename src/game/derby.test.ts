@@ -563,7 +563,7 @@ describe("derby match, six AI cars", () => {
   // Target (Main): ≥ 4 of 5 matches end by physics elimination (5 of 6 dead) inside the 90 s stalemate.
   // At the race/fleet kill travel (0.45 m for a sedan at realism 0.25) physics alone reached 0/5: a sedan
   // needs Σ EBS² ≈ 600 m²/s² on its nose (≈ 20 rams at 40 km/h closing). A derby car's kill travel is
-  // DERBY_KILL_SCALE (0.5) of it, so the same accumulated wrecking ends the match.
+  // DERBY_KILL_SCALE (0.7935) of it plus a DERBY_WRECK_ENERGY (400) wear share, so accumulated wrecking ends the match.
   it("bad: at the realistic defaults ≥ 4 of 5 six-car matches end by elimination inside the 90 s stalemate", () => {
     const wins = realRuns.filter(({ run }) => run.deaths.length >= 5 && run.deaths[4]! <= STALEMATE).length;
     assert.ok(wins >= 4, `${wins}/5 elimination wins: ${realRows}`);

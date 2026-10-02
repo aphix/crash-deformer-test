@@ -203,13 +203,15 @@ export function raceOnce(w: World, track: Track, bound: number): Outcome {
 }
 
 /**
- * The real-stack finish sweep for one course: 5 AI cars, 2 laps, `RACE_FINISH_SEEDS` seeds (5 for
- * the full sweep).
+ * The real-stack finish sweep for one course: 5 AI cars, 2 laps, `RACE_FINISH_RUNS` back-to-back races
+ * on one world (5 for the full sweep). The race AI has no seed (no Math.random, per-car hashes), so runs
+ * differ only by what the previous race leaves behind.
  */
 export function finishSweep(course: string): void {
-  const seeds = Number(process.env.RACE_FINISH_SEEDS ?? 2);
+  const runs = Number(process.env.RACE_FINISH_RUNS ?? 2);
+  if (!Number.isInteger(runs) || runs < 1) throw new Error(`RACE_FINISH_RUNS must be a whole number ≥ 1, got "${process.env.RACE_FINISH_RUNS}"`);
   describe("race finish through the real stack", () => {
-    it(`${course}: 5 AI cars finish ${RACE_LAPS} laps on every seed`, (t) => {
+    it(`${course}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} races`, (t) => {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
       // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
       // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.
@@ -218,14 +220,14 @@ export function finishSweep(course: string): void {
       const w = makeWorld();
       w.race.enter();
       try {
-        for (let seed = 1; seed <= seeds; seed++) {
+        for (let run = 1; run <= runs; run++) {
           const o = raceOnce(w, track, bound);
           const dnf = o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ");
           t.diagnostic(
-            `${course} seed ${seed}: finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
+            `${course} run ${run}: finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
           );
-          assert.ok(Number.isFinite(o.closedAt), `${course} seed ${seed}: no results within ${bound.toFixed(0)} s`);
-          assert.ok(o.finished + o.out >= 4, `${course} seed ${seed}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
+          assert.ok(Number.isFinite(o.closedAt), `${course} run ${run}: no results within ${bound.toFixed(0)} s`);
+          assert.ok(o.finished + o.out >= 4, `${course} run ${run}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
         }
       } finally {
         w.race.exit();

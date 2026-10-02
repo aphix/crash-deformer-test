@@ -63,7 +63,7 @@ Race AI plans with `classStats(id)` and `cornerSpeed(stats, radius, grip)`.
 
 Kill travel per class is `0.15 m × durability` at the realistic end and `0.55 m × (1 + (durability − 1) / 2)` at the arcade end, capped at 0.63 m: the engine block reaches about 0.64 m by accumulated wrecking, so even a monster truck can still be killed.
 Measured with the barrier re-arm (lane/crash-realism-5), a sedan's block travel after repeated 50 km/h wall hits is 0.14, 0.40, 0.48, 0.64 m: the arcade end survives three, the realistic end dies on the first hit over ~50 km/h (35 km/h drives on, 64 km/h kills).
-A derby car's kill travel is `DERBY_KILL_SCALE` (0.5) of that (`killTravel(cls, realism, "derby")`, armed by `dressCar` and the Realism slider while derby mode is on); race and fleet keep the values above. Ten-car derby, 5 seeds at the realistic defaults (lane crash-realism-6): ×1 ends 0/5 matches by elimination, ×0.67 2/5 (first death 7.9 s), ×0.5 4/5 (first death 15 s).
+A derby car's kill limits (`armKill(deform, cls, realism, "derby")`, armed by `dressCar` and the Realism slider while derby mode is on) are `DERBY_KILL_SCALE` (0.7935) of that travel plus a wear limit, `DERBY_WRECK_ENERGY` (400 m²/s²: every hit's EBS² capped at 36, summed over all ends); the travel share and the wear share add (`vehicle-classes.ts`). Race and fleet keep the travel above and no wear limit. Ten-car derby, seeds 1–5 at the realistic defaults (lane crash-realism-10): ×0.79 / 400 wrecks 5/5 with first deaths 14.1–36.9 s; travel alone at ×0.46 wrecked 3/5.
 
 ## Damage → drivability
 

@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import * as fs from "node:fs";
 import {
   makeChassisGeometry,
   makeHoodGeometry,
@@ -27,40 +26,7 @@ function bbox(geo: THREE.BufferGeometry) {
   };
 }
 
-function writeSilhouette(): void {
-  const zs: number[] = [];
-  for (let i = 0; i <= 80; i++) zs.push(-2.14 + (4.28 * i) / 80);
-  const sx = 90;
-  const sy = 70;
-  const xOf = (z: number) => 40 + (z + 2.14) * sx;
-  const yOf = (y: number) => 160 - y * sy;
-  const belt: string[] = [];
-  const roof: string[] = [];
-  const sill: string[] = [];
-  for (const z of zs) {
-    const p = restSideProfile(z);
-    belt.push(`${xOf(z).toFixed(1)},${yOf(p.yBelt).toFixed(1)}`);
-    roof.push(`${xOf(z).toFixed(1)},${yOf(p.yRoof).toFixed(1)}`);
-    sill.push(`${xOf(z).toFixed(1)},${yOf(p.ySideTop).toFixed(1)}`);
-  }
-  const svg = `<?xml version="1.0"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 460 180" width="920" height="360">
-  <rect width="460" height="180" fill="#1b1e24"/>
-  <polyline fill="none" stroke="#5ad" stroke-width="1.4" points="${roof.join(" ")}"/>
-  <polyline fill="none" stroke="#ddd" stroke-width="2.2" points="${sill.join(" ")}"/>
-  <polyline fill="none" stroke="#888" stroke-width="1" points="${belt.join(" ")}"/>
-  <text x="12" y="18" fill="#aaa" font-size="11">rest side profile — white=body top, gray=belt, cyan=roof</text>
-</svg>`;
-  fs.mkdirSync(new URL("../../artifacts/", import.meta.url), { recursive: true });
-  fs.writeFileSync(new URL("../../artifacts/rest-silhouette.svg", import.meta.url), svg);
-}
-
 describe("rest pose is a sedan, not a van blob", () => {
-  it("writes a side silhouette for visual check", () => {
-    writeSilhouette();
-    assert.ok(fs.existsSync(new URL("../../artifacts/rest-silhouette.svg", import.meta.url)));
-  });
-
   it("good: trunk stays at boot height, never greenhouse", () => {
     const p = restSideProfile(-1.7);
     assert.ok(p.ySideTop < 0.82, `trunk body ${p.ySideTop} looks like a cabin`);

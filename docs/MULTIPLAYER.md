@@ -76,12 +76,12 @@ host-only.
 |---|---|---|---|
 | Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, `vaporized`, `falling`, body style + vehicle class | rigid placement; velocity for wheels; the Fleet disc edge's fake fall and smoke; the body the client must build (a host's class pick rebuilds car 0) | u8 flags (1 crashed, 2 wreck follows, 4 vaporized, 8 falling), u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
 | **Body**: the 20 control particles' current body-frame positions (`MassNode.local`), popped masses, `massActive`, `drivetrainAlive`, `engineTravel`, `killTravel` | the live hulls (`liveHulls` / `liveCrushHulls`) read only `local`, so these are the collision touchpoints; engine travel over kill travel (class × realism) is the graded damage | i16×60 (0.5 mm), u32, u8, i16×2 | 129 |
-| **Skin**, as of the last skin bake: the particles (`massPos`), each shape cluster's skin map (`skinM`, 16 × 3×3), popped hubs, `deepCrush` / `bidirectional` / lattice; plus the 21 sensor compressions, impact point + inward axis, wrinkle amplitude, buckle, squash | `skin()` writes every vertex from exactly these. After the crush window closes the host mesh stays frozen at the last bake while `local` drifts and the shape-rest rebase resets every `skinM`, so the bake keeps its own copy (`bakeLocalSkin`) and the client re-skins from that | i16×60, i16×144 (1/8192), u32, i16×21, i16×9 | 472 |
-| **Parts**: per detachable part (bumpers, bonnet, boot, doors, mirrors) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states | part transforms and the panels' visibility | u8 + i16×3 per part, + f32×3 + i16×4 per loose part, u8, u16 | 59 + 20 per loose part |
+| **Skin**, as of the last skin bake: the particles (`massPos`), each shape cluster's skin map (`skinM`, 16 × 3×3), popped hubs, `deepCrush` / `bidirectional` / lattice; plus the 20 sensor compressions, impact point + inward axis, wrinkle amplitude, buckle, squash | `skin()` writes every vertex from exactly these. After the crush window closes the host mesh stays frozen at the last bake while `local` drifts and the shape-rest rebase resets every `skinM`, so the bake keeps its own copy (`bakeLocalSkin`) and the client re-skins from that | i16×60, i16×144 (1/8192), u32, i16×20, i16×9 | 470 |
+| **Parts**: per detachable part (bumpers, bonnet, boot, doors, mirrors: 8) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states; loose-wheel bits and each loose wheel's world pose | part transforms and the panels' visibility | u8 + i16×3 per part, + f32×3 + i16×4 per loose part or wheel, u8, u16, u8 | 60 + 20 per loose part or wheel |
 
-Body + skin + parts form one **wreck section** (660 bytes + 20 per loose part), sent only for
+Body + skin + parts form one **wreck section** (659 bytes + 20 per loose part or wheel), sent only for
 `crashed` cars. Header: type u8, keyframe u8, seq u16, host time f64 (s), car count u8, realism u8
-(the host's `HANDLING.realism`, which the client adopts) = 14 bytes. Input (client → host): type,
+(the host's `HANDLING.realism`, which the client adopts), crash phase u8, time scale u16 = 17 bytes. Input (client → host): type,
 throttle i8, steer i8, brake u8, ebrake/boost bits = 5 bytes.
 
 Host-only (never sent): masses' velocities and `world` (client sets `world = group · local`),
@@ -103,20 +103,25 @@ exactly on the host's last state, which is what the consistency target needs.
 
 ### Bandwidth (estimate, per client, host → client)
 
-Payload per snapshot = 14 + 28 × cars while nobody is crushing; a car inside a crush window adds
-660 bytes (+20 per loose part). WebRTC adds ~60 bytes per packet (IP/UDP/DTLS/SCTP).
+Payload per snapshot = 17 + 28 × cars while nobody is crushing; a car inside a crush window adds
+659 bytes (+20 per loose part or wheel). WebRTC adds ~60 bytes per packet (IP/UDP/DTLS/SCTP).
 
 | Cars | Steady payload | Steady @ 30 Hz incl. overhead | Steady @ 20 Hz | One car crushing @ 30 Hz | Keyframe, all crashed |
 |---|---|---|---|---|---|
-| 2 | 70 B | 3.9 KB/s | 2.6 KB/s | +19.8 KB/s | 1.4 KB |
-| 8 | 238 B | 8.9 KB/s | 6.0 KB/s | +19.8 KB/s | 5.5 KB |
-| 16 | 462 B | 15.7 KB/s | 10.4 KB/s | +19.8 KB/s | 11.0 KB |
+| 2 | 73 B | 4.0 KB/s | 2.7 KB/s | +19.8 KB/s | 1.4 KB |
+| 8 | 241 B | 9.0 KB/s | 6.0 KB/s | +19.8 KB/s | 5.5 KB |
+| 16 | 465 B | 15.8 KB/s | 10.5 KB/s | +19.8 KB/s | 11.0 KB |
+| 32 | 913 B | 29.2 KB/s | 19.5 KB/s | +19.8 KB/s | 22.0 KB |
 
 The host uploads that once per client: 16 players at 30 Hz is ~235 KB/s (≈ 1.9 Mbit/s) steady and
 spikes past 1 MB/s when several cars crush at once. So P2P hosting is for ≤ 8 players (the
 template's own guidance); 16 needs 20 Hz plus a relay that fans out one upload (PartyKit room).
-Keyframes stay under the 16 KiB safe DataChannel message size up to 16 cars (22 crashed cars with
-loose parts would cross it; split per car then). Inputs cost 150 B/s per client. The host sends at
+A keyframe is one message on the unreliable `state` channel (`hostFrame` writes every crashed car's
+wreck into it; there is no split). Encoded with the shipping layout, it passes the 16 KiB safe
+DataChannel size at 24 crashed cars with nothing loose (16 505 B), at 20 with every panel loose and at
+18 with every panel and wheel loose; the field allows 32 (`MAX_CARS`). Above 16 KiB the message still
+goes (SCTP fragments it) but a lost fragment loses the whole keyframe, so the client waits for the
+next one (1 s). Splitting per car is the fix if large crashed fields show that. Inputs cost 150 B/s per client. The host sends at
 most one snapshot per rendered frame, so a host below 30 fps sends at its frame rate.
 
 ## Rooms, joining, migration
