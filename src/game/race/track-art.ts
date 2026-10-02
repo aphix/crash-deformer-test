@@ -87,13 +87,14 @@ const WALL_PROFILE: readonly (readonly [number, number])[] = [
   [0.6, -0.3],
 ];
 
-/** Lit start-light colours (linear RGB): red, yellow, green; unlit discs show them × LIGHT_OFF. */
+/** Start-light colours (linear RGB): red, yellow, green; lit × LIGHT_ON (HDR, so bloom catches it), unlit × LIGHT_OFF. */
 const LIGHT_RGB: readonly (readonly [number, number, number])[] = [
   [1, 0.06, 0.03],
   [1, 0.72, 0.04],
   [0.12, 1, 0.25],
 ];
-const LIGHT_OFF = 0.1;
+const LIGHT_ON = 3;
+const LIGHT_OFF = 0.03;
 
 const PAVED = [SURFACE_IDS.indexOf("asphalt"), SURFACE_IDS.indexOf("concrete")];
 
@@ -1146,7 +1147,7 @@ export class TrackArt {
     this.lights = l;
     for (let i = 0; i < this.lampColour.length; i++) {
       const c = this.lampColour[i]!;
-      const k = c === l - 1 ? 1 : LIGHT_OFF;
+      const k = c === l - 1 ? LIGHT_ON : LIGHT_OFF;
       const rgb = LIGHT_RGB[c]!;
       this.lamps.setColorAt(i, this.col.setRGB(rgb[0] * k, rgb[1] * k, rgb[2] * k, THREE.LinearSRGBColorSpace));
     }
