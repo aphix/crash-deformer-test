@@ -818,7 +818,10 @@ export class WheelBatch {
       toned(new THREE.CylinderGeometry(0.07, 0.07, 0.26, 12), 0x8a909a, 0.35, 0.8),
     ];
     for (const p of parts) p.rotateZ(Math.PI / 2);
-    this.mesh = new THREE.InstancedMesh(mergeToned(parts, "wheel"), partsMaterial(), capacity);
+    // Its own copy of the parts material (and shadow depth material): on the material the plain part meshes use,
+    // three re-ran program selection (`getProgram`, an allocation) on every instanced ↔ plain switch, twice a frame.
+    this.mesh = new THREE.InstancedMesh(mergeToned(parts, "wheel"), makePartsMaterial(), capacity);
+    this.mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
     // Instances span the pad and move every frame; a stale bound would cull live wheels.
@@ -983,17 +986,21 @@ function toneGrid(): THREE.DataTexture {
   return t;
 }
 
-/** Shared by every car's multi-tone static parts (interior, wheels, mirrors, trim): colour comes
- * from vertex colours and roughness/metalness from `toneGrid` via UV, so dozens of tiny meshes
+/** Shared by every car's multi-tone static parts (interior, mirrors, trim; the wheels have their own copy): colour
+ * comes from vertex colours and roughness/metalness from `toneGrid` via UV, so dozens of tiny meshes
  * collapse into a few draws that all reuse one program and one uniform upload. Never disposed. */
 function partsMaterial(): THREE.MeshStandardMaterial {
-  if (_partsMat) return _partsMat;
+  _partsMat ??= makePartsMaterial();
+  return _partsMat;
+}
+
+function makePartsMaterial(): THREE.MeshStandardMaterial {
   const grid = toneGrid();
-  _partsMat = capHighlights(
+  const m = capHighlights(
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid }),
   );
-  _partsMat.userData.shared = true;
-  return _partsMat;
+  m.userData.shared = true;
+  return m;
 }
 
 /** Paint `geo` one flat tone: vertex colour (linear, as `material.color` would be) and a UV at the

@@ -35,6 +35,10 @@ const WALL_PERIOD = 4;
 const KERB_CURV = 1 / 60;
 /** A kerb takes the strongest curvature within this many samples (≈ m), so spline ripple never gaps it. */
 const KERB_FILL = 6;
+/** Shadow depth materials for the instanced props (`forDraw`): three's own one draws the plain casters. */
+const DEPTH_INSTANCED = new THREE.MeshDepthMaterial();
+const DEPTH_INSTANCED_COLOR = new THREE.MeshDepthMaterial();
+type DrawKind = "plain" | "instanced" | "instancedColour";
 const KERB_WIDTH = 1.1;
 /** Start / finish chequer depth (m), centred on s = 0; lines stop short of it. */
 const CHEQUER = 2;
@@ -965,6 +969,8 @@ export class TrackArt {
   private readonly meshes: Partial<Record<PrefabId, THREE.InstancedMesh[]>> = {};
   /** Scene-owned materials (lamp heads, light pools) that dispose() leaves alone. */
   private readonly shared: THREE.Material[] = [];
+  /** `forDraw`: per source material, the material each draw kind uses (copies are disposed with the art). */
+  private readonly byKind = new Map<THREE.Material, Partial<Record<DrawKind, THREE.Material>>>();
   private readonly state: Uint8Array;
   private readonly pos: Float32Array;
   private readonly vel: Float32Array;
@@ -1258,7 +1264,24 @@ export class TrackArt {
     mesh.userData.race = tag;
     mesh.receiveShadow = true;
     mesh.castShadow = cast;
+    if (!Array.isArray(mesh.material)) mesh.material = this.forDraw(mesh.material, mesh);
+    if (cast && mesh instanceof THREE.InstancedMesh) mesh.customDepthMaterial = mesh.instanceColor ? DEPTH_INSTANCED_COLOR : DEPTH_INSTANCED;
     this.group.add(mesh);
+  }
+
+  /**
+   * One material per draw kind (plain, instanced, instanced with colours), and the same for the shadow depth
+   * material (above): when one material draws more than one kind, three reselects its program (`getProgram`,
+   * an allocation) at every switch, 4–5 times a frame on a course. A copy links no new program.
+   */
+  private forDraw(m: THREE.Material, mesh: THREE.Mesh): THREE.Material {
+    const kind: DrawKind = mesh instanceof THREE.InstancedMesh ? (mesh.instanceColor ? "instancedColour" : "instanced") : "plain";
+    let copies = this.byKind.get(m);
+    if (!copies) {
+      copies = { [kind]: m };
+      this.byKind.set(m, copies);
+    }
+    return (copies[kind] ??= m.clone());
   }
 
   /** Per-instance tint for natural / building variety (deterministic by placement index); false = none. */
