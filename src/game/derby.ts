@@ -3,10 +3,15 @@ import { idleDrive, type DriveInput } from "./car-drive.ts";
 import { fieldAggression } from "./ai-aggression.ts";
 import { derbyRadius } from "./derby-arena.ts";
 
-/** One point per aggressive hit (the hit clock's definition), at most one per pair per `HIT_DEBOUNCE`. */
+/**
+ * One point per scoring hit: ≥ `SCORE_SPEED` into a live car, at most one per pair per `SCORE_GAP`.
+ * Measured (10 cars, seeds 1–3): tops 10–13 at 2 min, medians 4–6; 2 m/s / 2 s read 15–21.
+ */
 export const HIT_POINTS = 1;
-/** Bonus for the last hit before an engine dies. A typical heat reads single digits to low teens. */
-export const DISABLE_POINTS = 3;
+export const SCORE_SPEED = 4;
+export const SCORE_GAP = 6;
+/** Bonus for the last hit before an engine dies. */
+export const DISABLE_POINTS = 2;
 export const HIT_DEBOUNCE = 2;
 export const WINNER_HOLD = 4.4;
 export const STALEMATE = 90;
@@ -75,6 +80,7 @@ export class DerbyMatch {
   hold = 0;
   board: DerbyBoardRow[] = [];
   private lastHitAt = new Map<PairKey, number>();
+  private lastScoredAt = new Map<PairKey, number>();
   private lastAttacker = new Map<number, number>();
   private wasAlive = new Map<number, boolean>();
   private boostQueue: number[] = [];
@@ -98,6 +104,7 @@ export class DerbyMatch {
     this.decided = null;
     this.hold = 0;
     this.lastHitAt.clear();
+    this.lastScoredAt.clear();
     this.lastAttacker.clear();
     this.wasAlive.clear();
     this.boostQueue.length = 0;
@@ -140,8 +147,8 @@ export class DerbyMatch {
   }
 
   /**
-   * A contact. Debounced per pair. The aggressor (closing into the other) gets HIT_POINTS when the hit is
-   * aggressive (≥ `DERBY_RULES.hitSpeed` into a live car), which also resets its hit clock; pushes don't.
+   * A contact, debounced per pair. An aggressive hit (≥ `DERBY_RULES.hitSpeed` into a live car) resets the
+   * attacker's hit clock; a hard one (≥ `SCORE_SPEED`, once per pair per `SCORE_GAP`) also scores. Pushes don't.
    */
   noteHit(a: number, b: number, aIntoB: number, bIntoA: number, closing: number): boolean {
     if (!this.active || this.winnerId != null) return false;
@@ -154,10 +161,14 @@ export class DerbyMatch {
     const victim = attacker === a ? b : a;
     this.lastAttacker.set(victim, attacker);
     const row = this.row(attacker);
-    if ((attacker === a ? aIntoB : bIntoA) >= DERBY_RULES.hitSpeed && this.row(victim)?.alive && row?.alive) {
-      row.score += HIT_POINTS;
-      row.hits += 1;
+    const into = attacker === a ? aIntoB : bIntoA;
+    if (into >= DERBY_RULES.hitSpeed && this.row(victim)?.alive && row?.alive) {
       this.lastAggro.set(attacker, this.time);
+      if (into >= SCORE_SPEED && this.time - (this.lastScoredAt.get(key) ?? -99) >= SCORE_GAP) {
+        this.lastScoredAt.set(key, this.time);
+        row.score += HIT_POINTS;
+        row.hits += 1;
+      }
     }
     this.boostQueue.push(attacker);
     return true;

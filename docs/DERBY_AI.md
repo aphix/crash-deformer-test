@@ -51,9 +51,11 @@ is `DEFAULT_DERBY_AGGRESSION = 1` (the whole spread, sandbaggers to brawlers; ra
 
 ## Scoring
 
-One point per aggressive hit (the hit clock's definition: ≥ 2 m/s into a live car), at most one per pair
-every 2 s, plus 3 for the last hit before an engine dies. Pushes and grinding don't score. A 10-car heat
-reads single digits to low teens; the score only matters when the time limit decides the heat.
+One point per hard hit (`SCORE_SPEED` 4 m/s into a live car), at most one per pair every `SCORE_GAP` 6 s,
+plus `DISABLE_POINTS` 2 for the last hit before an engine dies. Softer aggressive hits (≥ 2 m/s) still reset
+the hit clock but don't score; pushes and grinding do neither. Headless, 10 cars, seeds 1–3: tops 10–13 and
+medians 4–6 at 2 min (the earlier 2 m/s / 2 s rule read 15–21). The score only matters when the time limit
+decides the heat.
 
 ## Bowl size
 
@@ -63,21 +65,28 @@ reads single digits to low teens; the score only matters when the time limit dec
 ## Validation (10 cars, default slider, real stack, headless)
 
 `derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults,
-`INITIAL_HUD` and killTravel(class, `HANDLING.realism`)) to the end of the heat. CI runs seeds 1,2;
+`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs seeds 1,2;
 `DERBY_SEEDS=1,2,3,4,5` for the full set. Asserted per seed: a winner by the heat time limit; no
 AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
 2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first.
-Todo, owned by CrashRealism7: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
-≥ 4/5 heats won by wrecking (`DERBY_KILL_SCALE`, then this todo becomes the assertion).
+Todo, owned by CrashRealism8: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
+≥ 4/5 heats won by wrecking within 300 s with no death before 8 s.
 
-Main 319fbf1 (realistic crush defaults), 5 seeds, heat limit 300 s:
+Main 3aa4301 (realistic defaults, `DERBY_KILL_SCALE` 0.5), 5 seeds, heat limit 300 s:
 
-| Seed | Decided | Physics deaths (s) | Count-outs | Spins (contact / free) | Zips | Impacts F/R/S (rear %) | Swings / J-turns / sideswipes |
-|---|---|---|---|---|---|---|---|
-| 1 | count-out, c7 at 283.6 s | 36.2, 41.5, 80.3, 80.6, 105.1, 169.8, 190.6, 190.6 | c9 | 11 / 0 | 0 | 58 / 166 / 50 (61) | 25 / 134 / 79 |
-| 2 | time, c8 at 300 s | 32.2, 118.2 | 0 | 3 / 0 | 0 | 44 / 88 / 28 (55) | 5 / 88 / 31 |
-| 3 | time, c7 at 300 s | 58.7, 59.6, 86.2 | 0 | 1 / 0 | 0 | 25 / 98 / 28 (65) | 4 / 104 / 10 |
-| 4 | wreck, c6 at 284.7 s | 36.6, 40.2, 43.5, 76, 165.5, 216.5, 216.5, 262.9, 284.7 | 0 | 7 / 0 | 0 | 47 / 126 / 41 (59) | 20 / 262 / 76 |
-| 5 | time, c4 at 300 s | 35.3, 48.4, 56.9, 82.2, 181, 245.1 | 0 | 5 / 0 | 0 | 53 / 104 / 31 (55) | 13 / 157 / 57 |
+| Seed | Decided | Physics deaths (s) | Count-outs | Spins (contact / free) | Zips | Impacts F/R/S |
+|---|---|---|---|---|---|---|
+| 1 | wreck, c7 at 72.6 s | 5.9, 15.3, 20.9, 21.2, 25.9, 26.5, 52, 65, 72.6 | 0 | 3 / 0 | 0 | 36 / 46 / 14 |
+| 2 | time, c2 at 300 s | 30.8, 48.8, 49, 53.5, 83.4, 204.3, 258.7 | 1 | 0 / 0 | 0 | 30 / 89 / 14 |
+| 3 | time, c5 at 300 s | 27.7, 32, 39.2, 45.5, 204.4, 297.3 | 0 | 1 / 0 | 0 | 20 / 59 / 10 |
+| 4 | count-out, c1 at 176.2 s | 16.4, 45.2, 52, 52.6, 62.5, 70, 100.4, 118.7 | 1 | 0 / 0 | 0 | 44 / 77 / 24 |
+| 5 | wreck, c9 at 112.4 s | 9.2, 12.5, 16.4, 18.3, 41.9, 51.4, 77.1, 94.5, 112.4 | 0 | 5 / 0 | 0 | 14 / 54 / 15 |
+
+Live (real app, 10 cars, main 1d3712f + this scoring): over 120 s of sim time, tracked on the derby clock
+with a neighbour-speed allowance, 0 zips and 0 spins; the board at 120 s read 3–14 and at 24 cars
+(25 s) 0–7, with no horizontal overflow and the clocks fitting. Winner spotlight cost (GPU timer queries,
+RTX 4080 via ANGLE/D3D12, 1280×800, 144 frames per config interleaved, loaded box): spot + glow vs none
++0.02 ms at the 25th percentile, +0.17 ms median; the spread (IQR ~1 ms) is wider than the 0.2 ms budget,
+so that is the resolution of this measurement.
 
 Baseline (old brain, main 7be2ad2, 90 s): 5/5 stalemate, 0–3 deaths, 6–11 spins, rear-first 16–25 %.
