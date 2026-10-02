@@ -135,8 +135,9 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
 - **Public race**: the button asks the relay for open public rooms (`GET api/rtc?list=public`:
-  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 5 s, fullest
-  first) and joins the first, or hosts a new `pub-XXXXXX` room on the race course when none is open.
+  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 5 s, most distinct
+  addresses first, ties in random order) and joins the first, or hosts a new `pub-XXXXXX` room on the
+  race course when none is open.
   - **Lobby**: the public host is car 0 on the course with no menu; the Net panel says "Waiting for
     players… starts in N s; AI drives the empty seats". After `LOBBY_S` = 15 s (or at once when the
     room fills) the race starts with every peer seated as a `remote` slot and AI in the rest. A
@@ -178,17 +179,23 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   - per peer id, keyed by client IP + peer id: 10 req/s, burst 100. One peer polls every 0.4 s while
     connecting and posts an offer or answer plus a few ICE candidates per pair, ~30 requests in an
     8-peer handshake;
-  - per client IP (`x-forwarded-for` first hop, which the VPS nginx overwrites; Vercel sets it):
-    a full room's worth, 80 req/s, burst 800, because friends share one NAT;
+  - per client IP (`x-forwarded-for` first hop, which the VPS nginx overwrites; Vercel sets it; an
+    IPv6 caller counts as its /64): a full room's worth, 80 req/s, burst 800, because friends share
+    one NAT;
   - the public-room list: one peer's budget per IP. No bucket is shared across addresses (a former
     per-room bucket let one outsider rotating peer ids 429 a room's members).
   - The table holds 20 000 buckets and evicts the least recently used one when full (O(1)): minted
     keys can no longer lock every new caller out, and an evicted caller restarts from a full bucket.
+- Phantom public rooms: each peer row keeps an address hash salted by a per-process secret
+  (`0004_webrtc_peer_ip_tag.sql`). The list ranks rooms by distinct addresses, so one address padding
+  its rooms with idle peers ranks like a lone host, and one address may host at most 2 live public
+  rooms (429 "too many public rooms"). Before: one address's 7-peer rooms outranked every real room.
 - Only a seated peer may signal another seated peer of its room (403). One sender may have at most
   60 live signals waiting for one peer (429), so no member can fill another's inbox.
 - Peers expire 30 s after their last poll and signals after 60 s; joins and ~2 % of polls prune, so
   an empty room disappears within 30 s. Stored: a random peer id, its role tag and seat, a token
-  hash, SDP/ICE, nothing past those TTLs. Works on PGLite in one long-lived node process.
+  hash, a salted address hash, SDP/ICE, nothing past those TTLs. Works on PGLite in one long-lived
+  node process.
 - Errors are logged by name only (driver messages can carry connection strings or hosts).
 - Measured on `vite dev`: invalid room or tag → 400; ninth peer → 409; signal from a non-member →
   403. Eight pages from one IP (no `x-forwarded-for`: one shared address) pressing Public race:

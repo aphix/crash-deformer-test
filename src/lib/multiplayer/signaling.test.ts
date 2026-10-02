@@ -25,9 +25,8 @@ interface Reply {
 
 let lastIp = 0;
 
-/** One browser tab on the relay: its own address and peer id, and the token once one is issued. */
-function tab(sql: Sql, room: string, id: string, name = "client") {
-  const ip = `10.0.${lastIp >> 8}.${lastIp++ & 255}`;
+/** One browser tab on the relay: its address (its own unless given) and peer id, and the token once one is issued. */
+function tab(sql: Sql, room: string, id: string, name = "client", ip = `10.0.${lastIp >> 8}.${lastIp++ & 255}`) {
   const self = {
     id,
     name,
@@ -120,6 +119,27 @@ describe("signaling relay", () => {
     );
     assert.equal((await flooder.offer(host.id)).status, 429);
     assert.equal((await late.offer(host.id)).status, 200);
+  });
+
+  it("ranks a public room of real players above one address's padded rooms, and caps the rooms it hosts", async () => {
+    // Every attacker tab has its own address, all in one subscriber's IPv6 /64.
+    let n = 0;
+    const attacker = (room: string, id: string, name?: string) => tab(sql, room, id, name, `2001:db8:0:1::${(++n).toString(16)}`);
+    for (const [k, room] of ["pub-race-AAAA01", "pub-race-AAAA02"].entries()) {
+      assert.equal((await attacker(room, `a${k}h`, "host").poll()).status, 200);
+      for (let c = 0; c < ROOM_MAX - 2; c++) assert.equal((await attacker(room, `a${k}c${c}`).poll()).status, 200);
+    }
+    await tab(sql, "pub-race-ZZZZ01", "realhost", "host").poll();
+    await tab(sql, "pub-race-ZZZZ01", "realguest").poll();
+    const list = await handleSignaling(
+      new Request("http://relay.test/api/rtc?list=public&kind=race", { headers: { "x-forwarded-for": "10.9.9.9" } }),
+      async () => sql,
+    );
+    const listed: { rooms: { room: string }[] } = await list.json();
+    assert.equal(listed.rooms[0]?.room, "pub-race-ZZZZ01");
+
+    const third = await attacker("pub-race-AAAA03", "a2h", "host").poll();
+    assert.deepEqual([third.status, third.body.error], [429, "too many public rooms"]);
   });
 
   it("migrates a store the pre-token relay wrote", async () => {
