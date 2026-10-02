@@ -6,7 +6,7 @@ import { DeformableCar } from "../car.ts";
 import { blankAiCar, type AiCar } from "../derby-ai.ts";
 import { snapshotAiCar } from "../derby.ts";
 import { fleetStyle } from "../fleet.ts";
-import { SURFACE_IDS, SURFACES } from "./catalog.ts";
+import { SURFACES } from "./catalog.ts";
 import { onSurface } from "./race-ai.ts";
 import { Track, blankProjection, projectPath } from "./track.ts";
 import { TrafficBrain } from "./traffic.ts";
@@ -28,7 +28,7 @@ function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sampl
   for (let step = 0; step < seconds / DT; step++) {
     fleet.forEach((c, i) => snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses));
     fleet.forEach((c, i) => {
-      const surf = SURFACES[SURFACE_IDS[ground.surfaceIndex(c.group.position.x, c.group.position.z)]!];
+      const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
       applyDrive(c, onSurface(i === frozen ? park : brain.think(snaps[i]!, snaps, DT), surf, scratch), DT);
       c.integrate(DT);
     });

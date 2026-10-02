@@ -583,4 +583,8 @@ export class TrackGround implements Ground {
   frictionAt(x: number, z: number): number {
     return SURFACES[SURFACE_IDS[this.surfaceIndex(x, z)]!].grip;
   }
+
+  surfaceAt(x: number, z: number): SurfaceId {
+    return SURFACE_IDS[this.surfaceIndex(x, z)]!;
+  }
 }

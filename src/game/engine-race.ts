@@ -7,7 +7,7 @@ import { MAX_CARS } from "./fleet.ts";
 import { setGround } from "./ground.ts";
 import { impulseCar } from "./pair-contact.ts";
 import { Campaign } from "./race/campaign.ts";
-import { SURFACE_IDS, SURFACES } from "./race/catalog.ts";
+import { SURFACES } from "./race/catalog.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "./race/placements.ts";
 import { RaceBrain, onSurface } from "./race/race-ai.ts";
 import { RaceSession } from "./race/session.ts";
@@ -316,7 +316,7 @@ export class RaceDirector {
     const traffic = this.traffic;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
-      const surf = SURFACES[SURFACE_IDS[ground.surfaceIndex(car.group.position.x, car.group.position.z)]!];
+      const surf = SURFACES[ground.surfaceAt(car.group.position.x, car.group.position.z)];
       if (i >= racers) {
         applyDrive(car, onSurface(traffic ? traffic.think(snaps[i]!, snaps, dt) : this.hold, surf, this.scratch), dt);
         continue;
