@@ -199,14 +199,15 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     assert.ok(max.face < wells.face - 0.5);
   });
 
-  it("edge: walls stay symmetric — |z| of front bumper rest-travel ≈ rear", () => {
+  it("edge: walls stay symmetric — |z| of the front bumper ≈ the rear's, in the world (the plates' frame)", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.maxFace);
     const fl = r.d.masses.find((m) => m.name === "bumperFL")!;
     const rl = r.d.masses.find((m) => m.name === "bumperRL")!;
+    // World, not `local`: a squeeze's group follows the cell now, so `local` z is measured from the cell.
     assert.ok(
-      Math.abs(Math.abs(fl.local.z) - Math.abs(rl.local.z)) < (mode === "shape" ? 0.85 : 0.35),
-      `front ${fl.local.z.toFixed(3)} rear ${rl.local.z.toFixed(3)} [${mode}]`,
+      Math.abs(Math.abs(fl.world.z) - Math.abs(rl.world.z)) < (mode === "shape" ? 0.85 : 0.35),
+      `front ${fl.world.z.toFixed(3)} rear ${rl.world.z.toFixed(3)} [${mode}]`,
     );
   });
 
@@ -424,5 +425,37 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
       `wells travel ${nWells.toFixed(3)} >> ate ${ateWells.toFixed(3)}`,
     );
     assert.ok(nMid < ateMid + 0.45, `mid travel ${nMid.toFixed(3)} >> ate ${ateMid.toFixed(3)}`);
+  });
+});
+
+describe("a held press keeps its crush", () => {
+  // The squeeze pinned the group at the world origin and clamped each particle's local offset from
+  // rest, which then also carried the cell's own deep-crush travel: a 2 s hold at max face sprang
+  // bumpers 0.67–0.81 m back toward their rest distance from the cell.
+  it("bad: 2 s held at max face, no particle's distance change to the cell shrinks more than the 0.08 m springback", () => {
+    for (const squash of [0.32, 0.4]) {
+      const car = makeCar("shape", squash);
+      car.spawnFacing(0, 0, 0, 0);
+      const r = new Rig(car);
+      r.runTo(COMPACTOR.maxFace);
+      const d = r.d;
+      const cell = d.masses.find((m) => m.name === "cell")!;
+      const crush = (m: (typeof d.masses)[number]) => (m.hub ? 0 : Math.abs(m.local.distanceTo(cell.local) - m.rest.distanceTo(cell.rest)));
+      const at = d.masses.map(crush);
+      let drop = 0;
+      let worst = "";
+      for (let f = 0; f < 120; f++) {
+        r.step(1 / 60, COMPACTOR.maxFace);
+        car.afterContacts(1 / 60);
+        car.updateDeform(1 / 60);
+        d.masses.forEach((m, i) => {
+          if (at[i]! - crush(m) > drop) {
+            drop = at[i]! - crush(m);
+            worst = `${m.name} ${(at[i]! * 1000).toFixed(0)} → ${(crush(m) * 1000).toFixed(0)} mm`;
+          }
+        });
+      }
+      assert.ok(drop <= 0.08, `squash ${squash}: ${worst} during the hold`);
+    }
   });
 });

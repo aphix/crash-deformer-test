@@ -295,6 +295,9 @@ export class StreamedDeformation {
   killTravel = ENGINE_KILL_TRAVEL;
   /** Both ends are crumple zones (car-compactor / two-wall squeeze). */
   bidirectional = false;
+  /** Sticky until reset: this car was squeezed / deep-crushed, so `clampLocal` keeps those shape limits. */
+  private squeezeShape = false;
+  private deepShape = false;
   /** Masses resting on the face after the last projectOutOfBox call. */
   faceContacts = 0;
   /** Walls past both wheel midpoints: the cage and rails may yield. Reads false while `frameCrush` is off. */
@@ -807,6 +810,8 @@ export class StreamedDeformation {
     this.engineTravel = 0;
     this.bidirectional = false;
     this.deepCrush = false;
+    this.squeezeShape = false;
+    this.deepShape = false;
     this.prevYaw = 0;
     this.rateYaw = 0;
     this.rateAt = 0;
@@ -1571,8 +1576,10 @@ export class StreamedDeformation {
     _a.set(lx, 0, lz).applyQuaternion(group.quaternion);
     _b.set(0, 1, 0).applyQuaternion(group.quaternion);
     _a.addScaledVector(_b, (wy - gy - _a.y) / _b.y);
-    if (this.bidirectional) group.position.set(0, gy, 0);
-    else group.position.set(wx - _a.x, gy, wz - _a.z);
+    // A squeeze anchors on the cell too. Pinning the group at the world origin read a free car's travel
+    // as crush: the caps (cell 0.12–0.72 m) held the cell near the origin while the shoved car moved on,
+    // and fire("all")'s bumperFR sprang 0.50 → 0.02 m in the 0.25 s after the heads left.
+    group.position.set(wx - _a.x, gy, wz - _a.z);
     group.updateWorldMatrix(false, false);
     _toLocal.copy(group.matrixWorld).invert();
 
@@ -2313,7 +2320,14 @@ export class StreamedDeformation {
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     const maxAway = 0.025 + this.squash * 0.04;
-    const maxCrush = this.bidirectional ? 1.65 : 0.5 + this.squash * 1.15;
+    // A squeeze's relaxed shape limits stay until reset: clamping a squeezed shape back to the one-ended
+    // limits when the squeeze ended popped the dents out (fire("all"): bumperFL 0.49 → 0.30 m in 1 s).
+    // Only the squeeze's rules (origin pin, no planting, no re-arm) end with it.
+    if (this.bidirectional) this.squeezeShape = true;
+    if (this.deepCrush) this.deepShape = true;
+    const squeeze = this.squeezeShape;
+    const deep = this.deepShape;
+    const maxCrush = squeeze ? 1.65 : 0.5 + this.squash * 1.15;
     // B1/B3/B4: a hit only crushes as far as its stroke reaches (armMasses has no hit).
     const stroke = this.hitSpeed >= 0 ? this.hitStroke() : Infinity;
     const sideHit = Math.abs(ix) > Math.abs(iz);
@@ -2323,12 +2337,12 @@ export class StreamedDeformation {
       let dz = m.local.z - m.rest.z;
       // Earlier hits' damage stays put: the far-side spring and the crush/lateral caps below
       // measure only what the current hit adds on top of it.
-      const bx = this.bidirectional ? 0 : m.baseX;
-      const bz = this.bidirectional ? 0 : m.baseZ;
+      const bx = squeeze ? 0 : m.baseX;
+      const bz = squeeze ? 0 : m.baseZ;
       const base = bx * ix + bz * iz;
       const along = dx * ix + dz * iz - base;
       const side = m.rest.x * ix + m.rest.z * iz;
-      if (!this.bidirectional && side > 0.12) {
+      if (!squeeze && side > 0.12) {
         // Far side of the car: allow a little spring, never grow the shell.
         if (along > maxAway) {
           const extra = along - maxAway;
@@ -2347,23 +2361,23 @@ export class StreamedDeformation {
       }
       const maxDy =
         m.name === "roof"
-          ? this.deepCrush
+          ? deep
             ? 0.28
             : 0.07
           : m.hub
             ? 0.07
             : m.name === "cell"
-              ? this.deepCrush
+              ? deep
                 ? 0.22
                 : 0.06
               : 0.11;
       dy = THREE.MathUtils.clamp(dy, -maxDy, maxDy * 1.25);
-      const cw = this.bidirectional ? 1 : this.cornerWeight(m);
-      const latCap = this.bidirectional ? 0.55 : 0.04 + cw * 0.07;
-      if (this.bidirectional || m.hub) {
+      const cw = squeeze ? 1 : this.cornerWeight(m);
+      const latCap = squeeze ? 0.55 : 0.04 + cw * 0.07;
+      if (squeeze || m.hub) {
         // A hub keeps at least the shove a face gave it, popped or not.
         const shove = m.hub ? Math.hypot(m.shoveX, m.shoveZ) : 0;
-        const cap = m.name === "cell" || m.name === "roof" ? (this.deepCrush ? 0.72 : 0.12) : m.hub ? Math.max(this.bidirectional ? 0.95 : 0.38, shove) : maxCrush;
+        const cap = m.name === "cell" || m.name === "roof" ? (deep ? 0.72 : 0.12) : m.hub ? Math.max(squeeze ? 0.95 : 0.38, shove) : maxCrush;
         const len = Math.hypot(dx, dz);
         if (len > cap) {
           const k = cap / len;
@@ -2371,11 +2385,32 @@ export class StreamedDeformation {
           dz *= k;
         }
         if (Math.abs(dx) > Math.max(latCap, Math.abs(m.shoveX))) dx = Math.sign(dx) * Math.max(latCap, Math.abs(m.shoveX));
+        if (squeeze && !m.hub && m.name !== "cell") {
+          // A squeezed shape keeps its set like a one-ended hit's: only the last SPRINGBACK of a
+          // particle's distance change to the cell (shortened or bowed out) is elastic. Shape matching
+          // and the cabin fold sprang fire("all")'s bumpers 0.10–0.46 m back out once the heads left.
+          const c = this.at.cell;
+          const rx = m.rest.x + dx - c.local.x;
+          const ry = m.rest.y + dy - c.local.y;
+          const rz = m.rest.z + dz - c.local.z;
+          const len = Math.hypot(rx, ry, rz);
+          const restLen = m.rest.distanceTo(c.rest);
+          const dev = restLen - len;
+          const set = m.crushSet;
+          if (Math.abs(dev) - SPRINGBACK > Math.abs(set)) m.crushSet = dev - Math.sign(dev) * SPRINGBACK;
+          // A bowed-out set holds only out of contact: a face still pressing may push the panel back in.
+          else if (len > 1e-6 && (set > 0 ? dev < set : dev > set && this.quietTime() > 0.025)) {
+            const k = (restLen - set) / len;
+            dx = c.local.x + rx * k - m.rest.x;
+            dy = c.local.y + ry * k - m.rest.y;
+            dz = c.local.z + rz * k - m.rest.z;
+          }
+        }
       } else {
         // Hit frame: crush runs along impactInward, the rest of the planar travel is lateral. The
         // stroke is the struck end's total (rearmHit), so a node already crushed along it gets less.
         const cabin = m.name === "cell" || m.name === "roof";
-        let cap = cabin ? (this.deepCrush ? 0.72 : 0.12) : Math.min(maxCrush * (0.38 + 0.72 * cw), stroke);
+        let cap = cabin ? (deep ? 0.72 : 0.12) : Math.min(maxCrush * (0.38 + 0.72 * cw), stroke);
         if (sideHit && (m.name === "doorL" || m.name === "doorR")) cap = Math.min(cap, m.bands.max);
         cap = Math.max(0, cap - Math.max(0, base));
         dx -= bx;
@@ -2398,7 +2433,7 @@ export class StreamedDeformation {
         dx = along * ix + px + bx;
         dz = along * iz + pz + bz;
       }
-      if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && !sideHit && iz < 0) {
+      if ((m.name === "engineL" || m.name === "engineR") && !squeeze && !sideHit && iz < 0) {
         // The mounts hold the block (ENGINE_SLACK past earlier hits' set) until the crushed nose packs
         // against it; the packed nose then shoves it back, as far as this hit's stroke reaches. A
         // floor at the stroke's reach let a 43 km/h hit creep the block 0.045 m with 0.58 m of nose left.
@@ -2409,7 +2444,7 @@ export class StreamedDeformation {
         if (dz < floor) dz = floor;
         if (dz > pushed) dz = pushed;
       }
-      if (m.hub && !this.deepCrush) {
+      if (m.hub && !deep) {
         if (!m.popped && this.hitSpeed >= HUB_POP_MPS && !sideHit && Math.abs(this.impactLocal.x) >= 0.2 && cw > 0.6) {
           // C4: wheels leave where real cars lose them — a hard off-centre (small overlap) hit whose
           // struck corner has crushed through the overhang onto the tyre. A full-width hit loads
@@ -2427,7 +2462,7 @@ export class StreamedDeformation {
         }
       }
       m.local.set(m.rest.x + dx, m.rest.y + dy, m.rest.z + dz);
-      if (this.bidirectional) {
+      if (squeeze) {
         const lim = Math.abs(m.rest.z) + 0.04;
         if (Math.abs(m.local.z) > lim) m.local.z = Math.sign(m.local.z || m.rest.z) * lim;
         if (this.deepCrush && this.mode === "lattice" && m.rail) {

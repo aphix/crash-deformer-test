@@ -1276,6 +1276,33 @@ both cars, `tbone-gap.ts` the test metric against any `ROOT`, `bench.ts` the
   tail whose beams yield at any force. `bleedAfterSlide` is one function
   (`physics-util.ts`) for the engine and the test harness, with 9e36c2e's
   semantics.
+- **Derby lethality:** `killTravel(cls, realism, "derby")` = `DERBY_KILL_SCALE`
+  (0.5) × the race/fleet value (HANDLING.md). The six-car `derby:elimination`
+  todo now passes (was 0/5).
+- **Squeeze snap-back (ContactParity `107db69`).** Probes `snapback.ts`,
+  `snap-attr.ts`, `press-hold.ts`. Three causes, all measured per call:
+  (1) `afterContacts` cleared `bidirectional`/`deepCrush` 0.25 s after an end
+  stopped being struck and `clampLocal` re-applied the one-ended limits
+  (fire("all") doorR 104 → 2 mm); (2) the squeeze pinned the group at the
+  world origin, so a free car's travel read as crush and the cell caps
+  dragged it back (bumperFR 0.50 → 0.02 m while still squeezed; a 2 s press
+  hold at max face: bumperFR 1.29 → 0.62 m from the cell); (3) shape matching
+  and the cabin fold sprang squeezed ends back 0.10–0.46 m in their last
+  0.35 s window. Fix: `clampLocal` keeps the squeeze/deep shape limits until
+  `reset` (only the origin-free anchor, planting and re-arm rules end with the
+  squeeze); the squeeze anchors the group on the cell like any hit; a
+  squeezed particle keeps its set distance change to the cell less
+  `SPRINGBACK` (a bowed-out set holds only out of contact, so a pressing face
+  can still push it in). fire("all") and the shape-mode press hold now lose
+  ≤ 0.08 m. The compactor symmetry test reads world z (the plates' frame):
+  `local` is cell-relative now. Lattice press hold still wobbles a rail
+  ±0.1 m (0.19 m drop; 0.21–0.30 m before), open.
+- **Free-car squeeze (open).** Reporting car-car struck ends
+  (`noteContactEnd` from `resolveCarPair`) balances a 40 km/h sandwich (A nose
+  / tail 166 / 25 → 246 / 227 mm) but the middle car then crushes 1.4–1.9× the
+  striking noses, and two derby tests fail (≥ 10 deaths, re-armed-wreck
+  zips). Not landed; the `feedOverlap` gate = 1 under a squeeze is not the
+  cause (removing it changed A by 2 mm).
 
 ## Appendix
 
