@@ -160,13 +160,17 @@ export const ARCADE_KILL_TRAVEL = 0.55;
 const KILL_CEILING = 0.63;
 
 /**
- * Derby kill travel × the race/fleet value. Ten-car derby (derby-ai.test runField), seeds 1–5, realistic
- * defaults, 300 s heats (lane crash-realism-8, after the wreck-spin fix): ×0.5 wrecks 1/5 (two count-outs,
- * two at the limit); ×0.46 3/5, first death 10.6 s; ×0.44 3/5, first death 5.8 s; ×0.36 4/5, first death
- * 2.6 s. Below ×0.46 a single hard hit kills before any wrecking has accumulated.
- * A derby is a wrecking contest; a race or fleet car keeps the sourced tolerance.
+ * Derby kill limits: travel × the race/fleet value, plus wear (`StreamedDeformation.wreckEnergy`: every hit's
+ * EBS² capped at 36 m²/s², summed over all ends); the travel share and the wear share add. Lane
+ * crash-realism-8 swept the scale alone (ten-car derby, seeds 1–5, 300 s): ×0.46 wrecks 3/5, first death
+ * 10.6 s; ×0.36 4/5 but first death 2.6 s: below ×0.46 one hard hit kills before any wrecking has added up.
+ * crash-realism-10, on the contact-spin fix: ×0.46 alone 3/5 wrecks, every death by travel alone. With wear
+ * (seeds 1–5): ×0.79 / 400 wrecks 5/5, first deaths 14.1–36.9 s, every heat tail first; ×0.69 / 400 4/5 but
+ * seed 1 nose-heavy (F55/R64); ×0.69 / 300 a death at 4.7 s; ×0.69 / 500 3/5. A derby is a wrecking
+ * contest; a race or fleet car keeps the sourced tolerance and no wear limit.
  */
-export const DERBY_KILL_SCALE = 0.46;
+export const DERBY_KILL_SCALE = 0.7935;
+export const DERBY_WRECK_ENERGY = 400;
 
 /** Engine-kill travel (m) for a class at `realism`, in a derby or anywhere else. */
 export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "default"): number {
@@ -174,6 +178,12 @@ export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "
   const arcade = Math.min(KILL_CEILING, ARCADE_KILL_TRAVEL * (1 + (d - 1) * 0.5));
   const real = Math.min(KILL_CEILING, REAL_KILL_TRAVEL * d);
   return THREE.MathUtils.lerp(arcade, real, THREE.MathUtils.clamp(realism, 0, 1)) * (ctx === "derby" ? DERBY_KILL_SCALE : 1);
+}
+
+/** A car's kill limits for its context: engine travel, plus the wreck energy in a derby. */
+export function armKill(deform: { killTravel: number; wreckEnergy: number }, id: VehicleClassId, realism: number, ctx: "derby" | "default"): void {
+  deform.killTravel = killTravel(id, realism, ctx);
+  deform.wreckEnergy = ctx === "derby" ? DERBY_WRECK_ENERGY : Infinity;
 }
 
 /** Lateral grip share kept at the realistic end (the arcade end is 1). */

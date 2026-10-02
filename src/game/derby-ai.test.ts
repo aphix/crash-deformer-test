@@ -11,7 +11,7 @@ import { CAR_HALF } from "./car-mesh.ts";
 import { physicsSlice } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
-import { assignClass, carClass, HANDLING, killTravel } from "./vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING } from "./vehicle-classes.ts";
 import { INITIAL_HUD } from "./hud-store.ts";
 
 function car(id: number, extra: Partial<AiCar> = {}): AiCar {
@@ -246,7 +246,7 @@ function runField(n: number, seed: number): Field {
     c.deform.setMode(INITIAL_HUD.deformMode);
     const cls = carClass(c);
     assignClass(c, cls);
-    c.deform.killTravel = killTravel(cls, HANDLING.realism, "derby");
+    armKill(c.deform, cls, HANDLING.realism, "derby");
   });
   const out: Field = {
     seed,
@@ -424,11 +424,32 @@ describe("derby, ten AI cars at the default slider", () => {
     }
   });
 
+  // The contact-spin steer cap must leave the owner's tactics alone. Seeds 1–5 on 943ae5c (before it):
+  // swings 35, J-turns 434, sideswipes 126 (J-turn share 0.73), every heat ≥ 1 swing and sideswipe; after
+  // it (d516b54) 29 / 387 / 121 (0.72); with derby wear 32 / 418 / 130 (0.72).
+  it("good: every heat has a tail swing and a sideswipe, and J-turns stay most of the moves", () => {
+    let swings = 0;
+    let jturns = 0;
+    let sideswipes = 0;
+    for (const r of runs) {
+      assert.ok(r.swings >= 1 && r.sideswipes >= 1, rows.join("\n"));
+      swings += r.swings;
+      jturns += r.jturns;
+      sideswipes += r.sideswipes;
+    }
+    assert.ok(jturns / (swings + jturns + sideswipes) >= 0.73 * 0.7, rows.join("\n"));
+  });
+
   // Measured on 3aa4301 (derby kill travel, seeds 1–5): wreck 2/5 (72.6 s, 112.4 s), count-out 1, time 2;
-  // seed 1's first death at 5.9 s. CrashRealism8 (wreck-spin fix, DERBY_KILL_SCALE 0.46): wreck 3/5 (62.9,
-  // 100.5, 99.5 s), time 2; first deaths 10.6–25.6 s. Below ×0.46 a single hit kills inside 8 s (×0.36: 4/5,
-  // first death 2.6 s), so the last heat needs accumulation, not a lower scale. Owner: CrashRealism8.
-  it.todo("derby:wreck — ≥ 4/5 ten-car heats end last car standing by wrecking inside 300 s, first death after 8 s");
+  // seed 1's first death at 5.9 s. CrashRealism8 (wreck-spin fix, DERBY_KILL_SCALE 0.46): wreck 3/5. Below
+  // ×0.46 a single hit kills inside 8 s (×0.36: 4/5, first death 2.6 s). On the contact-spin fix, travel
+  // alone: wreck 3/5 (41.4, 154.1, 122.3 s), time 2, first death 13.8 s. With wear (`armKill`): see below.
+  it("bad: ≥ 4/5 ten-car heats end last car standing by wrecking inside 300 s, and nobody dies in the first 8 s", () => {
+    const all = [1, 2, 3, 4, 5].map((seed) => runs.find((r) => r.seed === seed) ?? runField(10, seed));
+    const msg = all.map((r) => `seed ${r.seed}: ${r.decided} at ${r.t} s, first death ${r.deaths[0] ?? "none"}`).join("; ");
+    assert.ok(all.filter((r) => r.decided === "wreck").length >= 4, msg);
+    for (const r of all) assert.ok((r.deaths[0] ?? Infinity) > 8, msg);
+  });
 
   // Peak heading rate over 0.1 s in contact (probe, seeds 1–5, 120 s): 6.0–9.1 rad/s before the wreck-spin
   // fix, 4.67–6.42 on 71ad020 (4.86 free: the AI's own steer, contact stacked on it). Now 4.18–4.93: clampLocal

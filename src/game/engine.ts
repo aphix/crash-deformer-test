@@ -14,7 +14,7 @@ import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-sto
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, VAPOR_DEPTH, edgeAction, fleetClass, fleetStyle, layoutFleet, layoutDerby, respawnSlot } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
-import { assignClass, carClass, CLASSES, damageStage, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
+import { armKill, assignClass, carClass, CLASSES, damageStage, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
 import { WorldStage, makeLamp, makePoolTexture } from "./engine-world.ts";
 import { Cinematics } from "./engine-cine.ts";
 import { FX_TIERS, type FxTier } from "./engine-post.ts";
@@ -681,7 +681,7 @@ export class CrashEngine {
   /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
   setRealism(value: number): void {
     HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
-    for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
+    for (const car of this.cars) armKill(car.deform, carClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
     this.emitHud(true);
   }
 
@@ -849,7 +849,7 @@ export class CrashEngine {
     // Re-dress after a respawn re-attached its parts, and arm the slider's kill travel (a derby's is shorter).
     const cls = carClass(car);
     assignClass(car, cls);
-    car.deform.killTravel = killTravel(cls, HANDLING.realism, this.derbyMode ? "derby" : "default");
+    armKill(car.deform, cls, HANDLING.realism, this.derbyMode ? "derby" : "default");
   }
 
   private onKey = (e: KeyboardEvent): void => {

@@ -8,7 +8,7 @@ import { INITIAL_HUD } from "../hud-store.ts";
 import { resolveCarPair } from "../pair-contact.ts";
 import { leftoverCrumple } from "../physics-util.ts";
 import { physicsSlice, sliceSpeed } from "../sat.ts";
-import { assignClass, carClass, HANDLING, killTravel } from "../vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING } from "../vehicle-classes.ts";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "../ground.ts";
@@ -66,7 +66,7 @@ export function makeWorld(): World {
       car.deform.setMode(INITIAL_HUD.deformMode);
       const cls = carClass(car);
       assignClass(car, cls);
-      car.deform.killTravel = killTravel(cls, HANDLING.realism, "default");
+      armKill(car.deform, cls, HANDLING.realism, "default");
     },
     setPaused: () => {},
     leave: () => {},

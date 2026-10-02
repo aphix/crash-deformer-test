@@ -12,7 +12,7 @@ import { physicsSlice } from "./sat.ts";
 import { stepCarPair, resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
 import { CAGES } from "./rig-spec.ts";
-import { carClass, DEFAULT_REALISM, killTravel } from "./vehicle-classes.ts";
+import { armKill, carClass, DEFAULT_REALISM } from "./vehicle-classes.ts";
 
 function car(id: number, extra: Partial<AiCar> = {}): AiCar {
   return { ...blankAiCar(id), vz: 8, ...extra };
@@ -371,7 +371,7 @@ function centroid(car: DeformableCar): { x: number; z: number } {
 
 /**
  * Crush knobs a derby runs at. `rear` is chassisRear's maxCrush; `realism` arms each car's class kill
- * travel as the engine's derby does (`killTravel(…, "derby")`), null keeps the deformer's sourced 0.15 m.
+ * travel and wreck energy as the engine's derby does (`armKill(…, "derby")`), null keeps the deformer's sourced 0.15 m.
  */
 type Knobs = { squash: number; rear: number; realism: number | null };
 /** Main's knobs before the crush calibration. */
@@ -441,7 +441,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
       c.deform.squash = knobs.squash;
       c.deform.buckle = 0.45;
       c.deform.setMode("shape");
-      if (knobs.realism !== null) c.deform.killTravel = killTravel(carClass(c), knobs.realism, "derby");
+      if (knobs.realism !== null) armKill(c.deform, carClass(c), knobs.realism, "derby");
     }
     const wedged = new Array<number>(n).fill(0);
     let worstWedge = 0;
