@@ -398,6 +398,9 @@ export class StreamedDeformation {
   /** Body-frame x/z of each particle when stepShapeMatch started (net-spin removal). */
   private startX = new Float64Array(0);
   private startZ = new Float64Array(0);
+  /** World x/z of each mass at `holdTurn` (a position-only pass's net turn, undone by `undoTurn`). */
+  private turnX = new Float64Array(0);
+  private turnZ = new Float64Array(0);
   /** Cluster skin weights per vertex (≤ SKIN_K): count (0 = cage fallback), `clusterXf` offset, weight. */
   private skinN = new Uint8Array(0);
   private skinXf = new Int32Array(0);
@@ -647,6 +650,8 @@ export class StreamedDeformation {
     this.goalW = new Float64Array(this.masses.length);
     this.startX = new Float64Array(this.masses.length);
     this.startZ = new Float64Array(this.masses.length);
+    this.turnX = new Float64Array(this.masses.length);
+    this.turnZ = new Float64Array(this.masses.length);
     this.clusters = SHAPE_CLUSTERS.map((spec) => makeCluster(this.shapeParticles, spec.masses.map((n) => nameIndex.get(n)!)));
     this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
     this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
@@ -1475,6 +1480,7 @@ export class StreamedDeformation {
     const slice = dt / CONTACT_REF_SLICE;
     for (let i = 0; i < nA; i++) massesA[i]!.clipping = false;
     for (let j = 0; j < nB; j++) massesB[j]!.clipping = false;
+    let hit = false;
     for (let i = 0; i < nA; i++) {
       const a = massesA[i]!;
       const ax = a.world.x;
@@ -1489,10 +1495,21 @@ export class StreamedDeformation {
         const minD = ar + b.radius;
         const d2 = dx * dx + dy * dy + dz * dz;
         if (d2 >= minD * minD) continue;
+        if (!hit) {
+          this.holdTurn();
+          other.holdTurn();
+          hit = true;
+        }
         a.clipping = true;
         b.clipping = true;
         sphereHit(a, b, slice);
       }
+    }
+    // The overlap push is positional: off the centroid it turned the car with no torque (derby seed 4
+    // c9: 0.256 rad in 0.15 s). Its impulse already carries the turn a real contact gives.
+    if (hit) {
+      this.undoTurn();
+      other.undoTurn();
     }
   }
 
@@ -1838,17 +1855,29 @@ export class StreamedDeformation {
 
   /**
    * Push the passenger cell out of overlap. Crumple-zone masses stay on the
-   * contact plane so the leftover penetration becomes plastic crush.
+   * contact plane so the leftover penetration becomes plastic crush — only as
+   * far as the push runs into the struck end (impactInward). Across it, e.g. a
+   * derby shove on the side of a car whose last hit was frontal, the lagging
+   * nose read as a turn of the engine→axle axis and clampLocal turned the whole
+   * wreck with it, with no angular momentum (zips 2 → 0 in derby seed 1, 120 s).
+   * Positions only: the uneven push changed Σ m r × v of a wreck whose nose and
+   * cabin move apart, and the next clamp kept it as spin (derby seed 4 c0: −2.5
+   * rad/s of L/I in 0.6 s of shoving), so the angular momentum is handed back.
    */
   separateAlong(nx: number, ny: number, nz: number, amount: number): void {
     if (!this.massActive) return;
+    const spin = this.yawMomentum();
+    const gc = Math.cos(this.prevYaw);
+    const gs = Math.sin(this.prevYaw);
+    const into = Math.max(0, (nx * gc - nz * gs) * this.impactInward.x + (nx * gs + nz * gc) * this.impactInward.z);
     for (const m of this.masses) {
       if (!m.dynamic) continue;
-      const keep = 1 - this.crumpleWeight(m) * 0.88;
+      const keep = 1 - this.crumpleWeight(m) * 0.88 * into;
       m.world.x += nx * amount * keep;
       m.world.y += ny * amount * keep;
       m.world.z += nz * amount * keep;
     }
+    this.yawMomentum(spin);
   }
 
   /** Kill incoming speed on the cabin only — crumple zones keep their inertia. */
@@ -2374,6 +2403,12 @@ export class StreamedDeformation {
     const stroke = this.hitSpeed >= 0 ? this.hitStroke() : Infinity;
     const sideHit = Math.abs(ix) > Math.abs(iz);
     const spin = this.yawMomentum();
+    const pinned = !this.deepCrush && this.quietTime() > 0.2;
+    // A squeeze's plates pin the shape in the world frame and planted tyres pin a quiet wreck: both keep
+    // the plain write-back. Undoing its turn on a planted wreck turned the body against its hubs each
+    // call and let a capped door drift 36–118 µm off its cap (left piston 60–80 km/h).
+    const unturn = !squeeze && !pinned;
+    if (unturn) this.holdTurn();
     for (const m of this.masses) {
       let dx = m.local.x - m.rest.x;
       let dy = m.local.y - m.rest.y;
@@ -2514,16 +2549,73 @@ export class StreamedDeformation {
       }
       // Planted tires are the world pin. Projecting them through a pitched
       // group was ratcheting the wreck backward every followGroup.
-      if (m.hub && !m.popped && !this.deepCrush && this.quietTime() > 0.2) continue;
+      if (m.hub && !m.popped && pinned) continue;
       m.world.copy(m.local);
       group.localToWorld(m.world);
     }
+    // A3: each mount caps its own side of the block, but the block is one casting; hold its rest
+    // spacing in the frame the masses were just clamped into (T-bone struck car: engine gap error
+    // 0.0106 m on 943ae5c). A squeeze keeps its per-mass caps (a held press: engineL sprang 444 → 363 mm).
+    const eL = this.at.engineL;
+    const eR = this.at.engineR;
+    _a.subVectors(eR.local, eL.local);
+    const gap = _a.length();
+    if (!squeeze && gap > 1e-6) {
+      _a.multiplyScalar((gap - eL.rest.distanceTo(eR.rest)) / gap / (eL.mass + eR.mass));
+      eL.local.addScaledVector(_a, eR.mass);
+      eR.local.addScaledVector(_a, -eL.mass);
+      group.localToWorld(eL.world.copy(eL.local));
+      group.localToWorld(eR.world.copy(eR.local));
+    }
+    // The write-back reshapes the wreck toward the frame; it must not turn it. Read off an axis that a
+    // shove bent (engine → axle), the frame turned and the clamp turned the whole cloud after it with
+    // no torque: derby seed 3 c4 0.45 rad in 0.15 s, seed 4 c8 0.78 rad, ΔL = 0. The frame follows the
+    // cloud on the next read instead.
+    if (unturn) this.undoTurn();
     // The clamp moves positions only: writing back a crushing body (its front masses slower than its
     // rear) changed Σ m r × v, spin from nowhere (dump16 replay: clampLocal put +8.7 rad/s of L/I into
     // Khaki, −8.6 into Bronze). Hand back the angular momentum the masses had, as a rigid turn.
     this.yawMomentum(spin);
     // A car on no wheels is out, like a dead engine.
     if (this.at.hubFL.popped && this.at.hubFR.popped && this.at.hubRL.popped && this.at.hubRR.popped) this.drivetrainAlive = false;
+  }
+
+  private holdTurn(): void {
+    for (let i = 0; i < this.masses.length; i++) {
+      this.turnX[i] = this.masses[i]!.world.x;
+      this.turnZ[i] = this.masses[i]!.world.z;
+    }
+  }
+
+  /** Undo the net turn (about the held centroid, as stepShapeMatch does for its goals) that a
+   *  position-only pass made since `holdTurn`; its translation and reshaping stay. */
+  private undoTurn(): void {
+    let mx = 0,
+      mz = 0,
+      mm = 0;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      mx += this.turnX[i]! * m.mass;
+      mz += this.turnZ[i]! * m.mass;
+      mm += m.mass;
+    }
+    mx /= mm;
+    mz /= mm;
+    let turn = 0,
+      turnI = 0;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      const rx = this.turnX[i]! - mx;
+      const rz = this.turnZ[i]! - mz;
+      turn += m.mass * (rz * (m.world.x - this.turnX[i]!) - rx * (m.world.z - this.turnZ[i]!));
+      turnI += m.mass * (rx * rx + rz * rz);
+    }
+    const w = turn / turnI;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      m.world.x -= w * (this.turnZ[i]! - mz);
+      m.world.z += w * (this.turnX[i]! - mx);
+    }
   }
 
   /** The masses' angular momentum about their centroid (y), or, given `target`, a rigid turn added to

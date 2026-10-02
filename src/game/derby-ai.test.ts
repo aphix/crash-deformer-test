@@ -190,6 +190,8 @@ type Field = {
   outs: number[];
   contactSpins: string[];
   freeSpins: string[];
+  /** Peak heading rate over any 0.1 s inside 0.5 s of a pair contact, in the first 2 min. */
+  contactPeak: { rate: number; note: string };
   zips: string[];
   impacts: { front: number; rear: number; side: number };
   swings: number;
@@ -256,6 +258,7 @@ function runField(n: number, seed: number): Field {
     contactSpins: [],
     freeSpins: [],
     zips: [],
+    contactPeak: { rate: 0, note: "none" },
     impacts: { front: 0, rear: 0, side: 0 },
     swings: 0,
     jturns: 0,
@@ -263,6 +266,8 @@ function runField(n: number, seed: number): Field {
   };
   const yaw0 = cars.map((c) => c.yaw);
   const spinFor = new Array<number>(n).fill(0);
+  /** Per car: [t, yaw] pairs spanning about 0.1 s, for the contact peak. */
+  const ring = cars.map((): number[] => []);
   const touched = new Array<number>(n).fill(-9);
   const tactic = new Array<string>(n).fill("");
   const alive = new Array<boolean>(n).fill(true);
@@ -362,6 +367,15 @@ function runField(n: number, seed: number): Field {
         const note = `t=${t.toFixed(1)} c${i} ${(Math.abs(dyaw) / h).toFixed(1)} rad/s`;
         (t - touched[i]! < 0.5 ? out.contactSpins : out.freeSpins).push(note);
       }
+      const rb = ring[i]!;
+      rb.push(t, c.yaw);
+      while (rb.length > 4 && rb[2]! <= t - 0.1) rb.splice(0, 2);
+      if (t - rb[0]! >= 0.099 && t - touched[i]! < 0.5 && t < 120) {
+        let turn = c.yaw - rb[1]!;
+        turn -= Math.round(turn / (Math.PI * 2)) * Math.PI * 2;
+        const rate = Math.abs(turn) / (t - rb[0]!);
+        if (rate > out.contactPeak.rate) out.contactPeak = { rate, note: `c${i} ${rate.toFixed(2)} rad/s at t=${t.toFixed(1)}` };
+      }
       const a = before[i];
       if (!a || !c.deform.massActive || t >= 120) return;
       const b = centroid(c);
@@ -377,8 +391,8 @@ function runField(n: number, seed: number): Field {
   return out;
 }
 
-/** Seeds for the 10-car validation: two in CI, `DERBY_SEEDS=1,2,3,4,5` for the full five. */
-const SEEDS = (process.env.DERBY_SEEDS ?? "1,2").split(",").map(Number);
+/** Seeds for the 10-car validation: three in CI (seed 3 held the 6.41 rad/s contact peak on 71ad020), `DERBY_SEEDS=1,2,3,4,5` for the full five. */
+const SEEDS = (process.env.DERBY_SEEDS ?? "1,2,3").split(",").map(Number);
 /** Real derby drivers make most big hits backing up (docs/DERBY_AI.md); ours must too. */
 const REAR_SHARE = 0.4;
 
@@ -416,7 +430,14 @@ describe("derby, ten AI cars at the default slider", () => {
   // first death 2.6 s), so the last heat needs accumulation, not a lower scale. Owner: CrashRealism8.
   it.todo("derby:wreck — ≥ 4/5 ten-car heats end last car standing by wrecking inside 300 s, first death after 8 s");
 
-  // Peak heading rate over 0.1 s in contact (seeds 1–5, 120 s): 6.0–9.1 rad/s before the wreck-spin fix,
-  // 4.95–7.24 after; free driving peaks at 4.86 (the AI's own steer), and contact stacks on it.
-  it.todo("derby:contact-spin — no car spins > 5 rad/s for 0.2 s in pair contact either (CrashRealism8)");
+  // Peak heading rate over 0.1 s in contact (probe, seeds 1–5, 120 s): 6.0–9.1 rad/s before the wreck-spin
+  // fix, 4.67–6.42 on 71ad020 (4.86 free: the AI's own steer, contact stacked on it). Now 4.18–4.93: clampLocal
+  // and collideWith undo their positional turn, separateAlong hands back the angular momentum its uneven
+  // push moved, and a driver stops adding lock past 3.5 rad/s.
+  it("bad: no car turns faster than 5 rad/s over 0.1 s in pair contact (first 2 min), nor spins there", () => {
+    for (const r of runs) {
+      assert.deepEqual(r.contactSpins, [], `seed ${r.seed}`);
+      assert.ok(r.contactPeak.rate <= 5, `seed ${r.seed}: contact peak ${r.contactPeak.note}`);
+    }
+  });
 });
