@@ -370,6 +370,55 @@ describe("a crushed wreck keeps its heading", () => {
   });
 });
 
+/** A wreck at (0, z) heading `yaw`, sliding along +z at `v` (m/s), its masses armed by a light knock. */
+function slidingWreck(z: number, v: number, yaw = 0): DeformableCar {
+  const car = new DeformableCar(paint(), new THREE.Scene());
+  car.deform.setMode("shape");
+  car.spawnFacing(0, z, yaw, 0);
+  car.velocity.set(0, 0, v);
+  car.speed = v;
+  car.deform.bindKinematic(car.group, car.velocity, car.angular);
+  car.applyImpact(car.group.localToWorld(new THREE.Vector3(0.7, 0.4, 2.2)), car.forward.clone().negate(), 2, 2);
+  return car;
+}
+
+/** Mass-weighted speed (m/s) of every mass of `cars` together. */
+function groupSpeed(cars: DeformableCar[]): number {
+  let px = 0;
+  let pz = 0;
+  let m = 0;
+  for (const c of cars) {
+    for (const p of c.deform.masses) {
+      px += p.vel.x * p.mass;
+      pz += p.vel.z * p.mass;
+      m += p.mass;
+    }
+  }
+  return Math.hypot(px, pz) / m;
+}
+
+/** Mean deceleration (m/s²) of `cars` over `secs` of engine ticks, after the impact clock has run. */
+function slideDecel(cars: DeformableCar[], secs: number): number {
+  const w = makeWorld(cars, false, false);
+  w.impact = true;
+  w.wallSinceImpact = 1;
+  for (let f = 0; f < 12; f++) tickWorld(w);
+  const v0 = groupSpeed(cars);
+  for (let f = 0; f < secs * 60; f++) tickWorld(w);
+  return (v0 - groupSpeed(cars)) / secs;
+}
+
+describe("wrecks slide to a stop on the ground, rubbing or not", () => {
+  // Owner dump: a pair of wrecks grinding together slid at 0.44 g against 1.4–1.8 g alone: the mass
+  // drag waited for the car-contact quiet timer, which the rubbing kept resetting.
+  it("bad: two crashed cars locked together decelerate at least as fast as one alone (±15%)", () => {
+    const lone = slideDecel([slidingWreck(0, 10)], 1);
+    // T-bone grind: the faster wreck's nose on the slower one's side, both sliding along +z.
+    const pair = slideDecel([slidingWreck(-4, 11), slidingWreck(0, 9, Math.PI / 2)], 1);
+    assert.ok(pair >= lone * 0.85, `pair ${(pair / 9.81).toFixed(2)} g vs alone ${(lone / 9.81).toFixed(2)} g`);
+  });
+});
+
 describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
   it("bad: glass shards leave a yawing car with the pane's own velocity (finite difference of integrate)", () => {
     let shard: THREE.Vector3 | null = null;

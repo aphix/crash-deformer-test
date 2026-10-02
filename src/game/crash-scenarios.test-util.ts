@@ -148,8 +148,9 @@ function bleedAfterSlide(car: DeformableCar, dt: number): void {
   const q = car.deform.quietTime();
   const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
   applyGroundFriction(car.velocity, dt, mu, true);
-  if (car.deform.massActive && q > 0.08) {
-    car.deform.dragGround(dt, THREE.MathUtils.clamp((q - 0.08) / 1.1, 0, 1));
+  if (car.deform.massActive) {
+    const t = car.deform.powered ? q : car.deform.sinceHit();
+    car.deform.dragGround(dt, THREE.MathUtils.clamp((t - 0.08) / 1.1, 0, 1));
   }
 }
 

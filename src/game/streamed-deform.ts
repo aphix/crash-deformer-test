@@ -74,6 +74,8 @@ const YAW_RATE_GUARD = 12;
 const YAW_RATE_SPAN = 1 / 60;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
+/** A hub this close (m) above its 0.28 m ground floor still slides on the ground (dragGround). */
+const GROUND_SKIN = 0.08;
 
 /** Per-body-style rig: cage boxes / sensor rests (by SENSORS index) that differ
  *  from the platform tables so the cages wrap that style's roof, glass and boot. */
@@ -301,6 +303,8 @@ export class StreamedDeformation {
   private readonly endEbs2 = new Float64Array(4);
   /** `elapsed` of the last throttle input (`notifyPower`). */
   private lastPower = -10;
+  /** `elapsed` when the current hit began (beginCrush, rearmHit): the sliding-drag clock (`sinceHit`). */
+  private hitAt = 0;
   private wrinkleAmp = 0;
   private helper: DeformRigHelper | null = null;
   private particleHelper: DeformParticleHelper | null = null;
@@ -947,6 +951,7 @@ export class StreamedDeformation {
     this.massActive = true;
     this.elapsed = 0;
     this.lastContact = 0;
+    this.hitAt = 0;
     this.wrinkleAmp = 0;
     this.dirty = true;
     this.bindKinematic(group, worldVel, worldOmega);
@@ -993,6 +998,7 @@ export class StreamedDeformation {
     this.crushing = true;
     this.dirty = true;
     this.lastContact = this.elapsed;
+    this.hitAt = this.elapsed;
     // Base = damage as the body frame sees it. A quiet wreck's group sits on its planted hubs, so
     // `local` here carries the cell's offset from them (up to its 0.12 m cap). The contact solve that
     // follows anchors the group on the cell, so a base taken raw pinned the cell 0.1 m off its own
@@ -1203,14 +1209,28 @@ export class StreamedDeformation {
     return this.massByName(name).vel;
   }
 
-  /** Extra XZ drag once contact has ended — same Coulomb as the tires. */
+  /** Sliding-wreck XZ drag (same Coulomb as the tyres) on every mass, while the wreck is on the ground. */
   dragGround(dt: number, amount: number): void {
     if (!this.massActive || amount <= 0) return;
+    // Airborne (no hub within GROUND_SKIN of its 0.28 m floor): nothing to slide on.
+    let low = Infinity;
+    for (const m of this.masses) if (m.hub && m.dynamic && m.world.y < low) low = m.world.y;
+    if (low > 0.28 + GROUND_SKIN) return;
     const mu = CRASH.muSlide * (0.35 + amount * 1.25);
     for (const m of this.masses) {
       if (!m.dynamic) continue;
       applyGroundFriction(m.vel, dt, mu, true);
     }
+  }
+
+  /** Sim seconds since the current hit began (beginCrush or a re-armed hit); car contact does not reset it. */
+  sinceHit(): number {
+    return this.elapsed - this.hitAt;
+  }
+
+  /** Throttle input within POWER_HOLD: the car is driven, not a sliding wreck. */
+  get powered(): boolean {
+    return this.elapsed - this.lastPower < POWER_HOLD;
   }
 
   cutDrive(dt: number): void {
