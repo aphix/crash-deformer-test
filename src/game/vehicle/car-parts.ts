@@ -332,11 +332,9 @@ export abstract class CarParts extends CarCore {
     }
   }
 
+  /** Out for good until the next reset; `LampBatch` draws it dark. */
   protected breakLamp(lamp: Lamp): void {
     lamp.intact = false;
-    lamp.mat.color.setHex(0x5a5c60);
-    lamp.mat.emissive.setHex(0x1a1b1c);
-    lamp.mat.emissiveIntensity = 0.12;
   }
 
   /** Hand a part to the world. `push` (car-space m/s on top of the car's velocity) replaces the

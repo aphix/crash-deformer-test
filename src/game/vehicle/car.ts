@@ -207,12 +207,7 @@ export class DeformableCar extends CarParts {
         pos: { x: round4(p.object.position.x), y: round4(p.object.position.y), z: round4(p.object.position.z) },
         vel: { x: round4(p.velocity.x), y: round4(p.velocity.y), z: round4(p.velocity.z) },
       })),
-      lamps: this.lamps.map((l) => ({
-        kind: l.kind,
-        side: l.side,
-        intact: l.intact,
-        on: l.intact && l.mat.emissiveIntensity > 0.05,
-      })),
+      lamps: this.lamps.map((l) => ({ kind: l.kind, side: l.side, intact: l.intact })),
       glass: this.glassPanes.map((g) => g.state),
     };
   }
