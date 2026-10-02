@@ -61,6 +61,9 @@ const REARM_QUIET = 0.3;
  *  (22 km/h) floor dropped every car-car hit under 43 km/h closing (each car's EBS is about half the
  *  closing), so a derby's dozens of 25–40 km/h rams added nothing and a 90 s match killed 0–2 cars. */
 const REARM_EBS = 2.8;
+/** One hit's most wear (EBS², m²/s²; 6 m/s ≈ 22 km/h): a single hard hit is the engine travel's to
+ *  judge, the wear counts how many hits a wreck has taken (`wreckEnergy`). */
+const WEAR_HIT = 36;
 /** C4: a wheel separates only on an off-centre hit this hard (m/s EBS, 54 km/h)… */
 const HUB_POP_MPS = 15;
 /** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
@@ -299,6 +302,11 @@ export class StreamedDeformation {
   /** Block travel (m) that kills the drivetrain. Physics default ENGINE_KILL_TRAVEL (sourced); the
    *  handling model may raise it per car (arcade ↔ realistic) without changing how far the block moves. */
   killTravel = ENGINE_KILL_TRAVEL;
+  /** Wear (Σ per-hit EBS², each capped at WEAR_HIT) that wrecks the drivetrain by itself; the engine's
+   *  travel share adds to it. Infinite (off) unless the context arms it (a derby, `armKill`). */
+  wreckEnergy = Infinity;
+  /** Wear taken so far: every hit's EBS², capped at WEAR_HIT (beginCrush, rearmHit). */
+  private wear = 0;
   /** Both ends are crumple zones (car-compactor / two-wall squeeze). */
   bidirectional = false;
   /** Sticky until reset: this car was squeezed / deep-crushed, so `clampLocal` keeps those shape limits. */
@@ -813,6 +821,7 @@ export class StreamedDeformation {
     this.impulse = 0;
     this.hitSpeed = -1;
     this.endEbs2.fill(0);
+    this.wear = 0;
     this.rearmed = false;
     this.lastPower = -10;
     this.wrinkleAmp = 0;
@@ -1006,6 +1015,7 @@ export class StreamedDeformation {
     if (this.hitSpeed < 0) {
       this.hitSpeed = THREE.MathUtils.clamp(ebs, 0, 70);
       this.endEbs2[this.struckEnd()] = this.hitSpeed * this.hitSpeed;
+      this.wear = Math.min(this.hitSpeed * this.hitSpeed, WEAR_HIT);
     }
     this.impulse = clamped;
     this.crushing = true;
@@ -1055,6 +1065,7 @@ export class StreamedDeformation {
     const end = this.struckEnd();
     const e = Math.min(ebs, 70);
     this.endEbs2[end] = this.endEbs2[end]! + e * e;
+    this.wear += Math.min(e * e, WEAR_HIT);
     this.hitSpeed = Math.min(70, Math.sqrt(this.endEbs2[end]!));
     this.rearmed = true;
     this.impulse = THREE.MathUtils.clamp(impulse, 4, 70);
@@ -1345,12 +1356,17 @@ export class StreamedDeformation {
       travel = this.rearmed ? energy : Math.min(travel, energy);
     }
     if (travel > this.engineTravel) this.engineTravel = travel;
-    if (travel > this.killTravel) this.drivetrainAlive = false;
+    if (travel / this.killTravel + this.wreckShare() > 1) this.drivetrainAlive = false;
+  }
+
+  /** Share of `wreckEnergy` the hits so far have worn. */
+  private wreckShare(): number {
+    return this.wear / this.wreckEnergy;
   }
 
   /** 0–1 drivability of the engine block: 1 untouched, 0 dead (graded damage for the handling model). */
   get drivetrainHealth(): number {
-    return this.drivetrainAlive ? THREE.MathUtils.clamp(1 - this.engineTravel / this.killTravel, 0, 1) : 0;
+    return this.drivetrainAlive ? THREE.MathUtils.clamp(1 - this.engineTravel / this.killTravel - this.wreckShare(), 0, 1) : 0;
   }
 
   /** Wheels still on their hubs (0–4). */

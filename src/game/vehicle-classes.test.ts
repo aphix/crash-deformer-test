@@ -6,10 +6,10 @@ import { DeformableCar } from "./car.ts";
 import { DriveCam } from "./engine-camera.ts";
 import { makeCar, runWall } from "./crash-scenarios.test-util.ts";
 import {
+  armKill,
   assignClass,
   CLASSES,
   cornerSpeed,
-  DERBY_KILL_SCALE,
   drivability,
   HANDLING,
   killTravel,
@@ -290,12 +290,21 @@ describe("damage → drivability", () => {
     }
   });
 
-  it("good: a derby car dies at DERBY_KILL_SCALE of the race and fleet kill travel, every class and realism", () => {
-    for (const id of VEHICLE_CLASS_IDS) {
-      for (const realism of [0, DEFAULT_REALISM, 0.5, 1]) {
-        const base = killTravel(id, realism, "default");
-        assert.ok(Math.abs(killTravel(id, realism, "derby") - base * DERBY_KILL_SCALE) < 1e-12, `${id} @ ${realism}`);
+  // Repeated 25 km/h side hits barely move the block (0.05 m of 0.31 / 0.45): a derby sedan is worn out
+  // after 11 (wear 360 + its travel share), a race or fleet sedan drives on after 30 (crash-realism-10).
+  it("good: a derby car is worn out by a dozen 25 km/h side hits that a race or fleet car drives away from", () => {
+    const hitsToKill = (ctx: "derby" | "default") => {
+      const car = makeCar();
+      armKill(car.deform, "sedan", DEFAULT_REALISM, ctx);
+      let n = 0;
+      while (n < 30 && car.deform.drivetrainAlive) {
+        runWall(25, 1, "side", { car });
+        n++;
       }
-    }
+      return car.deform.drivetrainAlive ? Infinity : n;
+    };
+    const derby = hitsToKill("derby");
+    assert.ok(derby >= 6 && derby <= 20, `derby sedan died after ${derby} hits`);
+    assert.equal(hitsToKill("default"), Infinity, "a race / fleet sedan died of side hits");
   });
 });

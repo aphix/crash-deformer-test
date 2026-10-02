@@ -1422,6 +1422,26 @@ Probes: `.bench/cr9/probe.ts` (ten-car derby, per-call ledger with `ATTR`/`CALLS
   turn undo vs the 0.012 limit). `clampLocal` now holds the block's rest spacing
   in the frame it clamps into (0.0000 m), except under a squeeze, whose held press
   kept its per-mass caps (engineL sprang 444 → 363 mm with it).
+- **Derby wreck pacing: wear.** With travel alone (contact-spin fix, ×0.46) every
+  derby death was engine travel; ten cars, seeds 1–5: 3/5 wrecks (41.4, 154.1,
+  122.3 s), first death 13.8 s; at 8 s the worst car had 0.83 of its travel and
+  Σ EBS² 180 (`.bench/cr10/wear.ts`, `series.jsonl`). Now `rearmHit` and
+  `beginCrush` add each hit's EBS², capped at 36 m²/s² (6 m/s), to a wear total,
+  and a derby car dies when travel / killTravel + wear / 400 > 1 (`armKill`:
+  `DERBY_KILL_SCALE` 0.7935, `DERBY_WRECK_ENERGY` 400). The cap keeps one hard hit
+  the travel's to judge: uncapped Σ EBS² / 300 killed a car at 4.7 s after 3 hits.
+  Grid (seeds 1–5): ×0.69 / 300 first death 4.7 s; ×0.69 / 400 4/5 but seed 1
+  nose-heavy (F55/R64/S27, tail-first test failed); ×0.69 / 500 3/5; ×0.69 × 0.85
+  / 500 first death 7.8 s; ×0.79 / 400 5/5, first deaths 14.1–36.9 s, every heat
+  tail first. A race or fleet car is armed with no wear limit: a sedan drives on
+  after 30 side hits at 25 km/h, the derby sedan is worn out after 11. The
+  `derby:wreck` todo is a test on seeds 1–5 (before: 3/5). The tactic counts held
+  (seeds 1–5, swings / J-turns / sideswipes: 943ae5c 35 / 434 / 126, after the
+  steer cap 29 / 387 / 121), now asserted (≥ 1 swing and sideswipe per heat,
+  J-turn share ≥ 0.7 × 0.73). The grid ran the probe with killTravel × 1.15 on top
+  of 0.69; the shipped 0.7935 in the test reads seeds 1–3 wreck 69.2 s, wreck
+  191.8 s, time 300 s (first deaths 14.1 / 45.6 / 19.8 s), and the five-seed wreck
+  test passes (≥ 4/5): chaotic heats move with the last digit.
 
 ## Appendix
 
