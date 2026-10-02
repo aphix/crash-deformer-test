@@ -18,11 +18,19 @@ variables do).
   from beside the module), so `.output/` runs on its own with no `node_modules`.
 - `APP_BASE`: the sub-path the app is served under, both slashes (`/crush/`); default `/`. It
   becomes Vite's `base`. TanStack Start derives the router basepath from it and Nitro gets it as
-  `baseURL`, so pages, `/_serverFn`, `/api/rtc`, public files and the PWA manifest all live under
-  it. Client code builds URLs from `import.meta.env.BASE_URL` (always ends in `/`), never from a
+  `baseURL`, so pages, `/_serverFn`, `/api/rtc` and public files all live under it. Client code
+  builds URLs from `import.meta.env.BASE_URL` (always ends in `/`), never from a
   hard-coded `/`: `${import.meta.env.BASE_URL}api/rtc`, `${import.meta.env.BASE_URL}env-studio.jpg`,
   and for share links `location.origin + import.meta.env.BASE_URL + "?net=join&room=X"`. A
   request outside the base gets a redirect to it.
+
+  The exception is the platform chrome (`server/middleware/grok-pwa.ts`, `scripts/grok-pwa-*`,
+  `public/__grok/`), which is not ours to edit and keeps root-relative URLs: the manifest and
+  touch-icon links, the iOS install page's assets under `/__grok/`, and the share-card images
+  (`og:image` → `/og.jpg`, `x:game:image` → `/x-banner.jpg`). The proxy routes those root paths to
+  the app (`deploy/nginx-crush.conf`); the manifest is served by the middleware at the root path,
+  the rest from the app's public files under the base. One known limit: the manifest's
+  `start_url`/`scope` are `/`, so a home-screen install opens the site root, not the base.
 
 Runtime variables for the node server: `PORT` (default 3000), `HOST`, `PGLITE_DATA_DIR`
 (unset = in-memory, wiped on restart), `DATABASE_URL` (set it to use Postgres instead of PGLite).

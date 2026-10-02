@@ -82,6 +82,15 @@ Switching back to GitHub is the same edit: `CRUSH_REPO=https://github.com/<owner
 
 ## 4. nginx route
 
+The snippet also claims a few root paths for the platform chrome (`/__grok/*`, `/og.jpg`,
+`/x-banner.jpg`, see docs/DEPLOY.md). Check the site does not already serve them; run this on the
+box, since a burst of 404s from an outside address can trip a fail2ban 404 jail:
+
+```bash
+for p in /__grok/manifest.webmanifest /__grok/icon-180.png /og.jpg /x-banner.jpg; do
+  curl -s -o /dev/null -w "$p %{http_code}\n" --resolve <host>:443:127.0.0.1 "https://<host>$p"; done   # expect 404s
+```
+
 Back up the site config, add one `include`, validate, then **reload** (never restart):
 
 ```bash
