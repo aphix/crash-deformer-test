@@ -73,6 +73,21 @@ function sampleAt(path: TrackPath, s: number): number {
   return path.closed ? ((u % path.count) + path.count) % path.count : clamp(u, 0, path.count - 1);
 }
 
+/** Gravity (m/s²) and the half-span (m) a crest's vertical curvature is read over. */
+const G = 9.6;
+const CREST_SPAN = 6;
+
+/**
+ * Highest speed (m/s) a car stays planted over the road `s` m along `path`: over a crest of vertical curvature κ
+ * the road falls away faster than gravity pulls the car down above √(g/κ), and an airborne car can neither steer
+ * nor brake for the bend after it. Infinity in a dip or on the level.
+ */
+function crestSpeed(path: TrackPath, s: number): number {
+  const y = path.y;
+  const k = (y[sampleAt(path, s - CREST_SPAN)]! - 2 * y[sampleAt(path, s)]! + y[sampleAt(path, s + CREST_SPAN)]!) / (CREST_SPAN * CREST_SPAN);
+  return k < -1e-4 ? Math.sqrt(G / -k) : Infinity;
+}
+
 /** What the brain needs from the race rules about one car. */
 type RaceAiState = {
   /** Next main checkpoint (`CarRecord.next`). */
@@ -415,7 +430,8 @@ export class RaceBrain {
       const surf = surfaceAt(pp, k);
       const curv = Math.abs(pp.curv[k]!);
       // `cornerSpeed`: the class's top, its lateral grip and its full-lock yaw on this surface at `HANDLING.realism`.
-      const corner = Math.min(top * surf.speed, curv > 1e-4 ? cornerSpeed(cls, CORNER_MARGIN / curv, surf.grip) : Infinity);
+      // The AI lifts over a crest it would fly, like a driver over a blind crest (`crestSpeed`).
+      const corner = Math.min(top * surf.speed, curv > 1e-4 ? cornerSpeed(cls, CORNER_MARGIN / curv, surf.grip) : Infinity, crestSpeed(pp, ss));
       const allow = Math.sqrt(corner * corner + 2 * decel * d);
       if (allow < best) best = allow;
     }
