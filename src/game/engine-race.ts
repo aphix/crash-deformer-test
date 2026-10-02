@@ -108,7 +108,10 @@ export class RaceDirector {
   fullUi = false;
   /** The car this browser drives: 0 on a host or offline, the host-assigned car on a netplay client. */
   self = 0;
-  /** Bumped per new field so each race rolls fresh rival aggression. */
+  /**
+   * Seed of the field's random picks (each rival's aggression roll, `fieldAggression`). Every new
+   * field (setup, start, campaign) bumps it, so each race rolls afresh; `reseed` pins it.
+   */
   private seed = 0;
   /** Cars driven by network peers (netplay host, `setSeats`): `remote` slots in the next field. */
   private seats = new Set<number>();
@@ -322,6 +325,16 @@ export class RaceDirector {
         return;
       }
     }
+  }
+
+  /** The next field (start, campaign, or the setup grid) rolls its random picks with `seed`. */
+  reseed(seed: number): void {
+    this.seed = seed - 1;
+  }
+
+  /** The current field: who is in it, slot kinds and rolled aggression (read-only). */
+  get racers(): readonly Entrant[] {
+    return this.entrants;
   }
 
   /** A network peer's latest input for car `carId` (slot kind "remote"); held until the next one arrives. */
