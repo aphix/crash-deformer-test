@@ -49,6 +49,16 @@ export function idleDrive(): DriveInput {
   return { ..._zero };
 }
 
+/** No input: zero `out` in place and return it (an AI driver's scratch input before it decides). */
+export function clearDrive(out: DriveInput): DriveInput {
+  out.throttle = 0;
+  out.steer = 0;
+  out.brake = 0;
+  out.ebrake = false;
+  out.boost = false;
+  return out;
+}
+
 const _assist: Assists = { grip: 1, slipCap: 0, catchRate: 0, scrub: 0, selfRight: 0 };
 const _dmg: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
 /** applyDrive's ground: [0] the floor under the car, [1] front and [2] rear axle grip (`floorUnder`). */

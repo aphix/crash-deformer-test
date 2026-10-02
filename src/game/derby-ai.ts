@@ -1,7 +1,8 @@
-import { DRIVE, idleDrive, type DriveInput } from "./car-drive.ts";
+import { clearDrive, DRIVE, idleDrive, type DriveInput } from "./car-drive.ts";
 import { DERBY_RADIUS } from "./derby-arena.ts";
 import { MAX_CARS } from "./fleet.ts";
 import { mood } from "./ai-aggression.ts";
+import { clamp, hash01 } from "./scalar.ts";
 
 export type AiCar = {
   id: number;
@@ -64,11 +65,6 @@ export type Personality = {
   hold: number;
 };
 
-function hash01(id: number, k: number): number {
-  const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
-  return x - Math.floor(x);
-}
-
 /** Same id → same driver, every match. Aggression is not a trait: the match rolls it (`setAggression`). */
 export function personality(id: number): Personality {
   return {
@@ -87,10 +83,6 @@ function wrapPi(a: number): number {
   while (x > Math.PI) x -= Math.PI * 2;
   while (x < -Math.PI) x += Math.PI * 2;
   return x;
-}
-
-function clamp1(v: number): number {
-  return v < -1 ? -1 : v > 1 ? 1 : v;
 }
 
 function smooth(lo: number, hi: number, v: number): number {
@@ -254,12 +246,7 @@ export class DerbyBrain {
   }
 
   private decide(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
-    const out = this.out;
-    out.throttle = 0;
-    out.steer = 0;
-    out.brake = 0;
-    out.ebrake = false;
-    out.boost = false;
+    const out = clearDrive(this.out);
     const i = self.id;
     if (i < 0 || i >= MAX_CARS) return out;
     this.tactic[i] = T_IDLE;
@@ -327,7 +314,7 @@ export class DerbyBrain {
     if (this.age[i]! < p.hold) {
       // At the horn some drivers stand on the brakes and line up; the field stops moving as one ring.
       out.brake = 1;
-      out.steer = clamp1(wrapPi(Math.atan2(dx, dz) - self.yaw) * 2);
+      out.steer = clamp(wrapPi(Math.atan2(dx, dz) - self.yaw) * 2, -1, 1);
       this.lastThrottle[i] = 0;
       this.tactic[i] = T_HOLD;
       return out;
@@ -570,7 +557,7 @@ export class DerbyBrain {
     }
     const err = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
     const ae = Math.abs(err);
-    out.steer = clamp1(err * 2);
+    out.steer = clamp(err * 2, -1, 1);
     out.throttle = ae < 0.3 ? p.cruise : ae < 0.8 ? 0.72 : ae < 1.5 ? 0.5 : 0.38;
     if (ae > 1 && speed > 9) out.ebrake = true;
     if (d < 5 && ae < 0.5 && w < 0.5) {
@@ -620,7 +607,7 @@ export class DerbyBrain {
     }
     const err = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw - Math.PI);
     const ae = Math.abs(err);
-    out.steer = clamp1(err * 1.8);
+    out.steer = clamp(err * 1.8, -1, 1);
     out.throttle = ae < 0.45 ? -1 : ae < 1.2 ? -0.75 : -0.5;
     if (ae > 2.3 && d > 6) {
       out.steer = Math.sign(err) || p.side;
@@ -663,11 +650,11 @@ export class DerbyBrain {
     const away = Math.atan2(_aim.x, _aim.z);
     const err = wrapPi(away - self.yaw);
     if (Math.abs(err) < 2) {
-      out.steer = clamp1(err * 2);
+      out.steer = clamp(err * 2, -1, 1);
       out.throttle = 0.55;
       this.boards(self, p, speed);
     } else {
-      out.steer = clamp1(wrapPi(away - self.yaw - Math.PI) * 1.8);
+      out.steer = clamp(wrapPi(away - self.yaw - Math.PI) * 1.8, -1, 1);
       out.throttle = -0.55;
     }
   }
@@ -699,7 +686,7 @@ export class DerbyBrain {
       tz = -tz;
     }
     const want = Math.atan2(tx - nx * 0.6, tz - nz * 0.6);
-    out.steer = clamp1(wrapPi(want - self.yaw) * 2);
+    out.steer = clamp(wrapPi(want - self.yaw) * 2, -1, 1);
     if (noseOut > 0.55 && speed > 7) out.ebrake = true;
   }
 

@@ -13,6 +13,7 @@ export function derbyRadius(count: number): number {
   const n = Math.max(2, Math.round(count) || 2);
   return Math.max(DERBY_RADIUS, SPAWN_PITCH / (2 * Math.sin(Math.PI / n)) + SPAWN_INSET);
 }
+/** Bowl wall: slabs, height and thickness (m), set by eye with derby mode (01d7d22), not measured; 28 slabs keep a ~3.7 m chord on the 16.4 m bowl. */
 const SEGMENTS = 28;
 const WALL_H = 1.15;
 const WALL_T = 0.42;
