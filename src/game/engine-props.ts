@@ -140,19 +140,35 @@ export class JerseyBarrier {
     this.vel.addScaledVector(n, -taken / BARRIER_MASS);
   }
 
+  /** World position of the car's mass nearest the slab face (`faceN` from the last `hold`). */
+  private nearestMass(car: DeformableCar): THREE.Vector3 {
+    let best = car.deform.masses[0]!.world;
+    let bestD = Infinity;
+    for (const m of car.deform.masses) {
+      const d = m.world.x * this.faceN.x + m.world.z * this.faceN.z;
+      if (d < bestD) {
+        bestD = d;
+        best = m.world;
+      }
+    }
+    return best;
+  }
+
   resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
     this.hold(car);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.crumpleTravelCorner()));
     if (!crushHit && !overlap) {
-      // The crushed nose can sit on the face with the shrunken hulls clear of it.
+      // The crushed nose can sit on the face with the shrunken hulls clear of it — and a wreck coming
+      // back for another hit touches here first, so this is where its fresh hit arms.
       if (!this.hold(car)) return null;
+      const closing = -(car.velocity.x * this.faceN.x + car.velocity.z * this.faceN.z);
+      if (deform && closing > 0.2) car.applyImpact(this.nearestMass(car), this.faceN, closing, closing);
       car.deform.notifyContact();
       if (feed) this.brake(car, dt);
       return null;
     }
-    car.deform.notifyContact();
 
     const n = crushHit ? _cn : overlap ? _bn : _cn;
     n.y = 0;
@@ -164,9 +180,12 @@ export class JerseyBarrier {
     const p = crushHit ? _cp : _bp;
     const closing = -car.velocity.dot(n);
 
-    if (deform && closing > 0.2 && (crushHit ?? overlap ?? 0) > 0.004 && !car.crashed) {
+    // A wreck takes a fresh hit too (applyImpact → rearmHit gates it on quiet time and EBS): the slab
+    // re-armed only the first, so repeated wall hits reused its stroke and never crushed deeper.
+    if (deform && closing > 0.2 && (crushHit ?? overlap ?? 0) > 0.004) {
       car.applyImpact(p, n.clone(), closing, closing);
     }
+    car.deform.notifyContact();
 
     if (feed && crushHit && crushHit > 0) {
       car.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);

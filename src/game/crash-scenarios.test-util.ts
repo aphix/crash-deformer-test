@@ -112,7 +112,9 @@ function launch(car: DeformableCar, x: number, z: number, yaw: number, vx: numbe
 
 /**
  * Re-aim a crashed car without the spawn reset (spawn and `bindKinematic` put the rig back to
- * rest): the damaged lattice moves rigidly to the new pose and velocity.
+ * rest): the damaged lattice moves rigidly to the new pose, sits there 0.35 s (a wreck backing off
+ * between hits: past REARM_QUIET, so the next contact is a fresh hit, not the last one's tail), then
+ * takes the velocity.
  */
 function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
   const g = car.group;
@@ -121,8 +123,15 @@ function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, 
   g.updateWorldMatrix(false, false);
   for (const m of car.deform.masses) {
     m.world.copy(m.local).applyMatrix4(g.matrixWorld);
-    m.vel.set(vx, 0, vz);
+    m.vel.set(0, 0, 0);
   }
+  car.velocity.set(0, 0, 0);
+  car.angular.set(0, 0, 0);
+  for (let t = 0; t < 0.35; t += 1 / 240) {
+    car.deform.stepStructure(1 / 240);
+    car.syncPose(1 / 240);
+  }
+  for (const m of car.deform.masses) m.vel.set(vx, 0, vz);
   car.velocity.set(vx, 0, vz);
   car.angular.set(0, 0, 0);
   car.speed = Math.hypot(vx, vz);
@@ -189,7 +198,7 @@ function fixedStep(w: CrashWorld, dt: number): number {
       let moved = false;
       if (barrier) {
         for (const car of cars) {
-          const hit = barrier.resolve(car, !car.crashed, feed, h);
+          const hit = barrier.resolve(car, true, feed, h);
           holdSlab(barrier);
           if (hit) {
             moved = true;

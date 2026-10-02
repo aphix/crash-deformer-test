@@ -1317,7 +1317,7 @@ export class CrashEngine {
         if (this.showBarrier) {
           for (let ci = 0; ci < cars.length; ci++) {
             const car = cars[ci]!;
-            const hit = this.barrier.resolve(car, !car.crashed, feed, h);
+            const hit = this.barrier.resolve(car, true, feed, h);
             if (hit) {
               this.barrierHits[ci] = true;
               moved = true;
