@@ -1,5 +1,6 @@
 import * as THREE from "three";
-import { DOOR, DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX, type DeformableCar } from "./car.ts";
+import type { DeformableCar } from "./car.ts";
+import { bodyContact, makeBox, partContact } from "./external-contact.ts";
 
 /**
  * The door/mirror knock scenes of `docs/door-mirror-sketch.png`, on a car parked at the origin
@@ -48,8 +49,6 @@ export const RAM = {
   end: 3.4,
   /** Contact substep (s): 8 mm per step at 60 km/h. */
   substep: 0.0005,
-  /** Ram ↔ door restitution. */
-  restitution: 0.2,
   /** Hold after the ram stops or runs past, so a swinging door can latch or reach its stop (s). */
   settle: 1.5,
 } as const;
@@ -73,17 +72,7 @@ export type RamShot = {
 };
 
 const D2R = Math.PI / 180;
-const _push = new THREE.Vector3();
-
-/**
- * How far along the run the mirror cap's trailing face has swung at fold `phi` (m, from the
- * base): the face pins the cap where the lane's inner edge crosses it (`gap` out from the base),
- * never inboard of the cap itself (0.11 m).
- */
-function mirrorSweep(phi: number, gap: number): number {
-  const r = Math.max(gap / Math.cos(phi), 0.11);
-  return r * Math.sin(phi) - DOOR.mirrorHalfDepth * Math.cos(phi);
-}
+const _c = new THREE.Vector3();
 
 /** DOM-free door rig: the engine's doors scene and the tests run the same `step`. */
 export class DoorRig {
@@ -94,6 +83,8 @@ export class DoorRig {
   kph: number = RAM_DEFAULTS.kph;
   kg: number = RAM_DEFAULTS.kg;
   phase: RamPhase = "idle";
+  /** Head length along the travel (m). */
+  length: number = RAM.length;
   /** Leading face along car z (m). */
   face = -RAM.start;
   /** Speed along the travel (m/s). */
@@ -104,9 +95,14 @@ export class DoorRig {
   private settled = 0;
   private particles0 = new Float64Array(0);
   private verts0 = new Float32Array(0);
+  private readonly box = makeBox();
+
+  /** A head of another shape on the scenario's lane (a car-shaped striker for docs/CONTACT_PARITY.md). */
+  shape: Partial<Pick<RamLane, "bottom" | "top" | "width">> | null = null;
 
   get lane(): RamLane {
-    return DOOR_LANES[this.scenario];
+    const lane = DOOR_LANES[this.scenario];
+    return this.shape ? { ...lane, ...this.shape } : lane;
   }
 
   attach(car: DeformableCar): void {
@@ -147,13 +143,12 @@ export class DoorRig {
     for (let i = 0; i < n; i++) {
       if (this.phase === "run") {
         this.face += this.lane.dir * this.u * h;
-        this.hitMirror(car);
-        this.hitDoor(car);
+        this.hit(car, h);
         if (this.u <= 0.01) {
           this.u = 0;
           this.stopped = true;
           this.phase = "settle";
-        } else if (this.lane.dir * this.face > RAM.end) {
+        } else if (this.lane.dir * this.face - this.length > RAM.end - RAM.length) {
           this.phase = "settle";
         }
       } else if (this.phase === "settle") {
@@ -161,6 +156,11 @@ export class DoorRig {
         if (this.settled > RAM.settle) this.phase = "idle";
       }
       car.swingDoors(h);
+    }
+    // A dented body runs the same structure step as every other crash.
+    if (car.deform.massActive) {
+      car.deform.stepStructure(dt);
+      car.syncPose(dt);
     }
   }
 
@@ -170,7 +170,7 @@ export class DoorRig {
     return out.set(
       this.side * (lane.inner + lane.width * 0.5),
       (lane.bottom + lane.top) * 0.5,
-      this.face - lane.dir * RAM.length * 0.5,
+      this.face - lane.dir * this.length * 0.5,
     );
   }
 
@@ -206,93 +206,34 @@ export class DoorRig {
   }
 
   /**
-   * Mirror on a shut door: the face pins the cap's trailing face and folds it about its base;
-   * at `MIRROR_FOLD_MAX` the stop either stops the ram or, past `MIRROR_BREAK_J`, snaps off.
-   * ponytail: shut doors only; an open door's mirror sits above the B/C lanes.
+   * The ram as a striker box riding the car's frame (its kinematic travel plus the speed it
+   * keeps), through the same door, mirror and body contact every scene uses.
    */
-  private hitMirror(car: DeformableCar): void {
+  private hit(car: DeformableCar, h: number): void {
     const lane = this.lane;
-    const side = this.side;
-    if (car.partOff(side < 0 ? "mirrorL" : "mirrorR")) return;
-    const door = car.doorHinge(side);
-    if (door.theta > 1e-4) return;
-    const y = DOOR.hingeY + DOOR.mirrorY;
-    if (lane.bottom > y + 0.05 || lane.top < y - 0.04) return;
-    const gap = lane.inner - (DOOR.hingeX + DOOR.mirrorX);
-    const s = lane.dir;
-    // Face travel past the base along the run, against how far the cap's trailing face has swung.
-    const reach = s * (this.face - DOOR.hingeZ);
-    const fold = Math.abs(door.mirrorFold);
-    if (reach <= mirrorSweep(fold, gap) || gap / Math.cos(fold) > DOOR.mirrorReach) return;
-    this.touched = true;
-    if (reach <= mirrorSweep(MIRROR_FOLD_MAX, gap)) {
-      let lo = fold;
-      let hi = MIRROR_FOLD_MAX;
-      for (let k = 0; k < 16; k++) {
-        const mid = (lo + hi) * 0.5;
-        if (mirrorSweep(mid, gap) < reach) lo = mid;
-        else hi = mid;
-      }
-      car.setMirrorFold(side, -side * s * hi);
-      return;
-    }
-    // Folded flat and still in the lane: the stop takes the ram.
-    const energy = 0.5 * this.kg * this.u * this.u;
-    if (energy < MIRROR_BREAK_J) {
-      car.setMirrorFold(side, -side * s * MIRROR_FOLD_MAX);
-      this.u = 0;
-      return;
-    }
-    this.u = Math.sqrt(this.u * this.u - (2 * MIRROR_BREAK_J) / this.kg);
-    car.breakMirror(side, _push.set(side * 0.8, 0.6, s * this.u));
-  }
-
-  /**
-   * Door slab (top view: hinge → trailing edge) against the face. Free door: one restitution
-   * impulse through the door's effective mass I/k² at the contact (k = lever across the travel).
-   * Door on its stop and pushed open: the car is rigid, so the strap takes the ram's closing energy.
-   */
-  private hitDoor(car: DeformableCar): void {
-    const lane = this.lane;
-    const side = this.side;
-    if (car.partOff(side < 0 ? "doorL" : "doorR")) return;
-    if (lane.bottom > DOOR.hingeY + DOOR.halfHeight || lane.top < DOOR.hingeY - DOOR.halfHeight) return;
-    const door = car.doorHinge(side);
-    const sin = Math.sin(door.theta);
-    if (sin < 1e-3) return;
-    const cos = Math.cos(door.theta);
-    const rLo = (lane.inner - DOOR.hingeX) / sin;
-    const rHi = Math.min(DOOR.length, (lane.inner + lane.width - DOOR.hingeX) / sin);
-    if (rLo > rHi || rHi <= 0) return;
-    const s = lane.dir;
-    // A rear→front face meets the trailing (lowest-z) end of the slab in the lane first.
-    const r = s > 0 ? rHi : Math.max(rLo, 0);
-    const depth = s * (this.face - (DOOR.hingeZ - r * cos));
-    if (depth <= 0 || depth > RAM.length) return;
-    this.touched = true;
-    const k = Math.max(r * sin, 0.02);
-    const closing = this.u - s * k * door.omega;
-    if (s > 0 && door.theta >= DOOR_OPEN_MAX - 1e-4) {
-      if (closing <= 0) return;
-      const before = door.load;
-      const energy = 0.5 * this.kg * closing * closing;
-      // What the ram still carries after paying for the tear.
-      const left = Math.sqrt(Math.max(0, this.u * this.u - (2 * Math.max(0, HINGE_TEAR_J - before)) / this.kg));
-      if (car.loadDoorStop(side, energy, _push.set(side * 0.9, 0.8, s * Math.max(left, 1)))) this.u = left;
-      else {
-        this.u = 0;
-        door.omega = 0;
-      }
-      return;
-    }
-    if (closing > 0) {
-      const mEff = DOOR_INERTIA / (k * k);
-      const j = ((1 + RAM.restitution) * closing) / (1 / this.kg + 1 / mEff);
-      this.u -= j / this.kg;
-      door.omega += (s * j * k) / DOOR_INERTIA;
-    }
-    // Push the slab out of the face.
-    door.theta = THREE.MathUtils.clamp(door.theta + (s * depth) / k, 0, DOOR_OPEN_MAX);
+    const box = this.box;
+    this.centre(_c);
+    const p = car.group.position;
+    const r = car.rightFlat;
+    const f = car.fwdFlat;
+    box.x = p.x + r.x * _c.x + f.x * _c.z;
+    box.y = p.y + _c.y;
+    box.z = p.z + r.z * _c.x + f.z * _c.z;
+    box.hx = lane.width * 0.5;
+    box.hy = (lane.top - lane.bottom) * 0.5;
+    box.hz = this.length * 0.5;
+    box.yaw = Math.atan2(f.x, f.z) + (lane.dir > 0 ? 0 : Math.PI);
+    box.vx = car.velocity.x + f.x * lane.dir * this.u;
+    box.vz = car.velocity.z + f.z * lane.dir * this.u;
+    box.kg = this.kg;
+    box.hardness = 1;
+    const hit = partContact(car, box);
+    if (hit.touched) this.touched = true;
+    this.u = Math.max(0, this.u - hit.du);
+    // A lane that reaches the skin dents it through the same body contact the other rigs use.
+    const taken = bodyContact(car, box, h, true);
+    if (taken > 0) this.touched = true;
+    this.u = Math.max(0, this.u - taken / this.kg);
   }
 }
 
@@ -300,10 +241,12 @@ export class DoorRig {
 export function fireRam(
   car: DeformableCar,
   scenario: DoorScenario,
-  opts: { kph: number; kg: number; side?: -1 | 1 },
+  opts: { kph: number; kg: number; side?: -1 | 1; length?: number; shape?: DoorRig["shape"] },
 ): RamShot {
   const rig = new DoorRig();
   rig.attach(car);
+  if (opts.length) rig.length = opts.length;
+  rig.shape = opts.shape ?? null;
   rig.fire(scenario, opts.side ?? 1, opts.kph, opts.kg);
   const dt = 1 / 60;
   for (let t = 0; t < 30 && rig.phase !== "idle"; t += dt) {

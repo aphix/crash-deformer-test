@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "./car.ts";
-import { COMPACTOR, enforceWalls } from "./compactor.ts";
+import { COMPACTOR, CompactorRig } from "./compactor.ts";
 import { makeCar, makeWorld, tickWorld } from "./crash-scenarios.test-util.ts";
 import { DOOR_LANES, fireRam, RAM, type DoorScenario } from "./door-rig.ts";
 import { firePiston } from "./piston-rig.ts";
@@ -115,7 +115,8 @@ export function carState(car: DeformableCar): CarState {
     detached,
     doorDeg: door.theta / D2R,
     latched: door.latched,
-    mirrorFoldDeg: Math.abs(door.mirrorFold) / D2R,
+    // A mirror that has left the car has no fold.
+    mirrorFoldDeg: car.partOff("mirrorR") ? 0 : Math.abs(door.mirrorFold) / D2R,
     travelMm,
     band,
     bodyMm: Math.round(bodyMm),
@@ -166,64 +167,34 @@ export function carDoorPass(scenario: DoorScenario, kph: number): { a: CarState;
   return { a: carState(a), b, seconds };
 }
 
-export function ramDoorPass(scenario: DoorScenario, kph: number, kg: number): CarState {
+/** The Doors ram; `carShaped`: a head with a car body's length, height and width on the same lane. */
+export function ramDoorPass(scenario: DoorScenario, kph: number, kg: number, carShaped = false): CarState {
   const a = parkCar();
-  fireRam(a, scenario, { kph, kg, side: 1 });
+  const shape = carShaped ? { bottom: 0, top: 2 * CAR_HALF.y, width: 2 * CAR_HALF.x } : undefined;
+  fireRam(a, scenario, { kph, kg, side: 1, length: carShaped ? 2 * CAR_HALF.z : RAM.length, shape });
   return carState(a);
 }
 
 // ── Press vs two cars ──────────────────────────────────────────────────────────────────────
 
-/** The engine's `stepCompactor` (engine.ts) on a parked car, one physics slice at a time. */
-export class CarPress {
-  face: number = COMPACTOR.startFace;
-  /** Plate work on the car (J): Σ plate impulse × plate speed. */
-  work = 0;
-  readonly car: DeformableCar;
-  constructor(car: DeformableCar) {
-    this.car = car;
-    car.deform.bidirectional = true;
-    car.deform.deepCrush = false;
+/** One rendered frame of the press scene: 4 slices (`fixedStep` order), then the skin. */
+function pressFrame(p: CompactorRig, target: number): void {
+  const car = p.car!;
+  for (let s = 0; s < 4; s++) {
+    p.step(FRAME / 4, target);
+    car.afterContacts(FRAME / 4);
+    if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(FRAME / 4);
   }
-
-  slice(dt: number, target: number): void {
-    const car = this.car;
-    this.face = Math.max(target, this.face - COMPACTOR.speed * dt);
-    car.refreshBasis();
-    if (!car.deform.massActive && this.face < COMPACTOR.bumperZ + 0.12) {
-      car.deform.beginCrush(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 18, 18, car.group, car.velocity, car.angular);
-      car.crashed = true;
-    }
-    car.deform.bidirectional = true;
-    car.deform.deepCrush = this.face < COMPACTOR.midFace;
-    if (car.deform.massActive) {
-      car.deform.notifyContact();
-      const hit = enforceWalls(car.deform, this.face, dt);
-      this.work += (hit.frontJ + hit.rearJ) * COMPACTOR.speed;
-      car.deform.stepStructure(dt);
-      enforceWalls(car.deform, this.face, dt);
-      car.syncPose(dt);
-    }
-    car.afterContacts(dt);
-  }
-
-  /** One rendered frame (4 slices, then the skin), as the engine runs it at 60 Hz. */
-  frame(target: number): void {
-    for (let s = 0; s < 4; s++) {
-      this.slice(FRAME / 4, target);
-      if (this.car.deform.massActive && !this.car.deform.drivetrainAlive) this.car.deform.cutDrive(FRAME / 4);
-    }
-    this.car.updateDeform(FRAME);
-  }
+  car.updateDeform(FRAME);
 }
 
-/** Close the press until `until(state)` holds or the plates reach `COMPACTOR.maxFace`. */
-export function pressUntil(until: (p: CarPress) => boolean): { state: CarState; face: number; work: number } {
-  const p = new CarPress(parkCar());
-  for (let f = 0; f < 60 * 8 && !until(p); f++) p.frame(COMPACTOR.maxFace);
+/** Close the press (`CompactorRig`, the engine's) until `until` holds or the plates reach max. */
+export function pressUntil(until: (p: CompactorRig) => boolean): { state: CarState; face: number; work: number } {
+  const p = new CompactorRig(parkCar());
+  for (let f = 0; f < 60 * 8 && !until(p); f++) pressFrame(p, COMPACTOR.maxFace);
   // Hold the plates so the structure settles at that face.
-  for (let f = 0; f < 30; f++) p.frame(p.face);
-  return { state: carState(p.car), face: p.face, work: p.work };
+  for (let f = 0; f < 30; f++) pressFrame(p, p.face);
+  return { state: carState(p.car!), face: p.face, work: p.work };
 }
 
 /** Bumper-to-bumper shortening of a car (m), read live. */

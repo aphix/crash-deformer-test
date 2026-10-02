@@ -73,6 +73,11 @@ export const MIRROR_FOLD_MAX = (75 * Math.PI) / 180;
 /** Energy the mirror's fold stop takes before the mirror snaps off (J), guessed. */
 export const MIRROR_BREAK_J = 30;
 
+/** Both ends struck within this (s) is a squeeze (`noteContactEnd`). */
+const END_WINDOW = 0.25;
+/** A squeeze ends once contact has been quiet this long (s), the deform's re-arm quiet time. */
+const REARM_QUIET_S = 0.3;
+
 /** A door's free swing; the crash rule's `hingeT` jams it open on top of this (C1). */
 export interface DoorHinge {
   /** Open angle (rad, 0 = shut). */
@@ -168,6 +173,11 @@ export class DeformableCar {
   /** [left, right] door and mirror parts, also listed in `parts`. */
   private doorParts: DetachPart[] = [];
   private mirrorParts: DetachPart[] = [];
+  /** Seconds since the [front, rear] end was last struck (`noteContactEnd`). */
+  private readonly endAgo = new Float64Array([9, 9]);
+  /** Smallest striker reach (m from centre along the length) since the squeeze began. */
+  private endReach = Infinity;
+  private endSqueeze = false;
   private lamps: Lamp[] = [];
   private hullHelper: THREE.LineSegments | null = null;
   private bumperF: THREE.Group;
@@ -577,6 +587,9 @@ export class DeformableCar {
     this.interior.scale.set(1, 1, 1);
     this.interior.position.set(0, 0, 0);
 
+    this.endAgo.fill(9);
+    this.endReach = Infinity;
+    this.endSqueeze = false;
     for (const p of this.parts) {
       if (p.detached) {
         this.world.remove(p.object);
@@ -714,9 +727,38 @@ export class DeformableCar {
   }
 
   afterContacts(dt: number, bounce?: WorldBounce): void {
-    if (!this.deform.massActive) return;
+    this.endAgo[0] += dt;
+    this.endAgo[1] += dt;
+    const d = this.deform;
+    // The squeeze lasts while both ends are still being struck; after it a hit is an ordinary
+    // one-ended hit again (and may re-arm), and a settled wreck may plant.
+    if (this.endSqueeze && Math.max(this.endAgo[0]!, this.endAgo[1]!) > END_WINDOW) {
+      this.endSqueeze = false;
+      d.bidirectional = false;
+      d.deepCrush = false;
+    }
+    if (this.endReach < Infinity && d.quietTime() > REARM_QUIET_S && Math.min(this.endAgo[0]!, this.endAgo[1]!) > END_WINDOW) this.endReach = Infinity;
+    if (!this.doorParts[0]!.swing!.latched || !this.doorParts[1]!.swing!.latched) this.swingDoors(dt);
+    if (!d.massActive) return;
     this.nudgeWheels(dt);
     this.stepLooseParts(dt, bounce);
+  }
+
+  /**
+   * Shared crash rule for every contact path (car-car, press, pistons; docs/CONTACT_PARITY.md):
+   * `end` (+1 front, −1 rear) is being struck, the striker's face `reach` m from the car's centre
+   * along its length. Both ends struck within `END_WINDOW` is a squeeze: both ends become crumple
+   * zones (`bidirectional`), and once a face is inboard of the wheel centres the cage may yield
+   * (`deepCrush`). Both clear when the contact has been quiet for `REARM_QUIET_S`.
+   */
+  noteContactEnd(end: 1 | -1, reach: number): void {
+    this.endAgo[end > 0 ? 0 : 1] = 0;
+    this.endReach = Math.min(this.endReach, reach);
+    if (this.endAgo[0]! < END_WINDOW && this.endAgo[1]! < END_WINDOW) {
+      this.endSqueeze = true;
+      this.deform.bidirectional = true;
+    }
+    if (this.endSqueeze && this.endReach < WHEEL_POS[0]![2]) this.deform.deepCrush = true;
   }
 
   snapshot(): Record<string, unknown> {

@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { JerseyBarrier } from "./engine-props.ts";
+import { partContactPair } from "./external-contact.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { applyGroundFriction, CRASH, leftoverCrumple } from "./physics-util.ts";
 import { CAGES } from "./rig-spec.ts";
@@ -170,6 +171,7 @@ function fixedStep(w: CrashWorld, dt: number): number {
         const dz = ca.group.position.z - cb.group.position.z;
         if (dx * dx + dz * dz > 28) continue;
         if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
+        partContactPair(ca, cb);
       }
     }
     let satBusy = false;

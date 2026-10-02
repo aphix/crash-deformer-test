@@ -10,6 +10,7 @@ import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
 import { physicsSlice } from "./sat.ts";
 import { stepCarPair, resolveCarPair } from "./pair-contact.ts";
+import { partContactPair } from "./external-contact.ts";
 
 function car(id: number, extra: Partial<AiCar> = {}): AiCar {
   return { ...blankAiCar(id), vz: 8, ...extra };
@@ -430,6 +431,7 @@ function runDerby(cars: DeformableCar[], seconds: number): DerbyRun {
           const cb = cars[b]!;
           if (ca.group.position.distanceToSquared(cb.group.position) > 28) continue;
           if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
+          partContactPair(ca, cb);
         }
       }
       for (let k = 0; k < 3; k++) {

@@ -24,7 +24,9 @@ describe("contact parity: a car on the Doors ram lane does what the ram does", (
   for (const scenario of ["mirror", "overOpen", "shut"] as const) {
     it(`${scenario}: a ${CAR_KG} kg car at 12 km/h vs the ${CAR_KG} kg ram`, { todo: PENDING }, () => {
       const car = carDoorPass(scenario, 12).a;
-      const ram = ramDoorPass(scenario, 12, CAR_KG);
+      // Same striker geometry: a ram head shaped like the car body on the same lane (the scene's
+      // 0.5 m head on the C lane runs under the mirror, a car body does not).
+      const ram = ramDoorPass(scenario, 12, CAR_KG, true);
       sameParts(car, ram, scenario);
       sameCrush(car, ram, scenario);
     });
