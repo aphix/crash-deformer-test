@@ -444,4 +444,32 @@ describe("netplay session: public matches", () => {
     assert.equal(st.public, "race");
     assert.notEqual(st.room, "pub-race-AAAA");
   });
+
+  it("keeps a public guest in the open room through its own long frame stalls", async () => {
+    const hub = new Hub();
+    let now = 1000;
+    const host = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
+    const client = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
+    open.push(host, client);
+    host.host("pub-race-AAAA", "rtc");
+    globalThis.fetch = async () => new Response(JSON.stringify({ rooms: [{ room: "pub-race-AAAA", players: 1 }] }));
+    const run = (ms: number, client_ = true) => {
+      for (let k = 0; k < ms / FRAME_MS; k++) {
+        now += FRAME_MS;
+        host.frame(FRAME_MS / 1000);
+        if (client_) client.frame(FRAME_MS / 1000);
+        hub.flush();
+      }
+    };
+    // A page that just loaded (or reloaded) joins, then its engine's boot warm-up runs no frames for 9 s.
+    await client.publicMatch("race");
+    run(9000, false);
+    run(1000);
+    assert.deepEqual([client.status().role, client.status().room, client.status().car], ["client", "pub-race-AAAA", 1]);
+    // A 9 s stall mid-session (a course loading): the host's messages wait in the queue behind the client's next frame.
+    now += 9000;
+    client.frame(0.1);
+    run(1000);
+    assert.deepEqual([client.status().role, client.status().room, client.status().car], ["client", "pub-race-AAAA", 1]);
+  });
 });

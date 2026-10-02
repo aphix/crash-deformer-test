@@ -151,10 +151,13 @@ interface PublicRoom {
 }
 
 /**
- * A host polls every 2 s once its pairs are up (p2p.ts IDLE_POLL_MS): one that has not polled for
- * `HOST_FRESH_SECONDS` closed its tab or lost its network, and its room is not offered any more.
+ * A host polls every 2 s once its pairs are up (p2p.ts IDLE_POLL_MS), but its tab can stall between polls:
+ * entering its first race (the course's program warm-up) held a host's polls back 5.6–8.6 s in a browser,
+ * and a 5 s window then hid the live room, so the next player hosted a duplicate. One that has not polled
+ * for `HOST_FRESH_SECONDS` crashed or lost its network (a closed tab sends `leave`), and its room is not
+ * offered any more; a player who joins it meanwhile leaves after `HOST_WAIT_MS` (net-play.ts).
  */
-const HOST_FRESH_SECONDS = 5;
+const HOST_FRESH_SECONDS = 15;
 
 /** `?kind=`: one kind of public match; rooms are named `pub-<kind>-…` (net-play.ts `publicMatch`). */
 const KIND = z.enum(["race", "derby"]).optional();

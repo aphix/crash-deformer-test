@@ -144,7 +144,7 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
 - **Public race**: the button asks the relay for open public rooms (`GET api/rtc?list=public`:
-  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 5 s, most distinct
+  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 15 s, most distinct
   addresses first, ties in random order) and joins the first, or hosts a new `pub-XXXXXX` room on the
   race course when none is open.
   - **Lobby**: the public host is car 0 on the course with no menu; the Net panel says "Waiting for
@@ -152,11 +152,20 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     room fills) the race starts with every peer seated as a `remote` slot and AI in the rest. A
     finished race shows its results for 12 s, then the next one starts, seating whoever joined.
   - **Dead rooms**: a host that closes its tab sends `leave` on `pagehide`; one that crashes stops
-    polling and drops off the list within 5 s. A client that joined a room whose host has gone
-    (no snapshot within 5 s) hosts a fresh public room itself. Measured: host tab closed, second page
-    presses Public race 0.5 s later. Before: it joined the dead room and sat at 0 snapshots/s for the
-    whole 10 s probe. Now, normal close: a fresh room at once. `leave` dropped (a crashed tab):
-    two runs, one joined the dead room and hosted a fresh one after 5.0 s, the other got a fresh room at once.
+    polling and drops off the list within 15 s. A client that joined a room whose host has gone
+    (no word from it for 5 s of the client's own frame time) hosts a fresh public room itself.
+    Measured: host tab closed, second page presses Public race 0.5 s later. Before: it joined the dead
+    room and sat at 0 snapshots/s for the whole 10 s probe. Now, normal close: a fresh room at once.
+    `leave` dropped (a crashed tab): two runs, one joined the dead room and hosted a fresh one after
+    5.0 s, the other got a fresh room at once.
+  - **Stalls are not deaths**: both windows tolerate a tab that stops running for a while. The
+    client's 5 s counts only its own frames (each capped at 0.1 s by the engine), because the
+    engine's boot warm-up runs no netplay frames for seconds after a load. On wall time, a player
+    who reloaded mid-race and rejoined got its first frame after the warm-up, read the host as
+    silent, and hosted a duplicate (3 of 10 public rejoins on the `/crush/` node build; private
+    rejoins 10/10). The relay's 15 s covers a host whose polls stall while it warms its first
+    course (5.6–8.6 s measured). With 5 s, a player pressing Public race during that stall saw no
+    room and hosted a duplicate (3 of 3 runs with B pressing 5.2 s after A).
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
   The Net panel shows the relay's refusal ("Room full", "Host taken", …; `P2PRoom.error` →
   `NetStatus.relayError`) until a poll gets through, and the client's session `problem` the same way.
@@ -181,7 +190,7 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   seats it in the same car (its slot, or the lowest free car once the slot lapsed), a restarted host
   seats it anew and the client takes that host's clock and sequence from scratch. A peer whose slot
   lapsed but who never noticed (it still hears the host) is re-seated by its next input. A public
-  client with no host for 5 s hosts a fresh public room.
+  client with no host for 5 s of its own frame time hosts a fresh public room.
   Measured (`.bench/net/blip2.mjs` in the main checkout, two pages over WebRTC on `vite dev`): B
   drives car 1 at 17.6 m/s, stops, then closes its `RTCPeerConnection` and holds the throttle. B
   reports "host lost" from 3.2 s; `P2PRoom`'s watchdog rebuilds the pair at ~7.4 s; the host's copy of
