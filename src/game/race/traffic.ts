@@ -12,10 +12,12 @@ const LOOK = 18;
 const LANE_HALF = 2.1;
 /** Gap (m) traffic keeps to whatever is stopped ahead. */
 const STOP_GAP = 7;
-/** Seconds stopped behind a blocker before edging round it toward the road centre. */
+/** Seconds stopped behind a blocker before edging round it (toward the road centre, or our own kerb for a car facing us). */
 const WAIT = 2.5;
 /** Seconds spent edging round once started (long enough to clear a car at walking pace). */
 const EDGE_TIME = 4.5;
+/** How far (m) past its lane a car facing a racer head-on edges toward its own kerb. */
+const KERB_SHIFT = 1.5;
 /** Grid zone (m) behind and ahead of the line kept clear of loop traffic at the start (16 cars reach back ~66 m). */
 const GRID_CLEAR = 80;
 /** Observer bubble (m): traffic farther than `DORMANT` from every observer is put away; it comes back between `SPAWN_NEAR` and `SPAWN_FAR`. */
@@ -38,7 +40,9 @@ type TrafficSlot = { path: TrackPath; offset: number; dir: 1 | -1 };
  * cars, its lanes round-robin). Each cruises its lane (offset from the path's centreline, + = left
  * of the path direction; `dir` −1 drives against it), slows for turns, brakes for anything in its
  * lane ahead (racers, wrecks, other traffic) and, after waiting behind a stopped obstacle, edges
- * round it. Cross streets meet the race loop at grade, so racers get cross traffic at junctions.
+ * round it, or to its own kerb when the obstacle faces it (a racer met head-on: edging toward the
+ * centre put it back across the racer's path, and the two danced nose to nose until the racer was
+ * DNF). Cross streets meet the race loop at grade, so racers get cross traffic at junctions.
  * The host keeps traffic in a bubble round the observers (`dormantFar`, `spawnPoint`).
  * Deterministic; no allocation per call.
  */
@@ -51,6 +55,8 @@ export class TrafficBrain {
   private readonly seg = new Int32Array(MAX_CARS);
   private readonly waited = new Float64Array(MAX_CARS);
   private readonly edge = new Float64Array(MAX_CARS);
+  /** 1 while the edge round is to our own kerb (the blocker faces us), 0 toward the centre. */
+  private readonly kerb = new Uint8Array(MAX_CARS);
   /** Next arc length to try when waking each car (scans on so wakes spread out). */
   private readonly scan = new Float64Array(MAX_CARS);
   private readonly proj = blankProjection();
@@ -84,6 +90,7 @@ export class TrafficBrain {
     this.seg.fill(-1);
     this.waited.fill(0);
     this.edge.fill(0);
+    this.kerb.fill(0);
     for (let i = 0; i < MAX_CARS; i++) this.scan[i] = ((i * 97.31) % 1) * 1e3;
   }
 
@@ -146,6 +153,7 @@ export class TrafficBrain {
     this.seg[id] = -1;
     this.waited[id] = 0;
     this.edge[id] = 0;
+    this.kerb[id] = 0;
   }
 
   private placeAt(id: number, s: number): TrafficSpawn {
@@ -175,6 +183,7 @@ export class TrafficBrain {
     // Anything in our lane ahead?
     let gap = Infinity;
     let gapAlong = 0;
+    let gapYaw = 0;
     for (const o of others) {
       if (o.id === i) continue;
       const dx = o.x - self.x;
@@ -185,6 +194,7 @@ export class TrafficBrain {
       if (ahead < gap) {
         gap = ahead;
         gapAlong = o.vx * fx + o.vz * fz;
+        gapYaw = o.yaw;
       }
     }
     const blocked = gap < STOP_GAP + 3 && gapAlong < 1;
@@ -192,11 +202,15 @@ export class TrafficBrain {
     if (this.waited[i]! > WAIT) {
       this.waited[i] = 0;
       this.edge[i] = EDGE_TIME;
+      // A car facing us (a racer met head-on in our lane): make room at our own kerb, not across its path.
+      this.kerb[i] = Math.cos(gapYaw - self.yaw) < -0.5 ? 1 : 0;
     }
-    // Edging round: shift toward the centreline (and a little past it) at walking pace until clear.
+    // Edging round: toward the centreline (and a little past it) at walking pace until clear, or to our
+    // own kerb for a car facing us.
     const edging = this.edge[i]! > 0;
     if (edging) this.edge[i]! -= dt;
-    const offset = edging ? slot.offset - Math.sign(slot.offset || 1) * 3.6 : slot.offset;
+    const kerbSide = Math.sign(slot.offset || 1);
+    const offset = !edging ? slot.offset : this.kerb[i] ? slot.offset + kerbSide * KERB_SHIFT : slot.offset - kerbSide * 3.6;
 
     const ld = clamp(4 + 0.5 * speed, 6, 14);
     const p = pointOn(path, proj.s + slot.dir * ld, this.pt);
