@@ -1351,6 +1351,34 @@ ledger on the 16-car replay).
   `derby:wreck` (4/5 with no death before 8 s) needs accumulation, since below
   ×0.46 one hard hit kills.
 
+### 6.8 Level-out pops, derby spin and wrecking (lane `crash-realism-9`)
+
+Probes in the main checkout's `.bench/cr9/`: `slice.ts` (per-slice mass step
+against 3·v·h + 5 cm after every `afterContacts`, then a replay with exclusive
+per-call attribution of the worst slice), `probe.ts` (cr8's derby probe with
+per-call centroid moves, `CALLS=1 WIN=<s> ATTR=<car>@<t>`), `flow.ts`, `rehit.ts`.
+
+- **Roof pop as a stopped wreck levels out.** The zip check now runs per slice
+  (`Probe.slice`, after each `afterContacts`); per frame it missed the pop.
+  Base, worst slice step vs its limit: head-on 64/80/100/115 km/h roof
+  0.127/0.128/0.128/0.128 m vs 0.050 at quiet 0.355 s (the planted level-out
+  snapping pitch −0.2 → 0 in one call); past the limit, wall 64 roof 0.051 m,
+  40 % offset 64 bumperFL 0.083 m, side 56 roof 0.029 m. Fix: the frame's tilt eases over
+  `LEVEL_TIME` (0.1 s) both ways, levelling from 0.35 s quiet and tilting back
+  on a new hit. Easing only the level-out (cr8's candidate) let a hit snap the
+  tilt back on: derby seed 1, c6 parked at quiet 1.02 s and nudged at 27.12 s
+  moved 0.069 m in the first SAT pass, 0.056 m of it `clampLocal` re-capping
+  under pitch 0 → −0.08 with Δv = 0. A second, older pop: 100 km/h, the slice
+  after the tyres stop both cars (every mass at rest), the free shape solver
+  (4 passes at α 0.64) closed the remaining gap at once: bumpers 0.056 m vs
+  0.050 (`writeShapeToMasses` 0.049 m). `CONTACT_HOLD` 1 → 2 frames lets the
+  contact solver close it first (one frame 0.056, 0.034 s and longer ≤ 0.045 m).
+  A 10 m/s per-slice shape-flow cap was tried and dropped: at 1/120 s slices the
+  delayed flow popped the roof instead (80 km/h 0.064 m vs 0.050). Now every
+  head-on 40–115 km/h stays under the limit (worst 100 km/h roof 0.045 m vs
+  0.050, 0.90×), the three wall hits by 0.022–0.046 m; derby seeds 1–5 zip 0
+  (90 s probe); `derby:pops` todo 12 → 4 pops.
+
 ## Appendix
 
 ### Sources

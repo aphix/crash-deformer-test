@@ -114,8 +114,13 @@ const _bodyOut = new Float64Array(3);
 const SHAPE_REF_HZ = 240;
 /** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
 const SHAPE_MAX_STEP = 0.14;
-/** Sim seconds a fed contact keeps the solver in contact mode: one 60 Hz frame. */
-const CONTACT_HOLD = 1 / 60;
+/** Sim seconds a fed contact keeps the solver in contact mode: two 60 Hz frames. With one, the free
+ *  solver (4 passes at α 0.64 at squash 0.32) closed a 100 km/h head-on's remaining shape gap in the
+ *  slice after the tyres stopped both cars: bumpers 0.056 m with every mass at rest (limit 0.050). */
+const CONTACT_HOLD = 2 / 60;
+/** Sim seconds the frame's tilt takes to level out on planting, or to come back on a new hit (followGroup):
+ *  0.1 s, CR8's eased level-out (64 km/h head-on roof 0.61× its per-slice 3·v·h + 5 cm limit). */
+const LEVEL_TIME = 0.1;
 /** Depth (m) inside the chassisCell span's front/rear face over which non-cell skin weight blends back in. */
 const CELL_FACE_BLEND = 0.3;
 /** Largest non-cell skin weight at the span face (D1): the A-pillar foot still creases. */
@@ -361,6 +366,9 @@ export class StreamedDeformation {
   /** Heading and sim time (`elapsed`) of the last yaw-rate sample in followGroup. */
   private rateYaw = 0;
   private rateAt = 0;
+  /** Share (0–1) of the read pitch/roll the frame takes, and the sim time it was last eased at (followGroup). */
+  private lean = 1;
+  private leanAt = -Infinity;
   /** Hull push (m) taken at sim time `pushAt` (takePush). */
   private pushUsed = 0;
   private pushAt = -1;
@@ -816,6 +824,7 @@ export class StreamedDeformation {
     this.prevYaw = 0;
     this.rateYaw = 0;
     this.rateAt = 0;
+    this.leanAt = -Infinity;
     this.overlapFrame = false;
     this.contactAt = -Infinity;
     this.shapeWasLive = false;
@@ -1007,6 +1016,7 @@ export class StreamedDeformation {
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
     this.rateYaw = this.prevYaw;
     this.rateAt = 0;
+    this.leanAt = -Infinity;
     this.snapImpactToNearestMass();
     for (const s of this.sensors) {
       s.target = 0;
@@ -1085,6 +1095,7 @@ export class StreamedDeformation {
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
     this.rateYaw = this.prevYaw;
     this.rateAt = this.elapsed;
+    this.leanAt = -Infinity;
   }
 
   /** Pull impactLocal onto the nearest mass so L/R crush does not sit on the centerline. */
@@ -1535,10 +1546,17 @@ export class StreamedDeformation {
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
     const yawLen = Math.hypot(fx, fz);
     // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
-    const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22);
-    const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5);
     const plant = !this.bidirectional && this.quietTime() > 0.2;
-    const tilt = Number.isFinite(pitch + roll) && (!plant || this.quietTime() < 0.35);
+    // A planted wreck levels out from 0.35 s quiet and a hit tilts it back, each eased over LEVEL_TIME of
+    // sim time. Either switch in one call swung every mass through the tilt: a stopped 64 km/h head-on's
+    // roof jumped 0.127 m in one slice (pitch −0.2 → 0), and a parked derby wreck nudged back into play
+    // 0.069 m (pitch 0 → −0.08, derby seed 1, c6 at 27.12 s).
+    const ease = (this.elapsed - this.leanAt) / LEVEL_TIME;
+    this.leanAt = this.elapsed;
+    this.lean += THREE.MathUtils.clamp((plant && this.quietTime() >= 0.35 ? 0 : 1) - this.lean, -ease, ease);
+    const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22) * this.lean;
+    const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5) * this.lean;
+    const tilt = Number.isFinite(pitch + roll);
     const cp = Math.cos(tilt ? pitch : 0);
     const sp = Math.sin(tilt ? pitch : 0);
     const cr = Math.cos(tilt ? roll : 0);

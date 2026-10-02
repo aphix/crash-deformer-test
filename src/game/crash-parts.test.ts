@@ -319,14 +319,28 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
 });
 
 describe("the tyres are a head-on's final stop", () => {
-  it("bad: in a 40/56/64/100 km/h head-on the two cars' tyres never pass more than 1 cm into each other", () => {
+  it("bad: in a 40/56/64/100 km/h head-on the two cars' tyres never pass more than 1 cm into each other, and no mass pops", () => {
     for (const kph of [40, 56, 64, 100]) {
       for (const r of runPair(kph, kph, "head-on", { squash: 0.32 })) {
         assert.ok(r.tyreOverlap <= 0.01, `${kph} km/h head-on: tyres overlap ${r.tyreOverlap.toFixed(3)} m`);
         assert.equal(r.hubsPopped.length, 0, `${kph} km/h head-on popped ${r.hubsPopped.join(",")}`);
+        // No mass steps past 3·v·h + 5 cm in a slice: not through the hit, its springback, or the stopped wreck levelling out.
+        assert.ok(r.massStepExcess <= 0, `${kph} km/h head-on: ${r.massStepName} stepped ${r.massStepExcess.toFixed(3)} m past 3·v·h + 5 cm in a slice`);
         // The stop is the last limit, not a shorter crumple: 56 km/h stays in the 0.25–0.50 m nose band.
         if (kph === 56) assert.ok(r.noseShortL >= 0.25 && r.noseShortL <= 0.5, `56 km/h nose ${r.noseShortL.toFixed(3)} m`);
       }
+    }
+  });
+});
+
+describe("a stopped wreck levels out without popping", () => {
+  it("bad: no mass steps past 3·v·h + 5 cm in a slice through a 64 km/h full or 40 % wall hit or a 56 km/h side hit", () => {
+    for (const [label, r] of [
+      ["64 full", runWall(64)],
+      ["64 offset", runWall(64, 0.4)],
+      ["56 side", runWall(56, 1, "side")],
+    ] as const) {
+      assert.ok(r.massStepExcess <= 0, `${label}: ${r.massStepName} stepped ${r.massStepExcess.toFixed(3)} m past 3·v·h + 5 cm in a slice`);
     }
   });
 });
