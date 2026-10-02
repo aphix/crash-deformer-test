@@ -14,6 +14,10 @@
   --color-accent-fg: #0c0c0e;
   --color-border: #2c2c30;
   --color-ring: #d8d4cc;
+  /* Race start lights and the wrong-way banner only. */
+  --color-signal-red: #d33a40;
+  --color-signal-amber: #f0b429;
+  --color-signal-green: #2fa86a;
 }
 
 :root {

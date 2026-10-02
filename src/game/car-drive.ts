@@ -263,15 +263,12 @@ export class DriverSeat {
   private readonly feel: DriveFeel = { wheel: 0, gas: 0, brake: 0 };
   private readonly out = idleDrive();
   private wasActive = false;
-<<<<<<< HEAD
   private flippedFor = 0;
-=======
   /**
    * Controller-slot gate: when set, a pedal press only takes the wheel of a car it allows
    * (race mode: this browser's player car, never an AI or a remote peer's car).
    */
   drivable: ((index: number) => boolean) | null = null;
->>>>>>> 48b699a (Race scene glue in the engine: RaceDirector, controller slots, seat gate, race keys and pad.)
 
   focus(index: number): void {
     this.carIndex = index;
