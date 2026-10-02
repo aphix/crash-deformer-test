@@ -39,6 +39,8 @@ const ROAD_LIFT = 0.015;
 const SIDE_LIFT = 0.03;
 const MARK_LIFT = 0.045;
 const KERB_LIFT = 0.06;
+/** Longest flat piece (m) of a marking or kerb. */
+const MARK_STEP = 1.5;
 /** Section spacing cap (m); bends get closer sections (chord sagitta ≤ 2 cm). */
 const MAX_STEP = 4;
 /** Wall stripe length (m). */
@@ -523,13 +525,20 @@ function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground:
   }
 }
 
-/** Flat strip from arc length s0 to s1 of `p`; laterals l0 / l1 are measured from `edge` × the half width there (0 = centreline). */
+/**
+ * Flat strip from arc length s0 to s1 of `p`; laterals l0 / l1 are measured from `edge` × the half
+ * width there (0 = centreline). Split into ≤ MARK_STEP pieces so it follows crests and dips.
+ */
 function addSpan(m: Mesher, p: TrackPath, ground: TrackGround, pt: TrackPoint, s0: number, s1: number, l0: number, l1: number, edge: number, lift: number, hex: number): void {
-  const ids: number[] = [];
-  for (const s of [s0, s1]) {
+  const n = Math.max(1, Math.ceil((s1 - s0) / MARK_STEP - 1e-9));
+  let pa = -1;
+  let pb = -1;
+  for (let i = 0; i <= n; i++) {
+    const s = s0 + ((s1 - s0) * i) / n;
     pointOn(p, s, pt);
     const k = sampleAt(p, s);
     const h = pt.half;
+    const ids: number[] = [];
     for (const l of [l0, l1]) {
       const lat = l + edge * h;
       const x = pt.x + pt.tz * lat;
@@ -537,8 +546,10 @@ function addSpan(m: Mesher, p: TrackPath, ground: TrackGround, pt: TrackPoint, s
       const y = pt.y - clamp(lat, -h, h) * Math.tan(p.bank[k]!);
       ids.push(m.v(x, (p.deck[k] ? y : ground.heightAt(x, z, y)) + lift, z, hex));
     }
+    if (i > 0) m.quad(pa, pb, ids[0]!, ids[1]!);
+    pa = ids[0]!;
+    pb = ids[1]!;
   }
-  m.quad(ids[0]!, ids[1]!, ids[2]!, ids[3]!);
 }
 
 /** Edge lines and centre dashes on paved stretches, a chequered line on the loop; none where another road crosses. */
