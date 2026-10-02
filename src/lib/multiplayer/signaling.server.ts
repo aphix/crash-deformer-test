@@ -9,13 +9,15 @@
  * the peer, returns the roster, and prunes stale rows. `GET ?list=public` lists open public rooms.
  *
  * The repo and server are public, so every input is validated, rooms are capped, requests are
- * rate-limited per client IP and per room (in-process: exact on one long-lived node server, per
- * instance on serverless), nothing identifying is stored beyond a random peer id and a role tag,
+ * rate-limited per peer (keyed by client IP + peer id), per client IP and per room (in-process: exact
+ * on one long-lived node server, per instance on serverless), nothing identifying is stored beyond a
+ * random peer id and a role tag,
  * and errors are logged by name only.
  */
 import { z } from "zod";
 import { getSql, type Sql } from "@/lib/db";
 import type { PeerRow, RtcPollResponse, SignalRow } from "./p2p";
+import { RateLimiter } from "./rate-limit";
 import { PUBLIC_PREFIX, ROOM_MAX } from "./rooms";
 
 const ID = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
@@ -41,41 +43,14 @@ const SIGNAL_TTL_SECONDS = 60;
 /** Signals a peer may have waiting in one room (offers, answers and ICE while a mesh forms). */
 const INBOX_MAX = 400;
 
-/** Token bucket: `rate` requests per second, bursts up to `burst`. */
-interface Bucket {
-  tokens: number;
-  at: number;
-}
-const LIMITS = { ip: { rate: 15, burst: 60 }, room: { rate: 80, burst: 240 } } as const;
-const BUCKETS_MAX = 20_000;
+/** One limiter per process, on globalThis so dev HMR keeps the buckets. */
+const globalRef = globalThis as typeof globalThis & { __rtcLimiter__?: RateLimiter };
+const limiter = (globalRef.__rtcLimiter__ ??= new RateLimiter());
 
-const globalRef = globalThis as typeof globalThis & {
-  __rtcBuckets__?: Map<string, Bucket>;
-};
-
-/** False once `key` has spent its bucket. Stale buckets are swept when the map grows large. */
-function allow(key: string, limit: { rate: number; burst: number }, now = Date.now()): boolean {
-  const buckets = (globalRef.__rtcBuckets__ ??= new Map());
-  let b = buckets.get(key);
-  if (!b) {
-    if (buckets.size >= BUCKETS_MAX) {
-      for (const [k, v] of buckets) if (now - v.at > 60_000) buckets.delete(k);
-      if (buckets.size >= BUCKETS_MAX) return false;
-    }
-    b = { tokens: limit.burst, at: now };
-    buckets.set(key, b);
-  }
-  b.tokens = Math.min(limit.burst, b.tokens + ((now - b.at) / 1000) * limit.rate);
-  b.at = now;
-  if (b.tokens < 1) return false;
-  b.tokens -= 1;
-  return true;
-}
-
-/** The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared bucket. */
-function clientKey(request: Request): string {
+/** The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. */
+function clientIp(request: Request): string {
   const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return `ip:${fwd || request.headers.get("x-real-ip") || "direct"}`;
+  return fwd || request.headers.get("x-real-ip") || "direct";
 }
 
 async function roster(sql: Sql, room: string): Promise<PeerRow[]> {
@@ -135,8 +110,9 @@ async function listPublic(sql: Sql): Promise<Response> {
 }
 
 /** GET ?room&peer&name&since — join (since=0), heartbeat, and inbox. */
-async function handleGet(url: URL): Promise<Response> {
+async function handleGet(url: URL, ip: string): Promise<Response> {
   if (url.searchParams.get("list") === "public") {
+    if (!limiter.list(ip)) return json({ error: "rate limited" }, 429);
     const sql = await getSql();
     return listPublic(sql);
   }
@@ -150,7 +126,7 @@ async function handleGet(url: URL): Promise<Response> {
     });
   if (!parsed.success) return json({ error: "invalid query" }, 400);
   const { room, peer, name, since } = parsed.data;
-  if (!allow(`room:${room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
+  if (!limiter.peer(ip, peer, room)) return json({ error: "rate limited" }, 429);
 
   const sql = await getSql();
   if (since === 0 || Math.random() < 0.02) await prune(sql);
@@ -170,7 +146,7 @@ async function handleGet(url: URL): Promise<Response> {
   return json(body);
 }
 
-async function handlePost(request: Request): Promise<Response> {
+async function handlePost(request: Request, ip: string): Promise<Response> {
   const length = Number(request.headers.get("content-length") ?? 0);
   if (length > 40_000) return json({ error: "too large" }, 413);
   let body: unknown;
@@ -182,7 +158,7 @@ async function handlePost(request: Request): Promise<Response> {
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) return json({ error: "invalid request" }, 400);
   const msg = parsed.data;
-  if (!allow(`room:${msg.room}`, LIMITS.room)) return json({ error: "rate limited" }, 429);
+  if (!limiter.peer(ip, msg.op === "signal" ? msg.from : msg.peer, msg.room)) return json({ error: "rate limited" }, 429);
   const sql = await getSql();
 
   if (msg.op === "signal") {
@@ -208,11 +184,11 @@ async function handlePost(request: Request): Promise<Response> {
 
 /** Request entrypoint for the /api/rtc route (GET poll / list, POST signal / leave). */
 export async function handleSignaling(request: Request): Promise<Response> {
-  const ip = clientKey(request);
-  if (!allow(ip, LIMITS.ip)) return json({ error: "rate limited" }, 429);
+  const ip = clientIp(request);
+  if (!limiter.ip(ip)) return json({ error: "rate limited" }, 429);
   try {
-    if (request.method === "GET") return await handleGet(new URL(request.url));
-    if (request.method === "POST") return await handlePost(request);
+    if (request.method === "GET") return await handleGet(new URL(request.url), ip);
+    if (request.method === "POST") return await handlePost(request, ip);
     return json({ error: "method not allowed" }, 405);
   } catch (error) {
     // Name only: driver messages can carry connection strings, hosts or query values.
