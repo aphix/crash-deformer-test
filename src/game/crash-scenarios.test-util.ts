@@ -67,6 +67,9 @@ export type CrashResult = {
   spinFrames: number;
   /** Deepest overlap (m) of this car's tyres with another car's over the run; negative: the closest clearance. */
   tyreOverlap: number;
+  /** Largest slice step of any mass past the zip limit 3·v·h + 5 cm (m; negative: the closest margin), and which. */
+  massStepExcess: number;
+  massStepName: string;
 };
 
 export type CrashWorld = {
@@ -80,6 +83,8 @@ export type CrashWorld = {
   slomo: boolean;
   /** Group position at the start of the last slice before each car's first contact. */
   preContact: Map<DeformableCar, THREE.Vector3>;
+  /** Called after each car's afterContacts in every slice (the probes' zip check). */
+  afterSlice?: (car: DeformableCar, h: number) => void;
 };
 
 export type ScenarioOpts = {
@@ -222,6 +227,7 @@ function fixedStep(w: CrashWorld, dt: number): number {
       if (car.deform.massActive) car.syncPose(h);
       if (barrier) barrier.clip(car);
       car.afterContacts(h);
+      w.afterSlice?.(car, h);
     }
   }
   return strongest;
@@ -307,8 +313,13 @@ class Probe {
     quietYawDrift: 0,
     spinFrames: 0,
     tyreOverlap: -Infinity,
+    massStepExcess: -Infinity,
+    massStepName: "",
   };
   private prevYaw = 0;
+  /** Mass world xz, and the fastest mass speed, after the last slice with live masses (empty until then). */
+  private massPrev: number[] = [];
+  private massPrevV = 0;
 
   readonly car: DeformableCar;
   /** Body-skin vertices whose rest lies in the `chassisCell` span: index and start position. */
@@ -331,6 +342,28 @@ class Probe {
       this.cabinStart.push(x, y, z);
     }
     this.cellStart.copy(mass(car.deform, "cell").local);
+  }
+
+  /** Called after each car's afterContacts in every slice: the zip check, mass by mass, against the slice. */
+  slice(h: number): void {
+    const d = this.car.deform;
+    if (!d.massActive || h <= 0) return;
+    let v = this.car.velocity.length();
+    for (const m of d.masses) v = Math.max(v, m.vel.length());
+    const limit = 3 * Math.max(v, this.massPrevV) * h + 0.05;
+    this.massPrevV = v;
+    const seen = this.massPrev.length > 0;
+    d.masses.forEach((m, i) => {
+      if (seen) {
+        const excess = Math.hypot(m.world.x - this.massPrev[i * 2]!, m.world.z - this.massPrev[i * 2 + 1]!) - limit;
+        if (excess > this.r.massStepExcess) {
+          this.r.massStepExcess = excess;
+          this.r.massStepName = m.name;
+        }
+      }
+      this.massPrev[i * 2] = m.world.x;
+      this.massPrev[i * 2 + 1] = m.world.z;
+    });
   }
 
   /** Called once per rendered frame; contact start uses the previous frame so the first-frame Δv counts. */
@@ -436,6 +469,9 @@ class Probe {
 function run(w: CrashWorld, probes: Probe[], after: number): void {
   const limit = 60 * 120;
   let sinceContact = 0;
+  w.afterSlice = (car, h) => {
+    for (const p of probes) if (p.car === car) p.slice(h);
+  };
   for (let frame = 0; frame < limit; frame++) {
     const before = w.timeScale;
     tickWorld(w);
