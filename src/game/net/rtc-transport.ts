@@ -19,6 +19,11 @@ export class RtcTransport implements NetTransport {
     void this.room.join();
   }
 
+  /** The relay's refusal ("room full", "host taken", …) while it lasts; the Net panel shows it. */
+  get error(): string | null {
+    return this.room.error;
+  }
+
   send(data: Uint8Array<ArrayBuffer>, to?: string): void {
     this.room.sendBinary(data, to);
   }

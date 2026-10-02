@@ -117,6 +117,8 @@ export class P2PRoom {
   /** The relay token for `selfId` (empty until the first poll seats this peer). */
   private token = "";
   private lastPeersFingerprint = "";
+  /** The relay's last refusal of a poll ("room full", "host taken", …); null once a poll succeeds. */
+  error: string | null = null;
 
   constructor(opts: P2PRoomOptions) {
     this.opts = opts;
@@ -213,9 +215,15 @@ export class P2PRoom {
     });
     const res = await fetch(`${RTC_URL}?${params}`, { headers: { [TOKEN_HEADER]: this.token } });
     if (this.closed) return;
-    if (!res.ok) throw new Error(`signaling poll failed: ${res.status}`);
+    if (!res.ok) {
+      const refusal: unknown = await res.json().catch(() => null);
+      this.error =
+        refusal && typeof refusal === "object" && "error" in refusal && typeof refusal.error === "string" ? refusal.error : `relay ${res.status}`;
+      throw new Error(`signaling poll failed: ${res.status}`);
+    }
     const body = (await res.json()) as RtcPollResponse;
     if (this.closed) return;
+    this.error = null;
     if (body.token) this.token = body.token;
     if (!this.everPolled) {
       this.everPolled = true;
