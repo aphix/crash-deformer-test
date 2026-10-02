@@ -416,6 +416,37 @@ describe("a crushed wreck keeps its heading", () => {
     const worst = turn.indexOf(Math.max(...turn));
     assert.ok(turn[worst]! < 0.1, `${SPIN_FLEET[worst]![0]} turned ${turn[worst]!.toFixed(2)} rad in the last 2 s, |ω| ${cars[worst]!.angular.y.toFixed(2)}`);
   });
+
+  it("bad: in the owner's 16-car pile-up (squash 0.4, buckle 0.45) no wreck turns faster than 5 rad/s over any 0.1 s", () => {
+    const cars = SPIN_FLEET.map(([name, x, z, yaw, speed], i) => {
+      const car = new DeformableCar({ body: 0xffffff, accent: 0x444444, name }, new THREE.Scene(), null, fleetStyle(i));
+      car.deform.setMode("shape");
+      car.deform.squash = 0.4;
+      car.deform.buckle = 0.45;
+      car.spawnFacing(x, z, yaw, 0);
+      car.velocity.set(Math.sin(yaw) * speed, 0, Math.cos(yaw) * speed);
+      car.speed = speed;
+      car.spawnSpeed = speed;
+      car.deform.bindKinematic(car.group, car.velocity, car.angular);
+      return car;
+    });
+    const w = makeWorld(cars, false, false);
+    const yaws = cars.map(() => [] as number[]);
+    const peak = cars.map(() => 0);
+    for (let f = 0; f < 2.5 * 60; f++) {
+      tickWorld(w);
+      cars.forEach((c, i) => {
+        const h = yaws[i]!;
+        h.push(c.group.rotation.y);
+        if (h.length > 6) {
+          const d = h[h.length - 1]! - h[h.length - 7]!;
+          peak[i] = Math.max(peak[i]!, Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) * 10);
+        }
+      });
+    }
+    const worst = peak.indexOf(Math.max(...peak));
+    assert.ok(peak[worst]! <= 5, `${SPIN_FLEET[worst]![0]} turned at ${peak[worst]!.toFixed(2)} rad/s over 0.1 s`);
+  });
 });
 
 /** A wreck at (0, z) heading `yaw`, sliding along +z at `v` (m/s), its masses armed by a light knock. */
