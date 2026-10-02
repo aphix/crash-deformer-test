@@ -34,7 +34,7 @@ Main-thread cost per frame (oval, means): physics 1.4–2.5 ms, race AI 0.2–0.
 Not causes in races (measured above): HUD React (0.02 ms), FX emitters, tyre marks, lamp lights, skinning, texture uploads (no texture-upload frame over 50 ms).
 
 ## Fixes
-- **Program warm-up.** `CrashEngine.ready` resolves after boot links every program play can reach: `PostFX.warm` compiles the scene for both outputs (canvas, HDR target) plus every post pass and composite. A hidden cracked-glass stand-in and the debug views are added. Then the scene is drawn with every mesh shown and unculled into the canvas and the HDR target, through a zero-area scissor so nothing lands, and the mark map's stamp and fade are drawn the same way. That links shadow-depth variants, fetches every uniform location and uploads every texture. `start()` waits for `ready`.
+- **Program warm-up.** `CrashEngine.ready` resolves after boot links every program play can reach: `PostFX.warm` compiles the scene for both outputs (canvas, HDR target) plus every post pass and composite. A hidden cracked-glass stand-in and the debug views are added. Then the scene is drawn with every mesh shown and unculled into the canvas and the HDR target, through a zero-area scissor so nothing lands, and the mark map's stamp and fade are drawn the same way. That links shadow-depth variants, fetches every uniform location and uploads every texture. The loop simulates and draws only after `ready`; from `start()` until then it reads input only (see "Input during the warm-up").
   - New scene content warms where it appears: a race course's art (`buildArt`) and new cars (`buildCar`) queue the same warm-up after the synchronous change, so it runs in the setup menu or the countdown. If the compile brought no new program (the city's traffic cars), the draws are skipped: they cost the GPU process 0.8–1.0 s at the city start.
   - Post render targets and the mark map are allocated once and resized with the canvas, so a tier switch allocates nothing.
   - Guard: `npm run check:programs -- --url <server>` (`scripts/check-programs.mjs`). Main: 45 programs after boot, 72 after the sandbox play. Lane: 61 = 61 after sandbox play (2 panes cracked); races: oval 79, rally 79, city 84, stunt 83 programs at the green light, 0 linked while racing. It needs a server and a browser (about 3 min), so it is a script, not a `test:app` test.
@@ -97,6 +97,20 @@ The city start frame is down from 787–997 ms to 182 ms, and no frame has a pro
 | derby | lane | 72.8 / 74.0 | 107.3 / 109.8 | 149.3 / 147.9 | 153 / 709 | 377 / 342 | 0 / 0 |
 
 Not worse, within the run-to-run spread, and the program-link frames are gone. One lane derby run had a 709 ms frame at 27 s: a 486 ms main-thread task outside the frame loop, with no program link and no texture change. Not attributed further.
+
+## Input during the warm-up (follow-up)
+The first version started the loop only once `ready` resolved, and input is read in the loop (`pollInput`: keys and pad into the seat, follow → drive). A press during the 2.3–4.0 s warm-up was lost. `.bench/board-click.mjs` presses W 0.2–0.4 s after `__crush` appears, so on main 937e631 the seat stayed in follow. Its Space hold then paused the game (`playing: false`) instead of braking. That was 2 of 2 runs; with the probe waiting on `ready`, main gave drive and `playing: true`.
+
+Now the loop runs from `start()`. Until `ready` it only reads input, then it simulates and draws. The unchanged probe gives drive, then `playing: true`, in 3 of 3 runs, with W pressed 0.17–0.22 s after `__crush` and `ready` at 2.3–4.0 s.
+
+## GC during races (follow-up)
+Measured with the sampling heap profiler, including objects already collected (`.bench/perf-race/alloc.mjs`): 8 cars, minimal tier, 30 s of steady state from 14 s after the green light, dev server.
+- Allocation runs at 24–30 MB/s. That gives a scavenge about every second (max 2–7 ms) and 1–2 major GCs per 30 s (9–38 ms).
+- About 20 MB/s of it is physics: `sat.ts` `satTwoHulls`, `streamed-deform.ts` (`clampLocal`, `followGroup`, `skin`, `stepMassSlice`, `yawMomentum`, `stepShapeMatch`, `liveHulls`, `liveCrushHulls`), `pair-contact.ts` `tyreStop`, and `applyDrive`. Sent to CrashRealism11 with per-site KB/s.
+- About 2.5 MB/s is React's dev-build JSX runtime (production not measured). About 2 MB/s is the race HUD components (`race-hud.tsx` standings rows and readouts, owned by the HUD lane).
+- About 3 MB/s is inside three's render. Part of that was program reselection: when one material draws plain and instanced meshes (or instanced meshes with and without instance colours), three runs `getProgram` → `getParameters` again at every switch. That happened 12–13 times a frame: the car parts material shared with the wheel batch, the course's plain prop material shared by the gantry and instanced props, and three's shadow depth material shared by every caster.
+- Fix: the wheel batch gets its own copy of the parts material, and it and debris get their own shadow depth material. Track art gives each draw kind its own copy of a material (`TrackArt.forDraw`) and gives instanced casters their own depth material. Program switches per frame went from 12 (oval) and 13 (city) to 0 on both. No new programs link (the guard still passes, with 0 links while racing). Near-camera captures differ by at most 1/255.
+- The allocation rate did not measurably change: interleaved lane vs main gave 24.6 vs 24.1 MB/s on oval and 25.6 vs 25.3 MB/s on city, with major GCs at 2 vs 1 and 2 vs 2 per 30 s. The race GC pauses are driven by physics allocation.
 
 ## Re-measure
 On a quiet box with the GPU clocked up (check with `nvidia-smi`), run `node .bench/perf-race/after.mjs` under `withserver.mjs` for main and the lane. Expect p50 16.7 again, as in the before table.

@@ -140,11 +140,11 @@ export class CrashEngine {
   private cine: Cinematics;
   private impactLightLife = 0;
   private envMap: THREE.Texture | null = null;
-  /** Resolves when `warmPrograms` is done (a failure is logged): `start` waits for it, so play never links a program. */
+  /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
-  /** Boot warm-up done: later scene content warms through `queueWarm`. */
-  private warmed = false;
   private warmQueued = false;
+  /** Until the boot warm-up resolves (`ready`), the loop reads input only; after it, new scene content warms through `queueWarm`. */
+  private warming = true;
   private debris: DebrisSystem;
   private readonly wheels = new WheelBatch(MAX_CARS * 4);
   private readonly lampLights: LampLights;
@@ -366,16 +366,20 @@ export class CrashEngine {
     }
     (window as unknown as { __crush?: CrashEngine }).__crush = this;
     this.emitHud(true);
-    this.ready = this.warmPrograms(env).catch((err: unknown) => console.error("Crush Stream program warm-up failed", err));
+    this.ready = this.warmPrograms(env)
+      .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
+      .then(() => {
+        this.warming = false;
+      });
   }
 
-  /** The loop starts once every program is linked; until then the page shows its boot state. */
+  /**
+   * The loop runs from here, but until `ready` it only reads input (keys, pad, the seat's follow → drive), so a
+   * press during the warm-up still counts; it simulates and draws once every program is linked.
+   */
   start(): void {
-    void this.ready.then(() => {
-      if (this.disposed) return;
-      this.last = performance.now();
-      this.renderer.setAnimationLoop(this.tick);
-    });
+    this.last = performance.now();
+    this.renderer.setAnimationLoop(this.tick);
   }
 
   /**
@@ -406,7 +410,6 @@ export class CrashEngine {
       car.setRigVisible(this.showRig);
       car.deform.setParticlesVisible(this.showParticles);
     }
-    this.warmed = true;
   }
 
   /**
@@ -423,7 +426,7 @@ export class CrashEngine {
     if (this.disposed) return;
     // After boot every known program has drawn; the draws below cost the GPU process ~0.5–1 s for a whole
     // course, so content that brought no new program (the city's traffic cars) skips them.
-    if (this.warmed && (this.renderer.info.programs?.length ?? 0) === programs) return;
+    if (!this.warming && (this.renderer.info.programs?.length ?? 0) === programs) return;
     const shown: THREE.Object3D[] = [];
     const culled: THREE.Object3D[] = [];
     const hiddenMats: THREE.Material[] = [];
@@ -467,7 +470,7 @@ export class CrashEngine {
    * is complete (art in the scene, fog set, cars placed): setup menus and the countdown absorb the link, the race doesn't.
    */
   private queueWarm(): void {
-    if (!this.warmed || this.warmQueued) return;
+    if (this.warming || this.warmQueued) return;
     this.warmQueued = true;
     queueMicrotask(() => {
       this.warmQueued = false;
@@ -1512,6 +1515,7 @@ export class CrashEngine {
       this.fps = this.fps > 1 ? this.fps * 0.85 + inst * 0.15 : inst;
     }
     this.pollInput();
+    if (this.warming) return;
 
     if (this.playing) {
       this.elapsedWall += wallDt;

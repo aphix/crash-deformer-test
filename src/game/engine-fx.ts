@@ -91,6 +91,8 @@ export class DebrisSystem {
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
+    // Its own shadow depth material: on three's shared one, every instanced ↔ plain caster switch reselects the program.
+    this.mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
     this.mesh.count = 0;
     this.life = new Float32Array(n);
     this.vx = new Float32Array(n);
