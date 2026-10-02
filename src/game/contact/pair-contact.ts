@@ -60,7 +60,9 @@ function pushPair(car: DeformableCar, nx: number, nz: number, amount: number, dt
  * Pair SAT + crumple. Persistent overlap after the zone is spent must not
  * keep dumping cancelClosing (that is the 10s / 120 km/h zip). Every contact
  * offers each car a hit: the first one starts its crash, a fresh hard one on
- * a wreck re-arms a new hit (`DeformableCar.applyImpact`).
+ * a wreck re-arms a new hit (`DeformableCar.applyImpact`). The closing impulse is uncapped: a per-slice cap
+ * (18 + 36·pass N·s) shoved a t-bone's struck car at ~17 m/s² while the bullet ground on, and from 58 m/s
+ * its nose came out of the struck car's far side (barrier.test.ts).
  */
 export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: boolean, dt: number): PairHit | null {
   const dist = carA.group.position.distanceTo(carB.group.position);
@@ -180,8 +182,6 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const invA = 1 / carA.deform.totalMass;
     const invB = 1 / carB.deform.totalMass;
     if (!packed) {
-      // Uncapped: a per-slice cap (18 + 36·pass N·s) shoved a t-bone's struck car at ~17 m/s² while the bullet
-      // ground on, and from 58 m/s its nose came out of the struck car's far side (barrier.test.ts).
       const j = cancelClosing(remain, pass, invA + invB, dt, e);
       impulseCar(carA, _n.x, 0, _n.z, j);
       impulseCar(carB, -_n.x, 0, -_n.z, j);
