@@ -345,3 +345,49 @@ describe("piston rig: shot API", () => {
     for (const id of PISTON_IDS) for (const n of PISTON_STRUCK[id]) assert.ok(names.has(n), `${id}: ${n}`);
   });
 });
+
+describe("a squeeze's crush stays after the squeeze ends", () => {
+  // ContactParity cleared `bidirectional` / `deepCrush` 0.25 s after an end stopped being struck, and
+  // clampLocal then clamped the squeezed shape back to one-ended limits: after fire("all") the bumpers
+  // sprang 0.2–0.8 m back out within a second.
+  it("bad: after fire(\"all\"), no particle's crush shrinks more than the 0.08 m springback once every head has left", () => {
+    for (const squash of [0.32, 0.4]) {
+      const car = makeCar("shape", squash);
+      car.spawnFacing(0, 0, 0, 0);
+      const rig = new PistonRig();
+      rig.attach(car);
+      rig.fire("all");
+      const d = car.deform;
+      const cell = d.masses.find((m) => m.name === "cell")!;
+      // Crush = change of the particle's distance to the cell: free of the group frame, which a squeeze
+      // pins at the origin and whose pitch snaps level when the wreck plants.
+      const rel = (m: (typeof d.masses)[number]) => Math.abs(m.local.distanceTo(cell.local) - m.rest.distanceTo(cell.rest));
+      let at: number[] | null = null;
+      let touched = false;
+      let worst = "";
+      let drop = 0;
+      for (let f = 0; f < 60 * 4; f++) {
+        for (let s = 0; s < 2; s++) {
+          rig.step(1 / 120);
+          car.afterContacts(1 / 120);
+        }
+        car.updateDeform(1 / 60);
+        const touching = rig.heads.some((h) => h.touching);
+        touched ||= touching;
+        const crush = d.masses.map((m) => (m.hub ? 0 : rel(m)));
+        if (!at) {
+          if (touched && !touching) at = crush;
+          continue;
+        }
+        crush.forEach((c, i) => {
+          if (at![i]! - c > drop) {
+            drop = at![i]! - c;
+            worst = `${d.masses[i]!.name} ${(at![i]! * 1000).toFixed(0)} → ${(c * 1000).toFixed(0)} mm`;
+          }
+        });
+      }
+      assert.ok(at, `squash ${squash}: the heads never ${touched ? "left" : "touched"}`);
+      assert.ok(drop <= 0.08, `squash ${squash}: ${worst} after the heads left`);
+    }
+  });
+});
