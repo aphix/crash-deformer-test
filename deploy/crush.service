@@ -17,6 +17,9 @@ WorkingDirectory=@ROOT@/shared
 ExecStart=@ROOT@/node/bin/node @ROOT@/current/server/index.mjs
 Restart=always
 RestartSec=5
+# A clean stop takes 1-2 s (the server closes, then PGLite closes its data dir). Every second of a
+# stop is downtime, so a hung stop is cut at 20 s instead of systemd's 90 s default.
+TimeoutStopSec=20
 
 # Live services on the box win every contention, and lose nothing to an OOM.
 Nice=5

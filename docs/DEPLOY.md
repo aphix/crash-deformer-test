@@ -34,7 +34,12 @@ variables do).
 
 Runtime variables for the node server: `PORT` (default 3000), `HOST`, `PGLITE_DATA_DIR`
 (unset = in-memory, wiped on restart), `DATABASE_URL` (set it to use Postgres instead of PGLite).
-A PGLite data dir belongs to one process: PGLite has no cross-process locking.
+A PGLite data dir belongs to one process: PGLite has no cross-process locking. It must also be
+closed on stop: `db.ts` closes it on SIGTERM/SIGINT. Measured without that: a server that opens a
+data dir left unclean (its previous owner was killed or never closed it) crash-recovers it and then
+keeps a PGLite timer (`__setitimer_js`) armed forever, so it never exits on SIGTERM. On the box that
+was a 90 s stop timeout and a SIGKILL on every deploy, which left the store unclean again for the
+next release. With the close, the same scenario exits in about 2 s and leaves the store clean.
 
 Signaling rows live 30-60 s, so a persistent PGLite store matters little: it keeps rooms across a
 restart that happens mid-handshake, nothing more.
@@ -109,10 +114,10 @@ deliberately *not* changed; the nginx snippet maps its root paths instead (see B
 | `vite.config.ts` | `base: APP_BASE`; Nitro `preset: NITRO_PRESET \|\| "vercel"`, `baseURL: base`; for `node-server`, `traceDeps: ["@electric-sql/pglite*"]` | serves everything under the sub-path; builds the node target; ships PGLite's `.wasm`/`.data`, which load from beside its module | app answers at `/` only, or `.output/` lacks PGLite's files and signaling cannot open its database |
 | `scripts/with-app-env.mjs` | leading `NAME=value` arguments become env vars | `build:node` sets `NITRO_PRESET=node-server` through it, on Windows too | `build:node` tries to run `NITRO_PRESET=node-server` as a command and fails |
 | `package.json` | `build:node`, `start:node` scripts | `crush-deploy.sh` runs `npm run build:node` | every commit fails to build and is skipped (the old release keeps serving) |
-| `src/lib/db.ts` | `new PGlite({ dataDir: process.env.PGLITE_DATA_DIR })` | `crush.service` keeps the signaling store in the release-independent `shared/` dir | still works, in memory: rooms mid-handshake are lost on each restart |
+| `src/lib/db.ts` | `new PGlite({ dataDir: process.env.PGLITE_DATA_DIR })`; with a data dir, `pg.close()` on SIGTERM/SIGINT | `crush.service` keeps the signaling store in the release-independent `shared/` dir, and a restart must not hang | without the data dir: still works, in memory, rooms mid-handshake are lost on each restart. Without the close: every restart hangs until `TimeoutStopSec` (site down meanwhile) and ends in a SIGKILL |
 | `src/lib/multiplayer/p2p.ts` | `RTC_URL = ${import.meta.env.BASE_URL}api/rtc`, used by the poll, signal and leave fetches | signaling lives under the base (`/crush/api/rtc`) | browsers call `/api/rtc` at the site root, which 404s: no peer ever connects, and those 404s go to the site's main access log, where a 4xx-probe jail can ban the players |
 | `src/lib/multiplayer/p2p.ts` | `sendBinary()`, `onBinary`, `binaryType = "arraybuffer"` on both data channels (netplay) | host snapshots and client inputs are binary frames (`RtcTransport`) | WebRTC netplay carries no snapshots: the client never gets a car |
-| `src/lib/multiplayer/signaling.server.ts` | per-IP and per-room token-bucket rate limits, room cap (`ROOM_MAX`, `rooms.ts`), `GET ?list=public` (netplay) | in-process limits are exact on one long-lived node server; the per-IP key is the `X-Forwarded-For` first hop, which the nginx snippet overwrites with the real client address | relay is unlimited and public room listing 400s |
+| `src/lib/multiplayer/signaling.server.ts`, `rate-limit.ts`, `migrations/0002_webrtc_signaling.sql` | in-process token buckets per peer (client IP + peer id), per IP and per room; room cap (`ROOM_MAX`, `rooms.ts`); `GET ?list=public`; tables from migration 0002 (netplay) | in-process limits are exact on one long-lived node server; the IP is the `X-Forwarded-For` first hop, which the nginx snippet overwrites with the real client address; PGLite applies 0002 before its first query | relay is unlimited, public room listing 400s, or signaling has no tables |
 
 The deploy's health check does **not** catch a reverted `RTC_URL`: it calls the server route
 directly, which still works. Check the built client instead, e.g. after `APP_BASE=/crush/ npm run

@@ -113,8 +113,9 @@ async function createPgliteSql(): Promise<Sql> {
   // A data dir must belong to ONE process: PGLite has no cross-process locking.
   globalRef.__pgliteInstance__ ??= (async () => {
     const { PGlite } = await import("@electric-sql/pglite");
+    const dataDir = process.env.PGLITE_DATA_DIR?.trim() || undefined;
     const pg = new PGlite({
-      dataDir: process.env.PGLITE_DATA_DIR?.trim() || undefined,
+      dataDir,
       parsers: {
         [OID_INT8]: Number,
         [OID_DATE]: identity,
@@ -122,6 +123,16 @@ async function createPgliteSql(): Promise<Sql> {
       },
     });
     await pg.waitReady;
+    if (dataDir) {
+      // Shut a data dir down cleanly on stop. Left unclean, the next open crash-recovers it, and
+      // that instance keeps a timer armed forever, so its server never exits on SIGTERM
+      // (measured: a 90 s stop timeout and a SIGKILL on every deploy; docs/DEPLOY.md).
+      for (const signal of ["SIGTERM", "SIGINT"] as const) {
+        process.once(signal, () => {
+          pg.close().catch((err) => console.error("[db] PGLite close failed:", err));
+        });
+      }
+    }
     await pg.exec(
       "create table if not exists _migrations (name text primary key, applied_at timestamptz not null default now())",
     );
