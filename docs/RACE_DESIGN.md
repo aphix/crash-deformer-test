@@ -171,7 +171,10 @@ speed, brake, boost top from `classStats`).
 ## Traffic (`TrafficBrain`)
 Cars fill the race loop's lanes (`traffic.count`), then each side street (`routes[].count`), lanes
 round-robin. Each cruises its lane at `traffic.speed`, slows for curvature, stops 7 m short of
-anything in its lane (√(8·gap) profile) and after 2.5 s stopped edges round for 4.5 s. Side streets
+anything in its lane (√(8·gap) profile) and after 2.5 s stopped edges round for 4.5 s: toward the
+road centre past a car going its way, or 1.5 m toward its own kerb past a car facing it (edging toward
+the centre put an oncoming car back across a racer met head-on, and the two held each other nose to
+nose until the racer was DNF). Side streets
 cross the race loop at grade, so racers meet cross traffic that does not stop for them (T-bones).
 Observer bubble (every racer still on track is an observer; checked every 0.25 s): a traffic car
 farther than 120 m from all of them, dead for 6 s, or off the end of an open street is put away
