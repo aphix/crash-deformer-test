@@ -1195,6 +1195,45 @@ Probes in the lane worktree's `.bench/` (`pops.ts`, `side.ts`, `corner.ts`,
   write-back 3.87 rad mass yaw / 18.4 rad/s ΣΔL/I, `separateAlong` 1.59 rad,
   sphere contacts 0.98 rad. The fixedStep dirty-flag re-sync was not started.
 
+### 6.5 Realistic-default zips, crumple ordering and derby energy (lane `crash-realism-6`)
+
+Probes in the lane worktree's `.bench/cr6/` (`derbyc.ts` six-car derby at explicit
+knobs, `accum2.ts` single vs repeated wall hits, `hit3.ts` per-step trace of a
+re-armed hit, `creep.ts`, `single.ts`) and `.bench/pops.ts` (now `SQUASH`/`REAR`).
+
+- **Zip at the realistic defaults (owner derby, squash 0.32, rear 0.38).** At
+  107db69 `o4` moved 0.119 m in 5.7 ms at 3.7 m/s: sandwiched by `o6` and `o7`,
+  three SAT passes each pushed it 0.019 + 0.040 m with no shared budget. Main's
+  per-slice push budget (72d8b3c) and 6 cm rigid-pair overlap cap (fa58923)
+  already hold it; it vanished at 358e4cd only because trajectories changed.
+  The zip test now runs at 0.4/0.45 and 0.32/0.38 (0 zips each).
+- **Block creep before the nose packs.** `clampLocal` let the block go back as
+  far as the hit's stroke reached (0.103 m at 43 km/h, squash 0.32) while the
+  nose still had 0.58 m; dynamics took it 0.0452 m. The mounts now hold it to
+  `ENGINE_SLACK` (past earlier hits' set) until the crushed nose packs against
+  it: 0.040 m at 20–50 km/h, both squashes.
+- **Packed nose crushing past its packed length.** A wreck resting on the slab
+  had its bumpers pushed by `projectOutOfBox` after the clamp's pack rule, so
+  52 + 35 km/h at 0.4 left a 0.476 m nose gap (packed is 0.54). The face push
+  now shoves the block too, within the hit's reach, once the cell no longer
+  drives into the face (a live hit's transient push killed 35 km/h hits).
+- **Repeated hits vs the energy rule.** `rearmHit` sums EBS² per end, but the
+  re-armed hit's geometric block peak did not follow it: three 35 km/h hits
+  (60.6 km/h equivalent) peaked 0.128 m at squash 0.32 (single 60 km/h: 0.158)
+  and two (49.5 km/h) peaked 0.154 m at 0.4 (single 50 km/h: 0.139). Single
+  hits at 48–54 km/h peak the block at `stroke − 0.30 − 0.06 ± 0.01` m at both
+  squashes, so a nose hit now counts `hitStroke() − crumple − STROKE_SHORTFALL`:
+  outright on a re-armed hit, as a cap on a first hit's geometric peak (which
+  was non-monotone: 49.5 km/h died at 0.4, 50 lived). Kills: three 35s on hit 3
+  at both squashes; one hit at 52 km/h (0.4) and 56 km/h (0.32).
+- **Derby elimination.** `REARM_EBS` was 6 m/s (22 km/h): each car's EBS is about
+  half the closing, so every car-car hit under 43 km/h closing added nothing.
+  Now 2.8 m/s, the IIHS 6 mph bumper test (damage onset). Six-car derby at
+  0.32/0.38 with the class kill travel at realism 0.25 (0.45 m sedan), seeds
+  7/11/13/17/19: deaths 3 → 14, first at 21.5 s, but 0/5 matches end by
+  elimination in 90 s. With the same physics a 0.30 m kill travel ends 5/5
+  (first death 14.7 s), 0.35 m 1/5: a 0.45 m kill needs Σ EBS² ≈ 600 m²/s² on
+  the nose (≈ 20 rams at 40 km/h closing). `derby:elimination` stays a todo.
 
 ## Appendix
 
