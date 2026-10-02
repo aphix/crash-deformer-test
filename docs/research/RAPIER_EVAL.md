@@ -60,7 +60,7 @@ No candidate wins on 0.19.3 either: the 0.19.3 side runs (walls and props, debri
 
 ### Integration sketch: the one adoption (row 0)
 The Ragdoll lane owns it; this is the shape the measurements support.
-- One loader: `rapier.ts` `loadRapier()` (a single lazy `import("@dimforge/rapier3d-compat")` + `init()`, version 0.19.3), awaited inside `CrashEngine.ready` through `RagdollSystem.preload` (`engine-ragdoll.ts`), so the 59–183 ms cold start (desktop, 4× throttled) never lands on the ejection frame.
+- One loader: `kernel/rapier.ts` `loadRapier()`, a single lazy import of `@dimforge/rapier3d@0.19.3` (the non-compat build, pinned; Ragdoll's choice). It downloads the wasm as its own file (1533 KB raw / 573 KB gzip / 419 KB brotli in this evaluation's size run) instead of the compat build's base64 inside the JS, needs no `init()`, and Vite 8 imports the `.wasm` natively. It loads in the background after `CrashEngine.ready`, so the start-up cost never lands on the ejection frame (this evaluation measured the compat build's cold start, 59–183 ms; the non-compat start-up was not measured here).
 - One small, separate, local world: the dummies plus the cars as kinematic proxies (2 cuboids each), synced only while a dummy is out.
   0.19.3's per-step garbage is flat (0.56 KB), so the proxies cost no collections; on 0.21.0 they would cost 0.31 KB per collider per step.
 - Nothing in the world feeds the sim: no contact with any gameplay body (section 6), so replays and netplay digests are untouched.
