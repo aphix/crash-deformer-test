@@ -30,6 +30,7 @@ export interface NetLayout {
   clusters: number;
   sensors: number;
   parts: number;
+  wheels: number;
 }
 
 export interface CarFrame {
@@ -63,6 +64,9 @@ export interface Snapshot {
   count: number;
   /** The host's arcade (0) ↔ realistic (1) slider, `HANDLING.realism` (1/255 steps). */
   realism: number;
+  /** Index into `PHASES`, and the host's time scale (slow-mo), so the client HUD and FX follow it. */
+  phase: number;
+  timeScale: number;
   /** Grows to `count` (`ensureFrames`); entries past `count` are stale. */
   readonly cars: CarFrame[];
 }
@@ -95,12 +99,20 @@ export function makeCarFrame(L: NetLayout): CarFrame {
       engineTravel: 0,
       killTravel: 0,
     },
-    parts: { flags: new Uint8Array(L.parts), hinge: new Float32Array(L.parts * 3), pose: new Float32Array(L.parts * 7), lamps: 0, glass: 0 },
+    parts: {
+      flags: new Uint8Array(L.parts),
+      hinge: new Float32Array(L.parts * 3),
+      pose: new Float32Array(L.parts * 7),
+      lamps: 0,
+      glass: 0,
+      wheelLoose: 0,
+      wheels: new Float32Array(L.wheels * 7),
+    },
   };
 }
 
 export function makeSnapshot(): Snapshot {
-  return { seq: 0, time: 0, keyframe: false, count: 0, realism: 0, cars: [] };
+  return { seq: 0, time: 0, keyframe: false, count: 0, realism: 0, phase: 0, timeScale: 1, cars: [] };
 }
 
 export function ensureFrames(s: Snapshot, n: number, L: NetLayout): void {
@@ -226,6 +238,15 @@ export function writeWreck(w: Writer, f: CarFrame, L: NetLayout): void {
   }
   w.u8(p.lamps);
   w.u16(p.glass);
+  w.u8(p.wheelLoose);
+  for (let i = 0; i < L.wheels; i++) {
+    if (((p.wheelLoose >> i) & 1) === 0) continue;
+    const o = i * 7;
+    w.f32(p.wheels[o]!);
+    w.f32(p.wheels[o + 1]!);
+    w.f32(p.wheels[o + 2]!);
+    for (let k = 3; k < 7; k++) w.q16(p.wheels[o + k]!, Q.quat);
+  }
 }
 
 function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
@@ -256,6 +277,15 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
   }
   p.lamps = r.u8();
   p.glass = r.u16();
+  p.wheelLoose = r.u8();
+  for (let i = 0; i < L.wheels; i++) {
+    if (((p.wheelLoose >> i) & 1) === 0) continue;
+    const o = i * 7;
+    p.wheels[o] = r.f32();
+    p.wheels[o + 1] = r.f32();
+    p.wheels[o + 2] = r.f32();
+    for (let k = 3; k < 7; k++) p.wheels[o + k] = r.q16(Q.quat);
+  }
 }
 
 export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
@@ -265,6 +295,8 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
   w.f64(s.time);
   w.u8(s.count);
   w.u8(Math.round(Math.max(0, Math.min(1, s.realism)) * 255));
+  w.u8(s.phase);
+  w.u16(Math.round(Math.max(0, Math.min(6, s.timeScale)) * 10000));
   for (let i = 0; i < s.count; i++) {
     const f = s.cars[i]!;
     w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0));
@@ -291,6 +323,8 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   s.time = r.f64();
   s.count = r.u8();
   s.realism = r.u8() / 255;
+  s.phase = r.u8();
+  s.timeScale = r.u16() / 10000;
   ensureFrames(s, s.count, L);
   for (let i = 0; i < s.count; i++) {
     const f = s.cars[i]!;

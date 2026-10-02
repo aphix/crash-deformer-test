@@ -19,7 +19,7 @@ import {
   type NetLayout,
 } from "./codec.ts";
 
-const L: NetLayout = { masses: 20, clusters: 16, sensors: 21, parts: 8 };
+const L: NetLayout = { masses: 20, clusters: 16, sensors: 21, parts: 8, wheels: 4 };
 
 function maxDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
   assert.equal(a.length, b.length);
@@ -29,7 +29,8 @@ function maxDiff(a: ArrayLike<number>, b: ArrayLike<number>): number {
 }
 
 function layoutOf(car: DeformableCar): NetLayout {
-  return { ...car.deform.netSizes(), parts: car.partNetSizes().parts };
+  const p = car.partNetSizes();
+  return { ...car.deform.netSizes(), parts: p.parts, wheels: p.wheels };
 }
 
 /** The host car's frame after a trip through the wire (`writeSnapshot` → `readSnapshot`). */
@@ -81,6 +82,8 @@ describe("netplay codec", () => {
     s.keyframe = true;
     s.count = 2;
     s.realism = 0.25;
+    s.phase = 2;
+    s.timeScale = 0.032;
     for (let c = 0; c < 2; c++) {
       const f = s.cars[c]!;
       Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, style: 4 + c, cls: 3 - c });
@@ -101,6 +104,8 @@ describe("netplay codec", () => {
       for (let i = 0; i < L.parts; i++) p.pose.set([3.5 + i, 0.12, -7.25, 0.5, -0.5, 0.5, 0.5], i * 7);
       p.lamps = 0b1010;
       p.glass = 0b10_01_00_10_01_00;
+      p.wheelLoose = 0b0101;
+      for (let i = 0; i < L.wheels; i++) p.wheels.set([-2.5 + i, 0.32, 9.75, 0, 0.7071068, 0, 0.7071068], i * 7);
     }
     const w = new Writer();
     writeSnapshot(w, s, L);
@@ -112,6 +117,8 @@ describe("netplay codec", () => {
     assert.equal(got.keyframe, true);
     assert.equal(got.count, 2);
     assert.ok(Math.abs(got.realism - 0.25) <= 0.5 / 255);
+    assert.equal(got.phase, 2);
+    assert.ok(Math.abs(got.timeScale - 0.032) <= 0.5e-4);
     for (let c = 0; c < 2; c++) {
       const a = s.cars[c]!;
       const b = got.cars[c]!;
@@ -142,13 +149,18 @@ describe("netplay codec", () => {
     assert.ok(maxDiff(a.parts.hinge, b.parts.hinge) <= Q.fine / 2 + 1e-6);
     assert.equal(b.parts.lamps, a.parts.lamps);
     assert.equal(b.parts.glass, a.parts.glass);
+    assert.equal(b.parts.wheelLoose, a.parts.wheelLoose);
+    for (const i of [0, 2]) {
+      for (let k = 0; k < 3; k++) assert.equal(b.parts.wheels[i * 7 + k], Math.fround(a.parts.wheels[i * 7 + k]!));
+      for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.wheels[i * 7 + k]! - a.parts.wheels[i * 7 + k]!) <= Q.quat);
+    }
     for (let i = 0; i < L.parts; i++) {
       if ((a.parts.flags[i]! & 1) === 0) continue;
       for (let k = 0; k < 3; k++) assert.equal(b.parts.pose[i * 7 + k], Math.fround(a.parts.pose[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.pose[i * 7 + k]! - a.parts.pose[i * 7 + k]!) <= Q.quat);
     }
-    // 14-byte header, 28-byte poses, a 660-byte wreck with 20 more per loose part (4 of them here).
-    assert.equal(w.off, 14 + 28 + (660 + 20 * 4) + 28);
+    // 17-byte header, 28-byte poses, a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
+    assert.equal(w.off, 17 + 28 + (661 + 20 * 4 + 20 * 2) + 28);
   });
 
   it("clamps out-of-range values to the i16 range instead of wrapping", () => {
@@ -222,5 +234,29 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     assert.equal(looseParts(client), 0);
     const hv = host.body.geometry.getAttribute("position").array;
     assert.ok(maxDiff(hv, client.body.geometry.getAttribute("position").array) < 0.002);
+  });
+
+  it("puts a torn-off wheel where the host's lies, and the client never throws one itself", () => {
+    const host = makeCar();
+    runWall(40, 1, "front", { car: host, after: 0.5 });
+    host.deform.popHub(host.deform.masses.find((m) => m.name === "hubFL")!);
+    for (let i = 0; i < 90; i++) host.afterContacts(1 / 60);
+    const hostWheel = host.wheels[0]!.getWorldPosition(host.wheels[0]!.position.clone());
+    assert.ok(hostWheel.distanceTo(host.group.position) > 0.5, "the host's wheel left the car");
+
+    const client = apply(makeCar(), wire(host));
+    for (let i = 0; i < 30; i++) client.netFrame(1 / 60);
+    const f = makeCarFrame(layoutOf(client));
+    client.readPartNetState(f.parts);
+    assert.equal(f.parts.wheelLoose, 1, "only wheel 0 is loose");
+    const clientWheel = client.wheels[0]!.getWorldPosition(client.wheels[0]!.position.clone());
+    assert.ok(clientWheel.distanceTo(hostWheel) < 0.001, `loose wheel within 1 mm (${clientWheel.distanceTo(hostWheel)})`);
+
+    host.resetVisual();
+    host.crashed = false;
+    runWall(24, 1, "front", { car: host, after: 1 });
+    apply(client, wire(host));
+    client.readPartNetState(f.parts);
+    assert.equal(f.parts.wheelLoose, 0, "the next wreck has all four wheels on");
   });
 });

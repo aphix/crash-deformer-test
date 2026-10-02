@@ -191,6 +191,13 @@ export class CrashEngine {
     setCarCount: (n) => this.setCarCount(n),
     matchCar: (i, style, cls) => this.matchCar(i, style, cls),
     setRealism: (v) => this.setRealism(v),
+    phase: () => this.phase,
+    timeScale: () => this.timeScale,
+    mirrorClock: (phase, timeScale) => {
+      this.phase = phase;
+      this.timeScale = timeScale;
+      this.targetScale = timeScale;
+    },
     seat: this.seat,
   });
 
@@ -1098,7 +1105,8 @@ export class CrashEngine {
 
     if (this.playing) {
       this.elapsedWall += wallDt;
-      this.maybePreSlowmo(wallDt);
+      // A netplay client mirrors the host's phase and slow-mo (`net.frame`) instead of running its own.
+      if (!this.net.client) this.maybePreSlowmo(wallDt);
       this.timeScale += (this.targetScale - this.timeScale) * Math.min(1, wallDt * (this.phase === "aftermath" ? 1.15 : 3.2));
       const simDt = wallDt * this.timeScale * this.cine.timeWarp;
       const cars = this.live();
@@ -1126,7 +1134,7 @@ export class CrashEngine {
         car.updateDeform(simDt);
       }
       this.net.frame(wallDt);
-      this.updatePhase(wallDt);
+      if (!this.net.client) this.updatePhase(wallDt);
       if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (this.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
