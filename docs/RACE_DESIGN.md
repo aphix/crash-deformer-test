@@ -127,13 +127,18 @@ and clients); `Campaign` likewise. The HUD reads `RaceHud` and sends `RaceComman
 
 ## AI (`RaceBrain`)
 Deterministic, allocation-free, memory per car id; figures per car class (`setClass`: turn, top
-speed, brake from `classStats`).
+speed, brake, boost top from `classStats`).
 - Line: inside of the next turn plus a personal offset; lanes change at 3.2 m/s; mood-driven
   contact choices (above).
 - Pursuit: a point `Ld = clamp(5 + 0.5 v, 7, 18)` m ahead; `ω = 2 v sin α / Ld`; steer = ω / (class
   full-lock yaw × `0.35 + 0.65·min(1, v/8)` × steer grip) — the same yaw model as `applyDrive`.
 - Speed: over braking reach + 12 m, `√(v_corner² + 2·a·d)`, `v_corner = 0.8 · turn · steerGrip / |κ|`
-  capped at the surface's top speed, `a` = half the class brake.
+  capped at the surface's top speed, `a` = half the class brake. Throttle asks for that speed itself
+  (`applyDrive` runs up to throttle × top at the class's full rate), so a rival reaches the same top
+  speed as a player flat out.
+- Boost: the player's meter rules per car (`BOOST.full` drain, `BOOST.recharge` refill). A burst starts
+  on a half-full meter, on a clear run (no car to follow), above 0.7 × top, pointed down the line, and
+  only while the plan at the boosted top still clears every turn in its braking reach.
 - Traffic ahead on our line: pass on the side with room, else follow its speed.
 - Shortcuts: a seeded coin per car, lap and shortcut (0.3 + 0.4·aggression); heads for the mouth.
 - Unstick: throttle without motion → reverse with the nose swinging toward the line.
@@ -230,7 +235,8 @@ leave the race). In the focus view every sandbox hotkey (scenes, Z, play, rig, w
 swallowed; in the full view they work as in the sandbox.
 
 ## HUD and controller menus
-Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split), standings
+Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split, the boost
+meter while driving), standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
 card and dock (first item "Race view"). Modal menus: setup (course cards, laps 3–5, AI cars 1–15,
