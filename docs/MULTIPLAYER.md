@@ -160,6 +160,14 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 
 - zod on every input: ids `[A-Za-z0-9_-]{1,64}`, the peer tag `[a-z]{0,12}` (the game sends only
   `host` / `client`, never a name), signal kind enum, payload ≤ 32 KB, POST body ≤ 40 KB.
+- Peer tokens: a peer's first poll seats it and returns a random token; the relay stores only its
+  SHA-256 (`migrations/0003_webrtc_peer_tokens.sql`). Every later poll, signal and leave must send
+  the token in `x-rtc-token` (403 otherwise), so nobody can read another peer's inbox (its SDP and
+  ICE), signal as it, retag it or remove it. The role tag is fixed when the peer joins, and a room
+  holds one `host` (409 "host taken").
+- Seats: a room has `ROOM_MAX` seats, unique per `(room, seat)`, and one insert takes the lowest
+  free one, so joins that race can never overfill a room or push out a seated peer (409 "room
+  full"). A peer that stops polling for 30 s loses its seat and joins afresh.
 - Token buckets, in process (`src/lib/multiplayer/rate-limit.ts`; exact on the VPS's single node
   process, per instance on serverless), 429 past any of them:
   - per peer id, keyed by client IP + peer id: 10 req/s, burst 100. One peer polls every 0.4 s while
@@ -167,11 +175,15 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     8-peer handshake;
   - per client IP (`x-forwarded-for` first hop, which the VPS nginx overwrites; Vercel sets it):
     a full room's worth, 80 req/s, burst 800, because friends share one NAT;
-  - per room: the same 80 req/s, burst 800; the public-room list: one peer's budget per IP.
-- Only room members may signal each other (403); an inbox holds at most 400 signals (429).
+  - the public-room list: one peer's budget per IP. No bucket is shared across addresses (a former
+    per-room bucket let one outsider rotating peer ids 429 a room's members).
+  - The table holds 20 000 buckets and evicts the least recently used one when full (O(1)): minted
+    keys can no longer lock every new caller out, and an evicted caller restarts from a full bucket.
+- Only a seated peer may signal another seated peer of its room (403). One sender may have at most
+  60 live signals waiting for one peer (429), so no member can fill another's inbox.
 - Peers expire 30 s after their last poll and signals after 60 s; joins and ~2 % of polls prune, so
-  an empty room disappears within 30 s. Stored: a random peer id, its role tag, SDP/ICE, nothing
-  past those TTLs. Works on PGLite in one long-lived node process.
+  an empty room disappears within 30 s. Stored: a random peer id, its role tag and seat, a token
+  hash, SDP/ICE, nothing past those TTLs. Works on PGLite in one long-lived node process.
 - Errors are logged by name only (driver messages can carry connection strings or hosts).
 - Measured on `vite dev`: invalid room or tag → 400; ninth peer → 409; signal from a non-member →
   403. Eight pages from one IP (no `x-forwarded-for`: one shared address) pressing Public race:
@@ -179,6 +191,13 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   mesh; now one room, all 8 peers with 7 connected each in 4.9–6.1 s, ~30 requests per peer,
   0 × 429 (three runs). One peer id posting 400 leaves at once: 316 × 200, 84 × 429 (the dev
   server serialises requests at ~11/s, so most of the flood arrives slower than the burst drains).
+  With peer tokens and seats (`signaling.test.ts` against PGLite): a tab without the token gets 403
+  on poll, signal and leave and reads no signals; eight fake ids rushing a room of two at once seat
+  6 and leave both members seated (before: all 8 seated and the host got 409). ReviewA's limiter
+  probe (3 IPs at 80 req/s, a fresh peer and room per request, 70 s) refused the next new caller
+  before and admits it now. Eight pages from one IP pressing Public race: one room, 7/7 connected
+  in 4.9 s, 0 × 429, ~30 requests per peer; two-page public race over WebRTC: B lands in A's room
+  and drives car 1.
 
 ## Race mode
 

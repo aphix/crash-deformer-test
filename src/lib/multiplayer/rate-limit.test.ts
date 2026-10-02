@@ -3,9 +3,9 @@ import assert from "node:assert/strict";
 import { LIMITS, RateLimiter } from "./rate-limit.ts";
 import { ROOM_MAX } from "./rooms.ts";
 
-/** One relay request as signaling.server.ts admits it: the address first, then the peer and its room. */
-function request(l: RateLimiter, ip: string, peer: string, room: string, now: number): boolean {
-  return l.ip(ip, now) && l.peer(ip, peer, room, now);
+/** One relay request as signaling.server.ts admits it: the address, then the peer. Its room spends no bucket. */
+function request(l: RateLimiter, ip: string, peer: string, _room: string, now: number): boolean {
+  return l.ip(ip, now) && l.peer(ip, peer, now);
 }
 
 describe("signaling rate limits", () => {
@@ -43,5 +43,22 @@ describe("signaling rate limits", () => {
     // Same peer id from another address: its own bucket, not the flooder's.
     assert.ok(request(l, "c", "victim", "T", 0));
     assert.ok(l.list("c", 0));
+  });
+
+  it("admits a new address and peer however many keys flooders mint", () => {
+    // ReviewA's probe: three addresses at their full rate, a fresh peer and room per request, 70 s.
+    const l = new RateLimiter();
+    const tick = 1000 / LIMITS.ip.rate;
+    let now = 0;
+    for (let k = 0; now < 70_000; k++, now = k * tick) {
+      for (const ip of ["x1", "x2", "x3"]) request(l, ip, `${ip}-${k}`, `R${ip}-${k}`, now);
+    }
+    assert.ok(request(l, "victim", "fresh", "pub-race-X", now - tick));
+  });
+
+  it("keeps an outsider rotating peer ids from spending a room's members' budget", () => {
+    const l = new RateLimiter();
+    for (let k = 0; k < 5000; k++) request(l, "outsider", `p${k}`, "pub-race-R", 0);
+    for (let p = 0; p < ROOM_MAX; p++) assert.ok(request(l, "nat", `peer${p}`, "pub-race-R", 0), `peer${p}`);
   });
 });
