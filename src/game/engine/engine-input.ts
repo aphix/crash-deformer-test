@@ -7,13 +7,18 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { cleanName, DRIVER_CARS } from "../match/types.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
-import { PAD_BUTTON } from "../vehicle/gamepad.ts";
+import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 
 /**
  * Player input: keyboard, gamepad, pointer picks and the HUD's commands and settings.
  */
 export abstract class EngineInput extends EngineRigs {
+  /** The touch HUD's stick and buttons; merged into the pad on every poll, so every pad path takes them. */
+  get touch(): TouchPad {
+    return this.pad.touch;
+  }
+
   togglePlay(): void {
     // The host owns the scene: on a netplay client the scene actions are no-ops (viewing toggles stay local).
     if (this.net.client) return;
@@ -353,9 +358,11 @@ export abstract class EngineInput extends EngineRigs {
     this.keys.clear();
   };
 
-  /** Once per frame: keys + pad → seat intent; pad button presses → seat / scene actions. */
+  /** Once per frame: keys + pad → seat intent and the rear-view hold; pad button presses → seat / scene actions. */
   protected pollInput(): void {
     const pad = this.pad.poll();
+    // Held, not toggled: Backquote, R3 or the touch button looks back until released.
+    this.view.rear = !this.race.menuOpen && (this.keys.has("Backquote") || (pad.held & (1 << PAD_BUTTON.r3)) !== 0);
     // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.
     if (this.race.menuOpen) return;
     if (this.seat.sample(this.keys, pad)) this.emitHud();

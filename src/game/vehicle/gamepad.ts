@@ -116,6 +116,26 @@ export function readPad(src: PadSource | null, out: PadState): void {
   out.pressed = held & ~prev;
 }
 
+/** The on-screen stick and buttons: stick in DOM signs, |(x, y)| ≤ 1; `tapped` keeps a press shorter than a frame. */
+export type TouchPad = { x: number; y: number; held: number; tapped: number };
+
+/**
+ * OR the touch pad into a polled `out` (`prev` = last poll's held): stick x → left stick (larger magnitude wins),
+ * stick up → RT and down → LT so up accelerates, buttons → held / pressed. Consumes `tapped`.
+ */
+export function mergeTouch(t: TouchPad, out: PadState, prev: number): void {
+  const k = stickScale(t.x, t.y);
+  const x = t.x * k;
+  const y = t.y * k;
+  if (Math.abs(x) > Math.abs(out.lx)) out.lx = x;
+  out.rt = Math.max(out.rt, -y);
+  out.lt = Math.max(out.lt, y);
+  out.held |= t.held;
+  out.pressed = (out.held & ~prev) | t.tapped;
+  if (k !== 0 || out.held !== 0 || t.tapped !== 0) out.connected = true;
+  t.tapped = 0;
+}
+
 /** Short HUD label from a `Gamepad.id` (vendor 045e Microsoft, 054c Sony). */
 export function padLabel(id: string): string {
   if (/xbox|xinput|045e/i.test(id)) return "Xbox controller";
@@ -132,6 +152,8 @@ type PadEvent = Event & { readonly gamepad: { readonly index: number } };
  */
 export class GamepadInput {
   readonly state = blankPad();
+  /** Written by the touch HUD and merged on every poll; the menus' own GamepadInput never sees it. */
+  readonly touch: TouchPad = { x: 0, y: 0, held: 0, tapped: 0 };
   /** HUD label of the active pad, null when none is connected. */
   label: string | null = null;
   private index = -1;
@@ -162,7 +184,9 @@ export class GamepadInput {
         this.index = pad ? pad.index : -1;
       }
     }
+    const prev = this.state.held;
     readPad(pad, this.state);
+    mergeTouch(this.touch, this.state, prev);
     const label = pad ? padLabel(pad.id) : null;
     if (label !== this.label) {
       this.label = label;

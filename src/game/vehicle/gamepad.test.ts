@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { blankPad, PAD_BUTTON, PAD_DEAD, padLabel, readPad, stickScale, triggerValue, type PadSource } from "./gamepad.ts";
+import { blankPad, mergeTouch, PAD_BUTTON, PAD_DEAD, padLabel, readPad, stickScale, triggerValue, type PadSource } from "./gamepad.ts";
 import { blankIntent, readIntent, shapeDrive } from "./drive-input.ts";
 import { idleDrive } from "./car-drive.ts";
 import { assertSameDigest } from "./test-support.ts";
@@ -133,5 +133,32 @@ describe("pad → drive", () => {
     assert.ok(!i.handbrake && !i.boost);
     readIntent(new Set(["Space", "ShiftRight"]), null, i);
     assert.ok(i.handbrake && i.boost);
+  });
+
+  it("good: the touch stick up-left is gas and a LEFT wheel with no pad plugged in; a sub-frame tap still presses once", () => {
+    const s = blankPad();
+    const t = { x: -0.7, y: -0.7, held: 0, tapped: 0 };
+    readPad(null, s);
+    mergeTouch(t, s, 0);
+    const i = readIntent(new Set(), s, blankIntent());
+    assert.ok(i.wheel > 0.5 && i.analogWheel, `wheel ${i.wheel}`);
+    assert.ok(i.gas > 0.5 && i.brake === 0, `gas ${i.gas} brake ${i.brake}`);
+    t.x = 0;
+    t.y = 1;
+    readPad(null, s);
+    mergeTouch(t, s, s.held);
+    const down = readIntent(new Set(), s, i);
+    assert.ok(down.brake === 1 && down.gas === 0, "stick down brakes, then reverses");
+    const view = 1 << PAD_BUTTON.north;
+    t.y = 0;
+    t.tapped = view;
+    let prev = s.held;
+    readPad(null, s);
+    mergeTouch(t, s, prev);
+    assert.equal(s.pressed & view, view, "tap released before the poll");
+    prev = s.held;
+    readPad(null, s);
+    mergeTouch(t, s, prev);
+    assert.equal(s.pressed, 0, "one tap, one press");
   });
 });

@@ -59,6 +59,8 @@ Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon 
 
 ## Controls
 
+Every action with its key, controller button and touch control is in [`docs/CONTROLS.md`](docs/CONTROLS.md). On phones and tablets a thumb pad (stick lower left, captioned buttons lower right) drives through the controller path, and the bottom bar has a **Fullscreen** button.
+
 | Scene | |
 |---|---|
 | Space | pause / play (handbrake while driving) |
@@ -96,6 +98,7 @@ Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C cop
 | V / C / T, Y / Triangle, the Spectating bar's camera button | camera view. Driving: chase → far chase → hood cam. Spectating: those three, then **Trackside** (a fixed eye ahead of the car beside the track, clear of walls and props, tracking it past, then the next spot), **Wheel cam** (a dutch-angle mount on a wheel well, looking forward or back, cutting every few seconds to the well that shows the most rivals) and **Orbit** |
 | drag (one finger on a phone) | while spectating: look round the car in the chase views and keep that angle (the eye stays where you put it; nothing to steer); orbit in Orbit |
 | H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu; B and K stay off while racing) |
+| ` (Backquote) / R3 | look back from the driven or spectated car while held |
 
 | Driving: keyboard + mouse | |
 |---|---|
@@ -107,6 +110,7 @@ Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C cop
 | Shift | boost (drains while used under gas, recharges, fills on a derby takedown) |
 | drag | look round the car; eases back behind it 0.8 s after release |
 | V / C / T | camera: chase → far chase → hood cam |
+| ` (Backquote) | look back while held; release returns at once |
 | R | recover: back on its wheels where it stands, at rest and repaired (derby: only when flipped and still running) |
 | Esc | drive → follow → whole field |
 
@@ -123,6 +127,7 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel. V (Y) cycles t
 | Y / Triangle | camera view |
 | LB / RB (L1 / R1) | previous / next car (starts following from the whole field) |
 | D-pad ↓ | recover |
+| R3 (right stick click) | look back while held |
 | Start / Options | pause |
 | Back / View / Create | same as Esc |
 
@@ -241,7 +246,7 @@ All game code is in `src/game/`, and the `*.test.ts` files sit next to the modul
 - `hud-store.ts`: HUD state. `crash-scenarios.test-util.ts`, `test-support.ts`: the headless harness and test helpers.
 
 Outside `src/game/`:
-- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`, `race-hud.tsx` and `use-pad-menu.ts` (race HUD and controller menus).
+- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`, `race-hud.tsx` and `use-pad-menu.ts` (race HUD and controller menus), `touch-controls.tsx` and `use-coarse-pointer.ts` (thumb pad and fullscreen on touch screens).
 - `src/lib/multiplayer/`: the WebRTC mesh (`p2p.ts`), the signaling relay (`signaling.server.ts`, mounted at `src/routes/api/rtc.ts`), room rules and rate limits.
 - `deploy/`: systemd units, deploy script, nginx snippet. `migrations/`: SQL migrations.
 - `scripts/bench-physics.mjs`, `scripts/crush-sweep.mjs`, `scripts/bench-browser.mjs`: benchmarks.
