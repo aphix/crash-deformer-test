@@ -1234,6 +1234,15 @@ re-armed hit, `creep.ts`, `single.ts`) and `.bench/pops.ts` (now `SQUASH`/`REAR`
   elimination in 90 s. With the same physics a 0.30 m kill travel ends 5/5
   (first death 14.7 s), 0.35 m 1/5: a 0.45 m kill needs Σ EBS² ≈ 600 m²/s² on
   the nose (≈ 20 rams at 40 km/h closing). `derby:elimination` stays a todo.
+- **40 km/h piston parity at squash 0.32 (engineL car/piston 72/61 mm).** The
+  gap was vertical: block-to-cell sag 63 mm under a car's nose, 45 mm under the
+  piston (z within 8 mm). Per-call attribution: `stepStructure`'s integration
+  after the shape window closed; `rebaseShapeRest` froze the shape while the
+  non-hub masses kept their relative vertical bounce with nothing restoring it,
+  and the car-car contact (so the window) ends ~0.12 s before the piston's.
+  Zeroing the sphere contacts' vertical normal or friction changed nothing. At
+  the falling edge the non-hub masses now take their mean vertical velocity:
+  43/43 mm. The parity test runs at squash 0.4 and 0.32.
 
 ## Appendix
 
