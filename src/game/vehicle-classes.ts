@@ -1,0 +1,314 @@
+/**
+ * Vehicle classes: how each body drives, how much punishment it takes, and the
+ * one arcade ↔ realistic axis (`HANDLING.realism`) that scales assists, grip
+ * and when damage kills. Read by `applyDrive`, race AI (`classStats`) and the HUD.
+ */
+import * as THREE from "three";
+import type { CarStyleId } from "./car-variants.ts";
+
+export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster";
+export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster"];
+
+export interface ClassStats {
+  id: VehicleClassId;
+  label: string;
+  /** Body mesh this class spawns with. */
+  style: CarStyleId;
+  /** Kerb mass (kg). Drives launch / brake feel (accel, brake) and the HUD; contact masses stay the shared rig's. */
+  mass: number;
+  /** Forward / reverse top speed on asphalt (m/s). */
+  topSpeed: number;
+  revSpeed: number;
+  /** Mean 0 → top acceleration (m/s²). */
+  accel: number;
+  /** 0–1 torque bias: extra pull off the line, traded for less near top speed. */
+  torque: number;
+  /** Service brake (m/s²). */
+  brake: number;
+  /** Full-lock yaw rate at speed (rad/s). */
+  turn: number;
+  /** Lateral grip on dry asphalt at the arcade end (m/s²). */
+  grip: number;
+  /** 0–1: how readily the tail steps out under power and how loose it stays. */
+  drift: number;
+  /** Boost multipliers on top speed and acceleration. */
+  boostTop: number;
+  boostAccel: number;
+  /** Damage tolerance: × the realistic engine-kill travel (see `killTravel`). */
+  durability: number;
+  /** Visual body lift above the stock ride (m) and wheel scale; collision hulls stay stock. */
+  lift: number;
+  wheelScale: number;
+}
+
+/**
+ * Stat budget: what a class wins on the straights it pays back in corners, so
+ * a mixed loop lands within ~5 % (vehicle-classes.test.ts runs that lap).
+ */
+export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
+  sedan: {
+    id: "sedan",
+    label: "Sedan",
+    style: "sedan",
+    mass: 1400,
+    topSpeed: 18,
+    revSpeed: 11,
+    accel: 16,
+    torque: 0.3,
+    brake: 28,
+    turn: 1.55,
+    grip: 30,
+    drift: 0.35,
+    boostTop: 1.42,
+    boostAccel: 1.55,
+    durability: 1,
+    lift: 0,
+    wheelScale: 1,
+  },
+  muscle: {
+    id: "muscle",
+    label: "Muscle",
+    style: "coupe",
+    mass: 1650,
+    topSpeed: 19,
+    revSpeed: 11,
+    accel: 18,
+    torque: 0.6,
+    brake: 26,
+    turn: 1.36,
+    grip: 27,
+    drift: 0.85,
+    boostTop: 1.42,
+    boostAccel: 1.55,
+    durability: 1.15,
+    lift: 0,
+    wheelScale: 1.04,
+  },
+  truck: {
+    id: "truck",
+    label: "Truck",
+    style: "pickup",
+    mass: 2100,
+    topSpeed: 17.8,
+    revSpeed: 10,
+    accel: 15.5,
+    torque: 0.5,
+    brake: 24,
+    turn: 1.5,
+    grip: 28,
+    drift: 0.25,
+    boostTop: 1.45,
+    boostAccel: 1.6,
+    durability: 1.25,
+    lift: 0.08,
+    wheelScale: 1.12,
+  },
+  monster: {
+    id: "monster",
+    label: "Monster",
+    style: "pickup",
+    mass: 2900,
+    topSpeed: 18.6,
+    revSpeed: 10,
+    accel: 15.5,
+    torque: 0.7,
+    brake: 22,
+    turn: 1.3,
+    grip: 25,
+    drift: 0.2,
+    boostTop: 1.45,
+    boostAccel: 1.6,
+    durability: 1.7,
+    lift: 0.48,
+    wheelScale: 1.7,
+  },
+};
+
+const STYLE_CLASS: Readonly<Record<CarStyleId, VehicleClassId>> = {
+  sedan: "sedan",
+  hatchback: "sedan",
+  wagon: "sedan",
+  coupe: "muscle",
+  pickup: "truck",
+};
+
+export function classStats(id: VehicleClassId): ClassStats {
+  return CLASSES[id];
+}
+
+/** The arcade ↔ realistic axis. 0 = Burnout (assists on, near-indestructible), 1 = sourced crash data. */
+export const HANDLING = { realism: 0.25 };
+
+const assigned = new WeakMap<object, VehicleClassId>();
+
+/** A car's class: assigned at spawn, else its body style's. */
+export function carClass(car: { style: { id: CarStyleId } }): VehicleClassId {
+  return assigned.get(car) ?? STYLE_CLASS[car.style.id];
+}
+
+// --- arcade ↔ realistic -----------------------------------------------------
+
+/** Rearward engine travel (m) that kills a sedan at the realistic end: streamed-deform's sourced ENGINE_KILL_TRAVEL. */
+export const REAL_KILL_TRAVEL = 0.15;
+/** Arcade-end kill travel (m) for a sedan: three 50 km/h wall hits leave ~0.48 m, the fourth ~0.64 m. */
+export const ARCADE_KILL_TRAVEL = 0.55;
+/** Worst travel the block reaches by accumulated wrecking (~0.64 m): stay under it so a wreck can still die. */
+const KILL_CEILING = 0.63;
+
+/** Engine-kill travel (m) for a class at `realism`. */
+export function killTravel(id: VehicleClassId, realism: number): number {
+  const d = CLASSES[id].durability;
+  const arcade = Math.min(KILL_CEILING, ARCADE_KILL_TRAVEL * (1 + (d - 1) * 0.5));
+  const real = Math.min(KILL_CEILING, REAL_KILL_TRAVEL * d);
+  return THREE.MathUtils.lerp(arcade, real, THREE.MathUtils.clamp(realism, 0, 1));
+}
+
+/** Lateral grip share kept at the realistic end (the arcade end is 1). */
+export const REAL_GRIP = 0.62;
+
+export type Assists = {
+  /** × class grip. */
+  grip: number;
+  /** Max slip angle (rad) the drift assist lets the body reach before carrying the velocity round. */
+  slipCap: number;
+  /** Slide decay rate (1/s) once the slide is released: the auto-catch. */
+  catchRate: number;
+  /** Share of lateral speed scrubbed (lost) as the tyres bite; the rest turns back into forward speed. */
+  scrub: number;
+  /** Seconds on its roof / side before the driven car rights itself; Infinity = R key only. */
+  selfRight: number;
+};
+
+export function assists(realism: number, out: Assists): Assists {
+  const r = THREE.MathUtils.clamp(realism, 0, 1);
+  out.grip = THREE.MathUtils.lerp(1, REAL_GRIP, r);
+  out.slipCap = THREE.MathUtils.lerp(0.62, 1.45, r);
+  out.catchRate = THREE.MathUtils.lerp(4.5, 1.1, r);
+  out.scrub = THREE.MathUtils.lerp(0.2, 1, r);
+  out.selfRight = r < 0.6 ? THREE.MathUtils.lerp(1.2, 3, r / 0.6) : Infinity;
+  return out;
+}
+
+// --- damage → drivability ---------------------------------------------------
+
+export type DamageStage = "healthy" | "dented" | "damaged" | "limping" | "dead";
+
+/** Top speed never drops below this share of the class's until the drivetrain dies. */
+export const LIMP_FLOOR = 0.6;
+/** Health bands: above DENT it only looks hit, above LIMP it pulls and loses a little. */
+const DENT = 0.6;
+const LIMP = 0.25;
+
+export type Drivability = {
+  stage: DamageStage;
+  /** × acceleration. */
+  power: number;
+  /** × top speed. */
+  top: number;
+  /** Yaw bias (rad/s, + = left) the driver has to hold off. */
+  pull: number;
+};
+
+/**
+ * Graded damage. `health` is the drivetrain's 0–1 (`deform.drivetrainHealth`),
+ * `wheelsOn` 0–4, `pullSide` the struck side (+1 left, −1 right).
+ * The arcade end softens every loss; nothing falls below LIMP_FLOOR until dead.
+ */
+export function drivability(
+  alive: boolean,
+  crashed: boolean,
+  health: number,
+  wheelsOn: number,
+  pullSide: number,
+  realism: number,
+  out: Drivability,
+): Drivability {
+  if (!alive) {
+    out.stage = "dead";
+    out.power = 0;
+    out.top = 0;
+    out.pull = 0;
+    return out;
+  }
+  const sev = THREE.MathUtils.lerp(0.55, 1, THREE.MathUtils.clamp(realism, 0, 1));
+  const lost = Math.max(0, 4 - wheelsOn);
+  const hurt = THREE.MathUtils.clamp((DENT - health) / (DENT - LIMP), 0, 1);
+  const limp = THREE.MathUtils.clamp((LIMP - health) / LIMP, 0, 1);
+  const loss = sev * (0.12 * hurt + 0.14 * limp + 0.12 * lost);
+  out.top = Math.max(LIMP_FLOOR, 1 - loss);
+  out.power = Math.max(LIMP_FLOOR - 0.1, 1 - loss * 1.3);
+  out.pull = pullSide * sev * (0.1 * hurt + 0.12 * limp + 0.16 * Math.min(2, lost));
+  out.stage =
+    health <= LIMP || lost >= 2 ? "limping" : health <= DENT || lost > 0 ? "damaged" : crashed ? "dented" : "healthy";
+  return out;
+}
+
+const _stage: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
+
+type DamagedCar = {
+  crashed: boolean;
+  deform: { drivetrainAlive: boolean; drivetrainHealth: number; wheelsOn: number; impactInward: { x: number } };
+};
+
+/** A car's damage stage right now (HUD, smoke). */
+export function damageStage(car: DamagedCar): DamageStage {
+  return carDrivability(car, HANDLING.realism, _stage).stage;
+}
+
+export function carDrivability(car: DamagedCar, realism: number, out: Drivability): Drivability {
+  const d = car.deform;
+  // Car +x is the driver's left: a hit there drives the impact inward along −x, and the crushed corner drags left.
+  const side = d.impactInward.x < 0 ? 1 : d.impactInward.x > 0 ? -1 : 0;
+  return drivability(d.drivetrainAlive, car.crashed, d.drivetrainHealth, d.wheelsOn, side, realism, out);
+}
+
+// --- planning helpers (race AI, tests) ---------------------------------------
+
+/** Fastest a class should take a corner of radius `r` (m) on grip `mu` without sliding or running out of lock. */
+export function cornerSpeed(s: ClassStats, r: number, mu = 1, realism = HANDLING.realism): number {
+  const grip = s.grip * mu * THREE.MathUtils.lerp(1, REAL_GRIP, THREE.MathUtils.clamp(realism, 0, 1));
+  const steerAuth = 0.45 + 0.55 * mu;
+  return Math.min(s.topSpeed, Math.sqrt(grip * r), s.turn * steerAuth * r);
+}
+
+// --- class dressing (visual lift / wheel scale) -------------------------------
+
+type Dressable = {
+  readonly group: THREE.Group;
+  readonly wheels: readonly THREE.Object3D[];
+  readonly style: { id: CarStyleId };
+};
+
+/** Wheel radius of the shared mesh (m); a scaled wheel is lifted to keep its tyre on the ground. */
+const WHEEL_RADIUS = 0.32;
+
+/**
+ * Give `car` a class: stats for `applyDrive`, plus the monster / truck stance.
+ * Body parts ride a lift group and the wheels a hub group inside the car's
+ * group, so the physics frame (masses, hulls, contacts) stays stock. Run it
+ * again after every respawn: a re-attached part lands back on the plain group.
+ */
+export function assignClass(car: Dressable, id: VehicleClassId): void {
+  assigned.set(car, id);
+  const s = CLASSES[id];
+  const g = car.group;
+  let body = g.getObjectByName("classLift");
+  let hubs = g.getObjectByName("classHubs");
+  if (!body) {
+    body = new THREE.Group();
+    body.name = "classLift";
+    hubs = new THREE.Group();
+    hubs.name = "classHubs";
+    g.add(body, hubs);
+  }
+  const wheelLift = WHEEL_RADIUS * (s.wheelScale - 1);
+  body.position.y = s.lift;
+  hubs!.position.y = wheelLift;
+  for (let i = g.children.length - 1; i >= 0; i--) {
+    const c = g.children[i]!;
+    if (c === body || c === hubs) continue;
+    if (car.wheels.includes(c)) hubs!.add(c);
+    else body.add(c);
+  }
+  for (const w of car.wheels) w.scale.setScalar(s.wheelScale);
+}
