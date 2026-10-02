@@ -158,6 +158,21 @@ Cost: `partContactPair` 62 ns per close pair, `afterContacts` additions 238 ns p
 micro-bench): 0.09 ms per frame worst case at 24 cars (276 pairs, 4 slices). The browser bench
 could not be measured on the saturated box (2–20 fps for both main and this branch).
 
+### Per-particle todo report (main 937e631, re-measured by lane `crash-realism-11`)
+
+The two `todo` tests (`PENDING` in `contact-parity.test.ts`) match on parts, drivetrain and cabin.
+They miss only on per-particle crush: travel in the cell frame, car/rig in mm, with every
+particle outside 15 % or 10 mm listed. The rows above are the older reading.
+
+| Todo | Off now (car / rig mm) | Change since the table above |
+| --- | --- | --- |
+| Sandwich 20 km/h vs press at matched travel | engineL 23/75, engineR 23/75, tank 21/37, wingFL 33/49, wingFR 33/48 | `axleR` and the rear bumpers are now inside tolerance; the engines moved from 34 to 23 in the car |
+| Piston vs car 20 km/h, squash 0.4 (the 0.32 run is not reached) | engineL 54/87, engineR 54/87, axleR 53/89, wingFL 34/48, wingFR 34/48 | rails and roof are now inside tolerance; the engine block and the rear axle are now listed |
+
+In both rows the rig crushes the engine block, the wings and the rear running gear more than
+car-car does: the rig drives the face through the slab, car-car through sphere contact. This is
+the particle-level split under "Open" below.
+
 ### Open
 
 - **Car-car squeeze.** Car-car does not report struck ends, so a car sandwiched by two others
