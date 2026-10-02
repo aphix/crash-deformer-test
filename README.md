@@ -25,7 +25,7 @@ Edit anything under `src/` and the page reloads. On WSL2, open `http://localhost
 | `npm run typecheck` | `tsc --noEmit` | ~30 s | clean |
 | `npm run test:game` | every `src/game/*.test.ts` (`node --test`) | ~11 s | 587 tests: 536 pass, 51 todo, 0 fail. This is the gate for game changes. |
 | `npm test` | `scripts/**/*.test.mjs`, then `src/lib` + `src/game` suites | ~2 s | **fails**: 8 pre-existing failures in `scripts/grok-pwa-plugin.test.mjs` (platform template), and the `&&` stops it before the game suites. Run the second half alone with `node --experimental-strip-types --test src/lib/app-data/app-data.test.ts src/lib/app-data/readiness-schedule.test.ts src/lib/auth/gate-identity.test.ts src/lib/auth/sign-in-gate.test.ts 'src/game/*.test.ts'` (642 tests: 591 pass, 51 todo). |
-| `npm run lint` | `eslint .` | ~25 s | **fails**: 3 errors, all pre-existing (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) |
+| `npm run lint` | `oxlint` (`.oxlintrc.json`, same rules as the old ESLint config; see `docs/TOOLCHAIN.md`) | ~1 s | **fails**: 3 errors, all pre-existing (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) |
 
 `todo` tests are documented targets the sim does not meet yet; they run and report, but do not fail the suite (see `docs/CODEMAPS/testing.md`).
 
