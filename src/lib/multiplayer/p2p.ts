@@ -9,10 +9,12 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
+import { TOKEN_HEADER } from "./rooms.ts";
+
 export type SignalKind = "offer" | "answer" | "ice";
 
 /** The relay route under the app's base path (Vite `base`, e.g. "/crush/"). */
-const RTC_URL = `${import.meta.env.BASE_URL}api/rtc`;
+const RTC_URL = `${import.meta.env?.BASE_URL ?? "/"}api/rtc`;
 
 /**
  * Wire contract between this client and the signaling relay the app provides
@@ -32,6 +34,8 @@ export interface SignalRow {
 export interface RtcPollResponse {
   peers: PeerRow[];
   signals: SignalRow[];
+  /** Issued when this poll seated the peer: every later poll, signal and leave sends it in `TOKEN_HEADER`. */
+  token?: string;
 }
 
 export interface PeerInfo {
@@ -110,6 +114,8 @@ export class P2PRoom {
   private pingTimer: ReturnType<typeof setInterval> | null = null;
   private closed = false;
   private everPolled = false;
+  /** The relay token for `selfId` (empty until the first poll seats this peer). */
+  private token = "";
   private lastPeersFingerprint = "";
 
   constructor(opts: P2PRoomOptions) {
@@ -145,7 +151,7 @@ export class P2PRoom {
     // drops this peer and closes their side of the pair.
     void fetch(RTC_URL, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: { "content-type": "application/json", [TOKEN_HEADER]: this.token },
       body: JSON.stringify({ op: "leave", room: this.opts.room, peer: this.opts.selfId }),
       keepalive: true,
     }).catch(() => {});
@@ -205,11 +211,12 @@ export class P2PRoom {
       name: this.opts.name ?? "",
       since: String(this.cursor),
     });
-    const res = await fetch(`${RTC_URL}?${params}`);
+    const res = await fetch(`${RTC_URL}?${params}`, { headers: { [TOKEN_HEADER]: this.token } });
     if (this.closed) return;
     if (!res.ok) throw new Error(`signaling poll failed: ${res.status}`);
     const body = (await res.json()) as RtcPollResponse;
     if (this.closed) return;
+    if (body.token) this.token = body.token;
     if (!this.everPolled) {
       this.everPolled = true;
       this.opts.onConnected?.();
@@ -468,7 +475,7 @@ export class P2PRoom {
       try {
         const res = await fetch(RTC_URL, {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: { "content-type": "application/json", [TOKEN_HEADER]: this.token },
           body: JSON.stringify({
             op: "signal",
             room: this.opts.room,
