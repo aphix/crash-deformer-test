@@ -726,10 +726,10 @@ describe("car-car crush scales with speed [shape]", () => {
     }
   });
 
-  // A 40 % offset corner overshoots its stroke, slips off the slab end and springs back; then the
-  // hub plant (quiet 0.2 s) re-anchors the frame and the cell rides 0.12 m up the nose — in slow-mo
-  // only. Measured: L 0.522 vs 0.628, R 0.245 vs 0.353.
-  it.todo("slomo:offset64 — slow motion crushes a 64 km/h 40 % offset like full speed (±15 %)", () => {
+  // The slab's cabin floor read the struck corner's current length: a corner springing back off the face moved
+  // the floor out, its push stretched the nose further, and in slow motion (faster spring-back per sim second)
+  // that ran away: R nose 0.330 → 0.255 in 7 ms of sim time (R 0.272 vs 0.330). `slabTravel` keeps the hit's low mark.
+  it("bad: slow motion crushes a 64 km/h 40 % offset like full speed (±15 %)", () => {
     const full = runWall(64, 0.4);
     const slow = runWall(64, 0.4, "front", { slomo: true });
     for (const k of ["noseShortL", "noseShortR"] as const) {

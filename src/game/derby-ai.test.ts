@@ -391,8 +391,9 @@ function runField(n: number, seed: number): Field {
   return out;
 }
 
-/** Seeds for the 10-car validation: three in CI (seed 3 held the 6.41 rad/s contact peak on 71ad020), `DERBY_SEEDS=1,2,3,4,5` for the full five. */
-const SEEDS = (process.env.DERBY_SEEDS ?? "1,2,3").split(",").map(Number);
+/** Seeds for the 10-car validation: four in CI (seed 3 held the 6.41 rad/s contact peak on 71ad020; seed 11 zipped c5
+ *  0.068 m at 82.49 s up to 759c377, RIG_ANALYSIS §6.12), `DERBY_SEEDS=1,2,3,4,5` for the full five. */
+const SEEDS = (process.env.DERBY_SEEDS ?? "1,2,3,11").split(",").map(Number);
 /** Real derby drivers make most big hits backing up (docs/DERBY_AI.md); ours must too. */
 const REAR_SHARE = 0.4;
 

@@ -111,7 +111,7 @@ export class JerseyBarrier {
   /** Mass-level slab contact, then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
     this.hold(car);
-    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.crumpleTravelCorner()));
+    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
   }
 
   /**
@@ -162,7 +162,7 @@ export class JerseyBarrier {
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
     this.hold(car);
-    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.crumpleTravelCorner()));
+    clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
     if (!crushHit && !overlap) {
       // The crushed nose can sit on the face with the shrunken hulls clear of it — and a wreck coming
       // back for another hit touches here first, so this is where its fresh hit arms.
