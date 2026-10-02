@@ -1560,7 +1560,8 @@ export class StreamedDeformation {
     let removed = 0;
     this.faceContacts = 0;
     for (const m of this.masses) {
-      if (!m.dynamic || (m.hub && !m.popped)) continue;
+      // Planted hubs pin the wreck, until a squeeze reaches past the wheel centres (`deepCrush`).
+      if (!m.dynamic || (m.hub && !m.popped && !this.deepCrush)) continue;
       const ox = m.world.x - cx;
       const oz = m.world.z - cz;
       const r = m.radius * 0.5;

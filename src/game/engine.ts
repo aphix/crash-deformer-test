@@ -2,13 +2,14 @@ import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch } from "./car-mesh.ts";
 import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
-import { COMPACTOR, compactorStage, enforceWalls } from "./compactor.ts";
+import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
 import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo } from "./engine-pistons.ts";
 import { DOOR_LANES, DoorRig, RAM, RAM_DEFAULTS, type DoorScenario, type RamShot } from "./door-rig.ts";
 import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
+import { partContactPair } from "./external-contact.ts";
 import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
@@ -146,7 +147,7 @@ export class CrashEngine {
   private balls: RampBall[] = [];
   private poles: LampPole[] = [];
   private smokeUntil: number[] = [];
-  private compactFace: number = COMPACTOR.startFace;
+  private readonly compactor = new CompactorRig();
   private compactFxAt = 0;
   private press: CompactorPress;
   private pistons = new PistonRig();
@@ -209,7 +210,7 @@ export class CrashEngine {
     this.winnerLight = new THREE.PointLight(0xffe08a, 0, 18, 2);
     this.scene.add(this.winnerLight);
     this.barrier = new JerseyBarrier(this.scene);
-    this.press = new CompactorPress(this.scene, this.compactFace);
+    this.press = new CompactorPress(this.scene, this.compactor.face);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
     this.doorRam = new DoorRam(this.scene);
 
@@ -763,7 +764,7 @@ export class CrashEngine {
   }
 
   private randomizeAndReset(): void {
-    this.compactFace = COMPACTOR.startFace;
+    this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
     if (this.showCompactor) {
       this.parkCompactor();
@@ -875,10 +876,9 @@ export class CrashEngine {
 
   private parkCompactor(): void {
     const parked = this.parkSolo();
-    parked.deform.bidirectional = true;
-    parked.deform.deepCrush = false;
+    this.compactor.attach(parked);
     this.press.group.visible = true;
-    this.press.sync(this.compactFace);
+    this.press.sync(this.compactor.face);
   }
 
   private parkPistons(): void {
@@ -940,7 +940,7 @@ export class CrashEngine {
       fxDensity: this.fxDensity,
       balls: this.showBalls,
       compactor: this.showCompactor,
-      compactFace: this.compactFace,
+      compactFace: this.compactor.face,
       carCount: this.carCount,
       speedMin: this.speedMin,
       speedMax: this.speedMax,
@@ -1262,6 +1262,7 @@ export class CrashEngine {
           const dz = ca.group.position.z - cb.group.position.z;
           if (dx * dx + dz * dz > 28) continue;
           if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
+          partContactPair(ca, cb);
         }
       }
 
@@ -1585,7 +1586,7 @@ export class CrashEngine {
       const hz = 0.24;
       const hy = 1.05;
       const hx = 1.8;
-      const z = this.compactFace + 0.24;
+      const z = this.compactor.face + 0.24;
       separateSphereFromAabb(pos, vel, r, 0, 1.02, z, hx, hy, hz);
       separateSphereFromAabb(pos, vel, r, 0, 1.02, -z, hx, hy, hz);
     }
@@ -1593,36 +1594,15 @@ export class CrashEngine {
   };
 
   private stepCompactor(dt: number): void {
-    const target = COMPACTOR.maxFace;
-    this.compactFace = Math.max(target, this.compactFace - COMPACTOR.speed * dt);
-    this.press.sync(this.compactFace);
-    this.carA.refreshBasis();
-    if (!this.carA.deform.massActive && this.compactFace < COMPACTOR.bumperZ + 0.12) {
-      this.carA.deform.beginCrush(
-        new THREE.Vector3(0, 0.36, 2.06),
-        new THREE.Vector3(0, 0, -1),
-        18,
-        18,
-        this.carA.group,
-        this.carA.velocity,
-        this.carA.angular,
-      );
-      this.carA.crashed = true;
-    }
-    this.carA.deform.bidirectional = true;
-    this.carA.deform.deepCrush = this.compactFace < COMPACTOR.midFace;
+    const hit = this.compactor.step(dt);
+    this.press.sync(this.compactor.face);
     if (this.carA.deform.massActive) {
-      this.carA.deform.notifyContact();
-      const hit = enforceWalls(this.carA.deform, this.compactFace, dt);
-      this.carA.deform.stepStructure(dt);
-      enforceWalls(this.carA.deform, this.compactFace, dt);
-      this.carA.syncPose(dt);
       if (hit.hits > 0 && this.elapsedWall > this.compactFxAt) {
         this.compactFxAt = this.elapsedWall + 0.2;
-        _bp.set(0, 0.34, this.compactFace);
+        _bp.set(0, 0.34, this.compactor.face);
         _bn.set(0, 0, -1);
         this.sparks.poof(_bp, _bn, Math.max(10, (18 * this.fxDensity) | 0));
-        _bp.z = -this.compactFace;
+        _bp.z = -this.compactor.face;
         _bn.set(0, 0, 1);
         this.sparks.poof(_bp, _bn, Math.max(10, (18 * this.fxDensity) | 0));
         if (this.phase === "approach") {
@@ -1631,7 +1611,7 @@ export class CrashEngine {
         }
       }
     }
-    const stage = compactorStage(this.compactFace);
+    const stage = compactorStage(this.compactor.face);
     if (stage === "contact" || stage === "wells") this.phase = this.phase === "approach" ? "impact" : this.phase;
     if (stage === "mid") this.phase = "slowmo";
     if (stage === "max") this.phase = "aftermath";
@@ -1790,8 +1770,8 @@ export class CrashEngine {
       speedMin: this.speedMin,
       speedMax: this.speedMax,
       traceSamples: this.captureTrace ? this.trace.samples.length : this.trace.setupCopied ? 1 : 0,
-      wallGap: this.showCompactor ? this.compactFace * 2 : 0,
-      compactStage: this.showCompactor ? compactorStage(this.compactFace) : "open",
+      wallGap: this.showCompactor ? this.compactor.face * 2 : 0,
+      compactStage: this.showCompactor ? compactorStage(this.compactor.face) : "open",
       fps: this.fps,
       captureTrace: this.captureTrace,
       derby: this.derbyMode,

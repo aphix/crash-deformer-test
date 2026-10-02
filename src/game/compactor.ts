@@ -1,5 +1,7 @@
 import * as THREE from "three";
-import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
+import type { DeformableCar } from "./car.ts";
+import { bodyContact, bodyHit, makeBox, type ContactBox } from "./external-contact.ts";
+import type { StreamedDeformation } from "./streamed-deform.ts";
 
 /**
  * Hydraulic car-compactor: two kinematic plates, equal and opposite, square
@@ -23,6 +25,9 @@ export const COMPACTOR = {
   speed: 0.55,
 } as const;
 
+/** Plate slab (m): half thickness along the travel, half width, half height and centre height. */
+export const PLATE = { hz: 0.24, hx: 1.8, hy: 1.05, y: 1.02 } as const;
+
 export type CompactorStage = "open" | "contact" | "wells" | "mid" | "max";
 
 export function compactorStage(face: number): CompactorStage {
@@ -35,103 +40,118 @@ export function compactorStage(face: number): CompactorStage {
 
 export type WallHit = { frontJ: number; rearJ: number; hits: number };
 
-/** Project any mass that crossed a plate back onto it and kill outbound speed. */
-export function enforceWalls(d: StreamedDeformation, zFace: number, dt = 1 / 60): WallHit {
-  let frontJ = 0;
-  let rearJ = 0;
-  let hits = 0;
-  const face = Math.abs(zFace);
-  const invDt = 1 / Math.max(dt, 1 / 240);
-  for (const m of d.masses) {
-    if (!m.dynamic) continue;
-    const r = m.name.startsWith("bumper") || m.name.startsWith("wing") ? m.radius * 0.12 : m.radius * 0.72;
-    if (m.world.z + r > face) {
-      const overlap = m.world.z + r - face;
-      m.world.z -= overlap;
-      const vn = m.vel.z;
-      if (vn > 0) m.vel.z = 0;
-      // Wall is kinematic: impulse is outbound momentum plus the plate advancing into the mass.
-      frontJ += m.mass * (Math.max(0, vn) + overlap * invDt);
-      hits++;
-    }
-    if (m.world.z - r < -face) {
-      const overlap = -face - (m.world.z - r);
-      m.world.z += overlap;
-      const vn = m.vel.z;
-      if (vn < 0) m.vel.z = 0;
-      rearJ += m.mass * (Math.max(0, -vn) + overlap * invDt);
-      hits++;
-    }
-  }
-  return { frontJ, rearJ, hits };
+/** Plate `end` (+1 front, −1 rear) with its face at |z| = `face`, closing at `speed`. */
+function placePlate(box: ContactBox, end: 1 | -1, face: number, speed: number): void {
+  box.x = 0;
+  box.y = PLATE.y;
+  box.z = end * (face + PLATE.hz);
+  box.hx = PLATE.hx;
+  box.hy = PLATE.hy;
+  box.hz = PLATE.hz;
+  box.yaw = end > 0 ? Math.PI : 0;
+  box.vx = 0;
+  box.vz = -end * speed;
+  box.kg = Infinity;
+  box.hardness = 1;
 }
 
+/**
+ * The press scene's physics on a car parked at the origin facing +Z: the plates are a kinematic
+ * driver only; the car meets them through the shared striker contact (`bodyContact`, the same
+ * crush path a barrier or a piston face takes) and the shared crash rules
+ * (`DeformableCar.noteContactEnd`: two struck ends make a squeeze). DOM-free: the engine and the
+ * tests run the same `step`.
+ */
 export class CompactorRig {
-  readonly d: StreamedDeformation;
-  readonly group: THREE.Group;
-  readonly vel: THREE.Vector3;
-  readonly omega: THREE.Vector3;
-  readonly geom: THREE.BufferGeometry;
+  car: DeformableCar | null = null;
   face: number = COMPACTOR.startFace;
   frontJ = 0;
   rearJ = 0;
+  /** Plate work on the car (J): Σ plate impulse × plate speed. */
+  work = 0;
   maxGroupY = 0;
   maxCellY = 0;
   contacted = false;
+  readonly front = makeBox();
+  readonly rear = makeBox();
+  private readonly hit: WallHit = { frontJ: 0, rearJ: 0, hits: 0 };
 
-  constructor(mode: DeformMode = "lattice") {
-    this.geom = new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
-    this.d = new StreamedDeformation(this.geom);
-    this.d.mode = mode;
-    this.d.squash = 0.4;
-    this.d.buckle = 0.45;
-    this.group = new THREE.Group();
-    this.group.position.set(0, 0, 0);
-    this.group.rotation.set(0, 0, 0);
-    this.group.updateMatrixWorld();
-    this.vel = new THREE.Vector3();
-    this.omega = new THREE.Vector3();
-    this.d.bindKinematic(this.group, this.vel, this.omega);
+  constructor(car?: DeformableCar) {
+    if (car) this.attach(car);
+  }
+
+  /** Open the plates on `car` (already parked at the origin, at rest). */
+  attach(car: DeformableCar): void {
+    this.car = car;
+    this.face = COMPACTOR.startFace;
+    this.frontJ = 0;
+    this.rearJ = 0;
+    this.work = 0;
+    this.maxGroupY = 0;
+    this.maxCellY = 0;
+    this.contacted = false;
+  }
+
+  get d(): StreamedDeformation {
+    return this.car!.deform;
+  }
+
+  get group(): THREE.Group {
+    return this.car!.group;
+  }
+
+  get geom(): THREE.BufferGeometry {
+    return this.car!.body.geometry;
   }
 
   get stage(): CompactorStage {
     return compactorStage(this.face);
   }
 
+  /** One physics slice: move the plates toward `targetFace`, then the car against them. */
   step(dt: number, targetFace: number = COMPACTOR.maxFace): WallHit {
+    const car = this.car!;
+    const hit = this.hit;
+    const moving = this.face > targetFace;
     this.face = Math.max(targetFace, this.face - COMPACTOR.speed * dt);
-    if (!this.d.massActive && this.face < COMPACTOR.bumperZ + 0.12) {
-      this.d.beginCrush(
-        new THREE.Vector3(0, 0.36, 2.06),
-        new THREE.Vector3(0, 0, -1),
-        18,
-        18,
-        this.group,
-        this.vel,
-        this.omega,
-      );
-      this.contacted = true;
+    const speed = moving ? COMPACTOR.speed : 0;
+    car.refreshBasis();
+    placePlate(this.front, 1, this.face, speed);
+    placePlate(this.rear, -1, this.face, speed);
+    hit.hits = 0;
+    hit.frontJ = bodyContact(car, this.front, dt, true);
+    if (bodyHit.touching) {
+      car.noteContactEnd(1, this.face);
+      hit.hits++;
     }
-    this.d.bidirectional = true;
-    this.d.deepCrush = this.face < COMPACTOR.midFace;
-    this.d.notifyContact();
-    const hit = enforceWalls(this.d, this.face, dt);
+    hit.rearJ = bodyContact(car, this.rear, dt, true);
+    if (bodyHit.touching) {
+      car.noteContactEnd(-1, this.face);
+      hit.hits++;
+    }
+    if (car.deform.massActive) {
+      car.deform.stepStructure(dt);
+      bodyContact(car, this.front, dt, false);
+      bodyContact(car, this.rear, dt, false);
+      car.syncPose(dt);
+    }
+    if (car.crashed) this.contacted = true;
     this.frontJ += hit.frontJ;
     this.rearJ += hit.rearJ;
-    this.d.stepStructure(dt);
-    enforceWalls(this.d, this.face, dt);
-    this.d.followGroup(this.group, this.vel, this.omega, dt);
-    this.d.update(dt, this.geom);
-    this.maxGroupY = Math.max(this.maxGroupY, this.group.position.y);
-    const cell = this.d.masses.find((m) => m.name === "cell");
-    if (cell) this.maxCellY = Math.max(this.maxCellY, cell.world.y);
+    this.work += (hit.frontJ + hit.rearJ) * speed;
+    this.maxGroupY = Math.max(this.maxGroupY, car.group.position.y);
+    if (car.deform.massActive) this.maxCellY = Math.max(this.maxCellY, car.deform.massWorld("cell").y);
     return hit;
   }
 
+  /** Close to `targetFace` one `dt` frame at a time, the car's frame tail included. */
   runTo(targetFace: number, dt = 1 / 60, cap = 2400): number {
+    const car = this.car!;
     let n = 0;
     while (this.face > targetFace + 1e-4 && n < cap) {
       this.step(dt, targetFace);
+      car.afterContacts(dt);
+      car.updateDeform(dt);
       n++;
     }
     return n;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
+import { bodyContact, makeBox, partContact } from "./external-contact.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
 
 type MassNode = StreamedDeformation["masses"][number];
@@ -92,8 +93,6 @@ export class PistonHead {
   /** Lateral unit across the face (n rotated +90° about Y). */
   readonly tx: number;
   readonly tz: number;
-  /** Yaw for `projectOutOfBox`: its box X axis is this piston's inward axis. */
-  readonly boxYaw: number;
   phase: PistonPhase = "idle";
   /** Steel plate front along the axis (m from the axis point; negative is outside the car). */
   plate = 0;
@@ -130,7 +129,6 @@ export class PistonHead {
     this.nz = a.nz;
     this.tx = -a.nz;
     this.tz = a.nx;
-    this.boxYaw = Math.atan2(-a.nz, a.nx);
   }
 
   get firing(): boolean {
@@ -239,11 +237,11 @@ function holdCentreOfMass(d: StreamedDeformation): void {
 }
 
 /**
- * The piston scene's physics: owns the heads, drives the parked car through
- * the mass-level box contact (`projectOutOfBox` in the moving head's frame plus
- * the stroke-sized `brakeInbound` crush force), and hands the first hit to
- * `applyImpact` with an equivalent barrier speed from the impactor's energy.
- * DOM-free; the engine and the tests run the same `step`.
+ * The piston scene's physics: owns the heads and drives the parked car. Each head is a striker
+ * box through the shared contact (`bodyContact`: crush from the face's overlap, the particles
+ * held on the moving face, the stroke-sized crush force; `partContact`: doors and mirrors), and
+ * hands the first hit to `applyImpact` with an equivalent barrier speed from the impactor's
+ * energy. DOM-free; the engine and the tests run the same `step`.
  */
 export class PistonRig {
   readonly heads: PistonHead[];
@@ -256,6 +254,7 @@ export class PistonRig {
   hitClosing = 0;
   private hitFresh = false;
   private cell: MassNode | null = null;
+  private readonly box = makeBox();
 
   constructor(config: Partial<PistonConfig> = {}) {
     this.config = { ...PISTON_DEFAULTS };
@@ -380,11 +379,11 @@ export class PistonRig {
     for (const h of this.heads) if (h.firing && !h.contacted && this.overlaps(h, d, honey)) this.firstTouch(car, h, honey);
     if (!d.massActive) return;
     let touching = false;
-    for (const h of this.heads) if (h.contacted && h.firing && this.contact(h, d, honey, dt, true)) touching = true;
+    for (const h of this.heads) if (h.contacted && h.firing && this.contact(h, car, honey, dt, true)) touching = true;
     if (touching) d.notifyContact();
     if (this.config.holdCar) holdCentreOfMass(d);
     d.stepStructure(dt);
-    for (const h of this.heads) if (h.contacted && h.firing) this.contact(h, d, honey, dt, false);
+    for (const h of this.heads) if (h.contacted && h.firing) this.contact(h, car, honey, dt, false);
     if (this.config.holdCar) holdCentreOfMass(d);
     car.syncPose(dt);
   }
@@ -424,13 +423,13 @@ export class PistonRig {
   }
 
   /**
-   * Box contact in the head's rest frame: shift the car into it, project the
-   * particles out of the head (`projectOutOfBox`), apply the crush force that
-   * spends this shot's stroke (`brakeInbound`), shift back. Whatever momentum
-   * the car takes comes off the impactor. A honeycomb face gives way at its
-   * share of the closing speed while it has depth left.
+   * The head as a striker box on its axis (moving at the face speed, its mass and hardness)
+   * through the shared contact; whatever momentum the car takes comes off the impactor. A
+   * honeycomb face gives way at its share of the closing speed while it has depth left. A head
+   * on an end reports it (`noteContactEnd`), so front and rear together squeeze the car.
    */
-  private contact(h: PistonHead, d: StreamedDeformation, honey: number, dt: number, crush: boolean): boolean {
+  private contact(h: PistonHead, car: DeformableCar, honey: number, dt: number, crush: boolean): boolean {
+    const d = car.deform;
     const cell = this.cell;
     const cellVn = cell ? cell.vel.x * h.nx + cell.vel.z * h.nz : 0;
     const give = 1 - THREE.MathUtils.clamp(this.config.hardness, 0, 1);
@@ -438,21 +437,26 @@ export class PistonRig {
     const uFace = h.u - yieldRate;
     const half = PISTON.headDepth * 0.5;
     const plane = h.face(honey) + h.pad;
-    const cx = h.ax + h.nx * (plane - half);
-    const cz = h.az + h.nz * (plane - half);
-    shiftVelocities(d, -h.nx * uFace, -h.nz * uFace);
-    const removed = d.projectOutOfBox(cx, cz, half, this.config.faceWidth * 0.5, h.boxYaw);
+    const box = this.box;
+    box.x = h.ax + h.nx * (plane - half);
+    box.y = PISTON.faceY;
+    box.z = h.az + h.nz * (plane - half);
+    box.hx = this.config.faceWidth * 0.5;
+    box.hy = this.config.faceHeight * 0.5;
+    box.hz = half;
+    box.yaw = Math.atan2(h.nx, h.nz);
+    box.vx = h.nx * uFace;
+    box.vz = h.nz * uFace;
+    box.kg = this.config.massKg;
+    box.hardness = this.config.hardness;
+    let taken = bodyContact(car, box, dt, crush);
     const touching = d.faceContacts > 0;
-    let taken = 0;
-    if (crush && touching) {
-      const j = (d.totalMass * h.ebs * h.ebs) / (2 * Math.max(0.05, d.hitStroke())) * dt;
-      taken = d.brakeInbound(h.nx, h.nz, j, 0);
-    }
-    shiftVelocities(d, h.nx * uFace, h.nz * uFace);
-    if (h.phase === "coast") h.u = Math.max(0, h.u - (removed + taken) / this.config.massKg);
+    if (crush) taken += box.kg * partContact(car, box).du;
+    if (h.phase === "coast") h.u = Math.max(0, h.u - taken / this.config.massKg);
     if (touching) {
       h.touch(this.time);
       if (crush) h.faceSet = Math.min(honey, h.faceSet + yieldRate * dt);
+      if (Math.abs(h.nz) > 0.5) car.noteContactEnd(h.az > 0 ? 1 : -1, Math.abs(h.az + h.nz * plane));
     }
     return touching;
   }

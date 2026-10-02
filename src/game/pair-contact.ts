@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "./physics-util.ts";
 import { satCars } from "./sat.ts";
+import { partContactPair } from "./external-contact.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -182,6 +183,7 @@ export function stepCarPair(carA: DeformableCar, carB: DeformableCar, dt: number
   else carB.syncPose(dt);
 
   if (carA.deform.massActive || carB.deform.massActive) carA.deform.collideWith(carB.deform, dt);
+  partContactPair(carA, carB);
 
   const satBusy = carA.velocity.lengthSq() > 1.4 || carB.velocity.lengthSq() > 1.4;
   const leftover = Math.min(
