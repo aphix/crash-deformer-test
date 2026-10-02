@@ -247,10 +247,15 @@ export class RaceSession {
       return;
     }
     if (c.status === "respawning") {
+      // The wreck still occupies the road and is where the respawn is measured from.
+      c.x = pose.x;
+      c.z = pose.z;
       if (this.time >= c.respawnAt!) this.respawn(i);
       return;
     }
     if (!pose.alive) {
+      c.x = pose.x;
+      c.z = pose.z;
       this.kill(i);
       return;
     }
