@@ -28,13 +28,14 @@ import {
   makeTrimMaterial,
   makeTrunkGeometry,
   makeWindshield,
+  type Hull,
   type LampKind,
 } from "./car-mesh.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
 import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "./ground.ts";
 
-export { CAR_HALF, DOOR, HULLS, CRUSH_HULLS, WHEEL_POS };
+export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "./car-mesh.ts";
 
 export interface CarPaint {
@@ -43,8 +44,29 @@ export interface CarPaint {
   name: string;
 }
 
-export type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
-export type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
+type WorldBounce = (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void;
+type GlassBurst = (origin: THREE.Vector3, velocity: THREE.Vector3, count: number) => void;
+
+/** G-key hull overlay: each 2D contact hull drawn as a box over this height band (m, display only). */
+const HULL_Y0 = 0.18;
+const HULL_Y1 = 0.72;
+/** The box's 12 edges as corner pairs. Corner k sits at HULL_Y1 if k ≥ 4; round the ring, k & 3 is (x0,z0) (x1,z0) (x1,z1) (x0,z1). */
+const BOX_EDGES = [0, 1, 1, 2, 2, 3, 3, 0, 4, 5, 5, 6, 6, 7, 7, 4, 0, 4, 1, 5, 2, 6, 3, 7];
+
+/** Writes hull `h`'s box edges (BOX_EDGES.length × 3 floats) into `arr` from `o`; returns the end offset. */
+function writeHullBox(arr: Float32Array, o: number, h: Hull): number {
+  const x0 = h.cx - h.hx;
+  const x1 = h.cx + h.hx;
+  const z0 = h.cz - h.hz;
+  const z1 = h.cz + h.hz;
+  for (const k of BOX_EDGES) {
+    const ring = k & 3;
+    arr[o++] = ring === 1 || ring === 2 ? x1 : x0;
+    arr[o++] = k < 4 ? HULL_Y0 : HULL_Y1;
+    arr[o++] = ring >= 2 ? z1 : z0;
+  }
+  return o;
+}
 
 /** C1: only a side hit this hard (m/s EBS, 45 km/h) tears a door off; slower side hits spring it. */
 const DOOR_TEAR_MPS = 12.5;
@@ -80,7 +102,7 @@ const END_WINDOW = 0.25;
 const REARM_QUIET_S = 0.3;
 
 /** A door's free swing; the crash rule's `hingeT` jams it open on top of this (C1). */
-export interface DoorHinge {
+interface DoorHinge {
   /** Open angle (rad, 0 = shut). */
   theta: number;
   /** Opening rate (rad/s, + opens). */
@@ -439,44 +461,11 @@ export class DeformableCar {
   }
 
   private buildHullHelper(): void {
-    const pos: number[] = [];
-    for (const h of HULLS) {
-      const y0 = 0.18;
-      const y1 = 0.72;
-      const x0 = h.cx - h.hx;
-      const x1 = h.cx + h.hx;
-      const z0 = h.cz - h.hz;
-      const z1 = h.cz + h.hz;
-      const c = [
-        [x0, y0, z0],
-        [x1, y0, z0],
-        [x1, y0, z1],
-        [x0, y0, z1],
-        [x0, y1, z0],
-        [x1, y1, z0],
-        [x1, y1, z1],
-        [x0, y1, z1],
-      ];
-      const edges: [number, number][] = [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 0],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-        [7, 4],
-        [0, 4],
-        [1, 5],
-        [2, 6],
-        [3, 7],
-      ];
-      for (const [a, b] of edges) {
-        pos.push(...c[a]!, ...c[b]!);
-      }
-    }
+    const pos = new Float32Array(HULLS.length * BOX_EDGES.length * 3);
+    let o = 0;
+    for (const h of HULLS) o = writeHullBox(pos, o, h);
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("position", new THREE.BufferAttribute(pos, 3));
     const mat = new THREE.LineBasicMaterial({
       color: 0x8aa0b4,
       transparent: true,
@@ -492,50 +481,8 @@ export class DeformableCar {
   private updateHullHelper(): void {
     if (!this.hullHelper) return;
     const attr = this.hullHelper.geometry.getAttribute("position") as THREE.BufferAttribute;
-    const arr = attr.array as Float32Array;
     let o = 0;
-    for (const h of this.hulls()) {
-      const y0 = 0.18;
-      const y1 = 0.72;
-      const x0 = h.cx - h.hx;
-      const x1 = h.cx + h.hx;
-      const z0 = h.cz - h.hz;
-      const z1 = h.cz + h.hz;
-      const c = [
-        [x0, y0, z0],
-        [x1, y0, z0],
-        [x1, y0, z1],
-        [x0, y0, z1],
-        [x0, y1, z0],
-        [x1, y1, z0],
-        [x1, y1, z1],
-        [x0, y1, z1],
-      ];
-      const edges: [number, number][] = [
-        [0, 1],
-        [1, 2],
-        [2, 3],
-        [3, 0],
-        [4, 5],
-        [5, 6],
-        [6, 7],
-        [7, 4],
-        [0, 4],
-        [1, 5],
-        [2, 6],
-        [3, 7],
-      ];
-      for (const [a, b] of edges) {
-        const pa = c[a]!;
-        const pb = c[b]!;
-        arr[o++] = pa[0]!;
-        arr[o++] = pa[1]!;
-        arr[o++] = pa[2]!;
-        arr[o++] = pb[0]!;
-        arr[o++] = pb[1]!;
-        arr[o++] = pb[2]!;
-      }
-    }
+    for (const h of this.hulls()) o = writeHullBox(attr.array as Float32Array, o, h);
     attr.needsUpdate = true;
   }
 
@@ -558,22 +505,16 @@ export class DeformableCar {
     this.group.position.set(x, 0, z);
     this.group.lookAt(0, 0, 0);
     this.refreshBasis();
-    this.yaw = Math.atan2(this.forward.x, this.forward.z);
-    this.group.rotation.set(0, this.yaw, 0, "YXZ");
-    this.roll = 0;
-    this.pitch = 0;
-    this.speed = speed;
-    this.spawnSpeed = speed;
-    this.crashed = false;
-    this.angular.set(0, 0, 0);
-    this.refreshBasis();
-    this.velocity.copy(this.forward).multiplyScalar(speed);
-    this.deform.bindKinematic(this.group, this.velocity, this.angular);
-    this.resetLamps();
+    this.placeAt(x, z, Math.atan2(this.forward.x, this.forward.z), speed, this.forward);
   }
 
   spawnFacing(x: number, z: number, yaw: number, speed: number): void {
     this.resetVisual();
+    this.placeAt(x, z, yaw, speed, this.fwdFlat);
+  }
+
+  /** Upright at (x, z) facing `yaw`, moving at `speed` along `dir` (`forward` or `fwdFlat`, read after the basis refresh). */
+  private placeAt(x: number, z: number, yaw: number, speed: number, dir: THREE.Vector3): void {
     this.yaw = yaw;
     this.group.position.set(x, 0, z);
     this.group.rotation.set(0, yaw, 0, "YXZ");
@@ -584,7 +525,7 @@ export class DeformableCar {
     this.crashed = false;
     this.angular.set(0, 0, 0);
     this.refreshBasis();
-    this.velocity.copy(this.fwdFlat).multiplyScalar(speed);
+    this.velocity.copy(dir).multiplyScalar(speed);
     this.deform.bindKinematic(this.group, this.velocity, this.angular);
     this.resetLamps();
   }
@@ -649,17 +590,20 @@ export class DeformableCar {
       p.velocity.set(0, 0, 0);
       p.angular.set(0, 0, 0);
     }
-    for (const g of this.glassPanes) {
-      g.state = "intact";
-      g.mesh.visible = true;
-      g.mesh.position.copy(g.restPos);
-      if (g.restVerts) this.restoreRest(g.mesh.geometry, g.restVerts);
-      g.mat.opacity = 0.78;
-      g.mat.map = null;
-      g.mat.roughness = 0.06;
-      g.mat.needsUpdate = true;
-    }
+    for (const g of this.glassPanes) this.resetGlass(g);
     this.resetLamps();
+  }
+
+  /** Back to an intact, clear pane on its rest seat and shape. */
+  private resetGlass(g: GlassPane): void {
+    g.state = "intact";
+    g.mesh.visible = true;
+    g.mesh.position.copy(g.restPos);
+    if (g.restVerts) this.restoreRest(g.mesh.geometry, g.restVerts);
+    g.mat.opacity = 0.78;
+    g.mat.map = null;
+    g.mat.roughness = 0.06;
+    g.mat.needsUpdate = true;
   }
 
   /** Relight every lamp and re-seat it on the (rest) skin. */
@@ -1422,16 +1366,7 @@ export class DeformableCar {
       const want = (parts.glass >> (i * 2)) & 3;
       const have = g.state === "intact" ? 0 : g.state === "cracked" ? 1 : 2;
       if (want === have) continue;
-      if (want < have) {
-        g.state = "intact";
-        g.mesh.visible = true;
-        g.mesh.position.copy(g.restPos);
-        if (g.restVerts) this.restoreRest(g.mesh.geometry, g.restVerts);
-        g.mat.opacity = 0.78;
-        g.mat.map = null;
-        g.mat.roughness = 0.06;
-        g.mat.needsUpdate = true;
-      }
+      if (want < have) this.resetGlass(g);
       if (want >= 1 && g.state === "intact") {
         g.state = "cracked";
         g.mat.map = getCrackMap();
