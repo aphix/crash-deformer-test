@@ -68,6 +68,8 @@ const WHEEL_DIAMETER = 2 * TYRE_R;
 const POWER_HOLD = 0.1;
 /** Steel-on-steel sliding friction for car-car mass contacts (same μ as the hull contact in pair-contact). */
 const SHEET_MU = 0.45;
+/** Largest overlap (m) one car-car mass pair resolves per CONTACT_REF_SLICE (sphereHit). */
+const SPHERE_STEP = 0.06;
 /** Yaw-rate sanity guard (rad/s) on followGroup's measured heading change; a real wreck spins < 5. */
 const YAW_RATE_GUARD = 12;
 /** Shortest sim time (s) a yaw-rate sample spans. */
@@ -3117,7 +3119,10 @@ function sphereHit(a: MassNode, b: MassNode, slice: number): void {
   const tA = forceTransfer(a.local.distanceTo(a.rest), a.bands, a.local.distanceTo(a.rest) >= a.bands.max * 0.97);
   const tB = forceTransfer(b.local.distanceTo(b.rest), b.bands, b.local.distanceTo(b.rest) >= b.bands.max * 0.97);
   const t = Math.min(tA, tB);
-  const overlap = (minD - dist) * (crumple ? 1 - Math.pow(1 - Math.max(0.28, t), slice) : 1);
+  // A rigid pair (cell on cell) resolves at most SPHERE_STEP per reference slice: in one call it resolved
+  // a 0.15 m overlap and jumped the struck cell 0.15 m in 4.5 ms (a derby zip); the rest goes over the
+  // next slices. Crumple pairs already take a per-slice share.
+  const overlap = crumple ? (minD - dist) * (1 - Math.pow(1 - Math.max(0.28, t), slice)) : Math.min(minD - dist, SPHERE_STEP * slice);
   if (a.dynamic) a.world.addScaledVector(_n, -overlap * (ima / inv));
   if (b.dynamic) b.world.addScaledVector(_n, overlap * (imb / inv));
   const rel = b.vel.dot(_n) - a.vel.dot(_n);

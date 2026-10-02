@@ -147,7 +147,7 @@ forModes("compactor until wheel wells", (mode) => {
 
   // Planted hubs were pinned at rest, so the plates passed straight through the tyres (owner screenshot).
   it("bad: the plates never sit inside a planted tyre — the hubs ride them back", () => {
-    const r = new CompactorRig(mode);
+    const r = pressRig(mode);
     const face = COMPACTOR.midFace + 0.1;
     r.runTo(face);
     for (const name of ["hubFL", "hubFR", "hubRL", "hubRR"] as const) {
