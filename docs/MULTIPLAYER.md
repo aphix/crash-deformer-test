@@ -374,5 +374,6 @@ cars crushing peaked at 42.3 KB/s (estimate 2.1 + 2 × 19.8 = 41.7 KB/s). Over W
 ran ~16 fps early on, so it sent 16–18 Hz (1.1–1.2 KB/s), peak 29.5 KB/s.
 
 Known gaps: no client prediction; host migration is spec only; a peer that closes its tab keeps its
-car (idle) for the 10 s grace period; scene and mode switches on a client are the host's (see
-`CrashEngine` toggles).
+car (idle) for the 10 s grace period. Scene actions (play, reset, scenes, props,
+car count, class) are no-ops on a client, and the pad's race pause goes through the client allowlist;
+a client leaving the host's race or derby gets the fleet reset (disc ground, poles, props).
