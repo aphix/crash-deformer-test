@@ -42,9 +42,9 @@ takes its art from the host (`buildArt`), so tests and a server run it with no r
  sandbox ───────────► setup ─────────────────────────────► grid ─1.5 s─► countdown ─3 s─► racing
     ▲  quit (Back)      ▲ quit                                                              │
     └───────────────────┤                                    pause ◄─ Esc / Start ─────────┤
-                        │                                                                   │ all in or out /
-                results ◄── 2.5 s after the race closes, or End ─────────────────────────────┘ 30 s after the
-                  │ next (single) → next course          (campaign) next → standings → next round   winner / End
+                        │                                                                   │ every car home,
+                results ◄── 2.5 s after the race closes, or End ─────────────────────────────┘ out or past its
+                  │ next (single) → next course          (campaign) next → standings → next round   deadline / End
 ```
 `time` is the race clock: −4.5 on the grid, −3 when the lights start, 0 at green.
 `startLights(time)`: red on [−3, −1), yellow on [−1, 0), green from 0 for 1.5 s, otherwise off. Cars
@@ -53,7 +53,7 @@ are held on the brakes until green. Traffic drives from the start.
 ## Per-car record (`CarRecord`)
 `lap` (completed), `next` (next main gate), `armed` (crossed the line once), `route` / `routeNext`
 (shortcut being driven), `progress` (m), `place`, `lapStart`, `lapTimes[]`, `bestLap`, `finishTime`,
-`split`, `outTime`, `wrongWay`, `respawnAt`, `deaths`, `status`
+`split`, `outTime`, `wrongWay`, `missed`, `respawnAt`, `deaths`, `status`
 (`racing | respawning | finished | out | dnf`), the last reported `x`, `z`, the wrong-way timer and a
 projection hint. All plain JSON.
 
@@ -63,12 +63,16 @@ projection hint. All plain JSON.
   inside the step. A move longer than 25 m in one step (a teleport) earns nothing.
 - The grid sits behind gate 0. The first crossing arms the car; lap 1 is timed from green.
 - Crossing gate `next` advances `next`; crossing gate 0 with `next == 0` completes a lap. Other gates
-  are ignored, so cutting across the infield gains nothing and line farming never counts.
-- Designed shortcut `{from, to, path}` (a gate per path point): a car whose next gate is `from+1`
-  starts it through the mouth gate or the gate after it (cut in past the mouth); gates in order;
-  the exit gate sets `next = to`; a car that crossed all but the exit and then crosses main gate `to`
-  also completes it. Crossing main gate `from+1` instead abandons it. A shortcut skips ≥ 1
-  checkpoint and may not skip the line.
+  are ignored, so cutting across the infield gains nothing and line farming never counts. Crossing a
+  main gate ahead of the owed one (not the one just passed) sets `missed` until the owed gate is
+  crossed; the HUD shows **Missed checkpoint**, so a skipped gate never costs a lap silently.
+- Designed shortcut `{from, to, path}` (a gate per path point, reaching 8 m beyond its road edge,
+  `SHORTCUT_REACH`): a car whose next gate is `from+1` starts it through any of its gates but the
+  last; after that any later gate of it counts (a car on its own line across the shortcut's ground
+  skips some); the exit gate sets `next = to`; a car that crossed all but the exit and then crosses
+  main gate `to` also completes it. Crossing main gate `from+1` instead abandons it. A shortcut skips
+  ≥ 1 checkpoint and may not skip the line. (The oval's service road runs through the open infield:
+  before this rule a car on the grass beside it, or straight across, lost the whole lap.)
 - Ranking distance `progress = lap·L + s'`, `s'` clamped between the last passed gate and `next`
   (along the route on a shortcut). `split`: seconds behind the first car through the same gate on
   the same lap.
@@ -92,9 +96,15 @@ the rate; `wrongWay` on at 0.7 s, off at 0.
 - No-reset: a death is final (`out`); resets are refused. The player gets the dead menu.
 
 ## Winning and the end
-First car home wins (`winBy = laps`); the rest race on until all are in or out, or 30 s after the
-winner (then `dnf`). No-reset: the last car running wins at once (`survival`). `end()` closes the race
-now (running cars `dnf`). Results: place, name, status, time, gap, best lap, laps.
+First car home wins (`winBy = laps`). Then the chequered flag: every other car finishes the next time
+it crosses the line, classified by laps completed, then time (a lapped finisher shows "+1 lap", no time
+gap). A car that hasn't reached the line by its deadline is `dnf` and keeps its laps: the deadline is
+the winner + 30 s (`FINISH_GRACE`), or its current lap's start + 1.5 × its own best lap (`LAP_SLACK`;
+the winner's average lap when it has none), whichever is later. So every running car gets to finish
+the lap it is on at its own pace, and a stopped car can't hold the race open past that. The race
+closes when no car is still running. No-reset: the last car running wins at once (`survival`).
+`end()` closes the race now (running cars `dnf`). Results: place, name, status, time, gap (or laps
+down, or laps done for DNF / out), best lap, laps.
 
 ## Spectate
 Dead menu (no-reset, player out): Restart, End race, Spectate. Spectating chases a live car (LB/RB,
@@ -247,11 +257,18 @@ spatially (350 ms then 120 ms repeat), ←/→ adjust, A confirms, B backs out, 
 
 ## Tests
 `track.test.ts` (every course compiles, gates, grid, walls, ground, bridge layers, crossing rules),
-`session.test.ts` (countdown, laps, cuts, line farming, shortcuts, wrong way, positions, respawn
-placement, no-reset survival, snapshots, DNF, campaign), `race-ai.test.ts` (8 clean AI cars finish 3
-laps on every course on the road ≥ 95 %, ram / block / follow, the aggression model), `traffic.test.ts`
-(lanes, junction crossings, stop and edge round, bubble wake-up), `placements.test.ts`,
-`menu-nav.test.ts`, and `race-finish.test.ts`: the real stack headless (director, real cars and
-classes, `applyDrive`, the engine's fixed-step contact order, traffic) — 5 AI cars, 2 laps, every
-course; it must reach results within the grid + 2 laps at 3 × the reference lap (course length at
-9 m/s) with ≥ 4 of 5 finished or out. `RACE_FINISH_SEEDS=5` runs the full sweep.
+`session.test.ts` (countdown, laps, cuts and the `missed` flag, line farming, shortcuts incl. the
+oval infield beside / across the service road, wrong way, positions, respawn placement, no-reset
+survival, snapshots, DNF, the chequered flag and finish deadlines, campaign), `race-ai.test.ts` (8
+clean AI cars finish 3 laps on every course on the road ≥ 95 %, ram / block / follow, boost, the
+aggression model), `traffic.test.ts` (lanes, junction crossings, stop and edge round, bubble
+wake-up), `placements.test.ts`, `menu-nav.test.ts`, and the real stack headless (director, real cars
+and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpers in
+`race-world.test-util.ts`):
+- `race-finish.test.ts`, every course: 5 AI cars, 2 laps;
+  results within the grid + 2 laps at 3 × the reference lap (course length at 9 m/s) with ≥ 4 of 5
+  home on full distance or out. `RACE_FINISH_SEEDS=5` runs the full sweep.
+- `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
+  oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
+  service road and straight across the infield. The player finishes on the AI's lap count, and the
+  HUD's lap and place equal a rules snapshot at every sample.

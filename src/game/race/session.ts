@@ -20,8 +20,13 @@ export const RESPAWN_DELAY = 3;
 export const RESPAWN_REQUEST_DELAY = 1.5;
 /** A respawn spot keeps this far (m) from every other car. */
 export const CLEARANCE = 6;
-/** The race closes this long after the winner crosses the line. */
+/**
+ * After the winner, every other car finishes the next time it crosses the line (the chequered flag),
+ * classified by laps completed. A car that hasn't got there by its deadline is DNF: this long after
+ * the winner, or `LAP_SLACK` × its own lap pace after it started its current lap, whichever is later.
+ */
 export const FINISH_GRACE = 30;
+export const LAP_SLACK = 1.5;
 /** Seconds against the track before the wrong-way flag goes up. */
 export const WRONG_WAY_ON = 0.7;
 const WRONG_DOT = -0.3;
@@ -69,6 +74,7 @@ function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
     split: null,
     outTime: null,
     wrongWay: false,
+    missed: false,
     respawnAt: null,
     deaths: 0,
     x,
@@ -97,7 +103,6 @@ export class RaceSession {
   /** Car indices in position order. */
   private readonly rank: number[];
   private readonly firstAt: Float64Array;
-  private overAt = Infinity;
   private readonly queue: RaceEvent[] = [];
   private readonly finishers: number[] = [];
   private readonly proj = blankProjection();
@@ -132,7 +137,6 @@ export class RaceSession {
     snap.cars.forEach((c, i) => Object.assign(s.cars[i]!, structuredClone(c)));
     snap.order.forEach((id, k) => (s.rank[k] = s.cars.findIndex((c) => c.id === id)));
     snap.firstAt.forEach((t, k) => (s.firstAt[k] = t ?? NaN));
-    s.overAt = snap.overAt ?? Infinity;
     return s;
   }
 
@@ -215,7 +219,6 @@ export class RaceSession {
       cars: structuredClone(this.cars),
       order: this.order(),
       firstAt: Array.from(this.firstAt, (t) => (Number.isNaN(t) ? null : t)),
-      overAt: Number.isFinite(this.overAt) ? this.overAt : null,
     };
   }
 
@@ -232,7 +235,8 @@ export class RaceSession {
         place: c.place,
         status: c.status,
         time: c.status === "finished" ? c.finishTime : null,
-        gap: c.status === "finished" && c.finishTime != null && winTime != null ? c.finishTime - winTime : null,
+        // Lapped finishers and DNF rows carry `laps` instead of a time gap.
+        gap: c.status === "finished" && c.lap >= this.laps && c.finishTime != null && winTime != null ? c.finishTime - winTime : null,
         bestLap: c.bestLap,
         laps: c.lap,
       };
@@ -269,7 +273,12 @@ export class RaceSession {
     if (c.status === "racing") this.measure(i, pose.vx, pose.vz, dt);
   }
 
-  /** Gate credit for the move (x0, z0) → (c.x, c.z) over [t0, t0 + dt]. */
+  /**
+   * Gate credit for the move (x0, z0) → (c.x, c.z) over [t0, t0 + dt]. A designed shortcut counts
+   * from any of its gates but the last, through any later one: a car that drives its own line
+   * across the shortcut's ground (skipping a gate of it) still took the shortcut. Main checkpoints
+   * stay strict; crossing a later one with a checkpoint still owed sets `missed`.
+   */
   private gates(i: number, x0: number, z0: number, t0: number, dt: number): void {
     const c = this.cars[i]!;
     const tr = this.track;
@@ -278,9 +287,10 @@ export class RaceSession {
       if (c.route >= 0) {
         const sc = tr.shortcuts[c.route]!;
         const last = sc.gates.length - 1;
-        const f = crossGate(sc.gates[c.routeNext]!, x0, z0, c.x, c.z);
-        if (f >= 0) {
-          c.routeNext++;
+        let hit = -1;
+        for (let g = last; g >= c.routeNext && hit < 0; g--) if (crossGate(sc.gates[g]!, x0, z0, c.x, c.z) >= 0) hit = g;
+        if (hit >= 0) {
+          c.routeNext = hit + 1;
           if (c.routeNext > last) this.leaveRoute(c, sc.to);
           continue;
         }
@@ -310,8 +320,8 @@ export class RaceSession {
       for (let k = 0; k < tr.shortcuts.length && !entered; k++) {
         const sc = tr.shortcuts[k]!;
         if ((sc.from + 1) % n !== c.next) continue;
-        // The mouth gate, or the one after it for a car that cut in past the mouth.
-        for (let g = 0; g < Math.min(2, sc.gates.length - 1); g++) {
+        // Anywhere onto the shortcut short of its exit gate.
+        for (let g = 0; g < sc.gates.length - 1; g++) {
           if (crossGate(sc.gates[g]!, x0, z0, c.x, c.z) < 0) continue;
           c.route = k;
           c.routeNext = g + 1;
@@ -320,7 +330,12 @@ export class RaceSession {
           break;
         }
       }
-      if (!entered) return;
+      if (entered) continue;
+      // A gate ahead of the owed one (not the one just passed, crossed again after a spin).
+      for (let g = 0; g < n && !c.missed; g++) {
+        if (g !== c.next && g !== (c.next + n - 1) % n && crossGate(tr.gates[g]!, x0, z0, c.x, c.z) >= 0) c.missed = true;
+      }
+      return;
     }
   }
 
@@ -333,6 +348,7 @@ export class RaceSession {
 
   private pass(i: number, gate: number, t: number): void {
     const c = this.cars[i]!;
+    c.missed = false;
     const n = this.track.gates.length;
     if (gate !== 0) {
       c.next = (gate + 1) % n;
@@ -353,7 +369,8 @@ export class RaceSession {
     c.next = 1;
     this.split(c, c.lap * n, t);
     this.queue.push({ type: "lap", id: c.id, lap: c.lap, time: lapTime });
-    if (c.lap >= this.laps) {
+    // All laps done, or the winner is home: the chequered flag finishes every car at the line.
+    if (c.lap >= this.laps || this.winBy === "laps") {
       c.status = "finished";
       c.finishTime = t;
       c.wrongWay = false;
@@ -485,7 +502,7 @@ export class RaceSession {
     return true;
   }
 
-  /** Position order: finished by time, then the field by progress, then the out cars (last out first). Ties keep grid order. */
+  /** Position order: finishers by laps then time, then the field by progress, then the out cars (last out first). Ties keep grid order. */
   private sortRank(): void {
     const r = this.rank;
     const cars = this.cars;
@@ -505,6 +522,7 @@ export class RaceSession {
     const ga = RANK_GROUP[a.status];
     const gb = RANK_GROUP[b.status];
     if (ga !== gb) return ga < gb;
+    if (ga === 0 && a.lap !== b.lap) return a.lap > b.lap;
     if (ga === 0 && a.finishTime !== b.finishTime) return a.finishTime! < b.finishTime!;
     if (ga === 2 && a.outTime !== b.outTime) return a.outTime! > b.outTime!;
     if (ga !== 0 && a.progress !== b.progress) return a.progress > b.progress;
@@ -522,17 +540,21 @@ export class RaceSession {
         const first = this.cars[this.rank[0]!]!;
         this.winnerId = first.id;
         this.winBy = "laps";
-        this.overAt = this.time + FINISH_GRACE;
       }
     }
+    let winTime = Number.NaN;
+    if (this.winBy === "laps") for (const c of this.cars) if (c.id === this.winnerId) winTime = c.finishTime!;
     let running = 0;
     let last = -1;
     for (let i = 0; i < this.cars.length; i++) {
-      const st = this.cars[i]!.status;
-      if (st === "racing" || st === "respawning") {
-        running++;
-        last = i;
+      const c = this.cars[i]!;
+      if (c.status !== "racing" && c.status !== "respawning") continue;
+      if (!Number.isNaN(winTime) && this.time >= this.deadline(c, winTime)) {
+        c.status = "dnf";
+        continue;
       }
+      running++;
+      last = i;
     }
     if (this.noReset && this.winnerId == null && this.cars.length > 1 && running <= 1) {
       const champ = running === 1 ? this.cars[last]! : this.cars[this.rank[0]!]!;
@@ -546,10 +568,13 @@ export class RaceSession {
       this.close();
       return;
     }
-    if (running === 0 || this.time >= this.overAt) {
-      for (const c of this.cars) if (c.status === "racing" || c.status === "respawning") c.status = "dnf";
-      this.close();
-    }
+    if (running === 0) this.close();
+  }
+
+  /** When a car still running after the winner is home stops being waited for (see `LAP_SLACK`). */
+  private deadline(c: CarRecord, winTime: number): number {
+    const pace = c.bestLap ?? winTime / this.laps;
+    return Math.max(winTime + FINISH_GRACE, c.lapStart + LAP_SLACK * pace);
   }
 
   private close(): void {

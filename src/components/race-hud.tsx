@@ -133,14 +133,20 @@ export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: S
     <ol aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48">
       {race.standings.map((row) => (
         <li key={row.id} className={cn(row.place !== 1 && !row.you && Math.abs(row.place - focusPlace) > 1 && "max-sm:hidden")}>
-          <StandingRow row={row} onWatch={() => onCommand({ type: "watch", id: row.id })} />
+          <StandingRow row={row} lead={race.standings[0]!.lap} onWatch={() => onCommand({ type: "watch", id: row.id })} />
         </li>
       ))}
     </ol>
   );
 }
 
-function StandingRow({ row, onWatch }: { row: RaceHudRow; onWatch: () => void }) {
+/** "+1 lap" / "+2 laps" behind a leader on `lead` laps; empty when level. */
+function lapsDown(lead: number, laps: number): string {
+  const d = lead - laps;
+  return d <= 0 ? "" : `+${d} lap${d === 1 ? "" : "s"}`;
+}
+
+function StandingRow({ row, lead, onWatch }: { row: RaceHudRow; lead: number; onWatch: () => void }) {
   const status = STATUS_ICON[row.status];
   const gone = row.status === "out" || row.status === "dnf";
   const dim = row.you ? "text-accent-fg" : "text-fg/85";
@@ -159,7 +165,9 @@ function StandingRow({ row, onWatch }: { row: RaceHudRow; onWatch: () => void })
       <span className={cn("w-4 shrink-0 tabular-nums", dim)}>{row.place}</span>
       <span className={cn("min-w-0 flex-1 truncate", row.you && "font-semibold", gone && "line-through opacity-60")}>{row.name}</span>
       {row.watched && !row.you ? <Eye className="size-3.5 shrink-0" aria-label="Watching" /> : null}
-      {row.place !== 1 && row.gap !== null && !gone ? <span className={cn("shrink-0 text-xs tabular-nums", dim)}>{fmtGap(row.gap)}</span> : null}
+      {row.place !== 1 && !gone && (row.gap !== null || row.status === "finished") ? (
+        <span className={cn("shrink-0 text-xs tabular-nums", dim)}>{row.gap !== null ? fmtGap(row.gap) : lapsDown(lead, row.lap)}</span>
+      ) : null}
       {status ? <status.Icon className="size-3.5 shrink-0" aria-label={status.label} /> : null}
     </button>
   );
@@ -246,6 +254,15 @@ export function RaceOverlay({ race, pad, onCommand }: { race: RaceHud; pad: bool
         >
           <TriangleAlert className="size-6" />
           Wrong way
+        </div>
+      ) : null}
+      {you?.missed && !you.wrongWay ? (
+        <div
+          className="flex items-center gap-2 rounded-xl bg-signal-amber px-4 py-2 font-display text-xl font-semibold uppercase tracking-widest text-accent-fg shadow-lg sm:text-2xl"
+          role="alert"
+        >
+          <TriangleAlert className="size-5" />
+          Missed checkpoint
         </div>
       ) : null}
       {you?.respawnIn != null ? (
@@ -637,7 +654,9 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
               <td className="py-1 pl-1 text-muted">{r.place}</td>
               <td className="max-w-0 truncate py-1 pr-2">{r.name}</td>
               <td className="py-1 text-right">{r.time === null ? RESULT_STATUS[r.status] : fmtTime(r.time)}</td>
-              <td className="py-1 text-right text-muted">{r.gap === null ? "–" : r.gap === 0 ? "" : fmtGap(r.gap)}</td>
+              <td className="py-1 text-right text-muted">
+                {r.gap !== null ? (r.gap === 0 ? "" : fmtGap(r.gap)) : r.status === "finished" ? lapsDown(rows[0]!.laps, r.laps) : `${r.laps}/${race.laps} laps`}
+              </td>
               <td className="py-1 pr-1 text-right text-muted max-sm:hidden">{r.bestLap === null ? "–" : fmtTime(r.bestLap)}</td>
             </tr>
           ))}

@@ -9,8 +9,13 @@ import { resolveCarPair } from "../pair-contact.ts";
 import { leftoverCrumple } from "../physics-util.ts";
 import { physicsSlice, sliceSpeed } from "../sat.ts";
 import { assignClass, carClass, HANDLING, killTravel } from "../vehicle-classes.ts";
-import { Track, blankProjection } from "./track.ts";
-import type { CarRecord, RaceSnapshot } from "./types.ts";
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { setGround } from "../ground.ts";
+import { parseTrack } from "./track-schema.ts";
+import { Track, blankPoint, blankProjection } from "./track.ts";
+import { TRACKS } from "./tracks/index.ts";
+import type { CarRecord, RaceResultRow, RaceSnapshot } from "./types.ts";
 
 /**
  * The whole race stack headless, as the browser runs it minus the renderer: `RaceDirector` (rules
@@ -18,7 +23,7 @@ import type { CarRecord, RaceSnapshot } from "./types.ts";
  * real `DeformableCar`s with their classes, `applyDrive`, and `CrashEngine.fixedStep`'s race-mode
  * physics order (integrate / syncPose, mass pair contact, part contact, SAT pair resolve, structure
  * step, wall and prop clip, rules step, `cutDrive`) at the engine's slice sizes, one 60 Hz frame at
- * a time. The player's slot is driven by the race AI (the seat only follows). Not a test file itself.
+ * a time. Not a test file itself.
  */
 
 export const FRAME = 1 / 60;
@@ -142,7 +147,10 @@ export function frame(w: World, state: { acc: number }): void {
 }
 
 export type Outcome = {
+  /** Cars home on the full distance. */
   finished: number;
+  /** Cars flagged home a lap or more down after the winner. */
+  lapped: number;
   out: number;
   dnf: { name: string; cause: string }[];
   slowestLap: number;
@@ -163,10 +171,12 @@ function dnfCause(w: World, track: Track, c: CarRecord): string {
   return `slow (lap ${c.lap + 1}, ${(car.velocity.length() * 3.6).toFixed(0)} km/h)`;
 }
 
+const RACE_LAPS = 2;
+
 export function raceOnce(w: World, track: Track, bound: number): Outcome {
   const r = w.race;
   r.command({ type: "quit" });
-  r.command({ type: "options", options: { trackId: track.id, laps: 2, aiCount: 4, noReset: false } });
+  r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount: 4, noReset: false } });
   r.command({ type: "start" });
   // The seat only follows: the player's car is driven by the race AI like the others.
   w.seat.mode = "follow";
@@ -177,15 +187,138 @@ export function raceOnce(w: World, track: Track, bound: number): Outcome {
     if (n % 30 === 29) snap = r.snapshot()!;
   }
   snap = r.snapshot()!;
-  const finished = snap.cars.filter((c) => c.status === "finished");
-  const laps = finished.flatMap((c) => c.lapTimes);
+  const home = snap.cars.filter((c) => c.status === "finished");
+  const full = home.filter((c) => c.lap >= RACE_LAPS);
+  const laps = full.flatMap((c) => c.lapTimes);
   return {
-    finished: finished.length,
+    finished: full.length,
+    lapped: home.length - full.length,
     out: snap.cars.filter((c) => c.status === "out").length,
     dnf: snap.cars.filter((c) => c.status !== "finished" && c.status !== "out").map((c) => ({ name: c.name, cause: dnfCause(w, track, c) })),
     slowestLap: laps.length ? Math.max(...laps) : NaN,
-    winner: finished.length ? Math.min(...finished.map((c) => c.finishTime!)) : NaN,
+    winner: full.length ? Math.min(...full.map((c) => c.finishTime!)) : NaN,
     closedAt: snap.phase === "finished" ? snap.time : NaN,
     respawns: snap.cars.reduce((n, c) => n + c.deaths, 0),
   };
+}
+
+/**
+ * The real-stack finish sweep for one course: 5 AI cars, 2 laps, `RACE_FINISH_SEEDS` seeds (5 for
+ * the full sweep).
+ */
+export function finishSweep(course: string): void {
+  const seeds = Number(process.env.RACE_FINISH_SEEDS ?? 2);
+  describe("race finish through the real stack", () => {
+    it(`${course}: 5 AI cars finish ${RACE_LAPS} laps on every seed`, (t) => {
+      const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
+      // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
+      // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.
+      const refLap = track.length / 9;
+      const bound = 4.5 + RACE_LAPS * 3 * refLap;
+      const w = makeWorld();
+      w.race.enter();
+      try {
+        for (let seed = 1; seed <= seeds; seed++) {
+          const o = raceOnce(w, track, bound);
+          const dnf = o.dnf.map((d) => `${d.name}: ${d.cause}`).join("; ");
+          t.diagnostic(
+            `${course} seed ${seed}: finished ${o.finished}/5, lapped ${o.lapped}, out ${o.out}, DNF ${o.dnf.length}${dnf ? ` [${dnf}]` : ""}, respawns ${o.respawns}, winner ${o.winner.toFixed(1)} s, slowest lap ${o.slowestLap.toFixed(1)} s (ref ${refLap.toFixed(1)} s), closed ${o.closedAt.toFixed(1)} s (bound ${bound.toFixed(0)} s)`,
+          );
+          assert.ok(Number.isFinite(o.closedAt), `${course} seed ${seed}: no results within ${bound.toFixed(0)} s`);
+          assert.ok(o.finished + o.out >= 4, `${course} seed ${seed}: ${o.finished} finished, ${o.lapped} lapped, ${o.out} out; DNF ${dnf}`);
+        }
+      } finally {
+        w.race.exit();
+        setGround(null);
+      }
+    });
+  });
+}
+
+/** How the scripted player drives: a line on the main loop, a detour driven once a lap, a respawn press. */
+export type PlayerLine = {
+  /** Lateral offset (m, + = left of travel) from the centreline on the main loop. */
+  lat: number;
+  /** Driven instead of the loop once a lap, from `fromS` (m along the loop) through `pts`. */
+  detour?: { fromS: number; pts: readonly (readonly [number, number])[] };
+  /** Race time (s) the driver presses respawn, once. */
+  respawnAt?: number;
+};
+
+export type PlayerOutcome = {
+  you: RaceResultRow;
+  ai: RaceResultRow[];
+  /** Samples where the HUD's lap or place differed from the rules' own count. */
+  hudLapMismatch: number;
+  hudPlaceMismatch: number;
+  samples: number;
+};
+
+/**
+ * One race with the PLAYER slot driven through the real seat (analog wheel and gas → `shapeDrive`
+ * → `applyDrive`), as a pad would, along `line`. Every 30 frames the HUD's lap and place are
+ * checked against a rules snapshot.
+ */
+export function playerRace(w: World, track: Track, line: PlayerLine, laps: number, aiCount: number, bound: number): PlayerOutcome {
+  const r = w.race;
+  r.command({ type: "quit" });
+  r.command({ type: "options", options: { trackId: track.id, laps, aiCount, noReset: false } });
+  r.command({ type: "start" });
+  const seat = w.seat;
+  const car = w.cars[0]!;
+  const proj = blankProjection();
+  const pt = blankPoint();
+  const state = { acc: 0 };
+  let detourK = -1;
+  let detourLap = -1;
+  let pressed = false;
+  const out = { hudLapMismatch: 0, hudPlaceMismatch: 0, samples: 0 };
+  for (let n = 0; n * FRAME < bound; n++) {
+    const h = r.hud();
+    if (h.phase === "finished") break;
+    const x = car.group.position.x;
+    const z = car.group.position.z;
+    let tx: number;
+    let tz: number;
+    const p = track.project(x, z, -1, proj);
+    const d = line.detour;
+    if (d && detourK < 0 && h.you && detourLap !== h.you.lap && p.s > d.fromS && p.s < d.fromS + 25) {
+      detourK = 0;
+      detourLap = h.you.lap;
+    }
+    if (d && detourK >= 0 && Math.hypot(d.pts[detourK]![0] - x, d.pts[detourK]![1] - z) < 8) detourK = detourK + 1 < d.pts.length ? detourK + 1 : -1;
+    if (d && detourK >= 0) {
+      tx = d.pts[detourK]![0];
+      tz = d.pts[detourK]![1];
+    } else {
+      track.pointAt(p.s + 14, pt);
+      tx = pt.x + pt.tz * line.lat;
+      tz = pt.z - pt.tx * line.lat;
+    }
+    let a = Math.atan2(tx - x, tz - z) - Math.atan2(car.fwdFlat.x, car.fwdFlat.z);
+    a -= Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
+    const racing = h.phase === "racing";
+    seat.mode = "drive";
+    seat.carIndex = 0;
+    seat.intent.analogWheel = true;
+    seat.intent.analogGas = true;
+    seat.intent.wheel = racing ? Math.max(-1, Math.min(1, a * 3)) : 0;
+    seat.intent.gas = racing ? 1 : 0;
+    if (racing && line.respawnAt !== undefined && !pressed && h.time >= line.respawnAt) {
+      r.requestRespawn();
+      pressed = true;
+    }
+    frame(w, state);
+    if (n % 30 === 29) {
+      const snap = r.snapshot()!;
+      const me = snap.cars.find((c) => c.id === 0)!;
+      const hud = r.hud().you!;
+      out.samples++;
+      if (hud.lap !== Math.min(snap.laps, me.lap + 1)) out.hudLapMismatch++;
+      if (hud.place !== me.place || snap.order[me.place - 1] !== 0) out.hudPlaceMismatch++;
+    }
+  }
+  // Null when the race never closed within `bound`: the live classification stands in.
+  const res = r.hud().results ?? r.snapshot()!.cars.map((c) => ({ id: c.id, name: c.name, kind: c.kind, place: c.place, status: c.status, time: c.finishTime, gap: null, bestLap: c.bestLap, laps: c.lap }));
+  return { you: res.find((x) => x.id === 0)!, ai: res.filter((x) => x.id !== 0), ...out };
 }
