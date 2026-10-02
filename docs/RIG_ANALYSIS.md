@@ -1304,6 +1304,27 @@ both cars, `tbone-gap.ts` the test metric against any `ROOT`, `bench.ts` the
   zips). Not landed; the `feedOverlap` gate = 1 under a squeeze is not the
   cause (removing it changed A by 2 mm).
 
+### 6.7 Tyre stop, pile-up spin, derby wrecking (lane `crash-realism-8`)
+
+Probes in the main checkout's `.bench/cr8/` (`headon.ts`: per-frame tyre-tyre and
+tyre-hull overlap through `runPair`; `attr.ts`: exclusive per-call yaw and L/I
+ledger on the 16-car replay).
+
+- **Head-on tyres passed through each other (owner screenshot).** A tyre seen
+  from above is a 0.64 × 0.22 m rectangle on its hub. Main `1d3712f`, squash
+  0.32: 40 / 56 km/h clear (0.249 / 0.036 m), 64 km/h overlap 0.089 m for
+  0.03 s, 100 km/h 0.218 m for 0.15 s (tyre in the other car's hull 0.19 m).
+  Cause: nothing in the car-car path knew the wheels; the crush hulls shrink
+  with the nose, and at 100 km/h both hull pairs missed for a frame. Fix:
+  `tyreStop` (`pair-contact.ts`) sweeps every tyre pair over the slice
+  (SAT entry time); the closing the gap can't take goes to the common speed
+  (`brakeInbound`, as for packed noses) and an existing overlap parts within
+  the `takePush` budget. It also runs when both hull pairs miss. Now 64 /
+  80 / 100 / 115 km/h ≤ 0.009 m. Nose at 56 km/h unchanged (0.428 m), cabin
+  intrusion unchanged (≤ 0.052 m); above 64 km/h the nose stops at 0.46–0.50 m
+  (was 0.49–0.83 m): the wheels are the stop. An unbudgeted push (0.09 m per
+  SAT pass) zipped derby wrecks 0.27 m in a slice; the budget removed it.
+
 ## Appendix
 
 ### Sources

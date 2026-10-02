@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { partContactPair } from "./external-contact.ts";
-import { resolveCarPair } from "./pair-contact.ts";
+import { resolveCarPair, tyreOverlap } from "./pair-contact.ts";
 import { bleedAfterSlide, leftoverCrumple } from "./physics-util.ts";
 import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
@@ -65,6 +65,8 @@ export type CrashResult = {
   quietYawDrift: number;
   /** Frames after first contact with |angular.y| at the ±6 rad/s clamp (≥ 5.9). */
   spinFrames: number;
+  /** Deepest overlap (m) of this car's tyres with another car's over the run; negative: the closest clearance. */
+  tyreOverlap: number;
 };
 
 export type CrashWorld = {
@@ -304,6 +306,7 @@ class Probe {
     crushMax: 0,
     quietYawDrift: 0,
     spinFrames: 0,
+    tyreOverlap: -Infinity,
   };
   private prevYaw = 0;
 
@@ -347,6 +350,7 @@ class Probe {
     }
     this.t += simDt;
     const d = car.deform;
+    for (const o of w.cars) if (o !== car && o.deform.massActive && d.massActive) this.r.tyreOverlap = Math.max(this.r.tyreOverlap, tyreOverlap(car, o));
     const cell = mass(d, "cell").local;
     const r = this.r;
     const yaw = heading(car);
