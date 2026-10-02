@@ -120,12 +120,15 @@ build() {
 
 # The page and the signaling route both answer. The first signaling request
 # opens the database (several seconds under the deploy's CPU cap), so it gets a
-# longer timeout; retries stay quiet until the last one.
+# longer timeout; retries stay quiet until the last one. Every probe joins as a
+# fresh peer in a fresh room: the relay answers 403 to a peer id seated in the
+# last 30 s (it is someone else's until then), and a room seats only 8.
 health() {
-  local url="http://127.0.0.1:$1$base" i
+  local url="http://127.0.0.1:$1$base" i id
   for ((i = 0; i < 45; i++)); do
+    id="deploycheck-$EPOCHSECONDS-$RANDOM$RANDOM"
     if curl -fs -o /dev/null --max-time 5 "$url" &&
-      [[ $(curl -fs --max-time 30 "${url}api/rtc?room=deploycheck&peer=deploycheck") == *'"peers"'* ]]; then
+      [[ $(curl -fs --max-time 30 "${url}api/rtc?room=$id&peer=$id") == *'"peers"'* ]]; then
       return 0
     fi
     sleep 1
