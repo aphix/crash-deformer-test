@@ -376,6 +376,8 @@ export class StreamedDeformation {
   /** `elapsed` when the current hit began (beginCrush, rearmHit): the sliding-drag clock (`sinceHit`). */
   private hitAt = -0;
   private wrinkleAmp = -0;
+  /** `slabTravel`'s low mark of `crumpleTravelCorner` this hit. */
+  private cornerLow = Infinity;
   private helper: DeformRigHelper | null = null;
   private particleHelper: DeformParticleHelper | null = null;
   /** World xyz shape-match goal per particle for the particle view; NaN = no pull last step. */
@@ -846,6 +848,7 @@ export class StreamedDeformation {
     this.crushing = false;
     this.impulse = 0;
     this.hitSpeed = -1;
+    this.cornerLow = Infinity;
     this.endEbs2.fill(0);
     this.wear = 0;
     this.rearmed = false;
@@ -1054,6 +1057,7 @@ export class StreamedDeformation {
     this.elapsed = 0;
     this.lastContact = 0;
     this.hitAt = 0;
+    this.cornerLow = Infinity;
     this.wrinkleAmp = 0;
     this.dirty = true;
     this.bindKinematic(group, worldVel, worldOmega);
@@ -1104,6 +1108,7 @@ export class StreamedDeformation {
     this.dirty = true;
     this.lastContact = this.elapsed;
     this.hitAt = this.elapsed;
+    this.cornerLow = Infinity;
     // Base = damage as the body frame sees it. A quiet wreck's group sits on its planted hubs, so
     // `local` here carries the cell's offset from them (up to its 0.12 m cap). The contact solve that
     // follows anchors the group on the cell, so a base taken raw pinned the cell 0.1 m off its own
@@ -1989,6 +1994,18 @@ export class StreamedDeformation {
     const nose = (this.at.bumperFL.local.z + this.at.bumperFR.local.z) * 0.5;
     const tail = (this.at.bumperRL.local.z + this.at.bumperRR.local.z) * 0.5;
     return Math.max(nose - cell.local.z - 0.36, cell.local.z - tail - 0.36, 0);
+  }
+
+  /**
+   * The least `crumpleTravelCorner` of this hit, for the slab's cabin floor (`clipCarToBarrier`). A floor read
+   * off the current length moved out as the nose sprang back off the face, pushed the cabin out, and the push
+   * (`separateAlong`) stretched the nose further: a loop that ran away in slow motion only, where the corner
+   * springs back faster per sim second (64 km/h 40 % offset: R nose 0.330 → 0.255 within 7 ms of sim time).
+   */
+  slabTravel(): number {
+    const travel = this.crumpleTravelCorner();
+    if (travel < this.cornerLow) this.cornerLow = travel;
+    return this.cornerLow;
   }
 
   /**
