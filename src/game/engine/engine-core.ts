@@ -26,6 +26,7 @@ import { LampBatch, LampLights } from "../vehicle/lamp-lights.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import { GamepadInput } from "../vehicle/gamepad.ts";
 import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
+import { RangeRun } from "../scenes/range.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 
@@ -48,7 +49,7 @@ const FLEET_PAINT: CarPaint[] = [
   { body: 0x4a6a72, accent: 0x324850, name: "Teal" },
 ];
 
-export type SceneId = "fleet" | "press" | "pistons" | "doors" | "derby" | "race";
+export type SceneId = "fleet" | "press" | "pistons" | "doors" | "derby" | "race" | "range";
 
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
@@ -84,6 +85,10 @@ export abstract class EngineCore {
   }
   get showDoors(): boolean {
     return this.sceneId === "doors";
+  }
+  /** The ejection range: car A into the jersey barrier, its driver over it into the sand field (`RANGE`). */
+  get showRange(): boolean {
+    return this.sceneId === "range";
   }
   /** The press, the piston bank or the door ram owns the car. */
   protected get rigScene(): boolean {
@@ -127,6 +132,9 @@ export abstract class EngineCore {
   private ring!: THREE.Mesh;
   protected barrier!: JerseyBarrier;
   protected barrierHits: boolean[] = [];
+  /** The range's sand field and distance signs: built on first entering the range, shown in that scene only. */
+  protected rangeArt: THREE.Group | null = null;
+  protected readonly rangeRun = new RangeRun();
   protected fxPoofed = false;
   protected sparkAt = -10;
   protected deadSmokeAcc: number[] = [];

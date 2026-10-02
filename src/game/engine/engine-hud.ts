@@ -53,6 +53,7 @@ export abstract class EngineHud extends EngineWarm {
           bodyMm: Math.max(this.doorShot.bodyParticleMm, this.doorShot.bodyVertexMm),
         },
       },
+      range: this.showRange ? { distance: this.rangeRun.distance, landed: this.rangeRun.landed } : null,
       autoRotate: this.autoRotate,
       autoSlomo: this.autoSlomo,
       audioOn: this.audioOn,

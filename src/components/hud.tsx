@@ -1,7 +1,7 @@
 import type { RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal } from "lucide-react";
-import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
+import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
@@ -39,8 +39,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 /** Camera names: the drive views and the spectator cams. */
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit" };
 
-/** Fleet is "none of the others": the engine keeps derby, race, press, pistons and doors mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors and range mutually exclusive. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "range";
 const SCENES = [
   { id: "fleet", label: "Fleet", aria: "Fleet scene" },
   { id: "derby", label: "Derby", aria: "Demolition derby scene" },
@@ -48,6 +48,7 @@ const SCENES = [
   { id: "press", label: "Press", aria: "Car compactor scene" },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene" },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene" },
+  { id: "range", label: "Range", aria: "Ejection range scene" },
 ] as const;
 
 const SCENE_KEYS: [string, string][] = [
@@ -143,9 +144,11 @@ export function Hud(props: HudProps) {
                     ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
                     : state.showDoors
                       ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
-                      : state.carCount <= 2
-                        ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
-                        : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
+                      : state.range
+                        ? "One car, 100 km/h, into a hood-height wall. The driver goes over it; the signs count the metres."
+                        : state.carCount <= 2
+                          ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
+                          : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
           </p>
         </header>
       )}
@@ -155,6 +158,7 @@ export function Hud(props: HudProps) {
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}
         {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
+        {state.range ? <RangePanel range={state.range} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
         {state.race ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
       </div>
@@ -286,16 +290,19 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
           ? "pistons"
           : state.showDoors
             ? "doors"
-            : "fleet";
+            : state.range
+              ? "range"
+              : "fleet";
   const toggleScene = {
     derby: () => engine.current?.toggleDerby(),
     race: () => engine.current?.toggleRace(),
     press: () => engine.current?.toggleCompactor(),
     pistons: () => engine.current?.togglePistons(),
     doors: () => engine.current?.toggleDoors(),
+    range: () => engine.current?.toggleRange(),
   };
-  // Barrier and balls are fleet props; the engine ignores them while the press, a rig or the race owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.race !== null;
+  // Barrier and balls are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.range !== null || state.race !== null;
   return (
     <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto">
       {state.race ? <RaceViewToggle race={state.race} onCommand={raceCommand} compact /> : null}
@@ -311,7 +318,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <RotateCcw />
       </Button>
       <div
-        className="order-last grid w-full grid-cols-6 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto"
+        className="order-last grid w-full grid-cols-7 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto"
         role="group"
         aria-label="Scene"
       >

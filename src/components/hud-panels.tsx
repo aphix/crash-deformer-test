@@ -187,3 +187,16 @@ export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject
     </div>
   );
 }
+
+/** Ejection range readout: the thrown driver's metres past the wall, live in flight, final once he lands. */
+export function RangePanel({ range }: { range: NonNullable<CrashHudState["range"]> }) {
+  return (
+    <div className="hud-panel w-44 p-2">
+      <p className="hud-label">{range.distance === null ? "Run-up" : range.landed ? "Landed" : "Flying"}</p>
+      <p className="mt-1 font-display text-3xl font-semibold leading-none tabular-nums">
+        {range.distance === null ? "–" : range.distance.toFixed(1)}
+        {range.distance === null ? null : <span className="ml-1 text-sm font-medium text-muted">m</span>}
+      </p>
+    </div>
+  );
+}
