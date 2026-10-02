@@ -1,4 +1,4 @@
-import { DRIVE, idleDrive, type DriveInput } from "../car-drive.ts";
+import { clearDrive, DRIVE, idleDrive, type DriveInput } from "../car-drive.ts";
 import type { AiCar } from "../derby-ai.ts";
 import { MAX_CARS } from "../fleet.ts";
 import { steerGrip } from "./race-ai.ts";
@@ -161,12 +161,7 @@ export class TrafficBrain {
   }
 
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
-    const out = this.out;
-    out.throttle = 0;
-    out.steer = 0;
-    out.brake = 0;
-    out.ebrake = false;
-    out.boost = false;
+    const out = clearDrive(this.out);
     const i = self.id;
     if (!self.alive) return out;
     const slot = this.slotOf(i);

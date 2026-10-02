@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DerbyBrain, blankAiCar, DERBY_RULES, type AiCar } from "./derby-ai.ts";
+import { DerbyBrain, DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { DerbyMatch, heatLimit, snapshotAiCar, type DerbyDecided } from "./derby.ts";
 import { clipDerbyCar, clipToDerbyBowl, DERBY_RADIUS, derbyRadius } from "./derby-arena.ts";
-import { applyDrive, type DriveInput } from "./car-drive.ts";
+import { applyDrive } from "./car-drive.ts";
 import { fleetStyle, layoutDerby, type DerbySlot } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
@@ -12,15 +12,7 @@ import { physicsSlice } from "./sat.ts";
 import { newWorld, stepWorld } from "./world-step.ts";
 import { armKill, assignClass, carClass, HANDLING } from "./vehicle-classes.ts";
 import { INITIAL_HUD } from "./hud-store.ts";
-
-function car(id: number, extra: Partial<AiCar> = {}): AiCar {
-  return { ...blankAiCar(id), vz: 8, ...extra };
-}
-
-/** One decision with the opening hold already behind us (first call ages the car 2 s). */
-function decide(brain: DerbyBrain, self: AiCar, others: AiCar[], dt = 2): DriveInput {
-  return { ...brain.think(self, others, dt) };
-}
+import { aiCar as car, decide } from "./test-support.ts";
 
 describe("derby tactics", () => {
   it("good: a nose beside our rear wheel gets a handbrake swing that whips the tail into it", () => {

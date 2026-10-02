@@ -252,19 +252,24 @@ export class DerbyMatch {
       countedNow = true;
     }
 
-    const live = this.board.filter((r) => r.alive);
-    if (live.length === 1) {
-      this.crown(live[0]!, countedNow ? "countout" : "wreck");
+    let live = 0;
+    let lone: DerbyBoardRow | undefined;
+    for (const r of this.board) {
+      if (!r.alive) continue;
+      live++;
+      lone = r;
+    }
+    if (live === 1) {
+      this.crown(lone!, countedNow ? "countout" : "wreck");
       return "winner";
     }
-    if (live.length === 0) {
-      const last = [...this.board].sort((a, b) => b.score - a.score || a.id - b.id)[0];
+    if (live === 0) {
+      const last = leader(this.board, false);
       if (last) this.crown(last, countedNow ? "countout" : "wreck");
       return this.winnerId != null ? "winner" : "running";
     }
     if (this.time >= this.timeLimit) {
-      const top = [...live].sort((a, b) => b.score - a.score || a.id - b.id)[0]!;
-      this.crown(top, "time");
+      this.crown(leader(this.board, true)!, "time");
       return "winner";
     }
     return "running";
@@ -355,4 +360,14 @@ export function snapshotAiCar(
   // The engine sits in the nose: a flat nose is a car one hit from dead.
   out.damage = drivetrainAlive ? Math.max(out.front, out.rear * 0.5) : 1;
   return out;
+}
+
+/** The board's leader: highest score, lowest id on a tie; `aliveOnly` skips cars out of the heat. */
+function leader(board: readonly DerbyBoardRow[], aliveOnly: boolean): DerbyBoardRow | undefined {
+  let best: DerbyBoardRow | undefined;
+  for (const r of board) {
+    if (aliveOnly && !r.alive) continue;
+    if (!best || r.score > best.score || (r.score === best.score && r.id < best.id)) best = r;
+  }
+  return best;
 }

@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DerbyBrain, blankAiCar, personality, type AiCar } from "./derby-ai.ts";
+import { DerbyBrain, blankAiCar, personality } from "./derby-ai.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, SCORE_GAP, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { clipDerbyCar, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, makeDerbyArena } from "./derby-arena.ts";
-import { idleDrive, applyDrive, type DriveInput } from "./car-drive.ts";
+import { idleDrive, applyDrive } from "./car-drive.ts";
 import { fleetStyle, layoutDerby, MAX_CARS } from "./fleet.ts";
 import { DeformableCar } from "./car.ts";
 import { CAR_HALF } from "./car-mesh.ts";
@@ -12,35 +12,27 @@ import { physicsSlice } from "./sat.ts";
 import { newWorld, stepWorld } from "./world-step.ts";
 import { CAGES } from "./rig-spec.ts";
 import { armKill, carClass, DEFAULT_REALISM } from "./vehicle-classes.ts";
-
-function car(id: number, extra: Partial<AiCar> = {}): AiCar {
-  return { ...blankAiCar(id), vz: 8, ...extra };
-}
-
-/** One decision with the opening hold already behind us (first call ages the car 2 s). */
-function decide(brain: DerbyBrain, self: AiCar, others: AiCar[], dt = 2): DriveInput {
-  return { ...brain.think(self, others, dt) };
-}
+import { aiCar, assertSameDigest, decide } from "./test-support.ts";
 
 describe("derby AI", () => {
   it("good: never head-on (banned in the rule books): even a brawler facing a flat nose swings wide or backs in", () => {
     const brain = new DerbyBrain();
     brain.setAggression(2, 1);
-    const me = car(2, { z: -8 });
-    const flat = car(1, { z: 8, yaw: Math.PI, vz: -8, front: 0.8, damage: 0.8 });
+    const me = aiCar(2, { z: -8 });
+    const flat = aiCar(1, { z: 8, yaw: Math.PI, vz: -8, front: 0.8, damage: 0.8 });
     const input = decide(brain, me, [me, flat]);
     assert.ok(Math.abs(input.steer) > 0.3 || input.throttle < 0, `charged nose first: steer ${input.steer} throttle ${input.throttle}`);
   });
 
   it("good: the tail is the bumper: a target behind gets backed into; one ahead gets a handbrake J-turn first", () => {
-    const parked = car(0, { vz: 0 });
-    const behind = car(1, { z: -10 });
+    const parked = aiCar(0, { vz: 0 });
+    const behind = aiCar(1, { z: -10 });
     const back = decide(new DerbyBrain(), parked, [parked, behind]);
     assert.ok(back.throttle < -0.5, `didn't back in: throttle ${back.throttle}`);
-    const spent = car(0, { vz: 0, front: 0.7, damage: 0.7 });
+    const spent = aiCar(0, { vz: 0, front: 0.7, damage: 0.7 });
     assert.ok(decide(new DerbyBrain(), spent, [spent, behind]).throttle < 0, "front-damaged car donated its block");
-    const rolling = car(0, { vz: 8 });
-    const ahead = car(1, { z: 12, vz: 0 });
+    const rolling = aiCar(0, { vz: 8 });
+    const ahead = aiCar(1, { z: 12, vz: 0 });
     const brain = new DerbyBrain();
     const turn = decide(brain, rolling, [rolling, ahead]);
     assert.equal(brain.tacticOf(0), "jturn");
@@ -48,18 +40,18 @@ describe("derby AI", () => {
   });
 
   it("good: near the wall we turn off it, not into the concrete", () => {
-    const me = car(3, { x: 0, z: DERBY_RADIUS - 1.2 });
-    const foe = car(1, { x: 4, z: 0 });
+    const me = aiCar(3, { x: 0, z: DERBY_RADIUS - 1.2 });
+    const foe = aiCar(1, { x: 4, z: 0 });
     const input = decide(new DerbyBrain(), me, [me, foe]);
     assert.ok(Math.abs(input.steer) > 0.5 || input.throttle < 0, `steer ${input.steer} throttle ${input.throttle}`);
   });
 
   it("good: leads a crossing target instead of aiming where it was", () => {
     // Backing at it tail first: facing away, rolling backwards toward it.
-    const me = car(3, { z: -10, yaw: Math.PI, vz: 8 });
+    const me = aiCar(3, { z: -10, yaw: Math.PI, vz: 8 });
     // It faces us, so we back straight down its nose lane; crossing, it drags the aim sideways.
-    const parked = car(1, { yaw: Math.PI, vz: 0 });
-    const crossing = car(1, { yaw: Math.PI, vx: 8, vz: 0 });
+    const parked = aiCar(1, { yaw: Math.PI, vz: 0 });
+    const crossing = aiCar(1, { yaw: Math.PI, vx: 8, vz: 0 });
     const atParked = decide(new DerbyBrain(), me, [me, parked]);
     const atCrossing = decide(new DerbyBrain(), me, [me, crossing]);
     assert.ok(
@@ -70,10 +62,10 @@ describe("derby AI", () => {
 
   it("good: a cautious second hunter takes the other victim; at full aggression a wreck is fair game for both", () => {
     // Two parked victims; A is nearer both hunters, who are backing toward them tail first.
-    const a = car(4, { x: -2.2, vz: 0 });
-    const b = car(5, { x: 3.6, vz: 0 });
-    const south = car(2, { z: -10, yaw: Math.PI, vz: 8 });
-    const north = car(3, { z: 10, vz: -8 });
+    const a = aiCar(4, { x: -2.2, vz: 0 });
+    const b = aiCar(5, { x: 3.6, vz: 0 });
+    const south = aiCar(2, { z: -10, yaw: Math.PI, vz: 8 });
+    const north = aiCar(3, { z: 10, vz: -8 });
     const all = [south, north, a, b];
     const alone = new DerbyBrain();
     decide(alone, north, all);
@@ -84,7 +76,7 @@ describe("derby AI", () => {
     decide(pair, south, all);
     decide(pair, north, all);
     assert.deepEqual([pair.huntersOf(4), pair.huntersOf(5)], [1, 1]);
-    const wreck = car(5, { x: 3.6, vz: 0, front: 0.8, damage: 0.8 });
+    const wreck = aiCar(5, { x: 3.6, vz: 0, front: 0.8, damage: 0.8 });
     const brutes = new DerbyBrain();
     brutes.setAggression(2, 1);
     brutes.setAggression(3, 1);
@@ -95,8 +87,8 @@ describe("derby AI", () => {
 
   it("good: throttle with no motion backs out, and a second wedge tries the other gear", () => {
     const brain = new DerbyBrain();
-    const me = car(3, { z: -3, vz: 0 });
-    const foe = car(1, { z: 3, yaw: Math.PI / 2, vz: 0 });
+    const me = aiCar(3, { z: -3, vz: 0 });
+    const foe = aiCar(1, { z: 3, yaw: Math.PI / 2, vz: 0 });
     const others = [me, foe];
     const push = decide(brain, me, others).throttle;
     assert.ok(Math.abs(push) > 0.35, `not pushing: ${push}`);
@@ -115,7 +107,7 @@ describe("derby AI", () => {
   });
 
   it("good: drivers differ by id but are the same driver every match", () => {
-    assert.deepEqual(personality(7), personality(7));
+    assertSameDigest(personality(7), personality(7), "driver 7 in two matches");
     const field = Array.from({ length: 10 }, (_, i) => personality(i));
     assert.ok(new Set(field.map((p) => p.side)).size === 2, "everyone flanks the same way");
     assert.ok(field.some((p) => p.hold === 0) && field.some((p) => p.hold > 0.3), "whole field launches in lockstep");

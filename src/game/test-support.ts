@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import type { CarPaint } from "./car.ts";
+import type { DriveInput } from "./car-drive.ts";
+import { blankAiCar, type AiCar, type DerbyBrain } from "./derby-ai.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 
 /** Shared fixtures for the physics/deform suites; not a test file itself. */
@@ -56,4 +58,14 @@ export function assertSameDigest(a: unknown, b: unknown, label: string): void {
   const keys = [...new Set([...Object.keys(at(a)), ...Object.keys(at(b))])];
   const first = keys.find((k) => json(at(a)[k]) !== json(at(b)[k]));
   assert.fail(`${label}: sha-256 ${ha!.slice(0, 12)} vs ${hb!.slice(0, 12)}, first difference at [${first ?? "top level"}]`);
+}
+
+/** A derby AI snapshot for the brain suites: blank car `id` rolling at 8 m/s, then `extra`. */
+export function aiCar(id: number, extra: Partial<AiCar> = {}): AiCar {
+  return { ...blankAiCar(id), vz: 8, ...extra };
+}
+
+/** One derby decision with the opening hold already behind us (first call ages the car 2 s), copied out of the scratch. */
+export function decide(brain: DerbyBrain, self: AiCar, others: AiCar[], dt = 2): DriveInput {
+  return { ...brain.think(self, others, dt) };
 }
