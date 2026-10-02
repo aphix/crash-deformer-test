@@ -245,7 +245,7 @@ export class ChaseCamera {
   private lastY = 0;
   private readonly approachSide = new THREE.Vector3(1, 0, 0);
 
-  private readonly camera: THREE.PerspectiveCamera;
+  readonly camera: THREE.PerspectiveCamera;
   private readonly canvas: HTMLCanvasElement;
   private readonly seat: DriverSeat;
   private readonly pad: PadState;
@@ -325,7 +325,7 @@ export class ChaseCamera {
 
   /** Impact hit: shake, and unless the user framed the shot, orbit from where the camera is now. */
   kick(carCount: number): void {
-    this.trauma = this.reduceMotion ? 0.15 : 0.85;
+    this.trauma = this.reduceMotion ? 0 : 0.85;
     if (!this.userFramed) {
       this.angle = Math.atan2(this.camera.position.x - this.look.x, this.camera.position.z - this.look.z);
       this.radius = THREE.MathUtils.clamp(this.radius + Math.max(0, carCount - 2) * 0.4, 8, 22);

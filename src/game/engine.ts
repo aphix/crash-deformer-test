@@ -14,8 +14,10 @@ import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
-import { assignClass, carClass, CLASSES, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
-import { makeAsphalt, makeLamp } from "./engine-world.ts";
+import { assignClass, carClass, CLASSES, damageStage, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
+import { WorldStage, makeLamp } from "./engine-world.ts";
+import { Cinematics } from "./engine-cine.ts";
+import { FX_TIERS, type FxTier } from "./engine-post.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
 import { ChaseCamera, centroid } from "./engine-camera.ts";
 import {
@@ -120,6 +122,8 @@ export class CrashEngine {
   private elapsedSim = 0;
   private reduceMotion = false;
   private impactLight: THREE.PointLight;
+  private stage!: WorldStage;
+  private cine: Cinematics;
   private impactLightLife = 0;
   private envMap: THREE.Texture | null = null;
   private debris: DebrisSystem;
@@ -236,6 +240,10 @@ export class CrashEngine {
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
+    this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.reduceMotion);
+    // `?fx=off|low|high` picks the starting tier (bench A/B); high otherwise.
+    const fxParam = new URLSearchParams(window.location.search).get("fx");
+    this.cine.setTier(FX_TIERS.find((t) => t === fxParam) ?? "high");
     this.audio = new CrashAudio();
     this.trace = new TraceRecorder({
       barrier: this.barrier,
@@ -288,6 +296,7 @@ export class CrashEngine {
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
     this.sparks.dispose();
+    this.cine.dispose();
     this.glassDots.dispose();
     this.smoke.dispose();
     this.lampLights.dispose();
@@ -343,6 +352,28 @@ export class CrashEngine {
   toggleAudio(): void {
     this.audioOn = !this.audioOn;
     this.tryUnlockAudio();
+    this.emitHud(true);
+  }
+
+  /** Cinematic FX quality: off renders exactly as before; low / high add post, tyre marks and the crash cam. */
+  setFxTier(tier: FxTier): void {
+    this.cine.setTier(tier);
+    this.emitHud(true);
+  }
+
+  cycleFxTier(): void {
+    this.setFxTier(FX_TIERS[(FX_TIERS.indexOf(this.cine.tier) + 1) % FX_TIERS.length]!);
+  }
+
+  setNight(on: boolean): void {
+    this.stage.setNight(on);
+    this.smoke.shade = this.cine.tyreSmoke.shade = this.stage.smokeShade;
+    if (this.scene.environment) this.scene.environmentIntensity = this.stage.envIntensity;
+    this.emitHud(true);
+  }
+
+  setWet(on: boolean): void {
+    this.stage.setWet(on);
     this.emitHud(true);
   }
 
@@ -747,6 +778,12 @@ export class CrashEngine {
       this.toggleDeformMode();
     } else if (e.code === "KeyJ") {
       this.toggleCapture();
+    } else if (e.code === "KeyF") {
+      this.cycleFxTier();
+    } else if (e.code === "KeyH") {
+      this.setNight(!this.stage.night);
+    } else if (e.code === "KeyX") {
+      this.setWet(!this.stage.wet);
     }
   };
 
@@ -972,6 +1009,7 @@ export class CrashEngine {
     this.sparks.reset();
     this.glassDots.reset();
     this.smoke.reset();
+    this.cine.reset();
 
     if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
@@ -1042,13 +1080,15 @@ export class CrashEngine {
       this.tickInner(now);
     } catch (err) {
       console.error("Crush Stream tick failed", err);
+      this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
     }
   };
 
   private tickInner(now: number): void {
     if (this.disposed) return;
-    const wallDt = Math.min((now - this.last) / 1000, 0.1);
+    // The first rAF stamp can predate `start()`'s performance.now(): a negative dt froze the sim for seconds.
+    const wallDt = Math.min(Math.max(0, (now - this.last) / 1000), 0.1);
     this.last = now;
     if (wallDt > 1e-4) {
       const inst = 1 / wallDt;
@@ -1060,7 +1100,7 @@ export class CrashEngine {
       this.elapsedWall += wallDt;
       this.maybePreSlowmo(wallDt);
       this.timeScale += (this.targetScale - this.timeScale) * Math.min(1, wallDt * (this.phase === "aftermath" ? 1.15 : 3.2));
-      const simDt = wallDt * this.timeScale;
+      const simDt = wallDt * this.timeScale * this.cine.timeWarp;
       const cars = this.live();
       const vmax = sliceSpeed(cars);
       this.acc += simDt;
@@ -1110,11 +1150,19 @@ export class CrashEngine {
           }
         } else if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) {
           this.puffEngine(car);
+        } else if (damageStage(car) === "limping") {
+          // A limping engine trails a thin thread, half the dead engine's rate.
+          this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
+          if (this.deadSmokeAcc[i]! > 0.28) {
+            this.deadSmokeAcc[i] = 0;
+            this.puffDeadEngine(car);
+          }
         }
       }
       if (this.trace.due(wallDt, this.captureTrace)) this.trace.push(this.traceSetup(), cars, this.traceClock());
       this.stepDerby(simDt);
       this.seat.step(simDt);
+      this.cine.update(wallDt, simDt, cars, this.followedCar(), this.seat.mode === "drive", this.fxDensity);
       if (this.derbyMode) {
         for (const id of this.derby.consumeBoosts()) {
           if (id === this.seat.carIndex && this.seat.mode === "drive") this.seat.addBoost(BOOST.takedown);
@@ -1125,7 +1173,8 @@ export class CrashEngine {
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
     this.lampLights.update(this.live(), this.camera, this.followedCar());
-    this.renderer.render(this.scene, this.camera);
+    if (this.stage.night) this.stage.syncPools(this.poles);
+    this.cine.render(this.scene, this.camera, wallDt);
 
     this.hudAcc += wallDt;
     if (this.hudAcc > (this.timeScale < 0.5 ? 0.05 : 0.12)) {
@@ -1463,6 +1512,8 @@ export class CrashEngine {
       this.timeScale = 1;
     }
     this.view.kick(this.carCount);
+    const rigScene = this.showPistons || this.showCompactor || this.showDoors;
+    this.cine.impact(contact, normal, impulse, !rigScene && this.autoSlomo && this.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed);
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
@@ -1612,6 +1663,7 @@ export class CrashEngine {
   }
 
   private updateCamera(wallDt: number): void {
+    if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
     const followed = this.followedCar();
     if (followed && followed.group.visible && this.seat.mode === "drive") {
       this.view.frameDrive(followed, wallDt, this.playing);
@@ -1813,6 +1865,9 @@ export class CrashEngine {
       autoRotate: this.autoRotate,
       autoSlomo: this.autoSlomo,
       audioOn: this.audioOn,
+      fxTier: this.cine.tier,
+      night: this.stage.night,
+      wet: this.stage.wet,
       deformMode: this.deformMode,
       phase: this.phase,
       timeScale: this.timeScale,
@@ -1859,6 +1914,7 @@ export class CrashEngine {
     const w = Math.max(1, parent.clientWidth);
     const h = Math.max(1, parent.clientHeight);
     this.renderer.setSize(w, h, false);
+    this.cine.post.setSize();
     this.camera.aspect = w / h;
     this.camera.updateProjectionMatrix();
   };
@@ -1877,7 +1933,7 @@ export class CrashEngine {
         const gen = new THREE.PMREMGenerator(this.renderer);
         const env = gen.fromEquirectangular(tex).texture;
         this.scene.environment = env;
-        this.scene.environmentIntensity = 0.72;
+        this.scene.environmentIntensity = this.stage.envIntensity;
         this.envMap?.dispose();
         this.envMap = env;
         tex.dispose();
@@ -1889,36 +1945,7 @@ export class CrashEngine {
   }
 
   private buildWorld(): void {
-    const hemi = new THREE.HemisphereLight(0xb7c4d8, 0x1a1816, 1.35);
-    this.scene.add(hemi);
-    const dir = new THREE.DirectionalLight(0xf2f5ff, 2.6);
-    dir.position.set(-10, 22, 9);
-    dir.castShadow = true;
-    dir.shadow.mapSize.set(1024, 1024);
-    dir.shadow.camera.near = 2;
-    dir.shadow.camera.far = 60;
-    dir.shadow.camera.left = -24;
-    dir.shadow.camera.right = 24;
-    dir.shadow.camera.top = 24;
-    dir.shadow.camera.bottom = -24;
-    dir.shadow.bias = -0.0004;
-    this.scene.add(dir);
-    const fill = new THREE.DirectionalLight(0xc9d3e0, 0.9);
-    fill.position.set(10, 12, -14);
-    this.scene.add(fill);
-
-    const ground = new THREE.Mesh(
-      new THREE.CircleGeometry(48, 64),
-      new THREE.MeshStandardMaterial({
-        color: 0x2a2c34,
-        roughness: 0.88,
-        metalness: 0.06,
-        map: makeAsphalt(),
-      }),
-    );
-    ground.rotation.x = -Math.PI / 2;
-    ground.receiveShadow = true;
-    this.scene.add(ground);
+    this.stage = new WorldStage(this.scene);
 
     const grid = new THREE.GridHelper(60, 30, 0x2a2c32, 0x18191e);
     grid.position.y = 0.012;

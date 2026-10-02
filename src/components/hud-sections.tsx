@@ -5,6 +5,8 @@ import {
   ChevronDown,
   CircleDashed,
   ClipboardCopy,
+  CloudRain,
+  Moon,
   Orbit,
   Repeat,
   Spline,
@@ -16,6 +18,7 @@ import {
 import type { HudProps } from "@/components/hud";
 import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
 import { Button } from "@/components/ui/button";
+import { FX_TIERS } from "@/game/engine-post";
 
 type SectionId = "playback" | "driving" | "tuning" | "debug";
 const SECTIONS_KEY = "crush.hud.sections";
@@ -136,7 +139,17 @@ function SliderField({
   );
 }
 
-function PlaybackSection({ state, onToggleLoop, onToggleSlomo, onToggleOrbit, onToggleAudio, onTimeScale }: HudProps) {
+function PlaybackSection({
+  state,
+  onToggleLoop,
+  onToggleSlomo,
+  onToggleOrbit,
+  onToggleAudio,
+  onTimeScale,
+  onFxTier,
+  onToggleNight,
+  onToggleWet,
+}: HudProps) {
   const [scaleText, setScaleText] = useState("");
 
   useEffect(() => {
@@ -162,6 +175,32 @@ function PlaybackSection({ state, onToggleLoop, onToggleSlomo, onToggleOrbit, on
           {state.audioOn ? <Volume2 /> : <VolumeX />}
           Audio
         </Toggle>
+        <Toggle on={state.night} label="Toggle night lighting" onClick={onToggleNight}>
+          <Moon />
+          Night
+        </Toggle>
+        <Toggle on={state.wet} label="Toggle wet asphalt" onClick={onToggleWet}>
+          <CloudRain />
+          Wet
+        </Toggle>
+      </div>
+      <div className="flex items-center gap-2">
+        <span className="hud-label w-14 shrink-0">FX</span>
+        <div className="grid flex-1 grid-cols-3 gap-1 rounded-lg bg-surface-2 p-1" role="group" aria-label="Cinematic FX quality">
+          {FX_TIERS.map((tier) => (
+            <Button
+              key={tier}
+              size="sm"
+              className="h-9 capitalize"
+              variant={state.fxTier === tier ? "default" : "ghost"}
+              aria-pressed={state.fxTier === tier}
+              aria-label={`Cinematic FX ${tier}`}
+              onClick={() => onFxTier(tier)}
+            >
+              {tier}
+            </Button>
+          ))}
+        </div>
       </div>
       <label className="flex items-center gap-2">
         <span className="hud-label w-14 shrink-0">Time</span>
