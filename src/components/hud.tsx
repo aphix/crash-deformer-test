@@ -187,7 +187,7 @@ export function Hud(props: HudProps) {
         </header>
       )}
 
-      {state.race ? <RaceReadouts race={state.race} /> : <Readouts state={state} />}
+      {state.race ? <RaceReadouts race={state.race} boost={state.seat === "drive" ? state.boost : null} /> : <Readouts state={state} />}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? (

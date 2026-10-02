@@ -1,5 +1,5 @@
 import { describe, it } from "node:test";
-import { DRIVE } from "../car-drive.ts";
+import { BOOST, DRIVE } from "../car-drive.ts";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, idleDrive } from "../car-drive.ts";
@@ -169,6 +169,26 @@ describe("race AI", () => {
     assert.notDeepEqual(rolls, Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 5, id + 1)), "a new race rolls again");
     assert.ok(Array.from({ length: 15 }, (_, id) => fieldAggression(0, 4, id)).every((a) => a === 0));
     assert.ok(mood(0, 0, 1) < 0 && mood(1, 1, 0) > 0);
+  });
+
+  it("boosts on a clear straight, no more than the player's boost meter allows", () => {
+    const me = at(0, pt.x, pt.z, 17);
+    const brain = new RaceBrain(oval, 1);
+    const T = 10;
+    let boosted = 0;
+    let run = 0;
+    let longest = 0;
+    for (let k = 0; k < T / DT; k++) {
+      const b = brain.think(me, [me], { next: 1, lap: 0 }, DT).boost;
+      boosted += b ? DT : 0;
+      run = b ? run + DT : 0;
+      longest = Math.max(longest, run);
+    }
+    assert.ok(longest >= BOOST.full - 2 * DT, `first burst ${longest.toFixed(2)} s`);
+    assert.ok(longest <= BOOST.full + DT, `one burst ${longest.toFixed(2)} s, a full meter is ${BOOST.full} s`);
+    // A full meter plus what it refills over the run.
+    const budget = BOOST.full + (T * BOOST.full) / BOOST.recharge;
+    assert.ok(boosted <= budget + DT, `boosted ${boosted.toFixed(2)} s of ${T} s, budget ${budget.toFixed(2)} s`);
   });
 
   it("follows a slower car when the road is too narrow to pass", () => {

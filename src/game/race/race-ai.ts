@@ -1,9 +1,10 @@
-import { DRIVE, idleDrive, type DriveInput } from "../car-drive.ts";
+import { BOOST, DRIVE, idleDrive, type DriveInput } from "../car-drive.ts";
 import { mood } from "../ai-aggression.ts";
 import { personality, STUCK_SPEED, type AiCar, type Personality } from "../derby-ai.ts";
 import { MAX_CARS } from "../fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "./catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "./track.ts";
+import { classStats } from "../vehicle-classes.ts";
 
 /** Steering authority on a surface: `applyDrive` scales the yaw rate by this (front-axle grip). */
 export function steerGrip(grip: number): number {
@@ -34,6 +35,8 @@ const EDGE = 1.4;
 const LANE_RATE = 3.2;
 /** A shortcut is chosen this far (m) before its mouth. */
 const COMMIT = 45;
+/** A boost burst starts only with at least this much meter (no stutter on the dregs). */
+const BURST_MIN = 0.5;
 
 function wrapPi(a: number): number {
   return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
@@ -75,7 +78,8 @@ export type RaceAiState = {
  *     the side with room, else follow its speed. Aggression (0–1): ram a slower rival instead of
  *     passing, close the door on a rival coming through, lean on a rival alongside.
  *  L3 drive: pure pursuit to a point ahead on the line; speed from the curvature and grip ahead
- *     under a braking budget.
+ *     under a braking budget. Boost on a clear run where even the boosted speed makes every turn
+ *     ahead, from a meter that drains and refills like the player's seat (`BOOST`).
  * Deterministic (no clock, no Math.random); no allocation per call.
  */
 export class RaceBrain {
@@ -89,6 +93,10 @@ export class RaceBrain {
   private readonly turn = new Float64Array(MAX_CARS).fill(DRIVE.turn);
   private readonly top = new Float64Array(MAX_CARS).fill(DRIVE.maxFwd);
   private readonly brake = new Float64Array(MAX_CARS).fill(DRIVE.brake);
+  private readonly boostTop = new Float64Array(MAX_CARS).fill(classStats("sedan").boostTop);
+  /** Boost meter per car, 0–1, and whether a burst is running (it runs on to empty). */
+  private readonly meter = new Float64Array(MAX_CARS);
+  private readonly burst = new Uint8Array(MAX_CARS);
   private readonly seg = new Int32Array(MAX_CARS);
   private readonly route = new Int16Array(MAX_CARS);
   private readonly routeSeg = new Int32Array(MAX_CARS);
@@ -131,6 +139,8 @@ export class RaceBrain {
     this.recover.fill(0);
     this.recoverSteer.fill(0);
     this.lastThrottle.fill(0);
+    this.meter.fill(1);
+    this.burst.fill(0);
   }
 
   /** 0 avoids every hit … 1 rams regardless of its own state (see `mood`). */
@@ -139,10 +149,11 @@ export class RaceBrain {
   }
 
   /** The car's class figures, so lines and braking points fit what it can do. */
-  setClass(id: number, s: { turn: number; topSpeed: number; brake: number }): void {
+  setClass(id: number, s: { turn: number; topSpeed: number; brake: number; boostTop: number }): void {
     this.turn[id] = s.turn;
     this.top[id] = s.topSpeed;
     this.brake[id] = s.brake;
+    this.boostTop[id] = s.boostTop;
   }
 
   /** Forget a car's route, line and recovery (after a respawn teleport). */
@@ -173,6 +184,7 @@ export class RaceBrain {
       out.throttle = -0.9;
       out.steer = this.recoverSteer[i]!;
       this.lastThrottle[i] = 0;
+      this.charge(i, dt, false);
       return out;
     }
 
@@ -227,19 +239,29 @@ export class RaceBrain {
     const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
-    let target = this.plan(i, path, route, proj.s, speed);
+    const top = this.top[i]!;
+    let target = this.plan(i, path, route, proj.s, speed, top);
     if (!Number.isNaN(this.follow)) target = Math.min(target, Math.max(0, this.follow - 0.5));
+    else if (this.meter[i]! > (this.burst[i] ? 0.02 : BURST_MIN) && speed > 0.7 * top && Math.abs(alpha) < 0.3) {
+      // A clear run: boost while every turn in the boosted braking reach still allows more than top.
+      const boosted = this.plan(i, path, route, proj.s, speed, top * this.boostTop[i]!);
+      if (boosted > top * surf.speed + 0.5) {
+        out.boost = true;
+        target = boosted;
+      }
+    }
     const err = target - along;
     if (Math.abs(alpha) > 1.9 && speed < 6) {
       // Facing the wrong way: full lock and crawl round.
       out.throttle = 0.6;
       out.steer = Math.sign(alpha) || p.side;
-    } else if (err > 0.4) {
-      out.throttle = clamp(err / 2, 0.35, 1);
-    } else if (err < -1.5) {
-      out.brake = clamp(-err / 6, 0.2, 1);
+    } else if (err >= -1.5) {
+      // `applyDrive` runs up to throttle × top at the class's full rate, so ask for the target
+      // itself (a throttle proportional to the error would settle ~10% short of it).
+      const reach = top * surf.speed * (out.boost ? this.boostTop[i]! : 1);
+      out.throttle = clamp(target / reach, err > 0.4 ? 0.35 : 0, 1);
     } else {
-      out.throttle = clamp(target / (this.top[i]! * surf.speed), 0, 1);
+      out.brake = clamp(-err / 6, 0.2, 1);
     }
 
     // L0: wedged against something.
@@ -255,7 +277,15 @@ export class RaceBrain {
       out.steer = this.recoverSteer[i]!;
     }
     this.lastThrottle[i] = out.throttle;
+    if (out.throttle <= 0) out.boost = false;
+    this.charge(i, dt, out.boost);
     return out;
+  }
+
+  /** Drain the meter while boosting, refill it otherwise (the seat's rates). */
+  private charge(i: number, dt: number, boosting: boolean): void {
+    this.meter[i] = boosting ? Math.max(0, this.meter[i]! - dt / BOOST.full) : Math.min(1, this.meter[i]! + dt / BOOST.recharge);
+    this.burst[i] = boosting ? 1 : 0;
   }
 
   /** Main loop or a designed shortcut: one seeded coin per car, lap and shortcut. */
@@ -286,10 +316,9 @@ export class RaceBrain {
     return this.track.pointAt(this.exitS[route]! + (s - path.length), this.pt);
   }
 
-  /** Highest speed now that still makes every turn ahead within the braking budget. */
-  private plan(i: number, path: TrackPath, route: number, s: number, speed: number): number {
+  /** Highest speed now (up to `top`) that still makes every turn ahead within the braking budget. */
+  private plan(i: number, path: TrackPath, route: number, s: number, speed: number, top: number): number {
     const tr = this.track;
-    const top = this.top[i]!;
     const decel = this.brake[i]! * PLAN_BRAKE;
     let best = top;
     const reach = (speed * speed) / (2 * decel) + 12;

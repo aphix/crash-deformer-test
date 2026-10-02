@@ -68,8 +68,8 @@ function useSplitFlash(split: number | null, time: number): boolean {
   return split !== null && seen.split === split && time - seen.at < SPLIT_FLASH;
 }
 
-/** Position, lap, clocks and speed in the readouts corner while the local car is in a race. */
-export function RaceReadouts({ race }: { race: RaceHud }) {
+/** Position, lap, clocks, speed and the boost meter (`null` while not driving) in the readouts corner while the local car is in a race. */
+export function RaceReadouts({ race, boost }: { race: RaceHud; boost: number | null }) {
   const you = race.you;
   const flash = useSplitFlash(you?.split ?? null, race.time);
   if (!you || race.phase === null) return null;
@@ -101,6 +101,11 @@ export function RaceReadouts({ race }: { race: RaceHud }) {
           </p>
         </div>
       </div>
+      {boost === null ? null : (
+        <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-surface-2" aria-label="Boost">
+          <div className="h-full bg-accent" style={{ width: `${Math.round(boost * 100)}%` }} />
+        </div>
+      )}
     </div>
   );
 }
