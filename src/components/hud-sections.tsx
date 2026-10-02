@@ -19,6 +19,7 @@ import type { HudProps } from "@/components/hud";
 import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
 import { Button } from "@/components/ui/button";
 import { FX_TIERS } from "@/game/engine-post";
+import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud-store";
 
 type SectionId = "playback" | "driving" | "tuning" | "debug";
 const SECTIONS_KEY = "crush.hud.sections";
@@ -96,6 +97,7 @@ function Toggle({ on, label, onClick, children }: { on: boolean; label: string; 
 function SliderField({
   label,
   name,
+  title,
   value,
   min,
   max,
@@ -105,6 +107,8 @@ function SliderField({
 }: {
   label: string;
   name: string;
+  /** Hover help for the whole row. */
+  title?: string;
   value: number;
   min: number;
   max: number;
@@ -113,7 +117,7 @@ function SliderField({
   onValue: (v: number) => void;
 }) {
   return (
-    <label className="flex items-center gap-2">
+    <label className="flex items-center gap-2" title={title}>
       <span className="hud-label w-14 shrink-0">{label}</span>
       <input
         type="range"
@@ -273,8 +277,28 @@ function TuningSection({
           className={FIELD}
         />
       </div>
-      <SliderField label="Squash" name="Crumple squash" value={state.squash} min={0} max={1} step={0.01} digits={2} onValue={onSquash} />
-      <SliderField label="Buckle" name="Panel buckle" value={state.buckle} min={0} max={1} step={0.01} digits={2} onValue={onBuckle} />
+      <SliderField
+        label="Stroke"
+        name="Crush stroke @56 km/h (m)"
+        title={`Crush stroke @56 km/h: how far a full-width 56 km/h barrier hit pushes the nose in, in metres. Real cars take 0.35–0.55 m; 0.45–0.55 m here keeps every scored crash in its measured real band. Default ${strokeAt56(INITIAL_HUD.squash).toFixed(2)} m.`}
+        value={strokeAt56(state.squash)}
+        min={STROKE_RANGE_M.min}
+        max={STROKE_RANGE_M.max}
+        step={0.01}
+        digits={2}
+        onValue={(m) => onSquash(squashForStroke(m))}
+      />
+      <SliderField
+        label="Wrinkle"
+        name="Panel wrinkle"
+        title="Panel wrinkle: size of the sheet-metal folds drawn around a dent. Visual only — crush depth changes by under 3 cm across the range."
+        value={state.buckle}
+        min={KNOB_RANGES.buckle.min}
+        max={KNOB_RANGES.buckle.max}
+        step={0.01}
+        digits={2}
+        onValue={onBuckle}
+      />
       <SliderField label="FX" name="Particle density" value={state.fxDensity} min={0} max={1.2} step={0.01} digits={2} onValue={onFxDensity} />
       <div className="flex items-center gap-2">
         <span className="hud-label w-14 shrink-0">Solver</span>
@@ -360,7 +384,16 @@ function DrivingSection({ state, onPlayerClass, onRealism }: HudProps) {
           ))}
         </div>
       </div>
-      <SliderField label="Realism" name="Arcade to realistic handling and damage" value={state.realism} min={0} max={1} step={0.05} digits={2} onValue={onRealism} />
+      <SliderField
+        label="Realism"
+        name="Arcade to realistic handling and damage"
+        value={state.realism}
+        min={KNOB_RANGES.realism.min}
+        max={KNOB_RANGES.realism.max}
+        step={0.05}
+        digits={2}
+        onValue={onRealism}
+      />
       <div className="flex justify-between pl-16 pr-[4.5rem] text-xs text-subtle" aria-hidden>
         <span>Arcade</span>
         <span>Realistic</span>

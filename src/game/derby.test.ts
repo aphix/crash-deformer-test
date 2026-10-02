@@ -274,8 +274,6 @@ describe("derby durability and the default two-car stall", () => {
     ];
     for (const s of specs) {
       s.car.deform.setMode("shape");
-      s.car.deform.squash = 0.4;
-      s.car.deform.buckle = 0.45;
       s.car.group.position.set(s.x, 0, s.z);
       s.car.group.rotation.set(0, s.yaw, 0, "YXZ");
       s.car.yaw = s.yaw;

@@ -44,8 +44,6 @@ function crashRig(impact: THREE.Vector3, inward: THREE.Vector3, speed: number, y
   const geom = new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
   const d = new StreamedDeformation(geom);
   d.mode = "shape";
-  d.squash = 0.4;
-  d.buckle = 0.45;
   const group = new THREE.Group();
   group.rotation.set(0, yaw, 0);
   group.updateMatrixWorld();

@@ -22,8 +22,6 @@ function spawn(
   const geom = dummyGeom();
   const d = new StreamedDeformation(geom);
   d.mode = mode;
-  d.squash = 0.4;
-  d.buckle = 0.45;
   const group = new THREE.Group();
   group.position.set(0, 0, 0);
   group.rotation.set(0, 0, 0);

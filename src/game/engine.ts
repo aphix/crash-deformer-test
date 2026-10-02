@@ -10,7 +10,7 @@ import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
-import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
+import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
@@ -146,10 +146,10 @@ export class CrashEngine {
   private lodFrame = 0;
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   private lodStride: number[] = [];
-  private squash = 0.4;
+  private squash = INITIAL_HUD.squash;
   /** Slot 0's class: the HUD's pick for the player's car. */
   private playerClass: VehicleClassId = fleetClass(0);
-  private buckle = 0.45;
+  private buckle = INITIAL_HUD.buckle;
   private fxDensity = 0.7;
   private speedMin = 0;
   private speedMax = 32;
@@ -537,13 +537,13 @@ export class CrashEngine {
   }
 
   setSquash(value: number): void {
-    this.squash = THREE.MathUtils.clamp(value, 0, 1);
+    this.squash = THREE.MathUtils.clamp(value, KNOB_RANGES.squash.min, KNOB_RANGES.squash.max);
     for (const car of this.live()) car.deform.squash = this.squash;
     this.emitHud(true);
   }
 
   setBuckle(value: number): void {
-    this.buckle = THREE.MathUtils.clamp(value, 0, 1);
+    this.buckle = THREE.MathUtils.clamp(value, KNOB_RANGES.buckle.min, KNOB_RANGES.buckle.max);
     for (const car of this.live()) car.deform.buckle = this.buckle;
     this.emitHud(true);
   }
@@ -555,7 +555,7 @@ export class CrashEngine {
 
   /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
   setRealism(value: number): void {
-    HANDLING.realism = THREE.MathUtils.clamp(value, 0, 1);
+    HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
     for (const car of this.cars) car.deform.killTravel = killTravel(carClass(car), HANDLING.realism);
     this.emitHud(true);
   }
@@ -639,6 +639,8 @@ export class CrashEngine {
     this.targetScale = 1;
     this.view.userFramed = false;
     this.setDerby(false);
+    this.setRealism(INITIAL_HUD.realism);
+    if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
     this.randomizeAndReset();

@@ -2,12 +2,13 @@
 // Squash × buckle sweep over the headless crash harness, scored against the
 // real-car targets in docs/RIG_ANALYSIS.md §2-§3.3 and barrier.test.ts.
 //
-//   npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells 0.4:0.45,1:1]
+//   npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells 0.4:0.45,1:1] [--slomo]
 //                    [--scenarios wall56,side50] [--after 1.5] [--root <tree>] [--out <dir>]
 //
-// `--grid` sets both axes; `--cells s:b,…` runs only those pairs. `--after` is
-// the sim seconds kept after first contact. `--root` imports the harness from
-// another checkout (e.g. a scratch tree with a fix).
+// `--grid` sets both axes; `--cells s:b,…` runs only those pairs. `--slomo` runs
+// every scenario through the engine's impact slow-motion. `--after` is the sim
+// seconds kept after first contact. `--root` imports the harness from another
+// checkout (e.g. a scratch tree with a fix).
 // Writes <out>/sweep.json and <out>/sweep.md and prints the markdown.
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
@@ -23,6 +24,7 @@ const { values: args } = parseArgs({
     root: { type: "string", default: resolve(here, "..") },
     out: { type: "string", default: resolve(here, "../.bench/crush-sweep") },
     after: { type: "string", default: "1.5" },
+    slomo: { type: "boolean", default: false },
   },
 });
 
@@ -34,9 +36,10 @@ console.warn = (...a) => {
 
 const harness = await import(pathToFileURL(resolve(args.root, "src/game/crash-scenarios.test-util.ts")).href);
 const { runWall, runPair } = harness;
+const { INITIAL_HUD } = await import(pathToFileURL(resolve(args.root, "src/game/hud-store.ts")).href);
 
-/** Default HUD pair (hud-store INITIAL_HUD) — marked in every table. */
-const DEFAULT = [0.4, 0.45];
+/** The tree's default HUD pair — always run and marked in every table. */
+const DEFAULT = [INITIAL_HUD.squash, INITIAL_HUD.buckle];
 
 const nose = (r) => (r.noseShortL + r.noseShortR) / 2;
 const noseMax = (r) => Math.max(r.noseShortL, r.noseShortR);
@@ -97,8 +100,8 @@ const SCENARIOS = {
     key: ["tail", (rs) => rs[0].tailShort],
     targets: [
       ["tail permanent m", (rs) => rs[0].tailShort, [0.15, 0.4], 2],
-      // barrier.test.ts: the tail is softer with a shorter stroke, 0.6–1.0× the 50 km/h nose.
-      ["tail / wall50 nose", (rs, done) => (done.wall50 ? rs[0].tailShort / Math.max(1e-3, nose(done.wall50[0])) : null), [0.6, 1], 2],
+      // barrier.test.ts: the tail is softer with a shorter stroke, 0.6–1.0× the 50 km/h nose (worse corner).
+      ["tail / wall50 nose", (rs, done) => (done.wall50 ? rs[0].tailShort / Math.max(1e-3, noseMax(done.wall50[0])) : null), [0.6, 1], 2],
       ["nose m", (rs) => noseMax(rs[0]), [null, 0.03], 1],
       ["cabin m", (rs) => rs[0].cabinIntrusion, [null, 0.06], 1],
     ],
@@ -150,6 +153,13 @@ function miss(v, want) {
   return Math.min(2, out / width);
 }
 
+/** Distance from the middle of a two-sided band in half-widths, capped at 2; null for other targets. */
+function offCentre(v, want) {
+  if (typeof want === "boolean" || want[0] === null || want[1] === null) return null;
+  const half = (want[1] - want[0]) / 2;
+  return Math.min(2, Math.abs(v - (want[0] + half)) / half);
+}
+
 // streamed-deform.ts update()/the skin pass: wrinkleAmp = clamp(crush·(0.2+0.5b), 0, 0.18+0.5b);
 // skin fold amplitude at the hit = wrinkle·0.16·(0.35+0.65b)·|(1, 0.28, ≤0.06)|, capped at 0.03+0.08b,
 // and only drawn while wrinkle > 0.02. Visual only: no physics reads it.
@@ -173,12 +183,13 @@ for (const c of cells) if (c.length !== 2 || c.some((x) => !Number.isFinite(x)))
 const t0 = performance.now();
 const rows = [];
 for (const [squash, buckle] of cells) {
-  const row = { squash, buckle, score: 0, misses: 0, drift: 0, spinFrames: 0, scenarios: {} };
+  const row = { squash, buckle, score: 0, centre: 0, misses: 0, drift: 0, spinFrames: 0, scenarios: {} };
   const done = {};
   let wsum = 0;
+  let csum = 0;
   for (const n of names) {
     const sc = SCENARIOS[n];
-    const rs = sc.run({ squash, buckle, after: Number(args.after) });
+    const rs = sc.run({ squash, buckle, after: Number(args.after), slomo: args.slomo });
     done[n] = rs;
     const metrics = [];
     for (const [label, get, want, w] of sc.targets) {
@@ -188,6 +199,11 @@ for (const [squash, buckle] of cells) {
       row.score += w * d;
       wsum += w;
       if (d > 0) row.misses++;
+      const c = offCentre(v, want);
+      if (c !== null) {
+        row.centre += w * c;
+        csum += w;
+      }
       metrics.push({ label, value: v, want, w, miss: d });
     }
     const drift = Math.max(...rs.map((r) => r.quietYawDrift));
@@ -204,8 +220,9 @@ for (const [squash, buckle] of cells) {
     };
   }
   row.score /= wsum;
+  row.centre /= Math.max(1, csum);
   rows.push(row);
-  process.stderr.write(`squash ${squash} buckle ${buckle}: score ${row.score.toFixed(3)} misses ${row.misses} drift ${row.drift.toFixed(2)} rad spin ${row.spinFrames}\n`);
+  process.stderr.write(`squash ${squash} buckle ${buckle}: score ${row.score.toFixed(3)} centre ${row.centre.toFixed(3)} misses ${row.misses} drift ${row.drift.toFixed(2)} rad spin ${row.spinFrames}\n`);
 }
 const seconds = (performance.now() - t0) / 1000;
 
@@ -223,15 +240,16 @@ const DRIFT_FLAG = 0.5;
 const flag = (r) => (r.drift > DRIFT_FLAG || r.spinFrames > 0 ? " ⟳" : "");
 
 const md = [
-  `Sweep: ${rows.length} cells × ${names.length} scenarios in ${seconds.toFixed(1)} s, harness ${args.root}.`,
-  `Score = weighted mean of normalised misses (0 = every target in band, capped at 2 per metric). ⟳ = quiet-phase yaw drift > ${DRIFT_FLAG} rad or any frame at the ±6 rad/s spin clamp.`,
+  `Sweep: ${rows.length} cells × ${names.length} scenarios${args.slomo ? " (slomo)" : ""} in ${seconds.toFixed(1)} s, harness ${args.root}.`,
+  `Score = weighted mean of normalised misses (0 = every target in band, capped at 2 per metric). Centre = weighted mean distance from the middle of the two-sided bands in half-widths (0 = every such metric mid-band, 1 = on an edge, capped at 2): the tie-break inside the in-band region. ⟳ = quiet-phase yaw drift > ${DRIFT_FLAG} rad or any frame at the ±6 rad/s spin clamp.`,
   "",
 ];
 if (sparse) {
-  md.push(`| squash | buckle | score | misses | drift rad | spin frames | ${names.join(" | ")} |`, `|---|---|---|---|---|---|${names.map(() => "---").join("|")}|`);
-  for (const r of rows) md.push(`| ${r.squash} | ${r.buckle} | ${f(r.score, 3)} | ${r.misses} | ${f(r.drift)} | ${r.spinFrames} | ${names.map((n) => f(r.scenarios[n].key)).join(" | ")} |`);
+  md.push(`| squash | buckle | score | centre | misses | drift rad | spin frames | ${names.join(" | ")} |`, `|---|---|---|---|---|---|---|${names.map(() => "---").join("|")}|`);
+  for (const r of rows) md.push(`| ${r.squash} | ${r.buckle} | ${f(r.score, 3)} | ${f(r.centre, 3)} | ${r.misses} | ${f(r.drift)} | ${r.spinFrames} | ${names.map((n) => f(r.scenarios[n].key)).join(" | ")} |`);
 } else {
   md.push(grid("Realism score (lower is better)", (r) => `${isDefault(r.squash, r.buckle) ? "**" : ""}${f(r.score, 3)}${isDefault(r.squash, r.buckle) ? "**" : ""}${flag(r)}`), "");
+  md.push(grid("Band centring (lower is better)", (r) => f(r.centre, 3)), "");
   md.push(grid("Targets missed", (r) => String(r.misses)), "");
   md.push(grid("Max quiet-phase yaw drift rad / spin-clamp frames", (r) => `${f(r.drift)} / ${r.spinFrames}`), "");
   for (const n of names) md.push(grid(`${n}: ${SCENARIOS[n].key[0]} (m)`, (r) => f(r.scenarios[n].key)), "");

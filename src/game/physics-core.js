@@ -82,8 +82,8 @@ function leftoverCrumple(travel) {
 
 /**
  * Dynamic crush (m) a struck end takes at an equivalent barrier speed `ebs`
- * (m/s): 0.55 m at 56 km/h, ~0.29 m at 28 km/h (NCAP/IIHS full-frontal) at
- * the default squash 0.4; the squash slider scales it (×0.6 at 0, ×1.6 at 1).
+ * (m/s): 0.52 m at 56 km/h, ~0.27 m at 28 km/h (NCAP/IIHS full-frontal) at
+ * the default squash 0.32; the squash slider scales it by (0.6 + squash).
  */
 function crushStroke(ebs, squash) {
   return (0.035 * (ebs > 0 ? ebs : 0) + 0.02) * (0.6 + squash);

@@ -371,7 +371,7 @@ export class StreamedDeformation {
   private bodySin = 0;
   private readonly bodyC = new THREE.Vector3();
   private readonly bodyRestC = new THREE.Vector3();
-  squash = 0.4;
+  squash = 0.32;
   buckle = 0.45;
   mode: DeformMode = "shape";
   private clusters: ShapeCluster[] = [];
