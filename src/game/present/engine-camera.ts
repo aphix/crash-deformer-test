@@ -4,6 +4,17 @@ import { DRIVE, type DriverSeat, type SeatView } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { DISC_RADIUS } from "../world/ground.ts";
 import { wrapPiClosed } from "../kernel/scalar.ts";
+import { CineCam, DutchCam, type Sight } from "./spectate-cam.ts";
+
+/**
+ * A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic ("cine"),
+ * the wheel-well dutch ("dutch") and the free orbit. A race opens on the chase, everything else on the orbit.
+ */
+export type SpecView = SeatView | "cine" | "dutch" | "orbit";
+const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit"];
+
+/** What the cinematic and dutch cams read from the scene, only when they pick a shot. */
+export type SpecScene = { sight(): Sight; rivals(): readonly DeformableCar[] };
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -109,6 +120,8 @@ export class DriveCam {
   private readonly lookPitch = new Spring();
   private idle = 10;
   private returnOmega: number = CHASE.lookOmega;
+  /** The look offset came from a drag (not the stick), so a spectator's `keep` holds it. */
+  private dragged = false;
   private car: DeformableCar | null = null;
   private readonly lastCarPos = new THREE.Vector3();
 
@@ -117,12 +130,13 @@ export class DriveCam {
     return this.lookYaw.x;
   }
 
-  /** Mouse drag (px): drag right looks right, drag down looks down; eases back after `lookDelay`. */
+  /** Mouse drag (px): drag right looks right, drag down looks down; eases back after `lookDelay` unless `update` keeps it. */
   nudge(dx: number, dy: number): void {
     this.lookYaw.snap(wrapPiClosed(this.lookYaw.x - dx * 0.005));
     this.lookPitch.snap(THREE.MathUtils.clamp(this.lookPitch.x + dy * 0.004, -0.35, 0.9));
     this.idle = 0;
     this.returnOmega = CHASE.lookOmega;
+    this.dragged = true;
   }
 
   /** Stop tracking; the next `update` blends in from wherever the camera is. */
@@ -132,8 +146,8 @@ export class DriveCam {
     return was;
   }
 
-  /** `rx`/`ry`: right stick after deadzone, DOM signs (+x right, +y down). */
-  update(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number, rx: number, ry: number): void {
+  /** `rx`/`ry`: right stick after deadzone, DOM signs (+x right, +y down). `keep`: a dragged look offset stays put (spectating). */
+  update(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number, rx: number, ry: number, keep = false): void {
     const p = car.group.position;
     const fwd = car.fwdFlat;
     const vel = car.velocity;
@@ -159,9 +173,10 @@ export class DriveCam {
       this.lookPitch.step(ry * CHASE.stickPitch, CHASE.stickOmega, dt);
       this.idle = CHASE.lookDelay;
       this.returnOmega = CHASE.stickOmega;
+      this.dragged = false;
     } else {
       this.idle += dt;
-      if (this.idle > CHASE.lookDelay) {
+      if (this.idle > CHASE.lookDelay && !(keep && this.dragged)) {
         this.lookYaw.step(0, this.returnOmega, dt);
         this.lookPitch.step(0, this.returnOmega, dt);
       }
@@ -225,8 +240,8 @@ function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number): void
 
 /**
  * Orbit / chase / first-person rig over the shared PerspectiveCamera, plus canvas pointer input:
- * left-drag orbits (or looks round the driven car), wheel zooms, a short tap picks via `onClick`.
- * The right stick orbits too (looks round while driving).
+ * left-drag orbits (or looks round the driven or spectated car), wheel zooms, a short tap picks via `onClick`.
+ * The right stick orbits too (looks round while driving or spectating).
  */
 export class ChaseCamera {
   /** Smoothed-toward eye position. */
@@ -238,6 +253,12 @@ export class ChaseCamera {
   /** User dragged or zoomed since the last reset; cinematics stop re-aiming. */
   userFramed = false;
   readonly drive = new DriveCam();
+  readonly cine = new CineCam();
+  readonly dutch = new DutchCam();
+  /** The followed car's cam; null = the scene's own (`specView`). */
+  spec: SpecView | null = null;
+  /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
+  private rig: "orbit" | "chase" | "fixed" = "orbit";
   private readonly baseFov: number;
   private angle = 0;
   private radius = 14;
@@ -343,8 +364,15 @@ export class ChaseCamera {
   /** Ease toward the orbit around `look`; `spinRate` rad/s auto-rotates unless dragging or reduced motion. */
   orbit(wallDt: number, spinRate: number, shake: boolean): void {
     this.fallWatch = false;
-    // Leaving the driver's seat: keep orbiting from where the chase camera was.
-    if (this.drive.release()) this.adoptPose();
+    // Leaving the driver's seat or a fixed spectator cam: keep orbiting from where the camera was (from the wheel
+    // cam's 2 m, at a normal orbit's distance and height).
+    const fixed = this.rig === "fixed";
+    if (this.drive.release() || fixed) this.adoptPose();
+    if (fixed) {
+      this.radius = Math.max(this.radius, 9);
+      this.pitch = Math.max(this.pitch, 0.3);
+    }
+    this.rig = "orbit";
     const rx = this.pad.rx;
     const ry = this.pad.ry;
     const padTurn = rx !== 0 || ry !== 0;
@@ -373,8 +401,41 @@ export class ChaseCamera {
   /** Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. */
   frameDrive(car: DeformableCar, wallDt: number, shake: boolean): void {
     this.fallWatch = false;
+    this.rig = "chase";
     this.drive.update(this.camera, car, this.seat.view, wallDt, this.pad.rx, this.pad.ry);
     if (shake && this.seat.view !== "first") this.shake();
+  }
+
+  /** The followed car's cam: `spec`, else in a race (`chase`) the seat's chase view, elsewhere the orbit. */
+  specView(chase: boolean): SpecView {
+    return this.spec ?? (chase ? this.seat.view : "orbit");
+  }
+
+  /** View while following: the next spectator cam. */
+  cycleSpec(chase: boolean): void {
+    this.spec = SPEC_VIEWS[(SPEC_VIEWS.indexOf(this.specView(chase)) + 1) % SPEC_VIEWS.length]!;
+    this.cine.reset();
+  }
+
+  /**
+   * Frame a followed (not driven) car with `view`. The chase views keep a dragged look offset (a spectator framed it
+   * on purpose and has no road to watch); the cinematic keeps the chase until it finds a clear spot. False for the
+   * orbit: the caller aims `look` and orbits.
+   */
+  frameSpectate(car: DeformableCar, view: SpecView, scene: SpecScene, wallDt: number, shake: boolean): boolean {
+    if (view === "orbit") return false;
+    this.fallWatch = false;
+    if (view === "dutch" || (view === "cine" && this.cine.update(this.camera, car, scene.sight, wallDt))) {
+      if (view === "dutch") this.dutch.update(this.camera, car, scene.rivals, wallDt);
+      this.drive.release();
+      this.rig = "fixed";
+      return true;
+    }
+    const chase = view === "cine" ? "third" : view;
+    this.rig = "chase";
+    this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true);
+    if (shake && chase !== "first") this.shake();
+    return true;
   }
 
   /**
@@ -440,7 +501,7 @@ export class ChaseCamera {
   private onPointerDown = (e: PointerEvent): void => {
     if (e.button !== 0) return;
     this.pointerTravel = 0;
-    this.lookDragging = this.seat.mode === "drive";
+    this.lookDragging = this.rig === "chase";
     this.dragging = this.seat.mode !== "drive";
     this.lastX = e.clientX;
     this.lastY = e.clientY;

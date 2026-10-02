@@ -222,8 +222,10 @@ const IDX_CELL = 8;
 export class RoadIndex {
   private readonly cells = new Map<number, number[]>();
   private readonly seg = blankSegment();
+  private readonly paths: readonly TrackPath[];
 
-  constructor(private readonly paths: readonly TrackPath[]) {
+  constructor(paths: readonly TrackPath[]) {
+    this.paths = paths;
     paths.forEach((p, pi) => {
       const segs = p.closed ? p.count : p.count - 1;
       for (let k = 0; k < segs; k++) {

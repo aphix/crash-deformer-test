@@ -47,11 +47,13 @@ fixedStep(h)
 - Scene / FX keys in `onKey`: Space R L G P B K D C I N O M U Y J F H X Z, digits for the piston and door rigs. In a race, `raceKey` / `racePad` take Esc R Q E V C T H first; with a race menu open the HUD reads keys and pad itself. The controls tables live in `README.md`.
 - Click a car: `ChaseCamera` tap → `CrashEngine.pickCar(x, y)` (raycast) → `seat.focus(i)`.
 
-## Camera (`src/game/present/engine-camera.ts`, `engine-cine.ts`)
+## Camera (`src/game/present/engine-camera.ts`, `spectate-cam.ts`, `engine-cine.ts`)
 - `Spring`, `Spring3`: critically damped springs, exact for any dt. `CHASE`: third / far / hood-cam tuning, FOV, look-around.
-- `DriveCam`: chase and hood cam for the driven car; mouse / right-stick look, eases back.
-- `ChaseCamera`: orbit / zoom / tap; `frameReset`, `orbit(wallDt, spinRate, shake)`, `frameDrive`, `kick` on impact; `userFramed` stops cinematic re-aiming.
-- `CrashEngine.updateCamera(wallDt)`: `cine.direct` (crash cam: three cuts in the slow-mo, letterboxed) first; else driving → `frameDrive`; else look at the followed car, rig car, derby winner or fleet centroid, then orbit.
+- `DriveCam`: chase and hood cam for the driven car; mouse / right-stick look, eases back (a spectator's `keep` holds a dragged look).
+- `ChaseCamera`: orbit / zoom / tap; `frameReset`, `orbit(wallDt, spinRate, shake)`, `frameDrive`, `kick` on impact; `userFramed` stops cinematic re-aiming. A drag moves whatever framed the last frame (`rig`): the orbit, a chase's look, or nothing (trackside, wheel cam).
+- Spectator cams (following, not driving): `SpecView` = the three chase views, `"cine"`, `"dutch"`, `"orbit"`; View (V / T, Y, the Spectating bar's camera button) runs `CrashEngine.cycleCamera` → `cycleSpec`. A race opens on the seat's chase view, fleet / derby on the orbit; back to the whole field resets it. `frameSpectate(car, view, scene, dt, shake)`.
+- `CineCam` (`spectate-cam.ts`): a fixed eye ahead of the car (along the race loop, or along its travel off a race), 0.6–4.1 m up, out of every solid (`Sight`: ground and bridge slabs, race walls and tunnels, props at their drawn size, the gantry legs, bridge pillars, the other cars, the derby rim) with clear sight to the car; it cuts `CINE.after` s after the car passes. The search spends `CINE.perFrame` sight-line samples a frame; nothing runs per frame between searches. `DutchCam`: eight wheel-well mounts (forward / back), rolled 0.3 rad, cutting every ~3.5 s to the mount with the most rivals in its frustum. Both are deterministic from the car poses (`reset(seed)`).
+- `CrashEngine.updateCamera(wallDt)`: `cine.direct` (crash cam: three cuts in the slow-mo, letterboxed) first; else driving → `frameDrive`; following (off the rigs) → `frameSpectate`; else look at the followed car, rig car, derby winner or fleet centroid, then orbit.
 
 ## Related
 [architecture.md](architecture.md) · [physics.md](physics.md) · `README.md` (controls) · `docs/CINEMATIC.md` · `docs/MULTIPLAYER.md`

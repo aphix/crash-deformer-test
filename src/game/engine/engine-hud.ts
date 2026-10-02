@@ -98,6 +98,7 @@ export abstract class EngineHud extends EngineWarm {
       seat: this.seat.mode,
       boost: this.seat.boost,
       view: this.seat.view,
+      cam: this.seat.mode === "follow" && !this.rigScene ? this.view.specView(this.race.chase) : null,
       pad: this.pad.label,
       realism: HANDLING.realism,
       playerClass: this.playerClass,
