@@ -192,7 +192,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
     car.yaw += dyaw;
     car.group.rotation.set(0, car.yaw, 0, "YXZ");
     car.refreshBasis();
-    car.velocity.set(nvx, 0, nvz);
+    // Vertical speed is the world's (ramps, jumps): drive only steers the ground-plane velocity.
+    car.velocity.set(nvx, car.velocity.y, nvz);
     car.speed = Math.hypot(nvx, nvz);
     car.angular.set(0, yawRate, 0);
     return;
