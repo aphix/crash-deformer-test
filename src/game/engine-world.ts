@@ -198,7 +198,8 @@ export class WorldStage {
   readonly ground: THREE.Mesh;
   private readonly groundMat: THREE.MeshStandardMaterial;
   private readonly hemi: THREE.HemisphereLight;
-  private readonly sun: THREE.DirectionalLight;
+  /** The shadow-casting sun (the race director moves its shadow box with the followed car). */
+  readonly sun: THREE.DirectionalLight;
   private readonly fill: THREE.DirectionalLight;
   private readonly scene: THREE.Scene;
   night = false;
