@@ -156,9 +156,22 @@ Passing (real assertions): front-middle bumpers 0.14–0.31 m and even L/R;
 rear-middle ≥ 0.11 m (B4 rear/front stroke ratio); doors ≥ 0.12 m at
 40 km/h and 0.15–0.25 m at 50 km/h; corner bumper ≥ 0.12 m with the wing in
 but less than the bumper; paint dents ≥ 0.05 m at every ram (≥ 0.04 m at the corners); mirrored rams
-mirror; crush never shrinks with energy (all rams, 20–80 km/h); a 0.5
+mirror; crush never shrinks with energy (front, rear and corner rams every
+10 km/h, 20–80 km/h; the side rams every 5 km/h, see below); a 0.5
 honeycomb face crushes front, left and frontLeft at least 2 cm less than
-steel; the front-middle kill shot leaves rear, sides and rear corners alive.
+steel; the front-middle kill shot leaves rear, sides and rear corners alive;
+a 45° corner needs at least the front-middle's kill shot (only the block's
+travel along the car toward the cabin counts, lane `crash-realism-5`).
+
+**Side rams (re-expressed, lane `crash-realism-5`).** From 35 km/h the struck
+door sits exactly on its crush cap (`bands.max`, 0.278 m) in the body frame.
+The struck-particle row is a rigid fit over the far particles and wanders
+±7 mm with the frame path while the door stays on its cap (main 2a53b04 read
+0.223 → 0.216 m between 50 and 55 km/h). The test samples every 5 km/h and
+asserts: the door's body-frame crush never decreases (exact, 1 µm), it equals
+the cap at every speed from the first one that reaches it, the fit row is
+monotonic (5 mm) up to that speed and ≥ 0.20 m (IIHS side intrusion) above it.
+Cutting the door cap 3 % above 16 m/s fails it.
 
 ## Expected changes (the `todo` tests — hand-off to the crash-realism lane)
 
@@ -172,7 +185,6 @@ plain test when the rig meets it.
 | `*:opposite-half` | 0.062 – 0.137 m particle, 0.052 – 0.120 m skin | ≤ 0.03 m | same |
 | `left:cabin`, `right:cabin` | far door 0.079 m | ≤ 0.06 m | the far door closes on the cell as the cabin is shoved sideways |
 | `front:kill-ebs` | 56 km/h = EBS 44.7 km/h | EBS in (56, 64] km/h (wall56 alive, wall64 dead, RIG_ANALYSIS §6) | the piston path kills the block at a lower EBS than the barrier path; it also crushes more per EBS (0.25 m at 32 km/h vs the wall's 0.17 m at 35 km/h) |
-| `frontLeft:corner-kill`, `frontRight:corner-kill` | 52 km/h | ≥ 56 km/h (front-middle) | a 45° hit has `|ix| = |iz|`, so `updateDrivetrain` treats it as frontal and the corner packs the block sooner than a full-width hit |
 | `left/right:tap-particles` | 0.034 m (far door) | ≤ 0.03 m | arming the masses sags them |
 | `rearLeft/rearRight:tap-particles` | 0.089 m (other rear bumper) | ≤ 0.03 m | a 0.2 kJ rear-corner tap moves the other rear corner |
 | `*:tap-skin` | 0.352 – 0.366 m (panels 0.064 – 0.150 m) | ≤ 0.03 m | see below |

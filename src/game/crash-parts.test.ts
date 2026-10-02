@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { StreamedDeformation, type DeformMode } from "./streamed-deform.ts";
+import { StreamedDeformation, TYRE_R, type DeformMode } from "./streamed-deform.ts";
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";
@@ -226,6 +226,29 @@ forModes("doors hinge then detach", (mode) => {
     }
   });
 
+  it("bad: a popped wheel leaves the car as its own body, lands on its tyre and slides to rest; four gone kill the car", () => {
+    const scene = new THREE.Scene();
+    const car = new DeformableCar(paint(), scene);
+    car.deform.setMode(mode);
+    car.spawn(0, 0, 8);
+    car.group.updateMatrixWorld();
+    const hit = car.group.position.clone().addScaledVector(car.forward, 2.05);
+    car.applyImpact(hit, car.forward.clone().negate(), 2, 2);
+    for (const m of car.deform.masses) if (m.hub) car.deform.popHub(m);
+    const before = car.wheels.map((w) => w.position.clone());
+    for (let i = 0; i < 300; i++) {
+      if (i === 299) car.wheels.forEach((w, k) => before[k]!.copy(w.position));
+      car.syncPose(DT);
+      car.afterContacts(DT);
+    }
+    assert.equal(car.deform.drivetrainAlive, false, "no wheels and the drivetrain still runs");
+    car.wheels.forEach((w, k) => {
+      assert.equal(w.parent, scene, `wheel ${k} still rides the car`);
+      assert.ok(Math.abs(w.position.y - TYRE_R) < 0.01, `wheel ${k} rests at y ${w.position.y.toFixed(3)}, not on its tyre`);
+      assert.ok(w.position.distanceTo(before[k]!) < 1e-3, `wheel ${k} still sliding after 5 s`);
+    });
+  });
+
   it("close-but-wrong: headlights are independent — a right-front crush must not kill the left lamp first", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
@@ -344,6 +367,55 @@ describe("a crushed wreck keeps its heading", () => {
     }
     const worst = turn.indexOf(Math.max(...turn));
     assert.ok(turn[worst]! < 0.1, `${SPIN_FLEET[worst]![0]} turned ${turn[worst]!.toFixed(2)} rad in the last 2 s, |ω| ${cars[worst]!.angular.y.toFixed(2)}`);
+  });
+});
+
+/** A wreck at (0, z) heading `yaw`, sliding along +z at `v` (m/s), its masses armed by a light knock. */
+function slidingWreck(z: number, v: number, yaw = 0): DeformableCar {
+  const car = new DeformableCar(paint(), new THREE.Scene());
+  car.deform.setMode("shape");
+  car.spawnFacing(0, z, yaw, 0);
+  car.velocity.set(0, 0, v);
+  car.speed = v;
+  car.deform.bindKinematic(car.group, car.velocity, car.angular);
+  car.applyImpact(car.group.localToWorld(new THREE.Vector3(0.7, 0.4, 2.2)), car.forward.clone().negate(), 2, 2);
+  return car;
+}
+
+/** Mass-weighted speed (m/s) of every mass of `cars` together. */
+function groupSpeed(cars: DeformableCar[]): number {
+  let px = 0;
+  let pz = 0;
+  let m = 0;
+  for (const c of cars) {
+    for (const p of c.deform.masses) {
+      px += p.vel.x * p.mass;
+      pz += p.vel.z * p.mass;
+      m += p.mass;
+    }
+  }
+  return Math.hypot(px, pz) / m;
+}
+
+/** Mean deceleration (m/s²) of `cars` over `secs` of engine ticks, after the impact clock has run. */
+function slideDecel(cars: DeformableCar[], secs: number): number {
+  const w = makeWorld(cars, false, false);
+  w.impact = true;
+  w.wallSinceImpact = 1;
+  for (let f = 0; f < 12; f++) tickWorld(w);
+  const v0 = groupSpeed(cars);
+  for (let f = 0; f < secs * 60; f++) tickWorld(w);
+  return (v0 - groupSpeed(cars)) / secs;
+}
+
+describe("wrecks slide to a stop on the ground, rubbing or not", () => {
+  // Owner dump: a pair of wrecks grinding together slid at 0.44 g against 1.4–1.8 g alone: the mass
+  // drag waited for the car-contact quiet timer, which the rubbing kept resetting.
+  it("bad: two crashed cars locked together decelerate at least as fast as one alone (±15%)", () => {
+    const lone = slideDecel([slidingWreck(0, 10)], 1);
+    // T-bone grind: the faster wreck's nose on the slower one's side, both sliding along +z.
+    const pair = slideDecel([slidingWreck(-4, 11), slidingWreck(0, 9, Math.PI / 2)], 1);
+    assert.ok(pair >= lone * 0.85, `pair ${(pair / 9.81).toFixed(2)} g vs alone ${(lone / 9.81).toFixed(2)} g`);
   });
 });
 

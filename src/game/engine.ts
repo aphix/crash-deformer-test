@@ -1317,7 +1317,7 @@ export class CrashEngine {
         if (this.showBarrier) {
           for (let ci = 0; ci < cars.length; ci++) {
             const car = cars[ci]!;
-            const hit = this.barrier.resolve(car, !car.crashed, feed, h);
+            const hit = this.barrier.resolve(car, true, feed, h);
             if (hit) {
               this.barrierHits[ci] = true;
               moved = true;
@@ -1534,8 +1534,12 @@ export class CrashEngine {
     const q = car.deform.quietTime();
     const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
     applyGroundFriction(car.velocity, dt, mu, true);
-    if (car.deform.massActive && q > 0.08) {
-      car.deform.dragGround(dt, THREE.MathUtils.clamp((q - 0.08) / 1.1, 0, 1));
+    if (car.deform.massActive) {
+      // The mass drag ramps from the hit, not from the last car contact: a pair grinding together kept
+      // resetting the contact timer and slid ~3× as far as one wreck alone. A car under power keeps the
+      // contact ramp (it is driven, not sliding); dragGround itself skips an airborne wreck.
+      const t = car.deform.powered ? q : car.deform.sinceHit();
+      car.deform.dragGround(dt, THREE.MathUtils.clamp((t - 0.08) / 1.1, 0, 1));
     }
   }
 
