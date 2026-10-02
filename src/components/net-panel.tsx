@@ -98,7 +98,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
       {live ? (
         <>
           <p className="font-display">
-            {status.public ? "Public race" : status.role === "host" ? "Hosting" : "Joined"} <span className="tabular-nums">{status.room}</span> ·{" "}
+            {status.public ? `Public ${status.public}` : status.role === "host" ? "Hosting" : "Joined"} <span className="tabular-nums">{status.room}</span> ·{" "}
             {status.tx === "rtc" ? "WebRTC" : "this browser"}
           </p>
           <p className="text-muted">
@@ -107,7 +107,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
           </p>
           {status.lobby != null ? (
             <p className="font-display" role="status">
-              {status.role === "host" ? "Waiting for players…" : "Waiting for the race…"} starts in {status.lobby} s
+              {status.role === "host" ? "Waiting for players…" : `Waiting for the ${status.public ?? "match"}…`} starts in {status.lobby} s
               {status.role === "host" ? "; AI drives the empty seats" : ""}
             </p>
           ) : null}
@@ -165,9 +165,14 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
               Join
             </Button>
           </div>
-          <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={() => void engine.current?.net.publicRace()}>
-            Public race
-          </Button>
+          <div className="flex gap-1">
+            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} onClick={() => void engine.current?.net.publicMatch("race")}>
+              Public race
+            </Button>
+            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} onClick={() => void engine.current?.net.publicMatch("derby")}>
+              Public derby
+            </Button>
+          </div>
         </>
       )}
     </div>

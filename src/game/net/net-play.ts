@@ -19,6 +19,9 @@ import {
   Writer,
   type NetLayout,
   type Snapshot,
+  type DerbyNetState,
+  readDerby,
+  writeDerby,
 } from "./codec.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";
@@ -33,17 +36,22 @@ const PUBLIC_LIST = z.object({
 const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), snap: z.unknown() });
 
 /** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */
-export type NetRace = Pick<RaceDirector, "options" | "phase" | "setSeats" | "setRemoteInput" | "requestRespawn" | "snapshot" | "applySnapshot" | "showLobby">;
+type NetRace = Pick<RaceDirector, "options" | "phase" | "setRemoteInput" | "requestRespawn" | "snapshot" | "applySnapshot" | "showLobby">;
+
+/** Which public match a room runs; the room name says (`pub-race-…`, `pub-derby-…`). */
+type PublicKind = "race" | "derby";
+/** Where a public match stands on the host: waiting for players, running, or showing its result. */
+type MatchStage = "lobby" | "running" | "over";
 
 /** Wire order of the crash phases (`Snapshot.phase`). */
 const PHASES: readonly CrashPhase[] = ["approach", "impact", "slowmo", "aftermath"];
 
-export type NetRole = "off" | "host" | "client";
+type NetRole = "off" | "host" | "client";
 /** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
 export type NetTx = "bc" | "rtc";
 
 /** The engine as netplay sees it. */
-export interface NetGame {
+interface NetGame {
   /** Live cars, index = car id on every peer. */
   cars(): DeformableCar[];
   setCarCount(n: number): void;
@@ -61,19 +69,32 @@ export interface NetGame {
   enterRace(): void;
   exitRace(): void;
   startRace(): void;
+  /** Host: network peers' cars. A race seats them at its next start, a derby at its next match. */
+  setSeats(cars: readonly number[]): void;
+  /** Host: whether peer car `i` takes its input now (a derby only drives cars it seated and not counted out). */
+  remoteDrivable(i: number): boolean;
+  /** Host: derby mode's stage, null outside derby mode. */
+  derbyPhase(): MatchStage | null;
+  /** Host: the derby as clients render it, null outside derby mode. */
+  derbyState(): DerbyNetState | null;
+  /** Client: show the host's derby as car `self`; null leaves derby mode. */
+  applyDerby(state: DerbyNetState | null, self: number): void;
+  /** Host: derby mode with a field of at least `field` cars parked and no match (a public lobby), or a fresh match. */
+  derbyLobby(field: number): void;
+  startDerby(field: number): void;
   readonly seat: DriverSeat;
 }
 
 export interface NetStatus {
   role: NetRole;
-  /** A public room (`publicRace`): anyone pressing "Public race" may land in it. */
-  public: boolean;
+  /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */
+  public: PublicKind | null;
   room: string;
   tx: NetTx;
   selfId: string;
   /** This peer's car (host 0); −1 until the host assigns one. */
   car: number;
-  /** Seconds until a public race starts (host lobby, mirrored to clients), null otherwise. */
+  /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
   lobby: number | null;
   peers: readonly NetPeer[];
   /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
@@ -91,13 +112,15 @@ const RING = 8;
 /** A public-race client with no host snapshot this long (ms) after joining hosts a fresh room. */
 const HOST_WAIT_MS = 5000;
 /** A public host waits this long (s) for players before the AI fills the empty seats and the race starts. */
-export const LOBBY_S = 15;
+const LOBBY_S = 15;
 /** Seconds a finished public race shows its results before the next one starts (late joiners race then). */
 const RESULTS_HOLD = 12;
 /** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */
 const RACE_EVERY = 6;
 /** A client in race mode with no race message from its host this long (ms) leaves race mode. */
 const RACE_GONE_MS = 2000;
+/** A public derby's field: peers plus AI up to this many cars. */
+const PUBLIC_DERBY_FIELD = 6;
 
 /**
  * Host-authoritative netplay (docs/MULTIPLAYER.md). The host simulates and broadcasts snapshots; each
@@ -110,7 +133,7 @@ export class NetPlay {
   private transport: NetTransport | null = null;
   private room = "";
   private tx: NetTx = "bc";
-  private isPublic = false;
+  private publicKind: PublicKind | null = null;
   private car = -1;
   private layout: NetLayout | null = null;
   private readonly w = new Writer();
@@ -158,6 +181,8 @@ export class NetPlay {
   private respawnWanted = false;
   /** Client: `performance.now()` of the host's last race message (race mode follows the host's). */
   private raceAt = 0;
+  /** Client: `performance.now()` of the host's last derby message (0: not in derby mode). */
+  private derbyAt = 0;
   /** A closed tab never runs the engine's dispose: leave the room so the relay drops us at once. */
   private readonly onPageHide = (): void => this.leave();
 
@@ -181,14 +206,15 @@ export class NetPlay {
   }
 
   /**
-   * Public race: join the fullest open public room over WebRTC (the relay lists rooms whose host
-   * polled in the last few seconds and that have a free seat), or host a new one when none is open.
-   * A joined room whose host never sends a snapshot within `HOST_WAIT_MS` is abandoned for a fresh one.
+   * Public race or derby: join the fullest open public room of that kind over WebRTC (the relay
+   * lists rooms whose host polled in the last few seconds and that have a free seat), or host a new
+   * one when none is open. A joined room whose host never sends a snapshot within `HOST_WAIT_MS` is
+   * abandoned for a fresh one.
    */
-  async publicRace(): Promise<void> {
+  async publicMatch(kind: PublicKind): Promise<void> {
     let open: string | undefined;
     try {
-      const res = await fetch(`${import.meta.env.BASE_URL}api/rtc?list=public`);
+      const res = await fetch(`${import.meta.env.BASE_URL}api/rtc?list=public&kind=${kind}`);
       const list = PUBLIC_LIST.safeParse(res.ok ? await res.json() : null);
       if (list.success) open = list.data.rooms[0]?.room;
     } catch {
@@ -196,18 +222,20 @@ export class NetPlay {
     }
     if (open) {
       this.join(open, "rtc");
-      this.isPublic = true;
-    } else this.hostPublic();
+      this.publicKind = kind;
+    } else this.hostPublic(kind);
   }
 
-  /** Host a fresh public room on the race course: the lobby counts `LOBBY_S` down, then the race starts. */
-  private hostPublic(): void {
-    this.host(`${PUBLIC_PREFIX}${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
-    this.isPublic = true;
-    this.game.enterRace();
-    // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
-    const race = this.game.race();
-    race?.showLobby(race.options.trackId);
+  /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts. */
+  private hostPublic(kind: PublicKind): void {
+    this.host(`${PUBLIC_PREFIX}${kind}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
+    this.publicKind = kind;
+    if (kind === "race") {
+      this.game.enterRace();
+      // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
+      const race = this.game.race();
+      race?.showLobby(race.options.trackId);
+    } else this.game.derbyLobby(PUBLIC_DERBY_FIELD);
     this.lobbyLeft = LOBBY_S;
     this.syncSeats();
   }
@@ -220,6 +248,8 @@ export class NetPlay {
   leave(): void {
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
     if (this.role === "client" && this.game.race()) this.game.exitRace();
+    if (this.role === "client" && this.derbyAt > 0) this.game.applyDerby(null, this.car);
+    this.derbyAt = 0;
     this.transport?.close();
     this.transport = null;
     this.role = "off";
@@ -248,7 +278,7 @@ export class NetPlay {
       peers: this.transport?.peers() ?? [],
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,
-      public: this.isPublic,
+      public: this.publicKind,
     };
   }
 
@@ -256,7 +286,7 @@ export class NetPlay {
   drive(cars: DeformableCar[], dt: number, driven: number): void {
     if (this.role !== "host" || this.game.race()) return;
     for (const car of this.slots.values()) {
-      if (car === driven || car >= cars.length || !this.hasInput[car]) continue;
+      if (car === driven || car >= cars.length || !this.hasInput[car] || !this.game.remoteDrivable(car)) continue;
       applyDrive(cars[car]!, this.inputs[car]!, dt);
     }
   }
@@ -284,7 +314,7 @@ export class NetPlay {
     this.role = role;
     this.room = room;
     this.tx = tx;
-    this.isPublic = false;
+    this.publicKind = null;
     if (typeof window !== "undefined") window.addEventListener("pagehide", this.onPageHide);
   }
 
@@ -318,17 +348,19 @@ export class NetPlay {
       const car = this.r.u8();
       if (car === this.car) return;
       this.car = car;
-      if (!this.game.race()) this.game.seat.focus(car);
+      if (!this.game.race() && !this.game.derbyPhase()) this.game.seat.focus(car);
     } else if (type === MSG.snapshot) {
       this.takeSnapshot(data);
     } else if (type === MSG.race) {
       this.takeRace(data);
+    } else if (type === MSG.derby) {
+      this.takeDerby();
     }
   }
 
-  /** Netplay host: seat every peer's car as `remote` in the next race field. */
+  /** Netplay host: every peer's car is a `remote` seat from the next race or derby match on. */
   private syncSeats(): void {
-    this.game.race()?.setSeats([...this.slots.values()]);
+    this.game.setSeats([...this.slots.values()]);
   }
 
   // ── host ──────────────────────────────────────────────────────────────────
@@ -340,7 +372,8 @@ export class NetPlay {
       for (const used = new Set(this.slots.values()); used.has(car); ) car++;
       this.slots.set(peer, car);
       this.hasInput[car] = false;
-      if (car >= this.game.cars().length && !this.game.race()) this.game.setCarCount(car + 1);
+      // A race or derby seats a new peer at its next start; only Fleet grows the field at once.
+      if (car >= this.game.cars().length && !this.game.race() && !this.game.derbyPhase()) this.game.setCarCount(car + 1);
       this.syncSeats();
       this.keyframeDue = true;
     }
@@ -352,7 +385,7 @@ export class NetPlay {
 
   private hostFrame(wallDt: number, t: NetTransport): void {
     const race = this.game.race();
-    if (race && this.isPublic) this.runPublicRace(race, wallDt);
+    if (this.publicKind) this.runPublic(this.publicKind, wallDt);
     this.sendAcc += wallDt;
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = Math.min(this.sendAcc - 1 / SEND_HZ, 1 / SEND_HZ);
@@ -422,30 +455,45 @@ export class NetPlay {
     this.statSnaps++;
     this.statBytes += this.w.off;
     if (race && (s.keyframe || this.seq % RACE_EVERY === 0)) this.sendRace(race, t);
+    const derby = s.keyframe || this.seq % RACE_EVERY === 0 ? this.game.derbyState() : null;
+    if (derby) {
+      derby.lobby = this.lobbyLeft;
+      this.scratch.off = 0;
+      writeDerby(this.scratch, derby);
+      t.send(this.scratch.done());
+      this.statBytes += this.scratch.off;
+    }
   }
 
   /**
-   * Public race on the host: the lobby counts down (`LOBBY_S`, sooner once the room is full), then
-   * the race starts with every peer seated and the AI in the empty slots; a finished race shows its
-   * results for `RESULTS_HOLD` s and the next one starts, seating whoever joined meanwhile.
+   * A public match on the host: the lobby counts down (`LOBBY_S`, sooner once the room is full),
+   * then the match starts with every peer seated and the AI in the empty slots; a finished match
+   * shows its result for `RESULTS_HOLD` s and the next one starts, seating whoever joined meanwhile.
    */
-  private runPublicRace(race: NetRace, wallDt: number): void {
-    const phase = race.phase;
-    if (phase === null) {
-      this.lobbyLeft = (this.lobbyLeft ?? LOBBY_S) - wallDt;
-      if (this.lobbyLeft > 0 && this.slots.size < ROOM_MAX - 1) return;
-    } else if (phase === "finished") {
-      this.finishedFor += wallDt;
-      if (this.finishedFor < RESULTS_HOLD) return;
-    } else {
+  private runPublic(kind: PublicKind, wallDt: number): void {
+    let stage: MatchStage | null;
+    if (kind === "race") {
+      const race = this.game.race();
+      const phase = race ? race.phase : undefined;
+      stage = phase === undefined ? null : phase === null ? "lobby" : phase === "finished" ? "over" : "running";
+    } else stage = this.game.derbyPhase();
+    if (stage === null || stage === "running") {
       this.lobbyLeft = null;
       this.finishedFor = 0;
       return;
     }
+    if (stage === "lobby") {
+      this.lobbyLeft = (this.lobbyLeft ?? LOBBY_S) - wallDt;
+      if (this.lobbyLeft > 0 && this.slots.size < ROOM_MAX - 1) return;
+    } else {
+      this.finishedFor += wallDt;
+      if (this.finishedFor < RESULTS_HOLD) return;
+    }
     this.lobbyLeft = null;
     this.finishedFor = 0;
     this.syncSeats();
-    this.game.startRace();
+    if (kind === "race") this.game.startRace();
+    else this.game.startDerby(PUBLIC_DERBY_FIELD);
   }
 
   /** The rules state (or, between races, the lobby countdown and course) to every client. */
@@ -484,6 +532,20 @@ export class NetPlay {
     }
   }
 
+  /** The host's derby: derby mode on, the board, clock and result shown as is. Never stepped here. */
+  private takeDerby(): void {
+    let state: DerbyNetState;
+    try {
+      state = readDerby(this.r);
+    } catch {
+      // Truncated or malformed: keep the last good state.
+      return;
+    }
+    this.lobbyLeft = state.lobby;
+    this.derbyAt = performance.now();
+    this.game.applyDerby(state, this.car);
+  }
+
   private takeSnapshot(data: Uint8Array): void {
     const cars = this.game.cars();
     if (cars.length === 0) return;
@@ -503,14 +565,19 @@ export class NetPlay {
   }
 
   private clientFrame(wallDt: number, t: NetTransport): void {
-    if (this.isPublic && !this.heardHost && performance.now() - this.joinedAt > HOST_WAIT_MS) {
+    if (this.publicKind && !this.heardHost && performance.now() - this.joinedAt > HOST_WAIT_MS) {
       // The room's host is gone (its relay row outlives it by up to 30 s): start a fresh public room.
-      this.hostPublic();
+      this.hostPublic(this.publicKind);
       return;
     }
-    // The host left race mode (race messages stop): so does this client.
+    // The host left race or derby mode (its messages stop): so does this client.
     if (this.game.race() && this.heardHost && performance.now() - this.raceAt > RACE_GONE_MS) {
       this.game.exitRace();
+      this.lobbyLeft = null;
+    }
+    if (this.derbyAt > 0 && performance.now() - this.derbyAt > RACE_GONE_MS) {
+      this.game.applyDerby(null, this.car);
+      this.derbyAt = 0;
       this.lobbyLeft = null;
     }
     if (this.car < 0) {
@@ -530,7 +597,7 @@ export class NetPlay {
       this.game.setCarCount(count);
       this.applied.length = 0;
       // In race mode the race director seats this peer (applySnapshot); in Fleet it follows its car.
-      if (this.car >= 0 && !this.game.race()) this.game.seat.focus(this.car);
+      if (this.car >= 0 && !this.game.race() && this.derbyAt === 0) this.game.seat.focus(this.car);
     }
     const latest = this.ring[newest]!;
     if (Math.abs(latest.realism - HANDLING.realism) > 0.5 / 255) this.game.setRealism(latest.realism);

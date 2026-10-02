@@ -102,15 +102,18 @@ interface PublicRoom {
  */
 const HOST_FRESH_SECONDS = 5;
 
-/** GET ?list=public — open public rooms (a host that polled recently, a free seat), fullest first. */
-async function listPublic(sql: Sql): Promise<Response> {
+/** `?kind=`: one kind of public match; rooms are named `pub-<kind>-…` (net-play.ts `publicMatch`). */
+const KIND = z.enum(["race", "derby"]).optional();
+
+/** GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat), fullest first. */
+async function listPublic(sql: Sql, kind: "race" | "derby" | undefined): Promise<Response> {
   const rows = await sql.query<{ room: string; players: number }>(
     `SELECT room, count(*)::int AS players FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)
      GROUP BY room
      HAVING bool_or(name = 'host' AND last_seen > now() - make_interval(secs => $4)) AND count(*) < $3
      ORDER BY players DESC, room LIMIT 20`,
-    [`${PUBLIC_PREFIX}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
+    [`${PUBLIC_PREFIX}${kind ? `${kind}-` : ""}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
   );
   return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players) })) });
 }
@@ -119,8 +122,10 @@ async function listPublic(sql: Sql): Promise<Response> {
 async function handleGet(url: URL, ip: string): Promise<Response> {
   if (url.searchParams.get("list") === "public") {
     if (!limiter.list(ip)) return json({ error: "rate limited" }, 429);
+    const kind = KIND.safeParse(url.searchParams.get("kind") ?? undefined);
+    if (!kind.success) return json({ error: "invalid query" }, 400);
     const sql = await getSql();
-    return listPublic(sql);
+    return listPublic(sql, kind.data);
   }
   const parsed = z
     .object({ room: ID, peer: ID, name: NAME.default(""), since: z.coerce.number().int().min(0).default(0) })
