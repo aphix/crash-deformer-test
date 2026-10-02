@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "./car.ts";
-import type { Hull } from "./car-mesh.ts";
+import type { Hull } from "./hulls.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "./physics-util.ts";
 import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, satCarBarrier } from "./sat.ts";
 import { impulseCar, pushCar } from "./pair-contact.ts";

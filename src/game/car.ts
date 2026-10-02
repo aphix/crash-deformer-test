@@ -5,38 +5,38 @@ import { applyGroundFriction, CRASH, hypot2, round4 } from "./physics-util.ts";
 import {
   CAR_HALF,
   DOOR,
-  HULLS,
-  CRUSH_HULLS,
   WHEEL_POS,
-  getCrackMap,
   makeBumperGeometry,
   makeChassisGeometry,
   makeDoorGeometry,
-  makeDoorLining,
-  makeGlassMaterial,
-  makeGrille,
   makeHoodGeometry,
-  makeInterior,
-  makeMirror,
-  lampEmissiveMap,
-  makeLampUnit,
-  makePaintMaterial,
   makeRearGlass,
   makeRearSideGlass,
   makeSideGlass,
-  makeTailTrim,
-  makeTrimMaterial,
   makeTrunkGeometry,
   makeWindshield,
-  type Hull,
-  type LampKind,
 } from "./car-mesh.ts";
+import {
+  getCrackMap,
+  lampEmissiveMap,
+  makeDoorLining,
+  makeGlassMaterial,
+  makeGrille,
+  makeInterior,
+  makeLampUnit,
+  makeMirror,
+  makePaintMaterial,
+  makeTailTrim,
+  makeTrimMaterial,
+  type LampKind,
+} from "./car-materials.ts";
+import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
 import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "./ground.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
-export type { Hull } from "./car-mesh.ts";
+export type { Hull } from "./hulls.ts";
 
 export interface CarPaint {
   body: number;

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { LampKind } from "./car-mesh.ts";
+import type { LampKind } from "./car-materials.ts";
 
 /**
  * Lamp light pools, created once and only ever re-aimed or dimmed: adding, removing or hiding a light

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { getCrackMap, makeGlassMaterial } from "./car-mesh.ts";
+import { getCrackMap, makeGlassMaterial } from "./car-materials.ts";
 import { warmCrashPath } from "./world-step.ts";
 import { EngineCore } from "./engine-core.ts";
 
