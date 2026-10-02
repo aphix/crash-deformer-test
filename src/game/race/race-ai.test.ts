@@ -1,0 +1,149 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import * as THREE from "three";
+import { applyDrive, idleDrive } from "../car-drive.ts";
+import { DeformableCar } from "../car.ts";
+import { blankAiCar, type AiCar } from "../derby-ai.ts";
+import { snapshotAiCar } from "../derby.ts";
+import { fleetStyle } from "../fleet.ts";
+import { SURFACE_IDS, SURFACES } from "./catalog.ts";
+import { RaceBrain, onSurface } from "./race-ai.ts";
+import { RaceSession } from "./session.ts";
+import { Track, blankProjection, projectPath } from "./track.ts";
+import { TRACKS } from "./tracks/index.ts";
+import type { CarPose, Entrant } from "./types.ts";
+
+const DT = 1 / 60;
+
+type Run = { session: RaceSession; onRoad: number; samples: number };
+
+/**
+ * Real cars on the real drive model (kinematic, as every car is until it crashes), no car-to-car
+ * contact: the AI alone has to keep them on the road and round the laps.
+ */
+function race(track: Track, n: number, aggression: number, laps: number, limit: number): Run {
+  const scene = new THREE.Scene();
+  const ground = track.ground();
+  const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0x404040, name: `ai${i}` }, scene, null, fleetStyle(i)));
+  const entrants: Entrant[] = cars.map((_, i) => ({ id: i, name: `ai${i}`, kind: "ai", aggression }));
+  const session = new RaceSession(track, entrants, { laps, noReset: false });
+  const brain = new RaceBrain(track, n);
+  cars.forEach((c, i) => {
+    const g = track.gridSlot(i);
+    c.spawnFacing(g.x, g.z, g.yaw, 0);
+    brain.setAggression(i, aggression);
+  });
+  const snaps: AiCar[] = cars.map((_, i) => blankAiCar(i));
+  const poses: CarPose[] = cars.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
+  const hold = { ...idleDrive(), brake: 1 };
+  const scratch = idleDrive();
+  const p = blankProjection();
+  let onRoad = 0;
+  let samples = 0;
+  let step = 0;
+  while (session.phase !== "finished" && session.time < limit) {
+    cars.forEach((c, i) => snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses));
+    cars.forEach((c, i) => {
+      const rec = session.cars[i]!;
+      const surf = SURFACES[SURFACE_IDS[ground.surfaceIndex(c.group.position.x, c.group.position.z)]!];
+      const input = session.phase === "racing" && rec.status === "racing" ? brain.think(snaps[i]!, snaps, rec, DT) : hold;
+      applyDrive(c, onSurface(input, surf, scratch), DT);
+      c.integrate(DT);
+    });
+    cars.forEach((c, i) => {
+      const pose = poses[i]!;
+      pose.x = c.group.position.x;
+      pose.z = c.group.position.z;
+      pose.yaw = c.yaw;
+      pose.vx = c.velocity.x;
+      pose.vz = c.velocity.z;
+    });
+    session.step(DT, poses);
+    session.events();
+    if (session.phase === "racing" && ++step % 6 === 0) {
+      cars.forEach((c, i) => {
+        if (session.cars[i]!.status !== "racing") return;
+        samples++;
+        const x = c.group.position.x;
+        const z = c.group.position.z;
+        projectPath(track.path, x, z, -1, p);
+        if (Math.abs(p.lateral) <= track.path.half[p.k]! + 0.3) {
+          onRoad++;
+          return;
+        }
+        for (const sc of track.shortcuts) {
+          projectPath(sc.path, x, z, -1, p);
+          if (Math.abs(p.lateral) <= sc.path.half[p.k]! + 0.3) {
+            onRoad++;
+            return;
+          }
+        }
+      });
+    }
+  }
+  return { session, onRoad, samples };
+}
+
+const at = (id: number, x: number, z: number, vz: number): AiCar => ({ ...blankAiCar(id), x, z, vz });
+
+describe("race AI", () => {
+  for (const json of TRACKS) {
+    const track = new Track(json);
+    it(`${track.id}: 8 clean AI cars finish 3 laps on the road within the time bound`, () => {
+      const best = (3 * track.length) / 18;
+      const limit = best * 1.45;
+      const { session, onRoad, samples } = race(track, 8, 0, 3, limit);
+      const fin = session.cars.filter((c) => c.status === "finished");
+      assert.equal(fin.length, 8, `finished ${fin.length}/8 by ${session.time.toFixed(0)} s (bound ${limit.toFixed(0)} s); laps ${session.cars.map((c) => c.lap).join(",")}`);
+      const share = onRoad / samples;
+      assert.ok(share >= 0.95, `on the road ${(share * 100).toFixed(1)}% of ${samples} samples`);
+      const winner = session.cars.find((c) => c.id === session.winnerId)!;
+      assert.ok(winner.finishTime! < limit);
+    });
+  }
+
+  const oval = new Track(TRACKS[0]);
+  const s0 = 40;
+  const lane = (brain: RaceBrain, self: AiCar, others: AiCar[], steps: number) => {
+    let steer = 0;
+    for (let k = 0; k < steps; k++) steer = brain.think(self, others, { next: 1, lap: 0 }, DT).steer;
+    return steer;
+  };
+  const pt = oval.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+
+  it("passes a slower car ahead on its line; an aggressive driver rams it instead", () => {
+    // Back straight runs +Z at x = −55: left of travel is +X. Both near the left edge, so the only pass is to the right.
+    const me = at(0, pt.x + 6, pt.z, 17);
+    const slow = at(1, pt.x + 6, pt.z + 9, 8);
+    const clean = new RaceBrain(oval, 2);
+    const passing = lane(clean, me, [me, slow], 40);
+    const brute = new RaceBrain(oval, 2);
+    brute.setAggression(0, 1);
+    const ramming = lane(brute, me, [me, slow], 40);
+    assert.ok(passing < -0.05, `clean pulls right to pass, steer ${passing.toFixed(3)}`);
+    assert.ok(Math.abs(ramming) < 0.06 && Math.abs(ramming) < Math.abs(passing) / 3, `aggressive stays on the slow car's line, steer ${ramming.toFixed(3)} vs clean ${passing.toFixed(3)}`);
+    const charge = brute.think(me, [me, slow], { next: 1, lap: 0 }, DT);
+    assert.ok(charge.throttle > 0 && charge.brake === 0, "and keeps the throttle in");
+  });
+
+  it("an aggressive driver closes the door on a faster car coming through; a clean one holds its line", () => {
+    const me = at(0, pt.x, pt.z, 12);
+    const fast = at(1, pt.x + 3, pt.z - 5, 18);
+    const clean = new RaceBrain(oval, 2);
+    const brute = new RaceBrain(oval, 2);
+    brute.setAggression(0, 1);
+    const holds = lane(clean, me, [me, fast], 40);
+    const blocks = lane(brute, me, [me, fast], 40);
+    assert.ok(blocks > holds + 0.02, `block steer ${blocks.toFixed(3)} vs clean ${holds.toFixed(3)} (left is +)`);
+  });
+
+  it("follows a slower car when the road is too narrow to pass", () => {
+    const narrow = new Track({ ...(TRACKS[0] as object), road: { width: 6, runoff: [3, 3], surface: "asphalt", runoffSurface: "concrete" } });
+    const p = narrow.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+    const me = at(0, p.x, p.z, 15);
+    const slow = at(1, p.x, p.z + 7, 6);
+    const brain = new RaceBrain(narrow, 2);
+    const out = brain.think(me, [me, slow], { next: 1, lap: 0 }, DT);
+    assert.ok(out.brake > 0 && out.throttle === 0, `brake ${out.brake} throttle ${out.throttle}`);
+  });
+});
