@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import type { DeformableCar } from "./car.ts";
 import {
   CRASH,
   TRANSFER,
@@ -67,6 +68,24 @@ export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, 
   const k = (s - drop) / s;
   vel.x *= k;
   vel.z *= k;
+}
+
+/**
+ * A crashed car's slide after the hit (`CrashEngine.fixedStep`): tyre-style friction on the group, and
+ * the mass ground drag. The drag ramps from the hit, not from the last car contact: a pair grinding
+ * together kept resetting the contact timer and slid ~3× as far as one wreck alone, and a frictionless
+ * pair pushed long enough lets the bullet drive through the struck car (T-bone, RIG_ANALYSIS §6.6). A car
+ * under power keeps the contact ramp (it is driven, not sliding); `dragGround` skips an airborne wreck.
+ */
+export function bleedAfterSlide(car: DeformableCar, dt: number): void {
+  if (!car.crashed) return;
+  const q = car.deform.quietTime();
+  const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
+  applyGroundFriction(car.velocity, dt, mu, true);
+  if (car.deform.massActive) {
+    const t = car.deform.powered ? q : car.deform.sinceHit();
+    car.deform.dragGround(dt, THREE.MathUtils.clamp((t - 0.08) / 1.1, 0, 1));
+  }
 }
 
 export function snapshotPoints(

@@ -95,8 +95,22 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
 
   let remain = Math.max(0, closing);
   if (feed && crushHit) {
-    const remainA = carA.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt);
-    const remainB = carB.deform.feedOverlap(_cp, _w.copy(_cn).negate(), crushHit, Math.max(0, closing), dt);
+    // A side contact drives each car's contact masses to the pair's common speed along the normal: a
+    // fixed-face kill (0) stopped a T-bone bullet's nose dead while the struck car got no momentum, only
+    // whole-body pushes, so its door never crushed (0.02 m vs the 0.12–0.28 m band).
+    // ponytail: end-on pairs keep the fixed-face kill, which the piston rig's frontal parity is matched
+    // to; driving a struck nose to the common speed makes its tail lag into crush (beams have no yield
+    // force). Upgrade path: car-car through external-contact's bodyContact (CONTACT_PARITY.md).
+    let vc = 0;
+    const rA = carA.rightFlat, fA = carA.fwdFlat, rB = carB.rightFlat, fB = carB.fwdFlat;
+    const sideA = Math.abs(_cn.x * rA.x + _cn.z * rA.z) > Math.abs(_cn.x * fA.x + _cn.z * fA.z);
+    if (sideA || Math.abs(_cn.x * rB.x + _cn.z * rB.z) > Math.abs(_cn.x * fB.x + _cn.z * fB.z)) {
+      const mA = carA.deform.totalMass;
+      const mB = carB.deform.totalMass;
+      vc = (mA * carA.velocity.dot(_cn) + mB * carB.velocity.dot(_cn)) / (mA + mB);
+    }
+    const remainA = carA.deform.feedOverlap(_cp, _cn, crushHit, Math.max(0, closing), dt, vc);
+    const remainB = carB.deform.feedOverlap(_cp, _w.copy(_cn).negate(), crushHit, Math.max(0, closing), dt, -vc);
     remain = Math.max(0, Math.min(remainA, remainB));
   }
   if (feed && crushHit && closing > 0 && carA.crashed && carB.crashed && Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) >= 0.9) {

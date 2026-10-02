@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch } from "./car-mesh.ts";
-import { leftoverCrumple, applyGroundFriction, CRASH, separateSphereFromAabb } from "./physics-util.ts";
+import { bleedAfterSlide, leftoverCrumple, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
 import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo } from "./engine-pistons.ts";
@@ -1124,7 +1124,7 @@ export class CrashEngine {
         this.acc -= h;
         for (const car of cars) {
           if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
-          if (this.wallSinceImpact > 0.2 && car.crashed) this.bleedAfterSlide(car, h);
+          if (this.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
         }
         steps++;
         if (steps >= 2 && performance.now() > budget) break;
@@ -1612,20 +1612,6 @@ export class CrashEngine {
       }
     }
     return best;
-  }
-
-  private bleedAfterSlide(car: DeformableCar, dt: number): void {
-    if (!car.crashed) return;
-    const q = car.deform.quietTime();
-    const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
-    applyGroundFriction(car.velocity, dt, mu, true);
-    if (car.deform.massActive) {
-      // The mass drag ramps from the hit, not from the last car contact: a pair grinding together kept
-      // resetting the contact timer and slid ~3× as far as one wreck alone. A car under power keeps the
-      // contact ramp (it is driven, not sliding); dragGround itself skips an airborne wreck.
-      const t = car.deform.powered ? q : car.deform.sinceHit();
-      car.deform.dragGround(dt, THREE.MathUtils.clamp((t - 0.08) / 1.1, 0, 1));
-    }
   }
 
   private armEngineSmoke(car: DeformableCar, extra: number): void {

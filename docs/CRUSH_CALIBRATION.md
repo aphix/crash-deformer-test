@@ -16,7 +16,8 @@ and the instrument, was measured on `0e83d6f` (§8). Every number below comes fr
 
 - **Default car (0.32 / 0.45) on `fe381c3`, full speed:** score 0.028, centre 0.55. 56 km/h wall: nose 0.37 m, COM
   travel 0.52 m, 83 ms, 18.1 g, cabin 0.03 m. Two misses, neither from the knobs: the 2×56 head-on pulse (§5.4) and
-  the T-bone struck door, which on `fe381c3` swings on its hinge instead of intruding (0.02 m at every squash, §5.6).
+  the T-bone struck door, which on `fe381c3` swings on its hinge instead of intruding (0.02 m at every squash; fixed
+  by `crash-realism-7`: 0.242 m at 0.32, §5.6).
 - **Slomo** (the engine's impact slow motion, `--slomo`): score 0.049, centre 0.50, same two misses.
 - **Defaults button:** `engine.resetDefaults` copies `INITIAL_HUD`, including realism and the player's car class. The
   engine fields start from `INITIAL_HUD`. The `StreamedDeformation` field defaults equal it, and
@@ -370,13 +371,16 @@ After a packing first hit, the next 35 km/h hit crushed the nose **past** the pa
 
 The old test had passed only because 50 km/h at 0.4 was the one safe fixture.
 
-### 5.6 T-bone struck door swings instead of intruding (`fe381c3`, every squash)
+### 5.6 T-bone struck door swings instead of intruding (`fe381c3`, every squash) — fixed by `crash-realism-7`
 
-The 50 km/h T-bone's struck door particle moves 0.02 m at every squash and buckle (target 0.12–0.28 m; it was
-0.21–0.28 m on `b9c5647`). The door part ends with its hinge at 0.25 and the mirror torn off, and the bullet's
-nose still crushes 0.24 m. The same 0.022 m reads on the lane tree before and after CrashRealism6, so it came with
-main's car-car part contact (`partContactPair`, `107db69`…`a540314`), not with the knobs. Not a crush calibration
-issue; it lowers every cell's score by the same ≈ 0.023.
+The 50 km/h T-bone's struck door particle moves 0.02 m at every squash and buckle (target 0.12–0.28 m). The door
+part ends with its hinge at 0.25 and the mirror torn off, and the bullet's nose still crushes 0.24 m.
+
+**Correction:** the 0.21–0.28 m recorded on `b9c5647` was not a crush. A per-frame trace shows the door at ≤ 0.01 m
+for 0.9 s there too; the bullet then drove through the struck car (cell 5 m past) and the door particle read
+0.21–0.28 m as it passed. Nor did it come with `partContactPair`: car-car contact never gave the struck car momentum
+(RIG_ANALYSIS §6.6). With the side-contact fix the door intrudes 0.242 / 0.263 m (squash 0.32 / 0.4) within 0.1 s
+and the bullet stays 2.4 m clear of the struck cell.
 
 ## 6. Owner's 1/1 setting (lane tree, `fe381c3`)
 

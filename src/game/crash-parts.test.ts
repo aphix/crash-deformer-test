@@ -5,7 +5,7 @@ import { StreamedDeformation, TYRE_R, type DeformMode } from "./streamed-deform.
 import { DeformableCar } from "./car.ts";
 import { leftoverCrumple, snapshotPoints } from "./physics-util.ts";
 import { DT, dummyGeom, forModes, mass, paint } from "./test-support.ts";
-import { makeWorld, runPair, runWall, tickWorld } from "./crash-scenarios.test-util.ts";
+import { makeCar, makeWorld, runPair, runWall, tickWorld } from "./crash-scenarios.test-util.ts";
 import { sliceSpeed } from "./sat.ts";
 import { fleetStyle } from "./fleet.ts";
 import { bounceGround, bounceOffCar, DebrisSystem } from "./engine-fx.ts";
@@ -314,6 +314,45 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
     const [struck, bullet] = runPair(0, 50, "t-bone");
     for (const [name, r] of [["offset56", runWall(56, 0.4)], ["struck", struck], ["bullet", bullet]] as const) {
       assert.ok(r.engineGapErr <= 0.012, `${name}: engineL–engineR off 0.60 by ${r.engineGapErr.toFixed(3)} m`);
+    }
+  });
+});
+
+/** 50 km/h T-bone (runPair's layout): the struck door's deepest intrusion in the first 0.3 s of
+ *  contact, and the least gap (m) between the bullet's cell and the struck cell along the travel. */
+function tbone(squash: number): { door: number; gap: number } {
+  const a = makeCar("shape", squash);
+  const b = makeCar("shape", squash);
+  for (const [c, x, yaw, vx] of [[a, 0, 0, 0], [b, 6, -Math.PI / 2, -50 / 3.6]] as const) {
+    c.spawnFacing(x, 0, yaw, 0);
+    c.velocity.set(vx, 0, 0);
+    c.deform.bindKinematic(c.group, c.velocity, c.angular);
+  }
+  const w = makeWorld([a, b], false, false);
+  let door = 0;
+  let gap = Infinity;
+  let since = -1;
+  for (let f = 0; f < 150; f++) {
+    tickWorld(w);
+    if (since < 0 && a.crashed) since = 0;
+    if (since < 0 || !a.deform.massActive || !b.deform.massActive) continue;
+    since += 1 / 60;
+    if (since <= 0.3) door = Math.max(door, 0.78 - (mass(a.deform, "doorR").local.x - mass(a.deform, "cell").local.x));
+    gap = Math.min(gap, mass(b.deform, "cell").world.x - mass(a.deform, "cell").world.x);
+  }
+  return { door, gap };
+}
+
+describe("a T-bone crushes the struck door in the impact, and the bullet stays on its side", () => {
+  // CRUSH_CALIBRATION tbone50 band (IIHS side 50 km/h): struck-door intrusion 0.12–0.28 m. Car-car
+  // contact stopped the bullet's nose dead while the struck car got no momentum: door 0.01 m in the
+  // impact; without the in-contact ground drag the bullet then drove through the struck car (its cell
+  // 3.6–5 m past), and that pass-through was the 0.26 m "door" the calibration once recorded.
+  it("bad: at 50 km/h the struck door intrudes 0.12–0.28 m within 0.3 s and the bullet's cell never reaches the struck car's centreline", () => {
+    for (const squash of [0.32, 0.4]) {
+      const { door, gap } = tbone(squash);
+      assert.ok(door >= 0.12 && door <= 0.28, `squash ${squash}: door ${door.toFixed(3)} m in the impact`);
+      assert.ok(gap > 0.9, `squash ${squash}: bullet cell ${gap.toFixed(2)} m from the struck cell`);
     }
   });
 });
