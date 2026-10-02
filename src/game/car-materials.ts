@@ -192,7 +192,7 @@ export function makePartsMaterial(): THREE.MeshStandardMaterial {
 
 /** Paint `geo` one flat tone: vertex colour (linear, as `material.color` would be) and a UV at the
  * tone-grid texel for this roughness/metalness. */
-export function toned(geo: THREE.BufferGeometry, color: number, roughness: number, metalness: number): THREE.BufferGeometry {
+function toned(geo: THREE.BufferGeometry, color: number, roughness: number, metalness: number): THREE.BufferGeometry {
   const n = geo.getAttribute("position").count;
   const c = new THREE.Color(color);
   const u = (Math.round(roughness * TONE_STEPS) + 0.5) / (TONE_STEPS + 1);
@@ -211,7 +211,7 @@ export function toned(geo: THREE.BufferGeometry, color: number, roughness: numbe
   return geo;
 }
 
-export function mergeToned(parts: THREE.BufferGeometry[], what: string): THREE.BufferGeometry {
+function mergeToned(parts: THREE.BufferGeometry[], what: string): THREE.BufferGeometry {
   const geo = mergeGeometries(parts, false);
   for (const g of parts) g.dispose();
   if (!geo) throw new Error(`Failed to merge ${what}`);
@@ -360,7 +360,7 @@ export function makeSirenMaterial(): THREE.MeshStandardMaterial {
 }
 
 /** Lug pitches across one repeat of `treadNormalMap` (u runs around the tyre). */
-export const TREAD_LUGS = 4;
+const TREAD_LUGS = 4;
 
 /** Tread normal map: `TREAD_LUGS` lug pitches across u, the tread width across v with a flat margin
  *  (v < 0.06 / > 0.94), so shoulders and rims pinned to v = 0 read flat. Built in code (no DOM). Shared. */
@@ -404,3 +404,73 @@ export const treadNormalMap = once((): THREE.DataTexture => {
   t.needsUpdate = true;
   return t;
 });
+
+/** Tyre half-section, bead to bead ([radius, axle offset] m, axle offset ascending so faces point out):
+ *  bulged sidewalls, rounded shoulders, a slightly crowned tread whose crown is the rig's `TYRE_R` (0.32). */
+const TYRE_PROFILE = [
+  [0.205, -0.1],
+  [0.262, -0.112],
+  [0.298, -0.104],
+  [0.314, -0.082],
+  [0.32, 0],
+  [0.314, 0.082],
+  [0.298, 0.104],
+  [0.262, 0.112],
+  [0.205, 0.1],
+] as const;
+/** `treadNormalMap` v per profile point: flat (0 / 1) off the tread, 0.06 → 0.94 across it. */
+const TYRE_TREAD_V = [0, 0, 0, 0.06, 0.5, 0.94, 1, 1, 1] as const;
+/** Normal-map repeats round the tyre (× `TREAD_LUGS` lugs each). */
+const TREAD_REPEATS = 8;
+/** Rim barrel lip to lip, axle offset descending so the faces point at the axle (seen through the spokes). */
+const RIM_PROFILE = [
+  [0.216, 0.1],
+  [0.2, 0.102],
+  [0.188, 0.086],
+  [0.188, -0.086],
+  [0.2, -0.102],
+  [0.216, -0.1],
+] as const;
+
+/** Lathe `profile` about the x axle, toned; `uv1` (the tread normal map's set) runs ×`repeats` round it, `v` per point. */
+function latheX(
+  profile: readonly (readonly [number, number])[],
+  segs: number,
+  v: readonly number[] | null,
+  repeats: number,
+  tone: readonly [number, number, number],
+): THREE.BufferGeometry {
+  const g = new THREE.LatheGeometry(profile.map(([r, x]) => new THREE.Vector2(r, x)), segs);
+  const uv = g.getAttribute("uv");
+  const uv1 = new Float32Array(uv.count * 2);
+  for (let i = 0; i < uv.count; i++) {
+    uv1[i * 2] = uv.getX(i) * repeats;
+    uv1[i * 2 + 1] = v ? v[Math.round(uv.getY(i) * (profile.length - 1))]! : 0;
+  }
+  g.setAttribute("uv1", new THREE.BufferAttribute(uv1, 2));
+  return toned(g, ...tone).rotateZ(-Math.PI / 2);
+}
+
+/** A toned part with a flat `uv1` (row 0 of the tread map). */
+function flatPart(g: THREE.BufferGeometry, tone: readonly [number, number, number]): THREE.BufferGeometry {
+  g.setAttribute("uv1", new THREE.BufferAttribute(new Float32Array(g.getAttribute("position").count * 2), 2));
+  return toned(g, ...tone);
+}
+
+const RUBBER = [0x121214, 0.92, 0.05] as const;
+const ALLOY = [0xc9cdd4, 0.28, 0.92] as const;
+
+/**
+ * One wheel about the x axle, symmetric in x so the same instance serves both sides: a lathed tyre
+ * (tread detail from `treadNormalMap`), a rim barrel, five spokes through the full rim width over a
+ * dark centre disc, and the hub. ~680 triangles.
+ */
+export function makeWheelGeometry(): THREE.BufferGeometry {
+  const parts = [latheX(TYRE_PROFILE, 24, TYRE_TREAD_V, TREAD_REPEATS, RUBBER), latheX(RIM_PROFILE, 16, null, 1, ALLOY)];
+  for (const side of [1, -1]) parts.push(flatPart(new THREE.CircleGeometry(0.19, 16).rotateY((side * Math.PI) / 2), [0x1c1d20, 0.7, 0.3]));
+  for (let k = 0; k < 5; k++) {
+    parts.push(flatPart(new THREE.BoxGeometry(0.17, 0.15, 0.042).translate(0, 0.115, 0).rotateX((k * 2 * Math.PI) / 5), ALLOY));
+  }
+  parts.push(flatPart(new THREE.CylinderGeometry(0.062, 0.062, 0.19, 10).rotateZ(Math.PI / 2), [0x8a909a, 0.35, 0.8]));
+  return mergeToned(parts, "wheel");
+}

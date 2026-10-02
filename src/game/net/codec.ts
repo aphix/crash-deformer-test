@@ -18,8 +18,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
  * refuse each other instead of misreading snapshots. Bump on any change to a message layout.
+ * 3: 9 part slots per car (the police light bar; was 8), the "police" body style and class indices.
  */
-export const NET_VERSION = 2;
+export const NET_VERSION = 3;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
