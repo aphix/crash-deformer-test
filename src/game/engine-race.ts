@@ -25,6 +25,7 @@ import {
   type RaceHudRow,
   type RaceMenu,
   type RaceOptions,
+  type RaceSnapshot,
 } from "./race/types.ts";
 
 /** What the director needs from `CrashEngine`. */
@@ -124,6 +125,8 @@ export class RaceDirector {
   private readonly snaps: AiCar[] = [];
   private readonly poses: CarPose[] = [];
   private readonly scratch: DriveInput = idleDrive();
+  /** Per car id: last input received for a remote slot. */
+  private readonly remote: DriveInput[] = Array.from({ length: MAX_CARS }, () => idleDrive());
   private readonly cruise: DriveInput = idleDrive();
   private readonly hold: DriveInput = { ...idleDrive(), brake: 1 };
   private readonly proj = blankProjection();
@@ -291,6 +294,29 @@ export class RaceDirector {
     }
   }
 
+  /** A network peer's latest input for car `carId` (slot kind "remote"); held until the next one arrives. */
+  setRemoteInput(carId: number, input: DriveInput): void {
+    const r = this.remote[carId];
+    if (!r) return;
+    r.throttle = input.throttle;
+    r.steer = input.steer;
+    r.brake = input.brake;
+    r.ebrake = input.ebrake;
+    r.boost = input.boost;
+  }
+
+  /** Host: the whole rules state as plain JSON (null outside a race). */
+  snapshot(): RaceSnapshot | null {
+    return this.session ? this.session.snapshot() : null;
+  }
+
+  /** Client: adopt the host's rules state; a client renders it and never steps its own session. */
+  applySnapshot(snap: RaceSnapshot): void {
+    const tr = this.load(snap.trackId);
+    this.session = RaceSession.restore(tr, snap);
+    snap.cars.forEach((c, k) => (this.rowOf[c.id] = k));
+  }
+
   /** R / D-pad down: the player asks to be put back on the track. */
   requestRespawn(): void {
     if (this.session && this.menu == null && !this.spectating) this.session.requestRespawn(PLAYER);
@@ -324,10 +350,10 @@ export class RaceDirector {
       const rec = s.cars[this.rowOf[i]!]!;
       let input: DriveInput = this.hold;
       if (racing && rec.status === "racing") {
-        input =
-          this.entrants[i]!.kind === "player" && !this.spectating && this.host.seat.mode === "drive" && this.host.seat.carIndex === i
-            ? this.host.seat.input(car, dt)
-            : brain.think(snaps[i]!, snaps, rec, dt);
+        const kind = this.entrants[i]!.kind;
+        if (kind === "remote") input = this.remote[i]!;
+        else if (kind === "player" && !this.spectating && this.host.seat.mode === "drive" && this.host.seat.carIndex === i) input = this.host.seat.input(car, dt);
+        else input = brain.think(snaps[i]!, snaps, rec, dt);
       } else if (rec.status === "finished") {
         // Cool-down lap on the racing line.
         const ai = brain.think(snaps[i]!, snaps, rec, dt);
