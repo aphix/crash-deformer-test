@@ -142,6 +142,21 @@ describe("signaling relay", () => {
     assert.deepEqual([third.status, third.body.error], [429, "too many public rooms"]);
   });
 
+  it("keeps offering a public room through its host's stall between polls, and drops it once the host is gone", async () => {
+    // Measured in a browser: a host's first course warm-up held its polls back 5.6–8.6 s.
+    await tab(sql, "pub-derby-STALL1", "stallhost", "host").poll();
+    await tab(sql, "pub-derby-GONE1", "gonehost", "host").poll();
+    const since = `UPDATE webrtc_peers SET last_seen = now() - make_interval(secs => $2) WHERE room = $1`;
+    await sql.query(since, ["pub-derby-STALL1", 9]);
+    await sql.query(since, ["pub-derby-GONE1", 20]);
+    const list = await handleSignaling(
+      new Request("http://relay.test/api/rtc?list=public&kind=derby", { headers: { "x-forwarded-for": "10.9.9.8" } }),
+      async () => sql,
+    );
+    const listed: { rooms: { room: string }[] } = await list.json();
+    assert.deepEqual(listed.rooms.map((r) => r.room), ["pub-derby-STALL1"]);
+  });
+
   it("migrates a store the pre-token relay wrote", async () => {
     const legacy = await relayDb(async (pg) => {
       for (let k = 0; k <= ROOM_MAX; k++) {

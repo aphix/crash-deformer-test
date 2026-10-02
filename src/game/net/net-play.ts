@@ -69,7 +69,12 @@ const REDUNDANT = 3;
 /** Clients draw this far (s) behind the host's newest snapshot. */
 const INTERP_DELAY = 0.1;
 const RING = 8;
-/** A public-race client with no host snapshot this long (ms) after joining hosts a fresh room. */
+/**
+ * A public-race client whose host stays silent for this long (ms) of its own frame time hosts a fresh room.
+ * Frame time, not wall time: the client's own stalls (the engine's boot warm-up runs no netplay frames, a
+ * hidden tab, a course loading) would otherwise read as a dead host, and it would leave a live room to host a
+ * duplicate (measured: 3 of 10 public rejoins after a reload).
+ */
 const HOST_WAIT_MS = 5000;
 /** A public host waits this long (s) for players before the AI fills the empty seats and the race starts. */
 const LOBBY_S = 15;
@@ -163,8 +168,9 @@ export class NetPlay {
   private readonly applied: number[] = [];
   private readonly idle = idleDrive();
   private helloAcc = HELLO_EVERY;
-  /** `now()` at join, and whether this peer has heard any host since. */
-  private joinedAt = 0;
+  /** Client: frame time (s, `wallDt` summed, each capped by the engine) since joining or the host's last message. */
+  private silentFor = 0;
+  /** Whether this peer has heard any host since it joined. */
   private heardHost = false;
   /** The host this client follows: the sender of the first assign; every host message from anyone else is dropped. */
   private hostId: string | null = null;
@@ -207,15 +213,15 @@ export class NetPlay {
 
   join(room: string, tx: NetTx = "bc"): void {
     this.start("client", room, tx);
-    this.joinedAt = this.now();
+    this.silentFor = 0;
     this.heardHost = false;
   }
 
   /**
    * Public race or derby: join the fullest open public room of that kind over WebRTC (the relay
    * lists rooms whose host polled in the last few seconds and that have a free seat), or host a new
-   * one when none is open. A joined room whose host never sends a snapshot within `HOST_WAIT_MS` is
-   * abandoned for a fresh one.
+   * one when none is open. A joined room whose host stays silent for `HOST_WAIT_MS` of this client's
+   * frame time is abandoned for a fresh one.
    */
   async publicMatch(kind: PublicKind): Promise<void> {
     let open: string | undefined;
@@ -597,6 +603,7 @@ export class NetPlay {
     // Only the host this client follows speaks for the room.
     if (from !== this.hostId) return;
     this.hostAt = this.now();
+    this.silentFor = 0;
     this.hostHeld = type === MSG.hold;
     if (type === MSG.snapshot) this.takeSnapshot(data);
     else if (type === MSG.race) this.takeRace(data);
@@ -616,6 +623,7 @@ export class NetPlay {
     const car = data[1]!;
     this.hostId = from;
     this.hostAt = this.now();
+    this.silentFor = 0;
     this.heardHost = true;
     this.hostLost = false;
     if (car === this.car) return;
@@ -686,9 +694,10 @@ export class NetPlay {
 
   private clientFrame(wallDt: number, t: NetTransport): void {
     // The host went quiet. A hidden host still on the link only paused; otherwise it is gone (closed, lost, restarted).
-    const quiet = this.now() - (this.heardHost ? this.hostAt : this.joinedAt);
+    this.silentFor += wallDt;
+    const quiet = this.now() - this.hostAt;
     const paused = this.hostHeld && t.peers().some((p) => p.id === this.hostId);
-    if (this.publicKind && !paused && quiet > HOST_WAIT_MS) {
+    if (this.publicKind && !paused && this.silentFor * 1000 > HOST_WAIT_MS) {
       // A dead public room (its relay row outlives the host by up to 30 s) is no use to anyone: start a fresh one.
       this.hostPublic(this.publicKind);
       return;
