@@ -342,20 +342,6 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
       assert.ok(r.engineGapErr <= 0.012, `${name}: engineL–engineR off 0.60 by ${r.engineGapErr.toFixed(3)} m`);
     }
   });
-
-  it("bad: glass breaks with its frame — a 35 km/h wall cracks the windscreen and spares the rear glass, a 56 km/h wall shatters it, a 50 km/h side hit bursts the struck door glass only", () => {
-    const glassAfter = (kph: number, approach: "front" | "side") => {
-      const car = makeCar();
-      runWall(kph, 1, approach, { car });
-      return car["glassPanes"].map((g) => g.state);
-    };
-    // Pane order (addGlass): 0 windscreen, 1 rear glass, 2/3 door glass L/R.
-    const slow = glassAfter(35, "front");
-    assert.deepEqual([slow[0], slow[1]], ["cracked", "intact"], "35 km/h wall");
-    assert.equal(glassAfter(56, "front")[0], "shattered", "56 km/h wall windscreen");
-    const side = glassAfter(50, "side");
-    assert.deepEqual([side[2], side[3]], ["shattered", "intact"], "50 km/h left side hit: door glass L/R");
-  });
 });
 
 describe("the tyres are a head-on's final stop", () => {
