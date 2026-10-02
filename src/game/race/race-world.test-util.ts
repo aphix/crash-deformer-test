@@ -272,6 +272,8 @@ export function playerRace(w: World, track: Track, line: PlayerLine, laps: numbe
   let detourK = -1;
   let detourLap = -1;
   let pressed = false;
+  /** Seconds the player has sat under 0.5 m/s while racing (nose-in on a wall it can't reverse off). */
+  let stuckFor = 0;
   const out = { hudLapMismatch: 0, hudPlaceMismatch: 0, samples: 0 };
   for (let n = 0; n * FRAME < bound; n++) {
     const h = r.hud();
@@ -307,6 +309,12 @@ export function playerRace(w: World, track: Track, line: PlayerLine, laps: numbe
     if (racing && line.respawnAt !== undefined && !pressed && h.time >= line.respawnAt) {
       r.requestRespawn();
       pressed = true;
+    }
+    // A player stuck after a racing incident presses respawn, as a real one would (the script never reverses).
+    stuckFor = racing && h.you?.status === "racing" && car.velocity.length() < 0.5 ? stuckFor + FRAME : 0;
+    if (stuckFor >= 3) {
+      r.requestRespawn();
+      stuckFor = 0;
     }
     frame(w, state);
     if (n % 30 === 29) {
