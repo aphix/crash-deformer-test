@@ -51,18 +51,13 @@ function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
 }
 
-function smooth01(t: number): number {
-  const c = THREE.MathUtils.clamp(t, 0, 1);
-  return c * c * (3 - 2 * c);
-}
-
 function sampleSlice(z: number, profile: readonly ProfileStation[]): ProfileStation {
   if (z <= profile[0]!.z) return { ...profile[0]!, z };
   for (let i = 1; i < profile.length; i++) {
     const a = profile[i - 1]!;
     const b = profile[i]!;
     if (z <= b.z) {
-      const s = smooth01((z - a.z) / (b.z - a.z));
+      const s = THREE.MathUtils.smoothstep((z - a.z) / (b.z - a.z), 0, 1);
       return {
         z,
         hw: lerp(a.hw, b.hw, s),
@@ -195,7 +190,7 @@ function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
   for (let i = 3; i <= 5; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
   for (const p of half) {
     if (well < 0.03 || p[0] < hw * 0.58 || p[1] > archY + 0.02) continue;
-    const t = smooth01((p[0] - hw * 0.58) / (hw * 0.42));
+    const t = THREE.MathUtils.smoothstep((p[0] - hw * 0.58) / (hw * 0.42), 0, 1);
     p[1] = Math.max(p[1], lerp(p[1], archY, t));
   }
   const left = half.map(([x, y]) => ({ x: -x, y }));

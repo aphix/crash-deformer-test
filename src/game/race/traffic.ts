@@ -4,6 +4,7 @@ import { MAX_CARS } from "../fleet.ts";
 import { steerGrip } from "./race-ai.ts";
 import { SURFACE_IDS, SURFACES } from "./catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "./track.ts";
+import { clamp, wrapPi } from "../scalar.ts";
 
 /** Look this far (m) ahead in the lane for anything in the way. */
 const LOOK = 18;
@@ -30,14 +31,6 @@ export type TrafficSpawn = { x: number; y: number; z: number; yaw: number };
 
 /** One traffic car's lane: the path it drives, its lateral offset and direction. */
 export type TrafficSlot = { path: TrackPath; offset: number; dir: 1 | -1 };
-
-function wrapPi(a: number): number {
-  return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
-}
 
 /**
  * NPC world traffic. Cars `firstId…` drive, in order, the course's race-loop lanes

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { STEP_UP, type Ground } from "../ground.ts";
+import { clamp01, wrapPi } from "../scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type TrackJson } from "./track-schema.ts";
 
@@ -95,10 +96,6 @@ export type WallHit = { x: number; z: number; nx: number; nz: number; k: number 
 
 /** A spot on the course: position (y = the path's height there, for picking the ground layer) and heading. */
 export type Placement = { x: number; y: number; z: number; yaw: number };
-
-function wrapPi(a: number): number {
-  return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
-}
 
 type NodeAttrs = {
   y: number[];
@@ -364,10 +361,6 @@ function segDist(g: Gate, x: number, z: number): number {
   const ez = g.bz - g.az;
   const f = clamp01(((x - g.ax) * ex + (z - g.az) * ez) / (ex * ex + ez * ez || 1));
   return Math.hypot(x - g.ax - ex * f, z - g.az - ez * f);
-}
-
-function clamp01(v: number): number {
-  return v < 0 ? 0 : v > 1 ? 1 : v;
 }
 
 export class Track {

@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { clamp } from "../scalar.ts";
 import { applyMarkMap } from "../engine-marks.ts";
 import { PREFABS, SURFACE_IDS, SURFACES, type PrefabId, type SurfaceId } from "./catalog.ts";
 import type { Placed } from "./placements.ts";
@@ -162,10 +163,6 @@ function mottle(x: number, z: number): number {
   const a = h(i, j) + (h(i + 1, j) - h(i, j)) * fu;
   const b = h(i, j + 1) + (h(i + 1, j + 1) - h(i, j + 1)) * fu;
   return 0.9 + 0.2 * (a + (b - a) * fv);
-}
-
-function clamp(v: number, lo: number, hi: number): number {
-  return v < lo ? lo : v > hi ? hi : v;
 }
 
 /** Path height at lateral `lat` of sample k (banked plane, flat beyond the road edge): the ground layer hint. */

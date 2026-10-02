@@ -17,7 +17,7 @@ const LIST = process.argv.includes("--list");
 // Bounded contexts, lowest layer first. A production file may import its own context or a context
 // on a strictly lower layer. `platform` (src/lib) is importable only by the contexts in PLATFORM_USERS.
 const CONTEXTS = [
-  ["kernel", 0, ["src/game/physics-core.js", "src/game/shape-match-core.js", "src/game/rig-spec.ts"]],
+  ["kernel", 0, ["src/game/physics-core.js", "src/game/shape-match-core.js", "src/game/rig-spec.ts", "src/game/scalar.ts"]],
   ["world", 1, ["src/game/ground.ts", "src/game/race/catalog.ts", "src/game/race/track.ts", "src/game/race/track-schema.ts", "src/game/race/placements.ts", "src/game/race/tracks/"]],
   ["deform", 2, ["src/game/streamed-deform.ts", "src/game/shape-match.ts", "src/game/physics-util.ts", "src/game/fast-normals.ts", "src/game/deform-helper.ts"]],
   ["vehicle", 3, ["src/game/car.ts", "src/game/car-mesh.ts", "src/game/car-variants.ts", "src/game/vehicle-classes.ts", "src/game/lamp-lights.ts", "src/game/car-drive.ts", "src/game/drive-input.ts", "src/game/gamepad.ts"]],
