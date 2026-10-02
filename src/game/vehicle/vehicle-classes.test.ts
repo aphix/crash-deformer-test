@@ -51,7 +51,7 @@ function step(car: DeformableCar, input: DriveInput, h = H): void {
  */
 const LAUNCH: Record<VehicleClassId, { zeroTo100: number; topKmh: number; toTop: number; gears: number }> = {
   sedan: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },
-  muscle: { zeroTo100: 1.95, topKmh: 210, toTop: 9.5, gears: 5 },
+  muscle: { zeroTo100: 2, topKmh: 200, toTop: 9.1, gears: 5 },
   truck: { zeroTo100: 2.5, topKmh: 195, toTop: 12.7, gears: 4 },
   monster: { zeroTo100: 2, topKmh: 190, toTop: 11.5, gears: 4 },
   police: { zeroTo100: 2.45, topKmh: 200, toTop: 12, gears: 5 },

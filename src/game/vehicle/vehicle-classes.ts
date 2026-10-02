@@ -35,7 +35,10 @@ interface ClassStats {
   grip: number;
   /** 0–1: how readily the tail steps out under power and how loose it stays. */
   drift: number;
-  /** Boost multipliers on top speed and acceleration. */
+  /**
+   * Boost multipliers on top speed and acceleration. Top stays 1: from 57 m/s a t-bone grinds the bullet through
+   * the struck car (barrier.test.ts), so boost adds pull up to the class top, never past 200 km/h.
+   */
   boostTop: number;
   boostAccel: number;
   /** Damage tolerance: × the realistic engine-kill travel (see `killTravel`). */
@@ -64,7 +67,7 @@ const SEDAN: ClassStats = {
   turn: 1.55,
   grip: 39,
   drift: 0.35,
-  boostTop: 1.2,
+  boostTop: 1,
   boostAccel: 1.55,
   durability: 1,
   lift: 0,
@@ -82,7 +85,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     label: "Muscle",
     style: "coupe",
     mass: 1650,
-    topSpeed: 210 / 3.6,
+    topSpeed: 200 / 3.6,
     revSpeed: 11,
     gears: [
       [0.24, 20.4],
@@ -96,7 +99,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     turn: 1.36,
     grip: 35.5,
     drift: 0.85,
-    boostTop: 1.2,
+    boostTop: 1,
     boostAccel: 1.55,
     durability: 1.15,
     lift: 0,
@@ -120,7 +123,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     turn: 1.5,
     grip: 38.5,
     drift: 0.25,
-    boostTop: 1.22,
+    boostTop: 1,
     boostAccel: 1.6,
     durability: 1.25,
     lift: 0.08,
@@ -144,7 +147,7 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     turn: 1.3,
     grip: 37,
     drift: 0.2,
-    boostTop: 1.22,
+    boostTop: 1,
     boostAccel: 1.6,
     durability: 1.7,
     lift: 0.48,
