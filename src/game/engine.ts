@@ -1930,7 +1930,7 @@ export class CrashEngine {
   /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. */
   private attachStudioEnv(): void {
     new THREE.TextureLoader().load(
-      "/env-studio.jpg",
+      `${import.meta.env.BASE_URL}env-studio.jpg`,
       (tex) => {
         if (this.disposed) {
           tex.dispose();

@@ -11,6 +11,8 @@
     "dev_alt": "node scripts/with-app-env.mjs vite dev --host 0.0.0.0 --port 5555",
     "build": "node scripts/with-app-env.mjs vite build && npm run db:migrate",
     "db:migrate": "node scripts/migrate.mjs",
+    "build:node": "node scripts/with-app-env.mjs NITRO_PRESET=node-server vite build",
+    "start:node": "node .output/server/index.mjs",
     "build:dev": "node scripts/with-app-env.mjs vite build --mode development",
     "build:dev-watch": "node scripts/with-app-env.mjs vite build --mode development --watch",
     "preview": "node scripts/with-app-env.mjs vite preview",

@@ -107,11 +107,14 @@ function createNeonSql(): Promise<Sql> {
 
 async function createPgliteSql(): Promise<Sql> {
   // Embedded Postgres, imported on demand so it never loads on the Neon path.
-  // One in-memory instance per process, shared across HMR module instances, so
-  // data survives source edits (it resets on dev-server restart).
+  // One instance per process, shared across HMR module instances, so data
+  // survives source edits. In memory (reset on restart) unless PGLITE_DATA_DIR
+  // names a directory, as the self-hosted node server does (docs/DEPLOY.md).
+  // A data dir must belong to ONE process: PGLite has no cross-process locking.
   globalRef.__pgliteInstance__ ??= (async () => {
     const { PGlite } = await import("@electric-sql/pglite");
     const pg = new PGlite({
+      dataDir: process.env.PGLITE_DATA_DIR?.trim() || undefined,
       parsers: {
         [OID_INT8]: Number,
         [OID_DATE]: identity,

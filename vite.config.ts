@@ -142,10 +142,17 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+// Build-time deploy knobs (docs/DEPLOY.md): APP_BASE serves the app under a
+// sub-path ("/crush/"; TanStack Start derives the router basepath from it), and
+// NITRO_PRESET picks the server target ("node-server" for self-hosting).
+const base = process.env.APP_BASE || "/";
+const preset = process.env.NITRO_PRESET || "vercel";
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
 export default defineConfig(({ command, isPreview }) => ({
+  base,
   server: {
     host: "0.0.0.0",
     port: 8080,
@@ -170,7 +177,11 @@ export default defineConfig(({ command, isPreview }) => ({
     ...(command === "build" || isPreview
       ? [
           nitro({
-            preset: "vercel",
+            preset,
+            baseURL: base,
+            // The self-hosted server runs signaling on PGLite (Vercel uses Neon), and
+            // PGLite loads its .wasm/.data beside its module: ship the whole package.
+            ...(preset === "node-server" ? { traceDeps: ["@electric-sql/pglite*"] } : {}),
             // Auto-registers server/middleware/* (the PWA install page +
             // manifest + head-tag middleware). Nitro v3 defaults serverDir to
             // false, so removing this silently unwires /?install=1 on deploys.
