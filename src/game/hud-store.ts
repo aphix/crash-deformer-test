@@ -1,4 +1,5 @@
 import type { FxTier } from "./engine-post.ts";
+import { crushStroke } from "./physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
 
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
@@ -93,6 +94,32 @@ export type CrashHudState = {
   playerClass: VehicleClassId;
 };
 
+/** The stroke slider reads out at 56 km/h, the NCAP full-frontal barrier speed. */
+const STROKE_REF_MPS = 56 / 3.6;
+
+/** Dynamic crush stroke (m) of a 56 km/h barrier hit at this squash (`crushStroke`). */
+export function strokeAt56(squash: number): number {
+  return crushStroke(STROKE_REF_MPS, squash);
+}
+
+/** Squash whose 56 km/h stroke is `m` metres (`crushStroke` is affine in squash). */
+export function squashForStroke(m: number): number {
+  const s0 = crushStroke(STROKE_REF_MPS, 0);
+  return (m - s0) / (crushStroke(STROKE_REF_MPS, 1) - s0);
+}
+
+/** The Stroke slider's domain in metres at 56 km/h, around the measured realistic band (docs/CRUSH_CALIBRATION.md §0). */
+export const STROKE_RANGE_M = { min: 0.4, max: 0.75 } as const;
+
+/**
+ * Knob domains; the engine setters clamp to the same bounds. Squash is the Stroke
+ * slider's range; buckle only sizes the skin wrinkle, so it keeps the full range.
+ */
+export const KNOB_RANGES = {
+  squash: { min: squashForStroke(STROKE_RANGE_M.min), max: squashForStroke(STROKE_RANGE_M.max) },
+  buckle: { min: 0, max: 1 },
+} as const;
+
 export const INITIAL_HUD: CrashHudState = {
   playing: true,
   looping: true,
@@ -123,7 +150,7 @@ export const INITIAL_HUD: CrashHudState = {
   eta: 0,
   cageCount: 16,
   sensorCount: 20,
-  squash: 0.4,
+  squash: 0.32,
   buckle: 0.45,
   fxDensity: 0.7,
   carCount: 2,

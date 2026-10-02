@@ -16,8 +16,6 @@ function spawnOffset(impactX: number, speed = 14, mode: DeformMode = "lattice") 
   const geom = dummyGeom();
   const d = new StreamedDeformation(geom);
   d.mode = mode;
-  d.squash = 0.4;
-  d.buckle = 0.45;
   const group = new THREE.Group();
   group.updateMatrixWorld();
   const vel = new THREE.Vector3(0, 0, speed);
@@ -345,8 +343,6 @@ describe("a crushed wreck keeps its heading", () => {
     const cars = SPIN_FLEET.map(([name, x, z, yaw, speed], i) => {
       const car = new DeformableCar({ body: 0xffffff, accent: 0x444444, name }, new THREE.Scene(), null, fleetStyle(i));
       car.deform.setMode("shape");
-      car.deform.squash = 0.4;
-      car.deform.buckle = 0.45;
       car.spawnFacing(x, z, yaw, 0);
       car.velocity.set(Math.sin(yaw) * speed, 0, Math.cos(yaw) * speed);
       car.speed = speed;

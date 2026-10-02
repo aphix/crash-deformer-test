@@ -94,8 +94,6 @@ function spawnAtBarrier(z: number, speed: number, mode: DeformMode): DeformableC
   const scene = new THREE.Scene();
   const car = new DeformableCar(paint(), scene);
   car.deform.setMode(mode);
-  car.deform.squash = 0.4;
-  car.deform.buckle = 0.45;
   car.group.position.set(6.2, 0, z);
   car.group.rotation.set(0, -Math.PI / 2, 0, "YXZ");
   car.refreshBasis();

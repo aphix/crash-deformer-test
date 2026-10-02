@@ -1,36 +1,39 @@
 # Squash / buckle calibration
 
-Status: phase 1 (measure and document). These numbers were measured on main `0e83d6f`, shape mode, full speed.
-The only source change is the harness probe (`crash-scenarios.test-util.ts`): it adds knob overrides, `crushMax`,
-`quietYawDrift` and `spinFrames`. Defaults are unchanged. Two solver lanes, crash contact/clamp and shape-match
-rest/skin, will shift these numbers. Re-run `npm run sweep` after they land and before applying §6.
+Status: phase 2, defaults applied on lane `calib-defaults`. The sweep tables were measured on base main `b9c5647`;
+after the rebase onto `107db69` (shared striker contact) the 0.30 / 0.32 / 0.40 cells reproduce every key metric to
+0.01 m. Phase 1, the knob audit and the instrument, was measured on `0e83d6f` (§8). Every number below comes from
+`npm run sweep` (`scripts/crush-sweep.mjs`), shape mode, unless a section says otherwise.
 
 ## 0. Summary
 
-- **Recommended defaults: squash 0.25 (down from 0.4), buckle 0.45 (unchanged).**
-  At 0.25, every crush, pulse, cabin and drivetrain target is in band. The rear/front stroke ratio becomes 0.66,
-  which passes the `barrier.test.ts` "tail is softer with a shorter stroke" test that fails at 0.4 (0.49).
-  Two misses remain, and neither is caused by the knobs: the offset64 mass centre past the slab face (a contact
-  bug), and the 2×56 head-on pulse, which reads 50 ms against a 60 ms floor at the probe's 16.7 ms resolution.
-- **Realistic squash band: 0.2–0.45.** Recommended slider span: 0.1–0.7. Better still, re-parameterise the slider
-  as "crush stroke at 56 km/h", 0.39–0.73 m, with 0.48 m as the default (§6).
-- **Buckle has no measurable physical effect.** Across 0–1 it moves no scored crash metric by more than 0.03 m,
-  except the offset64 nose at squash ≥ 0.6. In practice it is a visual wrinkle knob. Relabel it "Panel wrinkle"
-  and keep the full 0–1 range.
-- **Owner's 1/1 setting:** score 0.545 with 18 of 37 targets missed. At 1/1, a 56 km/h wall leaves 0.82 m of
-  permanent nose crush (target 0.25–0.50) at 11 g average (target 18–25). A 35 km/h wall kills the drivetrain.
-  A 2×28 km/h head-on crushes each nose 0.46 m and kills both engines. The run is stable: its only spin-clamp
-  frames come from the yaw ratchet, and the positive-control fix removes them (§5).
+| knob | old default | new default | old range | new range | basis |
+|---|---|---|---|---|---|
+| squash (HUD "Stroke", shown as crush stroke @56 km/h) | 0.40 (0.56 m) | **0.32 (0.52 m)** | 0–1 (0.34–0.90 m) | **0.109–0.729 (0.40–0.75 m)** | realism: in band and best band-centring from 0.30 to 0.35, full speed and slomo (§3). 0.32 is the point in that region where the two noisy piston-corner tests pass (§5) |
+| buckle (HUD "Wrinkle", "Panel wrinkle") | 0.45 | 0.45 | 0–1 | 0–1 | no physics target: ≤ 0.035 m crush spread across 0–1 for squash 0.2–0.6 except the offset nose (§3.4); visual fold size only |
+| rig `CAGES.chassisRear.maxCrush` (data, `rig-spec.ts`) | 0.45 | **0.38** | — | — | rear stroke = 0.69 × front (was 0.82); tail ÷ 50 km/h nose 0.81–0.94 at every squash 0.2–0.45, full speed and slomo (§4) |
+
+- **Default car (0.32 / 0.45), full speed:** every scored target is in band except the 2×56 head-on pulse (§5.4).
+  56 km/h wall: nose 0.37 m, COM travel 0.52 m, 83 ms, 18.1 g, cabin 0.03 m. Score 0.002, centre 0.45.
+- **Slomo** (the engine's impact slow motion, `--slomo`): score 0.009, centre 0.39. Same single miss.
+- **Slomo 2×56 head-on anomaly:** squash 0.4 and up hits it. 95 % of Δv arrives only after 288–407 ms, against
+  36 ms at 0.32. Leaving 0.4 also removes this.
+- **Defaults button:** `engine.resetDefaults` copies `INITIAL_HUD`. The engine fields start from `INITIAL_HUD`. The
+  `StreamedDeformation` field defaults equal it, and `knob-defaults.test.ts` checks that agreement and that each
+  default sits inside its slider range.
+- **Owner's 1/1 setting:** score 0.473 with 16 of 38 targets missed (§6). It is now outside the slider range: the
+  maximum stroke is 0.75 m, squash 0.729.
 
 ## 1. Knob audit
 
-`s` = squash, `b` = buckle, both 0..1 (HUD `hud.tsx` sliders, `engine.ts:setSquash/setBuckle` clamp to [0,1]).
-Values are at s = 0 / 0.4 / 1 unless noted (computed from the formulas; 56 km/h = 15.56 m/s).
+`s` = squash, `b` = buckle. `engine.ts:setSquash/setBuckle` clamp to `KNOB_RANGES` (`hud-store.ts`); the slider uses
+the same bounds. Values are formula evaluations at s = 0 / 0.4 / 1 unless noted (56 km/h = 15.56 m/s). Line numbers
+are from `0e83d6f`; the formulas are unchanged on `b9c5647`.
 
 | # | consumer (file:line) | formula | physical meaning | values | monotonic / issues |
 |---|---|---|---|---|---|
-| S1 | `physics-core.js:88 crushStroke` | `(0.035·ebs + 0.02)·(0.6 + s)` | dynamic crush stroke = crumple stiffness (k = m·v²/stroke²) | 56 km/h: 0.34 / 0.56 / 0.90 m | ↑ linear. **The knob's real job.** |
-| S2 | `streamed-deform.ts:1172 hitStroke` | `min((0.5 + 1.15s)·1.1, crushStroke)`; side: `min(door band max, ·)`; rear: `× chassisRear/Front maxCrush` | per-hit stroke cap; also sets the barrier brake force `engine-props.ts:138` j = m·v²/(2·stroke) | cap 0.55 / 1.06 / 1.82 m | ↑. Cap never binds ≤ 80 km/h (crushStroke(80, 0) = 0.48 < 0.55): **dead term**. Side hits clamp to the door band (0.278 m) for every s: **side intrusion ignores squash** (§4.3) |
+| S1 | `physics-core.js:88 crushStroke` | `(0.035·ebs + 0.02)·(0.6 + s)` | dynamic crush stroke = crumple stiffness (k = m·v²/stroke²) | 56 km/h: 0.34 / 0.56 / 0.90 m (default 0.32: 0.52 m) | ↑ linear. **The knob's real job.** |
+| S2 | `streamed-deform.ts:1172 hitStroke` | `min((0.5 + 1.15s)·1.1, crushStroke)`; side: `min(door band max, ·)`; rear: `× chassisRear/Front maxCrush` (0.38/0.55 = 0.69 since phase 2) | per-hit stroke cap; also sets the barrier brake force `engine-props.ts:138` j = m·v²/(2·stroke) | cap 0.55 / 1.06 / 1.82 m | ↑. Cap never binds ≤ 80 km/h (crushStroke(80, 0) = 0.48 < 0.55): **dead term**. Side hits clamp to the door band (0.278 m) for every s: **side intrusion ignores squash** |
 | S3 | `streamed-deform.ts:1785 clampLocal` | `maxCrush = 0.5 + 1.15s` per node × `(0.38 + 0.72·cornerWeight)` | per-node crush cap | 0.50 / 0.96 / 1.65 m | ↑ |
 | S4 | `streamed-deform.ts:1784 clampLocal` | `maxAway = 0.025 + 0.04s` | outward (anti-crush) spring allowance | 0.025 / 0.041 / 0.065 m | ↑; tiny |
 | S5 | `streamed-deform.ts:1910 stepBeams` | `maxStretch = 1.12 + 0.35s` | beam tension limit (stretch before pull-back) | 1.12 / 1.26 / 1.47 | ↑ (softer in tension) |
@@ -47,29 +50,35 @@ Values are at s = 0 / 0.4 / 1 unless noted (computed from the formulas; 56 km/h 
 | B1 | `streamed-deform.ts:1396 update` | `wrinkleAmp = clamp(crushAmount·(0.2 + 0.5b), 0, 0.18 + 0.5b)` | **visual only**: wrinkle envelope | cap 0.18 / 0.405 (b = .45) / 0.68 | ↑ |
 | B2 | `streamed-deform.ts:2509-2515` skin pass | `amp = wrinkle·e^(−3.4d)·0.16·(0.35 + 0.65b)`, offset capped at `0.03 + 0.08b`; drawn only if wrinkle > 0.02 | **visual only**: accordion folds (12 cm wavelength) within 0.82 m of the hit | wall56 fold at the hit, s = 0.25: 0.005 / 0.021 / 0.034 m at b = 0 / 0.45 / 0.7 | ↑ and **b enters twice**, so amplitude ∝ ~b² |
 
-**Double counting and coupling**
+**Double counting and coupling** (unchanged by phase 2; each item is a follow-up that needs its own sweep)
 
-1. **Squash is three knobs at once.** It is the crush stroke (S1–S3, S7, S8), the shape-match stiffness (S9–S11,
+1. **Squash is three knobs at once.** It sets the crush stroke (S1–S3, S7, S8), the shape-match stiffness (S9–S11,
    with opposite signs in contact and in free flight) and two thirds of the plasticity (S12–S14). Buckle gets the
    remaining third of the plasticity plus the visuals.
 2. **Contact stiffness rises with squash** (S10 contact α 0.33 → 0.70, S9 contact β 0.19 → 0.40), while the stroke
-   lets the same nodes crush deeper. These act in opposite directions inside one slider.
-3. **Buckle's plasticity channel is masked.** Permanent nose set is held by `clampLocal`'s `crushSet` (only the
-   last 0.08 m springs back), and buckle does not enter that path. So S12–S14 change almost nothing measurable
-   (§4.2).
-4. **Steps at s < 0.03:** S8 overlap crush turns off, S9/S10 snap to 0.04/0.9, and S15 can disable plasticity.
-   Measured outputs barely jump (wall56 nose 0.20 m at s = 0 and s = 0.02), so this is a code smell, not a visible
-   cliff.
+   lets the same nodes crush deeper.
+3. **Buckle's plasticity channel is masked.** `clampLocal`'s `crushSet` holds the permanent set, and buckle does
+   not enter that path.
+4. **Steps at s < 0.03** (S8, S9, S10, S15). These lie below the new slider minimum (0.109).
 
 ## 2. Instrument
 
-`npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells s:b,…] [--scenarios a,b] [--after 1.5] [--root <tree>] [--out <dir>]`
-(`scripts/crush-sweep.mjs`). It imports `src/game/crash-scenarios.test-util.ts`, so the frame and contact order are
-the same as `CrashEngine.tickInner`. Grid mode always adds the default pair, 0.4/0.45. The script writes
-`<out>/sweep.json` (every `CrashResult` per cell) and `<out>/sweep.md`. The default output directory is
-`.bench/crush-sweep/`, which is gitignored. A full 6×6 grid plus the default pair is 37 cells × 10 scenarios.
-`npm run sweep` alone takes 30.2 s wall time (29.6 s inside the loop), and 44.7 s with three other sweeps running.
-Results are deterministic: a repeat run reproduced every cell's score exactly.
+`npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells s:b,…] [--slomo] [--scenarios a,b] [--after 1.5] [--root <tree>] [--out <dir>]`
+
+- **Imports and defaults:** the script imports `src/game/crash-scenarios.test-util.ts`, which has the
+  `CrashEngine.tickInner` frame and contact order. It reads the default pair from `hud-store.ts` `INITIAL_HUD` and
+  always runs it.
+- **Output:** `<out>/sweep.json` (every `CrashResult` per cell) and `<out>/sweep.md`. The default output directory
+  is `.bench/crush-sweep/`, which is gitignored.
+- **Size and time:** a 6×6 grid plus the default is 37 cells × 10 scenarios. On the loaded box (another project's
+  build running) it took 49 s; phase 1 took 30 s on an idle box.
+- **`--slomo`:** runs every scenario through the engine's impact slow motion. Slomo samples the velocity trace at
+  sub-frame resolution, so slomo pulse lengths are not quantised to 16.7 ms.
+- **Score:** Σ w·min(2, miss) / Σ w. miss = distance outside the band ÷ band width. One-sided bands use ÷ limit;
+  booleans score 0 or 1.
+- **Centre:** the weighted mean distance from the middle of each two-sided band, in half-widths (0 = mid-band,
+  1 = on the edge). This is the tie-break inside the region where the score is 0.
+- **Rear ratio:** tail ÷ the wall50 nose's worse corner, the same definition as `barrier.test.ts`.
 
 | scenario | targets (weight) |
 |---|---|
@@ -84,253 +93,251 @@ Results are deterministic: a repeat run reproduced every cell's score exactly.
 | head-on 2×56 | mean nose 0.25–0.50 m (≈ 56 km/h wall) (2), pulse 60–150 ms (1), cabin ≤ 0.08 m (1) |
 | T-bone 50 | struck door 0.12–0.28 m (2), bullet nose 0.08–0.30 m (1; an estimate, no cited source) |
 
-Targets come from `docs/RIG_ANALYSIS.md` §2/§3.3 and `barrier.test.ts`. Bands at other speeds scale linearly with
-v from the cited 56 km/h band, following the linear-spring model in §3.3.
+Targets come from `docs/RIG_ANALYSIS.md` §2/§3.3 and `barrier.test.ts`. Bands at other speeds scale linearly with v
+from the cited 56 km/h band. The `wrinkle` output (wrinkle amplitude, skin fold at the hit) is visual only, and no
+target constrains it.
 
-The **score** is Σ w·min(2, miss) / Σ w, where miss = distance outside the band ÷ band width (one-sided bands:
-÷ limit; booleans: 0/1). 0 means every target is in band.
+## 3. Phase 2 sweep (lane tree: `b9c5647` + rear 0.38 + default 0.32)
 
-**Visual-only output:** `wrinkle` = wrinkle amplitude and skin fold at the hit, recomputed from the run's peak
-`crushAmount` (B1/B2). No target constrains it.
-
-**Resolution limits:** the probe samples once per rendered frame, so pulse lengths come in 16.7 ms steps
-(50 / 67 / 83 / 100 ms) and avg g jumps with them (14.1 → 11.3 g on wall35 between s = 0.3 and 0.35). The run
-ends 1.5 s of sim time after first contact (`--after`).
-
-## 3. Sweep on main `0e83d6f`
-
-### 3.1 Realism score (lower is better; **bold** = row of the default squash)
+### 3.1 Grid, full speed (score / centre, lower is better)
 
 | squash \ buckle | 0 | 0.2 | 0.4 | 0.6 | 0.8 | 1 |
 |---|---|---|---|---|---|---|
-| 0 | 0.136 | 0.138 | 0.136 | 0.134 | 0.132 | 0.128 |
-| 0.2 | 0.030 | 0.032 | 0.034 | 0.041 | 0.041 | 0.041 |
-| **0.4** | 0.052 | 0.053 | 0.053 | 0.053 | 0.052 | 0.054 |
-| 0.6 | 0.126 | 0.133 | 0.129 | 0.149 | 0.154 | 0.160 |
-| 0.8 | 0.309 | 0.316 | 0.325 | 0.320 | 0.324 | 0.328 |
-| 1 | 0.529 | 0.530 | 0.536 | 0.540 | 0.534 | 0.545 |
+| 0 | 0.111 / 1.16 | 0.116 / 1.19 | 0.115 / 1.19 | 0.118 / 1.20 | 0.119 / 1.20 | 0.117 / 1.19 |
+| 0.2 | 0.002 / 0.55 | 0.002 / 0.54 | 0.002 / 0.54 | 0.002 / 0.53 | 0.002 / 0.52 | 0.023 / 0.50 |
+| 0.4 | 0.002 / 0.51 | 0.002 / 0.50 | 0.006 / 0.54 | 0.006 / 0.55 | 0.006 / 0.56 | 0.006 / 0.56 |
+| 0.6 | 0.069 / 1.03 | 0.081 / 1.07 | 0.081 / 1.07 | 0.086 / 1.08 | 0.075 / 1.05 | 0.079 / 1.07 |
+| 0.8 | 0.249 / 1.41 | 0.255 / 1.41 | 0.253 / 1.41 | 0.249 / 1.42 | 0.242 / 1.40 | 0.237 / 1.39 |
+| 1 | 0.462 / 1.52 | 0.465 / 1.52 | 0.469 / 1.52 | 0.473 / 1.52 | 0.470 / 1.52 | 0.473 / 1.52 |
 
-Default 0.4/0.45: score 0.053, 2 of 37 targets missed. Targets missed per row: s = 0: 14; 0.2: 2; 0.4: 2 (3 at b = 1);
-0.6: 12; 0.8: 14; 1: 18. **The rows are flat across buckle.**
+The default cell, 0.32 / 0.45: score 0.002, centre 0.45, one miss (head-on 2×56 pulse). Max quiet-phase yaw drift
+in the grid: 0.24 rad, with no spin-clamp frames.
 
-### 3.2 Fine squash sweep (buckle 0.45)
+### 3.2 Squash fine sweep, buckle 0.45 (full speed; slomo where marked)
 
-| squash | score / misses | wall56 nose / COM / pulse / g | wall35 nose | wall50 nose | rear50 tail | tail ÷ nose50 | head-on 28 / 56 | offset nose / past face | T-bone door | wall64 nose / g |
-|---|---|---|---|---|---|---|---|---|---|---|
-| 0.10 | 0.062 / 9 | 0.25 / 0.41 / 67 / 22.6 | 0.12 | 0.20 | 0.18 | 0.86 | 0.15 / 0.28 | 0.38 / 0.08 | 0.18 | 0.28 / 34.4 |
-| 0.15 | 0.066 / 6 | 0.27 / 0.43 / 67 / 22.6 | 0.14 | 0.23 | 0.18 | 0.78 | 0.15 / 0.31 | 0.42 / 0.10 | 0.20 | 0.32 / 34.4 |
-| 0.20 | 0.034 / 2 | 0.29 / 0.46 / 83 / 18.1 | 0.16 | 0.25 | 0.18 | 0.72 | 0.16 / 0.34 | 0.45 / 0.13 | 0.21 | 0.36 / 25.8 |
-| **0.25** | 0.044 / 2 | 0.33 / 0.48 / 83 / 18.1 | 0.18 | 0.28 | 0.18 | **0.66** | 0.17 / 0.37 | 0.47 / 0.16 | 0.22 | 0.38 / 25.8 |
-| 0.30 | 0.044 / 2 | 0.35 / 0.51 / 83 / 18.1 | 0.20 | 0.29 | 0.19 | 0.63 | 0.21 / 0.39 | 0.50 / 0.20 | 0.24 | 0.41 / 25.8 |
-| 0.35 | 0.052 / 3 | 0.38 / 0.53 / 83 / 18.1 | 0.22 | 0.32 | 0.17 | 0.52 | 0.22 / 0.42 | 0.52 / 0.23 | 0.25 | 0.45 / 25.8 |
-| 0.40 | 0.053 / 2 | 0.41 / 0.55 / 83 / 18.1 | 0.24 | 0.34 | 0.17 | 0.49 | 0.23 / 0.44 | 0.55 / 0.25 | 0.26 | 0.49 / 25.8 |
-| 0.45 | 0.056 / 2 | 0.44 / 0.59 / 83 / 18.1 | 0.26 | 0.37 | 0.17 | 0.46 | 0.24 / 0.48 | 0.58 / 0.26 | 0.28 | 0.50 / 20.7 |
-| 0.50 | 0.075 / 7 | 0.47 / 0.61 / 100 / 15.1 | 0.27 | 0.39 | 0.17 | 0.44 | 0.27 / 0.50 | 0.62 / 0.30 | 0.28 | 0.52 / 20.7 |
+| squash | stroke @56 | score / centre / misses | slomo score / centre / misses | wall56 nose / COM / pulse ms / g | wall35 nose | wall64 nose / g | offset64 nose | rear50 tail / ratio (full · slomo) | head-on 28 / 56 nose | head-on 56 pulse ms (full · slomo) | T-bone door |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 0.15 | 0.42 | 0.023 / 0.71 / 4 | 0.030 / 0.75 / 4 | 0.27 / 0.43 / 67 / 22.6 | 0.14 | 0.33 / 34.4 | 0.36 | 0.20 / 0.88 · 0.87 | 0.15 / 0.32 | 50 · 29 | 0.20 |
+| 0.20 | 0.45 | 0.002 / 0.54 / 1 | 0.013 / 0.63 / 4 | 0.31 / 0.46 / 83 / 18.1 | 0.16 | 0.35 / 25.8 | 0.39 | 0.22 / 0.87 · 0.87 | 0.15 / 0.35 | 50 · 32 | 0.21 |
+| 0.25 | 0.48 | 0.002 / 0.47 / 1 | 0.010 / 0.47 / 1 | 0.33 / 0.49 / 83 / 18.1 | 0.19 | 0.38 / 25.8 | 0.54 | 0.24 / 0.85 · 0.86 | 0.21 / 0.39 | 50 · 33 | 0.22 |
+| 0.30 | 0.51 | 0.002 / 0.44 / 1 | 0.009 / 0.38 / 1 | 0.36 / 0.51 / 83 / 18.1 | 0.20 | 0.44 / 25.8 | 0.56 | 0.25 / 0.87 · 0.92 | 0.21 / 0.39 | 50 · 35 | 0.24 |
+| **0.32** | **0.52** | **0.002 / 0.45 / 1** | **0.009 / 0.39 / 1** | 0.37 / 0.52 / 83 / 18.1 | 0.21 | 0.45 / 25.8 | 0.58 | 0.26 / 0.88 · 0.92 | 0.21 / 0.40 | 50 · 36 | 0.24 |
+| 0.35 | 0.54 | 0.002 / 0.47 / 1 | 0.008 / 0.41 / 1 | 0.39 / 0.53 / 83 / 18.1 | 0.22 | 0.47 / 25.8 | 0.60 | 0.27 / 0.83 · 0.93 | 0.22 / 0.43 | 50 · 37 | 0.25 |
+| 0.40 | 0.56 | 0.006 / 0.54 / 2 | 0.050 / 0.52 / 1 | 0.41 / 0.56 / 83 / 18.1 | 0.24 | 0.49 / 25.8 | 0.63 | 0.29 / 0.82 · 0.93 | 0.23 / 0.44 | 50 · **288** | 0.26 |
+| 0.45 | 0.59 | 0.011 / 0.66 / 2 | 0.074 / 0.67 / 3 | 0.44 / 0.59 / 83 / 18.1 | 0.26 | 0.52 / 20.7 | 0.66 | 0.30 / 0.81 · 0.82 | 0.23 / 0.47 | 50 · **407** | 0.28 |
+| 0.50 | 0.62 | 0.026 / 0.80 / 5 | 0.071 / 0.79 / 3 | 0.48 / 0.61 / 100 / 15.1 | 0.27 | 0.54 / 20.7 | 0.69 | 0.32 / 0.80 · 0.75 | 0.27 / 0.50 | 67 · 407 | 0.28 |
 
-What drives the misses:
+**Why 0.30–0.32:**
 
-- **s ≤ 0.15:** the car is too stiff. At 64 km/h the pulse is 50 ms at 34 g and the drivetrain survives. Every
-  nose is near or under the lower band edge.
-- **0.20–0.45:** only two misses remain. The offset64 mass centre ends up past the slab face (0.13–0.26 m,
-  growing with squash). This is the open clip-through for the crash-contact lane, not a knob target. The 2×56
-  head-on pulse reads 50 ms, 1 frame short of 60 ms, up to s = 0.35. From s = 0.35 the tail ÷ nose50 ratio drops
-  below 0.6.
-- **s ≥ 0.5:** COM travel, the g levels and the head-on/offset noses leave their bands.
+- **0.30 to 0.35 is the best region.** The score is flat at 0.002 from 0.2 to 0.35, so band centring picks the
+  default. It is lowest from 0.30 to 0.35: 0.44–0.47 full speed, 0.38–0.41 slomo.
+- **Below 0.2:** 0.15 is too stiff, with a 50 ms / 34 g pulse at 64 km/h and the drivetrain surviving 64 km/h.
+  The slomo 56 km/h pulse also falls under 60 ms at 0.20 (59 ms).
+- **From 0.4:** the offset64 nose leaves its band (0.63 m), and the slomo 2×56 head-on anomaly appears (95 % of Δv
+  after 288 ms).
+- **0.32 within that region:** it is where the piston-corner tests in §5 pass. Realism-wise, 0.30 and 0.32 are
+  equal within the sweep's resolution.
 
-The 0.2 vs 0.25 score gap comes only from the size of the offset past-face miss (a contact bug).
+### 3.3 Base vs. lane
 
-### 3.3 Per-scenario squash response (buckle 0.4; s = 0 → 0.2 → 0.4 → 0.6 → 0.8 → 1)
+On base `b9c5647` (rear 0.45, default 0.4), the phase-1 problems were already gone: offset past-face clipping and
+the yaw ratchet are fixed. The rear tail tracked the front at **1.0–1.09×** for every squash, so the
+`barrier.test.ts` 0.6–1.0 band passed only at 0.4 / 0.45 (0.999). Going from base to lane, only the rear numbers
+change; no other key metric moves more than 0.03 m:
 
-| scenario | key metric (m) |
-|---|---|
-| wall35 nose | 0.09 → 0.16 → 0.24 → 0.31 → 0.39 → 0.48 |
-| wall56 nose | 0.20 → 0.29 → 0.41 → 0.52 → 0.63 → 0.82 |
-| wall64 nose | 0.23 → 0.36 → 0.49 → 0.58 → 0.69 → 0.90 |
-| wall50 nose | 0.15 → 0.25 → 0.34 → 0.45 → 0.57 → 0.72 |
-| offset64 struck nose | 0.25 → 0.45 → 0.54 → 0.67 → 0.91 → 0.88 |
-| **rear50 tail** | **0.18 → 0.18 → 0.17 → 0.16 → 0.16 → 0.14** |
-| **side50 door** | **0.27 → 0.28 → 0.28 → 0.28 → 0.28 → 0.28** |
-| head-on 2×28 nose | 0.08 → 0.16 → 0.23 → 0.30 → 0.38 → 0.45 |
-| head-on 2×56 nose | 0.22 → 0.34 → 0.44 → 0.57 → 0.72 → 0.89 |
-| T-bone struck door | 0.15 → 0.21 → 0.26 → 0.28 → 0.28 → 0.28 |
-| wall56 pulse ms / avg g | 67/23 → 83/18 → 83/18 → 100/15 → 117/13 → 133/11 |
-| wall56 cabin | 0.010 → 0.013 → 0.037 → 0.044 → 0.053 → 0.062 |
+| squash 0.2 / 0.4 / 0.6 / 1 (buckle 0.4) | base | lane |
+|---|---|---|
+| rear50 tail permanent (m) | 0.27 / 0.35 / 0.42 / 0.58 | 0.22 / 0.29 / 0.35 / 0.48 |
 
-Frontal crush is monotonic and roughly linear in squash (wall56 ×4 across the range). Two scenarios do not
-follow it:
+### 3.4 Buckle effect and visuals
 
-- **The rear tail does not follow the slider.** It stays at 0.14–0.18 m for every squash, so the rear/front ratio
-  falls from 1.18 to 0.20 as squash rises. The tail is held by the `chassisRear` cage, band and beam limits, not
-  by the stroke. This is why the `barrier.test.ts` ratio test fails at 0.4 and passes at s ≤ 0.3.
-- **Side intrusion is pinned to the door band max (0.278 m).** That holds for side50 at every squash and for the
-  T-bone at s ≥ 0.6, through the S2 `min(door band max, stroke)` clamp. The door depth is a cap, not a response.
-
-### 3.4 Buckle effect
-
-Buckle spread is the largest change in each scenario's key metric across buckle 0–1, taking the worst squash row:
+Largest change in each scenario's key metric across buckle 0–1, over the squash 0.2–0.6 rows:
 
 | scenario | spread |
 |---|---|
-| wall35 | 0.014 m |
-| wall56 | 0.030 m |
-| wall64 | 0.055 m |
-| offset64 | 0.221 m (s = 0.6: 0.67 → 0.84) |
+| wall35 | 0.006 m |
+| wall56 | 0.025 m |
+| wall64 | 0.029 m |
+| offset64 | 0.119 m (at s = 0.2) |
 | wall50 | 0.012 m |
-| rear50 | 0.005 m |
-| side50 | 0.009 m |
-| head-on 28 | 0.017 m |
-| head-on 56 | 0.043 m |
-| T-bone | 0.003 m |
+| rear50 | 0.002 m |
+| side50 | 0.000 m |
+| head-on 28 | 0.018 m |
+| head-on 56 | 0.035 m |
+| T-bone | 0.001 m |
 
-At the recommended s = 0.25, buckle 0 → 0.7 leaves every key metric within ±0.01 m and the score is 0.044 for
-every buckle.
+Buckle is a visual knob. The wall56 skin fold at the hit:
 
-**Visual only** (wall56, s = 0.25, peak `crushAmount` 0.46 m):
-
-| buckle | wrinkle amp | skin fold at the hit |
+| setting | wrinkle amp | skin fold at the hit |
 |---|---|---|
-| 0 | 0.092 | 0.005 m |
-| 0.25 | 0.149 | 0.013 m |
-| 0.45 | 0.195 | 0.021 m |
-| 0.7 | 0.252 | 0.034 m |
-| 1 (owner, squash 1, crush 0.87 m) | 0.609 | 0.101 m |
+| default 0.32 / 0.45 | 0.211 | 0.023 m |
+| 1 / 1 | 0.610 | 0.102 m |
 
-## 4. Yaw-ratchet confound (positive control)
+## 4. Rear stroke data fix
 
-On main, `followGroup` reads yaw from the world engine-mid→axleR vector. That assumes the vector is +z in local
-space, but after asymmetric crush `clampLocal`'s permanent set tilts it. The positive-control hunk measures yaw
-relative to the same vector taken from the masses' `local` positions. It is copied from `crash-wt/bisect`:
-`yaw = atan2(fx, fz) − atan2(lfx, lfz)`. The hunk was applied in a scratch copy under
-`.bench/crush-calibration/fixed/` and is not committed. The whole sweep ran on both trees with `--root`.
+`hitStroke` scales a rear hit's stroke by `chassisRear.maxCrush / chassisFront.maxCrush`. The scaling is data
+(`rig-spec.ts` `CAGES`); the code is unchanged. I set chassisRear maxCrush to 0.38 (was 0.45), so the rear stroke
+is 0.69× the front (was 0.82×). The same value also scales the rear cage's skin crush (`maxCrush · compression`)
+and its cap.
 
-Max quiet-phase yaw drift per cell, main / fixed (rad). This is Σ|Δ group yaw| per frame once contact has been
-quiet for 0.1 s, taking the worst scenario. Spin-clamp frames (|ω_y| ≥ 5.9) are shown in brackets:
+Tail ÷ 50 km/h nose (worse corner), buckle 0 / 0.45 / 1:
 
-| squash \ buckle | 0 | 0.2 | 0.4 | 0.6 | 0.8 | 1 |
-|---|---|---|---|---|---|---|
-| 0 | 0.08/0.08 | 0.06/0.06 | 0.06/0.06 | 0.05/0.05 | 0.04/0.04 | 0.04/0.04 |
-| 0.2 | 0.14/0.02 | 0.11/0.02 | 0.08/0.03 | 0.03/0.05 | 0.02/0.05 | 0.02/0.04 |
-| 0.4 | 0.04/0.02 | 0.02/0.01 | 0.03/0.02 | 0.04/0.04 | 0.07/0.07 | 0.18/0.18 |
-| 0.6 | 0.21/0.20 | 0.21/0.21 | 0.21/0.21 | 0.20/0.20 | 0.21/0.21 | 0.13/0.13 |
-| 0.8 | 0.16/0.10 | 0.13/0.10 | 0.10/0.10 | 0.04/0.05 | 0.00/0.00 | 0.00/0.00 (6 → 1) |
-| 1 | 0.05/0.02 | 0.03/0.02 | 0.02/0.01 | 0.02/0.02 | 0.02/0.02 | 0.03/0.03 (4 → 0) |
-
-**Cells that changed once the ratchet was removed (1.5 s runs):**
-
-| cell | change |
-|---|---|
-| 0.8/1 | 6 spin-clamp frames → 1 (T-bone bullet) |
-| 1/1 | 4 spin-clamp frames → 0 (T-bone bullet) |
-| 0.8/0 | score 0.309 → 0.308 |
-| 1/0.6 | score 0.540 → 0.538 |
-| 1/1 | score 0.545 → 0.543 |
-| fine 0.35/0 | score 0.051 → 0.048 |
-| fine 0.35/0.45 | score 0.052 → 0.050 |
-| 0.2/0–0.2 | quiet drift 0.14 → 0.02 rad |
-
-No key metric moved more than 0.02 m. No cell crosses the 0.5 rad drift flag in either tree. With the probe's
-1.5 s window, the harness does not reproduce a sustained ±6 rad/s spin at any setting.
-
-**Long settle (`--after 6`; cells 0/0, 0.2/0, 0.4/0.45, 0.6/0.6, 0.8/0.8, 0.8/1, 1/0, 1/1).** The ratchet does
-show here:
-
-| cell | metric | main | fixed |
+| squash | rear 0.45, full | rear 0.38, full | rear 0.38, slomo |
 |---|---|---|---|
-| 0.4/0.45 | T-bone struck door keeps growing after contact | 0.26 → 0.34 m | 0.29 m |
-| 0.4/0.45 | side50 cell shift | 0.08 m | 0.00 m |
-| 1/1 | T-bone struck door | 0.38 m | 0.36 m |
-| 0.4/0.45 | score | 0.070 | 0.056 |
-| 1/1 | score | 0.566 | 0.559 |
+| 0.20 | 1.09 / 1.07 / 1.05 | 0.88 / 0.87 / 0.86 | 0.88 / 0.87 / 0.86 |
+| 0.25 | 1.05 / 1.04 / 1.03 | 0.86 / 0.85 / 0.84 | 0.86 / 0.86 / 0.84 |
+| 0.30 | 1.08 / 1.07 / 1.06 | 0.89 / 0.87 / 0.87 | 0.92 / 0.92 / 0.91 |
+| 0.35 | 1.02 / 1.02 / 1.05 | 0.84 / 0.83 / 0.87 | 0.93 / 0.93 / 0.92 |
+| 0.40 | 1.03 / 1.00 / 1.03 | 0.84 / 0.82 / 0.85 | 0.94 / 0.93 / 0.92 |
+| 0.45 | 1.01 / 0.98 / 1.02 | 0.83 / 0.81 / 0.84 | 0.84 / 0.82 / 0.81 |
 
-Max drift is ≤ 0.66 rad over 6 s in both trees. Independent of the ratchet, and present in both trees, the T-bone
-**bullet's nose relaxes from 0.18 to 0.06 m** between 1.5 s and 6 s (default cell). The pair-hit permanent set
-is not permanent. That belongs to the shape-match rest/skin lane, not to these knobs.
+With rear 0.38, the range is **0.806–0.939** for squash 0.2–0.45, every buckle, full speed and slomo. That is at
+least 0.06 inside both edges of the sourced 0.6–1.0 band. Tail permanent stays at 0.20–0.32 m, inside 0.15–0.40,
+and rear cabin intrusion is ≤ 0.03 m. A first try at 0.40 (factor 0.73) left slomo at 0.97–0.999 for squash
+0.3–0.4, so I went to 0.38.
 
-**Conclusion:** the recommendations below rest on fixed-tree numbers, which match main to ±0.003 in score on
-every grid and fine cell. The 1/1 extreme is stable once the ratchet is fixed. None of the range advice below
-comes from spin or instability.
+## 5. Known issues (not fixed here; numbers from the lane tree)
 
-## 5. Owner's 1/1 setting vs default vs recommended
+### 5.1 Piston-corner far-door intrusion: a noisy step function
 
-| scenario | metric | target | 0.4/0.45 (default) | 0.25/0.45 (recommended) | 1/1 (owner) |
-|---|---|---|---|---|---|
-| wall35 | nose permanent m | 0.15–0.31 | 0.24 | 0.18 | 0.47 ✗ |
-| wall35 | pulse ms / avg g | 60–150 / 11–16 | 83 / 11 | 67 / 14 | 117 / 8 ✗ |
-| wall35 | drivetrain | alive | alive | alive | dead ✗ |
-| wall56 | nose permanent m | 0.25–0.50 | 0.41 | 0.33 | 0.82 ✗ |
-| wall56 | COM travel m | 0.35–0.60 | 0.55 | 0.48 | 0.91 ✗ |
-| wall56 | pulse ms / avg g | 60–150 / 18–25 | 83 / 18 | 83 / 18 | 133 / 11 ✗ |
-| wall56 | cabin m | ≤ 0.06 | 0.04 | 0.02 | 0.06 ✗ |
-| wall64 | nose m / avg g | 0.29–0.57 / 20.5–28.5 | 0.49 / 26 | 0.38 / 26 | 0.87 ✗ / 15 ✗ |
-| offset64 | struck nose m | 0.30–0.60 | 0.55 | 0.47 | 0.97 ✗ |
-| offset64 | centre past face m | ≤ 0.05 | 0.25 ✗ | 0.16 ✗ | 0.23 ✗ |
-| wall50 | nose m | 0.22–0.45 | 0.34 | 0.28 | 0.71 ✗ |
-| rear50 | tail m | 0.15–0.40 | 0.17 | 0.18 | 0.14 ✗ |
-| rear50 | tail ÷ wall50 nose | 0.6–1.0 | 0.49 ✗ | 0.66 | 0.20 ✗ |
-| side50 | door m | 0.12–0.28 | 0.28 | 0.28 | 0.28 |
-| head-on 2×28 | nose m / drivetrains | 0.12–0.26 / alive | 0.23 / alive | 0.17 / alive | 0.46 ✗ / dead ✗ |
-| head-on 2×56 | nose m / pulse ms | 0.25–0.50 / 60–150 | 0.44 / 67 | 0.37 / 50 ✗ | 0.90 ✗ / 83 |
-| T-bone 50 | struck door / bullet nose m | 0.12–0.28 / 0.08–0.30 | 0.26 / 0.18 | 0.22 / 0.14 | 0.28 / 0.37 ✗ |
-| all | score / misses (of 37) | 0 / 0 | 0.053 / 2 | 0.044 / 2 | 0.545 / 18 |
+Test: `piston-rig.test.ts` "frontLeft/frontRight: cabin intrusion stays under 0.06 m (struck door excepted)". A
+1500 kg, 40 km/h rigid piston at the front corner moves the **far** door:
 
-Every 1/1 miss comes from squash, which roughly doubles crush and halves deceleration. Buckle 1 vs 0 changes the
-1/1 score by 0.016. At 1/1 the 56 km/h nose crush (0.82 m) exceeds the 0.65 m crumple length (`CRASH.crushMeters`).
-Skin wrinkle folds reach 0.10 m.
+| squash | 0.20 | 0.25 | 0.30 | 0.32 | 0.34 | 0.36 | 0.38 | 0.40 | 0.42 | 0.45 |
+|---|---|---|---|---|---|---|---|---|---|---|
+| far door (m) | 0.066 | 0.056 | 0.062 | **0.055** | 0.059 | 0.059 | 0.057 | 0.054 | 0.055 | 0.054 |
 
-## 6. Recommendations (apply in phase 2 after re-running the sweep)
+The behaviour is not monotonic: 0.32 passes with **0.005 m** margin, 0.30 fails by 0.002, and base 0.4 had 0.006
+margin. Buckle 0.2–1 does not change it. Suspected cause: far-door shove inertia. The free car is shoved sideways
+and the far door closes on the cell, the same mechanism as the existing `left:cabin` / `right:cabin` TODOs.
 
-**Defaults:** squash **0.25**, buckle **0.45**. Change them in `hud-store.ts:INITIAL_HUD`, `engine.ts`
-`squash`/`buckle`, the `StreamedDeformation` fields, and the test helpers that pin 0.4/0.45.
+### 5.2 Corner paint under-reads the particle dent at low squash
 
-What 0.25 gives over 0.4:
+Test: `skin.test.ts` "frontLeft/frontRight paint dent is within 25 % of the struck particles' and not 5 % deeper"
+(ratio ≥ 0.75):
 
-- 56 km/h permanent nose crush 0.33 m, centred in 0.25–0.50.
-- COM travel 0.48 m, centred in 0.35–0.60.
-- Rear/front ratio 0.66 instead of 0.49. This is the currently red `barrier.test.ts` case.
-- Offset past-face clip of 0.16 m instead of 0.25 m.
-- 64 km/h nose 0.38 m.
+| squash | 0.20 | 0.25 | 0.30 | 0.32 | 0.34 | 0.36 | 0.38 | 0.40 | 0.42 |
+|---|---|---|---|---|---|---|---|---|---|
+| paint ÷ particle | 0.63 | 0.72 | 0.705 | **0.761** | 0.760 | 0.751 | 0.769 | 0.804 | 0.793 |
 
-**Squash range:**
+0.32 passes with **0.011** margin. This is also a step function: the struck bumper particle jumps from 0.163 to
+0.183 m between 0.30 and 0.32. Buckle 0.2 → 1 adds only 0.02 to the ratio. Suspected cause: corner skin anchoring
+at low squash, where the corner cluster's fitted dent stays shallower than its particles.
 
-| span | squash | what it gives |
+### 5.3 Derby stalemate: the last two cars push without dying
+
+`derby.test.ts` "repeated hard hits disable cars and the match ends by elimination before the 90 s stalemate"
+fails at the new defaults. On `107db69`, seed 7 has one death (49.7 s) by 90 s. The test is not re-pinned or
+loosened. The owner's 9-car derby zip test ("a re-armed wreck never outruns its own masses") also flags one slice
+at squash 0.32 (o4 moved 0.12 m in 5.7 ms at 3.7 m/s, limit 0.113 m); at 0.4 it flags none.
+
+Six-car seed probe on `107db69` (seeds 7, 11, 23, 31, 42; "elim" = the match ends before 90 s), with squash and
+the rear maxCrush varied separately:
+
+| squash | rear maxCrush | eliminating seeds | earliest deaths | owner-derby zips |
+|---|---|---|---|---|
+| 0.40 | 0.45 (main) | 4/5 | 5.0 s and 8.0 s in every seed | 0 |
+| 0.32 | 0.45 | 3/5 | 13.9–24.7 s | 1 |
+| 0.40 | 0.38 | 1/5 | 9.3–40.4 s | 0 |
+| 0.32 | 0.38 (lane) | 1/5 | 15.8–49.7 s | 1 |
+
+Measured: the rear maxCrush is the larger lever on derby lethality (4/5 → 1/5 at squash 0.4; 3/5 → 1/5 at 0.32).
+Inferred, not traced per death: the most common late contact is a nose into a rear (front→rear 125 of 370 hits
+in seed 7), so a shorter rear stroke keeps more of those hits from pushing the block past the kill line. If so,
+main's 4/5 relies on rear hits at derby speed (≈ 43 km/h) killing engines, against the `barrier.test.ts` rule
+that backing into a wall well under 80 km/h leaves the block alive. When a car dies is the arcade ↔ real axis
+(Handling's `killTravel`), not the crush calibration.
+
+Decision: keep rear 0.38 and the sourced ratio margin. Derby pacing is restored through the graded death model
+(CrashRealism5's `drivetrainHealth` plus Handling's kill point on the arcade ↔ real slider), not by lengthening the
+rear stroke again. Main's 5–8 s deaths in every seed are also the "dies immediately" case the design pillars rule
+out. This lane lands after CrashRealism5, and is re-checked after Handling's graded death if the derby test
+still needs it.
+
+**Wall re-hits (first suspect, not the derby cause).** One car's nose hit into the slab 20 times
+(`.bench/crush-calibration/accum-probe.ts`) never died at 12 m/s: engine travel stayed at 0.140 m (squash 0.4) or
+flipped 0.048 ↔ 0.105 m (0.32), under the 0.15 m kill. CrashRealism5 traced that to the barrier never re-arming a
+wreck, plus the harness relaunching within the re-arm quiet time. It is fixed on its lane (`e83663e`): 12 m/s at
+squash 0.4 now reads 0.075, 0.222 † on hit 2. Car-car contact already re-armed, so this was not the derby cause.
+
+**Derby duel, measured** (seed 7, instrumented copy of `runDerby`, 90 s). fwd = max over engineL/R of
+rest.z − local.z:
+
+- **Live cars carry engine displacement past the kill line.** At squash 0.32, c3 is alive at t = 90 s with fwd
+  0.258 m. At 0.4, c1 stays alive at 0.263–0.286 m from t = 50 s and c2 at 0.247 m from t = 10 s.
+  `updateDrivetrain` measures travel only along the current hit's `impactInward` and returns early on side-classed
+  hits, so the block can sit 0.25 m back on a live car.
+- **The late duel is pushing, not ramming.** After 30 s at 0.32 there are 370 scored hits with closing speed
+  p50 0.0 m/s and p90 8.2 m/s (nose-first: p50 0.0, p90 3.7). Faces: front→rear 125, side→front 87,
+  rear→rear 67. At 0.4: p50 5.1, p90 10.9.
+
+Routed to CrashRealism5, whose graded `engineTravel` / `drivetrainHealth` (`34a0b16`) is the place to measure
+displacement independent of the hit direction. Re-run the 5-seed probe after it merges; the target is ≥ 4/5 seeds
+ending by elimination within 90 s, with no death before about 8 s.
+
+Real derby elimination rules (`.extraResearch/perplexity/50-derby-elimination-rules.md`):
+
+- A mandatory aggressive hit every 60 s (some books use 90 s or 2 min).
+- A car that does not move for 60 s is out.
+- The last car to make a legal hit wins.
+
+These are worth adding to `DerbyMatch` as their own feature. They would not end this duel, because both cars keep
+scoring hits.
+
+### 5.4 Head-on 2×56 pulse is too short
+
+The full-speed probe reads 50 ms (1 frame under the 60 ms floor). Slomo measures 29–37 ms for squash 0.15–0.35,
+about half the 60–150 ms band, at every realistic squash. This is a pair-contact stiffness issue, not a knob
+issue.
+
+## 6. Owner's 1/1 setting (lane tree)
+
+Full speed: score 0.473, 16 of 38 targets missed. Slomo: score 0.563.
+
+| scenario | measurement | target |
 |---|---|---|
-| realistic band | 0.20–0.45 | every crush, pulse, cabin and drivetrain target in band |
-| below the band | ≤ 0.15 | stiffer than a real car: 50 ms / 34 g at 64 km/h, drivetrain survives 64 km/h |
-| above the band | ≥ 0.5 | COM travel, g levels and noses leave their bands |
-| drivetrain limit | ≥ 0.8 | the drivetrain dies at 35 km/h; at 1.0 it also dies in a 2×28 head-on |
-| physical crumple limit | > 0.8 | the 56 km/h nose crushes past the 0.65 m crumple length |
+| wall35 | drivetrain dead, avg g 8.1 | alive, 11–16 g |
+| wall56 | nose 0.81 m | 0.25–0.50 m |
+| wall56 | COM travel 0.91 m | 0.35–0.60 m |
+| wall56 | avg g 11.3 | 18–25 g |
+| wall56 | cabin 0.06 m | < 0.06 m |
+| wall64 | nose 0.87 m | 0.29–0.57 m |
+| offset64 | nose 1.00 m | 0.30–0.60 m |
+| rear50 | tail 0.48 m | 0.15–0.40 m |
+| head-on 2×28 | nose 0.45 m, both drivetrains dead | 0.12–0.26 m, alive |
+| head-on 2×56 | nose 0.88 m | 0.25–0.50 m |
 
-Recommended slider span: **0.1–0.7**. This keeps a visible stiff/soft margin around the realistic band. Values
-above 0.7 are stable but not car-like, so label them "arcade" or leave them out. This is a realism call; the
-ratchet does not force it (§4).
+No spin-clamp frames and quiet drift ≤ 0.38 rad: it is stable. The 56 km/h nose crush exceeds the 0.65 m crumple
+length, which is why the slider tops out at a 0.75 m stroke (squash 0.729). Stability did not set that cap.
 
-**Re-parameterisation (preferred):** squash already is a stroke multiplier, k = 0.6 + s (S1). At 56 km/h the
-dynamic stroke is 0.564·k m, and it matches the measured COM travel (0.48 m at s = 0.25). Name the slider
-**"Crush stroke @ 56 km/h"** in metres:
+## 7. HUD
 
-| span | stroke | squash |
-|---|---|---|
-| slider span | 0.39–0.73 m | 0.1–0.7 |
-| default | 0.48 m | 0.25 |
-| realistic band | 0.45–0.59 m | 0.2–0.45 |
+`hud-sections.tsx` TuningSection:
 
-**Buckle:** keep 0–1 and the 0.45 default. Relabel it **"Panel wrinkle"**: its measurable output is the skin fold
-size, 0.5–3.4 cm at the hit at 56 km/h for buckle 0–0.7. The plastic-flow share it carries (S12–S14) is masked by
-the `clampLocal` crush set.
+- **Stroke** (aria "Crush stroke @56 km/h (m)"): the slider and the number field show the dynamic crush stroke of a
+  56 km/h full-width barrier hit in metres (`strokeAt56(squash)`, i.e. `crushStroke(15.56, squash)`). Range
+  0.40–0.75 m (`STROKE_RANGE_M`), step 0.01 m. Moving it writes `squashForStroke(m)`.
+- **Wrinkle** (aria "Panel wrinkle"): buckle, 0–1.
+- **Tooltips:** both rows have one stating the meaning, the real band and, for Stroke, the default (from
+  `INITIAL_HUD`).
+- **Defaults** restores exactly `INITIAL_HUD`.
 
-**Code-level follow-ups:** these change behaviour, so each needs its own sweep.
+## 8. Phase 1 history (`0e83d6f`)
 
-- (a) Take squash out of contact stiffness (S9/S10 contact branches) so the slider means only stroke.
-- (b) Remove the s < 0.03 switches (S8, S9, S10, S15).
-- (c) Make the rear stroke and the side door cap respond to the stroke (S2 rear ratio, door band clamp). Today
-  only the front responds.
-- (d) Delete the dead `hitStroke` cap term (S2) and the S7 seed floor, or give them a range where they act.
+- **Squash 0.25 recommendation:** phase 1 recommended squash 0.25 because the rear tail then did not follow the
+  slider (0.14–0.18 m for every squash), and the ratio test needed a softer front. Main has since changed the rear,
+  so that reasoning no longer applies.
+- **Yaw-ratchet positive control** (followGroup yaw measured on the local engine→axle vector): it changed no metric
+  by more than 0.02 m within the 1.5 s window. It removed the T-bone spin-clamp frames at 0.8/1 (6 → 1) and 1/1
+  (4 → 0). Main has since fixed it; the phase-2 grid shows no spin-clamp frames.
+- **Offset64 clip-through:** the mass centre ended 0.12–0.26 m past the slab face. It is fixed on `b9c5647`
+  (0.00 m in every cell).
 
-## 7. Reproduce
+## 9. Reproduce
 
 ```
-npm run sweep                                    # grid + default, writes .bench/crush-sweep/
-npm run sweep -- --cells 0.1:0.45,0.15:0.45,0.2:0.45,0.25:0.45,0.3:0.45,0.35:0.45,0.4:0.45,0.45:0.45,0.5:0.45
-npm run sweep -- --root <scratch tree with the followGroup hunk> --out .bench/fixed
-npm run sweep -- --cells 0.4:0.45,1:1 --after 6  # long settle
+npm run sweep                                             # grid + default, .bench/crush-sweep/
+npm run sweep -- --cells 0.2:0.45,0.25:0.45,0.3:0.45,0.32:0.45,0.35:0.45,0.4:0.45,0.45:0.45
+npm run sweep -- --slomo --cells 0.3:0.45,0.32:0.45,0.4:0.45 --scenarios wall56,offset64,wall50,rear50,headon28,headon56,tbone50
+npm run sweep -- --cells 0.32:0.45,1:1 --after 6          # long settle
 ```

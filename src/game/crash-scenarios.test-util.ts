@@ -94,11 +94,12 @@ export type WallOpts = ScenarioOpts & {
   car?: DeformableCar;
 };
 
-export function makeCar(mode: DeformMode = "shape", squash = 0.4, buckle = 0.45): DeformableCar {
+/** A car at the calibrated default squash/buckle (`StreamedDeformation`) unless the scenario overrides them. */
+export function makeCar(mode: DeformMode = "shape", squash?: number, buckle?: number): DeformableCar {
   const car = new DeformableCar(paint(), new THREE.Scene());
   car.deform.setMode(mode);
-  car.deform.squash = squash;
-  car.deform.buckle = buckle;
+  if (squash !== undefined) car.deform.squash = squash;
+  if (buckle !== undefined) car.deform.buckle = buckle;
   return car;
 }
 

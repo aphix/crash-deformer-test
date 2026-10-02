@@ -30,8 +30,6 @@ const SETUP = {
 
 function place(car: DeformableCar, spec: (typeof SETUP.cars)[number]): void {
   car.deform.setMode("shape");
-  car.deform.squash = 0.4;
-  car.deform.buckle = 0.45;
   car.group.position.set(spec.spawn.x, spec.spawn.y, spec.spawn.z);
   car.group.rotation.set(0, spec.yaw, 0, "YXZ");
   car.yaw = spec.yaw;

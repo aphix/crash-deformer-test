@@ -10,7 +10,7 @@ import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
 import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
-import { INITIAL_HUD, publishHud, type CrashPhase } from "./hud-store.ts";
+import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
@@ -146,10 +146,10 @@ export class CrashEngine {
   private lodFrame = 0;
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   private lodStride: number[] = [];
-  private squash = 0.4;
+  private squash = INITIAL_HUD.squash;
   /** Slot 0's class: the HUD's pick for the player's car. */
   private playerClass: VehicleClassId = fleetClass(0);
-  private buckle = 0.45;
+  private buckle = INITIAL_HUD.buckle;
   private fxDensity = 0.7;
   private speedMin = 0;
   private speedMax = 32;
@@ -537,13 +537,13 @@ export class CrashEngine {
   }
 
   setSquash(value: number): void {
-    this.squash = THREE.MathUtils.clamp(value, 0, 1);
+    this.squash = THREE.MathUtils.clamp(value, KNOB_RANGES.squash.min, KNOB_RANGES.squash.max);
     for (const car of this.live()) car.deform.squash = this.squash;
     this.emitHud(true);
   }
 
   setBuckle(value: number): void {
-    this.buckle = THREE.MathUtils.clamp(value, 0, 1);
+    this.buckle = THREE.MathUtils.clamp(value, KNOB_RANGES.buckle.min, KNOB_RANGES.buckle.max);
     for (const car of this.live()) car.deform.buckle = this.buckle;
     this.emitHud(true);
   }
