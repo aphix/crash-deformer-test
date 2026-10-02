@@ -8,7 +8,7 @@ export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoar
   return (
     <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-3">
       <p className="hud-label">Board</p>
-      <ul className="mt-2 min-h-0 space-y-0.5 overflow-y-auto overscroll-contain">
+      <ul className="-mx-1.5 mt-2 min-h-0 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain">
         {board.map((row) => (
           <li key={row.id}>
             <button
@@ -16,7 +16,7 @@ export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoar
               onClick={() => onWatch(row.id)}
               aria-pressed={row.watched}
               aria-label={`Follow ${row.name}`}
-              className={`-mx-1.5 flex w-[calc(100%+0.75rem)] items-baseline justify-between gap-2 rounded px-1.5 py-0.5 text-left font-display text-sm hover:bg-surface-2 ${row.watched ? "bg-surface-2" : ""}`}
+              className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-0.5 text-left font-display text-sm hover:bg-surface-2 ${row.watched ? "bg-surface-2" : ""}`}
             >
               <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
               <span className="tabular-nums text-muted">{row.score}</span>
