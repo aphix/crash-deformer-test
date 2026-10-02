@@ -20,7 +20,7 @@ import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
 import { DriverRows } from "@/components/race-driver";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
-import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/race/types";
+import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;

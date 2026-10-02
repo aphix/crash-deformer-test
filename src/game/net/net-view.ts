@@ -1,4 +1,4 @@
-import type { DeformableCar } from "../car.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 import type { Snapshot } from "./codec.ts";
 import type { NetGame } from "./net-ports.ts";
 

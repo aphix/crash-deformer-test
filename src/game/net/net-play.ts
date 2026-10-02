@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { DeformableCar } from "../car.ts";
-import { applyDrive, idleDrive, type DriveInput } from "../car-drive.ts";
-import { CAR_STYLE_IDS } from "../car-variants.ts";
-import { carClass, HANDLING, VEHICLE_CLASS_IDS } from "../vehicle-classes.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
+import { carClass, HANDLING, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 import {
   ensureFrames,
   makeSnapshot,
@@ -24,7 +24,7 @@ import {
   writeDerby,
 } from "./codec.ts";
 import { PHASES, type MatchStage, type NetGame, type NetRace, type PublicKind } from "./net-ports.ts";
-import { cleanName } from "../race/types.ts";
+import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";

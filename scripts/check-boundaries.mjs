@@ -17,22 +17,23 @@ const ROOT = path.resolve(path.dirname(new URL(import.meta.url).pathname), "..")
 const LIST = process.argv.includes("--list");
 const CAPS = process.argv.includes("--ratchet") ? JSON.parse(readFileSync(path.join(ROOT, "scripts/boundary-caps.json"), "utf8")) : null;
 
-// Bounded contexts, lowest layer first. A production file may import its own context or a context
-// on a strictly lower layer. `platform` (src/lib) is importable only by the contexts in PLATFORM_USERS.
+// Bounded contexts, lowest layer first: one folder each under src/game/. A production file may import its own
+// context or a context on a strictly lower layer. `platform` (src/lib) is importable only by the contexts in
+// PLATFORM_USERS. A new file goes into its context's folder; a new context is a new folder here and in the DAG.
 const CONTEXTS = [
-  ["kernel", 0, ["src/game/physics-core.js", "src/game/shape-match-core.js", "src/game/rig-spec.ts", "src/game/scalar.ts"]],
-  ["world", 1, ["src/game/ground.ts", "src/game/race/catalog.ts", "src/game/race/track.ts", "src/game/race/track-schema.ts", "src/game/race/placements.ts", "src/game/race/tracks/"]],
-  ["deform", 2, ["src/game/streamed-deform.ts", "src/game/deform-rig.ts", "src/game/deform-build.ts", "src/game/deform-hit.ts", "src/game/deform-state.ts", "src/game/deform-contact.ts", "src/game/deform-solve.ts", "src/game/shape-match.ts", "src/game/physics-util.ts", "src/game/fast-normals.ts", "src/game/deform-helper.ts", "src/game/hulls.ts"]],
-  ["vehicle", 3, ["src/game/car.ts", "src/game/car-core.ts", "src/game/car-parts.ts", "src/game/car-mesh.ts", "src/game/car-materials.ts", "src/game/car-variants.ts", "src/game/vehicle-classes.ts", "src/game/lamp-lights.ts", "src/game/car-drive.ts", "src/game/drive-input.ts", "src/game/gamepad.ts"]],
-  ["contact", 4, ["src/game/sat.ts", "src/game/pair-contact.ts", "src/game/external-contact.ts"]],
-  ["scenes", 5, ["src/game/fleet.ts", "src/game/derby-arena.ts", "src/game/compactor.ts", "src/game/piston-rig.ts", "src/game/door-rig.ts", "src/game/engine-props.ts"]],
-  ["ai", 6, ["src/game/derby-ai.ts", "src/game/ai-aggression.ts", "src/game/race/race-ai.ts", "src/game/race/traffic.ts"]],
-  ["match", 7, ["src/game/derby.ts", "src/game/phase.ts", "src/game/race/session.ts", "src/game/race/campaign.ts", "src/game/race/types.ts"]],
-  ["present", 8, ["src/game/engine-fx.ts", "src/game/engine-camera.ts", "src/game/engine-cine.ts", "src/game/engine-post.ts", "src/game/engine-marks.ts", "src/game/engine-world.ts", "src/game/engine-pistons.ts", "src/game/engine-doors.ts", "src/game/race/track-art.ts", "src/game/race/track-mesh.ts", "src/game/race/track-ground.ts", "src/game/race/track-structures.ts", "src/game/race/prefabs.ts"]],
+  ["kernel", 0, ["src/game/kernel/"]],
+  ["world", 1, ["src/game/world/"]],
+  ["deform", 2, ["src/game/deform/"]],
+  ["vehicle", 3, ["src/game/vehicle/"]],
+  ["contact", 4, ["src/game/contact/"]],
+  ["scenes", 5, ["src/game/scenes/"]],
+  ["ai", 6, ["src/game/ai/"]],
+  ["match", 7, ["src/game/match/"]],
+  ["present", 8, ["src/game/present/"]],
   ["net", 8, ["src/game/net/"]],
   // The HUD store is the read model of the whole sim and its presentation settings, so it sits above both.
-  ["hud", 9, ["src/game/hud-store.ts", "src/game/race/menu-nav.ts"]],
-  ["engine", 10, ["src/game/engine.ts", "src/game/engine-core.ts", "src/game/engine-warm.ts", "src/game/engine-hud.ts", "src/game/engine-scenes.ts", "src/game/engine-rigs.ts", "src/game/engine-input.ts", "src/game/world-step.ts", "src/game/engine-race.ts", "src/game/engine-race-field.ts", "src/game/engine-trace.ts"]],
+  ["hud", 9, ["src/game/hud/"]],
+  ["engine", 10, ["src/game/engine/"]],
   ["ui", 11, ["src/components/", "src/routes/", "src/router.tsx"]],
   ["platform", -1, ["src/lib/"]],
 ];
@@ -43,22 +44,22 @@ const SCENE_GRAPH = /^(Mesh|InstancedMesh|SkinnedMesh|Object3D|Scene|Group|Line|
 // Per-frame entry points (the frame flow in docs/CODEMAPS/architecture.md) and the per-pair/per-slice
 // queries they call. Their bodies allocate nothing.
 const HOT = {
-  "src/game/engine.ts": ["tickInner", "fixedStep", "scheduleSkins", "flushVisibleSkins", "updateCamera"],
-  "src/game/engine-scenes.ts": ["stepDerby"],
-  "src/game/world-step.ts": ["stepWorld"],
-  "src/game/car.ts": ["syncPose", "updateDeform"],
-  "src/game/car-core.ts": ["hulls", "crushHulls"],
-  "src/game/streamed-deform.ts": ["pullSensorsFromMasses", "bakeLocalSkin", "solveCages"],
-  "src/game/deform-state.ts": ["update", "flushSkin", "liveHulls", "liveCrushHulls"],
-  "src/game/deform-contact.ts": ["stepStructure", "collideWith"],
-  "src/game/deform-solve.ts": ["stepMassSlice", "stepShapeMatch", "stepBeams", "stepSuspension"],
-  "src/game/sat.ts": ["physicsSlice", "sliceSpeed", "satCars", "satTwoHulls", "satCarBarrier", "clipCarToBarrier"],
-  "src/game/pair-contact.ts": ["resolveCarPair", "impulseCar", "pushCar"],
-  "src/game/car-drive.ts": ["applyDrive", "input"],
-  "src/game/drive-input.ts": ["readIntent", "shapeDrive"],
-  "src/game/derby.ts": ["step"],
-  "src/game/derby-ai.ts": ["think"],
-  "src/game/race/race-ai.ts": ["think"],
+  "src/game/engine/engine.ts": ["tickInner", "fixedStep", "scheduleSkins", "flushVisibleSkins", "updateCamera"],
+  "src/game/engine/engine-scenes.ts": ["stepDerby"],
+  "src/game/engine/world-step.ts": ["stepWorld"],
+  "src/game/vehicle/car.ts": ["syncPose", "updateDeform"],
+  "src/game/vehicle/car-core.ts": ["hulls", "crushHulls"],
+  "src/game/deform/streamed-deform.ts": ["pullSensorsFromMasses", "bakeLocalSkin", "solveCages"],
+  "src/game/deform/deform-state.ts": ["update", "flushSkin", "liveHulls", "liveCrushHulls"],
+  "src/game/deform/deform-contact.ts": ["stepStructure", "collideWith"],
+  "src/game/deform/deform-solve.ts": ["stepMassSlice", "stepShapeMatch", "stepBeams", "stepSuspension"],
+  "src/game/contact/sat.ts": ["physicsSlice", "sliceSpeed", "satCars", "satTwoHulls", "satCarBarrier", "clipCarToBarrier"],
+  "src/game/contact/pair-contact.ts": ["resolveCarPair", "impulseCar", "pushCar"],
+  "src/game/vehicle/car-drive.ts": ["applyDrive", "input"],
+  "src/game/vehicle/drive-input.ts": ["readIntent", "shapeDrive"],
+  "src/game/match/derby.ts": ["step"],
+  "src/game/ai/derby-ai.ts": ["think"],
+  "src/game/ai/race-ai.ts": ["think"],
 };
 const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact", "scenes", "ai"]);
 const MAX_FILE_LINES = 800;

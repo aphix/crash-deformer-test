@@ -6,8 +6,8 @@
  * call); "animated" rows step through a moving deformation like a crash does.
  */
 import { performance } from "node:perf_hooks";
-import * as m from "../src/game/shape-match-core.js";
-import * as p from "../src/game/physics-core.js";
+import * as m from "../src/game/kernel/shape-match-core.js";
+import * as p from "../src/game/kernel/physics-core.js";
 
 function time(name, n, fn) {
   fn(); // warmup

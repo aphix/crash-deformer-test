@@ -1,8 +1,8 @@
 # Handling
 
 How cars drive, what each class is like, the arcade ↔ realistic slider, and how damage changes driving.
-Code: `src/game/vehicle-classes.ts` (data, slider, damage grading), `src/game/car-drive.ts` (`applyDrive`, `DriverSeat`),
-`src/game/drive-input.ts` (keyboard / pad feel). Tests: `vehicle-classes.test.ts`, `drive-input.test.ts`, `gamepad.test.ts`.
+Code: `src/game/vehicle/vehicle-classes.ts` (data, slider, damage grading), `src/game/vehicle/car-drive.ts` (`applyDrive`, `DriverSeat`),
+`src/game/vehicle/drive-input.ts` (keyboard / pad feel). Tests: `vehicle-classes.test.ts`, `drive-input.test.ts`, `gamepad.test.ts`.
 
 ## Controls
 

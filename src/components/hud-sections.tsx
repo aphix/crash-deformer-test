@@ -17,11 +17,11 @@ import {
 } from "lucide-react";
 import type { HudProps } from "@/components/hud";
 import { FIELD, NumberField, RangeRow } from "@/components/hud-controls";
-import type { CrashEngine } from "@/game/engine";
-import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle-classes";
+import type { CrashEngine } from "@/game/engine/engine";
+import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle/vehicle-classes";
 import { Button } from "@/components/ui/button";
-import { FX_TIERS } from "@/game/engine-post";
-import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud-store";
+import { FX_TIERS } from "@/game/present/engine-post";
+import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud/hud-store";
 import { useStoredString } from "@/components/use-stored-string";
 import { cn } from "@/lib/utils";
 

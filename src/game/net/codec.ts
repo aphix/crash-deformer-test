@@ -1,9 +1,9 @@
 import { z } from "zod";
-import type { DriveInput } from "../car-drive.ts";
-import type { PartNetState } from "../car-core.ts";
-import type { DerbyBoardRow, DerbyDecided } from "../derby.ts";
-import type { RaceSnapshot } from "../race/types.ts";
-import type { DeformNetState } from "../streamed-deform.ts";
+import type { DriveInput } from "../vehicle/car-drive.ts";
+import type { PartNetState } from "../vehicle/car-core.ts";
+import type { DerbyBoardRow, DerbyDecided } from "../match/derby.ts";
+import type { RaceSnapshot } from "../match/types.ts";
+import type { DeformNetState } from "../deform/streamed-deform.ts";
 
 /**
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep

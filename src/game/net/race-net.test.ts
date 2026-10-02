@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { setGround } from "../ground.ts";
-import { frame, makeWorld, type World } from "../race/race-world.test-util.ts";
+import { setGround } from "../world/ground.ts";
+import { frame, makeWorld, type World } from "../world/race-world.test-util.ts";
 import { readRace, writeRace } from "./codec.ts";
 
 /** Host world with network peers seated on `seats` (car → name), its player named "Ann", a 3-car AI field, the oval, started. */

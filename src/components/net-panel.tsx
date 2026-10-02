@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
-import type { CrashEngine } from "@/game/engine";
+import type { CrashEngine } from "@/game/engine/engine";
 import type { NetStatus, NetTx } from "@/game/net/net-play";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
 import { encodeQr } from "@/lib/qr";

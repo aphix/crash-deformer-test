@@ -583,7 +583,7 @@ should use the `engine.ts:fixedStep` order (as in §3.1). `barrier.test.ts`
 `pair-contact.ts:stepCarPair` is already the same order.
 
 Put a reusable `runWall(speedKph, overlap)` / `runPair(...)` helper in a new
-`src/game/crash-scenarios.test-util.ts`. It returns
+`src/game/contact/crash-scenarios.test-util.ts`. It returns
 `{ noseShortL, noseShortR, tailShort, comTravel, pulseMs, maxPastFace }`
 using the §3.1 definitions. Do not copy the harness into each test.
 
@@ -968,7 +968,7 @@ What changed, in mechanism terms:
   (`latCap`); side hits cap at the door band (0.278 m).
 - **B4** — rear stroke × `chassisRear/chassisFront` maxCrush (0.45/0.55).
 
-Measured with `src/game/crash-scenarios.test-util.ts` (the §3.1 frame order,
+Measured with `src/game/contact/crash-scenarios.test-util.ts` (the §3.1 frame order,
 full speed, shape mode). Base = main `53ea0f5` with the same harness.
 
 | scenario | COM travel m (base → now) | pulse ms (base → now) | nose end L/R (base → now) | tail end | engine max | past wall, centre | drivetrain | detached (now) |

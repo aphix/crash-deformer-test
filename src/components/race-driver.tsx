@@ -1,6 +1,6 @@
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { useDriver } from "@/components/use-driver";
-import { DRIVER_CARS, NAME_MAX } from "@/game/race/types";
+import { DRIVER_CARS, NAME_MAX } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 /** Race setup rows: the player's name and car type (stored by `useDriver`; touch-sized, pad-navigable). */

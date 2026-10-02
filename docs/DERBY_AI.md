@@ -1,9 +1,9 @@
 # Derby AI
 
 How the demolition-derby drivers fight, what the aggression slider means for them, the count-out
-rules, and how the field is validated. Code: `src/game/derby-ai.ts` (`DerbyBrain`, `DERBY_RULES`),
-`src/game/derby.ts` (`DerbyMatch`), `src/game/derby-arena.ts` (bowl, `derbyRadius`, `WinnerSpot`),
-`src/game/ai-aggression.ts` (shared with race mode). Tests: `derby-ai.test.ts`, `derby.test.ts`.
+rules, and how the field is validated. Code: `src/game/ai/derby-ai.ts` (`DerbyBrain`, `DERBY_RULES`),
+`src/game/match/derby.ts` (`DerbyMatch`), `src/game/scenes/derby-arena.ts` (bowl, `derbyRadius`, `WinnerSpot`),
+`src/game/ai/ai-aggression.ts` (shared with race mode). Tests: `derby-ai.test.ts`, `derby.test.ts`.
 
 Sources: `.extraResearch/perplexity/40-derby-driver-techniques.md`, `41-derby-rules-door-timer.md`,
 `50-derby-elimination-rules.md` (lane/calib-defaults).

@@ -34,9 +34,9 @@ console.warn = (...a) => {
   if (!String(a[0]).startsWith("THREE.Material: parameter")) warn(...a);
 };
 
-const harness = await import(pathToFileURL(resolve(args.root, "src/game/crash-scenarios.test-util.ts")).href);
+const harness = await import(pathToFileURL(resolve(args.root, "src/game/contact/crash-scenarios.test-util.ts")).href);
 const { runWall, runPair } = harness;
-const { INITIAL_HUD } = await import(pathToFileURL(resolve(args.root, "src/game/hud-store.ts")).href);
+const { INITIAL_HUD } = await import(pathToFileURL(resolve(args.root, "src/game/hud/hud-store.ts")).href);
 
 /** The tree's default HUD pair — always run and marked in every table. */
 const DEFAULT = [INITIAL_HUD.squash, INITIAL_HUD.buckle];

@@ -1,10 +1,10 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { idleDrive } from "../car-drive.ts";
-import { DerbyMatch } from "../derby.ts";
-import type { DeformableCar } from "../car.ts";
-import { makeCar, runWall } from "../crash-scenarios.test-util.ts";
-import { assertSameDigest, assertSameNumbers, forModes } from "../test-support.ts";
+import { idleDrive } from "../vehicle/car-drive.ts";
+import { DerbyMatch } from "../match/derby.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { makeCar, runWall } from "../contact/crash-scenarios.test-util.ts";
+import { assertSameDigest, assertSameNumbers, forModes } from "../vehicle/test-support.ts";
 import {
   ensureFrames,
   makeCarFrame,

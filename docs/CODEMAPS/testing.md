@@ -31,16 +31,16 @@ Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node
 | `fleet.test.ts` / `derby.test.ts` | layouts, pile-up heading; derby AI, scoring, bowl clip, six-car match |
 | `gamepad.test.ts` / `drive-input.test.ts` | pad mapping, steering feel, pedals, `DriverSeat`, drive camera |
 | `net/net.test.ts` | netplay codec; a client car reproduces the host's final mesh and collision points |
-| `race/track.test.ts` / `placements.test.ts` | gate direction, walls, banking, bridge decks, layout validation; prop placement |
-| `race/session.test.ts` / `race-finish.test.ts` | race rules and campaign; a race finishing through the real stack (`race/race-world.test-util.ts`) |
-| `race/race-ai.test.ts` / `traffic.test.ts` / `menu-nav.test.ts` | race AI, NPC traffic, controller menu focus (`navTarget`, `stickDir`) |
+| `world/track.test.ts` / `placements.test.ts` | gate direction, walls, banking, bridge decks, layout validation; prop placement |
+| `match/session.test.ts` / `race-finish.test.ts` | race rules and campaign; a race finishing through the real stack (`world/race-world.test-util.ts`) |
+| `ai/race-ai.test.ts` / `traffic.test.ts` / `menu-nav.test.ts` | race AI, NPC traffic, controller menu focus (`navTarget`, `stickDir`) |
 
 Outside `src/game/`: `src/lib/multiplayer/rate-limit.test.ts` (signaling rate limits per peer / IP) and `scripts/with-app-env.test.mjs` (the wrapper that merges `.grok/app-env.json` into the environment of `dev`, `build` and `preview`).
 
 ## Harnesses
-- `src/game/crash-scenarios.test-util.ts`: headless engine frame order. `makeCar(mode, squash, buckle)`, `makeWorld(cars, barrier, slomo)`, `tickWorld(w, wallDt)` (the physics part of `tickInner` + phase timing), `runWall(speedKph, overlap, approach): CrashResult`, `runPair(kphA, kphB, "head-on" | "t-bone", opts)`.
-- `src/game/contact-parity.test-util.ts`: `parkCar`, `carState`, `ramDoorPass` / `carDoorPass`, `pressUntil`, `carSandwich`, `pistonFront` / `carFront`, `shortening`, `crushMismatch`: the same hit delivered by a striker and by a car.
-- `src/game/test-support.ts`: `DT`, `MODES`, `forModes(title, fn)` (one `describe` per deform mode), `dummyGeom()`, `paint()`, `mass(d, name)`.
+- `src/game/contact/crash-scenarios.test-util.ts`: headless engine frame order. `makeCar(mode, squash, buckle)`, `makeWorld(cars, barrier, slomo)`, `tickWorld(w, wallDt)` (the physics part of `tickInner` + phase timing), `runWall(speedKph, overlap, approach): CrashResult`, `runPair(kphA, kphB, "head-on" | "t-bone", opts)`.
+- `src/game/scenes/contact-parity.test-util.ts`: `parkCar`, `carState`, `ramDoorPass` / `carDoorPass`, `pressUntil`, `carSandwich`, `pistonFront` / `carFront`, `shortening`, `crushMismatch`: the same hit delivered by a striker and by a car.
+- `src/game/vehicle/test-support.ts`: `DT`, `MODES`, `forModes(title, fn)` (one `describe` per deform mode), `dummyGeom()`, `paint()`, `mass(d, name)`.
 - `npm run sweep` → `scripts/crush-sweep.mjs`: squash × buckle grid over `crash-scenarios`, scored against `docs/RIG_ANALYSIS.md` targets (`docs/CRUSH_CALIBRATION.md`).
 - `npm run bench` → `scripts/bench-physics.mjs`: ns/op of the JS kernels. `scripts/bench-browser.mjs`: Playwright frame bench through `window.__crush` (usage in `README.md`).
 - `npm run check:programs -- --url <dev or preview url>` → `scripts/check-programs.mjs`: program warm-up guard in headless Chromium (about 3 min). Plays the sandbox (fleet crash with cracked glass, drive, night / wet, every FX tier, every scene, debug views) and a race on every course, and fails if any GPU program links after the boot warm-up or between a race's green light and its end. Needs a running server and a browser, so it is a script, not part of `test:app`. See `docs/PERF_HITCH.md`.

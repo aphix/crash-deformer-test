@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Hud } from "@/components/hud";
 import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
-import type { CrashEngine } from "@/game/engine";
-import { HudStore } from "@/game/hud-store";
+import type { CrashEngine } from "@/game/engine/engine";
+import { HudStore } from "@/game/hud/hud-store";
 
 export function CrashLab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -20,7 +20,7 @@ export function CrashLab() {
     let cancelled = false;
     let engine: CrashEngine | null = null;
 
-    void import("@/game/engine")
+    void import("@/game/engine/engine")
       .then(({ CrashEngine }) => {
         if (cancelled || !canvasRef.current) return;
         try {
