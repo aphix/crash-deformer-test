@@ -160,11 +160,13 @@ export const ARCADE_KILL_TRAVEL = 0.55;
 const KILL_CEILING = 0.63;
 
 /**
- * Derby kill travel × the race/fleet value. Ten-car derby, 5 seeds at the realistic defaults (lane
- * crash-realism-6): ×1 ends 0/5 by elimination; ×0.67 2/5, first death 7.9 s; ×0.5 4/5, first death 15 s.
+ * Derby kill travel × the race/fleet value. Ten-car derby (derby-ai.test runField), seeds 1–5, realistic
+ * defaults, 300 s heats (lane crash-realism-8, after the wreck-spin fix): ×0.5 wrecks 1/5 (two count-outs,
+ * two at the limit); ×0.46 3/5, first death 10.6 s; ×0.44 3/5, first death 5.8 s; ×0.36 4/5, first death
+ * 2.6 s. Below ×0.46 a single hard hit kills before any wrecking has accumulated.
  * A derby is a wrecking contest; a race or fleet car keeps the sourced tolerance.
  */
-export const DERBY_KILL_SCALE = 0.5;
+export const DERBY_KILL_SCALE = 0.46;
 
 /** Engine-kill travel (m) for a class at `realism`, in a derby or anywhere else. */
 export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "default"): number {

@@ -1524,25 +1524,35 @@ export class StreamedDeformation {
     const engR = this.at.engineR;
     const axle = this.at.axleR;
     // Heading: the engine mid → axleR axis in world, minus the same axis's angle in the body frame
-    // the masses were last clamped into (`local`). Reading it against a fixed +z assumed that axis
+    // the masses were last clamped into (`local`), seen under the pitch and roll the frame is about to
+    // take (YXZ: world = yaw · pitch · roll · local). Reading it against a fixed +z assumed that axis
     // never tilts in the body; an asymmetric crush holds it tilted there, so every call turned the
     // frame by the tilt and clampLocal wrote the turn back into world — up to ~1 rad per frame at a
-    // dozen calls per frame (the "wreck spins on the spot" defect).
+    // dozen calls per frame (the "wreck spins on the spot" defect). Leaving the frame's own pitch and
+    // roll out did the same with the tilt's yaw coupling (dump16 replay: Khaki 11.7 → 7.3 rad/s).
     const fx = (engL.world.x + engR.world.x) * 0.5 - axle.world.x;
     const fy = (engL.world.y + engR.world.y) * 0.5 - axle.world.y;
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
-    const bx = (engL.local.x + engR.local.x) * 0.5 - axle.local.x;
-    const bz = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
     const yawLen = Math.hypot(fx, fz);
-    const yaw = yawLen > 0.15 && Math.hypot(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
     // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
     const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22);
     const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5);
-    const yawSafe = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
     const plant = !this.bidirectional && this.quietTime() > 0.2;
+    const tilt = Number.isFinite(pitch + roll) && (!plant || this.quietTime() < 0.35);
+    const cp = Math.cos(tilt ? pitch : 0);
+    const sp = Math.sin(tilt ? pitch : 0);
+    const cr = Math.cos(tilt ? roll : 0);
+    const sr = Math.sin(tilt ? roll : 0);
+    const ax = (engL.local.x + engR.local.x) * 0.5 - axle.local.x;
+    const ay = (engL.local.y + engR.local.y) * 0.5 - axle.local.y;
+    const az = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
+    const bx = ax * cr - ay * sr;
+    const bz = (ax * sr + ay * cr) * sp + az * cp;
+    const yaw = yawLen > 0.15 && Math.hypot(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
+    const yawSafe = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
     let minHub = Infinity;
     for (const m of this.masses) if (m.hub && m.world.y < minHub) minHub = m.world.y;
-    if (Number.isFinite(pitch + roll) && (!plant || this.quietTime() < 0.35)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
+    if (tilt) group.rotation.set(pitch, yawSafe, roll, "YXZ");
     else group.rotation.set(0, yawSafe, 0, "YXZ");
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
@@ -2342,6 +2352,7 @@ export class StreamedDeformation {
     // B1/B3/B4: a hit only crushes as far as its stroke reaches (armMasses has no hit).
     const stroke = this.hitSpeed >= 0 ? this.hitStroke() : Infinity;
     const sideHit = Math.abs(ix) > Math.abs(iz);
+    const spin = this.yawMomentum();
     for (const m of this.masses) {
       let dx = m.local.x - m.rest.x;
       let dy = m.local.y - m.rest.y;
@@ -2486,8 +2497,42 @@ export class StreamedDeformation {
       m.world.copy(m.local);
       group.localToWorld(m.world);
     }
+    // The clamp moves positions only: writing back a crushing body (its front masses slower than its
+    // rear) changed Σ m r × v, spin from nowhere (dump16 replay: clampLocal put +8.7 rad/s of L/I into
+    // Khaki, −8.6 into Bronze). Hand back the angular momentum the masses had, as a rigid turn.
+    this.yawMomentum(spin);
     // A car on no wheels is out, like a dead engine.
     if (this.at.hubFL.popped && this.at.hubFR.popped && this.at.hubRL.popped && this.at.hubRR.popped) this.drivetrainAlive = false;
+  }
+
+  /** The masses' angular momentum about their centroid (y), or, given `target`, a rigid turn added to
+   *  every mass's velocity that sets it to `target`. */
+  private yawMomentum(target = NaN): number {
+    let mass = 0,
+      cx = 0,
+      cz = 0;
+    for (const m of this.masses) {
+      cx += m.world.x * m.mass;
+      cz += m.world.z * m.mass;
+      mass += m.mass;
+    }
+    cx /= mass;
+    cz /= mass;
+    let l = 0,
+      inertia = 0;
+    for (const m of this.masses) {
+      const rx = m.world.x - cx;
+      const rz = m.world.z - cz;
+      l += m.mass * (rz * m.vel.x - rx * m.vel.z);
+      inertia += m.mass * (rx * rx + rz * rz);
+    }
+    if (Number.isNaN(target) || inertia < 1e-9) return l;
+    const w = (target - l) / inertia;
+    for (const m of this.masses) {
+      m.vel.x += w * (m.world.z - cz);
+      m.vel.z -= w * (m.world.x - cx);
+    }
+    return target;
   }
 
   private stepBeams(dt: number): void {

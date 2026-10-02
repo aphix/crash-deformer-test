@@ -411,8 +411,12 @@ describe("derby, ten AI cars at the default slider", () => {
   });
 
   // Measured on 3aa4301 (derby kill travel, seeds 1–5): wreck 2/5 (72.6 s, 112.4 s), count-out 1, time 2;
-  // seed 1's first death at 5.9 s. Owner of the lethality target: CrashRealism8.
+  // seed 1's first death at 5.9 s. CrashRealism8 (wreck-spin fix, DERBY_KILL_SCALE 0.46): wreck 3/5 (62.9,
+  // 100.5, 99.5 s), time 2; first deaths 10.6–25.6 s. Below ×0.46 a single hit kills inside 8 s (×0.36: 4/5,
+  // first death 2.6 s), so the last heat needs accumulation, not a lower scale. Owner: CrashRealism8.
   it.todo("derby:wreck — ≥ 4/5 ten-car heats end last car standing by wrecking inside 300 s, first death after 8 s");
 
-  it.todo("derby:contact-spin — no car spins > 5 rad/s for 0.2 s in pair contact either (5–9 rad/s now; CrashRealism7: physics yaw artifact)");
+  // Peak heading rate over 0.1 s in contact (seeds 1–5, 120 s): 6.0–9.1 rad/s before the wreck-spin fix,
+  // 4.95–7.24 after; free driving peaks at 4.86 (the AI's own steer), and contact stacks on it.
+  it.todo("derby:contact-spin — no car spins > 5 rad/s for 0.2 s in pair contact either (CrashRealism8)");
 });

@@ -1324,6 +1324,32 @@ ledger on the 16-car replay).
   intrusion unchanged (≤ 0.052 m); above 64 km/h the nose stops at 0.46–0.50 m
   (was 0.49–0.83 m): the wheels are the stop. An unbudgeted push (0.09 m per
   SAT pass) zipped derby wrecks 0.27 m in a slice; the budget removed it.
+- **Pile-up spin (16-car `dump16` replay, squash 0.4).** Peak heading rate over
+  0.1 s on f9e42be: Khaki 11.69, Bronze 8.43 rad/s. Exclusive per-call ledger
+  (Δ mass-cloud yaw and Δ L/I about the mass centroid, spawn to peak): Khaki
+  +8.70 rad/s of L/I from `clampLocal`, −5.14 from the other cars' sphere
+  contacts, ≤ 0.95 from every other call; Bronze −8.60 from `clampLocal`. The
+  write-back moves positions of a body whose front masses are slower than its
+  rear, so Σ m r × v changed with no torque; `separateAlong`, `feedOverlap`
+  `refVn` and the sphere contacts stayed under 1.5 rad/s each. Fixes, together:
+  (1) `clampLocal` hands back the masses' angular momentum (a rigid turn of
+  their velocities, `yawMomentum`), (2) `followGroup` reads the clamp-held
+  engine→axle axis under the pitch and roll the frame is about to take (left
+  out, the tilt's yaw coupling turned the frame each call: Khaki 7.82 →
+  3.28 rad/s with (1) alone vs both). Now Bronze 2.22, Khaki 1.35 rad/s. Making
+  the heading a mass-weighted fit of all particles instead (four weightings
+  tried) cut the replay to 1.2–2.6 rad/s but broke 2–6 tests (side-piston paint
+  0.232 vs particles 0.211 m, rear-share of AI hits, fleet last-2 s turn), so
+  it is not used. Ten-car derby, seeds 1–5, 120 s: contact peaks 6.0–9.1 →
+  4.95–7.24 rad/s; free driving peaks at 4.86 (the AI's own steer through
+  `driveMasses`), and the rest is `clampLocal`'s positional turn in contact
+  (seed 4 c8: 0.78 rad in 0.15 s with ΔL = 0). `derby:contact-spin` stays a todo.
+- **Derby lethality.** The spin fix made wrecks last longer: six-car
+  elimination 3/5 (was ≥ 4/5). `DERBY_KILL_SCALE` sweep, ten-car seeds 1–5,
+  300 s: ×0.5 wreck 1/5, ×0.46 3/5 (first death 10.6 s), ×0.44 3/5 (5.8 s),
+  ×0.42 3/5 (4.8 s), ×0.36 4/5 (2.6 s). ×0.46 restores the six-car tests;
+  `derby:wreck` (4/5 with no death before 8 s) needs accumulation, since below
+  ×0.46 one hard hit kills.
 
 ## Appendix
 
