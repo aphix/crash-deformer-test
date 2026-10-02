@@ -8,6 +8,7 @@ import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
+import { assignClass, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 
 const FRAME = 1 / 60;
 const TYRE_CENTRE = 0.32;
@@ -113,6 +114,43 @@ describe("fleet ramps", () => {
       assert.deepEqual(failures, []);
     });
   }
+
+  it("14 m/s jump, every class: the springs take the landing and stop swinging (all under 1 cm) within 2 s, the body's sill stays off the ground", (t) => {
+    const failures: string[] = [];
+    const sill = new THREE.Vector3();
+    for (const cls of VEHICLE_CLASS_IDS) {
+      const { ramps, w, car } = scene(true);
+      car.spawnFacing(0, -14, 0, 14);
+      assignClass(car, cls);
+      const body = car.group.getObjectByName("classLift")!;
+      let touch = -1;
+      let flew = false;
+      let peak = 0;
+      let swung = 0;
+      let low = Infinity;
+      let time = 0;
+      // 4 s: 2.2 s past touchdown, before the car rolls off the disc's rim.
+      run(w, 4, () => {
+        time += FRAME;
+        if (car.airborne && !car.airContact) flew = true;
+        if (flew && touch < 0 && (car.airContact || !car.airborne)) touch = time;
+        if (touch < 0) return;
+        const o = car.suspension.offset;
+        peak = Math.min(peak, ...o);
+        if (Math.max(...o.map(Math.abs)) > 0.01) swung = time - touch;
+        car.group.updateWorldMatrix(true, true);
+        body.localToWorld(sill.set(0, 0.25, 0));
+        low = Math.min(low, sill.y - ramps.heightAt(sill.x, sill.z, sill.y));
+      });
+      t.diagnostic(`${cls}: peak compression ${(-peak * 100).toFixed(1)} cm, swinging until ${swung.toFixed(2)} s after touchdown, sill ≥ ${low.toFixed(3)} m`);
+      if (touch < 0) failures.push(`${cls} never came down`);
+      if (peak > -0.02) failures.push(`${cls} springs took ${(-peak * 100).toFixed(1)} cm`);
+      if (swung > 2) failures.push(`${cls} still swinging ${swung.toFixed(2)} s after touchdown`);
+      if (low < 0.05) failures.push(`${cls} sill ${low.toFixed(3)} m off the ground`);
+      car.dispose();
+    }
+    assert.deepEqual(failures, []);
+  });
 
   it("8 m/s without the slab: comes down across the far ramp's high end and rides its face down, not launched off the step", (t) => {
     const { w, car } = scene(false);

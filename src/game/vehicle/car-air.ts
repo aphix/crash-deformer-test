@@ -32,7 +32,8 @@ export const AIR_GAP = 0.08;
 const TOUCH = 0.03;
 /** Body up · ground normal above this (cos ~25°) with two wheels down: back on its wheels (`stepAir`'s return). */
 const UPRIGHT = 0.9;
-/** Restitution of a hull point closing faster than `BOUNCE_V` (m/s); slower contacts don't bounce. */
+/** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,
+ *  `Suspension`, take a landing) don't bounce. */
 const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
@@ -151,7 +152,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
       const nrm = N[c]!;
       const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
       if (vn >= 0) continue;
-      const e = pass === 0 && vn < -BOUNCE_V ? RESTITUTION : 0;
+      const e = pass === 0 && !TYRE[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
       const jn = -(1 + e) * vn * reach(r, nrm, q);
       push(v, w, q, r, nrm, jn);
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane).

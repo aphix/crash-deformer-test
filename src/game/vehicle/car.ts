@@ -7,6 +7,8 @@ import { getCrackMap } from "./car-materials.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { AIR_GAP, COM_Y, stepAir } from "./car-air.ts";
+import { Suspension } from "./car-suspension.ts";
+import { carClass, CLASSES } from "./vehicle-classes.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -39,6 +41,8 @@ export class DeformableCar extends CarParts {
   airContact = false;
   /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
   private readonly groundSpin = new THREE.Vector3();
+  /** The body's springs over its wheels (drawn only: the physics frame stays on the ground pose). */
+  readonly suspension = new Suspension();
 
   spawn(x: number, z: number, speed: number): void {
     this.resetVisual();
@@ -64,6 +68,7 @@ export class DeformableCar extends CarParts {
     this.spawnSpeed = speed;
     this.crashed = false;
     this.airborne = false;
+    this.suspension.reset();
     this.angular.set(0, 0, 0);
     this.refreshBasis();
     this.velocity.copy(dir).multiplyScalar(speed);
@@ -156,6 +161,7 @@ export class DeformableCar extends CarParts {
       this.bodyMat.roughness = Math.max(this.bodyMat.roughness, rough);
     } else {
       this.crashed = true;
+      this.ride(0);
       this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
       this.bodyMat.roughness = rough;
     }
@@ -304,6 +310,7 @@ export class DeformableCar extends CarParts {
       for (const w of this.wheels) w.rotation.x = this.wheelSpin;
       if (stepAir(this, dt)) this.land();
       this.refreshBasis();
+      this.ride(dt);
       if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
       this.stepLooseParts(dt);
       return;
@@ -382,6 +389,7 @@ export class DeformableCar extends CarParts {
       }
     }
     this.refreshBasis();
+    this.ride(dt);
     this.stepLooseParts(dt);
   }
 
@@ -585,6 +593,17 @@ export class DeformableCar extends CarParts {
   /** Netplay client, every frame: wheels spin and ride their hubs as `afterContacts` does on the host. */
   netFrame(dt: number): void {
     this.nudgeWheels(dt, false);
+    this.ride(dt);
+  }
+
+  /**
+   * The body on its springs (`Suspension`) over this slice's ground pose: no input while flying or not upright
+   * (tumbling, on the roof); a crashed car's body back on its stock ride.
+   */
+  private ride(dt: number): void {
+    const cls = carClass(this);
+    const air = this.airborne && (!this.airContact || this.group.matrixWorld.elements[5]! < 0.5);
+    this.suspension.step(this.group, cls, CLASSES[cls].lift, !this.crashed, air, dt);
   }
 }
 
