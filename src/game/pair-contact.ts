@@ -12,7 +12,7 @@ const _cn = new THREE.Vector3();
 const _cp = new THREE.Vector3();
 const _tn = new THREE.Vector3();
 
-export type PairHit = {
+type PairHit = {
   impulse: number;
   contact: THREE.Vector3;
   normal: THREE.Vector3;

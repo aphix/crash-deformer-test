@@ -116,8 +116,8 @@ const SPIN_LET_GO = 4.5;
 const SPIN_LAG = 0.05;
 
 /** What a driver is doing this tick (`tacticOf`). */
-export const TACTICS = ["idle", "unstick", "hold", "layback", "reverse", "jturn", "nose", "swing", "sideswipe"] as const;
-export type Tactic = (typeof TACTICS)[number];
+const TACTICS = ["idle", "unstick", "hold", "layback", "reverse", "jturn", "nose", "swing", "sideswipe"] as const;
+type Tactic = (typeof TACTICS)[number];
 const T_IDLE = 0;
 const T_UNSTICK = 1;
 const T_HOLD = 2;

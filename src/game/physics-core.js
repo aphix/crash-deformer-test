@@ -149,7 +149,6 @@ function hypot3(x, y, z) {
 }
 
 export {
-  clamp,
   CRASH,
   TRANSFER,
   regionSoftness,

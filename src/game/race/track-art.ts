@@ -18,8 +18,8 @@ import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures
  * own level as the layer hint, so a road under a bridge and the deck above it both sit right.
  */
 
-export type RaceMeshKind = "road" | "runoff" | "terrain" | "wall" | "marking" | "kerb" | "deck" | "pillar" | "tunnel" | "prop";
-export type RaceMeshTag = { kind: RaceMeshKind; surface?: SurfaceId; prefab?: PrefabId };
+type RaceMeshKind = "road" | "runoff" | "terrain" | "wall" | "marking" | "kerb" | "deck" | "pillar" | "tunnel" | "prop";
+type RaceMeshTag = { kind: RaceMeshKind; surface?: SurfaceId; prefab?: PrefabId };
 
 
 /** Knock state: in place, flying / tumbling, knocked and at rest. */

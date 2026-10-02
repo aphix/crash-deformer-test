@@ -23,7 +23,7 @@ const blank = new THREE.DataTexture(new Uint8Array(4), 1, 1);
 blank.needsUpdate = true;
 
 /** Shared by every material `applyMarkMap` patches; `uMarkRect` = (minX, minZ, 1/sizeX, 1/sizeZ). */
-export const markMapUniforms = {
+const markMapUniforms = {
   uMarkMap: { value: blank as THREE.Texture },
   uMarkRect: {
     value: new THREE.Vector4(SANDBOX.minX, SANDBOX.minZ, 1 / (SANDBOX.maxX - SANDBOX.minX), 1 / (SANDBOX.maxZ - SANDBOX.minZ)),
@@ -98,7 +98,7 @@ const DRIVE_SLIDE_FULL = 0.8;
 /** Subtract one 8-bit step from the whole map this often (s): a full-black mark is gone in ~2.5 min. */
 const FADE_EVERY = 0.6;
 
-export type WheelFx = {
+type WheelFx = {
   /** 0–1 slip this frame per wheel slot (car index × 4 + wheel). */
   readonly slip: Float32Array;
   /** 1 when a bare hub scrapes the ground this frame. */
