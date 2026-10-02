@@ -16,7 +16,7 @@ const STEP = 1;
 /** Projection search half-window (samples) around a hint. */
 const WINDOW = 24;
 /** Beyond the wall line the ground eases back to the base terrain over this (m). */
-export const BLEND = 24;
+const BLEND = 24;
 /** Depth of the wall band (m): only cars within it are clipped, so open ground beyond is left alone. */
 const WALL_BAND = 2.5;
 const CELL = 1;
@@ -26,14 +26,14 @@ const DECK_CELL = 8;
  * A shortcut's gates reach this far (m) beyond its road edge: a designed shortcut usually crosses
  * open ground (the oval's infield), and a car driving the grass beside the dirt is still taking it.
  */
-export const SHORTCUT_REACH = 8;
+const SHORTCUT_REACH = 8;
 
 function deckKey(i: number, j: number): number {
   return (i + 4096) * 8192 + (j + 4096);
 }
 
 /** A gate segment a→b; crossing it along (nx, nz) counts. */
-export type Gate = { ax: number; az: number; bx: number; bz: number; nx: number; nz: number; s: number };
+type Gate = { ax: number; az: number; bx: number; bz: number; nx: number; nz: number; s: number };
 
 /** A sampled spline: the main loop or a shortcut path. */
 export type TrackPath = {
@@ -65,10 +65,10 @@ export type TrackPath = {
   tunnel: Uint8Array;
 };
 
-export type Shortcut = { id: string; from: number; to: number; path: TrackPath; gates: Gate[] };
+type Shortcut = { id: string; from: number; to: number; path: TrackPath; gates: Gate[] };
 
 /** A traffic side street. */
-export type Route = { id: string; path: TrackPath; count: number; lanes: readonly { offset: number; dir: 1 | -1 }[] };
+type Route = { id: string; path: TrackPath; count: number; lanes: readonly { offset: number; dir: 1 | -1 }[] };
 
 export type Projection = {
   /** Segment start sample. */
@@ -111,7 +111,7 @@ export function segmentAt(p: TrackPath, k: number, x: number, z: number, out: Pa
 export type WallHit = { x: number; z: number; nx: number; nz: number; k: number };
 
 /** A spot on the course: position (y = the path's height there, for picking the ground layer) and heading. */
-export type Placement = { x: number; y: number; z: number; yaw: number };
+type Placement = { x: number; y: number; z: number; yaw: number };
 
 type NodeAttrs = {
   y: number[];

@@ -102,7 +102,7 @@ const scatter = z.object({
 
 const hill = z.object({ x: z.number(), z: z.number(), radius: z.number().positive(), height: z.number() });
 
-export const TrackSchema = z
+const TrackSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
     name: z.string().min(1),

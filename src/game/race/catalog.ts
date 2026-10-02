@@ -42,9 +42,9 @@ export const PREFAB_IDS = [
 export type PrefabId = (typeof PREFAB_IDS)[number];
 
 /** Prefab-local footprint (metres, +Z forward at yaw 0), scaled by the placement. */
-export type Collider = { kind: "circle"; r: number } | { kind: "box"; hx: number; hz: number };
+type Collider = { kind: "circle"; r: number } | { kind: "box"; hx: number; hz: number };
 
-export type PrefabSpec = {
+type PrefabSpec = {
   /**
    * solid: immovable, cars are pushed out (walls, rocks, buildings).
    * knock: flies off when hit and costs the car `mass`-weighted speed (cones, bales).

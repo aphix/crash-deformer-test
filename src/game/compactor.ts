@@ -26,9 +26,9 @@ export const COMPACTOR = {
 } as const;
 
 /** Plate slab (m): half thickness along the travel, half width, half height and centre height. */
-export const PLATE = { hz: 0.24, hx: 1.8, hy: 1.05, y: 1.02 } as const;
+const PLATE = { hz: 0.24, hx: 1.8, hy: 1.05, y: 1.02 } as const;
 
-export type CompactorStage = "open" | "contact" | "wells" | "mid" | "max";
+type CompactorStage = "open" | "contact" | "wells" | "mid" | "max";
 
 export function compactorStage(face: number): CompactorStage {
   if (face >= COMPACTOR.startFace - 0.02) return "open";
@@ -38,7 +38,7 @@ export function compactorStage(face: number): CompactorStage {
   return "max";
 }
 
-export type WallHit = { frontJ: number; rearJ: number; hits: number };
+type WallHit = { frontJ: number; rearJ: number; hits: number };
 
 /** Plate `end` (+1 front, −1 rear) with its face at |z| = `face`, closing at `speed`. */
 function placePlate(box: ContactBox, end: 1 | -1, face: number, speed: number): void {

@@ -108,7 +108,7 @@ export type MassName =
   | "hubRL"
   | "hubRR";
 
-export interface MassSpec {
+interface MassSpec {
   name: MassName;
   rest: [number, number, number];
   mass: number;
@@ -189,7 +189,7 @@ export const BEAM_SPECS: [MassName, MassName, number, number, number][] = [
 ];
 
 /** One shape-match cluster: its member masses and the cage whose `absorption` sets its stiffness. */
-export interface ShapeClusterSpec {
+interface ShapeClusterSpec {
   owner: BodyPartName;
   masses: readonly MassName[];
 }

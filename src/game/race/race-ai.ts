@@ -50,7 +50,7 @@ function sampleAt(path: TrackPath, s: number): number {
 }
 
 /** What the brain needs from the race rules about one car. */
-export type RaceAiState = {
+type RaceAiState = {
   /** Next main checkpoint (`CarRecord.next`). */
   next: number;
   /** Completed laps. */

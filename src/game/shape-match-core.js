@@ -329,9 +329,6 @@ function clampRotation(R, maxRad, cosMax) {
   R[8] = 1 + (R[8] - 1) * t;
   m3Orthonormalize(R);
 }
-function m3ClampRotation(R, maxRad) {
-  clampRotation(R, maxRad, Math.cos(maxRad));
-}
 function stabilizeMat(R, Rprev) {
   let idle = 0;
   for (let i = 0; i < 9; i++) {
@@ -352,9 +349,6 @@ function stabilizeMat(R, Rprev) {
   for (let i = 0; i < 9; i++) R[i] = Rprev[i] * (1 - t) + R[i] * t;
   m3Orthonormalize(R);
   m3Copy(R, Rprev);
-}
-function stabilizeR(c) {
-  stabilizeMat(c.R, c.Rprev);
 }
 
 // Aqq + AQQ_EPS·I keeps flat clusters invertible.
@@ -779,14 +773,10 @@ export {
   deformBeta,
   goalAlpha,
   m3,
-  m3ClampRotation,
-  m3Copy,
   m3Det,
-  m3Finite,
   m3FrobeniusI,
   m3Id,
   m3Mul,
-  m3Orthonormalize,
   m3Polar,
   m3RotationAngle,
   makeCluster,
@@ -795,7 +785,6 @@ export {
   quatId,
   rebuildAqqWeighted,
   resetCluster,
-  stabilizeR,
   stiffnessIters,
   transformNormal,
   transformSkinPointInto,

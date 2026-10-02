@@ -6,7 +6,7 @@
  */
 export type Mat3 = Float64Array;
 /** Unit quaternion, (x, y, z, w). */
-export type Quat = Float64Array;
+type Quat = Float64Array;
 
 export interface ShapeParticle {
   x: number;

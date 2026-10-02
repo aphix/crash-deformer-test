@@ -52,17 +52,12 @@ export interface ShapeCluster {
 
 export function m3(): Mat3;
 export function m3Id(out?: Mat3): Mat3;
-export function m3Copy(src: Mat3, out?: Mat3): Mat3;
 export function m3Mul(a: Mat3, b: Mat3, out: Mat3): Mat3;
 export function m3Det(m: Mat3): number;
 export function m3FrobeniusI(m: Mat3): number;
-export function m3Finite(m: Mat3): boolean;
 export function quatId(out?: Quat): Quat;
 export function m3Polar(A: Mat3, q: Quat, R: Mat3, S: Mat3): void;
-export function m3Orthonormalize(R: Mat3): void;
 export function m3RotationAngle(R: Mat3): number;
-export function m3ClampRotation(R: Mat3, maxRad: number): void;
-export function stabilizeR(c: ShapeCluster): void;
 export function makeCluster(particles: ShapeParticle[], idx: number[]): ShapeCluster;
 export function rebuildAqqWeighted(c: ShapeCluster, particles: ShapeParticle[]): void;
 export function matchCluster(c: ShapeCluster, particles: ShapeParticle[], beta: number): void;

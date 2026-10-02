@@ -58,7 +58,7 @@ export function navTarget(rects: readonly NavRect[], from: number, dir: NavDir):
 }
 
 /** Stick deflection (after `readPad`'s deadzone and curve) that counts as a direction. */
-export const STICK_NAV = 0.35;
+const STICK_NAV = 0.35;
 
 /** Dominant stick direction, null inside `STICK_NAV`. DOM signs: +x right, +y down. */
 export function stickDir(x: number, y: number): NavDir | null {

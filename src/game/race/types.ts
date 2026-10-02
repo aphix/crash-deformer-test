@@ -4,7 +4,7 @@
  */
 
 /** Who feeds a car's `DriveInput`: this browser's seat, a race brain, or (later) a network peer. */
-export type SlotKind = "player" | "ai" | "remote";
+type SlotKind = "player" | "ai" | "remote";
 
 export type Entrant = {
   /** Stable car id for the whole race (engine car index today; a peer-assigned id later). */

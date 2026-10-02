@@ -4,7 +4,7 @@ import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
 import type { RaceHud } from "./race/types.ts";
 
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
-export type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
+type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
 /** Piston scene: selected ram (0–7, key order) and the shot config (mirrors `PISTON_DEFAULTS`). */
 export type PistonHud = {

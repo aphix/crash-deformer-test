@@ -3,7 +3,7 @@ import { m3FrobeniusI, type ShapeCluster } from "./shape-match.ts";
 import type { DeformMode } from "./streamed-deform.ts";
 
 /** What the rig view reads from a StreamedDeformation. Never written through. */
-export interface DeformRigView {
+interface DeformRigView {
   readonly cages: readonly { readonly corners: readonly THREE.Vector3[] }[];
   readonly sensors: readonly { readonly rest: THREE.Vector3; readonly pos: THREE.Vector3; readonly compression: number }[];
   readonly masses: readonly {
@@ -376,7 +376,7 @@ class ClusterLayer implements RigLayer {
 }
 
 /** What the particle view reads. Generic over the particle set; never written through. */
-export interface ParticleView {
+interface ParticleView {
   /**
    * Control particles, car-local. `sleeping` and `lod` are optional so an adaptive
    * solver can report them; the view renders them when present.

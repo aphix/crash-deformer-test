@@ -7,7 +7,7 @@ import type { LampKind } from "./car-mesh.ts";
  * for a boot hang). Broken, off and unassigned lights sit at intensity 0.
  */
 export const SPOT_POOL = 4;
-export const POINT_POOL = 4;
+const POINT_POOL = 4;
 
 const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };
 const TAIL = { color: 0xff2414, intensity: 0.5, distance: 2.5, decay: 2 };
@@ -87,7 +87,7 @@ function frameAt(pos: ArrayLike<number>, [a, b, c]: readonly [number, number, nu
 }
 
 /** What the pool reads from a car; `DeformableCar` satisfies it. */
-export interface LampHost {
+interface LampHost {
   readonly group: THREE.Object3D;
   readonly lampCount: number;
   /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken. */

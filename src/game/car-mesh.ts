@@ -983,7 +983,7 @@ function toneGrid(): THREE.DataTexture {
 /** Shared by every car's multi-tone static parts (interior, wheels, mirrors, trim): colour comes
  * from vertex colours and roughness/metalness from `toneGrid` via UV, so dozens of tiny meshes
  * collapse into a few draws that all reuse one program and one uniform upload. Never disposed. */
-export function partsMaterial(): THREE.MeshStandardMaterial {
+function partsMaterial(): THREE.MeshStandardMaterial {
   if (_partsMat) return _partsMat;
   const grid = toneGrid();
   _partsMat = capHighlights(
