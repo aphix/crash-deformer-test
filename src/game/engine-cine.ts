@@ -7,7 +7,7 @@ import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
 
 /** Mark-map edge (texels) per tier: 2048 over the 96 m sandbox is 4.7 cm a texel. */
-const MARK_RES: Record<FxTier, number> = { off: 0, low: 1024, high: 2048 };
+const MARK_RES: Record<FxTier, number> = { off: 0, minimal: 1024, low: 1024, high: 2048 };
 
 /** Per-frame speed change (m/s) of one car that counts as a hit, and where it is full strength. */
 const HIT_DV = 4.5;
@@ -84,9 +84,11 @@ export class Cinematics {
     this.post.setTier(tier);
     this.marks.setResolution(MARK_RES[tier]);
     const on = tier !== "off";
-    this.fx.sparks.streaked = on;
-    this.fx.sparks.glow(on ? 2.6 : 1);
-    this.fx.glass.glow(on ? 1.8 : 1);
+    // Streaks and over-bright glow are for the bloom; the canvas-only tiers draw plain dots.
+    const bloom = tier === "low" || tier === "high";
+    this.fx.sparks.streaked = bloom;
+    this.fx.sparks.glow(bloom ? 2.6 : 1);
+    this.fx.glass.glow(bloom ? 1.8 : 1);
     if (!on) this.reset();
   }
 

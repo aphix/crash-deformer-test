@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { beginFakeFall, CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
-import { WheelBatch } from "./car-mesh.ts";
+import { WheelBatch, getCrackMap, makeGlassMaterial } from "./car-mesh.ts";
 import { bleedAfterSlide, leftoverCrumple, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
@@ -78,6 +78,13 @@ const LOD_RADIUS = 3.5;
 const LOD_SMALL_PX = 40;
 const LOD_TINY_PX = 20;
 const _lodSphere = new THREE.Sphere();
+/**
+ * Distance detail: beyond `DETAIL_NEAR` m from the camera a car (never the followed one) drops its small parts
+ * that cast no shadow (lamp housings, trims, grille, mirrors, door linings): 16 of its 24 draws. They are a few
+ * pixels there; body, panels, glass, interior and wheels stay. Back within `DETAIL_BACK` they return (hysteresis).
+ */
+const DETAIL_NEAR = 35;
+const DETAIL_BACK = 32;
 
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -133,6 +140,11 @@ export class CrashEngine {
   private cine: Cinematics;
   private impactLightLife = 0;
   private envMap: THREE.Texture | null = null;
+  /** Resolves when `warmPrograms` is done (a failure is logged): `start` waits for it, so play never links a program. */
+  readonly ready: Promise<void>;
+  /** Boot warm-up done: later scene content warms through `queueWarm`. */
+  private warmed = false;
+  private warmQueued = false;
   private debris: DebrisSystem;
   private readonly wheels = new WheelBatch(MAX_CARS * 4);
   private readonly lampLights: LampLights;
@@ -155,6 +167,8 @@ export class CrashEngine {
   private lodFrame = 0;
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   private lodStride: number[] = [];
+  /** Distance detail: per far car, the parts `cullFarDetail` took off the camera's layer. */
+  private readonly farDetail = new WeakMap<DeformableCar, THREE.Object3D[]>();
   private squash = INITIAL_HUD.squash;
   /** Slot 0's class: the HUD's pick for the player's car. */
   private playerClass: VehicleClassId = fleetClass(0);
@@ -274,7 +288,7 @@ export class CrashEngine {
 
     this.scene.background = new THREE.Color(0x12141a);
     this.scene.fog = new THREE.FogExp2(0x12141a, 0.008);
-    this.attachStudioEnv();
+    const env = this.attachStudioEnv();
 
     this.buildWorld();
     this.arena = makeDerbyArena();
@@ -329,7 +343,10 @@ export class CrashEngine {
         this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
         if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
       },
-      buildArt: (track, placed) => new TrackArt(track, placed),
+      buildArt: (track, placed) => {
+        this.queueWarm();
+        return new TrackArt(track, placed);
+      },
     });
 
     this.resize();
@@ -349,12 +366,110 @@ export class CrashEngine {
     }
     (window as unknown as { __crush?: CrashEngine }).__crush = this;
     this.emitHud(true);
-    this.renderer.render(this.scene, this.camera);
+    this.ready = this.warmPrograms(env).catch((err: unknown) => console.error("Crush Stream program warm-up failed", err));
   }
 
+  /** The loop starts once every program is linked; until then the page shows its boot state. */
   start(): void {
-    this.last = performance.now();
-    this.renderer.setAnimationLoop(this.tick);
+    void this.ready.then(() => {
+      if (this.disposed) return;
+      this.last = performance.now();
+      this.renderer.setAnimationLoop(this.tick);
+    });
+  }
+
+  /**
+   * Link every program play can reach before the loop starts: a first-use link stalls its frame 50–800 ms.
+   * Waits for the studio env (part of every lit program's key), then warms the scene (`warmScene`) with two
+   * stand-ins added: cracked glass (a pane gains the crack map mid-crash, `car.ts`), linked on a hidden mesh
+   * that keeps the program alive, and the debug views (their helpers join the scene only while shown).
+   * Night, wet and the lamp pool's lights only change uniforms: the light count is fixed.
+   */
+  private async warmPrograms(env: Promise<void>): Promise<void> {
+    await env;
+    if (this.disposed) return;
+    const glass = makeGlassMaterial();
+    glass.map = getCrackMap();
+    const cracked = new THREE.Mesh(new THREE.PlaneGeometry(0, 0), glass);
+    cracked.name = "warm-cracked-glass";
+    cracked.visible = false;
+    this.scene.add(cracked);
+    for (const car of this.live()) {
+      car.setRigVisible(true);
+      car.deform.setParticlesVisible(true);
+    }
+    await this.warmScene();
+    for (const car of this.live()) {
+      car.setRigVisible(this.showRig);
+      car.deform.setParticlesVisible(this.showParticles);
+    }
+    this.warmed = true;
+  }
+
+  /**
+   * Compile the scene async for both outputs plus every post pass and tier composite (`PostFX.warm`) and the
+   * mark map's stamp and fade, then draw it with every mesh shown and unculled into both real outputs (the
+   * canvas and the HDR target) and the mark map, through a zero-area scissor so nothing lands. Compiling alone
+   * left each program's first draw mid-race to check its link and fetch its uniform locations: synchronous GPU
+   * round trips, 110–340 ms frames. The draws also link what compile() skips (shadow-depth variants of hidden
+   * or far meshes) and upload every texture.
+   */
+  private async warmScene(): Promise<void> {
+    const programs = this.renderer.info.programs?.length ?? 0;
+    await this.cine.post.warm(this.scene, this.camera, [[this.cine.marks.scene, this.cine.marks.camera]]);
+    if (this.disposed) return;
+    // After boot every known program has drawn; the draws below cost the GPU process ~0.5–1 s for a whole
+    // course, so content that brought no new program (the city's traffic cars) skips them.
+    if (this.warmed && (this.renderer.info.programs?.length ?? 0) === programs) return;
+    const shown: THREE.Object3D[] = [];
+    const culled: THREE.Object3D[] = [];
+    const hiddenMats: THREE.Material[] = [];
+    this.scene.traverse((o) => {
+      if ((o as THREE.Light).isLight) return;
+      if (!o.visible) {
+        o.visible = true;
+        shown.push(o);
+      }
+      if (o.frustumCulled) {
+        o.frustumCulled = false;
+        culled.push(o);
+      }
+      for (const m of [(o as THREE.Mesh).material ?? []].flat()) {
+        if (m.visible) continue;
+        m.visible = true;
+        hiddenMats.push(m);
+      }
+    });
+    const r = this.renderer;
+    const hdr = this.cine.post.sceneRT;
+    r.setScissor(0, 0, 0, 0);
+    r.setScissorTest(true);
+    hdr.scissor.set(0, 0, 0, 0);
+    hdr.scissorTest = true;
+    for (const target of [null, hdr]) {
+      r.setRenderTarget(target);
+      r.render(this.scene, this.camera);
+    }
+    hdr.scissorTest = false;
+    r.setScissorTest(false);
+    this.cine.marks.warm(r);
+    r.setRenderTarget(null);
+    for (const o of shown) o.visible = false;
+    for (const o of culled) o.frustumCulled = true;
+    for (const m of hiddenMats) m.visible = false;
+  }
+
+  /**
+   * After boot, new scene content (a race course's art, a new car) warms once the current synchronous change
+   * is complete (art in the scene, fog set, cars placed): setup menus and the countdown absorb the link, the race doesn't.
+   */
+  private queueWarm(): void {
+    if (!this.warmed || this.warmQueued) return;
+    this.warmQueued = true;
+    queueMicrotask(() => {
+      this.warmQueued = false;
+      this.warmScene().catch((err: unknown) => console.error("Crush Stream program warm-up failed", err));
+    });
   }
 
   dispose(): void {
@@ -431,7 +546,7 @@ export class CrashEngine {
     this.emitHud(true);
   }
 
-  /** Cinematic FX quality: off renders exactly as before; low / high add post, tyre marks and the crash cam. */
+  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. */
   setFxTier(tier: FxTier): void {
     this.cine.setTier(tier);
     this.emitHud(true);
@@ -826,6 +941,7 @@ export class CrashEngine {
     car.group.visible = false;
     car.group.userData.carIndex = i;
     this.scene.add(car.group);
+    this.queueWarm();
     return car;
   }
 
@@ -1474,6 +1590,7 @@ export class CrashEngine {
     if (this.race.active) this.race.frame(this.playing ? wallDt : 0);
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
+    this.cullFarDetail();
     this.lampLights.update(this.live(), this.camera, this.followedCar());
     if (this.stage.night) this.stage.syncPools(this.poles);
     this.cine.render(this.scene, this.camera, wallDt);
@@ -1536,6 +1653,33 @@ export class CrashEngine {
     const halfHeightPx = (this.renderer.domElement.height / this.renderer.getPixelRatio()) * 0.5;
     const px = (LOD_RADIUS / (d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)))) * halfHeightPx;
     return px >= LOD_SMALL_PX ? 1 : px >= LOD_TINY_PX ? 2 : 4;
+  }
+
+  /**
+   * Distance detail (`DETAIL_NEAR`): a far car's small non-shadow-casting parts leave the camera's layer 0, so
+   * `visible` stays the car's own (broken lamps, loose parts); they rejoin when it comes back within `DETAIL_BACK`.
+   */
+  private cullFarDetail(): void {
+    _v.setFromMatrixPosition(this.camera.matrixWorld);
+    const followed = this.followedCar();
+    for (const car of this.cars) {
+      const off = this.farDetail.get(car);
+      const far = car !== followed && car.group.position.distanceToSquared(_v) > (off ? DETAIL_BACK : DETAIL_NEAR) ** 2;
+      if (far === (off !== undefined)) continue;
+      if (off) {
+        for (const o of off) o.layers.enable(0);
+        this.farDetail.delete(car);
+        continue;
+      }
+      const parts: THREE.Object3D[] = [];
+      car.group.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior") return;
+        m.layers.disable(0);
+        parts.push(m);
+      });
+      this.farDetail.set(car, parts);
+    }
   }
 
   private followedCar(): DeformableCar | null {
@@ -2279,29 +2423,24 @@ export class CrashEngine {
     this.camera.updateProjectionMatrix();
   };
 
-  /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. */
-  private attachStudioEnv(): void {
-    new THREE.TextureLoader().load(
-      `${import.meta.env.BASE_URL}env-studio.jpg`,
-      (tex) => {
-        if (this.disposed) {
-          tex.dispose();
-          return;
-        }
-        tex.colorSpace = THREE.SRGBColorSpace;
-        tex.mapping = THREE.EquirectangularReflectionMapping;
-        const gen = new THREE.PMREMGenerator(this.renderer);
-        const env = gen.fromEquirectangular(tex).texture;
-        this.scene.environment = env;
-        this.scene.environmentIntensity = this.stage.envIntensity;
-        this.envMap?.dispose();
-        this.envMap = env;
-        tex.dispose();
-        gen.dispose();
-      },
-      undefined,
-      () => {},
-    );
+  /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. Settles once attached or failed. */
+  private async attachStudioEnv(): Promise<void> {
+    const tex = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}env-studio.jpg`).catch(() => null);
+    if (!tex) return;
+    if (this.disposed) {
+      tex.dispose();
+      return;
+    }
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.mapping = THREE.EquirectangularReflectionMapping;
+    const gen = new THREE.PMREMGenerator(this.renderer);
+    const env = gen.fromEquirectangular(tex).texture;
+    this.scene.environment = env;
+    this.scene.environmentIntensity = this.stage.envIntensity;
+    this.envMap?.dispose();
+    this.envMap = env;
+    tex.dispose();
+    gen.dispose();
   }
 
   private buildWorld(): void {

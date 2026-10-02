@@ -127,8 +127,11 @@ export class SkidMarks {
   /** Per-wheel results for smoke and sparks (`engine-cine.ts`). */
   readonly wheels: WheelFx;
   private rt: THREE.WebGLRenderTarget | null = null;
-  private readonly scene = new THREE.Scene();
-  private readonly camera = new THREE.Camera();
+  /** The map is sampled and stamped (low / high tier); off keeps the target for the next switch. */
+  private on = false;
+  /** Offscreen stamp + fade draw, exposed so the boot warm-up can link their programs. */
+  readonly scene = new THREE.Scene();
+  readonly camera = new THREE.Camera();
   private readonly geo = new THREE.BufferGeometry();
   private readonly pos: Float32Array;
   private readonly ink: Float32Array;
@@ -196,21 +199,23 @@ export class SkidMarks {
     this.scene.add(this.stamp, this.fade);
   }
 
-  /** Map edge in texels (0 = no map: the off tier). Allocates or frees the target and wipes it. */
+  /** Map edge in texels (0 = no map: the off tier). The target is created once and resized in place; the map is wiped. */
   setResolution(size: number): void {
-    this.rt?.dispose();
-    this.rt = null;
-    markMapUniforms.uMarkMap.value = blank;
-    if (size <= 0) return;
-    this.rt = new THREE.WebGLRenderTarget(size, size, {
-      depthBuffer: false,
-      stencilBuffer: false,
-      generateMipmaps: true,
-      minFilter: THREE.LinearMipmapLinearFilter,
-      magFilter: THREE.LinearFilter,
-    });
-    this.rt.texture.anisotropy = 8;
-    markMapUniforms.uMarkMap.value = this.rt.texture;
+    this.on = size > 0;
+    if (this.on) {
+      if (!this.rt) {
+        this.rt = new THREE.WebGLRenderTarget(size, size, {
+          depthBuffer: false,
+          stencilBuffer: false,
+          generateMipmaps: true,
+          minFilter: THREE.LinearMipmapLinearFilter,
+          magFilter: THREE.LinearFilter,
+        });
+        this.rt.texture.anisotropy = 8;
+      }
+      this.rt.setSize(size, size);
+    }
+    markMapUniforms.uMarkMap.value = this.on ? this.rt!.texture : blank;
     this.clear();
   }
 
@@ -307,7 +312,7 @@ export class SkidMarks {
   /** Draw this frame's stamps and the periodic fade into the map. Call once per frame before the main render. */
   flush(renderer: THREE.WebGLRenderer, wallDt: number): void {
     const rt = this.rt;
-    if (!rt) return;
+    if (!rt || !this.on) return;
     if (this.epoch !== boundsEpoch) {
       this.epoch = boundsEpoch;
       this.needsClear = true;
@@ -341,6 +346,24 @@ export class SkidMarks {
     renderer.setRenderTarget(prevTarget);
     renderer.autoClear = ac;
     this.quads = 0;
+  }
+
+  /**
+   * Boot / course warm-up: draw the stamp and the fade into the map through a zero-area scissor, so their
+   * first real use (the first slip, often seconds into a race) neither links nor fetches uniforms.
+   */
+  warm(renderer: THREE.WebGLRenderer): void {
+    const rt = this.rt;
+    if (!rt) return;
+    this.stamp.visible = true;
+    this.fade.visible = true;
+    rt.scissorTest = true;
+    rt.scissor.set(0, 0, 0, 0);
+    renderer.setRenderTarget(rt);
+    renderer.render(this.scene, this.camera);
+    rt.scissorTest = false;
+    this.stamp.visible = false;
+    this.fade.visible = false;
   }
 
   dispose(): void {

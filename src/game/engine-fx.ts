@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { applyGroundFriction, round4, snapshotPoints } from "./physics-util.ts";
 import type { DeformableCar } from "./car.ts";
+import { activeGround } from "./ground.ts";
 
 const _ha = new THREE.Vector3();
 const _hb = new THREE.Vector3();
@@ -9,20 +10,21 @@ const _pv = new THREE.Vector3();
 /** Sliding friction of metal and glass bits on asphalt. */
 const FX_GROUND_MU = 0.6;
 
-/** Asphalt bounce for FX particles. Friction is per second, in each system's update (`groundSlide`). */
+/** Bounce for FX particles off the active ground (none past the fleet disc's rim: they fall on and fade). Friction is per second, in each system's update (`groundSlide`). */
 export function bounceGround(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-  if (pos.y < r) {
-    pos.y = r;
+  const floor = activeGround().heightAt(pos.x, pos.z, pos.y);
+  if (pos.y < floor + r) {
+    pos.y = floor + r;
     if (vel.y < 0) vel.y *= -0.28;
   }
 }
 
-/** FX particles rest no lower than this (m): each update clamps y to it after the bounce. */
+/** FX particles rest no lower than this (m) above the ground: each update clamps y to it after the bounce. */
 const FX_FLOOR = 0.04;
 
-/** Coulomb slide for a particle on (or within a 5 mm hop of) its resting height after the bounce. */
-function groundSlide(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number): void {
-  if (pos.y <= Math.max(r, FX_FLOOR) + 0.005) applyGroundFriction(vel, dt, FX_GROUND_MU, true);
+/** Coulomb slide for a particle on (or within a 5 mm hop of) its resting height above `floor` after the bounce. */
+function groundSlide(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number, floor: number): void {
+  if (pos.y <= floor + Math.max(r, FX_FLOOR) + 0.005) applyGroundFriction(vel, dt, FX_GROUND_MU, true);
 }
 
 /** Push an FX particle out of the car's hull boxes and reflect it off the side it entered. */
@@ -152,8 +154,9 @@ export class DebrisSystem {
       this.dummy.position.z += this.vz[i]! * dt;
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
       bounce(this.dummy.position, this.vel, 0.03);
-      groundSlide(this.dummy.position, this.vel, 0.03, dt);
-      this.dummy.position.y = Math.max(FX_FLOOR, this.dummy.position.y);
+      const floor = activeGround().heightAt(this.dummy.position.x, this.dummy.position.z, this.dummy.position.y);
+      groundSlide(this.dummy.position, this.vel, 0.03, dt, floor);
+      this.dummy.position.y = Math.max(floor + FX_FLOOR, this.dummy.position.y);
       this.vx[i] = this.vel.x;
       this.vy[i] = this.vel.y;
       this.vz[i] = this.vel.z;
@@ -283,8 +286,9 @@ class DotPoints {
       this.tmp.addScaledVector(this.vel, dt);
       this.vel.y -= this.gravity * dt;
       bounce(this.tmp, this.vel, this.radius);
-      groundSlide(this.tmp, this.vel, this.radius, dt);
-      this.tmp.y = Math.max(FX_FLOOR, this.tmp.y);
+      const floor = activeGround().heightAt(this.tmp.x, this.tmp.z, this.tmp.y);
+      groundSlide(this.tmp, this.vel, this.radius, dt, floor);
+      this.tmp.y = Math.max(floor + FX_FLOOR, this.tmp.y);
       this.pos[i * 3] = this.tmp.x;
       this.pos[i * 3 + 1] = this.tmp.y;
       this.pos[i * 3 + 2] = this.tmp.z;

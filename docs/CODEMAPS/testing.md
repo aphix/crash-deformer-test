@@ -43,6 +43,7 @@ Outside `src/game/`: `src/lib/multiplayer/rate-limit.test.ts` (signaling rate li
 - `src/game/test-support.ts`: `DT`, `MODES`, `forModes(title, fn)` (one `describe` per deform mode), `dummyGeom()`, `paint()`, `mass(d, name)`.
 - `npm run sweep` → `scripts/crush-sweep.mjs`: squash × buckle grid over `crash-scenarios`, scored against `docs/RIG_ANALYSIS.md` targets (`docs/CRUSH_CALIBRATION.md`).
 - `npm run bench` → `scripts/bench-physics.mjs`: ns/op of the JS kernels. `scripts/bench-browser.mjs`: Playwright frame bench through `window.__crush` (usage in `README.md`).
+- `npm run check:programs -- --url <dev or preview url>` → `scripts/check-programs.mjs`: program warm-up guard in headless Chromium (about 3 min). Plays the sandbox (fleet crash with cracked glass, drive, night / wet, every FX tier, every scene, debug views) and a race on every course, and fails if any GPU program links after the boot warm-up or between a race's green light and its end. Needs a running server and a browser, so it is a script, not part of `test:app`. See `docs/PERF_HITCH.md`.
 
 ## `todo` convention
 Behaviour that is documented but not yet met stays in the suite as a todo, so the body still runs and reports but cannot fail the run:
