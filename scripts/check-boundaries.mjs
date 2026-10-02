@@ -22,7 +22,7 @@ const CAPS = process.argv.includes("--ratchet") ? JSON.parse(readFileSync(path.j
 const CONTEXTS = [
   ["kernel", 0, ["src/game/physics-core.js", "src/game/shape-match-core.js", "src/game/rig-spec.ts", "src/game/scalar.ts"]],
   ["world", 1, ["src/game/ground.ts", "src/game/race/catalog.ts", "src/game/race/track.ts", "src/game/race/track-schema.ts", "src/game/race/placements.ts", "src/game/race/tracks/"]],
-  ["deform", 2, ["src/game/streamed-deform.ts", "src/game/deform-rig.ts", "src/game/deform-hit.ts", "src/game/deform-state.ts", "src/game/deform-contact.ts", "src/game/deform-solve.ts", "src/game/shape-match.ts", "src/game/physics-util.ts", "src/game/fast-normals.ts", "src/game/deform-helper.ts", "src/game/hulls.ts"]],
+  ["deform", 2, ["src/game/streamed-deform.ts", "src/game/deform-rig.ts", "src/game/deform-build.ts", "src/game/deform-hit.ts", "src/game/deform-state.ts", "src/game/deform-contact.ts", "src/game/deform-solve.ts", "src/game/shape-match.ts", "src/game/physics-util.ts", "src/game/fast-normals.ts", "src/game/deform-helper.ts", "src/game/hulls.ts"]],
   ["vehicle", 3, ["src/game/car.ts", "src/game/car-core.ts", "src/game/car-parts.ts", "src/game/car-mesh.ts", "src/game/car-materials.ts", "src/game/car-variants.ts", "src/game/vehicle-classes.ts", "src/game/lamp-lights.ts", "src/game/car-drive.ts", "src/game/drive-input.ts", "src/game/gamepad.ts"]],
   ["contact", 4, ["src/game/sat.ts", "src/game/pair-contact.ts", "src/game/external-contact.ts"]],
   ["scenes", 5, ["src/game/fleet.ts", "src/game/derby-arena.ts", "src/game/compactor.ts", "src/game/piston-rig.ts", "src/game/door-rig.ts", "src/game/engine-props.ts"]],

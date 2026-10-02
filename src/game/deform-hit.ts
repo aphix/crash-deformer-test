@@ -23,62 +23,9 @@ export abstract class DeformHit extends DeformRig {
   protected abstract frontTransfer(): number;
   protected abstract impactWeight(m: MassNode): number;
 
+  /** Back to the car as built (`initRunState`); settings stay. */
   reset(): void {
-    this.elapsed = 0;
-    this.lastContact = -10;
-    this.crushing = false;
-    this.impulse = 0;
-    this.hitSpeed = -1;
-    this.cornerLow = Infinity;
-    this.endEbs2.fill(0);
-    this.wear = 0;
-    this.rearmed = false;
-    this.lastPower = -10;
-    this.wrinkleAmp = 0;
-    this.crushAmount = 0;
-    this.dirty = false;
-    this.massActive = false;
-    this.goalView.fill(NaN);
-    this.drivetrainAlive = true;
-    this.engineTravel = 0;
-    this.bidirectional = false;
-    this.deepCrush = false;
-    this.squeezeShape = false;
-    this.deepShape = false;
-    this.prevYaw = 0;
-    this.rateYaw = 0;
-    this.rateAt = 0;
-    this.leanAt = -Infinity;
-    this.overlapFrame = false;
-    this.contactAt = -Infinity;
-    this.shapeWasLive = false;
-    this.impactInward.set(0, 0, -1);
-    this.impactLocal.set(0, 0.36, 2.1);
-    for (const s of this.sensors) {
-      s.compression = 0;
-      s.target = 0;
-      s.delay = 0;
-      s.fired = false;
-      s.pos.copy(s.rest);
-    }
-    for (const cage of this.cages) {
-      for (let i = 0; i < 8; i++) cage.corners[i]!.copy(cage.restCorners[i]!);
-    }
-    for (const m of this.masses) {
-      m.local.copy(m.rest);
-      m.world.copy(m.rest);
-      m.vel.set(0, 0, 0);
-      m.dynamic = false;
-      m.clipping = false;
-      m.popped = false;
-      m.shoveX = 0;
-      m.shoveZ = 0;
-    }
-    for (const b of this.beams) {
-      b.plastic = b.rest;
-      b.alive = true;
-    }
-    this.captureShapeRest();
+    this.initRunState();
   }
 
   setMode(mode: DeformMode): void {

@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { matchSkinLocal } from "./shape-match.ts";
 import { DeformSolve } from "./deform-solve.ts";
-import { INF_K, RES_SLOTS, SKIN_K } from "./deform-rig.ts";
+import { RES_SLOTS, SKIN_K } from "./deform-rig.ts";
+import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 
 const _a = new THREE.Vector3();

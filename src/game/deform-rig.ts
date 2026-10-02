@@ -1,11 +1,8 @@
 import * as THREE from "three";
-import { regionSoftness, regionCrushBands, type CrushBands } from "./physics-util.ts";
+import type { CrushBands } from "./physics-util.ts";
 import { type ShapeCluster, type ShapeParticle, makeCluster } from "./shape-match.ts";
 import {
-  BEAM_SPECS,
-  CAGES,
   MASS_SPECS,
-  SENSORS,
   SHAPE_CLUSTERS,
   type BodyPartName,
   type CageSpec,
@@ -14,6 +11,15 @@ import {
 } from "./rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import type { Hull } from "./hulls.ts";
+import {
+  bindLattice,
+  INF_K,
+  makeBeams,
+  makeCages,
+  makeMasses,
+  makeSensors,
+  wrinkleSeeds,
+} from "./deform-build.ts";
 
 /**
  * Burnout-style streamed deformation.
@@ -45,15 +51,8 @@ const CELL_FACE_BLEND = 0.3;
 /** Largest non-cell skin weight at the span face (D1): the A-pillar foot still creases. */
 const CELL_FACE_SHARE = 0.25;
 
-function hash01(i: number, salt = 1): number {
-  const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
-  return s - Math.floor(s);
-}
-
 /** Most cluster weights a skin vertex keeps: the 4 nearest plus the cell-face share. */
 export const SKIN_K = 5;
-/** Most cage influences a skin vertex keeps (lattice skin / cluster-less fallback). */
-export const INF_K = 4;
 /** Parent masses per skin point (A5): the paint rides these particles. */
 const RES_K = 4;
 /** Parent slots: RES_K plus the cell-face share of the nearest non-cabin mass (D1). */
@@ -61,7 +60,7 @@ export const RES_SLOTS = 5;
 /** IDW softening (m²) of the parent weights, 1/(d² + RES_SOFT). */
 const RES_SOFT = 0.04;
 
-interface Cage {
+export interface Cage {
   spec: CageSpec;
   min: THREE.Vector3;
   max: THREE.Vector3;
@@ -72,7 +71,7 @@ interface Cage {
   glass: boolean;
 }
 
-interface Sensor {
+export interface Sensor {
   spec: SensorSpec;
   rest: THREE.Vector3;
   pos: THREE.Vector3;
@@ -81,14 +80,6 @@ interface Sensor {
   target: number;
   delay: number;
   fired: boolean;
-}
-
-interface Influence {
-  part: number;
-  u: number;
-  v: number;
-  w: number;
-  weight: number;
 }
 
 export interface MassNode {
@@ -138,190 +129,28 @@ export interface Beam {
 /** Masses the solver reads by role every step; resolved once in the constructor. */
 type KeyMass = "cell" | "engineL" | "engineR" | "axleR" | "doorL" | "doorR" | "hubFL" | "hubFR" | "hubRL" | "hubRR" | "bumperFL" | "bumperFR" | "bumperRL" | "bumperRR";
 
-/** Wrinkle noise per vertex, keyed on the lowest vertex index sharing its rest position so split seams stay shut. */
-function wrinkleSeeds(restPos: Float32Array, vertexCount: number): Float64Array {
-  const wrinkleSeed = new Float64Array(vertexCount);
-  const firstAt = new Map<string, number>();
-  for (let i = 0; i < vertexCount; i++) {
-    const key = `${restPos[i * 3]},${restPos[i * 3 + 1]},${restPos[i * 3 + 2]}`;
-    const first = firstAt.get(key);
-    if (first === undefined) firstAt.set(key, i);
-    wrinkleSeed[i] = hash01(first ?? i, 3) - 0.5;
-  }
-  return wrinkleSeed;
-}
-
-/** The rig's cages at rest (`rig.cages` boxes over the spec's). */
-function makeCages(rig: RigOverrides): Cage[] {
-  return CAGES.map((base) => {
-    const box = rig.cages?.[base.name];
-    const spec = box ? { ...base, ...box } : base;
-    const min = new THREE.Vector3(...spec.min);
-    const max = new THREE.Vector3(...spec.max);
-    const restCorners: THREE.Vector3[] = [];
-    const corners: THREE.Vector3[] = [];
-    for (let iz = 0; iz < 2; iz++) {
-      for (let iy = 0; iy < 2; iy++) {
-        for (let ix = 0; ix < 2; ix++) {
-          const p = new THREE.Vector3(ix ? max.x : min.x, iy ? max.y : min.y, iz ? max.z : min.z);
-          restCorners.push(p);
-          corners.push(p.clone());
-        }
-      }
-    }
-    return {
-      spec,
-      min,
-      max,
-      center: min.clone().add(max).multiplyScalar(0.5),
-      restCorners,
-      corners,
-      size: max.clone().sub(min),
-      glass: spec.name.startsWith("glass"),
-    };
-  });
-}
-
-/** The rig's crush sensors at rest (`rig.sensors` rests over the spec's), each on its cage's index. */
-function makeSensors(rig: RigOverrides, partIndex: Map<BodyPartName, number>): Sensor[] {
-  return SENSORS.map((base, i) => {
-    const rest = rig.sensors?.[i];
-    const spec = rest ? { ...base, rest } : base;
-    return {
-      spec,
-      rest: new THREE.Vector3(...spec.rest),
-      pos: new THREE.Vector3(...spec.rest),
-      partIndex: partIndex.get(spec.part) ?? 12,
-      compression: -0,
-      target: 0,
-      delay: 0,
-      fired: false,
-    };
-  });
-}
-
-/** The mass nodes at rest, in `MASS_SPECS` order; fills `nameIndex` (name → index). */
-function makeMasses(nameIndex: Map<MassName, number>): MassNode[] {
-  return MASS_SPECS.map((spec, i) => {
-    nameIndex.set(spec.name, i);
-    const rest = new THREE.Vector3(...spec.rest);
-    return {
-      name: spec.name,
-      rest,
-      local: rest.clone(),
-      world: rest.clone(),
-      vel: new THREE.Vector3(),
-      mass: spec.mass,
-      radius: spec.radius,
-      dynamic: false,
-      clipping: false,
-      popped: false,
-      shoveX: -0,
-      shoveZ: -0,
-      crushSet: -0,
-      baseX: -0,
-      baseZ: -0,
-      bands: regionCrushBands(spec.name),
-      hub: spec.name.startsWith("hub"),
-      bumper: spec.name.startsWith("bumper"),
-      rail: spec.name.startsWith("rail"),
-      crumple: spec.name.startsWith("bumper") || spec.name.startsWith("wing"),
-      softness: regionSoftness(spec.name),
-    };
-  });
-}
-
-/** The structure's beams at their rest lengths. */
-function makeBeams(masses: readonly MassNode[], nameIndex: Map<MassName, number>): Beam[] {
-  return BEAM_SPECS.map(([na, nb, kTen, yieldK, maxShorten]) => {
-    const a = nameIndex.get(na)!;
-    const b = nameIndex.get(nb)!;
-    const rest = masses[a]!.rest.distanceTo(masses[b]!.rest);
-    const restDir = masses[b]!.rest.clone().sub(masses[a]!.rest);
-    if (rest > 1e-6) restDir.multiplyScalar(1 / rest);
-    return {
-      a,
-      b,
-      rest,
-      plastic: rest,
-      minLen: Math.max(0.1, rest * (1 - maxShorten)),
-      kTen,
-      yieldK,
-      damp: Math.sqrt(yieldK * 8),
-      alive: true,
-      restDir,
-    };
-  });
-}
+/** The per-run structures as built: sensors, cages, masses, beams, shape clusters and particles. */
+type RunStructures = Pick<DeformRig, "masses"> & {
+  sensors: Sensor[];
+  cages: Cage[];
+  beams: Beam[];
+  clusters: ShapeCluster[];
+  shapeParticles: ShapeParticle[];
+};
 
 /**
- * Lattice skin (and the cluster-less fallback): up to INF_K cage influences per vertex, packed as the cage's
- * coefficient offset in `infCo` + (u, v, w, weight) in `infUvw`, the count in `infN`.
+ * Copies `src` (a structured clone of `target` as built) back into `target` in place: numbers, flags and strings
+ * by key (only where they differ, `Object.is`: the shared rig-spec objects in it are never written), typed arrays
+ * by `set`, nested objects and arrays recursively, so every reference into the state (the skin's views of the
+ * masses' rest and local vectors, helpers) stays valid.
  */
-function bindLattice(
-  restPos: Float32Array,
-  vertexCount: number,
-  cages: readonly Cage[],
-  infN: Uint8Array,
-  infCo: Int32Array,
-  infUvw: Float64Array,
-): void {
-  const skinsCage = cages.map((c) => !["doorLeft", "doorRight", "glassFront", "glassRear"].includes(c.spec.name));
-  for (let i = 0; i < vertexCount; i++) {
-    const x = restPos[i * 3]!;
-    const y = restPos[i * 3 + 1]!;
-    const z = restPos[i * 3 + 2]!;
-    const list: Influence[] = [];
-    for (let p = 0; p < cages.length; p++) {
-      if (!skinsCage[p]) continue;
-      const cage = cages[p]!;
-      const u = (x - cage.min.x) / cage.size.x;
-      const v = (y - cage.min.y) / cage.size.y;
-      const w = (z - cage.min.z) / cage.size.z;
-      const weight = axisWeight(u) * axisWeight(v) * axisWeight(w);
-      if (weight > 0.02) list.push({ part: p, u, v, w, weight });
-    }
-    if (list.length === 0) {
-      // Beyond every cage's reach (the tail skin past the boot cage): extrapolate the nearest cage
-      // unclamped, exact at rest. Clamping into the cell box snapped it 1.6 m forward on the first skin.
-      let best = 0;
-      let bestD = Infinity;
-      for (let p = 0; p < cages.length; p++) {
-        if (!skinsCage[p]) continue;
-        const c = cages[p]!;
-        const d = Math.hypot(Math.max(c.min.x - x, 0, x - c.max.x), Math.max(c.min.y - y, 0, y - c.max.y), Math.max(c.min.z - z, 0, z - c.max.z));
-        if (d < bestD) {
-          bestD = d;
-          best = p;
-        }
-      }
-      const cage = cages[best]!;
-      list.push({ part: best, u: (x - cage.min.x) / cage.size.x, v: (y - cage.min.y) / cage.size.y, w: (z - cage.min.z) / cage.size.z, weight: 1 });
-    } else {
-      list.sort((a, b) => b.weight - a.weight);
-      if (list.length > INF_K) list.length = INF_K;
-      let sum = 0;
-      for (const inf of list) sum += inf.weight;
-      for (const inf of list) inf.weight /= sum;
-    }
-    infN[i] = list.length;
-    for (let k = 0; k < list.length; k++) {
-      const inf = list[k]!;
-      const s = i * INF_K + k;
-      infCo[s] = inf.part * 24;
-      infUvw[s * 4] = inf.u;
-      infUvw[s * 4 + 1] = inf.v;
-      infUvw[s * 4 + 2] = inf.w;
-      infUvw[s * 4 + 3] = inf.weight;
-    }
+function restoreInto(target: Record<string, unknown>, src: Record<string, unknown>): void {
+  for (const k of Object.keys(src)) {
+    const v = src[k];
+    if (ArrayBuffer.isView(v)) (target[k] as Float64Array).set(v as Float64Array);
+    else if (v !== null && typeof v === "object") restoreInto(target[k] as Record<string, unknown>, v as Record<string, unknown>);
+    else if (!Object.is(target[k], v)) target[k] = v;
   }
-}
-
-function axisWeight(t: number): number {
-  if (t < -0.18 || t > 1.18) return 0;
-  if (t < 0) return 1 + t / 0.18;
-  if (t > 1) return 1 - (t - 1) / 0.18;
-  return 1;
 }
 
 /**
@@ -505,14 +334,10 @@ export abstract class DeformRig {
   protected readonly netImpact = new Float64Array(9);
   protected netPopped = 0;
   protected netFlags = 0;
+  /** The per-run structures as built (`initRunState` copies them back). */
+  private readonly built: RunStructures;
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
-    // Fields declared `-0` (here, and the masses' and sensors' in their literals) hold a double from
-    // construction. A Smi field's first double write changes the maps: each race car's first crash,
-    // first re-arm and first drive as a wreck deoptimised 60–100 physics functions mid-race, which then ran
-    // unoptimised for seconds (RIG_ANALYSIS §6.12). The sentinels go on over the `-0`.
-    this.hitSpeed = -1;
-    this.lastPower = -10;
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
@@ -594,6 +419,77 @@ export abstract class DeformRig {
     this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
     this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
     this.buildSkinWeights();
+    this.built = structuredClone({
+      sensors: this.sensors,
+      cages: this.cages,
+      masses: this.masses,
+      beams: this.beams,
+      clusters: this.clusters,
+      shapeParticles: this.shapeParticles,
+    });
+    this.initRunState();
+  }
+
+  /**
+   * Every per-run field to its construction value: the constructor's last step and all of `reset`, so a reset car
+   * runs exactly like a fresh one (a race replayed on the same cars, netplay). Settings (`squash`, `buckle`, `mode`,
+   * `killTravel`, `wreckEnergy`, `frameCrush`, `wheelsDetach`), helpers and the rest-only tables stay.
+   * Fields declared `-0` (here, and the masses' and sensors' in their literals) hold a double from construction.
+   * A Smi field's first double write changes the maps: each race car's first crash, first re-arm and first drive
+   * as a wreck deoptimised 60–100 physics functions mid-race, which then ran unoptimised for seconds
+   * (RIG_ANALYSIS §6.12). The declarations keep those `-0`s; the sentinels below go on over them.
+   */
+  protected initRunState(): void {
+    this.dirty = false;
+    this.skinnedThisFrame = false;
+    this.skinDeferred = false;
+    this.skinOwed = false;
+    this.crushAmount = -0;
+    this.impactLocal.set(0, 0, 0);
+    this.impactInward.set(0, 0, -1);
+    this.massActive = false;
+    this.drivetrainAlive = true;
+    this.engineTravel = 0;
+    this.wear = -0;
+    this.bidirectional = false;
+    this.squeezeShape = false;
+    this.deepShape = false;
+    this.faceContacts = 0;
+    this.squeezed = false;
+    this.elapsed = 0;
+    this.lastContact = -10;
+    this.crushing = false;
+    this.impulse = -0;
+    this.hitSpeed = -1;
+    this.rearmed = false;
+    this.lastPower = -10;
+    this.hitAt = -0;
+    this.wrinkleAmp = -0;
+    this.cornerLow = Infinity;
+    this.prevYaw = 0;
+    this.rateYaw = 0;
+    this.rateAt = 0;
+    this.lean = 1;
+    this.leanAt = -Infinity;
+    this.pushUsed = 0;
+    this.pushAt = -1;
+    this.overlapFrame = false;
+    this.contactAt = -Infinity;
+    this.shapeRan = false;
+    this.shapeWasLive = false;
+    this.bodyCos = 1;
+    this.bodySin = 0;
+    this.bodyC.set(0, 0, 0);
+    this.bodyRestC.set(0, 0, 0);
+    this.netPopped = 0;
+    this.netFlags = 0;
+    for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
+    for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;
+    for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.pose, this.spinHeld, this.strokeOut]) b.fill(0);
+    for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
+    for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);
+    this.goalView.fill(NaN);
+    restoreInto(this as unknown as Record<string, unknown>, this.built);
   }
 
   /**

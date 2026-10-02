@@ -213,6 +213,7 @@ export abstract class RaceField {
     const cars = this.host.live();
     this.dormant.fill(0);
     this.deadFor.fill(0);
+    this.bubbleAcc = 0;
     if (this.traffic) {
       this.traffic.spawns().slice(0, tcount).forEach((spot, k) => {
         const car = cars[racers + k]!;

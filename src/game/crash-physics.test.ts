@@ -632,7 +632,7 @@ forModes("time / quiet / reset / arm", (spawn, mode) => {
     assert.equal(s.d.drivetrainAlive, true);
     assert.equal(s.d.massActive, false);
     assert.equal(travel(s.d, "bumperFL"), 0);
-    assert.equal(s.d.sensorCompression(0), 0);
+    assert.ok(s.d.sensorCompression(0) === 0, `sensor 0 still compressed ${s.d.sensorCompression(0)}`);
     assert.equal(s.d.crushElapsed, 0);
   });
 
