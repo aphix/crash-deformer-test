@@ -1,0 +1,86 @@
+{
+  "id": "city",
+  "name": "Harbour Streets",
+  "blurb": "Four city blocks, cobbled old town, the harbour bridge, and traffic that doesn't care you're racing.",
+  "laps": 3,
+  "road": { "width": 13, "surface": "asphalt", "runoff": [1.5, 1.5], "runoffSurface": "concrete", "wall": [true, true], "wallHeight": 1.2 },
+  "nodes": [
+    { "x": 0, "z": -40 },
+    { "x": 0, "z": 30 },
+    { "x": 0, "z": 100 },
+    { "x": 5.86, "z": 114.14 },
+    { "x": 20, "z": 120 },
+    { "x": 70, "z": 120 },
+    { "x": 120, "z": 120 },
+    { "x": 134.14, "z": 114.14 },
+    { "x": 140, "z": 100 },
+    { "x": 140, "z": 55, "surface": "cobble", "wall": [false, true] },
+    { "x": 140, "z": 10, "wall": [true, true] },
+    { "x": 140, "z": -80, "surface": "asphalt" },
+    { "x": 134.14, "z": -94.14 },
+    { "x": 120, "z": -100 },
+    { "x": 95, "z": -100, "surface": "concrete", "wall": [false, true] },
+    { "x": 70, "z": -97, "wall": [true, true] },
+    { "x": 45, "z": -103 },
+    { "x": 20, "z": -100, "surface": "asphalt" },
+    { "x": 5.86, "z": -94.14 },
+    { "x": 0, "z": -80 }
+  ],
+  "checkpoints": [
+    { "node": 0 },
+    { "node": 2 },
+    { "node": 5 },
+    { "node": 8 },
+    { "node": 10 },
+    { "node": 12 },
+    { "node": 15 },
+    { "node": 18 }
+  ],
+  "shortcuts": [
+    {
+      "id": "old-town-alley",
+      "from": 3,
+      "to": 6,
+      "width": 6,
+      "surface": "cobble",
+      "path": [
+        { "x": 128, "z": 44 },
+        { "x": 117, "z": 30 },
+        { "x": 112, "z": 10 },
+        { "x": 112, "z": -30 },
+        { "x": 110, "z": -65 },
+        { "x": 92, "z": -86 }
+      ]
+    }
+  ],
+  "grid": { "perRow": 2, "spacing": 8, "back": 6 },
+  "props": [
+    { "prefab": "crate", "x": 113, "z": -10 },
+    { "prefab": "crate", "x": 111, "z": -12 },
+    { "prefab": "crate", "x": 112.5, "z": -48 },
+    { "prefab": "tyre-stack", "x": 115, "z": 16 },
+    { "prefab": "cone", "x": 3, "z": 60 },
+    { "prefab": "cone", "x": -3, "z": 64 },
+    { "prefab": "cone", "x": 137, "z": -40 },
+    { "prefab": "barrier-block", "x": 70, "z": -90.5, "yaw": 1.5708 },
+    { "prefab": "billboard", "x": 70, "z": 132, "yaw": 0 },
+    { "prefab": "billboard", "x": 152, "z": 30, "yaw": 1.5708 }
+  ],
+  "along": [
+    { "prefab": "building", "every": 16, "side": "right", "offset": 7.5 },
+    { "prefab": "building", "every": 18, "side": "left", "offset": 7.5, "fromNode": 0, "toNode": 8 },
+    { "prefab": "lamp", "every": 30, "side": "both", "offset": 0.6 }
+  ],
+  "scatter": [
+    { "prefab": "tree", "count": 24, "near": 18, "far": 40, "seed": 11 }
+  ],
+  "traffic": {
+    "count": 8,
+    "speed": 8,
+    "lanes": [
+      { "offset": -3.2, "dir": 1 },
+      { "offset": 3.2, "dir": -1 }
+    ]
+  },
+  "environment": { "sky": "#a9b4c2", "fog": 0.004, "terrain": "concrete", "hills": [] }
+}

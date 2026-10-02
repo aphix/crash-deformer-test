@@ -1,4 +1,5 @@
 import { describe, it } from "node:test";
+import { DRIVE } from "../car-drive.ts";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, idleDrive } from "../car-drive.ts";
@@ -11,6 +12,7 @@ import { RaceBrain, onSurface } from "./race-ai.ts";
 import { RaceSession } from "./session.ts";
 import { Track, blankProjection, projectPath } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
+import { setGround } from "../ground.ts";
 import type { CarPose, Entrant } from "./types.ts";
 
 const DT = 1 / 60;
@@ -18,12 +20,13 @@ const DT = 1 / 60;
 type Run = { session: RaceSession; onRoad: number; samples: number };
 
 /**
- * Real cars on the real drive model (kinematic, as every car is until it crashes), no car-to-car
- * contact: the AI alone has to keep them on the road and round the laps.
+ * Real cars on the real drive model (kinematic, as every car is until it crashes) on the course's
+ * ground, no car-to-car contact: the AI alone has to keep them on the road and round the laps.
  */
 function race(track: Track, n: number, aggression: number, laps: number, limit: number): Run {
   const scene = new THREE.Scene();
   const ground = track.ground();
+  setGround(ground);
   const cars = Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0x404040, name: `ai${i}` }, scene, null, fleetStyle(i)));
   const entrants: Entrant[] = cars.map((_, i) => ({ id: i, name: `ai${i}`, kind: "ai", aggression }));
   const session = new RaceSession(track, entrants, { laps, noReset: false });
@@ -81,6 +84,7 @@ function race(track: Track, n: number, aggression: number, laps: number, limit: 
       });
     }
   }
+  setGround(null);
   return { session, onRoad, samples };
 }
 
@@ -90,8 +94,8 @@ describe("race AI", () => {
   for (const json of TRACKS) {
     const track = new Track(json);
     it(`${track.id}: 8 clean AI cars finish 3 laps on the road within the time bound`, () => {
-      const best = (3 * track.length) / 18;
-      const limit = best * 1.45;
+      // Half the drive model's top speed on average, plus the countdown and grid.
+      const limit = (3 * track.length) / (DRIVE.maxFwd / 2) + 10;
       const { session, onRoad, samples } = race(track, 8, 0, 3, limit);
       const fin = session.cars.filter((c) => c.status === "finished");
       assert.equal(fin.length, 8, `finished ${fin.length}/8 by ${session.time.toFixed(0)} s (bound ${limit.toFixed(0)} s); laps ${session.cars.map((c) => c.lap).join(",")}`);

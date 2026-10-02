@@ -179,7 +179,7 @@ export class RaceBrain {
       const sc = tr.shortcuts[route]!;
       const sub = projectPath(sc.path, self.x, self.z, this.routeSeg[i]!, this.subProj);
       this.routeSeg[i] = sub.k;
-      if (sub.s >= sc.path.length - 3) {
+      if (sub.s >= sc.path.length - 0.5) {
         this.route[i] = -1;
         this.routeSeg[i] = -1;
         route = -1;
@@ -205,11 +205,14 @@ export class RaceBrain {
 
     // L3: pursue a point on the line.
     const ld = clamp(5 + 0.5 * speed, 7, 18);
-    const pt = this.pointAhead(path, route, proj.s + ld);
+    // Short of a shortcut's mouth: head for the mouth itself so the car goes through its gate.
+    const early = route >= 0 && proj.s < 0.5 && Math.hypot(self.x - path.x[0]!, self.z - path.z[0]!) > 4;
+    const pt = this.pointAhead(path, route, early ? 2 : proj.s + ld);
     const tx = pt.x + pt.tz * lane;
     const tz = pt.z - pt.tx * lane;
     const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
-    const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / ld;
+    const reach = early ? Math.max(4, Math.hypot(tx - self.x, tz - self.z)) : ld;
+    const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
     let target = this.plan(path, route, proj.s, speed);

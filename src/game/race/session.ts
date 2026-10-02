@@ -277,23 +277,26 @@ export class RaceSession {
     for (let guard = 0; guard < 4 && c.status === "racing"; guard++) {
       if (c.route >= 0) {
         const sc = tr.shortcuts[c.route]!;
+        const last = sc.gates.length - 1;
         const f = crossGate(sc.gates[c.routeNext]!, x0, z0, c.x, c.z);
         if (f >= 0) {
           c.routeNext++;
-          if (c.routeNext === sc.gates.length) {
-            c.route = -1;
-            c.routeNext = 0;
-            c.next = sc.to;
-            c.seg = -1;
-          }
+          if (c.routeNext > last) this.leaveRoute(c, sc.to);
           continue;
+        }
+        // Every gate but the exit crossed, then onto the main road at the rejoin checkpoint: done.
+        if (c.routeNext === last && sc.to !== c.next) {
+          const r = crossGate(tr.gates[sc.to]!, x0, z0, c.x, c.z);
+          if (r >= 0) {
+            this.leaveRoute(c, sc.to);
+            this.pass(i, sc.to, t0 + r * dt);
+            continue;
+          }
         }
         // Back on the main road past `from`: the shortcut is abandoned.
         const g = crossGate(tr.gates[c.next]!, x0, z0, c.x, c.z);
         if (g < 0) return;
-        c.route = -1;
-        c.routeNext = 0;
-        c.seg = -1;
+        this.leaveRoute(c, c.next);
         this.pass(i, c.next, t0 + g * dt);
         continue;
       }
@@ -304,18 +307,28 @@ export class RaceSession {
       }
       if (!c.armed) return;
       let entered = false;
-      for (let k = 0; k < tr.shortcuts.length; k++) {
+      for (let k = 0; k < tr.shortcuts.length && !entered; k++) {
         const sc = tr.shortcuts[k]!;
         if ((sc.from + 1) % n !== c.next) continue;
-        if (crossGate(sc.gates[0]!, x0, z0, c.x, c.z) < 0) continue;
-        c.route = k;
-        c.routeNext = 1;
-        c.seg = -1;
-        entered = true;
-        break;
+        // The mouth gate, or the one after it for a car that cut in past the mouth.
+        for (let g = 0; g < Math.min(2, sc.gates.length - 1); g++) {
+          if (crossGate(sc.gates[g]!, x0, z0, c.x, c.z) < 0) continue;
+          c.route = k;
+          c.routeNext = g + 1;
+          c.seg = -1;
+          entered = true;
+          break;
+        }
       }
       if (!entered) return;
     }
+  }
+
+  private leaveRoute(c: CarRecord, next: number): void {
+    c.route = -1;
+    c.routeNext = 0;
+    c.next = next;
+    c.seg = -1;
   }
 
   private pass(i: number, gate: number, t: number): void {

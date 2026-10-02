@@ -11,6 +11,7 @@ import { SURFACE_IDS, SURFACES } from "./race/catalog.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "./race/placements.ts";
 import { RaceBrain, onSurface } from "./race/race-ai.ts";
 import { RaceSession } from "./race/session.ts";
+import { TrafficBrain } from "./race/traffic.ts";
 import { TrackArt } from "./race/track-art.ts";
 import { parseTrack } from "./race/track-schema.ts";
 import { Track, blankProjection } from "./race/track.ts";
@@ -50,6 +51,10 @@ const PLAYER = 0;
 const FLIP_DEAD = 2.5;
 /** Seconds an AI car sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
+/** Seconds a dead traffic car stays put before it is respawned well away from every racer. */
+const TRAFFIC_RESPAWN = 6;
+/** A respawned traffic car lands at least this far (m) from every other car. */
+const TRAFFIC_CLEAR = 60;
 /** Seconds the finish card shows before the results menu. */
 const RESULTS_DELAY = 2.5;
 /** Wall restitution and the closing speed (m/s) that crumples a car on a wall. */
@@ -99,6 +104,10 @@ export class RaceDirector {
   private colliders: PropCollider[] = [];
   private knocked = new Uint8Array(0);
   private session: RaceSession | null = null;
+  /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
+  private traffic: TrafficBrain | null = null;
+  /** Seconds a traffic car has been dead (respawned out of sight after `TRAFFIC_RESPAWN`). */
+  private readonly deadFor = new Float64Array(MAX_CARS);
   private brain: RaceBrain | null = null;
   private campaign: Campaign | null = null;
   /** Index = car id. */
@@ -153,6 +162,7 @@ export class RaceDirector {
     this.menu = null;
     this.session = null;
     this.brain = null;
+    this.traffic = null;
     this.campaign = null;
     this.spectating = false;
     this.unload();
@@ -302,8 +312,15 @@ export class RaceDirector {
       snapshotAiCar(this.snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
     }
     const snaps = this.snaps;
+    const racers = this.entrants.length;
+    const traffic = this.traffic;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
+      const surf = SURFACES[SURFACE_IDS[ground.surfaceIndex(car.group.position.x, car.group.position.z)]!];
+      if (i >= racers) {
+        applyDrive(car, onSurface(traffic ? traffic.think(snaps[i]!, snaps, dt) : this.hold, surf, this.scratch), dt);
+        continue;
+      }
       const rec = s.cars[this.rowOf[i]!]!;
       let input: DriveInput = this.hold;
       if (racing && rec.status === "racing") {
@@ -319,7 +336,6 @@ export class RaceDirector {
         this.cruise.brake = ai.brake;
         input = this.cruise;
       }
-      const surf = SURFACES[SURFACE_IDS[ground.surfaceIndex(car.group.position.x, car.group.position.z)]!];
       applyDrive(car, onSurface(input, surf, this.scratch), dt);
     }
   }
@@ -340,15 +356,21 @@ export class RaceDirector {
     const s = this.session;
     if (!s || s.phase === "finished") return;
     const cars = this.host.live();
+    const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
+      const alive = this.judge(i, car, dt, racing);
+      if (i >= this.entrants.length) {
+        this.trafficRespawn(i, car, alive, dt);
+        continue;
+      }
       const pose = this.poses[this.rowOf[i]!]!;
       pose.x = car.group.position.x;
       pose.z = car.group.position.z;
       pose.yaw = car.yaw;
       pose.vx = car.velocity.x;
       pose.vz = car.velocity.z;
-      pose.alive = this.judge(i, car, dt, s.phase === "racing");
+      pose.alive = alive;
     }
     s.step(dt, this.poses);
     this.drain();
@@ -523,17 +545,28 @@ export class RaceDirector {
 
   private start(trackId: string, grid: readonly number[]): void {
     const tr = this.load(trackId);
-    this.host.setCarCount(this.entrants.length);
+    const racers = this.entrants.length;
+    const tcount = Math.min(tr.json.traffic?.count ?? 0, MAX_CARS - racers);
+    this.host.setCarCount(racers + tcount);
     this.grid = [...grid];
     const ordered = this.grid.map((id) => this.entrants[id]!);
     this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: this.options.noReset });
-    this.brain = new RaceBrain(tr, this.entrants.length);
-    const n = this.entrants.length;
+    this.brain = new RaceBrain(tr, racers);
+    this.traffic = tcount > 0 ? new TrafficBrain(tr, racers) : null;
+    const n = racers + tcount;
     while (this.snaps.length < n) this.snaps.push(blankAiCar(this.snaps.length));
-    while (this.poses.length < n) this.poses.push({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true });
+    while (this.poses.length < racers) this.poses.push({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true });
     this.snaps.length = n;
-    this.poses.length = n;
+    this.poses.length = racers;
     const cars = this.host.live();
+    if (this.traffic) {
+      this.traffic.spawns(tcount).forEach((spot, k) => {
+        const car = cars[racers + k]!;
+        car.spawnFacing(spot.x, spot.z, spot.yaw, 0);
+        this.host.dress(car);
+      });
+    }
+    this.deadFor.fill(0);
     this.grid.forEach((id, k) => {
       this.rowOf[id] = k;
       const slot = tr.gridSlot(k);
@@ -561,6 +594,7 @@ export class RaceDirector {
   private toSetup(): void {
     this.session = null;
     this.brain = null;
+    this.traffic = null;
     this.spectating = false;
     this.menu = "setup";
     this.host.setPaused(false);
@@ -641,6 +675,29 @@ export class RaceDirector {
         this.overFor = 0;
       }
     }
+  }
+
+  /** A traffic car dead for a while is quietly put back in its lane far from everyone. */
+  private trafficRespawn(i: number, car: DeformableCar, alive: boolean, dt: number): void {
+    const traffic = this.traffic;
+    if (!traffic) return;
+    this.deadFor[i] = alive ? 0 : this.deadFor[i]! + dt;
+    if (this.deadFor[i]! < TRAFFIC_RESPAWN) return;
+    const cars = this.host.live();
+    for (let k = 0; k < cars.length; k++) {
+      const c = cars[k]!;
+      const sn = this.snaps[k]!;
+      sn.x = c.group.position.x;
+      sn.z = c.group.position.z;
+    }
+    const spot = traffic.respawn(i, this.snaps, TRAFFIC_CLEAR);
+    car.spawnFacing(spot.x, spot.z, spot.yaw, 0);
+    this.host.dress(car);
+    traffic.respawned(i);
+    this.seg[i] = -1;
+    this.deadFor[i] = 0;
+    this.flipFor[i] = 0;
+    this.stillFor[i] = 0;
   }
 
   /** Alive for the rules: running engine, not upside down for long, AI not parked for long. */
