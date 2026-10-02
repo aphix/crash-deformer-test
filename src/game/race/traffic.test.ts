@@ -6,10 +6,11 @@ import { DeformableCar } from "../car.ts";
 import { blankAiCar, type AiCar } from "../derby-ai.ts";
 import { snapshotAiCar } from "../derby.ts";
 import { fleetStyle } from "../fleet.ts";
+import { setGround } from "../ground.ts";
 import { SURFACES } from "./catalog.ts";
 import { onSurface } from "./race-ai.ts";
 import { Track, blankProjection, projectPath } from "./track.ts";
-import { TrafficBrain } from "./traffic.ts";
+import { SPAWN_FAR, SPAWN_NEAR, TrafficBrain } from "./traffic.ts";
 import city from "./tracks/city.json" with { type: "json" };
 
 const DT = 1 / 60;
@@ -19,9 +20,10 @@ function cars(n: number, scene: THREE.Scene): DeformableCar[] {
   return Array.from({ length: n }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0x404040, name: `t${i}` }, scene, null, fleetStyle(i)));
 }
 
-/** Drive `fleet` with `brain` for `seconds`; `sample(i, car)` every 6th step. */
+/** Drive `fleet` with `brain` for `seconds`; `sample(i, car)` every 6th step; car `frozen` stays parked. */
 function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sample: (i: number, c: DeformableCar) => void, frozen = -1): void {
   const ground = track.ground();
+  setGround(ground);
   const snaps: AiCar[] = fleet.map((_, i) => blankAiCar(i));
   const scratch = idleDrive();
   const park = { ...idleDrive(), brake: 1 };
@@ -34,59 +36,67 @@ function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sampl
     });
     if (step % 6 === 0) fleet.forEach((c, i) => sample(i, c));
   }
+  setGround(null);
 }
 
 describe("traffic", () => {
-  it("spawns spread round the loop in their lanes, facing their lane's way, clear of the grid", () => {
-    const brain = new TrafficBrain(track, 0);
-    const spots = brain.spawns(8);
+  const brain = new TrafficBrain(track, 0);
+
+  it("fills the loop lanes, then every side street, each car in its lane facing its lane's way", () => {
+    assert.equal(brain.count, 4 + 4 + 4);
     const p = blankProjection();
-    spots.forEach((s, i) => {
-      projectPath(track.path, s.x, s.z, -1, p);
-      const lane = brain.laneOf(i);
-      assert.ok(Math.abs(p.lateral - lane.offset) < 0.2, `car ${i} lateral ${p.lateral.toFixed(2)} vs lane ${lane.offset}`);
-      const along = Math.sin(s.yaw) * track.path.tx[p.k]! + Math.cos(s.yaw) * track.path.tz[p.k]!;
-      assert.ok(along * lane.dir > 0.95, `car ${i} faces its lane direction`);
-      assert.ok(p.s > 50 && p.s < track.length - 50, `car ${i} on the grid (s ${p.s.toFixed(0)})`);
+    brain.spawns().forEach((s, i) => {
+      const slot = brain.slotOf(i);
+      projectPath(slot.path, s.x, s.z, -1, p);
+      assert.ok(Math.abs(p.lateral - slot.offset) < 0.2, `car ${i} lateral ${p.lateral.toFixed(2)} vs lane ${slot.offset}`);
+      const along = Math.sin(s.yaw) * slot.path.tx[p.k]! + Math.cos(s.yaw) * slot.path.tz[p.k]!;
+      assert.ok(along * slot.dir > 0.95, `car ${i} faces its lane direction`);
+      if (slot.path === track.path) assert.ok(p.s > 70 && p.s < track.length - 70, `loop car ${i} on the grid (s ${p.s.toFixed(0)})`);
     });
-    assert.ok(brain.laneOf(1).dir === -1 && brain.laneOf(0).dir === 1, "both directions are used");
+    assert.ok(brain.slots.some((s) => s.path !== track.path && s.dir < 0) && brain.slots.some((s) => s.path !== track.path && s.dir > 0));
   });
 
-  it("8 cars cruise their lanes for a minute: in lane, moving, oncoming lane against the race", () => {
+  it("cross-street cars drive through the race loop's junctions", () => {
     const scene = new THREE.Scene();
-    const brain = new TrafficBrain(track, 0);
-    const fleet = cars(8, scene);
-    brain.spawns(8).forEach((s, i) => fleet[i]!.spawnFacing(s.x, s.z, s.yaw, 0));
-    const p = blankProjection();
+    const fleet = cars(12, scene);
+    brain.reset();
+    brain.spawns().forEach((s, i) => fleet[i]!.spawnFacing(s.x, s.z, s.yaw, 0));
+    // Junction centres where a side street meets the loop.
+    const junctions = [
+      [0, 0],
+      [180, 0],
+      [120, 60],
+      [120, -60],
+    ];
+    const crossed = new Set<string>();
     let inLane = 0;
     let samples = 0;
-    let along = 0;
-    run(brain, fleet, 60, (i, c) => {
-      projectPath(track.path, c.group.position.x, c.group.position.z, -1, p);
-      const lane = brain.laneOf(i);
+    const p = blankProjection();
+    run(brain, fleet, 50, (i, c) => {
+      const slot = brain.slotOf(i);
+      projectPath(slot.path, c.group.position.x, c.group.position.z, -1, p);
       samples++;
-      if (Math.abs(p.lateral - lane.offset) < 1.5) inLane++;
-      along += ((c.velocity.x * track.path.tx[p.k]! + c.velocity.z * track.path.tz[p.k]!) * lane.dir) / brain.speed;
+      if (Math.abs(p.lateral - slot.offset) < 1.5) inLane++;
+      if (slot.path === track.path) return;
+      for (const [jx, jz] of junctions) if (Math.hypot(c.group.position.x - jx!, c.group.position.z - jz!) < 4) crossed.add(`${jx},${jz}`);
     });
-    assert.ok(inLane / samples >= 0.95, `in lane ${((inLane / samples) * 100).toFixed(1)}%`);
-    assert.ok(along / samples > 0.6, `mean speed along the lane ${(along / samples).toFixed(2)} of cruise`);
+    assert.ok(inLane / samples >= 0.9, `in lane ${((inLane / samples) * 100).toFixed(1)}%`);
+    assert.equal(crossed.size, 4, `junctions crossed: ${[...crossed].join(" ")}`);
   });
 
   it("stops behind a car stopped in its lane, then edges round it", () => {
     const scene = new THREE.Scene();
-    const brain = new TrafficBrain(track, 0);
     const [mover, blocker] = cars(2, scene);
-    // Both in lane 0 (race direction, right side) on the start avenue.
-    const lane = brain.laneOf(0);
+    const slot = brain.slotOf(0);
+    brain.reset();
     const at = (s: number) => {
       const pt = track.pointAt(s, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
-      return { x: pt.x + pt.tz * lane.offset, z: pt.z - pt.tx * lane.offset, yaw: Math.atan2(pt.tx, pt.tz) };
+      return { x: pt.x + pt.tz * slot.offset, z: pt.z - pt.tx * slot.offset, yaw: Math.atan2(pt.tx, pt.tz) };
     };
-    const a = at(5);
-    const b = at(40);
+    const a = at(200);
+    const b = at(235);
     mover!.spawnFacing(a.x, a.z, a.yaw, brain.speed);
     blocker!.spawnFacing(b.x, b.z, b.yaw, 0);
-    // Car 1 stays parked (frozen) in car 0's lane.
     let minGap = Infinity;
     let stopped = false;
     run(brain, [mover!, blocker!], 6, (i, c) => {
@@ -100,6 +110,19 @@ describe("traffic", () => {
     run(brain, [mover!, blocker!], 8, () => {}, 1);
     const p = blankProjection();
     projectPath(track.path, mover!.group.position.x, mover!.group.position.z, -1, p);
-    assert.ok(p.s > 40, `got past the blocker (s ${p.s.toFixed(1)})`);
+    assert.ok(p.s > 240, `got past the blocker (s ${p.s.toFixed(1)})`);
+  });
+
+  it("wakes a put-away car on its lane inside the observer ring, clear of cars, out of view", () => {
+    brain.reset();
+    const id = 6;
+    const observer = { ...blankAiCar(0), x: 0, z: -30 };
+    const others = [observer, { ...blankAiCar(1), x: 2, z: 0 }];
+    const spot = brain.spawnPoint(id, [observer], others, () => false);
+    assert.ok(spot, "found a spot");
+    const d = Math.hypot(spot.x - observer.x, spot.z - observer.z);
+    assert.ok(d >= SPAWN_NEAR && d <= SPAWN_FAR, `distance ${d.toFixed(1)}`);
+    assert.ok(Math.hypot(spot.x - 2, spot.z) >= 14);
+    assert.equal(brain.spawnPoint(id, [observer], others, () => true), null, "never pops in where the player is looking");
   });
 });

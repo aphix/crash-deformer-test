@@ -1,4 +1,5 @@
 import { DRIVE, idleDrive, type DriveInput } from "../car-drive.ts";
+import { mood } from "../ai-aggression.ts";
 import { personality, STUCK_SPEED, type AiCar, type Personality } from "../derby-ai.ts";
 import { MAX_CARS } from "../fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "./catalog.ts";
@@ -17,21 +18,6 @@ export function onSurface(input: DriveInput, surf: Surface, out: DriveInput): Dr
   out.ebrake = input.ebrake;
   out.boost = input.boost;
   return out;
-}
-
-/** Rival `id`'s aggression in a field whose slider is `max`: uniform in [0, max], fixed by `seed`. */
-export function fieldAggression(max: number, seed: number, id: number): number {
-  return clamp(max, 0, 1) * hash01(id * 13 + seed * 7919, 3);
-}
-
-/**
- * How much `self` wants a fight with `o`: > 0 attack, < 0 keep clear. 0 aggression never attacks;
- * 1 always does, whatever its own state; at 0.5 it attacks only a car more wrecked than itself and
- * thinks twice the more wrecked it is.
- */
-export function mood(aggression: number, selfDamage: number, otherDamage: number): number {
-  if (aggression <= 0) return -1;
-  return 2 * aggression - 1 + 0.8 * (otherDamage - selfDamage) - (1 - aggression) * selfDamage;
 }
 
 /** Corner speed margin: plan for this share of the drive model's full-lock yaw rate. */

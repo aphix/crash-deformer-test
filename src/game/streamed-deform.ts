@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
+import { activeGround } from "./ground.ts";
 import { leftoverCrumple, round4, vec3, applyGroundFriction, clampSpeed, CRASH, regionSoftness, crushGate, closingKeScale, crushStroke, regionCrushBands, forceTransfer, satPushCap, type CrushBands } from "./physics-util.ts";
 import {
   type ShapeCluster,
@@ -1254,11 +1255,19 @@ export class StreamedDeformation {
   /** Sliding-wreck XZ drag (same Coulomb as the tyres) on every mass, while the wreck is on the ground. */
   dragGround(dt: number, amount: number): void {
     if (!this.massActive || amount <= 0) return;
-    // Airborne (no hub within GROUND_SKIN of its 0.28 m floor): nothing to slide on.
+    // Airborne (no hub within GROUND_SKIN of its 0.28 m floor over the ground): nothing to slide on.
+    const ground = activeGround();
     let low = Infinity;
-    for (const m of this.masses) if (m.hub && m.dynamic && m.world.y < low) low = m.world.y;
+    let grip = 1;
+    for (const m of this.masses) {
+      if (!m.hub || !m.dynamic) continue;
+      const lift = m.world.y - ground.heightAt(m.world.x, m.world.z, m.world.y);
+      if (lift >= low) continue;
+      low = lift;
+      grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
+    }
     if (low > 0.28 + GROUND_SKIN) return;
-    const mu = CRASH.muSlide * (0.35 + amount * 1.25);
+    const mu = CRASH.muSlide * (0.35 + amount * 1.25) * grip;
     for (const m of this.masses) {
       if (!m.dynamic) continue;
       applyGroundFriction(m.vel, dt, mu, true);
@@ -1564,8 +1573,10 @@ export class StreamedDeformation {
       }
     }
     let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
-    if (minHub > 0.5) gy = THREE.MathUtils.clamp(gy, 0, 0.12);
-    else gy = THREE.MathUtils.clamp(gy, 0, 0.08);
+    // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad).
+    const floor = activeGround().heightAt(wx, wz, wy);
+    if (minHub - floor > 0.5) gy = THREE.MathUtils.clamp(gy, floor, floor + 0.12);
+    else gy = THREE.MathUtils.clamp(gy, floor, floor + 0.08);
     // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
     // solve the anchor's local y for that height so its x/z stay exactly held.
     _a.set(lx, 0, lz).applyQuaternion(group.quaternion);
@@ -2705,6 +2716,8 @@ export class StreamedDeformation {
 
     // A car under power is driven, not a quiet wreck: the settle rule below must not park it.
     const powered = this.elapsed - this.lastPower < POWER_HOLD;
+    // A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad), read per mass on its own layer.
+    const ground = activeGround();
     for (const m of this.masses) {
       if (!m.dynamic) continue;
       const hub = m.hub;
@@ -2727,9 +2740,11 @@ export class StreamedDeformation {
         m.world.copy(m.rest);
         m.vel.set(0, 0, 0);
       }
+      const floor = ground.heightAt(m.world.x, m.world.z, m.world.y);
+      const grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
       if (hub) {
-        if (m.world.y < 0.28) {
-          m.world.y = 0.28;
+        if (m.world.y < floor + 0.28) {
+          m.world.y = floor + 0.28;
           if (m.vel.y < 0) m.vel.y = 0;
         }
         const mu = !this.drivetrainAlive
@@ -2737,24 +2752,24 @@ export class StreamedDeformation {
           : leftoverCrumple(this.crumpleTravel()) > 0.28
             ? CRASH.muScuff
             : CRASH.muSlide;
-        applyGroundFriction(m.vel, dt, mu, true);
+        applyGroundFriction(m.vel, dt, mu * grip, true);
       } else {
-        if (m.world.y < 0.16) {
-          m.world.y = 0.16;
+        if (m.world.y < floor + 0.16) {
+          m.world.y = floor + 0.16;
           if (m.vel.y < 0) m.vel.y *= -0.22;
         }
         if (quiet > 0.12) {
           const grab = THREE.MathUtils.clamp((quiet - 0.12) / 0.45, 0, 1);
-          applyGroundFriction(m.vel, dt, CRASH.muSlide * grab, true);
-        } else if (m.world.y < 0.16) {
-          applyGroundFriction(m.vel, dt, CRASH.muScuff, true);
+          applyGroundFriction(m.vel, dt, CRASH.muSlide * grab * grip, true);
+        } else if (m.world.y < floor + 0.16) {
+          applyGroundFriction(m.vel, dt, CRASH.muScuff * grip, true);
         }
       }
-      if (m.world.y > 3.4) {
-        m.world.y = 3.4;
+      if (m.world.y > floor + 3.4) {
+        m.world.y = floor + 3.4;
         m.vel.y = 0;
       }
-      if (!hub && !this.bidirectional && m.world.y > 0.22) {
+      if (!hub && !this.bidirectional && m.world.y > floor + 0.22) {
         m.vel.y = THREE.MathUtils.clamp(m.vel.y, -2.2, 3);
       }
     }

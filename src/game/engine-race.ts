@@ -9,7 +9,8 @@ import { impulseCar } from "./pair-contact.ts";
 import { Campaign } from "./race/campaign.ts";
 import { SURFACES } from "./race/catalog.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "./race/placements.ts";
-import { RaceBrain, fieldAggression, onSurface } from "./race/race-ai.ts";
+import { RaceBrain, onSurface } from "./race/race-ai.ts";
+import { fieldAggression } from "./ai-aggression.ts";
 import { RaceSession } from "./race/session.ts";
 import { DORMANT, TrafficBrain } from "./race/traffic.ts";
 import type { TrackArt } from "./race/track-art.ts";
@@ -55,6 +56,12 @@ const PLAYER = 0;
 const FLIP_DEAD = 2.5;
 /** Seconds an AI car sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
+/**
+ * An AI racer that gains less than `STALL_GAIN` m of track in `STALL_WINDOW` s (wedged on a wall,
+ * shoving a stopped car, two wrecks hooked together) takes the reset a player has on R.
+ */
+const STALL_WINDOW = 8;
+const STALL_GAIN = 25;
 /** Seconds a dead traffic car stays put before the bubble puts it away. */
 const TRAFFIC_DEAD = 6;
 /** Where put-away traffic waits (far off every course). */
@@ -139,6 +146,9 @@ export class RaceDirector {
   private readonly seg = new Int32Array(MAX_CARS).fill(-1);
   private readonly flipFor = new Float64Array(MAX_CARS);
   private readonly stillFor = new Float64Array(MAX_CARS);
+  /** Per AI racer: race time and track progress at the start of the current stall window. */
+  private readonly markTime = new Float64Array(MAX_CARS);
+  private readonly markProgress = new Float64Array(MAX_CARS);
   private readonly snaps: AiCar[] = [];
   private readonly poses: CarPose[] = [];
   private readonly scratch: DriveInput = idleDrive();
@@ -218,7 +228,8 @@ export class RaceDirector {
     switch (cmd.type) {
       case "options": {
         const o = { ...this.options, ...cmd.options };
-        o.laps = clamp(Math.round(o.laps), 3, 5);
+        // The menu offers 3–5; the rules (and a host or test) take any count the track format allows.
+        o.laps = clamp(Math.round(o.laps), 1, 9);
         o.aiCount = clamp(Math.round(o.aiCount), 1, MAX_CARS - 1);
         o.aggression = clamp(o.aggression, 0, 1);
         if (!this.courses.some((c) => c.id === o.trackId)) o.trackId = this.options.trackId;
@@ -422,6 +433,7 @@ export class RaceDirector {
       pose.alive = alive;
     }
     s.step(dt, this.poses);
+    if (racing) this.stalls(s);
     this.drain();
     this.bubbleAcc += dt;
     if (this.bubbleAcc >= BUBBLE_EVERY) {
@@ -648,6 +660,8 @@ export class RaceDirector {
     this.seg.fill(-1);
     this.flipFor.fill(0);
     this.stillFor.fill(0);
+    this.markTime.fill(0);
+    this.markProgress.fill(0);
     this.knocked.fill(0);
     this.art?.reset();
     this.overFor = 0;
@@ -739,6 +753,8 @@ export class RaceDirector {
         this.seg[e.id] = -1;
         this.flipFor[e.id] = 0;
         this.stillFor[e.id] = 0;
+        this.markTime[e.id] = s.time;
+        this.markProgress[e.id] = s.cars[this.rowOf[e.id]!]!.progress;
       } else if (e.type === "out" && e.id === PLAYER && this.entrants[PLAYER]?.kind === "player") {
         if (s.phase !== "finished") this.menu = "dead";
       } else if (e.type === "over") {
@@ -808,6 +824,17 @@ export class RaceDirector {
     car.spawnFacing(x, z, yaw, 0);
     car.group.position.y = this.track ? this.track.ground().heightAt(x, z, y + 0.5) : 0;
     this.host.dress(car);
+  }
+
+  /** AI racers that made almost no track progress over the last window ask for a respawn (see `STALL_GAIN`). */
+  private stalls(s: RaceSession): void {
+    for (let i = 0; i < this.entrants.length; i++) {
+      if (this.entrants[i]!.kind !== "ai" || s.time - this.markTime[i]! < STALL_WINDOW) continue;
+      const rec = s.cars[this.rowOf[i]!]!;
+      if (rec.status === "racing" && rec.progress - this.markProgress[i]! < STALL_GAIN) s.requestRespawn(i);
+      this.markTime[i] = s.time;
+      this.markProgress[i] = rec.progress;
+    }
   }
 
   /** Alive for the rules: running engine, not upside down for long, AI not parked for long. */

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
+import { activeGround } from "./ground.ts";
 import {
   CRASH,
   TRANSFER,
@@ -80,7 +81,9 @@ export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, 
 export function bleedAfterSlide(car: DeformableCar, dt: number): void {
   if (!car.crashed) return;
   const q = car.deform.quietTime();
-  const mu = q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q));
+  const p = car.group.position;
+  // × the course surface's friction where the wreck slides (1 on the flat sandbox ground).
+  const mu = (q < 0.15 ? CRASH.muScuff : CRASH.muSlide * (1 + Math.min(1.4, q))) * activeGround().frictionAt(p.x, p.z, p.y);
   applyGroundFriction(car.velocity, dt, mu, true);
   if (car.deform.massActive) {
     const t = car.deform.powered ? q : car.deform.sinceHit();

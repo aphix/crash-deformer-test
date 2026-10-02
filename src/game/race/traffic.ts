@@ -15,8 +15,8 @@ const STOP_GAP = 7;
 const WAIT = 2.5;
 /** Seconds spent edging round once started (long enough to clear a car at walking pace). */
 const EDGE_TIME = 4.5;
-/** Grid zone (m) behind and ahead of the line kept clear of loop traffic at the start. */
-const GRID_CLEAR = 60;
+/** Grid zone (m) behind and ahead of the line kept clear of loop traffic at the start (16 cars reach back ~66 m). */
+const GRID_CLEAR = 80;
 /** Observer bubble (m): traffic farther than `DORMANT` from every observer is put away; it comes back between `SPAWN_NEAR` and `SPAWN_FAR`. */
 export const DORMANT = 120;
 export const SPAWN_NEAR = 55;

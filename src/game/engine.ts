@@ -40,6 +40,7 @@ import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
+import { TrackArt } from "./race/track-art.ts";
 import type { RaceCommand } from "./race/types.ts";
 
 export type { CrashHudState, CrashPhase } from "./hud-store";
@@ -290,6 +291,7 @@ export class CrashEngine {
         this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
         if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
       },
+      buildArt: (track, placed) => new TrackArt(track, placed),
     });
 
     this.resize();
@@ -882,7 +884,10 @@ export class CrashEngine {
     }
   };
 
-  /** Keys during a race (no menu up). True when consumed; sandbox scene keys are swallowed mid-race. */
+  /**
+   * Keys during a race (no menu up). True when consumed. Race keys always work; the sandbox's hotkeys
+   * only in the full view (H), so the focus view can't be knocked out of the race by a stray key.
+   */
   private raceKey(code: string, driving: boolean): boolean {
     switch (code) {
       case "Escape":
@@ -902,16 +907,11 @@ export class CrashEngine {
         if (driving) this.seat.cycleView();
         this.emitHud(true);
         return true;
-      case "KeyX":
-        this.toggleRace();
+      case "KeyH":
+        this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
         return true;
-      case "KeyU":
-      case "KeyG":
-      case "KeyP":
-      case "KeyJ":
-        return false;
       default:
-        return true;
+        return !this.race.fullUi;
     }
   }
 
@@ -1523,7 +1523,8 @@ export class CrashEngine {
           if (this.showBarrier && this.barrier.blocksPair(ca, cb)) continue;
           const dx = ca.group.position.x - cb.group.position.x;
           const dz = ca.group.position.z - cb.group.position.z;
-          if (dx * dx + dz * dz > 28) continue;
+          // Cars on different levels (one on a bridge, one under it) never touch.
+          if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5) continue;
           if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
           partContactPair(ca, cb);
         }
@@ -1558,6 +1559,7 @@ export class CrashEngine {
         for (let a = 0; a < cars.length; a++) {
           for (let b = a + 1; b < cars.length; b++) {
             if (this.showBarrier && this.barrier.blocksPair(cars[a]!, cars[b]!)) continue;
+            if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5) continue;
             const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
             if (pair) {
               moved = true;
@@ -1761,6 +1763,7 @@ export class CrashEngine {
     }
     return best;
   }
+
 
   private armEngineSmoke(car: DeformableCar, extra: number): void {
     if (!car.crashed) return;

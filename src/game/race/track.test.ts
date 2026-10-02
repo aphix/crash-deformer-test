@@ -96,4 +96,26 @@ describe("track", () => {
     const oval = new Track(TRACKS[0]).ground();
     assert.equal(oval.frictionAt(0, -115), 0.72, "the oval's dirt service road");
   });
+
+  it("a bridge deck and the road under it: each car sees its own level", () => {
+    const stunt = new Track(TRACKS.find((j) => parseTrack(j).id === "stunt"));
+    const g = stunt.ground();
+    // The figure-of-eight crosses itself at the origin: the start straight under, the deck 9 m over.
+    assert.ok(Math.abs(g.heightAt(0, 0, 0.3)) < 0.05, `under the bridge ${g.heightAt(0, 0, 0.3)}`);
+    assert.ok(Math.abs(g.heightAt(0, 0, 9.2) - 9) < 0.15, `on the deck ${g.heightAt(0, 0, 9.2)}`);
+    assert.ok(Math.abs(g.heightAt(0, 0) - 9) < 0.15, "no layer hint: the top surface");
+    assert.equal(g.surfaceAt(0, 0, 9.2), "asphalt");
+    // Off the deck's side the ground below shows again, whatever the hint.
+    assert.ok(g.heightAt(14, 14, 9.2) < 1, "beside the deck you fall to the ground");
+  });
+
+  it("rejects a crossover without a deck, too little headroom, or a checkpoint over the other level", () => {
+    const stunt = parseTrack(TRACKS.find((j) => parseTrack(j).id === "stunt"));
+    const noDeck = { ...stunt, nodes: stunt.nodes.map((nd) => ({ ...nd, deck: false })) };
+    assert.throws(() => new Track(noDeck), /crosses itself .* without a deck/);
+    const low = { ...stunt, nodes: stunt.nodes.map((nd) => (nd.y === 9 ? { ...nd, y: 3 } : nd)) };
+    assert.throws(() => new Track(low), /a car needs 4.5 m/);
+    const gateOver = { ...stunt, checkpoints: [...stunt.checkpoints.slice(0, 1), { node: 1, t: 0 }, ...stunt.checkpoints.slice(1)] };
+    assert.throws(() => new Track(gateOver), /sits over another part of the loop/);
+  });
 });
