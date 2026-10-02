@@ -467,11 +467,14 @@ export class RaceDirector {
       for (const id of s.order()) {
         const c = s.cars[this.rowOf[id]!]!;
         const win = s.winnerId == null ? null : s.cars[this.rowOf[s.winnerId]!]!;
+        // A finisher a lap or more down has no time gap; the HUD shows its laps behind.
         const gap =
           c.place === 1
             ? null
             : c.status === "finished" && c.finishTime != null && win?.finishTime != null
-              ? c.finishTime - win.finishTime
+              ? c.lap < s.laps
+                ? null
+                : c.finishTime - win.finishTime
               : c.split;
         standings.push({
           id,
@@ -497,6 +500,7 @@ export class RaceDirector {
           bestLap: me.bestLap,
           status: me.status,
           wrongWay: me.wrongWay,
+          missed: me.missed && me.status === "racing",
           respawnIn: me.respawnAt == null ? null : Math.max(0, me.respawnAt - s.time),
           finishTime: me.finishTime,
           split: me.split,

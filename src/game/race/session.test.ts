@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, blankPoint, blankProjection, pointOn } from "./track.ts";
-import { CLEARANCE, COUNTDOWN, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
+import { CLEARANCE, COUNTDOWN, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
 import type { CarPose, Entrant, RaceEvent, RaceResultRow } from "./types.ts";
 import type { TrackFile } from "./track-schema.ts";
@@ -152,6 +152,7 @@ describe("race rules", () => {
     assert.equal(count(ev, "lap"), 0);
     assert.equal(s.cars[0]!.next, 2);
     assert.equal(s.cars[0]!.lap, 0);
+    assert.equal(s.cars[0]!.missed, true, "the HUD is told a checkpoint was skipped");
   });
 
   it("driving back and forth over the line never counts a lap", () => {
@@ -162,6 +163,7 @@ describe("race rules", () => {
     const ev = runTo(s, [polyline(pts, 15)], 40);
     assert.equal(count(ev, "lap"), 0);
     assert.equal(s.cars[0]!.next, 1);
+    assert.equal(s.cars[0]!.missed, false, "re-crossing the line just passed is no skip");
   });
 
   it("the oval's service road counts after checkpoint 4 and is quicker; from the wrong sector it earns nothing", () => {
@@ -211,6 +213,32 @@ describe("race rules", () => {
     const early = [...approach, ...along(0, sc.gates[sc.gates.length - 2]!.s + 3), ...home];
     const b = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
     assert.equal(count(runTo(b, [polyline(early, 25)], 60), "lap"), 1, "left before the exit gate");
+  });
+
+  it("the oval's open infield counts as the service road: beside the dirt, or straight across between the wall gaps", () => {
+    const sc = ovalTrack.shortcuts[0]!;
+    const L = ovalTrack.length;
+    const homeFrom = (x: number, z: number) => {
+      const p = blankProjection();
+      ovalTrack.project(x, z, -1, p);
+      return centreline(ovalTrack, L + p.s + 6, 2 * L + 10);
+    };
+    // Down the right straight past checkpoint 4, then onto the infield.
+    const approach = centreline(ovalTrack, L - 6, L + ovalTrack.gateS(4) + 40);
+    // The service road 6 m toward the middle of the infield: on the grass beside the dirt the whole way.
+    const beside = samples((s) => {
+      const p = pointOn(sc.path, s, _pt);
+      return { x: p.x + p.tz * 6, z: p.z - p.tx * 6 };
+    }, 0, sc.path.length, 1);
+    const across = [{ x: 44, z: -55 }, { x: 0, z: -62 }, { x: -44, z: -55 }];
+    for (const [name, pts] of [["beside the dirt", beside], ["straight across", across]] as const) {
+      const s = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
+      const end = pts[pts.length - 1]!;
+      const ev = runTo(s, [polyline([...approach, ...pts, ...homeFrom(end.x, end.z)], 25)], 60);
+      assert.equal(count(ev, "lap"), 1, `${name}: the lap counts`);
+      assert.equal(s.cars[0]!.status, "finished", name);
+      assert.equal(s.cars[0]!.missed, false, name);
+    }
   });
 
   it("wrong way: flagged after holding against the track, cleared after turning round", () => {
@@ -341,6 +369,50 @@ describe("race rules", () => {
     s.end();
     assert.equal(s.phase, "finished");
     assert.deepEqual(s.results().map((r) => [r.id, r.status]), [[0, "finished"], [1, "dnf"]]);
+  });
+
+  it("after the winner every car finishes at its next line crossing, ranked by laps then time; one that never arrives is DNF at its deadline", () => {
+    const L = square.length;
+    const s = new RaceSession(square, field(4), { laps: 2, noReset: false });
+    const toLine = (i: number) => {
+      const slot = square.gridSlot(i);
+      const p = blankProjection();
+      square.project(slot.x, slot.z, -1, p);
+      return p.s;
+    };
+    const parkAt = (i: number) => polyline(centreline(square, toLine(i), 2 * L + 40), 22);
+    // Winner; a lap down at the flag (crosses before the next full-distance finisher); full distance; parked after lap 1.
+    runTo(s, [fromGrid(square, 0, 30), fromGrid(square, 1, 14), fromGrid(square, 2, 26), parkAt(3)], 200);
+    assert.equal(s.phase, "finished");
+    const res = s.results();
+    assert.deepEqual(
+      res.map((r) => [r.id, r.status, r.laps]),
+      [[0, "finished", 2], [2, "finished", 2], [1, "finished", 1], [3, "dnf", 1]],
+    );
+    assert.ok(s.cars[1]!.finishTime! < s.cars[2]!.finishTime!, "the lapped car crossed first and still ranks behind");
+    assert.equal(res[2]!.gap, null, "a lapped finisher has no time gap");
+    const win = s.cars[0]!.finishTime!;
+    assert.ok(Math.abs(s.time - (win + FINISH_GRACE)) <= DT + 1e-9, `closed at ${s.time.toFixed(2)} s, the winner + ${FINISH_GRACE} s is ${(win + FINISH_GRACE).toFixed(2)} s`);
+  });
+
+  it("a car on a long lap when the winner finishes gets LAP_SLACK × its own lap to reach the line, past the fixed grace", () => {
+    const L = square.length;
+    const dist = (i: number) => {
+      const slot = square.gridSlot(i);
+      const p = blankProjection();
+      square.project(slot.x, slot.z, -1, p);
+      return L - p.s;
+    };
+    // The winner's time over 3 laps at 30 m/s; the slow car crosses the line 4 s before it, so its
+    // next crossing (one ~(win − 4) s lap later) comes well after the winner + FINISH_GRACE.
+    const win = (dist(0) + 3 * L) / 30;
+    const slowV = (dist(1) + L) / (win - 4);
+    const s = new RaceSession(square, field(2), { laps: 3, noReset: false });
+    runTo(s, [fromGrid(square, 0, 30), fromGrid(square, 1, slowV)], 300);
+    const slow = s.cars[1]!;
+    assert.equal(slow.status, "finished", `the slow car is ${slow.status} on ${slow.lap} laps`);
+    assert.equal(slow.lap, 2, "flagged at its next crossing");
+    assert.ok(slow.finishTime! > s.cars[0]!.finishTime! + FINISH_GRACE, `crossed at ${slow.finishTime!.toFixed(1)} s, after the fixed grace`);
   });
 });
 

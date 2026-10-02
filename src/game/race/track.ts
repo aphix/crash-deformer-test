@@ -21,6 +21,11 @@ const WALL_BAND = 2.5;
 const CELL = 1;
 /** Deck lookup cell (m). */
 const DECK_CELL = 8;
+/**
+ * A shortcut's gates reach this far (m) beyond its road edge: a designed shortcut usually crosses
+ * open ground (the oval's infield), and a car driving the grass beside the dirt is still taking it.
+ */
+export const SHORTCUT_REACH = 8;
 
 function deckKey(i: number, j: number): number {
   return (i + 4096) * 8192 + (j + 4096);
@@ -402,7 +407,7 @@ export class Track {
     this.shortcuts = this.json.shortcuts.map((sc) => {
       const sub = sidePath(sc.path, sc.width, sc.surface, false);
       const n = sc.path.length;
-      const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i), 1));
+      const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i), SHORTCUT_REACH));
       return { id: sc.id, from: sc.from, to: sc.to, path: sub.path, gates };
     });
     this.routes = (this.json.traffic?.routes ?? []).map((r) => ({

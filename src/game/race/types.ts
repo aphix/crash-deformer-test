@@ -74,6 +74,8 @@ export type CarRecord = {
   split: number | null;
   outTime: number | null;
   wrongWay: boolean;
+  /** Crossed a checkpoint ahead of the one it owes (a cut): the lap won't count until it goes back. */
+  missed: boolean;
   /** Race time the pending respawn fires, null when none. */
   respawnAt: number | null;
   deaths: number;
@@ -113,8 +115,6 @@ export type RaceSnapshot = {
   order: number[];
   /** First crossing time per (lap × gates + gate), null until someone crosses (split timing). */
   firstAt: (number | null)[];
-  /** Race time the race closes after the first finisher, null before. */
-  overAt: number | null;
 };
 
 export type RaceResultRow = {
@@ -223,6 +223,7 @@ export type RaceHud = {
     bestLap: number | null;
     status: CarStatus;
     wrongWay: boolean;
+    missed: boolean;
     /** Seconds until the pending respawn, null when none. */
     respawnIn: number | null;
     finishTime: number | null;
