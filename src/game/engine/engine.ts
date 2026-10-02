@@ -39,8 +39,9 @@ const LOD_TINY_PX = 20;
 const _lodSphere = new THREE.Sphere();
 /**
  * Distance detail: beyond `DETAIL_NEAR` m from the camera a car (never the followed one) drops its small parts
- * that cast no shadow (lamp housings, trims, grille, mirrors, door linings): 16 of its 24 draws. They are a few
- * pixels there; body, panels, glass, interior and wheels stay. Back within `DETAIL_BACK` they return (hysteresis).
+ * that cast no shadow (trims, grille, mirrors, door linings: 12 of its 20 draws) and its 4 lamps from the lamp
+ * batch. They are a few pixels there; body, panels, glass, interior and wheels stay. Back within `DETAIL_BACK`
+ * they return (hysteresis).
  */
 const DETAIL_NEAR = 35;
 const DETAIL_BACK = 32;
@@ -50,6 +51,18 @@ const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _bn = new THREE.Vector3();
 const _bp = new THREE.Vector3();
+
+/**
+ * Lit shaders skip a point or spot light's BRDF where the light adds nothing: past its range, outside its cone,
+ * or at intensity 0. Every lit program carries the lamp pool's 4 spots and 4 points (`lamp-lights.ts`: changing
+ * the count relinks every program), the impact flash and the derby winner's spot, and three ran the full BRDF
+ * for each of them on every fragment. Exact: three already zeroes such a light's colour and clears `visible`.
+ */
+const RE_DIRECT = "RE_Direct( directLight, ";
+const SKIP_DARK = `if ( directLight.visible ) ${RE_DIRECT}`;
+const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
+if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
+if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
 
 export class CrashEngine extends EngineInput {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
@@ -140,9 +153,13 @@ export class CrashEngine extends EngineInput {
 
     this.glassDots = new GlassDotSystem(this.scene);
     this.ensureCars(2);
-    this.scene.add(this.wheels.mesh);
-    // After the renderer's scene matrix update, before culling/upload: every render path draws current wheels.
-    this.scene.onBeforeRender = () => this.wheels.sync(this.live());
+    this.scene.add(this.wheels.mesh, ...this.lampBatch.meshes);
+    // After the renderer's scene matrix update, before culling/upload: every render path draws current wheels and lamps.
+    this.scene.onBeforeRender = () => {
+      const live = this.live();
+      this.wheels.sync(live);
+      this.lampBatch.sync(live);
+    };
 
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
@@ -241,6 +258,7 @@ export class CrashEngine extends EngineInput {
     this.race.dispose();
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
+    this.lampBatch.dispose();
     this.sparks.dispose();
     this.debris.dispose();
     this.cine.dispose();
@@ -455,7 +473,8 @@ export class CrashEngine extends EngineInput {
       const parts: THREE.Object3D[] = [];
       car.group.traverse((o) => {
         const m = o as THREE.Mesh;
-        if (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior") return;
+        // A lamp seat is drawn by the lamp batch, which skips a seat off layer 0.
+        if (o.name !== "lamp" && (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior")) return;
         m.layers.disable(0);
         parts.push(m);
       });

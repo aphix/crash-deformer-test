@@ -21,7 +21,7 @@ import { ChaseCamera } from "../present/engine-camera.ts";
 import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
 import { DerbyMatch } from "../match/derby.ts";
-import { LampLights } from "../vehicle/lamp-lights.ts";
+import { LampBatch, LampLights } from "../vehicle/lamp-lights.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import { GamepadInput } from "../vehicle/gamepad.ts";
 import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
@@ -114,6 +114,7 @@ export abstract class EngineCore {
   protected envMap: THREE.Texture | null = null;
   protected debris!: DebrisSystem;
   protected readonly wheels = new WheelBatch(MAX_CARS * 4);
+  protected readonly lampBatch = new LampBatch(MAX_CARS * 2);
   protected lampLights!: LampLights;
   protected sparks!: SparkSystem;
   protected glassDots!: GlassDotSystem;

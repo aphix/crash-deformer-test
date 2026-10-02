@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { LampKind } from "./car-materials.ts";
+import { lampEmissiveMap, makeLampUnit, type LampKind } from "./car-materials.ts";
 
 /**
  * Lamp light pools, created once and only ever re-aimed or dimmed: adding, removing or hiding a light
@@ -291,3 +291,73 @@ const _tri = new THREE.Triangle();
 const _cam = new THREE.Vector3();
 const _pos = new THREE.Vector3();
 const _dir = new THREE.Vector3();
+
+/** A lamp unit's look: lit head and tail (the tail stays below ACES's bright-red-to-yellow knee so its lens reads red
+ *  under its own glow) and broken (either kind). The lens alone emits: `lampEmissiveMap` masks the housing. */
+const LAMP_LOOK = {
+  head: { color: 0xffffff, emissive: 0xf4f1e8, emissiveIntensity: 1.15 },
+  tail: { color: 0xffffff, emissive: 0xe01018, emissiveIntensity: 1.1 },
+  broken: { color: 0x5a5c60, emissive: 0x1a1b1c, emissiveIntensity: 0.12 },
+} as const;
+
+/**
+ * Every car's lamp units as four instanced draws (head / tail × lit / broken) instead of four meshes per car. A car
+ * keeps a bare Object3D per lamp that it seats on the skin; `sync` copies the shown ones' world matrices into the
+ * batch for the lamp's kind and state once the scene's matrices are current for the frame.
+ */
+export class LampBatch {
+  /** Head lit, head broken, tail lit, tail broken. */
+  readonly meshes: readonly THREE.InstancedMesh[];
+  private readonly n = [0, 0, 0, 0];
+
+  constructor(capacity: number) {
+    const mat = (look: (typeof LAMP_LOOK)[keyof typeof LAMP_LOOK]) =>
+      new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, emissiveMap: lampEmissiveMap(), ...look });
+    const broken = mat(LAMP_LOOK.broken);
+    this.meshes = (["head", "tail"] as const).flatMap((kind) => {
+      const geo = makeLampUnit(kind);
+      return [mat(LAMP_LOOK[kind]), broken].map((m) => {
+        const mesh = new THREE.InstancedMesh(geo, m, capacity);
+        mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+        // Instances span the pad and move every frame; a stale bound would cull live lamps.
+        mesh.frustumCulled = false;
+        mesh.count = 0;
+        return mesh;
+      });
+    });
+  }
+
+  /** Pack the shown lamps of `cars` (world matrices must be current). A seat off layer 0 (distance detail) is hidden. */
+  sync(cars: readonly { readonly lamps: readonly { readonly seat: THREE.Object3D; readonly intact: boolean; readonly kind: LampKind }[] }[]): void {
+    const n = this.n;
+    n.fill(0);
+    for (const car of cars) {
+      for (const l of car.lamps) {
+        let shown = l.seat.layers.isEnabled(0);
+        for (let p: THREE.Object3D | null = l.seat; p && shown; p = p.parent) shown = p.visible;
+        if (!shown) continue;
+        const b = (l.kind === "head" ? 0 : 2) + (l.intact ? 0 : 1);
+        const mesh = this.meshes[b]!;
+        if (n[b]! < mesh.instanceMatrix.count) mesh.setMatrixAt(n[b]!++, l.seat.matrixWorld);
+      }
+    }
+    for (let b = 0; b < 4; b++) {
+      const mesh = this.meshes[b]!;
+      mesh.count = n[b]!;
+      const attr = mesh.instanceMatrix;
+      attr.clearUpdateRanges();
+      attr.addUpdateRange(0, n[b]! * 16);
+      attr.needsUpdate = true;
+    }
+  }
+
+  dispose(): void {
+    const mats = new Set<THREE.Material>();
+    for (const m of this.meshes) {
+      m.geometry.dispose();
+      mats.add(m.material as THREE.Material);
+      m.dispose();
+    }
+    for (const m of mats) m.dispose();
+  }
+}

@@ -19,12 +19,10 @@ import {
 } from "./car-mesh.ts";
 import {
   LIGHT_BAR_LENS,
-  lampEmissiveMap,
   makeDoorLining,
   makeGlassMaterial,
   makeGrille,
   makeInterior,
-  makeLampUnit,
   makeLightBar,
   makeMirror,
   makePaintMaterial,
@@ -161,8 +159,8 @@ export interface GlassPane {
 
 /** Housing + lens on the body skin (never the bumper): breaks only from its own corner's crush. */
 export interface Lamp {
-  mesh: THREE.Mesh;
-  mat: THREE.MeshStandardMaterial;
+  /** Its pose on the skin (`poseLamps`), in the car group; `LampBatch` draws the unit there. Named "lamp". */
+  seat: THREE.Object3D;
   intact: boolean;
   kind: LampKind;
   side: number;
@@ -265,7 +263,7 @@ export abstract class CarCore {
   /** Smallest striker reach (m from centre along the length) since the squeeze began. */
   protected endReach = Infinity;
   protected endSqueeze = false;
-  protected lamps: Lamp[] = [];
+  readonly lamps: Lamp[] = [];
   protected hullHelper: THREE.LineSegments | null = null;
   private bumperF: THREE.Group;
   private bumperR: THREE.Group;
@@ -418,13 +416,12 @@ export abstract class CarCore {
     for (const kind of ["head", "tail"] as const) {
       const head = kind === "head";
       for (const side of [-1, 1]) {
-        const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.3, metalness: 0.25, emissiveMap: lampEmissiveMap() });
-        const mesh = new THREE.Mesh(makeLampUnit(kind), mat);
-        this.group.add(mesh);
+        const seat = new THREE.Object3D();
+        seat.name = "lamp";
+        this.group.add(seat);
         _p.set(side * (head ? 0.48 : 0.52), head ? 0.505 : 0.51, head ? 2.11 : -2.11);
         this.lamps.push({
-          mesh,
-          mat,
+          seat,
           intact: true,
           kind,
           side,
@@ -573,20 +570,14 @@ export abstract class CarCore {
 
   /** Relight every lamp and re-seat it on the (rest) skin. */
   protected resetLamps(): void {
-    for (const lamp of this.lamps) {
-      lamp.intact = true;
-      lamp.mat.color.setHex(0xffffff);
-      lamp.mat.emissive.setHex(lamp.kind === "head" ? 0xf4f1e8 : 0xe01018);
-      // Tail stays below ACES's bright-red-to-yellow knee so the lens reads red under its own glow.
-      lamp.mat.emissiveIntensity = lamp.kind === "head" ? 1.15 : 1.1;
-    }
+    for (const lamp of this.lamps) lamp.intact = true;
     this.poseLamps();
   }
 
   /** Seat each lamp on the skinned body; after every skin write (4 anchors, no allocation). */
   protected poseLamps(): void {
     const pos = (this.body.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
-    for (const l of this.lamps) poseOnSkin(l.anchor, pos, l.mesh.position, l.mesh.quaternion);
+    for (const l of this.lamps) poseOnSkin(l.anchor, pos, l.seat.position, l.seat.quaternion);
   }
 
   get lampCount(): number {
@@ -598,8 +589,8 @@ export abstract class CarCore {
   lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): GlowKind | null {
     const l = this.lamps[i];
     if (!l) return this.sirenWorld(i - this.lamps.length, pos, dir);
-    dir.set(0, 0, 1).applyQuaternion(l.mesh.quaternion).applyQuaternion(this.group.quaternion);
-    pos.copy(l.mesh.position).applyQuaternion(this.group.quaternion).add(this.group.position);
+    dir.set(0, 0, 1).applyQuaternion(l.seat.quaternion).applyQuaternion(this.group.quaternion);
+    pos.copy(l.seat.position).applyQuaternion(this.group.quaternion).add(this.group.position);
     return l.intact ? l.kind : null;
   }
 

@@ -2,10 +2,10 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { LampLights, SPOT_POOL } from "./lamp-lights.ts";
+import { LampBatch, LampLights, SPOT_POOL } from "./lamp-lights.ts";
 import { DT, forModes, paint } from "./test-support.ts";
 
-type LampRow = { kind: string; side: number; intact: boolean; on: boolean };
+type LampRow = { kind: string; side: number; intact: boolean };
 /** Lamp order inside the car: head L, head R, tail L, tail R. */
 const HEAD_L = 0;
 const HEAD_R = 1;
@@ -69,7 +69,9 @@ forModes("lamps live on the body and break per corner", (mode) => {
     const rows = lampRows(car);
     const out = rows.filter((l) => !l.intact).map((l) => `${l.kind}${l.side < 0 ? "L" : "R"}`);
     assert.deepEqual(out, ["headL"], `lamps out: ${out.join(",") || "none"}`);
-    assert.ok(rows.every((l) => l.on === l.intact), "a lamp's glow must follow its intact state");
+    const batch = new LampBatch(2);
+    batch.sync([car]);
+    assert.deepEqual(batch.meshes.map((m) => m.count), [1, 1, 2, 0], "drawn as head lit / head broken / tail lit / tail broken");
   });
 
   it("good: the crushed corner carries its lamp with the skin, and the lamp stays seated on it", () => {
@@ -107,7 +109,7 @@ describe("a detached bumper leaves the lamps behind", () => {
     priv.detachPart(bumper, 20);
     for (let i = 0; i < 30; i++) car.step(DT);
     assert.ok(bumper.object.getWorldPosition(new THREE.Vector3()).distanceTo(bumperAt) > 0.2, "bumper never left the car");
-    assert.ok(lampRows(car).every((l) => l.intact && l.on), "a lamp went out with the bumper");
+    assert.ok(lampRows(car).every((l) => l.intact), "a lamp went out with the bumper");
     for (let i = 0; i < 4; i++) {
       const d = lampLocal(car, i).distanceTo(before[i]!);
       assert.ok(d < 1e-4, `lamp ${i} moved ${d.toFixed(4)} m relative to the body`);
