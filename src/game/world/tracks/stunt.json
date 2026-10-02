@@ -75,7 +75,8 @@
   "along": [
     { "prefab": "lamp", "every": 40, "side": "right", "offset": 1.2 },
     { "prefab": "hay-bale", "every": 9, "side": "both", "offset": -0.9, "fromNode": 18, "toNode": 19 },
-    { "prefab": "billboard", "every": 60, "side": "left", "offset": 7, "fromNode": 3, "toNode": 8 }
+    { "prefab": "billboard", "every": 60, "side": "left", "offset": 7, "fromNode": 3, "toNode": 8 },
+    { "prefab": "grandstand", "every": 34, "side": "left", "offset": 6, "fromNode": 1, "toNode": 2 }
   ],
   "scatter": [
     { "prefab": "tree", "count": 120, "near": 8, "far": 80, "seed": 31 },

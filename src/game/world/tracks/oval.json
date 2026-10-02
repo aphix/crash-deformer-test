@@ -67,7 +67,10 @@
     { "prefab": "cone", "x": -12, "z": -112 },
     { "prefab": "hay-bale", "x": 0, "z": -105, "yaw": 1.5708 },
     { "prefab": "billboard", "x": 0, "z": 158, "yaw": 1.5708 },
-    { "prefab": "billboard", "x": 0, "z": -158, "yaw": 1.5708 }
+    { "prefab": "billboard", "x": 0, "z": -158, "yaw": 1.5708 },
+    { "prefab": "grandstand", "x": 76, "z": -36, "yaw": 3.1416 },
+    { "prefab": "grandstand", "x": 76, "z": 0, "yaw": 3.1416 },
+    { "prefab": "grandstand", "x": 76, "z": 36, "yaw": 3.1416 }
   ],
   "along": [
     { "prefab": "lamp", "every": 45, "side": "right", "offset": 1.5 },
