@@ -155,7 +155,8 @@ export function makeLamp(): THREE.Group {
   return g;
 }
 
-function makePoolTexture(): THREE.CanvasTexture {
+/** Soft white radial falloff for additive ground light decals (lamp pools, the derby winner's glow). */
+export function makePoolTexture(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = c.height = 128;
   const ctx = c.getContext("2d")!;

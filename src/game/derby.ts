@@ -1,11 +1,37 @@
-import { DerbyBrain, blankAiCar, type AiCar } from "./derby-ai.ts";
+import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { idleDrive, type DriveInput } from "./car-drive.ts";
+import { fieldAggression } from "./ai-aggression.ts";
+import { derbyRadius } from "./derby-arena.ts";
 
 export const HIT_POINTS = 1;
 export const DISABLE_POINTS = 10;
 export const HIT_DEBOUNCE = 0.45;
 export const WINNER_HOLD = 4.4;
 export const STALEMATE = 90;
+
+/**
+ * Heat time limit for a field of `count`: 30 s a car, never under `STALEMATE` (10 cars: 5 min). Real heats
+ * run 10–20 min for 20–30 cars; the limit has to leave room for a last-car-standing finish by wrecking.
+ */
+export function heatLimit(count: number): number {
+  return Math.max(STALEMATE, 30 * count);
+}
+
+/** How the winner was decided: last car standing after a wreck or a count-out, or top score at the time limit. */
+export type DerbyDecided = "wreck" | "countout" | "time";
+
+export type DerbyOptions = {
+  /** The field's aggression slider: a maximum, each driver rolls its own under it. */
+  aggression?: number;
+  /** Rolls the field; the same seed gives the same drivers. Default: a new roll every match. */
+  seed?: number;
+  /** Override `DERBY_RULES.hitClock` (Infinity: no hit-clock count-outs). */
+  hitClock?: number;
+  /** Heat time limit (s): then the top score among the cars still running wins. Default `heatLimit(cars.length)`. */
+  timeLimit?: number;
+  /** Bowl radius the drivers keep inside; default `derbyRadius(cars.length)`. */
+  radius?: number;
+};
 
 export type DerbyBoardRow = {
   id: number;
@@ -14,12 +40,20 @@ export type DerbyBoardRow = {
   hits: number;
   disables: number;
   alive: boolean;
+  /** Counted out (no aggressive hit, or no movement, for too long); its engine may still run. */
+  out: boolean;
+  /** Seconds left on whichever count-out clock runs out first. */
+  clock: number;
 };
+
+/** One car's state for `DerbyMatch.step`. */
+export type DerbyCarFlag = { id: number; name: string; alive: boolean; x: number; z: number };
 
 export type DerbyHud = {
   derby: boolean;
   winnerId: number | null;
   winnerName: string | null;
+  decided: DerbyDecided | null;
   hold: number;
   board: DerbyBoardRow[];
 };
@@ -35,6 +69,7 @@ export class DerbyMatch {
   time = 0;
   winnerId: number | null = null;
   winnerName: string | null = null;
+  decided: DerbyDecided | null = null;
   hold = 0;
   board: DerbyBoardRow[] = [];
   private lastHitAt = new Map<PairKey, number>();
@@ -44,18 +79,35 @@ export class DerbyMatch {
   readonly brain = new DerbyBrain();
   private snaps: AiCar[] = [];
   private readonly idle = idleDrive();
+  /** Match time of each car's last aggressive hit on a live car. */
+  private lastAggro = new Map<number, number>();
+  /** Where each car last stopped, and since when (the still clock). */
+  private still = new Map<number, { x: number; z: number; t: number }>();
+  private readonly counted = new Set<number>();
+  private hitClock = DERBY_RULES.hitClock;
+  private timeLimit = STALEMATE;
+  private round = 0;
 
-  begin(cars: { id: number; name: string }[]): void {
+  begin(cars: { id: number; name: string }[], opts: DerbyOptions = {}): void {
     this.active = true;
     this.time = 0;
     this.winnerId = null;
     this.winnerName = null;
+    this.decided = null;
     this.hold = 0;
     this.lastHitAt.clear();
     this.lastAttacker.clear();
     this.wasAlive.clear();
     this.boostQueue.length = 0;
     this.brain.reset();
+    this.brain.radius = opts.radius ?? derbyRadius(cars.length);
+    this.lastAggro.clear();
+    this.still.clear();
+    this.counted.clear();
+    this.hitClock = opts.hitClock ?? DERBY_RULES.hitClock;
+    this.timeLimit = opts.timeLimit ?? heatLimit(cars.length);
+    const seed = opts.seed ?? ++this.round;
+    for (const c of cars) this.brain.setAggression(c.id, fieldAggression(opts.aggression ?? DEFAULT_DERBY_AGGRESSION, seed, c.id));
     this.board = cars.map((c) => ({
       id: c.id,
       name: c.name,
@@ -63,14 +115,20 @@ export class DerbyMatch {
       hits: 0,
       disables: 0,
       alive: true,
+      out: false,
+      clock: Math.min(this.hitClock, DERBY_RULES.stillClock),
     }));
-    for (const c of cars) this.wasAlive.set(c.id, true);
+    for (const c of cars) {
+      this.wasAlive.set(c.id, true);
+      this.lastAggro.set(c.id, 0);
+    }
   }
 
   end(): void {
     this.active = false;
     this.winnerId = null;
     this.winnerName = null;
+    this.decided = null;
     this.hold = 0;
     this.board = [];
   }
@@ -98,6 +156,7 @@ export class DerbyMatch {
       row.hits += 1;
     }
     this.lastAttacker.set(victim, attacker);
+    if ((attacker === a ? aIntoB : bIntoA) >= DERBY_RULES.hitSpeed && this.row(victim)?.alive) this.lastAggro.set(attacker, this.time);
     this.boostQueue.push(attacker);
     return true;
   }
@@ -129,21 +188,35 @@ export class DerbyMatch {
     return this.snaps;
   }
 
-  /** Scratch input — apply before the next call. */
+  /** Counted out by a count-out clock: the car takes no more input. */
+  isOut(id: number): boolean {
+    return this.counted.has(id);
+  }
+
+  /** Scratch input — apply before the next call. Counted-out cars read as dead to every driver. */
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
-    if (!this.active || this.winnerId != null || !self.alive) return this.idle;
+    if (!this.active || this.winnerId != null || !self.alive || this.counted.has(self.id)) return this.idle;
+    for (const o of others) if (this.counted.has(o.id)) o.alive = false;
+    self.idle = this.time - (this.lastAggro.get(self.id) ?? 0);
     return this.brain.think(self, others, dt);
   }
 
-  step(dt: number, aliveFlags: { id: number; name: string; alive: boolean }[]): "running" | "winner" | "loop" {
+  step(dt: number, flags: readonly DerbyCarFlag[]): "running" | "winner" | "loop" {
     if (!this.active) return "running";
     this.time += dt;
-    for (const f of aliveFlags) {
+    for (const f of flags) {
       const row = this.row(f.id);
-      if (row) row.alive = f.alive;
+      if (row) row.alive = f.alive && !row.out;
       const was = this.wasAlive.get(f.id) ?? true;
       if (was && !f.alive) this.noteDisable(f.id);
       this.wasAlive.set(f.id, f.alive);
+      const s = this.still.get(f.id);
+      if (!s) this.still.set(f.id, { x: f.x, z: f.z, t: this.time });
+      else if (Math.hypot(f.x - s.x, f.z - s.z) > DERBY_RULES.stillRadius) {
+        s.x = f.x;
+        s.z = f.z;
+        s.t = this.time;
+      }
     }
 
     if (this.winnerId != null) {
@@ -152,19 +225,33 @@ export class DerbyMatch {
       return "winner";
     }
 
+    // Count-outs: no aggressive hit on a live car in `hitClock`, or no movement in `stillClock`.
+    let countedNow = false;
+    for (const r of this.board) {
+      if (!r.alive) continue;
+      const sinceHit = this.time - (this.lastAggro.get(r.id) ?? 0);
+      const sinceMoved = this.time - (this.still.get(r.id)?.t ?? this.time);
+      r.clock = Math.max(0, Math.min(this.hitClock - sinceHit, DERBY_RULES.stillClock - sinceMoved));
+      if (r.clock > 0) continue;
+      r.alive = false;
+      r.out = true;
+      this.counted.add(r.id);
+      countedNow = true;
+    }
+
     const live = this.board.filter((r) => r.alive);
     if (live.length === 1) {
-      this.crown(live[0]!);
+      this.crown(live[0]!, countedNow ? "countout" : "wreck");
       return "winner";
     }
     if (live.length === 0) {
       const last = [...this.board].sort((a, b) => b.score - a.score || a.id - b.id)[0];
-      if (last) this.crown(last);
+      if (last) this.crown(last, countedNow ? "countout" : "wreck");
       return this.winnerId != null ? "winner" : "running";
     }
-    if (this.time >= STALEMATE) {
+    if (this.time >= this.timeLimit) {
       const top = [...live].sort((a, b) => b.score - a.score || a.id - b.id)[0]!;
-      this.crown(top);
+      this.crown(top, "time");
       return "winner";
     }
     return "running";
@@ -175,14 +262,16 @@ export class DerbyMatch {
       derby: this.active,
       winnerId: this.winnerId,
       winnerName: this.winnerName,
+      decided: this.decided,
       hold: this.hold,
       board: this.board.map((r) => ({ ...r })),
     };
   }
 
-  private crown(row: DerbyBoardRow): void {
+  private crown(row: DerbyBoardRow, how: DerbyDecided): void {
     this.winnerId = row.id;
     this.winnerName = row.name;
+    this.decided = how;
     this.hold = 0;
   }
 }

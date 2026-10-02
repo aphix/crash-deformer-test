@@ -15,7 +15,7 @@ import type { DeformMode } from "./streamed-deform.ts";
 import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
 import { assignClass, carClass, CLASSES, damageStage, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
-import { WorldStage, makeLamp } from "./engine-world.ts";
+import { WorldStage, makeLamp, makePoolTexture } from "./engine-world.ts";
 import { Cinematics } from "./engine-cine.ts";
 import { FX_TIERS, type FxTier } from "./engine-post.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
@@ -37,7 +37,7 @@ import { DerbyMatch, snapshotAiCar } from "./derby.ts";
 import { LampLights } from "./lamp-lights.ts";
 import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
-import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
+import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, WinnerSpot } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { TrackArt } from "./race/track-art.ts";
@@ -178,13 +178,15 @@ export class CrashEngine {
   private doorShot: RamShot | null = null;
   private doorFx = false;
   private derby = new DerbyMatch();
+  /** This match's bowl radius (grows with the field, `derbyRadius`). */
+  private derbyR = DERBY_RADIUS;
   private seat = new DriverSeat();
   private keys = new Set<string>();
   private readonly pad = new GamepadInput();
   private readonly raycaster = new THREE.Raycaster();
   private readonly ndc = new THREE.Vector2();
   private arena!: THREE.Group;
-  private winnerLight!: THREE.PointLight;
+  private winnerSpot!: WinnerSpot;
   private view: ChaseCamera;
   private trace: TraceRecorder;
   private readonly strongest = new StrongestContact();
@@ -240,8 +242,7 @@ export class CrashEngine {
     this.buildWorld();
     this.arena = makeDerbyArena();
     this.scene.add(this.arena);
-    this.winnerLight = new THREE.PointLight(0xffe08a, 0, 18, 2);
-    this.scene.add(this.winnerLight);
+    this.winnerSpot = new WinnerSpot(this.scene, makePoolTexture());
     this.barrier = new JerseyBarrier(this.scene);
     this.press = new CompactorPress(this.scene, this.compactor.face);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
@@ -568,8 +569,7 @@ export class CrashEngine {
       }
     } else {
       this.derby.end();
-      this.winnerLight.intensity = 0;
-      for (const car of this.cars) car.setHighlight(false);
+      this.winnerSpot.off();
     }
   }
 
@@ -1057,21 +1057,25 @@ export class CrashEngine {
 
   private spawnDerby(): void {
     const cars = this.live();
-    const slots = layoutDerby(cars.length, DERBY_RADIUS, 12);
-    this.derby.begin(cars.map((c, i) => ({ id: i, name: c.paint.name })));
-    this.winnerLight.intensity = 0;
+    this.derbyR = derbyRadius(cars.length);
+    const slots = layoutDerby(cars.length, this.derbyR, 12);
+    this.derby.begin(
+      cars.map((c, i) => ({ id: i, name: c.paint.name })),
+      { radius: this.derbyR },
+    );
+    // Walls and lip scale out with the bowl (slabs lengthen and thicken in proportion).
+    this.arena.scale.set(this.derbyR / DERBY_RADIUS, 1, this.derbyR / DERBY_RADIUS);
+    this.winnerSpot.off();
     for (let i = 0; i < cars.length; i++) {
       const slot = slots[i]!;
       const car = cars[i]!;
       car.group.visible = true;
       car.spawnFacing(slot.x, slot.z, slot.yaw, slot.speed);
       this.dressCar(car);
-      car.setHighlight(false);
     }
     for (let i = this.carCount; i < this.cars.length; i++) {
       const extra = this.cars[i]!;
       extra.group.visible = false;
-      extra.setHighlight(false);
       extra.group.position.set(80 + i * 6, 0, 80);
       extra.velocity.set(0, 0, 0);
     }
@@ -1456,7 +1460,7 @@ export class CrashEngine {
     const driven = this.seat.mode === "drive" && !this.race.active ? this.seat.carIndex : -1;
     if (driven >= 0 && driven < cars.length) {
       const car = cars[driven]!;
-      if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(car, dt), dt);
+      if (car.deform.drivetrainAlive && !(this.derbyMode && this.derby.isOut(driven))) applyDrive(car, this.seat.input(car, dt), dt);
       if (this.seat.selfRight(car.group.matrixWorld.elements[5]!, car.velocity.length(), dt)) this.recoverDriven();
     }
     this.net.drive(cars, dt, driven);
@@ -1626,7 +1630,7 @@ export class CrashEngine {
   private clipDerbyCar(car: DeformableCar): void {
     const p = car.group.position;
     const v = car.velocity;
-    const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15);
+    const next = clipToDerbyBowl(p.x, p.z, v.x, v.z, 2.15, this.derbyR);
     if (!next.hit) return;
     const dx = next.x - p.x;
     const dz = next.z - p.z;
@@ -1640,19 +1644,12 @@ export class CrashEngine {
     const cars = this.live();
     const status = this.derby.step(
       dt,
-      cars.map((c, i) => ({ id: i, name: c.paint.name, alive: c.deform.drivetrainAlive })),
+      cars.map((c, i) => ({ id: i, name: c.paint.name, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })),
     );
     const winId = this.derby.winnerId;
-    if (winId != null) {
-      const champ = cars[winId];
-      for (let i = 0; i < cars.length; i++) cars[i]!.setHighlight(i === winId);
-      if (champ) {
-        this.winnerLight.position.set(champ.group.position.x, 2.1, champ.group.position.z);
-        this.winnerLight.intensity = 5.5;
-      }
-    } else {
-      this.winnerLight.intensity = 0;
-    }
+    const champ = winId == null ? undefined : cars[winId];
+    if (champ) this.winnerSpot.follow(champ.group.position.x, champ.group.position.z);
+    else this.winnerSpot.off();
     if (status === "loop" && this.looping) this.randomizeAndReset();
   }
 
@@ -2040,11 +2037,14 @@ export class CrashEngine {
       captureTrace: this.captureTrace,
       derby: this.derbyMode,
       derbyWinner: this.derby.winnerName,
-      derbyBoard: this.derby.hud().board.map((r) => ({
+      derbyDecided: this.derby.decided,
+      derbyBoard: this.derby.board.map((r) => ({
         id: r.id,
         name: r.name,
         score: r.score,
         alive: r.alive,
+        out: r.out,
+        clock: r.clock,
         watched: this.seat.mode !== "global" && this.seat.carIndex === r.id,
       })),
       race: this.race.active ? this.race.hud() : null,

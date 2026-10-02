@@ -3,7 +3,7 @@ import type { DoorScenario } from "@/game/door-rig";
 import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 
-/** Derby standings: name, score, struck through once the engine dies. A name click follows that car. */
+/** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. */
 export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoard"]; onWatch: (id: number) => void }) {
   return (
     <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-3">
@@ -19,7 +19,10 @@ export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoar
               className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-0.5 text-left font-display text-sm hover:bg-surface-2 ${row.watched ? "bg-surface-2" : ""}`}
             >
               <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
-              <span className="tabular-nums text-muted">{row.score}</span>
+              <span className="flex gap-2 tabular-nums">
+                {row.alive ? <span className={row.clock <= 15 ? "text-accent" : "text-subtle"}>{Math.ceil(row.clock)}s</span> : row.out ? <span className="text-subtle">out</span> : null}
+                <span className="text-muted">{row.score}</span>
+              </span>
             </button>
           </li>
         ))}
