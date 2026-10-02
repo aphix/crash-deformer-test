@@ -32,6 +32,15 @@ const _n = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
+/**
+ * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
+ * door's. Measured over the standard crashes (docs/RIG_ANALYSIS.md, glass): an unloaded pane reads ≤ 0.04, a loaded
+ * frame 0.07–0.17, a collapsed one 0.2–0.4. Any load cracks a pane; tempered side and rear glass bursts once its frame
+ * has clearly moved, the laminated windshield only once its frame has collapsed (a 50 km/h side hit reads 0.23 there).
+ */
+const GLASS_CRACK = 0.05;
+const GLASS_TEMPERED = 0.11;
+const GLASS_LAMINATED = 0.25;
 
 /** Police light bar: shears off once the roof mass under it sinks this far (m below its rest height; a
  *  56 km/h frontal sinks it ~0.07), or on any hit at or above this EBS (60 km/h, arcade: a big crash throws
@@ -286,21 +295,15 @@ export abstract class CarParts extends CarCore {
     void _dt;
     for (const g of this.glassPanes) {
       if (g.state === "shattered") continue;
-      let nearby = 0;
-      for (const part of g.parts) nearby = Math.max(nearby, this.deform.partCompression(part));
-      if (g.state === "intact" && nearby > 0.45 && this.deform.crushElapsed > 0.12) {
+      const strain = this.deform.cageStrain(g.skin ?? (g.parts.includes("doorLeft") ? "doorLeft" : "doorRight"));
+      if (g.state === "intact" && strain > GLASS_CRACK) {
         g.state = "cracked";
         g.mat.map = getCrackMap();
         g.mat.opacity = 0.55;
         g.mat.roughness = 0.32;
         g.mat.needsUpdate = true;
       }
-      if (
-        (nearby > 0.7 && this.deform.crushElapsed > 0.2) ||
-        (nearby > 0.55 && impulse > 40 && this.deform.crushElapsed > 0.16)
-      ) {
-        this.shatterGlass(g);
-      }
+      if (strain > (g.skin === "glassFront" ? GLASS_LAMINATED : GLASS_TEMPERED)) this.shatterGlass(g);
     }
 
     const ebs = this.deform.hitSpeedValue;
