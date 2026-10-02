@@ -17,6 +17,7 @@ import { armKill, assignClass, carClass, HANDLING, type VehicleClassId } from ".
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
+import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
 import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
@@ -119,6 +120,7 @@ export abstract class EngineCore {
   protected sparks!: SparkSystem;
   protected glassDots!: GlassDotSystem;
   protected smoke!: TireSmokeSystem;
+  protected ragdolls!: RagdollSystem;
   protected audio!: CrashAudio;
   protected hudAcc = 0;
   protected resizeObs!: ResizeObserver;

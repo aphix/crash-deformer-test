@@ -7,6 +7,7 @@ Versions are those installed from `package-lock.json` (2026-10-02).
 | Package | Version | Used for |
 |---|---|---|
 | `three` | 0.186.0 | renderer, scene graph, `BufferGeometry` skinning target, math types (`src/game/**`); `three/addons` `Pass` (post chain) and `BufferGeometryUtils` |
+| `@dimforge/rapier3d` | 0.19.3 (pinned) | thrown-driver ragdolls only (`engine-ragdoll.ts`), cosmetic and local; loaded once after boot through `rapier.ts` `loadRapier`: its own chunk plus a separate `.wasm` that Vite 8 handles without a plugin (Apache-2.0). Node tests import `kernel/rapier-node.test-util.ts` first (a resolve hook for the package's extensionless imports) |
 | `react` / `react-dom` | 19.2 | HUD (`src/components/hud*.tsx`, `net-panel.tsx`, `crash-lab.tsx`), `useSyncExternalStore` on `hud-store.ts` |
 | `@tanstack/react-start` / `react-router` | 1.168 / 1.170 | app shell, file routes (`src/routes/`, generated `src/routeTree.gen.ts`), SSR and the `/api/rtc` server route via Nitro |
 | `zod` | 4.5 | validates `/api/rtc` requests (`signaling.server.ts`), the public-room list the client reads (`net/net-play.ts`), the host's race state a client applies (`net/codec.ts` `readRace`) and the race track JSON (`world/track-schema.ts`) |

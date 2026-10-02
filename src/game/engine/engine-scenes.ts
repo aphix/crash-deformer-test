@@ -417,6 +417,7 @@ export abstract class EngineScenes extends EngineHud {
     this.sparks.reset();
     this.glassDots.reset();
     this.smoke.reset();
+    this.ragdolls.reset();
     this.cine.reset();
 
     if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());

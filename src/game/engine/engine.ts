@@ -12,6 +12,7 @@ import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
+import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
 import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
@@ -45,6 +46,8 @@ const _lodSphere = new THREE.Sphere();
  */
 const DETAIL_NEAR = 35;
 const DETAIL_BACK = 32;
+/** Sandbox time scale while the camera rides with a thrown driver: slow enough to watch him fly, set by eye. */
+const THROW_SLOMO = 0.3;
 
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -164,6 +167,7 @@ export class CrashEngine extends EngineInput {
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
+    this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i));
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|low|high` picks the starting tier (bench A/B); the HUD default otherwise.
     const fxParam = new URLSearchParams(window.location.search).get("fx");
@@ -203,6 +207,7 @@ export class CrashEngine extends EngineInput {
       },
       buildArt: (track, placed) => {
         this.queueWarm();
+        this.ragdolls.course = track;
         return new TrackArt(track, placed);
       },
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
@@ -231,6 +236,9 @@ export class CrashEngine extends EngineInput {
       .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
       .then(() => {
         this.warming = false;
+        // Only a throw needs Rapier, so boot never waits for it: it loads in the background from here, and a car
+        // disabled before it is in simply throws nobody (`EjectionWatch` only judges edges it saw).
+        this.ragdolls.preload().catch((err: unknown) => console.error("Crush Stream ragdoll load failed", err));
       });
   }
 
@@ -264,6 +272,7 @@ export class CrashEngine extends EngineInput {
     this.cine.dispose();
     this.glassDots.dispose();
     this.smoke.dispose();
+    this.ragdolls.dispose();
     this.lampLights.dispose();
     this.audio.dispose();
     this.envMap?.dispose();
@@ -352,6 +361,8 @@ export class CrashEngine extends EngineInput {
       this.sparks.update(fxDt, bounceGround);
       this.glassDots.update(fxDt, bounceGround);
       this.smoke.update(fxDt, bounceGround, this.camera);
+      const sandbox = !this.race.active && !this.derbyMode;
+      this.ragdolls.update(simDt, cars, !this.net.client, sandbox, this.derbyMode ? this.derbyR : 0, this.showBarrier ? this.barrier.group : null);
       for (let i = 0; i < cars.length; i++) {
         const car = cars[i]!;
         if (!car.deform.drivetrainAlive) {
@@ -658,7 +669,22 @@ export class CrashEngine extends EngineInput {
     return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }
 
+  /**
+   * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): the camera rides with him
+   * unless it follows another car or the user framed it, and the clock drops to `THROW_SLOMO` (out of the hit's
+   * near-freeze) to watch him fly.
+   */
+  private onThrow(i: number): void {
+    const followed = this.followedCar();
+    if (this.view.userFramed || (followed && followed !== this.cars[i])) return;
+    this.ragdolls.follow();
+    if (this.net.client || !this.autoSlomo || this.clock.userTimeScale != null) return;
+    this.clock.timeScale = THROW_SLOMO;
+    this.clock.targetScale = THROW_SLOMO;
+  }
+
   private updateCamera(wallDt: number): void {
+    if (this.ragdolls.frameCamera(this.camera, wallDt)) return;
     if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
     const followed = this.followedCar();
     // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps
