@@ -4,10 +4,11 @@ import { makeAsphalt, makeJerseyBarrier, makeLamp } from "../engine-world.ts";
 import type { PrefabId } from "./catalog.ts";
 
 /**
- * Prefab meshes and the race's shared procedural textures. Every prefab is one geometry + one
- * material, drawn as one InstancedMesh. At scale 1 a prefab fills `PREFABS[id].size` [w, h, d];
- * its origin sits on the ground at the footprint centre, +Z forward, front (seats, billboard face,
- * lamp arm) on +X. Large props reach a little below the origin so they do not float on a slope.
+ * Prefab meshes and the race's shared procedural textures. A prefab is one or a few parts (geometry
+ * + material), each drawn as one InstancedMesh. At scale 1 a prefab fills `PREFABS[id].size`
+ * [w, h, d]; its origin sits on the ground at the footprint centre, +Z forward, front (seats,
+ * billboard face, lamp arm) on +X. Large props reach a little below the origin so they do not
+ * float on a slope.
  */
 
 const C = {
@@ -28,7 +29,6 @@ const C = {
   trunk: 0x5a4030,
   leaf: [0x2f5a2c, 0x3b6d34],
   roof: 0x6a665f,
-  lampHead: 0xfff4d6,
   seatBlue: 0x2f5d9a,
   seatRed: 0xb3261e,
 };
@@ -401,32 +401,42 @@ function pylon(): Piece[] {
   return out;
 }
 
-/** Free a group's geometries, materials and their maps. */
-function disposeGroup(g: THREE.Group): void {
+/** Free a group's geometries, and the materials and maps not listed in `keep`. */
+function disposeGroup(g: THREE.Group, keep: readonly THREE.Material[] = []): void {
   g.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     (o.geometry as THREE.BufferGeometry).dispose();
     const m = o.material as THREE.MeshStandardMaterial;
+    if (keep.includes(m)) return;
     m.map?.dispose();
     m.dispose();
   });
 }
 
-function lamp(): Piece[] {
+/**
+ * makeLamp fitted to 4.4 m with its arm towards the road (+X): the pole in vertex colours, then the
+ * head and the night light pool on makeLamp's own shared materials, so the scene's day / night
+ * switch lights them with every other lamp.
+ */
+function lamp(plain: THREE.Material): PrefabPart[] {
   const g = makeLamp();
   g.updateMatrixWorld(true);
-  // makeLamp is 5.2 m with the head on +Z; fit it to 4.4 m with the arm towards the road (+X).
   const k = 4.4 / 5.2;
   const fit = new THREE.Matrix4().makeRotationY(Math.PI / 2).scale(new THREE.Vector3(k, k, k));
-  const out: Piece[] = [];
+  const pole: Piece[] = [];
+  const shared: PrefabPart[] = [];
   g.traverse((o) => {
     if (!(o instanceof THREE.Mesh)) return;
     const m = o.material as THREE.MeshStandardMaterial;
     const geo = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld).applyMatrix4(fit);
-    out.push([geo, m.emissive.getHex() !== 0 ? C.lampHead : m.color.getHex()]);
+    if (o.name === "pool" || m.emissive?.getHex()) shared.push({ geometry: geo, material: m, shared: true });
+    else pole.push([geo, m.color.getHex()]);
   });
-  disposeGroup(g);
-  return out;
+  disposeGroup(
+    g,
+    shared.map((p) => p.material),
+  );
+  return [{ geometry: painted(pole), material: plain, shared: false }, ...shared];
 }
 
 function barrierBlock(): Piece[] {
@@ -438,32 +448,36 @@ function barrierBlock(): Piece[] {
   return [[geometry, C.barrier]];
 }
 
-/** Prefab `id` at scale 1: one geometry and the material (from `mats`) it draws with. */
-export function prefabPart(id: PrefabId, mats: PrefabMaterials): { geometry: THREE.BufferGeometry; material: THREE.Material } {
+/** One drawable part of a prefab; `shared` materials belong to the scene and must not be disposed with the prefab. */
+export type PrefabPart = { geometry: THREE.BufferGeometry; material: THREE.Material; shared: boolean };
+
+/** Prefab `id` at scale 1 as drawable parts (one for most; the lamp adds its head and night pool). */
+export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {
+  const one = (pieces: Piece[], material: THREE.Material): PrefabPart[] => [{ geometry: painted(pieces), material, shared: false }];
   switch (id) {
     case "cone":
-      return { geometry: painted(cone()), material: mats.plain };
+      return one(cone(), mats.plain);
     case "tyre-stack":
-      return { geometry: painted(tyreStack()), material: mats.plain };
+      return one(tyreStack(), mats.plain);
     case "hay-bale":
-      return { geometry: painted(hayBale()), material: mats.plain };
+      return one(hayBale(), mats.plain);
     case "crate":
-      return { geometry: painted(crate()), material: mats.plain };
+      return one(crate(), mats.plain);
     case "barrier-block":
-      return { geometry: painted(barrierBlock()), material: mats.concrete };
+      return one(barrierBlock(), mats.concrete);
     case "rock":
-      return { geometry: painted(rock()), material: mats.plain };
+      return one(rock(), mats.plain);
     case "tree":
-      return { geometry: painted(tree()), material: mats.plain };
+      return one(tree(), mats.plain);
     case "building":
-      return { geometry: painted(building()), material: mats.building };
+      return one(building(), mats.building);
     case "grandstand":
-      return { geometry: painted(grandstand()), material: mats.plain };
+      return one(grandstand(), mats.plain);
     case "billboard":
-      return { geometry: painted(billboard()), material: mats.billboard };
+      return one(billboard(), mats.billboard);
     case "lamp":
-      return { geometry: painted(lamp()), material: mats.plain };
+      return lamp(mats.plain);
     case "gantry":
-      return { geometry: painted(pylon()), material: mats.plain };
+      return one(pylon(), mats.plain);
   }
 }

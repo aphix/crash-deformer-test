@@ -1,8 +1,9 @@
 import * as THREE from "three";
+import { applyMarkMap } from "../engine-marks.ts";
 import { PREFABS, SURFACE_IDS, SURFACES, type PrefabId, type SurfaceId } from "./catalog.ts";
 import type { Placed } from "./placements.ts";
-import { TILE, box, makePrefabMaterials, makeRaceTextures, painted, prefabPart, type Piece, type RaceTextures } from "./prefabs.ts";
-import { blankPoint, pointOn, type Track, type TrackGround, type TrackPath, type TrackPoint } from "./track.ts";
+import { TILE, box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type Piece, type RaceTextures } from "./prefabs.ts";
+import { blankPoint, pointOn, type Track, type TrackGround, type TrackPath } from "./track.ts";
 
 /**
  * The visible course: terrain (with a far skirt), road / runoff ribbons for the loop, shortcuts and
@@ -39,8 +40,6 @@ const ROAD_LIFT = 0.015;
 const SIDE_LIFT = 0.03;
 const MARK_LIFT = 0.045;
 const KERB_LIFT = 0.06;
-/** Longest flat piece (m) of a marking or kerb. */
-const MARK_STEP = 1.5;
 /** Section spacing cap (m); bends get closer sections (chord sagitta ≤ 2 cm). */
 const MAX_STEP = 4;
 /** Wall stripe length (m). */
@@ -525,42 +524,122 @@ function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground:
   }
 }
 
+/** One path's ribbon as built (its section samples), so markings lie exactly on it. */
+class RibbonSurface {
+  private readonly n: number;
+  private readonly ds: number;
+
+  constructor(
+    readonly p: TrackPath,
+    private readonly secs: readonly number[],
+    private readonly ground: TrackGround,
+  ) {
+    this.n = p.count;
+    this.ds = sampleStep(p);
+  }
+
+  /** Lateral edges [e0, e1] at sample k of the ribbon strip (road, left or right runoff) holding lateral `lat`. */
+  private strip(k: number, lat: number): [number, number] {
+    const p = this.p;
+    const h = p.half[k]!;
+    if (Math.abs(lat) <= h) return [-h, h];
+    return lat > 0 ? [h, h + p.runL[k]!] : [-h - p.runR[k]!, -h];
+  }
+
+  /**
+   * Vertex on the ribbon at arc length s, lateral l + edge × the half width, lifted by `lift`. The
+   * height comes from the very triangle the ribbon draws there (quad a→b at section k0, c→d at k1,
+   * split along b–c), so a mark never sinks into a twisted quad on a crest or a bend.
+   */
+  vertex(m: Mesher, s: number, l: number, edge: number, lift: number, hex: number): number {
+    const { p, secs, n, ground } = this;
+    const w0 = s / this.ds;
+    const w = p.closed ? ((w0 % n) + n) % n : clamp(w0, 0, n - 1);
+    let lo = 0;
+    let hi = secs.length - 1;
+    while (hi > lo) {
+      const mid = (lo + hi + 1) >> 1;
+      if (secs[mid]! <= w) lo = mid;
+      else hi = mid - 1;
+    }
+    const k0 = secs[lo]!;
+    const k1 = lo + 1 < secs.length ? secs[lo + 1]! : p.closed ? n : k0;
+    const f = k1 > k0 ? (w - k0) / (k1 - k0) : 0;
+    const kb = k1 % n;
+    const la = l + edge * p.half[k0]!;
+    const lb = l + edge * p.half[kb]!;
+    const [a0, a1] = this.strip(k0, la);
+    const [b0, b1] = this.strip(kb, lb);
+    const u = a1 > a0 ? clamp((la - a0) / (a1 - a0), 0, 1) : 0;
+    const ya = surfY(ground, p, k0, a0);
+    const yb = surfY(ground, p, k0, a1);
+    const yc = surfY(ground, p, kb, b0);
+    const yd = surfY(ground, p, kb, b1);
+    const y = u + f <= 1 ? ya + (yb - ya) * u + (yc - ya) * f : yd + (yc - yd) * (1 - u) + (yb - yd) * (1 - f);
+    return m.v(
+      p.x[k0]! + p.tz[k0]! * la + (p.x[kb]! + p.tz[kb]! * lb - p.x[k0]! - p.tz[k0]! * la) * f,
+      y + lift,
+      p.z[k0]! - p.tx[k0]! * la + (p.z[kb]! - p.tx[kb]! * lb - p.z[k0]! + p.tx[k0]! * la) * f,
+      hex,
+    );
+  }
+
+  /**
+   * Arc lengths strictly between s0 and s1 (unwrapped on a loop), ascending, where a mark at
+   * laterals `ls` (from `edge` × half width) must break to stay on the ribbon: every section, and
+   * where each lateral crosses a ribbon quad's b–c diagonal (u + f = 1).
+   */
+  cuts(s0: number, s1: number, ls: readonly number[], edge: number): number[] {
+    const { p, secs, n, ds } = this;
+    const out: number[] = [];
+    const L = n * ds;
+    const last = p.closed ? secs.length : secs.length - 1;
+    for (const off of p.closed ? [-L, 0, L] : [0]) {
+      for (let i = 0; i < last; i++) {
+        const k0 = secs[i]!;
+        const k1 = i + 1 < secs.length ? secs[i + 1]! : n;
+        const sa = k0 * ds + off;
+        const sb = k1 * ds + off;
+        if (sb <= s0 || sa >= s1) continue;
+        if (sa > s0 + 1e-6) out.push(sa);
+        for (const l of ls) {
+          const lat = l + edge * p.half[k0]!;
+          const [e0, e1] = this.strip(k0, lat);
+          const u = e1 > e0 ? clamp((lat - e0) / (e1 - e0), 0, 1) : 0;
+          const s = sa + (1 - u) * (sb - sa);
+          if (s > s0 + 1e-6 && s < s1 - 1e-6) out.push(s);
+        }
+      }
+    }
+    return out.sort((a, b) => a - b);
+  }
+}
+
 /**
- * Flat strip from arc length s0 to s1 of `p`; laterals l0 / l1 are measured from `edge` × the half
- * width there (0 = centreline). Split into ≤ MARK_STEP pieces so it follows crests and dips.
+ * Flat strip from arc length s0 to s1 on a ribbon; laterals l0 < l1 are measured from `edge` × the
+ * half width (0 = centreline). Broken wherever the ribbon creases, so every piece lies on it; its
+ * quads split the same way as the ribbon's (l1 at the start to l0 at the end).
  */
-function addSpan(m: Mesher, p: TrackPath, ground: TrackGround, pt: TrackPoint, s0: number, s1: number, l0: number, l1: number, edge: number, lift: number, hex: number): void {
-  const n = Math.max(1, Math.ceil((s1 - s0) / MARK_STEP - 1e-9));
+function addSpan(m: Mesher, rs: RibbonSurface, s0: number, s1: number, l0: number, l1: number, edge: number, lift: number, hex: number): void {
   let pa = -1;
   let pb = -1;
-  for (let i = 0; i <= n; i++) {
-    const s = s0 + ((s1 - s0) * i) / n;
-    pointOn(p, s, pt);
-    const k = sampleAt(p, s);
-    const h = pt.half;
-    const ids: number[] = [];
-    for (const l of [l0, l1]) {
-      const lat = l + edge * h;
-      const x = pt.x + pt.tz * lat;
-      const z = pt.z - pt.tx * lat;
-      const y = pt.y - clamp(lat, -h, h) * Math.tan(p.bank[k]!);
-      ids.push(m.v(x, (p.deck[k] ? y : ground.heightAt(x, z, y)) + lift, z, hex));
-    }
-    if (i > 0) m.quad(pa, pb, ids[0]!, ids[1]!);
-    pa = ids[0]!;
-    pb = ids[1]!;
+  for (const s of [s0, ...rs.cuts(s0, s1, [l0, l1], edge), s1]) {
+    const a = rs.vertex(m, s, l0, edge, lift, hex);
+    const b = rs.vertex(m, s, l1, edge, lift, hex);
+    if (pa >= 0) m.quad(pa, pb, a, b);
+    pa = a;
+    pb = b;
   }
 }
 
 /** Edge lines and centre dashes on paved stretches, a chequered line on the loop; none where another road crosses. */
-function addMarkings(m: Mesher, track: Track, pi: number, secs: readonly number[], ground: TrackGround, index: RoadIndex): void {
-  const p = track.paths()[pi]!;
+function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly number[], index: RoadIndex): void {
+  const p = rs.p;
   const n = secs.length;
   const last = p.closed ? n : n - 1;
   const main = pi === 0;
   const L = p.length;
   const ds = sampleStep(p);
-  const pt = blankPoint();
   const clear = (k: number, lat: number) => !index.onOther(pi, p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, p.y[k]!, 0.2);
   for (let i = 0; i < last; i++) {
     const k = secs[i]!;
@@ -572,7 +651,7 @@ function addMarkings(m: Mesher, track: Track, pi: number, secs: readonly number[
     if (sb <= sa) continue;
     for (const side of [1, -1]) {
       if (clear(k, side * p.half[k]!) && clear(k2, side * p.half[k2]!)) {
-        addSpan(m, p, ground, pt, sa, sb, side > 0 ? -0.35 : 0.13, side > 0 ? -0.13 : 0.35, side, MARK_LIFT, WHITE);
+        addSpan(m, rs, sa, sb, side > 0 ? -0.35 : 0.13, side > 0 ? -0.13 : 0.35, side, MARK_LIFT, WHITE);
       }
     }
   }
@@ -580,7 +659,7 @@ function addMarkings(m: Mesher, track: Track, pi: number, secs: readonly number[
     const k = sampleAt(p, s);
     const k2 = sampleAt(p, s + 3);
     if (!PAVED.includes(p.surface[k]!) || !clear(k, 0) || !clear(k2, 0)) continue;
-    addSpan(m, p, ground, pt, s, s + 3, -0.09, 0.09, 0, MARK_LIFT, WHITE);
+    addSpan(m, rs, s, s + 3, -0.09, 0.09, 0, MARK_LIFT, WHITE);
   }
   if (!main) return;
   // Chequered start / finish band: ≈1 m squares across the road, two rows.
@@ -588,19 +667,17 @@ function addMarkings(m: Mesher, track: Track, pi: number, secs: readonly number[
   const rows = 2;
   for (let r = 0; r < rows; r++) {
     const s0 = -CHEQUER / 2 + (r * CHEQUER) / rows;
-    pointOn(p, s0, pt);
-    const w = pt.half * 2;
+    const w = p.half[0]! * 2;
     for (let c = 0; c < cols; c++) {
-      const l0 = -pt.half + (c * w) / cols;
-      addSpan(m, p, ground, pt, s0, s0 + CHEQUER / rows, l0, l0 + w / cols, 0, MARK_LIFT, (r + c) % 2 ? BLACK : WHITE);
+      const l0 = -p.half[0]! + (c * w) / cols;
+      addSpan(m, rs, s0, s0 + CHEQUER / rows, l0, l0 + w / cols, 0, MARK_LIFT, (r + c) % 2 ? BLACK : WHITE);
     }
   }
 }
 
 /** Red / white kerbs on the inside of the loop's tight turns (paved, not at crossings). */
-function addKerbs(m: Mesher, track: Track, ground: TrackGround, index: RoadIndex): void {
-  const p = track.path;
-  const pt = blankPoint();
+function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
+  const p = rs.p;
   for (let s = 0; s + 2 <= p.length; s += 2) {
     const k = sampleAt(p, s + 1);
     if (!PAVED.includes(p.surface[k]!)) continue;
@@ -614,8 +691,8 @@ function addKerbs(m: Mesher, track: Track, ground: TrackGround, index: RoadIndex
     const lat = c > 0 ? h + KERB_WIDTH / 2 : -h - KERB_WIDTH / 2;
     if (index.onOther(0, p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, p.y[k]!, 0.2)) continue;
     const hex = Math.floor(s / 2) % 2 ? RED : WHITE;
-    if (c > 0) addSpan(m, p, ground, pt, s, s + 2, -0.05, KERB_WIDTH, 1, KERB_LIFT, hex);
-    else addSpan(m, p, ground, pt, s, s + 2, -KERB_WIDTH, 0.05, -1, KERB_LIFT, hex);
+    if (c > 0) addSpan(m, rs, s, s + 2, -0.05, KERB_WIDTH, 1, KERB_LIFT, hex);
+    else addSpan(m, rs, s, s + 2, -KERB_WIDTH, 0.05, -1, KERB_LIFT, hex);
   }
 }
 
@@ -905,9 +982,11 @@ export class TrackArt {
   private readonly lamps: THREE.InstancedMesh;
   private readonly lampColour: number[] = [];
   private lights = -1;
-  /** Per placement: instance slot in its prefab's mesh. */
+  /** Per placement: instance slot in its prefab's meshes. */
   private readonly slot: Int32Array;
-  private readonly meshes: Partial<Record<PrefabId, THREE.InstancedMesh>> = {};
+  private readonly meshes: Partial<Record<PrefabId, THREE.InstancedMesh[]>> = {};
+  /** Scene-owned materials (lamp heads, light pools) that dispose() leaves alone. */
+  private readonly shared: THREE.Material[] = [];
   private readonly state: Uint8Array;
   private readonly pos: Float32Array;
   private readonly vel: Float32Array;
@@ -938,9 +1017,10 @@ export class TrackArt {
     const index = new RoadIndex(paths);
     const secs = paths.map((p) => sections(p, 0));
     const env = track.json.environment;
+    // Ground materials (one per mesh) also darken under the tyre-mark map.
     const textured = (sid: number, extra: THREE.MeshStandardMaterialParameters = {}) => {
       const t = texClass(sid);
-      return new THREE.MeshStandardMaterial({
+      const mat = new THREE.MeshStandardMaterial({
         vertexColors: true,
         map: t === "asphalt" ? tex.asphalt : t === "concrete" ? tex.concrete : tex.detail,
         color: t === "asphalt" ? tex.asphaltGain : t === "concrete" ? tex.concreteGain : tex.detailGain,
@@ -948,6 +1028,8 @@ export class TrackArt {
         metalness: 0.02,
         ...extra,
       });
+      applyMarkMap(mat);
+      return mat;
     };
 
     const terrainSid = SURFACE_IDS.indexOf(env.terrain);
@@ -963,10 +1045,10 @@ export class TrackArt {
 
     const markMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
     const marks = new Mesher();
-    paths.forEach((_, i) => addMarkings(marks, track, i, secs[i]!, ground, index));
+    paths.forEach((p, i) => addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index));
     this.add(new THREE.Mesh(marks.geometry(true), markMat), { kind: "marking" }, false);
     const kerbs = new Mesher();
-    addKerbs(kerbs, track, ground, index);
+    addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
     if (!kerbs.empty) this.add(new THREE.Mesh(kerbs.geometry(true), markMat), { kind: "kerb" }, false);
 
     const walls = new Mesher();
@@ -999,7 +1081,7 @@ export class TrackArt {
     const latL = pt.half + p.runL[0]! + 1.2;
     const latR = -(pt.half + p.runR[0]! + 1.2);
     const pieces: Piece[] = [];
-    const pylon = prefabPart("gantry", mats).geometry;
+    const pylon = prefabParts("gantry", mats)[0]!.geometry;
     for (const lat of [latL, latR]) {
       const foot = ground.heightAt(pt.x + pt.tz * lat, pt.z - pt.tx * lat, pt.y) - roadY;
       pieces.push([pylon.clone().scale(1, (GANTRY_BEAM - 0.4 - foot) / 6, 1).translate(lat, foot, 0), 0xc8cbd0]);
@@ -1026,25 +1108,29 @@ export class TrackArt {
     this.add(this.lamps, { kind: "prop", prefab: "gantry" }, false);
     this.setLights(0);
 
-    // Props: one InstancedMesh per prefab.
+    // Props: one InstancedMesh per prefab part.
     const byPrefab: Partial<Record<PrefabId, number[]>> = {};
     placed.forEach((pl, idx) => (byPrefab[pl.prefab] ??= []).push(idx));
     this.slot = new Int32Array(placed.length);
     for (const id of Object.keys(byPrefab) as PrefabId[]) {
       const list = byPrefab[id]!;
-      const part = prefabPart(id, mats);
-      const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
-      // Knocked props leave the instances' original bounds.
-      mesh.frustumCulled = PREFABS[id].body !== "knock";
-      this.meshes[id] = mesh;
-      list.forEach((idx, s) => {
-        this.slot[idx] = s;
-        this.restMatrix(idx);
-        mesh.setMatrixAt(s, this.m4);
-        if (this.tint(id, idx, this.col)) mesh.setColorAt(s, this.col);
+      const meshes = prefabParts(id, mats).map((part, pi) => {
+        const mesh = new THREE.InstancedMesh(part.geometry, part.material, list.length);
+        if (part.shared) this.shared.push(part.material);
+        // Knocked props leave the instances' original bounds.
+        mesh.frustumCulled = PREFABS[id].body !== "knock";
+        list.forEach((idx, s) => {
+          this.slot[idx] = s;
+          this.restMatrix(idx);
+          mesh.setMatrixAt(s, this.m4);
+          if (pi === 0 && this.tint(id, idx, this.col)) mesh.setColorAt(s, this.col);
+        });
+        mesh.computeBoundingSphere();
+        // Lamp heads and light pools neither cast shadows nor need to.
+        this.add(mesh, { kind: "prop", prefab: id }, !part.shared);
+        return mesh;
       });
-      mesh.computeBoundingSphere();
-      this.add(mesh, { kind: "prop", prefab: id }, true);
+      this.meshes[id] = meshes;
     }
     this.state = new Uint8Array(placed.length);
     this.pos = new Float32Array(placed.length * 3);
@@ -1149,9 +1235,11 @@ export class TrackArt {
       m4.makeRotationFromQuaternion(q);
       this.v.set(pos[i3]! - e[4]! * hy, pos[i3 + 1]! - e[5]! * hy, pos[i3 + 2]! - e[6]! * hy);
       m4.compose(this.v, q, this.sc.set(p.sx, p.sy, p.sz));
-      const mesh = this.meshes[p.prefab]!;
-      mesh.setMatrixAt(this.slot[i]!, m4);
-      mesh.instanceMatrix.needsUpdate = true;
+      const meshes = this.meshes[p.prefab]!;
+      for (let k = 0; k < meshes.length; k++) {
+        meshes[k]!.setMatrixAt(this.slot[i]!, m4);
+        meshes[k]!.instanceMatrix.needsUpdate = true;
+      }
     }
   }
 
@@ -1161,9 +1249,10 @@ export class TrackArt {
       if (this.state[i] === AT_REST) continue;
       this.state[i] = AT_REST;
       this.restMatrix(i);
-      const mesh = this.meshes[this.placed[i]!.prefab]!;
-      mesh.setMatrixAt(this.slot[i]!, this.m4);
-      mesh.instanceMatrix.needsUpdate = true;
+      for (const mesh of this.meshes[this.placed[i]!.prefab]!) {
+        mesh.setMatrixAt(this.slot[i]!, this.m4);
+        mesh.instanceMatrix.needsUpdate = true;
+      }
     }
     this.flyingCount = 0;
   }
@@ -1178,7 +1267,7 @@ export class TrackArt {
       if (o instanceof THREE.InstancedMesh) o.dispose();
     });
     for (const g of geos) g.dispose();
-    for (const m of mats) m.dispose();
+    for (const m of mats) if (!this.shared.includes(m)) m.dispose();
     const t = this.textures;
     for (const x of [t.asphalt, t.concrete, t.detail, t.windows, t.billboard]) x.dispose();
     this.group.removeFromParent();
