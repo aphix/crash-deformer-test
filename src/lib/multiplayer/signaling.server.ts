@@ -2,8 +2,8 @@
  * WebRTC signaling over the app database (Neon deployed, PGLite on a node server or in preview).
  * Only rendezvous traffic passes through here — roster + SDP/ICE relay while a mesh forms; game
  * data then flows peer-to-peer. Mounted at /api/rtc (under the app's base path); the client side
- * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql` and
- * `0003_webrtc_peer_tokens.sql`, applied by `db:migrate` on deploy and by the PGLite fallback
+ * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql`, `0003_webrtc_peer_tokens.sql`
+ * and `0004_webrtc_peer_ip_tag.sql`, applied by `db:migrate` on deploy and by the PGLite fallback
  * before its first query.
  *
  * The GET poll is the whole peer lifecycle. A peer's first poll registers it in a free seat with the
@@ -13,9 +13,10 @@
  * `PEER_TTL_SECONDS` gives up its seat and registers afresh. `GET ?list=public` lists open public rooms.
  *
  * The repo and server are public, so every input is validated, rooms are capped, requests are
- * rate-limited per peer (keyed by client IP + peer id) and per client IP (in-process: exact on one
- * long-lived node server, per instance on serverless), nothing identifying is stored beyond a random
- * peer id, a role tag and a token hash, and errors are logged by name only.
+ * rate-limited per peer (keyed by client IP + peer id) and per client IP (an IPv6 caller is its /64;
+ * in-process: exact on one long-lived node server, per instance on serverless), nothing identifying is
+ * stored beyond a random peer id, a role tag, a token hash and an address hash under a per-process
+ * salt, and errors are logged by name only.
  */
 import { z } from "zod";
 import type { Sql } from "@/lib/db";
@@ -52,20 +53,36 @@ const SIGNAL_TTL_SECONDS = 60;
 const INBOX_PER_SENDER = 60;
 /** A peer row that has heartbeat within the TTL. */
 const LIVE = `last_seen > now() - make_interval(secs => ${PEER_TTL_SECONDS})`;
+/** Live public rooms one address may host: friends behind one NAT rarely start two at once. */
+const PUBLIC_HOSTS_PER_IP = 2;
 
-/** One limiter per process, on globalThis so dev HMR keeps the buckets. */
-const globalRef = globalThis as typeof globalThis & { __rtcLimiter__?: RateLimiter };
+/**
+ * One limiter per process, on globalThis so dev HMR keeps the buckets; likewise the salt for
+ * `ip_tag`, which lets rows be grouped by address but never mapped back to one.
+ */
+const globalRef = globalThis as typeof globalThis & { __rtcLimiter__?: RateLimiter; __rtcSalt__?: string };
 const limiter = (globalRef.__rtcLimiter__ ??= new RateLimiter());
+const salt = (globalRef.__rtcSalt__ ??= crypto.randomUUID());
 
-/** The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. */
+/**
+ * The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. An
+ * IPv6 caller is its /64, the block one subscriber gets, so minting addresses dodges no per-address limit.
+ */
 function clientIp(request: Request): string {
-  const fwd = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim();
-  return fwd || request.headers.get("x-real-ip") || "direct";
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "direct";
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (v4) return v4[1]!;
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail] = ip.split("::");
+  const left = head.split(":");
+  const right = tail === undefined ? [] : tail.split(":");
+  const groups = [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return `${groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(":")}::/64`;
 }
 
-/** Only a token's SHA-256 is stored, so reading the database never yields a usable token. */
-async function hashToken(token: string): Promise<string> {
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(token)));
+/** Hex SHA-256. Only a token's hash is stored, so reading the database never yields a usable token. */
+async function sha256(text: string): Promise<string> {
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)));
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
@@ -83,17 +100,25 @@ async function roster(sql: Sql, room: string): Promise<PeerRow[]> {
  * lowest free seat, and the unique (room, seat) and one-host indexes make it atomic: joins that race
  * never overfill a room, never seat a second host, and never displace a seated peer.
  */
-async function join(sql: Sql, room: string, peer: string, name: string): Promise<string | Response> {
+async function join(sql: Sql, room: string, peer: string, name: string, ip: string): Promise<string | Response> {
+  const tag = (await sha256(salt + ip)).slice(0, 16);
+  if (name === "host" && room.startsWith(PUBLIC_PREFIX)) {
+    const [{ n }] = await sql.query<{ n: number }>(
+      `SELECT count(*)::int AS n FROM webrtc_peers WHERE ip_tag = $1 AND name = 'host' AND room LIKE $2 AND ${LIVE}`,
+      [tag, `${PUBLIC_PREFIX}%`],
+    );
+    if (Number(n) >= PUBLIC_HOSTS_PER_IP) return json({ error: "too many public rooms" }, 429);
+  }
   // A peer that stopped polling gives up its seat and its id.
   await sql.query(`DELETE FROM webrtc_peers WHERE room = $1 AND NOT (${LIVE})`, [room]);
   const token = crypto.randomUUID().replaceAll("-", "");
   const seated = await sql.query(
-    `INSERT INTO webrtc_peers (room, peer_id, name, secret_hash, seat, last_seen)
-     SELECT $1, $2, $3, $4, seat, now() FROM generate_series(0, $5::int - 1) AS seat
+    `INSERT INTO webrtc_peers (room, peer_id, name, secret_hash, ip_tag, seat, last_seen)
+     SELECT $1, $2, $3, $4, $5, seat, now() FROM generate_series(0, $6::int - 1) AS seat
      WHERE seat NOT IN (SELECT seat FROM webrtc_peers WHERE room = $1)
      ORDER BY seat LIMIT 1
      ON CONFLICT DO NOTHING RETURNING seat`,
-    [room, peer, name, await hashToken(token), ROOM_MAX],
+    [room, peer, name, await sha256(token), tag, ROOM_MAX],
   );
   if (seated.length) return token;
   const peers = await roster(sql, room);
@@ -134,14 +159,18 @@ const HOST_FRESH_SECONDS = 5;
 /** `?kind=`: one kind of public match; rooms are named `pub-<kind>-…` (net-play.ts `publicMatch`). */
 const KIND = z.enum(["race", "derby"]).optional();
 
-/** GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat), fullest first. */
+/**
+ * GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat).
+ * Rooms with the most distinct addresses come first, ties in random order: one address padding its
+ * own rooms with idle peers (and hosting at most `PUBLIC_HOSTS_PER_IP`) cannot outrank real players.
+ */
 async function listPublic(sql: Sql, kind: "race" | "derby" | undefined): Promise<Response> {
   const rows = await sql.query<{ room: string; players: number }>(
     `SELECT room, count(*)::int AS players FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)
      GROUP BY room
      HAVING bool_or(name = 'host' AND last_seen > now() - make_interval(secs => $4)) AND count(*) < $3
-     ORDER BY players DESC, room LIMIT 20`,
+     ORDER BY count(DISTINCT ip_tag) DESC, random() LIMIT 20`,
     [`${PUBLIC_PREFIX}${kind ? `${kind}-` : ""}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
   );
   return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players) })) });
@@ -177,12 +206,12 @@ async function handleGet(request: Request, ip: string, getSql: GetSql): Promise<
     ? await sql.query(
         `UPDATE webrtc_peers SET last_seen = now()
          WHERE room = $1 AND peer_id = $2 AND secret_hash = $3 AND ${LIVE} RETURNING seat`,
-        [room, peer, await hashToken(token)],
+        [room, peer, await sha256(token)],
       )
     : [];
   let issued: string | undefined;
   if (!seated.length) {
-    const joined = await join(sql, room, peer, name);
+    const joined = await join(sql, room, peer, name, ip);
     if (joined instanceof Response) return joined;
     issued = joined;
   }
@@ -215,7 +244,7 @@ async function handlePost(request: Request, ip: string, getSql: GetSql): Promise
   const msg = parsed.data;
   if (!limiter.peer(ip, msg.op === "signal" ? msg.from : msg.peer)) return json({ error: "rate limited" }, 429);
   const sql = await getSql();
-  const hash = await hashToken(request.headers.get(TOKEN_HEADER) ?? "");
+  const hash = await sha256(request.headers.get(TOKEN_HEADER) ?? "");
 
   if (msg.op === "leave") {
     const left = await sql.query(
