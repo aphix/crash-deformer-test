@@ -1,0 +1,128 @@
+{
+  "id": "city",
+  "name": "Harbour Streets",
+  "blurb": "A run through the street grid: four open junctions with cross traffic that won't stop for you, a cobbled old town, the harbour front and a back alley.",
+  "laps": 3,
+  "road": { "width": 13, "surface": "asphalt", "runoff": [1.5, 1.5], "runoffSurface": "concrete", "wall": [true, true], "wallHeight": 1.2 },
+  "nodes": [
+    { "x": 40, "z": -60 },
+    { "x": 14, "z": -60 },
+    { "x": 4.1, "z": -55.9 },
+    { "x": 0, "z": -46 },
+    { "x": 0, "z": -12, "wall": [false, false] },
+    { "x": 0, "z": 12, "wall": [true, true] },
+    { "x": 0, "z": 106 },
+    { "x": 4.1, "z": 115.9 },
+    { "x": 14, "z": 120 },
+    { "x": 46, "z": 120 },
+    { "x": 55.9, "z": 115.9, "surface": "cobble" },
+    { "x": 60, "z": 106 },
+    { "x": 60, "z": 74 },
+    { "x": 64.1, "z": 64.1 },
+    { "x": 74, "z": 60, "surface": "asphalt" },
+    { "x": 108, "z": 60, "wall": [false, false] },
+    { "x": 132, "z": 60, "wall": [false, true] },
+    { "x": 156, "z": 60, "wall": [true, true] },
+    { "x": 166, "z": 60 },
+    { "x": 175.9, "z": 55.9 },
+    { "x": 180, "z": 46 },
+    { "x": 180, "z": 26, "wall": [false, true] },
+    { "x": 180, "z": 12, "wall": [false, false] },
+    { "x": 180, "z": -12, "wall": [true, true] },
+    { "x": 180, "z": -46 },
+    { "x": 175.9, "z": -55.9 },
+    { "x": 166, "z": -60, "surface": "concrete" },
+    { "x": 132, "z": -60, "wall": [false, false] },
+    { "x": 108, "z": -60, "wall": [true, true], "surface": "asphalt" }
+  ],
+  "checkpoints": [
+    { "node": 0 },
+    { "node": 5 },
+    { "node": 8 },
+    { "node": 12 },
+    { "node": 16 },
+    { "node": 19 },
+    { "node": 23 },
+    { "node": 26 },
+    { "node": 28 }
+  ],
+  "shortcuts": [
+    {
+      "id": "back-alley",
+      "from": 4,
+      "to": 6,
+      "width": 6,
+      "surface": "cobble",
+      "path": [
+        { "x": 148, "z": 52 },
+        { "x": 154, "z": 40 },
+        { "x": 163, "z": 28 },
+        { "x": 172, "z": 18 }
+      ]
+    }
+  ],
+  "grid": { "perRow": 2, "spacing": 8, "back": 6 },
+  "props": [
+    { "prefab": "crate", "x": 152, "z": 45 },
+    { "prefab": "crate", "x": 158, "z": 33, "yaw": 0.4 },
+    { "prefab": "tyre-stack", "x": 166, "z": 24 },
+    { "prefab": "cone", "x": 140, "z": 54 },
+    { "prefab": "cone", "x": 145, "z": 55 },
+    { "prefab": "cone", "x": 4, "z": 60 },
+    { "prefab": "cone", "x": -3, "z": 64 },
+    { "prefab": "barrier-block", "x": 70, "z": -52, "yaw": 1.5708 },
+    { "prefab": "billboard", "x": 30, "z": 133, "yaw": 1.5708 },
+    { "prefab": "billboard", "x": 193, "z": -30, "yaw": 0 }
+  ],
+  "along": [
+    { "prefab": "building", "every": 17, "side": "both", "offset": 7.5 },
+    { "prefab": "lamp", "every": 28, "side": "both", "offset": 0.4 },
+    { "prefab": "building", "every": 17, "side": "both", "offset": 6.5, "route": "harbour-road" },
+    { "prefab": "building", "every": 17, "side": "both", "offset": 6.5, "route": "market-street" }
+  ],
+  "scatter": [{ "prefab": "tree", "count": 18, "near": 22, "far": 45, "seed": 11 }],
+  "traffic": {
+    "count": 4,
+    "speed": 8,
+    "lanes": [
+      { "offset": -3.2, "dir": 1 },
+      { "offset": 3.2, "dir": -1 }
+    ],
+    "routes": [
+      {
+        "id": "harbour-road",
+        "path": [
+          { "x": -110, "z": 0 },
+          { "x": -40, "z": 0 },
+          { "x": 40, "z": 0 },
+          { "x": 120, "z": 0 },
+          { "x": 200, "z": 0 },
+          { "x": 290, "z": 0 }
+        ],
+        "width": 9,
+        "count": 4,
+        "lanes": [
+          { "offset": -2.3, "dir": 1 },
+          { "offset": 2.3, "dir": -1 }
+        ]
+      },
+      {
+        "id": "market-street",
+        "path": [
+          { "x": 120, "z": -170 },
+          { "x": 120, "z": -60 },
+          { "x": 120, "z": 0 },
+          { "x": 120, "z": 60 },
+          { "x": 120, "z": 230 }
+        ],
+        "width": 9,
+        "count": 4,
+        "lanes": [
+          { "offset": -2.3, "dir": 1 },
+          { "offset": 2.3, "dir": -1 }
+        ]
+      }
+    ]
+  },
+  "environment": { "sky": "#a9b4c2", "fog": 0.004, "terrain": "concrete", "hills": [] }
+}

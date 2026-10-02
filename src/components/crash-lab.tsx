@@ -54,7 +54,10 @@ export function CrashLab() {
           {bootError}
         </p>
       ) : null}
-      <NetPanel engine={engineRef} />
+      {/* The race focus view shows race panels only; the Net button stays mounted (its room keeps running) but hidden. */}
+      <div className={hud.race && !hud.race.fullUi ? "hidden" : "contents"}>
+        <NetPanel engine={engineRef} />
+      </div>
       <Hud
         state={hud}
         onReset={() => engineRef.current?.reset()}
@@ -74,6 +77,8 @@ export function CrashLab() {
         onToggleDoorOpen={() => engineRef.current?.toggleDoorOpen()}
         onToggleDerby={() => engineRef.current?.toggleDerby()}
         onWatchCar={(i) => engineRef.current?.watchCar(i)}
+        onToggleRace={() => engineRef.current?.toggleRace()}
+        onRaceCommand={(cmd) => engineRef.current?.raceCommand(cmd)}
         onToggleOrbit={() => engineRef.current?.toggleOrbit()}
         onToggleSlomo={() => engineRef.current?.toggleSlomo()}
         onToggleAudio={() => engineRef.current?.toggleAudio()}

@@ -32,6 +32,7 @@ import {
 } from "./car-mesh.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type SkinAnchor } from "./lamp-lights.ts";
+import { activeGround, FLAT_GROUND, type Ground } from "./ground.ts";
 
 export { CAR_HALF, DOOR, HULLS, CRUSH_HULLS, WHEEL_POS };
 export type { Hull } from "./car-mesh.ts";
@@ -857,12 +858,38 @@ export class DeformableCar {
       this.wheelSpin += (v / 0.32) * dt;
       for (const w of this.wheels) w.rotation.x = this.wheelSpin;
     }
-    if (this.group.position.y < 0) {
-      this.group.position.y = 0;
-      if (this.velocity.y < 0) this.velocity.y = 0;
+    const ground = activeGround();
+    const pos = this.group.position;
+    if (ground === FLAT_GROUND) {
+      if (pos.y < 0) {
+        pos.y = 0;
+        if (this.velocity.y < 0) this.velocity.y = 0;
+      }
+    } else {
+      // A course's ground: ride it while it holds the car up; where it falls away faster than gravity
+      // can follow (a ramp lip, a crest at speed) the car flies, and lands back on whatever is below.
+      const y0 = pos.y - this.velocity.y * dt;
+      const gy = ground.heightAt(pos.x, pos.z, y0);
+      if (pos.y <= gy) {
+        const was = ground.heightAt(pos.x - this.velocity.x * dt, pos.z - this.velocity.z * dt, y0);
+        pos.y = gy;
+        this.velocity.y = (gy - was) / dt;
+        if (!this.crashed) this.alignToGround(ground, gy);
+      }
     }
     this.refreshBasis();
     this.stepLooseParts(dt);
+  }
+
+  /** Pitch and roll a driven car onto the ground plane under it (yaw kept). */
+  private alignToGround(ground: Ground, y: number): void {
+    const n = ground.normalAt(this.group.position.x, this.group.position.z, _gn, y);
+    const fx = Math.sin(this.yaw);
+    const fz = Math.cos(this.yaw);
+    // Nose up on an upslope (normal leans back), right side up where the ground rises to the right.
+    this.pitch = Math.atan2(n.x * fx + n.z * fz, n.y);
+    this.roll = Math.atan2(n.x * fz - n.z * fx, n.y);
+    this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
 
   updateDeform(dt: number): void {
@@ -1463,5 +1490,6 @@ const _v = new THREE.Vector3();
 const _in = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _zero = new THREE.Vector3();
+const _gn = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();

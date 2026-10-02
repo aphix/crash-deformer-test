@@ -39,6 +39,9 @@ import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
+import { RaceDirector } from "./engine-race.ts";
+import { TrackArt } from "./race/track-art.ts";
+import type { RaceCommand } from "./race/types.ts";
 
 export type { CrashHudState, CrashPhase } from "./hud-store";
 
@@ -200,6 +203,12 @@ export class CrashEngine {
     },
     seat: this.seat,
   });
+  /** Sandbox floor, grid and rings: hidden while a race course is up. */
+  private readonly studio: THREE.Object3D[] = [];
+  private sun!: THREE.DirectionalLight;
+  private race!: RaceDirector;
+  /** Car count to restore when leaving race mode. */
+  private sandboxCars = 2;
 
   constructor(canvas: HTMLCanvasElement) {
     this.canvas = canvas;
@@ -263,6 +272,27 @@ export class CrashEngine {
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
     this.lampLights = new LampLights(this.scene, MAX_CARS * 4);
+    this.race = new RaceDirector({
+      scene: this.scene,
+      camera: this.camera,
+      sun: this.sun,
+      seat: this.seat,
+      live: () => this.live(),
+      setCarCount: (n) => this.ensureCars(n),
+      dress: (car) => this.dressCar(car),
+      setPaused: (on) => {
+        this.playing = !on;
+        this.emitHud(true);
+      },
+      leave: () => this.toggleRace(),
+      hitFx: (contact, normal, impulse) => {
+        if (this.elapsedWall - this.sparkAt < 0.12) return;
+        this.sparkAt = this.elapsedWall;
+        this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
+        if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
+      },
+      buildArt: (track, placed) => new TrackArt(track, placed),
+    });
 
     this.resize();
     this.resizeObs = new ResizeObserver(() => this.resize());
@@ -300,6 +330,7 @@ export class CrashEngine {
     this.view.detach();
     this.resizeObs.disconnect();
     for (const car of this.cars) car.dispose();
+    this.race.dispose();
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
     this.sparks.dispose();
@@ -399,6 +430,7 @@ export class CrashEngine {
   toggleBarrier(): void {
     if (this.showCompactor || this.showPistons || this.showDoors) return;
     if (this.derbyMode) this.setDerby(false);
+    if (this.race.active) this.setRace(false);
     this.showBarrier = !this.showBarrier;
     this.barrier.group.visible = this.showBarrier;
     if (this.showBarrier) this.barrier.orient(this.carA.group.position);
@@ -409,6 +441,7 @@ export class CrashEngine {
   toggleBalls(): void {
     if (this.showCompactor || this.showPistons || this.showDoors) return;
     if (this.derbyMode) this.setDerby(false);
+    if (this.race.active) this.setRace(false);
     this.showBalls = !this.showBalls;
     scatterRampBalls(this.balls, this.showBalls);
     this.tryUnlockAudio();
@@ -417,6 +450,7 @@ export class CrashEngine {
 
   toggleCompactor(): void {
     if (this.derbyMode) this.setDerby(false);
+    if (this.race.active) this.setRace(false);
     this.showCompactor = !this.showCompactor;
     this.showPistons = false;
     this.showDoors = false;
@@ -427,6 +461,7 @@ export class CrashEngine {
 
   togglePistons(): void {
     if (this.derbyMode) this.setDerby(false);
+    if (this.race.active) this.setRace(false);
     this.showPistons = !this.showPistons;
     this.showCompactor = false;
     this.showDoors = false;
@@ -464,6 +499,7 @@ export class CrashEngine {
 
   toggleDoors(): void {
     if (this.derbyMode) this.setDerby(false);
+    if (this.race.active) this.setRace(false);
     this.showDoors = !this.showDoors;
     this.showCompactor = false;
     this.showPistons = false;
@@ -507,6 +543,7 @@ export class CrashEngine {
   }
 
   toggleDerby(): void {
+    if (this.race.active) this.setRace(false);
     this.setDerby(!this.derbyMode);
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -533,6 +570,50 @@ export class CrashEngine {
       this.derby.end();
       this.winnerLight.intensity = 0;
       for (const car of this.cars) car.setHighlight(false);
+    }
+  }
+
+  /** Race scene on / off (scene picker, X). */
+  toggleRace(): void {
+    this.setRace(!this.race.active);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud(true);
+  }
+
+  /** HUD → race. The HUD never touches race state itself. */
+  raceCommand(cmd: RaceCommand): void {
+    this.race.command(cmd);
+    this.emitHud(true);
+  }
+
+  private setRace(on: boolean): void {
+    if (on === this.race.active) return;
+    if (on) {
+      if (this.derbyMode) this.setDerby(false);
+      this.showBarrier = false;
+      this.showBalls = false;
+      this.showCompactor = false;
+      this.showPistons = false;
+      this.showDoors = false;
+      this.barrier.group.visible = false;
+      scatterRampBalls(this.balls, false);
+      this.press.group.visible = false;
+      this.pistonBank.group.visible = false;
+      this.doorRam.group.visible = false;
+      if (this.userTimeScale == null) {
+        this.timeScale = 1;
+        this.targetScale = 1;
+      }
+      this.sandboxCars = this.carCount;
+    }
+    for (const o of this.studio) o.visible = !on;
+    for (const p of this.poles) p.group.visible = !on;
+    if (on) {
+      this.race.enter();
+    } else {
+      this.race.exit();
+      this.ensureCars(this.sandboxCars);
     }
   }
 
@@ -577,6 +658,8 @@ export class CrashEngine {
   }
 
   setCarCount(n: number): void {
+    // The race sets its own field (setup menu); the sandbox slider must not reshape it.
+    if (this.race.active) return;
     this.ensureCars(n);
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -728,12 +811,15 @@ export class CrashEngine {
     const target = e.target as HTMLElement | null;
     // Text fields keep their keys; a focused range slider does not swallow drive keys.
     if (target?.tagName === "TEXTAREA" || (target?.tagName === "INPUT" && (target as HTMLInputElement).type !== "range")) return;
+    // A race menu owns the keyboard (and the pad) through the HUD.
+    if (this.race.menuOpen) return;
     this.keys.add(e.code);
     const driving = this.seat.mode === "drive";
     if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
     // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
     if (e.code === "Space") e.preventDefault();
     if (e.repeat) return;
+    if (this.race.active && this.raceKey(e.code, driving)) return;
     if (e.code === "Space") {
       if (!driving) this.togglePlay();
     } else if (e.code === "Escape") {
@@ -793,8 +879,41 @@ export class CrashEngine {
       this.setNight(!this.stage.night);
     } else if (e.code === "KeyX") {
       this.setWet(!this.stage.wet);
+    } else if (e.code === "KeyZ") {
+      this.toggleRace();
     }
   };
+
+  /**
+   * Keys during a race (no menu up). True when consumed. Race keys always work; the sandbox's hotkeys
+   * only in the full view (H), so the focus view can't be knocked out of the race by a stray key.
+   */
+  private raceKey(code: string, driving: boolean): boolean {
+    switch (code) {
+      case "Escape":
+        this.raceCommand({ type: "pause" });
+        return true;
+      case "KeyR":
+        this.race.requestRespawn();
+        return true;
+      case "KeyQ":
+      case "KeyE":
+        this.race.cycle(code === "KeyE" ? 1 : -1);
+        this.emitHud(true);
+        return true;
+      case "KeyV":
+      case "KeyT":
+      case "KeyC":
+        if (driving) this.seat.cycleView();
+        this.emitHud(true);
+        return true;
+      case "KeyH":
+        this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
+        return true;
+      default:
+        return !this.race.fullUi;
+    }
+  }
 
   private onKeyUp = (e: KeyboardEvent): void => {
     this.keys.delete(e.code);
@@ -808,9 +927,15 @@ export class CrashEngine {
   /** Once per frame: keys + pad → seat intent; pad button presses → seat / scene actions. */
   private pollInput(): void {
     const pad = this.pad.poll();
+    // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.
+    if (this.race.menuOpen) return;
     if (this.seat.sample(this.keys, pad)) this.emitHud(true);
     const hit = pad.pressed;
     if (hit === 0) return;
+    if (this.race.active) {
+      this.racePad(hit);
+      return;
+    }
     const driving = this.seat.mode === "drive";
     if ((hit & (1 << PAD_BUTTON.start)) !== 0) this.togglePlay();
     if ((hit & (1 << PAD_BUTTON.back)) !== 0) this.seat.esc();
@@ -818,6 +943,17 @@ export class CrashEngine {
     if ((hit & (1 << PAD_BUTTON.rb)) !== 0) this.seat.cycle(1, this.carCount);
     if (driving && (hit & (1 << PAD_BUTTON.north)) !== 0) this.seat.cycleView();
     if (driving && (hit & (1 << PAD_BUTTON.down)) !== 0) this.recoverDriven();
+    this.emitHud(true);
+  }
+
+  /** Pad buttons during a race (no menu up): Start / Back pause, LB/RB spectate, Y view, D-pad ↓ respawn. */
+  private racePad(hit: number): void {
+    const press = (b: number) => (hit & (1 << b)) !== 0;
+    if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.race.command({ type: "pause" });
+    if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
+    if (press(PAD_BUTTON.rb)) this.race.cycle(1);
+    if (this.seat.mode === "drive" && press(PAD_BUTTON.north)) this.seat.cycleView();
+    if (press(PAD_BUTTON.down)) this.race.requestRespawn();
     this.emitHud(true);
   }
 
@@ -847,7 +983,8 @@ export class CrashEngine {
       while (obj) {
         const idx = obj.userData.carIndex;
         if (typeof idx === "number" && idx >= 0 && idx < this.carCount) {
-          this.seat.focus(idx);
+          if (this.race.active) this.race.watch(idx);
+          else this.seat.focus(idx);
           this.emitHud(true);
           return;
         }
@@ -859,13 +996,19 @@ export class CrashEngine {
   /** Follow car `index` (HUD board click). Leaves drive mode; a fresh pedal press takes the wheel again. */
   watchCar(index: number): void {
     if (index < 0 || index >= this.carCount) return;
-    this.seat.focus(index);
+    if (this.race.active) this.race.watch(index);
+    else this.seat.focus(index);
     this.emitHud(true);
   }
 
   private randomizeAndReset(): void {
     this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
+    if (this.race.active) {
+      this.race.reset();
+      this.finishResetCommon();
+      return;
+    }
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -1180,6 +1323,7 @@ export class CrashEngine {
       }
     }
 
+    if (this.race.active) this.race.frame(this.playing ? wallDt : 0);
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
     this.lampLights.update(this.live(), this.camera, this.followedCar());
@@ -1253,7 +1397,7 @@ export class CrashEngine {
   }
 
   private maybePreSlowmo(wallDt: number): void {
-    if (this.derbyMode) return;
+    if (this.derbyMode || this.race.active) return;
     if (this.userTimeScale != null) return;
     if (!this.autoSlomo) return;
     if (this.showCompactor || this.showPistons || this.showDoors) return;
@@ -1307,7 +1451,9 @@ export class CrashEngine {
 
   private fixedStep(dt: number): void {
     const cars = this.live();
-    const driven = this.seat.mode === "drive" ? this.seat.carIndex : -1;
+    // Race: every car (the player too) is driven through its controller slot by the director.
+    if (this.race.active) this.race.drive(dt);
+    const driven = this.seat.mode === "drive" && !this.race.active ? this.seat.carIndex : -1;
     if (driven >= 0 && driven < cars.length) {
       const car = cars[driven]!;
       if (car.deform.drivetrainAlive) applyDrive(car, this.seat.input(car, dt), dt);
@@ -1377,7 +1523,8 @@ export class CrashEngine {
           if (this.showBarrier && this.barrier.blocksPair(ca, cb)) continue;
           const dx = ca.group.position.x - cb.group.position.x;
           const dz = ca.group.position.z - cb.group.position.z;
-          if (dx * dx + dz * dz > 28) continue;
+          // Cars on different levels (one on a bridge, one under it) never touch.
+          if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5) continue;
           if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
           partContactPair(ca, cb);
         }
@@ -1412,6 +1559,7 @@ export class CrashEngine {
         for (let a = 0; a < cars.length; a++) {
           for (let b = a + 1; b < cars.length; b++) {
             if (this.showBarrier && this.barrier.blocksPair(cars[a]!, cars[b]!)) continue;
+            if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5) continue;
             const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
             if (pair) {
               moved = true;
@@ -1444,7 +1592,7 @@ export class CrashEngine {
           }
         }
         for (const car of cars) {
-          if (!this.derbyMode && resolveLampPoles(this.poles, car, this.debris, this.sparks, this.fxDensity)) moved = true;
+          if (!this.derbyMode && !this.race.active && resolveLampPoles(this.poles, car, this.debris, this.sparks, this.fxDensity)) moved = true;
         }
 
         if (this.showBarrier) {
@@ -1462,12 +1610,14 @@ export class CrashEngine {
         car.afterContacts(h, this.bounceWorld);
         if (this.derbyMode) this.clipDerbyCar(car);
       }
+      if (this.race.active) for (let ci = 0; ci < cars.length; ci++) this.race.collide(cars[ci]!, ci);
     }
+    if (this.race.active) this.race.step(dt);
 
     const { impulse, contact, normal } = strongest;
-    if (!this.derbyMode && this.phase === "approach" && contact && normal && impulse > 0.4) {
+    if (!this.derbyMode && !this.race.active && this.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
-    } else if (this.derbyMode && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16) {
+    } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16) {
       this.sparkAt = this.elapsedWall;
       this.sparks.poof(contact, normal, Math.min(56, 18 + impulse * 0.8) * this.fxDensity);
     }
@@ -1614,6 +1764,7 @@ export class CrashEngine {
     return best;
   }
 
+
   private armEngineSmoke(car: DeformableCar, extra: number): void {
     if (!car.crashed) return;
     const until = this.elapsedWall + extra;
@@ -1641,7 +1792,7 @@ export class CrashEngine {
   }
 
   private updatePhase(wallDt: number): void {
-    if (this.derbyMode) return;
+    if (this.derbyMode || this.race.active) return;
     if (this.phase === "approach") return;
     this.wallSinceImpact += wallDt;
     if (this.phase === "impact") {
@@ -1661,7 +1812,7 @@ export class CrashEngine {
   private updateCamera(wallDt: number): void {
     if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
     const followed = this.followedCar();
-    if (followed && followed.group.visible && this.seat.mode === "drive") {
+    if (followed && followed.group.visible && (this.seat.mode === "drive" || this.race.chase)) {
       this.view.frameDrive(followed, wallDt, this.playing);
       return;
     }
@@ -1896,6 +2047,7 @@ export class CrashEngine {
         alive: r.alive,
         watched: this.seat.mode !== "global" && this.seat.carIndex === r.id,
       })),
+      race: this.race.active ? this.race.hud() : null,
       seat: this.seat.mode,
       boost: this.seat.boost,
       view: this.seat.view,
@@ -1942,10 +2094,13 @@ export class CrashEngine {
 
   private buildWorld(): void {
     this.stage = new WorldStage(this.scene);
+    this.sun = this.stage.sun;
+    this.studio.push(this.stage.ground);
 
     const grid = new THREE.GridHelper(60, 30, 0x2a2c32, 0x18191e);
     grid.position.y = 0.012;
     this.scene.add(grid);
+    this.studio.push(grid);
 
     const ringGeo = new THREE.RingGeometry(2.15, 2.32, 64);
     const ringMat = new THREE.MeshBasicMaterial({
@@ -1959,6 +2114,7 @@ export class CrashEngine {
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.03;
     this.scene.add(this.ring);
+    this.studio.push(this.ring);
 
     const inner = new THREE.Mesh(
       new THREE.RingGeometry(0.12, 0.22, 24),
@@ -1967,6 +2123,7 @@ export class CrashEngine {
     inner.rotation.x = -Math.PI / 2;
     inner.position.y = 0.03;
     this.scene.add(inner);
+    this.studio.push(inner);
 
     buildRampBalls(this.scene, this.balls);
 

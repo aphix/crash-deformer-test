@@ -3,7 +3,7 @@
  * Real-browser frame benchmark for the crash lab.
  *
  *   node scripts/bench-browser.mjs [--url http://127.0.0.1:8080/] [--cars 2,10,16,24,32]
- *     [--modes fleet,derby] [--seconds 8] [--warmup 2] [--out bench.json] [--headed] [--vsync]
+ *     [--modes fleet,derby,race-oval,race-rally,race-city] [--seconds 8] [--warmup 2] [--out bench.json] [--headed] [--vsync]
  *
  * Drives the page through `window.__crush` (the CrashEngine), forces 1× time scale so
  * auto-slomo cannot hide sim cost, and wraps the hot entry points on the live instance:
@@ -213,23 +213,36 @@ async function main() {
   const rows = [];
   for (const mode of opts.modes) {
     for (const n of opts.cars) {
+      const race = mode.startsWith("race-") ? mode.slice(5) : null;
       await page.evaluate(
-        ({ n, mode, rig, particles }) => {
+        ({ n, mode, race, rig, particles }) => {
           const e = window.__crush;
+          if (e.race.active && !race) e.toggleRace();
           if (e.derbyMode && mode !== "derby") e.toggleDerby();
           if (e.showBarrier) e.toggleBarrier();
           if (e.showBalls) e.toggleBalls();
           if (e.showCompactor) e.toggleCompactor();
           if (!e.playing) e.togglePlay();
-          e.setCarCount(n);
+          if (race) {
+            // n racers on the course (the AI drives every car, the player's too), plus the course's traffic.
+            if (!e.race.active) e.toggleRace();
+            else e.raceCommand({ type: "quit" });
+            e.raceCommand({ type: "options", options: { trackId: race, aiCount: n - 1, laps: 5 } });
+            e.raceCommand({ type: "start" });
+            e.seat.mode = "follow";
+          } else {
+            e.setCarCount(n);
+          }
           if (mode === "derby" && !e.derbyMode) e.toggleDerby();
           if (e.showRig !== rig) e.toggleRig();
           if (typeof e.toggleParticles === "function" && Boolean(e.showParticles) !== particles) e.toggleParticles();
           e.setTimeScale(1);
         },
-        { n, mode, rig: opts.rig, particles: opts.particles },
+        { n, mode, race, rig: opts.rig, particles: opts.particles },
       );
       await page.evaluate(installProbe);
+      // A race measures from the green light, after the grid and countdown.
+      if (race) await page.waitForFunction(() => window.__crush.race.session?.phase === "racing", null, { timeout: 120_000 });
       await page.waitForTimeout(opts.warmup * 1000);
       if (cdp) {
         await cdp.send("Profiler.setSamplingInterval", { interval: 200 });

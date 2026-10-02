@@ -1,0 +1,96 @@
+{
+  "id": "stunt",
+  "name": "Crossover Canyon",
+  "blurb": "Figure of eight over its own bridge: banked wall-ride bowl, a kicker jump down the canyon side, a tunnel through the ridge, and a quarry cut for the brave.",
+  "laps": 3,
+  "road": { "width": 14, "surface": "asphalt", "runoff": [3, 3], "runoffSurface": "concrete", "wall": [true, true], "wallHeight": 1.1 },
+  "nodes": [
+    { "x": -40, "z": -40, "y": 0 },
+    { "x": 0, "z": 0, "y": 0 },
+    { "x": 50, "z": 50, "y": 0 },
+    { "x": 95, "z": 85, "y": 0.5 },
+    { "x": 145, "z": 90, "y": 1.5, "bank": 10, "wall": [false, true] },
+    { "x": 185, "z": 55, "y": 3, "bank": 16, "wall": [true, true] },
+    { "x": 195, "z": 0, "y": 4.5, "bank": 18 },
+    { "x": 180, "z": -55, "y": 6, "bank": 16, "wall": [false, true] },
+    { "x": 140, "z": -90, "y": 7.5, "bank": 8, "wall": [true, true] },
+    { "x": 90, "z": -90, "y": 8.5 },
+    { "x": 50, "z": -50, "y": 9 },
+    { "x": 28, "z": -28, "y": 9, "deck": true },
+    { "x": -28, "z": 28, "y": 9, "deck": false },
+    { "x": -55, "z": 55, "y": 8.5 },
+    { "x": -100, "z": 88, "y": 7.8, "bank": -8 },
+    { "x": -150, "z": 85, "y": 7.4, "bank": -12 },
+    { "x": -182, "z": 45, "y": 7.4 },
+    { "x": -186, "z": 18, "y": 9.2 },
+    { "x": -186, "z": 8, "y": 6.2 },
+    { "x": -184, "z": -25, "y": 2.8 },
+    { "x": -165, "z": -62, "y": 1.6, "tunnel": true },
+    { "x": -125, "z": -88, "y": 0.8, "tunnel": false },
+    { "x": -85, "z": -75, "y": 0.2 }
+  ],
+  "checkpoints": [
+    { "node": 0 },
+    { "node": 2 },
+    { "node": 4 },
+    { "node": 6 },
+    { "node": 8 },
+    { "node": 10 },
+    { "node": 13 },
+    { "node": 15 },
+    { "node": 19 },
+    { "node": 21 }
+  ],
+  "shortcuts": [
+    {
+      "id": "quarry-cut",
+      "from": 2,
+      "to": 4,
+      "width": 6,
+      "surface": "gravel",
+      "path": [
+        { "x": 158, "z": 68, "y": 2.3 },
+        { "x": 150, "z": 30, "y": 4.4 },
+        { "x": 143, "z": -15, "y": 6 },
+        { "x": 154, "z": -66, "y": 6.8 }
+      ]
+    }
+  ],
+  "grid": { "perRow": 2, "spacing": 8, "back": 6 },
+  "props": [
+    { "prefab": "grandstand", "x": -18, "z": -72, "yaw": 0.785 },
+    { "prefab": "billboard", "x": -200, "z": 22, "yaw": 0 },
+    { "prefab": "billboard", "x": -172, "z": 22, "yaw": 3.1416 },
+    { "prefab": "tyre-stack", "x": -194, "z": 26 },
+    { "prefab": "tyre-stack", "x": -194, "z": 30 },
+    { "prefab": "tyre-stack", "x": -178, "z": 26 },
+    { "prefab": "tyre-stack", "x": -178, "z": 30 },
+    { "prefab": "cone", "x": 160, "z": 74 },
+    { "prefab": "cone", "x": 156, "z": 78 },
+    { "prefab": "rock", "x": 128, "z": 10, "scale": 1.4 },
+    { "prefab": "rock", "x": 160, "z": -30 },
+    { "prefab": "crate", "x": 147, "z": 6 },
+    { "prefab": "crate", "x": 146, "z": -2, "yaw": 0.5 }
+  ],
+  "along": [
+    { "prefab": "lamp", "every": 40, "side": "right", "offset": 1.2 },
+    { "prefab": "hay-bale", "every": 9, "side": "both", "offset": -0.9, "fromNode": 18, "toNode": 19 },
+    { "prefab": "billboard", "every": 60, "side": "left", "offset": 7, "fromNode": 3, "toNode": 8 }
+  ],
+  "scatter": [
+    { "prefab": "tree", "count": 120, "near": 8, "far": 80, "seed": 31 },
+    { "prefab": "rock", "count": 30, "near": 5, "far": 60, "seed": 9 }
+  ],
+  "environment": {
+    "sky": "#c9b79c",
+    "fog": 0.0028,
+    "terrain": "sand",
+    "hills": [
+      { "x": -150, "z": -80, "radius": 30, "height": 12 },
+      { "x": 140, "z": 0, "radius": 38, "height": 4 },
+      { "x": -140, "z": 160, "radius": 60, "height": 16 },
+      { "x": 60, "z": -175, "radius": 60, "height": 13 },
+      { "x": 260, "z": 20, "radius": 70, "height": 18 }
+    ]
+  }
+}

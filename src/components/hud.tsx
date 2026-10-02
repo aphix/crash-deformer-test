@@ -6,6 +6,7 @@ import {
   CircleHelp,
   Crosshair,
   DoorOpen,
+  Flag,
   FoldHorizontal,
   Pause,
   Play,
@@ -14,12 +15,14 @@ import {
 } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
+import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { Button } from "@/components/ui/button";
 import type { DoorScenario } from "@/game/door-rig";
 import type { FxTier } from "@/game/engine-post";
 import type { CrashHudState, DoorHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 import type { VehicleClassId } from "@/game/vehicle-classes";
+import type { RaceCommand } from "@/game/race/types";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {
@@ -43,6 +46,8 @@ export type HudProps = {
   onToggleDerby: () => void;
   /** Follow car `index` (derby board click). */
   onWatchCar: (index: number) => void;
+  onToggleRace: () => void;
+  onRaceCommand: (cmd: RaceCommand) => void;
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
   onToggleAudio: () => void;
@@ -80,11 +85,12 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 
 const VIEW: Record<CrashHudState["view"], string> = { third: "Chase cam", far: "Far chase", first: "Hood cam" };
 
-/** Fleet is "none of the others": the engine keeps derby, press, pistons and doors mutually exclusive. */
-type Scene = "fleet" | "derby" | "press" | "pistons" | "doors";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons and doors mutually exclusive. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors";
 const SCENES = [
   { id: "fleet", label: "Fleet", aria: "Fleet scene", Icon: CarFront },
   { id: "derby", label: "Derby", aria: "Demolition derby scene", Icon: Trophy },
+  { id: "race", label: "Race", aria: "Race scene", Icon: Flag },
   { id: "press", label: "Press", aria: "Car compactor scene", Icon: FoldHorizontal },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene", Icon: Crosshair },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene", Icon: DoorOpen },
@@ -95,6 +101,8 @@ const SCENE_KEYS: [string, string][] = [
   ["R", "Reset"],
   ["L", "Loop"],
   ["D", "Derby"],
+  ["Z", "Race"],
+  ["H", "In a race: race view · full menu"],
   ["C", "Press"],
   ["I", "Pistons"],
   ["1–8 · 0", "Fire ram · all"],
@@ -119,6 +127,14 @@ const CAMERA_KEYS: [string, string][] = [
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {
+  if (state.race && state.seat === "drive") {
+    return {
+      title: `Racing · ${VIEW[state.view]}`,
+      keys: state.pad
+        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · D-pad ↓ respawn · Start pause"
+        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · R respawn · Esc pause",
+    };
+  }
   if (state.seat === "drive") {
     return {
       title: `Driving · ${VIEW[state.view]}`,
@@ -138,29 +154,41 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
 
 export function Hud(props: HudProps) {
   const { state } = props;
+  // Race focus view: race panels only; the sandbox HUD comes back with the Full menu toggle (H).
+  const focus = state.race !== null && !state.race.fullUi;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-3 text-fg sm:p-6">
-      <header className="min-w-0" style={{ gridArea: "title" }}>
-        <p className="font-display text-xs font-medium uppercase tracking-[0.22em] text-muted">Streamed deformation</p>
-        <h1 className="mt-1 font-display text-3xl font-semibold leading-none tracking-tight text-balance sm:text-4xl">
-          Crush Stream
-        </h1>
-        <p className="mt-2 hidden max-w-xs text-pretty text-sm leading-snug text-muted sm:block">
-          {state.derby
-            ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
-            : state.showCompactor
-              ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
-              : state.showPistons
-                ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
-                : state.showDoors
-                  ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
-                  : state.carCount <= 2
-                    ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
-                    : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
-        </p>
-      </header>
+    <div className={cn("hud-grid pointer-events-none absolute inset-0 text-fg", focus ? "p-2 sm:p-4" : "p-3 sm:p-6")}>
+      {focus && state.race ? (
+        <header className="hud-ink min-w-0 font-display" style={{ gridArea: "title" }}>
+          <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
+            {state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
+          </p>
+        </header>
+      ) : (
+        <header className="min-w-0" style={{ gridArea: "title" }}>
+          <p className="font-display text-xs font-medium uppercase tracking-[0.22em] text-muted">Streamed deformation</p>
+          <h1 className="mt-1 font-display text-3xl font-semibold leading-none tracking-tight text-balance sm:text-4xl">
+            Crush Stream
+          </h1>
+          <p className="mt-2 hidden max-w-xs text-pretty text-sm leading-snug text-muted sm:block">
+            {state.race
+              ? `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
+              : state.derby
+                ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
+                : state.showCompactor
+                  ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
+                  : state.showPistons
+                    ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
+                    : state.showDoors
+                      ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
+                      : state.carCount <= 2
+                        ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
+                        : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
+          </p>
+        </header>
+      )}
 
-      <Readouts state={state} />
+      {state.race ? <RaceReadouts race={state.race} boost={state.seat === "drive" ? state.boost : null} /> : <Readouts state={state} />}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? (
@@ -175,13 +203,19 @@ export function Hud(props: HudProps) {
           />
         ) : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} onWatch={props.onWatchCar} /> : null}
+        {state.race ? <RaceStandings race={state.race} onCommand={props.onRaceCommand} /> : null}
       </div>
 
-      <HudSections {...props} />
+      {focus ? null : <HudSections {...props} />}
 
       <div className="flex min-w-0 flex-col items-start gap-3 self-end" style={{ gridArea: "dock" }}>
-        {state.seat !== "global" || state.pad ? <DriveHint state={state} /> : null}
-        <Dock {...props} />
+        {state.race ? <SpectateBar race={state.race} pad={state.pad !== null} onCommand={props.onRaceCommand} /> : null}
+        {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} /> : null}
+        {focus && state.race ? (
+          <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} bare />
+        ) : (
+          <Dock {...props} />
+        )}
       </div>
 
       {state.derbyWinner ? (
@@ -193,6 +227,7 @@ export function Hud(props: HudProps) {
           </div>
         </div>
       ) : null}
+      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={props.onRaceCommand} /> : null}
     </div>
   );
 }
@@ -282,28 +317,32 @@ function DriveHint({ state }: { state: CrashHudState }) {
   );
 }
 
-/** Always-visible bar: play, reset, scene, the two fleet props, key help. */
+/** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the two fleet props, key help. */
 function Dock(props: HudProps) {
   const { state, onTogglePlay, onReset, onToggleBarrier, onToggleBalls } = props;
-  const scene: Scene = state.derby
-    ? "derby"
-    : state.showCompactor
-      ? "press"
-      : state.showPistons
-        ? "pistons"
-        : state.showDoors
-          ? "doors"
-          : "fleet";
+  const scene: Scene = state.race
+    ? "race"
+    : state.derby
+      ? "derby"
+      : state.showCompactor
+        ? "press"
+        : state.showPistons
+          ? "pistons"
+          : state.showDoors
+            ? "doors"
+            : "fleet";
   const toggleScene = {
     derby: props.onToggleDerby,
+    race: props.onToggleRace,
     press: props.onToggleCompactor,
     pistons: props.onTogglePistons,
     doors: props.onToggleDoors,
   };
-  // Barrier and balls are fleet props; the engine ignores them while the press or a rig owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons || state.showDoors;
+  // Barrier and balls are fleet props; the engine ignores them while the press, a rig or the race owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.race !== null;
   return (
     <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-2 p-2 md:w-auto">
+      {state.race ? <RaceViewToggle race={state.race} onCommand={props.onRaceCommand} compact /> : null}
       <Button onClick={onTogglePlay} aria-label={state.playing ? "Pause" : "Play"}>
         {state.playing ? <Pause /> : <Play className="ml-0.5" />}
         <span className="hidden sm:inline">{state.playing ? "Pause" : "Play"}</span>
@@ -312,7 +351,7 @@ function Dock(props: HudProps) {
         <RotateCcw />
         <span className="hidden sm:inline">Reset</span>
       </Button>
-      <div className="order-last grid w-full grid-cols-5 gap-1 sm:order-none sm:flex sm:w-auto" role="group" aria-label="Scene">
+      <div className="order-last grid w-full grid-cols-3 gap-1 sm:order-none sm:flex sm:w-auto" role="group" aria-label="Scene">
         {SCENES.map(({ id, label, aria, Icon }) => (
           <Button
             key={id}

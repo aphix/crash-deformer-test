@@ -1,0 +1,100 @@
+{
+  "id": "rally",
+  "name": "Ridge Rally",
+  "blurb": "Gravel climb over the ridge, a banked hairpin, dirt woods, and two ways to cheat that are allowed.",
+  "laps": 3,
+  "road": { "width": 11, "surface": "asphalt", "runoff": [3, 3], "runoffSurface": "grass", "wall": [true, true], "wallHeight": 0.9 },
+  "nodes": [
+    { "x": 0, "z": 0, "y": 0 },
+    { "x": 0, "z": 55, "y": 0 },
+    { "x": 8, "z": 105, "y": 1 },
+    { "x": 38, "z": 145, "y": 3, "surface": "gravel", "wall": [false, true] },
+    { "x": 88, "z": 162, "y": 5.5 },
+    { "x": 140, "z": 150, "y": 6.5 },
+    { "x": 172, "z": 112, "y": 5, "wall": [true, true] },
+    { "x": 178, "z": 70, "y": 3.5, "bank": 6 },
+    { "x": 166, "z": 34, "y": 2.5, "bank": 8 },
+    { "x": 140, "z": 24, "y": 2, "bank": 8 },
+    { "x": 117, "z": 42, "y": 2, "bank": 5, "surface": "dirt", "wall": [true, false] },
+    { "x": 108, "z": 78, "y": 2.5, "wall": [true, true] },
+    { "x": 82, "z": 104, "y": 3 },
+    { "x": 56, "z": 84, "y": 2, "wall": [true, false] },
+    { "x": 56, "z": 46, "y": 1.2, "wall": [true, true] },
+    { "x": 70, "z": 5, "y": 0.5, "surface": "asphalt" },
+    { "x": 72, "z": -40, "y": 0 },
+    { "x": 48, "z": -80, "y": 0 },
+    { "x": 12, "z": -78, "y": 0 },
+    { "x": 0, "z": -45, "y": 0 }
+  ],
+  "checkpoints": [
+    { "node": 0 },
+    { "node": 3 },
+    { "node": 5 },
+    { "node": 7 },
+    { "node": 9 },
+    { "node": 11 },
+    { "node": 13 },
+    { "node": 15 },
+    { "node": 17 }
+  ],
+  "shortcuts": [
+    {
+      "id": "ridge-track",
+      "from": 1,
+      "to": 3,
+      "width": 6,
+      "surface": "grass",
+      "path": [
+        { "x": 52, "z": 140, "y": 3.5 },
+        { "x": 95, "z": 135, "y": 5.5 },
+        { "x": 135, "z": 128, "y": 6 },
+        { "x": 162, "z": 108, "y": 5 }
+      ]
+    },
+    {
+      "id": "creek-ford",
+      "from": 4,
+      "to": 7,
+      "width": 6,
+      "surface": "sand",
+      "path": [
+        { "x": 112, "z": 52, "y": 2 },
+        { "x": 92, "z": 62, "y": 1.5 },
+        { "x": 70, "z": 70, "y": 1.6 },
+        { "x": 60, "z": 74, "y": 1.9 }
+      ]
+    }
+  ],
+  "grid": { "perRow": 2, "spacing": 8, "back": 6 },
+  "props": [
+    { "prefab": "hay-bale", "x": 162, "z": 30, "yaw": 0.6 },
+    { "prefab": "hay-bale", "x": 158, "z": 26, "yaw": 0.9 },
+    { "prefab": "hay-bale", "x": 154, "z": 23, "yaw": 1.2 },
+    { "prefab": "rock", "x": 96, "z": 120 },
+    { "prefab": "rock", "x": 120, "z": 92, "scale": 1.3 },
+    { "prefab": "tyre-stack", "x": 6, "z": 112 },
+    { "prefab": "cone", "x": 112, "z": 47 },
+    { "prefab": "cone", "x": 109, "z": 50 },
+    { "prefab": "billboard", "x": -18, "z": 20, "yaw": 1.5708 },
+    { "prefab": "grandstand", "x": -22, "z": -20 }
+  ],
+  "along": [
+    { "prefab": "hay-bale", "every": 22, "side": "right", "offset": -0.8, "fromNode": 7, "toNode": 9 },
+    { "prefab": "tree", "every": 14, "side": "both", "offset": 4, "fromNode": 11, "toNode": 13 }
+  ],
+  "scatter": [
+    { "prefab": "tree", "count": 140, "near": 6, "far": 70, "seed": 23 },
+    { "prefab": "rock", "count": 24, "near": 4, "far": 50, "seed": 5 }
+  ],
+  "environment": {
+    "sky": "#b9c7d3",
+    "fog": 0.0032,
+    "terrain": "grass",
+    "hills": [
+      { "x": 100, "z": 145, "radius": 45, "height": 6 },
+      { "x": 210, "z": 80, "radius": 50, "height": 12 },
+      { "x": -60, "z": 120, "radius": 60, "height": 14 },
+      { "x": 90, "z": -130, "radius": 70, "height": 10 }
+    ]
+  }
+}

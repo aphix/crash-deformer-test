@@ -14,6 +14,10 @@
   --color-accent-fg: #0c0c0e;
   --color-border: #2c2c30;
   --color-ring: #d8d4cc;
+  /* Race start lights and the wrong-way banner only. */
+  --color-signal-red: #d33a40;
+  --color-signal-amber: #f0b429;
+  --color-signal-green: #2fa86a;
 }
 
 :root {
@@ -49,20 +53,29 @@
   }
 }
 
-/* HUD chrome: one panel surface and one micro-label style for every overlay card. */
+/* HUD chrome: one panel surface and one micro-label style for every overlay card. Coverage comes down
+   through smaller panels, not thinner ones (80% keeps muted labels ≥ 4.4:1 over a white car). Padding
+   belongs to the caller: `p-2` for panels, `p-1` for chips and toggles. */
 @utility hud-panel {
-  border-radius: var(--radius-xl);
-  background: color-mix(in oklab, var(--color-surface) 90%, transparent);
+  border-radius: var(--radius-lg);
+  background: color-mix(in oklab, var(--color-surface) 80%, transparent);
   box-shadow: var(--shadow-border);
 }
 
 @utility hud-label {
   font-family: var(--font-display);
-  font-size: 0.65rem;
-  line-height: 1rem;
-  letter-spacing: 0.18em;
+  font-size: 0.625rem;
+  line-height: 0.875rem;
+  letter-spacing: 0.16em;
   text-transform: uppercase;
-  color: var(--color-subtle);
+  color: var(--color-muted);
+}
+
+/* Text straight on the 3D view (no panel): a tight dark halo keeps it readable over sky and asphalt. */
+@utility hud-ink {
+  text-shadow:
+    0 1px 2px rgb(0 0 0 / 0.85),
+    0 0 8px rgb(0 0 0 / 0.5);
 }
 
 /* Mobile: one column, settings stack above the dock. md+: settings own the right

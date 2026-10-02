@@ -98,8 +98,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const ground = activeGround();
   const px = car.group.position.x;
   const pz = car.group.position.z;
-  const muF = ground.frictionAt(px + fx0 * DRIVE.axle, pz + fz0 * DRIVE.axle);
-  const muR = ground.frictionAt(px - fx0 * DRIVE.axle, pz - fz0 * DRIVE.axle);
+  const py = car.group.position.y;
+  const muF = ground.frictionAt(px + fx0 * DRIVE.axle, pz + fz0 * DRIVE.axle, py);
+  const muR = ground.frictionAt(px - fx0 * DRIVE.axle, pz - fz0 * DRIVE.axle, py);
 
   // Pedals: speed along the nose.
   const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);
@@ -264,6 +265,11 @@ export class DriverSeat {
   private readonly out = idleDrive();
   private wasActive = false;
   private flippedFor = 0;
+  /**
+   * Controller-slot gate: when set, a pedal press only takes the wheel of a car it allows
+   * (race mode: this browser's player car, never an AI or a remote peer's car).
+   */
+  drivable: ((index: number) => boolean) | null = null;
 
   focus(index: number): void {
     this.carIndex = index;
@@ -320,6 +326,7 @@ export class DriverSeat {
     const fresh = active && !this.wasActive;
     this.wasActive = active;
     if (!fresh || this.mode !== "follow" || this.carIndex < 0) return false;
+    if (this.drivable && !this.drivable(this.carIndex)) return false;
     this.mode = "drive";
     return true;
   }
