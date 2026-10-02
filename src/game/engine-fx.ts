@@ -296,6 +296,11 @@ class DotPoints {
     if (any) (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
+  /** HDR colour multiplier: above 1 the dots feed the bloom pass (cinematic tiers); 1 is the plain look. */
+  glow(k: number): void {
+    (this.points.material as THREE.PointsMaterial).color.setScalar(k);
+  }
+
   dispose(): void {
     this.geo.dispose();
     const mat = this.points.material as THREE.PointsMaterial;
@@ -304,7 +309,15 @@ class DotPoints {
   }
 }
 
+/** Spark streak length: this many seconds of travel behind each spark. */
+const STREAK_S = 0.045;
+
 export class SparkSystem extends DotPoints {
+  private readonly streakPos: Float32Array;
+  private readonly streakCol: Float32Array;
+  private readonly streakGeo = new THREE.BufferGeometry();
+  private readonly streaks: THREE.LineSegments;
+
   constructor(scene: THREE.Scene, n = 480) {
     super(scene, n, {
       core: "rgba(255,248,220,1)",
@@ -314,6 +327,73 @@ export class SparkSystem extends DotPoints {
       gravity: 6.5,
       radius: 0.025,
     });
+    this.streakPos = new Float32Array(n * 6);
+    this.streakCol = new Float32Array(n * 6);
+    this.streakGeo.setAttribute("position", new THREE.BufferAttribute(this.streakPos, 3).setUsage(THREE.DynamicDrawUsage));
+    this.streakGeo.setAttribute("color", new THREE.BufferAttribute(this.streakCol, 3).setUsage(THREE.DynamicDrawUsage));
+    this.streaks = new THREE.LineSegments(
+      this.streakGeo,
+      new THREE.LineBasicMaterial({ vertexColors: true, blending: THREE.AdditiveBlending, transparent: true, depthWrite: false }),
+    );
+    this.streaks.frustumCulled = false;
+    this.streaks.visible = false;
+    scene.add(this.streaks);
+  }
+
+  /** Motion streaks: a hot line from each spark back along its velocity, fading to nothing (cinematic tiers). */
+  set streaked(on: boolean) {
+    this.streaks.visible = on;
+  }
+
+  override update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+    super.update(dt, bounce);
+    if (!this.streaks.visible) return;
+    const p = this.streakPos;
+    const c = this.streakCol;
+    let live = 0;
+    for (let i = 0; i < this.n; i++) {
+      const life = this.life[i]!;
+      if (life <= 0) continue;
+      const o = live * 6;
+      const x = this.pos[i * 3]!;
+      const y = this.pos[i * 3 + 1]!;
+      const z = this.pos[i * 3 + 2]!;
+      p[o] = x;
+      p[o + 1] = y;
+      p[o + 2] = z;
+      p[o + 3] = x - this.vx[i]! * STREAK_S;
+      p[o + 4] = Math.max(0.02, y - this.vy[i]! * STREAK_S);
+      p[o + 5] = z - this.vz[i]! * STREAK_S;
+      const hot = Math.min(1, life * 4) * 3.2;
+      c[o] = hot;
+      c[o + 1] = hot * 0.62;
+      c[o + 2] = hot * 0.24;
+      c[o + 3] = 0;
+      c[o + 4] = 0;
+      c[o + 5] = 0;
+      live++;
+    }
+    this.streakGeo.setDrawRange(0, live * 2);
+    if (live === 0) return;
+    const pa = this.streakGeo.attributes.position as THREE.BufferAttribute;
+    const ca = this.streakGeo.attributes.color as THREE.BufferAttribute;
+    pa.clearUpdateRanges();
+    ca.clearUpdateRanges();
+    pa.addUpdateRange(0, live * 6);
+    ca.addUpdateRange(0, live * 6);
+    pa.needsUpdate = true;
+    ca.needsUpdate = true;
+  }
+
+  override reset(): void {
+    super.reset();
+    this.streakGeo.setDrawRange(0, 0);
+  }
+
+  override dispose(): void {
+    super.dispose();
+    this.streakGeo.dispose();
+    (this.streaks.material as THREE.Material).dispose();
   }
 
   poof(origin: THREE.Vector3, normal: THREE.Vector3, count: number): void {
@@ -384,8 +464,12 @@ export class TireSmokeSystem {
   private n: number;
   private cursor = 0;
   private anyAlive = false;
+  private readonly tint: Float32Array;
+  /** Scene light on the (unlit) smoke: 1 by day, low at night. */
+  shade = 1;
 
-  constructor(scene: THREE.Scene, n = 420) {
+  /** `soft`: a thin, wide puff for tyre smoke (cinematic tiers) instead of the dense crash plume. */
+  constructor(scene: THREE.Scene, n = 420, soft = false) {
     this.n = n;
     this.px = new Float32Array(n);
     this.py = new Float32Array(n);
@@ -396,11 +480,14 @@ export class TireSmokeSystem {
     this.life = new Float32Array(n);
     this.maxLife = new Float32Array(n);
     this.size = new Float32Array(n);
+    this.tint = new Float32Array(n * 3).fill(1);
     const geo = new THREE.PlaneGeometry(1, 1);
     const mat = new THREE.MeshBasicMaterial({
-      map: makeDotTexture("rgba(210,210,206,0.95)", "rgba(70,70,68,0.25)"),
+      map: soft
+        ? makeDotTexture("rgba(232,232,228,0.42)", "rgba(160,160,156,0.14)")
+        : makeDotTexture("rgba(210,210,206,0.95)", "rgba(70,70,68,0.25)"),
       transparent: true,
-      opacity: 0.85,
+      opacity: soft ? 0.38 : 0.85,
       depthWrite: false,
       blending: THREE.NormalBlending,
       side: THREE.DoubleSide,
@@ -416,6 +503,7 @@ export class TireSmokeSystem {
   }
 
   private hideAll(): void {
+    this.mesh.visible = false;
     this.dummy.scale.setScalar(0.001);
     this.dummy.position.set(0, 250, 0);
     this.dummy.updateMatrix();
@@ -430,8 +518,9 @@ export class TireSmokeSystem {
     this.hideAll();
   }
 
-  emitAt(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
-    this.spawn(origin, inherit, count, 0.28, 1.2, 0.7);
+  /** Tyre smoke: wide, slow-rising, long-lived; `tint` colours it (dust on dirt, turf on grass), white when omitted. */
+  emitAt(origin: THREE.Vector3, inherit: THREE.Vector3, count: number, tint?: THREE.Color): void {
+    this.spawn(origin, inherit, count, 0.9, 1.7, 0.3, tint);
   }
 
   plume(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
@@ -450,6 +539,7 @@ export class TireSmokeSystem {
     size: number,
     life: number,
     rise: number,
+    tint?: THREE.Color,
   ): void {
     const n = Math.min(this.n, Math.max(0, Math.floor(count)));
     for (let i = 0; i < n; i++) {
@@ -465,8 +555,11 @@ export class TireSmokeSystem {
       this.life[k] = L;
       this.maxLife[k] = L;
       this.size[k] = size + Math.random() * 0.4;
+      this.tint[k * 3] = tint ? tint.r : 1;
+      this.tint[k * 3 + 1] = tint ? tint.g : 1;
+      this.tint[k * 3 + 2] = tint ? tint.b : 1;
     }
-    if (n > 0) this.anyAlive = true;
+    if (n > 0) this.anyAlive = this.mesh.visible = true;
   }
 
   snapshot() {
@@ -508,11 +601,11 @@ export class TireSmokeSystem {
       this.dummy.quaternion.copy(camera.quaternion);
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(i, this.dummy.matrix);
-      const g = 0.55 + fade * 0.4;
-      this.mesh.setColorAt(i, _smokeColor.setRGB(g, g, g * 0.96));
+      const g = (0.55 + fade * 0.4) * this.shade;
+      this.mesh.setColorAt(i, _smokeColor.setRGB(g * this.tint[i * 3]!, g * this.tint[i * 3 + 1]!, g * 0.96 * this.tint[i * 3 + 2]!));
       wrote = true;
     }
-    this.anyAlive = any;
+    this.anyAlive = this.mesh.visible = any;
     if (wrote) {
       this.mesh.instanceMatrix.needsUpdate = true;
       if (this.mesh.instanceColor) this.mesh.instanceColor.needsUpdate = true;

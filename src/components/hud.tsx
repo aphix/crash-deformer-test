@@ -16,6 +16,7 @@ import { DerbyBoard, DoorPanel, PistonPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { Button } from "@/components/ui/button";
 import type { DoorScenario } from "@/game/door-rig";
+import type { FxTier } from "@/game/engine-post";
 import type { CrashHudState, DoorHud } from "@/game/hud-store";
 import type { PistonConfig } from "@/game/piston-rig";
 import type { VehicleClassId } from "@/game/vehicle-classes";
@@ -45,6 +46,9 @@ export type HudProps = {
   onToggleOrbit: () => void;
   onToggleSlomo: () => void;
   onToggleAudio: () => void;
+  onFxTier: (tier: FxTier) => void;
+  onToggleNight: () => void;
+  onToggleWet: () => void;
   onToggleDeformMode: () => void;
   onSquash: (value: number) => void;
   onBuckle: (value: number) => void;

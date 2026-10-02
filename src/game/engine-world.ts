@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { applyMarkMap } from "./engine-marks.ts";
 
 function makeConcrete(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -118,6 +119,23 @@ export function restoreBarrierRest(group: THREE.Group): void {
   });
 }
 
+/** One head material for every lamp pole, so night mode lights them all at once. */
+const lampHead = new THREE.MeshStandardMaterial({
+  color: 0xf0e6c8,
+  emissive: 0xf0e6c8,
+  emissiveIntensity: 1.4,
+  roughness: 0.4,
+});
+/** Fake light pool under each lamp: an additive ground decal, drawn only at night. */
+const lampPool = new THREE.MeshBasicMaterial({
+  color: 0xffd9a0,
+  transparent: true,
+  opacity: 0.55,
+  blending: THREE.AdditiveBlending,
+  depthWrite: false,
+  visible: false,
+});
+
 export function makeLamp(): THREE.Group {
   const g = new THREE.Group();
   const pole = new THREE.Mesh(
@@ -126,16 +144,149 @@ export function makeLamp(): THREE.Group {
   );
   pole.position.y = 2.6;
   pole.castShadow = true;
-  const head = new THREE.Mesh(
-    new THREE.BoxGeometry(0.5, 0.1, 0.22),
-    new THREE.MeshStandardMaterial({
-      color: 0xf0e6c8,
-      emissive: 0xf0e6c8,
-      emissiveIntensity: 1.4,
-      roughness: 0.4,
-    }),
-  );
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.22), lampHead);
   head.position.set(0, 5.15, 0.15);
-  g.add(pole, head);
+  lampPool.map ??= makePoolTexture();
+  const pool = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), lampPool);
+  pool.name = "pool";
+  pool.rotation.x = -Math.PI / 2;
+  pool.position.set(0, 0.025, 0.15);
+  g.add(pole, head, pool);
   return g;
+}
+
+function makePoolTexture(): THREE.CanvasTexture {
+  const c = document.createElement("canvas");
+  c.width = c.height = 128;
+  const ctx = c.getContext("2d")!;
+  const g = ctx.createRadialGradient(64, 64, 0, 64, 64, 64);
+  g.addColorStop(0, "rgba(255,255,255,1)");
+  g.addColorStop(0.35, "rgba(255,255,255,0.45)");
+  g.addColorStop(1, "rgba(255,255,255,0)");
+  ctx.fillStyle = g;
+  ctx.fillRect(0, 0, 128, 128);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
+}
+
+const DAY = {
+  sky: 0x12141a,
+  hemi: [0xb7c4d8, 1.35],
+  sun: [0xf2f5ff, 2.6],
+  fill: [0xc9d3e0, 0.9],
+  env: 0.72,
+  lamp: 1.4,
+  smoke: 1,
+} as const;
+const NIGHT = {
+  sky: 0x040509,
+  hemi: [0x5a6c94, 0.16],
+  sun: [0x9fb4e0, 0.32],
+  fill: [0x7a8aa8, 0.06],
+  env: 0.1,
+  lamp: 9,
+  smoke: 0.4,
+} as const;
+
+/**
+ * Lights, sky colour and the asphalt disc, plus the time of day (day / night) and a wet-road option.
+ * Night drops the sun to moonlight so the cars' own lamps, the pole heads (bloomed) and their fake light
+ * pools carry the scene; wet asphalt turns glossy so those lights streak across it.
+ */
+export class WorldStage {
+  readonly ground: THREE.Mesh;
+  private readonly groundMat: THREE.MeshStandardMaterial;
+  private readonly hemi: THREE.HemisphereLight;
+  private readonly sun: THREE.DirectionalLight;
+  private readonly fill: THREE.DirectionalLight;
+  private readonly scene: THREE.Scene;
+  night = false;
+  wet = false;
+
+  constructor(scene: THREE.Scene) {
+    this.scene = scene;
+    this.hemi = new THREE.HemisphereLight(DAY.hemi[0], 0x1a1816, DAY.hemi[1]);
+    scene.add(this.hemi);
+    const dir = new THREE.DirectionalLight(DAY.sun[0], DAY.sun[1]);
+    dir.position.set(-10, 22, 9);
+    dir.castShadow = true;
+    dir.shadow.mapSize.set(1024, 1024);
+    dir.shadow.camera.near = 2;
+    dir.shadow.camera.far = 60;
+    dir.shadow.camera.left = -24;
+    dir.shadow.camera.right = 24;
+    dir.shadow.camera.top = 24;
+    dir.shadow.camera.bottom = -24;
+    dir.shadow.bias = -0.0004;
+    this.sun = dir;
+    scene.add(dir);
+    this.fill = new THREE.DirectionalLight(DAY.fill[0], DAY.fill[1]);
+    this.fill.position.set(10, 12, -14);
+    scene.add(this.fill);
+
+    this.groundMat = new THREE.MeshStandardMaterial({
+      color: 0x2a2c34,
+      roughness: 0.88,
+      metalness: 0.06,
+      map: makeAsphalt(),
+    });
+    applyMarkMap(this.groundMat);
+    this.ground = new THREE.Mesh(new THREE.CircleGeometry(48, 64), this.groundMat);
+    this.ground.rotation.x = -Math.PI / 2;
+    this.ground.receiveShadow = true;
+    scene.add(this.ground);
+    this.apply();
+  }
+
+  /** Environment-map strength for the current time of day (the studio env loads async). */
+  get envIntensity(): number {
+    return this.night ? NIGHT.env : DAY.env;
+  }
+
+  /** Smoke brightness for the current time of day. */
+  get smokeShade(): number {
+    return this.night ? NIGHT.smoke : DAY.smoke;
+  }
+
+  setNight(on: boolean): void {
+    this.night = on;
+    this.apply();
+  }
+
+  setWet(on: boolean): void {
+    this.wet = on;
+    this.apply();
+  }
+
+  /** A knocked-over pole's light pool goes out with it. */
+  syncPools(poles: readonly { group: THREE.Group; intact: boolean }[]): void {
+    if (!this.night) return;
+    for (const p of poles) {
+      const pool = p.group.getObjectByName("pool");
+      if (pool) pool.visible = p.intact;
+    }
+  }
+
+  private apply(): void {
+    const t = this.night ? NIGHT : DAY;
+    const sky = this.scene.background;
+    if (sky instanceof THREE.Color) sky.setHex(t.sky);
+    else this.scene.background = new THREE.Color(t.sky);
+    if (this.scene.fog) this.scene.fog.color.setHex(t.sky);
+    this.hemi.color.setHex(t.hemi[0]);
+    this.hemi.intensity = t.hemi[1];
+    this.sun.color.setHex(t.sun[0]);
+    this.sun.intensity = t.sun[1];
+    this.fill.color.setHex(t.fill[0]);
+    this.fill.intensity = t.fill[1];
+    if (this.scene.environment) this.scene.environmentIntensity = t.env;
+    lampHead.emissiveIntensity = t.lamp;
+    lampPool.visible = this.night;
+    const m = this.groundMat;
+    m.color.setHex(this.wet ? 0x1b1d23 : 0x2a2c34);
+    m.roughness = this.wet ? 0.2 : 0.88;
+    m.metalness = this.wet ? 0 : 0.06;
+    m.envMapIntensity = this.wet ? 1.8 : 1;
+  }
 }

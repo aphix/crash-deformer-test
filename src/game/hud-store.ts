@@ -1,3 +1,4 @@
+import type { FxTier } from "./engine-post.ts";
 import { DEFAULT_REALISM, type VehicleClassId } from "./vehicle-classes.ts";
 
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
@@ -49,6 +50,11 @@ export type CrashHudState = {
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
+  /** Cinematic FX quality tier (F). */
+  fxTier: FxTier;
+  /** Night lighting (H) and wet asphalt (X). */
+  night: boolean;
+  wet: boolean;
   deformMode: "shape" | "lattice";
   phase: CrashPhase;
   timeScale: number;
@@ -102,6 +108,9 @@ export const INITIAL_HUD: CrashHudState = {
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,
+  fxTier: "high",
+  night: false,
+  wet: false,
   deformMode: "shape",
   phase: "approach",
   timeScale: 1,

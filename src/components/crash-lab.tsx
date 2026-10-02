@@ -77,6 +77,9 @@ export function CrashLab() {
         onToggleOrbit={() => engineRef.current?.toggleOrbit()}
         onToggleSlomo={() => engineRef.current?.toggleSlomo()}
         onToggleAudio={() => engineRef.current?.toggleAudio()}
+        onFxTier={(t) => engineRef.current?.setFxTier(t)}
+        onToggleNight={() => engineRef.current?.setNight(!hud.night)}
+        onToggleWet={() => engineRef.current?.setWet(!hud.wet)}
         onToggleDeformMode={() => engineRef.current?.toggleDeformMode()}
         onSquash={(v) => engineRef.current?.setSquash(v)}
         onBuckle={(v) => engineRef.current?.setBuckle(v)}
