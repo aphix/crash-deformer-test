@@ -1181,14 +1181,13 @@ export class StreamedDeformation {
     if (!this.drivetrainAlive || !this.massActive) return;
     // A side hit shoves the block sideways with the whole nose; it does not crush it.
     if (Math.abs(this.impactInward.x) > Math.abs(this.impactInward.z)) return;
+    // Only the block's travel along the car toward the cabin packs it into the firewall. Measured along
+    // the hit, a 45° corner hit counted the nose's sideways shove too and killed at 52 km/h, below the
+    // front-middle's 56.
+    const back = this.impactInward.z < 0 ? 1 : -1;
     const el = this.at.engineL;
     const er = this.at.engineR;
-    const ix = -this.impactInward.x;
-    const iy = -this.impactInward.y;
-    const iz = -this.impactInward.z;
-    const backL = (el.rest.x - el.local.x) * ix + (el.rest.y - el.local.y) * iy + (el.rest.z - el.local.z) * iz;
-    const backR = (er.rest.x - er.local.x) * ix + (er.rest.y - er.local.y) * iy + (er.rest.z - er.local.z) * iz;
-    const travel = Math.max(backL, backR);
+    const travel = Math.max((el.rest.z - el.local.z) * back, (er.rest.z - er.local.z) * back);
     // Rear hits have to cross the cabin to get here, so the same travel
     // kills a nose around 50 km/h and a tail much later.
     if (travel > ENGINE_KILL_TRAVEL) this.drivetrainAlive = false;
