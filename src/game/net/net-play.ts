@@ -82,6 +82,8 @@ interface NetGame {
   /** Host: derby mode with a field of at least `field` cars parked and no match (a public lobby), or a fresh match. */
   derbyLobby(field: number): void;
   startDerby(field: number): void;
+  /** Client: car `i` vaporizes (the local smoke burst) or comes back, as the host's flag says (fleet disc edge). */
+  setVaporized(i: number, on: boolean): void;
   readonly seat: DriverSeat;
 }
 
@@ -291,6 +293,13 @@ export class NetPlay {
     }
   }
 
+  /** Host: a network peer drives car `i` (its car comes back after it vaporizes, like the host's own). */
+  remoteCar(i: number): boolean {
+    if (this.role !== "host") return false;
+    for (const car of this.slots.values()) if (car === i) return true;
+    return false;
+  }
+
   /** Once per rendered frame, after physics (host) or instead of it (client). */
   frame(wallDt: number): void {
     if (!this.transport) return;
@@ -427,10 +436,13 @@ export class NetPlay {
       f.vz = car.velocity.z;
       f.wy = car.angular.y;
       f.crashed = car.crashed;
+      f.vaporized = car.vaporized;
+      f.falling = car.falling;
       f.style = CAR_STYLE_IDS.indexOf(car.style.id);
       f.cls = VEHICLE_CLASS_IDS.indexOf(carClass(car));
       f.wreck = false;
-      if (!car.crashed) {
+      // A falling fake or a vaporized car shows no wreck: its mesh is frozen (falling) or hidden.
+      if (!car.crashed || car.falling || car.vaporized) {
         this.lastWreckLen[i] = 0;
         continue;
       }
@@ -639,7 +651,10 @@ export class NetPlay {
       else if (dyaw < -Math.PI) dyaw += Math.PI * 2;
       car.yaw = fa.yaw + dyaw * u;
       car.pitch = fa.pitch + (fb.pitch - fa.pitch) * u;
-      car.roll = fa.roll + (fb.roll - fa.roll) * u;
+      let droll = fb.roll - fa.roll;
+      if (droll > Math.PI) droll -= Math.PI * 2;
+      else if (droll < -Math.PI) droll += Math.PI * 2;
+      car.roll = fa.roll + droll * u;
       car.group.position.set(fa.x + (fb.x - fa.x) * u, fa.y + (fb.y - fa.y) * u, fa.z + (fb.z - fa.z) * u);
       car.group.rotation.set(car.pitch, car.yaw, car.roll, "YXZ");
       car.velocity.set(fa.vx + (fb.vx - fa.vx) * u, fa.vy + (fb.vy - fa.vy) * u, fa.vz + (fb.vz - fa.vz) * u);
@@ -647,6 +662,11 @@ export class NetPlay {
       car.speed = car.velocity.length();
       car.crashed = fa.crashed;
       car.refreshBasis();
+      // Fleet disc edge: the falling fake follows the host's pose (stepEdge shrinks it here too); the
+      // vaporize burst plays locally. Neither takes mesh updates.
+      if (fa.vaporized !== car.vaporized) this.game.setVaporized(i, fa.vaporized);
+      if (car.falling && !fa.falling) car.group.scale.setScalar(1);
+      car.falling = fa.falling;
 
       // The newest wreck section at or before the render time, once.
       let w = -1;
@@ -655,12 +675,12 @@ export class NetPlay {
         if (!s || this.ringOrder[k]! <= (this.applied[i] ?? 0) || s.time > rt || i >= s.count || !s.cars[i]!.wreck) continue;
         if (w < 0 || this.ringOrder[k]! > this.ringOrder[w]!) w = k;
       }
-      if (w >= 0) {
+      if (w >= 0 && !car.falling && !car.vaporized) {
         const f = this.ring[w]!.cars[i]!;
         car.writeNetState(f.deform, f.parts);
         this.applied[i] = this.ringOrder[w]!;
       }
-      car.netFrame(wallDt);
+      if (!car.falling && !car.vaporized) car.netFrame(wallDt);
     }
 
     if (this.car < 0 || this.car >= cars.length) return;
