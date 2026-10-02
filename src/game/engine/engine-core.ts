@@ -96,7 +96,7 @@ export abstract class EngineCore {
   get showCorkscrew(): boolean {
     return this.sceneId === "corkscrew";
   }
-  /** The press, the piston bank, the door ram or the corkscrew owns the car. */
+  /** A staged one-car scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it. */
   protected get rigScene(): boolean {
     return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew";
   }

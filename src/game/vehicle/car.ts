@@ -6,6 +6,7 @@ import { getCrackMap } from "./car-materials.ts";
  import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
+import { AIR_GAP, COM_Y, stepAir } from "./car-air.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -22,8 +23,23 @@ const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 /** A grounded car's two-sample climb rate this far (m/s) off its face's is a step, not a slope (`integrate`). */
 const STEP_RISE = 3;
+const G = 9.6;
+/** The axle chord lifts a driven body off its centre's ground beyond this (m): a hollow under it (a ramp's foot). */
+const CHORD_LIFT = 0.005;
+/** The axles' half spread along the body (m). */
+const AXLE = WHEEL_POS[0]![2];
+/** A wreck whose every hub is this far (m) over its ground flies as a rigid body. */
+const WRECK_AIR = 0.7;
+const _q0 = new THREE.Quaternion();
 
 export class DeformableCar extends CarParts {
+  /** No wheel on the ground: a rigid body in flight or tumbling (`stepAir`); drive and grip are off. */
+  airborne = false;
+  /** While airborne: some hull point is on the ground this slice. */
+  airContact = false;
+  /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
+  private readonly groundSpin = new THREE.Vector3();
+
   spawn(x: number, z: number, speed: number): void {
     this.resetVisual();
     this.group.position.set(x, 0, z);
@@ -47,6 +63,7 @@ export class DeformableCar extends CarParts {
     this.speed = speed;
     this.spawnSpeed = speed;
     this.crashed = false;
+    this.airborne = false;
     this.angular.set(0, 0, 0);
     this.refreshBasis();
     this.velocity.copy(dir).multiplyScalar(speed);
@@ -146,11 +163,58 @@ export class DeformableCar extends CarParts {
   }
 
   syncPose(dt: number): void {
+    // A wreck with every hub clear of the ground flies as a rigid body (`integrate`), fitted to its masses' motion.
+    if (dt > 0 && this.hubsAloft()) {
+      fitMasses(this, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion).add(this.group.position), this.angular);
+      this.deform.massActive = false;
+      this.airborne = true;
+      this.refreshBasis();
+      return;
+    }
     this.deform.followGroup(this.group, this.velocity, this.angular, dt);
     this.yaw = this.group.rotation.y;
     this.roll = this.group.rotation.z;
     this.pitch = this.group.rotation.x;
     this.refreshBasis();
+  }
+
+  /** Every hub mass `WRECK_AIR` over the ground under it (past the fleet disc's rim is the edge fall's, not this). */
+  private hubsAloft(): boolean {
+    const ground = activeGround();
+    for (const m of this.deform.masses) {
+      if (!m.hub) continue;
+      const h = ground.heightAt(m.world.x, m.world.z, m.world.y);
+      if (h === NO_FLOOR || m.world.y - h < WRECK_AIR) return false;
+    }
+    return true;
+  }
+
+  /** No wheel holds the body: it flies (`stepAir`) from its centre of mass, turning as the ground last turned it. */
+  private takeOff(): void {
+    this.airborne = true;
+    if (!this.crashed) this.angular.add(this.groundSpin);
+    this.velocity.add(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+  }
+
+  /**
+   * Back on its wheels, upright (`stepAir`): the ground sim takes the body where it is, its middle set down on the
+   * ground under it and a driven body laid on that slope (at most the ~25° `stepAir` allows); a wreck goes back to
+   * its masses.
+   */
+  private land(): void {
+    this.airborne = false;
+    const p = this.group.position;
+    const ground = activeGround();
+    const gy = ground.heightAt(p.x, p.z, p.y);
+    if (gy !== NO_FLOOR && gy < p.y) p.y = gy;
+    this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+    this.yaw = this.group.rotation.y;
+    this.pitch = this.group.rotation.x;
+    this.roll = this.group.rotation.z;
+    this.angular.set(0, this.angular.y, 0);
+    this.speed = hypot2(this.velocity.x, this.velocity.z);
+    if (this.crashed) this.deform.armMasses(this.group, this.velocity, this.angular);
+    else if (gy !== NO_FLOOR) this.alignToGround(ground.normalAt(p.x, p.z, _gn, gy), NaN);
   }
 
   afterContacts(dt: number, bounce?: WorldBounce): void {
@@ -235,6 +299,15 @@ export class DeformableCar extends CarParts {
       this.stepLooseParts(dt);
       return;
     }
+    if (this.airborne) {
+      this.wheelSpin += (this.speed / 0.32) * dt;
+      for (const w of this.wheels) w.rotation.x = this.wheelSpin;
+      if (stepAir(this, dt)) this.land();
+      this.refreshBasis();
+      if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
+      this.stepLooseParts(dt);
+      return;
+    }
     if (!this.crashed) {
       this.velocity.y -= 9.6 * dt;
       this.group.position.addScaledVector(this.velocity, dt);
@@ -267,31 +340,62 @@ export class DeformableCar extends CarParts {
       // A course's ground: ride it while it holds the car up; where it falls away faster than gravity
       // can follow (a ramp lip, a crest at speed) the car flies, and lands back on whatever is below.
       const y0 = pos.y - this.velocity.y * dt;
-      const gy = ground.heightAt(pos.x, pos.z, y0);
-      if (pos.y <= gy) {
-        const was = ground.heightAt(pos.x - this.velocity.x * dt, pos.z - this.velocity.z * dt, y0);
-        pos.y = gy;
+      let gy = ground.heightAt(pos.x, pos.z, y0);
+      // A driven car stands on its axles: across a hollow (a ramp's foot) their chord is above the centre's ground.
+      let grade = NaN;
+      if (!this.crashed) {
+        const ax = Math.sin(this.yaw) * AXLE;
+        const az = Math.cos(this.yaw) * AXLE;
+        const hF = ground.heightAt(pos.x + ax, pos.z + az, y0);
+        const hR = ground.heightAt(pos.x - ax, pos.z - az, y0);
+        if ((hF + hR) / 2 > gy + CHORD_LIFT) {
+          gy = (hF + hR) / 2;
+          grade = (hF - hR) / (2 * AXLE);
+        }
+      }
+      if (pos.y > gy + AIR_GAP) this.takeOff();
+      else {
+        // The wheels are on the ground (or within `AIR_GAP` of it over a crest): the body takes its slope.
         const n = ground.normalAt(pos.x, pos.z, _gn, gy);
-        // Rising at the face's own rate: across a step between the two samples (onto a fleet ramp past its side
-        // or end, a kerb) the difference was a launch (24 m/s for a 0.2 m kerb in one slice).
-        const rise = (gy - was) / dt;
-        const face = -(n.x * this.velocity.x + n.z * this.velocity.z) / n.y;
-        this.velocity.y = Math.abs(rise - face) < STEP_RISE ? rise : face;
-        if (!this.crashed) this.alignToGround(n);
+        if (pos.y <= gy) {
+          const was = ground.heightAt(pos.x - this.velocity.x * dt, pos.z - this.velocity.z * dt, y0);
+          pos.y = gy;
+          // Rising at the face's own rate: across a step between the two samples (onto a fleet ramp past its side
+          // or end, a kerb) the difference was a launch (24 m/s for a 0.2 m kerb in one slice). On the axle
+          // chord, at the chord's grade.
+          const rise = (gy - was) / dt;
+          const face = -(n.x * this.velocity.x + n.z * this.velocity.z) / n.y;
+          this.velocity.y = Math.abs(rise - face) < STEP_RISE ? rise : face;
+          if (!Number.isNaN(grade)) this.velocity.y = grade * (this.velocity.x * Math.sin(this.yaw) + this.velocity.z * Math.cos(this.yaw));
+          // Gravity along the ground (none on the level): it slows a car uphill and speeds it downhill.
+          this.velocity.x += G * n.y * n.x * dt;
+          this.velocity.z += G * n.y * n.z * dt;
+        }
+        if (!this.crashed) {
+          _q0.copy(this.group.quaternion).invert();
+          this.alignToGround(n, grade);
+          // The tilt's turn over this slice (world rad/s): what the body carries into the air at a takeoff.
+          _q0.premultiply(this.group.quaternion);
+          const k = (_q0.w < 0 ? -2 : 2) / dt;
+          this.groundSpin.set(_q0.x * k, _q0.y * k, _q0.z * k);
+        }
       }
     }
     this.refreshBasis();
     this.stepLooseParts(dt);
   }
 
-  /** Pitch and roll a driven car onto the ground plane (unit normal `n`) under it (yaw kept). */
-  private alignToGround(n: THREE.Vector3): void {
+  /**
+   * Pitch and roll a driven car onto the ground plane (unit normal `n`) under it (yaw kept); on its axle chord
+   * (`grade` its rise per metre ahead, else NaN) the chord sets the pitch.
+   */
+  private alignToGround(n: THREE.Vector3, grade: number): void {
     const fx = Math.sin(this.yaw);
     const fz = Math.cos(this.yaw);
     // YXZ takes local up to (−sin r·x̂ + cos r sin p·f̂ + cos r cos p·ŷ), x̂ = (fz, 0, −fx) the local +x:
     // pitch from n·f̂ against n.y, roll from −n·x̂ against the rest. A rise toward +x lifts the +x wheels.
     const nf = n.x * fx + n.z * fz;
-    this.pitch = Math.atan2(nf, n.y);
+    this.pitch = Number.isNaN(grade) ? Math.atan2(nf, n.y) : -Math.atan(grade);
     this.roll = Math.atan2(n.z * fx - n.x * fz, hypot2(nf, n.y));
     this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
@@ -485,38 +589,45 @@ export class DeformableCar extends CarParts {
 }
 
 /**
- * Start the fake fall. Host: the masses' mean velocity and the rigid spin that best fits their motion
- * (Σ m r × v / Σ m |r|² about their centre), or the kinematic car's own; the soft body then stops
- * (`massActive` off; its state is left as it is). Netplay client: pass the host's `spin` after setting
- * the pose and `velocity`.
+ * Start the fake fall. Host: the rigid motion that best fits the masses (`fitMasses`), or the kinematic car's
+ * own; the soft body then stops (`massActive` off; its state is left as it is). Netplay client: pass the host's
+ * `spin` after setting the pose and `velocity`.
  */
 export function beginFakeFall(car: DeformableCar, spin?: THREE.Vector3): void {
   const d = car.deform;
   if (spin) car.fallSpin.copy(spin);
-  else if (d.massActive) {
-    let mass = 0;
-    _fallC.set(0, 0, 0);
-    _fallV.set(0, 0, 0);
-    for (const m of d.masses) {
-      mass += m.mass;
-      _fallC.addScaledVector(m.world, m.mass);
-      _fallV.addScaledVector(m.vel, m.mass);
-    }
-    _fallC.multiplyScalar(1 / mass);
-    _fallV.multiplyScalar(1 / mass);
-    car.fallSpin.set(0, 0, 0);
-    let inertia = 0;
-    for (const m of d.masses) {
-      _fallR.subVectors(m.world, _fallC);
-      inertia += m.mass * _fallR.lengthSq();
-      car.fallSpin.addScaledVector(_fallR.cross(_v.subVectors(m.vel, _fallV)), m.mass);
-    }
-    car.fallSpin.multiplyScalar(1 / Math.max(inertia, 1e-6));
-    // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion.
-    car.velocity.copy(_fallV).add(_fallR.subVectors(car.group.position, _fallC).cross(_v.copy(car.fallSpin)).negate());
-  } else car.fallSpin.copy(car.angular);
+  // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion.
+  else if (d.massActive) fitMasses(car, car.group.position, car.fallSpin);
+  else car.fallSpin.copy(car.angular);
   d.massActive = false;
   car.falling = true;
+}
+
+/**
+ * The rigid motion that best fits a wreck's masses: their mean velocity and the spin Σ m r × v / Σ m |r|² about
+ * their centre into `spin`, and that motion's velocity at world point `at` into `car.velocity`.
+ */
+function fitMasses(car: DeformableCar, at: THREE.Vector3, spin: THREE.Vector3): void {
+  const d = car.deform;
+  let mass = 0;
+  _fallC.set(0, 0, 0);
+  _fallV.set(0, 0, 0);
+  for (const m of d.masses) {
+    mass += m.mass;
+    _fallC.addScaledVector(m.world, m.mass);
+    _fallV.addScaledVector(m.vel, m.mass);
+  }
+  _fallC.multiplyScalar(1 / mass);
+  _fallV.multiplyScalar(1 / mass);
+  spin.set(0, 0, 0);
+  let inertia = 0;
+  for (const m of d.masses) {
+    _fallR.subVectors(m.world, _fallC);
+    inertia += m.mass * _fallR.lengthSq();
+    spin.addScaledVector(_fallR.cross(_v.subVectors(m.vel, _fallV)), m.mass);
+  }
+  spin.multiplyScalar(1 / Math.max(inertia, 1e-6));
+  car.velocity.copy(_fallV).add(_fallR.subVectors(at, _fallC).cross(_v.copy(spin)).negate());
 }
 
 /**

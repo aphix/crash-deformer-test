@@ -27,6 +27,9 @@ const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi"
  * derby's netplay mirror and the fleet disc's edge.
  */
 export abstract class EngineScenes extends EngineHud {
+  /** The corkscrew's car this run: not yet flown, in the air, or down again (`EngineRigs.watchCorkscrew`). */
+  protected corkFlight: "ground" | "air" | "down" = "ground";
+
   toggleBarrier(): void {
     // A fleet prop: the host's (netplay), and ignored while the press, a rig, the range or the race owns the pad (the HUD locks it too).
     if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
@@ -220,8 +223,9 @@ export abstract class EngineScenes extends EngineHud {
       return;
     }
     // The fleet's ground ends at the disc's rim (with the ramps, they and the slab's top too); the derby bowl, the rigs
-    // and the range keep the endless pad, and the corkscrew's far landings get a pad drawn three times wider.
-    setGround(this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    // and the range keep the endless pad; the corkscrew's channel is the ground over a pad drawn three times wider for
+    // its far landings.
+    setGround(this.showCorkscrew ? this.corkscrew : this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
     this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
     if (this.showCompactor) {
       this.parkCompactor();
@@ -485,7 +489,7 @@ export abstract class EngineScenes extends EngineHud {
     const car = this.parkSolo();
     car.spawnFacing(0, CORKSCREW.mouthZ - 6, 0, layoutFleet(1, this.speedMin, this.speedMax)[0]!.speed);
     this.dressCar(car);
-    this.corkscrew.reset();
+    this.corkFlight = "ground";
     this.corkscrew.group.visible = true;
   }
 
@@ -557,6 +561,9 @@ export abstract class EngineScenes extends EngineHud {
     const hit = this.ramps.contact(car);
     if (hit) this.world.strongest.offer(hit);
   };
+
+  /** The corkscrew's walls hold a car on its floor. */
+  protected readonly corkCollide = (car: DeformableCar): void => this.corkscrew.contact(car);
 
   protected stepDerby(dt: number): void {
     if (!this.derbyMode) return;

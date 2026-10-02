@@ -11,6 +11,7 @@ import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 
 const FRAME = 1 / 60;
 const TYRE_CENTRE = 0.32;
+const DEG = 180 / Math.PI;
 
 /** Ramps on a slab whose long axis is +z (the engine's end-on placement), and one car `x0` across, `z0` along. */
 function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: DeformableCar } {
@@ -40,37 +41,78 @@ function run(w: World, seconds: number, each: () => void): void {
   }
 }
 
+type Jump = { air: number; peak: number; noseOff: number; turn: number; sink: number; gaps: number[]; endZ: number; slabHit: boolean; crashed: boolean };
+
+/**
+ * One car at `v` m/s up the −z ramp, end-on over the slab. Flight: frames with every tyre more than 5 cm off the
+ * ground. noseOff: the most the nose's elevation strays from the flight path's (deg) after the first 0.1 s of
+ * flight; turn: the most the nose's elevation changes in one frame (deg) from takeoff to 0.5 s after touchdown (a
+ * snap); sink: the deepest any tyre gets into the ground over the run (m).
+ */
+function jump(v: number): Jump {
+  const { ramps, w, car } = scene(true);
+  car.spawnFacing(0, -14, 0, v);
+  const p = car.group.position;
+  const q = car.group.quaternion;
+  const wp = new THREE.Vector3();
+  const f = new THREE.Vector3();
+  const gaps = [0, 0, 0, 0];
+  let air = 0;
+  let peak = 0;
+  let noseOff = 0;
+  let turn = 0;
+  let sink = 0;
+  let since = -1;
+  let lastNose = 0;
+  run(w, 3, () => {
+    car.group.updateWorldMatrix(true, true);
+    car.wheels.forEach((wh, i) => {
+      wh.getWorldPosition(wp);
+      gaps[i] = wp.y - TYRE_CENTRE - ramps.heightAt(wp.x, wp.z, wp.y);
+    });
+    sink = Math.max(sink, -Math.min(...gaps));
+    peak = Math.max(peak, p.y);
+    const nose = Math.asin(f.set(0, 0, 1).applyQuaternion(q).y) * DEG;
+    const path = Math.atan2(car.velocity.y, Math.hypot(car.velocity.x, car.velocity.z)) * DEG;
+    const flying = Math.min(...gaps) > 0.05;
+    if (flying) {
+      air += FRAME;
+      since = 0;
+      if (air > 0.1) noseOff = Math.max(noseOff, Math.abs(nose - path));
+    } else if (since >= 0) since += FRAME;
+    if (air > 0 && since < 0.5) turn = Math.max(turn, Math.abs(nose - lastNose));
+    lastNose = nose;
+  });
+  return { air, peak, noseOff, turn, sink, gaps, endZ: p.z, slabHit: w.barrierHits[0] === true, crashed: car.crashed };
+}
+
 describe("fleet ramps", () => {
   afterEach(() => setGround(null));
 
-  it("14 m/s up a ramp: flies the slab end-on without touching it, lands past the far ramp on all four wheels", (t) => {
-    const { ramps, w, car } = scene(true);
-    car.spawnFacing(0, -14, 0, 14);
-    const p = car.group.position;
-    const wp = new THREE.Vector3();
-    let air = 0;
-    let peak = 0;
-    run(w, 3, () => {
-      if (p.y > ramps.heightAt(p.x, p.z, p.y) + 0.02) air += FRAME;
-      peak = Math.max(peak, p.y);
+  for (const [v, name, landZ] of [
+    [14, "flies the slab end-on and lands on the flat past the far ramp", RAMP.start + RAMP.len],
+    [11, "flies the slab end-on and lands on the far ramp's face", RAMP.start],
+  ] as const) {
+    it(`${v} m/s up a ramp: ${name}; the nose follows the flight path, no tyre sinks or snaps on landing, all four end on the ground`, (t) => {
+      const r = jump(v);
+      t.diagnostic(
+        `air ${r.air.toFixed(2)} s, peak ${r.peak.toFixed(2)} m, nose off path ≤ ${r.noseOff.toFixed(1)}°, most turn in a frame ${r.turn.toFixed(1)}°, deepest tyre ${r.sink.toFixed(3)} m, end z ${r.endZ.toFixed(1)}, gaps ${r.gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${r.slabHit}`,
+      );
+      const failures: string[] = [];
+      if (r.air < 0.6) failures.push(`air ${r.air.toFixed(2)} s`);
+      if (r.peak < RAMP.top + 0.3) failures.push(`peak ${r.peak.toFixed(2)} m`);
+      if (r.slabHit) failures.push("touched the slab");
+      if (r.crashed) failures.push("crashed");
+      if (r.endZ < landZ) failures.push(`ended at z ${r.endZ.toFixed(1)}, short of ${landZ.toFixed(1)}`);
+      if (r.noseOff > 3) failures.push(`nose ${r.noseOff.toFixed(1)}° off the flight path`);
+      if (r.turn > 6) failures.push(`nose turned ${r.turn.toFixed(1)}° in one frame`);
+      if (r.sink > 0.02) failures.push(`a tyre ${r.sink.toFixed(3)} m into the ground`);
+      r.gaps.forEach((g, i) => {
+        if (Math.abs(g) > 0.02) failures.push(`wheel ${i} gap ${g.toFixed(3)} m`);
+      });
+      assert.deepEqual(failures, []);
     });
-    car.group.updateWorldMatrix(true, true);
-    const gaps = car.wheels.map((wh) => {
-      wh.getWorldPosition(wp);
-      return wp.y - TYRE_CENTRE - ramps.heightAt(wp.x, wp.z, wp.y);
-    });
-    t.diagnostic(`air ${air.toFixed(2)} s, peak ${peak.toFixed(2)} m, end z ${p.z.toFixed(1)} y ${p.y.toFixed(3)}, gaps ${gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${w.barrierHits[0] === true}`);
-    const failures: string[] = [];
-    if (air < 0.6) failures.push(`air ${air.toFixed(2)} s`);
-    if (peak < RAMP.top + 0.3) failures.push(`peak ${peak.toFixed(2)} m`);
-    if (w.barrierHits[0]) failures.push("touched the slab");
-    if (car.crashed) failures.push("crashed");
-    if (p.z < RAMP.start + RAMP.len) failures.push(`came down at z ${p.z.toFixed(1)}, short of the far ramp's foot`);
-    gaps.forEach((g, i) => {
-      if (Math.abs(g) > 0.02) failures.push(`wheel ${i} gap ${g.toFixed(3)} m`);
-    });
-    assert.deepEqual(failures, []);
-  });
+  }
 
   it("8 m/s without the slab: comes down across the far ramp's high end and rides its face down, not launched off the step", (t) => {
     const { w, car } = scene(false);

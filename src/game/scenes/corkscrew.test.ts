@@ -1,28 +1,58 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
+import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { Corkscrew, CORKSCREW } from "./corkscrew.ts";
+import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
+/** Car-local points that can meet the ground: tyre contacts, bumper, beltline and roof corners. */
+const HULL: readonly (readonly [number, number, number])[] = [
+  ...WHEEL_POS.map(([x, , z]): [number, number, number] => [x, 0, z]),
+  ...[-1, 1].flatMap((sx) =>
+    [-1, 1].flatMap((sz): [number, number, number][] => [
+      [sx * CAR_HALF.x, 0.35, sz * CAR_HALF.z],
+      [sx * CAR_HALF.x, 0.95, sz * 2.0],
+      [sx * 0.7, 1.36, sz * 0.95],
+    ]),
+  ),
+];
 
-type Run = { air: number; roll: number; upY: number; dip: number; wall: number; rest: "wheels" | "roof" | "side" };
+type Run = { air: number; landRoll: number; upY: number; dip: number; rest: "wheels" | "roof" | "side" };
 
-/** A car launched at `v` m/s 6 m short of the mouth, stepped as the engine steps the scene, until it rests. */
+/**
+ * A car launched (no driver) at `v` m/s 6 m short of the mouth, stepped by the world step alone with the corkscrew
+ * as the ground and its walls as the collide hook, until it rests. Air: the first flight's seconds with every hull
+ * point more than 5 cm off the ground; landRoll: the body's turn about its own nose (signed, summed) when a hull
+ * point first touches down again; dip: the deepest hull point under the ground from takeoff on.
+ */
 function launch(v: number): Run {
   const scene = new THREE.Scene();
   const cork = new Corkscrew(scene);
+  setGround(cork);
   const car = new DeformableCar(paint(), scene);
   car.spawnFacing(0, CORKSCREW.mouthZ - 6, 0, v);
   const w = newWorld([car]);
-  w.beforeSlice = (h) => cork.step(car, h);
-  let captured = false;
+  w.collide = (c) => cork.contact(c);
+  const q = car.group.quaternion;
+  const p = new THREE.Vector3();
+  const up = new THREE.Vector3(0, 1, 0);
+  const prevUp = new THREE.Vector3(0, 1, 0);
+  const fwd = new THREE.Vector3();
+  const last = new THREE.Vector3().copy(car.group.position);
+  let air = 0;
+  let landed = false;
+  let landRoll = 0;
+  let roll = 0;
+  let dip = 0;
+  let still = 0;
   let acc = 0;
-  for (let t = 0; t < 20; t += FRAME) {
+  for (let t = 0; t < 20 && still < 1; t += FRAME) {
     acc = Math.min(0.05, acc + FRAME);
     while (acc > 1e-5) {
       const h = physicsSlice(acc, sliceSpeed(w.cars));
@@ -30,45 +60,49 @@ function launch(v: number): Run {
       acc -= h;
     }
     car.updateDeform(FRAME);
-    captured ||= cork.phase !== "free";
-    if (cork.phase === "rest" || (captured && cork.phase === "free")) break;
+    let low = Infinity;
+    for (const [x, y, z] of HULL) {
+      p.set(x, y, z).applyQuaternion(q).add(car.group.position);
+      low = Math.min(low, p.y - cork.heightAt(p.x, p.z, p.y));
+    }
+    up.set(0, 1, 0).applyQuaternion(q);
+    fwd.set(0, 0, 1).applyQuaternion(q);
+    roll += Math.atan2(p.crossVectors(prevUp, up).dot(fwd), prevUp.dot(up));
+    prevUp.copy(up);
+    if (low > 0.05 && !landed) air += FRAME;
+    else if (air > 0.2 && !landed) {
+      landed = true;
+      landRoll = Math.abs(roll) * DEG;
+    }
+    if (air > 0) dip = Math.max(dip, -low);
+    still = car.group.position.distanceTo(last) < 0.002 ? still + FRAME : 0;
+    last.copy(car.group.position);
   }
-  car.group.updateWorldMatrix(true, true);
-  const upY = car.group.matrixWorld.elements[5]!;
-  const run: Run = {
-    air: cork.airTime,
-    // The lip's bank plus the turn in the air: how far the car has rolled when it comes down.
-    roll: (cork.airTime > 0 ? CORKSCREW.bank + cork.airTurn : 0) * DEG,
-    upY,
-    dip: cork.floorDip,
-    wall: cork.wallOver,
-    rest: upY > 0.5 ? "wheels" : upY < -0.5 ? "roof" : "side",
-  };
+  const upY = up.y;
   car.dispose();
-  return run;
+  return { air, landRoll, upY, dip, rest: upY > 0.5 ? "wheels" : upY < -0.5 ? "roof" : "side" };
 }
 
-/** Each band: launch speed, whether it leaves the lip, the roll it comes down with (deg), how it rests. */
+/** Each band: launch speed, whether it leaves the lip, the roll it touches down with (deg), how it rests. */
 const BANDS = [
   { v: 6, name: "too slow to climb: rolls back out of the mouth, no air", air: false, roll: [0, 0], rest: "wheels" },
-  { v: 13, name: "air, half a roll: lands on its roof", air: true, roll: [120, 240], rest: "roof" },
-  { v: 19, name: "air, a full roll: back on its wheels", air: true, roll: [300, 420], rest: "wheels" },
-  { v: 25, name: "air, a roll and a half: lands on its roof", air: true, roll: [480, 600], rest: "roof" },
+  { v: 14, name: "air, half a roll: lands on its roof", air: true, roll: [130, 230], rest: "roof" },
+  { v: 22, name: "air, a full roll: lands back on its wheels", air: true, roll: [310, 410], rest: "wheels" },
+  { v: 27, name: "air, a roll and a half: lands on its roof", air: true, roll: [490, 590], rest: "roof" },
 ] as const;
 
-describe("corkscrew: launch speed decides air, the roll and how the car lands", () => {
+describe("corkscrew: launch speed decides air, the roll and how the car lands (the general car sim)", () => {
+  afterEach(() => setGround(null));
+
   for (const b of BANDS) {
-    it(`${b.v} m/s: ${b.name}; never more than 12 cm into the floor or past a wall`, (t) => {
+    it(`${b.v} m/s: ${b.name}; never more than 12 cm into the ground after takeoff`, (t) => {
       const r = launch(b.v);
-      t.diagnostic(
-        `${b.v} m/s: air ${r.air.toFixed(2)} s, roll ${r.roll.toFixed(0)}°, up.y ${r.upY.toFixed(2)} (${r.rest}), floor dip ${r.dip.toFixed(3)} m, past wall ${r.wall.toFixed(3)} m`,
-      );
+      t.diagnostic(`${b.v} m/s: air ${r.air.toFixed(2)} s, touchdown roll ${r.landRoll.toFixed(0)}°, up.y ${r.upY.toFixed(2)} (${r.rest}), deepest ${r.dip.toFixed(3)} m`);
       const failures: string[] = [];
       if (b.air !== r.air > 0.2) failures.push(`air ${r.air.toFixed(2)} s`);
-      if (r.roll < b.roll[0] || r.roll > b.roll[1]) failures.push(`roll ${r.roll.toFixed(0)}° outside ${b.roll[0]}–${b.roll[1]}°`);
+      if (r.landRoll < b.roll[0] || r.landRoll > b.roll[1]) failures.push(`touchdown roll ${r.landRoll.toFixed(0)}° outside ${b.roll[0]}–${b.roll[1]}°`);
       if (r.rest !== b.rest) failures.push(`rests on its ${r.rest} (up.y ${r.upY.toFixed(2)})`);
-      if (r.dip > 0.12) failures.push(`body ${r.dip.toFixed(3)} m into the floor`);
-      if (r.wall > 0) failures.push(`body ${r.wall.toFixed(3)} m past a wall`);
+      if (r.dip > 0.12) failures.push(`body ${r.dip.toFixed(3)} m into the ground`);
       assert.deepEqual(failures, []);
     });
   }

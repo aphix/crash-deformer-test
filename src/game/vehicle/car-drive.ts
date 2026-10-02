@@ -148,10 +148,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   if (dt <= 0) return;
   const d = car.drive;
   const p = car.group.position;
-  // Off the fleet disc's rim nothing is under the tyres: the car keeps its ballistic velocity.
+  // Off the fleet disc's rim nothing is under the tyres, and in the air no wheel is on the ground: the car keeps
+  // its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
   if (alive) floorUnder(p, _ground, 0);
-  if (!alive || _ground[0] === NO_FLOOR) return idleDriveState(d);
+  if (!alive || _ground[0] === NO_FLOOR || car.airborne) return idleDriveState(d);
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
   // assists() reads only realism, so it reruns when that changes: called out of line, it boxed realism per step.

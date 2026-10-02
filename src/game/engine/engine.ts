@@ -552,9 +552,10 @@ export class CrashEngine extends EngineInput {
     w.beforeSlice = this.rigScene ? this.rigSlice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : null;
     w.ballHit = this.showBalls ? this.ballHit : null;
-    w.poleHit = this.derbyMode || this.race.active ? null : this.poleHit;
+    // The corkscrew hides the lamp posts its run passes through.
+    w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    w.collide = this.race.active ? this.raceCollide : this.showRamps ? this.rampCollide : null;
+    w.collide = this.race.active ? this.raceCollide : this.showRamps ? this.rampCollide : this.showCorkscrew ? this.corkCollide : null;
     stepWorld(w, dt);
     if (this.race.active) this.race.step(dt);
 
