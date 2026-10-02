@@ -8,6 +8,10 @@ src/routes/index.tsx  Home ─► src/components/crash-lab.tsx  CrashLab (+ NetP
                                    │ dynamic import("@/game/engine")
                                    ▼
 src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools handle)
+  │  one class in layers, each `extends` the one before: engine-core.ts EngineCore (state, car roster, shared queries,
+  │  crash FX) → engine-warm.ts (shader warm-up) → engine-hud.ts (emitHud) → engine-scenes.ts (sceneId, setScene,
+  │  reset / spawn / park, derby netplay, disc edge) → engine-rigs.ts (press, pistons, doors) → engine-input.ts
+  │  (keys, pad, picks, HUD commands) → engine.ts CrashEngine (constructor, netplay host, frame loop, LoD, camera)
   ├─ cars: DeformableCar[]        car.ts ─► StreamedDeformation (streamed-deform.ts); lamp-lights.ts LampLights
   ├─ classes / handling           vehicle-classes.ts (CLASSES, HANDLING.realism, killTravel), car-drive.ts
   ├─ contacts                     sat.ts, pair-contact.ts, external-contact.ts, engine-props.ts
@@ -52,11 +56,11 @@ tickInner(now)                               wallDt ≤ 0.1 s
  ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit
  ├ flushVisibleSkins() · lampLights.update · stage.syncPools (night)
  ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain
- └ emitHud(false)  every 0.05–0.12 s
+ └ emitHud()  every 0.05–0.12 s
 ```
 `phase`: `approach → impact → slowmo → aftermath` (`phase.ts`: `CrashPhase`, `PhaseClock`, `easeTimeScale`, `beginImpact`, `stepPhase`, shared with the headless harnesses); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
 
-## Scenes (one at a time; toggles in `engine.ts`)
+## Scenes (one at a time: `sceneId` + `setScene()` in `engine-scenes.ts`)
 | Scene | Key | Entry | Code |
 |---|---|---|---|
 | Fleet (default) | R | `spawnFleet` | `fleet.ts` `layoutFleet`, `fleetStyle` |

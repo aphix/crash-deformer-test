@@ -22,9 +22,9 @@ components/preview-host-bridge.tsx  PreviewHostBridge (platform preview hook, re
 
 ## HUD state (`src/game/hud-store.ts`)
 ```
-CrashEngine.emitHud(force) ──► publishHud(next: CrashHudState)   module snapshot + listeners Set
+CrashEngine.emitHud() ──► publishHud(next: CrashHudState)   module snapshot + listeners Set
 CrashLab: useSyncExternalStore(subscribeHud, getHudSnapshot) ──► <Hud state=…>
-Hud button ──► engineRef.current?.toggleX() / setX(v) ──► engine state ──► emitHud(true)
+Hud button ──► engineRef.current?.toggleX() / setX(v) ──► engine state ──► emitHud()
 ```
 - `CrashHudState`: scene toggles (playing, looping, showRig, showParticles, showBarrier, showBalls, showCompactor, showPistons, doors, derby, autoRotate, autoSlomo, audioOn, deformMode), cinematic (`fxTier`, `night`, `wet`), `PistonHud`, `DoorHud`, telemetry (`phase: CrashPhase`, timeScale, speeds, closingKph, impactKph, fps, `compactStage`), tunables (squash shown as stroke, buckle shown as wrinkle, fxDensity, carCount, speedMin/Max), driving (`playerClass`, `realism`, boost, seat / view / pad label), derby board.
 - `INITIAL_HUD` holds the defaults that `resetDefaults()` restores; `KNOB_RANGES`, `STROKE_RANGE_M`, `strokeAt56` / `squashForStroke` map slider units.

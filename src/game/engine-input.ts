@@ -1,0 +1,416 @@
+import * as THREE from "three";
+import { PISTON_DEFAULTS, PISTON_IDS } from "./piston-rig.ts";
+import { RAM_DEFAULTS } from "./door-rig.ts";
+import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
+import { armKill, carClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
+import { FX_TIERS, type FxTier } from "./engine-post.ts";
+import { gameKey } from "./drive-input.ts";
+import { PAD_BUTTON } from "./gamepad.ts";
+import { EngineRigs } from "./engine-rigs.ts";
+
+/**
+ * Player input: keyboard, gamepad, pointer picks and the HUD's commands and settings.
+ */
+export abstract class EngineInput extends EngineRigs {
+  togglePlay(): void {
+    // The host owns the scene: on a netplay client the scene actions are no-ops (viewing toggles stay local).
+    if (this.net.client) return;
+    this.playing = !this.playing;
+    this.tryUnlockAudio();
+    this.emitHud();
+  }
+
+  toggleLoop(): void {
+    this.looping = !this.looping;
+    this.emitHud();
+  }
+
+  toggleRig(): void {
+    this.showRig = !this.showRig;
+    for (const car of this.live()) car.setRigVisible(this.showRig);
+    this.emitHud();
+  }
+
+  toggleParticles(): void {
+    this.showParticles = !this.showParticles;
+    for (const car of this.live()) car.deform.setParticlesVisible(this.showParticles);
+    this.emitHud();
+  }
+
+  toggleOrbit(): void {
+    this.autoRotate = !this.autoRotate;
+    this.emitHud();
+  }
+
+  toggleSlomo(): void {
+    this.autoSlomo = !this.autoSlomo;
+    if (!this.autoSlomo) {
+      if (this.clock.userTimeScale == null) {
+        this.clock.timeScale = 1;
+        this.clock.targetScale = 1;
+      }
+    }
+    this.emitHud();
+  }
+
+  toggleAudio(): void {
+    this.audioOn = !this.audioOn;
+    this.tryUnlockAudio();
+    this.emitHud();
+  }
+
+  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. */
+  setFxTier(tier: FxTier): void {
+    this.cine.setTier(tier);
+    this.emitHud();
+  }
+
+  cycleFxTier(): void {
+    this.setFxTier(FX_TIERS[(FX_TIERS.indexOf(this.cine.tier) + 1) % FX_TIERS.length]!);
+  }
+
+  setNight(on: boolean): void {
+    this.stage.setNight(on);
+    this.smoke.shade = this.cine.tyreSmoke.shade = this.stage.smokeShade;
+    if (this.scene.environment) this.scene.environmentIntensity = this.stage.envIntensity;
+    this.emitHud();
+  }
+
+  setWet(on: boolean): void {
+    this.stage.setWet(on);
+    this.emitHud();
+  }
+
+  toggleDeformMode(): void {
+    this.deformMode = this.deformMode === "shape" ? "lattice" : "shape";
+    for (const car of this.live()) car.deform.setMode(this.deformMode);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud();
+  }
+  setSquash(value: number): void {
+    this.squash = THREE.MathUtils.clamp(value, KNOB_RANGES.squash.min, KNOB_RANGES.squash.max);
+    for (const car of this.live()) car.deform.squash = this.squash;
+    this.emitHud();
+  }
+
+  setBuckle(value: number): void {
+    this.buckle = THREE.MathUtils.clamp(value, KNOB_RANGES.buckle.min, KNOB_RANGES.buckle.max);
+    for (const car of this.live()) car.deform.buckle = this.buckle;
+    this.emitHud();
+  }
+
+  setFxDensity(value: number): void {
+    this.fxDensity = THREE.MathUtils.clamp(value, 0, 1.2);
+    this.emitHud();
+  }
+
+  /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
+  setRealism(value: number): void {
+    HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
+    for (const car of this.cars) armKill(car.deform, carClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
+    this.emitHud();
+  }
+
+  /** The player's car (slot 0) becomes `id`, rebuilt on that class's body; the field respawns and the camera follows it. */
+  setPlayerClass(id: VehicleClassId): void {
+    if (this.net.client) return;
+    if (!(id in CLASSES)) return;
+    this.playerClass = id;
+    const old = this.cars[0];
+    if (old && carClass(old) !== id) {
+      this.scene.remove(old.group);
+      old.dispose();
+      this.cars[0] = this.buildCar(0);
+      this.cars[0].group.visible = true;
+    }
+    this.randomizeAndReset();
+    this.seat.focus(0);
+    this.emitHud();
+  }
+
+  setCarCount(n: number): void {
+    if (this.net.client) return;
+    // The race sets its own field (setup menu); the sandbox slider must not reshape it.
+    if (this.race.active) return;
+    this.ensureCars(n);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud();
+  }
+
+  setSpeedRange(min: number, max: number): void {
+    const a = Number.isFinite(min) ? THREE.MathUtils.clamp(min, 0, 48) : 0;
+    const b = Number.isFinite(max) ? THREE.MathUtils.clamp(max, 0, 48) : 32;
+    this.speedMin = Math.min(a, b);
+    this.speedMax = Math.max(a, b);
+    this.emitHud();
+  }
+
+  setTimeScale(value: number | null): void {
+    if (value == null || !Number.isFinite(value)) {
+      this.clock.userTimeScale = null;
+      this.clock.targetScale = 1;
+      this.clock.timeScale = 1;
+    } else {
+      const v = THREE.MathUtils.clamp(value, 0.02, 2);
+      this.clock.userTimeScale = v;
+      this.clock.targetScale = v;
+      this.clock.timeScale = v;
+    }
+    this.emitHud();
+  }
+
+  toggleCapture(): void {
+    this.captureTrace = !this.captureTrace;
+    if (this.captureTrace && this.trace.samples.length === 0) this.beginTrace();
+    this.emitHud();
+  }
+
+  resetDefaults(): void {
+    this.playing = INITIAL_HUD.playing;
+    this.looping = INITIAL_HUD.looping;
+    this.showRig = INITIAL_HUD.showRig;
+    this.showParticles = INITIAL_HUD.showParticles;
+    this.showBarrier = INITIAL_HUD.showBarrier;
+    this.showBalls = INITIAL_HUD.showBalls;
+    if (this.rigScene) this.sceneId = "fleet";
+    this.pistons.setConfig(PISTON_DEFAULTS);
+    this.doorRig.kph = RAM_DEFAULTS.kph;
+    this.doorRig.kg = RAM_DEFAULTS.kg;
+    this.doorRig.side = INITIAL_HUD.doors.side;
+    this.autoRotate = INITIAL_HUD.autoRotate;
+    this.autoSlomo = INITIAL_HUD.autoSlomo;
+    this.audioOn = INITIAL_HUD.audioOn;
+    this.deformMode = INITIAL_HUD.deformMode;
+    this.squash = INITIAL_HUD.squash;
+    this.buckle = INITIAL_HUD.buckle;
+    this.fxDensity = INITIAL_HUD.fxDensity;
+    this.speedMin = INITIAL_HUD.speedMin;
+    this.speedMax = INITIAL_HUD.speedMax;
+    this.captureTrace = false;
+    this.clock.userTimeScale = null;
+    this.clock.timeScale = 1;
+    this.clock.targetScale = 1;
+    this.view.userFramed = false;
+    this.setDerby(false);
+    this.setNight(INITIAL_HUD.night);
+    this.setWet(INITIAL_HUD.wet);
+    this.setRealism(INITIAL_HUD.realism);
+    this.cine.setTier(INITIAL_HUD.fxTier);
+    if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
+    this.ensureCars(INITIAL_HUD.carCount);
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud();
+  }
+
+  copyTraceJson(): string {
+    if (!this.trace.initial) this.trace.snapshotInitial(this.traceSetup(), this.live());
+    if (!this.captureTrace) {
+      const json = this.trace.setupJson(this.deformMode, this.autoSlomo, this.clock.userTimeScale);
+      this.emitHud();
+      return json;
+    }
+    return this.trace.traceJson(this.traceSetup(), this.deformMode);
+  }
+
+  reset(): void {
+    if (this.net.client) return;
+    this.tryUnlockAudio();
+    this.randomizeAndReset();
+    this.emitHud();
+  }
+  protected onKey = (e: KeyboardEvent): void => {
+    if (!gameKey(e)) return;
+    // A race menu owns the keyboard (and the pad) through the HUD.
+    if (this.race.menuOpen) return;
+    this.keys.add(e.code);
+    const driving = this.seat.mode === "drive";
+    if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
+    // Every Space keydown, repeats included: an unprevented repeat arms a focused HUD button and the release clicks it.
+    if (e.code === "Space") e.preventDefault();
+    if (e.repeat) return;
+    if (this.race.active && this.raceKey(e.code, driving)) return;
+    if (e.code === "Space") {
+      if (!driving) this.togglePlay();
+    } else if (e.code === "Escape") {
+      this.seat.esc();
+      this.emitHud();
+    } else if (e.code === "KeyV" || e.code === "KeyT" || (e.code === "KeyC" && driving)) {
+      if (driving) {
+        this.seat.cycleView();
+        this.emitHud();
+      }
+    } else if (e.code === "KeyQ" || e.code === "KeyE") {
+      this.seat.cycle(e.code === "KeyE" ? 1 : -1, this.carCount);
+      this.emitHud();
+    } else if (e.code === "KeyR") {
+      e.preventDefault();
+      if (driving) this.recoverDriven();
+      else this.reset();
+    } else if (e.code === "KeyL") {
+      this.toggleLoop();
+    } else if (e.code === "KeyG") {
+      this.toggleRig();
+    } else if (e.code === "KeyP") {
+      this.toggleParticles();
+    } else if (e.code === "KeyB") {
+      this.toggleBarrier();
+    } else if (e.code === "KeyK") {
+      this.toggleBalls();
+    } else if (e.code === "KeyD") {
+      if (this.seat.mode === "global") this.toggleDerby();
+    } else if (e.code === "KeyC") {
+      this.toggleCompactor();
+    } else if (e.code === "KeyI") {
+      this.togglePistons();
+    } else if (e.code === "KeyN") {
+      this.toggleDoors();
+    } else if (this.showDoors && /^Digit[1-5]$/.test(e.code)) {
+      const n = Number(e.code.slice(5));
+      if (n <= 3) this.fireDoorRam(n === 1 ? "mirror" : n === 2 ? "overOpen" : "shut");
+      else if (n === 4) this.toggleDoorOpen();
+      else this.setDoorConfig({ side: this.doorRig.side < 0 ? 1 : -1 });
+    } else if (this.showPistons && /^Digit[0-8]$/.test(e.code)) {
+      const n = Number(e.code.slice(5));
+      this.firePiston(n === 0 ? PISTON_IDS.length : n - 1);
+    } else if (e.code === "KeyO") {
+      this.toggleOrbit();
+    } else if (e.code === "KeyM") {
+      this.toggleSlomo();
+    } else if (e.code === "KeyU") {
+      this.toggleAudio();
+    } else if (e.code === "KeyY") {
+      this.toggleDeformMode();
+    } else if (e.code === "KeyJ") {
+      this.toggleCapture();
+    } else if (e.code === "KeyF") {
+      this.cycleFxTier();
+    } else if (e.code === "KeyH") {
+      this.setNight(!this.stage.night);
+    } else if (e.code === "KeyX") {
+      this.setWet(!this.stage.wet);
+    } else if (e.code === "KeyZ") {
+      this.toggleRace();
+    }
+  };
+
+  /**
+   * Keys during a race (no menu up). True when consumed. Race keys always work; the sandbox's hotkeys
+   * only in the full view (H), so the focus view can't be knocked out of the race by a stray key.
+   */
+  private raceKey(code: string, driving: boolean): boolean {
+    switch (code) {
+      case "Escape":
+        this.raceCommand({ type: "pause" });
+        return true;
+      case "KeyR":
+        this.requestRespawn();
+        return true;
+      case "KeyQ":
+      case "KeyE":
+        this.race.cycle(code === "KeyE" ? 1 : -1);
+        this.emitHud();
+        return true;
+      case "KeyV":
+      case "KeyT":
+      case "KeyC":
+        if (driving) this.seat.cycleView();
+        this.emitHud();
+        return true;
+      case "KeyH":
+        this.raceCommand({ type: "fullUi", on: !this.race.fullUi });
+        return true;
+      default:
+        return !this.race.fullUi;
+    }
+  }
+
+  protected onKeyUp = (e: KeyboardEvent): void => {
+    this.keys.delete(e.code);
+  };
+
+  /** Keys released while the tab is unfocused never send keyup; drop them all. */
+  protected onBlur = (): void => {
+    this.keys.clear();
+  };
+
+  /** Once per frame: keys + pad → seat intent; pad button presses → seat / scene actions. */
+  protected pollInput(): void {
+    const pad = this.pad.poll();
+    // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.
+    if (this.race.menuOpen) return;
+    if (this.seat.sample(this.keys, pad)) this.emitHud();
+    const hit = pad.pressed;
+    if (hit === 0) return;
+    if (this.race.active) {
+      this.racePad(hit);
+      return;
+    }
+    const driving = this.seat.mode === "drive";
+    if ((hit & (1 << PAD_BUTTON.start)) !== 0) this.togglePlay();
+    if ((hit & (1 << PAD_BUTTON.back)) !== 0) this.seat.esc();
+    if ((hit & (1 << PAD_BUTTON.lb)) !== 0) this.seat.cycle(-1, this.carCount);
+    if ((hit & (1 << PAD_BUTTON.rb)) !== 0) this.seat.cycle(1, this.carCount);
+    if (driving && (hit & (1 << PAD_BUTTON.north)) !== 0) this.seat.cycleView();
+    if (driving && (hit & (1 << PAD_BUTTON.down)) !== 0) this.recoverDriven();
+    this.emitHud();
+  }
+
+  /** Pad buttons during a race (no menu up): Start / Back pause, LB/RB spectate, Y view, D-pad ↓ respawn. */
+  private racePad(hit: number): void {
+    const press = (b: number) => (hit & (1 << b)) !== 0;
+    // Through raceCommand: a client may not pause (the host runs the race), so it can't get stuck in a pause it can't leave.
+    if (press(PAD_BUTTON.start) || press(PAD_BUTTON.back)) this.raceCommand({ type: "pause" });
+    if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
+    if (press(PAD_BUTTON.rb)) this.race.cycle(1);
+    if (this.seat.mode === "drive" && press(PAD_BUTTON.north)) this.seat.cycleView();
+    if (press(PAD_BUTTON.down)) this.requestRespawn();
+    this.emitHud();
+  }
+
+  /**
+   * R / D-pad down while driving: back on its wheels where it stands, at rest and
+   * repaired. In a derby only a flipped car that still runs may, so it is no free heal.
+   */
+  protected recoverDriven(): void {
+    const car = this.seat.carIndex < this.carCount ? this.cars[this.seat.carIndex] : undefined;
+    if (!car) return;
+    car.refreshBasis();
+    const upright = car.group.matrixWorld.elements[5]! > 0.5;
+    if (this.derbyMode && (upright || !car.deform.drivetrainAlive)) return;
+    car.spawnFacing(car.group.position.x, car.group.position.z, Math.atan2(car.fwdFlat.x, car.fwdFlat.z), 0);
+    this.dressCar(car);
+  }
+
+  protected pickCar(clientX: number, clientY: number): void {
+    const rect = this.canvas.getBoundingClientRect();
+    if (rect.width < 2 || rect.height < 2) return;
+    this.ndc.set(((clientX - rect.left) / rect.width) * 2 - 1, -((clientY - rect.top) / rect.height) * 2 + 1);
+    this.raycaster.setFromCamera(this.ndc, this.camera);
+    const roots = this.live().map((c) => c.group);
+    const hits = this.raycaster.intersectObjects(roots, true);
+    for (const hit of hits) {
+      let obj: THREE.Object3D | null = hit.object;
+      while (obj) {
+        const idx = obj.userData.carIndex;
+        if (typeof idx === "number" && idx >= 0 && idx < this.carCount) {
+          if (this.race.active) this.race.watch(idx);
+          else this.seat.focus(idx);
+          this.emitHud();
+          return;
+        }
+        obj = obj.parent;
+      }
+    }
+  }
+
+  /** Follow car `index` (HUD board click). Leaves drive mode; a fresh pedal press takes the wheel again. */
+  watchCar(index: number): void {
+    if (index < 0 || index >= this.carCount) return;
+    if (this.race.active) this.race.watch(index);
+    else this.seat.focus(index);
+    this.emitHud();
+  }
+}
