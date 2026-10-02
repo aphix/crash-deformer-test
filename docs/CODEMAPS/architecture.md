@@ -27,7 +27,7 @@ src/game/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools
 - `rig-spec.ts`, `vehicle-classes.ts`, `race/catalog.ts`, `race/tracks/*.json`: data tables. `race/` rules, campaign, AI, traffic and placements never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
 - `streamed-deform.ts`: owns masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
 - `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop. `engine-cine.ts` and friends read sim state only; the hit-stop is their one sim-side effect (`timeWarp`).
-- `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt.
+- `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt (derby, rigs). The fleet / barrier / balls scenes set `DISC_GROUND`: the same plane inside `DISC_RADIUS` (48 m), and `NO_FLOOR` (-Infinity, grip 0) past it. Every `floor + k` clamp tests `=== NO_FLOOR` first (`car.integrate`, `followGroup`, the `stepStructure` mass loop, `applyDrive`).
 
 ## Per-frame flow (`engine.ts`)
 ```
@@ -43,6 +43,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
  │     deform.stepStructure(h) → syncPose → barrier.clip → afterContacts → clipDerbyCar → race.collide (walls, props)
  │     (rig scenes: stepCompactor / stepPistons / stepDoors instead)
  │   race.step(h) (rules: gates, laps, respawns), cutDrive, bleedAfterSlide
+ ├ stepEdge()                               fleet disc: `edgeAction` (fleet.ts): 2 m below the top a car becomes a fake (`beginFakeFall`: soft body off, ballistic drop + constant spin), 20 m below it vaporizes (`setVaporized`: smoke, hidden, out of the sim), the driven one respawns after 2 s (`respawnOnDisc`)
  ├ scheduleSkins(cars) → car.updateDeform(simDt)   LoD stride / frustum → skin
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
  ├ updatePhase · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step · race.frame
@@ -65,7 +66,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
 | Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `race/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |
 
-Rig scenes (press, pistons, doors) park one car and drive a kinematic striker through `external-contact.ts`. Lamp poles are hit in the fleet / barrier / balls contact loop and hidden in derby. A race hides the sandbox floor and swaps in its course; while a race menu is open the HUD owns the keyboard and pad.
+Rig scenes (press, pistons, doors) park one car and drive a kinematic striker through `external-contact.ts`. Lamp poles are hit in the fleet / barrier / balls contact loop and hidden in derby. A race hides the sandbox floor and swaps in its course; while a race menu is open the HUD owns the keyboard and pad. In the fleet scenes a car driven or shoved past the disc's rim falls under the real sim (`DISC_GROUND`) for 2 m, then as a frozen fake (`car.falling`: no masses, contacts or skin, skipped by the pair loops), shrinks over its last 4 m and vaporizes 20 m down. `car.vaporized` cars skip `integrate` / `updateDeform`, are hidden, and stay gone until reset unless they are the driven car. A followed falling car gets `ChaseCamera.watchFall`: the eye settles at shoulder height just inside the rim and keeps the car centred, then holds. Netplay replicates the fake and vaporize events.
 
 ## Deploy
 Nitro builds either the Vercel preset (`npm run build`) or a `node-server` (`npm run build:node`, `APP_BASE` sub-path). The self-hosted kit in `deploy/` is pull-based: a systemd timer runs `crush-deploy.sh` (fetch `main`, build a release, health-check on a spare port, swap the `current` symlink, restart `crush.service`), and nginx proxies the base path. See `docs/DEPLOY.md`.

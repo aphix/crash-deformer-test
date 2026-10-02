@@ -114,3 +114,44 @@ export function layoutDerby(
   }
   return slots;
 }
+
+/** Fleet disc: a car this far (m) below its top leaves the soft-body sim and falls on as a fake (`beginFakeFall`). */
+export const FAKE_DEPTH = 2;
+/** Fleet disc: a car this far (m) below its top vaporizes into smoke. */
+export const VAPOR_DEPTH = 20;
+/** The driven car is back on the disc this long (s) after vaporizing; AI cars stay gone until reset. */
+export const RESPAWN_S = 2;
+/** Respawn this far (m) out from the disc's centre. */
+const RESPAWN_R = 36;
+
+/**
+ * The fleet disc's edge rule for one car this frame at group height `y`: past `FAKE_DEPTH` the real car
+ * becomes a falling fake, past `VAPOR_DEPTH` it vaporizes; vaporized for `goneFor` s, only the `driven`
+ * car comes back.
+ */
+export function edgeAction(
+  y: number,
+  falling: boolean,
+  vaporized: boolean,
+  driven: boolean,
+  goneFor: number,
+): "fake" | "vaporize" | "respawn" | null {
+  if (vaporized) return driven && goneFor > RESPAWN_S ? "respawn" : null;
+  if (y < -VAPOR_DEPTH) return "vaporize";
+  return !falling && y < -FAKE_DEPTH ? "fake" : null;
+}
+
+/**
+ * Where a car that fell off at (x, z) comes back: `RESPAWN_R` out on the bearing it fell from, facing the
+ * centre, stepped round the ring until `FLEET_MIN_SEP` clear of every car in `others`.
+ */
+export function respawnSlot(x: number, z: number, others: readonly { x: number; z: number }[]): DerbySlot {
+  let a = Math.atan2(x, z);
+  for (let k = 0; k < 24; k++) {
+    const sx = Math.sin(a) * RESPAWN_R;
+    const sz = Math.cos(a) * RESPAWN_R;
+    if (!others.some((o) => Math.hypot(o.x - sx, o.z - sz) < FLEET_MIN_SEP)) break;
+    a += 0.27;
+  }
+  return { x: Math.sin(a) * RESPAWN_R, z: Math.cos(a) * RESPAWN_R, yaw: a + Math.PI, speed: 0 };
+}

@@ -532,6 +532,11 @@ export class TireSmokeSystem {
     this.spawn(origin, inherit, 1, 0.22, 1.5, 0.65);
   }
 
+  /** A car vaporizing below the fleet disc: a big, slow, long puff wherever it is (no ground clamp). */
+  vapour(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
+    this.spawn(origin, inherit, count, 2, 2.6, 0.8, undefined, -Infinity);
+  }
+
   private spawn(
     origin: THREE.Vector3,
     inherit: THREE.Vector3,
@@ -540,13 +545,14 @@ export class TireSmokeSystem {
     life: number,
     rise: number,
     tint?: THREE.Color,
+    floor = 0.08,
   ): void {
     const n = Math.min(this.n, Math.max(0, Math.floor(count)));
     for (let i = 0; i < n; i++) {
       const k = this.cursor;
       this.cursor = (this.cursor + 1) % this.n;
       this.px[k] = origin.x + (Math.random() - 0.5) * 0.35;
-      this.py[k] = Math.max(0.08, origin.y);
+      this.py[k] = Math.max(floor, origin.y);
       this.pz[k] = origin.z + (Math.random() - 0.5) * 0.35;
       this.vx[k] = inherit.x * 0.04 + (Math.random() - 0.5) * 0.22;
       this.vy[k] = rise + Math.random() * 0.7;

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
+import { beginFakeFall, CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch } from "./car-mesh.ts";
 import { bleedAfterSlide, leftoverCrumple, separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
@@ -12,7 +12,7 @@ import { resolveCarPair } from "./pair-contact.ts";
 import { partContactPair } from "./external-contact.ts";
 import { INITIAL_HUD, KNOB_RANGES, publishHud, type CrashPhase } from "./hud-store.ts";
 import type { DeformMode } from "./streamed-deform.ts";
-import { MAX_CARS, fleetClass, fleetStyle, layoutFleet, layoutDerby } from "./fleet.ts";
+import { MAX_CARS, VAPOR_DEPTH, edgeAction, fleetClass, fleetStyle, layoutFleet, layoutDerby, respawnSlot } from "./fleet.ts";
 import type { CarStyleId } from "./car-variants.ts";
 import { assignClass, carClass, CLASSES, damageStage, HANDLING, killTravel, type VehicleClassId } from "./vehicle-classes.ts";
 import { WorldStage, makeLamp, makePoolTexture } from "./engine-world.ts";
@@ -20,6 +20,7 @@ import { Cinematics } from "./engine-cine.ts";
 import { FX_TIERS, type FxTier } from "./engine-post.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround, bounceOffCar } from "./engine-fx.ts";
 import { ChaseCamera, centroid } from "./engine-camera.ts";
+import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "./ground.ts";
 import {
   CompactorPress,
   JerseyBarrier,
@@ -147,6 +148,8 @@ export class CrashEngine {
   private fxPoofed = false;
   private sparkAt = -10;
   private deadSmokeAcc: number[] = [];
+  /** Per car: `elapsedWall` when it vaporized (fleet disc); unset while it is in play. */
+  private vaporAt: number[] = [];
   private readonly lodFrustum = new THREE.Frustum();
   private readonly lodMatrix = new THREE.Matrix4();
   private lodFrame = 0;
@@ -1051,6 +1054,8 @@ export class CrashEngine {
       this.finishResetCommon();
       return;
     }
+    // The fleet's ground ends at the disc's rim; the derby bowl and the rigs keep the endless pad.
+    setGround(this.derbyMode || this.showCompactor || this.showPistons || this.showDoors ? null : DISC_GROUND);
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -1305,6 +1310,7 @@ export class CrashEngine {
     if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
+    this.vaporAt.length = 0;
     this.sparkAt = -10;
     this.fxPoofed = false;
     this.barrier.reset();
@@ -1411,6 +1417,7 @@ export class CrashEngine {
         steps++;
         if (steps >= 2 && performance.now() > budget) break;
       }
+      this.stepEdge();
       this.scheduleSkins(cars);
       for (const car of cars) {
         if (this.net.client) break;
@@ -1663,8 +1670,8 @@ export class CrashEngine {
           if (this.showBarrier && this.barrier.blocksPair(ca, cb)) continue;
           const dx = ca.group.position.x - cb.group.position.x;
           const dz = ca.group.position.z - cb.group.position.z;
-          // Cars on different levels (one on a bridge, one under it) never touch.
-          if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5) continue;
+          // Cars on different levels (one on a bridge, one under it) never touch; nor does a fake falling off the fleet disc.
+          if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5 || ca.falling || cb.falling) continue;
           if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
           partContactPair(ca, cb);
         }
@@ -1699,7 +1706,7 @@ export class CrashEngine {
         for (let a = 0; a < cars.length; a++) {
           for (let b = a + 1; b < cars.length; b++) {
             if (this.showBarrier && this.barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-            if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5) continue;
+            if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5 || cars[a]!.falling || cars[b]!.falling) continue;
             const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
             if (pair) {
               moved = true;
@@ -1946,6 +1953,13 @@ export class CrashEngine {
   private updateCamera(wallDt: number): void {
     if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
     const followed = this.followedCar();
+    // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps
+    // the falling car centred, then holds once it vaporizes.
+    const fp = followed?.group.position;
+    if (followed && fp && (followed.falling || followed.vaporized || (fp.y < -0.01 && activeGround().heightAt(fp.x, fp.z, fp.y) === NO_FLOOR))) {
+      this.view.watchFall(followed, wallDt, followed.vaporized);
+      return;
+    }
     if (followed && followed.group.visible && (this.seat.mode === "drive" || this.race.chase)) {
       this.view.frameDrive(followed, wallDt, this.playing);
       return;
@@ -1974,9 +1988,68 @@ export class CrashEngine {
     this.view.orbit(wallDt, spinRate, this.playing);
   }
 
+  /**
+   * Fleet disc, once per frame after physics: `edgeAction` turns a car `FAKE_DEPTH` below the top into a
+   * falling fake (`beginFakeFall`), vaporizes it at `VAPOR_DEPTH` and brings the driven one back. A falling
+   * fake shrinks away over its last 4 m (also on a netplay client, which mirrors the host's events).
+   */
+  private stepEdge(): void {
+    if (activeGround() !== DISC_GROUND) return;
+    const cars = this.live();
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
+      if (car.falling) car.group.scale.setScalar(0.2 + 0.8 * THREE.MathUtils.clamp((car.group.position.y + VAPOR_DEPTH) / 4, 0, 1));
+      if (this.net.client) continue;
+      const driven = i === this.seat.carIndex && this.seat.mode === "drive";
+      const act = edgeAction(car.group.position.y, car.falling, car.vaporized, driven, this.elapsedWall - (this.vaporAt[i] ?? 0));
+      if (act === "fake") beginFakeFall(car);
+      else if (act === "vaporize") this.setVaporized(i, true);
+      else if (act === "respawn") this.respawnOnDisc(i);
+    }
+  }
+
+  /**
+   * Car `i` bursts into smoke and leaves the sim (`on`): hidden, repaired and frozen where it vanished, so it
+   * costs no physics, skinning or draw calls. `off` puts it back as it stands. Netplay: the host sets it
+   * from `stepEdge`, a client mirrors the host's flag through here.
+   */
+  setVaporized(i: number, on: boolean): void {
+    const car = this.cars[i];
+    if (!car || car.vaporized === on) return;
+    if (on) {
+      car.refreshBasis();
+      const n = Math.max(8, (14 * this.fxDensity) | 0);
+      for (const x of [-0.6, 0.6]) {
+        for (const z of [-1.6, 0, 1.6]) this.smoke.vapour(car.group.localToWorld(_v.set(x, 0.6, z)), car.velocity, n);
+      }
+      car.resetVisual();
+      car.vaporized = true;
+      car.velocity.set(0, 0, 0);
+      car.angular.set(0, 0, 0);
+      this.vaporAt[i] = this.elapsedWall;
+    } else {
+      car.vaporized = false;
+    }
+    car.group.visible = !on && i < this.carCount;
+    this.emitHud(true);
+  }
+
+  /** Car `i` back on the disc (`respawnSlot`: on the bearing it fell from, facing the centre, clear of the others). */
+  respawnOnDisc(i: number): void {
+    const car = this.cars[i];
+    if (!car) return;
+    const others = this.live().filter((c) => c !== car && !c.vaporized).map((c) => c.group.position);
+    const s = respawnSlot(car.group.position.x, car.group.position.z, others);
+    car.spawnFacing(s.x, s.z, s.yaw, 0);
+    car.group.visible = true;
+    this.dressCar(car);
+    this.emitHud(true);
+  }
+
   private bounceWorld = (pos: THREE.Vector3, vel: THREE.Vector3, r: number): void => {
-    bounceGround(pos, vel, r);
-    for (const car of this.live()) bounceOffCar(car, pos, vel, r);
+    // Loose parts and FX past the fleet disc's rim fall on: no ground there.
+    if (activeGround().heightAt(pos.x, pos.z, pos.y) !== NO_FLOOR) bounceGround(pos, vel, r);
+    for (const car of this.live()) if (!car.vaporized) bounceOffCar(car, pos, vel, r);
     if (this.showCompactor) {
       const hz = 0.24;
       const hy = 1.05;
