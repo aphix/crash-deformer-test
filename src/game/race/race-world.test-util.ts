@@ -4,6 +4,7 @@ import { DeformableCar } from "../car.ts";
 import { RaceDirector } from "../engine-race.ts";
 import { partContactPair } from "../external-contact.ts";
 import { fleetClass, fleetStyle } from "../fleet.ts";
+import { INITIAL_HUD } from "../hud-store.ts";
 import { resolveCarPair } from "../pair-contact.ts";
 import { leftoverCrumple } from "../physics-util.ts";
 import { physicsSlice, sliceSpeed } from "../sat.ts";
@@ -53,10 +54,11 @@ export function makeWorld(): World {
       }
       count = n;
     },
+    // The engine's `dressCar` at the sandbox defaults.
     dress: (car) => {
-      car.deform.squash = 0.4;
-      car.deform.buckle = 0.45;
-      car.deform.setMode("shape");
+      car.deform.squash = INITIAL_HUD.squash;
+      car.deform.buckle = INITIAL_HUD.buckle;
+      car.deform.setMode(INITIAL_HUD.deformMode);
       const cls = carClass(car);
       assignClass(car, cls);
       car.deform.killTravel = killTravel(cls, HANDLING.realism);
