@@ -17,7 +17,6 @@ export const TRANSFER: {
 
 export type CrushBands = { yield: number; middle: number; max: number };
 
-export function clamp(n: number, lo: number, hi: number): number;
 export function regionSoftness(name: string): number;
 export function crushGate(closing: number, softness: number): number;
 export function dtImpulseScale(dt: number): number;

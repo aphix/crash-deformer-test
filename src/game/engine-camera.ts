@@ -27,7 +27,7 @@ export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): TH
 }
 
 /** Critically damped spring, exact for any dt: no overshoot, ~98% settled after 6/omega s. */
-export class Spring {
+class Spring {
   x = 0;
   v = 0;
 
@@ -47,7 +47,7 @@ export class Spring {
 }
 
 /** Vector critically damped spring; `v` is relative to whatever frame the caller carries `x` in. */
-export class Spring3 {
+class Spring3 {
   readonly x = new THREE.Vector3();
   readonly v = new THREE.Vector3();
 

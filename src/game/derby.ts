@@ -13,7 +13,7 @@ export const SCORE_GAP = 6;
 /** Bonus for the last hit before an engine dies. */
 export const DISABLE_POINTS = 2;
 const HIT_DEBOUNCE = 2;
-export const WINNER_HOLD = 4.4;
+const WINNER_HOLD = 4.4;
 export const STALEMATE = 90;
 
 /**
@@ -27,7 +27,7 @@ export function heatLimit(count: number): number {
 /** How the winner was decided: last car standing after a wreck or a count-out, or top score at the time limit. */
 export type DerbyDecided = "wreck" | "countout" | "time";
 
-export type DerbyOptions = {
+type DerbyOptions = {
   /** The field's aggression slider: a maximum, each driver rolls its own under it. */
   aggression?: number;
   /** Rolls the field; the same seed gives the same drivers. Default: a new roll every match. */
@@ -56,7 +56,7 @@ export type DerbyBoardRow = {
 /** One car's state for `DerbyMatch.step`. */
 export type DerbyCarFlag = { id: number; name: string; alive: boolean; x: number; z: number };
 
-export type DerbyHud = {
+type DerbyHud = {
   derby: boolean;
   winnerId: number | null;
   winnerName: string | null;

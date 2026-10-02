@@ -16,7 +16,7 @@ import {
 } from "./shape-match.ts";
 import { BEAM_SPECS, CAGES, MASS_SPECS, SENSORS, SHAPE_CLUSTERS, type BodyPartName, type CageSpec, type MassName, type SensorSpec } from "./rig-spec.ts";
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
-import { CRUSH_HULLS, HULLS, type Hull } from "./car-mesh.ts";
+import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 
 /**
  * Burnout-style streamed deformation.

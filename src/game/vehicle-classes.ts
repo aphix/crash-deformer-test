@@ -9,7 +9,7 @@ import type { CarStyleId } from "./car-variants.ts";
 export type VehicleClassId = "sedan" | "muscle" | "truck" | "monster";
 export const VEHICLE_CLASS_IDS: readonly VehicleClassId[] = ["sedan", "muscle", "truck", "monster"];
 
-export interface ClassStats {
+interface ClassStats {
   id: VehicleClassId;
   label: string;
   /** Body mesh this class spawns with. */
@@ -153,9 +153,9 @@ export function carClass(car: { style: { id: CarStyleId } }): VehicleClassId {
 // --- arcade ↔ realistic -----------------------------------------------------
 
 /** Rearward engine travel (m) that kills a sedan at the realistic end: streamed-deform's sourced ENGINE_KILL_TRAVEL. */
-export const REAL_KILL_TRAVEL = 0.15;
+const REAL_KILL_TRAVEL = 0.15;
 /** Arcade-end kill travel (m) for a sedan: three 50 km/h wall hits leave ~0.48 m, the fourth ~0.64 m. */
-export const ARCADE_KILL_TRAVEL = 0.55;
+const ARCADE_KILL_TRAVEL = 0.55;
 /** Worst travel the block reaches by accumulated wrecking (~0.64 m): stay under it so a wreck can still die. */
 const KILL_CEILING = 0.63;
 
@@ -187,7 +187,7 @@ export function armKill(deform: { killTravel: number; wreckEnergy: number }, id:
 }
 
 /** Lateral grip share kept at the realistic end (the arcade end is 1). */
-export const REAL_GRIP = 0.62;
+const REAL_GRIP = 0.62;
 
 export type Assists = {
   /** × class grip. */
@@ -214,7 +214,7 @@ export function assists(realism: number, out: Assists): Assists {
 
 // --- damage → drivability ---------------------------------------------------
 
-export type DamageStage = "healthy" | "dented" | "damaged" | "limping" | "dead";
+type DamageStage = "healthy" | "dented" | "damaged" | "limping" | "dead";
 
 /** Top speed never drops below this share of the class's until the drivetrain dies. */
 export const LIMP_FLOOR = 0.6;

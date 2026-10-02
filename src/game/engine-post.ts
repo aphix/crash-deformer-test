@@ -127,7 +127,7 @@ const TIER: Record<PostTier, TierSpec> = {
 const CHAIN = 5;
 
 /** Look shared by both post tiers (tuned against the studio env at exposure 1.45). `contrast` is the S-curve mix. */
-export const GRADE = { bloom: 0.45, threshold: 1.6, scatter: 0.8, vignette: 0.55, saturation: 1.12, contrast: 0.22 };
+const GRADE = { bloom: 0.45, threshold: 1.6, scatter: 0.8, vignette: 0.55, saturation: 1.12, contrast: 0.22 };
 
 const _size = new THREE.Vector2();
 

@@ -18,7 +18,7 @@ const _cz = new Float64Array(SPLIT_HULLS);
 /** satTwoHulls' overlap: a returned double was boxed on every hull pair. */
 const _overlap = new Float64Array(1);
 
-export function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
+function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
   const p = car.group.position;
   out.set(
     p.x + car.rightFlat.x * h.cx + car.fwdFlat.x * h.cz,
@@ -161,7 +161,7 @@ export function clipCarToBarrier(
 }
 
 /** Whether the hulls overlap; the depth goes to `_overlap[0]`, the axis (b → a) to `_mtv`. */
-export function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): boolean {
+function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): boolean {
   hullCenter(a, ha, _ha);
   hullCenter(b, hb, _hb);
   let minOverlap = Infinity;

@@ -19,7 +19,7 @@ import { carClass, classStats } from "./vehicle-classes.ts";
 import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions } from "./race/types.ts";
 
 /** What the director needs from `CrashEngine`. */
-export interface RaceHost {
+interface RaceHost {
   readonly scene: THREE.Scene;
   readonly camera: THREE.PerspectiveCamera;
   readonly sun: THREE.DirectionalLight;

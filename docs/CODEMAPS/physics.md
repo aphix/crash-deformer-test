@@ -45,7 +45,7 @@ Müller 2005 meshless shape matching on `ShapeCluster`s:
 - `door-rig.ts`: `DoorRig` (`attach`, `fire(scenario, side)`, `phase` idle / run), `DOOR_SCENARIOS` `mirror` (A) / `overOpen` (B) / `shut` (C), `DOOR_LANES`, `RAM_DEFAULTS`; the headless shot `fireRam` is in `door-rig.test-util.ts`. The ram is a striker box run through `external-contact.ts`; `engine-doors.ts` `DoorRam` only draws it. See `docs/DOOR_RIG.md`.
 
 ## Contact
-- `sat.ts`: `physicsSlice(dt, vmax)` (anti-tunnelling step), `sliceSpeed(cars)`, `satCarBarrier`, `clipCarToBarrier`, `satTwoHulls`, `satCars`; hulls from `car-mesh.ts` (`HULLS`, `CRUSH_HULLS`).
+- `sat.ts`: `physicsSlice(dt, vmax)` (anti-tunnelling step), `sliceSpeed(cars)`, `satCarBarrier`, `clipCarToBarrier`, `satTwoHulls`, `satCars`; hulls from `hulls.ts` (`HULLS`, `CRUSH_HULLS`).
 - `pair-contact.ts`: `resolveCarPair(carA, carB, feed, dt): PairHit | null`, `impulseCar`, `pushCar`. `world-step.ts`: `stepWorld(world, dt)`, the one fixed step (engine and every harness), and `warmCrashPath`.
 - `engine-props.ts`: `JerseyBarrier.resolve/clip/blocksPair`, `resolveRampBalls`, `resolveLampPoles`, `StrongestContact`.
 - `external-contact.ts`: the shared striker contact (`ContactBox`, `partContact` door/mirror colliders, `bodyContact`, `strikeEbs`, `partContactPair` car-car hook after `collideWith`); `DeformableCar.noteContactEnd` squeeze rule. `compactor.ts`: `CompactorRig` (plates as kinematic striker boxes on the parked car), `compactorStage`. `piston-rig.ts`: `PistonRig`; the shot harness (`firePiston(car, id, shot)`, `pistonLocality`, `fitRigid`) is in `piston-rig.test-util.ts`. See `docs/CONTACT_PARITY.md`.

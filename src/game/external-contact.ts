@@ -41,7 +41,7 @@ export function makeBox(): ContactBox {
  * striker, M = ∞, gives μ = m). For two cars of the same structure the share is M/(m+M), which is
  * pair-contact's closing·M/(m+M).
  */
-export function strikeEbs(closing: number, strikerKg: number, carKg: number, hardness: number): number {
+function strikeEbs(closing: number, strikerKg: number, carKg: number, hardness: number): number {
   const share = Number.isFinite(strikerKg) ? strikerKg / (strikerKg + carKg) : 1;
   return closing * Math.sqrt(share * hardness);
 }
@@ -131,7 +131,7 @@ export function bodyContact(car: DeformableCar, box: ContactBox, dt: number, cru
 }
 
 /** A car's body as a striker: its rest bounds (`CAR_HALF`), heading, velocity and mass. */
-export function carBox(car: DeformableCar, out: ContactBox): ContactBox {
+function carBox(car: DeformableCar, out: ContactBox): ContactBox {
   const p = car.group.position;
   out.x = p.x;
   out.y = p.y + CAR_HALF.y;
@@ -174,7 +174,7 @@ const PARALLEL = 0.966;
 const DOOR_RESTITUTION = 0.2;
 
 /** Result of the last `partContact` (reused, read it before the next call). */
-export const partHit = {
+const partHit = {
   /** The striker met a door or a mirror. */
   touched: false,
   /** Speed the striker lost along its travel (m/s). */
