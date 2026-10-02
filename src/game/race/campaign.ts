@@ -14,11 +14,11 @@ export class Campaign {
   private readonly rows: CampaignRow[];
   private readonly entry: Map<number, number>;
 
-  /** `entrants` in round-1 grid order. */
+  /** `entrants` in round-1 grid order; each keeps its aggression for every round. */
   constructor(tracks: readonly string[], entrants: readonly Entrant[]) {
     if (tracks.length === 0) throw new Error("a campaign needs at least one track");
     this.tracks = tracks;
-    this.rows = entrants.map((e) => ({ id: e.id, name: e.name, kind: e.kind, points: 0, wins: 0, places: [] }));
+    this.rows = entrants.map((e) => ({ id: e.id, name: e.name, kind: e.kind, aggression: e.aggression, points: 0, wins: 0, places: [] }));
     this.entry = new Map(entrants.map((e, i) => [e.id, i]));
   }
 
@@ -28,7 +28,7 @@ export class Campaign {
       snap.tracks,
       snap.entry.map((id) => {
         const r = byId.get(id)!;
-        return { id, name: r.name, kind: r.kind, aggression: 0 };
+        return { id, name: r.name, kind: r.kind, aggression: r.aggression };
       }),
     );
     c.round = snap.round;

@@ -9,13 +9,14 @@ import { impulseCar } from "./pair-contact.ts";
 import { Campaign } from "./race/campaign.ts";
 import { SURFACES } from "./race/catalog.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "./race/placements.ts";
-import { RaceBrain, onSurface } from "./race/race-ai.ts";
+import { RaceBrain, fieldAggression, onSurface } from "./race/race-ai.ts";
 import { RaceSession } from "./race/session.ts";
-import { TrafficBrain } from "./race/traffic.ts";
-import { TrackArt } from "./race/track-art.ts";
+import { DORMANT, TrafficBrain } from "./race/traffic.ts";
+import type { TrackArt } from "./race/track-art.ts";
 import { parseTrack } from "./race/track-schema.ts";
 import { Track, blankProjection } from "./race/track.ts";
 import { CAMPAIGN, TRACKS } from "./race/tracks/index.ts";
+import { carClass, classStats } from "./vehicle-classes.ts";
 import {
   DEFAULT_RACE_OPTIONS,
   type CarPose,
@@ -44,6 +45,8 @@ export interface RaceHost {
   leave(): void;
   /** Sparks / debris at a wall or prop hit. */
   hitFx(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
+  /** The course's art (null headless: rules, AI, contacts and physics run without it). */
+  buildArt(track: Track, placed: readonly Placed[]): TrackArt | null;
 }
 
 /** The car this browser drives. */
@@ -52,10 +55,13 @@ const PLAYER = 0;
 const FLIP_DEAD = 2.5;
 /** Seconds an AI car sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
-/** Seconds a dead traffic car stays put before it is respawned well away from every racer. */
-const TRAFFIC_RESPAWN = 6;
-/** A respawned traffic car lands at least this far (m) from every other car. */
-const TRAFFIC_CLEAR = 60;
+/** Seconds a dead traffic car stays put before the bubble puts it away. */
+const TRAFFIC_DEAD = 6;
+/** Where put-away traffic waits (far off every course). */
+const PARK_X = 4000;
+const PARK_Z = 4000;
+/** Seconds between traffic-bubble passes. */
+const BUBBLE_EVERY = 0.25;
 /** Seconds the finish card shows before the results menu. */
 const RESULTS_DELAY = 2.5;
 /** Wall restitution and the closing speed (m/s) that crumples a car on a wall. */
@@ -96,6 +102,17 @@ export class RaceDirector {
   active = false;
   menu: RaceMenu = null;
   options: RaceOptions = { ...DEFAULT_RACE_OPTIONS };
+  /** Full sandbox HUD and hotkeys (true) or the race focus view (false). */
+  fullUi = false;
+  /** Bumped per new field so each race rolls fresh rival aggression. */
+  private seed = 0;
+  /** Traffic cars put away by the observer bubble. */
+  private readonly dormant = new Uint8Array(MAX_CARS);
+  private bubbleAcc = 0;
+  private readonly observers: AiCar[] = [];
+  private readonly viewProj = new THREE.Matrix4();
+  private readonly frustum = new THREE.Frustum();
+  private readonly sphere = new THREE.Sphere();
   private readonly host: RaceHost;
   private readonly courses: { id: string; name: string; blurb: string }[];
   private readonly tracks = new Map<string, Track>();
@@ -107,7 +124,7 @@ export class RaceDirector {
   private session: RaceSession | null = null;
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
   private traffic: TrafficBrain | null = null;
-  /** Seconds a traffic car has been dead (respawned out of sight after `TRAFFIC_RESPAWN`). */
+  /** Seconds a traffic car has been dead (put away after `TRAFFIC_DEAD`). */
   private readonly deadFor = new Float64Array(MAX_CARS);
   private brain: RaceBrain | null = null;
   private campaign: Campaign | null = null;
@@ -222,6 +239,9 @@ export class RaceDirector {
         return;
       case "retry":
         if (this.track && this.session) this.start(this.track.id, this.grid);
+        return;
+      case "fullUi":
+        this.fullUi = cmd.on;
         return;
       case "next":
         this.next();
@@ -342,9 +362,11 @@ export class RaceDirector {
     const traffic = this.traffic;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
-      const surf = SURFACES[ground.surfaceAt(car.group.position.x, car.group.position.z)];
+      const p = car.group.position;
+      const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
       if (i >= racers) {
-        applyDrive(car, onSurface(traffic ? traffic.think(snaps[i]!, snaps, dt) : this.hold, surf, this.scratch), dt);
+        const input = traffic && !this.dormant[i] ? traffic.think(snaps[i]!, snaps, dt) : this.hold;
+        applyDrive(car, onSurface(input, surf, this.scratch), dt);
         continue;
       }
       const rec = s.cars[this.rowOf[i]!]!;
@@ -369,7 +391,7 @@ export class RaceDirector {
   /** End of a physics slice, per car: walls and props. */
   collide(car: DeformableCar, i: number): void {
     const tr = this.track;
-    if (!tr) return;
+    if (!tr || this.dormant[i]) return;
     const p = car.group.position;
     const proj = tr.project(p.x, p.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
@@ -385,9 +407,10 @@ export class RaceDirector {
     const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
+      if (this.dormant[i]) continue;
       const alive = this.judge(i, car, dt, racing);
       if (i >= this.entrants.length) {
-        this.trafficRespawn(i, car, alive, dt);
+        this.deadFor[i] = alive ? 0 : this.deadFor[i]! + dt;
         continue;
       }
       const pose = this.poses[this.rowOf[i]!]!;
@@ -400,6 +423,11 @@ export class RaceDirector {
     }
     s.step(dt, this.poses);
     this.drain();
+    this.bubbleAcc += dt;
+    if (this.bubbleAcc >= BUBBLE_EVERY) {
+      this.bubbleAcc = 0;
+      this.bubble();
+    }
   }
 
   /** Once per rendered frame. */
@@ -490,6 +518,7 @@ export class RaceDirector {
       results: s && s.phase === "finished" ? s.results() : null,
       campaign: this.campaign ? this.campaign.snapshot() : null,
       nextCourse: this.nextCourseName(),
+      fullUi: this.fullUi,
     };
   }
 
@@ -530,7 +559,17 @@ export class RaceDirector {
         this.toSetup();
         return;
       }
+      this.pegCampaign();
       this.start(this.campaign.trackId!, this.campaign.grid());
+    }
+  }
+
+  /** Each rival keeps the aggression it rolled when the campaign began. */
+  private pegCampaign(): void {
+    if (!this.campaign) return;
+    for (const r of this.campaign.standings()) {
+      const e = this.entrants[r.id];
+      if (e) e.aggression = r.aggression;
     }
   }
 
@@ -550,15 +589,16 @@ export class RaceDirector {
     return id ? (this.courses.find((c) => c.id === id)?.name ?? null) : null;
   }
 
-  /** Player plus `aiCount` AI cars; ids are car indices, the player is car 0. */
+  /** Player plus `aiCount` AI cars; ids are car indices, the player is car 0. Each rival rolls its aggression in [0, slider]. */
   private field(): Entrant[] {
     const n = this.options.aiCount + 1;
     this.host.setCarCount(n);
     const cars = this.host.live();
+    this.seed++;
     return cars.map((car, i) =>
       i === PLAYER
         ? { id: i, name: "You", kind: "player", aggression: 0 }
-        : { id: i, name: car.paint.name, kind: "ai", aggression: clamp(this.options.aggression + (hash01(i, 3) - 0.5) * 0.3, 0, 1) },
+        : { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) },
     );
   }
 
@@ -574,34 +614,36 @@ export class RaceDirector {
     // Quitting to the menu comes back to the course just raced.
     this.options.trackId = tr.id;
     const racers = this.entrants.length;
-    const tcount = Math.min(tr.json.traffic?.count ?? 0, MAX_CARS - racers);
+    const traffic = tr.json.traffic ? new TrafficBrain(tr, racers) : null;
+    const tcount = traffic ? Math.min(traffic.count, MAX_CARS - racers) : 0;
+    this.traffic = tcount > 0 ? traffic : null;
     this.host.setCarCount(racers + tcount);
     this.grid = [...grid];
     const ordered = this.grid.map((id) => this.entrants[id]!);
     this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: this.options.noReset });
     this.brain = new RaceBrain(tr, racers);
-    this.traffic = tcount > 0 ? new TrafficBrain(tr, racers) : null;
     const n = racers + tcount;
     while (this.snaps.length < n) this.snaps.push(blankAiCar(this.snaps.length));
     while (this.poses.length < racers) this.poses.push({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true });
     this.snaps.length = n;
     this.poses.length = racers;
     const cars = this.host.live();
+    this.dormant.fill(0);
+    this.deadFor.fill(0);
     if (this.traffic) {
-      this.traffic.spawns(tcount).forEach((spot, k) => {
+      this.traffic.spawns().slice(0, tcount).forEach((spot, k) => {
         const car = cars[racers + k]!;
-        car.spawnFacing(spot.x, spot.z, spot.yaw, 0);
-        this.host.dress(car);
+        car.group.visible = true;
+        this.place(car, spot.x, spot.z, spot.yaw, spot.y);
       });
     }
-    this.deadFor.fill(0);
     this.grid.forEach((id, k) => {
       this.rowOf[id] = k;
       const slot = tr.gridSlot(k);
       const car = cars[id]!;
-      car.spawnFacing(slot.x, slot.z, slot.yaw, 0);
-      this.host.dress(car);
+      this.place(car, slot.x, slot.z, slot.yaw, slot.y);
       this.brain!.setAggression(id, this.entrants[id]!.aggression);
+      this.brain!.setClass(id, classStats(carClass(car)));
     });
     this.seg.fill(-1);
     this.flipFor.fill(0);
@@ -638,14 +680,13 @@ export class RaceDirector {
     this.grid.forEach((id, k) => {
       this.rowOf[id] = k;
       const slot = tr.gridSlot(k);
-      cars[id]!.spawnFacing(slot.x, slot.z, slot.yaw, 0);
-      this.host.dress(cars[id]!);
+      this.place(cars[id]!, slot.x, slot.z, slot.yaw, slot.y);
     });
   }
 
   /** Build (or reuse) the course: art, colliders, sky, fog, far plane, ground. */
   private load(trackId: string): Track {
-    if (this.track?.id === trackId && this.art) return this.track;
+    if (this.track?.id === trackId) return this.track;
     this.unload();
     let tr = this.tracks.get(trackId);
     if (!tr) {
@@ -657,8 +698,8 @@ export class RaceDirector {
     this.placed = placeProps(tr);
     this.colliders = propColliders(this.placed);
     this.knocked = new Uint8Array(this.placed.length);
-    this.art = new TrackArt(tr, this.placed);
-    this.host.scene.add(this.art.group);
+    this.art = this.host.buildArt(tr, this.placed);
+    if (this.art) this.host.scene.add(this.art.group);
     const env = tr.json.environment;
     const sky = new THREE.Color(env.sky);
     this.host.scene.background = sky;
@@ -691,8 +732,9 @@ export class RaceDirector {
       if (e.type === "respawn") {
         const car = cars[e.id];
         if (!car) continue;
-        car.spawnFacing(e.x, e.z, e.yaw, 0);
-        this.host.dress(car);
+        // Back on the layer it was racing on (decks): the path height where it went down.
+        const k = this.track!.project(e.x, e.z, this.seg[e.id]!, this.proj).k;
+        this.place(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
         this.brain?.respawned(e.id);
         this.seg[e.id] = -1;
         this.flipFor[e.id] = 0;
@@ -705,27 +747,67 @@ export class RaceDirector {
     }
   }
 
-  /** A traffic car dead for a while is quietly put back in its lane far from everyone. */
-  private trafficRespawn(i: number, car: DeformableCar, alive: boolean, dt: number): void {
+  /**
+   * Traffic bubble round the observers (every racer still on track): cars far from all of them, dead
+   * for a while, or off the end of an open street are put away; put-away cars wake on their lane
+   * out of the local player's view.
+   */
+  private bubble(): void {
     const traffic = this.traffic;
     if (!traffic) return;
-    this.deadFor[i] = alive ? 0 : this.deadFor[i]! + dt;
-    if (this.deadFor[i]! < TRAFFIC_RESPAWN) return;
     const cars = this.host.live();
-    for (let k = 0; k < cars.length; k++) {
-      const c = cars[k]!;
-      const sn = this.snaps[k]!;
-      sn.x = c.group.position.x;
-      sn.z = c.group.position.z;
+    const racers = this.entrants.length;
+    const observers = this.observers;
+    observers.length = 0;
+    for (let i = 0; i < racers; i++) {
+      const st = this.session?.cars[this.rowOf[i]!]?.status;
+      if (st === "racing" || st === "respawning") observers.push(this.snaps[i]!);
     }
-    const spot = traffic.respawn(i, this.snaps, TRAFFIC_CLEAR);
-    car.spawnFacing(spot.x, spot.z, spot.yaw, 0);
-    this.host.dress(car);
-    traffic.respawned(i);
-    this.seg[i] = -1;
+    if (observers.length === 0) return;
+    for (let i = racers; i < cars.length; i++) {
+      const car = cars[i]!;
+      if (this.dormant[i]) {
+        const spot = traffic.spawnPoint(i, observers, this.snaps, this.seen);
+        if (!spot) continue;
+        this.dormant[i] = 0;
+        car.group.visible = true;
+        this.place(car, spot.x, spot.z, spot.yaw, spot.y);
+        traffic.respawned(i);
+        continue;
+      }
+      const p = car.group.position;
+      let near = Infinity;
+      for (const o of observers) near = Math.min(near, Math.hypot(o.x - p.x, o.z - p.z));
+      if (near > DORMANT || this.deadFor[i]! > TRAFFIC_DEAD || traffic.atEnd(i, p.x, p.z)) this.putAway(i, car);
+    }
+  }
+
+  /** Park a traffic car off the course, hidden and still, until the bubble wakes it. */
+  private putAway(i: number, car: DeformableCar): void {
+    this.dormant[i] = 1;
     this.deadFor[i] = 0;
-    this.flipFor[i] = 0;
-    this.stillFor[i] = 0;
+    car.spawnFacing(PARK_X + i * 12, PARK_Z, 0, 0);
+    car.group.visible = false;
+    this.snaps[i]!.x = PARK_X + i * 12;
+    this.snaps[i]!.z = PARK_Z;
+  }
+
+  /** True when (x, z) is inside the local camera's view (traffic never pops in there). */
+  private readonly seen = (x: number, z: number): boolean => {
+    const cam = this.host.camera;
+    cam.updateMatrixWorld();
+    this.viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
+    this.frustum.setFromProjectionMatrix(this.viewProj);
+    _c.set(x, (this.track?.ground().heightAt(x, z) ?? 0) + 0.8, z);
+    this.sphere.set(_c, 3);
+    return this.frustum.intersectsSphere(this.sphere);
+  };
+
+  /** Spawn a car at (x, z) facing `yaw`, standing on the ground layer nearest `y`, dressed. */
+  private place(car: DeformableCar, x: number, z: number, yaw: number, y: number): void {
+    car.spawnFacing(x, z, yaw, 0);
+    car.group.position.y = this.track ? this.track.ground().heightAt(x, z, y + 0.5) : 0;
+    this.host.dress(car);
   }
 
   /** Alive for the rules: running engine, not upside down for long, AI not parked for long. */

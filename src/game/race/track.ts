@@ -88,7 +88,8 @@ export function blankPoint(): TrackPoint {
 
 export type WallHit = { x: number; z: number; nx: number; nz: number; k: number };
 
-export type Placement = { x: number; z: number; yaw: number };
+/** A spot on the course: position (y = the path's height there, for picking the ground layer) and heading. */
+export type Placement = { x: number; y: number; z: number; yaw: number };
 
 function wrapPi(a: number): number {
   return a - Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
@@ -496,7 +497,7 @@ export class Track {
     const s = this.length - g.back - row * g.spacing - (col * g.spacing) / g.perRow;
     const pt = this.pointAt(s, this.pt);
     const lat = g.perRow === 1 ? 0 : (0.5 - col / (g.perRow - 1)) * 2 * pt.half * 0.55;
-    return { x: pt.x + pt.tz * lat, z: pt.z - pt.tx * lat, yaw: Math.atan2(pt.tx, pt.tz) };
+    return { x: pt.x + pt.tz * lat, y: pt.y, z: pt.z - pt.tx * lat, yaw: Math.atan2(pt.tx, pt.tz) };
   }
 
   /**
