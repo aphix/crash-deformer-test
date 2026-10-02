@@ -243,6 +243,29 @@ interface Beam {
 /** Masses the solver reads by role every step; resolved once in the constructor. */
 type KeyMass = "cell" | "engineL" | "engineR" | "axleR" | "doorL" | "doorR" | "hubFL" | "hubFR" | "hubRL" | "hubRR" | "bumperFL" | "bumperFR" | "bumperRL" | "bumperRR";
 
+/** Netplay state of one car's deformation (docs/MULTIPLAYER.md), preallocated from `netSizes()`. */
+export interface DeformNetState {
+  /** masses × 3: each control particle's current body-frame position (the hulls read these). */
+  readonly local: Float32Array;
+  /** masses × 3: the particles as of the last skin bake (`massPos`). */
+  readonly skinPos: Float32Array;
+  /** clusters × 9: each shape cluster's skin map `skinM` at the last bake, row-major. */
+  readonly skinXf: Float32Array;
+  /** sensors: compression (m). */
+  readonly sensor: Float32Array;
+  /** 9: impactLocal xyz, impactInward xyz, wrinkle amplitude (ramp applied), buckle, squash. */
+  readonly impact: Float32Array;
+  /** Bit i: masses[i] popped now (hubs are 16–19); wheels follow these. */
+  popped: number;
+  /** Bit i: masses[i] popped at the last bake; the skin's wheel arches follow these. */
+  skinPopped: number;
+  /** 1 massActive, 2 drivetrainAlive (now); 4 deepCrush, 8 bidirectional, 16 lattice mode (at the last bake). */
+  flags: number;
+  /** Rearward engine-block travel (m) and the travel that kills it (class × realism): `drivetrainHealth`. */
+  engineTravel: number;
+  killTravel: number;
+}
+
 export class StreamedDeformation {
   readonly cageCount: number;
   readonly sensorCount: number;
@@ -381,6 +404,12 @@ export class StreamedDeformation {
   private resW = new Float64Array(0);
   private resC = new Float64Array(0);
   private massPos = new Float64Array(0);
+  /** Netplay: skin inputs as of the last bake (`bakeLocalSkin`), read by `readNetState`. Kept apart
+   *  because the post-contact shape-rest rebase resets every cluster's `skinM` under a frozen skin. */
+  private netSkinXf = new Float64Array(0);
+  private readonly netImpact = new Float64Array(9);
+  private netPopped = 0;
+  private netFlags = 0;
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -620,6 +649,7 @@ export class StreamedDeformation {
     this.resC = new Float64Array(points * 3);
     this.massPos = new Float64Array(this.masses.length * 3);
     this.clusterXf = new Float64Array(this.clusters.length * 9);
+    this.netSkinXf = new Float64Array(this.clusters.length * 9);
     const cms = this.clusters.map((c) => {
       let x = 0,
         y = 0,
@@ -1834,7 +1864,7 @@ export class StreamedDeformation {
       this.crushAmount = maxC;
       this.wrinkleAmp = THREE.MathUtils.clamp(maxC * (0.2 + this.buckle * 0.5), 0, 0.18 + this.buckle * 0.5);
 
-      if (this.mode === "shape") this.bakeLocalSkin();
+      this.bakeLocalSkin();
       this.solveCages();
       if (this.skinDeferred) this.skinOwed = true;
       else this.flushSkin(geometry, true);
@@ -2786,10 +2816,11 @@ export class StreamedDeformation {
    * least-squares maps of rest onto the current local particles (SKIN_STRAIN of the strain,
    * plastic Sp composed in) on its short offset from those parents. The paint rides the
    * particles, so a dent is as deep as they went; the clusters add the region's rotation and
-   * strain. The masses' positions are captured here, so a deferred skin flushes this solve's pose.
+   * strain. The masses' positions are captured here, so a deferred skin flushes this solve's pose
+   * (lattice mode captures only the positions: netplay re-solves its cages from them).
    */
   private bakeLocalSkin(): void {
-    for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, SKIN_STRAIN);
+    if (this.mode === "shape") for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, SKIN_STRAIN);
     const pos = this.massPos;
     for (let j = 0, r = 0; j < this.masses.length; j++, r += 3) {
       const p = this.masses[j]!.local;
@@ -2797,6 +2828,17 @@ export class StreamedDeformation {
       pos[r + 1] = p.y;
       pos[r + 2] = p.z;
     }
+    for (let c = 0; c < this.clusters.length; c++) this.netSkinXf.set(this.clusters[c]!.skinM, c * 9);
+    const im = this.netImpact;
+    this.impactLocal.toArray(im, 0);
+    this.impactInward.toArray(im, 3);
+    im[6] = this.wrinkleAmp * Math.min(1, this.elapsed * 6);
+    im[7] = this.buckle;
+    im[8] = this.squash;
+    let popped = 0;
+    for (let i = 0; i < this.masses.length; i++) if (this.masses[i]!.popped) popped |= 1 << i;
+    this.netPopped = popped;
+    this.netFlags = (this.deepCrush ? 4 : 0) | (this.bidirectional ? 8 : 0) | (this.mode === "lattice" ? 16 : 0);
   }
 
   /** `clusterXf` ← each cluster's skin map M (row-major 9). */
@@ -3098,6 +3140,85 @@ export class StreamedDeformation {
     computeNormalsFast(geometry);
     this.dirty = true;
     this.skinnedThisFrame = true;
+  }
+
+  /** Netplay: array sizes for a `DeformNetState` (fixed by the rig). */
+  netSizes(): { masses: number; clusters: number; sensors: number } {
+    return { masses: this.masses.length, clusters: this.clusters.length, sensors: this.sensors.length };
+  }
+
+  /** Netplay host: the skin inputs as of the last bake, plus the current particles (the hulls) and flags. */
+  readNetState(out: DeformNetState): void {
+    let popped = 0;
+    for (let i = 0, r = 0; i < this.masses.length; i++, r += 3) {
+      const m = this.masses[i]!;
+      out.local[r] = m.local.x;
+      out.local[r + 1] = m.local.y;
+      out.local[r + 2] = m.local.z;
+      if (m.popped) popped |= 1 << i;
+    }
+    out.popped = popped;
+    out.skinPos.set(this.massPos);
+    out.skinXf.set(this.netSkinXf);
+    for (let s = 0; s < this.sensors.length; s++) out.sensor[s] = this.sensors[s]!.compression;
+    out.impact.set(this.netImpact);
+    out.skinPopped = this.netPopped;
+    out.flags = (this.massActive ? 1 : 0) | (this.drivetrainAlive ? 2 : 0) | this.netFlags;
+    out.engineTravel = this.engineTravel;
+    out.killTravel = this.killTravel;
+  }
+
+  /**
+   * Netplay client: take the host's state and re-skin from it. No physics: the cages and skin are
+   * solved from the baked inputs exactly as the host's last skin was, then `local` is set to the
+   * host's current particles (the hulls) and `world` follows `group`. Allocation-free.
+   */
+  writeNetState(src: DeformNetState, group: THREE.Object3D, geometry: THREE.BufferGeometry): void {
+    const f = src.flags;
+    this.massActive = (f & 1) !== 0;
+    this.drivetrainAlive = (f & 2) !== 0;
+    this.engineTravel = src.engineTravel;
+    this.killTravel = src.killTravel;
+    this.deepCrush = (f & 4) !== 0;
+    this.bidirectional = (f & 8) !== 0;
+    this.mode = (f & 16) !== 0 ? "lattice" : "shape";
+    const im = src.impact;
+    this.impactLocal.set(im[0]!, im[1]!, im[2]!);
+    this.impactInward.set(im[3]!, im[4]!, im[5]!);
+    this.wrinkleAmp = im[6]!;
+    this.buckle = im[7]!;
+    this.squash = im[8]!;
+    // Saturates the wrinkle and lattice ramps: the host's value already carries its ramp.
+    this.elapsed = Math.max(this.elapsed, 1);
+    let maxC = 0;
+    for (let s = 0; s < this.sensors.length; s++) {
+      const c = src.sensor[s]!;
+      this.sensors[s]!.compression = c;
+      if (c > maxC) maxC = c;
+    }
+    this.crushAmount = maxC;
+    this.massPos.set(src.skinPos);
+    for (let c = 0; c < this.clusters.length; c++) {
+      const m = this.clusters[c]!.skinM;
+      for (let k = 0, o = c * 9; k < 9; k++) m[k] = src.skinXf[o + k]!;
+    }
+    for (let i = 0, r = 0; i < this.masses.length; i++, r += 3) {
+      const m = this.masses[i]!;
+      m.local.set(src.skinPos[r]!, src.skinPos[r + 1]!, src.skinPos[r + 2]!);
+      m.popped = (src.skinPopped & (1 << i)) !== 0;
+    }
+    // Skinned now, LoD or not: a deferred flush would read the hubs after they move on below.
+    this.solveCages();
+    this.flushSkin(geometry, true);
+    this.skinOwed = false;
+    group.updateWorldMatrix(false, false);
+    for (let i = 0, r = 0; i < this.masses.length; i++, r += 3) {
+      const m = this.masses[i]!;
+      m.local.set(src.local[r]!, src.local[r + 1]!, src.local[r + 2]!);
+      m.popped = (src.popped & (1 << i)) !== 0;
+      m.world.copy(m.local).applyMatrix4(group.matrixWorld);
+      m.vel.set(0, 0, 0);
+    }
   }
 }
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Hud } from "@/components/hud";
+import { NetPanel } from "@/components/net-panel";
 import type { CrashEngine } from "@/game/engine";
 import { getHudSnapshot, subscribeHud } from "@/game/hud-store";
 
@@ -53,6 +54,7 @@ export function CrashLab() {
           {bootError}
         </p>
       ) : null}
+      <NetPanel engine={engineRef} />
       <Hud
         state={hud}
         onReset={() => engineRef.current?.reset()}
