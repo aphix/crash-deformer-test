@@ -8,11 +8,11 @@ import { derbyRadius } from "./derby-arena.ts";
  * Measured (10 cars, seeds 1–3): tops 10–13 at 2 min, medians 4–6; 2 m/s / 2 s read 15–21.
  */
 export const HIT_POINTS = 1;
-export const SCORE_SPEED = 4;
+const SCORE_SPEED = 4;
 export const SCORE_GAP = 6;
 /** Bonus for the last hit before an engine dies. */
 export const DISABLE_POINTS = 2;
-export const HIT_DEBOUNCE = 2;
+const HIT_DEBOUNCE = 2;
 export const WINNER_HOLD = 4.4;
 export const STALEMATE = 90;
 

@@ -5,12 +5,14 @@ the game grows. The game is meant to be *correctly wobbly*: these rules govern s
 correctness. They never pin a physics number, a feel, or an experiment (section 7).
 
 Every rule that can be counted has a check in `scripts/check-boundaries.mjs`. A check prints a count; **a non-zero count is a
-defect to fix, never a baseline to allow.** The checks are not wired into a gate yet: each one joins the commit gate the day
-its count reaches 0 (section 9 has today's counts).
+defect to fix, never a baseline to allow.** Until a check reaches 0 it is held by a ratchet: `scripts/boundary-caps.json` caps
+every count at its value when the cap was set, `npm run check:boundaries` fails when a count rises above its cap, and the commit
+that lowers a count lowers its cap. A check at 0 is then gated at 0 (section 9 has the counts these rules started from).
 
 ```
-node scripts/check-boundaries.mjs          # one count per check, exit 1 if any is non-zero
-node scripts/check-boundaries.mjs --list   # every violation as file:line
+node scripts/check-boundaries.mjs            # one count per check, exit 1 if any is non-zero
+node scripts/check-boundaries.mjs --list     # every violation as file:line
+npm run check:boundaries                     # ratchet: exit 1 only if a count rises above scripts/boundary-caps.json
 node scripts/dup-scan.mjs [--renamed]      # clone report (docs/audit/DUPLICATION.md)
 ```
 
