@@ -57,8 +57,11 @@ test("non-.sql entries are dropped (readdir also yields the auth/ directory)", (
 });
 
 test("the auth schema ships outside the globbed directory", () => {
+  // App migrations (e.g. 0002_webrtc_signaling.sql) may sit at the top level; the auth schema
+  // under auth/ must not be globbed unless sign-in has copied it up (checked below).
   const migrationsDir = join(projectRoot(), "migrations");
-  assert.deepEqual(pendingMigrations(readdirSync(migrationsDir), []), []);
+  const globbed = pendingMigrations(readdirSync(migrationsDir), []).map((m) => m.name);
+  if (authSchemaCopy(projectRoot()) === null) assert.ok(!globbed.includes("0001_auth.sql"));
   assert.ok(readdirSync(join(migrationsDir, "auth")).includes("0001_auth.sql"));
 });
 
