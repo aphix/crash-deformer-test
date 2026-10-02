@@ -18,8 +18,8 @@ export function DerbyBoard({ board, onWatch }: { board: CrashHudState["derbyBoar
               aria-label={`Follow ${row.name}`}
               className={`flex w-full items-baseline justify-between gap-2 rounded px-1.5 py-0.5 text-left font-display text-sm hover:bg-surface-2 ${row.watched ? "bg-surface-2" : ""}`}
             >
-              <span className={row.alive ? "text-fg" : "text-subtle line-through"}>{row.name}</span>
-              <span className="flex gap-2 tabular-nums">
+              <span className={`min-w-0 truncate ${row.alive ? "text-fg" : "text-subtle line-through"}`}>{row.name}</span>
+              <span className="flex shrink-0 gap-2 tabular-nums">
                 {row.alive ? <span className={row.clock <= 15 ? "text-accent" : "text-subtle"}>{Math.ceil(row.clock)}s</span> : row.out ? <span className="text-subtle">out</span> : null}
                 <span className="text-muted">{row.score}</span>
               </span>

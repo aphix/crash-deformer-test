@@ -49,6 +49,12 @@ is `DEFAULT_DERBY_AGGRESSION = 1` (the whole spread, sandbaggers to brawlers; ra
   running" (wreck) or "the rest counted out" (count-out). The board shows each car's count-out clock.
 - Counted-out cars take no input and read as dead to every driver.
 
+## Scoring
+
+One point per aggressive hit (the hit clock's definition: ≥ 2 m/s into a live car), at most one per pair
+every 2 s, plus 3 for the last hit before an engine dies. Pushes and grinding don't score. A 10-car heat
+reads single digits to low teens; the score only matters when the time limit decides the heat.
+
 ## Bowl size
 
 `derbyRadius(n)`: 16.4 m up to 12 cars, then wide enough that tangent neighbours on the spawn ring keep
@@ -56,24 +62,22 @@ is `DEFAULT_DERBY_AGGRESSION = 1` (the whole spread, sandbaggers to brawlers; ra
 
 ## Validation (10 cars, default slider, real stack, headless)
 
-`derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults:
-squash 0.4, killTravel(class, realism 0.25) ≈ 0.45 m) to the end of the heat. CI runs seeds 1,2;
+`derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults,
+`INITIAL_HUD` and killTravel(class, `HANDLING.realism`)) to the end of the heat. CI runs seeds 1,2;
 `DERBY_SEEDS=1,2,3,4,5` for the full set. Asserted per seed: a winner by the heat time limit; no
-AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.3 s before it began) in the first 2 min;
-no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first ones.
-Todo, owned by CrashRealism6: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
-last-car-standing by wrecking (physics lethality at the realistic defaults).
+AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
+2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first.
+Todo, owned by CrashRealism7: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
+≥ 4/5 heats won by wrecking (`DERBY_KILL_SCALE`, then this todo becomes the assertion).
 
-Main fe381c3 physics, 5 seeds (heat limit 300 s):
+Main 319fbf1 (realistic crush defaults), 5 seeds, heat limit 300 s:
 
 | Seed | Decided | Physics deaths (s) | Count-outs | Spins (contact / free) | Zips | Impacts F/R/S (rear %) | Swings / J-turns / sideswipes |
 |---|---|---|---|---|---|---|---|
-| 1 | time, c0 at 300 s | 47.7, 58, 65.7, 82, 91.7, 164.1, 275.9 | 0 | 5 / 0 | 0 | 140 / 241 / 119 (48) | 39 / 143 / 120 |
-| 2 | time, c4 at 300 s | 22.4, 45 | 0 | 2 / 0 | 0 | 68 / 92 / 41 (46) | 13 / 100 / 47 |
-| 3 | time, c8 at 300 s | 33.9, 50.1 | 0 | 2 / 0 | 0 | 47 / 130 / 37 (61) | 17 / 116 / 38 |
-| 4 | time, c4 at 300 s | 21.5, 55.4, 60.2, 68.9, 85.7, 159.4, 160.1, 197.9 | 0 | 4 / 0 | 0 | 122 / 194 / 90 (48) | 19 / 125 / 69 |
-| 5 | time, c2 at 300 s | 52, 65.1, 88.6, 118.4 | 0 | 4 / 0 | 0 | 75 / 160 / 62 (54) | 13 / 162 / 70 |
-
-On main 7e30b81 seed 1 ended last car standing (wreck) at 153.2 s with 9 deaths.
+| 1 | count-out, c7 at 283.6 s | 36.2, 41.5, 80.3, 80.6, 105.1, 169.8, 190.6, 190.6 | c9 | 11 / 0 | 0 | 58 / 166 / 50 (61) | 25 / 134 / 79 |
+| 2 | time, c8 at 300 s | 32.2, 118.2 | 0 | 3 / 0 | 0 | 44 / 88 / 28 (55) | 5 / 88 / 31 |
+| 3 | time, c7 at 300 s | 58.7, 59.6, 86.2 | 0 | 1 / 0 | 0 | 25 / 98 / 28 (65) | 4 / 104 / 10 |
+| 4 | wreck, c6 at 284.7 s | 36.6, 40.2, 43.5, 76, 165.5, 216.5, 216.5, 262.9, 284.7 | 0 | 7 / 0 | 0 | 47 / 126 / 41 (59) | 20 / 262 / 76 |
+| 5 | time, c4 at 300 s | 35.3, 48.4, 56.9, 82.2, 181, 245.1 | 0 | 5 / 0 | 0 | 53 / 104 / 31 (55) | 13 / 157 / 57 |
 
 Baseline (old brain, main 7be2ad2, 90 s): 5/5 stalemate, 0–3 deaths, 6–11 spins, rear-first 16–25 %.

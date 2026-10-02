@@ -65,7 +65,7 @@ export function makeDerbyArena(): THREE.Group {
 
 /** Spot height above the winner (m) and its candela when on. */
 const SPOT_HEIGHT = 7;
-const SPOT_CANDELA = 320;
+const SPOT_CANDELA = 1400;
 
 /**
  * The derby winner's spotlight: a warm narrow cone from above that follows the champion and throws a soft
@@ -93,7 +93,7 @@ export class WinnerSpot {
     this.light.target.updateMatrixWorld();
     this.light.intensity = SPOT_CANDELA;
     this.glow.position.set(x, 0.03, z);
-    this.glow.material.opacity = 0.5;
+    this.glow.material.opacity = 0.85;
   }
 
   off(): void {
