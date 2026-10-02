@@ -24,7 +24,7 @@ The planner lap on the 313 m mixed loop in `vehicle-classes.test.ts` (two 8 m ha
 | Class | Body | Mass | Top | 0–100 km/h | Gears | Turn (rad/s) | Grip (m/s²) | Drift | Durability | Lap |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Sedan | sedan, hatchback, wagon | 1400 kg | 200 km/h | 2.45 s | 5 | 1.55 | 39 | 0.35 | 1.0 | 13.17 s |
-| Muscle | coupe (steel) | 1650 kg | 200 km/h | 2.0 s | 5 | 1.36 | 35.5 | 0.85 | 1.15 | 13.76 s |
+| Muscle | coupe (steel) | 1650 kg | 210 km/h | 1.95 s | 5 | 1.36 | 35.5 | 0.85 | 1.15 | 13.72 s |
 | Truck | pickup | 2100 kg | 195 km/h | 2.5 s | 4 | 1.50 | 38.5 | 0.25 | 1.25 | 13.54 s |
 | Monster | pickup on 1.7× wheels, body +0.48 m | 2900 kg | 190 km/h | 2.0 s | 4 | 1.30 | 37 | 0.20 | 1.7 | 14.12 s |
 
@@ -41,13 +41,13 @@ Race AI plans with `classStats(id)` and `cornerSpeed(stats, radius, grip)`.
 
 Each class has 4 or 5 gear buckets (`ClassStats.gears`): a gear's top end as a share of the class top speed, and a fixed
 thrust (m/s²) that falls with each shift. No clutch or revs; the pull steps down at every shift. Boost multiplies the
-thrust (×1.55–1.6) up to the class top, never past it: from 54 m/s a t-bone into a parked car can grind the bullet through
-the struck car (`barrier.test.ts`, pair-contact impulse cap), so no driven car goes faster than 200 km/h.
+thrust ×1.55–1.6 and lifts the top ×1.2–1.22, pulling on in top gear past the class top: 252 km/h on the muscle car,
+the fastest a driven car goes (`barrier.test.ts` crashes every hit up to it).
 
 | Class | Gear top ends (× top) | Thrust per gear (m/s²) | 0–100 km/h | Time to top |
 |---|---|---|---|---|
 | Sedan | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 17.2 / 10.7 / 6.1 / 3.5 / 2.0 | 2.45 s | 12 s |
-| Muscle | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 20.4 / 12.7 / 7.7 / 4.7 / 2.8 | 2.0 s | 9.1 s |
+| Muscle | 0.24 / 0.42 / 0.6 / 0.8 / 1 | 20.4 / 12.7 / 7.7 / 4.7 / 2.8 | 1.95 s | 9.5 s |
 | Truck | 0.3 / 0.53 / 0.76 / 1 | 16.3 / 7.8 / 4.3 / 1.8 | 2.5 s | 12.7 s |
 | Monster | 0.3 / 0.53 / 0.76 / 1 | 17.1 / 11.5 / 5.0 / 1.8 | 2.0 s | 11.5 s |
 
@@ -83,7 +83,7 @@ City has traffic: across seeds 1–4 its AI sedan stays 7–10 % slow (an AI lin
 - **Instant response**: pedals and wheel ramp in well under 0.3 s; the yaw rate follows the wheel each slice.
 - **Speed-sensitive steering**: lock fades with speed (never under 40 %), and grows from zero through a crawl, so the car never pivots on the spot.
 - **Slides**: Space at speed with lock kicks the tail out; boost at full lock does it on tail-happy classes. Keep the gas on with lock either way (a counter-steer short of full opposite lock included) and the drift assist holds the body angle while the car carries its speed round; release the wheel or lift off and it catches itself. Full opposite lock catches it twice as fast.
-- **Boost** multiplies the gear thrust ×1.55–1.6 up to the class top speed (see Acceleration).
+- **Boost** multiplies the gear thrust ×1.55–1.6 and the top speed ×1.2–1.22 (see Acceleration).
 - **Recovery**: a driven car stuck on its roof or side rights itself after 1.2 s at the arcade end (3 s at mid slider); past 0.6 only R rights it.
 - **Surface grip** comes from the active `Ground` (`frictionAt`) under each axle: low front grip loses steering, low rear grip loses traction and launches with wheelspin.
 - Tyre FX read `car.drive.spin` (launch wheelspin), `lock` (brake lock-up) and `slide` (sideways slip), each 0–1.

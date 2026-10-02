@@ -180,8 +180,9 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const invA = 1 / carA.deform.totalMass;
     const invB = 1 / carB.deform.totalMass;
     if (!packed) {
-      const jMax = 18 + pass * 36;
-      const j = Math.min(cancelClosing(remain, pass, invA + invB, dt, e), jMax);
+      // Uncapped: a per-slice cap (18 + 36·pass N·s) shoved a t-bone's struck car at ~17 m/s² while the bullet
+      // ground on, and from 58 m/s its nose came out of the struck car's far side (barrier.test.ts).
+      const j = cancelClosing(remain, pass, invA + invB, dt, e);
       impulseCar(carA, _n.x, 0, _n.z, j);
       impulseCar(carB, -_n.x, 0, -_n.z, j);
 
