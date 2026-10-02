@@ -184,7 +184,7 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
       const tAz = carA.velocity.z - carB.velocity.z;
       const relT = tAx * _n.z - tAz * _n.x;
       const mu = 0.45;
-      const jt = THREE.MathUtils.clamp(relT / (invA + invB), -mu * j, mu * j);
+      const jt = Math.max(-mu * j, Math.min(mu * j, relT / (invA + invB)));
       impulseCar(carA, _n.z, 0, -_n.x, -jt);
       impulseCar(carB, _n.z, 0, -_n.x, jt);
     } else {
@@ -228,9 +228,11 @@ function tyreAxes(carA: DeformableCar, carB: DeformableCar): void {
 export function tyreOverlap(carA: DeformableCar, carB: DeformableCar): number {
   tyreAxes(carA, carB);
   let depth = -Infinity;
-  for (const a of carA.deform.masses) {
+  for (let ai = 0; ai < carA.deform.masses.length; ai++) {
+    const a = carA.deform.masses[ai]!;
     if (!a.hub || a.popped) continue;
-    for (const b of carB.deform.masses) {
+    for (let bi = 0; bi < carB.deform.masses.length; bi++) {
+      const b = carB.deform.masses[bi]!;
       if (!b.hub || b.popped) continue;
       const dx = a.world.x - b.world.x;
       const dz = a.world.z - b.world.z;
@@ -257,9 +259,11 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
   const wz = (carA.velocity.z - carB.velocity.z) * dt;
   let first = Infinity,
     depth = 0;
-  for (const a of carA.deform.masses) {
+  for (let ai = 0; ai < carA.deform.masses.length; ai++) {
+    const a = carA.deform.masses[ai]!;
     if (!a.hub || a.popped) continue;
-    for (const b of carB.deform.masses) {
+    for (let bi = 0; bi < carB.deform.masses.length; bi++) {
+      const b = carB.deform.masses[bi]!;
       if (!b.hub || b.popped) continue;
       const dx = a.world.x - b.world.x;
       const dz = a.world.z - b.world.z;

@@ -1,6 +1,14 @@
 // @ts-nocheck
 "use strict";
 // Hand-kept JS kernel (Müller 2005 shape matching). No TS transform.
+/** physics-core's hypot3: Math.hypot bit for bit, minus the boxed builtin call (kernels import nothing, C3). */
+function hypot3(x, y, z) {
+  const a = Math.abs(x), b = Math.abs(y), c = Math.abs(z), ab = a > b || b !== b ? a : b, max = c > ab || ab !== ab ? c : ab;
+  if (max > Number.MAX_VALUE || a !== a || b !== b || c !== c) return max > Number.MAX_VALUE ? max : a + b + c;
+  if (max === 0) return 0;
+  const p = a / max, q = b / max, r = c / max, s = p * p + q * q;
+  return Math.sqrt(s + (r * r - (s - p * p - q * q))) * max;
+}
 
 function m3() {
   return new Float64Array(9);
@@ -490,7 +498,7 @@ function completePlanarInto(A, n, Rprev) {
   let mx = nx * c23x + ny * c31x + nz * c12x;
   let my = nx * c23y + ny * c31y + nz * c12y;
   let mz = nx * c23z + ny * c31z + nz * c12z;
-  const l = Math.hypot(mx, my, mz);
+  const l = hypot3(mx, my, mz);
   const px = Rprev[0] * nx + Rprev[1] * ny + Rprev[2] * nz;
   const py = Rprev[3] * nx + Rprev[4] * ny + Rprev[5] * nz;
   const pz = Rprev[6] * nx + Rprev[7] * ny + Rprev[8] * nz;

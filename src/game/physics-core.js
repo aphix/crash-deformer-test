@@ -107,6 +107,47 @@ function round4(n) {
   return Math.round(n * 10000) / 10000;
 }
 
+/**
+ * Math.hypot of two or three numbers, bit for bit: V8's MathHypot (math.tq) scales by the largest |arg|,
+ * Kahan-sums the squares and returns sqrt × largest. TurboFan never inlines the builtin, so each call
+ * boxed its arguments and result and allocated a scratch array: ~3.4 MB/s of race-physics garbage.
+ * With two args the first term is exact, so the compensation is 0. Infinity and NaN come back as `max` and
+ * `x + y`: a never-run `return Infinity` is a global load with no feedback, and its tagged result made
+ * TurboFan box every inlined result.
+ */
+function hypot2(x, y) {
+  x = Math.abs(x);
+  y = Math.abs(y);
+  let max = 0;
+  if (x > max) max = x;
+  if (y > max) max = y;
+  if (max > Number.MAX_VALUE) return max;
+  if (x !== x || y !== y) return x + y;
+  if (max === 0) return 0;
+  const a = x / max;
+  const b = y / max;
+  return Math.sqrt(a * a + b * b) * max;
+}
+
+function hypot3(x, y, z) {
+  x = Math.abs(x);
+  y = Math.abs(y);
+  z = Math.abs(z);
+  let max = 0;
+  if (x > max) max = x;
+  if (y > max) max = y;
+  if (z > max) max = z;
+  if (max > Number.MAX_VALUE) return max;
+  if (x !== x || y !== y || z !== z) return x + y + z;
+  if (max === 0) return 0;
+  const a = x / max;
+  const b = y / max;
+  const c = z / max;
+  const s = a * a + b * b;
+  const comp = s - a * a - b * b;
+  return Math.sqrt(s + (c * c - comp)) * max;
+}
+
 export {
   clamp,
   CRASH,
@@ -123,4 +164,6 @@ export {
   cancelClosing,
   satPushCap,
   round4,
+  hypot2,
+  hypot3,
 };

@@ -3,6 +3,7 @@ import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
 import { activeGround, NO_FLOOR } from "./ground.ts";
+import { hypot2 } from "./physics-util.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, type Assists, type Drivability } from "./vehicle-classes.ts";
 
 /** Shared by derby AI and the player seat. */
@@ -197,7 +198,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
     car.refreshBasis();
     // Vertical speed is the world's (ramps, jumps): drive only steers the ground-plane velocity.
     car.velocity.set(nvx, car.velocity.y, nvz);
-    car.speed = Math.hypot(nvx, nvz);
+    car.speed = hypot2(nvx, nvz);
     car.angular.set(0, yawRate, 0);
     return;
   }
@@ -229,7 +230,8 @@ function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: num
   let cx = 0;
   let cz = 0;
   let m = 0;
-  for (const n of masses) {
+  for (let ni = 0; ni < masses.length; ni++) {
+    const n = masses[ni]!;
     if (!n.dynamic) continue;
     cx += n.world.x * n.mass;
     cz += n.world.z * n.mass;
@@ -238,7 +240,8 @@ function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: num
   if (m <= 1e-8) return;
   cx /= m;
   cz /= m;
-  for (const n of masses) {
+  for (let ni = 0; ni < masses.length; ni++) {
+    const n = masses[ni]!;
     if (!n.dynamic) continue;
     const dx = n.world.x - cx;
     const dz = n.world.z - cz;
