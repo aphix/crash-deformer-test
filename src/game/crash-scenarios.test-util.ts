@@ -1,9 +1,8 @@
 import * as THREE from "three";
-import { DeformableCar } from "./car.ts";
+import { bleedAfterSlide, DeformableCar } from "./car.ts";
 import { JerseyBarrier, type ContactHit } from "./engine-props.ts";
 import { tyreOverlap } from "./pair-contact.ts";
 import { beginImpact, easeTimeScale, phaseClock, stepPhase, type PhaseClock } from "./phase.ts";
-import { bleedAfterSlide } from "./physics-util.ts";
 import { CAGES } from "./rig-spec.ts";
 import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
 import type { DeformMode } from "./streamed-deform.ts";

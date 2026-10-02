@@ -1,7 +1,7 @@
 import * as THREE from "three";
-import { beginFakeFall, CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
+import { beginFakeFall, bleedAfterSlide, CAR_HALF, DeformableCar, type CarPaint } from "./car.ts";
 import { WheelBatch, getCrackMap, makeGlassMaterial } from "./car-mesh.ts";
-import { bleedAfterSlide, separateSphereFromAabb } from "./physics-util.ts";
+import { separateSphereFromAabb } from "./physics-util.ts";
 import { COMPACTOR, CompactorRig, compactorStage } from "./compactor.ts";
 import { PISTON, PISTON_DEFAULTS, PISTON_IDS, PistonRig, type PistonConfig } from "./piston-rig.ts";
 import { PISTON_ORBIT_RATE, PistonBank, pistonAhead, pistonBearing, pistonToGo } from "./engine-pistons.ts";
