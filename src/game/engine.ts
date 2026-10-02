@@ -656,6 +656,8 @@ export class CrashEngine {
   }
 
   setCarCount(n: number): void {
+    // The race sets its own field (setup menu); the sandbox slider must not reshape it.
+    if (this.race.active) return;
     this.ensureCars(n);
     this.tryUnlockAudio();
     this.randomizeAndReset();

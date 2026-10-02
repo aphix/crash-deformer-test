@@ -126,6 +126,14 @@ const CAMERA_KEYS: [string, string][] = [
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {
+  if (state.race && state.seat === "drive") {
+    return {
+      title: `Racing · ${VIEW[state.view]}`,
+      keys: state.pad
+        ? "RT gas · LT brake, then reverse · left stick steer · A handbrake · X boost · Y view · D-pad ↓ respawn · Start pause"
+        : "W gas · S brake, then reverse · A/D steer · Space handbrake · Shift boost · V view · R respawn · Esc pause",
+    };
+  }
   if (state.seat === "drive") {
     return {
       title: `Driving · ${VIEW[state.view]}`,
