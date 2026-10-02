@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "./car.ts";
+import type { Hull } from "./car-mesh.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "./physics-util.ts";
 import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, satCarBarrier } from "./sat.ts";
 import { impulseCar, pushCar } from "./pair-contact.ts";
@@ -343,6 +344,15 @@ export function scatterRampBalls(balls: readonly RampBall[], visible: boolean): 
   }
 }
 
+/** Into `_hb`: the point of hull `h` nearest a round prop centred at `c` (plan view, car at px, pz), at height `y`. */
+function nearestHullPoint(car: DeformableCar, h: Hull, c: THREE.Vector3, px: number, pz: number, y: number): void {
+  const relx = (c.x - px) * car.rightFlat.x + (c.z - pz) * car.rightFlat.z;
+  const relz = (c.x - px) * car.fwdFlat.x + (c.z - pz) * car.fwdFlat.z;
+  const qx = THREE.MathUtils.clamp(relx, h.cx - h.hx, h.cx + h.hx);
+  const qz = THREE.MathUtils.clamp(relz, h.cz - h.hz, h.cz + h.hz);
+  _hb.set(px + car.rightFlat.x * qx + car.fwdFlat.x * qz, y, pz + car.rightFlat.z * qx + car.fwdFlat.z * qz);
+}
+
 /**
  * Half-buried ramp balls: ramp the car up a little, pop the nearest hub on a hard kick,
  * and log each first kick per car into `log` stamped with wall time `t`.
@@ -364,15 +374,7 @@ export function resolveRampBalls(
     if (!ball.intact) continue;
     const c = ball.mesh.position;
     for (const h of car.hulls()) {
-      const relx = (c.x - px) * car.rightFlat.x + (c.z - pz) * car.rightFlat.z;
-      const relz = (c.x - px) * car.fwdFlat.x + (c.z - pz) * car.fwdFlat.z;
-      const qx = THREE.MathUtils.clamp(relx, h.cx - h.hx, h.cx + h.hx);
-      const qz = THREE.MathUtils.clamp(relz, h.cz - h.hz, h.cz + h.hz);
-      _hb.set(
-        px + car.rightFlat.x * qx + car.fwdFlat.x * qz,
-        0.28,
-        pz + car.rightFlat.z * qx + car.fwdFlat.z * qz,
-      );
+      nearestHullPoint(car, h, c, px, pz, 0.28);
       const dx = _hb.x - c.x;
       const dz = _hb.z - c.z;
       const distXz = Math.hypot(dx, dz);
@@ -459,15 +461,7 @@ export function resolveLampPoles(
     if (!pole.intact) continue;
     const c = pole.group.position;
     for (const h of car.hulls()) {
-      const relx = (c.x - px) * car.rightFlat.x + (c.z - pz) * car.rightFlat.z;
-      const relz = (c.x - px) * car.fwdFlat.x + (c.z - pz) * car.fwdFlat.z;
-      const qx = THREE.MathUtils.clamp(relx, h.cx - h.hx, h.cx + h.hx);
-      const qz = THREE.MathUtils.clamp(relz, h.cz - h.hz, h.cz + h.hz);
-      _hb.set(
-        px + car.rightFlat.x * qx + car.fwdFlat.x * qz,
-        0.4,
-        pz + car.rightFlat.z * qx + car.fwdFlat.z * qz,
-      );
+      nearestHullPoint(car, h, c, px, pz, 0.4);
       _mtv.set(_hb.x - c.x, 0, _hb.z - c.z);
       const dist = Math.hypot(_mtv.x, _mtv.z);
       if (dist >= pole.radius + 0.04 || dist < 1e-5) continue;

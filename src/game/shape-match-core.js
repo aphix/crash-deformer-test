@@ -99,6 +99,7 @@ function quatToMat(q, R) {
   return R;
 }
 
+/** Cap on rotation-extraction passes; a warm start converges in 1-2 (e4962a0, Müller et al. 2016). */
 const ROT_MAX_ITER = 16;
 const ROT_TOL2 = 1e-18; // step below 1e-9 rad: converged
 const ROT_ACCEPT2 = 1e-8; // Newton step below 1e-4 rad leaves an O(|w|²) residual: stop after applying it
@@ -242,6 +243,7 @@ function extractRotation(A, flip, q) {
   q[3] = w;
 }
 
+/** Largest rotation (rad) one cluster fit may apply; kept unchanged from the Newton polar in e4962a0. */
 const ROT_CLAMP = 0.85;
 const COS_ROT_CLAMP = Math.cos(ROT_CLAMP);
 /**

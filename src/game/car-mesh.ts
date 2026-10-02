@@ -30,6 +30,7 @@ export const CRUSH_HULLS: Hull[] = [
 
 export const CAR_HALF = { x: 0.88, y: 0.68, z: 2.22 };
 
+/** Shared-platform hardpoints (8e2dc49, five styles on one platform): arch opening radius about the hub (m), floor pan height (m). */
 const ARCH_R = 0.38;
 const WHEEL_Y = WHEEL_POS[0]![1];
 const Y_FLOOR = 0.145;
@@ -116,6 +117,7 @@ function archFlare(z: number, y: number): number {
   return f;
 }
 
+/** Front door cut along z (m, car frame, + = forward), feathered over DOOR_EDGE at both ends; platform-wide (8e2dc49). */
 const DOOR_Z0 = 0.0;
 const DOOR_Z1 = 0.54;
 const DOOR_EDGE = 0.04;
@@ -128,6 +130,7 @@ function doorAperture(z: number): number {
   return a * b;
 }
 
+/** Half-width (m) of the blend into and out of a style's tub floor along z (8e2dc49). */
 const TUB_EDGE = 0.025;
 
 function tubAt(z: number, style: BodyStyle): { t: number; floor: number } {
@@ -145,6 +148,7 @@ function tubAt(z: number, style: BodyStyle): { t: number; floor: number } {
   return { t, floor };
 }
 
+/** Half-width (m) of the rear-door shut-line groove; seamInset sets its 9 mm depth (8e2dc49). */
 const SEAM_HALF = 0.012;
 
 function seamInset(z: number, style: BodyStyle): number {
@@ -222,6 +226,7 @@ export function restSideProfile(
   };
 }
 
+/** Base loft stations: with SLICE_WARP ≈7 cm apart at nose/tail, 13 cm mid-cabin (8e2dc49 commit notes). */
 const BASE_SLICES = 40;
 /** >1 spreads slices over the cabin and packs them into the crumple zones. */
 const SLICE_WARP = 1.166;

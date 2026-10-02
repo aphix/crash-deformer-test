@@ -2,8 +2,9 @@ import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "./car.ts";
 import { COMPACTOR, CompactorRig } from "./compactor.ts";
 import { makeCar, makeWorld, tickWorld } from "./crash-scenarios.test-util.ts";
-import { DOOR_LANES, fireRam, RAM, type DoorScenario } from "./door-rig.ts";
-import { firePiston } from "./piston-rig.ts";
+import { DOOR_LANES, RAM, type DoorScenario } from "./door-rig.ts";
+import { fireRam } from "./door-rig.test-util.ts";
+import { firePiston, fitRigid } from "./piston-rig.test-util.ts";
 
 /**
  * Matched pairs for docs/CONTACT_PARITY.md: the same hit delivered by a scene rig (Doors ram,
@@ -62,39 +63,13 @@ export function carState(car: DeformableCar): CarState {
   detached.sort();
   const d = car.deform;
   const cabin = d.masses.filter((m) => CABIN.includes(m.name));
-  let px = 0;
-  let pz = 0;
-  let qx = 0;
-  let qz = 0;
-  let dy = 0;
-  for (const m of cabin) {
-    px += m.local.x / cabin.length;
-    pz += m.local.z / cabin.length;
-    qx += m.rest.x / cabin.length;
-    qz += m.rest.z / cabin.length;
-    dy += (m.local.y - m.rest.y) / cabin.length;
-  }
-  let dot = 0;
-  let cross = 0;
-  for (const m of cabin) {
-    const ax = m.local.x - px;
-    const az = m.local.z - pz;
-    const bx = m.rest.x - qx;
-    const bz = m.rest.z - qz;
-    dot += ax * bx + az * bz;
-    cross += bz * ax - bx * az;
-  }
-  const th = Math.atan2(cross, dot);
-  const c = Math.cos(th);
-  const s = Math.sin(th);
+  const fitCabin = fitRigid(d.masses, (m) => CABIN.includes(m.name));
   const fit = new Map<string, THREE.Vector3>();
   const travelMm: Record<string, number> = {};
   const band: Record<string, string> = {};
   let bodyMm = 0;
   for (const m of d.masses) {
-    const x = m.local.x - px;
-    const z = m.local.z - pz;
-    const f = new THREE.Vector3(c * x - s * z + qx, m.local.y - dy, s * x + c * z + qz);
+    const f = fitCabin(m.local.x, m.local.y, m.local.z).clone();
     fit.set(m.name, f);
     const t = f.distanceTo(m.rest);
     travelMm[m.name] = Math.round(t * 1000);
