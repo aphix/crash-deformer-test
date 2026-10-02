@@ -75,8 +75,10 @@ function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: n
 }
 
 /**
- * Every prop of the track, in order: `props` as written, then `along` repeats, then seeded
- * `scatter`. y = track.ground().heightAt(x, z).
+ * Every prop of the track, in order: `props` as written, then `along` repeats (beside the race
+ * loop, or a traffic route's centreline with `route`; copies on any other road, beside a bridge
+ * span or in a tunnel are skipped), then seeded `scatter` (clear of every road: loop, shortcuts,
+ * routes). y = track.ground().heightAt(x, z).
  */
 export function placeProps(track: Track): Placed[] {
   const json = track.json;
@@ -84,9 +86,7 @@ export function placeProps(track: Track): Placed[] {
   const out: Placed[] = [];
   const proj = blankProjection();
   const pt = blankPoint();
-  const path = track.path;
-  const L = track.length;
-  const corridors = [path, ...track.shortcuts.map((s) => s.path)];
+  const corridors = track.paths();
 
   for (const p of json.props) {
     const size = PREFABS[p.prefab].size;
@@ -109,25 +109,35 @@ export function placeProps(track: Track): Placed[] {
     return s;
   };
   json.along.forEach((a, ai) => {
-    const from = nodeS(a.fromNode ?? 0, `along[${ai}].fromNode`);
-    const to = a.toNode === undefined ? from : nodeS(a.toNode, `along[${ai}].toNode`);
-    const span = (((to - from) % L) + L) % L;
-    const whole = span < 1e-6;
+    const route = a.route === undefined ? null : track.routes.find((r) => r.id === a.route);
+    if (route === undefined) throw new Error(`${track.id}: along[${ai}].route ${a.route} is not a traffic route`);
+    // The race loop between two nodes (whole loop when the range is empty), or a route's whole centreline.
+    const path = route ? route.path : track.path;
+    const L = path.length;
+    const from = route ? 0 : nodeS(a.fromNode ?? 0, `along[${ai}].fromNode`);
+    const to = route ? (path.closed ? 0 : L) : a.toNode === undefined ? from : nodeS(a.toNode, `along[${ai}].toNode`);
+    const span = path.closed ? (((to - from) % L) + L) % L : to - from;
+    const whole = path.closed && span < 1e-6;
     // A whole loop spreads its copies evenly so the seam at `from` has no short gap.
     const n = whole ? Math.max(1, Math.round(L / a.every)) : Math.floor(span / a.every + 1e-9) + 1;
     const step = whole ? L / n : a.every;
+    const segs = path.closed ? path.count : path.count - 1;
+    const others = corridors.filter((c) => c !== path);
     const r = footRadius(a.prefab, a.scale, a.scale);
     for (let j = 0; j < n; j++) {
       const s = from + j * step;
       pointOn(path, s, pt);
-      const k = Math.floor((((s % L) + L) % L) * (path.count / L)) % path.count;
+      const u = Math.floor((path.closed ? (((s % L) + L) % L) : Math.max(0, Math.min(L, s))) * (segs / L));
+      const k = path.closed ? u % path.count : Math.min(path.count - 1, u);
+      // Nothing beside a bridge span (it would stand on the ground far below) or inside a tunnel.
+      if (path.deck[k] || path.tunnel[k]) continue;
       const heading = Math.atan2(pt.tx, pt.tz);
       for (const sign of a.side === "both" ? [1, -1] : a.side === "left" ? [1] : [-1]) {
         const lat = sign * (pt.half + (sign > 0 ? path.runL[k]! : path.runR[k]!) + a.offset);
         const x = pt.x + pt.tz * lat;
         const z = pt.z - pt.tx * lat;
-        // Never on a shortcut's road (the main corridor is the author's call via `offset`).
-        if (track.shortcuts.some((sc) => wallGap(sc.path, x, z, proj) < r)) continue;
+        // Never on another road (its own corridor is the author's call via `offset`).
+        if (others.some((c) => wallGap(c, x, z, proj) < r)) continue;
         out.push({
           prefab: a.prefab,
           x,

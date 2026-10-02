@@ -423,7 +423,7 @@ function lamp(): Piece[] {
     if (!(o instanceof THREE.Mesh)) return;
     const m = o.material as THREE.MeshStandardMaterial;
     const geo = (o.geometry as THREE.BufferGeometry).clone().applyMatrix4(o.matrixWorld).applyMatrix4(fit);
-    out.push([geo, m.emissiveIntensity > 0 ? C.lampHead : m.color.getHex()]);
+    out.push([geo, m.emissive.getHex() !== 0 ? C.lampHead : m.color.getHex()]);
   });
   disposeGroup(g);
   return out;

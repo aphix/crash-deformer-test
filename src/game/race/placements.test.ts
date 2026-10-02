@@ -18,7 +18,7 @@ function onCorridor(track: Track, placed: Placed[]): string[] {
   const bad: string[] = [];
   for (const c of cols) {
     if (c.index < track.json.props.length || c.body !== "solid") continue;
-    for (const path of [track.path, ...track.shortcuts.map((s) => s.path)]) {
+    for (const path of track.paths()) {
       const g = gap(path, c.x, c.z);
       if (g < c.r) bad.push(`${c.prefab} #${c.index} at (${c.x.toFixed(1)}, ${c.z.toFixed(1)}) gap ${g.toFixed(2)} < r ${c.r.toFixed(2)}`);
     }
@@ -45,7 +45,7 @@ describe("placements", () => {
     const mx = (g0.ax + g0.bx) / 2;
     const mz = (g0.az + g0.bz) / 2;
     for (const p of trees) {
-      const near = Math.min(...[t.path, ...t.shortcuts.map((s) => s.path)].map((c) => gap(c, p.x, p.z)));
+      const near = Math.min(...t.paths().map((c) => gap(c, p.x, p.z)));
       assert.ok(near >= 14 && near <= 70, `tree at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) is ${near.toFixed(1)} m from the nearest wall line`);
       assert.ok(Math.hypot(p.x - mx, p.z - mz) >= 25, "tree within 25 m of the start line");
       assert.equal(p.y, t.ground().heightAt(p.x, p.z));
@@ -59,6 +59,48 @@ describe("placements", () => {
     const lamps = placed.filter((p) => p.prefab === "lamp");
     assert.ok(lamps.length > 0 && lamps.length < Math.round(t.length / 6), `${lamps.length} lamps`);
     assert.deepEqual(onCorridor(t, placed), []);
+  });
+
+  // The oval with a two-lane street across the infield, through both straights.
+  const street = {
+    ...oval,
+    traffic: { routes: [{ id: "cross", path: [{ x: -110, z: 60 }, { x: 0, z: 62 }, { x: 110, z: 60 }], count: 0, lanes: [{ offset: -2, dir: 1 as const }] }] },
+    // Offset 9 clears a building's 8.5 m bounding radius off the street.
+    along: [{ prefab: "building" as const, every: 16, side: "both" as const, offset: 9, route: "cross" }],
+    scatter: [{ prefab: "tree" as const, count: 60, near: 4, far: 60, seed: 3 }],
+  };
+
+  it("along a traffic route: copies line the street facing it, and none stands on any road", () => {
+    const t = new Track(street);
+    const route = t.routes[0]!.path;
+    const placed = placeProps(t);
+    const houses = placed.filter((p) => p.prefab === "building");
+    // 220 m of street every 16 m on both sides, less the copies that would sit on the loop's corridor.
+    const full = 2 * (Math.floor(route.length / 16) + 1);
+    assert.ok(houses.length > 10 && houses.length < full, `${houses.length} of ${full} buildings`);
+    assert.deepEqual(onCorridor(t, placed), []);
+    for (const b of houses) {
+      const p = projectPath(route, b.x, b.z, -1, blankProjection());
+      assert.ok(Math.abs(Math.sqrt(p.dist2) - (route.half[p.k]! + 9)) < 0.3, "building not at half + offset from the street");
+      const toStreet = ((p.cx - b.x) * Math.cos(b.yaw) - (p.cz - b.z) * Math.sin(b.yaw)) / Math.hypot(p.cx - b.x, p.cz - b.z);
+      assert.ok(toStreet > 0.99, "building front not facing the street");
+    }
+    for (const tr of placed.filter((p) => p.prefab === "tree")) assert.ok(gap(route, tr.x, tr.z) >= 4, "tree on the street");
+  });
+
+  it("no along copy stands beside a bridge span or inside a tunnel", () => {
+    const nodes = oval.nodes.map((n, i) => (i === 4 ? { ...n, deck: true } : i === 6 ? { ...n, deck: false } : i === 13 ? { ...n, tunnel: true } : i === 15 ? { ...n, tunnel: false } : n));
+    const t = new Track({ ...oval, nodes, along: [{ prefab: "lamp", every: 5, side: "both", offset: 1.5 }], scatter: [] });
+    const lamps = placeProps(t).filter((p) => p.prefab === "lamp");
+    const covered = (flag: Uint8Array) => {
+      let n = 0;
+      for (const l of lamps) if (flag[projectPath(t.path, l.x, l.z, -1, blankProjection()).k]) n++;
+      return n;
+    };
+    assert.ok(t.path.deck.includes(1) && t.path.tunnel.includes(1));
+    assert.equal(covered(t.path.deck), 0);
+    assert.equal(covered(t.path.tunnel), 0);
+    assert.ok(lamps.length > 150, `${lamps.length} lamps`);
   });
 
   it("along props face the road: front (+X) points at the centreline on both sides", () => {
