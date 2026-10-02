@@ -19,7 +19,7 @@ src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / d
   │                               door-rig.ts DoorRig + engine-doors.ts DoorRam
   ├─ input/camera                 drive-input.ts, gamepad.ts, engine-camera.ts
   ├─ FX / world                   engine-fx.ts, engine-world.ts WorldStage (night / wet), ground.ts
-  ├─ thrown drivers               ragdoll-trigger.ts EjectionWatch → engine-ragdoll.ts RagdollSystem (Rapier through rapier.ts loadRapier)
+  ├─ thrown drivers               ragdoll-trigger.ts EjectionWatch → engine-ragdoll.ts RagdollSystem (Rapier through rapier.ts loadRapier), ragdoll-mesh.ts DummyMesh
   ├─ cinematics                   engine-cine.ts Cinematics → engine-post.ts PostFX, engine-marks.ts SkidMarks
   ├─ netplay                      net/net-play.ts NetPlay (engine port net/net-ports.ts NetGame) → net/codec.ts, net/net-view.ts drawSnapshots, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom)
   ├─ race                         engine-race.ts RaceDirector → race/ (track, session, campaign, race-ai, traffic, track-art)
@@ -70,6 +70,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Compactor | C | `toggleCompactor` | `compactor.ts` `CompactorRig`, `engine-props.ts` `CompactorPress` |
 | Pistons | I, 0–8 | `togglePistons`, `firePiston` | `piston-rig.ts`, `engine-pistons.ts` `PistonBank` |
 | Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`; `engine-doors.ts` `DoorRam` |
+| Range | (HUD) | `toggleRange` | `scenes/range.ts` `RANGE`, `RangeRun`; `present/range-art.ts` `makeRangeArt`; the thrown driver above |
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
 | Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `match/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |
 

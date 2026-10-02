@@ -4,6 +4,8 @@ import { separateSphereFromAabb } from "../deform/physics-util.ts";
 import { COMPACTOR } from "../scenes/compactor.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
+import { RANGE } from "../scenes/range.ts";
+import { makeRangeArt } from "../present/range-art.ts";
 import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
 import { type ContactHit, resetLampPoles, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
@@ -25,8 +27,8 @@ const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi"
  */
 export abstract class EngineScenes extends EngineHud {
   toggleBarrier(): void {
-    // A fleet prop: the host's (netplay), and ignored while the press, a rig or the race owns the pad (the HUD locks it too).
-    if (this.net.client || this.rigScene || this.race.active) return;
+    // A fleet prop: the host's (netplay), and ignored while the press, a rig, the range or the race owns the pad (the HUD locks it too).
+    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
     this.showBarrier = !this.showBarrier;
     if (this.derbyMode) {
       // Out of the bowl like every scene switch: the reset brings back the disc ground, poles and fresh spots, and places the barrier.
@@ -41,7 +43,7 @@ export abstract class EngineScenes extends EngineHud {
   }
 
   toggleBalls(): void {
-    if (this.net.client || this.rigScene || this.race.active) return;
+    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
     this.showBalls = !this.showBalls;
     if (this.derbyMode) {
       this.setDerby(false);
@@ -60,8 +62,17 @@ export abstract class EngineScenes extends EngineHud {
   protected setScene(next: SceneId): void {
     if (this.net.client) return;
     if (next === this.sceneId) next = "fleet";
+    // The range is a one-car scene behind its own barrier: the sandbox's field and wall come back after it.
+    if (this.showRange) {
+      this.showBarrier = false;
+      this.ensureCars(this.sandboxCars);
+    }
     if (this.race.active && next !== "race") this.setRace(false);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
+    if (next === "range") {
+      this.sandboxCars = this.carCount;
+      this.ensureCars(1);
+    }
     if (next === "race") this.setRace(true);
     else this.sceneId = next;
     this.tryUnlockAudio();
@@ -82,6 +93,10 @@ export abstract class EngineScenes extends EngineHud {
 
   toggleDoors(): void {
     this.setScene("doors");
+  }
+
+  toggleRange(): void {
+    this.setScene("range");
   }
 
   toggleDerby(): void {
@@ -158,13 +173,21 @@ export abstract class EngineScenes extends EngineHud {
   protected randomizeAndReset(): void {
     this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
+    // Built on first entry, not at boot: its programs link with this switch (`queueWarm`), never in the boot warm-up.
+    if (this.showRange && !this.rangeArt) {
+      this.rangeArt = makeRangeArt();
+      this.scene.add(this.rangeArt);
+      this.queueWarm();
+    }
+    if (this.rangeArt) this.rangeArt.visible = this.showRange;
+    this.ragdolls.sand = this.showRange;
     if (this.race.active) {
       this.race.reset();
       this.finishResetCommon();
       return;
     }
-    // The fleet's ground ends at the disc's rim; the derby bowl and the rigs keep the endless pad.
-    setGround(this.derbyMode || this.showCompactor || this.showPistons || this.showDoors ? null : DISC_GROUND);
+    // The fleet's ground ends at the disc's rim; the derby bowl, the rigs and the range keep the endless pad.
+    setGround(this.derbyMode || this.showCompactor || this.showPistons || this.showDoors || this.showRange ? null : DISC_GROUND);
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -184,12 +207,13 @@ export abstract class EngineScenes extends EngineHud {
     this.pistonBank.group.visible = false;
     this.doorRam.group.visible = false;
     if (this.derbyMode) this.spawnDerby();
+    else if (this.showRange) this.spawnRange();
     else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.group.visible = this.showBarrier;
     if (this.showBarrier) this.barrier.orient(this.carA.group.position);
     scatterRampBalls(this.balls, this.showBalls);
-    resetLampPoles(this.poles, !this.derbyMode);
+    resetLampPoles(this.poles, !this.derbyMode && !this.showRange);
     this.finishResetCommon();
   }
 
@@ -209,6 +233,16 @@ export abstract class EngineScenes extends EngineHud {
       extra.group.position.set(80 + i * 6, 0, 80);
       extra.velocity.set(0, 0, 0);
     }
+  }
+
+  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin; the wall up, the balls away. */
+  private spawnRange(): void {
+    this.showBarrier = true;
+    this.showBalls = false;
+    const car = this.carA;
+    car.group.visible = true;
+    car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6);
+    this.dressCar(car);
   }
 
   private spawnDerby(): void {
@@ -418,6 +452,7 @@ export abstract class EngineScenes extends EngineHud {
     this.glassDots.reset();
     this.smoke.reset();
     this.ragdolls.reset();
+    this.rangeRun.reset();
     this.cine.reset();
 
     if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());

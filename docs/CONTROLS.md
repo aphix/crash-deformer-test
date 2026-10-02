@@ -64,7 +64,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 |---|---|---|---|
 | Pause / play | Space (when not driving) | Start | Play / Pause |
 | Reset / reshuffle | R (when not driving) | | Reset |
-| Scenes: Fleet, Derby, Race, Press, Pistons, Doors | D (from the whole field), Z, C (when not driving), I, N | | scene buttons |
+| Scenes: Fleet, Derby, Race, Press, Pistons, Doors, Range | D (from the whole field), Z, C (when not driving), I, N, (none) | | scene buttons |
 | Jersey barrier / ramp balls (fleet only) | B / K | | wall / balls buttons |
 | Loop, slow-mo, auto-orbit, audio | L, M, O, U | | Playback section |
 | Night, wet asphalt, cinematic FX tier (off → low → high) | H (outside a race), X, F | | Playback section |

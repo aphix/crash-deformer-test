@@ -157,8 +157,8 @@ export abstract class EngineInput extends EngineRigs {
 
   setCarCount(n: number): void {
     if (this.net.client) return;
-    // The race sets its own field (setup menu); the sandbox slider must not reshape it.
-    if (this.race.active) return;
+    // The race sets its own field (setup menu) and the range runs one car; the sandbox slider must not reshape them.
+    if (this.race.active || this.showRange) return;
     this.ensureCars(n);
     this.tryUnlockAudio();
     this.randomizeAndReset();

@@ -7,7 +7,7 @@
  *
  * The jointed body (ten boxes on spherical joints: head, torso, upper and lower arms, thighs, shins) follows the
  * approach of Matthias von Bargen's rapierjs-ragdoll (https://github.com/mattvb91/rapierjs-ragdoll, MIT License,
- * Copyright (c) Matthias von Bargen), rewritten for this engine: one instanced box mesh, pooled bodies, no model.
+ * Copyright (c) Matthias von Bargen), rewritten for this engine: one instanced mesh, pooled bodies, no model.
  * The MIT License: Permission is hereby granted, free of charge, to any person obtaining a copy of this software
  * and associated documentation files (the "Software"), to deal in the Software without restriction, including
  * without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
@@ -28,13 +28,14 @@ import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
 import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
+import { DummyMesh } from "./ragdoll-mesh.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
 /** Seconds a dummy lies about before it goes. */
 const LIFE = 10;
-/** Seconds after the throw before the dummy touches any car: it starts inside its own cabin, and a crushed pair's
- *  rest-size proxies overlap the other car's too. */
+/** Seconds after the throw the dummy ignores its own cabin, every car's lower box and the other dummies (the
+ *  collision groups below): it starts inside its own cabin, and a crushed pair's rest-size noses overlap. */
 const GRACE = 0.35;
 /** Course ground patch around a throw: cells per side and cell size (m), 96 m across, centred `PATCH_AHEAD` m down the throw. */
 const PATCH_N = 48;
@@ -61,22 +62,32 @@ const CAM_BACK = 4.5;
 const CAM_SIDE = 1.8;
 const CAM_UP = 1.3;
 const CAM_STILL = 1.5;
+/** Torso speed (m/s) under which a dummy counts as lying still. */
+const REST_SPEED = 0.4;
+/**
+ * Sim seconds a throw judged before Rapier is in may wait for it; later it is dropped (a dummy out of a car that
+ * stopped a second ago reads as a glitch). Rapier lands 0.45 s after `ready` in a production build, a fleet's
+ * first hit 1–2 s after it.
+ */
+const PENDING_MAX = 1;
+/** The range's sand: friction that wins over the dummy's `SLIDE` (Max rule), so he digs in instead of skating. */
+const SAND = 0.5;
 
 /**
- * Dummy parts standing (feet at y = 0): centre, half extents (m), shade. Torso first: the throw places it.
+ * Dummy parts standing (feet at y = 0): centre, half extents (m). Torso first: the throw places it.
  * A 1.62 m crash-test dummy, about 100 kg at water's density.
  */
 const PARTS = [
-  { c: [0, 1.11, 0], h: [0.18, 0.27, 0.11], yellow: true },
-  { c: [0, 1.51, 0], h: [0.1, 0.11, 0.11], yellow: true },
-  { c: [-0.24, 1.21, 0], h: [0.05, 0.14, 0.05], yellow: true },
-  { c: [-0.24, 0.93, 0], h: [0.05, 0.14, 0.05], yellow: false },
-  { c: [0.24, 1.21, 0], h: [0.05, 0.14, 0.05], yellow: true },
-  { c: [0.24, 0.93, 0], h: [0.05, 0.14, 0.05], yellow: false },
-  { c: [-0.09, 0.63, 0], h: [0.075, 0.21, 0.075], yellow: true },
-  { c: [-0.09, 0.21, 0], h: [0.075, 0.21, 0.075], yellow: false },
-  { c: [0.09, 0.63, 0], h: [0.075, 0.21, 0.075], yellow: true },
-  { c: [0.09, 0.21, 0], h: [0.075, 0.21, 0.075], yellow: false },
+  { c: [0, 1.11, 0], h: [0.18, 0.27, 0.11] },
+  { c: [0, 1.51, 0], h: [0.1, 0.11, 0.11] },
+  { c: [-0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
+  { c: [-0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
+  { c: [0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
+  { c: [0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
+  { c: [-0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
+  { c: [-0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
+  { c: [0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
+  { c: [0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
 ] as const;
 /** Arms (parts 2–5) start raised over the head: the superman dive out of the car. */
 const ARM = (k: number) => k >= 2 && k <= 5;
@@ -96,23 +107,34 @@ const JOINTS = [
 /** Head centre above the torso's: the throw puts the head at the pane. */
 const HEAD_UP = 0.4;
 
-/** Collision groups (membership << 16 | filter): the world, dummies, and cars in 14 buckets of car index. */
+/**
+ * Collision groups (membership << 16 | filter), 16 bits: the world; each dummy slot; every car's lower box (bumper
+ * to bonnet line); each car's cabin box, in 10 buckets of car index. Out of the car a dummy hits everything but its
+ * own jointed neighbours (`setContactsEnabled(false)`). For `GRACE` s after the throw it ignores its own car's
+ * cabin (it starts inside it), every car's lower box (a crushed pair's rest-size noses reach past the real ones,
+ * where the dummies start) and the other dummies; the other cars' cabins it hits from the first frame.
+ */
 const G_STATIC = 1;
-const G_DOLL = 2;
-const G_CARS = 0xfffc;
-const carBit = (i: number) => 4 << i % 14;
-const DOLL_GROUPS = (G_DOLL << 16) | G_STATIC | G_CARS;
-const FIXED_GROUPS = (G_STATIC << 16) | G_DOLL;
+const dollBit = (s: number) => 2 << s;
+const G_DOLLS = 0x1e;
+const G_LOW = 0x20;
+const cabBit = (i: number) => 0x40 << i % 10;
+const G_CABS = 0xffc0;
+const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_LOW | G_CABS;
+const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS;
 
 type Doll = {
   bodies: RigidBody[];
   live: boolean;
   age: number;
+  /** Sim seconds the torso has been under `REST_SPEED`. */
+  still: number;
   patch: Collider[];
 };
 
-const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
-const _m = new THREE.Matrix4();
+/** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting. */
+type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number };
+
 const _q = new THREE.Quaternion();
 const _qx = new THREE.Quaternion();
 const _arm = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
@@ -130,8 +152,10 @@ const Z = new THREE.Vector3(0, 0, 1);
 export class RagdollSystem {
   /** The race course whose walls a throw collides with, while its ground is the active one (set by the engine). */
   course: Track | null = null;
+  /** The flat ground is the range's sand pit (`SAND`), read when a run's first throw builds it (set by the engine). */
+  sand = false;
   private readonly watch = new EjectionWatch();
-  private readonly mesh: THREE.InstancedMesh<THREE.BoxGeometry, THREE.MeshStandardMaterial>;
+  private readonly mesh: DummyMesh;
   private readonly onThrow: (car: number) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
@@ -139,6 +163,9 @@ export class RagdollSystem {
   private readonly carBodies: RigidBody[] = [];
   private barrierBody: RigidBody | null = null;
   private live = 0;
+  /** Throws judged before Rapier was in (`PENDING_MAX`). */
+  private readonly pending: Throw[] = [];
+  private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0 };
   /**
    * Fixed colliders every dummy shares off a course (the pad or the disc, the derby bowl wall), built at the run's
    * first throw. Rapier's step allocates per collider (RapierEval: 0.31 KB each), so they are not built per dummy.
@@ -153,11 +180,12 @@ export class RagdollSystem {
   /** The car proxies sat still while no dummy was out: jump them to the cars before the next step. */
   private teleport = false;
   private lastSlot = 0;
-  /** Ride-along camera: the dummy's slot (-1 off), ahead (1) or behind (-1), seconds it has lain still. */
-  private cam = -1;
+  /** Ride-along camera: on from `follow` until every dummy out lies still; ahead (1) or behind (-1), alternating per ride. */
+  private riding = false;
   private camSide = -1;
-  private camStill = 0;
   private camFresh = false;
+  /** The framed dummies' heads, this frame. */
+  private readonly heads = Array.from({ length: SLOTS }, () => new THREE.Vector3());
   private readonly camDir = new THREE.Vector3(0, 0, 1);
   private readonly camPos = new THREE.Vector3();
   private readonly camLook = new THREE.Vector3();
@@ -165,18 +193,11 @@ export class RagdollSystem {
   /** `onThrow(car)`: a sandbox driver just left car `car` (the engine decides whether the camera follows). */
   constructor(scene: THREE.Scene, onThrow: (car: number) => void) {
     this.onThrow = onThrow;
-    const mat = new THREE.MeshStandardMaterial({ roughness: 0.55, metalness: 0.05 });
-    this.mesh = new THREE.InstancedMesh(new THREE.BoxGeometry(1, 1, 1), mat, SLOTS * PARTS.length);
+    this.mesh = new DummyMesh(SLOTS, PARTS.map((p) => p.h));
     this.mesh.name = "ragdolls";
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
     this.mesh.frustumCulled = false;
-    const yellow = new THREE.Color(0xf2c12e);
-    const dark = new THREE.Color(0x24262b);
-    for (let i = 0; i < this.mesh.count; i++) {
-      this.mesh.setMatrixAt(i, HIDDEN);
-      this.mesh.setColorAt(i, PARTS[i % PARTS.length]!.yellow ? yellow : dark);
-    }
     // Shown only while a dummy is out; the boot warm-up draws hidden meshes too, so its programs link there.
     this.mesh.visible = false;
     scene.add(this.mesh);
@@ -184,7 +205,7 @@ export class RagdollSystem {
 
   /**
    * Start Rapier (`loadRapier`), build the pool and run one step so the first throw only places bodies. The
-   * engine calls this once boot is `ready`; until it resolves `update` does nothing.
+   * engine calls this once boot is `ready`; until it resolves `update` only judges hits (`pending`).
    */
   async preload(): Promise<void> {
     const R = await loadRapier();
@@ -194,11 +215,10 @@ export class RagdollSystem {
     this.world = world;
     for (let i = 0; i < MAX_CARS; i++) {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
-      const groups = (carBit(i) << 16) | G_DOLL;
       // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
       // it the cabin (car-local, origin on the ground, +z forward).
-      world.createCollider(R.ColliderDesc.cuboid(0.86, 0.4, 2.15).setTranslation(0, 0.45, 0).setCollisionGroups(groups), body);
-      world.createCollider(R.ColliderDesc.cuboid(0.7, 0.27, 0.68).setTranslation(0, 1.07, -0.07).setCollisionGroups(groups), body);
+      world.createCollider(R.ColliderDesc.cuboid(0.86, 0.4, 2.15).setTranslation(0, 0.45, 0).setCollisionGroups((G_LOW << 16) | G_DOLLS), body);
+      world.createCollider(R.ColliderDesc.cuboid(0.7, 0.27, 0.68).setTranslation(0, 1.07, -0.07).setCollisionGroups((cabBit(i) << 16) | G_DOLLS), body);
       this.carBodies.push(body);
     }
     this.barrierBody = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, -10));
@@ -214,7 +234,7 @@ export class RagdollSystem {
             .setFriction(SLIDE)
             .setFrictionCombineRule(R.CoefficientCombineRule.Min)
             .setRestitution(0.1)
-            .setCollisionGroups(DOLL_GROUPS),
+            .setCollisionGroups(dollGroups(s)),
           body,
         );
         return body;
@@ -223,9 +243,9 @@ export class RagdollSystem {
         const pa = PARTS[a]!.c;
         const pb = PARTS[b]!.c;
         const data = R.JointData.spherical({ x: x - pa[0], y: y - pa[1], z: z - pa[2] }, { x: x - pb[0], y: y - pb[1], z: z - pb[2] });
-        world.createImpulseJoint(data, bodies[a]!, bodies[b]!, true);
+        world.createImpulseJoint(data, bodies[a]!, bodies[b]!, true).setContactsEnabled(false);
       }
-      this.dolls.push({ bodies, live: false, age: 0, patch: [] });
+      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [] });
     }
     // One step with a dummy out, far below the world: links the step path before a crash needs it.
     const d = this.dolls[0]!;
@@ -237,7 +257,8 @@ export class RagdollSystem {
   /** A new run: no dummies out, every car's driver back in. */
   reset(): void {
     this.watch.reset();
-    this.cam = -1;
+    this.pending.length = 0;
+    this.riding = false;
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
     for (const c of this.statics) this.world?.removeCollider(c, false);
     this.statics.length = 0;
@@ -247,16 +268,21 @@ export class RagdollSystem {
    * One frame: judge disabling hits (`authority`: this peer owns the glass, so it smashes the exit pane) and
    * step the dummies `dt` sim seconds against the cars' poses. `sandbox`: neither a race nor a derby (`onThrow`);
    * `bowlR`: the derby bowl's radius, 0 outside a derby; `barrier`: the sandbox's jersey
-   * barrier while it stands, else null.
+   * barrier while it stands, else null. Hits are judged from the first frame; a throw judged before Rapier is in
+   * waits for it, up to `PENDING_MAX`.
    */
   update(dt: number, cars: readonly DeformableCar[], authority: boolean, sandbox: boolean, bowlR: number, barrier: THREE.Object3D | null): void {
-    const world = this.world;
-    if (!world || dt <= 0) return;
+    if (dt <= 0) return;
     this.cars = cars;
     this.authority = authority;
     this.sandbox = sandbox;
     this.bowlR = bowlR;
-    this.watch.update(cars, dt, this.eject);
+    this.watch.update(cars, dt, bowlR > 0 ? "derby" : "default", this.eject);
+    const world = this.world;
+    for (const t of this.pending) t.age += dt;
+    if (!world) return;
+    for (const t of this.pending) if (t.age <= PENDING_MAX) this.spawn(t);
+    this.pending.length = 0;
     if (this.live === 0) return;
     for (let i = 0; i < MAX_CARS; i++) {
       const car = i < cars.length ? cars[i]! : null;
@@ -272,59 +298,86 @@ export class RagdollSystem {
       if (!d.live) continue;
       const before = d.age;
       d.age += dt;
-      if (before < GRACE && d.age >= GRACE) for (const b of d.bodies) b.collider(0).setCollisionGroups(DOLL_GROUPS);
+      if (before < GRACE && d.age >= GRACE) for (const b of d.bodies) b.collider(0).setCollisionGroups(dollGroups(s));
       if (d.age > LIFE || d.bodies[0]!.translation().y < -30) {
         this.despawn(s);
         continue;
       }
+      const v = d.bodies[0]!.linvel();
+      d.still = Math.hypot(v.x, v.y, v.z) < REST_SPEED ? d.still + dt : 0;
       for (let k = 0; k < PARTS.length; k++) {
-        const b = d.bodies[k]!;
-        const t = b.translation();
-        const r = b.rotation();
-        const h = PARTS[k]!.h;
-        _m.compose(_p.set(t.x, t.y, t.z), _q.set(r.x, r.y, r.z, r.w), _s.set(h[0] * 2, h[1] * 2, h[2] * 2));
-        this.mesh.setMatrixAt(s * PARTS.length + k, _m);
+        const t = d.bodies[k]!.translation();
+        const r = d.bodies[k]!.rotation();
+        this.mesh.pose(s, k, _p.set(t.x, t.y, t.z), _q.set(r.x, r.y, r.z, r.w));
       }
     }
-    this.mesh.instanceMatrix.needsUpdate = true;
   }
 
-  /** Ride along with the latest throw: the camera holds ahead of or behind its head (alternating) until it lies still. */
+  /**
+   * Ride along with the dummies thrown: the camera frames every one still moving (two out of a head-on, say, not
+   * just the first), from ahead of or behind them (alternating per ride), until they all lie still.
+   */
   follow(): void {
-    this.cam = this.lastSlot;
-    this.camSide = -this.camSide;
-    this.camStill = 0;
-    this.camFresh = true;
+    if (!this.riding) {
+      this.camSide = -this.camSide;
+      this.camFresh = true;
+    }
+    this.riding = true;
   }
 
-  /** Place `camera` on the dummy being followed; false when none is (the engine's own camera runs). */
-  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number): boolean {
-    if (this.cam < 0) return false;
-    const d = this.dolls[this.cam]!;
-    if (!d.live) {
-      this.cam = -1;
+  /** The latest throw's torso (world) into `out`, and the sim seconds it has lain still; -1 while it is not out. */
+  latest(out: THREE.Vector3): number {
+    const d = this.dolls[this.lastSlot];
+    if (!d?.live) return -1;
+    const t = d.bodies[0]!.translation();
+    out.set(t.x, t.y, t.z);
+    return d.still;
+  }
+
+  /**
+   * Place `camera` on the dummies being followed; false when none is (the engine's own camera runs). `hold`: keep
+   * watching once they lie still, always from behind (the range: its signs read down the throw, and it shows where
+   * its driver came to rest).
+   */
+  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean): boolean {
+    if (!this.riding) return false;
+    // Every dummy still moving (holding: every one out): the centre of their heads, pulled back to fit their spread.
+    let n = 0;
+    let vx = 0;
+    let vz = 0;
+    const c = _s.set(0, 0, 0);
+    for (const d of this.dolls) {
+      if (!d.live || (d.still > CAM_STILL && !hold)) continue;
+      const h = d.bodies[1]!.translation();
+      const v = d.bodies[0]!.linvel();
+      this.heads[n]!.set(h.x, h.y, h.z);
+      c.add(this.heads[n]!);
+      vx += v.x;
+      vz += v.z;
+      n++;
+    }
+    if (n === 0) {
+      this.riding = false;
       return false;
     }
-    const head = d.bodies[1]!.translation();
-    const v = d.bodies[0]!.linvel();
-    const speed = Math.hypot(v.x, v.z);
-    if (speed > 0.5) this.camDir.set(v.x / speed, 0, v.z / speed);
-    this.camStill = Math.hypot(speed, v.y) < 0.4 ? this.camStill + wallDt : 0;
-    if (this.camStill > CAM_STILL) {
-      this.cam = -1;
-      return false;
-    }
+    c.multiplyScalar(1 / n);
+    let spread = 0;
+    for (let k = 0; k < n; k++) spread = Math.max(spread, this.heads[k]!.distanceTo(c));
+    const speed = Math.hypot(vx, vz);
+    if (speed > 0.5 * n) this.camDir.set(vx / speed, 0, vz / speed);
     const dir = this.camDir;
-    _p.set(head.x + dir.x * CAM_BACK * this.camSide - dir.z * CAM_SIDE, head.y + CAM_UP, head.z + dir.z * CAM_BACK * this.camSide + dir.x * CAM_SIDE);
+    const back = (CAM_BACK + spread * 1.6) * (hold ? -1 : this.camSide);
+    const side = CAM_SIDE + spread * 0.5;
+    _p.set(c.x + dir.x * back - dir.z * side, c.y + CAM_UP + spread * 0.4, c.z + dir.z * back + dir.x * side);
     const ground = activeGround().heightAt(_p.x, _p.z);
     if (Number.isFinite(ground)) _p.y = Math.max(_p.y, ground + 0.6);
     if (this.camFresh) {
       this.camPos.copy(_p);
-      this.camLook.set(head.x, head.y, head.z);
+      this.camLook.copy(c);
       this.camFresh = false;
     } else {
       this.camPos.lerp(_p, 1 - Math.exp(-wallDt * 5));
-      this.camLook.lerp(_s.set(head.x, head.y, head.z), 1 - Math.exp(-wallDt * 12));
+      this.camLook.lerp(c, 1 - Math.exp(-wallDt * 12));
     }
     camera.position.copy(this.camPos);
     camera.lookAt(this.camLook);
@@ -373,42 +426,50 @@ export class RagdollSystem {
     }
   }
 
+  /** Car i's driver is thrown: the exit pane smashes now, the dummy flies now or (Rapier still loading) once it is in. */
   private readonly eject = (i: number, exit: ExitPane, pre: THREE.Vector3): void => {
     const car = this.cars[i]!;
     if (this.authority) car.smashGlass(exit);
-    let slot = this.dolls.findIndex((d) => !d.live);
-    if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
-    this.despawn(slot);
-    const d = this.dolls[slot]!;
+    const t = this.next;
     const g = car.group;
     // Head first out of the pane, superman style: the dummy's up axis leans 70° from the car's up toward the exit.
     const side = exit === "windshield" ? 0 : exit === "doorL" ? -1 : 1;
     if (side === 0) _qx.setFromAxisAngle(X, (70 * Math.PI) / 180);
     else _qx.setFromAxisAngle(Z, (-side * 70 * Math.PI) / 180);
-    _q.copy(g.quaternion).multiply(_qx);
-    _up.set(0, 1, 0).applyQuaternion(_q);
+    t.q.copy(g.quaternion).multiply(_qx);
+    _up.set(0, 1, 0).applyQuaternion(t.q);
     _out.set(side, 0, side === 0 ? 1 : 0).applyQuaternion(g.quaternion);
-    car.glassWorld(exit, _p);
+    car.glassWorld(exit, t.p);
     // The driver sits left of centre (−x): a windshield throw leaves on his side of the glass.
-    if (side === 0) _p.addScaledVector(_r.set(1, 0, 0).applyQuaternion(g.quaternion), -0.25);
-    _p.addScaledVector(_up, -HEAD_UP);
+    if (side === 0) t.p.addScaledVector(_r.set(1, 0, 0).applyQuaternion(g.quaternion), -0.25);
+    t.p.addScaledVector(_up, -HEAD_UP);
     // Tumble: a somersault over the car's x axis out of the windshield, a roll over its z axis out of a side.
-    _w.set(side === 0 ? 1 : 0, 0, side === 0 ? 0 : -side).applyQuaternion(g.quaternion).multiplyScalar(TUMBLE);
-    const vx = pre.x + _out.x * THROW_OUT;
-    const vy = THROW_UP;
-    const vz = pre.z + _out.z * THROW_OUT;
+    t.w.set(side === 0 ? 1 : 0, 0, side === 0 ? 0 : -side).applyQuaternion(g.quaternion).multiplyScalar(TUMBLE);
+    t.v.set(pre.x + _out.x * THROW_OUT, THROW_UP, pre.z + _out.z * THROW_OUT);
+    t.car = i;
+    t.age = 0;
+    if (this.world) this.spawn(t);
+    else this.pending.push({ car: i, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0 });
+  };
+
+  /** Throw `t`'s dummy into a free slot (else the oldest one's). */
+  private spawn(t: Throw): void {
+    let slot = this.dolls.findIndex((d) => !d.live);
+    if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
+    this.despawn(slot);
+    const d = this.dolls[slot]!;
     const t0 = PARTS[0]!.c;
     for (let k = 0; k < PARTS.length; k++) {
       const b = d.bodies[k]!;
       const c = PARTS[k]!.c;
       // A raised arm is the hanging one turned over about its shoulder.
       const y = ARM(k) ? 2 * SHOULDER_Y - c[1] : c[1];
-      _r.set(c[0] - t0[0], y - t0[1], c[2] - t0[2]).applyQuaternion(_q);
-      _v.x = _p.x + _r.x;
-      _v.y = _p.y + _r.y;
-      _v.z = _p.z + _r.z;
+      _r.set(c[0] - t0[0], y - t0[1], c[2] - t0[2]).applyQuaternion(t.q);
+      _v.x = t.p.x + _r.x;
+      _v.y = t.p.y + _r.y;
+      _v.z = t.p.z + _r.z;
       b.setTranslation(_v, false);
-      _qx.copy(_q);
+      _qx.copy(t.q);
       if (ARM(k)) _qx.multiply(_arm);
       _rot.x = _qx.x;
       _rot.y = _qx.y;
@@ -416,29 +477,30 @@ export class RagdollSystem {
       _rot.w = _qx.w;
       b.setRotation(_rot, false);
       // Rigid motion: v + ω × r.
-      _s.copy(_w).cross(_r);
-      _v.x = vx + _s.x;
-      _v.y = vy + _s.y;
-      _v.z = vz + _s.z;
+      _s.copy(t.w).cross(_r);
+      _v.x = t.v.x + _s.x;
+      _v.y = t.v.y + _s.y;
+      _v.z = t.v.z + _s.z;
       b.setLinvel(_v, false);
-      _v.x = _w.x;
-      _v.y = _w.y;
-      _v.z = _w.z;
+      _v.x = t.w.x;
+      _v.y = t.w.y;
+      _v.z = t.w.z;
       b.setAngvel(_v, false);
-      b.collider(0).setCollisionGroups((G_DOLL << 16) | G_STATIC);
+      b.collider(0).setCollisionGroups((dollBit(slot) << 16) | G_STATIC | dollBit(slot) | (G_CABS & ~cabBit(t.car)));
       b.setEnabled(true);
       b.wakeUp();
     }
-    const speed = Math.hypot(vx, vz);
-    this.buildPatch(d, _p.x + (speed > 0.5 ? (vx / speed) * PATCH_AHEAD : 0), _p.z + (speed > 0.5 ? (vz / speed) * PATCH_AHEAD : 0));
+    const speed = Math.hypot(t.v.x, t.v.z);
+    this.buildPatch(d, t.p.x + (speed > 0.5 ? (t.v.x / speed) * PATCH_AHEAD : 0), t.p.z + (speed > 0.5 ? (t.v.z / speed) * PATCH_AHEAD : 0));
     d.live = true;
     d.age = 0;
+    d.still = 0;
     this.teleport ||= this.live === 0;
     this.live++;
     this.lastSlot = slot;
     this.mesh.visible = true;
-    if (this.sandbox) this.onThrow(i);
-  };
+    if (this.sandbox) this.onThrow(t.car);
+  }
 
   /** The ground under a throw (the flat pad, the fleet disc, or a course heightfield patch) and the walls on it. */
   private buildPatch(d: Doll, cx: number, cz: number): void {
@@ -448,10 +510,12 @@ export class RagdollSystem {
     const onCourse = this.course !== null && ground === this.course.ground();
     if (!onCourse && this.statics.length > 0) return;
     const into = onCourse ? d.patch : this.statics;
-    const add = (desc: ColliderDesc) => into.push(world.createCollider(desc.setFriction(0.9).setCollisionGroups(FIXED_GROUPS)));
+    const add = (desc: ColliderDesc, friction = 0.9) => into.push(world.createCollider(desc.setFriction(friction).setCollisionGroups(FIXED_GROUPS)));
     const size = PATCH_N * PATCH_CELL;
-    if (ground === FLAT_GROUND) add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0));
-    else if (ground === DISC_GROUND) add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
+    if (ground === FLAT_GROUND) {
+      const rule = this.sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average;
+      add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0).setFrictionCombineRule(rule), this.sand ? SAND : 0.9);
+    } else if (ground === DISC_GROUND) add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
     else {
       const n = PATCH_N;
       const heights = new Float32Array((n + 1) * (n + 1));
@@ -517,12 +581,10 @@ export class RagdollSystem {
     const d = this.dolls[s]!;
     if (d.live) this.live--;
     d.live = false;
-    if (this.cam === s) this.cam = -1;
     for (const b of d.bodies) b.setEnabled(false);
     for (const c of d.patch) this.world!.removeCollider(c, false);
     d.patch.length = 0;
-    for (let k = 0; k < PARTS.length; k++) this.mesh.setMatrixAt(s * PARTS.length + k, HIDDEN);
-    this.mesh.instanceMatrix.needsUpdate = true;
+    this.mesh.hide(s);
     if (this.live === 0) this.mesh.visible = false;
   }
 }

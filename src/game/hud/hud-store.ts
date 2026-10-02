@@ -50,6 +50,9 @@ export type CrashHudState = {
   pistons: PistonHud;
   showDoors: boolean;
   doors: DoorHud;
+  /** The ejection range (null in every other scene): metres past the wall the thrown driver has reached, null before
+   *  the throw; `landed` once he lies still. */
+  range: { distance: number | null; landed: boolean } | null;
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
@@ -142,6 +145,7 @@ export const INITIAL_HUD: CrashHudState = {
   pistons: { selected: 0, speedKph: 40, massKg: 1500, hardness: 1, holdCar: false, hopSeconds: 6.5, hopSynced: true, busy: false, energyKj: 0, ebsKph: 0 },
   showDoors: false,
   doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
+  range: null,
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,

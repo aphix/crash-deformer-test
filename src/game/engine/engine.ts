@@ -46,8 +46,6 @@ const _lodSphere = new THREE.Sphere();
  */
 const DETAIL_NEAR = 35;
 const DETAIL_BACK = 32;
-/** Sandbox time scale while the camera rides with a thrown driver: slow enough to watch him fly, set by eye. */
-const THROW_SLOMO = 0.3;
 
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -630,7 +628,10 @@ export class CrashEngine extends EngineInput {
     if (this.derbyMode || this.race.active) return;
     const settled = this.clock.phase === "aftermath";
     stepPhase(this.clock, wallDt);
-    if (settled && this.looping && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)) this.randomizeAndReset();
+    // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the fleet's.
+    const still = this.showRange ? this.ragdolls.latest(_v) : -1;
+    const shown = this.showRange && this.rangeRun.step(still, _v.x, wallDt);
+    if (this.looping && (shown || (still < 0 && settled && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
   }
 
   /** `aimRigs`'s derby centroid set, refilled per frame. */
@@ -670,17 +671,14 @@ export class CrashEngine extends EngineInput {
   }
 
   /**
-   * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): the camera rides with him
-   * unless it follows another car or the user framed it, and the clock drops to `THROW_SLOMO` (out of the hit's
-   * near-freeze) to watch him fly.
+   * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): the camera rides with the
+   * thrown drivers unless it follows another car or the user framed it. The clock is the hit's: its slow-mo, the
+   * letterbox and the post effects run on under the ride (`aimRigs`).
    */
   private onThrow(i: number): void {
     const followed = this.followedCar();
     if (this.view.userFramed || (followed && followed !== this.cars[i])) return;
     this.ragdolls.follow();
-    if (this.net.client || !this.autoSlomo || this.clock.userTimeScale != null) return;
-    this.clock.timeScale = THROW_SLOMO;
-    this.clock.targetScale = THROW_SLOMO;
   }
 
   /** The rigs' shot, then the rear-view hold over it (undone before the next frame's rigs, so they never see it). */
@@ -692,8 +690,18 @@ export class CrashEngine extends EngineInput {
   }
 
   private aimRigs(wallDt: number): void {
-    if (this.ragdolls.frameCamera(this.camera, wallDt)) return;
-    if (this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive")) return;
+    // The crash cam steps first, so its letterbox runs on under a ride-along, which then takes the camera itself
+    // (the cut's position, and its lens: the ride keeps the one it started with).
+    const fov = this.camera.fov;
+    const cut = this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
+    if (this.ragdolls.frameCamera(this.camera, wallDt, this.showRange)) {
+      if (this.camera.fov !== fov) {
+        this.camera.fov = fov;
+        this.camera.updateProjectionMatrix();
+      }
+      return;
+    }
+    if (cut) return;
     const followed = this.followedCar();
     // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps
     // the falling car centred, then holds once it vaporizes.
