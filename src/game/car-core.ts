@@ -133,7 +133,11 @@ export interface PartNetState {
 
 type GlassState = "intact" | "cracked" | "shattered";
 
+/** Panes by place: doorL / doorR are the front side windows (they ride the doors, −x is the car's left). */
+export type GlassName = "windshield" | "rear" | "doorL" | "doorR" | "quarterL" | "quarterR";
+
 export interface GlassPane {
+  name: GlassName;
   mesh: THREE.Mesh;
   mat: THREE.MeshStandardMaterial;
   restPos: THREE.Vector3;
@@ -398,6 +402,7 @@ export abstract class CarCore {
 
   private addGlass(): void {
     const addPane = (
+      name: GlassName,
       mesh: THREE.Mesh,
       parent: THREE.Object3D,
       parts: GlassPane["parts"],
@@ -406,6 +411,7 @@ export abstract class CarCore {
       mesh.renderOrder = 2;
       parent.add(mesh);
       this.glassPanes.push({
+        name,
         mesh,
         mat: mesh.material as THREE.MeshPhysicalMaterial,
         restPos: mesh.position.clone(),
@@ -417,16 +423,16 @@ export abstract class CarCore {
     };
     const glassMat = makeGlassMaterial();
     const style = this.style;
-    addPane(new THREE.Mesh(makeWindshield(style), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
-    addPane(new THREE.Mesh(makeRearGlass(style), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
+    addPane("windshield", new THREE.Mesh(makeWindshield(style), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
+    addPane("rear", new THREE.Mesh(makeRearGlass(style), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
     const sideL = new THREE.Mesh(makeSideGlass(-1, style), glassMat.clone());
     sideL.position.set(0.02, 0.52, -0.28);
-    addPane(sideL, this.doorL, ["doorLeft", "roof"]);
+    addPane("doorL", sideL, this.doorL, ["doorLeft", "roof"]);
     const sideR = new THREE.Mesh(makeSideGlass(1, style), glassMat.clone());
     sideR.position.set(-0.02, 0.52, -0.28);
-    addPane(sideR, this.doorR, ["doorRight", "roof"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(-1, style), glassMat.clone()), this.group, ["roof", "doorLeft"]);
-    addPane(new THREE.Mesh(makeRearSideGlass(1, style), glassMat.clone()), this.group, ["roof", "doorRight"]);
+    addPane("doorR", sideR, this.doorR, ["doorRight", "roof"]);
+    addPane("quarterL", new THREE.Mesh(makeRearSideGlass(-1, style), glassMat.clone()), this.group, ["roof", "doorLeft"]);
+    addPane("quarterR", new THREE.Mesh(makeRearSideGlass(1, style), glassMat.clone()), this.group, ["roof", "doorRight"]);
   }
 
   private registerParts(): void {

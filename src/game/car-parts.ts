@@ -14,6 +14,7 @@ import {
   DOOR_OPEN_MAX,
   DOOR_TEAR_MPS,
   type DoorHinge,
+  type GlassName,
   type GlassPane,
   HINGE_TEAR_J,
   type Lamp,
@@ -366,6 +367,24 @@ export abstract class CarParts extends CarCore {
     const vel = this.pointVelocity(origin, new THREE.Vector3());
     vel.y += 1.5 + Math.abs(this.angular.x) * 2;
     this.onGlass?.(origin, vel, 56);
+  }
+
+  /** Shatter pane `name` now (a driver thrown through it); false if it is already gone. Call it on the
+   *  authority only: netplay carries the pane to clients in the glass bits. */
+  smashGlass(name: GlassName): boolean {
+    const g = this.glassPanes.find((p) => p.name === name);
+    if (!g || g.state === "shattered") return false;
+    this.shatterGlass(g);
+    return true;
+  }
+
+  /** World centre of pane `name` (its rest shape's box centre on its current seat). */
+  glassWorld(name: GlassName, out: THREE.Vector3): THREE.Vector3 {
+    const g = this.glassPanes.find((p) => p.name === name)!;
+    const geo = g.mesh.geometry;
+    if (!geo.boundingBox) geo.computeBoundingBox();
+    g.mesh.updateWorldMatrix(true, false);
+    return geo.boundingBox!.getCenter(out).applyMatrix4(g.mesh.matrixWorld);
   }
 
   protected stepLooseParts(dt: number, bounce?: WorldBounce): void {
