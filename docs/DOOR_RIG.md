@@ -75,8 +75,11 @@ So a light push folds the mirror and a real hit breaks it off.
 ## Rig (`door-rig.ts`)
 
 The car is parked at the origin facing +Z. The ram is a box: a face width × height × 0.5 m. It is
-kinematic except for the momentum it trades with the door and the mirror. It only ever meets the
-door and mirror colliders, never the body particles or hulls. Contact runs in 0.5 ms substeps.
+kinematic except for the momentum it trades with the door and the mirror. It is a striker box in
+the shared contact (`external-contact.ts`, docs/CONTACT_PARITY.md): the door and mirror colliders
+below are `partContact`, the same code a car running down the side meets, and `bodyContact` dents
+the skin if a lane reaches it (the stock lanes stay clear of it, so body Δ stays 0 mm). Contact
+runs in 0.5 ms substeps.
 
 The door is a slab in top view from its hinge to its trailing edge. A free door takes one
 restitution impulse (e = 0.2) through its effective mass I/k², where k = r·sin θ is its lever

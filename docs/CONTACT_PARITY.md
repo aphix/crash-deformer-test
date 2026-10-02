@@ -1,12 +1,12 @@
 # Contact parity: scene rigs vs car-car
 
 The Doors ram, the press and the pistons are test benches for the same crash a car can deliver.
-This file pins what "the same hit" means, measures each scene against the car-car path, and lists
-where the code paths differ.
+This file pins what "the same hit" means, measures each scene against the car-car path, lists
+where the code paths differed, and records what is shared now (as built) and what is still open.
 
 Probes: `src/game/contact-parity.test-util.ts` (scenarios, `carState` measure),
-`src/game/contact-parity.test.ts` (matched-pair tests), scratch table runner
-`.bench/parity/probe.ts`.
+`src/game/contact-parity.test.ts` (matched-pair tests), scratch runners `.bench/parity/probe.ts`
+(table), `.bench/parity/micro.ts` (cost), `.bench/parity/shots.mjs` (screenshots).
 
 ## Matched pairs and what "equivalent" means
 
@@ -103,3 +103,73 @@ residual at 20 km/h is the mass-level contact (box projection vs sphere contact)
 - Car-car: `pair-contact.ts:76` EBS = closing·m_other/(m_a+m_b), `:89` `feedOverlap`, sphere
   contact `streamed-deform.ts:1310` `collideWith`. Barrier: `engine-props.ts:143` `resolve`
   (SAT → `applyImpact` → `feedOverlap` → `projectOutOfBox` → `brakeInbound`).
+
+## As built: one striker contact (`src/game/external-contact.ts`)
+
+Every external body is a `ContactBox`: an oriented box (centre, half extents, heading), a world
+velocity, a mass (`Infinity` for a kinematic driver) and a `hardness` (share of the crush energy
+the struck car takes). The scene props only move their box; the car meets it through:
+
+- **`partContact(car, box)`**: the door slab and mirror colliders (formerly `DoorRig.hitMirror`
+  / `hitDoor`), for any striker running along the car (within 15°, `PARALLEL`) with its near edge
+  outside the body's width (`CAR_HALF.x`). Folds, breaks and tears go through the hinge model in
+  `car.ts` (`setMirrorFold`, `breakMirror`, `loadDoorStop`); the free swing (`swingDoors`) now
+  runs in `afterContacts` for every car with an unlatched door. Callers: the Doors ram
+  (`DoorRig.hit`), piston heads, and car-car (`partContactPair`, once per slice per close pair
+  right after `collideWith` in `engine.ts fixedStep`, `pair-contact.ts stepCarPair` and the
+  test copies of `fixedStep`). A car striker is the box `carBox(car)`; what the parts take comes
+  off its speed uniformly (all particles alike). The struck car is held, as the ram scene always
+  held it: a door or mirror is light against either body. Angled strikers and strikers reaching
+  inside the body's width are body hits; the crash rules C1–C3 take the door and mirror then.
+- **`bodyContact(car, box, dt, crush)`**: the first touch starts the crash with `applyImpact` and
+  `strikeEbs` (the struck car's `hardness` share of ½·μ·v², which is pair-contact's
+  closing·M/(m+M) for two cars of the same structure; a kinematic striker gives μ = m); the
+  particles are held on the face in the striker's frame (`projectOutOfBox`, the barrier's slab)
+  and, while particles rest on it, `brakeInbound` spends the hit's stroke (the barrier's `brake`).
+  Callers: press plates (`CompactorRig`, which the engine now drives on the parked car; the
+  plane projection `enforceWalls`, the box-mesh `CompactorRig` and the fixed 18 m/s
+  `beginCrush` are gone), piston heads (`PistonRig.contact`), the Doors ram (dents the body only
+  if a lane reaches the skin; the stock lanes do not).
+- **`DeformableCar.noteContactEnd(end, reach)`**: the squeeze rule. Both ends struck within
+  0.25 s set `bidirectional`; a striker face inboard of the wheel centres (|z| < 1.34 m) during a
+  squeeze sets `deepCrush`; both clear as soon as either end stops being struck. The press and
+  front/rear pistons report ends; the press no longer sets either flag by fiat.
+  `projectOutOfBox` holds planted hubs too once `deepCrush` is on (the plates no longer pass
+  through the wheels).
+
+### After (this branch)
+
+| Pair | Car-car | Scene rig | Verdict |
+| --- | --- | --- | --- |
+| A mirror, 12 / 30 km/h | mirror folds and snaps off, door shut | same | **identical** (test) |
+| B open door, 12 / 30 km/h | door past the stop 68°, torn off with its mirror | same | **identical** (test) |
+| C open door, 12 km/h | door shut and latched, mirror folded 66.2° by the car body still alongside | car-shaped ram head: shut, latched, mirror 65.6°; stock 0.5 m × 0.45 m head runs under the mirror (0°) | **identical** for the same striker shape (test) |
+| C open door, 30 km/h | door slammed shut and torn off with its mirror | same | **identical** |
+| Piston vs car, 40 km/h, 858 kg, hardness 0.5 | short 173, nose 128 mm, no parts off | short 173, nose 120 | **within tolerance** (test; it already was before) |
+| Piston vs car, 20 km/h | short 76, nose 26 | short 76, nose 26 | parts, drivetrain, cabin same; rails 18/29, roof 6/17, wings 32/47 mm over 10 mm (todo) |
+| Sandwich 20 km/h vs press at matched travel (109 / 117 mm) | nose 84, tail 25, no parts off, drivetrain alive, cabin 4 mm | nose 67, tail 50, none, alive, cabin 2 mm | parts, drivetrain, cabin same; engines 34/75, tank 21/38, axleR 34/23, rear bumpers 105/89, wings 35/48 mm off (todo) |
+| Sandwich 40 km/h vs press (203 / 208 mm) | nose 176, tail 27 | nose 105, tail 103 | parts, drivetrain, cabin same; front bumpers 185/121, engines 36/82, tank 16/49 off |
+
+Matched energy (b) cannot be used as a pass/fail measure: the plates are displacement-driven, so
+plate work Σ J·v (408 J at the 20 km/h sandwich's travel, against the middle car's 9.4 kJ
+share) counts only the momentum the slab removes, not the work of pushing the structure.
+
+Cost: `partContactPair` 62 ns per close pair, `afterContacts` additions 238 ns per car (headless
+micro-bench): 0.09 ms per frame worst case at 24 cars (276 pairs, 4 slices). The browser bench
+could not be measured on the saturated box (2–20 fps for both main and this branch).
+
+### Open
+
+- **Car-car squeeze.** Car-car does not report struck ends, so a car sandwiched by two others
+  crushes its first-struck end and barely the other (nose 176 / tail 27 mm at 40 km/h). Turning
+  the squeeze rule on for car-car was measured: with `followGroup`'s origin pin
+  (`streamed-deform.ts:1429`, a `bidirectional` car is held at the world origin) derby wrecks
+  teleport 10 m in one slice; without the pin a 16-car pile-up keeps turning (0.51 rad in 2 s) and
+  the middle car crushes a fifth of the strikers. The `bidirectional` deform rules (origin pin,
+  no planting, re-arm refused) assume the press; they need to work for a free car before car-car
+  can share the rule (CrashRealism5's `followGroup` / plant code).
+- **Particle-level contact.** Car-car particles meet through sphere contact
+  (`collideWith`) plus `feedOverlap`; rigs meet through the slab (`projectOutOfBox`). Feeding the
+  face overlap through `feedOverlap` in `bodyContact` was tried and moved the piston further from
+  car-car (rails 29→32, wings 47→49 mm) and broke the piston wing grading, so it was dropped. The
+  remaining per-particle gaps above (engine block, tank, rear axle, bumpers) come from this split.

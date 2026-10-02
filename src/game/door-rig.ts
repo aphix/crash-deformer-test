@@ -9,8 +9,9 @@ import { bodyContact, makeBox, partContact } from "./external-contact.ts";
  *   skin and catches only the mirror.
  * - `overOpen` (B): the door is open; the ram runs rear→front into it and drives it past the stop.
  * - `shut` (C): the door is open; the ram runs front→rear into it and drives it shut.
- * The ram is kinematic apart from the momentum it trades with the door and the mirror, and it
- * only ever touches the door and mirror colliders: it never meets the body particles or hulls.
+ * The ram is kinematic apart from the momentum it trades with the car; it is a striker box in the
+ * shared contact (`external-contact.ts`): the door and mirror colliders a car running down the
+ * side meets too, and the body contact if a lane reaches the skin (the stock lanes do not).
  */
 export const DOOR_SCENARIOS = ["mirror", "overOpen", "shut"] as const;
 export type DoorScenario = (typeof DOOR_SCENARIOS)[number];

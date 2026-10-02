@@ -31,14 +31,18 @@ the front-left corner, seen from above.
   to the shot speed, then coasts as a free mass: contact is the only thing
   that slows it. It retracts (1.6 m/s) once the car stops it, the contact
   lets go for 50 ms, or the face reaches 0.9 m past the paint (end stop).
-- **Contact** goes through the existing mass-level path, in the head's rest
-  frame: every particle velocity is shifted by −(face speed), then
-  `StreamedDeformation.projectOutOfBox` (the head is the box: depth 0.3 m
-  along the axis, half the face width across) puts crossed particles back on
-  the face, and while particles rest on it `brakeInbound` applies the
-  stroke-sized crush force `m·EBS²/(2·hitStroke)` (the jersey barrier's
-  `brake`). Velocities are shifted back; the momentum the car took comes off
-  the ram (`u −= Δp / M`). The first touch calls
+- **Contact** is the shared striker contact (`external-contact.ts`
+  `bodyContact`, docs/CONTACT_PARITY.md), the same code as the press plates
+  and the Doors ram, in the head's rest frame: every particle velocity is
+  shifted by −(face speed), then `StreamedDeformation.projectOutOfBox` (the
+  head is the box: depth 0.3 m along the axis, half the face width across)
+  puts crossed particles back on the face, and while particles rest on it
+  `brakeInbound` applies the stroke-sized crush force `m·EBS²/(2·hitStroke)`
+  (the jersey barrier's `brake`). Velocities are shifted back; the momentum
+  the car took comes off the ram (`u −= Δp / M`). The head also meets the
+  door and mirror colliders (`partContact`), and a head on the nose or tail
+  reports the struck end (`noteContactEnd`), so front and rear fired together
+  squeeze the car like the press. The first touch calls
   `DeformableCar.applyImpact(point, inward, closing, EBS)` once per crash.
 - **Energy.** The car takes `E = h · ½ μ v²`, μ the reduced mass
   `mM/(m+M)` (free car) or `M` (held car); `EBS = √(2E/m)`, m the rig mass
