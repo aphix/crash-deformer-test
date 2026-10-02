@@ -242,7 +242,7 @@ slices, `frame` before the camera, the chase camera while a race runs, `race` in
 pad buttons and keys (the HUD owns them). Racing keys: Esc / Start / Back pause, R / D-pad ↓ respawn,
 Q/E LB/RB spectate, V view, H focus ↔ full view (the sandbox's night toggle on H waits until you
 leave the race). In the focus view every sandbox hotkey (scenes, Z, play, rig, wet, night…) is
-swallowed; in the full view they work as in the sandbox.
+swallowed; in the full view they work as in the sandbox, except the fleet props B / K (the HUD locks them too).
 
 ## HUD and controller menus
 Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split, the boost
@@ -253,7 +253,8 @@ card and dock (first item "Race view"). Modal menus: setup (course cards, laps 3
 max aggression with its hint, respawn / no reset, Start race, Campaign, Back), pause (Resume,
 Restart, End race, Full menu / Race view, Quit to menu), dead, results (Next course / Standings,
 Retry, Menu), campaign standings (Next round / champion, Menu). D-pad / left stick move focus
-spatially (350 ms then 120 ms repeat), ←/→ adjust, A confirms, B backs out, Start resumes.
+spatially (350 ms then 120 ms repeat), ←/→ adjust, A confirms, B backs out, Start resumes. Campaign results
+and standings have no Back (B / Esc would drop the unrecorded round): Menu leaves, and clears the campaign.
 
 ## Tests
 `track.test.ts` (every course compiles, gates, grid, walls, ground, bridge layers, crossing rules),

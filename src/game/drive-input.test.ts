@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, DriverSeat, idleDrive, type SeatView } from "./car-drive.ts";
-import { blankIntent, FEEL, readIntent, shapeDrive } from "./drive-input.ts";
+import { blankIntent, FEEL, gameKey, readIntent, shapeDrive } from "./drive-input.ts";
 import { CHASE, DriveCam } from "./engine-camera.ts";
 import { DeformableCar } from "./car.ts";
 
@@ -309,5 +309,28 @@ describe("drive camera look and cuts", () => {
     hold(r, [], H);
     const d = r.cam.position.distanceTo(r.car.group.position);
     assert.ok(d < 9, `camera ${d.toFixed(1)} m from the car after the cut`);
+  });
+});
+
+describe("which keydowns the game takes", () => {
+  const key = (target: object | null, mods: { ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {}) =>
+    gameKey({ ctrlKey: false, metaKey: false, altKey: false, ...mods, target: target as EventTarget | null });
+
+  it("good: Ctrl, Cmd and Alt chords stay the browser's (Ctrl+R reloads, Ctrl+C copies); Shift is boost and stays ours", () => {
+    assert.equal(key(null, { ctrlKey: true }), false);
+    assert.equal(key(null, { metaKey: true }), false);
+    assert.equal(key(null, { altKey: true }), false);
+    assert.equal(key(null, { shiftKey: true }), true);
+    assert.equal(key({ tagName: "CANVAS" }), true);
+  });
+
+  it("good: text, select and contentEditable controls keep their keys; a focused range slider still drives", () => {
+    assert.equal(key({ tagName: "TEXTAREA" }), false);
+    assert.equal(key({ tagName: "INPUT", type: "text" }), false);
+    assert.equal(key({ tagName: "INPUT", type: "number" }), false);
+    assert.equal(key({ tagName: "SELECT" }), false);
+    assert.equal(key({ tagName: "DIV", isContentEditable: true }), false);
+    assert.equal(key({ tagName: "INPUT", type: "range" }), true);
+    assert.equal(key({ tagName: "BUTTON" }), true);
   });
 });

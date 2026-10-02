@@ -86,13 +86,15 @@ Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon 
 | drag / scroll | orbit camera |
 | Z | race mode (setup menu) |
 
+Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C copies) and skip keys typed into a text field, select or editable area.
+
 | Racing (no menu open) | |
 |---|---|
 | Esc / Start / Back | pause menu |
 | R / D-pad ↓ | respawn |
 | Q / E, LB / RB | previous / next car while spectating |
 | V / C / T, Y / Triangle | camera view |
-| H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu) |
+| H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu; B and K stay off while racing) |
 
 | Driving: keyboard + mouse | |
 |---|---|

@@ -631,7 +631,8 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
   const quit = () => onCommand({ type: "quit" });
   const th = "py-1 font-normal";
   return (
-    <MenuShell id="results" eyebrow={`${race.trackName} · ${race.laps} laps`} title="Results" pad={pad} wide onBack={quit} onStart={null}>
+    // Esc / B must not throw a campaign away: its round only counts on Standings (`next`), so Back is off there.
+    <MenuShell id="results" eyebrow={`${race.trackName} · ${race.laps} laps`} title="Results" pad={pad} wide onBack={campaign ? null : quit} onStart={null}>
       {race.winnerName ? (
         <p className="flex items-center gap-2 font-display text-lg font-semibold">
           <Trophy className="size-4 text-muted" />
@@ -700,7 +701,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
       title="Championship"
       pad={pad}
       wide
-      onBack={quit}
+      onBack={null}
       onStart={null}
     >
       {champion ? (

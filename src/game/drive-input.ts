@@ -54,6 +54,17 @@ export const FEEL = {
   handbrakeBrake: 0.55,
 };
 
+/**
+ * A keydown the game may take: no Ctrl / Cmd / Alt chord (those stay the browser's: Ctrl+R reloads, Ctrl+C copies;
+ * Shift is boost), and not typed into a text field, select or contentEditable (a focused range slider still drives).
+ */
+export function gameKey(e: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "target">): boolean {
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+  const t = e.target as Partial<HTMLInputElement> | null;
+  if (t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return false;
+  return !(t?.tagName === "INPUT" && t.type !== "range");
+}
+
 /** Merge keyboard and pad per axis: the larger magnitude wins, so either can drive at any time. */
 export function readIntent(keys: ReadonlySet<string>, pad: PadState | null, out: DriveIntent): DriveIntent {
   const kGas = keys.has("KeyW") || keys.has("ArrowUp") ? 1 : 0;
