@@ -1,14 +1,28 @@
+import { z } from "zod";
 import type { DriveInput } from "../car-drive.ts";
 import type { PartNetState } from "../car.ts";
 import type { DerbyBoardRow, DerbyDecided } from "../derby.ts";
+import type { RaceSnapshot } from "../race/types.ts";
 import type { DeformNetState } from "../streamed-deform.ts";
 
 /**
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep
  * every mesh and hull point well inside 1 mm of the host's.
  */
-/** `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`. */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6 } as const;
+/**
+ * `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`;
+ * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes).
+ */
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7 } as const;
+
+/**
+ * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
+ * refuse each other instead of misreading snapshots. Bump on any change to a message layout.
+ */
+export const NET_VERSION = 2;
+
+/** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
+export const MAX_NET_CARS = 32;
 
 /** Quantization steps. */
 export const Q = {
@@ -208,6 +222,12 @@ export class Reader {
     this.off += 4;
     return v;
   }
+  /** An f32 that must be finite (positions, clocks): a host never sends NaN or ±Infinity. */
+  fin32(): number {
+    const v = this.f32();
+    if (!Number.isFinite(v)) throw new RangeError("non-finite value");
+    return v;
+  }
   f64(): number {
     const v = this.view.getFloat64(this.off, true);
     this.off += 8;
@@ -290,9 +310,9 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
     p.hinge[i * 3 + 2] = r.q16(Q.fine);
     if ((flags & 1) === 0) continue;
     const o = i * 7;
-    p.pose[o] = r.f32();
-    p.pose[o + 1] = r.f32();
-    p.pose[o + 2] = r.f32();
+    p.pose[o] = r.fin32();
+    p.pose[o + 1] = r.fin32();
+    p.pose[o + 2] = r.fin32();
     for (let k = 3; k < 7; k++) p.pose[o + k] = r.q16(Q.quat);
   }
   p.lamps = r.u8();
@@ -301,9 +321,9 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
   for (let i = 0; i < L.wheels; i++) {
     if (((p.wheelLoose >> i) & 1) === 0) continue;
     const o = i * 7;
-    p.wheels[o] = r.f32();
-    p.wheels[o + 1] = r.f32();
-    p.wheels[o + 2] = r.f32();
+    p.wheels[o] = r.fin32();
+    p.wheels[o + 1] = r.fin32();
+    p.wheels[o + 2] = r.fin32();
     for (let k = 3; k < 7; k++) p.wheels[o + k] = r.q16(Q.quat);
   }
 }
@@ -342,6 +362,8 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   s.seq = r.u16();
   s.time = r.f64();
   s.count = r.u8();
+  if (!Number.isFinite(s.time)) throw new RangeError("non-finite host time");
+  if (s.count < 1 || s.count > MAX_NET_CARS) throw new RangeError(`snapshot of ${s.count} cars`);
   s.realism = r.u8() / 255;
   s.phase = r.u8();
   s.timeScale = r.u16() / 10000;
@@ -356,9 +378,9 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
     const body = r.u8();
     f.style = body & 15;
     f.cls = body >> 4;
-    f.x = r.f32();
-    f.y = r.f32();
-    f.z = r.f32();
+    f.x = r.fin32();
+    f.y = r.fin32();
+    f.z = r.fin32();
     f.yaw = r.q16(Q.fine);
     f.pitch = r.q16(Q.fine);
     f.roll = r.q16(Q.fine);
@@ -448,20 +470,23 @@ export function readDerby(r: Reader): DerbyNetState {
   r.u8();
   const flags = r.u8();
   const round = r.u16();
-  const time = r.f32();
-  const hold = r.f32();
-  const radius = r.f32();
+  const time = r.fin32();
+  const hold = r.fin32();
+  const radius = r.fin32();
   const seats = r.u32();
   const decided = DECIDED[r.u8()] ?? null;
   let winnerId: number | null = null;
   let winnerName: string | null = null;
   if (flags & 2) {
     winnerId = r.u8();
+    if (winnerId >= MAX_NET_CARS) throw new RangeError(`derby winner ${winnerId}`);
     winnerName = r.str();
   }
-  const lobby = flags & 4 ? r.f32() : null;
+  const lobby = flags & 4 ? r.fin32() : null;
   const board: DerbyBoardRow[] = [];
-  for (let n = r.u8(), k = 0; k < n; k++) {
+  const n = r.u8();
+  if (n > MAX_NET_CARS) throw new RangeError(`derby board of ${n}`);
+  for (let k = 0; k < n; k++) {
     const id = r.u8();
     const name = r.str();
     const score = r.u16();
@@ -471,4 +496,50 @@ export function readDerby(r: Reader): DerbyNetState {
     board.push({ id, name, score, hits, disables, alive: (bits & 1) !== 0, out: (bits & 2) !== 0, clock: r.u16() / 10 });
   }
   return { round, active: (flags & 1) !== 0, time, hold, radius, winnerId, winnerName, decided, lobby, seats, board };
+}
+
+/** `MSG.race`: the host's rules state (null between races), its public lobby countdown and course. */
+export interface RaceNetState {
+  lobby: number | null;
+  trackId: string;
+  snap: RaceSnapshot | null;
+}
+
+const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), snap: z.unknown() });
+
+/**
+ * The parts of a `RaceSnapshot` that size what `RaceSession.restore` builds: a lap count far above any
+ * race the host can set up (engine-race clamps to 9) and at most a full field. The rest is applied as is.
+ */
+const RACE_SNAP = z.looseObject({
+  laps: z.number().int().min(1).max(99),
+  time: z.number().finite(),
+  cars: z.array(z.looseObject({ id: z.number().int().min(0).max(MAX_NET_CARS - 1) })).max(MAX_NET_CARS),
+  order: z.array(z.number().int()).max(MAX_NET_CARS),
+  firstAt: z.array(z.number().nullable()).max(100 * 256),
+});
+
+/** A whole race message: the type byte, then the state as UTF-8 JSON. */
+export function writeRace(s: RaceNetState): Uint8Array<ArrayBuffer> {
+  const body = new TextEncoder().encode(JSON.stringify(s));
+  const msg = new Uint8Array(body.length + 1);
+  msg[0] = MSG.race;
+  msg.set(body, 1);
+  return msg;
+}
+
+/** Reads a whole race message; null when it is not JSON in that shape or its race is out of bounds. */
+export function readRace(data: Uint8Array): RaceNetState | null {
+  let raw: unknown;
+  try {
+    raw = JSON.parse(new TextDecoder().decode(data.subarray(1)));
+  } catch {
+    return null;
+  }
+  const m = RACE_MSG.safeParse(raw);
+  if (!m.success) return null;
+  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, snap: null };
+  const snap = RACE_SNAP.safeParse(m.data.snap);
+  // A peer's JSON in the host's `RaceSnapshot` shape: what sizes the session is checked above, the rest is taken as is.
+  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, snap: snap.data as RaceSnapshot } : null;
 }

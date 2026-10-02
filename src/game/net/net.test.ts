@@ -21,6 +21,7 @@ import {
   type CarFrame,
   type DerbyNetState,
   type NetLayout,
+  type Snapshot,
 } from "./codec.ts";
 
 const L: NetLayout = { masses: 20, clusters: 16, sensors: 21, parts: 8, wheels: 4 };
@@ -334,5 +335,58 @@ describe("netplay derby state", () => {
     assert.equal(l.active, false);
     assert.equal(l.lobby, 12.5);
     assert.deepEqual(l.board, []);
+  });
+});
+
+describe("netplay codec: values a host never sends are refused", () => {
+  /** A 2-car snapshot written with `edit` applied, then read back. */
+  function readBack(edit: (s: Snapshot) => void): () => void {
+    const s = makeSnapshot();
+    ensureFrames(s, 2, L);
+    s.count = 2;
+    s.time = 1;
+    for (const f of s.cars) {
+      f.crashed = true;
+      f.wreck = true;
+      f.parts.flags[0] = 1;
+      f.parts.pose.set([1, 0.2, 3, 0, 0, 0, 1], 0);
+    }
+    edit(s);
+    const w = new Writer(1 << 17);
+    writeSnapshot(w, s, L);
+    return () => readSnapshot(new Reader().reset(w.done()), makeSnapshot(), L);
+  }
+
+  it("accepts a well-formed snapshot", () => {
+    readBack(() => {})();
+  });
+
+  it("refuses an empty or oversized field, a non-finite clock, pose or loose-part position", () => {
+    assert.throws(readBack((s) => (s.count = 0)), RangeError);
+    assert.throws(
+      readBack((s) => {
+        ensureFrames(s, 33, L);
+        s.count = 33;
+      }),
+      RangeError,
+    );
+    assert.throws(readBack((s) => (s.time = Number.NaN)), RangeError);
+    assert.throws(readBack((s) => (s.cars[1]!.z = Number.POSITIVE_INFINITY)), RangeError);
+    assert.throws(readBack((s) => (s.cars[0]!.parts.pose[1] = Number.NaN)), RangeError);
+  });
+
+  it("refuses a derby board larger than any field, a winner outside it, or a non-finite clock or bowl", () => {
+    const base: DerbyNetState = { round: 1, active: true, time: 3, hold: 0, radius: 18, winnerId: null, winnerName: null, decided: null, lobby: null, seats: 0, board: [] };
+    const row = (id: number) => ({ id, name: `Car ${id}`, score: 0, hits: 0, disables: 0, alive: true, out: false, clock: 60 });
+    const read = (s: DerbyNetState) => () => {
+      const w = new Writer(1 << 15);
+      writeDerby(w, s);
+      return readDerby(new Reader().reset(w.done()));
+    };
+    read({ ...base, board: [row(0), row(1)] })();
+    assert.throws(read({ ...base, board: Array.from({ length: 33 }, (_, i) => row(i)) }), RangeError);
+    assert.throws(read({ ...base, board: [row(0)], winnerId: 40, winnerName: "x", decided: "wreck" }), RangeError);
+    assert.throws(read({ ...base, radius: Number.NaN }), RangeError);
+    assert.throws(read({ ...base, time: Number.POSITIVE_INFINITY }), RangeError);
   });
 });

@@ -1,4 +1,4 @@
-import { P2PRoom } from "@/lib/multiplayer";
+import { P2PRoom } from "../../lib/multiplayer/p2p.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
 
 /** Cross-machine: the template's WebRTC mesh (`P2PRoom`), signaled through `/api/rtc`; binary on its unreliable channel. */
@@ -25,7 +25,9 @@ export class RtcTransport implements NetTransport {
 
   peers(): readonly NetPeer[] {
     const out: NetPeer[] = [];
-    for (const p of this.room.peerList()) if (p.connectionState === "connected") out.push({ id: p.id, rttMs: p.rttMs });
+    for (const p of this.room.peerList()) {
+      if (p.connectionState === "connected") out.push({ id: p.id, rttMs: p.rttMs, host: p.name === "host" });
+    }
     return out;
   }
 

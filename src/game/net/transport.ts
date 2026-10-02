@@ -3,6 +3,8 @@ export interface NetPeer {
   id: string;
   /** Round trip (ms), null until measured. */
   rttMs: number | null;
+  /** The relay's roster says this peer hosts the room; undefined where the transport has no roster (BroadcastChannel). */
+  host?: boolean;
 }
 
 /**
@@ -11,6 +13,8 @@ export interface NetPeer {
  */
 export interface NetTransport {
   readonly selfId: string;
+  /** Why the relay refused this peer (room full, host seat taken, …), null while fine; absent without a relay. */
+  readonly error?: string | null;
   onMessage: ((from: string, data: Uint8Array) => void) | null;
   /** To one peer, else to all. `data` may be a view of a reused buffer: send copies it. */
   send(data: Uint8Array<ArrayBuffer>, to?: string): void;
