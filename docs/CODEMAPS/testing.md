@@ -24,7 +24,7 @@ Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node
 | `skin.test.ts` / `skin-lod.test.ts` | skin follows particles (3 km/h tap, 40 km/h shot); deferred skin is owed, never lost |
 | `fast-normals.test.ts` | `computeNormalsFast` equals `computeVertexNormals` |
 | `zip.test.ts` | a captured two-car spawn does not zip at the slow-mo handoff |
-| `rest-mesh.test.ts` / `car-variants.test.ts` | rest body is a sedan (writes `artifacts/rest-silhouette.svg`); body styles, per-style rig cages |
+| `rest-mesh.test.ts` / `car-variants.test.ts` | rest body is a sedan (side profile, panel sizes, closed from the side); body styles, per-style rig cages |
 | `lamps.test.ts` | a detached bumper leaves the lamps behind; lamp light pool |
 | `vehicle-classes.test.ts` | class stats, realism axis, damage → drivability |
 | `knob-defaults.test.ts` | calibrated crash knob defaults |

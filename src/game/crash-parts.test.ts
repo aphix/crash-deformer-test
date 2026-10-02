@@ -203,7 +203,7 @@ forModes("doors hinge then detach", (mode) => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
-    car.spawn(8, 12, 14);
+    car.spawn(80, 120, 14);
     car.group.updateMatrixWorld();
     const hit = car.group.position.clone().addScaledVector(car.forward, 2.05);
     hit.y = 0.4;
@@ -217,11 +217,35 @@ forModes("doors hinge then detach", (mode) => {
       car.updateDeform(DT);
       car.afterContacts(DT);
     }
-    const snap = car.snapshot() as { parts: { name: string; detached: boolean; pos: { y: number } }[] };
+    const snap = car.snapshot() as { parts: { name: string; detached: boolean; pos: { x: number; y: number; z: number } }[] };
     const loose = snap.parts.filter((p) => p.detached);
+    assert.ok(loose.length > 0, "the 50/50 nose hit detached nothing");
+    const at = car.group.position;
     for (const p of loose) {
       assert.ok(p.pos.y > -0.05, `${p.name} fell through the map to y=${p.pos.y}`);
+      // Left at its rest-local coordinates it would sit near the origin, ~140 m from the car spawned at (80, 120).
+      const off = Math.hypot(p.pos.x - at.x, p.pos.z - at.z);
+      assert.ok(off < 30, `${p.name} lies ${off.toFixed(1)} m from its car`);
     }
+  });
+
+  it("bad: disposing a car frees its attached and loose parts' geometry and own materials (C14)", () => {
+    const scene = new THREE.Scene();
+    const car = new DeformableCar(paint(), scene);
+    car.spawn(0, 0, 0);
+    const parts = car["parts"];
+    car["detachPart"](parts[0]!, 10);
+    const live = new Set<THREE.BufferGeometry | THREE.Material>();
+    for (const p of parts) {
+      p.object.traverse((o) => {
+        if (!(o instanceof THREE.Mesh)) return;
+        live.add(o.geometry);
+        for (const m of [o.material].flat() as THREE.Material[]) if (!m.userData.shared) live.add(m);
+      });
+    }
+    for (const r of live) r.addEventListener("dispose", () => live.delete(r));
+    car.dispose();
+    assert.equal(live.size, 0, `${live.size} part geometries/materials left undisposed`);
   });
 
   it("bad: a popped wheel leaves the car as its own body, lands on its tyre and slides to rest; four gone kill the car", () => {
@@ -559,6 +583,35 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     const x60 = slide(60);
     const x240 = slide(240);
     assert.ok(Math.abs(x60 - x240) < 0.05 * x240, `0.5 s slide: ${x60.toFixed(3)} m at 60 Hz vs ${x240.toFixed(3)} m at 240 Hz`);
+  });
+
+  it("bad: a second burst adds pieces instead of teleporting or cutting the first (C16)", () => {
+    const debris = new DebrisSystem(new THREE.Scene(), 16);
+    debris.burst(new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, 0, -1), 10);
+    debris.update(0.1, bounceGround);
+    debris.burst(new THREE.Vector3(-5, 0, 0), new THREE.Vector3(0, 0, -1), 3);
+    const items = debris.snapshot().items;
+    assert.equal(items.length, 13, "live pieces after a 10 then a 3 burst");
+    assert.equal(items.filter((p) => p.x > 2).length, 10, "the first burst's pieces stay where they flew");
+  });
+
+  it("bad: each debris piece keeps its own size and spin, and a spent piece stops drawing (A10)", () => {
+    const debris = new DebrisSystem(new THREE.Scene(), 8);
+    debris.burst(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 8);
+    debris["life"][0] = 0.05;
+    for (let i = 0; i < 6; i++) debris.update(1 / 60, bounceGround);
+    const m = new THREE.Matrix4();
+    const col = new THREE.Vector3();
+    const qs = [0, 1, 2].map(() => new THREE.Quaternion());
+    const scales: number[] = [];
+    for (let i = 0; i < 8; i++) {
+      debris["mesh"].getMatrixAt(i, m);
+      scales.push(col.setFromMatrixColumn(m, 0).length());
+      qs[Math.min(i, 2)]!.setFromRotationMatrix(m.extractRotation(m.clone()));
+    }
+    assert.equal(scales[0], 0, "spent piece 0 is still drawn");
+    assert.ok(new Set(scales.slice(1).map((x) => x.toFixed(4))).size > 1, `every live piece has scale ${scales[1]}`);
+    assert.ok(qs[1]!.angleTo(qs[2]!) > 0.01, "pieces 1 and 2 share one rotation");
   });
 
   it("bad: debris touching a car's leading flank is swept along with it, not left inside (A15)", () => {

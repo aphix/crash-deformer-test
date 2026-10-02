@@ -927,17 +927,20 @@ export class DeformableCar {
 
   dispose(): void {
     this.deform.disposeHelper();
-    for (const p of this.parts) {
-      p.object.removeFromParent();
-    }
-    this.group.traverse((obj) => {
+    const free = (obj: THREE.Object3D) => {
       if (obj instanceof THREE.Mesh) {
         obj.geometry.dispose();
         const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
         for (const m of mats) if (!m.userData.shared) m.dispose();
       }
       if (obj instanceof THREE.Light) obj.dispose();
-    });
+    };
+    // Loose parts live in the world, attached ones in the group: free each part before it leaves either.
+    for (const p of this.parts) {
+      p.object.traverse(free);
+      p.object.removeFromParent();
+    }
+    this.group.traverse(free);
   }
 
   private syncAttachedParts(dt: number): void {

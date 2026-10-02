@@ -267,7 +267,8 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
 `race-world.test-util.ts`):
 - `race-finish.test.ts`, every course: 5 AI cars, 2 laps;
   results within the grid + 2 laps at 3 × the reference lap (course length at 9 m/s) with ≥ 4 of 5
-  home on full distance or out. `RACE_FINISH_SEEDS=5` runs the full sweep.
+  home on full distance or out. `RACE_FINISH_RUNS=5` runs the full sweep: back-to-back races on one
+  world (the race AI has no seed, so runs differ only by what the previous race leaves behind).
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the
   oval, 3 laps, 3 AI — on the high line, the apron, with a respawn press, on the grass beside the
   service road and straight across the infield. The player finishes on the AI's lap count, and the
