@@ -1,21 +1,25 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { idleDrive } from "../car-drive.ts";
+import { DerbyMatch } from "../derby.ts";
 import type { DeformableCar } from "../car.ts";
 import { makeCar, runWall } from "../crash-scenarios.test-util.ts";
-import { forModes } from "../test-support.ts";
+import { assertSameDigest, assertSameNumbers, forModes } from "../test-support.ts";
 import {
   ensureFrames,
   makeCarFrame,
   makeSnapshot,
   Q,
+  readDerby,
   readInput,
   Reader,
   readSnapshot,
+  writeDerby,
   writeInput,
   writeSnapshot,
   Writer,
   type CarFrame,
+  type DerbyNetState,
   type NetLayout,
 } from "./codec.ts";
 
@@ -145,7 +149,7 @@ describe("netplay codec", () => {
     assert.equal(b.deform.flags, a.deform.flags);
     assert.ok(Math.abs(b.deform.engineTravel - 0.123) <= Q.pos / 2 + 1e-6);
     assert.ok(Math.abs(b.deform.killTravel - 0.5) <= Q.pos / 2 + 1e-6);
-    assert.deepEqual([...b.parts.flags], [...a.parts.flags]);
+    assertSameNumbers(b.parts.flags, a.parts.flags, "part flags");
     assert.ok(maxDiff(a.parts.hinge, b.parts.hinge) <= Q.fine / 2 + 1e-6);
     assert.equal(b.parts.lamps, a.parts.lamps);
     assert.equal(b.parts.glass, a.parts.glass);
@@ -211,7 +215,7 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     const b = makeCarFrame(layoutOf(host));
     host.readPartNetState(a.parts);
     client.readPartNetState(b.parts);
-    assert.deepEqual([...b.parts.flags], [...a.parts.flags], "part states identical");
+    assertSameNumbers(b.parts.flags, a.parts.flags, "part states identical");
     assert.equal(b.parts.lamps, a.parts.lamps);
     assert.equal(b.parts.glass, a.parts.glass);
     assert.equal(client.deform.drivetrainAlive, host.deform.drivetrainAlive);
@@ -258,5 +262,74 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     apply(client, wire(host));
     client.readPartNetState(f.parts);
     assert.equal(f.parts.wheelLoose, 0, "the next wreck has all four wheels on");
+  });
+});
+
+describe("netplay derby state", () => {
+  /** A match on the host after `steps` 1 s steps: car 1 scored on car 2, car 2's engine died, car 3 never moves. */
+  function playedMatch(steps: number): DerbyMatch {
+    const m = new DerbyMatch();
+    m.begin(
+      [0, 1, 2, 3].map((id) => ({ id, name: id === 2 ? "Player 2" : `Car ${id}` })),
+      { radius: 18.5, hitClock: 20 },
+    );
+    const moving = (id: number, t: number) => ({ id, name: "", alive: true, x: id === 3 ? 0 : 5 * Math.sin(t + id), z: 0 });
+    for (let t = 1; t <= steps; t++) {
+      if (t === 2) assert.ok(m.noteHit(1, 2, 6, 0.5, 6), "a hard hit is a contact");
+      m.step(1, [0, 1, 2, 3].map((id) => ({ ...moving(id, t), alive: !(id === 2 && t >= 3) })));
+    }
+    return m;
+  }
+
+  function netState(m: DerbyMatch, round: number, lobby: number | null): DerbyNetState {
+    return { round, active: m.active, time: m.time, hold: m.hold, radius: 18.5, winnerId: m.winnerId, winnerName: m.winnerName, decided: m.decided, lobby, seats: 1 << 2, board: m.board };
+  }
+
+  function wire(s: DerbyNetState): DerbyNetState {
+    const w = new Writer();
+    writeDerby(w, s);
+    return readDerby(new Reader().reset(w.done()));
+  }
+
+  it("round-trips a running board: scores, hits, disables, alive, count-out clocks, seats", () => {
+    const m = playedMatch(10);
+    const s = netState(m, 70001, null);
+    assert.equal(m.winnerId, null, "still running after 10 s");
+    assert.ok(m.board.find((r) => r.id === 1)!.score > 0 && !m.board.find((r) => r.id === 2)!.alive, "the host's board moved");
+    const got = wire(s);
+    assert.equal(got.round, 70001 & 0xffff);
+    assert.equal(got.active, true);
+    assert.equal(got.lobby, null);
+    assert.equal(got.seats, 1 << 2);
+    assert.equal(got.winnerId, null);
+    assert.equal(got.decided, null);
+    assert.ok(Math.abs(got.time - s.time) < 1e-5 && Math.abs(got.radius - 18.5) < 1e-5);
+    assert.equal(got.board.length, 4);
+    for (let i = 0; i < 4; i++) {
+      const [a, b] = [s.board[i]!, got.board[i]!];
+      assertSameDigest({ ...b, clock: 0 }, { ...a, clock: 0 }, `row ${a.id}`);
+      assert.ok(Math.abs(b.clock - a.clock) <= 0.05, `row ${a.id} clock ${a.clock} → ${b.clock}`);
+    }
+  });
+
+  it("round-trips a decided match (winner and how) and a lobby (no match, countdown)", () => {
+    // Car 3 never moves: hitClock 20 s counts every idle car out, the last standing wins.
+    const m = playedMatch(25);
+    assert.notEqual(m.winnerId, null, "decided within 25 s");
+    const got = wire(netState(m, 3, null));
+    assert.equal(got.winnerId, m.winnerId);
+    assert.equal(got.winnerName, m.winnerName);
+    assert.equal(got.decided, m.decided);
+    assertSameDigest(
+      got.board.map((r) => [r.id, r.score, r.alive, r.out]),
+      m.board.map((r) => [r.id, r.score, r.alive, r.out]),
+      "board",
+    );
+
+    const lobby = new DerbyMatch();
+    const l = wire(netState(lobby, 4, 12.5));
+    assert.equal(l.active, false);
+    assert.equal(l.lobby, 12.5);
+    assert.deepEqual(l.board, []);
   });
 });

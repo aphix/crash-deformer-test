@@ -201,16 +201,41 @@ and the deterministic `RaceSession` (agreed with RaceLead):
   (order and laps of all 4 cars) agree on both pages in 21/21 samples every 2 s, and the final results
   are identical (place, laps, status).
 
-## Derby mode (after race; agreed with DerbyAI2, lane/derby-ai-2)
+## Derby mode
 
-- **Arena:** `derbyRadius(count)` is a pure function of the car count, so clients size the bowl
-  from the snapshot's car count. Nothing extra goes on the wire.
-- **Seats:** in `fixedStep`'s derby loop the AI skips `i === driven || this.net.remote(i)`.
-  Netplay adds that check and `NetPlay.remote(i)`. `net.drive` skips cars the match has counted
-  out (`DerbyMatch.isOut(id)`), as the engine does for the local player.
-- **Match state:** clients never step `DerbyMatch`. Until it has a `snapshot()` / `restore()`,
-  the host sends the board rows (with `out` and `clock`), `decided`, `winnerId`, `winnerName` and the
-  match time on the reliable channel whenever they change.
+Derby multiplayer runs through the same controller-slot path as race (agreed with DerbyAI2):
+
+- **Seats (host):** `NetGame.setSeats(peerCars)` stores the peers' cars. When a match begins,
+  `spawnDerby` grows the field to hold them, seats them (`derbySeated`, named "Player N") and bumps
+  the round. The AI loop in `fixedStep` skips `i === driven || derbySeated.has(i)`, and `net.drive`
+  applies a peer's input only to a seated car the match has not counted out (`remoteDrivable`). A
+  peer who leaves mid-match hands its car back to the AI. A peer who joins mid-match is not added
+  to the running field: it watches until the next match.
+- **Arena:** the host's `derbyRadius(field)`; the radius rides in the derby message, so the client
+  scales the same bowl even while the field changes size in a lobby.
+- **Match state (host → clients):** `MSG.derby` (`writeDerby` / `readDerby` in `codec.ts`) every 6th
+  snapshot (5 Hz) and with each keyframe: 22 bytes plus 9 + name length per car (110–120 bytes for the
+  6-car smoke field, computed from the layout). It carries:
+  - round, active, match time, winner hold, radius;
+  - the seats bitmask;
+  - winner id, winner name and how it was decided;
+  - the public lobby countdown;
+  - each board row: id, name, score, hits, disables, alive, out, count-out clock (0.1 s).
+- **Client:** never steps `DerbyMatch`. It copies the state onto its own match (board, result,
+  clock), labelling its row "You" and the host's car "Host". A new round puts it in drive mode in its
+  seat, or spectating if the host did not seat it. The cars themselves come from the 30 Hz
+  pose/wreck snapshots, as in Fleet.
+- **Public derby:** the Net panel's "Public derby" button lists `pub-derby-…` rooms
+  (`?list=public&kind=derby`) or hosts one. The lone host waits `LOBBY_S` = 15 s with a 6-car field
+  parked and no match, then the match starts with peers seated and AI in the other seats. A decided
+  match is followed by the next one (engine loop at 4.4 s, or 12 s after the result at the latest).
+- **Measured** (`.bench/net/derby2.mjs`, two pages over WebRTC): B lands in A's public derby as
+  car 1, spectates the lobby, and is seated in drive mode when the match starts. Every 2 s, B's board
+  was compared with A's taken 0.4 s before or after (B renders up to ~0.3 s behind); per car the
+  score, alive, out and the standings order agreed in 93/93 samples over the 197 s match. Both pages
+  report the same winner (car 4, decided at the time limit). B held W and weaved; its car moved up
+  to 11 m from its spawn on the host. Unit test: `net.test.ts` "netplay derby state" round-trips a
+  running board, a decided match and a lobby through the codec.
 
 ## State APIs
 

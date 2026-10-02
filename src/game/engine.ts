@@ -39,6 +39,7 @@ import { applyDrive, DriverSeat, BOOST } from "./car-drive.ts";
 import { GamepadInput, PAD_BUTTON } from "./gamepad.ts";
 import { makeDerbyArena, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, WinnerSpot } from "./derby-arena.ts";
 import { NetPlay } from "./net/net-play.ts";
+import type { DerbyNetState } from "./net/codec.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { TrackArt } from "./race/track-art.ts";
 import type { RaceCommand } from "./race/types.ts";
@@ -182,6 +183,10 @@ export class CrashEngine {
   private derby = new DerbyMatch();
   /** This match's bowl radius (grows with the field, `derbyRadius`). */
   private derbyR = DERBY_RADIUS;
+  /** Netplay host: peers' cars. A derby seats them (`derbySeated`) when a match begins, which bumps `derbyRound`. */
+  private netSeats = new Set<number>();
+  private derbySeated = new Set<number>();
+  private derbyRound = 0;
   private seat = new DriverSeat();
   private keys = new Set<string>();
   private readonly pad = new GamepadInput();
@@ -195,8 +200,9 @@ export class CrashEngine {
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
   readonly net = new NetPlay({
     cars: () => this.live(),
-    // The host's field size, in race mode too (where the sandbox setter is a no-op: the race owns it).
-    setCarCount: (n) => (this.race.active ? this.ensureCars(n) : this.setCarCount(n)),
+    // The host's field size. Race and derby own their field (they seat peers at their next start), and a
+    // client takes the host's cars without the sandbox reset.
+    setCarCount: (n) => (this.race.active || this.derbyMode || this.net.client ? this.ensureCars(n) : this.setCarCount(n)),
     matchCar: (i, style, cls) => this.matchCar(i, style, cls),
     setRealism: (v) => this.setRealism(v),
     phase: () => this.phase,
@@ -218,6 +224,18 @@ export class CrashEngine {
       this.emitHud(true);
     },
     startRace: () => this.raceCommand({ type: "start" }),
+    setSeats: (cars) => {
+      this.netSeats = new Set(cars);
+      // A peer who leaves mid-match hands its car back to the AI.
+      for (const i of this.derbySeated) if (!this.netSeats.has(i)) this.derbySeated.delete(i);
+      if (this.race.active) this.race.setSeats(cars);
+    },
+    remoteDrivable: (i) => !this.derbyMode || (this.derbySeated.has(i) && !this.derby.isOut(i)),
+    derbyPhase: () => (!this.derbyMode ? null : !this.derby.active ? "lobby" : this.derby.winnerId == null ? "running" : "over"),
+    derbyState: () => this.derbyNetState(),
+    applyDerby: (s, self) => this.applyNetDerby(s, self),
+    derbyLobby: (field) => this.netDerbyMatch(false, field),
+    startDerby: (field) => this.netDerbyMatch(true, field),
     seat: this.seat,
   });
   /** Sandbox floor, grid and rings: hidden while a race course is up. */
@@ -633,6 +651,7 @@ export class CrashEngine {
     for (const p of this.poles) p.group.visible = !on;
     if (on) {
       this.race.enter();
+      this.race.setSeats([...this.netSeats]);
     } else {
       this.race.exit();
       this.ensureCars(this.sandboxCars);
@@ -1079,11 +1098,17 @@ export class CrashEngine {
   }
 
   private spawnDerby(): void {
+    // Network peers' cars join when a match begins (one seated mid-match waits for this): the field grows to hold them.
+    let need = this.carCount;
+    for (const i of this.netSeats) need = Math.max(need, i + 1);
+    if (need > this.carCount) this.ensureCars(need);
+    this.derbySeated = new Set(this.netSeats);
+    this.derbyRound++;
     const cars = this.live();
     this.derbyR = derbyRadius(cars.length);
     const slots = layoutDerby(cars.length, this.derbyR, 12);
     this.derby.begin(
-      cars.map((c, i) => ({ id: i, name: c.paint.name })),
+      cars.map((c, i) => ({ id: i, name: this.derbySeated.has(i) ? `Player ${i}` : c.paint.name })),
       { radius: this.derbyR },
     );
     // Walls and lip scale out with the bowl (slabs lengthen and thicken in proportion).
@@ -1104,6 +1129,93 @@ export class CrashEngine {
     }
     this.arena.visible = true;
     for (const p of this.poles) p.group.visible = false;
+  }
+
+  /** Netplay host: this derby as clients render it (null outside derby mode). */
+  private derbyNetState(): DerbyNetState | null {
+    if (!this.derbyMode) return null;
+    const d = this.derby;
+    let seats = 0;
+    for (const i of this.derbySeated) seats |= 1 << i;
+    return {
+      round: this.derbyRound,
+      active: d.active,
+      time: d.time,
+      hold: d.hold,
+      radius: this.derbyR,
+      winnerId: d.winnerId,
+      winnerName: d.winnerName,
+      decided: d.decided,
+      lobby: null,
+      seats,
+      board: d.board,
+    };
+  }
+
+  /**
+   * Netplay client: the host's derby as car `self` (null: leave derby mode). The board, clock and result
+   * are shown as they are, never stepped. A new match drives this peer's car if the host seated it;
+   * otherwise (joined mid-match, or a lobby) it watches the field until the next one.
+   */
+  private applyNetDerby(s: DerbyNetState | null, self: number): void {
+    if (!s) {
+      if (this.derbyMode) this.setDerby(false);
+      this.emitHud(true);
+      return;
+    }
+    if (!this.derbyMode) {
+      if (this.race.active) this.setRace(false);
+      this.setDerby(true);
+      this.emitHud(true);
+    }
+    if (s.radius !== this.derbyR) {
+      this.derbyR = s.radius;
+      this.arena.scale.set(s.radius / DERBY_RADIUS, 1, s.radius / DERBY_RADIUS);
+    }
+    const seated = self >= 0 && ((s.seats >>> self) & 1) === 1;
+    for (const r of s.board) {
+      if (r.id === self && seated) r.name = "You";
+      else if (r.id === 0) r.name = "Host";
+    }
+    const d = this.derby;
+    d.active = s.active;
+    d.time = s.time;
+    d.hold = s.hold;
+    d.decided = s.decided;
+    d.board = s.board;
+    d.winnerId = s.winnerId;
+    d.winnerName = s.winnerId == null ? null : (s.board.find((r) => r.id === s.winnerId)?.name ?? s.winnerName);
+    if (s.round === this.derbyRound) return;
+    this.derbyRound = s.round;
+    if (seated) {
+      this.seat.focus(self);
+      this.seat.mode = "drive";
+      this.seat.boost = 1;
+      return;
+    }
+    const watch = s.board.find((r) => r.alive && r.id !== self);
+    if (watch) this.seat.focus(watch.id);
+    else this.seat.clear();
+  }
+
+  /** Netplay host's public derby: the lobby (a `field`-car field parked, no match), or a fresh match seating every peer. */
+  private netDerbyMatch(start: boolean, field: number): void {
+    if (this.race.active) this.setRace(false);
+    if (!this.derbyMode) this.setDerby(true);
+    if (this.carCount < field) this.ensureCars(field);
+    this.randomizeAndReset();
+    if (start) {
+      this.seat.focus(0);
+      this.seat.mode = "drive";
+      this.seat.boost = 1;
+    } else {
+      this.derby.end();
+      for (const car of this.live()) {
+        car.velocity.set(0, 0, 0);
+        car.speed = 0;
+      }
+    }
+    this.emitHud(true);
   }
 
   /** One car parked at the origin facing +Z, everything else put away. */
@@ -1505,7 +1617,7 @@ export class CrashEngine {
         );
       }
       for (let i = 0; i < cars.length; i++) {
-        if (i === driven) continue;
+        if (i === driven || this.derbySeated.has(i)) continue;
         applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps, dt), dt);
       }
     }
@@ -1666,7 +1778,8 @@ export class CrashEngine {
   private stepDerby(dt: number): void {
     if (!this.derbyMode) return;
     const cars = this.live();
-    const status = this.derby.step(
+    // A netplay client shows the host's match (applyNetDerby) and never steps its own.
+    const status = this.net.client ? "running" : this.derby.step(
       dt,
       cars.map((c, i) => ({ id: i, name: c.paint.name, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })),
     );

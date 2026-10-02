@@ -1,13 +1,14 @@
 import type { DriveInput } from "../car-drive.ts";
 import type { PartNetState } from "../car.ts";
+import type { DerbyBoardRow, DerbyDecided } from "../derby.ts";
 import type { DeformNetState } from "../streamed-deform.ts";
 
 /**
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep
  * every mesh and hull point well inside 1 mm of the host's.
  */
-/** `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`). */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5 } as const;
+/** `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`. */
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6 } as const;
 
 /** Quantization steps. */
 export const Q = {
@@ -163,6 +164,13 @@ export class Writer {
   done(): Uint8Array<ArrayBuffer> {
     return this.bytes.subarray(0, this.off);
   }
+  /** UTF-8, at most 255 bytes (longer is cut), length first. */
+  str(s: string): void {
+    const b = new TextEncoder().encode(s).subarray(0, 255);
+    this.u8(b.length);
+    this.bytes.set(b, this.off);
+    this.off += b.length;
+  }
 }
 
 export class Reader {
@@ -207,6 +215,12 @@ export class Reader {
   }
   q16s(out: Float32Array, n: number, step: number): void {
     for (let i = 0; i < n; i++) out[i] = this.q16(step);
+  }
+  str(): string {
+    const n = this.u8();
+    const s = new TextDecoder().decode(new Uint8Array(this.view.buffer, this.view.byteOffset + this.off, n));
+    this.off += n;
+    return s;
   }
 }
 
@@ -368,4 +382,86 @@ export function readInput(r: Reader, out: DriveInput): boolean {
   out.ebrake = (bits & 1) !== 0;
   out.boost = (bits & 2) !== 0;
   return (bits & 4) !== 0;
+}
+
+/**
+ * A derby match as clients render it (`DerbyMatch`'s public state, from the host): the board, the
+ * clock and the result, plus which cars network peers drive in this match and the bowl radius.
+ */
+export interface DerbyNetState {
+  /** Bumped per match the host begins; a new round re-seats a client (or makes it spectate). */
+  round: number;
+  /** A match is running or decided; false in a public lobby (cars parked, no rules). */
+  active: boolean;
+  /** Match time and winner hold (s). */
+  time: number;
+  hold: number;
+  /** Bowl radius (m), `derbyRadius` of the match's field. */
+  radius: number;
+  winnerId: number | null;
+  winnerName: string | null;
+  decided: DerbyDecided | null;
+  /** Seconds until a public derby starts, null outside a lobby. */
+  lobby: number | null;
+  /** Bit i: car i is a network peer's in this match. */
+  seats: number;
+  board: DerbyBoardRow[];
+}
+
+const DECIDED: readonly (DerbyDecided | null)[] = [null, "wreck", "countout", "time"];
+
+export function writeDerby(w: Writer, s: DerbyNetState): void {
+  w.u8(MSG.derby);
+  w.u8((s.active ? 1 : 0) | (s.winnerId != null ? 2 : 0) | (s.lobby != null ? 4 : 0));
+  w.u16(s.round & 0xffff);
+  w.f32(s.time);
+  w.f32(s.hold);
+  w.f32(s.radius);
+  w.u32(s.seats);
+  w.u8(DECIDED.indexOf(s.decided));
+  if (s.winnerId != null) {
+    w.u8(s.winnerId);
+    w.str(s.winnerName ?? "");
+  }
+  if (s.lobby != null) w.f32(s.lobby);
+  w.u8(s.board.length);
+  for (const r of s.board) {
+    w.u8(r.id);
+    w.str(r.name);
+    w.u16(Math.max(0, Math.min(0xffff, r.score)));
+    w.u8(Math.min(255, r.hits));
+    w.u8(Math.min(255, r.disables));
+    w.u8((r.alive ? 1 : 0) | (r.out ? 2 : 0));
+    w.u16(Math.round(Math.max(0, Math.min(6553.5, r.clock)) * 10));
+  }
+}
+
+/** Reads a whole derby message (type byte included). */
+export function readDerby(r: Reader): DerbyNetState {
+  r.u8();
+  const flags = r.u8();
+  const round = r.u16();
+  const time = r.f32();
+  const hold = r.f32();
+  const radius = r.f32();
+  const seats = r.u32();
+  const decided = DECIDED[r.u8()] ?? null;
+  let winnerId: number | null = null;
+  let winnerName: string | null = null;
+  if (flags & 2) {
+    winnerId = r.u8();
+    winnerName = r.str();
+  }
+  const lobby = flags & 4 ? r.f32() : null;
+  const board: DerbyBoardRow[] = [];
+  for (let n = r.u8(), k = 0; k < n; k++) {
+    const id = r.u8();
+    const name = r.str();
+    const score = r.u16();
+    const hits = r.u8();
+    const disables = r.u8();
+    const bits = r.u8();
+    board.push({ id, name, score, hits, disables, alive: (bits & 1) !== 0, out: (bits & 2) !== 0, clock: r.u16() / 10 });
+  }
+  return { round, active: (flags & 1) !== 0, time, hold, radius, winnerId, winnerName, decided, lobby, seats, board };
 }
