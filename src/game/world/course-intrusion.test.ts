@@ -64,11 +64,45 @@ function courseIntrusions(track: Track): string[] {
   return bad;
 }
 
+/** Lateral spacing (m) of the step scan across a road + runoff. */
+const STEP_DX = 0.5;
+/**
+ * Most a step between neighbouring scan points may exceed the road's own bank over `STEP_DX` (m). The baked 1 m field
+ * stays within 0.045 of it on every course (worst: rally's ford leaving the main road); the lips that launched race
+ * cars off rally's runoff at 25 m/s were 0.13-0.35 m.
+ */
+const STEP_TOL = 0.05;
+
+/** Every scan step across a path's road + runoff that rises or falls more than its bank plus `STEP_TOL`. */
+function roadSteps(track: Track): string[] {
+  const g = track.ground();
+  const bad: string[] = [];
+  track.paths().forEach((p, pi) => {
+    const segs = p.closed ? p.count : p.count - 1;
+    for (let k = 0; k < segs; k++) {
+      if (p.deck[k]) continue;
+      const lo = -(p.half[k]! + p.runR[k]!);
+      const hi = p.half[k]! + p.runL[k]!;
+      const bound = Math.abs(Math.tan(p.bank[k]!)) * STEP_DX + STEP_TOL;
+      let prev = NaN;
+      for (let o = lo; o <= hi + 1e-9; o += STEP_DX) {
+        const h = g.heightAt(p.x[k]! + p.tz[k]! * o, p.z[k]! - p.tx[k]! * o, p.y[k]!);
+        if (Math.abs(h - prev) > bound) bad.push(`${track.id}: path ${pi} segment ${k} steps ${(h - prev).toFixed(2)} m at ${o.toFixed(1)} m off its centreline`);
+        prev = h;
+      }
+    }
+  });
+  return bad;
+}
+
 describe("course geometry", () => {
   for (const json of TRACKS) {
     const track = new Track(json);
     it(`${track.id}: no placed building or prop reaches more than ${TOL} m onto the road or runoff`, () => {
       assert.deepEqual(courseIntrusions(track), []);
+    });
+    it(`${track.id}: the ground across every road + runoff has no step over its bank + ${STEP_TOL} m per ${STEP_DX} m`, () => {
+      assert.deepEqual(roadSteps(track), []);
     });
   }
 });

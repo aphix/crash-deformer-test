@@ -17,6 +17,12 @@ const STEP = 1;
 const WINDOW = 24;
 /** Beyond the wall line the ground eases back to the base terrain over this (m). */
 const BLEND = 24;
+/**
+ * A side path's ground eases onto the main loop's over this distance (m) beyond the main road + runoff, and is the
+ * main loop's on it. Its own grade left lips inside the runoff where it leaves a banked or sloping main road: a mouth
+ * held 0.25 m above the falling road beside it (rally node 6), a ford dropping off a bank's high side (0.35 m).
+ */
+const MEET = 8;
 /** Depth of the wall band (m): only cars within it are clipped, so open ground beyond is left alone. */
 const WALL_BAND = 2.5;
 const CELL = 1;
@@ -565,10 +571,11 @@ export class Track {
 }
 
 /**
- * `road`: 1 where the main loop stamped road or runoff (a side path's blend skirt may not replace it).
+ * `gap`: how far (m) a cell lies beyond the main loop's road + runoff (0 on it). A side path's blend skirt never
+ * replaces the main loop's road or runoff, and a side path's height meets the main loop's within `MEET` of it.
  * `under`: the field as the main loop left it; a side path's skirt eases back to it, not to the bare terrain.
  */
-type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; road: Uint8Array; under: Float32Array };
+type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; gap: Float32Array; under: Float32Array };
 
 /** Heightfield + surface grid baked from a track: road plane (banked), shoulders, eased back to the base terrain. */
 export class TrackGround implements Ground {
@@ -593,7 +600,7 @@ export class TrackGround implements Ground {
     const cells = this.nx * this.nz;
     this.heights = new Float32Array(cells);
     this.surf = new Uint8Array(cells).fill(this.terrain);
-    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, road: new Uint8Array(cells), under: this.heights };
+    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, gap: new Float32Array(cells).fill(Infinity), under: this.heights };
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) this.heights[j * this.nx + i] = this.base(this.minX + i * CELL, this.minZ + j * CELL);
     }
@@ -650,27 +657,31 @@ export class TrackGround implements Ground {
           const half = p.half[k]! + (p.half[b]! - p.half[k]!) * f;
           const run = lat > 0 ? p.runL[k]! : p.runR[k]!;
           const a = Math.abs(lat);
-          const road = a <= half + run;
+          const out = a - half - run;
           // Nearest centreline wins, except that a side path's blend skirt never replaces the main loop's road or
           // runoff: a shortcut's mouth skirt dented a banked turn's inside edge 0.35 m (stunt's quarry-cut).
-          if (d2 >= st.d2[c]! || (side && !road && st.road[c])) continue;
+          if (d2 >= st.d2[c]! || (side && out > 0 && st.gap[c] === 0)) continue;
           st.d2[c] = d2;
-          if (!side) st.road[c] = road ? 1 : 0;
+          if (!side) st.gap[c] = Math.max(0, out);
           const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f;
           const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
           const edge = yc - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
+          let h = edge;
           if (a <= half) {
-            st.h[c] = edge;
             st.surf[c] = p.surface[k]!;
-          } else if (a <= half + run) {
-            st.h[c] = edge;
+          } else if (out <= 0) {
             st.surf[c] = p.runSurface[k]!;
           } else {
-            const t = Math.min(1, (a - half - run) / BLEND);
+            const t = Math.min(1, out / BLEND);
             const e = t * t * (3 - 2 * t);
-            st.h[c] = edge + ((side ? st.under[c]! : this.base(x, z)) - edge) * e;
+            h = edge + ((side ? st.under[c]! : this.base(x, z)) - edge) * e;
             st.surf[c] = this.terrain;
           }
+          if (side) {
+            const m = clamp01(1 - st.gap[c]! / MEET);
+            h += (st.under[c]! - h) * m * m * (3 - 2 * m);
+          }
+          st.h[c] = h;
         }
       }
     }
