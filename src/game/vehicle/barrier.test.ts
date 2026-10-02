@@ -8,6 +8,7 @@ import { mass, paint } from "./test-support.ts";
 import { makeCar, makeWorld, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { CLASSES, VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
 import { stepWorld } from "../engine/world-step.ts";
+import { DRAFT } from "../match/session.ts";
 
 /** Engine-block travel toward the cabin at rest after a hit (m). */
 function blockTravel(car: DeformableCar): number {
@@ -161,13 +162,13 @@ describe("jersey barrier full-speed vs slomo", () => {
 });
 
 /**
- * The fastest a driven car goes: every class's top speed × its boost top. resolveCarPair capped each slice's
+ * The fastest a driven car goes: every class's top speed × its boost top × a race draft's top. resolveCarPair capped each slice's
  * impulse at 18 + 36·pass N·s, so a t-bone into a parked car pushed the struck car at only ~17 m/s² while the
  * bullet's closing ground on for ~0.8 s: from 58 m/s the bullet's nose came out of the struck car's far side in
  * 1–4 of 8 contact phases. A t-bone is judged by that nose, not the origins: once the pair turns the bullet can
  * slide off round the struck car's end, its origin passing the struck car's along X without going through it.
  */
-const DRIVEN_TOP = Math.max(...VEHICLE_CLASS_IDS.map((id) => CLASSES[id].topSpeed * CLASSES[id].boostTop));
+const DRIVEN_TOP = Math.max(...VEHICLE_CLASS_IDS.map((id) => CLASSES[id].topSpeed * CLASSES[id].boostTop)) * DRAFT.top;
 
 /** Deepest front-bumper mass of `bullet` out past `struck`'s far side, inside its length (m); the bullet starts on its right. */
 function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {

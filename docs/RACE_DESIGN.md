@@ -55,8 +55,8 @@ are held on the brakes until green. Traffic drives from the start.
 `lap` (completed), `next` (next main gate), `armed` (crossed the line once), `route` / `routeNext`
 (shortcut being driven), `progress` (m), `place`, `lapStart`, `lapTimes[]`, `bestLap`, `finishTime`,
 `split`, `outTime`, `wrongWay`, `missed`, `respawnAt`, `deaths`, `status`
-(`racing | respawning | finished | out | dnf`), the last reported `x`, `z`, the wrong-way timer and a
-projection hint. All plain JSON.
+(`racing | respawning | finished | out | dnf`), the last reported `x`, `z`, the wrong-way timer, a
+projection hint, and `draft` / `drafts` (seconds drafting, bonuses earned; see Drafting). All plain JSON.
 
 ## Checkpoints, laps, shortcuts
 - Main chain: gates `0..N-1` in driving order; gate 0 is the start / finish line at node 0. A gate is
@@ -279,6 +279,27 @@ the same race time), two rounds: CrashEngine tick mean 6.59 / 6.50 ms off, 7.72 
 13.9 / 14.3 vs 15.4 / 16.0 ms; 20 cars vs 25–26). The first build with 8 police cost 3.7 ms more per
 tick (5.65 vs 9.31 ms) and 66 of 1628 frames over 33 ms against 1, hence the cap of 6.
 
+## Drafting (`DRAFT`, `RaceSession`)
+A racing car 2–15 m straight behind another racing car (measured along the leader's travel), within
+1.5 m of its line, both doing over 15 m/s (54 km/h) that way, is drafting (`CarRecord.draft`: unbroken
+seconds of it). Every 2 s of it unbroken adds 5 % to that car's boost meter (`CarRecord.drafts` counts
+the bonuses; the director puts each on the meter once: the seat's for our car, `RaceBrain`'s for an AI,
+and a netplay peer's own client does it for its seat from the snapshot). While drafting, the car's top
+speed is ×1.02 (`applyDrive`'s `topScale`; the thrust is unchanged). Players and AI share the one rule;
+it lives in the race rules, so fleet and derby never see it, and netplay peers get it through the host's
+snapshot. The HUD shows a small "Draft" tag beside the boost meter while you draft.
+
+Numbers by feel and measurement: 2 m keeps a bumper-to-bumper shove out, 15 m is about 0.35 s at
+top speed; ±1.5 m is a car width; 5 % per 2 s is a full meter after 40 s glued to a bumper, about a
+ninth of the meter's own refill (empty to full in 4.5 s), so it tops up rather than replaces it; ×1.02 is 4 km/h at 200 km/h:
+a slow close on the car ahead down a straight.
+
+Measured (`laps.mts`: 4 AI + the AI-driven slot, 2 laps, seeds 1–5, main ab458a2 → drafting): bonuses
+per race (all 5 cars) oval 10.0 / 10.8 (slider 0.35 / 1), rally 7.6 / 18.8, city 4.0 / 7.0, stunt
+6.2 / 17.2. Mean lap s, slider 0.35: oval 18.61 → 18.54, rally 29.10 → 29.12, city 31.66 → 30.47,
+stunt 30.94 → 30.70; slider 1: 18.78 → 18.69, 29.24 → 29.13, 30.32 → 29.00, 31.16 → 30.74. Mean winner
+time moved under 1 s on every course; every car finished all 40 races both ways.
+
 ## Ground, surfaces, decks
 ```ts
 interface Ground {
@@ -364,7 +385,7 @@ swallowed; in the full view they work as in the sandbox, except the fleet props 
 
 ## HUD and controller menus
 Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split, the boost
-meter while driving), standings
+meter while driving, with a "Draft" tag while drafting), standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
 card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps
@@ -378,7 +399,10 @@ and standings have no Back (B / Esc would drop the unrecorded round): Menu leave
 `track.test.ts` (every course compiles, gates, grid, walls, ground, bridge layers, crossing rules),
 `session.test.ts` (countdown, laps, cuts and the `missed` flag, line farming, shortcuts incl. the
 oval infield beside / across the service road, wrong way, positions, respawn placement, no-reset
-survival, snapshots, DNF, the chequered flag and finish deadlines, campaign), `race-ai.test.ts` (8
+survival, snapshots, DNF, the chequered flag and finish deadlines, campaign, drafting: one bonus per
+2 s held in a leader's trail and none for the leader; none off its line, too far back or too close,
+under the speed floor, or on a broken run), `vehicle-classes.test.ts` (also: a draft's `topScale`
+lifts flat-out speed by exactly that share only while it is passed), `race-ai.test.ts` (8
 clean AI cars finish 3 laps on every course on the road ≥ 95 %, ram / block / follow, boost, the
 aggression model), `traffic.test.ts` (lanes, junction crossings, stop and edge round, bubble
 wake-up), `placements.test.ts`, `menu-nav.test.ts`, and the real stack headless (director, real cars
@@ -397,8 +421,8 @@ and classes, `applyDrive`, the engine's fixed-step contact order, traffic; helpe
 - `race-finish.test.ts` police chase: a Watch oval race with police on closes; parked police cars
   show no sirens and chasing ones do; cycling reaches a police car ("Police" on the spectate bar);
   at least one pursuit; no police car is in the results. A second oval race checks that no parked
-  unit pulls away before a racer is past its spot (unless knocked), that over each lead-in the
-  angle between the unit's velocity and its target's (where the target drove that stretch) shrinks,
+  unit pulls away before a racer is past its spot (unless knocked), that over each lead-in no other
+  car knocked (at least 3) the angle between the unit's velocity and its target's (where the target drove that stretch) shrinks,
   that no contact with its target in the lead-in is a T-bone (normal across the target's flank with
   the unit crossways), and that the pursuit after it still makes contact.
 - `race-player.test.ts`: the PLAYER slot driven through the real seat (analog wheel and gas) on the

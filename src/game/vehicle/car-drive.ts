@@ -70,7 +70,7 @@ const _turn = new Float64Array(4);
 /** [0]: the realism `_assist` was last filled for (NaN: never). */
 const _assistFor = new Float64Array([NaN]);
 /**
- * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] realism, [6] dt; out [7] top,
+ * `pedals` in/out: in [0] throttle, [1] brake, [2] along, [3] muF, [4] muR, [5] top-speed scale, [6] dt; out [7] top,
  * [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
  */
 const _pedal = new Float64Array(12);
@@ -94,9 +94,9 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   const along = io[2]!;
   const muF = io[3]!;
   const muR = io[4]!;
-  const realism = io[5]!;
+  const realism = HANDLING.realism;
   const dt = io[6]!;
-  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);
+  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1) * io[5]!;
   let speed = along;
   let want = 0;
   let spin = 0;
@@ -142,8 +142,9 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
  * lock short of a hard counter-steer stay on, and catches it when released.
  * `HANDLING.realism` thins grip and assists and sharpens damage. Kinematic
  * until the first crash, then the same velocity change is pushed into every mass.
+ * `topScale` raises the forward top speed (a race car drafting another, `DRAFT.top`).
  */
-export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): void {
+export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, topScale = 1): void {
   if (dt <= 0) return;
   const d = car.drive;
   const p = car.group.position;
@@ -197,7 +198,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   _pedal[2] = along;
   _pedal[3] = muF;
   _pedal[4] = muR;
-  _pedal[5] = realism;
+  _pedal[5] = topScale;
   _pedal[6] = dt;
   pedals(k, dmg, input, boosting, _pedal);
   const top = _pedal[7]!;

@@ -122,6 +122,9 @@ export type CarRecord = {
   wrongFor: number;
   /** Projection hint: last nearest sample on the path being driven (−1 = none). */
   seg: number;
+  /** Unbroken seconds drafting another racer (`DRAFT`; 0 when not), and the boost bonuses drafting has earned. */
+  draft: number;
+  drafts: number;
 };
 
 export type RaceEvent =
@@ -266,6 +269,8 @@ export type RaceHud = {
     /** Seconds behind the first car through the last checkpoint (0 when you led it). */
     split: number | null;
     speedKph: number;
+    /** In another car's trail (`DRAFT`): the HUD's draft cue. */
+    drafting: boolean;
   } | null;
   /** Cars in the race. */
   field: number;

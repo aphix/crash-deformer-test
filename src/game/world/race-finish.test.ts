@@ -173,12 +173,14 @@ describe("race: police chase", () => {
       const racers = w.race.racers.length;
       // Each racer's velocity where it last drove, per 2 m of road: a police car following its path matches it there.
       const trail = Array.from({ length: racers }, () => new Float64Array(Math.ceil(L / 2) * 2));
-      // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, last racer contact.
+      // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, last racer
+      // contact, and last contact with any car (a lead-in knocked off line by a pack-mate says nothing of its steering).
       const parkS = new Float64Array(64).fill(NaN);
       const target = new Int32Array(64).fill(-1);
       const leadEnd = new Float64Array(64);
       const angle0 = new Float64Array(64).fill(NaN);
       const touched = new Float64Array(64).fill(-1e9);
+      const bumped = new Float64Array(64).fill(-1e9);
       let t = 0;
       let wakes = 0;
       let converged = 0;
@@ -187,7 +189,10 @@ describe("race: police chase", () => {
       const hit = w.step.pairHit;
       w.step.pairHit = (a, b, h, first) => {
         hit?.(a, b, h, first);
-        if (!first || a >= racers === b >= racers) return;
+        if (!first) return;
+        if (a >= racers) bumped[a] = t;
+        if (b >= racers) bumped[b] = t;
+        if (a >= racers === b >= racers) return;
         const [p, r] = a >= racers ? [a, b] : [b, a];
         touched[p] = t;
         if (t >= leadEnd[p]!) {
@@ -244,14 +249,14 @@ describe("race: police chase", () => {
           const k = Math.floor(arc(i) / 2) * 2;
           const a = angle(v.x, v.z, trail[r]![k]!, trail[r]![k + 1]!);
           if (Number.isNaN(angle0[i]!)) angle0[i] = a;
-          if (t + FRAME >= leadEnd[i]!) {
+          if (t + FRAME >= leadEnd[i]! && bumped[i]! < leadEnd[i]! - 1.8) {
             assert.ok(a < angle0[i]! || a < 0.2, `police car ${i}'s heading to its target's went ${angle0[i]!.toFixed(2)} → ${a.toFixed(2)} rad over its lead-in`);
             converged++;
           }
         }
       }
       assert.equal(w.race.phase, "finished", "the race closed");
-      assert.ok(wakes >= 4 && converged >= 4, `wakes ${wakes}, lead-ins converged ${converged}`);
+      assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
       assert.equal(tbones, 0, "a police car T-boned its target during its lead-in");
       assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
     } finally {

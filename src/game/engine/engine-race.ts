@@ -8,7 +8,7 @@ import { Campaign } from "../match/campaign.ts";
 import { SURFACES } from "../world/catalog.ts";
 import type { PoliceBrain } from "../ai/police.ts";
 import { onSurface } from "../ai/race-ai.ts";
-import { RaceSession } from "../match/session.ts";
+import { DRAFT, RaceSession } from "../match/session.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
 import {
   cleanName,
@@ -33,6 +33,9 @@ const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
  * at the end of every physics slice, `frame` once per rendered frame.
  */
 export class RaceDirector extends RaceField {
+  /** Per car id: the drafting bonuses (`CarRecord.drafts`) already put on a meter. */
+  private readonly drafted = new Int32Array(MAX_CARS);
+
   /** The camera chases the followed car (player or spectated) instead of orbiting. */
   get chase(): boolean {
     return this.active && this.session != null;
@@ -262,6 +265,7 @@ export class RaceDirector extends RaceField {
     this.entrants = entrants;
     this.self = self;
     snap.cars.forEach((c, k) => (this.rowOf[c.id] = k));
+    this.credit(this.session);
     if (!fresh) return;
     this.menu = null;
     this.overFor = 0;
@@ -340,7 +344,7 @@ export class RaceDirector extends RaceField {
         this.cruise.brake = ai.brake;
         input = this.cruise;
       }
-      applyDrive(car, onSurface(input, surf, this.scratch), dt);
+      applyDrive(car, onSurface(input, surf, this.scratch), dt, rec.draft > 0 ? DRAFT.top : 1);
     }
   }
 
@@ -379,6 +383,7 @@ export class RaceDirector extends RaceField {
       pose.alive = alive;
     }
     s.step(dt, this.poses);
+    this.credit(s);
     if (racing) this.stalls(s);
     this.drain();
     this.bubbleAcc += dt;
@@ -388,6 +393,18 @@ export class RaceDirector extends RaceField {
       this.patrol(BUBBLE_EVERY);
       // A watched police car was put away: watch the next car.
       if (this.spectating && this.dormant[this.host.seat.carIndex]) this.cycle(1);
+    }
+  }
+
+  /** Drafting bonuses the rules awarded since the last look: onto our seat's meter, or the race AI's (a peer's own client credits its seat). */
+  private credit(s: RaceSession): void {
+    for (const c of s.cars) {
+      const n = c.drafts - this.drafted[c.id]!;
+      this.drafted[c.id] = c.drafts;
+      // Not `n <= 0`: an older host's snapshot has no `drafts` (NaN).
+      if (!(n > 0)) continue;
+      if (this.seatDrives(c.id)) this.host.seat.addBoost(n * DRAFT.bonus);
+      else if (c.kind !== "remote") this.brain?.addBoost(c.id, n * DRAFT.bonus);
     }
   }
 
@@ -458,6 +475,7 @@ export class RaceDirector extends RaceField {
           finishTime: me.finishTime,
           split: me.split,
           speedKph: car ? car.velocity.length() * 3.6 : 0,
+          drafting: me.draft > 0,
         };
       }
     }

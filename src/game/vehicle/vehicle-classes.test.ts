@@ -2,6 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, DriverSeat, idleDrive, type DriveInput } from "./car-drive.ts";
+import { DRAFT } from "../match/session.ts";
 import { DeformableCar } from "./car.ts";
 import { DriveCam } from "../present/engine-camera.ts";
 import { makeCar, runWall } from "../contact/crash-scenarios.test-util.ts";
@@ -167,6 +168,27 @@ describe("vehicle classes", () => {
     const turns = VEHICLE_CLASS_IDS.map((id) => CLASSES[id].turn);
     assert.equal(Math.min(...turns), CLASSES.monster.turn);
     assert.ok(CLASSES.muscle.drift > CLASSES.sedan.drift && CLASSES.truck.mass > CLASSES.sedan.mass);
+  });
+
+  it("good: a draft's top-speed scale lifts flat-out speed by that share only while it is passed, then the car settles back", () => {
+    const car = classCar("sedan");
+    const top = CLASSES.sedan.topSpeed;
+    car.spawnFacing(0, 0, 0, 0);
+    car.velocity.set(car.fwdFlat.x * top, 0, car.fwdFlat.z * top);
+    const gas = { ...idleDrive(), throttle: 1 };
+    const run = (seconds: number, scale: number) => {
+      for (let t = 0; t < seconds; t += H) {
+        applyDrive(car, gas, H, scale);
+        car.group.position.x += car.velocity.x * H;
+        car.group.position.z += car.velocity.z * H;
+        car.refreshBasis();
+      }
+      return along(car);
+    };
+    assert.ok(Math.abs(run(2, 1) - top) < 1e-6, "flat out at the class top");
+    const drafting = run(4, DRAFT.top);
+    assert.ok(Math.abs(drafting - top * DRAFT.top) < 1e-6, `drafting: ${drafting.toFixed(3)} vs ${(top * DRAFT.top).toFixed(3)} m/s`);
+    assert.ok(Math.abs(run(4, 1) - top) < 1e-6, "back to the class top once out of the draft");
   });
 
   for (const id of VEHICLE_CLASS_IDS) {

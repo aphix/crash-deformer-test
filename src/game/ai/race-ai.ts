@@ -333,6 +333,11 @@ export class RaceBrain {
     this.burst[i] = boosting ? 1 : 0;
   }
 
+  /** A bonus onto car `i`'s meter (drafting, `DRAFT.bonus`), as `DriverSeat.addBoost` does for the player. */
+  addBoost(i: number, amount: number): void {
+    this.meter[i] = Math.min(1, this.meter[i]! + amount);
+  }
+
   /** Main loop or a designed shortcut: one seeded coin per car, lap and shortcut. */
   private pickRoute(i: number, race: RaceAiState, mainS: number): void {
     if (this.route[i]! >= 0) return;
