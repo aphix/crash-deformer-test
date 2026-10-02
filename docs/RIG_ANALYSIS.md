@@ -1528,6 +1528,22 @@ Probes are in the main checkout's `.bench/cr12/`. `race.ts` is a headless 8-car 
   - `resolveCarPair`'s result object and its two `clone()`s. `StrongestContact` in engine-props keeps those references, so reusing them needs that class to copy.
 
   A larger budget flag made it worse (`clampLocal` 339 KB per frame). The way forward is per-call-site: pass objects instead of doubles, or split the per-mass bodies out.
+- **`slomo:offset64`: attributed in part, not fixed** (`.bench/cr12/slomo64*.ts`). Measured: `noseShortR` 0.272 in slow motion against 0.330 at full speed (0.824); `noseShortL` 0.513 against 0.539.
+  - Both runs reach the same peak: `noseMaxR` is 0.330 in each.
+  - In slow motion the R nose springs back to its set within 0.29–0.33 s (0.330 → 0.255). At full speed it holds 0.330 until about 0.5 s, because the wreck is still in contact with the slab (quiet 0.003 s against 0.33 s in slow motion).
+  - Net mass-centroid motion away from the slab over 0.28–0.34 s, by call:
+
+    | call | full speed (m) | slow motion (m) |
+    |---|---|---|
+    | `barrier.resolve` | +0.104 | +0.075 |
+    | `barrier.clip` | +0.036 | +0.083 |
+    | `syncPose` | −0.103 | −0.018 |
+
+  - At full speed the masses keep closing on the slab and `syncPose` carries them back in. In slow motion that inbound velocity is gone, so the clip's pushes (about 75 slices in that window against about 10) separate the wreck.
+  - Ruled out:
+    - The wall-clock gate on `bleedAfterSlide` (0.2 s wall is 6 ms of sim time at ×0.032): gating it on sim time gave 0.264.
+    - The per-call floors in `satPushCap` and the barrier push (+0.004 m): scaling them by dt below 1/240 s left slow motion at 0.272.
+  - Next: find what keeps the full-speed masses closing (or kills them in slow motion) per slice in `JerseyBarrier.clip`/`resolve`.
 
 ## Appendix
 
