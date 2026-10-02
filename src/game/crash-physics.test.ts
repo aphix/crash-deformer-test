@@ -353,9 +353,11 @@ forModes("Newton 3 / impulses", (spawn) => {
   });
 });
 
+// A 25 m/s hit: its energy reaches far past ENGINE_KILL_TRAVEL, so the counted travel is the block's own
+// (updateDrivetrain caps a nose hit's travel at what its energy-equivalent stroke reaches).
 forModes("drivetrain", (spawn) => {
   it("good: dies once the engine block has taken a real hit", () => {
-    const s = spawn(0);
+    const s = spawn(0, 25);
     assert.equal(s.d.drivetrainAlive, true);
     for (let i = 0; i < 24; i++) stepWall(s, DT, 0.14);
     const eng = Math.max(travel(s.d, "engineL"), travel(s.d, "engineR"));
@@ -387,7 +389,7 @@ forModes("drivetrain", (spawn) => {
   });
 
   it("close-but-wrong: just under ENGINE_KILL_TRAVEL is alive; just over is toast", () => {
-    const s = spawn(0);
+    const s = spawn(0, 25);
     const eng = mass(s.d, "engineL");
     eng.local.copy(eng.rest);
     eng.local.z -= ENGINE_KILL_TRAVEL - 0.01;

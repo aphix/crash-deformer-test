@@ -21,41 +21,65 @@ function noseGap(car: DeformableCar): number {
 
 // Owner's crumple model: a zone with stroke left absorbs the hit; one crushed to its packed length
 // absorbs nothing more and passes the load to the next node (the block), so damage accumulates.
+// Each runs at main's squash 0.4 and the calibrated 0.32 (lane/calib-defaults).
+const SQUASHES = [0.4, 0.32];
+
 describe("crumple absorbs while it has stroke, then passes the load on [shape]", () => {
   it("good: the block stays on its mounts until the nose has packed against it (20–43 km/h)", () => {
-    for (const kph of [20, 25, 30, 35, 40, 43]) {
-      const car = makeCar();
-      runWall(kph, 1, "front", { car });
-      if (noseGap(car) > 0.56) assert.ok(blockTravel(car) <= 0.045, `${kph} km/h: block moved ${blockTravel(car).toFixed(3)} m with ${noseGap(car).toFixed(3)} m of nose left`);
+    for (const squash of SQUASHES) {
+      for (const kph of [20, 25, 30, 35, 40, 43]) {
+        const car = makeCar("shape", squash);
+        runWall(kph, 1, "front", { car });
+        if (noseGap(car) > 0.56) assert.ok(blockTravel(car) <= 0.045, `squash ${squash}, ${kph} km/h: block moved ${blockTravel(car).toFixed(4)} m with ${noseGap(car).toFixed(3)} m of nose left`);
+      }
     }
   });
 
-  it("bad: a nose packed by a 50 km/h hit takes nothing of the next 35 km/h hit; the block does", () => {
-    const car = makeCar();
-    runWall(50, 1, "front", { car });
-    const gap = noseGap(car);
-    const block = blockTravel(car);
-    assert.ok(gap < 0.56, `fixture: 50 km/h left ${gap.toFixed(3)} m of nose`);
-    runWall(35, 1, "front", { car });
-    assert.ok(gap - noseGap(car) < 0.02, `the packed nose shortened ${(gap - noseGap(car)).toFixed(3)} m more`);
-    assert.ok(blockTravel(car) - block > 0.04, `the block took ${(blockTravel(car) - block).toFixed(3)} m of the second hit`);
-  });
-
-  // Basis: rearmHit adds each hit's EBS² to the struck end (a linear spring's energy), so three
-  // 35 km/h hits carry one 61 km/h hit's energy, past the 56–62 km/h single-hit kill.
-  it("bad: repeated 35 km/h wall hits keep moving the block back and kill it within three", () => {
-    const car = makeCar();
-    const travel: number[] = [];
-    let killedAt = 0;
-    for (let k = 1; k <= 4; k++) {
+  // Fixture: the slowest hit that packs the nose at both squashes (52 km/h; 50 left 0.547 m at 0.32). A
+  // wreck resting on the slab used to sit 0.47 m nose-to-block after the second hit: the face pushed the
+  // bumpers back after the clamp's pack rule, so the packed nose crushed past its packed length.
+  it("bad: a nose packed by a 52 km/h hit takes nothing of the next 35 km/h hit; the block does", () => {
+    for (const squash of SQUASHES) {
+      const car = makeCar("shape", squash);
+      runWall(52, 1, "front", { car });
+      const gap = noseGap(car);
+      const block = blockTravel(car);
+      assert.ok(gap <= 0.545, `squash ${squash} fixture: 52 km/h left ${gap.toFixed(3)} m of nose, not packed to 0.54`);
       runWall(35, 1, "front", { car });
-      travel.push(blockTravel(car));
-      if (!car.deform.drivetrainAlive && !killedAt) killedAt = k;
+      assert.ok(gap - noseGap(car) < 0.02, `squash ${squash}: the packed nose shortened ${(gap - noseGap(car)).toFixed(3)} m more`);
+      assert.ok(blockTravel(car) - block > 0.04, `squash ${squash}: the block took ${(blockTravel(car) - block).toFixed(3)} m of the second hit`);
     }
-    const row = travel.map((t) => t.toFixed(3)).join(" ");
-    assert.notEqual(killedAt, 1, "one 35 km/h hit killed the block");
-    for (let k = 1; k < travel.length; k++) assert.ok(travel[k]! >= travel[k - 1]! - 0.005, `block travel by hit ${row}`);
-    assert.ok(killedAt > 0 && killedAt <= 3, `killed at hit ${killedAt || "never"}; block travel by hit ${row}`);
+  });
+
+  // Basis: rearmHit adds each hit's EBS² to the struck end (a linear spring's energy), so n hits at v
+  // carry one hit's energy at v·√n: two 35s ≈ 49.5 km/h, under the 52–54 km/h single-hit kill, three
+  // ≈ 60.6 km/h, past it. Was hit 4 at squash 0.32 and hit 2 at 0.4 (geometric re-hit peaks).
+  it("bad: repeated 35 km/h wall hits keep moving the block back and kill it on the third, at either squash", () => {
+    for (const squash of SQUASHES) {
+      const car = makeCar("shape", squash);
+      const travel: number[] = [];
+      let killedAt = 0;
+      for (let k = 1; k <= 4; k++) {
+        runWall(35, 1, "front", { car });
+        travel.push(blockTravel(car));
+        if (!car.deform.drivetrainAlive && !killedAt) killedAt = k;
+      }
+      const row = travel.map((t) => t.toFixed(3)).join(" ");
+      for (let k = 1; k < travel.length; k++) assert.ok(travel[k]! >= travel[k - 1]! - 0.005, `squash ${squash}: block travel by hit ${row}`);
+      assert.equal(killedAt, 3, `squash ${squash}: killed at hit ${killedAt || "never"}; block travel by hit ${row}`);
+    }
+  });
+
+  it("good: one hit at two 35s' energy (49.5 km/h) leaves the block alive and one at three's (60.6 km/h) kills it, at either squash", () => {
+    for (const squash of SQUASHES) {
+      const alive = (kph: number) => {
+        const car = makeCar("shape", squash);
+        runWall(kph, 1, "front", { car });
+        return car.deform.drivetrainAlive;
+      };
+      const [a, b] = [alive(49.5), alive(60.6)];
+      assert.ok(a && !b, `squash ${squash}: 49.5 km/h alive ${a}, 60.6 km/h alive ${b}`);
+    }
   });
 });
 

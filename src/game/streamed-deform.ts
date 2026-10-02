@@ -45,15 +45,21 @@ const ENGINE_SLACK = 0.04;
  *  0.36 m block. Nose crush past the 0.84 m rest gap minus this shoves the engine back. */
 const ENGINE_PACK_GAP = 0.54;
 
+/** How far (m) a single nose hit's dynamic crush peaks short of its stroke: single 48–54 km/h hits at
+ *  squash 0.32 and 0.4 all peak the block at the stroke's reach (stroke − 0.30) minus 0.06 ± 0.01 m. */
+const STROKE_SHORTFALL = 0.06;
+
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
 /** Physics slice (s) the per-call contact shares (feedOverlap nibble and inbound-speed kill) are tuned at. */
 const CONTACT_REF_SLICE = 1 / 240;
 /** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
 const REARM_QUIET = 0.3;
-/** Smallest EBS (m/s, 22 km/h) that counts as a new hit on a wreck. Below it the derby's constant
- *  shoving and nudging would re-arm every 0.3 s and grind any nose down to the block. */
-const REARM_EBS = 6;
+/** Smallest EBS (m/s, 10 km/h) that counts as a new hit on a wreck: the IIHS low-speed bumper test's
+ *  6 mph full-width impact, where bumper systems start taking damage (research 12). The old 6 m/s
+ *  (22 km/h) floor dropped every car-car hit under 43 km/h closing (each car's EBS is about half the
+ *  closing), so a derby's dozens of 25–40 km/h rams added nothing and a 90 s match killed 0–2 cars. */
+const REARM_EBS = 2.8;
 /** C4: a wheel separates only on an off-centre hit this hard (m/s EBS, 54 km/h)… */
 const HUB_POP_MPS = 15;
 /** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
@@ -326,6 +332,8 @@ export class StreamedDeformation {
   private hitSpeed = -1;
   /** Σ EBS² per struck end (`struckEnd`: front, rear, left, right). */
   private readonly endEbs2 = new Float64Array(4);
+  /** The current hit is a re-armed one (`rearmHit`), not the crash's first. */
+  private rearmed = false;
   /** `elapsed` of the last throttle input (`notifyPower`). */
   private lastPower = -10;
   /** `elapsed` when the current hit began (beginCrush, rearmHit): the sliding-drag clock (`sinceHit`). */
@@ -788,6 +796,7 @@ export class StreamedDeformation {
     this.impulse = 0;
     this.hitSpeed = -1;
     this.endEbs2.fill(0);
+    this.rearmed = false;
     this.lastPower = -10;
     this.wrinkleAmp = 0;
     this.crushAmount = 0;
@@ -1026,6 +1035,7 @@ export class StreamedDeformation {
     const e = Math.min(ebs, 70);
     this.endEbs2[end] = this.endEbs2[end]! + e * e;
     this.hitSpeed = Math.min(70, Math.sqrt(this.endEbs2[end]!));
+    this.rearmed = true;
     this.impulse = THREE.MathUtils.clamp(impulse, 4, 70);
     this.crushing = true;
     this.dirty = true;
@@ -1293,6 +1303,17 @@ export class StreamedDeformation {
     // A rear hit has to cross the cabin to get here: its push along the hit counts too, so the same travel
     // kills a nose around 50 km/h and a tail much later. A side hit shoves the block sideways only.
     if (this.impactInward.z > Math.abs(this.impactInward.x)) travel = Math.max(travel, el.local.z - el.rest.z, er.local.z - er.rest.z);
+    // A nose hit moves the block as far as one hit at the nose's energy-equivalent speed (Σ EBS², rearmHit)
+    // reaches: the stroke past the crumple, less a single hit's dynamic shortfall. A first hit counts its
+    // geometric peak up to that, which kept single-hit kills monotone (0.4: 49.5 km/h peaked 0.155 m and
+    // died, 50 km/h 0.139 m lived). A re-armed hit counts it outright: its own peak rides the packed nose's
+    // springback and the clip, so three 35 km/h hits killed on the 4th at squash 0.32 (0.128 m at 60 km/h
+    // equivalent) and on the 2nd at 0.4 (0.154 m at 49 km/h).
+    if (this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x)) {
+      const crumple = Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - Math.max(el.rest.z, er.rest.z) - ENGINE_PACK_GAP;
+      const energy = this.hitStroke() - crumple - STROKE_SHORTFALL;
+      travel = this.rearmed ? energy : Math.min(travel, energy);
+    }
     if (travel > this.engineTravel) this.engineTravel = travel;
     if (travel > this.killTravel) this.drivetrainAlive = false;
   }
@@ -1670,6 +1691,7 @@ export class StreamedDeformation {
     const gc = Math.cos(this.prevYaw);
     const gs = Math.sin(this.prevYaw);
     let removed = 0;
+    let moved = false;
     this.faceContacts = 0;
     for (const m of this.masses) {
       const planted = m.hub && !m.popped;
@@ -1709,12 +1731,30 @@ export class StreamedDeformation {
       m.world.z += dz;
       m.local.x += dx * gc - dz * gs;
       m.local.z += dx * gs + dz * gc;
+      moved = true;
       if (planted && !this.deepCrush) this.shoveHub(m, dx, dz);
       const vn = m.vel.x * nx + m.vel.z * nz;
       if (vn < 0) {
         m.vel.x -= nx * vn;
         m.vel.z -= nz * vn;
         removed -= vn * m.mass;
+      }
+    }
+    // A wreck resting on the face: the face moved its bumpers after this call's clamp, so the packed nose
+    // shoves the block with it (clampLocal's pack rule, within the hit's reach). Without it a dead wreck sat
+    // at 0.476 m nose gap after 52 + 35 km/h. Not while the cell still drives in: the face's transient push
+    // reached the block and killed it in single 35–50 km/h hits.
+    const into = -(cell.vel.x * rx + cell.vel.z * rz) * side;
+    if (moved && into < 0.3 && !this.bidirectional && this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x)) {
+      const front = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z) - ENGINE_PACK_GAP;
+      const crumple = Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - Math.max(this.at.engineL.rest.z, this.at.engineR.rest.z) - ENGINE_PACK_GAP;
+      const reach = Math.max(ENGINE_SLACK, this.hitStroke() - crumple);
+      for (const m of [this.at.engineL, this.at.engineR]) {
+        const back = Math.min(m.local.z - front, m.local.z - (m.rest.z - reach));
+        if (back <= 0) continue;
+        m.local.z -= back;
+        m.world.x -= gs * back;
+        m.world.z -= gc * back;
       }
     }
     return removed;
@@ -2341,12 +2381,15 @@ export class StreamedDeformation {
         dz = along * iz + pz + bz;
       }
       if ((m.name === "engineL" || m.name === "engineR") && !this.bidirectional && !sideHit && iz < 0) {
-        // The block sits behind the crumple length: it only moves once this hit's stroke
-        // packs the nose against it, and the crushed nose shoves it back when it does.
+        // The mounts hold the block (ENGINE_SLACK past earlier hits' set) until the crushed nose packs
+        // against it; the packed nose then shoves it back, as far as this hit's stroke reaches. A
+        // floor at the stroke's reach let a 43 km/h hit creep the block 0.045 m with 0.58 m of nose left.
         const nose = Math.min(this.at.bumperFL.local.z, this.at.bumperFR.local.z);
+        const pushed = nose - ENGINE_PACK_GAP - m.rest.z;
         const reach = Math.max(ENGINE_SLACK, stroke - (Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - m.rest.z - ENGINE_PACK_GAP));
-        if (dz < -reach) dz = -reach;
-        if (m.rest.z + dz > nose - ENGINE_PACK_GAP) dz = nose - ENGINE_PACK_GAP - m.rest.z;
+        const floor = Math.max(-reach, Math.min(Math.min(0, bz) - ENGINE_SLACK, pushed));
+        if (dz < floor) dz = floor;
+        if (dz > pushed) dz = pushed;
       }
       if (m.hub && !this.deepCrush) {
         if (!m.popped && this.hitSpeed >= HUB_POP_MPS && !sideHit && Math.abs(this.impactLocal.x) >= 0.2 && cw > 0.6) {
