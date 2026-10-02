@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Hud } from "@/components/hud";
+import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
 import type { CrashEngine } from "@/game/engine";
 import { HudStore } from "@/game/hud-store";
@@ -10,6 +11,8 @@ export function CrashLab() {
   const [hudStore] = useState(() => new HudStore());
   const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get, hudStore.get);
   const [bootError, setBootError] = useState<string | null>(null);
+  const [booted, setBooted] = useState(false);
+  const driver = useDriver();
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -24,6 +27,7 @@ export function CrashLab() {
           engine = new CrashEngine(canvasRef.current, hudStore);
           engineRef.current = engine;
           engine.start();
+          setBooted(true);
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);
@@ -42,6 +46,11 @@ export function CrashLab() {
       engineRef.current = null;
     };
   }, [hudStore]);
+
+  // The player's stored name and car reach the engine at boot and on every change (race setup, netplay hello).
+  useEffect(() => {
+    if (booted) engineRef.current?.setDriver(driver.name, driver.car);
+  }, [booted, driver.name, driver.car]);
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-bg text-fg">

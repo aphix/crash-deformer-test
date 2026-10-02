@@ -106,13 +106,15 @@ export abstract class RaceField {
   fullUi = false;
   /** The car this browser drives: 0 on a host or offline, the host-assigned car on a netplay client. */
   self = 0;
+  /** This browser's player's name on the standings (`CrashEngine.setDriver`, already clean). */
+  playerName = "You";
   /**
    * Seed of the field's random picks (each rival's aggression roll, `fieldAggression`). Every new
    * field (setup, start, campaign) bumps it, so each race rolls afresh; `reseed` pins it.
    */
   protected seed = 0;
-  /** Cars driven by network peers (netplay host, `setSeats`): `remote` slots in the next field. */
-  protected seats = new Set<number>();
+  /** Cars driven by network peers and their names (netplay host, `setSeats`): `remote` slots in the next field. */
+  protected seats: ReadonlyMap<number, string> = new Map();
   /** Traffic cars put away by the observer bubble. */
   protected readonly dormant = new Uint8Array(MAX_CARS);
   protected bubbleAcc = 0;
@@ -175,13 +177,14 @@ export abstract class RaceField {
    */
   protected field(): Entrant[] {
     let n = this.options.aiCount + 1;
-    for (const id of this.seats) n = Math.max(n, id + 1);
+    for (const id of this.seats.keys()) n = Math.max(n, id + 1);
     this.host.setCarCount(n);
     const cars = this.host.live();
     this.seed++;
     return cars.map((car, i): Entrant => {
-      if (i === this.self && !this.options.spectate) return { id: i, name: "You", kind: "player", aggression: 0 };
-      if (this.seats.has(i)) return { id: i, name: `Player ${i}`, kind: "remote", aggression: 0 };
+      if (i === this.self && !this.options.spectate) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
+      const peer = this.seats.get(i);
+      if (peer !== undefined) return { id: i, name: peer, kind: "remote", aggression: 0 };
       return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) };
     });
   }

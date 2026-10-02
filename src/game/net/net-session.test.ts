@@ -96,10 +96,11 @@ class Link implements NetTransport {
 }
 
 /** The engine as NetPlay sees it, with real cars and a real seat; records what the session asked of it. */
-function fakeGame(raceApplied?: number[]) {
+function fakeGame(raceApplied?: number[], playerName = "") {
   const cars: DeformableCar[] = [makeCar(), makeCar()];
   const seat = new DriverSeat();
-  const seats: number[][] = [];
+  /** Every `setSeats` call, as [car, name] pairs. */
+  const seats: [number, string][][] = [];
   const matched: unknown[][] = [];
   const race = raceApplied
     ? {
@@ -134,9 +135,10 @@ function fakeGame(raceApplied?: number[]) {
     enterRace(): void {},
     exitRace(): void {},
     startRace(): void {},
-    setSeats(c: readonly number[]): void {
-      seats.push([...c]);
+    setSeats(m: ReadonlyMap<number, string>): void {
+      seats.push([...m]);
     },
+    playerName: () => playerName,
     remoteDrivable: () => true,
     derbyPhase: () => null,
     derbyState: () => null,
@@ -153,12 +155,12 @@ afterEach(() => {
 });
 
 /** A host and one guest in room R, linked through a `Hub`, on one fake clock. */
-function session(opts: { raceApplied?: number[] } = {}) {
+function session(opts: { raceApplied?: number[]; name?: string } = {}) {
   const hub = new Hub();
   let now = 1000;
   const clock = () => now;
   const hg = fakeGame();
-  const cg = fakeGame(opts.raceApplied);
+  const cg = fakeGame(opts.raceApplied, opts.name);
   const host = new NetPlay(hg, { connect: hub.connect, now: clock });
   const client = new NetPlay(cg, { connect: hub.connect, now: clock });
   open.push(host, client);
@@ -293,9 +295,25 @@ describe("netplay session: a guest's seat survives the network", () => {
 
   it("frees every seat when the host leaves, so a solo race or derby has no ghost players", () => {
     const s = session();
-    assert.deepEqual(s.hg.seats.at(-1), [1]);
+    assert.deepEqual(s.hg.seats.at(-1), [[1, "Player 1"]]);
     s.host.leave();
     assert.deepEqual(s.hg.seats.at(-1), []);
+  });
+
+  it("seats the guest under the name its hello carried, cleaned (whitespace folded, control and bidi characters dropped) and capped at 16", () => {
+    const s = session({ name: "  Zed\u202E\u0000 the\tquick brown fox jumps  " });
+    assert.deepEqual(s.hg.seats.at(-1), [[1, "Zed the quick br"]]);
+  });
+
+  it("seats a hello without a name (the field's older layout) as Player N", () => {
+    const hub = new Hub();
+    const hg = fakeGame();
+    const host = new NetPlay(hg, { connect: hub.connect, now: () => 0 });
+    open.push(host);
+    host.host("R", "bc");
+    hub.connect("bc", "R", "bare", "client").send(new Uint8Array([codec.MSG.hello, codec.NET_VERSION]));
+    hub.flush();
+    assert.deepEqual(hg.seats.at(-1), [[1, "Player 1"]]);
   });
 });
 

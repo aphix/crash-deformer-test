@@ -10,6 +10,7 @@ import { onSurface } from "./race/race-ai.ts";
 import { RaceSession } from "./race/session.ts";
 import { CAMPAIGN } from "./race/tracks/index.ts";
 import {
+  cleanName,
   type Entrant,
   type RaceCommand,
   type RaceHud,
@@ -215,9 +216,9 @@ export class RaceDirector extends RaceField {
     return this.session ? this.session.snapshot() : null;
   }
 
-  /** Netplay host: the cars network peers drive. The next field (start, setup) seats them as `remote`. */
-  setSeats(cars: readonly number[]): void {
-    this.seats = new Set(cars);
+  /** Netplay host: the cars network peers drive, with their names. The next field (start, setup) seats them as `remote`. */
+  setSeats(seats: ReadonlyMap<number, string>): void {
+    this.seats = seats;
   }
 
   /** The rules phase (null outside a race), without a snapshot. */
@@ -228,8 +229,9 @@ export class RaceDirector extends RaceField {
   /**
    * Netplay client: adopt the host's rules state; a client renders it and never steps its own
    * session. `self` is this peer's car: it races only if the host seated it (`remote` in the host's
-   * field); a peer who joined mid-race spectates until the next race. The host's own car shows as
-   * "Host". A new race (or the first one seen) puts this peer in its seat or on the leader.
+   * field); a peer who joined mid-race spectates until the next race. Every car keeps the host's name
+   * for it (the host's and each peer's pick), cleaned here as untrusted. A new race (or the first one
+   * seen) puts this peer in its seat or on the leader.
    */
   applySnapshot(snap: RaceSnapshot, self: number): void {
     const prev = this.session;
@@ -240,12 +242,9 @@ export class RaceDirector extends RaceField {
     for (const c of snap.cars) {
       if (c.id === self && c.kind === "remote") {
         c.kind = "player";
-        c.name = "You";
         seated = true;
-      } else if (c.kind === "player") {
-        c.kind = "remote";
-        c.name = "Host";
-      }
+      } else if (c.kind === "player") c.kind = "remote";
+      c.name = cleanName(c.name) || `Player ${c.id}`;
       entrants[c.id] = { id: c.id, name: c.name, kind: c.kind, aggression: 0 };
     }
     this.session = RaceSession.restore(tr, snap);

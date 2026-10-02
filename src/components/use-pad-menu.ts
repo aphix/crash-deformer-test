@@ -65,6 +65,8 @@ export function usePadMenu(root: RefObject<HTMLElement | null>, id: string, acti
     focus(items()[0]);
 
     const onKeyDown = (e: KeyboardEvent): void => {
+      // A text field (the race setup's name) keeps space and caret ←/→; ↑/↓, Tab, Enter and Esc still drive the menu.
+      if (e.target instanceof HTMLInputElement && e.target.type === "text" && (e.key === " " || e.key === "ArrowLeft" || e.key === "ArrowRight")) return;
       const dir = ARROWS[e.key];
       if (dir) move(dir);
       else if (e.key === "Enter" || e.key === " ") {

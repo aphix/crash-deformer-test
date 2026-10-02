@@ -45,8 +45,10 @@ export interface NetGame {
   enterRace(): void;
   exitRace(): void;
   startRace(): void;
-  /** Host: network peers' cars. A race seats them at its next start, a derby at its next match. */
-  setSeats(cars: readonly number[]): void;
+  /** Host: network peers' cars and names. A race seats them at its next start, a derby at its next match. */
+  setSeats(seats: ReadonlyMap<number, string>): void;
+  /** This browser's player's name (its `hello` carries it to the host). */
+  playerName(): string;
   /** Host: whether peer car `i` takes its input now (a derby only drives cars it seated and not counted out). */
   remoteDrivable(i: number): boolean;
   /** Host: derby mode's stage, null outside derby mode. */

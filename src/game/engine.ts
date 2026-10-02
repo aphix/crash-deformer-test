@@ -80,12 +80,13 @@ export class CrashEngine extends EngineInput {
       this.emitHud();
     },
     startRace: () => this.raceCommand({ type: "start" }),
-    setSeats: (cars) => {
-      this.netSeats = new Set(cars);
+    setSeats: (seats) => {
+      this.netSeats = seats;
       // A peer who leaves mid-match hands its car back to the AI.
-      for (const i of this.derbySeated) if (!this.netSeats.has(i)) this.derbySeated.delete(i);
-      if (this.race.active) this.race.setSeats(cars);
+      for (const i of this.derbySeated) if (!seats.has(i)) this.derbySeated.delete(i);
+      if (this.race.active) this.race.setSeats(seats);
     },
+    playerName: () => this.race.playerName,
     remoteDrivable: (i) => !this.derbyMode || (this.derbySeated.has(i) && !this.derby.isOut(i)),
     derbyPhase: () => (!this.derbyMode ? null : !this.derby.active ? "lobby" : this.derby.winnerId == null ? "running" : "over"),
     derbyState: () => this.derbyNetState(),

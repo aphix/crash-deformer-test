@@ -148,6 +148,20 @@ packets); traffic → `TrafficBrain`. The rules see only `CarPose`s. `RaceSessio
 `restore()` round-trip the full state as JSON (`RaceDirector.snapshot()` / `applySnapshot()` for a host
 and clients); `Campaign` likewise. The HUD reads `RaceHud` and sends `RaceCommand`s.
 
+## Your name and car
+Setup rows **Name** (text, ≤ 16 characters, empty = "You") and **Car** (one button per `DRIVER_CARS`
+entry: every vehicle class on its own body, then every other body style on the class it drives as —
+Sedan, Muscle, Truck, Monster, Hatchback, Wagon today; a new class or style appears by itself). The
+HUD keeps both in localStorage (`useDriver`: `crush.driver.name`, `crush.driver.car`) and `CrashLab`
+sends them to `CrashEngine.setDriver` at boot and on every change: the name becomes
+`RaceDirector.playerName` (cleaned by `cleanName`), the car rebuilds slot 0 (class and body) and
+re-parks the grid. The player's row on the standings, results and campaign table shows the name (the
+`you` highlight is still `kind === "player"`). Netplay: a client's hello carries its name, so the host
+seats it under that name, and every peer sees every chosen name (docs/MULTIPLAYER.md). A peer's car
+type does not travel: its seat keeps the host's fleet car for that slot. Touch: every row is ≥ 44 px
+tall, the name field uses 16 px text so phones don't zoom on focus, and the menu's arrow keys leave a
+focused text field its caret and space.
+
 ## AI (`RaceBrain`)
 Deterministic, allocation-free, memory per car id; figures per car class (`setClass`: turn, top
 speed, brake, boost top from `classStats`).
@@ -277,7 +291,7 @@ Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, sp
 meter while driving), standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
-card and dock (first item "Race view"). Modal menus: setup (course cards, You: Drive / Watch, laps
+card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps
 1–5, AI cars 1–15, max aggression with its hint, respawn / no reset, Start race, Campaign, Back), pause (Resume,
 Restart, End race, Full menu / Race view, Quit to menu), dead, results (Next course / Standings,
 Retry, Menu), campaign standings (Next round / champion, Menu). D-pad / left stick move focus

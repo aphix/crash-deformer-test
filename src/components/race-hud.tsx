@@ -18,6 +18,8 @@ import {
 } from "lucide-react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
+import { DriverRows } from "@/components/race-driver";
+import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/race/types";
 import { cn } from "@/lib/utils";
 
@@ -25,10 +27,6 @@ type Send = (cmd: RaceCommand) => void;
 
 /** Seconds the split vs the leader stays up after each checkpoint. */
 const SPLIT_FLASH = 3;
-
-/** Focus ring for menu items: shown on any focus (pad and script focus are not "focus-visible"). */
-const FOCUS = "focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-surface";
-const FOCUS_WITHIN = "focus-within:outline-none focus-within:ring-2 focus-within:ring-ring focus-within:ring-offset-2 focus-within:ring-offset-surface";
 
 /** Opaque card for centre-screen moments and menus (the translucent `hud-panel` lets panels behind bleed through). */
 const CARD = "rounded-2xl bg-surface shadow-[var(--shadow-border)]";
@@ -598,6 +596,7 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
         })}
       </div>
       <div className="mt-3 grid grid-cols-1 gap-1.5">
+        <DriverRows />
         <Choice label="You" off="Drive" on="Watch" value={o.spectate} onSet={(spectate) => options({ spectate })} />
         <Stepper label="Laps" value={o.laps} min={1} max={5} step={1} shown={String(o.laps)} onSet={(laps) => options({ laps })} />
         <Stepper label="AI cars" value={o.aiCount} min={1} max={15} step={1} shown={String(o.aiCount)} onSet={(aiCount) => options({ aiCount })} />

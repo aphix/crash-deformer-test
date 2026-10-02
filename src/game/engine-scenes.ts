@@ -147,7 +147,7 @@ export abstract class EngineScenes extends EngineHud {
     for (const p of this.poles) p.group.visible = !on;
     if (on) {
       this.race.enter();
-      this.race.setSeats([...this.netSeats]);
+      this.race.setSeats(this.netSeats);
     } else {
       this.sceneId = "fleet";
       this.race.exit();
@@ -214,15 +214,15 @@ export abstract class EngineScenes extends EngineHud {
   private spawnDerby(): void {
     // Network peers' cars join when a match begins (one seated mid-match waits for this): the field grows to hold them.
     let need = this.carCount;
-    for (const i of this.netSeats) need = Math.max(need, i + 1);
+    for (const i of this.netSeats.keys()) need = Math.max(need, i + 1);
     if (need > this.carCount) this.ensureCars(need);
-    this.derbySeated = new Set(this.netSeats);
+    this.derbySeated = new Set(this.netSeats.keys());
     this.derbyRound++;
     const cars = this.live();
     this.derbyR = derbyRadius(cars.length);
     const slots = layoutDerby(cars.length, this.derbyR, 12);
     this.derby.begin(
-      cars.map((c, i) => ({ id: i, name: this.derbySeated.has(i) ? `Player ${i}` : c.paint.name })),
+      cars.map((c, i) => ({ id: i, name: this.netSeats.get(i) ?? c.paint.name })),
       { radius: this.derbyR },
     );
     // Walls and lip scale out with the bowl (slabs lengthen and thicken in proportion).
