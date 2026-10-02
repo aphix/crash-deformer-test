@@ -5,6 +5,7 @@ import { PREFABS } from "./catalog.ts";
 import { placeProps, propColliders, type Placed } from "./placements.ts";
 import { Track, blankProjection, projectPath, type TrackPath } from "./track.ts";
 import oval from "./tracks/oval.json" with { type: "json" };
+import stunt from "./tracks/stunt.json" with { type: "json" };
 
 /** Distance (m) from (x, z) beyond the wall line of a corridor (< 0 = on road or runoff). */
 function gap(path: TrackPath, x: number, z: number): number {
@@ -101,6 +102,25 @@ describe("placements", () => {
     assert.equal(covered(t.path.deck), 0);
     assert.equal(covered(t.path.tunnel), 0);
     assert.ok(lamps.length > 150, `${lamps.length} lamps`);
+  });
+
+  it("stunt: a prop on the start straight under the bridge stands on that road, one on the bridge stands on the deck", () => {
+    const t = new Track({
+      ...stunt,
+      props: [
+        { prefab: "cone", x: 0, z: 0 },
+        { prefab: "cone", x: 20, z: -20 },
+        { prefab: "cone", x: 60, z: -120 },
+      ],
+      along: [],
+      scatter: [],
+    });
+    const [under, onDeck, beside] = placeProps(t);
+    const g = t.ground();
+    assert.ok(g.heightAt(0, 0) > 8, "the bridge is over the origin");
+    assert.ok(Math.abs(under!.y - g.heightAt(0, 0, -1e9)) < 1e-9 && under!.y < 1, `under the bridge at y ${under!.y}`);
+    assert.ok(Math.abs(onDeck!.y - 9) < 0.3, `on the bridge at y ${onDeck!.y}`);
+    assert.equal(beside!.y, g.heightAt(60, -120, -1e9));
   });
 
   it("along props face the road: front (+X) points at the centreline on both sides", () => {

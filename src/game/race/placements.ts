@@ -75,14 +75,39 @@ function segDist(x: number, z: number, ax: number, az: number, bx: number, bz: n
 }
 
 /**
+ * Height a prop stands at: the ground (terrain or a road at ground level), or a bridge deck when
+ * the point is on a deck's road / runoff and not also on a road passing underneath.
+ */
+function standY(track: Track, x: number, z: number): number {
+  const ground = track.ground();
+  const field = ground.heightAt(x, z, -1e9);
+  const top = ground.heightAt(x, z);
+  if (top - field < 0.5) return field;
+  for (const p of track.paths()) {
+    const segs = p.closed ? p.count : p.count - 1;
+    for (let k = 0; k < segs; k++) {
+      if (p.deck[k]) continue;
+      const b = (k + 1) % p.count;
+      const ex = p.x[b]! - p.x[k]!;
+      const ez = p.z[b]! - p.z[k]!;
+      const len2 = ex * ex + ez * ez || 1e-12;
+      const f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / len2;
+      if (f < 0 || f > 1) continue;
+      const lat = ((x - p.x[k]!) * ez - (z - p.z[k]!) * ex) / Math.sqrt(len2);
+      if (Math.abs(lat) <= p.half[k]! + (lat > 0 ? p.runL[k]! : p.runR[k]!)) return field;
+    }
+  }
+  return top;
+}
+
+/**
  * Every prop of the track, in order: `props` as written, then `along` repeats (beside the race
  * loop, or a traffic route's centreline with `route`; copies on any other road, beside a bridge
  * span or in a tunnel are skipped), then seeded `scatter` (clear of every road: loop, shortcuts,
- * routes). y = track.ground().heightAt(x, z).
+ * routes). y: see `standY` (ground level, or a deck for a prop on a bridge).
  */
 export function placeProps(track: Track): Placed[] {
   const json = track.json;
-  const ground = track.ground();
   const out: Placed[] = [];
   const proj = blankProjection();
   const pt = blankPoint();
@@ -94,7 +119,7 @@ export function placeProps(track: Track): Placed[] {
     out.push({
       prefab: p.prefab,
       x: p.x,
-      y: ground.heightAt(p.x, p.z),
+      y: standY(track, p.x, p.z),
       z: p.z,
       yaw: p.yaw,
       sx: (p.size ? p.size[0] / size[0] : 1) * s,
@@ -141,7 +166,7 @@ export function placeProps(track: Track): Placed[] {
         out.push({
           prefab: a.prefab,
           x,
-          y: ground.heightAt(x, z),
+          y: standY(track, x, z),
           z,
           yaw: sign > 0 ? heading + Math.PI : heading,
           sx: a.scale,
@@ -170,7 +195,7 @@ export function placeProps(track: Track): Placed[] {
         for (const c of corridors) gap = Math.min(gap, wallGap(c, x, z, proj));
         if (gap < sc.near || gap > sc.far || gap < SCATTER_CLEAR + footRadius(sc.prefab, scale, scale)) continue;
         if (segDist(x, z, g0.ax, g0.az, g0.bx, g0.bz) < START_CLEAR) continue;
-        out.push({ prefab: sc.prefab, x, y: ground.heightAt(x, z), z, yaw, sx: scale, sy: scale, sz: scale });
+        out.push({ prefab: sc.prefab, x, y: standY(track, x, z), z, yaw, sx: scale, sy: scale, sz: scale });
         break;
       }
     }
