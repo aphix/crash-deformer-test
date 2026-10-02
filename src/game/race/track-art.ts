@@ -10,24 +10,10 @@ import { blankPoint, pointOn, type Track, type TrackGround, type TrackPath } fro
  * traffic routes, markings and kerbs, walls, bridge decks with pillars, tunnels, the start gantry and
  * every placed prop, in a few dozen draw calls. Heights come from `track.ground()` with the path's
  * own level as the layer hint, so a road under a bridge and the deck above it both sit right.
- *
- * Every mesh carries `userData.race: RaceMeshTag`; `raceMaterials(group)` lists them for effects
- * (tyre marks on road / runoff / terrain).
  */
 
 export type RaceMeshKind = "road" | "runoff" | "terrain" | "wall" | "marking" | "kerb" | "deck" | "pillar" | "tunnel" | "prop";
 export type RaceMeshTag = { kind: RaceMeshKind; surface?: SurfaceId; prefab?: PrefabId };
-export type RaceMaterial = RaceMeshTag & { mesh: THREE.Mesh; material: THREE.Material };
-
-/** Every tagged mesh under `group` with its material (road / runoff / terrain are MeshStandardMaterial, one per mesh). */
-export function raceMaterials(group: THREE.Object3D): RaceMaterial[] {
-  const out: RaceMaterial[] = [];
-  group.traverse((o) => {
-    const tag = o.userData.race as RaceMeshTag | undefined;
-    if (tag && o instanceof THREE.Mesh) out.push({ ...tag, mesh: o, material: o.material as THREE.Material });
-  });
-  return out;
-}
 
 /** Terrain: 8 m blocks, split into 2 m cells near roads and wherever the ground is not flat. */
 const BLOCK = 8;

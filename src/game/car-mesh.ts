@@ -30,46 +30,6 @@ export const CRUSH_HULLS: Hull[] = [
 
 export const CAR_HALF = { x: 0.88, y: 0.68, z: 2.22 };
 
-/** Shrink collision hulls as those regions crush so mash can close without tunneling. */
-export function crushedHulls(front: number, rear: number, left: number, right: number): Hull[] {
-  const fi = THREE.MathUtils.clamp(front, 0, 1) * 0.5;
-  const ri = THREE.MathUtils.clamp(rear, 0, 1) * 0.48;
-  const ls = THREE.MathUtils.clamp(left, 0, 1) * 0.2;
-  const rs = THREE.MathUtils.clamp(right, 0, 1) * 0.2;
-  return [
-    {
-      cx: -0.4 + (rs - ls) * 0.08,
-      cz: 1.58 - fi * 0.48,
-      hx: Math.max(0.2, 0.34 - ls * 0.2 - fi * 0.04),
-      hz: Math.max(0.14, 0.5 - fi * 0.4),
-    },
-    {
-      cx: 0.4 + (rs - ls) * 0.08,
-      cz: 1.58 - fi * 0.48,
-      hx: Math.max(0.2, 0.34 - rs * 0.2 - fi * 0.04),
-      hz: Math.max(0.14, 0.5 - fi * 0.4),
-    },
-    {
-      cx: (rs - ls) * 0.18,
-      cz: 0.12,
-      hx: Math.max(0.5, 0.86 - ls - rs),
-      hz: 0.92,
-    },
-    {
-      cx: -0.4 + (rs - ls) * 0.08,
-      cz: -1.46 + ri * 0.48,
-      hx: Math.max(0.2, 0.34 - ls * 0.18 - ri * 0.04),
-      hz: Math.max(0.14, 0.58 - ri * 0.4),
-    },
-    {
-      cx: 0.4 + (rs - ls) * 0.08,
-      cz: -1.46 + ri * 0.48,
-      hx: Math.max(0.2, 0.34 - rs * 0.18 - ri * 0.04),
-      hz: Math.max(0.14, 0.58 - ri * 0.4),
-    },
-  ];
-}
-
 const ARCH_R = 0.38;
 const WHEEL_Y = WHEEL_POS[0]![1];
 const Y_FLOOR = 0.145;
