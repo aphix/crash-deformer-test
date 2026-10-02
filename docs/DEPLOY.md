@@ -87,7 +87,37 @@ reads repository content (git, npm and its install scripts, the built server) ru
 through `setpriv` with a clean environment. The deploy script itself is installed by hand from the
 repo; the box never runs a fetched copy of it as root.
 
+Logs: put the app's access log outside any 4xx-probe jail's logpath. Internet-facing boxes often
+run a fail2ban jail that bans an address for days, on all ports, after a couple of 4xx lines in
+the site's access log. Players produce those honestly: a stale asset after a deploy, a 405 from
+a misrouted signaling call, a 409 "room full". So every location in `deploy/nginx-crush.conf`
+logs to its own file (`@ACCESS_LOG@`), named so that no jail's logpath or glob matches it
+(Debian's default `nginx_access_log` is a `*access.log` glob). The error log stays shared, and the
+jails themselves are left alone. Choosing the file: deploy/README.md step 4.
+
 Install steps: [deploy/README.md](../deploy/README.md).
+
+## Platform-kit changes to re-apply after template updates
+
+The app came from a template whose files a template update may overwrite. These template-owned
+files carry changes the self-hosted deploy depends on. After any template update, diff them and
+re-apply what was lost. The platform chrome (`server/`, `public/__grok/`, `scripts/grok-pwa-*`) is
+deliberately *not* changed; the nginx snippet maps its root paths instead (see Build knobs).
+
+| File | Change | Why the VPS needs it | If it is reverted |
+|---|---|---|---|
+| `vite.config.ts` | `base: APP_BASE`; Nitro `preset: NITRO_PRESET \|\| "vercel"`, `baseURL: base`; for `node-server`, `traceDeps: ["@electric-sql/pglite*"]` | serves everything under the sub-path; builds the node target; ships PGLite's `.wasm`/`.data`, which load from beside its module | app answers at `/` only, or `.output/` lacks PGLite's files and signaling cannot open its database |
+| `scripts/with-app-env.mjs` | leading `NAME=value` arguments become env vars | `build:node` sets `NITRO_PRESET=node-server` through it, on Windows too | `build:node` tries to run `NITRO_PRESET=node-server` as a command and fails |
+| `package.json` | `build:node`, `start:node` scripts | `crush-deploy.sh` runs `npm run build:node` | every commit fails to build and is skipped (the old release keeps serving) |
+| `src/lib/db.ts` | `new PGlite({ dataDir: process.env.PGLITE_DATA_DIR })` | `crush.service` keeps the signaling store in the release-independent `shared/` dir | still works, in memory: rooms mid-handshake are lost on each restart |
+| `src/lib/multiplayer/p2p.ts` | `RTC_URL = ${import.meta.env.BASE_URL}api/rtc`, used by the poll, signal and leave fetches | signaling lives under the base (`/crush/api/rtc`) | browsers call `/api/rtc` at the site root, which 404s: no peer ever connects, and those 404s go to the site's main access log, where a 4xx-probe jail can ban the players |
+| `src/lib/multiplayer/p2p.ts` | `sendBinary()`, `onBinary`, `binaryType = "arraybuffer"` on both data channels (netplay) | host snapshots and client inputs are binary frames (`RtcTransport`) | WebRTC netplay carries no snapshots: the client never gets a car |
+| `src/lib/multiplayer/signaling.server.ts` | per-IP and per-room token-bucket rate limits, room cap (`ROOM_MAX`, `rooms.ts`), `GET ?list=public` (netplay) | in-process limits are exact on one long-lived node server; the per-IP key is the `X-Forwarded-For` first hop, which the nginx snippet overwrites with the real client address | relay is unlimited and public room listing 400s |
+
+The deploy's health check does **not** catch a reverted `RTC_URL`: it calls the server route
+directly, which still works. Check the built client instead, e.g. after `APP_BASE=/crush/ npm run
+build:node`: `grep -rl '/crush/api/rtc' .output/public/assets` must find the engine chunk. A
+two-browser smoke against the public URL is the end-to-end proof.
 
 ## Why pull, not a GitHub Actions runner on the box
 
