@@ -22,6 +22,7 @@ Treat model-written prose as leads, not facts; cite the listed sources.
 | `perplexity/10-side-rear-roof-intrusion.md` | Side/rear/roof intrusion and strength targets (RigAnalysis lane) |
 | `perplexity/11-rear-roof-side-stiffness.md` | Rear, roof and side structure stiffness (RigAnalysis lane) |
 | `perplexity/12-detach-part-thresholds.md` | Which parts detach and at what loads: bumper covers, mirrors, doors, wheels (RigAnalysis lane) |
+| `perplexity/13-wheel-separation-frame-crush.md` | Wheel/suspension separation displacement, ball-joint/tie-rod loads, compactor force, cell vs rail collapse (CrashRealism5; no clean separation threshold found: ~48–56 kN ball joint, ~120 kN rail) |
 | `perplexity/20-adaptive-particle-lod.md` | Adaptive/LoD shape matching (Steinemann 2008), refine/coarsen with plastic state |
 | `perplexity/21-vehicle-node-counts.md` | Node counts and CPU cost of real-time vehicle soft bodies (BeamNG numbers; others unsourced) |
 | `perplexity/22-hierarchical-two-tier.md` | Two-tier coarse skeleton + fine surface particle layer, HPBD, activation islands, JS/Wasm budgets |
