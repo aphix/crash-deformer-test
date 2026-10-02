@@ -37,11 +37,14 @@ const _bFwd = new THREE.Vector3();
 const _hb = new THREE.Vector3();
 const _mtv = new THREE.Vector3();
 
-/** Strongest contact seen during one fixed step; it frames the impact cinematic. */
+/** Strongest contact seen during one fixed step; it frames the impact cinematic. `contact` and `normal`
+ *  are copies (null until a hit is offered): `resolveCarPair` rewrites its one result record every call. */
 export class StrongestContact {
   impulse = 0;
   contact: THREE.Vector3 | null = null;
   normal: THREE.Vector3 | null = null;
+  private readonly contactAt = new THREE.Vector3();
+  private readonly normalAt = new THREE.Vector3();
 
   clear(): void {
     this.impulse = 0;
@@ -52,8 +55,8 @@ export class StrongestContact {
   offer(hit: ContactHit): void {
     if (hit.impulse < this.impulse) return;
     this.impulse = hit.impulse;
-    this.contact = hit.contact;
-    this.normal = hit.normal;
+    this.contact = this.contactAt.copy(hit.contact);
+    this.normal = this.normalAt.copy(hit.normal);
   }
 }
 

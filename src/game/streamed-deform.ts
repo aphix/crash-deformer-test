@@ -299,7 +299,7 @@ export class StreamedDeformation {
   skinDeferred = false;
   /** A skin was skipped since the mesh was last written — `flushSkin` before the car is seen. */
   skinOwed = false;
-  crushAmount = 0;
+  crushAmount = -0;
   impactLocal = new THREE.Vector3();
   impactInward = new THREE.Vector3(0, 0, -1);
   massActive = false;
@@ -313,7 +313,7 @@ export class StreamedDeformation {
    *  travel share adds to it. Infinite (off) unless the context arms it (a derby, `armKill`). */
   wreckEnergy = Infinity;
   /** Wear taken so far: every hit's EBS², capped at WEAR_HIT (beginCrush, rearmHit). */
-  private wear = 0;
+  private wear = -0;
   /** Both ends are crumple zones (car-compactor / two-wall squeeze). */
   bidirectional = false;
   /** Sticky until reset: this car was squeezed / deep-crushed, so `clampLocal` keeps those shape limits. */
@@ -349,23 +349,33 @@ export class StreamedDeformation {
   private elapsed = 0;
   private lastContact = -10;
   private crushing = false;
-  private impulse = 0;
+  private impulse = -0;
   /** Equivalent barrier speed (m/s, −1 before any hit) of the current hit: the root-sum-square of every
    *  hit's EBS on the struck end. Crush energy grows with EBS² on a linear-stiffness end, so repeated hits
    *  on one end add stroke; spikes inside one contact never re-arm (`rearmHit`). */
-  private hitSpeed = -1;
+  private hitSpeed = -0;
   /** Σ EBS² per struck end (`struckEnd`: front, rear, left, right). */
   private readonly endEbs2 = new Float64Array(4);
   /** `liveHulls` / `liveCrushHulls` output, rewritten by each call (a SAT pass allocated 10 hulls per car). */
   private readonly hullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
   private readonly crushHullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
+  /** Ground under each dynamic mass before (`floorPre`) and after (`floorPost`, `gripPost`) its move (`sampleGround`). */
+  private readonly floorPre = new Float64Array(MASS_SPECS.length);
+  private readonly floorPost = new Float64Array(MASS_SPECS.length);
+  private readonly gripPost = new Float64Array(MASS_SPECS.length);
+  /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub). */
+  private readonly pose = new Float64Array(10);
+  /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's. */
+  private readonly spinHeld = new Float64Array(2);
+  /** `measureStroke` output. */
+  private readonly strokeOut = new Float64Array(1);
   /** The current hit is a re-armed one (`rearmHit`), not the crash's first. */
   private rearmed = false;
   /** `elapsed` of the last throttle input (`notifyPower`). */
-  private lastPower = -10;
+  private lastPower = -0;
   /** `elapsed` when the current hit began (beginCrush, rearmHit): the sliding-drag clock (`sinceHit`). */
-  private hitAt = 0;
-  private wrinkleAmp = 0;
+  private hitAt = -0;
+  private wrinkleAmp = -0;
   private helper: DeformRigHelper | null = null;
   private particleHelper: DeformParticleHelper | null = null;
   /** World xyz shape-match goal per particle for the particle view; NaN = no pull last step. */
@@ -453,6 +463,12 @@ export class StreamedDeformation {
   private netFlags = 0;
 
   constructor(geometry: THREE.BufferGeometry, rig: RigOverrides = {}) {
+    // Fields declared `-0` (here, and the masses' and sensors' in their literals) hold a double from
+    // construction. A Smi field's first double write changes the maps: each race car's first crash,
+    // first re-arm and first drive as a wreck deoptimised 60–100 physics functions mid-race, which then ran
+    // unoptimised for seconds (RIG_ANALYSIS §6.12). The sentinels go on over the `-0`.
+    this.hitSpeed = -1;
+    this.lastPower = -10;
     const pos = geometry.getAttribute("position") as THREE.BufferAttribute;
     this.vertexCount = pos.count;
     this.restPos = new Float32Array(pos.array as Float32Array);
@@ -507,7 +523,7 @@ export class StreamedDeformation {
         rest: new THREE.Vector3(...spec.rest),
         pos: new THREE.Vector3(...spec.rest),
         partIndex: partIndex.get(spec.part) ?? 12,
-        compression: 0,
+        compression: -0,
         target: 0,
         delay: 0,
         fired: false,
@@ -530,11 +546,11 @@ export class StreamedDeformation {
         dynamic: false,
         clipping: false,
         popped: false,
-        shoveX: 0,
-        shoveZ: 0,
-        crushSet: 0,
-        baseX: 0,
-        baseZ: 0,
+        shoveX: -0,
+        shoveZ: -0,
+        crushSet: -0,
+        baseX: -0,
+        baseZ: -0,
         bands: regionCrushBands(spec.name),
         hub: spec.name.startsWith("hub"),
         bumper: spec.name.startsWith("bumper"),
@@ -1581,6 +1597,84 @@ export class StreamedDeformation {
 
   followGroup(group: THREE.Object3D, velocityOut: THREE.Vector3, angularOut: THREE.Vector3, dt: number): void {
     const cell = this.at.cell;
+    const plant = this.measurePose();
+    const pose = this.pose;
+    const pitch = pose[0]!;
+    const yawSafe = pose[1]!;
+    const roll = pose[2]!;
+    const wx = pose[3]!;
+    const wy = pose[4]!;
+    const wz = pose[5]!;
+    const floor = pose[8]!;
+    if (Number.isFinite(pitch + roll)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
+    else group.rotation.set(0, yawSafe, 0, "YXZ");
+    let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
+    if (floor !== NO_FLOOR) {
+      if (pose[9]! - floor > 0.5) gy = Math.max(floor, Math.min(floor + 0.12, gy));
+      else gy = Math.max(floor, Math.min(floor + 0.08, gy));
+    }
+    // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
+    // solve the anchor's local y for that height so its x/z stay exactly held.
+    _a.set(pose[6]!, 0, pose[7]!).applyQuaternion(group.quaternion);
+    _b.set(0, 1, 0).applyQuaternion(group.quaternion);
+    _a.addScaledVector(_b, (wy - gy - _a.y) / _b.y);
+    // A squeeze anchors on the cell too. Pinning the group at the world origin read a free car's travel
+    // as crush: the caps (cell 0.12–0.72 m) held the cell near the origin while the shoved car moved on,
+    // and fire("all")'s bumperFR sprang 0.50 → 0.02 m in the 0.25 s after the heads left.
+    group.position.set(wx - _a.x, gy, wz - _a.z);
+    group.updateWorldMatrix(false, false);
+    _toLocal.copy(group.matrixWorld).invert();
+
+    let mx = 0,
+      mz = 0,
+      mass = 0;
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      m.local.copy(m.world).applyMatrix4(_toLocal);
+      mx += m.vel.x * m.mass;
+      mz += m.vel.z * m.mass;
+      mass += m.mass;
+    }
+    this.clampLocal(group);
+    let hy = 0,
+      hm = 0;
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      if (!m.hub) continue;
+      hy += m.vel.y * m.mass;
+      hm += m.mass;
+    }
+    if (hm > 1e-6) {
+      velocityOut.set(mx / mass, Math.max(-3, Math.min(4, hy / hm)), mz / mass);
+    } else {
+      velocityOut.set(mx / mass, 0, mz / mass);
+    }
+    clampSpeed(velocityOut, CRASH.maxMassMps);
+    const span = this.elapsed - this.rateAt;
+    if (dt > 1e-5 && span >= YAW_RATE_SPAN) {
+      // Heading change over at least a frame of sim time, so the SAT passes (dt = 0), the two pose
+      // syncs of one slice and contact jitter inside a frame are not divided by a 1/240 s slice.
+      // The clamp is only a guard against a bad fit.
+      let dyaw = yawSafe - this.rateYaw;
+      if (dyaw > Math.PI) dyaw -= Math.PI * 2;
+      if (dyaw < -Math.PI) dyaw += Math.PI * 2;
+      const yawRate = Math.max(-YAW_RATE_GUARD, Math.min(YAW_RATE_GUARD, dyaw / span));
+      // Field writes, not set(): an out-of-line set() boxed all three per call.
+      angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
+      angularOut.y = Number.isFinite(yawRate) ? yawRate : 0;
+      angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
+      this.rateYaw = yawSafe;
+      this.rateAt = this.elapsed;
+    }
+    this.prevYaw = yawSafe;
+  }
+
+  /** followGroup's measurements into `pose`: pitch, yaw, roll, the anchor's world x/y/z and body x/z, the
+   *  ground under the anchor and the lowest hub; returns whether the wreck is planted. Its own method, with
+   *  no doubles in or out, so TurboFan inlines its `hypot2` and `Ground` calls: in followGroup they lost the
+   *  inlining budget to the matrix calls, and each call left out boxed its doubles (~20 KB per race frame). */
+  private measurePose(): boolean {
+    const cell = this.at.cell;
     const engL = this.at.engineL;
     const engR = this.at.engineR;
     const axle = this.at.axleR;
@@ -1603,9 +1697,9 @@ export class StreamedDeformation {
     // 0.069 m (pitch 0 → −0.08, derby seed 1, c6 at 27.12 s).
     const ease = (this.elapsed - this.leanAt) / LEVEL_TIME;
     this.leanAt = this.elapsed;
-    this.lean += THREE.MathUtils.clamp((plant && this.quietTime() >= 0.35 ? 0 : 1) - this.lean, -ease, ease);
-    const pitch = THREE.MathUtils.clamp(Math.atan2(-fy, Math.max(yawLen, 0.15)), -0.2, 0.22) * this.lean;
-    const roll = THREE.MathUtils.clamp((engR.world.y - engL.world.y) * 0.55, -0.5, 0.5) * this.lean;
+    this.lean += Math.max(-ease, Math.min(ease, (plant && this.quietTime() >= 0.35 ? 0 : 1) - this.lean));
+    const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean;
+    const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean;
     const tilt = Number.isFinite(pitch + roll);
     const cp = Math.cos(tilt ? pitch : 0);
     const sp = Math.sin(tilt ? pitch : 0);
@@ -1617,14 +1711,11 @@ export class StreamedDeformation {
     const bx = ax * cr - ay * sr;
     const bz = (ax * sr + ay * cr) * sp + az * cp;
     const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
-    const yawSafe = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
     let minHub = Infinity;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
       if (m.hub && m.world.y < minHub) minHub = m.world.y;
     }
-    if (tilt) group.rotation.set(pitch, yawSafe, roll, "YXZ");
-    else group.rotation.set(0, yawSafe, 0, "YXZ");
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
     // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
@@ -1659,68 +1750,20 @@ export class StreamedDeformation {
         lz = hlz / hubM;
       }
     }
-    let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
+    const p = this.pose;
+    p[0] = pitch;
+    p[1] = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
+    p[2] = roll;
+    p[3] = wx;
+    p[4] = wy;
+    p[5] = wz;
+    p[6] = lx;
+    p[7] = lz;
     // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad; past the fleet
     // disc's rim none: the group follows the anchor down).
-    const floor = activeGround().heightAt(wx, wz, wy);
-    if (floor !== NO_FLOOR) {
-      if (minHub - floor > 0.5) gy = THREE.MathUtils.clamp(gy, floor, floor + 0.12);
-      else gy = THREE.MathUtils.clamp(gy, floor, floor + 0.08);
-    }
-    // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
-    // solve the anchor's local y for that height so its x/z stay exactly held.
-    _a.set(lx, 0, lz).applyQuaternion(group.quaternion);
-    _b.set(0, 1, 0).applyQuaternion(group.quaternion);
-    _a.addScaledVector(_b, (wy - gy - _a.y) / _b.y);
-    // A squeeze anchors on the cell too. Pinning the group at the world origin read a free car's travel
-    // as crush: the caps (cell 0.12–0.72 m) held the cell near the origin while the shoved car moved on,
-    // and fire("all")'s bumperFR sprang 0.50 → 0.02 m in the 0.25 s after the heads left.
-    group.position.set(wx - _a.x, gy, wz - _a.z);
-    group.updateWorldMatrix(false, false);
-    _toLocal.copy(group.matrixWorld).invert();
-
-    let mx = 0,
-      mz = 0,
-      mass = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      m.local.copy(m.world).applyMatrix4(_toLocal);
-      mx += m.vel.x * m.mass;
-      mz += m.vel.z * m.mass;
-      mass += m.mass;
-    }
-    this.clampLocal(group);
-    let hy = 0,
-      hm = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      if (!m.hub) continue;
-      hy += m.vel.y * m.mass;
-      hm += m.mass;
-    }
-    if (hm > 1e-6) {
-      velocityOut.set(mx / mass, THREE.MathUtils.clamp(hy / hm, -3, 4), mz / mass);
-    } else {
-      velocityOut.set(mx / mass, 0, mz / mass);
-    }
-    clampSpeed(velocityOut, CRASH.maxMassMps);
-    const span = this.elapsed - this.rateAt;
-    if (dt > 1e-5 && span >= YAW_RATE_SPAN) {
-      // Heading change over at least a frame of sim time, so the SAT passes (dt = 0), the two pose
-      // syncs of one slice and contact jitter inside a frame are not divided by a 1/240 s slice.
-      // The clamp is only a guard against a bad fit.
-      let dyaw = yawSafe - this.rateYaw;
-      if (dyaw > Math.PI) dyaw -= Math.PI * 2;
-      if (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      const yawRate = Math.max(-YAW_RATE_GUARD, Math.min(YAW_RATE_GUARD, dyaw / span));
-      // Field writes, not set(): an out-of-line set() boxed all three per call.
-      angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
-      angularOut.y = Number.isFinite(yawRate) ? yawRate : 0;
-      angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
-      this.rateYaw = yawSafe;
-      this.rateAt = this.elapsed;
-    }
-    this.prevYaw = yawSafe;
+    p[8] = activeGround().heightAt(wx, wz, wy);
+    p[9] = minHub;
+    return plant;
   }
 
   /** Move the whole wreck, including planted hubs, so a bowl clip is not undone next frame. */
@@ -1741,12 +1784,19 @@ export class StreamedDeformation {
    * chassisFront cage ratio on a rear hit — softer, shorter tail.
    */
   hitStroke(): number {
+    this.measureStroke();
+    return this.strokeOut[0]!;
+  }
+
+  /** `hitStroke` into `strokeOut[0]`: clampLocal calls it out of line, and a returned double was boxed. */
+  private measureStroke(): void {
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     const stroke = Math.min((0.5 + this.squash * 1.15) * 1.1, crushStroke(Math.max(0, this.hitSpeed), this.squash));
-    if (Math.abs(ix) > Math.abs(iz)) return Math.min(this.at.doorL.bands.max, stroke);
-    if (iz <= 0) return stroke;
-    return stroke * (this.cageByPart.get("chassisRear")!.spec.maxCrush / this.cageByPart.get("chassisFront")!.spec.maxCrush);
+    const out = this.strokeOut;
+    if (Math.abs(ix) > Math.abs(iz)) out[0] = Math.min(this.at.doorL.bands.max, stroke);
+    else if (iz <= 0) out[0] = stroke;
+    else out[0] = stroke * (this.cageByPart.get("chassisRear")!.spec.maxCrush / this.cageByPart.get("chassisFront")!.spec.maxCrush);
   }
 
   /** Share of hitStroke the struck end has crushed so far (0 untouched, 1 spent). */
@@ -1906,18 +1956,19 @@ export class StreamedDeformation {
    */
   separateAlong(nx: number, ny: number, nz: number, amount: number): void {
     if (!this.massActive) return;
-    const spin = this.yawMomentum();
+    this.yawMomentum(1, false);
     const gc = Math.cos(this.prevYaw);
     const gs = Math.sin(this.prevYaw);
     const into = Math.max(0, (nx * gc - nz * gs) * this.impactInward.x + (nx * gs + nz * gc) * this.impactInward.z);
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (!m.dynamic) continue;
       const keep = 1 - this.crumpleWeight(m) * 0.88 * into;
       m.world.x += nx * amount * keep;
       m.world.y += ny * amount * keep;
       m.world.z += nz * amount * keep;
     }
-    this.yawMomentum(spin);
+    this.yawMomentum(1, true);
   }
 
   /** Kill incoming speed on the cabin only — crumple zones keep their inertia. */
@@ -1996,7 +2047,8 @@ export class StreamedDeformation {
     const bumperLeft = THREE.MathUtils.clamp(Math.max(noseLeft, tailLeft) / 1.45, 0, 1);
     const passFront = this.frontTransfer();
 
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       if (!m.dynamic) continue;
       if (m.hub && !m.popped && !this.deepCrush) continue;
       const zone = this.impactWeight(m);
@@ -2374,9 +2426,13 @@ export class StreamedDeformation {
     const deep = this.deepShape;
     const maxCrush = squeeze ? 1.65 : 0.5 + this.squash * 1.15;
     // B1/B3/B4: a hit only crushes as far as its stroke reaches (armMasses has no hit).
-    const stroke = this.hitSpeed >= 0 ? this.hitStroke() : Infinity;
+    let stroke = Infinity;
+    if (this.hitSpeed >= 0) {
+      this.measureStroke();
+      stroke = this.strokeOut[0]!;
+    }
     const sideHit = Math.abs(ix) > Math.abs(iz);
-    const spin = this.yawMomentum();
+    this.yawMomentum(0, false);
     const pinned = !this.deepCrush && this.quietTime() > 0.2;
     // A squeeze's plates pin the shape in the world frame and planted tyres pin a quiet wreck: both keep
     // the plain write-back. Undoing its turn on a planted wreck turned the body against its hubs each
@@ -2552,7 +2608,7 @@ export class StreamedDeformation {
     // The clamp moves positions only: writing back a crushing body (its front masses slower than its
     // rear) changed Σ m r × v, spin from nowhere (dump16 replay: clampLocal put +8.7 rad/s of L/I into
     // Khaki, −8.6 into Bronze). Hand back the angular momentum the masses had, as a rigid turn.
-    this.yawMomentum(spin);
+    this.yawMomentum(0, true);
     // A car on no wheels is out, like a dead engine.
     if (this.at.hubFL.popped && this.at.hubFR.popped && this.at.hubRL.popped && this.at.hubRR.popped) this.drivetrainAlive = false;
   }
@@ -2595,9 +2651,10 @@ export class StreamedDeformation {
     }
   }
 
-  /** The masses' angular momentum about their centroid (y), or, given `target`, a rigid turn added to
-   *  every mass's velocity that sets it to `target`. */
-  private yawMomentum(target = NaN): number {
+  /** The masses' angular momentum about their centroid (y) into `spinHeld[slot]`, or with `restore`, a rigid
+   *  turn added to every mass's velocity that sets it back to `spinHeld[slot]`. Through a typed array, not
+   *  an argument and return value: clampLocal calls it out of line, and both were boxed per call. */
+  private yawMomentum(slot: number, restore: boolean): void {
     let mass = 0,
       cx = 0,
       cz = 0;
@@ -2618,14 +2675,19 @@ export class StreamedDeformation {
       l += m.mass * (rz * m.vel.x - rx * m.vel.z);
       inertia += m.mass * (rx * rx + rz * rz);
     }
-    if (Number.isNaN(target) || inertia < 1e-9) return l;
+    const held = this.spinHeld;
+    if (!restore) {
+      held[slot] = l;
+      return;
+    }
+    const target = held[slot]!;
+    if (Number.isNaN(target) || inertia < 1e-9) return;
     const w = (target - l) / inertia;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
       m.vel.x += w * (m.world.z - cz);
       m.vel.z -= w * (m.world.x - cx);
     }
-    return target;
   }
 
   private stepBeams(dt: number): void {
@@ -2887,72 +2949,15 @@ export class StreamedDeformation {
 
     this.stepSuspension(dt);
 
-    // A car under power is driven, not a quiet wreck: the settle rule below must not park it.
+    // A car under power is driven, not a quiet wreck: the settle rule must not park it.
     const powered = this.elapsed - this.lastPower < POWER_HOLD;
-    // A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad), read per mass on its own layer.
-    const ground = activeGround();
-    const quiet = this.quietTime();
     const scuffed = this.drivetrainAlive && leftoverCrumple(this.crumpleTravel()) > 0.28;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      if (!m.dynamic) continue;
-      // Past the fleet disc's rim: gravity alike on every mass and no ground rules, so the car falls whole.
-      if (ground.heightAt(m.world.x, m.world.z, m.world.y) === NO_FLOOR) {
-        m.vel.y -= 9.6 * dt;
-        clampSpeed(m.vel);
-        m.world.addScaledVector(m.vel, dt);
-        continue;
-      }
-      const hub = m.hub;
-      if (hub) m.vel.y -= 9.6 * dt;
-      else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
-      // During contact: almost no extra damping so crumple can run.
-      // After the last collision, ease into rest over a few seconds.
-      let rate = 0.988;
-      if (!this.drivetrainAlive && quiet > 0.12) {
-        const t = Math.max(0, Math.min(1, (quiet - 0.12) / 1.8));
-        const s = t * t * (3 - 2 * t);
-        rate = (1 - s) * 0.96 + s * 0.18;
-      }
-      m.vel.multiplyScalar(Math.pow(rate, dt));
-      clampSpeed(m.vel);
-      if (quiet > 2.4 && !powered && m.vel.lengthSq() < 0.08) m.vel.set(0, 0, 0);
-      m.world.addScaledVector(m.vel, dt);
-      if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) {
-        m.world.copy(m.rest);
-        m.vel.set(0, 0, 0);
-      }
-      const floor = ground.heightAt(m.world.x, m.world.z, m.world.y);
-      // This step carried it past the rim: no ground rules either (`floor + k` is -Infinity).
-      if (floor === NO_FLOOR) continue;
-      const grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
-      if (hub) {
-        if (m.world.y < floor + 0.28) {
-          m.world.y = floor + 0.28;
-          if (m.vel.y < 0) m.vel.y = 0;
-        }
-        const mu = !this.drivetrainAlive ? CRASH.muSlide : scuffed ? CRASH.muScuff : CRASH.muSlide;
-        applyGroundFriction(m.vel, dt, mu * grip, true);
-      } else {
-        if (m.world.y < floor + 0.16) {
-          m.world.y = floor + 0.16;
-          if (m.vel.y < 0) m.vel.y *= -0.22;
-        }
-        if (quiet > 0.12) {
-          const grab = Math.max(0, Math.min(1, (quiet - 0.12) / 0.45));
-          applyGroundFriction(m.vel, dt, CRASH.muSlide * grab * grip, true);
-        } else if (m.world.y < floor + 0.16) {
-          applyGroundFriction(m.vel, dt, CRASH.muScuff * grip, true);
-        }
-      }
-      if (m.world.y > floor + 3.4) {
-        m.world.y = floor + 3.4;
-        m.vel.y = 0;
-      }
-      if (!hub && !this.bidirectional && m.world.y > floor + 0.22) {
-        m.vel.y = Math.max(-2.2, Math.min(3, m.vel.y));
-      }
-    }
+    // One mass's step reads only that mass, so it runs as four loops: in one, the ground queries ran TurboFan
+    // past its inlining budget, and every call left out boxed its doubles (~40 KB per race frame).
+    this.sampleGround(this.floorPre, null);
+    this.moveMasses(dt, powered);
+    this.sampleGround(this.floorPost, this.gripPost);
+    this.groundMasses(dt, scuffed);
     this.holdEngineBlock();
     if (!live && !this.bidirectional) {
       let mx = 0,
@@ -2979,6 +2984,96 @@ export class StreamedDeformation {
     if (this.bidirectional && this.deepCrush) {
       if (this.mode === "shape") this.foldCabin(dt);
       else this.nudgeLatticeRails(dt);
+    }
+  }
+
+  /** A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad) under every dynamic mass on its own
+   *  layer, where it stands now, and the grip where there is ground. */
+  private sampleGround(floor: Float64Array, grip: Float64Array | null): void {
+    const ground = activeGround();
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      if (!m.dynamic) continue;
+      const w = m.world;
+      const h = ground.heightAt(w.x, w.z, w.y);
+      floor[i] = h;
+      if (grip && h !== NO_FLOOR) grip[i] = ground.frictionAt(w.x, w.z, w.y);
+    }
+  }
+
+  /** Gravity, damping, the speed clamp and the move of every dynamic mass (`stepMassSlice`). */
+  private moveMasses(dt: number, powered: boolean): void {
+    const quiet = this.quietTime();
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      if (!m.dynamic) continue;
+      // Past the fleet disc's rim: gravity alike on every mass and no ground rules, so the car falls whole.
+      if (this.floorPre[i] === NO_FLOOR) {
+        m.vel.y -= 9.6 * dt;
+        clampSpeed(m.vel);
+        m.world.addScaledVector(m.vel, dt);
+        continue;
+      }
+      if (m.hub) m.vel.y -= 9.6 * dt;
+      else if (m.vel.y < 0) m.vel.y *= Math.pow(0.12, dt);
+      // During contact: almost no extra damping so crumple can run.
+      // After the last collision, ease into rest over a few seconds.
+      let rate = 0.988;
+      if (!this.drivetrainAlive && quiet > 0.12) {
+        const t = Math.max(0, Math.min(1, (quiet - 0.12) / 1.8));
+        const s = t * t * (3 - 2 * t);
+        rate = (1 - s) * 0.96 + s * 0.18;
+      }
+      m.vel.multiplyScalar(Math.pow(rate, dt));
+      clampSpeed(m.vel);
+      if (quiet > 2.4 && !powered && m.vel.lengthSq() < 0.08) m.vel.set(0, 0, 0);
+      m.world.addScaledVector(m.vel, dt);
+      if (!Number.isFinite(m.world.x + m.world.y + m.world.z)) {
+        m.world.copy(m.rest);
+        m.vel.set(0, 0, 0);
+      }
+    }
+  }
+
+  /** Floor, ceiling and ground drag of every dynamic mass after its move (`floorPost`, `gripPost`). */
+  private groundMasses(dt: number, scuffed: boolean): void {
+    const quiet = this.quietTime();
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      // Fell past the rim, or this step carried it past (`floor + k` is -Infinity): no ground rules.
+      if (!m.dynamic || this.floorPre[i] === NO_FLOOR) continue;
+      const floor = this.floorPost[i]!;
+      if (floor === NO_FLOOR) continue;
+      const grip = this.gripPost[i]!;
+      const hub = m.hub;
+      // One drag call site: two left TurboFan's budget short and boxed `mu`.
+      let mu = 0;
+      let drag = true;
+      if (hub) {
+        if (m.world.y < floor + 0.28) {
+          m.world.y = floor + 0.28;
+          if (m.vel.y < 0) m.vel.y = 0;
+        }
+        mu = (!this.drivetrainAlive ? CRASH.muSlide : scuffed ? CRASH.muScuff : CRASH.muSlide) * grip;
+      } else {
+        if (m.world.y < floor + 0.16) {
+          m.world.y = floor + 0.16;
+          if (m.vel.y < 0) m.vel.y *= -0.22;
+        }
+        if (quiet > 0.12) {
+          const grab = Math.max(0, Math.min(1, (quiet - 0.12) / 0.45));
+          mu = CRASH.muSlide * grab * grip;
+        } else if (m.world.y < floor + 0.16) mu = CRASH.muScuff * grip;
+        else drag = false;
+      }
+      if (drag) applyGroundFriction(m.vel, dt, mu, true);
+      if (m.world.y > floor + 3.4) {
+        m.world.y = floor + 3.4;
+        m.vel.y = 0;
+      }
+      if (!hub && !this.bidirectional && m.world.y > floor + 0.22) {
+        m.vel.y = Math.max(-2.2, Math.min(3, m.vel.y));
+      }
     }
   }
 
@@ -3500,26 +3595,54 @@ function sphereHit(a: MassNode, b: MassNode, slice: number): void {
   const inv = ima + imb;
   if (inv < 1e-8) return;
   const crumple = a.crumple || b.crumple;
-  const tA = forceTransfer(a.local.distanceTo(a.rest), a.bands, a.local.distanceTo(a.rest) >= a.bands.max * 0.97);
-  const tB = forceTransfer(b.local.distanceTo(b.rest), b.bands, b.local.distanceTo(b.rest) >= b.bands.max * 0.97);
+  const travelA = a.local.distanceTo(a.rest);
+  const travelB = b.local.distanceTo(b.rest);
+  const tA = forceTransfer(travelA, a.bands, travelA >= a.bands.max * 0.97);
+  const tB = forceTransfer(travelB, b.bands, travelB >= b.bands.max * 0.97);
   const t = Math.min(tA, tB);
   // A rigid pair (cell on cell) resolves at most SPHERE_STEP per reference slice: in one call it resolved
   // a 0.15 m overlap and jumped the struck cell 0.15 m in 4.5 ms (a derby zip); the rest goes over the
   // next slices. Crumple pairs already take a per-slice share.
   const overlap = crumple ? (minD - dist) * (1 - Math.pow(1 - Math.max(0.28, t), slice)) : Math.min(minD - dist, SPHERE_STEP * slice);
-  if (a.dynamic) a.world.addScaledVector(_n, -overlap * (ima / inv));
-  if (b.dynamic) b.world.addScaledVector(_n, overlap * (imb / inv));
+  // Field arithmetic, not addScaledVector (the same sums): in a pile-up these calls ran out of line and boxed
+  // their scale per call.
+  if (a.dynamic) {
+    const s = -overlap * (ima / inv);
+    a.world.x += _n.x * s;
+    a.world.y += _n.y * s;
+    a.world.z += _n.z * s;
+  }
+  if (b.dynamic) {
+    const s = overlap * (imb / inv);
+    b.world.x += _n.x * s;
+    b.world.y += _n.y * s;
+    b.world.z += _n.z * s;
+  }
   const rel = b.vel.dot(_n) - a.vel.dot(_n);
   if (rel < 0) {
     const e = crumple ? (t >= 0.97 ? 0.08 : 0) : 0.18;
     const absorb = 1 - Math.pow(1 - (crumple ? Math.max(0.12, t) : 0.55), slice);
     const j = (-(1 + e) * rel * absorb) / inv;
     // Coulomb friction: sheet metal scraping past sheet metal takes at most μ·j off the sliding velocity.
-    _t.copy(b.vel).sub(a.vel).addScaledVector(_n, -rel);
+    _t.x = b.vel.x - a.vel.x + _n.x * -rel;
+    _t.y = b.vel.y - a.vel.y + _n.y * -rel;
+    _t.z = b.vel.z - a.vel.z + _n.z * -rel;
     const slide = _t.length();
     const jt = slide > 1e-6 ? Math.min(slide / inv, SHEET_MU * j) / slide : 0;
-    if (a.dynamic) a.vel.addScaledVector(_n, -j * ima).addScaledVector(_t, jt * ima);
-    if (b.dynamic) b.vel.addScaledVector(_n, j * imb).addScaledVector(_t, -jt * imb);
+    if (a.dynamic) {
+      const sn = -j * ima;
+      const st = jt * ima;
+      a.vel.x = a.vel.x + _n.x * sn + _t.x * st;
+      a.vel.y = a.vel.y + _n.y * sn + _t.y * st;
+      a.vel.z = a.vel.z + _n.z * sn + _t.z * st;
+    }
+    if (b.dynamic) {
+      const sn = j * imb;
+      const st = -jt * imb;
+      b.vel.x = b.vel.x + _n.x * sn + _t.x * st;
+      b.vel.y = b.vel.y + _n.y * sn + _t.y * st;
+      b.vel.z = b.vel.z + _n.z * sn + _t.z * st;
+    }
   }
 }
 

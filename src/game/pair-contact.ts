@@ -18,6 +18,8 @@ export type PairHit = {
   contact: THREE.Vector3;
   normal: THREE.Vector3;
 };
+/** `resolveCarPair`'s result, rewritten by every call: read or copy it (`StrongestContact`) before the next. */
+const _hit: PairHit = { impulse: 0, contact: new THREE.Vector3(), normal: new THREE.Vector3() };
 
 export function impulseCar(car: DeformableCar, nx: number, ny: number, nz: number, j: number): void {
   if (j === 0) return;
@@ -70,7 +72,10 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     // Crushed noses can leave both hull pairs apart while the tyres, which never crush, already meet: in a
     // 100 km/h head-on the hulls missed for a frame and the tyres passed 0.25 m through each other.
     if (!tyreStop(carA, carB, dt, _tn)) return null;
-    return { impulse: 0, contact: _p.copy(carA.group.position).add(carB.group.position).multiplyScalar(0.5).clone(), normal: _tn.clone() };
+    _hit.impulse = 0;
+    _hit.contact.copy(_p.copy(carA.group.position).add(carB.group.position).multiplyScalar(0.5));
+    _hit.normal.copy(_tn);
+    return _hit;
   }
 
   const n = crushHit ? _cn : _n;
@@ -202,7 +207,10 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
   }
 
   tyreStop(carA, carB, dt, _tn);
-  return { impulse: Math.max(closing, (crushHit ?? hit ?? 0) * 6), contact: p.clone(), normal: n.clone() };
+  _hit.impulse = Math.max(closing, (crushHit ?? hit ?? 0) * 6);
+  _hit.contact.copy(p);
+  _hit.normal.copy(n);
+  return _hit;
 }
 
 /** A pair's four tyre-rectangle axes (unit x, z) and both tyres' summed half-extent along each. */

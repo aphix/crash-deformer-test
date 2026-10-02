@@ -2,8 +2,8 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
-import { activeGround, NO_FLOOR } from "./ground.ts";
-import { hypot2 } from "./physics-util.ts";
+import { NO_FLOOR } from "./ground.ts";
+import { floorUnder, gripUnder, hypot2 } from "./physics-util.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, type Assists, type Drivability } from "./vehicle-classes.ts";
 
 /** Shared by derby AI and the player seat. */
@@ -51,6 +51,13 @@ export function idleDrive(): DriveInput {
 
 const _assist: Assists = { grip: 1, slipCap: 0, catchRate: 0, scrub: 0, selfRight: 0 };
 const _dmg: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
+/** applyDrive's ground: [0] the floor under the car, [1] front and [2] rear axle grip (`floorUnder`). */
+const _ground = new Float64Array(3);
+const _axle = new THREE.Vector3();
+/** driveMasses' turn (cos, sin) and Δv (x, z): passed as doubles, all four were boxed per call. */
+const _turn = new Float64Array(4);
+/** [0]: the realism `_assist` was last filled for (NaN: never). */
+const _assistFor = new Float64Array([NaN]);
 
 /**
  * Arcade drive, per class. Steer +1 swings the nose LEFT (+yaw with this
@@ -66,7 +73,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const d = car.drive;
   const p = car.group.position;
   // Off the fleet disc's rim nothing is under the tyres: the car keeps its ballistic velocity.
-  if (!car.deform.drivetrainAlive || activeGround().heightAt(p.x, p.z, p.y) === NO_FLOOR) {
+  const alive = car.deform.drivetrainAlive;
+  if (alive) floorUnder(p, _ground, 0);
+  if (!alive || _ground[0] === NO_FLOOR) {
     d.throttle = 0;
     d.steer = 0;
     d.brake = 0;
@@ -79,11 +88,18 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   }
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
-  const a = assists(realism, _assist);
+  // assists() reads only realism, so it reruns when that changes: called out of line, it boxed realism per step.
+  if (realism !== _assistFor[0]) {
+    assists(realism, _assist);
+    _assistFor[0] = realism;
+  }
+  const a = _assist;
   const dmg = carDrivability(car, realism, _dmg);
-  const throttle = THREE.MathUtils.clamp(input.throttle, -1, 1);
-  const steer = THREE.MathUtils.clamp(input.steer, -1, 1);
-  const brake = THREE.MathUtils.clamp(input.brake, 0, 1);
+  // Math.max/min, not THREE's clamp and lerp (the same arithmetic): those calls spent TurboFan's inlining
+  // budget here, and the ones it left out boxed their doubles.
+  const throttle = Math.max(-1, Math.min(1, input.throttle));
+  const steer = Math.max(-1, Math.min(1, input.steer));
+  const brake = Math.max(0, Math.min(1, input.brake));
   const boosting = !!input.boost && throttle > 0;
   d.throttle = throttle;
   d.steer = steer;
@@ -98,12 +114,17 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const vz = car.velocity.z;
   const along = vx * fx0 + vz * fz0;
   const lat0 = vx * fz0 - vz * fx0;
-  const ground = activeGround();
   const px = car.group.position.x;
   const pz = car.group.position.z;
-  const py = car.group.position.y;
-  const muF = ground.frictionAt(px + fx0 * DRIVE.axle, pz + fz0 * DRIVE.axle, py);
-  const muR = ground.frictionAt(px - fx0 * DRIVE.axle, pz - fz0 * DRIVE.axle, py);
+  _axle.y = car.group.position.y;
+  _axle.x = px + fx0 * DRIVE.axle;
+  _axle.z = pz + fz0 * DRIVE.axle;
+  gripUnder(_axle, _ground, 1);
+  _axle.x = px - fx0 * DRIVE.axle;
+  _axle.z = pz - fz0 * DRIVE.axle;
+  gripUnder(_axle, _ground, 2);
+  const muF = _ground[1]!;
+  const muR = _ground[2]!;
 
   // Pedals: speed along the nose.
   const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1);
@@ -118,7 +139,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
     if (brake > 0) s = Math.max(0, s - k.brake * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
     speed = s < 0.4 ? 0 : Math.sign(speed) * s;
     // ABS hides most of the lock-up at the arcade end.
-    if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * THREE.MathUtils.lerp(0.45, 1, realism) * Math.min(1, s / 10);
+    if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
   } else {
     want = throttle * top;
     const v = Math.abs(speed);
@@ -155,18 +176,19 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   if (target > d.drift) d.drift = Math.min(target, d.drift + 6 * dt);
   else d.drift = Math.max(target, d.drift - catchRate * dt);
   const drift = d.drift;
-  const slideBite = grip * THREE.MathUtils.lerp(DRIVE.slideGrip[0], DRIVE.slideGrip[1], realism);
+  const slideBite = grip * ((1 - realism) * DRIVE.slideGrip[0] + realism * DRIVE.slideGrip[1]);
   if (drift < 0.05 && v > 1) {
     // Gripping: the tyres cap the yaw rate (understeer at the realistic end).
     const cap = (grip * 1.05) / v;
-    yawRate = THREE.MathUtils.clamp(yawRate, -cap, cap);
+    yawRate = Math.max(-cap, Math.min(cap, yawRate));
   } else if (drift >= 0.05) {
     yawRate *= 1 + DRIVE.slideYaw * drift;
     // Drift assist: steer sets the body angle (into the turn = deeper, counter = shallower), the yaw follows it.
-    const aim = dir * a.slipCap * THREE.MathUtils.clamp(0.55 + 0.45 * steer * dir, 0.1, 1) * drift;
+    const aim = dir * a.slipCap * Math.max(0.1, Math.min(1, 0.55 + 0.45 * steer * dir)) * drift;
     const assisted = (dir * slideBite) / Math.max(v, 4) + (aim - beta) * DRIVE.slipGain;
     const most = k.turn * DRIVE.ebrakeTurn * (1 + DRIVE.slideYaw);
-    yawRate = THREE.MathUtils.lerp(yawRate, THREE.MathUtils.clamp(assisted, -most, most), (1 - realism) * Math.min(1, drift * 2));
+    const t = (1 - realism) * Math.min(1, drift * 2);
+    yawRate = (1 - t) * yawRate + t * Math.max(-most, Math.min(most, assisted));
   }
   yawRate += dmg.pull * Math.min(1, v / 10);
   const dyaw = yawRate * dt;
@@ -178,7 +200,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   const fz = -fx0 * s + fz0 * c;
   let lon = vx * fx + vz * fz + (speed - along);
   const lat = vx * fz - vz * fx;
-  const bite = THREE.MathUtils.lerp(grip, slideBite, drift);
+  const bite = (1 - drift) * grip + drift * slideBite;
   const latOut = lat - Math.sign(lat) * Math.min(Math.abs(lat), bite * dt);
   // In a drift the arcade end hands most of the bitten-off sideways speed back to the nose, so slides
   // keep their pace (never past top speed). Sideways speed from a shove is only scrubbed, never turned into a launch.
@@ -209,9 +231,11 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number): v
   // averaged away by the unkicked crumple masses on a quiet wreck, and the
   // settle clamp then parks the car for good.
   if (want !== 0) car.deform.notifyPower();
-  const ax = nvx - vx;
-  const az = nvz - vz;
-  driveMasses(car.deform.masses, c, s, ax, az);
+  _turn[0] = c;
+  _turn[1] = s;
+  _turn[2] = nvx - vx;
+  _turn[3] = nvz - vz;
+  driveMasses(car.deform.masses, _turn);
   car.velocity.x = nvx;
   car.velocity.z = nvz;
   car.angular.y = yawRate;
@@ -225,8 +249,12 @@ type DriveMass = {
   readonly vel: { x: number; z: number };
 };
 
-/** Rigid yaw (cos c, sin s) of every dynamic mass about their centre of mass, plus a shared Δv. */
-function driveMasses(masses: readonly DriveMass[], c: number, s: number, ax: number, az: number): void {
+/** Rigid yaw (cos `turn[0]`, sin `turn[1]`) of every dynamic mass about their centre of mass, plus a shared Δv (`turn[2]`, `turn[3]`). */
+function driveMasses(masses: readonly DriveMass[], turn: Float64Array): void {
+  const c = turn[0]!;
+  const s = turn[1]!;
+  const ax = turn[2]!;
+  const az = turn[3]!;
   let cx = 0;
   let cz = 0;
   let m = 0;

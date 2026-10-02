@@ -57,6 +57,18 @@ export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, 
   vel.z *= k;
 }
 
+/** `out[i]`: the active ground's height under `p` on its layer (`NO_FLOOR` past the fleet disc's rim). A point
+ *  in and a typed array out: in a hot caller whose inlining budget TurboFan had spent, the `Ground` call
+ *  boxed its three arguments and its result. */
+export function floorUnder(p: { x: number; y: number; z: number }, out: Float64Array, i: number): void {
+  out[i] = activeGround().heightAt(p.x, p.z, p.y);
+}
+
+/** `out[i]`: the active ground's grip under `p` on its layer (see `floorUnder`). */
+export function gripUnder(p: { x: number; y: number; z: number }, out: Float64Array, i: number): void {
+  out[i] = activeGround().frictionAt(p.x, p.z, p.y);
+}
+
 /**
  * A crashed car's slide after the hit (`CrashEngine.fixedStep`): tyre-style friction on the group, and
  * the mass ground drag. The drag ramps from the hit, not from the last car contact: a pair grinding
