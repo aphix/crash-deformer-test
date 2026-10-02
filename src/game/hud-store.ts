@@ -181,21 +181,22 @@ export const INITIAL_HUD: CrashHudState = {
   playerClass: "sedan",
 };
 
-let snapshot: CrashHudState = INITIAL_HUD;
-const listeners = new Set<() => void>();
+/** The HUD's read model: the engine publishes a fresh snapshot, the UI subscribes. CrashLab makes one per engine. */
+export class HudStore {
+  private snapshot: CrashHudState = INITIAL_HUD;
+  private readonly listeners = new Set<() => void>();
 
-export function getHudSnapshot(): CrashHudState {
-  return snapshot;
-}
+  readonly get = (): CrashHudState => this.snapshot;
 
-export function subscribeHud(listener: () => void): () => void {
-  listeners.add(listener);
-  return () => {
-    listeners.delete(listener);
+  readonly subscribe = (listener: () => void): (() => void) => {
+    this.listeners.add(listener);
+    return () => {
+      this.listeners.delete(listener);
+    };
   };
-}
 
-export function publishHud(next: CrashHudState): void {
-  snapshot = next;
-  for (const listener of listeners) listener();
+  publish(next: CrashHudState): void {
+    this.snapshot = next;
+    for (const listener of this.listeners) listener();
+  }
 }

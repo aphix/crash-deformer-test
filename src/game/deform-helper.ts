@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { m3FrobeniusI, type ShapeCluster } from "./shape-match.ts";
 import type { DeformMode } from "./streamed-deform.ts";
+import { once } from "./scalar.ts";
 
 /** What the rig view reads from a StreamedDeformation. Never written through. */
 interface DeformRigView {
@@ -458,11 +459,8 @@ const RAMP_LIN = (() => {
   return out;
 })();
 
-let scaleTexture: THREE.DataTexture | null = null;
-
 /** The colour scale strip, shared by every car. */
-function colourScaleTexture(): THREE.DataTexture {
-  if (scaleTexture) return scaleTexture;
+const colourScaleTexture = once((): THREE.DataTexture => {
   const w = 128;
   const data = new Uint8Array(w * 4);
   for (let x = 0; x < w; x++) {
@@ -477,12 +475,12 @@ function colourScaleTexture(): THREE.DataTexture {
     data[x * 4 + 2] = Math.round(_rgb[2] * 255);
     data[x * 4 + 3] = a;
   }
-  scaleTexture = new THREE.DataTexture(data, w, 1);
-  scaleTexture.colorSpace = THREE.SRGBColorSpace;
-  scaleTexture.magFilter = THREE.NearestFilter;
-  scaleTexture.needsUpdate = true;
-  return scaleTexture;
-}
+  const tex = new THREE.DataTexture(data, w, 1);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.magFilter = THREE.NearestFilter;
+  tex.needsUpdate = true;
+  return tex;
+});
 
 /**
  * Control-particle view: one instanced sphere per particle (size ∝ ∛mass, colour =

@@ -3,7 +3,7 @@ import { bleedAfterSlide, DeformableCar } from "./car.ts";
 import { PISTON_ORBIT_RATE, PistonBank } from "./engine-pistons.ts";
 import { DoorRam } from "./engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "./sat.ts";
-import { INITIAL_HUD } from "./hud-store.ts";
+import { INITIAL_HUD, type HudStore } from "./hud-store.ts";
 import { easeTimeScale, impactScale, stepPhase } from "./phase.ts";
 import { stepWorld } from "./world-step.ts";
 import { MAX_CARS } from "./fleet.ts";
@@ -96,9 +96,10 @@ export class CrashEngine extends EngineInput {
     seat: this.seat,
   });
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, hudStore: HudStore) {
     super();
     this.canvas = canvas;
+    this.hudStore = hudStore;
     this.clock.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     this.renderer = new THREE.WebGLRenderer({
@@ -181,6 +182,7 @@ export class CrashEngine extends EngineInput {
         this.queueWarm();
         return new TrackArt(track, placed);
       },
+      markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
     });
 
     this.resize();

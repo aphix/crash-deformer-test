@@ -2,12 +2,13 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { Hud } from "@/components/hud";
 import { NetPanel } from "@/components/net-panel";
 import type { CrashEngine } from "@/game/engine";
-import { getHudSnapshot, subscribeHud } from "@/game/hud-store";
+import { HudStore } from "@/game/hud-store";
 
 export function CrashLab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const engineRef = useRef<CrashEngine | null>(null);
-  const hud = useSyncExternalStore(subscribeHud, getHudSnapshot, getHudSnapshot);
+  const [hudStore] = useState(() => new HudStore());
+  const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get, hudStore.get);
   const [bootError, setBootError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -20,7 +21,7 @@ export function CrashLab() {
       .then(({ CrashEngine }) => {
         if (cancelled || !canvasRef.current) return;
         try {
-          engine = new CrashEngine(canvasRef.current);
+          engine = new CrashEngine(canvasRef.current, hudStore);
           engineRef.current = engine;
           engine.start();
         } catch (err) {
@@ -40,7 +41,7 @@ export function CrashLab() {
       engine?.dispose();
       engineRef.current = null;
     };
-  }, []);
+  }, [hudStore]);
 
   return (
     <main className="relative h-dvh w-full overflow-hidden bg-bg text-fg">
