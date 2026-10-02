@@ -102,6 +102,28 @@ City has traffic: the muscle and truck AI each died once there (best laps 24.67 
 - Tyre FX read `car.drive.spin` (launch wheelspin), `lock` (brake lock-up) and `slide` (sideways slip), each 0–1.
 - **Speed readouts** (sandbox HUD, race HUD, piston and door rig sliders) read mph when the browser's locale region is the US, km/h everywhere else (`speed-units.ts`, `useSpeedUnit`); physics stays in m/s.
 
+## Air, slopes and springs
+
+On a course's ground (a race track, the fleet ramps, the corkscrew; not the flat pad or the fleet disc):
+
+- **Slope gravity.** A grounded car feels gravity along the ground, `v.xz += g · n.y · n.xz · dt`: none on the level, it slows a car uphill and speeds it downhill.
+- **Takeoff.** A car flies (`DeformableCar.airborne`) once its middle is more than `AIR_GAP` (0.08 m) above the ground under it: a ramp's lip, a crest at speed. It carries the ground's last turn of its body into the air.
+- **Flight** (`vehicle/car-air.ts` `stepAir`): a rigid box under gravity, turning freely about its centre of mass (0.55 m up). 16 hull points (the four tyres' lowest points, bumper, beltline and roof corners) meet the ground through impulses: restitution 0.25 for a body point closing faster than 1.5 m/s, none for tyres (the springs take it); friction 0.6 on the body, 0.9 across a tyre's tread (it rolls freely along it). No drive or grip in the air. A driven, uncrashed car's nose follows its flight path (arcade) while it is under 30° off it and faster than 6 m/s; the roll stays free.
+- **Landing.** Back on the ground sim when two wheels are within 3 cm of the ground, the middle within `AIR_GAP` of it and the body within ~25° of its slope (up · n > 0.9); a driven body is laid on the slope. On its roof or side it rests on the hull points until recovery rights it.
+- **Wrecks.** A wreck whose every hub is more than 0.7 m clear of the ground flies the same way (fitted to its masses' motion) and goes back to its masses on landing. A crash that starts in the air (a hit mid-jump) ends the flight: the masses own the wreck from that slice. Before that rule a stunt-course car struck at a landing stayed flagged airborne for 11 s, about 8 s of it stopped with its drive idled.
+
+**Drawn suspension: the body bounces visually, physics stays rigid.** `vehicle/car-suspension.ts` `Suspension` keeps one spring and damper per wheel and moves only the drawn body (the class lift group: heave, pitch, roll) over the physics frame. Hulls, masses, contacts, wheels, grip, flight and landings never read it, so the sim and its digests are the same with or without it; a landing's impact is taken rigidly by the tyres (`stepAir`, no restitution) and the springs only show it. A spring's input is the change in its wheel's vertical speed on the ground pose (a landing, a ramp's foot, a crest), clamped at half the travel each way; in free flight body and wheels fall together, and a crash puts the body back on its stock ride. Netplay clients run it themselves from the host's poses.
+
+| Class | Ride (Hz) | Damping ζ | Travel (m) | 14 m/s ramp landing: peak bump | Under 1 cm after |
+|---|---|---|---|---|---|
+| Sedan | 1.3 | 0.30 | 0.13 | 6.5 cm (stop) | 0.77 s |
+| Muscle | 1.6 | 0.30 | 0.11 | 5.5 cm (stop) | 0.65 s |
+| Police | 1.5 | 0.35 | 0.13 | 6.5 cm (stop) | 0.67 s |
+| Truck | 1.1 | 0.25 | 0.22 | 11.0 cm (stop) | 1.37 s |
+| Monster | 0.8 | 0.35 | 0.45 | 22.5 cm (stop) | 1.85 s |
+
+Measured by `scenes/fleet-ramps.test.ts` (the sill stays ≥ 0.21 m off the ground in every class). Monster ζ 0.20 still swung 1 cm 2.4 s after that landing, 0.30 for 2.3 s.
+
 ## The arcade ↔ realistic slider
 
 `HANDLING.realism`, HUD → Driving → Realism (default 0.25).

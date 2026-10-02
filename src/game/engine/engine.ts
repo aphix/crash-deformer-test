@@ -555,7 +555,9 @@ export class CrashEngine extends EngineInput {
     // The corkscrew hides the lamp posts its run passes through.
     w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    w.collide = this.race.active ? this.raceCollide : this.showRamps ? this.rampCollide : this.showCorkscrew ? this.corkCollide : null;
+    // The ramps stay toggled (and hidden) through the rig scenes, like the slab and the balls: their faces must not
+    // stand in for the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
+    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.showRamps && !this.rigScene ? this.rampCollide : null;
     stepWorld(w, dt);
     if (this.race.active) this.race.step(dt);
 
