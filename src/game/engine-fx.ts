@@ -70,15 +70,24 @@ function bounceRelative(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vecto
   vel.y += Math.abs(vn) * 0.15;
 }
 
+const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
+
+/** Instanced metal bits. Slots come from a ring; each piece owns its position, spin and size; a spent slot draws at scale 0. */
 export class DebrisSystem {
   private mesh: THREE.InstancedMesh;
   private life: Float32Array;
   private vx: Float32Array;
   private vy: Float32Array;
   private vz: Float32Array;
+  /** xyz per piece. */
+  private pos: Float32Array;
+  /** Euler xyz per piece. */
+  private rot: Float32Array;
+  private size: Float32Array;
   private dummy = new THREE.Object3D();
   private vel = new THREE.Vector3();
   private n: number;
+  private cursor = 0;
 
   constructor(scene: THREE.Scene, n = 180) {
     this.n = n;
@@ -91,6 +100,9 @@ export class DebrisSystem {
     this.mesh = new THREE.InstancedMesh(geo, mat, n);
     this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
     this.mesh.castShadow = true;
+    // three caches an InstancedMesh's bounding sphere the first time it culls (here: count 0, radius −1), so
+    // camera culling hid every piece; the pieces move every frame, a sphere would need recomputing each one.
+    this.mesh.frustumCulled = false;
     // Its own shadow depth material: on three's shared one, every instanced ↔ plain caster switch reselects the program.
     this.mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
     this.mesh.count = 0;
@@ -98,11 +110,15 @@ export class DebrisSystem {
     this.vx = new Float32Array(n);
     this.vy = new Float32Array(n);
     this.vz = new Float32Array(n);
+    this.pos = new Float32Array(n * 3);
+    this.rot = new Float32Array(n * 3);
+    this.size = new Float32Array(n);
     scene.add(this.mesh);
   }
 
   reset(): void {
     this.mesh.count = 0;
+    this.cursor = 0;
     this.life.fill(0);
   }
 
@@ -110,12 +126,10 @@ export class DebrisSystem {
     const items: { x: number; y: number; z: number; life: number }[] = [];
     for (let i = 0; i < this.mesh.count && items.length < 16; i++) {
       if (this.life[i]! <= 0) continue;
-      this.mesh.getMatrixAt(i, this.dummy.matrix);
-      this.dummy.position.setFromMatrixPosition(this.dummy.matrix);
       items.push({
-        x: round4(this.dummy.position.x),
-        y: round4(this.dummy.position.y),
-        z: round4(this.dummy.position.z),
+        x: round4(this.pos[i * 3]!),
+        y: round4(this.pos[i * 3 + 1]!),
+        z: round4(this.pos[i * 3 + 2]!),
         life: round4(this.life[i]!),
       });
     }
@@ -124,56 +138,76 @@ export class DebrisSystem {
 
   burst(origin: THREE.Vector3, normal: THREE.Vector3, count: number): void {
     const n = Math.min(this.n, Math.floor(count));
-    this.mesh.count = n;
-    for (let i = 0; i < n; i++) {
+    for (let k = 0; k < n; k++) {
+      // Oldest slot first: a new burst never cuts or moves pieces still in the air unless the ring is full.
+      const i = this.cursor;
+      this.cursor = (i + 1) % this.n;
+      this.mesh.count = Math.max(this.mesh.count, i + 1);
       this.life[i] = 0.9 + Math.random() * 1.5;
       const side = Math.random() - 0.5;
       this.vx[i] = -normal.x * (2 + Math.random() * 6) + (Math.random() - 0.5) * 5 + normal.z * side * 4;
       this.vy[i] = 1.4 + Math.random() * 4.2;
       this.vz[i] = -normal.z * (2 + Math.random() * 6) + (Math.random() - 0.5) * 5 - normal.x * side * 4;
-      this.dummy.position.copy(origin);
-      this.dummy.position.y += 0.08;
-      this.dummy.rotation.set(Math.random() * 3, Math.random() * 3, Math.random() * 3);
-      this.dummy.scale.setScalar(0.45 + Math.random() * 0.7);
-      this.dummy.updateMatrix();
-      this.mesh.setMatrixAt(i, this.dummy.matrix);
+      this.pos[i * 3] = origin.x;
+      this.pos[i * 3 + 1] = origin.y + 0.08;
+      this.pos[i * 3 + 2] = origin.z;
+      this.rot[i * 3] = Math.random() * 3;
+      this.rot[i * 3 + 1] = Math.random() * 3;
+      this.rot[i * 3 + 2] = Math.random() * 3;
+      this.size[i] = 0.45 + Math.random() * 0.7;
+      this.place(i);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
+  }
+
+  private place(i: number): void {
+    const d = this.dummy;
+    d.position.fromArray(this.pos, i * 3);
+    d.rotation.set(this.rot[i * 3]!, this.rot[i * 3 + 1]!, this.rot[i * 3 + 2]!);
+    d.scale.setScalar(this.size[i]!);
+    d.updateMatrix();
+    this.mesh.setMatrixAt(i, d.matrix);
   }
 
   update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
     if (this.mesh.count === 0) return;
     let any = false;
+    const p = this.dummy.position;
     for (let i = 0; i < this.mesh.count; i++) {
       if (this.life[i]! <= 0) continue;
-      any = true;
       this.life[i]! -= dt;
+      if (this.life[i]! <= 0) {
+        this.mesh.setMatrixAt(i, HIDDEN);
+        continue;
+      }
+      any = true;
       this.vy[i]! -= 9.6 * dt;
-      this.mesh.getMatrixAt(i, this.dummy.matrix);
-      this.dummy.position.setFromMatrixPosition(this.dummy.matrix);
-      this.dummy.position.x += this.vx[i]! * dt;
-      this.dummy.position.y += this.vy[i]! * dt;
-      this.dummy.position.z += this.vz[i]! * dt;
+      p.fromArray(this.pos, i * 3);
+      p.x += this.vx[i]! * dt;
+      p.y += this.vy[i]! * dt;
+      p.z += this.vz[i]! * dt;
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
-      bounce(this.dummy.position, this.vel, 0.03);
-      const floor = activeGround().heightAt(this.dummy.position.x, this.dummy.position.z, this.dummy.position.y);
-      groundSlide(this.dummy.position, this.vel, 0.03, dt, floor);
-      this.dummy.position.y = Math.max(floor + FX_FLOOR, this.dummy.position.y);
+      bounce(p, this.vel, 0.03);
+      const floor = activeGround().heightAt(p.x, p.z, p.y);
+      groundSlide(p, this.vel, 0.03, dt, floor);
+      p.y = Math.max(floor + FX_FLOOR, p.y);
+      p.toArray(this.pos, i * 3);
       this.vx[i] = this.vel.x;
       this.vy[i] = this.vel.y;
       this.vz[i] = this.vel.z;
-      this.dummy.rotation.x += dt * 5;
-      this.dummy.rotation.y += dt * 3.2;
-      this.dummy.updateMatrix();
-      this.mesh.setMatrixAt(i, this.dummy.matrix);
+      this.rot[i * 3]! += dt * 5;
+      this.rot[i * 3 + 1]! += dt * 3.2;
+      this.place(i);
     }
     this.mesh.instanceMatrix.needsUpdate = true;
-    if (!any) this.mesh.count = 0;
+    if (!any) this.reset();
   }
 
   dispose(): void {
     this.mesh.geometry.dispose();
     (this.mesh.material as THREE.Material).dispose();
+    this.mesh.customDepthMaterial?.dispose();
+    this.mesh.dispose();
   }
 }
 

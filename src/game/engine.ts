@@ -362,6 +362,8 @@ export class CrashEngine {
       this.randomizeAndReset();
     } catch (err) {
       console.error("randomizeAndReset failed", err);
+      // The window listeners above would keep calling into a half-built engine nobody can dispose.
+      this.dispose();
       throw err;
     }
     (window as unknown as { __crush?: CrashEngine }).__crush = this;
@@ -493,6 +495,7 @@ export class CrashEngine {
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
     this.sparks.dispose();
+    this.debris.dispose();
     this.cine.dispose();
     this.glassDots.dispose();
     this.smoke.dispose();
@@ -501,7 +504,15 @@ export class CrashEngine {
     this.envMap?.dispose();
     this.envMap = null;
     this.scene.environment = null;
+    // Props, arena, barrier and track art have no dispose of their own: free whatever the scene still holds.
+    this.scene.traverse((o) => {
+      if (!(o instanceof THREE.Mesh || o instanceof THREE.Points || o instanceof THREE.Line)) return;
+      o.geometry.dispose();
+      for (const m of [o.material].flat() as THREE.Material[]) m.dispose();
+    });
     this.scene.clear();
+    const g = window as unknown as { __crush?: CrashEngine };
+    if (g.__crush === this) delete g.__crush;
     const gl = this.renderer.getContext();
     this.renderer.dispose();
     gl.getExtension("WEBGL_lose_context")?.loseContext();
@@ -1571,7 +1582,9 @@ export class CrashEngine {
             this.puffDeadEngine(car);
           }
         } else if (this.elapsedWall < (this.smokeUntil[i] ?? 0)) {
-          this.puffEngine(car);
+          // 60 puffs per wall second whatever the refresh rate (it was one per rendered frame).
+          this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
+          for (; this.deadSmokeAcc[i]! >= 1 / 60; this.deadSmokeAcc[i]! -= 1 / 60) this.puffEngine(car);
         } else if (damageStage(car) === "limping") {
           // A limping engine trails a thin thread, half the dead engine's rate.
           this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
