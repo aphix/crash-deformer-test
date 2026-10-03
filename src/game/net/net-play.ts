@@ -60,8 +60,9 @@ export class NetPlay {
   private transport: NetTransport | null = null;
   private readonly connect: Connect;
   private readonly now: () => number;
-  private room = "";
-  private tx: NetTx = "bc";
+  /** The room this peer is in and the link it runs over; meaningful while `role` is not "off" (the page's `#` shows them). */
+  room = "";
+  tx: NetTx = "bc";
   private publicKind: PublicKind | null = null;
   /** The running public search's token (a newer search, or `leave`, cancels it) and whether it still looks. */
   private finder = 0;
@@ -335,9 +336,14 @@ export class NetPlay {
       bytesPerSec: this.bytesPerSec,
       public: this.publicKind,
       finding: this.finding,
-      problem: !client ? null : this.refused ? "version" : this.hostLost ? "host-lost" : this.hostHeld ? "host-paused" : null,
+      problem: !client ? null : this.refused ? "version" : this.hostLost ? "host-lost" : this.hostHeld ? "host-paused" : this.noHost() ? "no-host" : null,
       relayError: this.transport?.error ?? null,
     };
+  }
+
+  /** Joined a private room and heard no host in `HOST_WAIT_MS` of frames: a closed room, or a link to nobody. */
+  private noHost(): boolean {
+    return !this.heardHost && !this.publicKind && this.silentFor * 1000 > HOST_WAIT_MS;
   }
 
   /** Host, each fixed step after the local seat: every remote peer's car takes its latest input (race mode drives them itself). */

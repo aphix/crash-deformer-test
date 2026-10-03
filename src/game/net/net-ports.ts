@@ -98,9 +98,9 @@ export interface NetStatus {
   bytesPerSec: number;
   /**
    * Client: `version` the host runs another build (reload to play), `host-lost` no word from the host
-   * (waiting for one), `host-paused` its tab is hidden; null while all is well.
+   * (waiting for one), `host-paused` its tab is hidden, `no-host` nobody answered since joining (a closed room or a stale link); null while all is well.
    */
-  problem: "version" | "host-lost" | "host-paused" | null;
+  problem: "version" | "host-lost" | "host-paused" | "no-host" | null;
   /** Why the relay refused this peer (room full, host seat taken, …), null while fine. */
   relayError: string | null;
 }

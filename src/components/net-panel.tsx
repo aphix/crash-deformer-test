@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
+import { RoomShare } from "@/components/room-share";
 import type { CrashEngine } from "@/game/engine/engine";
 import type { NetStatus, NetTx } from "@/game/net/net-ports";
+import { roomLink } from "@/game/hud/share-url";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
 import { encodeQr } from "@/lib/qr";
 import { cn } from "@/lib/utils";
@@ -45,6 +47,7 @@ const PROBLEM = {
   version: "Different game version: reload",
   "host-lost": "Host left: waiting for a new host…",
   "host-paused": "Host paused",
+  "no-host": "Nobody is hosting this room: it may be closed",
 } as const;
 
 /** Why the session is stuck, if it is: the relay's refusal ("room full", "host taken", …) or the host's state. */
@@ -59,16 +62,16 @@ function NetNotice({ status }: { status: NetStatus }) {
 }
 
 /**
- * Multiplayer: host or join a room (docs/MULTIPLAYER.md). `?net=join&room=CODE[&tx=bc]` joins from
- * the URL; `?net=host&room=CODE` only fills in the panel, so a link alone never makes a visitor host.
- * A code the Room field would not accept is ignored. Shows peers, ping and the snapshot rate.
+ * Multiplayer: host or join a room (docs/MULTIPLAYER.md). A room hosted or joined shows as a code with Copy link and
+ * Share (`RoomShare`), and the page's `#room=CODE` follows it (`share-url.ts`; the engine joins a `#` that names one).
+ * The older `?net=join&room=CODE[&tx=bc]` still joins from the URL; `?net=host&room=CODE` only fills in the panel,
+ * so a link alone never makes a visitor host. A code the Room field would not accept is ignored. Shows peers, ping and the snapshot rate.
  */
 export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) {
   const [open, setOpen] = useState(false);
   const [room, setRoom] = useState("");
   const [tx, setTx] = useState<NetTx>("rtc");
   const [status, setStatus] = useState<NetStatus | null>(null);
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     const link = deepLink(window.location.search);
@@ -93,9 +96,16 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
   if (!open) {
     return (
       <div className={cn("pointer-events-auto", NET_SPOT)}>
-        <Button variant="secondary" className={cn(NET_CONTROL, "px-3 text-xs")} onClick={() => setOpen(true)}>
-          {status && status.role !== "off" ? `Net · ${status.role} ${status.room}` : "Net"}
-        </Button>
+        {status && status.role !== "off" && !status.public ? (
+          <div className="hud-panel max-w-[calc(100vw-1rem)] space-y-1 p-1.5 text-xs">
+            <RoomShare engine={engine} status={status} onOpen={() => setOpen(true)} />
+            <NetNotice status={status} />
+          </div>
+        ) : (
+          <Button variant="secondary" className={cn(NET_CONTROL, "px-3 text-xs")} onClick={() => setOpen(true)}>
+            {status && status.role !== "off" ? `Net · ${status.role} ${status.public}` : "Net"}
+          </Button>
+        )}
       </div>
     );
   }
@@ -110,16 +120,8 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
     setStatus(e.net.status());
   };
   const live = status && status.role !== "off";
-  // Deep link under the app's base path (the VPS serves it below /crush/).
-  const invite = live
-    ? `${window.location.origin}${import.meta.env.BASE_URL}?net=join&room=${encodeURIComponent(status.room)}${status.tx === "bc" ? "&tx=bc" : ""}`
-    : "";
-  const copyInvite = () => {
-    void navigator.clipboard.writeText(invite).then(
-      () => setCopied(true),
-      () => setCopied(false),
-    );
-  };
+  // The link under the app's base path (the VPS serves it below /crush/); the QR code carries it.
+  const invite = live ? roomLink(`${window.location.origin}${import.meta.env.BASE_URL}`, status.room, status.tx) : "";
 
   return (
     <div className={cn("hud-panel pointer-events-auto w-60 space-y-1.5 p-2 text-xs", NET_SPOT)}>
@@ -135,6 +137,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             {status.public ? `Public ${status.public}` : status.role === "host" ? "Hosting" : "Joined"} <span className="tabular-nums">{status.room}</span> ·{" "}
             {status.tx === "rtc" ? "WebRTC" : "this browser"}
           </p>
+          {status.public ? null : <RoomShare engine={engine} status={status} />}
           <NetNotice status={status} />
           <p className="text-muted">
             {status.peers.length + 1}/{ROOM_MAX} players · car {status.car < 0 ? "…" : status.car}
@@ -155,14 +158,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
               </li>
             ))}
           </ul>
-          {status.public ? null : (
-            <>
-              <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={copyInvite} title={invite} aria-label="Copy invite link">
-                {copied ? "Link copied" : "Copy invite link"}
-              </Button>
-              {status.tx === "rtc" ? <InviteQr link={invite} /> : null}
-            </>
-          )}
+          {status.public || status.tx !== "rtc" ? null : <InviteQr link={invite} />}
           <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={() => engine.current?.net.leave()}>
             Leave
           </Button>

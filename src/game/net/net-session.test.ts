@@ -11,6 +11,7 @@ import type { NetTx } from "./net-ports.ts";
 import { publicRoomName } from "./matchmaking.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
 import { packReel } from "./reel-codec.ts";
+import { HOST_WAIT_MS } from "./net-constants.ts";
 
 /** Frame time (ms) of the session loop: one host snapshot and one guest input per step. */
 const FRAME_MS = 1000 / 30;
@@ -253,6 +254,37 @@ function forgedSnapshot(cars: DeformableCar[], seq: number, edit: (s: codec.Snap
   codec.writeSnapshot(w, s, L);
   return w.done();
 }
+
+describe("netplay session: a link to a room nobody hosts", () => {
+  it("tells the guest `no-host` after HOST_WAIT_MS of frames, and a host opening the room clears it", () => {
+    const hub = new Hub();
+    let now = 1000;
+    const guestGame = fakeGame();
+    const guest = new NetPlay(guestGame, { connect: hub.connect, now: () => now });
+    open.push(guest);
+    guest.join("R", "rtc");
+    const frames = (ms: number, host?: NetPlay): void => {
+      for (let t = 0; t < ms; t += FRAME_MS) {
+        now += FRAME_MS;
+        host?.drive(hostGame.cars(), FRAME_MS / 1000, -1);
+        host?.frame(FRAME_MS / 1000);
+        guest.frame(FRAME_MS / 1000);
+        hub.flush();
+      }
+    };
+    const hostGame = fakeGame();
+    frames(HOST_WAIT_MS - 500);
+    assert.equal(guest.status().problem, null, "not yet: the host may still be on its way");
+    frames(1000);
+    assert.equal(guest.status().problem, "no-host");
+    const host = new NetPlay(hostGame, { connect: hub.connect, now: () => now });
+    open.push(host);
+    host.host("R", "rtc");
+    frames(2000, host);
+    assert.equal(guest.status().problem, null, "a host answered");
+    assert.equal(guest.status().car, 1);
+  });
+});
 
 describe("netplay session: a guest's seat survives the network", () => {
   it("keeps a guest's car through a connection blip, and its input drives on", () => {
