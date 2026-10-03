@@ -27,6 +27,16 @@ const JUMP = 100;
 const RAD = Math.PI / 180;
 
 /**
+ * `load` (m, a spring offset) that leans the body against the road's own slope `slope` (sin of its angle, + nose / +x
+ * side up) shrinks one for one with it and is gone once the road is as steep as the class's limit `cap` (rad): a squat
+ * on a descent would hold the nose up off the road it drives down, and read as wheels off the ground. A load along
+ * the road stays.
+ */
+function alongRoad(load: number, slope: number, cap: number): number {
+  return load * slope < 0 ? load * Math.max(0, 1 - Math.abs(slope) / cap) : load;
+}
+
+/**
  * Longitudinal and lateral load transfer of a car's ground pose, as the drawn springs' resting offsets: under
  * acceleration the rear squats and the nose rises, under braking the nose dives, in a turn the body leans outward.
  * Drawn only: the acceleration is read off `group.matrixWorld` across slices, as `Suspension` reads vertical speed.
@@ -91,8 +101,8 @@ export class LoadTransfer {
     // L the wheelbase and T the track; the springs' own scale is saturated at the class's limit.
     const capP = AXLE * Math.tan(c.pitch * RAD);
     const capR = TRACK * Math.tan(c.roll * RAD);
-    const p = capP * Math.tanh((along * c.cg) / (AXLE * k * capP));
-    const r = capR * Math.tanh((side * c.cg) / (TRACK * k * capR));
+    const p = alongRoad(capP * Math.tanh((along * c.cg) / (AXLE * k * capP)), e[9]!, c.pitch * RAD);
+    const r = alongRoad(capR * Math.tanh((side * c.cg) / (TRACK * k * capR)), e[1]!, c.roll * RAD);
     // Front and the +x side rise under +along and +side; the rear and the −x side sink.
     this.target[0] = p - r;
     this.target[1] = p + r;
