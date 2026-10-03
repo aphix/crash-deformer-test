@@ -36,7 +36,7 @@ function useStorage(s: Storage): void {
 const WALL = { prefab: "building", x: 0, z: 392, yaw: 0, scale: 1, size: [30, 14, 14] };
 const WALLED = { ...(HAVANA as object), props: [WALL] };
 
-function hud(w: World): RaceHud {
+function hud(w: World): ReturnType<World["race"]["hud"]> {
   return w.race.hud();
 }
 
