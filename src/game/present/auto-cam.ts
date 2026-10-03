@@ -20,8 +20,9 @@ export type AutoScene = {
 /** Seconds between re-asking a held shot whether it is still usable. */
 const RECHECK = 0.5;
 /**
- * The next shot's spot search spends about this many sight-line samples a frame (a spot it started finishes), so a cut
- * never costs a frame more than ~1 ms: the old shot holds meanwhile, a few frames (the whole search is 1–20 of them).
+ * The next shot's spot search and a held shot's re-ask each spend about this many sight-line samples a frame (a sight
+ * line never splits, so a frame's first one may run over), so neither costs a frame more than ~1 ms: the old shot holds
+ * meanwhile, a few frames (a whole search is 1–20 of them, a whole ask up to 3).
  */
 const PICK_BUDGET = 250;
 /** The pose before the first shot is found. */
@@ -69,8 +70,10 @@ export class AutoCam {
     if (this.pending === null) {
       let due = this.shot === null || handed || this.age > CINE.maxShot;
       if (!due && this.ask <= 0) {
-        this.ask = RECHECK;
-        due = !this.cam.usable(scene.sight(), car);
+        // The scene's solids are read when the ask begins; the next frames go on with those.
+        const r = this.cam.usable(this.cam.asking ? null : scene.sight(), car, PICK_BUDGET);
+        if (r !== "more") this.ask = RECHECK;
+        due = r === "blocked";
       }
       if (due) {
         const to = scene.cut(car);

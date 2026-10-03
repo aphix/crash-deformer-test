@@ -9,7 +9,7 @@ import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, blankProjection, projectPath, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { FRAME, frame, makeWorld } from "../world/race-world.test-util.ts";
-import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, type Sight } from "./spectate-cam.ts";
+import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, SightLines, type Sight } from "./spectate-cam.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { levelAt } from "./track-mesh.ts";
@@ -135,7 +135,11 @@ describe("trackside cinematic cam", () => {
         track.pointAt(s, pt);
         car.group.position.set(pt.x, ground.heightAt(pt.x, pt.z, pt.y + 0.5), pt.z);
         car.velocity.set(pt.tx * v, 0, pt.tz * v);
-        assert.ok(cine.update(camera, car, () => sight, dt), `no shot at frame ${i}`);
+        // The first search may take a few frames (a spot's sight lines go on over them): the trackside cam has no shot yet.
+        if (!cine.update(camera, car, () => sight, dt)) {
+          assert.ok(shots === 0 && i < 10, `no shot at frame ${i}`);
+          continue;
+        }
         const p = car.group.position;
         if (!cine.eye.equals(eye)) {
           if (shots > 0) {
@@ -162,6 +166,37 @@ describe("trackside cinematic cam", () => {
         assert.ok(look.dot(to) > 0.9999, `frame ${i} looks ${Math.acos(Math.min(1, look.dot(to))).toFixed(4)} rad off the car`);
       }
       assert.ok(shots >= 6, `${shots} shots in a lap`);
+    } finally {
+      setGround(null);
+    }
+  });
+
+  it("oval: a search sliced into 40-sample budgets lands on the spot the whole search picks", () => {
+    const track = COURSES.find((c) => c.id === "oval")!;
+    const sight = raceSight(track, placeProps(track));
+    const ground = track.ground();
+    setGround(ground);
+    try {
+      const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "watched" }, scene, null);
+      const whole = new CineCam();
+      const sliced = new CineCam();
+      const pt = blankPoint();
+      let spots = 0;
+      let manySlices = 0;
+      for (let s = 0; s < track.length; s += 40) {
+        track.pointAt(s, pt);
+        car.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 30);
+        car.group.position.y = ground.heightAt(pt.x, pt.z, pt.y + 0.5);
+        const a = whole.pick(sight, car);
+        let b = sliced.pick(sight, car, 40);
+        let slices = 1;
+        for (; b === "more"; slices++) b = sliced.pick(sight, car, 40);
+        spots++;
+        if (slices > 1) manySlices++;
+        assert.equal(b, a, `s ${s}: whole ${a}, sliced ${b}`);
+        if (a === "found") assert.ok(sliced.eye.equals(whole.eye), `s ${s}: another spot`);
+      }
+      assert.ok(manySlices >= spots / 2, `only ${manySlices}/${spots} searches took more than one slice`);
     } finally {
       setGround(null);
     }
@@ -252,6 +287,32 @@ describe("camera clearance", () => {
     assert.equal(camUsable(post(-5, 1.2), eye, target, still, 0), true, "1.2 m off the sight line, 5 m from the eye");
     assert.equal(camUsable(post(-9, 1.5), eye, target, still, 0), false, "1.8 m beside the eye");
     assert.equal(camUsable(post(-10, 3.2), eye, target, still, 0), true, "3.2 m beside the eye");
+  });
+
+  it("SightLines: a check sliced one line at a time answers as the whole check does, and no slice runs past one line", () => {
+    const eye = { x: -30, y: 1.5, z: 0 };
+    const still = { x: 0, y: 0, z: 0 };
+    const north = { x: 0, y: 0, z: 25 };
+    const cases = [
+      { target: { x: 30, y: 0.7, z: -45 }, vel: still, horizon: 2, clear: true },
+      { target: { x: 30, y: 0.7, z: 0 }, vel: still, horizon: 0, clear: false },
+      { target: { x: 30, y: 0.7, z: -45 }, vel: north, horizon: 1, clear: true },
+      { target: { x: 30, y: 0.7, z: -45 }, vel: north, horizon: 2, clear: false },
+    ];
+    const lines = new SightLines();
+    for (const c of cases) {
+      assert.equal(camUsable(sight, eye, c.target, c.vel, c.horizon), c.clear);
+      assert.equal(lines.begin(sight, eye, c.target, c.vel, c.horizon), true);
+      let slices = 1;
+      let r = lines.run(1);
+      for (; r === "more"; slices++) {
+        assert.ok(lines.spent <= 80, `a slice took ${lines.spent} samples`);
+        r = lines.run(1);
+      }
+      assert.equal(r === "clear", c.clear, `horizon ${c.horizon}`);
+      assert.equal(lines.active, false);
+      if (c.vel === north && c.clear) assert.ok(slices >= 3, `${slices} slices for the ${c.horizon} s horizon`);
+    }
   });
 
   it("aheadPoints: on a course the car is predicted along it, not on the straight of its velocity", () => {

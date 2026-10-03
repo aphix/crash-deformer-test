@@ -152,6 +152,7 @@ export class CrashEngine extends EngineShare {
     const env = this.attachStudioEnv();
 
     this.buildWorld();
+    this.view.posts = this.poles;
     this.arena = makeDerbyArena();
     this.scene.add(this.arena);
     this.winnerSpot = new WinnerSpot(this.scene, makePoolTexture());

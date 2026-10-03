@@ -88,3 +88,68 @@ describe("the ride's automatic cuts wait for the drag and RIDE_PAUSE after it", 
     assert.equal(held(), false, "the next ride is free");
   });
 });
+
+describe("the orbit keeps clear of lamp posts", () => {
+  /** An orbit round (3, 0.7, 0) on `posts`, its eye lowered to 1.8 m (level with the posts' lower half) by a held stick. */
+  function lowOrbit(posts: readonly { intact: boolean; group: { visible: boolean; position: THREE.Vector3 } }[]) {
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    camera.position.set(4, 2, 6);
+    const seat = new DriverSeat();
+    seat.mode = "global";
+    const pad = { rx: 0, ry: -1 } as PadState;
+    const view = new ChaseCamera(camera, fakeCanvas(), seat, pad, false, () => {});
+    view.look.set(3, 0.7, 0);
+    view.posts = posts;
+    for (let f = 0; f < 120; f++) view.orbit(DT, 0, false);
+    pad.ry = 0;
+    return { camera, view };
+  }
+
+  it("good: round a whole turn the eye stays 3 m from every post of the 16 m ring, in steps within twice the plain orbit's", () => {
+    const ring = Array.from({ length: 6 }, (_, i) => ({ intact: true, group: { visible: true, position: new THREE.Vector3(Math.sin((i / 6) * Math.PI * 2) * 16, 0, Math.cos((i / 6) * Math.PI * 2) * 16) } }));
+    const spin = 0.32;
+    const turn = (posts: typeof ring): { near: number; step: number } => {
+      const { camera, view } = lowOrbit(posts);
+      for (let f = 0; f < 120; f++) view.orbit(DT, spin, false);
+      let near = Infinity;
+      let step = 0;
+      const last = camera.position.clone();
+      for (let f = 0; f < Math.round((2 * Math.PI) / spin / DT); f++) {
+        view.orbit(DT, spin, false);
+        step = Math.max(step, last.distanceTo(camera.position));
+        last.copy(camera.position);
+        for (const p of ring) near = Math.min(near, Math.hypot(camera.position.x - p.group.position.x, camera.position.z - p.group.position.z, Math.max(0, camera.position.y - 5.3)));
+      }
+      return { near, step };
+    };
+    const plain = turn([]);
+    assert.ok(plain.near < 1, `the plain orbit passes ${plain.near.toFixed(2)} m from a post (the test needs one close)`);
+    const pushed = turn(ring);
+    assert.ok(pushed.near >= 3, `eye ${pushed.near.toFixed(2)} m from a post`);
+    assert.ok(pushed.step <= 2 * plain.step, `step ${pushed.step.toFixed(3)} m a frame against ${plain.step.toFixed(3)} m plain`);
+  });
+
+  it("good: only a standing, visible post pushes the eye", () => {
+    const post = { intact: true, group: { visible: true, position: new THREE.Vector3() } };
+    const { camera, view } = lowOrbit([]);
+    const settle = (): void => {
+      for (let f = 0; f < 300; f++) view.orbit(DT, 0, false);
+    };
+    settle();
+    const rest = camera.position.clone();
+    view.posts = [post];
+    // A post 1.5 m beside the resting eye.
+    post.group.position.set(rest.x + 1.5, 0, rest.z);
+    settle();
+    assert.ok(camera.position.distanceTo(rest) > 1, "a post beside the eye leaves it where it was");
+    post.group.visible = false;
+    settle();
+    assert.ok(camera.position.distanceTo(rest) < 0.01, "a hidden post still pushes");
+    post.group.visible = true;
+    settle();
+    assert.ok(camera.position.distanceTo(rest) > 1, "the post is back and does not push");
+    post.intact = false;
+    settle();
+    assert.ok(camera.position.distanceTo(rest) < 0.01, "a knocked-over post still pushes");
+  });
+});

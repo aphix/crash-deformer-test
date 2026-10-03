@@ -62,7 +62,7 @@ export const CINE = {
   retry: 0.4,
   /** A search gives up (no clear spot: the old shot holds, or the chase) after this many spots that reached a sight line. */
   tries: 40,
-  /** Sight-line samples a search spends per frame before it pauses (a spot it started still finishes: ≤ 2 lines); each candidate spot also costs `SPOT_COST`. */
+  /** Sight-line samples a search spends per frame before it pauses (a call's first line always runs, ≤ `LINE_SAMPLES`); each candidate spot also costs `SPOT_COST`. */
   perFrame: 400,
   /** Lens (deg): `frame` m across the car at its range, clamped. */
   fov: [18, 60],
@@ -187,6 +187,11 @@ export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: numb
   return n;
 }
 
+/** The samples `sightLine` takes along a line of length `len`. */
+function lineSamples(len: number): number {
+  return Math.max(0, Math.ceil((len - CINE.stop) / Math.max(CINE.step, len / LINE_SAMPLES)));
+}
+
 /** Every camera cut passes `clearSpot` and the predicted sight (`aheadPoints`) before it takes the shot. */
 export const CLEAR = {
   /** `clearSpot`: samples this far (m) out of the spot, in `FLAT` directions round it, straight up and straight down. */
@@ -201,7 +206,7 @@ export const CLEAR = {
 const FLAT = 12;
 const RING = Array.from({ length: FLAT }, (_, i) => [Math.cos((i * 2 * Math.PI) / FLAT), Math.sin((i * 2 * Math.PI) / FLAT)] as const);
 /** What `clearSpot` costs a search budget: its solid tests (about one sight-line sample each). */
-const CLEAR_COST = FLAT + 3;
+export const CLEAR_COST = FLAT + 3;
 /** What a candidate spot's cheap checks (ground height, solid) cost a search budget, in sight-line samples: measured at about 20 µs each, a search tries up to 160 of them. */
 const SPOT_COST = 20;
 
@@ -220,7 +225,6 @@ export function clearSpot(s: Sight, x: number, y: number, z: number, radius: num
 }
 
 type Vec3 = { x: number; y: number; z: number };
-const _ahead = new Float64Array(3 * (CLEAR.most + 1));
 
 /**
  * Where the target (tx, ty, tz) moving at (vx, vz) will be over `horizon` s, sampled every `CLEAR.every` s (into `out`
@@ -274,16 +278,81 @@ export function aheadPoints(s: Sight, tx: number, ty: number, tz: number, vx: nu
 }
 
 /**
+ * The sight lines from one eye to the places a target will be (`aheadPoints`, into `points`), checked over several calls:
+ * `start` (or `begin`), then `run` with a budget of samples until it answers. A line is never cut short, and a call goes
+ * past its budget only by the first line it runs (at most `LINE_SAMPLES`). No allocation.
+ */
+export class SightLines {
+  readonly points = new Float64Array(3 * (CLEAR.most + 1));
+  readonly eye = new THREE.Vector3();
+  /** Samples the last `run` took (the search budgets count them). */
+  spent = 0;
+  private s: Sight | null = null;
+  private n = 0;
+  private i = 0;
+
+  /** Lines are being checked: `start` ran and `run` has not answered yet. */
+  get active(): boolean {
+    return this.n > 0;
+  }
+
+  /** Check the lines from (x, y, z) to the first `n` (1 or more) `points`, in `s`. */
+  start(s: Sight, x: number, y: number, z: number, n: number): void {
+    this.s = s;
+    this.eye.set(x, y, z);
+    this.n = n;
+    this.i = 0;
+  }
+
+  /** `camUsable`'s question, begun: false when `eye` has no room (`clearSpot`; costs `CLEAR_COST`), else its lines are started. */
+  begin(s: Sight, eye: Vec3, target: Vec3, vel: Vec3, horizon: number): boolean {
+    if (!clearSpot(s, eye.x, eye.y, eye.z)) return false;
+    this.start(s, eye.x, eye.y, eye.z, aheadPoints(s, target.x, target.y, target.z, vel.x, vel.z, horizon, this.points));
+    return true;
+  }
+
+  /** Drop the check in progress. */
+  cancel(): void {
+    this.n = 0;
+    this.s = null;
+  }
+
+  /**
+   * Check lines until one is blocked, all are clear, or the next line would take the call past `budget` samples ("more":
+   * call again to go on with it). A call's first line always runs, so a line dearer than the budget still gets done.
+   */
+  run(budget: number): "clear" | "blocked" | "more" {
+    this.spent = 0;
+    const e = this.eye;
+    while (this.i < this.n) {
+      const k = 3 * this.i;
+      const x = this.points[k]!;
+      const y = this.points[k + 1]!;
+      const z = this.points[k + 2]!;
+      if (this.spent > 0 && this.spent + lineSamples(Math.hypot(x - e.x, y - e.y, z - e.z)) > budget) return "more";
+      this.i++;
+      const r = sightLine(this.s!, e.x, e.y, e.z, x, y, z);
+      this.spent += Math.abs(r);
+      if (r < 0) {
+        this.cancel();
+        return "blocked";
+      }
+    }
+    this.cancel();
+    return "clear";
+  }
+}
+
+const _lines = new SightLines();
+
+/**
  * The one question a camera cut (and a held shot, re-asked as it plays) answers: is `eye` clear (`clearSpot`) and
  * does it see `target` (the point it aims at) now and every `CLEAR.every` s over the next `horizon` s at its
  * velocity `vel` (`aheadPoints`; `vel.y` is ignored)? Walls, barriers, buildings, props and the other cars in `s` all
- * block. ~15 + (up to 9 sight lines) solid tests.
+ * block. ~15 + (up to 9 sight lines) solid tests. A search that must not hitch asks it in slices (`SightLines`).
  */
 export function camUsable(s: Sight, eye: Vec3, target: Vec3, vel: Vec3, horizon: number): boolean {
-  if (!clearSpot(s, eye.x, eye.y, eye.z)) return false;
-  const n = aheadPoints(s, target.x, target.y, target.z, vel.x, vel.z, horizon, _ahead);
-  for (let i = 0; i < n; i++) if (sightLine(s, eye.x, eye.y, eye.z, _ahead[3 * i]!, _ahead[3 * i + 1]!, _ahead[3 * i + 2]!) < 0) return false;
-  return true;
+  return _lines.begin(s, eye, target, vel, horizon) && _lines.run(Infinity) === "clear";
 }
 
 /** Candidate spots per lead distance: two sides × two lateral offsets × the heights. */
@@ -320,6 +389,10 @@ export class CineCam {
   private wait = 0;
   /** Sight-line samples tested so far (the search budget counts them). */
   private spent = 0;
+  /** The spot being checked: its sight lines (they go on over several `pick` calls) and the travel direction there. */
+  private readonly lines = new SightLines();
+  private sx = 0;
+  private sz = 1;
 
   /** Forget the shot; the next `update` picks one. `seed` restarts the pick counter (replays: same seed, same shots). */
   reset(seed = this.picks): void {
@@ -327,6 +400,7 @@ export class CineCam {
     this.wait = 0;
     this.next = 0;
     this.tried = 0;
+    this.lines.cancel();
     this.picks = seed;
   }
 
@@ -364,10 +438,18 @@ export class CineCam {
 
   /**
    * Try the spots ahead of `car` in a fixed order (lead distance, side, lateral offset, height), resuming where the
-   * last call stopped, until `budget` sight-line samples are spent: "found" (sets `eye` and the pass plane), "none"
-   * when every spot is blocked, "more" when the budget ran out first.
+   * last call stopped, until `budget` sight-line samples are spent (a spot's sight lines go on over the calls, one line
+   * at a time): "found" (sets `eye` and the pass plane), "none" when every spot is blocked, "more" when the budget ran
+   * out first. No allocation.
    */
   pick(s: Sight, car: Subject, budget = Infinity): "found" | "none" | "more" {
+    const stop = this.spent + budget;
+    // A spot the last call left half-checked is finished first.
+    if (this.lines.active) {
+      const r = this.verify(stop);
+      if (r !== "blocked") return r;
+      this.next++;
+    }
     const seq = this.picks;
     const p = car.group.position;
     const v = car.velocity;
@@ -393,7 +475,7 @@ export class CineCam {
     const lead = THREE.MathUtils.clamp(speed * CINE.leadTime, lo!, hi!);
     const hs = CINE.heights;
     const ay0 = p.y + CINE.aimUp;
-    for (const stop = this.spent + budget; this.next < SPOTS && this.spent < stop; this.next++) {
+    for (; this.next < SPOTS && this.spent < stop; this.next++) {
       const c = this.next;
       this.spent += SPOT_COST;
       const f = CINE.leadTry[Math.floor(c / PER_LEAD)]!;
@@ -439,17 +521,11 @@ export class CineCam {
       }
       this.tried++;
       // The car's places until it has passed the eye a moment (the shot cuts then): every spot sees it at each one.
-      const na = aheadPoints(s, p.x, ay0, p.z, v.x, v.z, Math.min(CINE.maxShot, (lead * f) / Math.max(speed, 1) + CINE.after), _ahead, k0);
-      let seen = true;
-      for (let i = 0; i < na && seen; i++) seen = this.sees(s, x, y, z, _ahead[3 * i]!, _ahead[3 * i + 1]!, _ahead[3 * i + 2]!);
-      if (!seen) continue;
-      this.eye.set(x, y, z);
-      this.tx = fx;
-      this.tz = fz;
-      this.next = 0;
-      this.tried = 0;
-      this.picks++;
-      return "found";
+      this.lines.start(s, x, y, z, aheadPoints(s, p.x, ay0, p.z, v.x, v.z, Math.min(CINE.maxShot, (lead * f) / Math.max(speed, 1) + CINE.after), this.lines.points, k0));
+      this.sx = fx;
+      this.sz = fz;
+      const r = this.verify(stop);
+      if (r !== "blocked") return r;
     }
     if (this.next < SPOTS) return "more";
     this.next = 0;
@@ -458,11 +534,18 @@ export class CineCam {
     return "none";
   }
 
-  /** Clear sight from a to b (`sightLine`); the search budget counts its samples. */
-  private sees(s: Sight, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    const n = sightLine(s, ax, ay, az, bx, by, bz);
-    this.spent += Math.abs(n);
-    return n >= 0;
+  /** Check the started spot's sight lines with what is left of `stop`; all clear: the spot becomes the shot. */
+  private verify(stop: number): "found" | "blocked" | "more" {
+    const r = this.lines.run(stop - this.spent);
+    this.spent += this.lines.spent;
+    if (r !== "clear") return r === "more" ? "more" : "blocked";
+    this.eye.copy(this.lines.eye);
+    this.tx = this.sx;
+    this.tz = this.sz;
+    this.next = 0;
+    this.tried = 0;
+    this.picks++;
+    return "found";
   }
 }
 
