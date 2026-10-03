@@ -7,6 +7,8 @@ import { launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenario
 import { BARRIER_HALF } from "../contact/sat.ts";
 import { ejectionVelocity, THROW_OUT, type Ejection } from "./ejection.ts";
 import { fleetCar, headOn, worn } from "./ejection.test-util.ts";
+import { RANGE } from "../scenes/range.ts";
+import { assignClass, armKill, DEFAULT_REALISM, killClass, VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
 
 /** Run the crash 2.5 s through the engine's frame: each throw as [car, exit, pre-hit speed]. */
 function throws(cars: DeformableCar[], barrier = false): [number, ExitPane, number][] {
@@ -148,4 +150,69 @@ describe("the ejection event is the throw: everything a dummy needs to be launch
     a.spawnFacing(0, 0, 0, 0);
     assert.equal(a.driverOut, null);
   });
+});
+
+describe("a throw needs a hit behind the kill", () => {
+  /**
+   * A fleet sedan at 30 m/s on open road, struck once on its flank (7 m/s closing), then `gap` s without a new hit, driven on
+   * at 30 m/s (its masses held to it for the last 0.5 s: a racing car, not a wreck sliding to a stop), then its drivetrain
+   * dies (`touch`: just after a graze touched it, as a car alongside does): the throws.
+   */
+  function killedAfter(gap: number, touch = false): Ejection[] {
+    const car = fleetCar();
+    launch(car, 0, 0, 0, 0, 30);
+    const w = makeWorld([car], false, false);
+    car.applyImpact(new THREE.Vector3(-0.9, 0.5, -0.5), new THREE.Vector3(0.84, 0, -0.52), 7, 3.5);
+    const frames = Math.round(gap * 60);
+    for (let f = 0; f < frames; f++) {
+      if (f >= frames - 30) for (const m of car.deform.masses) m.vel.set(0, 0, 30);
+      tickWorld(w);
+    }
+    assert.ok(car.deform.drivetrainAlive, "the hit left the engine running");
+    if (touch) car.deform.notifyContact();
+    car.deform.drivetrainAlive = false;
+    for (let f = 0; f < 3; f++) tickWorld(w);
+    return w.ejections;
+  }
+
+  it("bad: a drivetrain that dies 0.1 s after a flank hit throws the driver out of the struck side", () => {
+    assert.deepEqual(killedAfter(0.1).map((e) => e.exit), ["doorL"]);
+  });
+
+  it("bad: a drivetrain that dies 1.5 s, or 20 s, after the last contact (a damaged car over a crest, a last wheel gone) throws nobody, at 30 m/s", () => {
+    assert.deepEqual(killedAfter(1.5), []);
+    assert.deepEqual(killedAfter(20), []);
+  });
+
+  it("bad: a graze that touches a car hit 5 s before, the very step its drivetrain dies (a block already at the edge, a crest under it), throws nobody", () => {
+    assert.deepEqual(killedAfter(5, true), []);
+  });
+});
+
+describe("the ejection range: a straight head-on throws the driver forward", () => {
+  for (const cls of VEHICLE_CLASS_IDS) {
+    it(`bad: a ${cls} at ${RANGE.kph} km/h straight into the barrier (yaw 0, ±3°, offsets to ±1.2 m): out of the windshield, along the run-up, never a side pane`, () => {
+      const lateral = Math.tan((8 * Math.PI) / 180);
+      for (const yawDeg of [0, 3, -3]) {
+        for (const z of [0, 0.6, -0.6, 1.2, -1.2]) {
+          const car = makeCar("shape", 0.32, 0.45);
+          assignClass(car, cls);
+          armKill(car.deform, killClass(car), DEFAULT_REALISM, "default");
+          const yaw = Math.PI / 2 + (yawDeg * Math.PI) / 180;
+          const v = RANGE.kph / 3.6;
+          launch(car, -RANGE.run, z, yaw, Math.sin(yaw) * v, Math.cos(yaw) * v);
+          const w = makeWorld([car], true, false);
+          for (let f = 0; f < 150; f++) tickWorld(w);
+          const where = `yaw ${yawDeg}° z ${z}`;
+          if (yawDeg === 0 && z === 0) assert.equal(w.ejections.length, 1, `${where}: the square hit throws the driver`);
+          for (const e of w.ejections) {
+            assert.equal(e.exit, "windshield", `${where}: thrown out of the ${e.exit}`);
+            const out = ejectionVelocity(e, new THREE.Vector3());
+            assert.ok(Math.abs(out.z) <= out.x * lateral, `${where}: launched ${out.toArray().map((x) => x.toFixed(1))} m/s, ${((Math.atan2(Math.abs(out.z), out.x) * 180) / Math.PI).toFixed(1)}° off the run-up`);
+          }
+          car.dispose();
+        }
+      }
+    });
+  }
 });

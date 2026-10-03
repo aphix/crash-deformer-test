@@ -29,6 +29,13 @@ export const TYRE_R = 0.32;
 export const WHEEL_DIAMETER = 2 * TYRE_R;
 /** Throttle input this recent (s) still counts as "under power" for the settle rule. */
 export const POWER_HOLD = 0.1;
+/**
+ * How long (s) after its last contact a hit can still pack the engine block: the springback of the crumple (a derby kill
+ * measured up to 0.3 s after its last contact). Past it the block's drift in the frame is the frame's: a wreck whose frame
+ * lies on the ground's plane (`measurePose`) turns about the ground while its masses stay, and across a crest the cabin 0.55 m up
+ * read 0.1 m "back" and killed the engine of a car hit softly 30 s before.
+ */
+const PACK_QUIET = 0.35;
 /** Height (m) a planted hub's centre stands over the ground under it (`groundMasses`): its sphere's radius, 4 cm short of the tyre's. */
 export const HUB_FLOOR = 0.28;
 /** A hub this close (m) above its `HUB_FLOOR` still slides on the ground (dragGround). */
@@ -233,7 +240,7 @@ export abstract class DeformState extends DeformHit {
    * on the cell); the cell's own capped wobble in that frame is not block travel.
    */
   updateDrivetrain(): void {
-    if (!this.drivetrainAlive || !this.massActive) return;
+    if (!this.drivetrainAlive || !this.massActive || this.quietTime() > PACK_QUIET) return;
     const el = this.at.engineL;
     const er = this.at.engineR;
     // Only the block's travel along the car toward the cabin packs it into the firewall (measured along
