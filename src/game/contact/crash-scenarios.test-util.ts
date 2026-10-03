@@ -410,7 +410,7 @@ export type WallApproach = "front" | "rear" | "side";
 export function runWall(speedKph: number, overlap = 1, approach: WallApproach = "front", opts: WallOpts = {}): CrashResult {
   const v = speedKph / 3.6;
   const car = opts.car ?? makeCar(opts.mode, opts.squash, opts.buckle);
-  const z = approach === "front" && overlap < 1 ? BARRIER_HALF.z + 0.88 * (1 - 2 * overlap) : 0;
+  const z = approach !== "side" && overlap < 1 ? BARRIER_HALF.z + 0.88 * (1 - 2 * overlap) : 0;
   const yaw = approach === "front" ? -Math.PI / 2 : approach === "rear" ? Math.PI / 2 : 0;
   if (car.crashed) {
     // Struck end 0.5 m off the face: a wreck coasting in from the spawn mark bleeds most of `v`.

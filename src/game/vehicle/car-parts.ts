@@ -2,9 +2,11 @@ import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { applyGroundFriction, CRASH } from "../deform/physics-util.ts";
 import { DOOR } from "./car-mesh.ts";
-import { getCrackMap } from "./car-materials.ts";
+import { getCrackMap, LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
+import { layFlat, makeShell, poseShell, recentre, setPrimer } from "./car-panels.ts";
+import { applyDents, DENT_MIN_DV, recordDent, type DentState } from "./loose-dent.ts";
 import {
   CarCore,
   BUMPER_TEAR_MPS,
@@ -32,6 +34,9 @@ const _n = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
+const _dv = new THREE.Vector3();
+const _v0 = new THREE.Vector3();
+const _c = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
  * door's. Measured over the standard crashes (docs/RIG_ANALYSIS.md, glass): an unloaded pane reads ≤ 0.04, a loaded
@@ -48,11 +53,30 @@ const GLASS_LAMINATED = 0.25;
 const BAR_TEAR_SINK = 0.12;
 const BAR_TEAR_MPS = 60 / 3.6;
 const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
-/** Netplay part slots: the most parts any style has (8, plus the police light bar), so every car shares one layout. */
-const PART_SLOTS = 9;
+/** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
+const PART_SLOTS = 15;
+/**
+ * Quarter panels and arch flares hinge by the crush under them, `(crush - on) / range`, and tear off once the hinge value
+ * passes `PANEL_TEAR` on a hit this fast (EBS). Tuned on the walls (docs/RIG_ANALYSIS.md, body panels): the rear wing sensor peaks
+ * 0.06 / 0.23 / 0.47 m on a 30 % offset rear hit at 40 / 56 / 80 km/h, the front one 0.57 / 0.92 / 1.0 m on an offset front hit
+ * and 0.29 / 0.78 m on the side wall at 40 / 56.
+ */
+const PANEL_HINGE = { quarter: { on: 0.05, range: 0.45 }, arch: { on: 0.15, range: 0.5 } } as const;
+const PANEL_TEAR = 0.8;
+const PANEL_TEAR_MPS = 50 / 3.6;
+/** A panel's shell stands from this hinge value. */
+const PANEL_OPEN = 0.03;
+/** A torn sheet rests this high (m, its centre) and at most this many of a car's torn shells are drawn: the oldest vanish (each is a draw). */
+const PANEL_FLOOR = 0.03;
+const LIVE_SHELLS = 2;
+/** The light bar's tilt on its far mount at full load (rad). */
+const BAR_ROLL = 0.5;
+/** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
+const BUMPER_ROLL = 0.6;
+const BUMPER_SAG = 0.06;
 
 /** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt; none past the fleet disc's rim. */
-function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce): void {
+function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce, dent?: DentState): void {
   p.velocity.y -= 9.6 * dt;
   p.object.position.addScaledVector(p.velocity, dt);
   const spin = p.angular.length();
@@ -62,14 +86,22 @@ function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce
     p.object.quaternion.premultiply(_qSpin);
   }
   p.angular.multiplyScalar(Math.pow(0.72, dt));
+  if (dent) _v0.copy(p.velocity);
   bounce?.(p.object.position, p.velocity, Math.min(0.22, p.radius * 0.45));
   const q = p.object.position;
-  if (activeGround().heightAt(q.x, q.z, q.y) === NO_FLOOR) return;
-  if (p.object.position.y < floor) {
-    p.object.position.y = floor;
+  const grounded = activeGround().heightAt(q.x, q.z, q.y) !== NO_FLOOR;
+  if (grounded && q.y < floor) {
+    q.y = floor;
     if (p.velocity.y < 0) p.velocity.y *= -0.28;
   }
-  if (p.object.position.y <= floor + GROUND_BAND) {
+  if (dent) {
+    // A settled part's tiny velocity change never reaches recordDent.
+    const dx = p.velocity.x - _v0.x;
+    const dy = p.velocity.y - _v0.y;
+    const dz = p.velocity.z - _v0.z;
+    if (dx * dx + dy * dy + dz * dz >= DENT_MIN_DV * DENT_MIN_DV) recordDent(dent, p.object, _dv.set(dx, dy, dz));
+  }
+  if (grounded && q.y <= floor + GROUND_BAND) {
     // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
     // band keeps the millimetre hops of the bounce in contact at any frame rate.
     const slide = Math.hypot(p.velocity.x, p.velocity.z);
@@ -85,6 +117,8 @@ const GROUND_BAND = 0.005;
  * loose parts and wheels, and their netplay state.
  */
 export abstract class CarParts extends CarCore {
+  /** The car's torn shells, oldest first. */
+  private readonly liveShells: DetachPart[] = [];
   protected syncAttachedParts(dt: number): void {
     const ix = this.deform.impactInward.x;
     const iz = this.deform.impactInward.z;
@@ -105,10 +139,13 @@ export abstract class CarParts extends CarCore {
         const endOn = !this.deform.bidirectional && Math.abs(ix) <= Math.abs(iz);
         if (onHit) target = open;
         else if (endOn && (crush > 0.16 || local > 0.12)) target = Math.min(open, DOOR_AJAR);
+      } else if (p.hinge === "bar") {
+        target = Math.min(this.barLoad(), 0.95);
       } else if (onHit) {
         if (p.hinge === "two-point") target = THREE.MathUtils.clamp((crush - 0.04) / 0.55, 0, 1);
         else if (p.hinge === "cowl") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
         else if (p.hinge === "tail") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
+        else if (p.region) target = THREE.MathUtils.clamp((crush - PANEL_HINGE[p.region.kind].on) / PANEL_HINGE[p.region.kind].range, 0, 1);
       }
       p.hingeT = Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012)));
       this.posePart(p);
@@ -130,6 +167,15 @@ export abstract class CarParts extends CarCore {
         p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
         const span = Math.abs(fl.z - (p.name === "bumperF" ? 2.06 : -2.06));
         p.object.scale.set(1 + t * 0.04, Math.max(0.45, 1 - t * 0.28), Math.max(0.18, 1 - span * 0.45));
+        // Hangs by the corner that took less: rolls about it, the struck end drops.
+        const left = this.deform.sensorCompression(p.attachL);
+        const right = this.deform.sensorCompression(p.attachR);
+        const asym = THREE.MathUtils.clamp((left - right) / Math.max(left, right, 0.05), -1, 1);
+        const roll = t * BUMPER_ROLL * asym;
+        const px = (asym < 0 ? -0.6 : 0.6) * p.object.scale.x;
+        p.object.rotation.z = roll;
+        p.object.position.x += px * (1 - Math.cos(roll));
+        p.object.position.y -= px * Math.sin(roll) + t * BUMPER_SAG;
       } else {
         p.folding = t > 0.08;
         const side = p.name === "mirrorL" ? -1 : 1;
@@ -158,6 +204,19 @@ export abstract class CarParts extends CarCore {
       // Keep the door's bottom off the ground (not where there is none: off the fleet disc's rim).
       const g = p.object.getWorldPosition(_doorW);
       if (_box.min.y < 0.04 && activeGround().heightAt(g.x, g.z, g.y) !== NO_FLOOR) p.object.position.y += 0.04 - _box.min.y;
+    } else if (p.hinge === "bar") {
+      p.folding = t > 0.05;
+      // Tilts on its far mount, the struck side dropping.
+      const dir = this.deform.impactInward.x < 0 ? -1 : 1;
+      const roll = dir * t * BAR_ROLL;
+      const px = dir * LIGHT_BAR_FOOT.x;
+      p.object.rotation.z = roll;
+      p.object.position.x += px * (1 - Math.cos(roll));
+      p.object.position.y -= px * Math.sin(roll);
+    } else if (p.region) {
+      p.folding = t > PANEL_OPEN;
+      if (p.folding) this.shellPose(p);
+      else if (p.open) this.closePanel(p);
     }
   }
 
@@ -321,6 +380,7 @@ export abstract class CarParts extends CarCore {
       else if (p.name.startsWith("bumper")) should = p.hingeT > 0.7 && ebs >= BUMPER_TEAR_MPS;
       else if (p.hinge === "cowl" || p.hinge === "tail") should = p.hingeT > 0.78;
       else if (p.hinge === "door") should = p.hingeT > 0.58 && (this.deform.bidirectional || ebs >= DOOR_TEAR_MPS);
+      else if (p.region) should = p.hingeT > PANEL_TEAR && ebs >= PANEL_TEAR_MPS;
       if (should) this.detachPart(p, impulse);
     }
 
@@ -339,16 +399,23 @@ export abstract class CarParts extends CarCore {
 
   /** Hand a part to the world. `push` (car-space m/s on top of the car's velocity) replaces the
    *  crash launch: outward from the body by `impulse`, popped up by `hingeT`. */
-  private detachPart(p: DetachPart, impulse: number, push?: THREE.Vector3): void {
+  protected detachPart(p: DetachPart, impulse: number, push?: THREE.Vector3): void {
     if (p.detached) return;
     p.detached = true;
     this.group.updateMatrixWorld();
     const wpos = new THREE.Vector3();
     const wquat = new THREE.Quaternion();
+    if (p.region) this.openPanel(p);
     p.object.getWorldPosition(wpos);
     p.object.getWorldQuaternion(wquat);
+    if (p.region) {
+      // The shell tumbles about its middle, not the rest origin.
+      recentre((p.object as THREE.Mesh).geometry, _c);
+      wpos.add(_c.applyQuaternion(wquat));
+    }
     this.group.remove(p.object);
     this.world.add(p.object);
+    if (p.region) this.trackShell(p);
     p.object.position.copy(wpos);
     p.object.quaternion.copy(wquat);
     if (push) {
@@ -363,14 +430,59 @@ export abstract class CarParts extends CarCore {
       p.object.position.addScaledVector(_p, 0.14);
       p.object.position.y += 0.08;
     }
-    p.angular.set(
-      (Math.random() - 0.5) * 6,
-      (Math.random() - 0.5) * 5,
-      (Math.random() - 0.5) * 6,
-    );
+    // A fixed hash of the part and the hit, not Math.random: a replay throws it the same way, so its dents land the same.
+    const hash = (k: number): number => {
+      const s = Math.sin((this.parts.indexOf(p) + 1) * 12.9898 + k * 78.233 + impulse * 0.37) * 43758.5453;
+      return s - Math.floor(s) - 0.5;
+    };
+    p.angular.set(hash(1) * 6, hash(2) * 5, hash(3) * 6);
     if (p.hinge === "door") p.angular.y += (p.name === "doorL" ? -1 : 1) * (3.2 + p.hingeT * 2.4);
     else if (p.hinge === "cowl") p.angular.x -= 3.4;
     else if (p.hinge === "tail") p.angular.x += 3.4;
+  }
+
+  /** 0 to 1 and over: how near the roof's sinking, or a hit this fast, is to shearing the light bar's mounts (`evaluateBreakage` tears it at 1). */
+  private barLoad(): number {
+    return Math.max((ROOF_REST_Y - this.deform.massLocal("roof").y) / BAR_TEAR_SINK, this.deform.hitSpeedValue / BAR_TEAR_MPS);
+  }
+
+  /** A panel's shell, built if need be and bent to its hinge value on the current skin. */
+  protected shellPose(p: DetachPart): void {
+    this.openPanel(p);
+    poseShell(p.region!, (p.object as THREE.Mesh).geometry, this.body.geometry, p.hingeT, Math.sin(this.deform.crushElapsed * 22));
+  }
+
+  /** Netplay client: the host tore this panel off. Its shell as it hung (on this client's skin), centred as the host's is; the host's pose follows. */
+  protected tearPanel(p: DetachPart): void {
+    this.shellPose(p);
+    recentre((p.object as THREE.Mesh).geometry, _c);
+    this.trackShell(p);
+  }
+
+  /** A torn shell counts against the car's cap: past `LIVE_SHELLS` the oldest stops being drawn. */
+  private trackShell(p: DetachPart): void {
+    this.liveShells.push(p);
+    if (this.liveShells.length > LIVE_SHELLS) this.liveShells.shift()!.object.visible = false;
+  }
+
+  /** First hinge or tear: the panel's shell joins the car and its patch of body turns to primer. */
+  protected openPanel(p: DetachPart): void {
+    if (p.open) return;
+    p.open = true;
+    const mesh = p.object as THREE.Mesh;
+    if (!mesh.geometry.getAttribute("position")) mesh.geometry = makeShell(p.region!, this.body.geometry);
+    setPrimer(p.region!, this.body.geometry, true);
+    this.group.add(mesh);
+  }
+
+  /** The panel is back on the car (reset): the shell leaves the scene and the body is paint again. */
+  protected closePanel(p: DetachPart): void {
+    p.open = false;
+    p.object.visible = true;
+    p.object.removeFromParent();
+    const at = this.liveShells.indexOf(p);
+    if (at >= 0) this.liveShells.splice(at, 1);
+    setPrimer(p.region!, this.body.geometry, false);
   }
 
   private shatterGlass(g: GlassPane): void {
@@ -404,7 +516,12 @@ export abstract class CarParts extends CarCore {
   }
 
   protected stepLooseParts(dt: number, bounce?: WorldBounce): void {
-    for (const p of this.parts) if (p.detached) stepLoose(p, dt, 0.12, bounce);
+    for (const p of this.parts) {
+      if (!p.detached) continue;
+      stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
+      if (p.region && p.object.position.y < 0.3) layFlat(p.object, dt);
+      if (this.cosmetic) applyDents(p.dent, p.object);
+    }
     for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
   }
 

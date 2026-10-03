@@ -245,6 +245,32 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     assert.ok(maxDiff(hv, client.body.geometry.getAttribute("position").array) < 0.002);
   });
 
+  it("carries a torn body panel and a hinged one: the client shows the same hole, shell and loose pose, and the next wreck clears them", () => {
+    type Row = { name: string; detached: boolean; hingeT: number; pos: { x: number; y: number; z: number } };
+    const panels = (c: DeformableCar) => (c.snapshot().parts as Row[]).filter((p) => /^(quarter|arch)/.test(p.name));
+    const primer = (c: DeformableCar) => (c.body.geometry.getAttribute("primer").array as Float32Array).reduce((a, b) => a + b, 0);
+    const host = makeCar();
+    runWall(80, 0.3, "rear", { car: host, after: 1.5 });
+    const client = apply(makeCar(), wire(host));
+    const h = panels(host);
+    const c = panels(client);
+    assert.equal(h.filter((p) => p.detached).length, 1, "the 80 km/h rear corner hit tears one quarter panel");
+    assert.ok(h.some((p) => !p.detached && p.hingeT > 0.1), "and hinges another panel");
+    h.forEach((p, i) => {
+      assert.equal(c[i]!.detached, p.detached, `${p.name} torn on the client`);
+      assert.ok(Math.abs(c[i]!.hingeT - p.hingeT) < 1e-3, `${p.name} hinge ${c[i]!.hingeT} vs ${p.hingeT}`);
+      if (p.detached) assert.ok(Math.hypot(c[i]!.pos.x - p.pos.x, c[i]!.pos.y - p.pos.y, c[i]!.pos.z - p.pos.z) < 1e-3, `${p.name} lies where the host's does`);
+    });
+    assert.ok(primer(host) > 20 && Math.abs(primer(client) - primer(host)) < 0.5, `primer under the panels: host ${primer(host)}, client ${primer(client)}`);
+
+    host.resetVisual();
+    host.crashed = false;
+    runWall(24, 1, "front", { car: host, after: 1 });
+    apply(client, wire(host));
+    assert.ok(panels(client).every((p) => !p.detached && p.hingeT === 0), "the next wreck has every panel on, flat");
+    assert.equal(primer(client), 0);
+  });
+
   it("puts a torn-off wheel where the host's lies, and the client never throws one itself", () => {
     const host = makeCar();
     runWall(40, 1, "front", { car: host, after: 0.5 });

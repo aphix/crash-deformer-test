@@ -126,20 +126,41 @@ function capHighlights<T extends THREE.MeshStandardMaterial>(m: T): T {
   return m;
 }
 
+/**
+ * Per-vertex primer on the paint: a `primer` attribute (0 on any mesh without one) darkens the paint toward bare primer. A torn body
+ * panel's under-panel is the body's own triangles turned dark this way, so it costs no draw. Wraps `capHighlights`' compile hook.
+ */
+function withPrimer<T extends THREE.MeshStandardMaterial>(m: T): T {
+  const cap = m.onBeforeCompile;
+  m.onBeforeCompile = (shader, renderer) => {
+    cap.call(m, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float primer;\nvarying float vPrimer;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPrimer = primer;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vPrimer;")
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - 0.93 * vPrimer;");
+  };
+  m.customProgramCacheKey = () => "car-paint-primer";
+  return m;
+}
+
 export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
   const maps = typeof document === "undefined" ? { map: null, roughness: null } : makePaintMaps();
-  return capHighlights(
-    new THREE.MeshPhysicalMaterial({
-      color,
-      map: maps.map ?? undefined,
-      roughnessMap: maps.roughness ?? undefined,
-      metalness: 0.2,
-      roughness: 0.42,
-      clearcoat: 0.72,
-      clearcoatRoughness: 0.24,
-      envMapIntensity: 0.9,
-      side: THREE.FrontSide,
-    }),
+  return withPrimer(
+    capHighlights(
+      new THREE.MeshPhysicalMaterial({
+        color,
+        map: maps.map ?? undefined,
+        roughnessMap: maps.roughness ?? undefined,
+        metalness: 0.2,
+        roughness: 0.42,
+        clearcoat: 0.72,
+        clearcoatRoughness: 0.24,
+        envMapIntensity: 0.9,
+        side: THREE.FrontSide,
+      }),
+    ),
   );
 }
 
