@@ -114,6 +114,37 @@ function onFloor(x: number, z: number): boolean {
   return s >= 0 && s <= CORKSCREW.len && Math.abs(_su[1]) <= CORKSCREW.halfW;
 }
 
+/**
+ * The channel (floor and both walls) as one triangle mesh, a section every `step` m along the run: what the ragdoll
+ * dummies collide with. Sections hold the floor's left and right edge and the top of each wall (4 vertices each).
+ */
+export function corkscrewMesh(step: number): { vertices: Float32Array; indices: Uint32Array } {
+  const n = Math.round(CORKSCREW.len / step) + 1;
+  const vertices = new Float32Array(n * 12);
+  const indices = new Uint32Array((n - 1) * 18);
+  for (let i = 0; i < n; i++) {
+    const s = Math.min(CORKSCREW.len, i * step);
+    frame(s, _b, _n, _t);
+    centre(s, _c);
+    let o = i * 12;
+    for (const side of [-1, 1]) {
+      _p.copy(_c).addScaledVector(_b, side * CORKSCREW.halfW);
+      vertices.set([_p.x, _p.y, _p.z], o);
+      _p.addScaledVector(_n, CORKSCREW.wallH);
+      vertices.set([_p.x, _p.y, _p.z], o + 3);
+      o += 6;
+    }
+  }
+  // Floor (vertices 0, 2 of a section), then each wall (0, 1 and 2, 3): two triangles per quad.
+  let k = 0;
+  for (let i = 0; i < n - 1; i++) {
+    const a = i * 4;
+    const b = a + 4;
+    for (const [p, q] of [[0, 2], [0, 1], [2, 3]] as const) indices.set([a + p, a + q, b + p, b + p, a + q, b + q], (k += 6) - 6);
+  }
+  return { vertices, indices };
+}
+
 export class Corkscrew implements Ground {
   readonly group = new THREE.Group();
 

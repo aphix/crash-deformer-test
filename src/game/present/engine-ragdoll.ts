@@ -26,6 +26,7 @@ import { activeGround } from "../world/ground.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
+import type { Placed } from "../world/placements.ts";
 import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
@@ -33,7 +34,8 @@ import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
 import { AIR_ANGULAR, AIR_LINEAR, ARM, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
-import { groundColliders } from "./ragdoll-ground.ts";
+import { groundColliders, type Pole } from "./ragdoll-ground.ts";
+import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
@@ -171,8 +173,12 @@ const HIT_DV = 4;
 const GROUND_REACH = 0.45;
 
 export class RagdollSystem {
-  /** The race course whose walls a throw collides with, while its ground is the active one (set by the engine). */
-  course: Track | null = null;
+  /** The sandbox's lamp posts: the standing ones are fixed colliders in the run's statics (set by the engine). */
+  poles: readonly Pole[] = [];
+  /** The race course whose walls and solids a throw collides with, while its ground is the active one (`setCourse`). */
+  private course: { track: Track; placed: readonly Placed[]; knocked: (prop: number) => boolean } | null = null;
+  /** The course's `courseSolids`, built at its first throw. */
+  private solids: readonly Solid[] | null = null;
   /** The flat ground is the range's sand pit (`SAND`), read when a run's first throw builds it (set by the engine). */
   sand = false;
   private readonly watch = new EjectionWatch();
@@ -192,10 +198,7 @@ export class RagdollSystem {
   /** Throws judged before Rapier was in (`PENDING_MAX`). */
   private readonly pending: Throw[] = [];
   private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false };
-  /**
-   * Fixed colliders every dummy shares off a course (the pad or the disc, the derby bowl wall), built at the run's
-   * first throw. Rapier's step allocates per collider (RapierEval: 0.31 KB each), so they are not built per dummy.
-   */
+  /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, bowl wall, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
   private disposed = false;
   private cars: readonly DeformableCar[] = [];
@@ -448,7 +451,8 @@ export class RagdollSystem {
     }
     if (d.ground) return;
     const t = d.bodies[0]!.translation();
-    const g = activeGround().heightAt(t.x, t.z);
+    // At his own height: under a bridge the road is his ground, not the deck over him.
+    const g = activeGround().heightAt(t.x, t.z, t.y);
     if (t.y - (Number.isFinite(g) ? g : 0) >= GROUND_REACH) return;
     d.ground = true;
     for (const body of d.bodies) {
@@ -731,7 +735,7 @@ export class RagdollSystem {
       b.wakeUp();
     }
     const speed = Math.hypot(t.v.x, t.v.z);
-    this.buildPatch(d, t.p.x + (speed > 0.5 ? (t.v.x / speed) * PATCH_AHEAD : 0), t.p.z + (speed > 0.5 ? (t.v.z / speed) * PATCH_AHEAD : 0));
+    this.buildPatch(d, t.p.x + (speed > 0.5 ? (t.v.x / speed) * PATCH_AHEAD : 0), t.p.z + (speed > 0.5 ? (t.v.z / speed) * PATCH_AHEAD : 0), t.p.y);
     d.live = true;
     d.age = 0;
     d.still = 0;
@@ -760,11 +764,20 @@ export class RagdollSystem {
     if (this.sandbox) this.onThrow(t.car);
   }
 
-  /** The ground under a throw (`groundColliders`): built once for the flat pad or the disc, per dummy on a course. */
-  private buildPatch(d: Doll, cx: number, cz: number): void {
-    const onCourse = this.course !== null && activeGround() === this.course.ground();
+  /** The course a throw collides with (`knocked(i)`: placed prop `i` is off its spot). Its solids are built at the first throw on it, as recipes: Rapier colliders live only from a throw to its despawn. */
+  setCourse(track: Track, placed: readonly Placed[], knocked: (prop: number) => boolean): void {
+    this.course = { track, placed, knocked };
+    this.solids = null;
+  }
+
+  /** The ground under a throw (`groundColliders`): built once for the pad, the disc or the corkscrew, per dummy on a course. */
+  private buildPatch(d: Doll, cx: number, cz: number, y: number): void {
+    const c = this.course;
+    const onCourse = c !== null && activeGround() === c.track.ground();
     if (!onCourse && this.statics.length > 0) return;
-    (onCourse ? d.patch : this.statics).push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, this.course, onCourse, this.sand, this.bowlR, cx, cz));
+    if (c && onCourse) this.solids ??= courseSolids(c.track, c.placed);
+    const course = c && onCourse ? { track: c.track, solids: this.solids!, knocked: c.knocked } : null;
+    (onCourse ? d.patch : this.statics).push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, course, this.sand, this.bowlR, this.poles, cx, cz, y));
   }
 
   private despawn(s: number): void {
