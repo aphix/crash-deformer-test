@@ -20,9 +20,9 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 import * as THREE from "three";
-import type { Collider, ColliderDesc, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/ground.ts";
+import { activeGround } from "../world/ground.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
@@ -32,6 +32,8 @@ import { DummyMesh } from "./ragdoll-mesh.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
+import { AIR_ANGULAR, AIR_LINEAR, ARM, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
+import { groundColliders } from "./ragdoll-ground.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
@@ -40,12 +42,8 @@ const LIFE = 10;
 /** Seconds after the throw the dummy ignores its own car and the other dummies (the collision groups below): it
  *  starts inside its own cabin, over its own lower box. */
 const GRACE = 0.35;
-/** Course ground patch around a throw: cells per side and cell size (m), 96 m across, centred `PATCH_AHEAD` m down the throw. */
-const PATCH_N = 48;
-const PATCH_CELL = 2;
+/** Metres down the throw that a course ground patch (`groundColliders`) is centred. */
 const PATCH_AHEAD = 24;
-/** Half-size (m) of the sandbox's flat pad collider: past any spot a car reaches. */
-const FLAT_HALF = 1000;
 /** Throw on top of the car's pre-hit velocity (m/s): out through the pane, and up. Arcade, set by eye. */
 const THROW_OUT = 3;
 const THROW_UP = 3.5;
@@ -53,11 +51,6 @@ const TUMBLE = 3;
 const GRAVITY = 9.6;
 /** Dummy friction against anything (the lower of the pair counts): low, so it slides a good way (owner, 2026-10-02). */
 const SLIDE = 0.12;
-/** Derby bowl wall: `derby-arena.ts`'s 28 slabs, 1.15 m high, 0.42 m thick at the 16.4 m bowl. */
-const BOWL_SEGMENTS = 28;
-const BOWL_H = 1.15;
-const BOWL_T = 0.42;
-const BOWL_R0 = 16.4;
 /** Jersey barrier height (m): the barrier-block prefab's art. */
 const BARRIER_H = 0.81;
 /** Ride-along camera: seconds a dummy lies still before it lets go (`RideCam` places the shots). */
@@ -78,54 +71,20 @@ const REST_SPEED = 0.4;
  */
 const PENDING_MAX = 1;
 /**
- * The range's sand: friction that wins over the dummy's `SLIDE` (Max rule), so he digs in instead of skating. Lane
- * ragdoll-5's probe with the fleshy losses (`KEEP`): 3 lands him 30.9 m out at the range's 100 km/h (27.6–36.2 over
- * 96–104 km/h); 0.5 landed 34.1 m before them, and skates 89 m with them.
+ * Rapier's step (sim s), the same at any display rate: `update` steps whole `STEP`s out of an accumulator and the draw
+ * blends the last two. It used to step once per frame with that frame's dt, and Rapier warm-starts each contact and
+ * joint with the last step's impulse, which is wrong once dt changes. Lane ragdoll-6's range probe, frames that
+ * varied: landings of 25.6–58.1 m, a joint 43 cm apart and one step gaining 8.4 kJ.
  */
-const SAND = 3;
-
+const STEP = 1 / 120;
+/** Most sim seconds one frame steps: a longer hitch drops the rest instead of spiralling. */
+const MAX_ACC = 0.1;
 /**
- * Dummy parts standing (feet at y = 0): centre, half extents (m). Torso first: the throw places it.
- * A 1.62 m crash-test dummy, about 100 kg at water's density.
+ * Rapier's solver iterations (default 4) and no CCD on the parts: CCD clamps each part to its own time of impact and
+ * tears the joints apart (range probe, 3 render rates: joints up to 11–28 cm apart with it, 0.9 cm without, 8
+ * iterations; 2–3 cm at 4).
  */
-const PARTS = [
-  { c: [0, 1.11, 0], h: [0.18, 0.27, 0.11] },
-  { c: [0, 1.51, 0], h: [0.1, 0.11, 0.11] },
-  { c: [-0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
-  { c: [-0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
-  { c: [0.24, 1.21, 0], h: [0.05, 0.14, 0.05] },
-  { c: [0.24, 0.93, 0], h: [0.05, 0.14, 0.05] },
-  { c: [-0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
-  { c: [-0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
-  { c: [0.09, 0.63, 0], h: [0.075, 0.21, 0.075] },
-  { c: [0.09, 0.21, 0], h: [0.075, 0.21, 0.075] },
-] as const;
-/** Arms (parts 2–5) start raised over the head: the superman dive out of the car. */
-const ARM = (k: number) => k >= 2 && k <= 5;
-const SHOULDER_Y = 1.35;
-/** Spherical joints: parent, child, the joint point standing. Neck, shoulders, elbows, hips, knees. */
-const JOINTS = [
-  [0, 1, 0, 1.39, 0],
-  [0, 2, -0.24, SHOULDER_Y, 0],
-  [2, 3, -0.24, 1.07, 0],
-  [0, 4, 0.24, SHOULDER_Y, 0],
-  [4, 5, 0.24, 1.07, 0],
-  [0, 6, -0.09, 0.84, 0],
-  [6, 7, -0.09, 0.42, 0],
-  [0, 8, 0.09, 0.84, 0],
-  [8, 9, 0.09, 0.42, 0],
-] as const;
-/** Each part's parent across its joint (`JOINTS`), -1 for the torso. */
-const PARENT = PARTS.map((_, k) => JOINTS.find((j) => j[1] === k)?.[0] ?? -1);
-/**
- * Fleshy, not a rigid toy (owner, 2026-10-03): a hit (a part's velocity jumping `HIT_DV` m/s in a frame) keeps only
- * `KEEP` of each part's spin about its joint and of its motion relative to the torso, and no part turns about its
- * joint faster than `JOINT_SPIN` rad/s (Rapier's spherical joints take no limit or motor in JS). Lane ragdoll-5's
- * probe: limb spin p95 4–5 rad/s where it was 77–107 in a T-bone and on the range.
- */
-const HIT_DV = 4;
-const KEEP = 0.5;
-const JOINT_SPIN = 12;
+const ITERATIONS = 8;
 /** Head centre above the torso's: the throw puts the head at the pane. */
 const HEAD_UP = 0.4;
 /** Each car's lower box (car-local, origin on the ground): half extents and centre height at rest; its ends past the bumpers' masses. */
@@ -158,16 +117,22 @@ type Doll = {
   patch: Collider[];
   /** The car he was thrown from. */
   car: number;
-  /** Each part's velocity (xyz) at the end of the last frame: `soften`'s hits. */
-  vel: Float32Array;
+  /** Each part's pose (position xyz, rotation xyzw) after the last step and the one before it: the draw blends them. */
+  prev: Float32Array;
+  cur: Float32Array;
+  /** Touched the ground (`touch`): damped harder from then on. */
+  ground: boolean;
+  /** Lying settled (`calm`): damped harder still. */
+  settled: boolean;
+  /** Sim seconds he has been under `CALM_ENERGY` (`calm`). */
+  calm: number;
 };
 
 /** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver. */
 type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean };
 
 const _q = new THREE.Quaternion();
-/** `soften`'s angular velocities, xyz per part. */
-const _om = new Float32Array(PARTS.length * 3);
+const _qb = new THREE.Quaternion();
 const _qx = new THREE.Quaternion();
 const _arm = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
 const _p = new THREE.Vector3();
@@ -193,6 +158,17 @@ const LEAN = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0),
 function endZ(car: DeformableCar, name: string): number {
   return _e.copy(car.deform.massWorld(name)).sub(car.group.position).dot(_f);
 }
+
+/**
+ * A part whose velocity jumps by this much (m/s) in one step has hit something (gravity adds 0.08 per step): the skin
+ * gives once at its first step (`hits`). Rapier's contact events say the same, but `drainCollisionEvents` passes a JS
+ * closure through the wasm, and Vite's dev server serves the package's glue module twice (the closure's slot is not in
+ * the other copy's table): every step then throws "reading 'memory'" and the dummy never lands (measured in the
+ * browser; a production build has one copy).
+ */
+const HIT_DV = 4;
+/** His torso centre this near (m) the ground: he has touched down (lying, it rests at 0.1–0.3 m; thrown, it is over 0.5 m). */
+const GROUND_REACH = 0.45;
 
 export class RagdollSystem {
   /** The race course whose walls a throw collides with, while its ground is the active one (set by the engine). */
@@ -229,6 +205,14 @@ export class RagdollSystem {
   private sandbox = true;
   /** The car proxies sat still while no dummy was out: jump them to the cars before the next step. */
   private teleport = false;
+  /** Sim seconds the world has not stepped yet (under `STEP` after each frame), and how far into the next step the draw is. */
+  private acc = 0;
+  private alpha = 0;
+  /** The kinematic proxies (cars, then the barrier): last frame's pose then this frame's, 7 numbers each (position, rotation); which are on. */
+  private readonly aim = new Float32Array((MAX_CARS + 1) * 14);
+  private readonly on = new Uint8Array(MAX_CARS + 1).fill(1);
+  /** Each part's velocity at the end of the last step, and a flag (0 none, 1 hit last step, 3 just spawned), 4 numbers per part per slot: `hits`. */
+  private readonly vel = new Float32Array(SLOTS * PARTS.length * 4);
   private lastSlot = 0;
   /** Ride-along camera: on from `follow` until every dummy out lies still. */
   private riding = false;
@@ -271,6 +255,8 @@ export class RagdollSystem {
     this.R = R;
     const world = new R.World({ x: 0, y: -GRAVITY, z: 0 });
     this.world = world;
+    world.timestep = STEP;
+    world.numSolverIterations = ITERATIONS;
     for (let i = 0; i < MAX_CARS; i++) {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
       // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
@@ -286,7 +272,7 @@ export class RagdollSystem {
     for (let s = 0; s < SLOTS; s++) {
       const bodies = PARTS.map((p) => {
         const body = world.createRigidBody(
-          R.RigidBodyDesc.dynamic().setTranslation(p.c[0], p.c[1] - 200, p.c[2]).setLinearDamping(0.05).setAngularDamping(0.8).setCcdEnabled(true).setEnabled(false),
+          R.RigidBodyDesc.dynamic().setTranslation(p.c[0], p.c[1] - 200, p.c[2]).setLinearDamping(AIR_LINEAR).setAngularDamping(AIR_ANGULAR).setEnabled(false),
         );
         world.createCollider(
           R.ColliderDesc.cuboid(p.h[0], p.h[1], p.h[2])
@@ -306,7 +292,7 @@ export class RagdollSystem {
         const data = R.JointData.spherical({ x: x - pa[0], y: y - pa[1], z: z - pa[2] }, { x: x - pb[0], y: y - pb[1], z: z - pb[2] });
         world.createImpulseJoint(data, bodies[a]!, bodies[b]!, true).setContactsEnabled(false);
       }
-      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, vel: new Float32Array(PARTS.length * 3) });
+      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0 });
     }
     // One step with a dummy out, far below the world: links the step path before a crash needs it.
     const d = this.dolls[0]!;
@@ -319,6 +305,7 @@ export class RagdollSystem {
   reset(): void {
     this.watch.reset();
     this.pending.length = 0;
+    this.acc = 0;
     this.riding = false;
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
     for (const c of this.statics) this.world?.removeCollider(c, false);
@@ -347,14 +334,29 @@ export class RagdollSystem {
     if (this.live === 0) return;
     for (let i = 0; i < MAX_CARS; i++) {
       const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized ? cars[i]! : null;
-      this.follow3(this.carBodies[i]!, car?.group ?? null);
+      this.follow3(i, this.carBodies[i]!, car?.group ?? null);
       if (car) this.fitEnds(i, car);
     }
-    this.follow3(this.barrierBody!, barrier);
+    this.follow3(MAX_CARS, this.barrierBody!, barrier);
     this.teleport = false;
-    const n = Math.max(1, Math.ceil(dt * 60 - 0.01));
-    world.timestep = dt / n;
-    for (let k = 0; k < n; k++) world.step();
+    // Whole `STEP`s out of the accumulator, each proxy a step further along its frame's path.
+    const lead = this.acc;
+    this.acc = Math.min(lead + dt, MAX_ACC);
+    const steps = Math.floor(this.acc / STEP + 1e-6);
+    for (let j = 1; j <= steps; j++) {
+      this.moveProxies(Math.min(1, (j * STEP - lead) / dt));
+      if (j === steps) for (const d of this.dolls) if (d.live) this.capture(d, d.prev);
+      world.step();
+      for (let s = 0; s < SLOTS; s++) {
+        const d = this.dolls[s]!;
+        if (!d.live) continue;
+        this.hits(s, d);
+        limit(d.bodies);
+      }
+    }
+    this.acc = Math.max(0, this.acc - steps * STEP);
+    this.alpha = Math.min(1, this.acc / STEP);
+    if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -365,70 +367,109 @@ export class RagdollSystem {
         this.despawn(s);
         continue;
       }
-      this.soften(d);
       const v = d.bodies[0]!.linvel();
       d.still = Math.hypot(v.x, v.y, v.z) < REST_SPEED ? d.still + dt : 0;
+      this.calm(d, dt);
       for (let k = 0; k < PARTS.length; k++) {
-        const t = d.bodies[k]!.translation();
-        const r = d.bodies[k]!.rotation();
-        this.mesh.pose(s, k, _p.set(t.x, t.y, t.z), _q.set(r.x, r.y, r.z, r.w));
+        this.blend(d, k, _p, _q);
+        this.mesh.pose(s, k, _p, _q);
         if (this.debug.on) this.debug.pose(s, k, _p, _q);
       }
     }
   }
 
+  /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
+  private blend(d: Doll, k: number, p: THREE.Vector3, q: THREE.Quaternion): void {
+    const a = d.prev;
+    const b = d.cur;
+    const o = 7 * k;
+    const t = this.alpha;
+    p.set(a[o]! + (b[o]! - a[o]!) * t, a[o + 1]! + (b[o + 1]! - a[o + 1]!) * t, a[o + 2]! + (b[o + 2]! - a[o + 2]!) * t);
+    q.set(a[o + 3]!, a[o + 4]!, a[o + 5]!, a[o + 6]!).slerp(_qb.set(b[o + 3]!, b[o + 4]!, b[o + 5]!, b[o + 6]!), t);
+  }
+
+  private capture(d: Doll, into: Float32Array): void {
+    for (let k = 0; k < PARTS.length; k++) {
+      const t = d.bodies[k]!.translation();
+      const r = d.bodies[k]!.rotation();
+      const o = 7 * k;
+      into[o] = t.x;
+      into[o + 1] = t.y;
+      into[o + 2] = t.z;
+      into[o + 3] = r.x;
+      into[o + 4] = r.y;
+      into[o + 5] = r.z;
+      into[o + 6] = r.w;
+    }
+  }
+
+  /** Every kinematic proxy `f` of the way along its frame's path (position lerped, rotation slerped). */
+  private moveProxies(f: number): void {
+    const a = this.aim;
+    for (let i = 0; i <= MAX_CARS; i++) {
+      if (!this.on[i]) continue;
+      const o = 14 * i;
+      const body = i < MAX_CARS ? this.carBodies[i]! : this.barrierBody!;
+      _v.x = a[o]! + (a[o + 7]! - a[o]!) * f;
+      _v.y = a[o + 1]! + (a[o + 8]! - a[o + 1]!) * f;
+      _v.z = a[o + 2]! + (a[o + 9]! - a[o + 2]!) * f;
+      _qx.set(a[o + 3]!, a[o + 4]!, a[o + 5]!, a[o + 6]!).slerp(_qb.set(a[o + 10]!, a[o + 11]!, a[o + 12]!, a[o + 13]!), f);
+      _rot.x = _qx.x;
+      _rot.y = _qx.y;
+      _rot.z = _qx.z;
+      _rot.w = _qx.w;
+      body.setNextKinematicTranslation(_v);
+      body.setNextKinematicRotation(_rot);
+    }
+  }
+
   /**
-   * One frame's fleshy losses on dummy `d`: a hit sheds `1 − KEEP` of each part's spin about its joint and of its motion
-   * relative to the torso (his tumble as a whole carries on), and no part turns about its joint past `JOINT_SPIN`.
+   * After a step: a part that has just hit something (`HIT_DV`) gives at each of its joints (`give`), once per hit (a hit
+   * runs a few steps; only its first counts). His torso touching down for the first time damps him harder from then on.
+   * Velocities are recorded after the giving, so its own change is not read as the next hit.
    */
-  private soften(d: Doll): void {
-    let hit = false;
+  private hits(s: number, d: Doll): void {
+    const o = s * PARTS.length * 4;
     for (let k = 0; k < PARTS.length; k++) {
       const v = d.bodies[k]!.linvel();
-      const o = 3 * k;
-      hit ||= Math.hypot(v.x - d.vel[o]!, v.y - d.vel[o + 1]!, v.z - d.vel[o + 2]!) > HIT_DV;
-      d.vel[o] = v.x;
-      d.vel[o + 1] = v.y;
-      d.vel[o + 2] = v.z;
+      const i = o + 4 * k;
+      const fresh = this.vel[i + 3] === 3;
+      const jump = !fresh && Math.hypot(v.x - this.vel[i]!, v.y - this.vel[i + 1]!, v.z - this.vel[i + 2]!) > HIT_DV;
+      if (jump && this.vel[i + 3] === 0) give(d.bodies, k);
+      this.vel[i + 3] = jump ? 1 : 0;
     }
     for (let k = 0; k < PARTS.length; k++) {
-      const b = d.bodies[k]!;
-      const w = b.angvel();
-      const o = 3 * k;
-      let x = w.x;
-      let y = w.y;
-      let z = w.z;
-      // Parents come first (`JOINTS`), so a part is held to its parent's spin as already softened.
-      const p = 3 * PARENT[k]!;
-      if (p >= 0) {
-        const rx = x - _om[p]!;
-        const ry = y - _om[p + 1]!;
-        const rz = z - _om[p + 2]!;
-        const f = Math.min(hit ? KEEP : 1, JOINT_SPIN / (Math.hypot(rx, ry, rz) || 1));
-        if (f < 1) {
-          x = _om[p]! + rx * f;
-          y = _om[p + 1]! + ry * f;
-          z = _om[p + 2]! + rz * f;
-        }
-      }
-      _om[o] = x;
-      _om[o + 1] = y;
-      _om[o + 2] = z;
-      if (x !== w.x || y !== w.y || z !== w.z) {
-        _v.x = x;
-        _v.y = y;
-        _v.z = z;
-        b.setAngvel(_v, true);
-      }
-      if (!hit || k === 0) continue;
-      _v.x = d.vel[0]! + (d.vel[o]! - d.vel[0]!) * KEEP;
-      _v.y = d.vel[1]! + (d.vel[o + 1]! - d.vel[1]!) * KEEP;
-      _v.z = d.vel[2]! + (d.vel[o + 2]! - d.vel[2]!) * KEEP;
-      b.setLinvel(_v, true);
-      d.vel[o] = _v.x;
-      d.vel[o + 1] = _v.y;
-      d.vel[o + 2] = _v.z;
+      const v = d.bodies[k]!.linvel();
+      const i = o + 4 * k;
+      this.vel[i] = v.x;
+      this.vel[i + 1] = v.y;
+      this.vel[i + 2] = v.z;
     }
+    if (d.ground) return;
+    const t = d.bodies[0]!.translation();
+    const g = activeGround().heightAt(t.x, t.z);
+    if (t.y - (Number.isFinite(g) ? g : 0) >= GROUND_REACH) return;
+    d.ground = true;
+    for (const body of d.bodies) {
+      body.setLinearDamping(GROUND_LINEAR);
+      body.setAngularDamping(GROUND_ANGULAR);
+    }
+  }
+
+  /**
+   * A dummy on the ground whose torso has lain still damps hard (`SETTLE_*`), then goes to sleep once his whole body
+   * is calm (Rapier's own thresholds cannot be set from JS).
+   */
+  private calm(d: Doll, dt: number): void {
+    if (d.ground && !d.settled && d.still >= SETTLE_AFTER) {
+      d.settled = true;
+      for (const b of d.bodies) {
+        b.setLinearDamping(SETTLE_LINEAR);
+        b.setAngularDamping(SETTLE_ANGULAR);
+      }
+    }
+    d.calm = d.ground && isCalm(d.bodies) ? d.calm + dt : 0;
+    if (d.calm >= CALM_FOR && !d.bodies[0]!.isSleeping()) for (const b of d.bodies) b.sleep();
   }
 
   /** The ride-along camera is on (`follow` until every dummy out lies still). */
@@ -496,8 +537,7 @@ export class RagdollSystem {
         return "none";
       }
     }
-    const ph = this.dolls[this.primary]!.bodies[1]!.translation();
-    _r.set(ph.x, ph.y, ph.z);
+    this.blend(this.dolls[this.primary]!, 1, _r, _q);
     // The primary and every framed dummy near it: the centre of their heads, pulled back to fit their spread.
     let n = 0;
     let vx = 0;
@@ -506,8 +546,8 @@ export class RagdollSystem {
     const c = f.c.set(0, 0, 0);
     for (const d of this.dolls) {
       if (!this.framed(d, keep)) continue;
-      const h = d.bodies[1]!.translation();
-      if (_r.distanceTo(this.heads[n]!.set(h.x, h.y, h.z)) > CAM_NEAR) continue;
+      this.blend(d, 1, this.heads[n]!, _q);
+      if (_r.distanceTo(this.heads[n]!) > CAM_NEAR) continue;
       const v = d.bodies[0]!.linvel();
       c.add(this.heads[n]!);
       vx += v.x;
@@ -562,20 +602,36 @@ export class RagdollSystem {
   }
 
   /**
-   * Kinematic `body` onto `obj`'s pose (disabled without one, so it costs the step nothing); a jump teleports
-   * instead of flinging dummies.
+   * Kinematic proxy `i` (`body`) onto `obj`'s pose, which `moveProxies` walks it to a step at a time (disabled without
+   * one, so it costs the step nothing); a jump teleports instead of flinging dummies.
    */
-  private follow3(body: RigidBody, obj: THREE.Object3D | null): void {
+  private follow3(i: number, body: RigidBody, obj: THREE.Object3D | null): void {
     if (!obj) {
-      if (body.isEnabled()) body.setEnabled(false);
+      if (this.on[i]) {
+        body.setEnabled(false);
+        this.on[i] = 0;
+      }
       return;
     }
-    if (!body.isEnabled()) {
-      body.setEnabled(true);
-      this.teleport = true;
-    }
+    const a = this.aim;
+    const o = 14 * i;
     const p = obj.position;
     const q = obj.quaternion;
+    const jump = this.teleport || !this.on[i] || Math.abs(a[o + 7]! - p.x) + Math.abs(a[o + 8]! - p.y) + Math.abs(a[o + 9]! - p.z) > 4;
+    if (!this.on[i]) {
+      body.setEnabled(true);
+      this.on[i] = 1;
+    }
+    if (!jump) a.copyWithin(o, o + 7, o + 14);
+    a[o + 7] = p.x;
+    a[o + 8] = p.y;
+    a[o + 9] = p.z;
+    a[o + 10] = q.x;
+    a[o + 11] = q.y;
+    a[o + 12] = q.z;
+    a[o + 13] = q.w;
+    if (!jump) return;
+    a.copyWithin(o, o + 7, o + 14);
     _v.x = p.x;
     _v.y = p.y;
     _v.z = p.z;
@@ -583,14 +639,8 @@ export class RagdollSystem {
     _rot.y = q.y;
     _rot.z = q.z;
     _rot.w = q.w;
-    const t = body.translation();
-    if (this.teleport || Math.abs(t.x - p.x) + Math.abs(t.y - p.y) + Math.abs(t.z - p.z) > 4) {
-      body.setTranslation(_v, false);
-      body.setRotation(_rot, false);
-    } else {
-      body.setNextKinematicTranslation(_v);
-      body.setNextKinematicRotation(_rot);
-    }
+    body.setTranslation(_v, false);
+    body.setRotation(_rot, false);
   }
 
   /**
@@ -660,9 +710,6 @@ export class RagdollSystem {
       _v.y = t.v.y + _s.y;
       _v.z = t.v.z + _s.z;
       b.setLinvel(_v, false);
-      d.vel[3 * k] = _v.x;
-      d.vel[3 * k + 1] = _v.y;
-      d.vel[3 * k + 2] = _v.z;
       _v.x = t.w.x;
       _v.y = t.w.y;
       _v.z = t.w.z;
@@ -677,7 +724,21 @@ export class RagdollSystem {
     d.age = 0;
     d.still = 0;
     d.car = t.car;
+    d.calm = 0;
+    for (let k = 0; k < PARTS.length; k++) this.vel[(slot * PARTS.length + k) * 4 + 3] = 3;
+    if (d.ground) {
+      d.ground = false;
+      d.settled = false;
+      for (const b of d.bodies) {
+        b.setLinearDamping(AIR_LINEAR);
+        b.setAngularDamping(AIR_ANGULAR);
+      }
+    }
+    this.capture(d, d.prev);
+    d.cur.set(d.prev);
     this.mesh.dress(slot, t.cop);
+    // The first dummy out starts the stepping afresh: no leftover from an earlier throw shifts this one's first step.
+    if (this.live === 0) this.acc = 0;
     this.teleport ||= this.live === 0;
     this.live++;
     this.lastSlot = slot;
@@ -687,79 +748,11 @@ export class RagdollSystem {
     if (this.sandbox) this.onThrow(t.car);
   }
 
-  /** The ground under a throw (the flat pad, the fleet disc, or a course heightfield patch) and the walls on it. */
+  /** The ground under a throw (`groundColliders`): built once for the flat pad or the disc, per dummy on a course. */
   private buildPatch(d: Doll, cx: number, cz: number): void {
-    const R = this.R!;
-    const world = this.world!;
-    const ground = activeGround();
-    const onCourse = this.course !== null && ground === this.course.ground();
+    const onCourse = this.course !== null && activeGround() === this.course.ground();
     if (!onCourse && this.statics.length > 0) return;
-    const into = onCourse ? d.patch : this.statics;
-    const add = (desc: ColliderDesc, friction = 0.9) => into.push(world.createCollider(desc.setFriction(friction).setCollisionGroups(FIXED_GROUPS)));
-    const size = PATCH_N * PATCH_CELL;
-    if (ground === FLAT_GROUND) {
-      const rule = this.sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average;
-      add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0).setFrictionCombineRule(rule), this.sand ? SAND : 0.9);
-    } else if (ground === DISC_GROUND) add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
-    else {
-      const n = PATCH_N;
-      const heights = new Float32Array((n + 1) * (n + 1));
-      for (let ix = 0; ix <= n; ix++) {
-        for (let iz = 0; iz <= n; iz++) {
-          const y = ground.heightAt(cx - size / 2 + ix * PATCH_CELL, cz - size / 2 + iz * PATCH_CELL);
-          // Rapier's heightfield: rows run along z, columns along x.
-          heights[iz + ix * (n + 1)] = Number.isFinite(y) ? y : -40;
-        }
-      }
-      add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }).setTranslation(cx, 0, cz));
-    }
-    // Off a course every wall is built (the bowl's are all within reach of any throw in it); on one, those near it.
-    const reach = onCourse ? size / 2 : Infinity;
-    const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number) => {
-      const mx = (ax + bx) / 2;
-      const mz = (az + bz) / 2;
-      if (Math.hypot(mx - cx, mz - cz) > reach) return;
-      const len = Math.hypot(bx - ax, bz - az);
-      if (len < 1e-3) return;
-      const y = ground.heightAt(mx, mz);
-      const base = Number.isFinite(y) ? y : 0;
-      // Box long axis along the segment, its inner face on the line (`out`: the outward normal's sign).
-      const nx = ((bz - az) / len) * out;
-      const nz = (-(bx - ax) / len) * out;
-      _q.setFromAxisAngle(_r.set(0, 1, 0), Math.atan2(bx - ax, bz - az));
-      add(
-        R.ColliderDesc.cuboid(t / 2, h / 2, len / 2 + 0.05)
-          .setTranslation(mx + (nx * t) / 2, base + h / 2, mz + (nz * t) / 2)
-          .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }),
-      );
-    };
-    if (this.bowlR > 0) {
-      const scale = this.bowlR / BOWL_R0;
-      const r = this.bowlR - (BOWL_T * scale) / 2;
-      for (let k = 0; k < BOWL_SEGMENTS; k++) {
-        const a0 = (k / BOWL_SEGMENTS) * Math.PI * 2;
-        const a1 = ((k + 1) / BOWL_SEGMENTS) * Math.PI * 2;
-        wall(Math.sin(a0) * r, Math.cos(a0) * r, Math.sin(a1) * r, Math.cos(a1) * r, BOWL_H, BOWL_T * scale, -1);
-      }
-    }
-    const track = this.course;
-    if (track && onCourse) {
-      const wallH = track.json.road.wallHeight;
-      for (const p of track.paths()) {
-        const segs = p.closed ? p.count : p.count - 1;
-        for (let k = 0; k < segs; k++) {
-          const b = (k + 1) % p.count;
-          if (Math.hypot(p.x[k]! - cx, p.z[k]! - cz) > reach + 10) continue;
-          // Left of travel = (tz, −tx); a wall stands half + run out on each flagged side.
-          for (const side of [1, -1]) {
-            if (!(side > 0 ? p.wallL[k] : p.wallR[k])) continue;
-            const la = side * (p.half[k]! + (side > 0 ? p.runL[k]! : p.runR[k]!));
-            const lb = side * (p.half[b]! + (side > 0 ? p.runL[b]! : p.runR[b]!));
-            wall(p.x[k]! + p.tz[k]! * la, p.z[k]! - p.tx[k]! * la, p.x[b]! + p.tz[b]! * lb, p.z[b]! - p.tx[b]! * lb, wallH, 0.4, side);
-          }
-        }
-      }
-    }
+    (onCourse ? d.patch : this.statics).push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, this.course, onCourse, this.sand, this.bowlR, cx, cz));
   }
 
   private despawn(s: number): void {

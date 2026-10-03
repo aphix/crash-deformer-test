@@ -287,6 +287,9 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     for (let f = 0; f < 900 && riding < 480; f++) {
       tickWorld(w);
       ragdolls.update(FRAME, cars, true, true, 0, null);
+      // The settled dummy lies still ~2.5 s after landing, so the ride ends before the trackside turn: keep him
+      // "moving" so it runs through every shot change.
+      for (const d of ragdolls["dolls"]) if (d.live) d.still = 0;
       if (!ragdolls.rideAlong) continue;
       if (ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight) === "none") break;
       camera.getWorldDirection(dir);
@@ -303,10 +306,8 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
       riding++;
     }
     ragdolls.dispose();
-    // 5 s of ride. (300+ before the wheel-loss gate: this 94 km/h head-on now takes both front wheels off both cars, and the
-    // dummies' flight ends a frame sooner, 299.)
-    assert.ok(riding > 280, `rode ${riding} frames`);
-    assert.deepEqual([...shots].slice(0, 2), ["glass", "follow"], "opens on the windshield, then follows");
+    assert.ok(riding > 300, `rode ${riding} frames`);
+    assert.deepEqual([...shots].slice(0, 3), ["glass", "follow", "trackside"], "opens on the windshield, follows, then the trackside turn");
     assert.deepEqual(jumps, []);
     assert.ok(maxTurn < 4 * FRAME * 1.1, `turned ${maxTurn.toFixed(3)} rad in one frame`);
   });
@@ -325,7 +326,10 @@ describe("the user's drag holds the ride-along, which then resumes from his view
     // Once `first` lies still, with nobody holding the camera the ride would cut to the other one.
     const frame = (): string => {
       ragdolls.update(FRAME, [], true, true, 0, null);
-      if (first >= 0) ragdolls["dolls"][first]!.still = 9;
+      // The other dummy keeps moving, so the cut has somewhere to go (the settled body lies still within seconds).
+      ragdolls["dolls"].forEach((d, s) => {
+        if (d.live) d.still = s === first ? 9 : 0;
+      });
       return ragdolls.frameCamera(camera, FRAME, false, -1, held, 50, OPEN);
     };
     for (let f = 0; f < 90; f++) frame();
