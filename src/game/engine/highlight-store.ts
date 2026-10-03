@@ -1,5 +1,5 @@
 import { clipTitle, type HighlightClip } from "../match/highlights.ts";
-import type { SavedHud } from "../match/types.ts";
+import type { SavedHud, SaveResult } from "../match/types.ts";
 import { encodeSaved } from "../net/reel-codec.ts";
 
 /** `localStorage` keys: the index (JSON `SavedHud[]`, newest first) and one entry per clip under `CLIP_PREFIX` + key. */
@@ -39,7 +39,7 @@ export function listSaved(): SavedHud[] {
  * Keep `clip` (docs/HIGHLIGHTS.md "Saving"): refused when its text passes `CLIP_MAX_CHARS`, when all saved clips would
  * pass `TOTAL_MAX_CHARS` (nothing is evicted: a saved clip is the player's), or when the browser's quota throws.
  */
-export async function saveClip(clip: HighlightClip, trackName: string): Promise<"saved" | "too big" | "full" | "failed"> {
+export async function saveClip(clip: HighlightClip, trackName: string): Promise<SaveResult> {
   const text = await encodeSaved(clip);
   if (text.length > CLIP_MAX_CHARS) return "too big";
   const index = readIndex();

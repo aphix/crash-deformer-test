@@ -323,6 +323,8 @@ export class CrashRecorder {
     src.sort((a, b) => a.step - b.step);
     const all = makeSnapshot();
     const r = new Reader();
+    // Per clip car: its solver state in the clip's previous keyframe (raw words), the base its next one is XORed on.
+    const prev: (Uint32Array | null)[] = slots.map(() => null);
     const keys = src.map((k) => {
       r.reset(k.bytes);
       readSnapshot(r, all, L);
@@ -343,9 +345,21 @@ export class CrashRecorder {
       const w = new Writer(snapshotMaxBytes(nc, L) + slots.reduce((n, i) => n + 2 + sec[i + 1]! - sec[i]!, 0));
       writeSnapshot(w, { ...all, count: nc, cars: slots.map((i) => all.cars[i]!) }, L);
       for (const d of drift) w.q16(d, Q.fine);
-      for (const i of slots) {
-        w.bytes.set(k.bytes.subarray(sec[i]!, sec[i + 1]!), w.off);
-        w.off += sec[i + 1]! - sec[i]!;
+      for (let j = 0; j < nc; j++) {
+        const body = k.bytes.subarray(sec[slots[j]!]!, sec[slots[j]! + 1]!);
+        const head = FLIGHT * 4 + 2;
+        w.bytes.set(body.subarray(0, head), w.off);
+        w.off += head;
+        // A wreck's solver state XORed word by word on its previous keyframe's (`ClipSim` undoes it): what a wreck
+        // keeps between keyframes (its beams' and clusters' rest, offsets, flags) turns to zeros, which deflate drops.
+        // Measured: the solver state of a 16-car clip deflated 195 KB raw, 72 KB XORed (12 cars: 195 → 113).
+        const raw = new Uint32Array(body.slice(head).buffer);
+        const out = raw.slice();
+        const p = prev[j];
+        if (p && p.length === raw.length) for (let q = 0; q < raw.length; q++) out[q] = out[q]! ^ p[q]!;
+        prev[j] = raw.length > 0 ? raw : null;
+        w.bytes.set(new Uint8Array(out.buffer), w.off);
+        w.off += out.byteLength;
       }
       return w.done().slice();
     });

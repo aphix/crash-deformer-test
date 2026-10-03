@@ -2,13 +2,20 @@ import { useRef } from "react";
 import { Bookmark, BookmarkCheck, Play, Trash2 } from "lucide-react";
 import { NavButton } from "@/components/race-menu-shell";
 import { usePadMenu } from "@/components/use-pad-menu";
-import type { RaceCommand, ReelHud, SavedHud } from "@/game/match/types";
+import type { RaceCommand, ReelHud, SavedHud, SaveResult } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;
 
 /** Highlight row: title and detail line, then its touch-sized actions. */
 const CLIP_ROW = "flex items-center gap-1.5 rounded-md py-1 pl-2 pr-1 shadow-[var(--shadow-border)]";
+
+/** Why a Save was refused (`SaveResult`), on the clip's row. */
+const SAVE_REFUSED: Record<Exclude<SaveResult, "saved">, string> = {
+  "too big": "Not saved: this clip is too big to store",
+  full: "Not saved: saved highlights are full (delete one in race setup)",
+  failed: "Not saved: this browser refused the storage",
+};
 
 /** The results reel's clips (docs/HIGHLIGHTS.md): the one on screen now, watch one alone, keep one in this browser. */
 export function ReelList({ reel, onCommand }: { reel: ReelHud; onCommand: Send }) {
@@ -25,14 +32,19 @@ export function ReelList({ reel, onCommand }: { reel: ReelHud; onCommand: Send }
                 <p className={cn("text-xs tabular-nums", now ? "text-accent-fg" : "text-muted")}>
                   {now ? "Now · " : ""}Score {c.score.toFixed(1)} · {c.cars} {c.cars === 1 ? "car" : "cars"}
                 </p>
+                {c.saved && c.saved !== "saved" ? (
+                  <p role="status" className="text-xs font-semibold">
+                    {SAVE_REFUSED[c.saved]}
+                  </p>
+                ) : null}
               </div>
               <NavButton variant="secondary" className="w-auto px-3" onClick={() => onCommand({ type: "reelView", clip: i })}>
                 <Play />
                 Watch
               </NavButton>
-              <NavButton variant="secondary" className="w-auto px-3" disabled={c.saved} onClick={() => onCommand({ type: "reelSave", clip: i })}>
-                {c.saved ? <BookmarkCheck /> : <Bookmark />}
-                {c.saved ? "Saved" : "Save"}
+              <NavButton variant="secondary" className="w-auto px-3" disabled={c.saved === "saved"} onClick={() => onCommand({ type: "reelSave", clip: i })}>
+                {c.saved === "saved" ? <BookmarkCheck /> : <Bookmark />}
+                {c.saved === "saved" ? "Saved" : "Save"}
               </NavButton>
             </li>
           );

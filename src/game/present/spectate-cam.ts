@@ -117,7 +117,7 @@ const _pt = blankPoint();
 const _near: Occluder[] = [];
 
 /** True when (x, y, z) is within `pad` of a solid. `occ`: the occluders to test (`gather`ed near a sight line). */
-function solid(s: Sight, x: number, y: number, z: number, pad: number, occ: readonly Occluder[] = s.occ): boolean {
+export function solid(s: Sight, x: number, y: number, z: number, pad: number, occ: readonly Occluder[] = s.occ): boolean {
   // In a hill or a road's bed, or in a bridge deck's slab (the surface within `STEP_UP` over the point).
   if (y < s.ground.heightAt(x, z, y + pad) + pad) return true;
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
@@ -159,6 +159,26 @@ function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: n
     if (o.x + r > x0 && o.x - r < x1 && o.z + r > z0 && o.z - r < z1) _near.push(o);
   }
   return _near;
+}
+
+/**
+ * Sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m, each kept half a step clear of every
+ * solid, so the line between two samples can't clip a corner. Returns the samples taken, negated when one was solid.
+ */
+export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const len = Math.hypot(dx, dy, dz);
+  const pad = CINE.step / 2;
+  const occ = gather(s, ax, az, bx, bz, pad);
+  let n = 0;
+  for (let d = CINE.step; d < len - CINE.stop + CINE.step; d += CINE.step) {
+    const f = d / len;
+    n++;
+    if (solid(s, ax + dx * f, ay + dy * f, az + dz * f, pad, occ)) return -n;
+  }
+  return n;
 }
 
 /** Candidate spots per lead distance: two sides × two lateral offsets × the heights. */
@@ -322,23 +342,11 @@ export class CineCam {
     return "none";
   }
 
-  /**
-   * Clear sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m, each kept half a step clear
-   * of every solid, so the line between two samples can't clip a corner.
-   */
+  /** Clear sight from a to b (`sightLine`); the search budget counts its samples. */
   private sees(s: Sight, ax: number, ay: number, az: number, bx: number, by: number, bz: number): boolean {
-    const dx = bx - ax;
-    const dy = by - ay;
-    const dz = bz - az;
-    const len = Math.hypot(dx, dy, dz);
-    const pad = CINE.step / 2;
-    const occ = gather(s, ax, az, bx, bz, pad);
-    for (let d = CINE.step; d < len - CINE.stop + CINE.step; d += CINE.step) {
-      const f = d / len;
-      this.spent++;
-      if (solid(s, ax + dx * f, ay + dy * f, az + dz * f, pad, occ)) return false;
-    }
-    return true;
+    const n = sightLine(s, ax, ay, az, bx, by, bz);
+    this.spent += Math.abs(n);
+    return n >= 0;
   }
 }
 

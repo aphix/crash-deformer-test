@@ -26,7 +26,8 @@ export abstract class EngineReel extends EngineInput {
     const startAt = performance.now() / 1000 + RESULTS_DELAY;
     const current = (): boolean => this.race.active && this.race.phase === "finished";
     void (async () => {
-      const { msg } = await packReel(reel, startAt);
+      const { msg, clips: sent } = await packReel(reel, startAt);
+      if (sent < reel.clips.length) console.warn(`Highlight reel: ${reel.clips.length - sent} of ${reel.clips.length} clips too big for the netplay message; the reel plays the ${sent} sent`);
       if (!current()) return;
       this.net.sendReel(msg);
       const got = await unpackReel(msg, lay);
@@ -50,8 +51,8 @@ export abstract class EngineReel extends EngineInput {
         if (!clip) return true;
         const course = this.race.courses.find((c) => c.id === clip.trackId)?.name ?? clip.trackId;
         void saveClip(clip, course).then((res) => {
-          if (res === "saved") r.markSaved(cmd.clip);
-          else console.warn(`Highlight not saved: ${res}`);
+          // Shown on the clip's row: "Saved", or why it was not (never a button that silently does nothing).
+          r.markSaved(cmd.clip, res);
           this.savedList = null;
           this.emitHud();
         });

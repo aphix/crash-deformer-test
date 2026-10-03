@@ -62,6 +62,8 @@ export class ClipSim {
     const L = carLayout(cars[0]!);
     const r = new Reader();
     this.keys = [];
+    // Per car: its solver state's words in the previous keyframe; a keyframe's are XORed on them (`CrashRecorder.file`).
+    const prev: (Uint32Array | null)[] = cars.map(() => null);
     this.drift = clip.keys.map((bytes) => {
       const snap = makeSnapshot();
       readSnapshot(r.reset(bytes), snap, L);
@@ -74,9 +76,11 @@ export class ClipSim {
         for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f32();
         const n = r.u16();
         if (n > 0 && n !== cars[j]!.deform.simSize()) throw new RangeError("a keyframe's solver state is another build's");
-        const s = n > 0 ? new Float32Array(n) : null;
-        for (let i = 0; i < n; i++) s![i] = r.f32();
-        sims.push(s);
+        const words = new Uint32Array(n);
+        const p = prev[j];
+        for (let i = 0; i < n; i++) words[i] = r.u32() ^ (p && p.length === n ? p[i]! : 0);
+        prev[j] = n > 0 ? words : null;
+        sims.push(n > 0 ? new Float32Array(words.buffer) : null);
       }
       this.flight.push(fl);
       this.sim.push(sims);

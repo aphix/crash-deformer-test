@@ -109,6 +109,23 @@ describe("highlight codec", () => {
     sameClip(got.reel.clips[1]!, clip);
   });
 
+  it("bad: a top clip too big for the reel message must drop alone, and the clips below it that fit must still go", async () => {
+    const { clip: small, car } = makeClip();
+    // Incompressible inputs: this clip's message is bigger than two of the others together.
+    let s = 1;
+    const big = { ...small, inputs: small.inputs.map(() => (s = (Math.imul(s, 1103515245) + 12345) >>> 0) >>> 24) };
+    const size = async (clips: HighlightClip[]): Promise<number> => (await packReel({ seed: 1, clips }, 0)).msg.length;
+    const two = await size([small, small]);
+    assert.ok((await size([big])) > two, "precondition: the big clip alone outweighs two small ones");
+    const fit = await packReel({ seed: 1, clips: [big, small, small] }, 0, two);
+    assert.equal(fit.clips, 2, "at the cap, both small clips must go");
+    assert.equal(fit.msg.length, two);
+    const got = await unpackReel(fit.msg, carLayout(car));
+    assert.equal(got.reel.clips.length, 2);
+    sameClip(got.reel.clips[0]!, small);
+    assert.equal((await packReel({ seed: 1, clips: [big, small, small] }, 0, two - 1)).clips, 1, "one byte under the cap, one small clip");
+  });
+
   it("bad: a saved clip must decode to the same clip", async () => {
     const { clip, car } = makeClip();
     const got = await decodeSaved(await encodeSaved(clip), carLayout(car));

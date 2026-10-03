@@ -5,6 +5,8 @@ import type { ChaseCamera } from "./engine-camera.ts";
 import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine-fx.ts";
 import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
+import { sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { NO_FLOOR } from "../world/ground.ts";
 
 /** Mark-map edge (texels) per tier: 2048 over the 96 m sandbox is 4.7 cm a texel. */
 const MARK_RES: Record<FxTier, number> = { off: 0, minimal: 1024, low: 1024, high: 2048 };
@@ -27,6 +29,97 @@ const TURF = new THREE.Color(0.5, 0.58, 0.36);
 const _v = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
+const _eye = new THREE.Vector3();
+const _n = new THREE.Vector3();
+const _best = new THREE.Vector3();
+const _reach = new Float32Array(3);
+/** Crash cam: it aims this high (m) over the ground at the impact. */
+const AIM_UP = 0.55;
+/** Impact-axis turns (cos, sin) tried in order for a clear crash cam: as hit, reversed, then the quarter turns. */
+const TURNS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
+/** Shares of a crash-cam eye's flat offset from the hit tried in order, the eye pulled in toward a hit by a wall. */
+const REACH = [1, 0.75, 0.55, 0.35] as const;
+/** No pulled-in eye stands closer (m, flat) to the hit: the cars are not in the sight lines, and a closer one sat under the wreck. */
+const REACH_MIN = 3;
+
+/**
+ * The crash cam's eye at `t` (`CUTS[0]` ≤ t < `CUTS[3]`) about impact point `at` and axis `n`, its flat offset from
+ * `at` scaled by `reach`; returns its lens (deg).
+ */
+function crashEye(out: THREE.Vector3, t: number, at: THREE.Vector3, n: THREE.Vector3, drift: number, reach: number): number {
+  _side.crossVectors(n, _up);
+  const floor = at.y - AIM_UP;
+  let fov: number;
+  if (t < CUTS[1]) {
+    // Bumper cam: low and side-on to the impact axis, creeping along it.
+    out.copy(at).addScaledVector(_side, 5.4).addScaledVector(n, -1.1 + (t - CUTS[0]) * drift * 0.4);
+    out.y = floor + 0.32;
+    fov = 34;
+  } else if (t < CUTS[2]) {
+    // Crane: high over the wreck, turning slowly.
+    const a = Math.atan2(_side.x, _side.z) + 0.7 + (t - CUTS[1]) * 0.22 * drift;
+    out.set(at.x + Math.sin(a) * 6.5, floor + 7.2, at.z + Math.cos(a) * 6.5);
+    fov = 46;
+  } else {
+    // Long lens from a quarter angle, panning a touch.
+    _v.copy(_side).multiplyScalar(0.72).addScaledVector(n, -0.7).normalize();
+    out.copy(at).addScaledVector(_v, 19).addScaledVector(_side, (t - CUTS[2]) * 0.6 * drift);
+    out.y = floor + 1.5;
+    fov = 21;
+  }
+  out.x = at.x + (out.x - at.x) * reach;
+  out.z = at.z + (out.z - at.z) * reach;
+  return fov;
+}
+
+/**
+ * Per crash-cam cut (its eye mid-cut about `at` and axis `n`): the longest `REACH` that stands out of every solid and
+ * sees `at`, into `reach` (0: none). Returns how many cuts have one.
+ */
+export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
+  let seen = 0;
+  for (let cut = 0; cut < 3; cut++) {
+    reach[cut] = 0;
+    for (const r of REACH) {
+      crashEye(_eye, (CUTS[cut]! + CUTS[cut + 1]!) / 2, at, n, 1, r);
+      if (r < 1 && Math.hypot(_eye.x - at.x, _eye.z - at.z) < REACH_MIN) break;
+      if (solid(s, _eye.x, _eye.y, _eye.z, 0.1) || sightLine(s, _eye.x, _eye.y, _eye.z, at.x, at.y, at.z) < 0) continue;
+      reach[cut] = r;
+      seen++;
+      break;
+    }
+  }
+  return seen;
+}
+
+/**
+ * Impact axis `n` (flat, unit) turned (`TURNS`) to the one whose crash-cam cuts see `at` from furthest out
+ * (`crashSeen`, summed reach; their reach into `reach`), the first at full reach on all three. A race hit on a wall
+ * or beside one put the side-on eyes behind it: the replay showed the wall's back, never the cars.
+ */
+export function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): void {
+  let most = -1;
+  for (const [c, sn] of TURNS) {
+    _n.set(c * n.x - sn * n.z, 0, c * n.z + sn * n.x);
+    crashSeen(s, at, _n, _reach);
+    const score = _reach[0]! + _reach[1]! + _reach[2]!;
+    if (score > most) {
+      most = score;
+      _best.copy(_n);
+      reach.set(_reach);
+    }
+    if (score === 3) break;
+  }
+  n.copy(_best);
+  // A cut with no clear eye keeps its full reach (as before the check).
+  for (let i = 0; i < 3; i++) if (reach[i] === 0) reach[i] = 1;
+}
+
 /** Tyre smoke rises free; it never bounces. */
 const NO_BOUNCE = (): void => {};
 
@@ -61,6 +154,8 @@ export class Cinematics {
   private camT = -1;
   private readonly camAt = new THREE.Vector3();
   private readonly camN = new THREE.Vector3(1, 0, 0);
+  /** Per crash-cam cut: the share of its eye's offset from the hit that sees it (`crashAxis`). */
+  private readonly camReach = new Float32Array([1, 1, 1]);
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, view: ChaseCamera, fx: FxRefs, maxCars: number, reduceMotion: boolean) {
     this.renderer = renderer;
@@ -121,16 +216,22 @@ export class Cinematics {
     this.tyreSmoke.reset();
   }
 
-  /** The first big impact of a crash run (fleet / barrier): punch, FOV kick and, unless the user framed the shot, the crash cam. */
-  impact(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number, crashCam: boolean): void {
+  /**
+   * The first big impact of a crash run (fleet / barrier): punch, FOV kick and, unless the user framed the shot, the
+   * crash cam. `sight` (a course): the crash cam stands on its ground and turns its axis so its eyes see the hit.
+   */
+  impact(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number, crashCam: boolean, sight: Sight | null = null): void {
     if (this.tierNow === "off") return;
     const k = THREE.MathUtils.clamp(impulse / 30, 0.35, 1);
     this.kick(k);
     if (!crashCam) return;
-    this.camAt.set(contact.x, 0.55, contact.z);
+    const g = sight ? sight.ground.heightAt(contact.x, contact.z, contact.y + 1) : 0;
+    this.camAt.set(contact.x, (g === NO_FLOOR ? contact.y : g) + AIM_UP, contact.z);
     this.camN.set(normal.x, 0, normal.z);
     if (this.camN.lengthSq() < 1e-6) this.camN.set(1, 0, 0);
     this.camN.normalize();
+    this.camReach.fill(1);
+    if (sight) crashAxis(sight, this.camAt, this.camN, this.camReach);
     this.camT = 0;
   }
 
@@ -177,30 +278,9 @@ export class Cinematics {
       return false;
     }
     if (t < CUTS[0] || t >= CUTS[3]) return false;
-    const at = this.camAt;
-    const n = this.camN;
-    _side.crossVectors(n, _up);
-    const drift = this.reduceMotion ? 0 : 1;
-    let fov: number;
-    if (t < CUTS[1]) {
-      // Bumper cam: low and side-on to the impact axis, creeping along it.
-      const u = (t - CUTS[0]) * drift;
-      camera.position.copy(at).addScaledVector(_side, 5.4).addScaledVector(n, -1.1 + u * 0.4);
-      camera.position.y = 0.32;
-      fov = 34;
-    } else if (t < CUTS[2]) {
-      // Crane: high over the wreck, turning slowly.
-      const a = Math.atan2(_side.x, _side.z) + 0.7 + (t - CUTS[1]) * 0.22 * drift;
-      camera.position.set(at.x + Math.sin(a) * 6.5, 7.2, at.z + Math.cos(a) * 6.5);
-      fov = 46;
-    } else {
-      // Long lens from a quarter angle, panning a touch.
-      _v.copy(_side).multiplyScalar(0.72).addScaledVector(n, -0.7).normalize();
-      camera.position.copy(at).addScaledVector(_v, 19).addScaledVector(_side, (t - CUTS[2]) * 0.6 * drift);
-      camera.position.y = 1.5;
-      fov = 21;
-    }
-    camera.lookAt(at);
+    const cut = t < CUTS[1] ? 0 : t < CUTS[2] ? 1 : 2;
+    const fov = crashEye(camera.position, t, this.camAt, this.camN, this.reduceMotion ? 0 : 1, this.camReach[cut]!);
+    camera.lookAt(this.camAt);
     if (camera.fov !== fov) {
       camera.fov = fov;
       camera.updateProjectionMatrix();
