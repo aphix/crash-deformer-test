@@ -36,7 +36,9 @@ largest clips (16 and 12 cars) deflate to 177 and 195 KiB this way, against 301 
 An impact is a car–car contact closing at `PAIR_MIN` (5 m/s) or more, or a wall/prop contact at `WALL_MIN` (5 m/s),
 whose pair had been apart for `REHIT_S` (0.35 s), so grinding never re-counts. Impacts join an open cluster that shares
 a car or lies within 30 m. A cluster closes after `QUIET_GAP` (1.5 s) with no impact, or when it spans `MAX_SPAN` (6 s).
-Its score is energy, plus points per extra car, per engine destroyed and for impact density. A cluster below
+Its score is energy, plus points per extra car, per engine destroyed and for impact density, each impact weighed by its
+force: `impactWeight(closing)` = closing speed over 50 km/h (×1 at 50, ×2 at 100, ×0.4 at 20), so hard hits count for
+more and taps for less (a 100 km/h head-on scores 15.4, a 50 km/h one 3.65, a 20 km/h bump 1.0). A cluster below
 `MIN_SCORE` (3) is dropped. A clip is `PRE_ROLL` (3 s) before the first impact to `POST_ROLL` (3 s) after the last.
 
 A moment needs a racer. Traffic and police score only against one (`CrashRecorder.begin`'s `racers`): cop–cop,
@@ -66,8 +68,8 @@ rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. Th
 ## Ejections
 
 A driver thrown out of his car (`EjectionWatch`, `vehicle/ejection.ts`: a sim decision, once per fixed step; [RACE_DESIGN.md](RACE_DESIGN.md))
-is the biggest moment a crash can hold: `EJECT_POINTS` (12) per driver on top of the impacts' energy (a 100 km/h sedan head-on
-scores 7.7, a 4-car pile-up ~9), so a cluster with one ranks and tops the clips without; the first ejected car is
+is the biggest moment a crash can hold: `EJECT_POINTS` (24) per driver on top of the impacts' energy (a 100 km/h sedan head-on
+scores 15.4, a 4-car pile-up at 100 km/h 24; the softest ejection, a 55 km/h wall hit, 32.5), so a cluster with one ranks and tops the clips without; the first ejected car is
 the cluster's subject (`focus`), and the title reads "Driver thrown out". `CrashRecorder.eject` also keeps the event
 (`Ejection`: car, pane, torso position in the world and the car's frame, direction, orientation, velocity relative to the
 car and the car's own, spin; f32-exact) with the step it happened in (up to 64 a race). A clip carries those of its steps

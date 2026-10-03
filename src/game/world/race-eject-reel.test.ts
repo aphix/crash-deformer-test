@@ -99,7 +99,7 @@ describe("a driver thrown out is a highlight, and its replay throws him again", 
     assert.ok(clips.length > 0 && clips.length <= TOP, `${clips.length} clips`);
     const best = clips[0]!;
     assert.ok(best.ejects >= 2, `the best clip holds ${best.ejects} ejections`);
-    assert.ok(best.score >= 24, `score ${best.score.toFixed(1)}: 12 a driver`);
+    assert.ok(best.score >= 48, `score ${best.score.toFixed(1)}: 24 a driver`);
     assert.equal(clipTitle(best), "2 drivers thrown out");
     assert.ok(best.ejections.length >= 2 && best.ejections.every((x) => x.step >= 0 && x.step < best.h.length && x.e.car < best.cars.length), "the clip carries both throws, on its own car indices");
     assert.ok(best.ejections.every((x) => best.cars[x.e.car]!.slot <= 1), "and they are the head-on's cars");

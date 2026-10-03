@@ -29,23 +29,35 @@ export const WALL_MIN = 5;
 /** A contact is an impact only when its pair (or its car and the walls) had been apart this long (s): grinding never re-counts. */
 export const REHIT_S = 0.35;
 /**
- * Score = Σ energy / ENERGY_REF + CAR_POINTS per car past the first + KILL_POINTS per engine destroyed + DENSITY_POINTS
- * per impact per second (capped at DENSITY_CAP). Energy is closing² × reduced mass (kg·m²/s²): a 30 km/h sedan tap
- * is ~0.5e5, a 100 km/h head-on ~5e5. Ranking only; the weights are set so a 4-car pile-up and an engine kill beat a
- * single tap or a wall scrape (highlights.test.ts).
+ * Score = Σ weight × energy / ENERGY_REF + CAR_POINTS × weight(peak) per car past the first + KILL_POINTS per engine
+ * destroyed + EJECT_POINTS per driver thrown out + DENSITY_POINTS × Σ weight per second (capped at DENSITY_CAP). Energy is
+ * closing² × reduced mass (kg·m²/s²): a 30 km/h sedan tap is ~0.5e5, a 100 km/h head-on ~5e5. Ranking only; the weights
+ * are set so a 4-car pile-up and an engine kill beat a single tap or a wall scrape (highlights.test.ts).
  */
 const ENERGY_REF = 1e5;
 const CAR_POINTS = 1.5;
 const KILL_POINTS = 4;
 /**
- * A driver thrown out of his car (`EjectionWatch`) is the moment the owner wants in the reel: 12 points each, above
- * a 100 km/h sedan head-on (7.7, `highlights.test.ts`) or a 4-car pile-up (~9), so a cluster with one ranks and tops
- * the clips without one. Racer-only rules still decide whose ejection counts (`CrashRecorder.eject`).
+ * Impact force scales each impact (`impactWeight`): its closing speed over the reference hit's (50 km/h, a hit the
+ * reel scored ×1 before the scale) to the power SCALE_POW. Linear in speed on top of energy's v² (so the energy term
+ * goes as v³, the car and density terms as v): a 100 km/h head-on scores ~4.2× a 50 km/h one (2.1× unscaled), a 20 km/h
+ * tap ~0.4× its old score. Energy is the physical cost of a hit; the weight is how much of a highlight it is, and a
+ * soft tap is a collision, not a crash.
  */
-const EJECT_POINTS = 12;
+const SCALE_REF = 50 / 3.6;
+const SCALE_POW = 1;
+/**
+ * A driver thrown out of his car (`EjectionWatch`) is the moment the owner wants in the reel: 24 points each, and the
+ * engine kill that throws him is 4 more. Before the impact-force scale 12 stood 1.6× above a 100 km/h sedan head-on
+ * (7.7); the scale doubled that hit (15.4), so the points doubled with it. The hit that throws him is in the cluster
+ * (measured: a 55 km/h wall hit at least, a 110 km/h head-on); the softest ejection cluster scores 32.5 (55 km/h wall),
+ * above the hardest ones that spare the engines (a 109 km/h head-on 19.0, a 100 km/h 4-car pile-up 24.2). Racer-only
+ * rules still decide whose ejection counts (`CrashRecorder.eject`).
+ */
+const EJECT_POINTS = 24;
 const DENSITY_POINTS = 0.4;
 const DENSITY_CAP = 6;
-/** Below this a cluster is a scrape, not a highlight (a lone 20 km/h tap scores ~2.3). */
+/** Below this a cluster is a scrape, not a highlight (a lone 20 km/h tap scores ~1.0). */
 export const MIN_SCORE = 3;
 
 /** Number of set bits (cars in a 32-car mask). */
@@ -65,6 +77,11 @@ export function impactEnergy(closing: number, massA: number, massB: number): num
   return closing * closing * mu;
 }
 
+/** How much an impact closing at `closing` m/s counts: 1 at `SCALE_REF` (50 km/h), above it more, below it less. */
+function impactWeight(closing: number): number {
+  return (closing / SCALE_REF) ** SCALE_POW;
+}
+
 /**
  * Whether a contact is an impact: `strength` (closing speed, m/s) is at least `min` (`PAIR_MIN` for two cars, `WALL_MIN`
  * for a wall or prop) and its pair (or its car and the walls) had been apart `apart` s, at least `REHIT_S`: grinding never
@@ -80,8 +97,11 @@ export class CrashCluster {
   /** Race-clock seconds of the first and the last impact. */
   first = 0;
   last = 0;
+  /** Σ impact energy × `impactWeight`: a hard hit counts for more than its energy, a soft one for less. */
   energy = 0;
   impacts = 0;
+  /** Σ `impactWeight` over the impacts (the density term's count). */
+  weight = 0;
   kills = 0;
   /** Drivers thrown out inside this cluster. */
   ejects = 0;
@@ -112,10 +132,10 @@ export class CrashCluster {
     const span = Math.max(this.last - this.first, 0.5);
     return (
       this.energy / ENERGY_REF +
-      CAR_POINTS * Math.max(0, popcount(this.cars) - 1) +
+      CAR_POINTS * Math.max(0, popcount(this.cars) - 1) * impactWeight(this.peak) +
       KILL_POINTS * this.kills +
       EJECT_POINTS * this.ejects +
-      DENSITY_POINTS * Math.min(DENSITY_CAP, this.impacts / span)
+      DENSITY_POINTS * Math.min(DENSITY_CAP, this.weight / span)
     );
   }
 
@@ -129,7 +149,9 @@ export class CrashCluster {
     }
     this.last = t;
     this.impacts++;
-    this.energy += energy;
+    const w = impactWeight(closing);
+    this.energy += energy * w;
+    this.weight += w;
     this.cars = (this.cars | (1 << a) | (b >= 0 ? 1 << b : 0)) >>> 0;
     this.peak = Math.max(this.peak, closing);
     this.sx += x;
