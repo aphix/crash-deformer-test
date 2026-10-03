@@ -87,10 +87,10 @@ and a single seed fails by chance (see below). Per seed, because they must never
 limit; no AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
 2 min; no spin in pair contact; no zip (3·v·h + 5 cm); a contact heading-rate peak ≤ 6.5 rad/s; no death in the first
 8 s. Pooled over the heats: AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first; mean contact
-peak ≤ 5.2 rad/s; ≥ 80 % of heats won by wrecking within 300 s; every heat ≥ 1 swing and sideswipe, and a J-turn
-share ≥ 0.7 × 0.214 (the stopped start's seeds 1–12 share). Moves count as manoeuvres: back in the same move
-within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
-Todo, owned by the airborne lane (vertical motion/contact): the seed 2 zip (c6, 5.8 cm at t=50.90 s).
+peak ≤ 5.2 rad/s; ≥ 5 of the 8 heats ending before the 300 s limit (a wreck or a count-out; seeds 1–192: 88.5 % before
+and 87.5 % after the airborne merge, all 48 disjoint 8-seed windows reach 5, false-fail 1.1 %); every heat ≥ 1 swing and
+sideswipe, and a J-turn share ≥ 0.7 × 0.214 (the stopped start's seeds 1–12 share). Moves count as manoeuvres: back in
+the same move within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
 
 Stopped start vs the old 12 m/s tangent start (main 0b7fc2f), seeds 1–12, times from green: decided by wreck 12/12
 vs 10/12 (plus a count-out and a time win); first death median 32.6 s vs 26.8 s (earliest 10.4 vs 11.4); rear-first
