@@ -44,9 +44,13 @@ const DOWN = 2;
 
 /** Half width (m) of the swath a hunter keeps clear of solids, and the room a probe keeps from a solid's face. */
 const SWATH = 1.6;
-/** Probes along a heading (the last at its end), and the headings tried off the straight one, in turn, to either side. */
-const PROBES = 4;
-const TURNS = [0.3, 0.6, 0.9, 1.25, 1.6] as const;
+/** Metres between the probes along a heading (a palm is 3.8 m across with the swath), and the headings tried off the straight one, in turn, to either side. */
+const PROBE_STEP = 2;
+const TURNS = [0.3, 0.6, 0.9, 1.25, 1.6, 2.2, Math.PI] as const;
+/** Above this speed (m/s) a unit lifts when a solid is close ahead; below it, easing off only wedges it. */
+const DODGE_SPEED = 8;
+/** With no heading clear for the whole stretch, a bend of one radian is worth this many metres of clear run. */
+const TURN_COST = 6;
 /** Obstacle grid cell (m). */
 const CELL = 16;
 
@@ -101,15 +105,12 @@ class Obstacles {
     return false;
   }
 
-  /** Probes along heading `h` from (x, z) over `len` m that clear before the first solid (`PROBES` when the way is free). */
-  free(x: number, z: number, h: number, len: number): number {
+  /** Metres from (x, z) along heading `h` to the first solid (`len` when the way is clear that far). */
+  run(x: number, z: number, h: number, len: number): number {
     const dx = Math.sin(h);
     const dz = Math.cos(h);
-    for (let k = 1; k <= PROBES; k++) {
-      const d = (len * k) / PROBES;
-      if (this.blocked(x + dx * d, z + dz * d)) return k - 1;
-    }
-    return PROBES;
+    for (let d = PROBE_STEP; d <= len; d += PROBE_STEP) if (this.blocked(x + dx * d, z + dz * d)) return d - PROBE_STEP;
+    return len;
   }
 }
 
@@ -237,10 +238,22 @@ export class HunterBrain implements CopBrain {
     const along = -(dx * Math.sin(tg.yaw) + dz * Math.cos(tg.yaw));
     const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
     const reach = along > 0 ? Math.max(ATTACK, tv * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
-    if (dist <= reach) attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out);
-    else this.chase(u, self, tg, speed, dist, out);
+    if (dist <= reach) {
+      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out);
+      this.dodge(u, self, tg, speed, dist, out);
+    } else this.chase(u, self, tg, speed, dist, out);
     this.wedge.watch(u, speed, dt, out);
     return out;
+  }
+
+  /** A solid nearer than the target dead ahead of an attacking unit: bend round it (the police's attack geometry knows no walls). */
+  private dodge(u: number, self: AiCar, tg: AiCar, speed: number, dist: number, out: DriveInput): void {
+    const len = clamp(speed * 0.7 + 4, 6, 20);
+    const clear = this.obstacles.run(self.x, self.z, self.yaw, len);
+    if (clear >= len || clear >= dist - 3) return;
+    const h = this.openHeading(u, self, Math.atan2(tg.x - self.x, tg.z - self.z), speed, dist);
+    out.steer = pursuitSteer(wrapPi(h - self.yaw), clamp(speed * 0.8, 8, 24), speed, this.turn[self.id]!);
+    if (speed > DODGE_SPEED && clear < speed * 0.35) out.throttle = Math.min(out.throttle, 0.3);
   }
 
   /** Beyond `ATTACK`: flat out at where the target will be, round any solid in the way, boosting when far behind. */
@@ -257,23 +270,24 @@ export class HunterBrain implements CopBrain {
     out.boost = out.throttle > 0.5 && dist > CATCH_UP && Math.abs(alpha) < 0.35;
   }
 
-  /** The heading nearest `want` whose way is clear of solids for the next stretch; else the one that stays clear longest. */
+  /** The heading nearest `want` whose way is clear of solids for the next stretch; else the one with the longest clear run, a bend costing `TURN_COST` m per radian. */
   private openHeading(u: number, self: AiCar, want: number, speed: number, aimDist: number): number {
     const len = Math.min(aimDist, clamp(speed * 1.1 + 8, 12, 34));
     let best = want;
-    let bestFree = this.obstacles.free(self.x, self.z, want, len);
-    if (bestFree === PROBES) return want;
+    let bestScore = this.obstacles.run(self.x, self.z, want, len);
+    if (bestScore >= len) return want;
     const s0 = this.side[u]!;
     for (const t of TURNS) {
       for (let k = 0; k < 2; k++) {
         const s = k === 0 ? s0 : -s0;
         const h = want + s * t;
-        const free = this.obstacles.free(self.x, self.z, h, len);
-        if (free > bestFree) {
-          bestFree = free;
+        const run = this.obstacles.run(self.x, self.z, h, len);
+        const score = run >= len ? Infinity : run - t * TURN_COST;
+        if (score > bestScore) {
+          bestScore = score;
           best = h;
           this.side[u] = s;
-          if (free === PROBES) return best;
+          if (run >= len) return h;
         }
       }
     }

@@ -91,11 +91,16 @@ const CHECK = 9;
 const STUCK_FOR = 1.2;
 const BACK_FOR = 0.9;
 
+/** An aim past this angle (rad) off the nose is behind the shoulder (`pursuitSteer`, `PoliceBrain.lead`). */
+const BEHIND = 1.5;
+
 /**
  * The one steering rule of every police drive (lead-in, attack, open-ground hunt): pure pursuit. Lock for the heading error
  * `alpha` to an aim `reach` m ahead at `speed`, on a class whose full-lock yaw rate is `turn`.
  */
 export function pursuitSteer(alpha: number, reach: number, speed: number, turn: number): number {
+  // An aim behind the shoulder: sin(alpha) fades to nothing as it nears dead astern, which drove a unit straight away from it. Full lock toward it.
+  if (Math.abs(alpha) > BEHIND) return Math.sign(alpha);
   const turnMax = turn * (0.35 + 0.65 * Math.min(1, speed / 8));
   return clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / Math.max(4, reach) / Math.max(0.2, turnMax), -1, 1);
 }
@@ -406,7 +411,7 @@ export class PoliceBrain implements CopBrain {
     const alpha = blend * wrapPi(Math.atan2(pt.x - self.x, pt.z - self.z) - self.yaw);
     const reach = Math.hypot(pt.x - self.x, pt.z - self.z);
     // An aim behind its shoulder (the stakeout car facing the oncoming racers): full lock, half throttle.
-    const behind = Math.abs(alpha) > 1.5;
+    const behind = Math.abs(alpha) > BEHIND;
     out.steer = behind ? Math.sign(alpha) : pursuitSteer(alpha, reach, speed, this.turn[self.id]!);
     out.throttle = behind ? 0.5 : 1;
     out.boost = Math.abs(alpha) < 0.35;

@@ -232,7 +232,7 @@ describe("survival run", () => {
     }
   });
 
-  it("escalates while the player lasts: the pack follows the schedule, up to the cap", () => {
+  it("escalates while the player lasts: the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
     const w = survivalWorld();
     try {
       const pts = ringTour();
@@ -245,7 +245,7 @@ describe("survival run", () => {
         assert.ok(g.cops <= HUNT.cap, `${g.cops} cops at ${g.time.toFixed(0)} s`);
       }
       const steps = [...runs.keys()].sort((a, b) => a - b);
-      assert.ok(steps.includes(0) && steps.some((s) => s >= 2), `the run never lasted past two schedule steps (${steps.join(",")}; ends ${JSON.stringify(r.ends)})`);
+      assert.ok(steps.includes(0) && steps.includes(1), `no run lasted past the first schedule step (${steps.join(",")}; ends ${JSON.stringify(r.ends)})`);
       // A cop wrecked or lost is dropped in again, so the pack is never more than a couple short of the schedule.
       for (const [step, errs] of runs) assert.ok(Math.min(...errs) >= -3 && Math.max(...errs) <= 0, `step ${step}: pack minus schedule ${errs.join(",")}`);
     } finally {

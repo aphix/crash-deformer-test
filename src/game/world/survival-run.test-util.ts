@@ -53,7 +53,13 @@ export function visibleFrom(w: World, x: number, z: number): boolean {
   return sightLine(sight, e.x, e.y, e.z, x, y + 0.4, z) >= 0 || sightLine(sight, e.x, e.y, e.z, x, y + 1.3, z) >= 0;
 }
 
-/** The scripted player's pedals for this frame: steer at (tx, tz), hold `cap` m/s (null: flat out). */
+/** Per world: seconds the scripted player has sat nearly still, and seconds left of its reverse. */
+const wedge = new WeakMap<World, { still: number; back: number }>();
+
+/**
+ * The scripted player's pedals for this frame: steer at (tx, tz), hold `cap` m/s (null: flat out). A player wedged against a wall
+ * or a prop for a second backs out for a second and a bit, as a human would.
+ */
 export function steerAt(w: World, tx: number, tz: number, cap: number | null): void {
   const car = w.cars[0]!;
   const p = car.group.position;
@@ -61,11 +67,26 @@ export function steerAt(w: World, tx: number, tz: number, cap: number | null): v
   let a = Math.atan2(tx - p.x, tz - p.z) - Math.atan2(car.fwdFlat.x, car.fwdFlat.z);
   a -= Math.PI * 2 * Math.floor((a + Math.PI) / (Math.PI * 2));
   const speed = car.velocity.length();
+  const st = wedge.get(w) ?? { still: 0, back: 0 };
+  wedge.set(w, st);
+  st.still = racing && speed < 1.5 ? st.still + FRAME : 0;
+  if (st.still > 1) {
+    st.still = 0;
+    st.back = 1.3;
+  }
   const seat = w.seat;
   seat.mode = "drive";
   seat.carIndex = 0;
   seat.intent.analogWheel = true;
   seat.intent.analogGas = true;
+  seat.intent.handbrake = false;
+  if (st.back > 0) {
+    st.back -= FRAME;
+    seat.intent.wheel = -Math.max(-1, Math.min(1, a * 3));
+    seat.intent.gas = 0;
+    seat.intent.brake = 1;
+    return;
+  }
   seat.intent.wheel = racing ? Math.max(-1, Math.min(1, a * 3)) : 0;
   const over = cap !== null && speed > cap;
   seat.intent.gas = racing && !over ? 1 : 0;
