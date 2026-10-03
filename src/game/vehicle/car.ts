@@ -8,7 +8,7 @@ import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { COM_Y, hullClear, stepAir, SUPPORT } from "./car-air.ts";
 import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
-import { settle } from "./car-support.ts";
+import { AXLE, landPose, settle, support, tilt, type Support } from "./car-support.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 
@@ -28,10 +28,7 @@ const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
-/** The axle chord lifts a driven body off its centre's ground beyond this (m): a hollow under it (a ramp's foot). */
-const CHORD_LIFT = 0.005;
-/** The axles' half spread along the body (m). */
-const AXLE = WHEEL_POS[0]![2];
+const _sup: Support = { y: 0, grade: NaN };
 /** Numbers in a `DeformableCar.flight` block. */
 export const FLIGHT = 8;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
@@ -261,6 +258,7 @@ export class DeformableCar extends CarParts {
     this.airborne = false;
     this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
     this.yaw = this.group.rotation.y;
+    if (!this.crashed) landPose(activeGround(), this.group);
     this.pitch = this.group.rotation.x;
     this.roll = this.group.rotation.z;
     this.angular.set(0, this.angular.y, 0);
@@ -397,19 +395,10 @@ export class DeformableCar extends CarParts {
       // A course's ground: ride it while it holds the car up; where it falls away faster than gravity
       // can follow (a ramp lip, a crest at speed) the car flies, and lands back on whatever is below.
       const y0 = pos.y - this.velocity.y * dt;
-      let gy = ground.heightAt(pos.x, pos.z, y0);
-      // A driven car stands on its axles: across a hollow (a ramp's foot) their chord is above the centre's ground.
-      let grade = NaN;
+      support(ground, pos.x, pos.z, y0, this.yaw, !this.crashed, _sup);
+      let { y: gy, grade } = _sup;
       const ax = Math.sin(this.yaw) * AXLE;
       const az = Math.cos(this.yaw) * AXLE;
-      if (!this.crashed) {
-        const hF = ground.heightAt(pos.x + ax, pos.z + az, y0);
-        const hR = ground.heightAt(pos.x - ax, pos.z - az, y0);
-        if ((hF + hR) / 2 > gy + CHORD_LIFT) {
-          gy = (hF + hR) / 2;
-          grade = (hF - hR) / (2 * AXLE);
-        }
-      }
       const cls = carClass(this);
       const reach = droop(cls);
       if (pos.y > gy + reach) this.takeOff();
@@ -489,13 +478,7 @@ export class DeformableCar extends CarParts {
    * (`grade` its rise per metre ahead, else NaN) the chord sets the pitch.
    */
   private alignToGround(n: THREE.Vector3, grade: number): void {
-    const fx = Math.sin(this.yaw);
-    const fz = Math.cos(this.yaw);
-    // YXZ takes local up to (−sin r·x̂ + cos r sin p·f̂ + cos r cos p·ŷ), x̂ = (fz, 0, −fx) the local +x:
-    // pitch from n·f̂ against n.y, roll from −n·x̂ against the rest. A rise toward +x lifts the +x wheels.
-    const nf = n.x * fx + n.z * fz;
-    this.pitch = Number.isNaN(grade) ? Math.atan2(nf, n.y) : -Math.atan(grade);
-    this.roll = Math.atan2(n.z * fx - n.x * fz, hypot2(nf, n.y));
+    tilt(n, grade, this.yaw, this);
     this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
 

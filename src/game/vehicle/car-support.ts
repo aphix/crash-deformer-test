@@ -1,3 +1,5 @@
+import type { Object3D } from "three";
+import { hypot2 } from "../deform/physics-util.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
 import { HULL_UNDER } from "./car-suspension.ts";
@@ -192,4 +194,62 @@ export function settle(
   n.z = -gz / len;
   out.y = _to.y;
   return true;
+}
+
+/** The axles' half spread along the body (m). */
+export const AXLE = WHEEL_POS[0]![2];
+/** The axle chord lifts a driven body off its centre's ground beyond this (m): a hollow under it (a ramp's foot). */
+const CHORD_LIFT = 0.005;
+
+/** What a driven body stands on: its height (m) under the origin and the axle chord's rise per metre ahead (NaN: the centre's ground alone). */
+export type Support = { y: number; grade: number };
+
+/**
+ * The support under a body whose origin is at plan (x, z), asked at height `y0`, facing `yaw`: the ground under its middle,
+ * or, for a `driven` body standing on its axles, across a hollow (a ramp's foot) the mean of the ground under them.
+ */
+export function support(g: Ground, x: number, z: number, y0: number, yaw: number, driven: boolean, out: Support): void {
+  out.y = g.heightAt(x, z, y0);
+  out.grade = NaN;
+  if (!driven) return;
+  const ax = Math.sin(yaw) * AXLE;
+  const az = Math.cos(yaw) * AXLE;
+  const hF = g.heightAt(x + ax, z + az, y0);
+  const hR = g.heightAt(x - ax, z - az, y0);
+  if ((hF + hR) / 2 > out.y + CHORD_LIFT) {
+    out.y = (hF + hR) / 2;
+    out.grade = (hF - hR) / (2 * AXLE);
+  }
+}
+
+/**
+ * Pitch and roll of a body facing `yaw` on the plane with unit normal `n` (yaw kept), on its axle chord when `grade` (its
+ * rise per metre ahead) is not NaN. YXZ takes local up to (−sin r·x̂ + cos r sin p·f̂ + cos r cos p·ŷ), x̂ = (fz, 0, −fx) the
+ * local +x: pitch from n·f̂ against n.y, roll from −n·x̂ against the rest. A rise toward +x lifts the +x wheels.
+ */
+export function tilt(n: { x: number; y: number; z: number }, grade: number, yaw: number, out: { pitch: number; roll: number }): void {
+  const fx = Math.sin(yaw);
+  const fz = Math.cos(yaw);
+  const nf = n.x * fx + n.z * fz;
+  out.pitch = Number.isNaN(grade) ? Math.atan2(nf, n.y) : -Math.atan(grade);
+  out.roll = Math.atan2(n.z * fx - n.x * fz, hypot2(nf, n.y));
+}
+
+const _land: Support = { y: 0, grade: NaN };
+const _landN = { x: 0, y: 1, z: 0 };
+const _landT = { pitch: 0, roll: 0 };
+
+/**
+ * A driven body just handed back from flight (`stepAir`: two wheels down, within ~25° of the ground) takes at once the pose
+ * its next grounded slice would give it from the same ground (`support`, `tilt`), instead of carrying the flight's pitch and
+ * roll through one more frame: a monster landing at 38 m/s on the stunt course's descent stood 13.8° off the slope for a
+ * frame, a tyre 9.5 cm up and the nose 24 cm in the road. Only the turn: the support rule still sets its height.
+ */
+export function landPose(g: Ground, group: Object3D): void {
+  const { position: p, rotation: r } = group;
+  support(g, p.x, p.z, p.y, r.y, true, _land);
+  if (_land.y === NO_FLOOR) return;
+  g.normalAt(p.x, p.z, _landN, _land.y);
+  tilt(_landN, _land.grade, r.y, _landT);
+  r.set(_landT.pitch, r.y, _landT.roll, "YXZ");
 }

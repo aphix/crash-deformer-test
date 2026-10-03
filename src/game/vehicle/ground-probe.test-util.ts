@@ -69,6 +69,8 @@ export type Fit = {
   /** The most (deg) a hub's ground normal differs from the mean one: a crease or a curved crest under the car, where
    *  "tilt from the mean normal" is not a pose the four tyres can all take. */
   spread: number;
+  /** Half the tread's width (m): a tyre turned `t` deg off the ground it stands on digs its outer shoulder `shoulder · sin t` in. */
+  shoulder: number;
 };
 
 const _p = new THREE.Vector3();
@@ -182,6 +184,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     slope,
     warp,
     spread,
+    shoulder: 0.104 * car.wheels[0]!.scale.x,
   };
 }
 

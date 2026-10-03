@@ -79,6 +79,20 @@ describe("stunt CRUSH crest and descent", () => {
     });
   }
 
+  for (const cls of VEHICLE_CLASS_IDS) {
+    it(`${cls} at 38 m/s: the first grounded frame after the flight is already on the road's slope, tyres within 2 cm, no underside in it`, (t) => {
+      const run = drive(track, cls, 880, 1010, () => 38, { lead: 40 });
+      const first = run.findIndex((r, i) => i > 0 && run[i - 1]!.airborne && !r.airborne);
+      assert.ok(first > 0, "never landed");
+      const w = worst(run.slice(first, first + 30), 0, Infinity);
+      t.diagnostic(`${cls}: landed at s ${run[first]!.s.toFixed(0)}; the next 0.5 s: tyre gap ${(w.gap * 100).toFixed(1)} cm, underside in the road ${(w.pen * 100).toFixed(1)} cm, frame pitch ${w.framePitch.toFixed(2)}° off the slope`);
+      // Before: the monster's rear tyres 9.5 cm up, its frame 13.8° nose-down off the slope, for the touchdown frame.
+      assert.ok(w.gap <= 0.02, `a tyre ${(w.gap * 100).toFixed(1)} cm off the road after touchdown`);
+      assert.ok(w.pen <= 0.01, `underside ${(w.pen * 100).toFixed(1)} cm into the road after touchdown`);
+      assert.ok(w.framePitch <= 1.5, `frame ${w.framePitch.toFixed(2)}° off the slope after touchdown`);
+    });
+  }
+
   it("leaves the road from 12–14 m/s (43–50 km/h) by class and never at 6 m/s: the crest gives airtime from a moderate pace", () => {
     const flies = (cls: VehicleClassId, v: number) => drive(track, cls, 885, 975, () => v, { lead: 45 }).some((r) => r.airborne);
     for (const cls of VEHICLE_CLASS_IDS) {

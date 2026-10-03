@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { DEG, drive, drop, MATRIX_HEAD, matrixRow, type Cell } from "./ground-probe.test-util.ts";
-import type { VehicleClassId } from "./vehicle-classes.ts";
+import { VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
 import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
 import { setGround } from "../world/ground.ts";
 import { blankPoint, pointOn, Track } from "../world/track.ts";
@@ -65,14 +65,20 @@ const ALONG: readonly Heading[] = [
 
 const planar = (b: Bounds, r: Cell) => r.warp <= b.warp && r.spread <= b.spread;
 
+/** Body tilt (deg) past which a car has rolled onto its side or roof: that is a rest too (a drop on a ridge can roll a car over), and no tyre or underside bound describes it. */
+const ROLLED = 60;
+
 function judge(kind: Kind, r: Cell): string[] {
   const b = BOUNDS[kind];
   const flags: string[] = [];
-  if (r.gaps.some((g) => g < -b.gap)) flags.push("sunk");
+  if (r.tilt > ROLLED) return flags;
+  // A tyre turned `tilt` off the ground it stands on (a car across an edge) digs its outer tread shoulder `shoulder · sin(tilt)` in.
+  const gap = b.gap + r.shoulder * Math.sin(r.tilt / DEG);
+  if (r.gaps.some((g) => g < -gap)) flags.push("sunk");
   // A tyre may hang (a twist or an edge beyond its springs' travel, the owner's "front non-ramp wheel lifted") when the
   // car rests on three other supports: its other tyres on the ground and its belly on the feature.
-  const held = r.gaps.filter((g) => Math.abs(g) <= b.gap).length + (r.hull <= b.hull ? 1 : 0);
-  if (r.gaps.some((g) => g > b.gap) && held < 3) flags.push("float");
+  const held = r.gaps.filter((g) => Math.abs(g) <= gap).length + (r.hull <= b.hull ? 1 : 0);
+  if (r.gaps.some((g) => g > gap) && held < 3) flags.push("float");
   if (r.pen > b.pen) flags.push("pen");
   if (r.overlap > b.overlap) flags.push("overlap");
   if (r.warp <= b.warp) {
@@ -85,13 +91,16 @@ function judge(kind: Kind, r: Cell): string[] {
 }
 
 /**
- * Cells still breaking a bound: a budget that only goes down (main 4677c4b had 272 ramp and 113 bank cells). Ramps: a car
- * dropped with a tyre or its hull inside a wedge's side or high-end wall (`FleetRamps.contact` pushes by the car's box
- * probes, not its tyres, so a tyre can rest in the wall), the monster's 0.54 m tyres on an edge, the low end's slide.
- * Banks: the underside of a car parked on a bank's shoulder crease (≤ 5 cm).
+ * Cells still breaking a bound: a budget that only goes down (main 4677c4b had 272 ramp and 113 bank cells; the judge here
+ * runs ramp drops 6 s, skips cars that rolled onto their side or roof, and lets a tyre dig its tread shoulder in when it
+ * stands tilted on an edge, so these counts are not comparable with the 169 / 6 the same code scored under the first judge).
+ * Ramps: a car dropped with a tyre or its hull inside a wedge's side or high-end wall (`FleetRamps.contact` pushes by the
+ * car's box probes, not its tyres, so a tyre can rest in the wall), the monster's 0.54 m tyres on an edge, the low end's
+ * slide. Banks: the underside of a car parked on a bank's shoulder crease (≤ 5 cm). `lane/wheel-ground-b-wip` holds the
+ * tyre-corner wall probes that take the ramp count to 23 and the banks to 0 and what stops them from merging.
  */
-const KNOWN_RAMPS = 170;
-const KNOWN_BANKS = 6;
+const KNOWN_RAMPS = 105;
+const KNOWN_BANKS = 4;
 
 /** Run every cell of `sites`, print the matrix, and fail when more than `known` cells break their bounds. */
 function report(t: TestContext, sites: readonly Site[], known = 0): void {
@@ -135,7 +144,8 @@ function rampSites(): Site[] {
         name: `${tag} ${name}`,
         kind,
         classes,
-        runs: (cls) => COMPASS.map(([h, yaw]): Run => [h, drop(ramps, cls, x, side * z, yaw, { collide })]),
+        // 6 s: a car dropped on a ridge or an edge can still be rolling off it at 3 s (it is not at rest to judge).
+        runs: (cls) => COMPASS.map(([h, yaw]): Run => [h, drop(ramps, cls, x, side * z, yaw, { collide, seconds: 6 })]),
       });
     add("mid-face", "plain", 0, MID, SEDAN);
     // The top: the car's tail hangs over the 1.2 m back wall, so there is no level pose to hold it to (edge).
@@ -264,4 +274,26 @@ describe("ground fit matrix: a braked car sits on the ground at every heading", 
   });
 
   it("banked turns: stunt bowl, stunt nodes 14-15, rally hairpin, across the road's width and its shoulders", (t) => report(t, bankSites(), KNOWN_BANKS));
+});
+
+describe("braking dive on a flat straight", () => {
+  afterEach(() => setGround(null));
+
+  // The drawn nose dips under braking (car-load's weight transfer, kept) toward a keel only 3.2 cm over the road: the drawn
+  // body bottoms out on the road (`Suspension.bottomOut`) instead of the springs pressing it 3.5 cm in (sedan/muscle/police).
+  it("good: from 30 m/s every class dips its nose and keeps its drawn keel and bumpers out of the road", () => {
+    const oval = courses.find((c) => c.id === "oval")!;
+    for (const cls of VEHICLE_CLASS_IDS) {
+      const out = drive(oval, cls, 60, 180, () => 30, { lead: 35, brakeFrom: 100 });
+      let pen = 0;
+      let dive = 0;
+      for (const f of out) {
+        if (f.s < 100) continue;
+        pen = Math.max(pen, f.pen);
+        dive = Math.min(dive, f.pitch - f.groundPitch);
+      }
+      assert.ok(pen <= 0.01, `${cls}: the drawn underside is ${(pen * 100).toFixed(1)} cm in the road while braking`);
+      assert.ok(dive <= -0.5, `${cls}: the drawn nose dips only ${(-dive).toFixed(2)}° (the dive look is gone)`);
+    }
+  });
 });
