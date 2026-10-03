@@ -354,7 +354,7 @@ describe("Auto spectator cam", () => {
         w.race.command({ type: "start" });
         const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
         const auto = new AutoCam();
-        const scene: AutoScene = { sight: () => w.race.courseSight()!, crashing: () => false, cut: (car) => car };
+        const scene: AutoScene = { sight: () => w.race.courseSight()!, cut: (car) => car };
         const state = { acc: 0 };
         const kinds = new Set<string>();
         const bad: string[] = [];
@@ -386,4 +386,81 @@ describe("Auto spectator cam", () => {
       }
     });
   }
+
+  it("bad: a cut onto another car poses the chase on it while its opener is searched, not the old shot's eye", () => {
+    const w = makeWorld();
+    try {
+      w.race.enter();
+      w.race.command({ type: "options", options: { trackId: "city", laps: 1, aiCount: 4, spectate: true } });
+      w.race.reseed(3);
+      w.race.command({ type: "start" });
+      const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
+      const auto = new AutoCam();
+      const pair = [w.cars[0]!, w.cars[1]!];
+      let watched = pair[0]!;
+      // The Auto driver's cut: the other car of the pair.
+      const autoScene: AutoScene = {
+        sight: () => w.race.courseSight()!,
+        cut: (car) => {
+          watched = car === pair[0] ? pair[1]! : pair[0]!;
+          return watched;
+        },
+      };
+      const state = { acc: 0 };
+      const bad: string[] = [];
+      // The trackside or high shot a switch cuts away from, until the new car's opener lands.
+      let held: typeof auto.shot = null;
+      let checked = 0;
+      for (let n = 0; n < 120 / FRAME; n++) {
+        frame(w, state);
+        const was = watched;
+        const before = auto.shot;
+        const fixedEye = (before?.kind === "cine" || before?.kind === "high") && auto.cam.found;
+        auto.update(camera, watched, autoScene, FRAME);
+        if (watched !== was && fixedEye) held = before;
+        if (held === null) continue;
+        if (auto.shot !== null && auto.shot !== held) {
+          held = null;
+          continue;
+        }
+        checked++;
+        const away = camera.position.distanceTo(watched.group.position);
+        if (away > 12) bad.push(`at ${(n * FRAME).toFixed(2)} s the camera stands ${away.toFixed(1)} m from the new car`);
+      }
+      assert.deepEqual(bad, []);
+      assert.ok(checked >= 3, `${checked} frames of a searched opener after a cut away from a fixed eye`);
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("bad: the chase follows a low-passed heading, so a wreck's velocity swinging 4 deg a frame does not swing the eye, at 60 and 240 Hz", (t) => {
+    // Every spot is solid: every shot poses as the chase.
+    const solidAll: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: 1, occ: [] };
+    const autoScene: AutoScene = { sight: () => solidAll, cut: (car) => car };
+    const swing = (4 * Math.PI) / 180;
+    for (const hz of [60, 240]) {
+      const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "wreck" }, new THREE.Scene());
+      car.fwdFlat.set(0, 0, 1);
+      const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
+      const auto = new AutoCam();
+      const prevEye = new THREE.Vector3();
+      const prevCar = new THREE.Vector3();
+      let worst = 0;
+      for (let n = 0; n < 15 * hz; n++) {
+        // Driving straight at 20 m/s while the velocity's direction flips by 8 deg every frame.
+        const a = n % 2 === 0 ? swing : -swing;
+        car.velocity.set(20 * Math.sin(a), 0, 20 * Math.cos(a));
+        car.group.position.set(0, 0, (20 * n) / hz);
+        auto.update(camera, car, autoScene, 1 / hz);
+        // The eye's step beyond the car's own, once the first shot has landed.
+        if (auto.shot !== null && n > 5 * hz) worst = Math.max(worst, camera.position.clone().sub(prevEye).sub(car.group.position).add(prevCar).length());
+        prevEye.copy(camera.position);
+        prevCar.copy(car.group.position);
+      }
+      t.diagnostic(`${hz} Hz: the eye steps at most ${worst.toFixed(4)} m a frame beyond the car's own`);
+      assert.ok(worst < 0.1, `${hz} Hz: the eye steps ${worst.toFixed(3)} m a frame beyond the car's own`);
+    }
+  });
 });

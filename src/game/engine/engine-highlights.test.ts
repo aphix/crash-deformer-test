@@ -44,23 +44,23 @@ function hostOf(w: World): ReelHost {
   };
 }
 
-function race(w: World): void {
+function race(w: World, field = FIELD): void {
   w.race.enter();
   w.race.command({ type: "quit" });
-  w.race.command({ type: "options", options: FIELD });
+  w.race.command({ type: "options", options: field });
   w.race.reseed(SEED);
   w.race.command({ type: "start" });
   w.seat.mode = "follow";
 }
 
-/** The reel of the first clip a ramming field records: what a host sends and every peer (the host too) replays. */
-async function recordedReel(w: World): Promise<Reel> {
+/** The reel of the first `clips` clips a field records (the first by default): what a host sends and every peer (the host too) replays. */
+async function recordedReel(w: World, clips = 1): Promise<Reel> {
   const state = { acc: 0 };
-  for (let n = 0; n * (1 / 60) < 60 && w.race.recorder.ledger.kept.length === 0 && w.race.phase !== "finished"; n++) frame(w, state);
+  for (let n = 0; n * (1 / 60) < 120 && w.race.recorder.ledger.kept.length < clips && w.race.phase !== "finished"; n++) frame(w, state);
   w.race.recorder.end();
   const kept = w.race.recorder.ledger.kept;
-  assert.ok(kept.length >= 1, "no clip in 60 s of a ramming field");
-  const { msg } = await packReel({ seed: 77, clips: kept.slice(0, 1) }, 0);
+  assert.ok(kept.length >= 1, "no clip in 120 s");
+  const { msg } = await packReel({ seed: 77, clips: kept.slice(0, clips) }, 0);
   return (await unpackReel(msg, carLayout(w.cars[0]!))).reel;
 }
 
@@ -121,9 +121,33 @@ describe("highlight reel on two peers", () => {
   });
 });
 
-/** Every clip car's pose and motion, flat: what the replay's state is (the Euler angles are what the sim reads). */
+/**
+ * Every clip car's pose and motion, flat: what the replay's state is. The Euler angles are what the sim reads of a
+ * grounded car and the quaternion of an airborne or falling one, so both count.
+ */
 function stateOf(cars: readonly DeformableCar[]): number[] {
-  return cars.flatMap((c) => [c.group.position.x, c.group.position.y, c.group.position.z, c.group.rotation.x, c.group.rotation.y, c.group.rotation.z, c.velocity.x, c.velocity.y, c.velocity.z]);
+  return cars.flatMap((c) => {
+    const { position: p, quaternion: q, rotation: r } = c.group;
+    return [p.x, p.y, p.z, q.x, q.y, q.z, q.w, r.x, r.y, r.z, c.velocity.x, c.velocity.y, c.velocity.z];
+  });
+}
+
+/** The replay itself runs on whole steps only: stepping it with a drawn frame inside every step ends where stepping it alone does. */
+function assertDrawingKeepsReplay(w: World, clip: Reel["clips"][number], hz: number): void {
+  const cars = clip.cars.map((c) => w.cars[c.slot]!);
+  const sim = new ClipSim(clip, cars, hostOf(w).scene);
+  w.race.resetProps();
+  sim.restart();
+  for (let t = 1 / hz; t < sim.length; t += 1 / hz) {
+    sim.advanceTo(t);
+    sim.present(t - 0.5 / hz);
+  }
+  sim.advanceTo(Infinity);
+  const drawn = stateOf(cars);
+  w.race.resetProps();
+  sim.restart();
+  sim.advanceTo(Infinity);
+  assertSameNumbers(stateOf(cars), drawn, `${hz} Hz: the replay's final state with a drawn frame inside every step`);
 }
 
 describe("highlight reel frames", () => {
@@ -156,21 +180,20 @@ describe("highlight reel frames", () => {
         assert.ok(frames > 100, `${hz} Hz: ${frames} moving frames in the slow-mo`);
         assert.ok(still <= frames * 0.02, `${hz} Hz: ${still} of ${frames} frames drew the car where the last frame had it, though it moves`);
       }
-      // The replay itself runs on whole steps only: stepping it with a drawn frame inside every step ends where stepping it alone does.
-      const cars = clip.cars.map((c) => a.cars[c.slot]!);
-      const sim = new ClipSim(clip, cars, hostOf(a).scene);
-      a.race.resetProps();
-      sim.restart();
-      for (let t = 1 / 240; t < sim.length; t += 1 / 240) {
-        sim.advanceTo(t);
-        sim.present(t - 1 / 480);
-      }
-      sim.advanceTo(Infinity);
-      const drawn = stateOf(cars);
-      a.race.resetProps();
-      sim.restart();
-      sim.advanceTo(Infinity);
-      assertSameNumbers(stateOf(cars), drawn, "the replay's final state with a drawn frame inside every step");
+      assertDrawingKeepsReplay(a, clip, 240);
+    } finally {
+      a.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("bad: drawing never changes the replay of an airborne clip (the stunt course's jumps) at 60 and 240 Hz", async () => {
+    const a = makeWorld();
+    try {
+      race(a, { ...FIELD, trackId: "stunt" });
+      const reel = await recordedReel(a, Infinity);
+      assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
+      for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);
     } finally {
       a.race.exit();
       setGround(null);

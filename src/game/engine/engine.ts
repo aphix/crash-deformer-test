@@ -693,14 +693,12 @@ export class CrashEngine extends EngineShare {
 
   /**
    * What the spectator cams read from the scene: the solids and the rival racers when they pick a shot, the course's own
-   * solids per frame (the chase push-out), and the crash cam's state; `cut` is the Auto cam's cut, where the Auto driver
-   * may hand over another car.
+   * solids per frame (the chase push-out); `cut` is the Auto cam's cut, where the Auto driver may hand over another car.
    */
   private readonly specScene: SpecScene = {
     sight: () => this.sceneSight(this.followedCar(), true),
     rivals: () => (this.race.active ? this.live().slice(0, this.race.racers.length) : this.live()),
     fixed: () => (this.race.active ? this.race.courseSight() : null),
-    crashing: () => this.cine.directing,
     cut: (car) => {
       if (this.race.auto) this.race.autoStep(this.view.auto.cuts, true);
       return this.followedCar() ?? car;

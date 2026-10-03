@@ -1,9 +1,12 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { DeformableCar } from "../vehicle/car.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
-import { ChaseCamera, RIDE_PAUSE } from "./engine-camera.ts";
+import { FLAT_GROUND } from "../world/ground.ts";
+import { ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
+import { occluder, type Sight } from "./spectate-cam.ts";
 
 const DT = 1 / 60;
 
@@ -151,5 +154,51 @@ describe("the orbit keeps clear of lamp posts", () => {
     post.intact = false;
     settle();
     assert.ok(camera.position.distanceTo(rest) < 0.01, "a knocked-over post still pushes");
+  });
+});
+
+describe("the chase eye's pull-in past a wall", () => {
+  it("bad: an eye drifting into a wall's clearance is pulled in smoothly, not by whole metres, at 60 and 240 Hz", (t) => {
+    // A wall along z with its face at x = 3. The car drives along z, drifting toward it, nose turned off it: the chase eye sits on the wall's side.
+    const wall: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [occluder(53, 0, 0, 50, 2000, false, 0, 30)] };
+    const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, new THREE.Scene());
+    const eyes = (hz: number, fixed: Sight | null): THREE.Vector3[] => {
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+      const seat = new DriverSeat();
+      seat.mode = "follow";
+      const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+      const scene: SpecScene = { sight: () => wall, rivals: () => [], fixed: () => fixed, cut: (c) => c };
+      const out: THREE.Vector3[] = [];
+      for (let n = 0; n < 16 * hz; n++) {
+        const t = n / hz;
+        car.group.position.set(0.2 + 0.1 * t, 0, 20 * t);
+        car.velocity.set(0.1, 0, 20);
+        car.fwdFlat.set(-Math.sin(0.35), 0, Math.cos(0.35));
+        view.frameSpectate(car, "third", scene, 1 / hz, false);
+        out.push(camera.position.clone());
+      }
+      return out;
+    };
+    for (const hz of [60, 240]) {
+      const free = eyes(hz, null);
+      const held = eyes(hz, wall);
+      let pushed = 0;
+      let step = 0;
+      let at = 0;
+      let last = new THREE.Vector3();
+      for (let n = 0; n < free.length; n++) {
+        // What the wall moved the eye by this frame, and how much of it is new (the rig's own blend-in settles in 2 s).
+        const d = held[n]!.clone().sub(free[n]!);
+        pushed = Math.max(pushed, d.length());
+        if (n > 2 * hz && d.distanceTo(last) > step) {
+          step = d.distanceTo(last);
+          at = n / hz;
+        }
+        last = d;
+      }
+      t.diagnostic(`${hz} Hz: the wall pushed the eye up to ${pushed.toFixed(2)} m, by at most ${step.toFixed(4)} m a frame`);
+      assert.ok(pushed > 1, `${hz} Hz: the wall pushed the eye ${pushed.toFixed(2)} m (the test needs it to reach in)`);
+      assert.ok(step < 0.1, `${hz} Hz: the pull-in moved the eye ${step.toFixed(3)} m in one frame, at ${at.toFixed(2)} s`);
+    }
   });
 });

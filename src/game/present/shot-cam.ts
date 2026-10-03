@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { CINE, CLEAR_COST, CineCam, DUTCH, DutchCam, SightLines, sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { CINE, CLEAR_COST, CineCam, DUTCH, DutchCam, EyePull, SightLines, sightLine, solid, type Sight } from "./spectate-cam.ts";
 
 /**
  * The shot director both the results reel (`ReelDirector`, from clip time) and the Auto spectator cam (`AutoCam`, live)
@@ -32,11 +32,30 @@ const SHOT_AHEAD = 2;
 const DUTCH_MOUNTS = 8;
 /** The chase shot: behind the car along its travel, this far (m) and this high, looking this far (m) ahead of it. */
 const CHASE = { back: 8, up: 2.8, look: 3, fov: 55 };
-/** Shares of the chase offset tried in order when a solid is at the eye (the last stands whatever is there). */
-const PULL = [1, 0.75, 0.55, 0.35] as const;
+/** The chase heading (`foldHeading`) is low-passed over this many seconds. */
+const HEADING_TAU = 0.3;
 
 const _a = new THREE.Vector3();
 const _e = new THREE.Vector3();
+const _d = new THREE.Vector3();
+
+/**
+ * Fold `car`'s travel direction (flat, unit: its velocity, its body's heading when nearly still) into `heading`, low-passed over
+ * `HEADING_TAU` for a step of `h` s (an empty `heading` takes it whole): a wreck's own velocity swings 4° and more between
+ * frames, and a car sliding to a stop flips its velocity's direction, which a camera behind it must not copy. The one
+ * heading of both chase rigs: the reel's (`ClipSim.heading`, per sim step) and the Auto cam's (`AutoCam`, per frame).
+ */
+export function foldHeading(heading: THREE.Vector2, car: Pick<DeformableCar, "velocity" | "fwdFlat">, h: number): void {
+  const speed = Math.hypot(car.velocity.x, car.velocity.z);
+  const dx = speed > 2 ? car.velocity.x / speed : car.fwdFlat.x;
+  const dz = speed > 2 ? car.velocity.z / speed : car.fwdFlat.z;
+  const k = heading.lengthSq() < 1e-9 ? 1 : 1 - Math.exp(-h / HEADING_TAU);
+  const hx = heading.x + (dx - heading.x) * k;
+  const hz = heading.y + (dz - heading.y) * k;
+  const len = Math.hypot(hx, hz);
+  if (len > 1e-6) heading.set(hx / len, hz / len);
+  else heading.set(dx, dz);
+}
 
 function lens(cam: THREE.PerspectiveCamera, fov: number): void {
   if (Math.abs(cam.fov - fov) < 0.01) return;
@@ -59,6 +78,8 @@ export class ShotCam {
   private readonly lines = new SightLines();
   /** The shot's own spot was found (cine, high, dutch); false: it poses as the chase. */
   found = false;
+  /** The chase's pull-in past the sight's solids. */
+  private readonly pull = new EyePull();
 
   /**
    * Begin the search for `shot`'s spot: a cine shot resets its trackside search, a high shot its eight turns. Chase
@@ -66,6 +87,7 @@ export class ShotCam {
    */
   start(shot: Shot, sight: Sight): void {
     this.sight = sight;
+    this.pull.reset();
     this.kind = shot.kind;
     this.found = shot.kind === "chase";
     this.turn = 0;
@@ -153,10 +175,11 @@ export class ShotCam {
   }
 
   /**
-   * `cam` on `shot`'s camera for `car`. `heading` (flat, unit): the travel direction the chase follows in place of the
-   * car's velocity: a reel's low-passed one (`ClipSim.heading`), as a wreck's own velocity swings 4° and more a frame.
+   * `cam` on `shot`'s camera for `car`. `heading` (flat, unit): the travel direction the chase follows, folded over the
+   * frames by `foldHeading` (the reel's `ClipSim.heading`, the Auto cam's own). `dt`: seconds since the last call, which
+   * eases the chase's pull-in back out; Infinity (the reel: its camera depends only on the poses): no easing.
    */
-  pose(cam: THREE.PerspectiveCamera, car: DeformableCar, shot: Shot, heading: { x: number; y: number } | null = null): void {
+  pose(cam: THREE.PerspectiveCamera, car: DeformableCar, shot: Shot, heading: { x: number; y: number }, dt = Infinity): void {
     const pos = car.group.position;
     if (shot.kind === "cine" && this.found) {
       cam.position.copy(this.cine.eye);
@@ -170,19 +193,13 @@ export class ShotCam {
       cam.lookAt(pos.x, pos.y + CINE.aimUp, pos.z);
       lens(cam, HIGH.fov);
     } else {
-      // Chase (and a cine or high shot with no usable spot): behind the car along its travel, pulled in toward it while
-      // a solid is at the eye (a street corner, a wall).
-      const v = car.velocity;
-      const speed = Math.hypot(v.x, v.z);
-      const fx = heading ? heading.x : speed > 2 ? v.x / speed : car.fwdFlat.x;
-      const fz = heading ? heading.y : speed > 2 ? v.z / speed : car.fwdFlat.z;
-      const s = this.sight;
-      for (const r of PULL) {
-        _e.set(pos.x - fx * CHASE.back * r, pos.y + CHASE.up, pos.z - fz * CHASE.back * r);
-        if (!s || r === PULL[PULL.length - 1] || !solid(s, _e.x, _e.y, _e.z, CINE.pad)) break;
-      }
+      // Chase (and a cine or high shot with no usable spot): behind the car along its travel, pulled in along its view
+      // while a solid is at the eye (a street corner, a wall).
+      _e.set(pos.x - heading.x * CHASE.back, pos.y + CHASE.up, pos.z - heading.y * CHASE.back);
+      _a.set(pos.x + heading.x * CHASE.look, pos.y + 0.8, pos.z + heading.y * CHASE.look);
       cam.position.copy(_e);
-      cam.lookAt(pos.x + fx * CHASE.look, pos.y + 0.8, pos.z + fz * CHASE.look);
+      if (this.sight) this.pull.apply(this.sight, cam.position, _d.subVectors(_a, _e).normalize(), dt);
+      cam.lookAt(_a);
       lens(cam, CHASE.fov);
     }
   }

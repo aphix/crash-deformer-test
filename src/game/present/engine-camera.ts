@@ -5,7 +5,7 @@ import type { PadState } from "../vehicle/gamepad.ts";
 import { DISC_RADIUS } from "../world/ground.ts";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
-import { CINE, CineCam, DutchCam, solid, type Sight } from "./spectate-cam.ts";
+import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
 
 /**
  * A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic ("cine"),
@@ -20,9 +20,6 @@ const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch
  * `fixed` is the course's own solids (cached, no cars; null off a race), for the chase views' push-out.
  */
 export type SpecScene = AutoScene & { rivals(): readonly DeformableCar[]; fixed(): Sight | null };
-
-/** The chase views' push-out pulls the eye in at most this many metres. */
-const PUSH_MAX = 6;
 
 /** A lamp post the orbit keeps clear of: it stands from its base up `POST_TOP` m and is thin, so the eye's distance to its axis is what counts. */
 type Post = { intact: boolean; group: { visible: boolean; position: THREE.Vector3 } };
@@ -331,6 +328,8 @@ export class ChaseCamera {
   private readonly approachSide = new THREE.Vector3(1, 0, 0);
   /** `lookBack` parks the rigs' own shot here and `unflip` puts it back, so the rigs never see the rear view. */
   private flipped = false;
+  /** The chase eye's pull-in past the course's solids (`pushOut`). */
+  private readonly pull = new EyePull();
   private readonly rigPos = new THREE.Vector3();
   private readonly rigQuat = new THREE.Quaternion();
   /** Canvas pointers: the drag's id, and a second finger that pinch-zooms (`pinchDist` px from the first). */
@@ -549,6 +548,7 @@ export class ChaseCamera {
     this.spec = SPEC_VIEWS[(SPEC_VIEWS.indexOf(this.specView(chase)) + 1) % SPEC_VIEWS.length]!;
     this.cine.reset();
     this.auto.reset();
+    this.pull.reset();
   }
 
   /**
@@ -574,21 +574,22 @@ export class ChaseCamera {
     const chase = view === "cine" ? "third" : view;
     this.rig = "chase";
     this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true);
-    if (chase !== "first") this.pushOut(scene.fixed());
+    this.pushOut(chase === "first" ? null : scene.fixed(), wallDt);
     if (shake && chase !== "first") this.shake();
     return true;
   }
 
   /**
-   * A chase eye inside a course solid (a street corner, a wall) is pulled in along the view, a metre at a time (at
-   * most `PUSH_MAX`), until it is out: one solid test per frame when it is already clear. The rig's own spring is
-   * untouched, so the eye is back on its line as soon as the way is clear. The orbit and the hood cam are not pushed.
+   * A chase eye inside a course solid (a street corner, a wall) is pulled in along the view (`EyePull`): at once as the
+   * solid closes on it, eased back out once the way is clear. One solid test per frame while it is clear and nothing is
+   * being eased out. The rig's own spring is untouched. The orbit and the hood cam are not pushed (`s` null).
    */
-  private pushOut(s: Sight | null): void {
-    const c = this.camera.position;
-    if (!s || !solid(s, c.x, c.y, c.z, CINE.pad)) return;
-    this.camera.getWorldDirection(_v);
-    for (let d = 0; d < PUSH_MAX && solid(s, c.x, c.y, c.z, CINE.pad); d++) c.add(_v);
+  private pushOut(s: Sight | null, dt: number): void {
+    if (!s) {
+      this.pull.reset();
+      return;
+    }
+    this.pull.apply(s, this.camera.position, this.camera.getWorldDirection(_v), dt);
   }
 
   /**
