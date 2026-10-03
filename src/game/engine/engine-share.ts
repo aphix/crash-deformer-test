@@ -1,4 +1,4 @@
-import { decodeShare, encodeShare, type ShareState } from "../hud/share-url.ts";
+import { decodeShare, isShareableRoom, joinsRoom, shareFragment, type ShareState } from "../hud/share-url.ts";
 import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
 import { SEEDED_SCENES } from "../scenes/scene-id.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
@@ -6,8 +6,10 @@ import { EngineReel } from "./engine-reel.ts";
 
 /**
  * The shareable URL (docs/CONTROLS.md): the page's `#` follows the HUD state (scene, settings that differ from the
- * defaults, the run's spawn seed), and a pasted or edited `#` sets it. The hash is untrusted: `decodeShare`
- * validates it and every value then goes through the setter the HUD uses, which clamps again.
+ * defaults, the run's spawn seed, the netplay room hosted or joined), and a pasted or edited `#` sets it. The hash is
+ * untrusted: `decodeShare` validates it and every value then goes through the setter the HUD uses, which clamps again.
+ * The `#` is the only thing that decides what a page load starts as: nothing the last run left in localStorage
+ * (only preferences live there: name, car, HUD layout, saved highlights) picks a scene, a setting or a room.
  */
 export abstract class EngineShare extends EngineReel {
   /** Off until `attachShare` has read the page's `#`, so boot never overwrites it. */
@@ -24,6 +26,9 @@ export abstract class EngineShare extends EngineReel {
     const o = sc === "race" ? this.race.options : DEFAULT_RACE_OPTIONS;
     const p = this.pistons.config;
     return {
+      // A public match's `pub-…` name is not shared by the URL (Play online finds those); only a private code is.
+      room: this.net.role !== "off" && isShareableRoom(this.net.room) ? this.net.room : "",
+      tx: this.net.role === "off" ? "rtc" : this.net.tx,
       scene: sc,
       // The race and the range put their own field up; the sandbox's size waits in `sandboxCars`.
       cars: sc === "race" || sc === "range" ? this.sandboxCars : this.carCount,
@@ -64,10 +69,10 @@ export abstract class EngineShare extends EngineReel {
     };
   }
 
-  /** Called by every HUD publish: the page URL follows the state. A netplay client's scene is the host's, so it writes nothing. */
+  /** Called by every HUD publish: the page URL follows the state. A netplay client's scene is the host's, so its URL keeps the room alone. */
   protected syncShareUrl(): void {
-    if (!this.shareOn || this.sharing || this.net.client) return;
-    const frag = encodeShare(this.shareState());
+    if (!this.shareOn || this.sharing) return;
+    const frag = shareFragment(this.shareState(), this.net.client);
     if (frag === this.shareLast) return;
     this.shareLast = frag;
     const { pathname, search } = window.location;
@@ -133,7 +138,7 @@ export abstract class EngineShare extends EngineReel {
   /** Boot: apply the page's `#` (this is the first sandbox reset, so the first run already uses it), then follow it. */
   protected attachShare(): void {
     this.shareOn = true;
-    this.applyShare(decodeShare(window.location.hash), true);
+    this.arrive(decodeShare(window.location.hash), true);
     window.addEventListener("hashchange", this.onShareHash);
   }
 
@@ -142,8 +147,20 @@ export abstract class EngineShare extends EngineReel {
     window.removeEventListener("hashchange", this.onShareHash);
   }
 
-  /** The `#` was edited or pasted (our own `replaceState` fires no event). A client's scene is the host's. */
+  /**
+   * A `#` lands (page load or edit): its settings first, unless this browser follows a host (the host's scene wins), then its
+   * room, joined as a guest when it differs from the one this browser is in. A `#` without a room never leaves one.
+   */
+  private arrive(t: ShareState, boot: boolean): void {
+    if (!this.net.client) this.applyShare(t, boot);
+    if (joinsRoom(t, this.shareState())) this.net.join(t.room, t.tx);
+    this.emitHud();
+  }
+
+  /** The `#` was edited or pasted (our own `replaceState` fires no event). */
   private onShareHash = (): void => {
-    if (!this.net.client) this.applyShare(decodeShare(window.location.hash), false);
+    // The next publish writes the state's own `#` back, whatever was typed.
+    this.shareLast = null;
+    this.arrive(decodeShare(window.location.hash), false);
   };
 }

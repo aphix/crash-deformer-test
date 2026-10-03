@@ -1,5 +1,5 @@
 /**
- * The shareable URL: the scene, every setting that differs from `INITIAL_HUD` and the spawn seed, as a
+ * The shareable URL: the netplay room, the scene, every setting that differs from `INITIAL_HUD` and the spawn seed, as a
  * `#key=value&…` fragment. `encodeShare` writes it; `decodeShare` reads untrusted text back into a full
  * `ShareState` (an unknown key or a malformed value falls back to its default, a number clamps to the HUD's own
  * range). The engine applies the result through the setters the HUD uses (`engine-share.ts`).
@@ -35,6 +35,17 @@ const hex: Field<number | null> = {
 };
 /** `null` (the default) is "not set": the setting is not pinned by the URL. */
 const orNull = <T>(f: Field<T>): Field<T | null> => ({ def: null, parse: (raw) => f.parse(raw), fmt: (v) => f.fmt(v as T) });
+/**
+ * A private room code as the Room field takes it (`[A-Z0-9]`, ≤ 12, uppercased here as the field does); "" is no room. A
+ * public room (`pub-…`) is never accepted, so a crafted link cannot send a visitor into one, or into polling a dead code (docs/MULTIPLAYER.md).
+ */
+const roomCode: Field<string> = {
+  def: "",
+  parse: (raw) => (/^[A-Za-z0-9]{1,12}$/.test(raw) ? raw.toUpperCase() : undefined),
+  fmt: (v) => v,
+};
+/** Whether `room` is a code the `#` can carry (what `room=` accepts back). */
+export const isShareableRoom = (room: string): boolean => roomCode.parse(room) === room;
 
 const R = KNOB_RANGES;
 const D = INITIAL_HUD;
@@ -45,6 +56,9 @@ const O = DEFAULT_RACE_OPTIONS;
  * rigs' knobs and the race setup. The piston and door ranges mirror the rigs' own setter clamps, which apply again.
  */
 const FIELDS = {
+  // The room first: it is what a link is for. `tx` is `bc` only for two tabs of one browser.
+  room: roomCode,
+  tx: pick(["rtc", "bc"] as const, "rtc"),
   scene: pick(SCENE_IDS, "fleet"),
   cars: num(1, MAX_CARS, D.carCount, true),
   smin: num(R.speed.min, R.speed.max, D.speedMin),
@@ -107,4 +121,21 @@ export function decodeShare(fragment: string): ShareState {
     out[k] = (raw === null ? undefined : FIELDS[k].parse(raw)) ?? FIELDS[k].def;
   }
   return out as ShareState;
+}
+
+const DEFAULTS = decodeShare("");
+
+/** A tab's `#` for state `s`: a host's is every setting plus its room; a client's scene is the host's, so its `#` is the room alone. */
+export function shareFragment(s: ShareState, client: boolean): string {
+  return encodeShare(client ? { ...DEFAULTS, room: s.room, tx: s.tx } : s);
+}
+
+/** The link that joins `room` (over `tx`): the page URL `base` (no `#`) plus a fragment of the room alone. */
+export function roomLink(base: string, room: string, tx: ShareState["tx"]): string {
+  return `${base}#${encodeShare({ ...DEFAULTS, room, tx })}`;
+}
+
+/** Whether a `#` that names `want` makes this browser join: it names a room and the one it is in (`have`, "" when none) is another. */
+export function joinsRoom(want: Pick<ShareState, "room" | "tx">, have: Pick<ShareState, "room" | "tx">): boolean {
+  return want.room !== "" && (want.room !== have.room || want.tx !== have.tx);
 }

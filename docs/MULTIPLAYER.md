@@ -142,9 +142,8 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
 - **Private room**: a code typed into the Net panel (`[A-Z0-9]`, ≤ 12) or, left empty, generated: 8
   characters from `crypto.getRandomValues` over a 32-character alphabet (40 bits), so live rooms
   can't be found by guessing (the old 4 characters from `Math.random` were ~1.7 M codes). The panel
-  sits top centre (Host / Join, link "Internet (WebRTC)" or "This browser (tabs)"). "Copy invite link" copies
-  `origin + BASE_URL + ?net=join&room=CODE` (plus `&tx=bc` for tabs), which joins on load. `?net=host&room=CODE`
-  only fills in the panel (hosting takes a click). A link's code is uppercased as the field does, and
+  sits top centre (Host / Join, link "Internet (WebRTC)" or "This browser (tabs)"). The room's code is shown big with "Copy link" (and "Share" where the browser has it): `origin + BASE_URL + #room=CODE` (plus `&tx=bc` for tabs), the share hash (docs/CONTROLS.md), which joins on load; the older `?net=join&room=CODE` still joins too. `?net=host&room=CODE`
+  only fills in the panel (hosting takes a click). A link's code (query or `#`) is uppercased as the field does, and
   one the field would refuse (a `pub-…` name, longer than 12) is ignored, so a crafted link can't
   make a visitor host a public room or poll a dead code forever. Every net URL is built from `import.meta.env.BASE_URL`, so
   the app works under a base path (`APP_BASE=/crush/` on the VPS). Under WebRTC the panel also
