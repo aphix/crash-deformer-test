@@ -528,6 +528,9 @@ export class RaceDirector extends RaceField {
         // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
         boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
         boosting: car.drive.boost,
+        wheelsOff: 4 - car.deform.wheelsOn,
+        // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing).
+        canReset: c !== undefined && this.mine(id) && !this.spectating && this.menu === null && s.phase === "racing" && !s.noReset && c.status === "racing",
       };
     }
     const winner = s && s.winnerId != null ? s.cars[this.rowOf[s.winnerId]!]!.name : null;

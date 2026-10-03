@@ -89,6 +89,8 @@ export class DeformableCar extends CarParts {
     this.restoreRest(this.doorMeshR.geometry, this.doorRRest);
     if (this.lightBar) this.restoreRest(this.lightBar.geometry, this.lightBarRest!);
     this.wheelSpin = 0;
+    this.wheelRate = 0;
+    this.airThrottle = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       const loose = this.looseWheels[i]!;
@@ -271,6 +273,7 @@ export class DeformableCar extends CarParts {
     if (!this.doorParts[0]!.swing!.latched || !this.doorParts[1]!.swing!.latched) this.swingDoors(dt);
     if (!d.massActive) return;
     this.nudgeWheels(dt);
+    this.ride(dt);
     this.stepLooseParts(dt, bounce);
   }
 
@@ -335,12 +338,12 @@ export class DeformableCar extends CarParts {
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
+      this.ride(dt);
       this.stepLooseParts(dt);
       return;
     }
     if (this.airborne) {
-      this.wheelSpin += (this.speed / 0.32) * dt;
-      for (const w of this.wheels) w.rotation.x = this.wheelSpin;
+      this.spinWheels(dt, false);
       this.flewDt = dt;
       if (stepAir(this, dt)) this.land();
       this.refreshBasis();
@@ -352,8 +355,7 @@ export class DeformableCar extends CarParts {
     if (!this.crashed) {
       this.velocity.y -= 9.6 * dt;
       this.group.position.addScaledVector(this.velocity, dt);
-      this.wheelSpin += (this.speed / 0.32) * dt;
-      for (const w of this.wheels) w.rotation.x = this.wheelSpin;
+      this.spinWheels(dt, true);
       this.deform.bindKinematic(this.group, this.velocity, this.angular);
     } else {
       this.velocity.y -= 9.6 * dt;
@@ -365,9 +367,7 @@ export class DeformableCar extends CarParts {
       this.roll = THREE.MathUtils.damp(this.roll, this.angular.z * 0.15, 4, dt);
       this.pitch = THREE.MathUtils.damp(this.pitch, this.angular.x * 0.12, 4, dt);
       this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
-      const v = this.velocity.length();
-      this.wheelSpin += (v / 0.32) * dt;
-      for (const w of this.wheels) w.rotation.x = this.wheelSpin;
+      this.spinWheels(dt, true);
     }
     const ground = activeGround();
     const pos = this.group.position;
@@ -511,20 +511,12 @@ export class DeformableCar extends CarParts {
 
   /** `drop`: a popped hub throws its wheel (host); a netplay client takes loose wheels from snapshots. */
   private nudgeWheels(dt: number, drop = true): void {
-    const v = this.velocity.length();
-    if (!this.deform.drivetrainAlive) {
-      this.wheelSpin *= Math.pow(0.45, dt);
-      this.wheelSpin += (v / 0.32) * dt * 0.2;
-    } else {
-      const drive = this.crashed && this.deform.crushElapsed > 0.05 ? 0.35 : 1;
-      this.wheelSpin += (v / 0.32) * dt * drive;
-    }
+    this.spinWheels(dt, true);
     const hubs = ["hubFL", "hubFR", "hubRL", "hubRR"] as const;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       if (this.looseWheels[i]!.loose) continue;
       const rest = WHEEL_POS[i]!;
-      w.rotation.x = this.wheelSpin;
       if (!this.deform.massActive) {
         w.position.set(rest[0], rest[1], rest[2]);
         continue;
@@ -662,7 +654,9 @@ export class DeformableCar extends CarParts {
   private ride(dt: number): void {
     const cls = carClass(this);
     const air = this.airborne && (!this.airContact || this.group.matrixWorld.elements[5]! < 0.5);
-    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, dt);
+    let gone = 0;
+    for (let i = 0; i < 4; i++) if (this.looseWheels[i]!.loose) gone |= 1 << i;
+    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, gone, dt);
   }
 }
 

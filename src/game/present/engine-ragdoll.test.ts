@@ -303,7 +303,9 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
       riding++;
     }
     ragdolls.dispose();
-    assert.ok(riding > 300, `rode ${riding} frames`);
+    // 5 s of ride. (300+ before the wheel-loss gate: this 94 km/h head-on now takes both front wheels off both cars, and the
+    // dummies' flight ends a frame sooner, 299.)
+    assert.ok(riding > 280, `rode ${riding} frames`);
     assert.deepEqual([...shots].slice(0, 2), ["glass", "follow"], "opens on the windshield, then follows");
     assert.deepEqual(jumps, []);
     assert.ok(maxTurn < 4 * FRAME * 1.1, `turned ${maxTurn.toFixed(3)} rad in one frame`);

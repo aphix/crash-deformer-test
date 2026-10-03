@@ -151,6 +151,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   // Off the fleet disc's rim or in the air (no wheel down): the car keeps its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
   if (alive) floorUnder(p, _ground, 0);
+  car.airThrottle = alive && car.airborne ? Math.max(-1, Math.min(1, input.throttle)) : 0; // in the air the gas winds the wheels (`spinWheels`)
   if (!alive || _ground[0] === NO_FLOOR || car.airborne) return idleDriveState(d);
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
@@ -161,8 +162,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   }
   const a = _assist;
   const dmg = carDrivability(car, realism, _dmg);
-  // Math.max/min, not THREE's clamp and lerp (the same arithmetic): those calls spent TurboFan's inlining
-  // budget here, and the ones it left out boxed their doubles.
+  // Math.max/min, not THREE's clamp and lerp (the same arithmetic): those spent TurboFan's inlining budget here and boxed doubles.
   const throttle = Math.max(-1, Math.min(1, input.throttle));
   const steer = Math.max(-1, Math.min(1, input.steer));
   const brake = Math.max(0, Math.min(1, input.brake));

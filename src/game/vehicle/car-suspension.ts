@@ -45,6 +45,68 @@ const TREAD: readonly (readonly [number, number, number])[] = [
 ];
 /** Off the ground a seated wheel eases back onto its hub at this rate (1/s). */
 const UNSEAT = 15;
+/** A wreck's body eases onto its empty corners at this rate (1/s): 99 % in 1.2 s. */
+const SETTLE = 4;
+
+/**
+ * The body's underside (x, z, height m over the ground at the stock ride with no class lift), read off the skinned
+ * wreck mesh of every style (sedan, wagon, coupe, hatchback and pickup alike): the keel along the middle, rising to
+ * the tail, and the rocker and bumper corners 0.8 m out. The wheel arches are cut out and left out.
+ */
+const UNDERSIDE: readonly (readonly [number, number, number])[] = [
+  [0, 2, 0.032], [0, 1, 0.072], [0, 0, 0.131], [0, -1, 0.136], [0, -2, 0.161],
+  ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
+];
+/** The underside's height (m) at each hub's plan position (a front hub's is the bumper corner's, a rear hub's the tail's). */
+const SILL = [0.084, 0.084, 0.157, 0.157] as const;
+
+/** Body drop at corner `j` per metre of offset at corner `i`: the pose below is the mean heave plus pitch plus roll. */
+function reach(j: number, i: number): number {
+  const [xj, , zj] = WHEEL_POS[j]!;
+  const [xi, , zi] = WHEEL_POS[i]!;
+  return (1 + Math.sign(xj * xi) + Math.sign(zj * zi)) / 4;
+}
+
+/**
+ * The offsets (`Suspension.offset`) a body resting on the corners of `gone` (bit i: wheel i is off) takes. The standing
+ * springs are equal, so the least-offset pose that puts each empty hub's corner down at the underside's height there
+ * (the pose is linear: Gauss-Seidel on the Gram system of the empty corners' rows), then the whole body up as far as any
+ * underside point (it rests on the first to touch) or the standing wheels' arches (`stop` m of room over each tyre) need.
+ * All zero on four wheels.
+ */
+export function sagOffsets(lift: number, stop: number, gone: number, out: Float64Array): void {
+  out.fill(0);
+  if (gone === 0) return;
+  const mu = [0, 0, 0, 0];
+  for (let pass = 0; pass < 12; pass++) {
+    for (let a = 0; a < 4; a++) {
+      if (!((gone >> a) & 1)) continue;
+      let r = -(lift + SILL[a]!);
+      let g = 0;
+      for (let b = 0; b < 4; b++) {
+        if (!((gone >> b) & 1)) continue;
+        let dot = 0;
+        for (let i = 0; i < 4; i++) dot += reach(a, i) * reach(b, i);
+        r -= dot * mu[b]!;
+        if (a === b) g = dot;
+      }
+      mu[a]! += r / g;
+    }
+  }
+  for (let i = 0; i < 4; i++) for (let j = 0; j < 4; j++) if ((gone >> j) & 1) out[i]! += reach(j, i) * mu[j]!;
+  const pitch = (out[0]! + out[1]! - out[2]! - out[3]!) / (4 * AXLE);
+  const roll = (out[1]! + out[3]! - out[0]! - out[2]!) / (4 * TRACK);
+  const heave = (out[0]! + out[1]! + out[2]! + out[3]!) / 4;
+  let raise = 0;
+  for (const [x, z, h] of UNDERSIDE) raise = Math.max(raise, -(lift + h) - (heave + z * pitch + x * roll));
+  for (let j = 0; j < 4; j++) {
+    if ((gone >> j) & 1) continue;
+    let d = 0;
+    for (let i = 0; i < 4; i++) d += reach(j, i) * out[i]!;
+    raise = Math.max(raise, -stop - d);
+  }
+  for (let i = 0; i < 4; i++) out[i]! += raise;
+}
 
 export class Suspension {
   /** Each wheel's body offset from its rest ride (m): − bump (compressed), + droop. `WHEEL_POS` order. */
@@ -59,6 +121,7 @@ export class Suspension {
   private readonly lastV = new Float64Array(4);
   /** The ground pose's load transfer (squat, dive, roll): the springs' resting offsets while it lasts. */
   private readonly load = new LoadTransfer();
+  private readonly target = new Float64Array(4);
   /** Slices seen since the spawn (2: both last height and last speed are real). */
   private seen = 0;
   /** The body group the springs carry (found once per spawn; null without a class lift). */
@@ -82,10 +145,11 @@ export class Suspension {
 
   /**
    * One slice for a car whose ground pose is `group` (its matrixWorld current), class `cls` with body `lift`;
-   * `air` while no wheel is on the ground. `free` false (a crash) puts the body back on its stock ride; the
+   * `air` while no wheel is on the ground. `free` false (a crash) puts the body back on its stock ride, then eases it
+   * down onto the corners of the wheels it has lost (`gone`, bit i: `WHEEL_POS` i; `sagOffsets`; snapped at dt 0); the
    * wheels are then the wreck's (`nudgeWheels` puts them on their hubs).
    */
-  step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, dt: number): void {
+  step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, gone: number, dt: number): void {
     if (this.body === undefined) this.body = group.getObjectByName("classLift") ?? null;
     if (!free) {
       if (this.seen > 0) {
@@ -96,6 +160,7 @@ export class Suspension {
         this.pose(lift);
         this.seat.fill(0);
       }
+      this.sag(lift, SPRINGS[cls].travel / 2, air || group.matrixWorld.elements[5]! < 0.5 ? 0 : gone, dt);
       return;
     }
     if (dt <= 0) return;
@@ -132,6 +197,20 @@ export class Suspension {
     }
     if (this.seen < 2) this.seen++;
     if (this.seatWheels(e, wheels, stop, air, dt) || moved) this.pose(lift);
+  }
+
+  /** A wreck's offsets one slice nearer the corners it rests on (`sagOffsets`); `dt` 0 takes them at once. */
+  private sag(lift: number, stop: number, gone: number, dt: number): void {
+    sagOffsets(lift, stop, gone, this.target);
+    const k = dt > 0 ? 1 - Math.exp(-SETTLE * dt) : 1;
+    let moved = false;
+    for (let i = 0; i < 4; i++) {
+      const d = this.target[i]! - this.offset[i]!;
+      if (d === 0) continue;
+      this.offset[i] = Math.abs(d) < 1e-5 ? this.target[i]! : this.offset[i]! + d * k;
+      moved = true;
+    }
+    if (moved) this.pose(lift);
   }
 
   /**

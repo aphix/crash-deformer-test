@@ -26,6 +26,10 @@ const HUB_POP_MPS = 15;
 /** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
  *  packed bumper beam. With the 0.72 m overhang the wheel is reached after 0.30 m of corner crush. */
 const TYRE_REACH = 0.42;
+/** A corner crushed to within this of its hub (m) takes the wheel on any real hit (HUB_OVERRUN_MPS), however wide and from
+ *  whichever end: the bumper has overrun the tyre. Not a press: the compactor's plates ride the hubs back at under 1 m/s. */
+const HUB_OVERRUN = 0.12;
+const HUB_OVERRUN_MPS = 3;
 
 const _a = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -221,15 +225,14 @@ export abstract class DeformSolve extends DeformContact {
     }
     if ((m.name === "engineL" || m.name === "engineR") && !squeeze && !sideHit && iz < 0) dz = this.engineMountDz(m, dz, bz, stroke);
     if (m.hub && !deep) {
-      if (!m.popped && this.hitSpeed >= HUB_POP_MPS && !sideHit && Math.abs(this.impactLocal.x) >= 0.2 && cw > 0.6) {
-        // C4: wheels leave where real cars lose them — a hard off-centre (small overlap) hit whose
-        // struck corner has crushed through the overhang onto the tyre. A full-width hit loads
-        // the rails and leaves the wheels on, however hard.
+      if (!m.popped && this.hitSpeed >= HUB_OVERRUN_MPS) {
         const front = m.rest.z > 0;
-        const left = m.rest.x < 0;
-        const corner = front ? (left ? this.at.bumperFL : this.at.bumperFR) : left ? this.at.bumperRL : this.at.bumperRR;
+        const corner = front ? (m.rest.x < 0 ? this.at.bumperFL : this.at.bumperFR) : m.rest.x < 0 ? this.at.bumperRL : this.at.bumperRR;
+        const reach = Math.abs(corner.rest.z - m.rest.z);
+        // C4: a hard off-centre hit whose struck corner has crushed onto the tyre pops it (a full-width hit loads the rails), as does any hit that overruns the hub.
         const crushed = (corner.local.x - corner.rest.x) * ix + (corner.local.z - corner.rest.z) * iz;
-        if (front === iz < 0 && crushed >= Math.abs(corner.rest.z - m.rest.z) - TYRE_REACH) this.popHub(m);
+        const c4 = !sideHit && front === iz < 0 && this.hitSpeed >= HUB_POP_MPS && Math.abs(this.impactLocal.x) >= 0.2 && cw > 0.6 && crushed >= reach - TYRE_REACH;
+        if (c4 || (front ? corner.rest.z - corner.local.z : corner.local.z - corner.rest.z) >= reach - HUB_OVERRUN) this.popHub(m);
       }
       if (!m.popped && hypot2(m.shoveX, m.shoveZ) > WHEEL_DIAMETER) this.popHub(m);
       if (!m.popped) {

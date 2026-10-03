@@ -45,6 +45,10 @@ const SIREN_PERIOD = 0.5;
 /** Lit lens emissive gain past the bloom threshold; each stays under the ACES knee where it washes out
  *  (red to orange, as the tail lamps; blue to lavender, seen at 2.4). */
 const SIREN_GAIN = { red: 1.3, blue: 1.5 } as const;
+/** Wheels off the ground lose 1/e of their spin to bearing drag in this long (s). */
+const AIR_SPIN_TAU = 1.5;
+/** A driven wheel in the air winds up under full throttle at this rate (rad/s²): unloaded, a little. */
+const AIR_SPIN_UP = 8;
 
 export interface CarPaint {
   body: number;
@@ -252,6 +256,10 @@ export abstract class CarCore {
   protected onGlass: GlassBurst | null;
   protected bodyMat: THREE.MeshPhysicalMaterial;
   protected wheelSpin = 0;
+  /** The drawn wheels' rate about their axle (rad/s, forward positive): drawn only, the sim never reads it. */
+  protected wheelRate = -0;
+  /** Throttle (−1..1) of a driven body in the air, which winds its wheels up (`applyDrive` writes it; drive state idles there). */
+  airThrottle = -0;
   protected glassPanes: GlassPane[] = [];
   protected parts: DetachPart[] = [];
   /** [left, right] door and mirror parts, also listed in `parts`. */
@@ -651,6 +659,19 @@ export abstract class CarCore {
     if (fl > 1e-6) this.fwdFlat.set(this.forward.x / fl, 0, this.forward.z / fl);
     else this.fwdFlat.set(0, 0, 1);
     this.rightFlat.set(this.fwdFlat.z, 0, -this.fwdFlat.x);
+  }
+
+  /**
+   * Turn the drawn wheels one step (drawn only: the sim never reads them). On the ground (`rolling`) a tyre turns with
+   * the car's travel along its heading over the radius it is drawn at (the mesh's tread crown `TYRE_R` at the class's
+   * wheel scale): reversing turns it back, a sideways slide turns nothing. In the air the wheels keep their last rate
+   * and lose it to bearing drag, a driven body's throttle winding them up a little. A wheel off the car turns on its own.
+   */
+  protected spinWheels(dt: number, rolling: boolean): void {
+    if (rolling) this.wheelRate = this.velocity.dot(this.forward) / (TYRE_R * this.wheels[0]!.scale.x);
+    else this.wheelRate = this.wheelRate * Math.exp(-dt / AIR_SPIN_TAU) + this.airThrottle * AIR_SPIN_UP * dt;
+    this.wheelSpin += this.wheelRate * dt;
+    for (let i = 0; i < this.wheels.length; i++) if (!this.looseWheels[i]!.loose) this.wheels[i]!.rotation.x = this.wheelSpin;
   }
 
   worldToLocalPoint(world: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {

@@ -336,6 +336,12 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
     assert.deepEqual(struck.hubsPopped, [], "T-bone struck car");
   });
 
+  it("good: a corner crushed to within 0.12 m of its hub loses the wheel on any real hit, however wide: a 2×80 km/h head-on takes both front wheels off both cars, a full-width wall or 2×56 head-on takes none", () => {
+    for (const r of runPair(80, 80)) assert.deepEqual(r.hubsPopped, ["hubFL", "hubFR"], "2×80 head-on");
+    for (const r of runPair(56, 56)) assert.deepEqual(r.hubsPopped, [], "2×56 head-on");
+    for (const kph of [56, 64]) assert.deepEqual(runWall(kph).hubsPopped, [], `${kph} km/h full-width wall`);
+  });
+
   it("bad: the engine block stays one 0.60 m casting through a corner wall and a T-bone (A3)", () => {
     const [struck, bullet] = runPair(0, 50, "t-bone");
     for (const [name, r] of [["offset56", runWall(56, 0.4)], ["struck", struck], ["bullet", bullet]] as const) {
@@ -359,11 +365,11 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
 });
 
 describe("the tyres are a head-on's final stop", () => {
-  it("bad: in a 40/56/64/100 km/h head-on the two cars' tyres never pass more than 1 cm into each other, and no mass pops", () => {
+  it("bad: in a 40/56/64 km/h head-on the two cars' tyres never pass more than 1 cm into each other, and no mass pops; at 100 the crushed corners lose their wheels but the tyres still stop it", () => {
     for (const kph of [40, 56, 64, 100]) {
       for (const r of runPair(kph, kph, "head-on", { squash: 0.32 })) {
         assert.ok(r.tyreOverlap <= 0.01, `${kph} km/h head-on: tyres overlap ${r.tyreOverlap.toFixed(3)} m`);
-        assert.equal(r.hubsPopped.length, 0, `${kph} km/h head-on popped ${r.hubsPopped.join(",")}`);
+        if (kph < 100) assert.equal(r.hubsPopped.length, 0, `${kph} km/h head-on popped ${r.hubsPopped.join(",")}`);
         // No mass steps past 3·v·h + 5 cm in a slice: not through the hit, its springback, or the stopped wreck levelling out.
         assert.ok(r.massStepExcess <= 0, `${kph} km/h head-on: ${r.massStepName} stepped ${r.massStepExcess.toFixed(3)} m past 3·v·h + 5 cm in a slice`);
         // The stop is the last limit, not a shorter crumple: 56 km/h stays in the 0.25–0.50 m nose band.

@@ -458,8 +458,7 @@ export abstract class EngineInput extends EngineRigs {
     const car = this.seat.carIndex < this.carCount ? this.cars[this.seat.carIndex] : undefined;
     if (!car) return;
     car.refreshBasis();
-    const upright = car.group.matrixWorld.elements[5]! > 0.5;
-    if (this.derbyMode && (upright || !car.deform.drivetrainAlive)) return;
+    if (!this.mayRecover(car)) return;
     car.spawnFacing(car.group.position.x, car.group.position.z, Math.atan2(car.fwdFlat.x, car.fwdFlat.z), 0);
     this.dressCar(car);
   }
