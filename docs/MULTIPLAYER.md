@@ -93,7 +93,7 @@ combining marks capped, 16 characters); a hello without one (the old layout) is 
 type, seed u32, the host-clock second the reel starts at (f64), then the clips deflated (`reel-codec.ts`,
 at most 240 KiB); sent once, when a race ends. A client moves the start onto its own clock with the
 snapshot clock offset and draws no snapshots while the reel plays ([HIGHLIGHTS.md](HIGHLIGHTS.md)).
-`NET_VERSION` (`codec.ts`, now 6) is bumped on any layout change:
+`NET_VERSION` (`codec.ts`, now 7: `MSG.race` carries the field's driver-look seed `look`, and a reel clip carries it too) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 

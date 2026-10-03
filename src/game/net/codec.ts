@@ -24,8 +24,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  * 4: 9 part slots per car (the police light bar; was 8), the "police" body style and class indices.
  * 5: `MSG.reel`, the highlight reel.
  * 6: 15 part slots per car (six body panels, quarters and arch flares; was 9).
+ * 7: `MSG.race` carries the race's driver-look seed (`look`); a reel clip carries it too.
  */
-export const NET_VERSION = 6;
+export const NET_VERSION = 7;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -548,14 +549,15 @@ export function readDerby(r: Reader): DerbyNetState {
   return { round, active: (flags & 1) !== 0, time, hold, radius, winnerId, winnerName, decided, lobby, seats, board };
 }
 
-/** `MSG.race`: the host's rules state (null between races), its public lobby countdown and course. */
+/** `MSG.race`: the host's rules state (null between races), its public lobby countdown and course, and the field's driver-look seed (`driverLook`). */
 export interface RaceNetState {
   lobby: number | null;
   trackId: string;
+  look: number;
   snap: RaceSnapshot | null;
 }
 
-const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), snap: z.unknown() });
+const RACE_MSG = z.object({ lobby: z.number().nullable(), trackId: z.string().max(64), look: z.number().int().min(0).max(0xffffffff), snap: z.unknown() });
 
 /**
  * The parts of a `RaceSnapshot` that size what `RaceSession.restore` builds: a lap count far above any
@@ -588,8 +590,8 @@ export function readRace(data: Uint8Array): RaceNetState | null {
   }
   const m = RACE_MSG.safeParse(raw);
   if (!m.success) return null;
-  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, snap: null };
+  if (m.data.snap == null) return { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, snap: null };
   const snap = RACE_SNAP.safeParse(m.data.snap);
   // A peer's JSON in the host's `RaceSnapshot` shape: what sizes the session is checked above, the rest is taken as is.
-  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, snap: snap.data as RaceSnapshot } : null;
+  return snap.success ? { lobby: m.data.lobby, trackId: m.data.trackId, look: m.data.look, snap: snap.data as RaceSnapshot } : null;
 }

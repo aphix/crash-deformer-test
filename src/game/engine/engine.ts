@@ -406,6 +406,8 @@ export class CrashEngine extends EngineShare {
       this.glassDots.update(fxDt, bounceGround);
       this.smoke.update(fxDt, bounceGround, this.camera);
       const sandbox = !this.race.active && !this.derbyMode;
+      // Who the drivers look like: the clip on screen's race, else this race's, this derby round's, or this run's scene seed.
+      this.ragdolls.lookSeed = this.highlights.look ?? (this.race.active ? this.race.look : this.derbyMode ? this.derbyRound : this.sceneSeed);
       this.ragdolls.update(simDt, cars, !this.net.client, sandbox, this.derbyMode ? this.derbyR : 0, this.showBarrier ? this.barrier.group : null);
       for (let i = 0; i < cars.length; i++) {
         const car = cars[i]!;

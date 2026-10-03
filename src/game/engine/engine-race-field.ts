@@ -91,6 +91,12 @@ export abstract class RaceField {
    * field (setup, start, campaign) bumps it, so each race rolls afresh; `reseed` pins it.
    */
   protected seed = 0;
+  /**
+   * The field's driver-look seed (`driverLook`: tees, hair, women): rolled with each new field, so the drivers keep
+   * their look through the race (resets, re-throws, its replays). Presentation only: the sim never reads it. The
+   * netplay host sends it with the race state and a client adopts it.
+   */
+  look = 0;
   /** Cars driven by network peers and their names (netplay host, `setSeats`): `remote` slots in the next field. */
   protected seats: ReadonlyMap<number, string> = new Map();
   /** Traffic cars put away by the observer bubble. */
@@ -192,6 +198,7 @@ export abstract class RaceField {
     this.host.setCarCount(n);
     const cars = this.host.live();
     this.seed++;
+    this.look = (Math.random() * 0x100000000) >>> 0;
     return cars.map((car, i): Entrant => {
       if (i === this.self && !this.options.spectate) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
       const peer = this.seats.get(i);
@@ -273,7 +280,7 @@ export abstract class RaceField {
       seat.focus(this.grid[0]!);
     }
     this.host.setPaused(false);
-    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? "Traffic");
+    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? "Traffic", this.look);
   }
 
   /** Every knocked prop back on its spot (a race start, each highlight clip). */

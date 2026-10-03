@@ -238,6 +238,8 @@ export type HighlightClip = {
   squash: number;
   buckle: number;
   deformMode: DeformMode;
+  /** The race's driver-look seed (`driverLook`): every peer, and a clip saved for another day, replays the same tees, hair and women. */
+  look: number;
   cars: ReelCar[];
   /** Per step: dt (s, whole microseconds). */
   h: Float32Array;

@@ -12,6 +12,7 @@ import type { NetPeer } from "./transport.ts";
 export type NetRace = Pick<
   RaceDirector,
   | "options"
+  | "look"
   | "phase"
   | "setRemoteInput"
   | "requestRespawn"

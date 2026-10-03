@@ -37,7 +37,7 @@ describe("highlight recorder", () => {
     // A third are wrecks: every keyframe encodes their netplay wreck section.
     for (let i = 0; i < MAX_CARS; i += 3) cars[i]!.applyImpact(new THREE.Vector3(i * 6, 0.5, 2.2), new THREE.Vector3(0, 0, -1), 16, 12);
     const rec = new CrashRecorder();
-    rec.begin("oval", 0.35, false, MAX_CARS, () => "x");
+    rec.begin("oval", 0.35, false, MAX_CARS, () => "x", 1);
     // Grinding contact under the impact bar: the contact path runs, no cluster ever opens.
     const grind: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
     const step = (): void => {
@@ -100,7 +100,7 @@ function firstImpacts(racers: number): number[][] {
   cars[WALLER]!.spawnFacing(0, z + LANE, Math.PI / 2, 15);
   cars[1]!.spawnFacing(0, z + 2 * LANE, Math.PI / 2, 0);
   const rec = new CrashRecorder();
-  rec.begin("flat", HANDLING.realism, false, racers, (i) => `c${i}`);
+  rec.begin("flat", HANDLING.realism, false, racers, (i) => `c${i}`, 1);
   const world = newWorld(cars);
   world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
   const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
