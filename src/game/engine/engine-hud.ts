@@ -58,6 +58,7 @@ export abstract class EngineHud extends EngineWarm {
           detached: this.doorShot.detached,
           doorDeg: this.doorShot.doorDeg,
           latched: this.doorShot.latched,
+          panelHinge: this.doorShot.panelHinge,
           bodyMm: Math.max(this.doorShot.bodyParticleMm, this.doorShot.bodyVertexMm),
         },
       },

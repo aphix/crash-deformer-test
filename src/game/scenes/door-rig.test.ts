@@ -100,11 +100,13 @@ describe("door hinge: stop, latch and slam overload", () => {
     assert.ok(swing(0.5, -omegaFor(1.1, SLAM_TEAR_J)).partOff("doorR"), "1.1× slam energy kept the door on");
   });
 
+  // The old 1.1× fling reached the stop with 220 J (measured), the limit itself, on viscous damping alone; the hinge's dry friction
+  // (DOOR_DRY, 2 rad/s²) takes it to 217 J. 1.2× is as far above the limit as the old 1.1× was meant to be.
   it("a door flung open onto its stop stays below the hinge limit and tears off past it", () => {
     const soft = swing(0.5, omegaFor(0.9, HINGE_TEAR_J));
     assert.ok(!soft.partOff("doorR"));
     assert.ok(Math.abs(soft.doorHinge(1).theta - DOOR_OPEN_MAX) < 0.05, `door at ${soft.doorHinge(1).theta * R2D}°`);
-    const hard = swing(0.5, omegaFor(1.1, HINGE_TEAR_J));
+    const hard = swing(0.5, omegaFor(1.2, HINGE_TEAR_J));
     assert.ok(hard.partOff("doorR") && hard.partOff("mirrorR"), "door and its mirror should leave together");
   });
 });

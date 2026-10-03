@@ -214,6 +214,10 @@ export interface DetachPart {
   detached: boolean;
   folding: boolean;
   hingeT: number;
+  /** The most `syncAttachedParts` may raise `hingeT` to: a panel pushed back onto the body stays dented below it. Host state, not netted. */
+  hingeMax: number;
+  /** Wind wear of a hinged panel or bumper, 0..1 (`windWear`): it comes off at 1. Host state, not netted. */
+  fatigue: number;
   velocity: THREE.Vector3;
   angular: THREE.Vector3;
   radius: number;
@@ -298,6 +302,8 @@ export abstract class CarCore {
   /** [left, right] door and mirror parts, also listed in `parts`. */
   protected doorParts: DetachPart[] = [];
   protected mirrorParts: DetachPart[] = [];
+  /** [left, right] quarter panels, also listed in `parts`. */
+  protected quarterParts: DetachPart[] = [];
   /** Seconds since the [front, rear] end was last struck (`noteContactEnd`). */
   protected readonly endAgo = new Float64Array([9, 9]);
   /** Smallest striker reach (m from centre along the length) since the squeeze began. */
@@ -539,6 +545,8 @@ export abstract class CarCore {
         detached: false,
         folding: false,
         hingeT: 0,
+        hingeMax: 1,
+        fatigue: 0,
         velocity: new THREE.Vector3(),
         angular: new THREE.Vector3(),
         radius,
@@ -571,7 +579,9 @@ export abstract class CarCore {
       mesh.name = "panel";
       mesh.frustumCulled = false;
       mesh.position.copy(r.origin);
-      add(r.name, mesh, cage, attachL, attachR, r.kind, r.kind === "quarter" ? 0.3 : 0.22).region = r;
+      const part = add(r.name, mesh, cage, attachL, attachR, r.kind, r.kind === "quarter" ? 0.3 : 0.22);
+      part.region = r;
+      if (r.kind === "quarter") this.quarterParts[r.side < 0 ? 0 : 1] = part;
     }
     // Last, so every style's other parts keep their indices (netplay, tests). Roof sensor 12 on both ends.
     if (this.lightBar) this.lightBarPart = add("lightBar", this.lightBar, "roof", 12, 12, "bar", 0.3);

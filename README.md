@@ -25,7 +25,7 @@ One scene at a time, from the bottom bar or a key. A pick pulses the view into a
 - **Race** (Z): circuit racing against AI; see [Race mode](#race-mode) below.
 - **Press** (C): two plates close on a parked car.
 - **Pistons** (I): eight rams around a parked car; fire one (1–8) or all (0). See [`docs/PISTON_RIG.md`](docs/PISTON_RIG.md).
-- **Doors** (N): one ram runs down a parked car's side, grazing the mirror, driving an open door past its stop or slamming it shut. See [`docs/DOOR_RIG.md`](docs/DOOR_RIG.md).
+- **Doors** (N): one ram runs down a parked car's side, grazing the mirror, driving an open door past its stop or slamming it shut. D and E do the same to a stretched quarter panel. See [`docs/DOOR_RIG.md`](docs/DOOR_RIG.md).
 - **Corkscrew** (,): a car launched up a twisted channel; the spawn-speed slider decides the stunt (no air, a roof landing, or one or two rolls back onto the wheels).
 - **Range** (bottom bar): the ejection range. A car hits a jersey barrier at 100 km/h and the driver is thrown over it into a sand field with distance signs.
 

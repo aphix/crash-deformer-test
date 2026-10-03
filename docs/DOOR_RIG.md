@@ -10,6 +10,12 @@ front at the top:
   mirror. The car takes no other damage.
 - **C**: the door is open. The ram runs front→rear and swings it shut. A light push re-closes it and
   latches it; a hard push slams it off.
+- **D** (key 6): a quarter panel stands out (hinge 0.45, 0.18 m off the body). The ram runs
+  rear→front and pushes it back: a light push leaves it dented but on, a hard one tears it off.
+- **E** (key 7): the same panel; the ram runs front→rear into its free end and pulls it out: a
+  light pull opens it, a hard one tears it off. The panel is the door's mirror image (hinged at its
+  tail), so the directions swap. Open doors also swing with the car's own acceleration; see
+  `docs/PANEL_FLAP.md`.
 
 Code: `car.ts` (hinge state and rules), `door-rig.ts` (`DoorRig`, DOM-free),
 `engine-doors.ts` (ram visuals), the `doors` scene in `engine.ts`, and `DoorPanel` in
@@ -123,8 +129,8 @@ Thresholds from a 1 km/h sweep:
 
 To open the scene, pick **Doors** in the scene picker or press **N**. The panel has:
 
-- **A** / **B** / **C** buttons (keys 1–3). Firing sets the door shut or open for that scene and
-  re-parks the car if that side already lost a part.
+- **A** / **B** / **C** / **D** / **E** buttons (keys 1–3, 6, 7). Firing sets the door shut or open for that scene
+  (D and E: the door shut, the panel at hinge 0.45) and re-parks the car if that side already lost the part it needs.
 - **Left/Right door** (key 5) and **Door open/shut** (key 4).
 - Speed and mass sliders.
 - The last shot's outcome, including the body Δ.
