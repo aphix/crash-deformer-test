@@ -1,12 +1,15 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, blankPoint, blankProjection, pointOn } from "../world/track.ts";
-import { CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
+import { BUST, CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
 import type { CarPose, Entrant, RaceEvent, RaceResultRow } from "./types.ts";
 import { square as squareFile } from "../world/track.test-util.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 import oval from "../world/tracks/oval.json" with { type: "json" };
+import { PoliceBrain, type PoliceWorld } from "../ai/police.ts";
+import { RaceBrain } from "../ai/race-ai.ts";
+import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 
 const DT = 1 / 60;
 
@@ -400,6 +403,141 @@ describe("race rules", () => {
   });
 });
 
+describe("busted (BUST)", () => {
+  const GREEN = 2;
+  /**
+   * Car 0 on the oval: 30 m/s from green, then each `[seconds, km/h]` leg from `GREEN` s, then 30 m/s again;
+   * a chasing police car rides `gap` m beside it the whole race. Car 1 races on. Stepped to `to` s.
+   */
+  function bust(legs: [number, number][], gap: number, to: number, noReset = false): RaceSession {
+    const s = new RaceSession(ovalTrack, field(2), { laps: 3, noReset });
+    const slot = ovalTrack.gridSlot(0);
+    const p0 = blankProjection();
+    ovalTrack.project(slot.x, slot.z, -1, p0);
+    const drive = (t: number): { s: number; v: number } => {
+      let s0 = p0.s + 30 * Math.min(Math.max(0, t), GREEN);
+      let at = GREEN;
+      for (const [len, kph] of legs) {
+        const v = kph / 3.6;
+        if (t < at + len) return { s: s0 + v * Math.max(0, t - at), v: t < at ? 30 : v };
+        s0 += v * len;
+        at += len;
+      }
+      return { s: s0 + 30 * Math.max(0, t - at), v: 30 };
+    };
+    const other = fromGrid(ovalTrack, 1, 30);
+    const poses: CarPose[] = [0, 1].map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
+    const cop = [{ x: 0, z: 0 }];
+    while (s.time < to - 1e-9 && s.phase !== "finished") {
+      const t = s.time + DT;
+      const d = drive(t);
+      const p = ovalTrack.pointAt(d.s, _pt);
+      Object.assign(poses[0]!, { x: p.x, z: p.z, vx: p.tx * d.v, vz: p.tz * d.v });
+      cop[0]!.x = p.x + p.tz * gap;
+      cop[0]!.z = p.z - p.tx * gap;
+      // After the cop: `other` reuses the scratch point `p`.
+      Object.assign(poses[1]!, other(t));
+      s.step(DT, poses, cop);
+    }
+    return s;
+  }
+
+  it("good: stopped 4.1 s within 20 m of a chasing police car is busted: DNF with the reason, the others race on", () => {
+    const s = bust([[4.1, 0]], 10, GREEN + 6);
+    const c = s.cars[0]!;
+    assert.equal(c.status, "dnf");
+    assert.ok(Math.abs(c.bustedAt! - (GREEN + 4)) <= 2 * DT, `busted at ${c.bustedAt} s`);
+    assert.equal(s.cars[1]!.status, "racing");
+    assert.equal(s.cars[1]!.bustedAt, null);
+    const rows = s.results();
+    assert.equal(rows.find((r) => r.id === 0)!.busted, true);
+    assert.equal(rows.find((r) => r.id === 1)!.busted, false);
+  });
+
+  it("good: in a no-reset race a bust puts the car out, timed like an elimination", () => {
+    const s = bust([[4.1, 0]], 10, GREEN + 6, true);
+    const c = s.cars[0]!;
+    assert.equal(c.status, "out");
+    assert.equal(c.outTime, c.bustedAt);
+  });
+
+  it("bad: 3.9 s stopped, 21 m off, or 21 km/h is not busted", () => {
+    const cases: [[number, number][], number, string][] = [
+      [[[3.9, 0]], 10, "3.9 s"],
+      [[[8, 0]], 21, "21 m"],
+      [[[8, 21]], 10, "21 km/h"],
+    ];
+    for (const [legs, gap, why] of cases) {
+      const s = bust(legs, gap, GREEN + 10);
+      assert.equal(s.cars[0]!.status, "racing", why);
+      assert.equal(s.cars[0]!.bustedAt, null, why);
+      assert.equal(s.cars[0]!.stopped, 0, `${why}: the timer is back at 0 once it drives on`);
+    }
+  });
+
+  it("bad: speeding up restarts the timer: 3 s stopped, 1 s at 30 km/h, 3 s stopped is not busted", () => {
+    const s = bust([[3, 0], [1, 30], [3, 0]], 10, GREEN + 7 - DT);
+    assert.equal(s.cars[0]!.status, "racing");
+    assert.ok(Math.abs(s.cars[0]!.stopped - 3) <= 2 * DT, `held ${s.cars[0]!.stopped.toFixed(2)} s since the restart`);
+  });
+
+  it("bad: no police car (police off) never busts anyone", () => {
+    const s = new RaceSession(ovalTrack, field(1), { laps: 3, noReset: false });
+    runTo(s, [() => ({ x: 0, z: 0, vx: 0, vz: 0 })], GREEN + 10);
+    assert.equal(s.cars[0]!.status, "racing");
+  });
+
+  it("bad: a racer stopped beside a PARKED stakeout for over 4 s is not busted; once that unit chases, it is", () => {
+    const brain = new RaceBrain(ovalTrack, 1);
+    const police = new PoliceBrain(ovalTrack, brain, 1, 2, 1);
+    const cars = [0, 1, 2].map(blankAiCar);
+    const spots: Pt[] = [];
+    const world: PoliceWorld = {
+      park: (id, x, _y, z) => {
+        spots[id] = { x, z };
+        Object.assign(cars[id]!, { x, z, vx: 0, vz: 0 });
+      },
+      store: () => {},
+      seen: () => false,
+      down: () => false,
+      sirens: () => {},
+    };
+    const hunt = new Uint8Array([1, 0, 0]);
+    // The leader a third of a lap in: the first stakeout parks two units ahead of car 0.
+    const start = ovalTrack.pointAt(ovalTrack.length * 0.4, _pt);
+    Object.assign(cars[0]!, { x: start.x, z: start.z });
+    police.update(0, 0.25, cars, hunt, ovalTrack.length * 0.4, world);
+    assert.ok(spots[1], "no stakeout parked");
+    const proj = blankProjection();
+    const spotS = ovalTrack.project(spots[1]!.x, spots[1]!.z, -1, proj).s;
+    const s = new RaceSession(ovalTrack, field(1), { laps: 3, noReset: false });
+    const pose: CarPose = { x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true };
+    const out: AiCar[] = [];
+    /** Car 0 parked on the centreline `ds` m along from unit 1's spot for `secs` s of green racing. */
+    const sit = (ds: number, secs: number) => {
+      const p = ovalTrack.pointAt(spotS + ds, _pt);
+      Object.assign(cars[0]!, { x: p.x, z: p.z });
+      Object.assign(pose, { x: p.x, z: p.z });
+      const near = Math.hypot(p.x - spots[1]!.x, p.z - spots[1]!.z);
+      assert.ok(near < BUST.near, `car 0 is ${near.toFixed(1)} m from the unit`);
+      for (let t = 0; t < secs; t += DT) {
+        if (Math.round(s.time / DT) % 15 === 0) police.update(s.time, 0.25, cars, hunt, 0, world);
+        s.step(DT, [pose], s.time < 0 ? [] : police.chasers(cars, out));
+      }
+    };
+    // Short of its spot: the unit stays parked, so it never counts.
+    sit(-8, 4.5 + 5);
+    assert.equal(out.length, 0, "a parked unit counted as chasing");
+    assert.equal(s.cars[0]!.status, "racing");
+    assert.equal(s.cars[0]!.bustedAt, null);
+    // Past it: the pack wakes and chases, and the same stop is a bust.
+    sit(5, 5);
+    assert.ok(out.length > 0, "the woken unit is not chasing");
+    assert.equal(s.cars[0]!.status, "dnf");
+    assert.notEqual(s.cars[0]!.bustedAt, null);
+  });
+});
+
 describe("campaign", () => {
   const row = (id: number, place: number, status: RaceResultRow["status"] = "finished"): RaceResultRow => ({
     id,
@@ -411,6 +549,7 @@ describe("campaign", () => {
     gap: null,
     bestLap: null,
     laps: 3,
+    busted: false,
   });
 
   it("scores places, sorts standings, and grids each later round leader on pole", () => {

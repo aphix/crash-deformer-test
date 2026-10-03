@@ -197,6 +197,16 @@ export class PoliceBrain {
     this.immune[id] = time + IMMUNE;
   }
 
+  /**
+   * The units chasing a racer right now (in pursuit with a pack, not giving up), from `cars` into `out` (cleared
+   * first): the rules' `BUST` counts only these, never a parked stakeout, a knocked-out wreck or a unit driving off.
+   */
+  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[] {
+    out.length = 0;
+    for (let u = 0; u < this.count; u++) if (this.state[u] === "pursuit" && this.pack[u]! >= 0) out.push(cars[this.first + u]!);
+    return out;
+  }
+
   /** A unit's input for this physics slice (scratch output: apply it before the next call). */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;

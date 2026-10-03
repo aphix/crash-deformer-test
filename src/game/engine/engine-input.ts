@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { PISTON_DEFAULTS, PISTON_IDS } from "../scenes/piston-rig.ts";
 import { RAM_DEFAULTS } from "../scenes/door-rig.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
-import { armKill, carClass, CLASSES, HANDLING, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { armKill, carClass, CLASSES, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { cleanName, DRIVER_CARS } from "../match/types.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
@@ -115,7 +115,7 @@ export abstract class EngineInput extends EngineRigs {
   /** Arcade (0) ↔ realistic (1): grip and drift assists in applyDrive, and when every car's drivetrain dies. */
   setRealism(value: number): void {
     HANDLING.realism = THREE.MathUtils.clamp(value, KNOB_RANGES.realism.min, KNOB_RANGES.realism.max);
-    for (const car of this.cars) armKill(car.deform, carClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
+    for (const car of this.cars) armKill(car.deform, killClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
     this.emitHud();
   }
 

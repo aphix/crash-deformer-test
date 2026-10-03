@@ -125,6 +125,10 @@ export type CarRecord = {
   /** Unbroken seconds drafting another racer (`DRAFT`; 0 when not), and the boost bonuses drafting has earned. */
   draft: number;
   drafts: number;
+  /** Unbroken seconds held under `BUST.kph` within `BUST.near` of a chasing police car (0 when not). */
+  stopped: number;
+  /** Race time the police busted this car (`BUST`; it is then DNF, or out in a no-reset race), null when not. */
+  bustedAt: number | null;
 };
 
 export type RaceEvent =
@@ -168,6 +172,8 @@ export type RaceResultRow = {
   gap: number | null;
   bestLap: number | null;
   laps: number;
+  /** Out of the race because the police stopped it (`BUST`): "Busted" instead of DNF / Out. */
+  busted: boolean;
 };
 
 export type CampaignRow = {
@@ -293,6 +299,8 @@ export type RaceHud = {
     speedKph: number;
     /** In another car's trail (`DRAFT`): the HUD's draft cue. */
     drafting: boolean;
+    /** Busted by the police (`BUST`): the HUD's BUSTED banner until the camera moves on. */
+    busted: boolean;
   } | null;
   /** Cars in the race. */
   field: number;

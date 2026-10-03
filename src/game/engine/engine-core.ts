@@ -13,7 +13,7 @@ import { newWorld } from "./world-step.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
-import { armKill, assignClass, carClass, HANDLING, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
@@ -301,7 +301,7 @@ export abstract class EngineCore {
     // Re-dress after a respawn re-attached its parts, and arm the slider's kill travel (a derby's is shorter).
     const cls = carClass(car);
     assignClass(car, cls);
-    armKill(car.deform, cls, HANDLING.realism, this.derbyMode ? "derby" : "default");
+    armKill(car.deform, killClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
   }
 
 

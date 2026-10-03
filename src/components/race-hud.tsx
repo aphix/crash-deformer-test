@@ -20,6 +20,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { DriverRows } from "@/components/race-driver";
 import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
+import { BustedBanner } from "@/components/race-busted";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { ReelList, SavedList } from "@/components/race-reel";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -279,6 +280,7 @@ export function RaceOverlay({ race, pad, onCommand }: { race: RaceHud; pad: bool
         </div>
       ) : null}
       {you?.status === "finished" ? <FinishCard race={race} /> : null}
+      <BustedBanner race={race} />
     </div>
   );
 }
@@ -600,7 +602,7 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
             <tr key={r.id} className={cn("border-t border-border", r.kind === "player" ? "bg-surface-2 font-semibold text-fg" : "text-fg")}>
               <td className="py-1 pl-1 text-muted">{r.place}</td>
               <td className="max-w-0 truncate py-1 pr-2">{r.name}</td>
-              <td className="py-1 text-right">{r.time === null ? RESULT_STATUS[r.status] : fmtTime(r.time)}</td>
+              <td className="py-1 text-right">{r.time === null ? (r.busted ? "Busted" : RESULT_STATUS[r.status]) : fmtTime(r.time)}</td>
               <td className="py-1 text-right text-muted">
                 {r.gap !== null ? (r.gap === 0 ? "" : fmtGap(r.gap)) : r.status === "finished" ? lapsDown(rows[0]!.laps, r.laps) : `${r.laps}/${race.laps} laps`}
               </td>

@@ -13,6 +13,7 @@ import {
   cornerSpeed,
   drivability,
   HANDLING,
+  killClass,
   killTravel,
   LIMP_FLOOR,
   VEHICLE_CLASS_IDS,
@@ -360,6 +361,16 @@ describe("damage → drivability", () => {
       for (let i = 1; i < order.length; i++) assert.ok(order[i]! >= order[i - 1]!, `realism ${realism}: ${order.join(" ")}`);
       assert.ok(order[3]! > order[0]!);
     }
+  });
+
+  it("good: an AI police unit takes 15–20 % more kill travel than the sedan it copies; the player's police car keeps the sedan's", () => {
+    const sedan = killTravel("sedan", DEFAULT_REALISM, "default");
+    const police = killTravel("police", DEFAULT_REALISM, "default");
+    assert.ok(police >= sedan * 1.15 && police <= sedan * 1.2, `police ${police.toFixed(3)} m vs sedan ${sedan.toFixed(3)} m`);
+    for (const realism of [0, 1]) assert.ok(killTravel("police", realism, "default") > killTravel("sedan", realism, "default"), `realism ${realism}`);
+    const cruiser = (carIndex: number) => ({ style: { id: "police" as const }, group: { userData: { carIndex } } });
+    assert.equal(killClass(cruiser(0)), "sedan", "the player's slot");
+    assert.equal(killClass(cruiser(7)), "police", "an AI unit's slot");
   });
 
   // Repeated 25 km/h side hits barely move the block (0.05 m of 0.31 / 0.45): a derby sedan is worn out

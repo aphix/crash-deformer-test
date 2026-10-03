@@ -151,8 +151,13 @@ export const CLASSES: Readonly<Record<VehicleClassId, ClassStats>> = {
     lift: 0.48,
     wheelScale: 1.7,
   },
-  /** The sedan's drive on the black-and-white body with the light bar. */
-  police: { ...SEDAN, id: "police", label: "Police", style: "police" },
+  /**
+   * The sedan's drive on the black-and-white body with the light bar. An AI police unit takes a little more
+   * before it dies: ×1.3 gives +16 % kill travel at the HUD's default realism (0.45 → 0.52 m; ×1.25 gives only +13.5 %),
+   * +14.5 % at the arcade end, where `KILL_CEILING` caps it, and +30 % at the realistic end. A player's police
+   * car keeps the sedan's (`killClass`).
+   */
+  police: { ...SEDAN, id: "police", label: "Police", style: "police", durability: 1.3 },
 };
 
 /** The class each body style drives as unless assigned another (the monster truck rides the pickup body). */
@@ -180,6 +185,12 @@ const assigned = new WeakMap<object, VehicleClassId>();
 /** A car's class: assigned at spawn, else its body style's. */
 export function carClass(car: { style: { id: CarStyleId } }): VehicleClassId {
   return assigned.get(car) ?? STYLE_CLASS[car.style.id];
+}
+
+/** The class whose durability arms a car's kill limits: a police cruiser in the player's slot (car 0) keeps the sedan's, so only AI police units are tougher. */
+export function killClass(car: { style: { id: CarStyleId }; group: { userData: Record<string, unknown> } }): VehicleClassId {
+  const cls = carClass(car);
+  return cls === "police" && car.group.userData.carIndex === 0 ? "sedan" : cls;
 }
 
 // --- arcade ↔ realistic -----------------------------------------------------

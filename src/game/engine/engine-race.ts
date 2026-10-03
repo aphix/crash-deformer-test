@@ -8,6 +8,7 @@ import { MAX_CARS } from "../scenes/fleet.ts";
 import { Campaign } from "../match/campaign.ts";
 import { SURFACES } from "../world/catalog.ts";
 import type { PoliceBrain } from "../ai/police.ts";
+import type { AiCar } from "../ai/derby-ai.ts";
 import { onSurface } from "../ai/race-ai.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
@@ -23,7 +24,7 @@ import { RaceField } from "./engine-race-field.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
-/** Seconds the finish card shows before the results menu (and the results reel). */
+/** Seconds the finish card shows before the results menu (and the results reel), and the BUSTED banner before the camera moves on. */
 export const RESULTS_DELAY = 2.5;
 const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
 
@@ -36,6 +37,8 @@ const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
 export class RaceDirector extends RaceField {
   /** Per car id: the drafting bonuses (`CarRecord.drafts`) already put on a meter. */
   private readonly drafted = new Int32Array(MAX_CARS);
+  /** The chasing police units handed to the rules each step (`BUST`; `PoliceBrain.chasers` fills it). */
+  private readonly cops: AiCar[] = [];
 
   /** The camera chases the followed car (player or spectated) instead of orbiting. */
   get chase(): boolean {
@@ -395,7 +398,8 @@ export class RaceDirector extends RaceField {
       pose.vz = car.velocity.z;
       pose.alive = alive;
     }
-    s.step(dt, this.poses);
+    // The units chasing (this slice's start positions; a parked or knocked-out unit never busts anyone).
+    s.step(dt, this.poses, this.police?.chasers(this.snaps, this.cops));
     this.credit(s);
     this.recorder.endStep(cars, dt);
     if (racing) this.stalls(s);
@@ -436,6 +440,12 @@ export class RaceDirector extends RaceField {
         this.menu = "results";
         this.spectating = false;
       }
+    }
+    // Busted: the banner shows, then the camera follows the field the way it does after a DNF.
+    const me = s && this.entrants[this.self]?.kind === "player" ? s.cars[this.rowOf[this.self]!]! : null;
+    if (s && me?.bustedAt != null && this.menu == null && !this.spectating && s.time - me.bustedAt >= RESULTS_DELAY) {
+      this.spectating = true;
+      this.watchLeader();
     }
     this.followSun();
   }
@@ -491,6 +501,7 @@ export class RaceDirector extends RaceField {
           split: me.split,
           speedKph: car ? car.velocity.length() * 3.6 : 0,
           drafting: me.draft > 0,
+          busted: me.bustedAt != null,
         };
       }
     }
