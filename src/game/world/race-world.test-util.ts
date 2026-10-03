@@ -36,6 +36,8 @@ export type World = {
   dress: (car: DeformableCar) => void;
   /** How many times the race asked the engine to empty the scene (`RaceHost.clear`: every start, retry, next). */
   clears: number;
+  /** Times a Watch race start asked for the Auto spectator camera (`RaceHost.watchCam`). */
+  watchCams: number;
 };
 
 export function makeWorld(): World {
@@ -97,10 +99,13 @@ export function makeWorld(): World {
     clear: () => {
       w.clears++;
     },
+    watchCam: () => {
+      w.watchCams++;
+    },
   });
   const step = newWorld(liveBuf);
   step.collide = (car, i) => race.collide(car, i);
-  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0 };
+  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0 };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);

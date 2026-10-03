@@ -56,6 +56,11 @@ export class RaceDirector extends RaceField {
   protected override start(trackId: string, grid: readonly number[]): void {
     this.auto = false;
     super.start(trackId, grid);
+    // A Watch race opens on Auto driver + Auto camera (any manual pick still overrides).
+    if (this.spectating) {
+      this.goAuto();
+      this.host.watchCam();
+    }
   }
 
   /** The camera chases the followed car (player or spectated) instead of orbiting. */

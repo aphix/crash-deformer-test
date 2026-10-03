@@ -195,7 +195,6 @@ export class CrashEngine extends EngineShare {
       smoke: this.smoke,
       debris: this.debris,
     });
-
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
     // Four body lamps per car plus at most one lit siren (police flash red, then blue).
@@ -220,6 +219,7 @@ export class CrashEngine extends EngineShare {
         this.emitHud();
       },
       leave: () => this.toggleRace(),
+      watchCam: () => void (this.view.spec = "auto"),
       hitFx,
       buildArt: (track, placed) => {
         this.queueWarm();
