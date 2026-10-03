@@ -129,7 +129,7 @@ function PlaybackSection({ state, engine }: HudProps) {
         <span className="hud-label w-12 shrink-0">FX</span>
         <div
           className={TRACK}
-          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length + 1}, minmax(0, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length + 1}, auto)` }}
           role="group"
           aria-label="Cinematic FX quality"
         >
