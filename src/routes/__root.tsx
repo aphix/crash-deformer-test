@@ -1,6 +1,7 @@
 import { createRootRoute, HeadContent, Outlet, Scripts } from "@tanstack/react-router";
 import { AuthProvider } from "@/lib/auth/provider";
 import { PreviewHostBridge } from "@/components/preview-host-bridge";
+import { BootLoader, BootLoaderStyle } from "@/components/boot-loader";
 import appCss from "../styles.css?url";
 
 const APP_NAME = "Crush Stream";
@@ -36,9 +37,11 @@ export const Route = createRootRoute({
   component: () => (
     <html lang="en" className="dark antialiased" suppressHydrationWarning>
       <head>
+        <BootLoaderStyle />
         <HeadContent />
       </head>
       <body className="bg-bg text-fg">
+        <BootLoader />
         <PreviewHostBridge />
         <AuthProvider>
           <Outlet />

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { dismissBootLoader } from "@/lib/boot-loader";
 import { Hud } from "@/components/hud";
 import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
@@ -19,6 +20,8 @@ export function CrashLab() {
     if (!canvas) return;
     let cancelled = false;
     let engine: CrashEngine | null = null;
+    // If `ready` never comes, let the page (and the error UI) show.
+    const bootTimeout = window.setTimeout(dismissBootLoader, 20_000);
 
     void import("@/game/engine/engine")
       .then(({ CrashEngine }) => {
@@ -28,20 +31,24 @@ export function CrashLab() {
           engineRef.current = engine;
           engine.start();
           setBooted(true);
+          engine.ready.finally(dismissBootLoader);
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);
+          dismissBootLoader();
           if (!cancelled) setBootError(message);
         }
       })
       .catch((err: unknown) => {
         const message = err instanceof Error ? err.stack ?? err.message : String(err);
         console.error("Crush Stream failed to start", err);
+        dismissBootLoader();
         if (!cancelled) setBootError(message);
       });
 
     return () => {
       cancelled = true;
+      window.clearTimeout(bootTimeout);
       engine?.dispose();
       engineRef.current = null;
     };
