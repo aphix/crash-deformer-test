@@ -341,6 +341,7 @@ export class CrashEngine extends EngineShare {
     }
     this.pollInput();
     if (this.warming) return;
+    this.stepSceneFade(wallDt);
     this.fxFrame(wallDt);
 
     // The results reel lives until its race is left or the next one sets up (a client's host may start it). Not "until

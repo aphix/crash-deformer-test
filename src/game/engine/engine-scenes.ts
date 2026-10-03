@@ -14,6 +14,7 @@ import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.t
 import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
+import { SceneFade } from "../present/scene-fade.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
@@ -84,12 +85,40 @@ export abstract class EngineScenes extends EngineHud {
   }
 
   /**
-   * Scene picker: `next` replaces the scene in play; picking the one in play goes back to the fleet. Leaves the race
-   * or the derby first, then resets the field.
+   * Whether a scene pick fades through the cel look and black (`SceneFade`). Probes and scripts that read the new
+   * scene right after a toggle clear it; the shared link, the net and the boot never fade (`applyScene`).
+   */
+  fadeScenes = true;
+  protected readonly sceneFade = new SceneFade<SceneId>();
+
+  /**
+   * Scene picker (HUD, keys): the one entry every pick goes through. Picking the scene in play (or on its way) goes
+   * back to the fleet. The switch itself (`applyScene`) waits for the black frame of the transition, which is local
+   * presentation only; a pick mid-transition retargets it.
    */
   protected setScene(next: SceneId): void {
     if (this.net.client) return;
-    if (next === this.sceneId) next = "fleet";
+    if (next === (this.sceneFade.pending ?? this.sceneId)) next = "fleet";
+    if (this.fadeScenes && !this.warming) this.sceneFade.request(next);
+    else this.applyScene(next);
+  }
+
+  /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the post chain. */
+  protected stepSceneFade(wallDt: number): void {
+    const fade = this.sceneFade;
+    // The canvas-only tiers have no cel pass: they fade to black and back alone.
+    const calm = this.clock.reduceMotion || this.cine.tier === "off" || this.cine.tier === "minimal";
+    const next = fade.frame(wallDt, calm, this.warmsInFlight > 0);
+    if (next !== null) this.applyScene(next);
+    this.cine.post.cel = fade.cel;
+    this.cine.post.black = fade.black;
+  }
+
+  /**
+   * The switch itself: `next` replaces the scene in play. Leaves the race or the derby first, then resets the field.
+   */
+  protected applyScene(next: SceneId): void {
+    if (this.net.client) return;
     // The range is a one-car scene behind its own barrier: the sandbox's field and wall come back after it.
     if (this.showRange) {
       this.showBarrier = false;
