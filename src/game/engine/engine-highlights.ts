@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { beginImpact, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, stepPhase, type CrashPhase, type PhaseClock } from "../match/phase.ts";
 import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts";
-import type { ReelHud } from "../match/types.ts";
+import type { ReelHud, SaveResult } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { CINE, CineCam, DUTCH, DutchCam, type Sight } from "../present/spectate-cam.ts";
 import { CRASH_CAM_END } from "../present/engine-cine.ts";
@@ -134,7 +134,8 @@ export class ReelDirector {
   private startAt = Infinity;
   private loopWall = 0;
   private solo: Solo | null = null;
-  private readonly saved = new Set<number>();
+  /** Each reel clip's last Save result (the HUD shows it). */
+  private readonly saved = new Map<number, SaveResult>();
   /** The clip being replayed, and which pass of it (a new pass restarts it). */
   private cur: Prepared | null = null;
   private pass = -1;
@@ -191,9 +192,9 @@ export class ReelDirector {
     s.back();
   }
 
-  /** Reel clip `i` was saved in this browser (the HUD marks it). */
-  markSaved(i: number): void {
-    this.saved.add(i);
+  /** Reel clip `i`'s Save came back `res` (the HUD marks it saved, or says why not). */
+  markSaved(i: number, res: SaveResult): void {
+    this.saved.set(i, res);
   }
 
   clip(i: number): HighlightClip | null {
@@ -322,7 +323,7 @@ export class ReelDirector {
       reel:
         this.clips.length > 0
           ? {
-              clips: this.clips.map((p, i) => ({ title: clipTitle(p.clip), score: p.clip.score, cars: p.clip.cars.length, saved: this.saved.has(i) })),
+              clips: this.clips.map((p, i) => ({ title: clipTitle(p.clip), score: p.clip.score, cars: p.clip.cars.length, saved: this.saved.get(i) ?? null })),
               playing: this.showing,
             }
           : null,

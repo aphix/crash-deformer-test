@@ -12,9 +12,10 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Wri
 
 /**
  * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
- * flight block and solver state). A saved clip also records `NET_VERSION` (its snapshots' layout).
+ * flight block and solver state; 3: that state XORed on the car's previous keyframe's). A saved clip also records
+ * `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 2;
+const REPLAY_VERSION = 3;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -192,21 +193,26 @@ function clipsBytes(clips: readonly HighlightClip[]): Uint8Array<ArrayBuffer> {
 
 /**
  * `MSG.reel`, sent once, reliably: type, seed (u32), the host-clock second every peer starts the reel at (f64), then
- * the clips deflated. Clips that would take it past `REEL_MSG_MAX` drop out, lowest ranked first; the host plays the
- * clips it sent, so every peer shows the same ones.
+ * the clips deflated. In rank order, a clip goes in only if the message still fits `max` (`REEL_MSG_MAX`), so a top
+ * clip too big to send drops alone instead of taking every clip below it along; the host plays the clips it sent,
+ * so every peer shows the same ones. `clips`: how many went in.
  */
-export async function packReel(reel: Reel, startAt: number): Promise<{ msg: Uint8Array<ArrayBuffer>; clips: number }> {
-  for (let n = reel.clips.length; ; n--) {
-    const body = await deflate(clipsBytes(reel.clips.slice(0, n)));
-    if (body.length + 13 > REEL_MSG_MAX && n > 0) continue;
-    const w = new Writer(13 + body.length);
-    w.u8(MSG.reel);
-    w.u32(reel.seed);
-    w.f64(startAt);
-    w.bytes.set(body, w.off);
-    w.off += body.length;
-    return { msg: w.done(), clips: n };
+export async function packReel(reel: Reel, startAt: number, max = REEL_MSG_MAX): Promise<{ msg: Uint8Array<ArrayBuffer>; clips: number }> {
+  const kept: HighlightClip[] = [];
+  let body = await deflate(clipsBytes(kept));
+  for (const c of reel.clips) {
+    const next = await deflate(clipsBytes([...kept, c]));
+    if (next.length + 13 > max) continue;
+    kept.push(c);
+    body = next;
   }
+  const w = new Writer(13 + body.length);
+  w.u8(MSG.reel);
+  w.u32(reel.seed);
+  w.f64(startAt);
+  w.bytes.set(body, w.off);
+  w.off += body.length;
+  return { msg: w.done(), clips: kept.length };
 }
 
 /** A `MSG.reel`; RangeError on a malformed one. */

@@ -236,8 +236,11 @@ export type RaceCommand =
   | { type: "savedPlay"; key: string }
   | { type: "savedDelete"; key: string };
 
-/** One clip of the results reel, as the HUD lists it. */
-type ReelHudClip = { title: string; score: number; cars: number; saved: boolean };
+/** How a Save went (`saveClip`): kept, or refused as too big for one clip, over the total, or by the browser's quota. */
+export type SaveResult = "saved" | "too big" | "full" | "failed";
+
+/** One clip of the results reel, as the HUD lists it; `saved` is its last Save's result (null: none tried). */
+type ReelHudClip = { title: string; score: number; cars: number; saved: SaveResult | null };
 
 /** The results reel while it runs (docs/HIGHLIGHTS.md). */
 export type ReelHud = {

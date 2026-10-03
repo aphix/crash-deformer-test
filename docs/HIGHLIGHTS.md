@@ -26,7 +26,10 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 with each wreck's deform and parts), then per car its drift state, its flight block (`DeformableCar.flight`: airborne,
 hull contact, the whole spin, the takeoff spin) and, for a wreck, its solver state (`simState`: every scalar such as
 the crash clocks, each mass's position, velocity and crush offsets, each beam's set, each shape cluster's plastic
-rest). A cluster's first impact encodes one more. A clip keeps the keyframes from its start to its first impact.
+rest). A cluster's first impact encodes one more. A clip keeps the keyframes from its start to its first impact, and
+stores each wreck's solver state XORed word by word on that car's state in the clip's previous keyframe (`ClipSim`
+undoes it), so what a wreck keeps between keyframes turns to zeros that deflate drops. On the city seed-5 race the
+largest clips (16 and 12 cars) deflate to 177 and 195 KiB this way, against 301 and 280 KiB stored raw.
 
 An impact is a car–car contact closing at `PAIR_MIN` (5 m/s) or more, or a wall/prop contact at `WALL_MIN` (5 m/s),
 whose pair had been apart for `REHIT_S` (0.35 s), so grinding never re-counts. Impacts join an open cluster that shares
@@ -99,8 +102,10 @@ The host runs the reel; clients never record.
    (`NetPlay.sendReel`, `MSG.reel`, since `NET_VERSION` 5) and plays the *decoded* bytes itself at
    `now + RESULTS_DELAY`, the moment the results sheet opens.
 2. `MSG.reel` is the type, the seed (u32), the start in host-clock seconds (f64), then the clips deflated
-   (`deflate-raw`, about 4× smaller). Clips that would push it past `REEL_MSG_MAX` (240 KiB, under WebRTC's 256 KiB
-   message cap) drop out, lowest ranked first.
+   (`deflate-raw`). In rank order, a clip goes in only if the message still fits `REEL_MSG_MAX` (240 KiB, under
+   WebRTC's 256 KiB message cap): a clip too big drops alone, the ones below it that fit still go, and the host warns
+   in the console how many dropped. On the seed-5 race the 5-clip reel sends 3 (227.6 KiB); the largest clip alone is
+   176.5 KiB.
 3. A client decodes it (`unpackReel`) and plays it at `startAt + offset`, its estimate of the host clock. While the
    reel plays it draws no host snapshots, because the reel owns the cars. The reel stops when race mode ends or the
    next race sets up (no session, grid or countdown). It does not stop on "racing": the host's race state reaches a
@@ -117,7 +122,8 @@ may round `Math` functions differently, and the replays can then drift apart.
 - **Save** (`reelSave`, `saveClip`) stores the clip as base64 text: a magic number, `REPLAY_VERSION`, `NET_VERSION`
   and the sim fingerprint, then the deflated clip. One clip may take up to `CLIP_MAX_CHARS` (300 K), and all clips
   together up to `TOTAL_MAX_CHARS` (2 M). Nothing is evicted, because a saved clip is the player's. A save past either
-  cap, or past the browser's quota, is refused.
+  cap, or past the browser's quota, is refused, and the clip's row says why ("too big", "full", or the browser refused).
+  On the seed-5 race the 5 clips encode to 20–266 K characters, all under the per-clip cap.
 - **Saved clips** are listed in the race setup menu with Play and Delete. Play restyles the clip's slot cars with the
   recorded paint and class, plays the clip solo, and restores the field when it ends. A clip saved by another clip or
   keyframe layout, or by another sim build (fingerprint), is refused as "version" rather than replayed wrong.
