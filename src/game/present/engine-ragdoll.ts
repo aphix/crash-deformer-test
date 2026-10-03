@@ -307,6 +307,7 @@ export class RagdollSystem {
     this.pending.length = 0;
     this.acc = 0;
     this.riding = false;
+    this.cam.leave(null);
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
     for (const c of this.statics) this.world?.removeCollider(c, false);
     this.statics.length = 0;
@@ -496,6 +497,16 @@ export class RagdollSystem {
     return this.cam.look;
   }
 
+  /** Before the engine's own rigs place `camera`: back to the pose they left, under the eased one `fadeRide` drew (`RideCam.unfade`). */
+  unfadeRide(camera: THREE.PerspectiveCamera): void {
+    this.cam.unfade(camera);
+  }
+
+  /** After the engine's own camera has placed `camera` this frame: ease it out of the ride's last pose (`RideCam.fade`). */
+  fadeRide(camera: THREE.PerspectiveCamera, wallDt: number, on: boolean): void {
+    this.cam.fade(camera, wallDt, on);
+  }
+
   /** The latest throw's torso (world) into `out`, and the sim seconds it has lain still; -1 while it is not out. */
   latest(out: THREE.Vector3): number {
     const d = this.dolls[this.lastSlot];
@@ -534,6 +545,7 @@ export class RagdollSystem {
       }
       if (best === -Infinity) {
         this.riding = false;
+        this.cam.leave(camera);
         return "none";
       }
     }

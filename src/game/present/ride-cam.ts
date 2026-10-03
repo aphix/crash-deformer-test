@@ -6,12 +6,13 @@ import { CINE, CineCam, sightLine, solid, type Sight, type Subject } from "./spe
 
 /**
  * The ride-along's shots (camera only; nothing here reaches the sim). A ride opens on the windshield: the eye stands
- * ahead of the thrown driver's car on its forward axis, up and out of every solid, and watches him come through the
- * glass. Then it follows him (behind or ahead of his travel, alternating per ride), and now and then the trackside
- * cinematic (`CineCam`: a fixed eye ahead of his travel) takes a turn. Every change of shot, cut to another dummy
- * and return from the user's own orbit eases from the pose the camera was left in (`BLEND_T`), so no frame jumps; a
- * cut to an eye more than `CUT_FAR` away (a dummy across the field) and the ride's first frame are cuts, not flights.
- * While the user holds the camera (`Framing.held`) the shots wait.
+ * ahead of the thrown driver's car on its forward axis (low when it sees him from there, else high and out of every
+ * solid) and watches him come through the glass. Then it follows him (behind or ahead of his travel, alternating per
+ * ride), and now and then the trackside cinematic (`CineCam`: a fixed eye ahead of his travel) takes a turn. Every
+ * change of shot, cut to another dummy and return from the user's own orbit eases from the pose the camera was left
+ * in (`BLEND_T`), so no frame jumps; a cut to an eye more than `CUT_FAR` away (a dummy across the field) and the
+ * ride's first frame are cuts, not flights. The ride's end eases from its last pose into the engine's own view
+ * (`leave`, `fade`). While the user holds the camera (`Framing.held`) the shots wait.
  */
 
 /** Follow shot: metres ahead of or behind the head, out to the side and up. */
@@ -26,6 +27,10 @@ const TRACK_T = 4;
 const BLEND_T = 0.9;
 const FLY_SPEED = 12;
 const BLEND_MAX = 3;
+/** The ride's end eases the camera into the engine's own view over this long (s). */
+const LEAVE_T = 1;
+/** 0 to 1 over b in [0, 1], flat at both ends. */
+const smoother = (b: number): number => b * b * b * (b * (b * 6 - 15) + 10);
 /** An eye further than this (m) from the camera's is cut to, not flown to. */
 const CUT_FAR = 90;
 /** The aim turns at most this fast (rad/s): a dummy passing under the eye would whip a free aim past 15 rad/s. */
@@ -42,6 +47,8 @@ const GLASS_STANDOFF = 6;
 const GLASS_REACH = [7, 18] as const;
 const GLASS_SHARE = [1, 0.8, 0.6] as const;
 const GLASS_UP = [3, 4.5, 6.5] as const;
+/** The low eyes tried first stand this high (m), as far ahead as the high eyes' first try: past where the dummy is when the slow-mo starts, never on his path. */
+const GLASS_LOW_UP = [1.6, 2] as const;
 /** No spot clear: the nearest one is lifted by this much (m) until it is, at most this many times. */
 const GLASS_LIFT = 1.5;
 const GLASS_LIFTS = 8;
@@ -86,6 +93,12 @@ export class RideCam {
   private age = 0;
   private fresh = false;
   private resume = false;
+  /** Seconds since the ride ended while `fade` eases the camera into the engine's view; -1 when it is not. */
+  private left = -1;
+  /** The engine's own pose under the eased one `fade` drew last frame (`unfade` puts it back). */
+  private raw = false;
+  private readonly rawPos = new THREE.Vector3();
+  private readonly rawQuat = new THREE.Quaternion();
   /** The ease from `from` to the shot: 0 at a change, 1 when done, over `blendT` s. */
   private blend = 1;
   private blendT = BLEND_T;
@@ -108,6 +121,7 @@ export class RideCam {
     this.side = -this.side;
     this.fresh = true;
     this.resume = false;
+    this.left = -1;
     if (car) {
       this.exitAt.copy(car.group.position);
       this.reach = THREE.MathUtils.clamp(speed * GLASS_LEAD + GLASS_STANDOFF, GLASS_REACH[0], GLASS_REACH[1]);
@@ -116,6 +130,45 @@ export class RideCam {
       this.heading = Math.atan2(this.exitFwd.x, this.exitFwd.z);
     }
     this.shot = car ? "glass" : "follow";
+  }
+
+  /** The ride ends with `camera` left in its last pose, which `fade` eases out of; null drops the ease (a new run). */
+  leave(camera: THREE.PerspectiveCamera | null): void {
+    this.left = camera ? 0 : -1;
+    this.raw = false;
+    if (!camera) return;
+    this.from.copy(camera.position);
+    this.fromQ.copy(camera.quaternion);
+  }
+
+  /**
+   * Before the engine's own rigs place `camera` (the orbit eases the camera's position from where it stands): put back
+   * the pose they left last frame, not the eased one `fade` drew over it, so the orbit goes its own way underneath.
+   */
+  unfade(camera: THREE.PerspectiveCamera): void {
+    if (!this.raw) return;
+    this.raw = false;
+    camera.position.copy(this.rawPos);
+    camera.quaternion.copy(this.rawQuat);
+  }
+
+  /**
+   * After the engine's own view (the orbit) has placed `camera` this frame: ease it from the ride's last pose into that
+   * view over `LEAVE_T` s, so the hand-off is no jump. `on` false (a reel has the camera) drops the ease.
+   */
+  fade(camera: THREE.PerspectiveCamera, dt: number, on: boolean): void {
+    if (this.left < 0) return;
+    this.left += dt;
+    if (!on || this.left >= LEAVE_T) {
+      this.left = -1;
+      return;
+    }
+    this.rawPos.copy(camera.position);
+    this.rawQuat.copy(camera.quaternion);
+    this.raw = true;
+    const w = smoother(this.left / LEAVE_T);
+    camera.position.lerpVectors(this.from, this.rawPos, w);
+    camera.quaternion.slerpQuaternions(this.fromQ, this.rawQuat, w);
   }
 
   /** Turn `dir` toward the dummies' travel (kept while they are slow), at most `HEADING_RATE`; `snap`: at once. */
@@ -219,7 +272,7 @@ export class RideCam {
     if (this.blend < 1) {
       this.blend = Math.min(1, this.blend + dt / this.blendT);
       const b = this.blend;
-      const w = b * b * b * (b * (b * 6 - 15) + 10);
+      const w = smoother(b);
       camera.position.lerpVectors(this.from, this.pos, w);
       camera.quaternion.slerpQuaternions(this.fromQ, this.aimQ, w);
     }
@@ -237,23 +290,19 @@ export class RideCam {
     return out;
   }
 
-  /** The windshield eye: the first spot ahead of the car on its forward axis that stands clear and sees the heads. */
+  /**
+   * The windshield eye: a low one first (`GLASS_LOW_*`: a driver's-height look at the glass), else the first high spot
+   * ahead of the car on its forward axis that stands clear and sees the heads. The thrown car does not hide its own
+   * driver from the low eye (it is the one he leaves); another car ahead, as in a head-on, does, and the pick goes up.
+   */
   private pickGlass(f: Framing): void {
     const s = f.sight();
     const at = this.exitAt;
     const fwd = this.exitFwd;
+    const own: Sight = { ...s, occ: s.occ.filter((o) => Math.hypot(o.x - at.x, o.z - at.z) > 1) };
+    for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, this.reach, up)) return;
     for (const up of GLASS_UP) {
-      for (const share of GLASS_SHARE) {
-        const ahead = this.reach * share;
-        const x = at.x + fwd.x * ahead;
-        const z = at.z + fwd.z * ahead;
-        const g = s.ground.heightAt(x, z, at.y + 1);
-        if (g === NO_FLOOR) continue;
-        const y = g + up;
-        if (solid(s, x, y, z, CINE.pad) || sightLine(s, x, y, z, f.c.x, f.c.y, f.c.z) < 0) continue;
-        this.pos.set(x, y, z);
-        return;
-      }
+      for (const share of GLASS_SHARE) if (this.tryEye(s, f, this.reach * share, up)) return;
     }
     // Nothing clear: the nearest spot, lifted out of whatever holds it.
     const x = at.x + fwd.x * this.reach * GLASS_SHARE[2];
@@ -262,5 +311,17 @@ export class RideCam {
     let y = Math.max(at.y, Number.isFinite(g) ? g : at.y) + GLASS_UP[2];
     for (let i = 0; i < GLASS_LIFTS && solid(s, x, y, z, CINE.pad); i++) y += GLASS_LIFT;
     this.pos.set(x, y, z);
+  }
+
+  /** The eye `ahead` m on the car's forward axis and `up` m over the ground, set when it stands clear and sees the heads. */
+  private tryEye(s: Sight, f: Framing, ahead: number, up: number): boolean {
+    const x = this.exitAt.x + this.exitFwd.x * ahead;
+    const z = this.exitAt.z + this.exitFwd.z * ahead;
+    const g = s.ground.heightAt(x, z, this.exitAt.y + 1);
+    if (g === NO_FLOOR) return false;
+    const y = g + up;
+    if (solid(s, x, y, z, CINE.pad) || sightLine(s, x, y, z, f.c.x, f.c.y, f.c.z) < 0) return false;
+    this.pos.set(x, y, z);
+    return true;
   }
 }
