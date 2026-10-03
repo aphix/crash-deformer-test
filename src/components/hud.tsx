@@ -198,21 +198,25 @@ export function Hud(props: HudProps) {
         {state.range ? <RangePanel range={state.range} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
         {state.race ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
+        {state.race ? <ResetPrompt view={state.race.view} input={reset} race onTap={tapReset} className="mt-2 sm:hidden" /> : null}
       </div>
 
       {focus || !settingsShown ? null : <HudSections {...props} />}
 
-      <div className="flex min-w-0 flex-col items-start gap-2 self-end" style={{ gridArea: "dock" }}>
+      <div className={cn("flex min-w-0 flex-col items-start gap-2 self-end", focus && state.race?.spectating != null && "phone-landscape:flex-row phone-landscape:items-end")} style={{ gridArea: "dock" }}>
         {state.race ? (
           <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
         ) : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} touch={touch} /> : null}
         {touch ? <TouchControls {...props} /> : null}
         {focus && state.race ? (
-          <div className="flex items-center gap-1">
-            <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
-            <FullscreenButton className="hud-ink pointer-events-auto text-fg/80 hover:bg-surface/60 hover:text-fg sm:h-8" />
-          </div>
+          // Under a race menu these would only peek out beside the card; on a phone on its side they leave the dock row to the pad and sit bottom centre.
+          state.race.menu === null ? (
+            <div className="flex items-center gap-1 phone-landscape:absolute phone-landscape:bottom-2 phone-landscape:left-1/2 phone-landscape:-translate-x-1/2">
+              <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
+              <FullscreenButton className="hud-ink pointer-events-auto text-fg/80 hover:bg-surface/60 hover:text-fg sm:h-8" />
+            </div>
+          ) : null
         ) : (
           <Dock {...props} raceCommand={raceCommand} settingsShown={settingsShown} onToggleSettings={() => setSettings(settingsShown ? "hidden" : "shown")} />
         )}
@@ -237,7 +241,7 @@ export function Hud(props: HudProps) {
       {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} reset={reset} onReset={tapReset} onCommand={raceCommand} /> : null}
       {state.derbyView && !state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
-          <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} />
+          <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} className="mt-14 sm:mt-0" />
         </div>
       ) : null}
     </div>

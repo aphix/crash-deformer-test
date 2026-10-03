@@ -55,7 +55,7 @@ export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: S
         </li>
       ) : null}
       {race.standings.map((row) => (
-        <li key={row.id} className={cn(row.place !== 1 && !row.you && Math.abs(row.place - focusPlace) > 1 && "max-sm:hidden")}>
+        <li key={row.id} className={cn(row.place !== 1 && !row.you && Math.abs(row.place - focusPlace) > 1 && "max-sm:hidden", row.place !== 1 && row.place !== focusPlace && "phone-landscape:hidden")}>
           <StandingRow row={row} lead={race.standings[0]!.lap} onWatch={() => onCommand({ type: "watch", id: row.id })} />
         </li>
       ))}
@@ -73,7 +73,7 @@ function AutoRow({ on, onWatch }: { on: boolean; onWatch: () => void }) {
       aria-pressed={on}
       aria-label="Watch Auto"
       className={cn(
-        "flex h-11 w-full items-center gap-2 rounded-md px-1.5 text-left font-display text-sm transition-colors duration-[var(--motion-quick)] sm:h-6",
+        "flex h-11 w-full items-center gap-2 rounded-md px-1.5 text-left font-display text-sm transition-colors duration-[var(--motion-quick)] sm:h-6 pointer-coarse:h-11",
         on ? "bg-surface/80 text-fg" : "hud-ink text-fg hover:bg-surface/60",
       )}
     >
@@ -102,7 +102,7 @@ function StandingRow({ row, lead, onWatch }: { row: RaceHudRow; lead: number; on
       aria-pressed={row.watched}
       aria-label={`Watch ${row.name}`}
       className={cn(
-        "flex h-11 w-full items-center gap-2 rounded-md px-1.5 text-left font-display text-sm transition-colors duration-[var(--motion-quick)] sm:h-6",
+        "flex h-11 w-full items-center gap-2 rounded-md px-1.5 text-left font-display text-sm transition-colors duration-[var(--motion-quick)] sm:h-6 pointer-coarse:h-11",
         row.you ? "bg-accent text-accent-fg" : row.watched ? "bg-surface/80 text-fg" : "hud-ink text-fg hover:bg-surface/60",
       )}
     >
@@ -121,19 +121,19 @@ function StandingRow({ row, lead, onWatch }: { row: RaceHudRow; lead: number; on
 export function SpectateBar({ race, pad, cam, onCommand, onCam }: { race: RaceHud; pad: boolean; cam: string | null; onCommand: Send; onCam: () => void }) {
   if (race.spectating === null || race.menu !== null) return null;
   return (
-    <div className="hud-panel pointer-events-auto flex items-center gap-1 p-1" role="status">
-      <Button variant="ghost" size="icon" className="sm:size-8" aria-label="Previous car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: -1 })}>
+    <div className="hud-panel pointer-events-auto flex shrink-0 items-center gap-1 p-1" role="status">
+      <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Previous car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: -1 })}>
         <ChevronLeft />
       </Button>
       <div className="min-w-0 px-1 text-center">
         <p className="hud-label">Spectating · {pad ? "LB / RB" : "Q / E"}</p>
         <p className="truncate font-display text-base font-semibold leading-tight">{race.auto ? `Auto · ${race.spectating}` : race.spectating}</p>
       </div>
-      <Button variant="ghost" size="icon" className="sm:size-8" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
+      <Button variant="ghost" size="icon" className="sm:size-8 pointer-coarse:size-11" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
         <ChevronRight />
       </Button>
       {cam ? (
-        <Button variant="ghost" className="h-10 gap-1.5 px-2 sm:h-8" aria-label="Camera view" title={`Camera view · ${pad ? "Y" : "V"}`} onMouseDown={keepFocus} onClick={onCam}>
+        <Button variant="ghost" className="h-10 gap-1.5 px-2 sm:h-8 pointer-coarse:h-11" aria-label="Camera view" title={`Camera view · ${pad ? "Y" : "V"}`} onMouseDown={keepFocus} onClick={onCam}>
           <Video />
           <span className="text-xs">{cam}</span>
         </Button>
@@ -174,7 +174,7 @@ export function RaceOverlay({ race, pad, reset, onReset, onCommand }: { race: Ra
   const you = race.you;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
-      <ResetPrompt view={race.view} input={reset} race onTap={onReset} />
+      <ResetPrompt view={race.view} input={reset} race onTap={onReset} className="max-sm:hidden" />
       {race.phase === null ? null : <StartLights time={race.time} />}
       {you?.wrongWay ? (
         <div

@@ -10,11 +10,11 @@ On a coarse pointer (phones, tablets) a thumb pad sits above the bottom bar. Des
 
 - **Stick** (left thumb): up is gas, down brakes then reverses, left / right steer (left turns the nose left). It has a controller stick's deadzone and soft centre. It shows while you drive, or follow a car you may take over; pushing it takes the wheel.
 - **Buttons** (right thumb), each with a caption. They show only where they act:
-  - **Prev / Next** (outside a race): previous / next car. From the whole field they pick one to follow.
+  - **Prev / Next** (outside a race): previous / next car. From the whole field they pick one to follow; with no stick on screen, landscape puts them in the stick's corner (lower left), not mid-screen.
   - **Exit → Free** (outside a race): drive → follow → whole field, which frees the camera. In a race this slot is **Pause**.
   - **View** (driving or following; a spectated race car has it on the Spectating bar), **Recover** (in a race: **Respawn**), **Rear** (hold to look back), **Boost** (hold), **Handbrake** (hold).
 - **On the 3D view**: one finger drags to orbit (it looks round the car while driving), two fingers pinch to zoom, and a tap on a car follows it.
-- **Fullscreen**: a bottom-bar button (next to **Full menu** in the race focus view), using the Fullscreen API with the webkit fallback. Browsers that can't, such as iPhone Safari, don't show it.
+- **Fullscreen**: a bottom-bar button (next to **Full menu** in the race focus view, which sits bottom centre on a phone on its side), using the Fullscreen API with the webkit fallback. Browsers that can't, such as iPhone Safari, don't show it.
 
 A tap shorter than one frame still registers (the press is latched until the next poll), and each control tracks its own finger, so steering while holding the handbrake or boost works.
 
@@ -58,7 +58,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Focus view ↔ full menu (the sandbox hotkeys work only in the full menu) | H | | Full menu / Race view |
 | Menus: move, choose, back, resume | arrows, Enter / Space, Esc, Tab | D-pad / left stick, A, B, Start | tap |
 
-**Reset prompt**: once the car you drive has lost 2 or more wheels, a pulsing "R to reset" pill (pad: "D-pad ↓", touch: the pill itself is the button, "Tap to respawn" / "Tap to recover", pressing what the thumb pad's wrench presses) comes up mid-screen, in a race and in a derby. It shows only where the reset works: not in a no-reset race, while spectating, or in a derby while the car is upright.
+**Reset prompt**: once the car you drive has lost 2 or more wheels, a pulsing "R to reset" pill (pad: "D-pad ↓", touch: the pill itself is the button, "Tap to respawn" / "Tap to recover", pressing what the thumb pad's wrench presses) comes up mid-screen, in a race and in a derby (on a race phone under 640 px it hangs directly under the standings instead). It shows only where the reset works: not in a no-reset race, while spectating, or in a derby while the car is upright.
 
 ## Scenes and the HUD
 

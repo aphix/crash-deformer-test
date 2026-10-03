@@ -71,16 +71,16 @@ export function LiveRooms({ engine, race }: { engine: RefObject<CrashEngine | nu
     if (role === "client") e.toggleRace();
     else if (role === "host") e.raceCommand({ type: "quit" });
   };
-  // The setup card is a full-screen sheet on phones and a wide centred card on narrow windows: the pill sits in its empty top-right
-  // corner then (no readouts show in setup), and under the title otherwise.
+  // The setup card is a centred sheet (full-screen on phones, `max-w-2xl` wide): the pill sits in its empty top-right corner, inside the card,
+  // never straddling its edge. Otherwise it hangs under the title.
   const setup = race.menu === "setup";
-  const spot = setup ? "right-2 top-2 sm:right-4 sm:top-4" : cn("left-2 sm:left-4", race.fullUi ? "top-14 sm:top-[6.5rem]" : "top-8 sm:top-11");
+  const spot = setup ? "inset-x-3 top-5 mx-auto max-w-2xl pr-2 sm:inset-x-6 sm:top-8" : cn("max-w-[calc(100vw-1rem)] left-2 sm:left-4", race.fullUi ? "top-14 sm:top-[6.5rem]" : "top-8 sm:top-11");
   const live = rooms?.length ?? 0;
 
   if (online) {
     return (
-      <div className={cn("pointer-events-auto absolute z-30", spot)}>
-        <div className="hud-panel flex max-w-[calc(100vw-1rem)] items-center gap-1 py-1 pl-3 pr-1" role="status" aria-live="polite">
+      <div className={cn("pointer-events-none absolute z-30 flex", spot)}>
+        <div className={cn("hud-panel pointer-events-auto flex max-w-[calc(100vw-1rem)] items-center gap-1 py-1 pl-3 pr-1", setup && "ml-auto")} role="status" aria-live="polite">
           <span className="size-2 shrink-0 rounded-full bg-signal-green" aria-hidden />
           <p className="min-w-0 truncate font-display text-xs tabular-nums sm:text-sm">{sessionText(status)}</p>
           <Button variant="ghost" size="sm" className={cn(TAP, "px-2")} onMouseDown={keepFocus} onClick={leave} aria-label="Leave online match">
@@ -93,7 +93,7 @@ export function LiveRooms({ engine, race }: { engine: RefObject<CrashEngine | nu
   }
 
   return (
-    <div className={cn("pointer-events-none absolute z-30 flex max-w-[calc(100vw-1rem)] flex-col gap-1", setup ? "items-end" : "items-start", spot)}>
+    <div className={cn("pointer-events-none absolute z-30 flex flex-col gap-1", setup ? "items-end" : "items-start", spot)}>
       <div className="pointer-events-auto flex items-center gap-1">
         {driving ? null : (
           <Button size="sm" className={cn(TAP, "gap-1.5 px-3")} onMouseDown={keepFocus} onClick={() => act((e) => void e.net.publicMatch("race"))} aria-label="Play online: join the best open race, or host one">
