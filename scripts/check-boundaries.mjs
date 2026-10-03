@@ -60,7 +60,8 @@ const HOT = {
   "src/game/match/derby.ts": ["step"],
   "src/game/ai/derby-ai.ts": ["think"],
   "src/game/ai/race-ai.ts": ["think"],
-  "src/game/ai/police.ts": ["think", "attack"],
+  "src/game/ai/police.ts": ["think", "attackTarget", "pursuitSteer"],
+  "src/game/ai/hunter.ts": ["think", "update"],
 };
 const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact", "scenes", "ai"]);
 const MAX_FILE_LINES = 800;
