@@ -227,7 +227,8 @@ describe("highlight reel frames", () => {
   it("bad: drawing never changes the replay of an airborne clip (the stunt course's jumps) at 60 and 240 Hz", async () => {
     const a = makeWorld();
     try {
-      race(a, { ...FIELD, trackId: "stunt" });
+      // Two laps: the field no longer wrecks itself at the start, so one lap records fewer than 3 clips.
+      race(a, { ...FIELD, trackId: "stunt", laps: 2 });
       const reel = await recordedReel(a, Infinity);
       assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
       for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);

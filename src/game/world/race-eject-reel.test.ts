@@ -56,7 +56,7 @@ async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events:
   for (let n = 0; r.time < 1 && n < 900; n++) frame(w, state);
   const yaw = (track.pointAt(40, pt), Math.atan2(pt.tx, pt.tz));
   w.cars[0]!.spawnFacing(pt.x, pt.z, yaw, 20);
-  track.pointAt(54, pt);
+  track.pointAt(48, pt);
   w.cars[1]!.spawnFacing(pt.x, pt.z, yaw + Math.PI, 20);
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();

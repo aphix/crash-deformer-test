@@ -214,10 +214,18 @@ top speed, brake, full-lock yaw, lateral grip, boost top).
   boosted top (`boostTop`) still wants 2 m/s more than the car has: boost pulls harder (`boostAccel`),
   so it fires out of corners as well as on the straights.
 - A slower car on our line: pass on the side with room; until clear of it sideways close no faster
-  than `0.8 m/s per m` beyond 5 m (at least 2 m/s, so a pass never stalls), which stopped a clean pass
-  at boost speed side-swiping the car it went round. A stopped or crawling car (< 3 m/s) is just driven
-  round. No room: follow its speed.
-- Shortcuts: a seeded coin per car, lap and shortcut (0.3 + 0.4·aggression); heads for the mouth.
+  than `0.8 m/s per m` beyond 7 m (`PASS_NOSE`, over a car length and a half; 2 m/s at least beyond it
+  so a pass never stalls, and inside it the nose drops back), which stopped a clean pass at boost speed
+  side-swiping the car it went round. A stopped or crawling car (< 3 m/s) is just driven round. No
+  room: follow its speed. A car met head-on is seen at `(v_self − v_other)/18` × the scan and swerved
+  round at three times the lane rate (a city street's oncoming traffic).
+- Abreast: two rolling racers within 6.5 m lengthwise (`ABREAST`) keep their lanes 3.3 m apart, each on
+  the side it is on. The grid's two files (4 m stagger, 3–5 m off the middle) all steered for the racing
+  line and met nose to tail there: at the default slider 3–5 of 6 stunt cars were wrecks within 10 s of
+  the green light (2–4 of 6 on the other courses), now none (`race-start.test.ts`).
+- Shortcuts: a seeded coin per car, lap and shortcut (0.3 + 0.4·aggression); heads for the mouth. A car
+  with another racer within 12 m when the coin is tossed stays on the loop (a narrow mouth crosses its
+  neighbours' lanes). On a shortcut only the following gap applies (the line is its middle).
 - Unstick: throttle without motion → reverse with the nose swinging toward the line.
 
 ## Traffic (`TrafficBrain`)
