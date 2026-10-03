@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { STEP_UP, type Ground } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
-import { parseTrack, type TrackJson } from "./track-schema.ts";
+import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
 import { bilinear, RoadCrease } from "./road-crease.ts";
 
 /**
@@ -406,6 +406,8 @@ export class Track {
   /** Arc length (m) of each JSON node on the main loop. */
   readonly nodeS: readonly number[];
   readonly routes: Route[];
+  /** Survival mode's start and cop formation slots; null on a course without them. */
+  readonly survival: SurvivalSpec | null;
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   private baked: TrackGround | null = null;
   private readonly pt = blankPoint();
@@ -414,6 +416,7 @@ export class Track {
     this.json = parseTrack(json);
     this.id = this.json.id;
     this.name = this.json.name;
+    this.survival = this.json.survival ?? null;
     const attrs = nodeAttrs(this.json);
     const pts = this.json.nodes.map((n, i) => new THREE.Vector3(n.x, attrs.y[i]!, n.z));
     const { path, param } = samplePath(pts, true, attrs);

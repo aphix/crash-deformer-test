@@ -1,0 +1,78 @@
+{
+  "id": "havana",
+  "name": "Plaza de la Revolución",
+  "blurb": "Survival ground: a D-shaped green island in a street grid, a grassy embankment and a monument on top. Not in the race menu.",
+  "road": {
+    "width": 12,
+    "surface": "asphalt",
+    "runoff": [3, 3],
+    "runoffSurface": "concrete",
+    "wall": [false, false]
+  },
+  "nodes": [
+    { "x": 0, "z": 46 },
+    { "x": 13.7, "z": 46 },
+    { "x": 27.3, "z": 46 },
+    { "x": 41, "z": 46 },
+    { "x": 46.4, "z": 44.9 },
+    { "x": 50.9, "z": 41.9 },
+    { "x": 53.9, "z": 37.4 },
+    { "x": 55, "z": 32 },
+    { "x": 55, "z": 20 },
+    { "x": 55, "z": 8 },
+    { "x": 55, "z": -2 },
+    { "x": 53.1, "z": -16.2 },
+    { "x": 47.6, "z": -29.5 },
+    { "x": 38.9, "z": -40.9 },
+    { "x": 27.5, "z": -49.6 },
+    { "x": 14.2, "z": -55.1 },
+    { "x": 0, "z": -57 },
+    { "x": -14.2, "z": -55.1 },
+    { "x": -27.5, "z": -49.6 },
+    { "x": -38.9, "z": -40.9 },
+    { "x": -47.6, "z": -29.5 },
+    { "x": -53.1, "z": -16.2 },
+    { "x": -55, "z": -2 },
+    { "x": -55, "z": 8 },
+    { "x": -55, "z": 20 },
+    { "x": -55, "z": 32 },
+    { "x": -53.9, "z": 37.4 },
+    { "x": -50.9, "z": 41.9 },
+    { "x": -46.4, "z": 44.9 },
+    { "x": -41, "z": 46 },
+    { "x": -27.3, "z": 46 },
+    { "x": -13.7, "z": 46 }
+  ],
+  "checkpoints": [{ "node": 0 }, { "node": 8 }, { "node": 16 }, { "node": 24 }],
+  "traffic": {
+    "count": 0,
+    "lanes": [],
+    "routes": [
+      {
+        "id": "boulevard",
+        "path": [
+          { "x": 0, "z": 470 },
+          { "x": 0, "z": 258 },
+          { "x": 0, "z": 46 }
+        ],
+        "width": 20,
+        "count": 0,
+        "lanes": [
+          { "offset": -4, "dir": 1 },
+          { "offset": 4, "dir": -1 }
+        ]
+      }
+    ]
+  },
+  "survival": {
+    "start": { "x": 0, "z": 420, "yaw": 3.1416 },
+    "formation": [
+      { "x": -2.6, "z": 431, "yaw": 3.1416 },
+      { "x": 2.6, "z": 435, "yaw": 3.1416 },
+      { "x": -2.6, "z": 442, "yaw": 3.1416 },
+      { "x": 2.6, "z": 446, "yaw": 3.1416 },
+      { "x": 0, "z": 453, "yaw": 3.1416 }
+    ]
+  },
+  "environment": { "sky": "#a8cfe3", "fog": 0.0012, "terrain": "grass", "hills": [] }
+}

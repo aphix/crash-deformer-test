@@ -102,6 +102,12 @@ const scatter = z.object({
 
 const hill = z.object({ x: z.number(), z: z.number(), radius: z.number().positive(), height: z.number() });
 
+/** A ground anchor: position and heading (yaw 0 faces +Z, forward = (sin yaw, cos yaw)). */
+const anchor = z.object({ x: z.number(), z: z.number(), yaw: z.number() });
+
+/** Survival mode: where the player starts and the cop formation slots behind that start (tight and staggered). */
+const survival = z.object({ start: anchor, formation: z.array(anchor).min(4).max(6) });
+
 const TrackSchema = z
   .object({
     id: z.string().regex(/^[a-z0-9-]+$/),
@@ -148,6 +154,8 @@ const TrackSchema = z
         routes: z.array(route).default([]),
       })
       .optional(),
+    /** Survival mode's anchors; absent on a course the mode is not played on. */
+    survival: survival.optional(),
     environment: z
       .object({
         sky: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#12141a"),
@@ -189,6 +197,8 @@ const TrackSchema = z
     });
   });
 
+/** Survival mode's anchors (`Track.survival`). */
+export type SurvivalSpec = z.output<typeof survival>;
 /** Parsed track with defaults applied. */
 export type TrackJson = z.output<typeof TrackSchema>;
 /** What a hand-written track file may omit. */
