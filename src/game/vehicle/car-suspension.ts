@@ -3,6 +3,7 @@ import type { VehicleClassId } from "./vehicle-classes.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
+import { LoadTransfer } from "./car-load.ts";
 
 /**
  * A spring and a damper between each wheel and the body, drawn only: the physics frame (hulls, masses, contacts,
@@ -56,6 +57,8 @@ export class Suspension {
   private readonly rate = new Float64Array(4);
   private readonly lastY = new Float64Array(4);
   private readonly lastV = new Float64Array(4);
+  /** The ground pose's load transfer (squat, dive, roll): the springs' resting offsets while it lasts. */
+  private readonly load = new LoadTransfer();
   /** Slices seen since the spawn (2: both last height and last speed are real). */
   private seen = 0;
   /** The body group the springs carry (found once per spawn; null without a class lift). */
@@ -72,6 +75,7 @@ export class Suspension {
     o.fill(0);
     this.rate.fill(0);
     this.seat.fill(0);
+    this.load.reset();
     this.seen = 0;
     this.body = undefined;
   }
@@ -87,6 +91,7 @@ export class Suspension {
       if (this.seen > 0) {
         this.offset.fill(0);
         this.rate.fill(0);
+        this.load.reset();
         this.seen = 0;
         this.pose(lift);
         this.seat.fill(0);
@@ -100,6 +105,8 @@ export class Suspension {
     const c = 2 * s.zeta * w;
     const stop = s.travel / 2;
     const e = group.matrixWorld.elements;
+    this.load.step(e, dt, air, cls, k);
+    const rest = this.load.target;
     let moved = false;
     for (let i = 0; i < 4; i++) {
       const [x, , z] = WHEEL_POS[i]!;
@@ -110,7 +117,7 @@ export class Suspension {
       if (this.seen > 1 && !air) r -= vy - this.lastV[i]!;
       this.lastY[i] = y;
       this.lastV[i] = vy;
-      r -= (k * this.offset[i]! + c * r) * dt;
+      r -= (k * (this.offset[i]! - rest[i]!) + c * r) * dt;
       let o = this.offset[i]! + r * dt;
       if (o < -stop) {
         o = -stop;
@@ -171,13 +178,25 @@ export class Suspension {
     return lifted;
   }
 
+  /** The body's heave over its stock ride (m, + up): what a chase camera rides (`DriveCam`). */
+  get heave(): number {
+    const o = this.offset;
+    return (o[0]! + o[1]! + o[2]! + o[3]!) / 4;
+  }
+
+  /** The body's pitch (rad, + nose up: front over rear). */
+  get pitch(): number {
+    const o = this.offset;
+    return Math.atan((o[0]! + o[1]! - o[2]! - o[3]!) / (4 * AXLE));
+  }
+
   /** The body's ride from the four offsets: heave, pitch (front over rear) and roll (+x side over −x). */
   private pose(lift: number): void {
     const body = this.body;
     if (!body) return;
     const o = this.offset;
-    body.position.y = lift + (o[0]! + o[1]! + o[2]! + o[3]!) / 4;
-    body.rotation.x = -Math.atan((o[0]! + o[1]! - o[2]! - o[3]!) / (4 * AXLE));
+    body.position.y = lift + this.heave;
+    body.rotation.x = -this.pitch;
     body.rotation.z = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
   }
 }
