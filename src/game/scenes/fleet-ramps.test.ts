@@ -2,6 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
+import { COM_Y } from "../vehicle/car-air.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
 import { setGround } from "../world/ground.ts";
@@ -37,9 +38,54 @@ function run(w: World, seconds: number, each: () => void): void {
       stepWorld(w, h);
       acc -= h;
     }
-    w.cars[0]!.updateDeform(FRAME);
+    for (const c of w.cars) c.updateDeform(FRAME);
     each();
   }
+}
+
+/** Two cars head-on up the two ramps (no slab): `vA` from −z, `vB` from +z, 0.4 m apart across. */
+function pair(vA: number, vB: number): { w: World; cars: [DeformableCar, DeformableCar] } {
+  const { ramps, w } = scene(false);
+  const b = new DeformableCar(paint(), new THREE.Scene());
+  w.cars[0]!.spawnFacing(0, -14, 0, vA);
+  b.spawnFacing(0.4, 14, Math.PI, vB);
+  const w2 = newWorld([w.cars[0]!, b]);
+  w2.collide = (c) => void ramps.contact(c);
+  return { w: w2, cars: [w.cars[0]!, b] };
+}
+
+/**
+ * Ballistic check per frame: a car's height change must lie between its start and end vertical speeds × the frame,
+ * give or take 2 cm (a snap to the ground, or a height that never moves under a stale speed, falls outside). In
+ * flight at both ends the height is the centre of mass's, whose speed `velocity` is (`stepAir`).
+ */
+function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => void } {
+  const heights = (c: DeformableCar): [number, number] => {
+    const q = c.group.quaternion;
+    return [c.group.position.y, c.group.position.y + COM_Y * (1 - 2 * (q.x * q.x + q.z * q.z))];
+  };
+  const last = cars.map((c) => [...heights(c), c.velocity.y, c.airborne] as const);
+  const list: string[] = [];
+  let n = 0;
+  return {
+    list,
+    frame: () => {
+      n++;
+      cars.forEach((c, i) => {
+        const [o0, com0, vy0, air0] = last[i]!;
+        const [o, com] = heights(c);
+        const flying = air0 && c.airborne;
+        const y0 = flying ? com0 : o0;
+        const y = flying ? com : o;
+        const vy = c.velocity.y;
+        const dy = y - y0;
+        if (dy < Math.min(vy0, vy) * FRAME - 0.02 || dy > Math.max(vy0, vy) * FRAME + 0.02) {
+          list.push(`car ${i} frame ${n}: y ${y0.toFixed(3)} → ${y.toFixed(3)}, vy ${vy0.toFixed(2)} → ${vy.toFixed(2)}`);
+        }
+        last[i] = [o, com, vy, c.airborne];
+      });
+    },
+  };
 }
 
 type Jump = { air: number; peak: number; noseOff: number; turn: number; sink: number; gaps: number[]; endZ: number; slabHit: boolean; crashed: boolean };
@@ -157,7 +203,8 @@ describe("fleet ramps", () => {
     car.spawnFacing(0, -14, 0, 8);
     const p = car.group.position;
     let peak = 0;
-    run(w, 3, () => {
+    // 4 s: since landing across the high end sinks into its springs (`SUPPORT`), at 3 s it was still on the far foot (z 7.8).
+    run(w, 4, () => {
       peak = Math.max(peak, p.y);
     });
     t.diagnostic(`peak ${peak.toFixed(2)} m, end z ${p.z.toFixed(1)} y ${p.y.toFixed(3)} vy ${car.velocity.y.toFixed(2)} m/s`);
@@ -193,7 +240,7 @@ describe("fleet ramps", () => {
     let time = 0;
     let stopped = 0;
     let stuck = 0;
-    run(w, 5, () => {
+    run(w, 6, () => {
       time += FRAME;
       if (hitAt < 0 && car.airborne && time > 0.5 && p.y - ramps.heightAt(p.x, p.z, p.y) < 0.4) {
         hitAt = time;
@@ -206,5 +253,92 @@ describe("fleet ramps", () => {
     t.diagnostic(`struck at ${hitAt.toFixed(2)} s, stopped ${stopped.toFixed(2)} s, of it flying ${stuck.toFixed(2)} s; masses ${car.deform.massActive}`);
     assert.ok(hitAt > 0 && stopped > 1, `struck at ${hitAt.toFixed(2)} s, stopped ${stopped.toFixed(2)} s`);
     assert.ok(stuck < 0.25, `stopped yet flying for ${stuck.toFixed(2)} s`);
+  });
+
+  it("D1: a car struck mid-air by one still on its ramp keeps a ballistic height: no frame moves y more than 2 cm off its velocity", (t) => {
+    const { w, cars } = pair(16, 8);
+    const [a] = cars;
+    let struckAt = -1;
+    let struckY = 0;
+    let lastY = a.group.position.y;
+    let time = 0;
+    const flags = watch(cars);
+    run(w, 4, () => {
+      time += FRAME;
+      if (struckAt < 0 && a.crashed) {
+        struckAt = time;
+        struckY = lastY;
+      }
+      lastY = a.group.position.y;
+      flags.frame();
+    });
+    t.diagnostic(`struck at ${struckAt.toFixed(2)} s, ${struckY.toFixed(2)} m up; flagged ${flags.list.length}: ${flags.list.slice(0, 4).join("; ")}`);
+    assert.ok(struckAt > 0 && struckY > 1, `struck at ${struckAt.toFixed(2)} s, ${struckY.toFixed(2)} m up: not a mid-air hit`);
+    assert.deepEqual(flags.list, []);
+  });
+
+  it("D2: a wreck sliding off a ramp's lip flies and lands, with no frame off its velocity", (t) => {
+    const { ramps, w, car } = scene(false);
+    car.spawnFacing(0, -14, 0, 15);
+    const p = car.group.position;
+    const flags = watch([car]);
+    let struck = false;
+    let flew = 0;
+    run(w, 3, () => {
+      if (!struck && p.z > -(RAMP.start + RAMP.len * 0.6)) {
+        struck = true;
+        car.applyImpact(car.group.localToWorld(new THREE.Vector3(0.9, 0.5, 0.4)), car.right.clone().negate(), 8, 8);
+      }
+      if (struck && p.z > -RAMP.start) flew = Math.max(flew, p.y - ramps.heightAt(p.x, p.z, p.y));
+      flags.frame();
+    });
+    t.diagnostic(`crashed ${car.crashed}; past the lip ${flew.toFixed(2)} m over the ground; end y ${p.y.toFixed(3)} at z ${p.z.toFixed(1)}; flagged ${flags.list.length}: ${flags.list.slice(0, 4).join("; ")}`);
+    assert.ok(car.crashed, "the hit did not wreck the car");
+    assert.ok(flew > 0.5, `past the lip only ${flew.toFixed(2)} m over the ground: it did not fly`);
+    assert.ok(Math.abs(p.y - ramps.heightAt(p.x, p.z, p.y)) < 0.15, `ended ${p.y.toFixed(2)} m up: it did not land`);
+    assert.deepEqual(flags.list, []);
+  });
+
+  it("D2: a landed wreck at rest has no vertical speed and takes the flat ground's pitch", (t) => {
+    const { w, car } = scene(false);
+    car.spawnFacing(0, -14, 0, 15);
+    const p = car.group.position;
+    let struck = false;
+    let stale = 0;
+    let lastY = p.y;
+    run(w, 7, () => {
+      if (!struck && p.z > -(RAMP.start + RAMP.len * 0.6)) {
+        struck = true;
+        car.applyImpact(car.group.localToWorld(new THREE.Vector3(0.9, 0.5, 0.4)), car.right.clone().negate(), 8, 8);
+      }
+      // In flight its apex holds y still under up to g·frame/2 of speed; the stale speed this guards is a landed one.
+      if (!car.airborne && Math.abs(p.y - lastY) < 1e-4) stale = Math.max(stale, Math.abs(car.velocity.y));
+      lastY = p.y;
+    });
+    const pitch = car.group.rotation.x;
+    const roll = car.group.rotation.z;
+    t.diagnostic(`at rest: y ${p.y.toFixed(3)}, vy ${car.velocity.y.toFixed(3)}, worst vy with y still ${stale.toFixed(3)} m/s, pitch ${pitch.toFixed(3)}, roll ${roll.toFixed(3)} rad`);
+    assert.ok(stale < 0.05, `y still while vy ${stale.toFixed(3)} m/s`);
+    assert.ok(Math.abs(pitch) < 0.03 && Math.abs(roll) < 0.03, `pitch ${pitch.toFixed(3)}, roll ${roll.toFixed(3)} rad on flat ground`);
+  });
+
+  it("D3: a car flying 2 m over another never touches it", (t) => {
+    setGround(null);
+    const three = new THREE.Scene();
+    const low = new DeformableCar(paint(), three);
+    const high = new DeformableCar(paint(), three);
+    low.spawnFacing(0, 0, Math.PI / 2, 0);
+    high.spawnFacing(0, -6, 0, 14);
+    high.group.position.y = 2.2;
+    high.velocity.y = 3;
+    high.airborne = true;
+    const w = newWorld([low, high]);
+    let hits = 0;
+    w.pairHit = () => void hits++;
+    run(w, 0.7, () => {});
+    t.diagnostic(`pair hits ${hits}; crashed low ${low.crashed} high ${high.crashed}; high at z ${high.group.position.z.toFixed(1)} y ${high.group.position.y.toFixed(2)}`);
+    assert.ok(high.group.position.z > 3 && high.group.position.y > 1.9, `the high car is at z ${high.group.position.z.toFixed(1)} y ${high.group.position.y.toFixed(2)}: it never passed over`);
+    assert.equal(hits, 0);
+    assert.ok(!low.crashed && !high.crashed, "a car crashed");
   });
 });

@@ -8,6 +8,7 @@ import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { droop } from "../vehicle/car-suspension.ts";
 
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
@@ -83,26 +84,33 @@ function launch(v: number): Run {
   return { air, landRoll, upY, dip, rest: upY > 0.5 ? "wheels" : upY < -0.5 ? "roof" : "side" };
 }
 
-/** Each band: launch speed, whether it leaves the lip, the roll it touches down with (deg), how it rests. */
+/**
+ * Each band: launch speed, whether it leaves the lip, the roll it touches down with (deg), how it rests.
+ * The 27 m/s roll is spin × air: the lip's spin is 189°/s on main 0902bf1 and on the airborne lane alike, the lane's
+ * air 0.10 s longer there (3.15 vs 3.05 s: the body leaves the lip 0.9 m sooner, on the steeper 0.53 grade, at 14.4
+ * against 13.4 m/s up, where main's constant takeoff gap held it to the flatter 0.49). Sweep 26 / 26.5 / 27 / 27.5 /
+ * 28 m/s: lane 508 / 572 / 596 / 619 / 645°, main 540 / 558 / 576 / 599 / 620° — a shift of +20° at 27 m/s, 590 → 620
+ * keeps the roll-and-a-half band 540° ± 80° and the 2-roll wheels landing (710° at 29 m/s) out of it.
+ */
 const BANDS = [
   { v: 6, name: "too slow to climb: rolls back out of the mouth, no air", air: false, roll: [0, 0], rest: "wheels" },
   { v: 14, name: "air, half a roll: lands on its roof", air: true, roll: [130, 230], rest: "roof" },
   { v: 22, name: "air, a full roll: lands back on its wheels", air: true, roll: [310, 410], rest: "wheels" },
-  { v: 27, name: "air, a roll and a half: lands on its roof", air: true, roll: [490, 590], rest: "roof" },
+  { v: 27, name: "air, a roll and a half: lands on its roof", air: true, roll: [490, 620], rest: "roof" },
 ] as const;
 
 describe("corkscrew: launch speed decides air, the roll and how the car lands (the general car sim)", () => {
   afterEach(() => setGround(null));
 
   for (const b of BANDS) {
-    it(`${b.v} m/s: ${b.name}; never more than 12 cm into the ground after takeoff`, (t) => {
+    it(`${b.v} m/s: ${b.name}; never more than the suspension's stop into the ground after takeoff`, (t) => {
       const r = launch(b.v);
       t.diagnostic(`${b.v} m/s: air ${r.air.toFixed(2)} s, touchdown roll ${r.landRoll.toFixed(0)}°, up.y ${r.upY.toFixed(2)} (${r.rest}), deepest ${r.dip.toFixed(3)} m`);
       const failures: string[] = [];
       if (b.air !== r.air > 0.2) failures.push(`air ${r.air.toFixed(2)} s`);
       if (r.landRoll < b.roll[0] || r.landRoll > b.roll[1]) failures.push(`touchdown roll ${r.landRoll.toFixed(0)}° outside ${b.roll[0]}–${b.roll[1]}°`);
       if (r.rest !== b.rest) failures.push(`rests on its ${r.rest} (up.y ${r.upY.toFixed(2)})`);
-      if (r.dip > 0.12) failures.push(`body ${r.dip.toFixed(3)} m into the ground`);
+      if (r.dip > 2 * droop("sedan") + 0.001) failures.push(`body ${r.dip.toFixed(3)} m into the ground`);
       assert.deepEqual(failures, []);
     });
   }

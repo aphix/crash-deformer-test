@@ -24,6 +24,11 @@ const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; trave
   monster: { hz: 0.8, zeta: 0.35, travel: 0.45 },
 };
 
+/** How far (m) a class's wheels reach below its body's rest ride (half its travel): further off its ground no wheel holds it, it flies. */
+export function droop(cls: VehicleClassId): number {
+  return SPRINGS[cls].travel / 2;
+}
+
 /** Half the wheelbase and half the track (m). */
 const AXLE = WHEEL_POS[0]![2];
 const TRACK = Math.abs(WHEEL_POS[0]![0]);

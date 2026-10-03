@@ -202,8 +202,11 @@ export abstract class DeformRig {
   protected readonly floorPre = new Float64Array(MASS_SPECS.length);
   protected readonly floorPost = new Float64Array(MASS_SPECS.length);
   protected readonly gripPost = new Float64Array(MASS_SPECS.length);
-  /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub). */
-  protected readonly pose = new Float64Array(10);
+  /** `floorPost` sampled since the masses last armed (`measurePose` reads the hubs' floors from it). */
+  protected floorsFresh = false;
+  /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub, 1 when every hub is
+   *  on its ground, the ground that holds the body up). */
+  protected readonly pose = new Float64Array(12);
   /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's. */
   protected readonly spinHeld = new Float64Array(2);
   /** `measureStroke` output. */
@@ -238,6 +241,12 @@ export abstract class DeformRig {
   /** Share (0–1) of the read pitch/roll the frame takes, and the sim time it was last eased at (followGroup). */
   protected lean = 1;
   protected leanAt = -Infinity;
+  /** The body's middle is above its ground band (followGroup): no wheel holds it, its masses fly. */
+  aloft = false;
+  /** The frame's height at sim time `frameAt` (followGroup's last timed call) and its measured climb (m/s). */
+  protected frameY = 0;
+  protected frameAt = 0;
+  protected frameVy = 0;
   /** Hull push (m) taken at sim time `pushAt` (takePush). */
   protected pushUsed = 0;
   protected pushAt = -1;
@@ -429,6 +438,11 @@ export abstract class DeformRig {
     this.rateAt = 0;
     this.lean = 1;
     this.leanAt = -Infinity;
+    this.aloft = false;
+    this.floorsFresh = false;
+    this.frameY = 0;
+    this.frameAt = 0;
+    this.frameVy = 0;
     this.pushUsed = 0;
     this.pushAt = -1;
     this.overlapFrame = false;

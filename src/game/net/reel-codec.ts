@@ -12,10 +12,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Wri
 
 /**
  * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
- * flight block and solver state; 3: that state XORed on the car's previous keyframe's). A saved clip also records
+ * flight block and solver state; 3: that state XORed on the car's previous keyframe's; 4: the solver state's
+ * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`). A saved clip also records
  * `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 3;
+const REPLAY_VERSION = 4;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

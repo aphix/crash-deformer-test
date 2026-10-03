@@ -30,6 +30,8 @@ const SPHERE_STEP = 0.06;
 const YAW_RATE_GUARD = 12;
 /** Shortest sim time (s) a yaw-rate sample spans. */
 const YAW_RATE_SPAN = 1 / 60;
+/** Shortest sim time (s) a wreck's vertical-speed sample spans: just under the 1/240 s shortest slice (followGroup). */
+const VY_SPAN = 0.004;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
 
@@ -43,6 +45,8 @@ const _toLocal = new THREE.Matrix4();
 /** Sim seconds the frame's tilt takes to level out on planting, or to come back on a new hit (followGroup):
  *  0.1 s, CR8's eased level-out (64 km/h head-on roof 0.61× its per-slice 3·v·h + 5 cm limit). */
 const LEVEL_TIME = 0.1;
+/** A wreck's middle this far (m) over its ground band, with a wheel off its ground, takes off (followGroup's `aloft`). */
+const LIFT_OFF = 0.1;
 
 /** `slice` is the call's slice over CONTACT_REF_SLICE: the overlap and inbound shares are per-slice rates. */
 function sphereHit(a: MassNode, b: MassNode, slice: number): void {
@@ -211,15 +215,42 @@ export abstract class DeformContact extends DeformState {
     if (Number.isFinite(pitch + roll)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
     else group.rotation.set(0, yawSafe, 0, "YXZ");
     let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
+    // On its ground the frame keeps the body's middle in a band over the ground under the anchor (the body masses
+    // carry no weight of their own: the hubs and that band hold the body up). Above the band nothing under the
+    // middle holds it (in flight, or over a ramp's lip on its rear wheels): the frame follows the masses, which
+    // fly (`aloft`: gravity on every mass, `stepMassSlice`). Clamping it there dropped a struck flying car, or a
+    // wreck sliding off a lip, onto the ground in one call (1.85 → 0.08 m). It takes off only where its support fell
+    // away: `LIFT_OFF` clear of the band with a wheel off its ground, the band's top that far under the frame's last
+    // measured height (a crushed cell pushed up over four planted hubs stays clamped: switching there flipped road
+    // wrecks between the rules, 2.3 m off a replay's record; a frontal hit or the compactor pushing the masses up off
+    // a level road lofted the body 0.21–0.25 m). It lands back into the band; a hit in flight starts it aloft.
+    const was = this.aloft;
+    this.aloft = false;
+    let lift = 0;
     if (floor !== NO_FLOOR) {
-      if (pose[9]! - floor > 0.5) gy = Math.max(floor, Math.min(floor + 0.12, gy));
-      else gy = Math.max(floor, Math.min(floor + 0.08, gy));
+      // The band's top over what holds the body up (`pose[11]`); its bottom stays the ground under the anchor, so
+      // a hub on a higher edge (a ramp's side) never lifts the frame.
+      const band = pose[11]! + (pose[9]! - floor > 0.5 ? 0.12 : 0.08);
+      this.aloft = gy > band && (was || (gy > band + LIFT_OFF && pose[10] === 0 && band < this.frameY - LIFT_OFF));
+      if (!this.aloft) gy = Math.max(floor, Math.min(band, gy));
+      else if (!was) {
+        // Leaving the ground: the masses sat off the frame the ground held, and the ground's lift never fed their
+        // speed. They take the frame's height and its measured climb, so the body leaves on its path (off a
+        // ramp's lip it dipped 4–7 cm and flew on 2.6 m/s off a 3.9 m/s face).
+        lift = group.position.y - gy;
+        gy += lift;
+        for (let mi = 0; mi < this.masses.length; mi++) {
+          const m = this.masses[mi]!;
+          m.world.y += lift;
+          if (m.vel.y < this.frameVy) m.vel.y = this.frameVy;
+        }
+      }
     }
     // The group's height clamp must not leak into the anchor's held x/z through the tilt (a ratchet):
     // solve the anchor's local y for that height so its x/z stay exactly held.
     _a.set(pose[6]!, 0, pose[7]!).applyQuaternion(group.quaternion);
     _b.set(0, 1, 0).applyQuaternion(group.quaternion);
-    _a.addScaledVector(_b, (wy - gy - _a.y) / _b.y);
+    _a.addScaledVector(_b, (wy + lift - gy - _a.y) / _b.y);
     // A squeeze anchors on the cell too. Pinning the group at the world origin read a free car's travel
     // as crush: the caps (cell 0.12–0.72 m) held the cell near the origin while the shoved car moved on,
     // and fire("all")'s bumperFR sprang 0.50 → 0.02 m in the 0.25 s after the heads left.
@@ -238,19 +269,19 @@ export abstract class DeformContact extends DeformState {
       mass += m.mass;
     }
     this.clampLocal(group);
-    let hy = 0,
-      hm = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      if (!m.hub) continue;
-      hy += m.vel.y * m.mass;
-      hm += m.mass;
+    // Vertical speed, measured: the frame's rise over at least `VY_SPAN` of sim time (the SAT passes in between move it
+    // too). The masses' own would not do: on the ground the band, not they, sets the frame's height, and a mass the
+    // ground lifts keeps its old speed (a wreck at rest on the level read up to 4 m/s, one sliding up a ramp's face
+    // 1.9 m/s against the face's 3.9). Over the 24 µs remainder of a frame it is noise: 0.2 mm of band jitter read
+    // −9.9 m/s (a derby heat: 7 frames flagged by the 2 cm rule, vy down to −29 m/s). A slice is never shorter than
+    // 1/240 s, so a span that short folds into the next call's.
+    const vySpan = this.elapsed - this.frameAt;
+    if (dt > 0 && vySpan >= VY_SPAN) {
+      this.frameVy = (gy - this.frameY) / vySpan;
+      this.frameY = gy;
+      this.frameAt = this.elapsed;
     }
-    if (hm > 1e-6) {
-      velocityOut.set(mx / mass, Math.max(-3, Math.min(4, hy / hm)), mz / mass);
-    } else {
-      velocityOut.set(mx / mass, 0, mz / mass);
-    }
+    velocityOut.set(mx / mass, this.frameVy, mz / mass);
     clampSpeed(velocityOut, CRASH.maxMassMps);
     const span = this.elapsed - this.rateAt;
     if (dt > 1e-5 && span >= YAW_RATE_SPAN) {
@@ -314,10 +345,22 @@ export abstract class DeformContact extends DeformState {
     const bz = (ax * sr + ay * cr) * sp + az * cp;
     const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
     let minHub = Infinity;
+    // The attached hubs' ground (last slice's floors, once sampled since the masses armed): their mean, and whether
+    // every one is on it (within 3 cm of the 0.28 m `groundMasses` holds it at).
+    let held = 1;
+    let hubFloor = 0;
+    let hubs = 0;
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
-      if (m.hub && m.world.y < minHub) minHub = m.world.y;
+      if (!m.hub) continue;
+      if (m.world.y < minHub) minHub = m.world.y;
+      const f = this.floorPost[mi]!;
+      if (m.popped || !this.floorsFresh || f === NO_FLOOR) continue;
+      hubFloor += f;
+      hubs++;
+      if (m.world.y - f > 0.31) held = 0;
     }
+    if (hubs === 0) held = 0;
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
     // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
@@ -361,10 +404,16 @@ export abstract class DeformContact extends DeformState {
     p[5] = wz;
     p[6] = lx;
     p[7] = lz;
-    // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad; past the fleet
-    // disc's rim none: the group follows the anchor down).
-    p[8] = activeGround().heightAt(wx, wz, wy);
+    // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad; past the fleet disc's rim
+    // none: the group follows the anchor down), and what holds the body up: that ground, or the hubs' mean ground
+    // where that is higher, as a driven car stands on its axle chord. A wreck whose middle is over a gap or a
+    // drop while its wheels are still on the deck (a stunt course's edge, a ramp's lip) stands there, not on the
+    // ground below (it was clamped onto that ground, 1.2 m down in one call).
+    const under = activeGround().heightAt(wx, wz, wy);
+    p[8] = under;
     p[9] = minHub;
+    p[10] = held;
+    p[11] = under === NO_FLOOR || hubs === 0 ? under : Math.max(under, hubFloor / hubs);
     return plant;
   }
 

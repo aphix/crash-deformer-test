@@ -2,6 +2,8 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
+import { droop } from "./car-suspension.ts";
+import { carClass } from "./vehicle-classes.ts";
 
 /**
  * A car with no wheel on the ground (`DeformableCar.airborne`): a rigid box under gravity that turns freely about
@@ -26,10 +28,11 @@ const HULL: readonly (readonly [number, number, number])[] = [
     ]),
   ),
 ];
-/** The middle's ground this far (m) below a body: no wheel holds it, it flies (`DeformableCar.integrate`). */
-export const AIR_GAP = 0.08;
 /** A wheel this close (m) to the ground counts as down. */
 const TOUCH = 0.03;
+/** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
+ *  peaked at 4–12 g on the same ramps and crests). The ground sim's grounded support shares it. */
+export const SUPPORT = 8 * G;
 /** Body up · ground normal above this (cos ~25°) with two wheels down: back on its wheels (`stepAir`'s return). */
 const UPRIGHT = 0.9;
 /** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,
@@ -65,6 +68,7 @@ const R = HULL.map(() => new THREE.Vector3());
 const _lift = new THREE.Vector3();
 const N = HULL.map(() => new THREE.Vector3());
 const TYRE = HULL.map(() => false);
+const SOFT = HULL.map(() => false);
 
 /** World inverse inertia (body orientation `q`, its inverse in `_qi`) applied to `x` in place. */
 function invInertia(x: THREE.Vector3, q: THREE.Quaternion): THREE.Vector3 {
@@ -80,6 +84,40 @@ function push(v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion, r: THREE.
 /** Unit-mass impulse per m/s of point speed along unit `dir` at `r`: 1 / (1 + dir · (I⁻¹(r × dir) × r)). */
 function reach(r: THREE.Vector3, dir: THREE.Vector3, q: THREE.Quaternion): number {
   return 1 / (1 + _k.crossVectors(invInertia(_rn.crossVectors(r, dir), q), r).dot(dir));
+}
+
+/**
+ * Hull point `i` turned by the body's orientation `q`, from a point `dy` above the group's origin (car-local y);
+ * a tyre's lowest point, down from its hub within the wheel's plane (the axle `_x`, set by the caller, taken
+ * out), radius = hub height.
+ */
+function hullPoint(i: number, q: THREE.Quaternion, dy: number, out: THREE.Vector3): THREE.Vector3 {
+  const [x, y, z] = HULL[i]!;
+  out.set(x, y + dy, z).applyQuaternion(q);
+  if (i < 4) {
+    _b.set(0, 1, 0).addScaledVector(_x, -_x.y);
+    const l = _b.length();
+    if (l > 0.2) out.addScaledVector(_b, -y / l);
+  }
+  return out;
+}
+
+/**
+ * Whether every hull point of `car` as posed is clear of the ground under it: `stepAir` can take the body there
+ * without lifting it out (a wreck's masses fit a frame whose tilt is clamped: handed over on a ramp's face its
+ * rear tyres and bumper were 4–11 cm in). Past the fleet disc's rim is the edge fall's, not this.
+ */
+export function hullClear(car: DeformableCar): boolean {
+  const q = car.group.quaternion;
+  const pos = car.group.position;
+  const ground = activeGround();
+  _x.set(1, 0, 0).applyQuaternion(q);
+  for (let i = 0; i < HULL.length; i++) {
+    const r = hullPoint(i, q, 0, _r);
+    const gy = ground.heightAt(pos.x + r.x, pos.z + r.z, pos.y + r.y);
+    if (gy === NO_FLOOR || pos.y + r.y < gy) return false;
+  }
+  return true;
 }
 
 /**
@@ -114,21 +152,19 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   _qi.copy(q).invert();
 
   const ground = activeGround();
+  // A tyre within its springs' full travel of the ground sits in them: it pushes at most `SUPPORT` (shared by
+  // the four, over every pass) and takes no positional lift. Past that, and for every body point, the contact is
+  // rigid. Rigid tyres stopped a nose-first landing's front in one slice: 35 g on the body within one frame.
+  const stop = 2 * droop(carClass(car));
+  let budget = SUPPORT * dt;
   let n = 0;
   let wheels = 0;
-  // The deepest point's depth along its ground normal (a steep face's vertical gap overstates it).
+  // The deepest rigid point's depth along its ground normal (a steep face's vertical gap overstates it).
   let deep = 0;
   _lift.set(0, 0, 0);
   _x.set(1, 0, 0).applyQuaternion(q);
   for (let i = 0; i < HULL.length; i++) {
-    const [x, y, z] = HULL[i]!;
-    const r = R[n]!.set(x, y - COM_Y, z).applyQuaternion(q);
-    if (i < 4) {
-      // A tyre's lowest point: down from its hub within the wheel's plane (the axle `_x` taken out), radius = hub height.
-      _b.set(0, 1, 0).addScaledVector(_x, -_x.y);
-      const l = _b.length();
-      if (l > 0.2) r.addScaledVector(_b, -y / l);
-    }
+    const r = hullPoint(i, q, -COM_Y, R[n]!);
     const px = _com.x + r.x;
     const py = _com.y + r.y;
     const pz = _com.z + r.z;
@@ -139,8 +175,11 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
     if (pen <= 0) continue;
     ground.normalAt(px, pz, N[n]!, py);
     TYRE[n] = i < 4;
-    if (pen * N[n]!.y > deep) {
-      deep = pen * N[n]!.y;
+    // How far past what holds it the point is: a tyre's springs and their full travel, else the surface.
+    const sink = pen * N[n]!.y - (i < 4 ? stop : 0);
+    SOFT[n] = i < 4 && sink < 0;
+    if (sink > deep) {
+      deep = sink;
       _lift.copy(N[n]!).multiplyScalar(deep);
     }
     n++;
@@ -153,7 +192,11 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
       const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
       if (vn >= 0) continue;
       const e = pass === 0 && !TYRE[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
-      const jn = -(1 + e) * vn * reach(r, nrm, q);
+      let jn = -(1 + e) * vn * reach(r, nrm, q);
+      if (SOFT[c]) {
+        jn = Math.min(jn, budget);
+        budget -= jn;
+      }
       push(v, w, q, r, nrm, jn);
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane).
       _vp.crossVectors(w, r).add(v);
@@ -177,10 +220,10 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   car.airContact = n > 0;
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   // Back on the ground sim: two wheels down, the body within ~25° of the ground's slope under it and its middle
-  // within `AIR_GAP` of that ground (two wheels still on a ramp's lip under a body over the drop is not a landing).
+  // within its wheels' `droop` of that ground (two wheels still on a ramp's lip under a body over the drop is not a landing).
   return (
     wheels >= 2 &&
-    pos.y - ground.heightAt(pos.x, pos.z, pos.y) < AIR_GAP &&
+    pos.y - ground.heightAt(pos.x, pos.z, pos.y) < droop(carClass(car)) &&
     _r.set(0, 1, 0).applyQuaternion(q).dot(ground.normalAt(_com.x, _com.z, _f, _com.y)) > UPRIGHT
   );
 }
