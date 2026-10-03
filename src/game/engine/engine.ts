@@ -19,6 +19,8 @@ import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CompactorPress, JerseyBarrier } from "../scenes/engine-props.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { FleetRamps } from "../scenes/fleet-ramps.ts";
+import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { LampLights } from "../vehicle/lamp-lights.ts";
@@ -148,6 +150,8 @@ export class CrashEngine extends EngineInput {
     this.scene.add(this.arena);
     this.winnerSpot = new WinnerSpot(this.scene, makePoolTexture());
     this.barrier = new JerseyBarrier(this.scene, makeJerseyBarrier());
+    this.ramps = new FleetRamps(this.scene);
+    this.corkscrew = new Corkscrew(this.scene);
     this.press = new CompactorPress(this.scene, this.compactor.face);
     this.pistonBank = new PistonBank(this.scene, this.pistons);
     this.doorRam = new DoorRam(this.scene);
@@ -548,9 +552,12 @@ export class CrashEngine extends EngineInput {
     w.beforeSlice = this.rigScene ? this.rigSlice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : null;
     w.ballHit = this.showBalls ? this.ballHit : null;
-    w.poleHit = this.derbyMode || this.race.active ? null : this.poleHit;
+    // The corkscrew hides the lamp posts its run passes through.
+    w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    w.collide = this.race.active ? this.raceCollide : null;
+    // The ramps stay toggled (and hidden) through the rig scenes, like the slab and the balls: their faces must not
+    // stand in for the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
+    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.showRamps && !this.rigScene ? this.rampCollide : null;
     stepWorld(w, dt);
     if (this.race.active) this.race.step(dt);
 

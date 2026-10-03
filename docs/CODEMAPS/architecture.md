@@ -67,9 +67,11 @@ tickInner(now)                               wallDt ≤ 0.1 s
 | Fleet (default) | R | `spawnFleet` | `fleet.ts` `layoutFleet`, `fleetStyle` |
 | Barrier | B | `toggleBarrier` | `engine-props.ts` `JerseyBarrier`, `sat.ts` |
 | Ramp balls | K | `toggleBalls` | `engine-props.ts` `buildRampBalls`, `resolveRampBalls` |
+| Jump ramps | . (period) | `toggleRamps` | `fleet-ramps.ts` `FleetRamps` (a `Ground` on the slab's ends, `contact` for its side and back faces); cars fly through `car-air.ts` `stepAir` |
 | Compactor | C | `toggleCompactor` | `compactor.ts` `CompactorRig`, `engine-props.ts` `CompactorPress` |
 | Pistons | I, 0–8 | `togglePistons`, `firePiston` | `piston-rig.ts`, `engine-pistons.ts` `PistonBank` |
 | Doors | N, 1–5 | `toggleDoors`, `fireDoorRam`, `toggleDoorOpen`, `setDoorConfig` | `door-rig.ts` `DoorRig`; `engine-doors.ts` `DoorRam` |
+| Corkscrew | , (comma) | `toggleCorkscrew` | `corkscrew.ts` `Corkscrew` (a `Ground`: the twisted channel over the pad, `contact` for its walls), `CORKSCREW`; the world step flies the car, `EngineRigs.watchCorkscrew` times slow-mo and the cinematic. The spawn-speed slider decides the stunt: ≤ 7 m/s no air, 12–15 roof, 20–25 a full roll back onto the wheels, 26–28 roof, 29–32 two rolls onto the wheels |
 | Range | (HUD) | `toggleRange` | `scenes/range.ts` `RANGE`, `RangeRun`; `present/range-art.ts` `makeRangeArt`; the thrown driver above |
 | Derby | D | `toggleDerby` | `derby.ts` `DerbyMatch`, `derby-ai.ts` `DerbyBrain`, `derby-arena.ts` |
 | Race | Z | `toggleRace`, `raceCommand(cmd)` | `engine-race.ts` `RaceDirector`; `match/session.ts` `RaceSession`, `race-ai.ts` `RaceBrain`, `track.ts` `Track` / `TrackGround` (via `setGround`) |

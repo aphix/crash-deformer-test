@@ -3,6 +3,7 @@ import { COMPACTOR, compactorStage } from "../scenes/compactor.ts";
 import { PISTON, PISTON_IDS, type PistonConfig } from "../scenes/piston-rig.ts";
 import { PISTON_ORBIT_RATE, pistonAhead, pistonToGo } from "../present/engine-pistons.ts";
 import { DOOR_LANES, RAM, type DoorScenario } from "../scenes/door-rig.ts";
+import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { EngineScenes } from "./engine-scenes.ts";
 
 const _bn = new THREE.Vector3();
@@ -12,7 +13,7 @@ const _bp = new THREE.Vector3();
 const PISTON_PARK_LEAD = 1;
 
 /**
- * The rig scenes' commands and per-step drive: compactor press, piston bank and door ram.
+ * The rig scenes' commands and per-step drive: compactor press, piston bank and door ram, and the corkscrew's show.
  */
 export abstract class EngineRigs extends EngineScenes {
   /** Fire piston `index` (0–7 in key order) or all eight (8). A free car already shoved off the pad is parked fresh first. */
@@ -73,8 +74,9 @@ export abstract class EngineRigs extends EngineScenes {
     this.emitHud();
   }
 
-  /** A rig scene's slice: the rig drives the car (the press and pistons also step its loose parts). */
+  /** A rig scene's slice: the rig drives the car (the press and pistons also step its loose parts); the corkscrew only watches it. */
   protected readonly rigSlice = (h: number): boolean => {
+    if (this.showCorkscrew) return this.watchCorkscrew();
     if (this.showCompactor) {
       this.stepCompactor(h);
       this.carA.afterContacts(h, this.bounceWorld);
@@ -108,6 +110,25 @@ export abstract class EngineRigs extends EngineScenes {
     if (stage === "contact" || stage === "wells") this.clock.phase = this.clock.phase === "approach" ? "impact" : this.clock.phase;
     if (stage === "mid") this.clock.phase = "slowmo";
     if (stage === "max") this.clock.phase = "aftermath";
+  }
+
+  /**
+   * The world step flies the corkscrew's car (`DeformableCar.airborne`); the scene times the show: slow-mo when it
+   * leaves the lip, the impact cinematic when it first comes down, the aftermath when it rolls back out unflown.
+   */
+  private watchCorkscrew(): false {
+    const car = this.carA;
+    if (this.corkFlight === "ground" && car.airborne) {
+      this.corkFlight = "air";
+      // The roll reads in slow motion (the door ram's rule); the landing's impact phase hands time back.
+      if (this.autoSlomo && this.clock.userTimeScale == null) this.clock.targetScale = 0.35;
+    } else if (this.corkFlight === "air" && (car.airContact || !car.airborne)) {
+      this.corkFlight = "down";
+      this.beginCinematic(car.group.position.clone(), _bn.set(0, 1, 0), car.velocity.length());
+    } else if (this.corkFlight === "ground" && this.clock.phase === "approach" && car.velocity.z < 0 && car.group.position.z < CORKSCREW.mouthZ) {
+      this.clock.phase = "aftermath";
+    }
+    return false;
   }
 
 

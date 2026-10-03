@@ -20,6 +20,8 @@ import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio 
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
 import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
+import type { FleetRamps } from "../scenes/fleet-ramps.ts";
+import type { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder, type TraceClock, type TraceSetup } from "./engine-trace.ts";
 import { DerbyMatch } from "../match/derby.ts";
 import { LampBatch, LampLights } from "../vehicle/lamp-lights.ts";
@@ -49,7 +51,7 @@ const FLEET_PAINT: CarPaint[] = [
   { body: 0x4a6a72, accent: 0x324850, name: "Teal" },
 ];
 
-export type SceneId = "fleet" | "press" | "pistons" | "doors" | "derby" | "race" | "range";
+export type SceneId = "fleet" | "press" | "pistons" | "doors" | "corkscrew" | "derby" | "race" | "range";
 
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
@@ -67,6 +69,7 @@ export abstract class EngineCore {
   showParticles = false;
   showBarrier = false;
   showBalls = false;
+  showRamps = false;
   /** The one scene in play; `derbyMode` and the three rig flags read it. The race director's `active` mirrors "race". */
   protected sceneId: SceneId = "fleet";
   autoRotate = true;
@@ -90,9 +93,12 @@ export abstract class EngineCore {
   get showRange(): boolean {
     return this.sceneId === "range";
   }
-  /** The press, the piston bank or the door ram owns the car. */
+  get showCorkscrew(): boolean {
+    return this.sceneId === "corkscrew";
+  }
+  /** A staged one-car scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it. */
   protected get rigScene(): boolean {
-    return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors";
+    return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew";
   }
 
   protected canvas!: HTMLCanvasElement;
@@ -179,6 +185,9 @@ export abstract class EngineCore {
   /** Last finished door shot, for the HUD. */
   protected doorShot: RamShot | null = null;
   protected doorFx = false;
+  /** The fleet's jump ramps (`showRamps`) and the corkscrew scene's channel. */
+  protected ramps!: FleetRamps;
+  protected corkscrew!: Corkscrew;
   protected derby = new DerbyMatch();
   /** This match's bowl radius (grows with the field, `derbyRadius`). */
   protected derbyR = DERBY_RADIUS;
@@ -304,6 +313,7 @@ export abstract class EngineCore {
       buckle: this.buckle,
       fxDensity: this.fxDensity,
       balls: this.showBalls,
+      ramps: this.showRamps,
       compactor: this.showCompactor,
       compactFace: this.compactor.face,
       carCount: this.carCount,

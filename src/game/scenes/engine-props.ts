@@ -2,11 +2,14 @@ import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { Hull } from "../deform/hulls.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "../deform/physics-util.ts";
-import { BARRIER_HALF, BARRIER_MASS, clipCarToBarrier, satCarBarrier } from "../contact/sat.ts";
+import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier, satCarBarrier } from "../contact/sat.ts";
 import { impulseCar, pushCar } from "../contact/pair-contact.ts";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
+/** A car's tyre plane this far (m) under the slab's top still clears it: a car on a fleet ramp whose nose reaches
+ *  over the slab's end is 0.5 m above it (`JerseyBarrier.clears`). */
+const CLEAR_DROP = 0.3;
 
 export type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
 
@@ -74,8 +77,8 @@ export class JerseyBarrier {
     scene.add(this.group);
   }
 
-  /** Face the slab broadside to the lead car's approach line. */
-  orient(a: THREE.Vector3): void {
+  /** Face the slab broadside to the lead car's approach line, or (`endOn`, the fleet ramps on its ends) along it. */
+  orient(a: THREE.Vector3, endOn = false): void {
     const len = Math.hypot(a.x, a.z);
     if (len < 0.01) {
       this.yaw = 0;
@@ -84,6 +87,7 @@ export class JerseyBarrier {
       const nz = a.z / len;
       this.yaw = Math.atan2(-nz, nx);
     }
+    if (endOn) this.yaw += Math.PI / 2;
     this.group.rotation.y = this.yaw;
   }
 
@@ -118,8 +122,17 @@ export class JerseyBarrier {
 
   /** Mass-level slab contact, then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
+    if (this.clears(car)) return;
     this.hold(car);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
+  }
+
+  /**
+   * `car` rides above the slab: its tyre plane higher than `CLEAR_DROP` under the slab's top (up a fleet ramp beside
+   * the slab's end, on its top, jumping it) has no slab contact. A car on the ground never clears.
+   */
+  private clears(car: DeformableCar): boolean {
+    return car.group.position.y > BARRIER_TOP - CLEAR_DROP;
   }
 
   /**
@@ -167,6 +180,7 @@ export class JerseyBarrier {
   }
 
   resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
+    if (this.clears(car)) return null;
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
     this.hold(car);

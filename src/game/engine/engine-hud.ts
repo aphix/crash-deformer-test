@@ -24,6 +24,7 @@ export abstract class EngineHud extends EngineWarm {
       showParticles: this.showParticles,
       showBarrier: this.showBarrier,
       showBalls: this.showBalls,
+      showRamps: this.showRamps,
       showCompactor: this.showCompactor,
       showPistons: this.showPistons,
       pistons: {
@@ -39,6 +40,7 @@ export abstract class EngineHud extends EngineWarm {
         ebsKph: Math.sqrt((2 * pistonEnergy) / carMass) * 3.6,
       },
       showDoors: this.showDoors,
+      showCorkscrew: this.showCorkscrew,
       doors: {
         side: this.doorRig.side,
         kph: this.doorRig.kph,
