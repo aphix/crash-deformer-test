@@ -127,8 +127,10 @@ function capHighlights<T extends THREE.MeshStandardMaterial>(m: T): T {
 }
 
 /**
- * Per-vertex primer on the paint: a `primer` attribute (0 on any mesh without one) darkens the paint toward bare primer. A torn body
- * panel's under-panel is the body's own triangles turned dark this way, so it costs no draw. Wraps `capHighlights`' compile hook.
+ * Per-vertex primer on the paint: a `primer` attribute (0 on any mesh without one) darkens the paint toward bare primer, with the
+ * vertex blend sharpened to a thin edge (a thin torn arch spans only a row or two of the coarse body loft; a linear blend smears it
+ * to a faint gradient). A torn body panel's under-panel is the body's own triangles turned dark this way, so it costs no draw.
+ * Wraps `capHighlights`' compile hook.
  */
 function withPrimer<T extends THREE.MeshStandardMaterial>(m: T): T {
   const cap = m.onBeforeCompile;
@@ -139,7 +141,7 @@ function withPrimer<T extends THREE.MeshStandardMaterial>(m: T): T {
       .replace("#include <begin_vertex>", "#include <begin_vertex>\nvPrimer = primer;");
     shader.fragmentShader = shader.fragmentShader
       .replace("#include <common>", "#include <common>\nvarying float vPrimer;")
-      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - 0.93 * vPrimer;");
+      .replace("#include <color_fragment>", "#include <color_fragment>\ndiffuseColor.rgb *= 1.0 - 0.93 * smoothstep(0.3, 0.6, vPrimer);");
   };
   m.customProgramCacheKey = () => "car-paint-primer";
   return m;

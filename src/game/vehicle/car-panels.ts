@@ -44,10 +44,15 @@ const PEEL_LIFT = 0.03;
 const FLAP = 0.16;
 const FLAP_DROP = 0.04;
 /** The arch flare is the skin from this far inside to this far outside the arch opening's radius (m). */
-const ARCH_IN = 0.04;
+const ARCH_IN = 0.12;
 const ARCH_OUT = 0.1;
-/** Loft rings of the body side, deck edge to rocker: left rings 1-5, right rings 12-16 (`sectionPoints`). */
-const SIDE_RINGS = 5;
+/**
+ * Loft segments of the body side, counted from the deck edge down (`half` index in `sectionPoints`; left ring i is segment i, right
+ * ring i is segment n - 2 - i). A quarter panel is segments 2-5 (shoulder to rocker); an arch flare also takes the tuck under the
+ * rocker (6-7), which is the arch's ceiling seen from the side.
+ */
+const QUARTER_LAST = 5;
+const ARCH_LAST = 7;
 
 const cache = new WeakMap<BodyStyle, readonly PanelRegion[]>();
 
@@ -68,10 +73,11 @@ function cut(style: BodyStyle, body: THREE.BufferGeometry): PanelRegion[] {
   const tris = Object.fromEntries(PANEL_NAMES.map((k) => [k, [] as number[]])) as Record<PanelName, number[]>;
   for (let s = 0; s < slices - 1; s++) {
     for (let i = 1; i < n; i++) {
-      const side = i >= 2 && i <= SIDE_RINGS ? -1 : i >= n - 2 - SIDE_RINGS && i <= n - 4 ? 1 : 0;
+      const side = i >= 2 && i <= ARCH_LAST ? -1 : i >= n - 2 - ARCH_LAST && i <= n - 4 ? 1 : 0;
       if (side === 0) continue;
-      // The flare stays below the shoulder strip (ring 2 from the top): on a pickup that strip is the bed rail.
-      const archOk = (side < 0 ? i : n - 2 - i) >= 3;
+      const m = side < 0 ? i : n - 2 - i;
+      // The flare stays below the shoulder strip (segment 2): on a pickup that strip is the bed rail.
+      const archOk = m >= 3;
       const a = s * n + i;
       const b = a + 1;
       const c = a + n;
@@ -86,7 +92,7 @@ function cut(style: BodyStyle, body: THREE.BufferGeometry): PanelRegion[] {
         const r = dy > 0 ? Math.hypot(z - wz, dy) : Math.abs(z - wz);
         if (archOk && r >= ARCH_R - ARCH_IN && r <= ARCH_R + ARCH_OUT) name = PANEL_NAMES[2 + k]!;
       }
-      if (!name && z <= zFront && z >= zTail) name = side < 0 ? "quarterL" : "quarterR";
+      if (!name && m <= QUARTER_LAST && z <= zFront && z >= zTail) name = side < 0 ? "quarterL" : "quarterR";
       if (name) tris[name].push(a, b, c, b, d, c);
     }
   }
