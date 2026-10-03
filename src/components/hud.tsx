@@ -327,7 +327,7 @@ const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 /** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the three fleet props, settings and key help. */
 function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onToggleSettings: () => void }) {
   const { state, engine, raceCommand, settingsShown, onToggleSettings } = props;
-  const scene: Scene = state.race
+  const inPlay: Scene = state.race
     ? "race"
     : state.derby
       ? "derby"
@@ -342,6 +342,8 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
               : state.showCorkscrew
                 ? "corkscrew"
                 : "fleet";
+  // A pick in its fade lights its target at once, so a second click (Fleet included) retargets it.
+  const scene: Scene = state.pendingScene ?? inPlay;
   const toggleScene = {
     derby: () => engine.current?.toggleDerby(),
     race: () => engine.current?.toggleRace(),

@@ -13,6 +13,7 @@ import { newWorld } from "./world-step.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
+import { SceneFade } from "../present/scene-fade.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
@@ -85,6 +86,8 @@ export abstract class EngineCore {
   showRamps = false;
   /** The one scene in play; `derbyMode` and the three rig flags read it. The race director's `active` mirrors "race". */
   protected sceneId: SceneId = "fleet";
+  /** The scene-switch transition (`engine-scenes.ts` drives it): the scene button reads its pending target for the HUD. */
+  protected readonly sceneFade = new SceneFade<SceneId>();
   /** This run's random picks (the spawns of the seeded scenes) all derive from it; the share URL carries it. */
   protected sceneSeed = 0;
   /** A seed the next resets reuse instead of rolling one (a pasted URL's); `EngineShare` clears it once applied. */
@@ -119,6 +122,8 @@ export abstract class EngineCore {
   }
 
   protected canvas!: HTMLCanvasElement;
+  /** A black full-screen div above the HUD (CrashLab's); its opacity is the transition's `black`. */
+  protected veil!: HTMLElement;
   protected renderer!: THREE.WebGLRenderer;
   protected scene = new THREE.Scene();
   protected camera!: THREE.PerspectiveCamera;

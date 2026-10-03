@@ -1,4 +1,5 @@
 import type { FxTier } from "../present/engine-post.ts";
+import type { SceneId } from "../scenes/scene-id.ts";
 import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { RaceHud, RaceView } from "../match/types.ts";
@@ -56,6 +57,8 @@ export type CrashHudState = {
    *  the throw; `landed` once he lies still. */
   range: { distance: number | null; landed: boolean } | null;
   showCorkscrew: boolean;
+  /** The scene a pick is fading to (the switch comes at the transition's black), else null; the scene buttons light it. */
+  pendingScene: SceneId | null;
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
@@ -161,6 +164,7 @@ export const INITIAL_HUD: CrashHudState = {
   doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
   range: null,
   showCorkscrew: false,
+  pendingScene: null,
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,

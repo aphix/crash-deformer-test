@@ -14,7 +14,6 @@ import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.t
 import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
-import { SceneFade } from "../present/scene-fade.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
@@ -89,7 +88,7 @@ export abstract class EngineScenes extends EngineHud {
    * scene right after a toggle clear it; the shared link, the net and the boot never fade (`applyScene`).
    */
   fadeScenes = true;
-  protected readonly sceneFade = new SceneFade<SceneId>();
+  private veilBlack = 0;
 
   /**
    * Scene picker (HUD, keys): the one entry every pick goes through. Picking the scene in play (or on its way) goes
@@ -99,11 +98,13 @@ export abstract class EngineScenes extends EngineHud {
   protected setScene(next: SceneId): void {
     if (this.net.client) return;
     if (next === (this.sceneFade.pending ?? this.sceneId)) next = "fleet";
-    if (this.fadeScenes && !this.warming) this.sceneFade.request(next);
-    else this.applyScene(next);
+    if (this.fadeScenes && !this.warming) {
+      this.sceneFade.request(next);
+      this.emitHud();
+    } else this.applyScene(next);
   }
 
-  /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the post chain. */
+  /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the cel pass and the veil. */
   protected stepSceneFade(wallDt: number): void {
     const fade = this.sceneFade;
     // The canvas-only tiers have no cel pass: they fade to black and back alone.
@@ -111,7 +112,11 @@ export abstract class EngineScenes extends EngineHud {
     const next = fade.frame(wallDt, calm, this.warmsInFlight > 0);
     if (next !== null) this.applyScene(next);
     this.cine.post.cel = fade.cel;
-    this.cine.post.black = fade.black;
+    // Black is a DOM veil over the canvas and the HUD at every tier; written only while it changes.
+    if (fade.black !== this.veilBlack) {
+      this.veilBlack = fade.black;
+      this.veil.style.opacity = fade.black > 0 ? String(fade.black) : "";
+    }
   }
 
   /**

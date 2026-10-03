@@ -82,7 +82,6 @@ uniform float uSat;
 uniform float uContrast;
 uniform float uLetterbox;
 uniform float uCel;
-uniform float uBlack;
 varying vec2 vUv;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 float celL(vec2 p) {
@@ -132,7 +131,7 @@ void main() {
   vec2 q = uv - 0.5;
   g *= clamp(1.0 - dot(q, q) * (uVignette + uPunch * 0.9), 0.0, 1.0);
   g *= 1.0 - step(0.5 - uLetterbox * 0.128, abs(q.y));
-  gl_FragColor.rgb = (g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain) * (1.0 - uBlack);
+  gl_FragColor.rgb = g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain;
 }`;
 
 /** Bloom runs over `mips` targets of the shared chain starting at `mip0` (the chain halves from ½ canvas res). */
@@ -179,9 +178,6 @@ export class PostFX {
   letterbox = 0;
   /** 0–1: scene-switch cel look (posterized bands, Sobel outlines), low / high tiers only (`scene-fade.ts`). */
   cel = 0;
-  /** 0–1: scene-switch fade to black; the canvas-only tiers fade the canvas element instead. */
-  black = 0;
-  private cssBlack = 0;
   private tierNow: FxTier = "off";
   private readonly renderer: THREE.WebGLRenderer;
   /** The low / high tiers' HDR scene target (the warm-up draws into it once). */
@@ -231,7 +227,6 @@ export class PostFX {
           uContrast: { value: GRADE.contrast },
           uLetterbox: { value: 0 },
           uCel: { value: 0 },
-          uBlack: { value: 0 },
         },
         defines: spec.radial ? { BLOOM: "", RADIAL: "" } : { BLOOM: "" },
         depthTest: false,
@@ -291,12 +286,6 @@ export class PostFX {
 
   render(scene: THREE.Scene, camera: THREE.Camera): void {
     const r = this.renderer;
-    // Canvas-only tiers have no pass to fade in: the canvas itself goes translucent over the page's near-black.
-    const css = this.tierNow === "off" || this.tierNow === "minimal" ? this.black : 0;
-    if (css !== this.cssBlack) {
-      this.cssBlack = css;
-      r.domElement.style.opacity = css > 0 ? String(1 - css) : "";
-    }
     if (this.tierNow === "off" || this.tierNow === "minimal") {
       r.render(scene, camera);
       return;
@@ -340,7 +329,6 @@ export class PostFX {
     u.uRadial!.value = this.radial;
     u.uLetterbox!.value = this.letterbox;
     u.uCel!.value = this.cel;
-    u.uBlack!.value = this.black;
     u.uSeed!.value = (u.uSeed!.value as number) + 17.31;
     if ((u.uSeed!.value as number) > 1e4) u.uSeed!.value = 0;
     this.blit(composite, null);

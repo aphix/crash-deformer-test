@@ -9,6 +9,7 @@ import { HudStore } from "@/game/hud/hud-store";
 
 export function CrashLab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
+  const veilRef = useRef<HTMLDivElement>(null);
   const engineRef = useRef<CrashEngine | null>(null);
   const [hudStore] = useState(() => new HudStore());
   const hud = useSyncExternalStore(hudStore.subscribe, hudStore.get, hudStore.get);
@@ -26,9 +27,9 @@ export function CrashLab() {
 
     void import("@/game/engine/engine")
       .then(({ CrashEngine }) => {
-        if (cancelled || !canvasRef.current) return;
+        if (cancelled || !canvasRef.current || !veilRef.current) return;
         try {
-          engine = new CrashEngine(canvasRef.current, hudStore);
+          engine = new CrashEngine(canvasRef.current, hudStore, veilRef.current);
           engineRef.current = engine;
           engine.start();
           setBooted(true);
@@ -79,6 +80,8 @@ export function CrashLab() {
       <Hud state={hud} engine={engineRef} />
       {/* Race mode's online entry: live races and Play online (hidden in the solo clip view and while the results reel plays). */}
       {hud.race && hud.race.solo === null && hud.race.reel === null ? <LiveRooms engine={engineRef} race={hud.race} /> : null}
+      {/* The scene switch's fade to black (`SceneFade`): the engine drives its opacity; it covers the HUD and takes no input. */}
+      <div ref={veilRef} aria-hidden className="pointer-events-none fixed inset-0 z-[100] bg-black opacity-0" />
     </main>
   );
 }
