@@ -163,7 +163,7 @@ export class CrashEngine extends EngineReel {
     this.doorRam = new DoorRam(this.scene);
 
     this.glassDots = new GlassDotSystem(this.scene);
-    this.ensureCars(2);
+    this.ensureCars(INITIAL_HUD.carCount);
     this.scene.add(this.wheels.mesh, ...this.lampBatch.meshes);
     // After the renderer's scene matrix update, before culling/upload: every render path draws current wheels and lamps.
     this.scene.onBeforeRender = () => {

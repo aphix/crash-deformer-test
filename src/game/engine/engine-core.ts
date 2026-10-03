@@ -107,7 +107,7 @@ export abstract class EngineCore {
   protected camera!: THREE.PerspectiveCamera;
   protected cars: DeformableCar[] = [];
   private liveBuf: DeformableCar[] = [];
-  protected carCount = 2;
+  protected carCount = INITIAL_HUD.carCount;
   protected get carA(): DeformableCar {
     return this.cars[0]!;
   }
@@ -161,9 +161,9 @@ export abstract class EngineCore {
   private policeFrom = 0;
   private policeCount = 0;
   protected buckle = INITIAL_HUD.buckle;
-  protected fxDensity = 0.7;
-  protected speedMin = 0;
-  protected speedMax = 32;
+  protected fxDensity = INITIAL_HUD.fxDensity;
+  protected speedMin = INITIAL_HUD.speedMin;
+  protected speedMax = INITIAL_HUD.speedMax;
   protected balls: RampBall[] = [];
   protected poles: LampPole[] = [];
   protected smokeUntil: number[] = [];
