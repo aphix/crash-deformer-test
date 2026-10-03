@@ -12,6 +12,7 @@ import {
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import type { Hull } from "./hulls.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
+import { FACES, faceFollow } from "./load-crush.ts";
 
 /**
  * Burnout-style streamed deformation.
@@ -312,6 +313,15 @@ export abstract class DeformRig {
   protected readonly netImpact = new Float64Array(9);
   protected netPopped = 0;
   protected netFlags = 0;
+  /**
+   * Load crush (load-crush.ts): each face's crush depth (m), the depth already baked into the masses (`bakeLoadCrush`),
+   * how much each mass follows each face (rest-only), and a changed-since-the-skin-read mark. Typed arrays, not scalar
+   * fields, so the solver-state layout (`simState`) stays what it was.
+   */
+  readonly crush = new Float64Array(FACES);
+  protected readonly crushBaked = new Float64Array(FACES);
+  protected readonly loadW: Float64Array;
+  protected readonly loadDirty = new Uint8Array(1);
   /** The style's rig overrides, kept (a shared reference) for `rebuildRunStructures`. */
   private readonly rig: RigOverrides;
 
@@ -388,6 +398,11 @@ export abstract class DeformRig {
     this.clusters = built.clusters;
     this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
     this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
+    this.loadW = new Float64Array(this.masses.length * FACES);
+    this.masses.forEach((m, i) => {
+      if (m.hub) return;
+      for (let f = 0; f < FACES; f++) this.loadW[i * FACES + f] = faceFollow(f, m.rest.x, m.rest.y, m.rest.z);
+    });
     this.buildSkinWeights();
     this.initRunState();
   }
@@ -456,6 +471,9 @@ export abstract class DeformRig {
     this.bodyRestC.set(0, 0, 0);
     this.netPopped = 0;
     this.netFlags = 0;
+    this.crush.fill(0);
+    this.crushBaked.fill(0);
+    this.loadDirty.fill(0);
     for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.pose, this.spinHeld, this.strokeOut]) b.fill(0);

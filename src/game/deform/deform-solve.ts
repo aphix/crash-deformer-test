@@ -17,6 +17,7 @@ import {
 } from "./shape-match.ts";
 import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
 import type { MassNode } from "./deform-rig.ts";
+import { FACE_TOP } from "./load-crush.ts";
 import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
 import { tiltedRise } from "./hub-plane.ts";
 
@@ -48,12 +49,10 @@ const SHAPE_MAX_STEP = 0.14;
  *  slice after the tyres stopped both cars: bumpers 0.056 m with every mass at rest (limit 0.050). */
 const CONTACT_HOLD = 2 / 60;
 
-/** `clampMass`'s vertical travel cap (m): roof and cabin floor (more once a deep crush is on), hubs, the rest. */
-function maxLift(m: MassNode, deep: boolean): number {
+/** `clampMass`'s vertical travel cap (m): roof (more once a deep crush is on, and its load crush `sunk` already taken) and cabin floor, hubs, the rest. */
+function maxLift(m: MassNode, deep: boolean, sunk: number): number {
   return m.name === "roof"
-    ? deep
-      ? 0.28
-      : 0.07
+    ? (deep ? 0.28 : 0.07) + sunk
     : m.hub
       ? 0.07
       : m.name === "cell"
@@ -161,7 +160,7 @@ export abstract class DeformSolve extends DeformContact {
         dz = m.local.z - m.rest.z;
       }
     }
-    const maxDy = maxLift(m, deep);
+    const maxDy = maxLift(m, deep, this.crushBaked[FACE_TOP]!);
     dy = Math.max(-maxDy, Math.min(maxDy * 1.25, dy));
     const cw = squeeze ? 1 : this.cornerWeight(m);
     const latCap = squeeze ? 0.55 : 0.04 + cw * 0.07;

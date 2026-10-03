@@ -45,17 +45,25 @@ export function sliceSpeed(cars: readonly DeformableCar[]): number {
 }
 
 /**
+ * Bodies whose height bands overlap by less than this (m) are one on the other, not side by side: a car coming down on
+ * another's roof (its belly 0.13 m up, the roof 1.3 m, bands 1.36 m tall) overlaps by 0.19 m when it touches, and the
+ * plan SAT shoved it off before `CarSurfaces` carried it. Once it rests on it, `restsOn` keeps them apart.
+ */
+const STACK_CLEAR = 0.3;
+
+/**
  * Whether two cars' bodies share a height band: each body's box (`CAR_HALF` above its ground point, as tilted)
- * spans `y ± (|right.y|·hx + |up.y|·hy + |fwd.y|·hz)` about its middle. Car-car contact tests the plan only, so a
- * car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it there.
- * Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
+ * spans `y ± (|right.y|·hx + |up.y|·hy + |fwd.y|·hz)` about its middle, less `STACK_CLEAR`. Car-car contact tests the
+ * plan only, so a car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it
+ * there. Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
  */
 export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
+  if ((a.airborne && a.restsOn === b) || (b.airborne && b.restsOn === a)) return false;
   const ea = a.group.matrixWorld.elements;
   const eb = b.group.matrixWorld.elements;
   const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;
   const hb = Math.abs(eb[1]!) * CAR_HALF.x + Math.abs(eb[5]!) * CAR_HALF.y + Math.abs(eb[9]!) * CAR_HALF.z;
-  return Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) < ha + hb;
+  return Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) < ha + hb - STACK_CLEAR;
 }
 
 export function satCarBarrier(

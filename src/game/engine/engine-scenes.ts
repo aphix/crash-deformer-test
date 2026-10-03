@@ -166,6 +166,24 @@ export abstract class EngineScenes extends EngineHud {
     this.setScene("corkscrew");
   }
 
+  /**
+   * Debug (`window.__crush.dropStack(n)`): `n` cars one above the other on the origin, each falling 2 cm onto the roof
+   * below (1.17 m up: a car's belly stands 0.13 m over its tyres, the roof 1.3 m). Every roof settles by the weight on
+   * it, the top one not at all (docs/LOAD_CRUSH.md).
+   */
+  dropStack(n = 4): void {
+    this.ensureCars(n);
+    this.parkSolo().spawnFacing(0, 0, 0, 0);
+    for (let i = 1; i < this.carCount; i++) {
+      const car = this.cars[i]!;
+      car.group.visible = true;
+      car.spawnFacing(0, 0, 0, 0);
+      car.group.position.y = i * 1.19;
+      car.airborne = true;
+      this.dressCar(car);
+    }
+  }
+
   toggleDerby(): void {
     this.setScene("derby");
   }

@@ -27,8 +27,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  * 6: 15 part slots per car (six body panels, quarters and arch flares; was 9).
  `MSG.race` carries the race's driver-look seed (`look`); a reel clip carries it too.
  a snapshot car's flags byte carries `driverOut` (bits 5-6), and `MSG.eject`; a reel clip carries its ejections.
+ the keyframe's `simState` carries each face's load crush depth and baked depth (9); a load-crushed car rides the wreck section (`crashed`).
  */
-export const NET_VERSION = 8;
+export const NET_VERSION = 9;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

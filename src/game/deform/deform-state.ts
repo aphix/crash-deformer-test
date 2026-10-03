@@ -412,6 +412,13 @@ export abstract class DeformState extends DeformHit {
       // Window closed with a deferred skin: write it now, from this frame's solve — the pose an
       // always-skinned car freezes on. Later state drifts (cm), so a late catch-up would not match.
       if (!this.crushing && this.skinOwed) this.flushSkin(geometry);
+    } else if (this.loadDirty[0] !== 0) {
+      // Load crush baked into the masses (`bakeLoadCrush`) with no crash window open: skin once from them.
+      this.loadDirty[0] = 0;
+      this.bakeLocalSkin();
+      this.solveCages();
+      if (this.skinDeferred) this.skinOwed = true;
+      else this.flushSkin(geometry, true);
     }
     this.helper?.update();
     this.particleHelper?.update();

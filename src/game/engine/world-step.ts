@@ -7,6 +7,8 @@ import { resolveCarPair } from "../contact/pair-contact.ts";
 import { shareHeight } from "../contact/sat.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
+import { CONTACT_HZ, nearContact } from "../vehicle/car-air.ts";
+import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -40,6 +42,8 @@ export type World = {
    * event). Null where the cars' record already says who was thrown when: a highlight replay.
    */
   ejection: EjectionWatch | null;
+  /** What a body in flight stands on besides the ground: the other cars' tops (and the roofs' load crush). */
+  surfaces: CarSurfaces;
 };
 
 export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
@@ -56,6 +60,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     afterCar: null,
     collide: null,
     ejection,
+    surfaces: new CarSurfaces(),
   };
 }
 
@@ -75,13 +80,24 @@ export function stepWorld(w: World, dt: number): void {
       }
     }
   }
-  const slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
+  let slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
+  // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
+  if (dt * CONTACT_HZ > slices + 1e-6) {
+    for (const car of cars) {
+      if (nearContact(car)) {
+        slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
+        break;
+      }
+    }
+  }
   const h = dt / slices;
   strongest.clear();
 
   for (let i = 0; i < slices; i++) {
     if (w.beforeSlice?.(h)) continue;
+    w.surfaces.cars = cars;
     for (const car of cars) {
+      car.surfaces = w.surfaces;
       // A wreck its masses hand to flight here (`syncPose`) flies this slice: handed over before the masses took it,
       // and left at that, it lost the slice's motion.
       if (car.deform.massActive) car.syncPose(h);

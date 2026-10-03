@@ -11,6 +11,7 @@ import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
 import { AXLE, landPose, settle, support, tilt, type Support } from "./car-support.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
+import type { CarSurfaces } from "./car-surfaces.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -39,6 +40,12 @@ const _q0 = new THREE.Quaternion();
 export class DeformableCar extends CarParts {
   /** No wheel on the ground: a rigid body in flight or tumbling (`stepAir`); drive and grip are off. */
   airborne = false;
+  /** The world's other-car tops this body can stand on in flight (`stepWorld` sets it; null: the world's ground alone). */
+  surfaces: CarSurfaces | null = null;
+  /** While airborne: the car whose top carries this one (`CarSurfaces.commit`), whose plan the SAT must not shove it off. */
+  restsOn: DeformableCar | null = null;
+  /** While airborne: a face of this body (or of the car under it) is yielding to its load this slice (`CarSurfaces.commit`). */
+  yielding = false;
   /** While airborne: some hull point is on the ground this slice. */
   airContact = false;
   /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
@@ -185,7 +192,7 @@ export class DeformableCar extends CarParts {
     }
     const localN = this.worldToLocalDir(_in, _n);
     const rough = Math.min(0.82, 0.42 + impulse * 0.012);
-    if (this.crashed) {
+    if (this.crashed && this.deform.massActive) {
       if (!this.deform.rearmHit(localP, localN, impulse, ebs)) return;
       this.bodyMat.roughness = Math.max(this.bodyMat.roughness, rough);
     } else {

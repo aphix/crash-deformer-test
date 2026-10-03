@@ -2,8 +2,10 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
-import { droop } from "./car-suspension.ts";
+import { droop, UNDERSIDE } from "./car-suspension.ts";
 import { carClass } from "./vehicle-classes.ts";
+import { CarSurfaces } from "./car-surfaces.ts";
+import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
 
 /**
  * A car with no wheel on the ground (`DeformableCar.airborne`): a rigid box under gravity that turns freely about
@@ -28,6 +30,32 @@ const HULL: readonly (readonly [number, number, number])[] = [
     ]),
   ),
 ];
+/**
+ * The underside (car-local x, height, z): `UNDERSIDE`'s keel and rockers, and the belly between them 0.5 m either side of
+ * the keel (its height interpolated), so a car on another's flat roof rests on its width, not balanced on the keel line.
+ */
+const BELLY: readonly (readonly [number, number, number])[] = [
+  ...UNDERSIDE.map(([x, z, h]): [number, number, number] => [x, h, z]),
+  ...[2, 1, 0, -2].flatMap((z) => {
+    const keel = UNDERSIDE.find((p) => p[0] === 0 && p[1] === z)![2];
+    const rocker = UNDERSIDE.find((p) => p[0] === 0.8 && p[1] === z)![2];
+    return [-0.5, 0.5].map((x): [number, number, number] => [x, keel + (rocker - keel) * 0.625, z]);
+  }),
+  ...[-0.5, 0.5].flatMap((z) => [-0.5, 0, 0.5].map((x): [number, number, number] => [x, 0.132, z])),
+];
+/**
+ * `HULL` plus the belly: the points a car meets another car's top with. Over the world's ground the belly is not a
+ * contact (a body that bottoms out there is `car-support.ts`'s), so only `HULL` is.
+ */
+const POINTS: readonly (readonly [number, number, number])[] = [...HULL, ...BELLY];
+/** Bumper, beltline and roof corners (`HULL[4..]`): the body points whose face a hit crushes (`load-crush.ts`). */
+const BODY_FROM = 4;
+/** How far each body point follows each face's crush depth (`faceFollow`), per `FACES` row. */
+const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
+  const p = (k / FACES) | 0;
+  const [x, y, z] = HULL[p]!;
+  return p < BODY_FROM ? 0 : faceFollow(k % FACES, x, y, z);
+});
 /** A wheel this close (m) to the ground counts as down. */
 const TOUCH = 0.03;
 /** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
@@ -66,11 +94,19 @@ const _rn = new THREE.Vector3();
 const _k = new THREE.Vector3();
 const _tn = new THREE.Vector3();
 const GRAV = new THREE.Vector3(0, -G, 0);
-const R = HULL.map(() => new THREE.Vector3());
+const R = POINTS.map(() => new THREE.Vector3());
 const _lift = new THREE.Vector3();
-const N = HULL.map(() => new THREE.Vector3());
-const TYRE = HULL.map(() => false);
-const SOFT = HULL.map(() => false);
+const N = POINTS.map(() => new THREE.Vector3());
+const TYRE = POINTS.map(() => false);
+const SOFT = POINTS.map(() => false);
+/** Per contact: the face slot it presses (-1 rigid), the car whose top it stands on (-1 the world), how far that point follows its crush, its sink past what holds it. */
+const SLOT = POINTS.map(() => -1);
+const OWN = POINTS.map(() => -1);
+const FOLLOW = POINTS.map(() => 1);
+const SINK = POINTS.map(() => 0);
+/** The surfaces of a car in no world (a bare harness): the world's ground alone. */
+const LOCAL = new CarSurfaces();
+const _s = new THREE.Vector3();
 
 /** World inverse inertia (body orientation `q`, its inverse in `_qi`) applied to `x` in place. */
 function invInertia(x: THREE.Vector3, q: THREE.Quaternion): THREE.Vector3 {
@@ -94,7 +130,7 @@ function reach(r: THREE.Vector3, dir: THREE.Vector3, q: THREE.Quaternion): numbe
  * out), radius = hub height.
  */
 function hullPoint(i: number, q: THREE.Quaternion, dy: number, out: THREE.Vector3): THREE.Vector3 {
-  const [x, y, z] = HULL[i]!;
+  const [x, y, z] = POINTS[i]!;
   out.set(x, y + dy, z).applyQuaternion(q);
   if (i < 4) {
     _b.set(0, 1, 0).addScaledVector(_x, -_x.y);
@@ -102,6 +138,18 @@ function hullPoint(i: number, q: THREE.Quaternion, dy: number, out: THREE.Vector
     if (l > 0.2) out.addScaledVector(_b, -y / l);
   }
   return out;
+}
+
+/** Body point `i`'s world offset `r` moved inward by the faces' crush depths `cr` (the crushed car's hull shrinks with it). */
+function crushShift(i: number, q: THREE.Quaternion, cr: Float64Array, r: THREE.Vector3): void {
+  _s.set(0, 0, 0);
+  for (let f = 0; f < FACES; f++) {
+    const d = cr[f]! * BODY_W[i * FACES + f]!;
+    _s.x -= FACE_AXIS[f * 3]! * d;
+    _s.y -= FACE_AXIS[f * 3 + 1]! * d;
+    _s.z -= FACE_AXIS[f * 3 + 2]! * d;
+  }
+  r.add(_s.applyQuaternion(q));
 }
 
 /**
@@ -120,6 +168,20 @@ export function hullClear(car: DeformableCar): boolean {
     if (gy === NO_FLOOR || pos.y + r.y < gy) return false;
   }
   return true;
+}
+
+/** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
+export const CONTACT_HZ = 480;
+
+/**
+ * Whether `car`, a body in flight, touched something last slice (`airContact`: a landing, a face yielding, a stack it
+ * stands on): the world solves such a step at `CONTACT_HZ`. Free flight and a body frozen at rest on its contact (exactly
+ * zero speed) cost a normal slice, as does every car with no flight: a derby's wrecks never pay for it.
+ */
+export function nearContact(car: DeformableCar): boolean {
+  if (!car.airborne || car.deform.massActive) return false;
+  if (car.airContact && car.velocity.lengthSq() === 0 && car.angular.lengthSq() === 0) return false;
+  return car.airContact || car.yielding || car.restsOn !== null;
 }
 
 /**
@@ -153,7 +215,12 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   if (spin > 1e-9) q.premultiply(_dq.setFromAxisAngle(_axis.copy(w).divideScalar(spin), spin * dt));
   _qi.copy(q).invert();
 
-  const ground = activeGround();
+  const world = activeGround();
+  const surf = car.surfaces ?? LOCAL;
+  const ground = surf;
+  surf.begin(car);
+  const cr = car.deform.crush;
+  const crushed = cr[0] !== 0 || cr[1] !== 0 || cr[2] !== 0 || cr[3] !== 0 || cr[4] !== 0;
   // A tyre within its springs' full travel of the ground sits in them: it pushes at most `SUPPORT` (shared by
   // the four, over every pass) and takes no positional lift. Past that, and for every body point, the contact is
   // rigid. Rigid tyres stopped a nose-first landing's front in one slice: 35 g on the body within one frame.
@@ -165,25 +232,29 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   let deep = 0;
   _lift.set(0, 0, 0);
   _x.set(1, 0, 0).applyQuaternion(q);
-  for (let i = 0; i < HULL.length; i++) {
+  for (let i = 0; i < POINTS.length; i++) {
+    if (i === HULL.length && !surf.near) break;
     const r = hullPoint(i, q, -COM_Y, R[n]!);
+    if (crushed && i >= BODY_FROM && i < HULL.length) crushShift(i, q, cr, r);
     const px = _com.x + r.x;
     const py = _com.y + r.y;
     const pz = _com.z + r.z;
     const gy = ground.heightAt(px, pz, py);
     if (gy === NO_FLOOR) continue;
+    const own = surf.owner;
+    if (i >= HULL.length && own < 0) continue;
     const pen = gy - py;
     if (i < 4 && pen > -TOUCH) wheels++;
     if (pen <= 0) continue;
     ground.normalAt(px, pz, N[n]!, py);
     TYRE[n] = i < 4;
+    OWN[n] = own;
+    FOLLOW[n] = own >= 0 ? surf.follow : 1;
+    SLOT[n] = surf.slot(own, N[n]!, i >= BODY_FROM && i < HULL.length, q);
     // How far past what holds it the point is: a tyre's springs and their full travel, else the surface.
     const sink = pen * N[n]!.y - (i < 4 ? stop : 0);
     SOFT[n] = i < 4 && sink < 0;
-    if (sink > deep) {
-      deep = sink;
-      _lift.copy(N[n]!).multiplyScalar(deep);
-    }
+    SINK[n] = sink;
     n++;
   }
 
@@ -195,10 +266,13 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
       if (vn >= 0) continue;
       const e = pass === 0 && !TYRE[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
       let jn = -(1 + e) * vn * reach(r, nrm, q);
+      // A face carries what its strength law gives (`CarSurfaces.take`); the rest of the impulse is the face yielding.
+      if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
       if (SOFT[c]) {
         jn = Math.min(jn, budget);
         budget -= jn;
       }
+      if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
       push(v, w, q, r, nrm, jn);
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane).
       _vp.crossVectors(w, r).add(v);
@@ -214,14 +288,25 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
       push(v, w, q, r, _tn, Math.min((TYRE[c] ? MU_TYRE : MU_BODY) * jn, slide * reach(r, _tn, q)));
     }
   }
+  // The deepest point the ground can still hold up lifts the body out (a face that yields sinks instead).
+  for (let c = 0; c < n; c++) {
+    const s = SLOT[c]!;
+    if (s >= 0 && surf.isYielding(s)) {
+      if (!SOFT[c]) surf.note(s, SINK[c]!, FOLLOW[c]!);
+    } else if (SINK[c]! > deep) {
+      deep = SINK[c]!;
+      _lift.copy(N[c]!).multiplyScalar(deep);
+    }
+  }
   _com.add(_lift);
+  const yielded = surf.commit();
   // At rest: slow on three or more points whose ground is near level. Past ~14° a body there only creeps (a tyre grips
   // across its tread alone, gravity adds 0.04 m/s a slice, under `REST_V`), so freezing it held a car level on a slope,
   // tail on the road and the nose over the drop, for good (the stunt kicker's face): it keeps simulating until it
   // rolls onto its tyres (`land`) or its friction holds it.
   let up = 0;
   for (let c = 0; c < n; c++) up += N[c]!.y;
-  if (n >= 3 && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
+  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
   }
@@ -231,7 +316,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   // within its wheels' `droop` of that ground (two wheels still on a ramp's lip under a body over the drop is not a landing).
   return (
     wheels >= 2 &&
-    pos.y - ground.heightAt(pos.x, pos.z, pos.y) < droop(carClass(car)) &&
-    _r.set(0, 1, 0).applyQuaternion(q).dot(ground.normalAt(_com.x, _com.z, _f, _com.y)) > UPRIGHT
+    pos.y - world.heightAt(pos.x, pos.z, pos.y) < droop(carClass(car)) &&
+    _r.set(0, 1, 0).applyQuaternion(q).dot(world.normalAt(_com.x, _com.z, _f, _com.y)) > UPRIGHT
   );
 }
