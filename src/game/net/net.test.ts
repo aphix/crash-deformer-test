@@ -276,7 +276,7 @@ describe("netplay derby state", () => {
     const m = new DerbyMatch();
     m.begin(
       [0, 1, 2, 3].map((id) => ({ id, name: id === 2 ? "Player 2" : `Car ${id}` })),
-      { radius: 18.5, hitClock: 20 },
+      { radius: 18.5, hitClock: 20, start: 0 },
     );
     const moving = (id: number, t: number) => ({ id, name: "", alive: true, x: id === 3 ? 0 : 5 * Math.sin(t + id), z: 0 });
     for (let t = 1; t <= steps; t++) {

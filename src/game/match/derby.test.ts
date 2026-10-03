@@ -117,11 +117,14 @@ describe("derby AI", () => {
 describe("derby scoring", () => {
   it("good: buckle chatter and soft taps don't score — one point per hard hit per pair per gap", () => {
     const m = new DerbyMatch();
-    m.begin([
-      { id: 0, name: "Titanium" },
-      { id: 1, name: "Petrol" },
-      { id: 2, name: "Oxide" },
-    ]);
+    m.begin(
+      [
+        { id: 0, name: "Titanium" },
+        { id: 1, name: "Petrol" },
+        { id: 2, name: "Oxide" },
+      ],
+      { start: 0 },
+    );
     assert.equal(m.noteHit(0, 1, 8, 2, 6), true);
     assert.equal(m.noteHit(0, 1, 8, 2, 6), false, "same contact twice");
     m.time = SCORE_GAP / 2;
@@ -210,12 +213,15 @@ describe("derby arena", () => {
 });
 
 describe("derby layout", () => {
-  it("good: N cars sit on a ring, tangent, inside the bowl", () => {
-    const slots = layoutDerby(6, DERBY_RADIUS, 12, () => 0.5);
+  it("good: N cars sit on a ring inside the bowl, each facing its centre", () => {
+    const slots = layoutDerby(6, DERBY_RADIUS, () => 0.5);
     assert.equal(slots.length, 6);
     assert.ok(slots.length <= MAX_CARS);
     for (const s of slots) {
       assert.ok(Math.hypot(s.x, s.z) < DERBY_RADIUS - 3);
+      // Nose (sin yaw, cos yaw) along the line to the origin.
+      const r = Math.hypot(s.x, s.z);
+      assert.ok(Math.sin(s.yaw) * (-s.x / r) + Math.cos(s.yaw) * (-s.z / r) > 0.9999);
     }
   });
 });
@@ -276,24 +282,16 @@ describe("derby durability and the default two-car stall", () => {
     assert.equal(b.deform.drivetrainAlive, true, `petrol died on a 25 km/h head-on travel=${travel(b).toFixed(3)}`);
   });
 
-  it("bad: default two-car derby must still be moving at 5s, not parked nose to nose", () => {
+  it("bad: default two-car derby must still be moving 5 s after the green light, not parked nose to nose", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
-    const specs = [
-      { car: a, x: -7.4485, z: -8.3642, yaw: 5.4399, vx: -8.9616, vz: 7.9806 },
-      { car: b, x: 7.4485, z: 8.3642, yaw: 8.5815, vx: 8.9616, vz: -7.9806 },
-    ];
-    for (const s of specs) {
-      s.car.deform.setMode("shape");
-      s.car.group.position.set(s.x, 0, s.z);
-      s.car.group.rotation.set(0, s.yaw, 0, "YXZ");
-      s.car.yaw = s.yaw;
-      s.car.refreshBasis();
-      s.car.velocity.set(s.vx, 0, s.vz);
-      s.car.speed = 12;
-      s.car.deform.bindKinematic(s.car.group, s.car.velocity, s.car.angular);
-    }
+    let seed = 7;
+    const slots = layoutDerby(2, derbyRadius(2), () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646);
+    [a, b].forEach((c, i) => {
+      c.deform.setMode("shape");
+      c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
+    });
     const match = new DerbyMatch();
     match.begin([
       { id: 0, name: "Titanium" },
@@ -301,7 +299,8 @@ describe("derby durability and the default two-car stall", () => {
     ]);
     const w = newWorld([a, b]);
     w.afterCar = (car) => clipDerbyCar(car, derbyRadius(2));
-    let t = 0;
+    // Match time: negative through the start lights, 0 at green.
+    let t = match.time;
     let minD = Infinity;
     while (t < 5.05) {
       const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
@@ -363,12 +362,12 @@ const ARCADE: Knobs = { squash: 0.4, rear: 0.45, realism: null };
 const REALISTIC: Knobs = { squash: 0.32, rear: 0.38, realism: DEFAULT_REALISM };
 
 /** Builds and runs cars with chassisRear's maxCrush at `knobs.rear` (cages copy their spec at construction). */
-function atKnobs(knobs: Knobs, build: () => DeformableCar[], seconds: number): DerbyRun {
+function atKnobs(knobs: Knobs, build: () => DeformableCar[], seconds: number, start?: number): DerbyRun {
   const rear = CAGES.find((c) => c.name === "chassisRear")!;
   const rest = rear.maxCrush;
   rear.maxCrush = knobs.rear;
   try {
-    return runDerby(build(), seconds, knobs);
+    return runDerby(build(), seconds, knobs, start);
   } finally {
     rear.maxCrush = rest;
   }
@@ -380,8 +379,8 @@ function sixCarDerby(seconds: number, seed = 7, knobs = ARCADE): DerbyRun {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: 6 }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
     const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
-    const slots = layoutDerby(cars.length, DERBY_RADIUS, 12, rng);
-    cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, slots[i]!.speed));
+    const slots = layoutDerby(cars.length, DERBY_RADIUS, rng);
+    cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0));
     return cars;
   }, seconds);
 }
@@ -399,6 +398,7 @@ const OWNER_DERBY: readonly (readonly [number, number, number])[] = [
   [11.09, 1.563, 9.2848],
 ];
 
+/** A capture of moving cars, so its match starts at green (no start lights). */
 function ownerDerby(seconds: number, knobs = ARCADE): DerbyRun {
   return atKnobs(knobs, () => {
     const scene = new THREE.Scene();
@@ -407,19 +407,20 @@ function ownerDerby(seconds: number, knobs = ARCADE): DerbyRun {
       c.spawnFacing(x, z, yaw, 12);
       return c;
     });
-  }, seconds);
+  }, seconds, 0);
 }
 
 /**
- * AI cars in the bowl in the engine's contact order, until `seconds` or the match ends. A zip is a
- * slice where a live wreck's mass centroid moves more than 3× its speed allows (+5 cm); the slice its
- * masses go live is skipped (the group origin sits 0.23 m behind the mass centroid).
+ * AI cars in the bowl in the engine's contact order, until `seconds` after the green light or the match ends. A
+ * zip is a slice where a live wreck's mass centroid moves more than 3× its speed allows (+5 cm); the slice its
+ * masses go live is skipped (the group origin sits 0.23 m behind the mass centroid). `start`: seconds of start
+ * lights (default the match's).
  */
-function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRun {
+function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: number): DerbyRun {
     const n = cars.length;
     const names = cars.map((c) => c.paint.name);
     const match = new DerbyMatch();
-    match.begin(cars.map((_, i) => ({ id: i, name: names[i]! })));
+    match.begin(cars.map((_, i) => ({ id: i, name: names[i]! })), { start });
     const w = newWorld(cars);
     w.afterCar = (c) => clipDerbyCar(c, derbyRadius(n));
     for (const c of cars) {
@@ -432,7 +433,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs): DerbyRu
     let worstWedge = 0;
     let hits = 0;
     let noseToNose = 0;
-    let t = 0;
+    let t = match.time;
     let state = "running";
     const deaths: number[] = [];
     const zips: string[] = [];

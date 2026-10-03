@@ -2,6 +2,7 @@ import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_PACE, DERBY_RUL
 import { DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { derbyRadius } from "../scenes/derby-arena.ts";
+import { COUNTDOWN, GRID_TIME } from "./session.ts";
 
 /**
  * One point per scoring hit: ≥ `SCORE_SPEED` into a live car, at most one per pair per `SCORE_GAP`.
@@ -38,6 +39,8 @@ type DerbyOptions = {
   timeLimit?: number;
   /** Bowl radius the drivers keep inside; default `derbyRadius(cars.length)`. */
   radius?: number;
+  /** Seconds before the green light (match time runs from minus this to 0): default the race's grid and countdown. */
+  start?: number;
 };
 
 export type DerbyBoardRow = {
@@ -98,7 +101,7 @@ export class DerbyMatch {
 
   begin(cars: { id: number; name: string }[], opts: DerbyOptions = {}): void {
     this.active = true;
-    this.time = 0;
+    this.time = -(opts.start ?? GRID_TIME + COUNTDOWN);
     this.winnerId = null;
     this.winnerName = null;
     this.decided = null;
@@ -201,9 +204,9 @@ export class DerbyMatch {
     return this.snaps;
   }
 
-  /** Counted out by a count-out clock: the car takes no more input. */
-  isOut(id: number): boolean {
-    return this.counted.has(id);
+  /** No input for this car: before the green light, or counted out by a count-out clock. */
+  held(id: number): boolean {
+    return this.counted.has(id) || (this.active && this.time < 0);
   }
 
   /**
@@ -211,7 +214,7 @@ export class DerbyMatch {
    * forward throttle is a share of the arena pace (`DERBY_PACE`), the car's of its class top.
    */
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
-    if (!this.active || this.winnerId != null || !self.alive || this.counted.has(self.id)) return this.idle;
+    if (!this.active || this.time < 0 || this.winnerId != null || !self.alive || this.counted.has(self.id)) return this.idle;
     for (const o of others) if (this.counted.has(o.id)) o.alive = false;
     self.idle = this.time - (this.lastAggro.get(self.id) ?? 0);
     const out = this.brain.think(self, others, dt);
@@ -222,6 +225,8 @@ export class DerbyMatch {
   step(dt: number, flags: readonly DerbyCarFlag[]): "running" | "winner" | "loop" {
     if (!this.active) return "running";
     this.time += dt;
+    // Before the green light nobody moves: no clock runs and nothing is decided.
+    if (this.time < 0) return "running";
     for (const f of flags) {
       const row = this.row(f.id);
       if (row) row.alive = f.alive && !row.out;

@@ -25,7 +25,7 @@ export function fleetStyle(i: number): CarStyleId {
 }
 
 type FleetSlot = { x: number; z: number; speed: number };
-export type DerbySlot = { x: number; z: number; yaw: number; speed: number };
+export type DerbySlot = { x: number; z: number; yaw: number };
 
 function speedInRange(min: number, max: number, rng: () => number): number {
   const lo = Math.max(0, Math.min(min, max));
@@ -93,28 +93,15 @@ export function layoutFleet(
   return slots;
 }
 
-/**
- * Scatter around the bowl, facing tangent so they don't all donate the nose
- * on frame one.
- */
-export function layoutDerby(
-  count: number,
-  radius: number,
-  speed: number,
-  rng: () => number = Math.random,
-): DerbySlot[] {
+/** Spread round the bowl, each car stopped and facing its centre (the start lights hold them until green). */
+export function layoutDerby(count: number, radius: number, rng: () => number = Math.random): DerbySlot[] {
   const n = Math.max(1, Math.min(MAX_CARS, Math.round(count) || 1));
   const slots: DerbySlot[] = [];
   const r = Math.max(5.5, radius - 5.2);
   const spin = rng() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
     const a = spin + (i / n) * Math.PI * 2;
-    slots.push({
-      x: Math.sin(a) * r,
-      z: Math.cos(a) * r,
-      yaw: a + Math.PI / 2,
-      speed,
-    });
+    slots.push({ x: Math.sin(a) * r, z: Math.cos(a) * r, yaw: a + Math.PI });
   }
   return slots;
 }
@@ -157,5 +144,5 @@ export function respawnSlot(x: number, z: number, others: readonly { x: number; 
     if (!others.some((o) => Math.hypot(o.x - sx, o.z - sz) < FLEET_MIN_SEP)) break;
     a += 0.27;
   }
-  return { x: Math.sin(a) * RESPAWN_R, z: Math.cos(a) * RESPAWN_R, yaw: a + Math.PI, speed: 0 };
+  return { x: Math.sin(a) * RESPAWN_R, z: Math.cos(a) * RESPAWN_R, yaw: a + Math.PI };
 }

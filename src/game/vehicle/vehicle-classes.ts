@@ -194,6 +194,12 @@ export function carClass(car: { style: { id: CarStyleId } }): VehicleClassId {
   return assigned.get(car) ?? STYLE_CLASS[car.style.id];
 }
 
+/** The gauge's gear for a car: its forward speed's bucket 1-based (`gearAt`), 0 rolling backwards. */
+export function carGear(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number } }): number {
+  const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
+  return along < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], along) + 1;
+}
+
 /** The class whose durability arms a car's kill limits: a police cruiser in the player's slot (car 0) keeps the sedan's, so only AI police units are tougher. */
 export function killClass(car: { style: { id: CarStyleId }; group: { userData: Record<string, unknown> } }): VehicleClassId {
   const cls = carClass(car);

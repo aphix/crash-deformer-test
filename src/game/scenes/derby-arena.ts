@@ -5,7 +5,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 export const DERBY_RADIUS = 16.4;
 /** Spawn ring sits this far inside the wall (`layoutDerby`). */
 const SPAWN_INSET = 5.2;
-/** Bumper-to-bumper room between tangent neighbours on the spawn ring: a 4.44 m car plus 1.2 m. */
+/** Room between neighbours on the spawn ring: a 4.44 m car plus 1.2 m (sized when cars spawned tangent; facing the centre they sit side by side with room to spare). */
 const SPAWN_PITCH = 5.64;
 
 /** Bowl radius for a field of `count`: today's bowl up to 12 cars, then wide enough that the spawn ring keeps `SPAWN_PITCH` (32 cars: ~34 m). */

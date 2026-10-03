@@ -313,7 +313,7 @@ export abstract class EngineScenes extends EngineHud {
     this.derbyRound++;
     const cars = this.live();
     this.derbyR = derbyRadius(cars.length);
-    const slots = layoutDerby(cars.length, this.derbyR, 12);
+    const slots = layoutDerby(cars.length, this.derbyR);
     this.derby.begin(
       cars.map((c, i) => ({ id: i, name: this.netSeats.get(i) ?? c.paint.name })),
       { radius: this.derbyR },
@@ -325,7 +325,7 @@ export abstract class EngineScenes extends EngineHud {
       const slot = slots[i]!;
       const car = cars[i]!;
       car.group.visible = true;
-      car.spawnFacing(slot.x, slot.z, slot.yaw, slot.speed);
+      car.spawnFacing(slot.x, slot.z, slot.yaw, 0);
       this.dressCar(car);
     }
     for (let i = this.carCount; i < this.cars.length; i++) {

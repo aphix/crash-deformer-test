@@ -1,7 +1,7 @@
 import type { FxTier } from "../present/engine-post.ts";
 import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import type { RaceHud } from "../match/types.ts";
+import type { RaceHud, RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { SpecView } from "../present/engine-camera.ts";
 
@@ -91,6 +91,10 @@ export type CrashHudState = {
   derbyWinner: string | null;
   /** How the derby was won: last car standing (wreck / count-out) or top score at the time limit. */
   derbyDecided: "wreck" | "countout" | "time" | null;
+  /** Derby match time (s), negative before the green light (`startLights`); null with no match running. */
+  derbyTime: number | null;
+  /** The derby driver's gauge (speed, gear, boost; `racer` null); null unless driving a derby car. */
+  derbyView: RaceView | null;
   /** `id` is the car index; `watched` marks the car the camera follows or drives; `clock` is seconds to a count-out. */
   derbyBoard: { id: number; name: string; score: number; alive: boolean; out: boolean; clock: number; watched: boolean }[];
   /** Race scene state for the HUD; null outside race mode. */
@@ -183,6 +187,8 @@ export const INITIAL_HUD: CrashHudState = {
   derby: false,
   derbyWinner: null,
   derbyDecided: null,
+  derbyTime: null,
+  derbyView: null,
   derbyBoard: [],
   race: null,
   seat: "global",

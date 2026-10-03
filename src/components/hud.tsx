@@ -4,8 +4,9 @@ import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizo
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
-import { RaceReadouts } from "@/components/race-readouts";
+import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
+import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -162,7 +163,15 @@ export function Hud(props: HudProps) {
         </header>
       )}
 
-      {state.race ? <RaceReadouts race={state.race} corner={focus && !touch} /> : <Readouts state={state} />}
+      {state.race ? (
+        <RaceReadouts race={state.race} corner={focus && !touch} />
+      ) : state.derbyView ? (
+        <div className="flex flex-col items-end self-start font-display tabular-nums" style={{ gridArea: "readouts" }}>
+          <Gauge view={state.derbyView} corner={false} />
+        </div>
+      ) : (
+        <Readouts state={state} />
+      )}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}
@@ -199,6 +208,11 @@ export function Hud(props: HudProps) {
               {state.derbyDecided === "time" ? "Winner on points" : state.derbyDecided === "countout" ? "Last car in the fight; the rest counted out" : "Last engine still running"}
             </p>
           </div>
+        </div>
+      ) : null}
+      {state.derbyTime !== null ? (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
+          <StartLights time={state.derbyTime} />
         </div>
       ) : null}
       {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}

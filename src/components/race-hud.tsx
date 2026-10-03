@@ -23,15 +23,12 @@ import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { BustedBanner } from "@/components/race-busted";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { ReelList, SavedList } from "@/components/race-reel";
+import { StartLights } from "@/components/start-lights";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;
-
-
-
-const LIT = ["", "bg-signal-red shadow-lg shadow-signal-red/50", "bg-signal-amber shadow-lg shadow-signal-amber/50", "bg-signal-green shadow-lg shadow-signal-green/50"] as const;
 
 /** Keeps a click from parking focus on a HUD button while driving (Space / Enter would press it). */
 const keepFocus = (e: { preventDefault: () => void }): void => e.preventDefault();
@@ -144,34 +141,9 @@ export function RaceViewToggle({ race, onCommand, compact, bare }: { race: RaceH
 export function RaceOverlay({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
   if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} />;
   const you = race.you;
-  const t = race.time;
-  const numeral = t >= -3 && t < 0 ? String(Math.ceil(-t)) : t >= 0 && t < 1 ? "GO" : null;
-  const lights = race.phase === "grid" || race.phase === "countdown" || race.lights !== 0;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
-      {lights || numeral ? (
-        <div className={cn(CARD, "flex flex-col items-center gap-2 px-3 py-2 sm:gap-3 sm:px-4 sm:py-3")}>
-          <div className="flex gap-2 sm:gap-3" role="img" aria-label="Start lights">
-            {([1, 2, 3] as const).map((n) => (
-              <span
-                key={n}
-                className={cn(
-                  "size-12 rounded-full transition-[background-color,box-shadow] duration-[var(--motion-quick)] sm:size-16",
-                  race.lights === n ? LIT[n] : "bg-surface-2 shadow-[var(--shadow-border)]",
-                )}
-              />
-            ))}
-          </div>
-          {numeral ? (
-            <p
-              className={cn("font-display text-6xl font-semibold leading-none tracking-tight sm:text-7xl", numeral === "GO" ? "text-signal-green" : "text-fg")}
-              aria-live="assertive"
-            >
-              {numeral}
-            </p>
-          ) : null}
-        </div>
-      ) : null}
+      <StartLights time={race.time} />
       {you?.wrongWay ? (
         <div
           className="flex items-center gap-2 rounded-xl bg-signal-red px-4 py-2 font-display text-2xl font-semibold uppercase tracking-widest text-fg shadow-lg sm:text-3xl"
