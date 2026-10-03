@@ -12,9 +12,9 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 | `engine/engine-record.ts` | `CrashRecorder`, host or offline: the input ring, the keyframe ring, impacts into the ledger, clips cut out of the rings. |
 | `engine/engine-replay.ts` | `ClipSim`: one clip re-run through the real sim. |
 | `engine/engine-highlights.ts` | `ReelDirector`: the reel's loop, its timeline, its shots, the solo view. |
-| `engine/engine-reel.ts` | `EngineReel`, the engine layer: starts and sends the reel, its HUD commands, saved-clip play, the FX boost. |
+| `engine/engine-reel.ts` | `EngineReel`, the engine layer: starts and sends the reel, its HUD commands, saved-clip play. |
 | `present/highlight-cam.ts` | `overheadPose`: the flight between clips. |
-| `present/fx-boost.ts` | `hardwareDesktop`, `FrameGuard`: the reel's FX boost and its drop. |
+| `present/auto-fx.ts` | `hardwareDesktop`, `AutoFx`: the automatic FX tier the reel runs on (docs/CINEMATIC.md). |
 | `net/reel-codec.ts` | One byte layout for a clip on the wire (`MSG.reel`) and in storage. |
 | `engine/highlight-store.ts` | Saved clips in `localStorage`. |
 
@@ -83,13 +83,13 @@ time. The crash cam (`beginCinematic(..., crashCam = true)`) takes the hit itsel
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.
 
-### FX boost
+### FX tier
 
-On a fine-pointer device with a known hardware GPU (`hardwareDesktop`), the reel renders at the "high" post-FX tier.
-`FrameGuard` takes the median frame interval before the boost as the refresh rate, and drops back to the user's tier
-after a streak of long frames. A drop stays dropped for that reel. Picking a tier in settings overrides the boost. The
-boost only switches post passes: on the RTX 4080 laptop run, `renderer.info.programs` stayed at 84 from before the
-boost, through it, and after it.
+The reel has no FX switch of its own. A race runs `minimal` under the automatic tier (docs/CINEMATIC.md "Auto"); its end,
+where the reel starts, returns the tier to the highest one that held this session, so a capable desktop plays the reel
+on "high" and steps down if it can't hold 50 fps. A manual pick keeps the user's tier through the reel. Switching tiers
+only switches post passes: on the RTX 4080 laptop run, `renderer.info.programs` stayed at 84 before, through and after
+a switch to "high".
 
 ## Netplay
 

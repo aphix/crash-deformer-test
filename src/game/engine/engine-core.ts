@@ -16,6 +16,7 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
+import type { AutoFx } from "../present/auto-fx.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
@@ -129,6 +130,8 @@ export abstract class EngineCore {
   protected impactLight!: THREE.PointLight;
   protected stage!: WorldStage;
   protected cine!: Cinematics;
+  /** The automatic FX tier (`present/auto-fx.ts`); `fxFrame` applies it. */
+  protected autoFx!: AutoFx;
   protected impactLightLife = 0;
   protected envMap: THREE.Texture | null = null;
   protected debris!: DebrisSystem;

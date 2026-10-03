@@ -61,6 +61,8 @@ export type CrashHudState = {
   audioOn: boolean;
   /** Cinematic FX quality tier (F). */
   fxTier: FxTier;
+  /** The tier is the automatic one (`present/auto-fx.ts`); a manual pick turns it off. */
+  fxAuto: boolean;
   /** Night lighting (H) and wet asphalt (X). */
   night: boolean;
   wet: boolean;
@@ -159,6 +161,7 @@ export const INITIAL_HUD: CrashHudState = {
   autoSlomo: true,
   audioOn: false,
   fxTier: "minimal",
+  fxAuto: true,
   night: false,
   wet: false,
   deformMode: "shape",

@@ -66,8 +66,26 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. */
+  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. The user's pick turns the auto tier off. */
   setFxTier(tier: FxTier): void {
+    this.autoFx.auto = false;
+    this.cine.setTier(tier);
+    this.emitHud();
+  }
+
+  /** The auto tier back on (the HUD's "auto"): the next frame applies its tier. */
+  setFxAuto(): void {
+    this.autoFx.resume(this.cine.tier);
+    this.emitHud();
+  }
+
+  /** Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) runs minimal, the auto tier otherwise. */
+  protected fxFrame(wallDt: number): void {
+    const p = this.race.phase;
+    const match = p === "grid" || p === "countdown" || p === "racing" || (this.derbyMode && this.derby.active && this.derby.winnerId === null);
+    const tier = this.autoFx.frame(wallDt * 1000, match);
+    if (tier === null) return;
+    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps)`);
     this.cine.setTier(tier);
     this.emitHud();
   }
@@ -224,7 +242,7 @@ export abstract class EngineInput extends EngineRigs {
     this.setNight(INITIAL_HUD.night);
     this.setWet(INITIAL_HUD.wet);
     this.setRealism(INITIAL_HUD.realism);
-    this.cine.setTier(INITIAL_HUD.fxTier);
+    this.autoFx.resume(this.cine.tier);
     if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
