@@ -46,9 +46,11 @@ const MU_TYRE = 0.9;
  *  (g / speed) is a tumble's, not a jump's, and the body turns freely. */
 const NOSE_K = 6;
 const NOSE_V = 6;
-/** Below these speeds (m/s, rad/s) a body on three or more hull points is at rest (on two it can still tip). */
+/** Below these speeds (m/s, rad/s) a body on three or more hull points is at rest (on two it can still tip), on ground
+ *  whose mean up-normal is over `REST_UP` (cos 14°). */
 const REST_V = 0.15;
 const REST_W = 0.3;
+const REST_UP = 0.97;
 
 const _r = new THREE.Vector3();
 const _com = new THREE.Vector3();
@@ -213,7 +215,13 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
     }
   }
   _com.add(_lift);
-  if (n >= 3 && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
+  // At rest: slow on three or more points whose ground is near level. Past ~14° a body there only creeps (a tyre grips
+  // across its tread alone, gravity adds 0.04 m/s a slice, under `REST_V`), so freezing it held a car level on a slope,
+  // tail on the road and the nose over the drop, for good (the stunt kicker's face): it keeps simulating until it
+  // rolls onto its tyres (`land`) or its friction holds it.
+  let up = 0;
+  for (let c = 0; c < n; c++) up += N[c]!.y;
+  if (n >= 3 && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
   }

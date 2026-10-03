@@ -1,0 +1,134 @@
+import { afterEach, describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { DEG, FRAME, fit, frame, makeCar, worldOf, type Fit } from "../vehicle/ground-probe.test-util.ts";
+import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { setGround, type Ground } from "../world/ground.ts";
+import { Track, blankPoint, pointOn } from "../world/track.ts";
+import { TRACKS } from "../world/tracks/index.ts";
+
+/**
+ * A wrecked car comes to rest on the ground under its hubs. `measurePose` levelled a planted wreck to the world
+ * (pitch and roll 0) after 0.35 s quiet, wherever it stood: on the stunt course's −21° descent a hit sedan sat level
+ * with its tyres +72 / −34 cm off the road and its tail 48 cm under it. Bounds: 2° on the body against the ground
+ * under the four hubs, 2 cm on a tyre, 1 cm of underside in the ground (a loaded tyre squats that much and the road
+ * is drawn 1.5 cm over the ground, so a gap inside it can't be seen).
+ */
+const TILT_DEG = 2;
+const GAP_M = 0.02;
+const PEN_M = 0.01;
+const REST_S = 3;
+
+/** The plane `heightAt` = x·tan(pitch) + z·tan(roll) (degrees); a car facing +x sees `pitch` as its slope. */
+function plane(pitchDeg: number, rollDeg: number): Ground {
+  const tp = Math.tan(pitchDeg / DEG);
+  const tr = Math.tan(rollDeg / DEG);
+  const n = Math.hypot(tp, tr, 1);
+  return {
+    heightAt: (x, z) => x * tp + z * tr,
+    normalAt: (_x, _z, out) => {
+      out.x = -tp / n;
+      out.y = 1 / n;
+      out.z = -tr / n;
+      return out;
+    },
+    frictionAt: () => 1,
+    surfaceAt: () => "asphalt",
+  };
+}
+
+const stunt = TRACKS.map((j) => new Track(j)).find((t) => t.id === "stunt")!;
+const road = stunt.ground();
+
+type Site = { name: string; ground: Ground; x: number; z: number; y: number; yaw: number };
+const PLANE_SITE = (name: string, pitch: number, roll: number): Site => ({ name, ground: plane(pitch, roll), x: 0, z: 0, y: 0, yaw: Math.PI / 2 });
+/** The stunt road at arc length `s`, the car pointing down the track (the CRUSH billboard's crest is s ≈ 899, the kicker s ≈ 908). */
+function stuntSite(s: number): Site {
+  const pt = blankPoint();
+  pointOn(stunt.path, s, pt);
+  return { name: `stunt s ${s}`, ground: road, x: pt.x, z: pt.z, y: pt.y + 0.5, yaw: Math.atan2(pt.tx, pt.tz) };
+}
+
+const SITES: Site[] = [
+  PLANE_SITE("flat", 0, 0),
+  PLANE_SITE("+10°", 10, 0),
+  PLANE_SITE("−10°", -10, 0),
+  PLANE_SITE("−20°", -20, 0),
+  PLANE_SITE("bank 10°", 0, 10),
+  PLANE_SITE("−20° and bank 10°", -20, 10),
+  stuntSite(900),
+  stuntSite(904),
+  stuntSite(908),
+  stuntSite(912),
+];
+const CLASSES_UNDER_TEST: VehicleClassId[] = ["sedan", "monster"];
+
+/** A `cls` car standing at `site` (speed `v` along its heading), struck head-on so it becomes a wreck. */
+function wreck(site: Site, cls: VehicleClassId, v: number) {
+  setGround(site.ground);
+  const car = makeCar(cls);
+  car.spawnFacing(site.x, site.z, site.yaw, v);
+  car.group.position.y = site.ground.heightAt(site.x, site.z, site.y);
+  const w = worldOf(car);
+  const st = { acc: 0 };
+  for (let n = 0; n < 30; n++) frame(w, null, st);
+  const fw = car.forward;
+  car.applyImpact(car.group.position.clone().addScaledVector(fw, 2).setY(car.group.position.y + 0.5), fw.clone().negate(), 20, 12);
+  return { car, step: () => frame(w, null, st) };
+}
+
+const label = (f: Fit) =>
+  `pitch ${f.pitch.toFixed(1)}° vs ground ${f.groundPitch.toFixed(1)}°, roll ${f.roll.toFixed(1)}° vs ${f.groundRoll.toFixed(1)}°, ` +
+  `gaps ${f.gaps.map((g) => (g * 100).toFixed(1)).join("/")} cm, underside ${(f.pen * 100).toFixed(1)} cm in the ground at ${f.penAt}`;
+
+describe("a wreck at rest on a slope", () => {
+  afterEach(() => setGround(null));
+
+  for (const cls of CLASSES_UNDER_TEST) {
+    for (const site of SITES) {
+      it(`good: ${cls} on ${site.name} sits on the ground under its hubs ${REST_S} s after the hit`, () => {
+        const { car, step } = wreck(site, cls, 0);
+        for (let n = 0; n < REST_S * 60; n++) step();
+        const f = fit(car, site.ground);
+        car.dispose();
+        assert.ok(car.crashed && car.deform.massActive, "the hit did not make a wreck");
+        const where = `${cls} on ${site.name}: ${label(f)}`;
+        assert.ok(Math.abs(f.pitch - f.groundPitch) <= TILT_DEG, `pitch off the ground: ${where}`);
+        assert.ok(Math.abs(f.roll - f.groundRoll) <= TILT_DEG, `roll off the ground: ${where}`);
+        assert.ok(Math.max(...f.gaps.map(Math.abs)) <= GAP_M, `a tyre off the ground or in it: ${where}`);
+        assert.ok(f.pen <= PEN_M, `the underside is in the ground: ${where}`);
+      });
+    }
+  }
+});
+
+/** The level-out starts at 0.35 s quiet (frame 21 of a hit's frames); the crush before it turns the body by its own rules. */
+const LEVEL_FRAME = 20;
+const SLIDE_MPS = 6;
+
+describe("a wreck sliding down a slope", () => {
+  afterEach(() => setGround(null));
+
+  // On the unmodified code the level-out from the −20° frame clamp (12.6°) to 0 turned the body 3.4° in one frame.
+  it("good: from the level-out on, the drawn body turns less than 2° in a frame and the car moves no more than its speed allows", () => {
+    for (const site of [PLANE_SITE("−20°", -20, 0), stuntSite(904)]) {
+      const { car, step } = wreck(site, "sedan", SLIDE_MPS);
+      let prev = fit(car, site.ground);
+      const at = car.group.position.clone();
+      let turn = 0;
+      let jump = 0;
+      for (let n = 0; n < 5 * 60; n++) {
+        step();
+        const f = fit(car, site.ground);
+        if (n >= LEVEL_FRAME) {
+          turn = Math.max(turn, Math.abs(f.pitch - prev.pitch), Math.abs(f.roll - prev.roll));
+          jump = Math.max(jump, car.group.position.distanceTo(at));
+        }
+        prev = f;
+        at.copy(car.group.position);
+      }
+      car.dispose();
+      assert.ok(turn <= 2, `${site.name}: the body turned ${turn.toFixed(2)}° in one frame`);
+      assert.ok(jump <= 1.5 * SLIDE_MPS * FRAME + 0.02, `${site.name}: the car moved ${(jump * 100).toFixed(1)} cm in one frame`);
+    }
+  });
+});

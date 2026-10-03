@@ -58,6 +58,17 @@ export type Fit = {
   /** The same, asking at the body's height + 1 m: a wall's depth too (a fleet ramp's side face the car is inside). */
   overlap: number;
   overlapAt: string;
+  /** Lowest clearance of any underside or bumper point over the ground as the physics reads it (m; negative is `pen`).
+   *  Within 2 cm, the hull is resting on the ground, so a tyre hanging in the air is the belly on a crest, not a float. */
+  hull: number;
+  /** Angle (deg) of the mean ground normal under the four hubs from vertical: how steep the ground is under the car. */
+  slope: number;
+  /** How far the ground under the four hubs is from one plane (m): the height one hub sits off the plane of the other
+   *  three. Above a couple of cm no rigid body sits on all four hubs, so no pose bound is fair there. */
+  warp: number;
+  /** The most (deg) a hub's ground normal differs from the mean one: a crease or a curved crest under the car, where
+   *  "tilt from the mean normal" is not a pose the four tyres can all take. */
+  spread: number;
 };
 
 const _p = new THREE.Vector3();
@@ -121,18 +132,28 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   _m.set(0, 0, 0);
   for (let i = 0; i < 4; i++) _m.add(ground.normalAt(_hub[i]!.x, _hub[i]!.z, _n, _hub[i]!.y));
   _m.normalize();
+  let spread = 0;
+  for (let i = 0; i < 4; i++) {
+    spread = Math.max(spread, Math.acos(Math.min(1, ground.normalAt(_hub[i]!.x, _hub[i]!.z, _n, _hub[i]!.y).dot(_m))) * DEG);
+  }
   const up = _p.set(e[4]!, e[5]!, e[6]!).normalize();
   const tilt = Math.acos(Math.min(1, up.dot(_m))) * DEG;
+  const slope = Math.acos(Math.min(1, _m.y)) * DEG;
+  const warp = Math.abs(_g[0]! - _g[1]! - _g[2]! + _g[3]!);
   let pen = 0;
   let penAt = "";
   let overlap = 0;
   let overlapAt = "";
+  let hull = Infinity;
   const probe = (name: string, x: number, y: number, z: number) => {
     _p.set(x, y, z).applyMatrix4(body.matrixWorld);
     const own = ground.heightAt(_p.x, _p.z, _p.y);
-    if (own !== -Infinity && own - _p.y > pen) {
-      pen = own - _p.y;
-      penAt = name;
+    if (own !== -Infinity) {
+      hull = Math.min(hull, _p.y - own);
+      if (own - _p.y > pen) {
+        pen = own - _p.y;
+        penAt = name;
+      }
     }
     const wide = ground.heightAt(_p.x, _p.z, gy + HINT_ABOVE);
     if (wide !== -Infinity && wide - _p.y > overlap) {
@@ -157,6 +178,10 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     penAt,
     overlap,
     overlapAt,
+    hull,
+    slope,
+    warp,
+    spread,
   };
 }
 
@@ -173,11 +198,18 @@ export type Drop = Fit & { slide: number; speed: number };
  * One car dropped `height` m above the ground at (x, z) facing `yaw` and held (brake and handbrake) for `seconds`:
  * where it ends up and how it sits. `ground` is made the active one; the caller restores it.
  */
-export function drop(ground: Ground, cls: VehicleClassId, x: number, z: number, yaw: number, o: { height?: number; seconds?: number; collide?: ((c: DeformableCar) => unknown) | null } = {}): Drop {
+export function drop(
+  ground: Ground,
+  cls: VehicleClassId,
+  x: number,
+  z: number,
+  yaw: number,
+  o: { height?: number; seconds?: number; hint?: number; collide?: ((c: DeformableCar) => unknown) | null } = {},
+): Drop {
   setGround(ground);
   const car = makeCar(cls);
   car.spawnFacing(x, z, yaw, 0);
-  car.group.position.y = ground.heightAt(x, z) + (o.height ?? 0.5);
+  car.group.position.y = ground.heightAt(x, z, o.hint) + (o.height ?? 0.5);
   const w = worldOf(car, o.collide ?? null);
   const st = { acc: 0 };
   for (let f = 0; f < (o.seconds ?? 3) / FRAME; f++) frame(w, BRAKE, st);
@@ -193,7 +225,9 @@ export type Sample = Fit & { s: number; lateral: number; speed: number; y: numbe
 /**
  * One car driven down `track`'s main loop from `s0` to `s1` (m along it) at `lateral` m left of the centreline, its
  * throttle holding `pace(s)` m/s (a pursuit line steers it), one `Fit` per rendered frame. The car starts `lead` m
- * before `s0` at `pace(s0)` so it arrives in its stride. `ground` is made the active one; the caller restores it.
+ * before `s0` at `pace(s0)` so it arrives in its stride. From `brakeFrom` (m along) on, the throttle is released and
+ * the brake held, and the run ends two seconds after the car stops. `ground` is made the active one; the caller
+ * restores it.
  */
 export function drive(
   track: Track,
@@ -201,7 +235,7 @@ export function drive(
   s0: number,
   s1: number,
   pace: (s: number) => number,
-  o: { lateral?: number; lead?: number; each?: (car: DeformableCar, f: Sample) => void } = {},
+  o: { lateral?: number; lead?: number; brakeFrom?: number; each?: (car: DeformableCar, f: Sample) => void } = {},
 ): Sample[] {
   const path = track.path;
   const ground = track.ground();
@@ -222,6 +256,7 @@ export function drive(
   const proj = blankProjection();
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
   const out: Sample[] = [];
+  let still = 0;
   const maxFrames = Math.ceil(((s1 - start) / 4) * 60);
   for (let n = 0; n < maxFrames; n++) {
     const p = car.group.position;
@@ -230,16 +265,55 @@ export function drive(
     const [tx, tz] = at(s + 8 + car.speed * 0.4);
     const err = Math.atan2(tx - p.x, tz - p.z) - car.yaw;
     input.steer = Math.max(-1, Math.min(1, 2.5 * Math.atan2(Math.sin(err), Math.cos(err))));
+    const braking = s >= (o.brakeFrom ?? Infinity);
     const v = pace(s);
-    input.throttle = car.speed < v ? 1 : 0;
-    input.brake = car.speed > v + 2 ? 1 : 0;
+    input.throttle = !braking && car.speed < v ? 1 : 0;
+    input.brake = braking || car.speed > v + 2 ? 1 : 0;
     frame(w, input, st);
     if (s >= s0) {
       const f: Sample = { ...fit(car, ground), s, lateral: proj.lateral, speed: car.speed, y: car.group.position.y };
       out.push(f);
       o.each?.(car, f);
     }
+    still = braking && car.speed < 0.05 ? still + 1 : 0;
+    if (still > 120) break;
   }
   car.dispose();
   return out;
+}
+
+/** One matrix cell: a drop's `Fit`; `slide` is how far the car moved (a rolled-to-stop car: how far it rolled). */
+export type Cell = Fit & { slide: number };
+
+const WIDTHS = [38, 8, 27, 7, 5, 10, 9, 6, 7, 7, 6, 10, 7];
+const HEADS = ["site", "heading", "gaps cm [F-x F+x R-x R+x]", "hull cm", "tilt°", "pitch err°", "roll err°", "slope°", "warp cm", "spread°", "pen cm", "overlap cm", "slide m"];
+const line = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
+const num = (v: number, digits: number, i: number) => v.toFixed(digits).padStart(WIDTHS[i]!);
+
+/** The header of the matrix table (two lines): a valid markdown table together with the rows of `matrixRow`. */
+export const MATRIX_HEAD = `${line([...HEADS.map((h, i) => (i < 2 ? h.padEnd(WIDTHS[i]!) : h.padStart(WIDTHS[i]!))), "flags"])}\n|${[...WIDTHS, 5].map((w) => "-".repeat(w + 2)).join("|")}|`;
+
+/**
+ * One aligned markdown row for `site` at `heading`: the tyre gaps (cm; < 0 sunk), the hull's lowest clearance, the body
+ * tilt from the mean ground normal, pitch and roll error against the ground under the hubs, how steep and how warped
+ * the ground under the hubs is, the deepest underside point in the ground (`pen`) and in a wall (`overlap`), and the
+ * slide (m). `flags` names the failed bounds.
+ */
+export function matrixRow(site: string, heading: string, r: Cell, flags = ""): string {
+  return line([
+    site.padEnd(WIDTHS[0]!),
+    heading.padEnd(WIDTHS[1]!),
+    r.gaps.map((g) => (g * 100).toFixed(1).padStart(6)).join(" "),
+    num(r.hull * 100, 1, 3),
+    num(r.tilt, 2, 4),
+    num(r.pitch - r.groundPitch, 2, 5),
+    num(r.roll - r.groundRoll, 2, 6),
+    num(r.slope, 1, 7),
+    num(r.warp * 100, 1, 8),
+    num(r.spread, 1, 9),
+    num(r.pen * 100, 1, 10),
+    num(r.overlap * 100, 1, 11),
+    num(r.slide, 2, 12),
+    flags,
+  ]);
 }

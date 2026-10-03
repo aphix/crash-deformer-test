@@ -29,8 +29,14 @@ export const TYRE_R = 0.32;
 export const WHEEL_DIAMETER = 2 * TYRE_R;
 /** Throttle input this recent (s) still counts as "under power" for the settle rule. */
 export const POWER_HOLD = 0.1;
-/** A hub this close (m) above its 0.28 m ground floor still slides on the ground (dragGround). */
+/** Height (m) a planted hub's centre stands over the ground under it (`groundMasses`): its sphere's radius, 4 cm short of the tyre's. */
+export const HUB_FLOOR = 0.28;
+/** A hub this close (m) above its `HUB_FLOOR` still slides on the ground (dragGround). */
 const GROUND_SKIN = 0.08;
+/** Half the span (m) the ground's slope under a drawn wheel is read over (`wheelLift`). */
+const SLOPE_SPAN = 0.1;
+/** Steepest gradient (34°, `measurePose`'s plane limit) a wheel is lifted for: a lip or wall under it is no slope. */
+const MAX_GRADE = 0.68;
 
 const _a = new THREE.Vector3();
 const _b = new THREE.Vector3();
@@ -167,7 +173,7 @@ export abstract class DeformState extends DeformHit {
   /** Sliding-wreck XZ drag (same Coulomb as the tyres) on every mass, while the wreck is on the ground. */
   dragGround(dt: number, amount: number): void {
     if (!this.massActive || amount <= 0) return;
-    // Airborne (no hub within GROUND_SKIN of its 0.28 m floor over the ground): nothing to slide on.
+    // Airborne (no hub within GROUND_SKIN of its HUB_FLOOR over the ground): nothing to slide on.
     const ground = activeGround();
     let low = Infinity;
     let grip = 1;
@@ -178,12 +184,26 @@ export abstract class DeformState extends DeformHit {
       low = lift;
       grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
     }
-    if (low > 0.28 + GROUND_SKIN) return;
+    if (low > HUB_FLOOR + GROUND_SKIN) return;
     const mu = CRASH.muSlide * (0.35 + amount * 1.25) * grip;
     for (const m of this.masses) {
       if (!m.dynamic) continue;
       applyGroundFriction(m.vel, dt, mu, true);
     }
+  }
+
+  /**
+   * How far up (m, vertical) a wreck's drawn wheel stands over its hub at world (`x`, `y`, `z`) so the tyre rests on
+   * the ground there: a planted hub is `HUB_FLOOR` over the ground, a tyre `TYRE_R` in radius `TYRE_R·√(1 + g²)` over a
+   * slope of gradient g. The slope is the ground's under that hub, not the frame's: across a crest the rear and front
+   * tyres lie on slopes 10° apart. Drawn on its hub the tyre sat 4 cm in the road (6 cm on −20°).
+   */
+  wheelLift(x: number, y: number, z: number): number {
+    const ground = activeGround();
+    const gx = (ground.heightAt(x + SLOPE_SPAN, z, y) - ground.heightAt(x - SLOPE_SPAN, z, y)) / (2 * SLOPE_SPAN);
+    const gz = (ground.heightAt(x, z + SLOPE_SPAN, y) - ground.heightAt(x, z - SLOPE_SPAN, y)) / (2 * SLOPE_SPAN);
+    const g2 = gx * gx + gz * gz;
+    return TYRE_R * Math.sqrt(1 + (Number.isFinite(g2) ? Math.min(g2, MAX_GRADE ** 2) : 0)) - HUB_FLOOR;
   }
 
   /** Sim seconds since the current hit began (beginCrush or a re-armed hit); car contact does not reset it. */

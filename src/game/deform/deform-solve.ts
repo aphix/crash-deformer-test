@@ -17,7 +17,8 @@ import {
 } from "./shape-match.ts";
 import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
 import type { MassNode } from "./deform-rig.ts";
-import { ENGINE_PACK_GAP, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
+import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
+import { tiltedRise } from "./hub-plane.ts";
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
@@ -715,15 +716,15 @@ export abstract class DeformSolve extends DeformContact {
       const floor = this.floorPost[i]!;
       if (floor === NO_FLOOR) continue;
       // In flight only a mass that came down onto its ground meets it (held, as on the ground); the rest fly.
-      if (this.aloft && m.world.y >= floor + (m.hub ? 0.28 : 0.16)) continue;
+      if (this.aloft && m.world.y >= floor + (m.hub ? HUB_FLOOR : 0.16)) continue;
       const grip = this.gripPost[i]!;
       const hub = m.hub;
       // One drag call site: two left TurboFan's budget short and boxed `mu`.
       let mu = 0;
       let drag = true;
       if (hub) {
-        if (m.world.y < floor + 0.28) {
-          m.world.y = floor + 0.28;
+        if (m.world.y < floor + HUB_FLOOR) {
+          m.world.y = floor + HUB_FLOOR;
           if (m.vel.y < 0) m.vel.y = 0;
         }
         mu = (!this.drivetrainAlive ? CRASH.muSlide : scuffed ? CRASH.muScuff : CRASH.muSlide) * grip;
@@ -786,9 +787,8 @@ export abstract class DeformSolve extends DeformContact {
     const k = 11000;
     const c = 260;
     for (let si = 0; si < this.suspension.length; si++) {
-      const hub = this.suspension[si]![0];
-      const mount = this.suspension[si]![1];
-      const restDy = hub.rest.y - mount.rest.y;
+      const [hub, mount] = this.suspension[si]!;
+      const restDy = tiltedRise(this.pose[12]!, this.pose[13]!, hub.rest.x - mount.rest.x, hub.rest.y - mount.rest.y, hub.rest.z - mount.rest.z);
       const dy = hub.world.y - mount.world.y - restDy;
       const dv = hub.vel.y - mount.vel.y;
       const f = (-k * dy - c * dv) * dt;

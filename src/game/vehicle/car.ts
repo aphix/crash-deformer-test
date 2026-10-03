@@ -7,7 +7,8 @@ import { getCrackMap } from "./car-materials.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { COM_Y, hullClear, stepAir, SUPPORT } from "./car-air.ts";
-import { droop, Suspension } from "./car-suspension.ts";
+import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
+import { settle } from "./car-support.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 
@@ -21,6 +22,8 @@ const _v = new THREE.Vector3();
 const _in = new THREE.Vector3();
 const _zero = new THREE.Vector3();
 const _gn = new THREE.Vector3();
+const _gnBack = new THREE.Vector3();
+const _rest = { y: 0 };
 const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
@@ -31,6 +34,9 @@ const CHORD_LIFT = 0.005;
 const AXLE = WHEEL_POS[0]![2];
 /** Numbers in a `DeformableCar.flight` block. */
 export const FLIGHT = 8;
+/** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
+const HULL_LIFT_RATE = 12;
+const HULL_LIFT_MAX = 0.2;
 const _q0 = new THREE.Quaternion();
 
 export class DeformableCar extends CarParts {
@@ -44,6 +50,9 @@ export class DeformableCar extends CarParts {
   private flewDt = 0;
   /** The body's springs over its wheels (drawn only: the physics frame stays on the ground pose). */
   readonly suspension = new Suspension();
+  /** A wreck's drawn body stood up off its frame (m) so its underside clears the ground (`seatBody`); 0 on any other car. */
+  private hullLift = 0;
+  private classBody: THREE.Object3D | null = null;
 
   spawn(x: number, z: number, speed: number): void {
     this.resetVisual();
@@ -69,6 +78,8 @@ export class DeformableCar extends CarParts {
     this.spawnSpeed = speed;
     this.crashed = false;
     this.airborne = false;
+    if (this.classBody) this.classBody.position.y -= this.hullLift;
+    this.hullLift = 0;
     this.suspension.reset();
     this.angular.set(0, 0, 0);
     this.refreshBasis();
@@ -399,18 +410,33 @@ export class DeformableCar extends CarParts {
           grade = (hF - hR) / (2 * AXLE);
         }
       }
-      const reach = droop(carClass(this));
+      const cls = carClass(this);
+      const reach = droop(cls);
       if (pos.y > gy + reach) this.takeOff();
       else {
         // The wheels are on the ground (or reach it, within their `droop`, over a crest): the body takes its slope.
         const n = ground.normalAt(pos.x, pos.z, _gn, gy);
+        // Unless a crawling or resting body has a tyre hanging beside its partner or the hull under the ground across its
+        // middle (a ramp's side edge between the wheels): then it rests on the feature (`settle`).
+        const chord = !Number.isNaN(grade);
+        const speed = hypot2(this.velocity.x, this.velocity.z);
+        const rested = settle(ground, pos.x, pos.z, y0, this.yaw, this.pitch, this.roll, CLASSES[cls].lift, speed, gy, grade, n, _rest);
+        if (rested) [gy, grade] = [_rest.y, NaN];
         if (pos.y <= gy) {
-          // The support a slice back along the travel (the centre's ground, or the axle chord's) and its own climb
-          // rate. Across a step between the two samples (steeper than 45°: onto a fleet ramp past its side or end, a
-          // kerb) that rate was a launch (24 m/s for a 0.2 m kerb in one slice), so there the face's (the chord's grade).
+          // The support a slice back along the travel (the centre's ground, or the axle chord's, settled as it is) and
+          // its own climb rate. Across a step between the two samples (steeper than 45°: onto a fleet ramp past its side
+          // or end, a kerb) that rate was a launch (24 m/s for a 0.2 m kerb in one slice), so there the face's.
           const bx = pos.x - this.velocity.x * dt;
           const bz = pos.z - this.velocity.z * dt;
-          const was = Number.isNaN(grade) ? ground.heightAt(bx, bz, y0) : (ground.heightAt(bx + ax, bz + az, y0) + ground.heightAt(bx - ax, bz - az, y0)) / 2;
+          let was: number;
+          let wasGrade = NaN;
+          if (chord) {
+            const hF = ground.heightAt(bx + ax, bz + az, y0);
+            const hR = ground.heightAt(bx - ax, bz - az, y0);
+            was = (hF + hR) / 2;
+            wasGrade = (hF - hR) / (2 * AXLE);
+          } else was = ground.heightAt(bx, bz, y0);
+          if (settle(ground, bx, bz, y0, this.yaw, this.pitch, this.roll, CLASSES[cls].lift, speed, was, wasGrade, ground.normalAt(bx, bz, _gnBack, was), _rest)) was = _rest.y;
           const face = Number.isNaN(grade)
             ? -(n.x * this.velocity.x + n.z * this.velocity.z) / n.y
             : grade * (this.velocity.x * Math.sin(this.yaw) + this.velocity.z * Math.cos(this.yaw));
@@ -445,9 +471,10 @@ export class DeformableCar extends CarParts {
         if (!this.crashed) {
           _q0.copy(this.group.quaternion).invert();
           this.alignToGround(n, grade);
-          // The tilt's turn over this slice (world rad/s): what the body carries into the air at a takeoff.
+          // The tilt's turn over this slice (world rad/s): what the body carries into the air at a takeoff. Not a rest
+          // pose's: a car set down on a kerb takes 7° in one slice there, 14 rad/s no body turns at.
           _q0.premultiply(this.group.quaternion);
-          const k = (_q0.w < 0 ? -2 : 2) / dt;
+          const k = rested ? 0 : (_q0.w < 0 ? -2 : 2) / dt;
           this.groundSpin.set(_q0.x * k, _q0.y * k, _q0.z * k);
         }
       }
@@ -519,6 +546,10 @@ export class DeformableCar extends CarParts {
   private nudgeWheels(dt: number, drop = true): void {
     this.spinWheels(dt, true);
     const hubs = ["hubFL", "hubFR", "hubRL", "hubRR"] as const;
+    // The frame's matrix, current: world up in the body frame is its y row (e[1], e[5], e[9]), and a world point's
+    // body-frame height its y column (e[4], e[5], e[6]) over the point's offset from the origin.
+    this.group.updateWorldMatrix(false, false);
+    const e = this.group.matrixWorld.elements;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;
       if (this.looseWheels[i]!.loose) continue;
@@ -530,8 +561,14 @@ export class DeformableCar extends CarParts {
       const hub = this.deform.massLocal(hubs[i]!);
       const popped = this.deform.hubPopped(hubs[i]!);
       if (!popped) {
-        // Follows its hub along the car too: a face's shove, or a squeeze past the hubs, moves it off rest.
-        w.position.set(hub.x, THREE.MathUtils.clamp(hub.y, 0.16, 0.55), hub.z);
+        // Follows its hub along the car too: a face's shove, or a squeeze past the hubs, moves it off rest. Stood up
+        // off the hub so the tyre meets the ground the hub floor holds it over, and at the hub's own height: the
+        // stored one is clamped within 7 cm of rest (`clampLocal`), and a frame stood on a crest's middle put it
+        // 1.7 cm over the hub, the tyre off the road.
+        const at = this.deform.massWorld(hubs[i]!);
+        const lift = this.deform.wheelLift(at.x, at.y, at.z);
+        const y = e[4]! * (at.x - e[12]!) + e[5]! * (at.y - e[13]!) + e[6]! * (at.z - e[14]!);
+        w.position.set(hub.x + e[1]! * lift, THREE.MathUtils.clamp(y, 0.16, 0.55) + e[5]! * lift, hub.z + e[9]! * lift);
         w.visible = true;
         continue;
       }
@@ -665,6 +702,36 @@ export class DeformableCar extends CarParts {
     let gone = 0;
     for (let i = 0; i < 4; i++) if (this.looseWheels[i]!.loose) gone |= 1 << i;
     this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, gone, dt);
+    if (this.crashed) this.seatBody(CLASSES[cls].lift, dt);
+  }
+
+  /**
+   * A wreck's drawn body stood up off its frame until its underside (`UNDERSIDE`) clears the ground under it: the plane
+   * through the hubs cuts the far side of a hollow (a kicker's foot: the nose 8.5 cm in the road). The wheels stay on
+   * their hubs. Eased, so a wreck sliding over a kerb does not hop; drawn only, nothing reads it.
+   */
+  private seatBody(lift: number, dt: number): void {
+    const body = (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+    if (!body) return;
+    let margin = Infinity;
+    if (this.deform.massActive && !this.deform.aloft) {
+      body.updateWorldMatrix(true, false);
+      const e = body.matrixWorld.elements;
+      const ground = activeGround();
+      for (const [x, z, h] of UNDERSIDE) {
+        const px = e[0]! * x + e[4]! * h + e[8]! * z + e[12]!;
+        const py = e[1]! * x + e[5]! * h + e[9]! * z + e[13]!;
+        const pz = e[2]! * x + e[6]! * h + e[10]! * z + e[14]!;
+        const g = ground.heightAt(px, pz, py);
+        if (g !== NO_FLOOR) margin = Math.min(margin, py - g);
+      }
+    }
+    // Along the body's up (a lift moves a point up by that y of it): the lift that brings the least margin to 0, a clear
+    // body easing back to its frame; none on its side or roof.
+    const up = body.matrixWorld.elements[5]!;
+    const target = Number.isFinite(margin) && up > 0.5 ? Math.min(HULL_LIFT_MAX, Math.max(0, this.hullLift - margin / up)) : 0;
+    this.hullLift += (target - this.hullLift) * (1 - Math.exp(-HULL_LIFT_RATE * dt));
+    body.position.y = lift + this.suspension.heave + this.hullLift;
   }
 }
 
