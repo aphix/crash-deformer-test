@@ -131,4 +131,42 @@ describe("SceneFade", () => {
     assert.equal(f.frame(0.1, false), "race");
     assert.equal(f.black, 1);
   });
+
+  it("holds the new scene's sim from the switch frame through the warm-up wait, and releases it when the fade-in starts", () => {
+    for (const calm of [false, true]) {
+      const f = new SceneFade<string>();
+      assert.equal(f.holding, false);
+      f.request("race");
+      let target: string | null = null;
+      for (let i = 0; i < 600 && target === null; i++) {
+        assert.equal(f.holding, false, "the old scene runs live through the out ramp and the cut");
+        target = f.frame(DT, calm);
+      }
+      assert.equal(target, "race");
+      assert.equal(f.holding, true, "held on the very frame the switch happens in");
+      for (let i = 0; i < 90; i++) {
+        f.frame(DT, calm, true);
+        assert.equal(f.holding, true, "a warm-up in flight keeps the sim held");
+      }
+      let held = 0;
+      while (f.holding && held < 60) {
+        f.frame(DT, calm, false);
+        held++;
+      }
+      assert.ok(held >= 1 && held <= Math.ceil(FADE.hold / DT) + 1, `${held} frames`);
+      assert.equal(f.holding, false, "released as the fade-in starts");
+      f.frame(DT, calm);
+      assert.equal(f.holding, false);
+      assert.ok(f.black < 1, "the scene is already fading up when it runs");
+    }
+  });
+
+  it("a pick during the hold ends it: the sim runs again under the out ramp", () => {
+    const f = new SceneFade<string>();
+    f.request("race");
+    toSwitch(f, false);
+    assert.equal(f.holding, true);
+    f.request("range");
+    assert.equal(f.holding, false);
+  });
 });

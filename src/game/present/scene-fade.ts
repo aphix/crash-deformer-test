@@ -18,6 +18,14 @@ export class SceneFade<T> {
   private holdLeft = 0;
   private waited = 0;
 
+  /**
+   * True from the switch frame until the fade-in starts: the new scene is built but hidden behind black, so the
+   * caller holds its sim (a slow first-use warm-up must not play the scene's opening unseen).
+   */
+  get holding(): boolean {
+    return this.phase === "hold";
+  }
+
   request(target: T): void {
     this.pending = target;
     this.phase = "out";
