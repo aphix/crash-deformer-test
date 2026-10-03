@@ -79,7 +79,8 @@ describe("race: spectator only", () => {
       assert.equal(w.seat.carIndex, pole.id);
       assert.equal(hud.spectating, pole.name);
       const seen = new Set<number>();
-      for (let k = 0; k < 5; k++) {
+      // Six entries: the other four cars, Auto (the car in view stays), then back to the first.
+      for (let k = 0; k < 6; k++) {
         w.race.command({ type: "cycle", dir: 1 });
         seen.add(w.seat.carIndex);
       }
@@ -90,6 +91,99 @@ describe("race: spectator only", () => {
       assert.equal(hud.results!.length, 5);
       assert.ok(hud.standings.every((r) => !r.you), "no You row");
       assert.ok(hud.results!.every((r) => r.kind === "ai"));
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("Auto is one more entry in the driver list (cars, then Auto, then car 0); a car pick turns it off, watch -1 turns it on, and autoStep only ever lands on a car still racing", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "options", options: { trackId: "oval", laps: 1, aiCount: 4, spectate: true } });
+      w.race.reseed(1);
+      w.race.command({ type: "start" });
+      w.race.command({ type: "watch", id: 0 });
+      assert.equal(w.race.hud().auto, false);
+      for (let k = 0; k < 4; k++) w.race.command({ type: "cycle", dir: 1 });
+      assert.equal(w.seat.carIndex, 4);
+      assert.equal(w.race.hud().auto, false);
+      w.race.command({ type: "cycle", dir: 1 });
+      let hud = w.race.hud();
+      assert.equal(hud.auto, true, "after the last car comes Auto");
+      assert.equal(w.seat.carIndex, 4, "the car in view stays");
+      assert.equal(hud.spectating, w.race.racers[4]!.name, "and is the one named");
+      w.race.command({ type: "cycle", dir: 1 });
+      assert.equal(w.seat.carIndex, 0, "then the list wraps to car 0");
+      assert.equal(w.race.hud().auto, false);
+      w.race.command({ type: "cycle", dir: -1 });
+      assert.equal(w.race.hud().auto, true, "backwards from car 0 is Auto");
+      w.race.command({ type: "cycle", dir: -1 });
+      assert.equal(w.seat.carIndex, 4);
+      assert.equal(w.race.hud().auto, false);
+      w.race.command({ type: "watch", id: -1 });
+      assert.equal(w.race.hud().auto, true, "the standings' Auto row");
+      assert.equal(w.seat.carIndex, 4);
+      w.race.command({ type: "watch", id: 2 });
+      assert.equal(w.race.hud().auto, false, "a car picked by hand");
+      assert.equal(w.seat.carIndex, 2);
+
+      // Off, autoStep leaves the camera alone; on, it switches only to racing cars, no faster than once a second.
+      const state = { acc: 0 };
+      for (let n = 0; n < 300; n++) {
+        frame(w, state);
+        w.race.autoStep(-1, true);
+      }
+      assert.equal(w.seat.carIndex, 2);
+      w.race.command({ type: "watch", id: -1 });
+      let prev = w.seat.carIndex;
+      let at = -Infinity;
+      let switches = 0;
+      const bound = 4.5 + 3 * (new Track(oval).length / 9);
+      for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) {
+        frame(w, state);
+        w.race.autoStep(-1, true);
+        if (w.seat.carIndex === prev) continue;
+        prev = w.seat.carIndex;
+        switches++;
+        assert.equal(w.race.snapshot()!.cars.find((c) => c.id === prev)!.status, "racing", `switched to car ${prev} at ${w.race.time.toFixed(1)} s`);
+        assert.ok(w.race.time - at >= 1, `two switches ${(w.race.time - at).toFixed(2)} s apart`);
+        at = w.race.time;
+        hud = w.race.hud();
+        assert.equal(hud.auto, true);
+        assert.equal(hud.spectating, w.race.racers[prev]!.name);
+      }
+      assert.ok(switches >= 1, "Auto never moved off its first car in a whole race");
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("with police and traffic on the course, Q/E cycling and Auto visit racers only", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "options", options: { trackId: "city", laps: 1, aiCount: 4, spectate: true, police: true } });
+      w.race.reseed(2);
+      w.race.command({ type: "start" });
+      const state = { acc: 0 };
+      // Police park beside the course from a third of the first lap on, and give chase.
+      for (let n = 0; n < 40 / FRAME; n++) frame(w, state);
+      assert.ok(w.live().length > w.race.racers.length, "the fixture has police or traffic cars past the racers");
+      const racers = w.race.racers.length;
+      w.race.command({ type: "watch", id: 0 });
+      for (let k = 0; k < 3 * (racers + 1); k++) {
+        w.race.command({ type: "cycle", dir: k % 2 === 0 ? 1 : -1 });
+        assert.ok(w.seat.carIndex < racers, `cycling landed on car ${w.seat.carIndex}, past the ${racers} racers`);
+      }
+      w.race.command({ type: "watch", id: -1 });
+      for (let n = 0; n < 60 / FRAME; n++) {
+        frame(w, state);
+        w.race.autoStep(-1, true);
+        assert.ok(w.seat.carIndex < racers, `Auto picked car ${w.seat.carIndex} at ${w.race.time.toFixed(1)} s, past the ${racers} racers`);
+      }
     } finally {
       w.race.exit();
       setGround(null);
@@ -115,7 +209,7 @@ describe("race: spectator only", () => {
 });
 
 describe("race: police chase", () => {
-  it("police on: stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycles onto them, police never race, the race closes", () => {
+  it("police on: stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycling never lands on them, police never race, the race closes", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -138,9 +232,10 @@ describe("race: police chase", () => {
           else if (c.velocity.length() < 0.3) parkedDark++;
         }
         if (!watched && out.length > 0) {
-          for (let k = 0; k < racers + out.length && w.seat.carIndex < racers; k++) w.race.command({ type: "cycle", dir: 1 });
-          assert.ok(w.seat.carIndex >= racers, "cycling never reached a police car on the course");
-          assert.equal(w.race.hud().spectating, "Police");
+          for (let k = 0; k < racers + out.length; k++) {
+            w.race.command({ type: "cycle", dir: 1 });
+            assert.ok(w.seat.carIndex < racers, `cycling reached car ${w.seat.carIndex}, a police car on the course`);
+          }
           watched = true;
         }
       }

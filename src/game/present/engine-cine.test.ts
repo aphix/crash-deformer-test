@@ -12,7 +12,7 @@ import { crashAxis, crashSeen } from "./engine-cine.ts";
 describe("crash cam on a course", () => {
   for (const json of TRACKS) {
     const track = new Track(parseTrack(json));
-    it(`${track.id}: a hit sliding along a wall gets crash-cam eyes that all see it`, (t) => {
+    it(`${track.id}: a hit sliding along a wall gets crash-cam eyes with room that all see it`, (t) => {
       const sight = raceSight(track, placeProps(track));
       const path = track.path;
       const ground = track.ground();
@@ -43,9 +43,10 @@ describe("crash cam on a course", () => {
       t.diagnostic(`${track.id}: ${spots} wall spots, ${blindAsHit} blind on the hit's own axis, ${blind.length} after the turn`);
       if (spots === 0) return;
       assert.ok(blindAsHit > 0, "the fixture puts no eye behind a wall: it tests nothing");
-      // ponytail: stunt keeps 20/272 spots (7%) whose long-lens eye no turn or pull-in clears (they film as before
-      // the check); the other courses keep none. Lower the long lens there if those shots show up in reels.
-      assert.ok(blind.length <= spots * 0.08, `${track.id}: ${blind.length}/${spots} wall hits leave a crash-cam eye blind: ${blind.slice(0, 5).join(", ")}`);
+      // A cut with no usable eye (`CLEAR.radius` m of room and sight of the hit) is left to the chase / reel camera (`direct`),
+      // never filmed from inside a wall's margin. Tight stunt walls leave the most: 54/272 (20%); rally 9/186 (5%); oval and city none.
+      const most = track.id === "stunt" ? 0.22 : 0.08;
+      assert.ok(blind.length <= spots * most, `${track.id}: ${blind.length}/${spots} wall hits leave a crash-cam cut with no usable eye: ${blind.slice(0, 5).join(", ")}`);
     });
   }
 });

@@ -60,8 +60,10 @@ export const CINE = {
   lose: 140,
   /** No clear spot: the old shot holds and the pick retries after this many seconds. */
   retry: 0.4,
-  /** Sight-line samples a search spends per frame before it pauses (a spot it started still finishes: ≤ 2 lines). */
-  perFrame: 150,
+  /** A search gives up (no clear spot: the old shot holds, or the chase) after this many spots that reached a sight line. */
+  tries: 40,
+  /** Sight-line samples a search spends per frame before it pauses (a spot it started still finishes: ≤ 2 lines); each candidate spot also costs `SPOT_COST`. */
+  perFrame: 400,
   /** Lens (deg): `frame` m across the car at its range, clamped. */
   fov: [18, 60],
   frame: 6,
@@ -116,10 +118,10 @@ const _proj = blankProjection();
 const _pt = blankPoint();
 const _near: Occluder[] = [];
 
-/** True when (x, y, z) is within `pad` of a solid. `occ`: the occluders to test (`gather`ed near a sight line). */
-export function solid(s: Sight, x: number, y: number, z: number, pad: number, occ: readonly Occluder[] = s.occ): boolean {
+/** True when (x, y, z) is within `pad` of a solid. `occ`: the occluders to test (`gather`ed near a sight line). `terrain` false skips the hill / road-bed / deck test (a spot's side samples may stand beside a bank). */
+export function solid(s: Sight, x: number, y: number, z: number, pad: number, occ: readonly Occluder[] = s.occ, terrain = true): boolean {
   // In a hill or a road's bed, or in a bridge deck's slab (the surface within `STEP_UP` over the point).
-  if (y < s.ground.heightAt(x, z, y + pad) + pad) return true;
+  if (terrain && y < s.ground.heightAt(x, z, y + pad) + pad) return true;
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
   const p = s.path;
   if (p) {
@@ -161,24 +163,127 @@ function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: n
   return _near;
 }
 
+/** Most sight-line samples a line takes: longer lines sample coarser, with a wider half-step margin. */
+const LINE_SAMPLES = 80;
 /**
- * Sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m, each kept half a step clear of every
- * solid, so the line between two samples can't clip a corner. Returns the samples taken, negated when one was solid.
+ * Sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m (stretched to `len / LINE_SAMPLES` on a
+ * line longer than that, so a 90 m line costs 80 tests, not 180), each kept half a step clear of every solid, so the
+ * line between two samples can't clip a corner and a solid on the line is always met. Returns the samples taken, negated when one was solid.
  */
 export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
   const dx = bx - ax;
   const dy = by - ay;
   const dz = bz - az;
   const len = Math.hypot(dx, dy, dz);
-  const pad = CINE.step / 2;
+  const step = Math.max(CINE.step, len / LINE_SAMPLES);
+  const pad = step / 2;
   const occ = gather(s, ax, az, bx, bz, pad);
   let n = 0;
-  for (let d = CINE.step; d < len - CINE.stop + CINE.step; d += CINE.step) {
+  for (let d = step; d < len - CINE.stop + step; d += step) {
     const f = d / len;
     n++;
     if (solid(s, ax + dx * f, ay + dy * f, az + dz * f, pad, occ)) return -n;
   }
   return n;
+}
+
+/** Every camera cut passes `clearSpot` and the predicted sight (`aheadPoints`) before it takes the shot. */
+export const CLEAR = {
+  /** `clearSpot`: samples this far (m) out of the spot, in `FLAT` directions round it, straight up and straight down. */
+  radius: 2,
+  /** The spot and each sample keep this far (m) from every solid; the spot itself over the ground too. */
+  pad: 0.25,
+  /** The target is sampled every `every` s over the shot's horizon (at most `most` times), after its place now: a gap this short keeps a crest or a corner from hiding the car between two samples. */
+  every: 0.5,
+  most: 8,
+};
+/** Flat sample directions: 30° apart, so a face at least 0.25 m thick within 1.9 m of the spot is always reached. */
+const FLAT = 12;
+const RING = Array.from({ length: FLAT }, (_, i) => [Math.cos((i * 2 * Math.PI) / FLAT), Math.sin((i * 2 * Math.PI) / FLAT)] as const);
+/** What `clearSpot` costs a search budget: its solid tests (about one sight-line sample each). */
+const CLEAR_COST = FLAT + 3;
+/** What a candidate spot's cheap checks (ground height, solid) cost a search budget, in sight-line samples: measured at about 20 µs each, a search tries up to 160 of them. */
+const SPOT_COST = 20;
+
+/**
+ * True when a camera at (x, y, z) has `radius` m (2) of room: the spot is out of every solid and over the ground,
+ * and so are the samples `radius` out round it, above it (a deck, a roof of rock) and below it (a roof or prop it
+ * hovers over). The side samples skip the terrain test, so a spot beside a bank is fine; walls count, so a spot
+ * hugging one (or behind one, low) is not. Cheap: the occluders near the spot are gathered once, ~15 solid tests.
+ */
+export function clearSpot(s: Sight, x: number, y: number, z: number, radius: number = CLEAR.radius): boolean {
+  const pad = CLEAR.pad;
+  const occ = gather(s, x - radius, z - radius, x + radius, z + radius, pad);
+  if (solid(s, x, y, z, pad, occ)) return false;
+  for (const [c, n] of RING) if (solid(s, x + c * radius, y, z + n * radius, pad, occ, false)) return false;
+  return !solid(s, x, y + radius, z, pad, occ) && !solid(s, x, y - radius, z, pad, occ, false);
+}
+
+type Vec3 = { x: number; y: number; z: number };
+const _ahead = new Float64Array(3 * (CLEAR.most + 1));
+
+/**
+ * Where the target (tx, ty, tz) moving at (vx, vz) will be over `horizon` s, sampled every `CLEAR.every` s (into `out`
+ * as x, y, z triples; the first is the target now). Straight on its velocity in the open; along the course at the
+ * same speed on one (a bend or a street corner would put a straight line through the infield or a building), at the
+ * same lateral offset and height over the road. A sample no car could stand at (off the ground, inside a solid) is
+ * dropped. Returns the samples kept.
+ */
+export function aheadPoints(s: Sight, tx: number, ty: number, tz: number, vx: number, vz: number, horizon: number, out: Float64Array, hint = -1): number {
+  const speed = Math.hypot(vx, vz);
+  const steps = speed * horizon < 1 ? 0 : Math.min(CLEAR.most, Math.max(1, Math.ceil(horizon / CLEAR.every)));
+  const path = s.path;
+  let s0 = 0;
+  let dir = 1;
+  let lat = 0;
+  let dy = 0;
+  if (path && steps > 0) {
+    projectPath(path, tx, tz, hint, _proj);
+    s0 = _proj.s;
+    lat = _proj.lateral;
+    if (vx * path.tx[_proj.k]! + vz * path.tz[_proj.k]! < 0) dir = -1;
+    dy = ty - pointOn(path, s0, _pt).y;
+  }
+  const g0 = s.ground.heightAt(tx, tz, ty + 1);
+  out[0] = tx;
+  out[1] = ty;
+  out[2] = tz;
+  let n = 1;
+  for (let i = 1; i <= steps; i++) {
+    const t = (horizon * i) / steps;
+    let x = tx + vx * t;
+    let z = tz + vz * t;
+    let y: number;
+    if (path) {
+      pointOn(path, s0 + dir * speed * t, _pt);
+      x = _pt.x + _pt.tz * lat;
+      z = _pt.z - _pt.tx * lat;
+      y = _pt.y + dy;
+    } else {
+      const g = s.ground.heightAt(x, z, ty + 1);
+      if (g === NO_FLOOR) continue;
+      y = g0 === NO_FLOOR ? ty : g + (ty - g0);
+    }
+    if (solid(s, x, y, z, 0)) continue;
+    out[3 * n] = x;
+    out[3 * n + 1] = y;
+    out[3 * n + 2] = z;
+    n++;
+  }
+  return n;
+}
+
+/**
+ * The one question a camera cut (and a held shot, re-asked as it plays) answers: is `eye` clear (`clearSpot`) and
+ * does it see `target` (the point it aims at) now and every `CLEAR.every` s over the next `horizon` s at its
+ * velocity `vel` (`aheadPoints`; `vel.y` is ignored)? Walls, barriers, buildings, props and the other cars in `s` all
+ * block. ~15 + (up to 9 sight lines) solid tests.
+ */
+export function camUsable(s: Sight, eye: Vec3, target: Vec3, vel: Vec3, horizon: number): boolean {
+  if (!clearSpot(s, eye.x, eye.y, eye.z)) return false;
+  const n = aheadPoints(s, target.x, target.y, target.z, vel.x, vel.z, horizon, _ahead);
+  for (let i = 0; i < n; i++) if (sightLine(s, eye.x, eye.y, eye.z, _ahead[3 * i]!, _ahead[3 * i + 1]!, _ahead[3 * i + 2]!) < 0) return false;
+  return true;
 }
 
 /** Candidate spots per lead distance: two sides × two lateral offsets × the heights. */
@@ -190,9 +295,11 @@ export type Subject = { group: { position: THREE.Vector3 }; velocity: THREE.Vect
 
 /**
  * Trackside cinematic: a fixed eye ahead of the car, between ground level and ~3 car heights, out of every solid
- * and with clear sight to the car (now, and halfway to the eye). It tracks the car until `CINE.after` s after it
- * passes, then cuts to the next spot ahead. Picks alternate sides and walk the heights, so shots vary. The search
- * spends about `CINE.perFrame` sight-line samples a frame (the old shot holds meanwhile), so it never hitches a frame.
+ * with `CLEAR.radius` m of room (`clearSpot`) and clear sight to the car now and at its places over the shot
+ * (`aheadPoints`). It tracks the car until `CINE.after` s after it passes, then cuts to the next spot ahead. Picks
+ * alternate sides and walk the heights, so shots vary. A search tries at most `CINE.tries` spots that got as far as a
+ * sight line, and spends about `CINE.perFrame` sight-line samples a frame (the old shot holds meanwhile), so it never
+ * hitches a frame.
  */
 export class CineCam {
   readonly eye = new THREE.Vector3();
@@ -200,8 +307,9 @@ export class CineCam {
   has = false;
   /** Searches finished so far: the side and height order of the next one follow from it. */
   picks = 0;
-  /** The next spot the search in progress tries (0: none in progress). */
+  /** The next spot the search in progress tries (0: none in progress), and how many it has sent to a sight line. */
   private next = 0;
+  private tried = 0;
   /** Flat travel direction at the pick: the car has passed once it is beyond the eye's plane across it. */
   private tx = 0;
   private tz = 1;
@@ -218,6 +326,7 @@ export class CineCam {
     this.has = false;
     this.wait = 0;
     this.next = 0;
+    this.tried = 0;
     this.picks = seed;
   }
 
@@ -272,12 +381,13 @@ export class CineCam {
     const path = s.path;
     let s0 = 0;
     let dir = 1;
+    let k0 = -1;
     if (path) {
       projectPath(path, p.x, p.z, -1, _proj);
       s0 = _proj.s;
       // Along the course the way the car travels (forward unless it is rolling backward).
-      const k = _proj.k;
-      if (speed > 1.5 && tx * path.tx[k]! + tz * path.tz[k]! < 0) dir = -1;
+      k0 = _proj.k;
+      if (speed > 1.5 && tx * path.tx[k0]! + tz * path.tz[k0]! < 0) dir = -1;
     }
     const [lo, hi] = path ? CINE.lead : CINE.leadOff;
     const lead = THREE.MathUtils.clamp(speed * CINE.leadTime, lo!, hi!);
@@ -285,20 +395,17 @@ export class CineCam {
     const ay0 = p.y + CINE.aimUp;
     for (const stop = this.spent + budget; this.next < SPOTS && this.spent < stop; this.next++) {
       const c = this.next;
+      this.spent += SPOT_COST;
       const f = CINE.leadTry[Math.floor(c / PER_LEAD)]!;
       const side = (Math.floor(c / (2 * hs.length)) + seq) % 2 === 0 ? 1 : -1;
       const outer = Math.floor(c / hs.length) % 2 === 0;
       const hh = hs[(c + (seq >> 1)) % hs.length]!;
-      // The spot's ground frame: the course point and its tangent, or straight down the travel; and the midway
-      // point the car crosses on its way to the eye.
+      // The spot's ground frame: the course point and its tangent, or straight down the travel.
       let ax = p.x + tx * lead * f;
       let az = p.z + tz * lead * f;
       let ay = p.y;
       let fx = tx;
       let fz = tz;
-      let mx = p.x + tx * lead * f * 0.5;
-      let mz = p.z + tz * lead * f * 0.5;
-      let my = p.y;
       // Left of travel = (fz, −fx). On a course: behind the wall (looking over it) or on the runoff inside it.
       let lat = outer ? CINE.sideOff[1]! : CINE.sideOff[0]!;
       if (path) {
@@ -316,31 +423,37 @@ export class CineCam {
         if (!outer && lat < path.half[k]! + 0.6) continue;
         // Behind a wall the eye looks over it.
         if (outer && (left ? path.wallL[k] : path.wallR[k]) && hh < s.wallTop + 0.5) continue;
-        pointOn(path, s0 + dir * lead * f * 0.5, _pt);
-        mx = _pt.x;
-        mz = _pt.z;
-        my = _pt.y;
       }
-      const mg = s.ground.heightAt(mx, mz, my + 1);
-      if (mg === NO_FLOOR) continue;
-      my = mg + CINE.aimUp;
       const x = ax + fz * lat * side;
       const z = az - fx * lat * side;
       const gy = s.ground.heightAt(x, z, ay + 1);
       if (gy === NO_FLOOR) continue;
       const y = gy + hh;
       if (solid(s, x, y, z, CINE.pad)) continue;
-      if (!this.sees(s, x, y, z, p.x, ay0, p.z)) continue;
-      if (!this.sees(s, x, y, z, mx, my, mz)) continue;
+      this.spent += CLEAR_COST;
+      if (!clearSpot(s, x, y, z)) continue;
+      // A search stops after `CINE.tries` spots that got as far as a sight line.
+      if (this.tried >= CINE.tries) {
+        this.next = SPOTS;
+        break;
+      }
+      this.tried++;
+      // The car's places until it has passed the eye a moment (the shot cuts then): every spot sees it at each one.
+      const na = aheadPoints(s, p.x, ay0, p.z, v.x, v.z, Math.min(CINE.maxShot, (lead * f) / Math.max(speed, 1) + CINE.after), _ahead, k0);
+      let seen = true;
+      for (let i = 0; i < na && seen; i++) seen = this.sees(s, x, y, z, _ahead[3 * i]!, _ahead[3 * i + 1]!, _ahead[3 * i + 2]!);
+      if (!seen) continue;
       this.eye.set(x, y, z);
       this.tx = fx;
       this.tz = fz;
       this.next = 0;
+      this.tried = 0;
       this.picks++;
       return "found";
     }
     if (this.next < SPOTS) return "more";
     this.next = 0;
+    this.tried = 0;
     this.picks++;
     return "none";
   }

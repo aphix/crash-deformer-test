@@ -12,6 +12,7 @@ import type { PoliceBrain } from "../ai/police.ts";
 import type { AiCar } from "../ai/derby-ai.ts";
 import { onSurface } from "../ai/race-ai.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
+import { AutoWatch, type Cand, type Wreck } from "../match/auto-watch.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
 import {
   cleanName,
@@ -41,6 +42,21 @@ export class RaceDirector extends RaceField {
   private readonly drafted = new Int32Array(MAX_CARS);
   /** The chasing police units handed to the rules each step (`BUST`; `PoliceBrain.chasers` fills it). */
   private readonly cops: AiCar[] = [];
+  /**
+   * Auto spectating (the Auto entry of the driver list, standings row and `watch` id -1): the director picks which car
+   * the camera rides (`autoStep`). Cleared whenever spectating ends or a car is picked by hand.
+   */
+  auto = false;
+  private readonly autoWatch = new AutoWatch();
+  private readonly autoCands: Cand[] = [];
+  /** The open ledger clusters as `AutoWatch` reads them: the pool, and the ones in use this frame. */
+  private readonly wreckPool: Wreck[] = [];
+  private readonly autoWrecks: Wreck[] = [];
+
+  protected override start(trackId: string, grid: readonly number[]): void {
+    this.auto = false;
+    super.start(trackId, grid);
+  }
 
   /** The camera chases the followed car (player or spectated) instead of orbiting. */
   get chase(): boolean {
@@ -76,6 +92,7 @@ export class RaceDirector extends RaceField {
     this.host.setPolice(MAX_CARS, 0);
     this.campaign = null;
     this.spectating = false;
+    this.auto = false;
     this.unload();
     const s = this.saved;
     if (s) {
@@ -176,10 +193,18 @@ export class RaceDirector extends RaceField {
     }
   }
 
-  /** Standings click / engine `watchCar`: follow another car only when the player is not racing. */
+  /**
+   * Standings click / engine `watchCar`: follow another car only when the player is not racing. A car id turns Auto off;
+   * `id` -1 (the standings' Auto row) turns it on and keeps the car in view until Auto picks another.
+   */
   watch(id: number): void {
-    if (!this.session || id < 0 || id >= this.entrants.length) return;
+    if (!this.session || id < -1 || id >= this.entrants.length) return;
     if (!this.mayWatch()) return;
+    if (id < 0) {
+      this.goAuto();
+      return;
+    }
+    this.auto = false;
     if (this.mine(id)) {
       this.spectating = false;
       this.host.seat.focus(this.self);
@@ -189,23 +214,88 @@ export class RaceDirector extends RaceField {
     this.host.seat.focus(id);
   }
 
-  /** Q/E, LB/RB: next / previous car still on track (never our own racing car), then the police cars out on the course, when watching is allowed. */
+  /**
+   * Q/E, LB/RB: next / previous racer still on track (never our own racing car; police and traffic cars stand past the
+   * racers and are never watched), then Auto (one more entry, after the last racer, before the list wraps), when
+   * watching is allowed.
+   */
   cycle(dir: 1 | -1): void {
     const s = this.session;
     if (!s || !this.mayWatch()) return;
-    const racers = this.entrants.length;
-    const n = this.police ? this.policeFrom + this.police.count : racers;
-    let i = this.host.seat.carIndex;
-    for (let k = 0; k < n; k++) {
-      i = (((i + dir) % n) + n) % n;
-      const st = i < racers ? s.cars[this.rowOf[i]!]!.status : null;
-      const ok = st === null ? i >= this.policeFrom && !this.dormant[i] : !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
+    const n = this.entrants.length;
+    // Slots 0 … n − 1 are racers, slot n is Auto.
+    let i = this.auto ? n : this.host.seat.carIndex;
+    for (let k = 0; k <= n; k++) {
+      i = (((i + dir) % (n + 1)) + (n + 1)) % (n + 1);
+      if (i === n) {
+        this.goAuto();
+        return;
+      }
+      const st = s.cars[this.rowOf[i]!]!.status;
+      const ok = !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
       if (ok) {
         this.spectating = true;
+        this.auto = false;
         this.host.seat.focus(i);
         return;
       }
     }
+  }
+
+  /** Auto on: the car in view stays until `autoStep` picks another; a fresh Auto starts its clocks over. */
+  private goAuto(): void {
+    this.spectating = true;
+    if (this.auto) return;
+    this.autoWatch.reset();
+    this.auto = true;
+  }
+
+  /**
+   * Auto spectating, once per rendered frame while it is on (else nothing): scores every racing car off the live poses,
+   * the rules records and the highlight ledger, and moves the camera's subject when `AutoWatch` says so. `cuts` is the
+   * camera director's cut counter (-1: the camera makes no cuts), `atCut` whether it cuts right now (or never cuts).
+   * Local to this viewer: nothing goes on the net, a client scores from its interpolated cars and the host's records.
+   */
+  autoStep(cuts: number, atCut: boolean): void {
+    const s = this.session;
+    if (!this.auto || !this.spectating || !s || !this.mayWatch()) return;
+    const cars = this.host.live();
+    const n = this.entrants.length;
+    const cands = this.autoCands;
+    while (cands.length < n) cands.push({ id: cands.length, x: 0, z: 0, vx: 0, vz: 0, place: 0, split: null, stopped: 0, air: false, racing: false });
+    cands.length = n;
+    for (let i = 0; i < n; i++) {
+      const c = cands[i]!;
+      const rec = s.cars[this.rowOf[i]!]!;
+      const car = cars[i]!;
+      c.id = i;
+      c.x = car.group.position.x;
+      c.z = car.group.position.z;
+      c.vx = car.velocity.x;
+      c.vz = car.velocity.z;
+      c.place = rec.place;
+      c.split = rec.split;
+      c.stopped = rec.stopped;
+      c.air = car.airborne;
+      c.racing = rec.status === "racing" && !this.dormant[i] && !this.mine(i);
+    }
+    const ledger = this.recorder.ledger.open;
+    const now = this.recorder.now;
+    const wrecks = this.autoWrecks;
+    wrecks.length = 0;
+    for (let k = 0; k < ledger.length; k++) {
+      const cl = ledger[k]!;
+      const w = (this.wreckPool[k] ??= { cars: 0, age: 0, score: 0 });
+      w.cars = cl.cars;
+      w.age = now - cl.last;
+      w.score = cl.score;
+      wrecks.push(w);
+    }
+    const seat = this.host.seat;
+    // The camera is on a car Auto did not pick (Auto just came on, a police car was put away): its time on screen starts now.
+    if (this.autoWatch.current !== seat.carIndex) this.autoWatch.follow(seat.carIndex, s.time, cuts);
+    const id = this.autoWatch.step(s.time, cands, wrecks, cuts, atCut);
+    if (id !== seat.carIndex) seat.focus(id);
   }
 
   /** The next field (start, campaign, or the setup grid) rolls its random picks with `seed`. */
@@ -284,6 +374,7 @@ export class RaceDirector extends RaceField {
     this.menu = null;
     this.overFor = 0;
     this.spectating = !seated;
+    this.auto = false;
     const seat = this.host.seat;
     if (seated) {
       seat.focus(self);
@@ -417,7 +508,7 @@ export class RaceDirector extends RaceField {
       this.bubble();
       this.patrol(BUBBLE_EVERY);
       // A watched police car was put away: watch the next car.
-      if (this.spectating && this.dormant[this.host.seat.carIndex]) this.cycle(1);
+      if (this.spectating && !this.auto && this.dormant[this.host.seat.carIndex]) this.cycle(1);
     }
   }
 
@@ -446,6 +537,7 @@ export class RaceDirector extends RaceField {
       if (this.overFor >= RESULTS_DELAY) {
         this.menu = "results";
         this.spectating = false;
+        this.auto = false;
       }
     }
     // Busted: the banner shows, then the camera follows the field the way it does after a DNF.
@@ -551,6 +643,7 @@ export class RaceDirector extends RaceField {
       field: s ? s.cars.length : this.options.aiCount + 1,
       standings,
       spectating: watched,
+      auto: this.auto && watched !== null,
       winnerName: winner,
       winBy: s ? s.winBy : null,
       results: s && s.phase === "finished" ? s.results() : null,
@@ -638,6 +731,7 @@ export class RaceDirector extends RaceField {
     this.traffic = null;
     this.police = null;
     this.spectating = false;
+    this.auto = false;
     this.menu = "setup";
     this.host.setPaused(false);
     this.host.seat.clear();

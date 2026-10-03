@@ -49,12 +49,38 @@ export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: S
   const focusPlace = (race.spectating !== null ? watched : race.you?.place) ?? watched ?? 1;
   return (
     <ol aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48 idle:opacity-60">
+      {race.spectating !== null ? (
+        <li>
+          <AutoRow on={race.auto} onWatch={() => onCommand({ type: "watch", id: -1 })} />
+        </li>
+      ) : null}
       {race.standings.map((row) => (
         <li key={row.id} className={cn(row.place !== 1 && !row.you && Math.abs(row.place - focusPlace) > 1 && "max-sm:hidden")}>
           <StandingRow row={row} lead={race.standings[0]!.lap} onWatch={() => onCommand({ type: "watch", id: row.id })} />
         </li>
       ))}
     </ol>
+  );
+}
+
+/** The standings' Auto entry (spectating): the director picks the car. Same row as a driver's. */
+function AutoRow({ on, onWatch }: { on: boolean; onWatch: () => void }) {
+  return (
+    <button
+      type="button"
+      onMouseDown={keepFocus}
+      onClick={onWatch}
+      aria-pressed={on}
+      aria-label="Watch Auto"
+      className={cn(
+        "flex h-11 w-full items-center gap-2 rounded-md px-1.5 text-left font-display text-sm transition-colors duration-[var(--motion-quick)] sm:h-6",
+        on ? "bg-surface/80 text-fg" : "hud-ink text-fg hover:bg-surface/60",
+      )}
+    >
+      <span className="w-4 shrink-0" />
+      <span className="min-w-0 flex-1 truncate">Auto</span>
+      {on ? <Eye className="size-3.5 shrink-0" aria-label="Watching" /> : null}
+    </button>
   );
 }
 
@@ -101,7 +127,7 @@ export function SpectateBar({ race, pad, cam, onCommand, onCam }: { race: RaceHu
       </Button>
       <div className="min-w-0 px-1 text-center">
         <p className="hud-label">Spectating · {pad ? "LB / RB" : "Q / E"}</p>
-        <p className="truncate font-display text-base font-semibold leading-tight">{race.spectating}</p>
+        <p className="truncate font-display text-base font-semibold leading-tight">{race.auto ? `Auto · ${race.spectating}` : race.spectating}</p>
       </div>
       <Button variant="ghost" size="icon" className="sm:size-8" aria-label="Next car" onMouseDown={keepFocus} onClick={() => onCommand({ type: "cycle", dir: 1 })}>
         <ChevronRight />

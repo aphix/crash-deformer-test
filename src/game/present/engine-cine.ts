@@ -5,7 +5,7 @@ import type { ChaseCamera } from "./engine-camera.ts";
 import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine-fx.ts";
 import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
-import { sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { camUsable, type Sight } from "./spectate-cam.ts";
 import { FX_REACH, type Witness } from "./witness.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 
@@ -34,6 +34,8 @@ const _eye = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _best = new THREE.Vector3();
 const _reach = new Float32Array(3);
+/** The hit holds still: `camUsable`'s target velocity for a crash-cam eye. */
+const STILL = { x: 0, y: 0, z: 0 };
 /** Crash cam: it aims this high (m) over the ground at the impact. */
 const AIM_UP = 0.55;
 /** Impact-axis turns (cos, sin) tried in order for a clear crash cam: as hit, reversed, then the quarter turns. */
@@ -79,8 +81,8 @@ function crashEye(out: THREE.Vector3, t: number, at: THREE.Vector3, n: THREE.Vec
 }
 
 /**
- * Per crash-cam cut (its eye mid-cut about `at` and axis `n`): the longest `REACH` that stands out of every solid and
- * sees `at`, into `reach` (0: none). Returns how many cuts have one.
+ * Per crash-cam cut (its eye mid-cut about `at` and axis `n`): the longest `REACH` whose eye is usable (`camUsable`:
+ * `CLEAR.radius` m of room, in sight of `at`), into `reach` (0: none). Returns how many cuts have one.
  */
 export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
   let seen = 0;
@@ -89,7 +91,7 @@ export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: 
     for (const r of REACH) {
       crashEye(_eye, (CUTS[cut]! + CUTS[cut + 1]!) / 2, at, n, 1, r);
       if (r < 1 && Math.hypot(_eye.x - at.x, _eye.z - at.z) < REACH_MIN) break;
-      if (solid(s, _eye.x, _eye.y, _eye.z, 0.1) || sightLine(s, _eye.x, _eye.y, _eye.z, at.x, at.y, at.z) < 0) continue;
+      if (!camUsable(s, _eye, at, STILL, 0)) continue;
       reach[cut] = r;
       seen++;
       break;
@@ -117,8 +119,7 @@ export function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: 
     if (score === 3) break;
   }
   n.copy(_best);
-  // A cut with no clear eye keeps its full reach (as before the check).
-  for (let i = 0; i < 3; i++) if (reach[i] === 0) reach[i] = 1;
+  // A cut with no usable eye keeps `reach` 0: `direct` leaves that cut to the chase / reel camera.
 }
 
 /** Tyre smoke rises free; it never bounces. */
@@ -255,6 +256,11 @@ export class Cinematics {
     this.post.radial += (radial - this.post.radial) * Math.min(1, wallDt * 6);
   }
 
+  /** The crash cam is on: its letterbox and replay cuts, from the first impact until it hands back. */
+  get directing(): boolean {
+    return this.camT >= 0;
+  }
+
   /** The crash cam is on a cut (not just letterboxing in or out): it holds the camera this frame. */
   get cutting(): boolean {
     return this.camT >= CUTS[0] && this.camT < CUTS[3];
@@ -275,6 +281,8 @@ export class Cinematics {
     }
     if (t < CUTS[0] || t >= CUTS[3]) return false;
     const cut = t < CUTS[1] ? 0 : t < CUTS[2] ? 1 : 2;
+    // No usable eye on this cut (a wall or a building in the way, all round): the chase / reel camera keeps the shot.
+    if (this.camReach[cut] === 0) return false;
     const fov = crashEye(camera.position, t, this.camAt, this.camN, this.reduceMotion ? 0 : 1, this.camReach[cut]!);
     camera.lookAt(this.camAt);
     if (camera.fov !== fov) {

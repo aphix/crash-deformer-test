@@ -17,11 +17,8 @@ import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
-import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CompactorPress, JerseyBarrier } from "../scenes/engine-props.ts";
-import { BARRIER_HALF } from "../contact/sat.ts";
-import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { FleetRamps } from "../scenes/fleet-ramps.ts";
 import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
@@ -234,7 +231,7 @@ export class CrashEngine extends EngineShare {
       live: () => this.live(),
       scene: { dress: (car) => this.dressCar(car), collide: (car, slot) => this.race.courseHit(car, slot), bounce: this.bounceWorld },
       resetProps: () => this.race.resetProps(),
-      sight: (focus) => this.spectateSight(focus),
+      sight: (focus) => this.sceneSight(focus, true),
       clock: this.clock,
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
       hit: hitFx,
@@ -688,37 +685,21 @@ export class CrashEngine extends EngineShare {
   /** Where the crash cam's cuts land while a ride-along holds the real camera (its bars and clock run on). */
   private readonly crashProbe = new THREE.PerspectiveCamera();
 
-  /** What the trackside and dutch cams read, only when they pick a shot: the scene's solids and the rival racers. */
+  /**
+   * What the spectator cams read from the scene: the solids and the rival racers when they pick a shot, the course's own
+   * solids per frame (the chase push-out), and the crash cam's state; `cut` is the Auto cam's cut, where the Auto driver
+   * may hand over another car.
+   */
   private readonly specScene: SpecScene = {
-    sight: () => this.spectateSight(),
+    sight: () => this.sceneSight(this.followedCar(), true),
     rivals: () => (this.race.active ? this.live().slice(0, this.race.racers.length) : this.live()),
+    fixed: () => (this.race.active ? this.race.courseSight() : null),
+    crashing: () => this.cine.directing,
+    cut: (car) => {
+      if (this.race.auto) this.race.autoStep(this.view.auto.cuts, true);
+      return this.followedCar() ?? car;
+    },
   };
-
-  /** The course's (or the sandbox's) solids plus every other car where it stands now (`followed` is the one framed). */
-  private spectateSight(followed = this.followedCar()): Sight {
-    const course = this.race.active ? this.race.courseSight() : null;
-    const occ: Occluder[] = course ? [...course.occ] : [];
-    for (const c of this.live()) {
-      if (c === followed || c.vaporized || !c.group.visible) continue;
-      const p = c.group.position;
-      occ.push(occluder(p.x, p.z, 0, CAR_HALF.z, CAR_HALF.z, true, p.y - 0.3, p.y + 1.6));
-    }
-    if (course) return { ...course, occ };
-    for (const pole of this.poles) {
-      if (pole.intact && pole.group.visible) occ.push(occluder(pole.group.position.x, pole.group.position.z, 0, 0.45, 0.45, true, 0, 5.3));
-    }
-    if (this.showBarrier) {
-      const b = this.barrier.group.position;
-      occ.push(occluder(b.x, b.z, this.barrier.yaw, BARRIER_HALF.x, BARRIER_HALF.z, false, 0, 0.9));
-    }
-    if (this.showBalls) {
-      for (const ball of this.balls) {
-        const b = ball.mesh.position;
-        if (ball.mesh.visible) occ.push(occluder(b.x, b.z, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius));
-      }
-    }
-    return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
-  }
 
   /** The rigs' shot, then the rear-view hold over it (undone before the next frame's rigs, so they never see it). */
   private updateCamera(wallDt: number): void {
@@ -746,6 +727,8 @@ export class CrashEngine extends EngineShare {
     const cut = this.cine.direct(ride === "none" ? this.camera : this.crashProbe, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
     if (ride === "held") this.view.orbit(wallDt, 0, false);
     if (ride !== "none" || cut) return;
+    // The Auto driver (race spectating): a camera that makes no cuts is itself the cut; the Auto cam cuts in `specScene.cut`.
+    if (this.race.auto) this.race.autoStep(this.view.specView(this.race.chase) === "auto" ? this.view.auto.cuts : -1, this.view.specView(this.race.chase) !== "auto");
     const followed = this.followedCar();
     // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps
     // the falling car centred, then holds once it vaporizes.

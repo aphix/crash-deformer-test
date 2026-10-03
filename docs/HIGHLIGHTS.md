@@ -14,6 +14,8 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 | `engine/engine-highlights.ts` | `ReelDirector`: the reel's loop, its timeline, its shots, the solo view. |
 | `engine/engine-reel.ts` | `EngineReel`, the engine layer: starts and sends the reel, its HUD commands, saved-clip play. |
 | `present/highlight-cam.ts` | `overheadPose`: the flight between clips. |
+| `present/shot-cam.ts` | `pickShot`, `ShotCam`: which shot comes next and how it is posed (the reel and the Auto cam share it). |
+| `present/auto-cam.ts` | `AutoCam`: the spectator "Auto" camera, the reel's shot director run live on the watched car. |
 | `present/auto-fx.ts` | `hardwareDesktop`, `AutoFx`: the automatic FX tier the reel runs on (docs/CINEMATIC.md). |
 | `net/reel-codec.ts` | One byte layout for a clip on the wire (`MSG.reel`) and in storage. |
 | `engine/highlight-store.ts` | Saved clips in `localStorage`. |
@@ -81,13 +83,18 @@ Each clip's shots come from `mulberry32(seed ^ clip)`, so the same seed gives th
 A shot is one of: chase (behind the car along its travel), trackside cinematic (`CineCam.pick`, searched in full when
 the shot starts, so the pick depends only on the poses and the seed), wheel-well dutch (`DutchCam.place` on a seeded
 mount) or a high static eye 22 m off the crash (the seeded angle, else the first eighth-turn from it whose eye is clear
-and sees the car). Each shot is framed from the car as it stands at the shot's own clip time. The crash cam
-(`beginCinematic(..., crashCam = true)`) takes the hit itself, as it does in a sandbox crash. On a course it stands on
-the ground at the hit and turns its axis (`crashAxis`: as hit, reversed, the quarter turns) to the one whose three cut
-eyes see the hit from furthest out, pulling an eye in toward the hit (no closer than 3 m) when a wall is in the way.
+and sees the car). The shot picking and posing is `present/shot-cam.ts` (`pickShot`, `ShotCam`), shared with the Auto
+spectator cam (`present/auto-cam.ts`: the same kinds and pool order run live on the watched car). Every searched spot
+(trackside, high, each crash-cam eye) must pass `camUsable` (`present/spectate-cam.ts`): 2 m of room round it
+(`clearSpot`: 12 flat samples, one up, one down) and a clear sight line to the car now and over the next seconds. Each
+shot is framed from the car as it stands at the shot's own clip time. The crash cam
+(`beginCinematic(..., crashCam = true)`) takes the hit itself, as it does in a sandbox crash. On a course, and in the
+sandbox (lamp posts, barrier, balls: `sceneSight`), it stands on the ground at the hit and turns its axis (`crashAxis`: as
+hit, reversed, the quarter turns) to the one whose three cut eyes see the hit from furthest out, pulling an eye in toward
+the hit (no closer than 3 m) when a wall is in the way. A cut with no usable eye is left to the chase / reel camera.
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
-(`engine-cine.test.ts`) put an eye behind it; after it, none on oval, rally and city, and 20 of 272 on stunt (the long
-lens).
+(`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 9 of 186 (rally) and
+54 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
 
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.
