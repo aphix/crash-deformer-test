@@ -758,6 +758,8 @@ export class CrashEngine extends EngineShare {
       return;
     }
     if (followed && followed.group.visible && this.seat.mode === "drive") {
+      // The body's ride reaches the chase and hood cams on every FX tier but "off" (0.0004 ms a frame), unless motion is reduced.
+      this.view.drive.ride = this.cine.tier !== "off" && !this.clock.reduceMotion;
       this.view.frameDrive(followed, wallDt, this.playing);
       return;
     }

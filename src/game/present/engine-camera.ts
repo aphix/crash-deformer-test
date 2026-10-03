@@ -106,6 +106,14 @@ export const CHASE = {
 };
 
 /**
+ * Camera ride (visual): a small share of the followed car's drawn body heave and pitch (`Suspension`), so the seat
+ * feels the weight shift: a squat at launch or a landing drops the eye and tilts it up, a dive lifts and tips it
+ * down. A chase eye sits behind the body's pivot (nose up sinks it `lever` m per rad), the hood cam ahead of it
+ * (rises). Soft-bounded under `drop` m and `maxTilt` rad, eased at `omega`/s: the car is never hidden.
+ */
+const RIDE = { heave: 0.5, lever: 0.8, tilt: 0.25, drop: 0.04, maxTilt: (0.6 * Math.PI) / 180, omega: 12 };
+
+/**
  * Chase / far chase / hood-cam rig for a driven car. Heading follows the car's
  * body (not its velocity, so reversing never swings the camera round), on a
  * critically damped spring for the swing-out on turns and to absorb yaw jolts
@@ -118,6 +126,10 @@ export class DriveCam {
   private readonly heading = new Spring();
   private readonly lookYaw = new Spring();
   private readonly lookPitch = new Spring();
+  /** Camera ride on (`RIDE`): the engine sets it from the FX tier and reduced motion before each frame's rig. */
+  ride = false;
+  private readonly rideY = new Spring();
+  private readonly rideTilt = new Spring();
   private idle = 10;
   private returnOmega: number = CHASE.lookOmega;
   /** The look offset came from a drag (not the stick), so a spectator's `keep` holds it. */
@@ -225,9 +237,24 @@ export class DriveCam {
     camera.position.copy(this.pos.x);
     camera.lookAt(this.aim.x);
 
+    this.rideStep(camera, car, view, dt);
     const fov =
       view === "first" ? CHASE.fovFirst : CHASE.fov + CHASE.fovSpeed * Math.min(1.4, Math.max(0, along) / DRIVE.maxFwd);
     easeFov(camera, fov, dt);
+  }
+
+  /** The ride over this frame's chase or hood shot (eased out by a look offset: that framing is the player's own). */
+  private rideStep(camera: THREE.PerspectiveCamera, car: DeformableCar, view: SeatView, dt: number): void {
+    if (!this.ride) {
+      this.rideY.snap(0);
+      this.rideTilt.snap(0);
+      return;
+    }
+    const s = car.suspension;
+    const fade = Math.max(0, 1 - 20 * Math.hypot(this.lookYaw.x, this.lookPitch.x));
+    const y = RIDE.heave * s.heave + (view === "first" ? RIDE.lever : -RIDE.lever) * s.pitch;
+    camera.position.y += this.rideY.step(RIDE.drop * Math.tanh(y / RIDE.drop) * fade, RIDE.omega, dt);
+    camera.rotateX(this.rideTilt.step(RIDE.maxTilt * Math.tanh((RIDE.tilt * s.pitch) / RIDE.maxTilt) * fade, RIDE.omega, dt));
   }
 }
 
