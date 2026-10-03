@@ -81,8 +81,14 @@ uniform float uVignette;
 uniform float uSat;
 uniform float uContrast;
 uniform float uLetterbox;
+uniform float uCel;
+uniform float uBlack;
 varying vec2 vUv;
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
+float celL(vec2 p) {
+  float l = dot(texture2D(tScene, p).rgb, vec3(0.2126, 0.7152, 0.0722));
+  return l / (1.0 + l);
+}
 void main() {
   vec2 uv = vUv;
   vec3 c = texture2D(tScene, uv).rgb;
@@ -111,10 +117,22 @@ void main() {
   g *= mix(vec3(0.96, 0.99, 1.05), vec3(1.04, 1.0, 0.95), smoothstep(0.15, 0.7, l));
   g = clamp(g, 0.0, 1.0);
   g = mix(g, g * g * (3.0 - 2.0 * g), uContrast);
+  if (uCel > 0.001) {
+    // Scene-switch cel look: lit bands of the display colour plus dark Sobel outlines on the scene's luminance.
+    vec2 px = 1.0 / vec2(textureSize(tScene, 0));
+    float tl = celL(uv + px * vec2(-1.0, 1.0)), tm = celL(uv + px * vec2(0.0, 1.0)), tr = celL(uv + px);
+    float ml = celL(uv + px * vec2(-1.0, 0.0)), mr = celL(uv + px * vec2(1.0, 0.0));
+    float bl = celL(uv - px), bm = celL(uv - px * vec2(0.0, 1.0)), br = celL(uv + px * vec2(1.0, -1.0));
+    float edge = smoothstep(0.09, 0.3, length(vec2(tr + 2.0 * mr + br - tl - 2.0 * ml - bl, tl + 2.0 * tm + tr - bl - 2.0 * bm - br)));
+    float lc = dot(g, vec3(0.2126, 0.7152, 0.0722));
+    vec3 cel = clamp(g * (floor(lc * 5.0 + 0.5) / 5.0 / max(lc, 0.02)), 0.0, 1.0);
+    cel = mix(vec3(dot(cel, vec3(0.2126, 0.7152, 0.0722))), cel, 1.25) * (1.0 - 0.9 * edge);
+    g = mix(g, cel, uCel);
+  }
   vec2 q = uv - 0.5;
   g *= clamp(1.0 - dot(q, q) * (uVignette + uPunch * 0.9), 0.0, 1.0);
   g *= 1.0 - step(0.5 - uLetterbox * 0.128, abs(q.y));
-  gl_FragColor.rgb = g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain;
+  gl_FragColor.rgb = (g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain) * (1.0 - uBlack);
 }`;
 
 /** Bloom runs over `mips` targets of the shared chain starting at `mip0` (the chain halves from ½ canvas res). */
@@ -159,6 +177,11 @@ export class PostFX {
   readonly center = new THREE.Vector2(0.5, 0.5);
   /** 0–1: 2.39:1 letterbox bars for the crash cam. */
   letterbox = 0;
+  /** 0–1: scene-switch cel look (posterized bands, Sobel outlines), low / high tiers only (`scene-fade.ts`). */
+  cel = 0;
+  /** 0–1: scene-switch fade to black; the canvas-only tiers fade the canvas element instead. */
+  black = 0;
+  private cssBlack = 0;
   private tierNow: FxTier = "off";
   private readonly renderer: THREE.WebGLRenderer;
   /** The low / high tiers' HDR scene target (the warm-up draws into it once). */
@@ -207,6 +230,8 @@ export class PostFX {
           uSat: { value: GRADE.saturation },
           uContrast: { value: GRADE.contrast },
           uLetterbox: { value: 0 },
+          uCel: { value: 0 },
+          uBlack: { value: 0 },
         },
         defines: spec.radial ? { BLOOM: "", RADIAL: "" } : { BLOOM: "" },
         depthTest: false,
@@ -266,6 +291,12 @@ export class PostFX {
 
   render(scene: THREE.Scene, camera: THREE.Camera): void {
     const r = this.renderer;
+    // Canvas-only tiers have no pass to fade in: the canvas itself goes translucent over the page's near-black.
+    const css = this.tierNow === "off" || this.tierNow === "minimal" ? this.black : 0;
+    if (css !== this.cssBlack) {
+      this.cssBlack = css;
+      r.domElement.style.opacity = css > 0 ? String(1 - css) : "";
+    }
     if (this.tierNow === "off" || this.tierNow === "minimal") {
       r.render(scene, camera);
       return;
@@ -308,6 +339,8 @@ export class PostFX {
     u.uPunch!.value = this.punch;
     u.uRadial!.value = this.radial;
     u.uLetterbox!.value = this.letterbox;
+    u.uCel!.value = this.cel;
+    u.uBlack!.value = this.black;
     u.uSeed!.value = (u.uSeed!.value as number) + 17.31;
     if ((u.uSeed!.value as number) > 1e4) u.uSeed!.value = 0;
     this.blit(composite, null);

@@ -197,6 +197,7 @@ async function main() {
   });
   await page.goto(opts.url, { waitUntil: "load", timeout: 90_000 });
   await page.waitForFunction(() => Boolean(window.__crush), null, { timeout: 90_000 });
+  await page.evaluate(() => (window.__crush.fadeScenes = false));
   const gpu = await page.evaluate(() => {
     const gl = window.__crush.renderer.getContext();
     const ext = gl.getExtension("WEBGL_debug_renderer_info");

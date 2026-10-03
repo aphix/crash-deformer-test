@@ -9,6 +9,8 @@ import { EngineCore } from "./engine-core.ts";
  */
 export abstract class EngineWarm extends EngineCore {
   private warmQueued = false;
+  /** Queued or running `warmScene` calls after boot; the scene-switch fade holds black while any is (`SceneFade`). */
+  protected warmsInFlight = 0;
   /** Until the boot warm-up resolves (`ready`), the loop reads input only; after it, new scene content warms through `queueWarm`. */
   protected warming = true;
   /** Whether the WASM skin is loaded (else every car skins in JS). The probes read it from `window.__crush`. */
@@ -112,9 +114,12 @@ export abstract class EngineWarm extends EngineCore {
   protected queueWarm(): void {
     if (this.warming || this.warmQueued) return;
     this.warmQueued = true;
+    this.warmsInFlight++;
     queueMicrotask(() => {
       this.warmQueued = false;
-      this.warmScene().catch((err: unknown) => console.error("Crush Stream program warm-up failed", err));
+      this.warmScene()
+        .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
+        .finally(() => this.warmsInFlight--);
     });
   }
 }

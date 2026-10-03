@@ -53,6 +53,7 @@ try {
   await page.goto(url, { waitUntil: "load", timeout: 120_000 });
   await page.waitForFunction(() => Boolean(window.__crush), null, { timeout: 120_000 });
   await page.evaluate(() => window.__crush.ready);
+  await page.evaluate(() => (window.__crush.fadeScenes = false));
   const warm = await programs();
 
   console.log("- fast fleet crash");

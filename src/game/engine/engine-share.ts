@@ -87,7 +87,7 @@ export abstract class EngineShare extends EngineReel {
       const differs = (...keys: (keyof ShareState)[]): boolean => keys.some((k) => t[k] !== c[k]);
       // The race and the range ignore the sandbox's car count: leave them first, the switch below stores it again.
       if ((c.scene === "race" || c.scene === "range") && (t.scene !== c.scene || differs("cars"))) {
-        this.setScene("fleet");
+        this.applyScene("fleet");
         c = this.shareState();
       }
       if (differs("cars")) this.setCarCount(t.cars);
@@ -109,7 +109,7 @@ export abstract class EngineShare extends EngineReel {
         this.setPistonConfig({ speedKph: t.pkph, massKg: t.pkg, hardness: t.phard, holdCar: t.phold, hopSeconds: t.phop });
       }
       if (differs("dkph", "dkg", "dside")) this.setDoorConfig({ kph: t.dkph, kg: t.dkg, side: t.dside === "left" ? -1 : 1 });
-      if (t.scene !== this.sceneId) this.setScene(t.scene);
+      if (t.scene !== this.sceneId) this.applyScene(t.scene);
       if (t.scene === "fleet") {
         c = this.shareState();
         if (differs("barrier")) this.toggleBarrier();
