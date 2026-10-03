@@ -57,6 +57,9 @@ Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon 
 |---|---|
 | ![Racing under a concrete crossover in a sandy canyon, with standings, lap, time and speed on the HUD](docs/images/race.webp) | ![A white sedan on the city grid between office blocks, the field ahead under the start lights](docs/images/race-city.webp) |
 
+### Crash highlights
+When a race ends, its five biggest crashes replay in slow motion behind the results: a far-overhead flight between clips, then trackside, wheel-well and chase shots and the crash cam over each hit. Every netplay peer sees the same shots at the same moment. **Watch** shows one clip alone with no HUD (tap or Esc to leave), and **Save** keeps it in this browser to replay later from the race setup menu. See [`docs/HIGHLIGHTS.md`](docs/HIGHLIGHTS.md).
+
 ## Controls
 
 Every action with its key, controller button and touch control is in [`docs/CONTROLS.md`](docs/CONTROLS.md). On phones and tablets a thumb pad (stick lower left, captioned buttons lower right) drives through the controller path, and the bottom bar has a **Fullscreen** button.
@@ -207,6 +210,7 @@ The live build is a Nitro `node-server` build served under a base path (`APP_BAS
 - [`docs/HANDLING.md`](docs/HANDLING.md): classes, the realism axis, and damage that changes driving.
 - [`docs/CINEMATIC.md`](docs/CINEMATIC.md): FX tiers, post chain, crash cam, tyre marks and their cost.
 - [`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md): transport choice, host-authoritative snapshots and the codec.
+- [`docs/HIGHLIGHTS.md`](docs/HIGHLIGHTS.md): the crash highlight reel: recording, replay, the reel's cameras, netplay and saving.
 - [`docs/RACE_DESIGN.md`](docs/RACE_DESIGN.md): race mode as built: module map, race state machine, AI, traffic and track JSON.
 - [`.extraResearch/`](.extraResearch/): the papers behind the solver (shape matching, PBD/XPBD, oriented particles…), each with an analysis note, plus [`SYNTHESIS.md`](.extraResearch/SYNTHESIS.md).
 

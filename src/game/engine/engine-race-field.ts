@@ -17,8 +17,10 @@ import { raceSight, type Sight } from "../present/spectate-cam.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
-import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
+import { carClass, classStats, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions } from "../match/types.ts";
+import { CrashRecorder } from "./engine-record.ts";
+import type { HighlightClip } from "../match/highlights.ts";
 
 /** What the director needs from `CrashEngine`. */
 interface RaceHost {
@@ -45,6 +47,10 @@ interface RaceHost {
   buildArt(track: Track, placed: readonly Placed[]): TrackArt | null;
   /** Re-target the tyre-mark map to the course's bounds (headless: nothing to draw). */
   markBounds(minX: number, minZ: number, maxX: number, maxZ: number): void;
+  /** The engine's wreck-slide rule is on (`settleStep`'s `bleed`): a highlight replays with the same. */
+  bleeds(): boolean;
+  /** The race is over: its highlights (best first; empty when nothing ranked) for the results reel. */
+  reelReady(clips: readonly HighlightClip[]): void;
 }
 
 /** Seconds upside down before a car counts as dead. */
@@ -90,12 +96,16 @@ export abstract class RaceField {
   /** Traffic cars put away by the observer bubble. */
   protected readonly dormant = new Uint8Array(MAX_CARS);
   protected bubbleAcc = 0;
+  /** Crash highlights (docs/HIGHLIGHTS.md): records each race this browser simulates. */
+  readonly recorder = new CrashRecorder();
+  /** A wall or solid prop hit car `i` closing at `closing` m/s at (x, z): the recorder, or a highlight replay while one runs. */
+  onWallHit: (i: number, closing: number, x: number, z: number) => void = (i, closing, x, z) => this.recorder.wallHit(i, closing, x, z);
   private readonly observers: AiCar[] = [];
   private readonly viewProj = new THREE.Matrix4();
   private readonly frustum = new THREE.Frustum();
   private readonly sphere = new THREE.Sphere();
   protected readonly host: RaceHost;
-  protected readonly courses: { id: string; name: string; blurb: string }[];
+  readonly courses: { id: string; name: string; blurb: string }[];
   private readonly tracks = new Map<string, Track>();
   protected track: Track | null = null;
   protected art: TrackArt | null = null;
@@ -263,6 +273,13 @@ export abstract class RaceField {
       seat.focus(this.grid[0]!);
     }
     this.host.setPaused(false);
+    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), (i) => this.entrants[i]?.name ?? "Traffic");
+  }
+
+  /** Every knocked prop back on its spot (a race start, each highlight clip). */
+  resetProps(): void {
+    this.knocked.fill(0);
+    this.art?.reset();
   }
 
 
@@ -344,6 +361,8 @@ export abstract class RaceField {
         if (s.phase !== "finished") this.menu = "dead";
       } else if (e.type === "over") {
         this.overFor = 0;
+        this.recorder.end();
+        this.host.reelReady(this.recorder.ledger.kept);
       }
     }
   }
@@ -460,7 +479,7 @@ export abstract class RaceField {
   }
 
   /** Probe the footprint against the wall line on each side; push out, bounce, crumple on a hard hit. */
-  protected wall(car: DeformableCar, k: number, lateral: number): void {
+  protected wall(car: DeformableCar, i: number, k: number, lateral: number): void {
     const p = this.track!.path;
     const tx = p.tx[k]!;
     const tz = p.tz[k]!;
@@ -499,10 +518,11 @@ export abstract class RaceField {
     _n.set(nx, 0, nz);
     wallBounce(car, nx, nz, pen, closing, _c, _n);
     if (closing >= 1.5) this.host.hitFx(_c, _n, closing);
+    this.onWallHit(i, closing, cx, cz);
   }
 
   /** Solid props push the car out (and crumple it on a hard hit); knockable props fly off. */
-  protected props(car: DeformableCar): void {
+  protected props(car: DeformableCar, i: number): void {
     const pos = car.group.position;
     const v = car.velocity;
     for (const col of this.colliders) {
@@ -572,6 +592,7 @@ export abstract class RaceField {
       }
       wallBounce(car, nx, nz, pen, closing, _c, _n);
       if (closing > 1.5) this.host.hitFx(_c, _n, closing);
+      this.onWallHit(i, closing, cx, cz);
     }
   }
 

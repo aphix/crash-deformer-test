@@ -2,6 +2,7 @@ import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { EngineWarm } from "./engine-warm.ts";
+import type { RaceHud } from "../match/types.ts";
 
 /**
  * HUD publish: the engine's state as one `CrashHudState` snapshot.
@@ -97,7 +98,7 @@ export abstract class EngineHud extends EngineWarm {
         clock: r.clock,
         watched: this.seat.mode !== "global" && this.seat.carIndex === r.id,
       })),
-      race: this.race.active ? this.race.hud() : null,
+      race: this.race.active ? { ...this.race.hud(), ...this.reelHud() } : null,
       seat: this.seat.mode,
       boost: this.seat.boost,
       view: this.seat.view,
@@ -107,4 +108,7 @@ export abstract class EngineHud extends EngineWarm {
       playerClass: this.playerClass,
     });
   }
+
+  /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */
+  protected abstract reelHud(): Pick<RaceHud, "reel" | "solo" | "saved">;
 }

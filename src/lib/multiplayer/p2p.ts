@@ -176,11 +176,12 @@ export class P2PRoom {
     }
   }
 
-  /** Binary on the unreliable "state" channel (no JSON): to one peer, or to all when peerId is omitted. */
-  sendBinary(data: Uint8Array<ArrayBuffer>, peerId?: string): void {
+  /** Binary (no JSON) on the unreliable "state" channel, or the ordered "reliable" one: to one peer, or to all when peerId is omitted. */
+  sendBinary(data: Uint8Array<ArrayBuffer>, peerId?: string, reliable = false): void {
     const targets = peerId ? [this.peers.get(peerId)] : this.peers.values();
     for (const slot of targets) {
-      if (slot?.state?.readyState === "open") slot.state.send(data);
+      const ch = reliable ? slot?.reliable : slot?.state;
+      if (ch?.readyState === "open") ch.send(data);
     }
   }
 

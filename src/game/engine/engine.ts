@@ -1,16 +1,17 @@
 import * as THREE from "three";
-import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
+import { DeformableCar } from "../vehicle/car.ts";
 import { PISTON_ORBIT_RATE, PistonBank } from "../present/engine-pistons.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
-import { easeTimeScale, impactScale, stepPhase } from "../match/phase.ts";
-import { stepWorld } from "./world-step.ts";
+import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase } from "../match/phase.ts";
+import { settleStep, stepWorld } from "./world-step.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { damageStage } from "../vehicle/vehicle-classes.ts";
 import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
+import { hardwareDesktop } from "../present/fx-boost.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
@@ -28,11 +29,11 @@ import { applyDrive, BOOST } from "../vehicle/car-drive.ts";
 import { makeDerbyArena, WinnerSpot } from "../scenes/derby-arena.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
+import { ReelDirector } from "./engine-highlights.ts";
 import { TrackArt } from "../present/track-art.ts";
-import { EngineInput } from "./engine-input.ts";
+import { EngineReel } from "./engine-reel.ts";
 
 const FIXED = 1 / 60;
-const PRE_IMPACT_LEAD = 0.07;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
  *  ≈0.9 m the sun throws the roof's shadow, so an off-screen car's shadow is never stale either. */
 const LOD_RADIUS = 3.5;
@@ -67,7 +68,7 @@ const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
 if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
 if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
 
-export class CrashEngine extends EngineInput {
+export class CrashEngine extends EngineReel {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
@@ -113,8 +114,13 @@ export class CrashEngine extends EngineInput {
     derbyLobby: (field) => this.netDerbyMatch(false, field),
     startDerby: (field) => this.netDerbyMatch(true, field),
     setVaporized: (i, on) => this.setVaporized(i, on),
+    playReel: (reel, startAt) => this.highlights.play(reel, startAt),
+    reelPlaying: () => this.highlights.playing,
     seat: this.seat,
   });
+  /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
+  protected readonly highlights: ReelDirector;
+  protected readonly boostable: boolean;
 
   constructor(canvas: HTMLCanvasElement, hudStore: HudStore) {
     super();
@@ -187,6 +193,12 @@ export class CrashEngine extends EngineInput {
     this.scene.add(this.impactLight);
     // Four body lamps per car plus at most one lit siren (police flash red, then blue).
     this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
+    const hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
+      if (this.elapsedWall - this.sparkAt < 0.12) return;
+      this.sparkAt = this.elapsedWall;
+      this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
+      if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
+    };
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,
@@ -201,19 +213,30 @@ export class CrashEngine extends EngineInput {
         this.emitHud();
       },
       leave: () => this.toggleRace(),
-      hitFx: (contact, normal, impulse) => {
-        if (this.elapsedWall - this.sparkAt < 0.12) return;
-        this.sparkAt = this.elapsedWall;
-        this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
-        if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
-      },
+      hitFx,
       buildArt: (track, placed) => {
         this.queueWarm();
         this.ragdolls.course = track;
         return new TrackArt(track, placed);
       },
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
+      // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).
+      bleeds: () => this.clock.wallSinceImpact > 0.2,
+      reelReady: (clips) => this.startReel(clips),
     });
+    this.highlights = new ReelDirector({
+      carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
+      live: () => this.live(),
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot) => this.race.courseHit(car, slot), bounce: this.bounceWorld },
+      resetProps: () => this.race.resetProps(),
+      sight: (focus) => this.spectateSight(focus),
+      clock: this.clock,
+      impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
+      hit: hitFx,
+    });
+    const gl = this.renderer.getContext();
+    const gpu = gl.getExtension("WEBGL_debug_renderer_info");
+    this.boostable = hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches);
 
     this.resize();
     this.resizeObs = new ResizeObserver(() => this.resize());
@@ -318,40 +341,50 @@ export class CrashEngine extends EngineInput {
     this.pollInput();
     if (this.warming) return;
 
+    // The results reel lives until its race is left or the next one sets up (a client's host may start it). Not "until
+    // the phase leaves finished": a client's race state comes 5 times a second, unreliably, so the host's reel (reliable,
+    // sent at the finish) can land while it still reads "racing" (measured: stopped 106 ms after it arrived).
+    const p = this.race.phase;
+    if (this.highlights.hasReel && (!this.race.active || p === null || p === "grid" || p === "countdown")) this.stopReel();
     if (this.playing) {
       this.elapsedWall += wallDt;
-      // A netplay client mirrors the host's phase and slow-mo (`net.frame`) instead of running its own.
-      if (!this.net.client) this.maybePreSlowmo(wallDt);
-      easeTimeScale(this.clock, wallDt);
-      const simDt = wallDt * this.clock.timeScale * this.cine.timeWarp;
+      const reelDt = this.highlights.frame(now / 1000);
+      this.reelFrame(reelDt !== null, wallDt);
       const cars = this.live();
-      const vmax = sliceSpeed(cars);
-      this.acc += simDt;
-      if (this.acc > 0.05) this.acc = 0.05;
-      const budget = now + 8;
-      let steps = 0;
-      while (!this.net.client && this.acc > 1e-5 && steps < 8) {
-        const h = physicsSlice(this.acc, vmax);
-        this.fixedStep(h);
-        this.elapsedSim += h;
-        this.acc -= h;
-        for (const car of cars) {
-          if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
-          if (this.clock.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
+      let simDt: number;
+      if (reelDt !== null) simDt = reelDt;
+      else {
+        // A netplay client mirrors the host's phase and slow-mo (`net.frame`) instead of running its own.
+        if (!this.net.client) this.maybePreSlowmo(wallDt);
+        easeTimeScale(this.clock, wallDt);
+        simDt = wallDt * this.clock.timeScale * this.cine.timeWarp;
+        const vmax = sliceSpeed(cars);
+        this.acc += simDt;
+        if (this.acc > 0.05) this.acc = 0.05;
+        const budget = now + 8;
+        let steps = 0;
+        while (!this.net.client && this.acc > 1e-5 && steps < 8) {
+          const h = physicsSlice(this.acc, vmax);
+          this.fixedStep(h);
+          this.elapsedSim += h;
+          this.acc -= h;
+          settleStep(cars, h, this.clock.wallSinceImpact > 0.2);
+          steps++;
+          if (steps >= 2 && performance.now() > budget) break;
         }
-        steps++;
-        if (steps >= 2 && performance.now() > budget) break;
       }
       this.stepEdge();
       this.scheduleSkins(cars);
-      for (const car of cars) {
-        if (this.net.client) break;
-        if (this.rigScene && car !== this.carA) continue;
-        car.updateDeform(simDt);
+      // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
+      if (reelDt !== null || !this.net.client) {
+        for (const car of cars) {
+          if (reelDt !== null ? !car.group.visible : this.rigScene && car !== this.carA) continue;
+          car.updateDeform(simDt);
+        }
       }
-      if (!this.net.client) this.updatePhase(wallDt);
+      if (reelDt === null && !this.net.client) this.updatePhase(wallDt);
       if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
-      if (this.clock.phase !== "approach") this.emitContactFx();
+      if (reelDt === null && this.clock.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
         this.impactLightLife -= wallDt;
         this.impactLight.intensity = Math.max(0, this.impactLightLife * 90);
@@ -367,6 +400,7 @@ export class CrashEngine extends EngineInput {
       this.ragdolls.update(simDt, cars, !this.net.client, sandbox, this.derbyMode ? this.derbyR : 0, this.showBarrier ? this.barrier.group : null);
       for (let i = 0; i < cars.length; i++) {
         const car = cars[i]!;
+        if (reelDt !== null && !car.group.visible) continue;
         if (!car.deform.drivetrainAlive) {
           this.deadSmokeAcc[i] = (this.deadSmokeAcc[i] ?? 0) + wallDt;
           if (this.deadSmokeAcc[i]! > 0.14) {
@@ -400,6 +434,8 @@ export class CrashEngine extends EngineInput {
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
     this.net.frame(wallDt);
     if (this.race.active) this.race.frame(this.playing ? wallDt : 0);
+    const focus = this.highlights.playing ? this.highlights.focus() : null;
+    if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
     this.cullFarDetail();
@@ -650,11 +686,10 @@ export class CrashEngine extends EngineInput {
     rivals: () => (this.race.active ? this.live().slice(0, this.race.racers.length) : this.live()),
   };
 
-  /** The course's (or the sandbox's) solids plus every other car where it stands now. */
-  private spectateSight(): Sight {
+  /** The course's (or the sandbox's) solids plus every other car where it stands now (`followed` is the one framed). */
+  private spectateSight(followed = this.followedCar()): Sight {
     const course = this.race.active ? this.race.courseSight() : null;
     const occ: Occluder[] = course ? [...course.occ] : [];
-    const followed = this.followedCar();
     for (const c of this.live()) {
       if (c === followed || c.vaporized || !c.group.visible) continue;
       const p = c.group.position;
@@ -692,11 +727,18 @@ export class CrashEngine extends EngineInput {
   private updateCamera(wallDt: number): void {
     this.view.unflip();
     this.aimRigs(wallDt);
+    if (this.highlights.playing) return;
     const back = this.view.rear ? this.followedCar() : null;
     if (back?.group.visible) this.view.lookBack(back);
   }
 
   private aimRigs(wallDt: number): void {
+    if (this.highlights.playing) {
+      // The reel frames its own shots (over any ride-along); the crash cam takes each clip's hit as in a sandbox crash.
+      this.reelFov ??= this.camera.fov;
+      if (!this.cine.direct(this.camera, wallDt, true)) this.highlights.camera(this.camera);
+      return;
+    }
     // The crash cam steps first, so its letterbox runs on under a ride-along, which then takes the camera itself
     // (the cut's position, and its lens: the ride keeps the one it started with).
     const fov = this.camera.fov;
@@ -751,5 +793,4 @@ export class CrashEngine extends EngineInput {
     }
     this.view.orbit(wallDt, spinRate, this.playing);
   }
-
 }

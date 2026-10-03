@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import { DeformableCar } from "../vehicle/car.ts";
 import { RaceDirector } from "../engine/engine-race.ts";
-import { newWorld, stepWorld, type World as StepWorld } from "../engine/world-step.ts";
+import { newWorld, settleStep, stepWorld, type World as StepWorld } from "../engine/world-step.ts";
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -32,6 +32,8 @@ export type World = {
   /** Called for every car pair in physical contact (the slice's first SAT pass), car indices a < b. */
   onPairContact: ((a: number, b: number) => void) | null;
   step: StepWorld;
+  /** The engine's `dressCar` at the sandbox defaults (a respawned car re-dressed). */
+  dress: (car: DeformableCar) => void;
 };
 
 export function makeWorld(): World {
@@ -59,6 +61,14 @@ export function makeWorld(): World {
   // Looking straight down from far below the world: no traffic spot is ever "in view".
   camera.position.set(0, -5000, 0);
   camera.lookAt(0, -6000, 0);
+  const dress = (car: DeformableCar): void => {
+    car.deform.squash = INITIAL_HUD.squash;
+    car.deform.buckle = INITIAL_HUD.buckle;
+    car.deform.setMode(INITIAL_HUD.deformMode);
+    const cls = carClass(car);
+    assignClass(car, cls);
+    armKill(car.deform, cls, HANDLING.realism, "default");
+  };
   const race = new RaceDirector({
     scene,
     camera,
@@ -74,25 +84,20 @@ export function makeWorld(): World {
       policeCount = n;
       for (let i = 1; i < Math.min(cars.length, from + n); i++) if ((cars[i]!.style.id === "police") !== isPolice(i)) cars[i] = build(i);
     },
-    // The engine's `dressCar` at the sandbox defaults.
-    dress: (car) => {
-      car.deform.squash = INITIAL_HUD.squash;
-      car.deform.buckle = INITIAL_HUD.buckle;
-      car.deform.setMode(INITIAL_HUD.deformMode);
-      const cls = carClass(car);
-      assignClass(car, cls);
-      armKill(car.deform, cls, HANDLING.realism, "default");
-    },
+    dress: (car) => dress(car),
     setPaused: () => {},
     leave: () => {},
     hitFx: () => {},
     buildArt: () => null,
     markBounds: () => {},
+    bleeds: () => false,
+    reelReady: () => {},
   });
   const step = newWorld(liveBuf);
   step.collide = (car, i) => race.collide(car, i);
-  const w: World = { cars, live, race, seat, onPairContact: null, step };
-  step.pairHit = (a, b, _hit, first) => {
+  const w: World = { cars, live, race, seat, onPairContact: null, step, dress };
+  step.pairHit = (a, b, hit, first) => {
+    race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);
   };
   return w;
@@ -116,7 +121,7 @@ export function frame(w: World, state: { acc: number }): void {
     const h = physicsSlice(state.acc, vmax);
     fixedStep(w, h);
     state.acc -= h;
-    for (const car of cars) if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
+    settleStep(cars, h, false);
     steps++;
   }
   for (const car of cars) car.updateDeform(FRAME);

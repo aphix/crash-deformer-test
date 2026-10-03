@@ -8,6 +8,8 @@ const CALM_SCALE = 0.16;
 /** Wall seconds of slow-mo before the hand-back to 1× (`CALM_HOLD` under reduced motion). */
 const SLOMO_HOLD = 6.5;
 const CALM_HOLD = 1.4;
+/** Auto slow-mo starts this long (sim s) before contact: the sandbox from its contact ETA, a highlight reel before the recorded impact. */
+export const PRE_IMPACT_LEAD = 0.07;
 
 /** The crash clock the engine and the headless harnesses step alike. */
 export type PhaseClock = {

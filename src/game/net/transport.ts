@@ -9,15 +9,16 @@ export interface NetPeer {
 
 /**
  * What netplay needs from a network (docs/MULTIPLAYER.md): unreliable, unordered binary messages
- * between the peers of one room. Swapping WebRTC for a relay (PartyKit, …) is a new class.
+ * between the peers of one room, plus an ordered reliable send for rare bulky ones (the highlight reel).
+ * Swapping WebRTC for a relay (PartyKit, …) is a new class.
  */
 export interface NetTransport {
   readonly selfId: string;
   /** Why the relay refused this peer (room full, host seat taken, …), null while fine; absent without a relay. */
   readonly error?: string | null;
   onMessage: ((from: string, data: Uint8Array) => void) | null;
-  /** To one peer, else to all. `data` may be a view of a reused buffer: send copies it. */
-  send(data: Uint8Array<ArrayBuffer>, to?: string): void;
+  /** To one peer, else to all; `reliable` on an ordered reliable channel. `data` may be a view of a reused buffer: send copies it. */
+  send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void;
   peers(): readonly NetPeer[];
   close(): void;
 }
@@ -29,7 +30,7 @@ type BcMessage =
 const PING_MS = 1000;
 const PEER_TTL_MS = 3000;
 
-/** Same-origin tabs of one browser (smoke tests, local play): a BroadcastChannel per room. */
+/** Same-origin tabs of one browser (smoke tests, local play): a BroadcastChannel per room, reliable already (`send` ignores `reliable`). */
 export class BroadcastTransport implements NetTransport {
   onMessage: ((from: string, data: Uint8Array) => void) | null = null;
   private readonly channel: BroadcastChannel;

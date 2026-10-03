@@ -5,6 +5,7 @@ import type { RaceDirector } from "../engine/engine-race.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { DerbyNetState } from "./codec.ts";
+import type { Reel } from "../match/highlights.ts";
 
 /** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */
 export type NetRace = Pick<
@@ -62,5 +63,9 @@ export interface NetGame {
   startDerby(field: number): void;
   /** Client: car `i` vaporizes (the local smoke burst) or comes back, as the host's flag says (fleet disc edge). */
   setVaporized(i: number, on: boolean): void;
+  /** Client: play the host's results reel from `startAt` (this browser's `performance.now()` seconds; docs/HIGHLIGHTS.md). */
+  playReel(reel: Reel, startAt: number): void;
+  /** Client: a reel or solo clip plays, so host snapshots are not drawn (the reel owns the cars). */
+  reelPlaying(): boolean;
   readonly seat: DriverSeat;
 }
