@@ -52,6 +52,8 @@ export interface P2PRoomOptions {
   room: string;
   selfId: string;
   name?: string;
+  /** Read on every poll: a tag the relay keeps beside this peer (a public host's match stage; signaling.server.ts `META`). */
+  meta?: () => string;
   /** Defaults to VITE_STUN_URLS (comma-separated) or Google public STUN. */
   iceServers?: RTCIceServer[];
   onPeersChanged?: (peers: PeerInfo[]) => void;
@@ -214,6 +216,8 @@ export class P2PRoom {
       name: this.opts.name ?? "",
       since: String(this.cursor),
     });
+    const meta = this.opts.meta?.();
+    if (meta) params.set("meta", meta);
     const res = await fetch(`${RTC_URL}?${params}`, { headers: { [TOKEN_HEADER]: this.token } });
     if (this.closed) return;
     if (!res.ok) {

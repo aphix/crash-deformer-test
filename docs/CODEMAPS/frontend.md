@@ -9,6 +9,7 @@ src/routes/index.tsx   "/" → Home
   └ components/crash-lab.tsx  CrashLab
       ├ <canvas>  ← new CrashEngine(canvas): engine.start(); cleanup engine.dispose()
       ├ components/net-panel.tsx  NetPanel        top-centre "Net" button → host / join / Public race, invite link + QR
+      ├ components/live-rooms.tsx  LiveRooms      race mode, top-left: Play online + "N live" pill → list (Join / Play online / Host); a session chip with Leave (use-live-rooms.ts: RoomPoller, net status)
       └ components/hud.tsx  Hud(HudProps)
           ├ hud-panels.tsx  PistonPanel · DoorPanel · DerbyBoard   (only in their scene)
           ├ race-hud.tsx  RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle;

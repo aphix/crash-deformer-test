@@ -3,10 +3,12 @@ import assert from "node:assert/strict";
 import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
-import { DEFAULT_RACE_OPTIONS, type RaceSnapshot } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
 import type { Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
-import { NetPlay, type NetTx } from "./net-play.ts";
+import { NetPlay } from "./net-play.ts";
+import type { NetTx } from "./net-ports.ts";
+import { publicRoomName } from "./matchmaking.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
 import { packReel } from "./reel-codec.ts";
 
@@ -24,9 +26,13 @@ class Hub {
   private readonly cut = new Set<string>();
   private queue: (() => void)[] = [];
 
-  readonly connect = (_tx: NetTx, _room: string, id: string, role: "host" | "client"): NetTransport => {
+  /** Each end's `meta` getter (a public host's relay tag), by peer id. */
+  readonly metas = new Map<string, () => string>();
+
+  readonly connect = (_tx: NetTx, _room: string, id: string, role: "host" | "client", meta: () => string = () => ""): NetTransport => {
     const end = new Link(this, id, role);
     this.ends.set(id, end);
+    this.metas.set(id, meta);
     return end;
   };
 
@@ -107,7 +113,13 @@ function fakeGame(raceApplied?: number[], playerName = "") {
   const race = raceApplied
     ? {
         options: { ...DEFAULT_RACE_OPTIONS },
-        phase: null,
+        phase: null as RacePhase | null,
+        /** Every `command` the session sent; an `options` one also applies, as the director does. */
+        commands: [] as RaceCommand[],
+        command(cmd: RaceCommand): void {
+          this.commands.push(cmd);
+          if (cmd.type === "options") Object.assign(this.options, cmd.options);
+        },
         setRemoteInput(_car: number, _input: DriveInput): void {},
         requestRespawn(_id?: number): void {},
         snapshot: (): RaceSnapshot | null => null,
@@ -122,6 +134,8 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     matched,
     /** What `reelPlaying` answers. */
     playing: false,
+    /** What `hostFit` answers. */
+    fit: true,
     seat,
     cars: () => cars,
     setCarCount(n: number): void {
@@ -143,6 +157,9 @@ function fakeGame(raceApplied?: number[], playerName = "") {
       seats.push([...m]);
     },
     playerName: () => playerName,
+    hostFit(): boolean {
+      return this.fit;
+    },
     remoteDrivable: () => true,
     derbyPhase: () => null,
     derbyState: () => null,
@@ -464,35 +481,45 @@ describe("netplay session: public matches", () => {
   afterEach(() => {
     globalThis.fetch = realFetch;
   });
+  const dead = publicRoomName("race", "AAAA");
+  const listing = (rooms: { room: string; players: number; meta?: string }[]) => async () => new Response(JSON.stringify({ rooms }));
+  /** A virtual clock: a search's pauses advance it and nothing else waits. */
+  const virtual = (start = 1000) => {
+    const t = { now: start };
+    return { t, opts: { now: () => t.now, sleep: async (ms: number) => void (t.now += ms), random: () => 0 } };
+  };
+  /** Lets a search a frame loop started (not awaited) run to its end. */
+  const settle = async (np: NetPlay) => {
+    for (let k = 0; k < 50 && np.status().finding; k++) await new Promise((resolve) => setImmediate(resolve));
+  };
 
   it("hosts a fresh public room when the host of the one it joined leaves", async () => {
     const hub = new Hub();
-    let now = 1000;
-    const hg = fakeGame();
-    const host = new NetPlay(hg, { connect: hub.connect, now: () => now });
-    const client = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
+    const v = virtual();
+    const host = new NetPlay(fakeGame(), { connect: hub.connect, now: v.opts.now });
+    const client = new NetPlay(fakeGame(), { connect: hub.connect, ...v.opts });
     open.push(host, client);
-    host.host("pub-race-AAAA", "rtc");
-    globalThis.fetch = async () => new Response(JSON.stringify({ rooms: [{ room: "pub-race-AAAA", players: 1 }] }));
+    host.host(dead, "rtc");
+    globalThis.fetch = listing([{ room: dead, players: 1, meta: "lobby.oval" }]);
     await client.publicMatch("race");
-    for (let k = 0; k < 20; k++) {
-      now += FRAME_MS;
-      host.frame(FRAME_MS / 1000);
-      client.frame(FRAME_MS / 1000);
-      hub.flush();
-    }
+    const step = (frames: number, who: NetPlay[]) => {
+      for (let k = 0; k < frames; k++) {
+        v.t.now += FRAME_MS;
+        for (const n of who) n.frame(FRAME_MS / 1000);
+        hub.flush();
+      }
+    };
+    step(20, [host, client]);
     assert.equal(client.status().role, "client");
     assert.equal(client.status().car, 1);
     host.leave();
-    for (let k = 0; k < 7000 / FRAME_MS; k++) {
-      now += FRAME_MS;
-      client.frame(FRAME_MS / 1000);
-      hub.flush();
-    }
+    step(7000 / FRAME_MS, [client]);
+    await settle(client);
     const st = client.status();
     assert.equal(st.role, "host", "the stranded guest hosts instead");
     assert.equal(st.public, "race");
-    assert.notEqual(st.room, "pub-race-AAAA");
+    assert.notEqual(st.room, dead);
+    assert.equal(st.finding, false);
   });
 
   it("keeps a public guest in the open room through its own long frame stalls", async () => {
@@ -501,8 +528,8 @@ describe("netplay session: public matches", () => {
     const host = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
     const client = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
     open.push(host, client);
-    host.host("pub-race-AAAA", "rtc");
-    globalThis.fetch = async () => new Response(JSON.stringify({ rooms: [{ room: "pub-race-AAAA", players: 1 }] }));
+    host.host(dead, "rtc");
+    globalThis.fetch = listing([{ room: dead, players: 1 }]);
     const run = (ms: number, client_ = true) => {
       for (let k = 0; k < ms / FRAME_MS; k++) {
         now += FRAME_MS;
@@ -515,11 +542,73 @@ describe("netplay session: public matches", () => {
     await client.publicMatch("race");
     run(9000, false);
     run(1000);
-    assert.deepEqual([client.status().role, client.status().room, client.status().car], ["client", "pub-race-AAAA", 1]);
+    assert.deepEqual([client.status().role, client.status().room === dead, client.status().car], ["client", true, 1]);
     // A 9 s stall mid-session (a course loading): the host's messages wait in the queue behind the client's next frame.
     now += 9000;
     client.frame(0.1);
     run(1000);
-    assert.deepEqual([client.status().role, client.status().room, client.status().car], ["client", "pub-race-AAAA", 1]);
+    assert.deepEqual([client.status().role, client.status().room === dead, client.status().car], ["client", true, 1]);
+  });
+
+  it("a weak device with nothing to join hosts a field of 4 after looking, and gives its AI count back on leaving", async () => {
+    const v = virtual();
+    const g = fakeGame([]);
+    g.fit = false;
+    const np = new NetPlay(g, { connect: new Hub().connect, ...v.opts });
+    open.push(np);
+    globalThis.fetch = listing([]);
+    const searching = np.publicMatch("race");
+    assert.equal(np.status().finding, true);
+    await searching;
+    assert.deepEqual([np.status().role, np.status().public, np.status().finding], ["host", "race", false]);
+    assert.equal(g.race()!.options.aiCount, 3, "a weak host's field is the player plus 3");
+    np.leave();
+    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount, "a solo race is back to its own field");
+  });
+
+  it("a capable device with nothing to join hosts a full field at once", async () => {
+    const v = virtual();
+    const g = fakeGame([]);
+    const np = new NetPlay(g, { connect: new Hub().connect, ...v.opts });
+    open.push(np);
+    globalThis.fetch = listing([]);
+    await np.publicMatch("race");
+    assert.equal(np.status().role, "host");
+    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount);
+    assert.ok(v.t.now - 1000 < 5000, "no long search before hosting");
+  });
+
+  it("leaving cancels a search: no room is joined or hosted afterwards", async () => {
+    const v = virtual();
+    const np = new NetPlay(fakeGame(), { connect: new Hub().connect, ...v.opts });
+    open.push(np);
+    let release = (): void => {};
+    globalThis.fetch = async () => {
+      await new Promise<void>((resolve) => (release = resolve));
+      return new Response(JSON.stringify({ rooms: [{ room: dead, players: 1 }] }));
+    };
+    const searching = np.publicMatch("race");
+    np.leave();
+    release();
+    await searching;
+    assert.deepEqual([np.status().role, np.status().finding], ["off", false]);
+  });
+
+  it("a public host's relay tag follows its match: lobby, running, over, with the course; a guest sends none", () => {
+    const hub = new Hub();
+    const g = fakeGame([]);
+    const host = new NetPlay(g, { connect: hub.connect });
+    const guest = new NetPlay(fakeGame([]), { connect: hub.connect });
+    open.push(host, guest);
+    host.publicHost("race", false);
+    const tag = hub.metas.get(host.status().selfId)!;
+    const seen: string[] = [];
+    for (const phase of [null, "grid", "countdown", "racing", "finished"] as const) {
+      g.race()!.phase = phase;
+      seen.push(tag());
+    }
+    assert.deepEqual(seen, ["lobby.oval", "running.oval", "running.oval", "running.oval", "over.oval"]);
+    guest.publicJoin(dead, "race");
+    assert.equal(hub.metas.get(guest.status().selfId)!(), "");
   });
 });

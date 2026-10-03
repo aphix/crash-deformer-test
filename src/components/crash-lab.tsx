@@ -3,6 +3,7 @@ import { dismissBootLoader } from "@/lib/boot-loader";
 import { Hud } from "@/components/hud";
 import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
+import { LiveRooms } from "@/components/live-rooms";
 import type { CrashEngine } from "@/game/engine/engine";
 import { HudStore } from "@/game/hud/hud-store";
 
@@ -76,6 +77,8 @@ export function CrashLab() {
         <NetPanel engine={engineRef} />
       </div>
       <Hud state={hud} engine={engineRef} />
+      {/* Race mode's online entry: live races and Play online (hidden in the solo clip view and while the results reel plays). */}
+      {hud.race && hud.race.solo === null && hud.race.reel === null ? <LiveRooms engine={engineRef} race={hud.race} /> : null}
     </main>
   );
 }

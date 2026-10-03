@@ -47,6 +47,15 @@ export class AutoFx {
   }
 
   /**
+   * Fit to host a public match for others (docs/MULTIPLAYER.md "Matchmaking"): the highest tier this session held
+   * is "high" or "low", or the load check has not yet judged a capable (hardware, fine-pointer) device. A phone, a
+   * software GPU, and a desktop that measured or fell to minimal are not: they search longer and host a smaller field.
+   */
+  canHost(): boolean {
+    return this.ceiling !== "minimal";
+  }
+
+  /**
    * Every rendered frame's wall interval (ms) after boot; returns the tier to switch to, or null. `matchTime` is the
    * race's or derby's clock (s, negative before green, 0 at green), null outside a match.
    */

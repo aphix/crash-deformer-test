@@ -151,17 +151,18 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   shows the link as a QR code (`src/lib/qr.ts`: ~200-line dependency-free encoder, byte mode, level
   M, versions 1–10). Verified: 49 strings of 1–210 bytes across versions 1–10 decode with jsQR, and
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
-- **Public race**: the button asks the relay for open public rooms (`GET api/rtc?list=public`:
-  rooms named `pub-…` with a free seat whose `host`-tagged peer polled in the last 15 s, most distinct
-  addresses first, ties in random order) and joins the first, or hosts a new `pub-XXXXXX` room on the
-  race course when none is open.
+- **Public race / Play online**: one tap finds a room (see "Matchmaking" below): the relay lists open public rooms
+  (`GET api/rtc?list=public&kind=race`: rooms named `pub-race-v<NET_VERSION>-XXXXXX` with a free seat whose
+  `host`-tagged peer polled in the last 15 s, most distinct addresses first, ties in random order, each with its
+  host's match tag), and the client joins the best one or hosts a new room on the race course when none is open.
   - **Lobby**: the public host is car 0 on the course with no menu; the Net panel says "Waiting for
     players… starts in N s; AI drives the empty seats". After `LOBBY_S` = 15 s (or at once when the
     room fills) the race starts with every peer seated as a `remote` slot and AI in the rest. A
     finished race shows its results for 12 s, then the next one starts, seating whoever joined.
   - **Dead rooms**: a host that closes its tab sends `leave` on `pagehide`; one that crashes stops
     polling and drops off the list within 15 s. A client that joined a room whose host has gone
-    (no word from it for 5 s of the client's own frame time) hosts a fresh public room itself.
+    (no word from it for 5 s of the client's own frame time) searches again with that room skipped
+    (`publicMatch(kind, [room])`): another open room, else a fresh one of its own.
     Measured: host tab closed, second page presses Public race 0.5 s later. Before: it joined the dead
     room and sat at 0 snapshots/s for the whole 10 s probe. Now, normal close: a fresh room at once.
     `leave` dropped (a crashed tab): two runs, one joined the dead room and hosted a fresh one after
@@ -174,6 +175,55 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     rejoins 10/10). The relay's 15 s covers a host whose polls stall while it warms its first
     course (5.6–8.6 s measured). With 5 s, a player pressing Public race during that stall saw no
     room and hosted a duplicate (3 of 3 runs with B pressing 5.2 s after A).
+  - **Matchmaking** (`src/game/net/matchmaking.ts` `findMatch`; pure of the network and the clock, tested with a
+    stubbed list and a virtual clock, `matchmaking.test.ts`):
+    - *Viable room*: same kind, same build (the room name carries `NET_VERSION`, so a search never lands in a
+      room it would be refused from), not full (`ROOM_MAX`), not the room being left. *Best*: a match that has
+      not started (host tag `lobby` or `over`: the next one starts within ~30 s) before one running (a late
+      joiner spectates until it ends), then the fullest, then the lexically first name, which is the same room
+      on every searcher's screen.
+    - *Capable device* (`AutoFx.canHost()`: its highest tier that held this session is not "minimal"; a hardware
+      desktop is fit before its load check, after it holds 57 fps, and when it steps down to low; a phone,
+      software GPU, desktop under 57 fps at its check, or one that fell to minimal is not): joins the best room;
+      none: pauses a random 0–600 ms (`BACKOFF_MS`), looks once more, then hosts a full field.
+    - *Weak device*: keeps looking, polling the list every 2.5 s (`SEARCH_POLL_MS`), for 12 s plus up to 3 s
+      of jitter (`WEAK_WAIT_MS`, `WEAK_JITTER_MS`; it joins the first room that shows up), then hosts a smaller
+      field (the player plus 3 AI, derby 4 cars, instead of 7 AI / 6) and gives its race setup's AI count back
+      when it leaves. The UI says "Finding a race…" meanwhile.
+    - *Relay out of reach* (offline, rate limited): nothing to wait for; hosts at once, weak or not. Others
+      can still find that room later.
+    - *Simultaneous clicks*: whoever hosts re-checks the list 1.5 s and 4 s later (`TWIN_CHECKS_MS`) while its
+      room is empty: the lexically first of the rooms made in the same moment stays and the others join it,
+      so searchers who pressed together end in one room. Only an empty room moves, so nobody is stranded
+      by a merge. Two rooms that each got a joiner before their hosts compared notes stay two (both live, with
+      players). Measured in a seeded model of the relay (`matchmaking.test.ts`: list 60-180 ms, a new room listed
+      after 125-375 ms, a join seated after 125-375 ms): two capable players pressing in the same instant, 300 of
+      300 seeds end in one room of two; five players (60 % capable) pressing within 300 ms, 197 of 200 seeds end in
+      one room of five, the other 3 in two rooms, with no player alone and no guest stranded.
+      Two Chromium pages over WebRTC (`vite dev`, both capable): Play online in the same instant, 2 of 2 runs merged
+      into one relay room of two in 3.1 s and 2.8 s.
+    - *Host tag*: a public host sends `meta=<stage>.<course>` (`lobby.oval`, `running.oval`, `over.rally`; a derby
+      sends no course) on every relay poll, stored on its peer row (`migrations/0005_webrtc_peer_meta.sql`,
+      ≤ 32 chars of `[a-z0-9._-]`, replaced by the next poll, kept by one without a tag, never read from a
+      guest) and listed beside the room. A relay without the column lists rooms without a tag: they rank like
+      a lobby room and the list names them "Open"; so does a new host for its first ~2 s (its registering poll
+      goes out before its race is up; the next heartbeat carries the tag).
+  - **Live rooms** (`src/components/live-rooms.tsx`): race mode shows a pill under the title (top-right while the
+    setup card is up: the card is a full-screen sheet on phones) with a
+    "Play online" button and the open races ("3 live"; hidden in the solo clip view and while the reel plays;
+    during a race only the count). The count opens a list: course, players/8 and state per room with a Join
+    button, then Play online and Host (`publicHost`: a room of its own at once). The list polls the relay every
+    10 s collapsed, 4 s open, never while the tab is hidden or a session is on, and doubles its wait (to
+    60 s) after each failure (`RoomPoller`; the relay allows 10 requests/s per address). In a session the
+    pill is a status chip ("Finding a race…", "Waiting for players · starts in 9 s", "Joined · 3/8 · race on")
+    with Leave, which returns to the race setup menu. Buttons are 44 px tall on phones (32 px from `sm`) and
+    never take keyboard focus from the game.
+    Measured (two to four Chromium contexts, `vite dev`): a capable desktop's Play online hosts in 0.6 s; a second page opens
+    the list ("1/8 players · Open", later "Racing"), Joins; a third presses Play online and lands in the same room (3
+    of 3 seated, race started with a field of 8 for all); the host's Leave returns to the setup menu. A phone (coarse
+    pointer: not fit) pressing Play online shows "Finding a race…" and joined a desktop's room that appeared 7.9 s
+    into its search; alone it searched 15.4 s (12 s + 0-3 s jitter + one 2.5 s poll step), then hosted a field of 4
+    (AI count 3, back to 7 after Leave). 0 console errors.
 - **Room size**: 8 peers (`ROOM_MAX`, `src/lib/multiplayer/rooms.ts`); the relay answers 409 past it.
   The Net panel shows the relay's refusal ("Room full", "Host taken", …; `P2PRoom.error` →
   `NetStatus.relayError`) until a poll gets through, and the client's session `problem` the same way.
@@ -198,7 +248,7 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   seats it in the same car (its slot, or the lowest free car once the slot lapsed), a restarted host
   seats it anew and the client takes that host's clock and sequence from scratch. A peer whose slot
   lapsed but who never noticed (it still hears the host) is re-seated by its next input. A public
-  client with no host for 5 s of its own frame time hosts a fresh public room.
+  client with no host for 5 s of its own frame time searches again (another open room, else a fresh one).
   Measured (`.bench/net/blip2.mjs` in the main checkout, two pages over WebRTC on `vite dev`): B
   drives car 1 at 17.6 m/s, stops, then closes its `RTCPeerConnection` and holds the throttle. B
   reports "host lost" from 3.2 s; `P2PRoom`'s watchdog rebuilds the pair at ~7.4 s; the host's copy of

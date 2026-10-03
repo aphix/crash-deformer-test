@@ -143,7 +143,7 @@ export function RaceOverlay({ race, pad, onCommand }: { race: RaceHud; pad: bool
   const you = race.you;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
-      <StartLights time={race.time} />
+      {race.phase === null ? null : <StartLights time={race.time} />}
       {you?.wrongWay ? (
         <div
           className="flex items-center gap-2 rounded-xl bg-signal-red px-4 py-2 font-display text-2xl font-semibold uppercase tracking-widest text-fg shadow-lg sm:text-3xl"

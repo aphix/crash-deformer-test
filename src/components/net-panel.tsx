@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
-import type { NetStatus, NetTx } from "@/game/net/net-play";
+import type { NetStatus, NetTx } from "@/game/net/net-ports";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
 import { encodeQr } from "@/lib/qr";
 import { cn } from "@/lib/utils";
@@ -201,10 +201,10 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             </Button>
           </div>
           <div className="flex gap-1">
-            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} onClick={() => void engine.current?.net.publicMatch("race")}>
-              Public race
+            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} disabled={status?.finding} onClick={() => void engine.current?.net.publicMatch("race")}>
+              {status?.finding ? "Finding…" : "Public race"}
             </Button>
-            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} onClick={() => void engine.current?.net.publicMatch("derby")}>
+            <Button variant="secondary" className={cn(NET_CONTROL, "flex-1 text-xs")} disabled={status?.finding} onClick={() => void engine.current?.net.publicMatch("derby")}>
               Public derby
             </Button>
           </div>

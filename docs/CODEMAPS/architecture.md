@@ -21,7 +21,7 @@ src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / d
   ├─ FX / world                   engine-fx.ts, engine-world.ts WorldStage (night / wet), ground.ts
   ├─ thrown drivers               ragdoll-trigger.ts EjectionWatch → engine-ragdoll.ts RagdollSystem (Rapier through rapier.ts loadRapier), ragdoll-mesh.ts DummyMesh
   ├─ cinematics                   engine-cine.ts Cinematics → engine-post.ts PostFX, engine-marks.ts SkidMarks
-  ├─ netplay                      net/net-play.ts NetPlay (engine port net/net-ports.ts NetGame) → net/codec.ts, net/net-view.ts drawSnapshots, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom)
+  ├─ netplay                      net/net-play.ts NetPlay (engine port net/net-ports.ts NetGame) → net/codec.ts, net/net-view.ts drawSnapshots, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom), net/matchmaking.ts findMatch / RoomPoller (Play online, live rooms)
   ├─ race                         engine-race.ts RaceDirector → race/ (track, session, campaign, race-ai, traffic, track-art)
   ├─ trace                        engine-trace.ts (J key, JSON button)
   └─ emitHud() ─► hud-store.ts publishHud ─► useSyncExternalStore in CrashLab ─► components/hud*.tsx

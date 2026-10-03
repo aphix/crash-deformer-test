@@ -1,4 +1,3 @@
-import { z } from "zod";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
@@ -23,47 +22,15 @@ import {
   readDerby,
   writeDerby,
 } from "./codec.ts";
-import { PHASES, type MatchStage, type NetGame, type NetRace, type PublicKind } from "./net-ports.ts";
+import { PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
-import { BroadcastTransport, type NetPeer, type NetTransport } from "./transport.ts";
+import { BroadcastTransport, type NetTransport } from "./transport.ts";
 import { unpackReel } from "./reel-codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
-import { PUBLIC_PREFIX, ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
-
-/** `GET api/rtc?list=public` (signaling.server.ts `listPublic`), fullest room first. */
-const PUBLIC_LIST = z.object({
-  rooms: z.array(z.object({ room: z.string().startsWith(PUBLIC_PREFIX).max(64), players: z.number().int() })),
-});
-
-type NetRole = "off" | "host" | "client";
-/** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
-export type NetTx = "bc" | "rtc";
-
-export interface NetStatus {
-  role: NetRole;
-  /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */
-  public: PublicKind | null;
-  room: string;
-  tx: NetTx;
-  selfId: string;
-  /** This peer's car (host 0); −1 until the host assigns one. */
-  car: number;
-  /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
-  lobby: number | null;
-  peers: readonly NetPeer[];
-  /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
-  snapHz: number;
-  bytesPerSec: number;
-  /**
-   * Client: `version` the host runs another build (reload to play), `host-lost` no word from the host
-   * (waiting for one), `host-paused` its tab is hidden; null while all is well.
-   */
-  problem: "version" | "host-lost" | "host-paused" | null;
-  /** Why the relay refused this peer (room full, host seat taken, …), null while fine. */
-  relayError: string | null;
-}
+import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
+import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
 
 const SEND_HZ = 30;
 const KEYFRAME_EVERY = 30;
@@ -103,14 +70,16 @@ const HOLD_EVERY_MS = 1000;
 const REFUSED = 255;
 
 /** Opens this peer's link to a room: `role` is the roster tag the relay knows it by. */
-type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client") => NetTransport;
+type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta: () => string) => NetTransport;
 
-const connectDefault: Connect = (tx, room, id, role) => (tx === "rtc" ? new RtcTransport(room, id, role) : new BroadcastTransport(room, id));
+const connectDefault: Connect = (tx, room, id, role, meta) => (tx === "rtc" ? new RtcTransport(room, id, role, meta) : new BroadcastTransport(room, id));
 
-/** Test seams: the link (default WebRTC or BroadcastChannel) and the clock (ms, default `performance.now`). */
+/** Test seams: the link (default WebRTC or BroadcastChannel), the clock (ms, default `performance.now`) and the matchmaker's pauses and dice. */
 interface NetPlayOptions {
   connect?: Connect;
   now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
+  random?: () => number;
 }
 
 /**
@@ -127,6 +96,14 @@ export class NetPlay {
   private room = "";
   private tx: NetTx = "bc";
   private publicKind: PublicKind | null = null;
+  /** The running public search's token (a newer search, or `leave`, cancels it) and whether it still looks. */
+  private finder = 0;
+  private finding = false;
+  /** A weak device's public race: the AI count to give back when its room closes. */
+  private soloAi: number | null = null;
+  private derbyField = PUBLIC_DERBY_FIELD;
+  private readonly sleep: (ms: number) => Promise<void>;
+  private readonly random: () => number;
   private car = -1;
   private layout: NetLayout | null = null;
   private readonly w = new Writer();
@@ -205,6 +182,9 @@ export class NetPlay {
     this.game = game;
     this.connect = opts.connect ?? connectDefault;
     this.now = opts.now ?? (() => performance.now());
+    // Executor form: the tsconfig lib predates `Promise.withResolvers`.
+    this.sleep = opts.sleep ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)));
+    this.random = opts.random ?? Math.random;
   }
 
   get client(): boolean {
@@ -223,39 +203,72 @@ export class NetPlay {
   }
 
   /**
-   * Public race or derby: join the fullest open public room of that kind over WebRTC (the relay
-   * lists rooms whose host polled in the last few seconds and that have a free seat), or host a new
-   * one when none is open. A joined room whose host stays silent for `HOST_WAIT_MS` of this client's
-   * frame time is abandoned for a fresh one.
+   * Play online (docs/MULTIPLAYER.md "Matchmaking"): join the best open public room of `kind`, else host one
+   * (`findMatch` decides, with this device's `hostFit`). Resolves when the search is over; `status().finding`
+   * is true until it joins or hosts. A newer search or `leave` cancels this one; `skip` names rooms never to join.
    */
-  async publicMatch(kind: PublicKind): Promise<void> {
-    let open: string | undefined;
+  async publicMatch(kind: PublicKind, skip: readonly string[] = []): Promise<void> {
+    const id = ++this.finder;
+    // `start` leaves first, which cancels searches: the one deciding takes its token back.
+    const claim = (): void => {
+      this.finder = id;
+      this.finding = false;
+    };
+    const deps: MatchDeps = {
+      list: () => fetchRooms(kind),
+      sleep: this.sleep,
+      random: this.random,
+      now: this.now,
+      join: (room) => {
+        this.publicJoin(room, kind);
+        claim();
+      },
+      host: (weak) => {
+        this.publicHost(kind, weak);
+        claim();
+        return this.room;
+      },
+      alone: () => this.slots.size === 0,
+      live: () => this.finder === id,
+    };
+    this.finding = true;
     try {
-      // `?.`: outside Vite (node tests) there is no `import.meta.env`; the app is then served from "/".
-      const res = await fetch(`${import.meta.env?.BASE_URL ?? "/"}api/rtc?list=public&kind=${kind}`);
-      const list = PUBLIC_LIST.safeParse(res.ok ? await res.json() : null);
-      if (list.success) open = list.data.rooms[0]?.room;
-    } catch {
-      // Offline or relay down: host a room of our own, which others can still find later.
+      await findMatch(kind, this.game.hostFit(), deps, skip);
+    } finally {
+      if (this.finder === id) this.finding = false;
     }
-    if (open) {
-      this.join(open, "rtc");
-      this.publicKind = kind;
-    } else this.hostPublic(kind);
   }
 
-  /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts. */
-  private hostPublic(kind: PublicKind): void {
-    this.host(`${PUBLIC_PREFIX}${kind}-${Math.random().toString(36).slice(2, 8).toUpperCase()}`, "rtc");
+  /** Join public room `room` of `kind` as a guest (the live-rooms list's Join). */
+  publicJoin(room: string, kind: PublicKind): void {
+    this.join(room, "rtc");
     this.publicKind = kind;
+  }
+
+  /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts; `weak` runs a smaller field. */
+  publicHost(kind: PublicKind, weak = !this.game.hostFit()): void {
+    this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), "rtc");
+    this.publicKind = kind;
+    this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
     if (kind === "race") {
       this.game.enterRace();
-      // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
       const race = this.game.race();
+      if (weak && race) {
+        this.soloAi = race.options.aiCount;
+        race.command({ type: "options", options: { aiCount: WEAK_AI } });
+      }
+      // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
       race?.showLobby(race.options.trackId);
-    } else this.game.derbyLobby(PUBLIC_DERBY_FIELD);
+    } else this.game.derbyLobby(this.derbyField);
     this.lobbyLeft = LOBBY_S;
     this.syncSeats();
+  }
+
+  /** A public host's heartbeat tag for the relay's room list (`publicMeta`); "" for a guest or a private room. */
+  private metaNow(): string {
+    const kind = this.publicKind;
+    const stage = this.role === "host" && kind ? matchStage(this.game, kind) : null;
+    return stage ? publicMeta(stage, kind === "race" ? (this.game.race()?.options.trackId ?? "") : "") : "";
   }
 
   /** Client: ask the host to put this peer's car back on the track (race R / D-pad down). */
@@ -264,6 +277,8 @@ export class NetPlay {
   }
 
   leave(): void {
+    this.finder++;
+    this.finding = false;
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.role === "client" && this.game.race()) this.game.exitRace();
@@ -272,6 +287,8 @@ export class NetPlay {
       // Back to a solo game: no seat stays a network peer's, and no peer's last input keeps driving.
       const race = this.game.race();
       for (const car of this.slots.values()) race?.setRemoteInput(car, this.idle);
+      if (this.soloAi !== null) race?.command({ type: "options", options: { aiCount: this.soloAi } });
+      this.soloAi = null;
       this.game.setSeats(new Map());
     }
     this.setHidden(false);
@@ -330,6 +347,7 @@ export class NetPlay {
       snapHz: this.snapHz,
       bytesPerSec: this.bytesPerSec,
       public: this.publicKind,
+      finding: this.finding,
       problem: !client ? null : this.refused ? "version" : this.hostLost ? "host-lost" : this.hostHeld ? "host-paused" : null,
       relayError: this.transport?.error ?? null,
     };
@@ -369,7 +387,7 @@ export class NetPlay {
   private start(role: NetRole, room: string, tx: NetTx): void {
     this.leave();
     const id = crypto.randomUUID().slice(0, 8);
-    this.transport = this.connect(tx, room, id, role === "host" ? "host" : "client");
+    this.transport = this.connect(tx, room, id, role === "host" ? "host" : "client", () => this.metaNow());
     this.transport.onMessage = (from, data) => this.receive(from, data);
     this.role = role;
     this.room = room;
@@ -552,12 +570,7 @@ export class NetPlay {
    * shows its result for `RESULTS_HOLD` s and the next one starts, seating whoever joined meanwhile.
    */
   private runPublic(kind: PublicKind, wallDt: number): void {
-    let stage: MatchStage | null;
-    if (kind === "race") {
-      const race = this.game.race();
-      const phase = race ? race.phase : undefined;
-      stage = phase === undefined ? null : phase === null ? "lobby" : phase === "finished" ? "over" : "running";
-    } else stage = this.game.derbyPhase();
+    const stage = matchStage(this.game, kind);
     if (stage === null || stage === "running") {
       this.lobbyLeft = null;
       this.finishedFor = 0;
@@ -574,7 +587,7 @@ export class NetPlay {
     this.finishedFor = 0;
     this.syncSeats();
     if (kind === "race") this.game.startRace();
-    else this.game.startDerby(PUBLIC_DERBY_FIELD);
+    else this.game.startDerby(this.derbyField);
   }
 
   /** The rules state (or, between races, the lobby countdown and course) to every client. */
@@ -713,9 +726,9 @@ export class NetPlay {
     this.silentFor += wallDt;
     const quiet = this.now() - this.hostAt;
     const paused = this.hostHeld && t.peers().some((p) => p.id === this.hostId);
-    if (this.publicKind && !paused && this.silentFor * 1000 > HOST_WAIT_MS) {
-      // A dead public room (its relay row outlives the host by up to 30 s) is no use to anyone: start a fresh one.
-      this.hostPublic(this.publicKind);
+    if (this.publicKind && !paused && !this.finding && this.silentFor * 1000 > HOST_WAIT_MS) {
+      // A dead public room (its relay row outlives the host by up to 30 s) is no use to anyone: look for another, else host one.
+      void this.publicMatch(this.publicKind, [this.room]);
       return;
     }
     if (this.hostId !== null && !paused && quiet > HOST_LOST_MS) {
