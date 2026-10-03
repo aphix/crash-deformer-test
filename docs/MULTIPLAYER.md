@@ -79,9 +79,9 @@ host-only.
 | Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, `vaporized`, `falling`, body style + vehicle class | rigid placement; velocity for wheels; the Fleet disc edge's fake fall and smoke; the body the client must build (a host's class pick rebuilds car 0) | u8 flags (1 crashed, 2 wreck follows, 4 vaporized, 8 falling), u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
 | **Body**: the 20 control particles' current body-frame positions (`MassNode.local`), popped masses, `massActive`, `drivetrainAlive`, `engineTravel`, `killTravel` | the live hulls (`liveHulls` / `liveCrushHulls`) read only `local`, so these are the collision touchpoints; engine travel over kill travel (class × realism) is the graded damage | i16×60 (0.5 mm), u32, u8, i16×2 | 129 |
 | **Skin**, as of the last skin bake: the particles (`massPos`), each shape cluster's skin map (`skinM`, 16 × 3×3), popped hubs, `deepCrush` / `bidirectional` / lattice; plus the 20 sensor compressions, impact point + inward axis, wrinkle amplitude, buckle, squash | `skin()` writes every vertex from exactly these. After the crush window closes the host mesh stays frozen at the last bake while `local` drifts and the shape-rest rebase resets every `skinM`, so the bake keeps its own copy (`bakeLocalSkin`) and the client re-skins from that | i16×60, i16×144 (1/8192), u32, i16×20, i16×9 | 470 |
-| **Parts**: per detachable part slot (bumpers, bonnet, boot, doors, mirrors: 8, plus the police light bar; every style sends 9 slots so all cars share one layout) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states; loose-wheel bits and each loose wheel's world pose | part transforms and the panels' visibility | u8 + i16×3 per part, + f32×3 + i16×4 per loose part or wheel, u8, u16, u8 | 67 + 20 per loose part or wheel |
+| **Parts**: per detachable part slot (bumpers, bonnet, boot, doors, mirrors: 8, the six body panels (two quarter panels, four arch flares), plus the police light bar; every style sends 15 slots so all cars share one layout) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states; loose-wheel bits and each loose wheel's world pose | part transforms and the panels' visibility; a body panel's shell and dark under-panel are rebuilt on the client from its hinge value on the client's own skin (dents on torn parts are host and replay only) | u8 + i16×3 per part, + f32×3 + i16×4 per loose part or wheel, u8, u16, u8 | 109 + 20 per loose part or wheel |
 
-Body + skin + parts form one **wreck section** (666 bytes + 20 per loose part or wheel; 659 before the ninth part slot, `NET_VERSION` 4), sent only for
+Body + skin + parts form one **wreck section** (708 bytes + 20 per loose part or wheel; 666 before the six body-panel slots, `NET_VERSION` 5; 659 before the ninth slot, `NET_VERSION` 4), sent only for
 `crashed` cars. Header: type u8, keyframe u8, seq u16, host time f64 (s), car count u8, realism u8
 (the host's `HANDLING.realism`, which the client adopts), crash phase u8, time scale u16 = 17 bytes. Input (client → host): type,
 throttle i8, steer i8, brake u8, ebrake/boost/respawn bits = 5 bytes. `hello` (client → any host):
@@ -93,7 +93,7 @@ combining marks capped, 16 characters); a hello without one (the old layout) is 
 type, seed u32, the host-clock second the reel starts at (f64), then the clips deflated (`reel-codec.ts`,
 at most 240 KiB); sent once, when a race ends. A client moves the start onto its own clock with the
 snapshot clock offset and draws no snapshots while the reel plays ([HIGHLIGHTS.md](HIGHLIGHTS.md)).
-`NET_VERSION` (`codec.ts`, now 5) is bumped on any layout change:
+`NET_VERSION` (`codec.ts`, now 6) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 

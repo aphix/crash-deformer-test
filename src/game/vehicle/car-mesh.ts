@@ -13,7 +13,7 @@ export const WHEEL_POS: [number, number, number][] = [
 export const CAR_HALF = { x: 0.88, y: 0.68, z: 2.22 };
 
 /** Shared-platform hardpoints (8e2dc49, five styles on one platform): arch opening radius about the hub (m), floor pan height (m). */
-const ARCH_R = 0.38;
+export const ARCH_R = 0.38;
 const WHEEL_Y = WHEEL_POS[0]![1];
 const Y_FLOOR = 0.145;
 const SEDAN = CAR_STYLES.sedan;
@@ -566,6 +566,10 @@ export function makeChassisGeometry(style: BodyStyle = SEDAN): THREE.BufferGeome
   merged.computeVertexNormals();
   merged.computeBoundingBox();
   merged.computeBoundingSphere();
+  // The loft is merged first: its vertex `s * ring + i` and its first (slices - 1) * ring * 2 triangles (`panelRegions` cuts panels out of them).
+  merged.userData.loft = { ring: rings[0]!.length, slices: zs.length };
+  // 0 = paint, 1 = primer (`car-materials.ts` withPrimer): a torn panel's vertices are set dark.
+  merged.setAttribute("primer", new THREE.BufferAttribute(new Float32Array(merged.getAttribute("position").count), 1));
   return merged;
 }
 

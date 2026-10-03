@@ -9,6 +9,7 @@ import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "
 import { COM_Y, hullClear, stepAir, SUPPORT } from "./car-air.ts";
 import { droop, Suspension } from "./car-suspension.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
+import { clearDents } from "./loose-dent.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -82,6 +83,8 @@ export class DeformableCar extends CarParts {
     this.fallSpin.set(0, 0, 0);
     this.group.scale.setScalar(1);
     this.deform.reset();
+    // Before the rest restores below: a dent's saved copy may be a crumpled skin the rest restore then overwrites.
+    for (const p of this.parts) clearDents(p.dent);
     this.deform.restoreRest(this.body.geometry);
     this.restoreRest(this.hood.geometry, this.hoodRest);
     this.restoreRest(this.trunk.geometry, this.trunkRest);
@@ -119,8 +122,9 @@ export class DeformableCar extends CarParts {
         this.world.remove(p.object);
         if (p.name === "mirrorL") this.doorL.add(p.object);
         else if (p.name === "mirrorR") this.doorR.add(p.object);
-        else this.group.add(p.object);
+        else if (!p.region) this.group.add(p.object);
       }
+      if (p.region) this.closePanel(p);
       p.detached = false;
       p.folding = false;
       p.hingeT = 0;
@@ -503,6 +507,7 @@ export class DeformableCar extends CarParts {
     if (hood) this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
     if (trunk) this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
     if (this.lightBar && !this.lightBarPart!.detached) this.deform.skinPanel(this.lightBar.geometry, this.lightBarRest!, "roof", this.lightBarOrigin);
+    for (const p of this.parts) if (p.region && p.open && !p.detached) this.shellPose(p);
     for (const g of this.glassPanes) {
       if (!g.skin || !g.restVerts || g.state === "shattered") continue;
       this.deform.skinPanel(g.mesh.geometry, g.restVerts, g.skin, _zero);
@@ -567,16 +572,18 @@ export class DeformableCar extends CarParts {
       const p = this.parts[i]!;
       const f = parts.flags[i]!;
       const loose = (f & 1) !== 0;
+      p.hingeT = parts.hinge[i * 3]!;
       if (loose !== p.detached) {
+        if (p.region && loose) this.tearPanel(p);
         p.object.removeFromParent();
         if (loose) this.world.add(p.object);
+        else if (p.region) this.closePanel(p);
         else if (p.name === "mirrorL") this.doorL.add(p.object);
         else if (p.name === "mirrorR") this.doorR.add(p.object);
         else this.group.add(p.object);
         p.detached = loose;
       }
       p.folding = (f & 2) !== 0;
-      p.hingeT = parts.hinge[i * 3]!;
       if (p.swing) {
         p.swing.theta = parts.hinge[i * 3 + 1]!;
         p.swing.mirrorFold = parts.hinge[i * 3 + 2]!;

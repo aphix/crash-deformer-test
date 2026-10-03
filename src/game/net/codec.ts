@@ -23,8 +23,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  * 3: hello carries the player's name.
  * 4: 9 part slots per car (the police light bar; was 8), the "police" body style and class indices.
  * 5: `MSG.reel`, the highlight reel.
+ * 6: 15 part slots per car (six body panels, quarters and arch flares; was 9).
  */
-export const NET_VERSION = 5;
+export const NET_VERSION = 6;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

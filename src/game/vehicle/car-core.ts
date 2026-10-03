@@ -32,11 +32,23 @@ import {
 import { CRUSH_HULLS, HULLS, type Hull } from "../deform/hulls.ts";
 import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp-lights.ts";
+import { panelRegions, type PanelName, type PanelRegion } from "./car-panels.ts";
+import { newDentState, type DentState } from "./loose-dent.ts";
 
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();
 const _lampE = new THREE.Euler();
+
+/** Where each body panel sits in the rig: its cage, then the sensors on its two ends. */
+const PANEL_SEATS: Record<PanelName, readonly [DetachPart["cage"], number, number]> = {
+  quarterL: ["wingRL", 10, 8],
+  quarterR: ["wingRR", 11, 9],
+  archFL: ["wingFL", 4, 4],
+  archFR: ["wingFR", 5, 5],
+  archRL: ["wingRL", 10, 10],
+  archRR: ["wingRR", 11, 11],
+};
 
 /** Light bar seat on the roof (car z, m): over the front seats, behind the windshield header. */
 const LIGHT_BAR_Z = -0.02;
@@ -186,11 +198,13 @@ export interface DetachPart {
     | "doorLeft"
     | "doorRight"
     | "wingFL"
-    | "wingFR";
+    | "wingFR"
+    | "wingRL"
+    | "wingRR";
   attachL: number;
   attachR: number;
-  /** "bar": the police light bar, skinned with the roof cage, no hinge motion. */
-  hinge: "cowl" | "tail" | "two-point" | "door" | "bar";
+  /** "bar": the police light bar, skinned with the roof cage, tilts on its mount. "quarter", "arch": patches of the body skin (`car-panels.ts`). */
+  hinge: "cowl" | "tail" | "two-point" | "door" | "bar" | "quarter" | "arch";
   detached: boolean;
   folding: boolean;
   hingeT: number;
@@ -199,6 +213,11 @@ export interface DetachPart {
   radius: number;
   /** Doors own their hinge; a mirror shares its door's. */
   swing: DoorHinge | null;
+  /** Quarter panels and arch flares: the patch of body skin they are (null on every other part); once hinged, whether the shell is in the scene (the body under it is primer). */
+  region: PanelRegion | null;
+  open: boolean;
+  /** The bounces this part has taken (`loose-dent.ts`). */
+  dent: DentState;
 }
 
 /** What `stepLoose` moves: a detached part, or a wheel off its hub. */
@@ -294,6 +313,10 @@ export abstract class CarCore {
   protected lightBarPart: DetachPart | null = null;
   protected lightBarRest: Float32Array | null = null;
   protected readonly lightBarOrigin = new THREE.Vector3();
+  /** The quarter panels and arch flares cut from this style's body (`panelRegions`). */
+  private readonly regions: readonly PanelRegion[];
+  /** Dents on torn parts are carved while this is true; a caller that skipped them (off camera) sets it back to catch up. */
+  cosmetic = true;
   private sirenMat: THREE.MeshStandardMaterial | null = null;
   private sirensOn = false;
   /** Lens lit this frame: 0 none, 1 red, 2 blue. */
@@ -311,6 +334,7 @@ export abstract class CarCore {
     this.bodyMat = makePaintMaterial(livery?.body ?? paint.body);
     const doorMat = livery ? makePaintMaterial(livery.doors) : this.bodyMat;
     const bodyGeo = makeChassisGeometry(this.style);
+    this.regions = panelRegions(this.style, bodyGeo);
     this.body = new THREE.Mesh(bodyGeo, this.bodyMat);
     this.body.castShadow = true;
     this.body.receiveShadow = true;
@@ -507,6 +531,9 @@ export abstract class CarCore {
         angular: new THREE.Vector3(),
         radius,
         swing,
+        region: null,
+        open: false,
+        dent: newDentState(),
       };
       this.parts.push(p);
       return p;
@@ -522,6 +549,16 @@ export abstract class CarCore {
       add("mirrorL", this.mirrorL, "doorLeft", 6, 4, "two-point", 0.1, doorL.swing),
       add("mirrorR", this.mirrorR, "doorRight", 7, 5, "two-point", 0.1, doorR.swing),
     ];
+    for (const r of this.regions) {
+      const [cage, attachL, attachR] = PANEL_SEATS[r.name];
+      // The shell's geometry is built when the panel first hinges (`openPanel`); until then it is not in the scene.
+      const mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.bodyMat);
+      // No shadow draw: a torn sheet's shadow is not worth a second draw per panel (32 cars with 192 panels torn: +590 draws with it).
+      mesh.castShadow = false;
+      mesh.frustumCulled = false;
+      mesh.position.copy(r.origin);
+      add(r.name, mesh, cage, attachL, attachR, r.kind, r.kind === "quarter" ? 0.3 : 0.22).region = r;
+    }
     // Last, so every style's other parts keep their indices (netplay, tests). Roof sensor 12 on both ends.
     if (this.lightBar) this.lightBarPart = add("lightBar", this.lightBar, "roof", 12, 12, "bar", 0.3);
   }
