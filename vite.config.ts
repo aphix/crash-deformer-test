@@ -228,6 +228,9 @@ export default defineConfig(({ command, isPreview }) => ({
     },
     // Sized for the three chunk alone; every other client chunk is under the 500 kB default.
     chunkSizeWarningLimit: 700,
+    // The 2.7 kB skin kernel is under the 4 kB inline limit: Vite would put it in the engine chunk as a data URL.
+    // Keep every `.wasm` a file under `<base>assets/` (own cache entry, a fetch that can fail into the JS skin).
+    assetsInlineLimit: (file) => (file.endsWith(".wasm") ? false : undefined),
   },
   plugins: [
     pgliteBootstrapPlugin(),

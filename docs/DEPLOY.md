@@ -47,6 +47,14 @@ exit, so `db.ts` ends the process itself when no other listener for the signal r
 Signaling rows live 30-60 s, so a persistent PGLite store matters little: it keeps rooms across a
 restart that happens mid-handshake, nothing more.
 
+## The skin kernel (Rust -> WASM)
+
+The skin and normals loops of `StreamedDeformation.skin` run in a 2.7 kB WebAssembly module (`kernels/skin/`, Rust), on the main thread: about 1.5-1.9x faster per skin than the JS loop, copies included (measured: 0.57 of the JS time in the browser at 1x, 0.53 at 4x CPU; 0.66 headless at 32 cars), same bits out. **The box has no cargo**: the built module is committed as `src/game/deform/skin-kernel.wasm`. After changing `kernels/skin/src/lib.rs`, run `npm run build:kernel` (needs cargo and `rustup target add wasm32-unknown-unknown`) and commit the `.wasm`; `build:node` and Vercel only bundle it.
+
+- Vite emits it as an asset: under `APP_BASE` (`/crush/assets/skin-kernel-<hash>.wasm`). The engine fetches it with its boot warm-up (`engine-warm.ts`); `window.__crush.skinKernelReady` is true once it is in.
+- The JS skin is the reference and the fallback. If the file cannot be fetched or compiled, the engine logs one `console.warn` ("skin kernel unavailable") and every car skins in JS; the game plays the same.
+- Needs bulk-memory WebAssembly (Chrome 75, Firefox 79, Safari 15), no SIMD, threads or cross-origin isolation.
+
 ## Self-hosted: architecture
 
 ```mermaid
