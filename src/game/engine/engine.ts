@@ -344,13 +344,16 @@ export class CrashEngine extends EngineShare {
     if (this.warming) return;
     this.stepSceneFade(wallDt);
     this.fxFrame(wallDt);
+    // The new scene's sim waits behind the transition's black (a slow first-use warm-up would play its opening unseen).
+    // Local presentation only: a netplay session or the results replay owns time, so they never wait.
+    const held = this.sceneFade.holding && this.net.role === "off" && !this.highlights.playing;
 
     // The results reel lives until its race is left or the next one sets up (a client's host may start it). Not "until
     // the phase leaves finished": a client's race state comes 5 times a second, unreliably, so the host's reel (reliable,
     // sent at the finish) can land while it still reads "racing" (measured: stopped 106 ms after it arrived).
     const p = this.race.phase;
     if (this.highlights.hasReel && (!this.race.active || p === null || p === "grid" || p === "countdown")) this.stopReel();
-    if (this.playing) {
+    if (this.playing && !held) {
       this.elapsedWall += wallDt;
       const reelDt = this.highlights.frame(now / 1000);
       this.reelFrame(reelDt !== null);
@@ -437,7 +440,7 @@ export class CrashEngine extends EngineShare {
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
     this.net.frame(wallDt);
-    if (this.race.active) this.race.frame(this.playing ? wallDt : 0);
+    if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0);
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);
