@@ -514,6 +514,7 @@ export abstract class EngineScenes extends EngineHud {
       this.clock.targetScale = 1;
     }
     this.clock.wallSinceImpact = 0;
+    this.clock.slomoAt = 0;
     this.elapsedWall = 0;
     this.elapsedSim = 0;
     this.impactKph = null;

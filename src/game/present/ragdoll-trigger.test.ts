@@ -138,7 +138,7 @@ describe("thrown drivers are cosmetic: the cars move the same, and only the sand
         const plain = pair();
         const scene = new THREE.Scene();
         const rideAlong: number[] = [];
-        const ragdolls = new RagdollSystem(scene, (i) => rideAlong.push(i));
+        const ragdolls = new RagdollSystem(scene, (i) => rideAlong.push(i), () => {});
         await ragdolls.preload();
         const w = makeWorld(cars, false, false);
         const wPlain = makeWorld(plain, false, false);
@@ -161,7 +161,7 @@ describe("a throw judged before Rapier has loaded", () => {
   async function thrownAfterLoad(late: number): Promise<boolean> {
     const cars = headOn(20);
     const scene = new THREE.Scene();
-    const ragdolls = new RagdollSystem(scene, () => {});
+    const ragdolls = new RagdollSystem(scene, () => {}, () => {});
     const w = makeWorld(cars, false, false);
     for (let f = 0; f < 150; f++) {
       if (f === late) await ragdolls.preload();
@@ -185,7 +185,7 @@ describe("a throw judged before Rapier has loaded", () => {
 describe("a thrown dummy hits other cars", () => {
   it("bad: in a fleet head-on each driver flies into the other car and never ends up inside its cabin", async () => {
     const cars = headOn(20);
-    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {});
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
     const local = new THREE.Vector3();
