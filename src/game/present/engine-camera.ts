@@ -23,6 +23,15 @@ export type SpecScene = AutoScene & { rivals(): readonly DeformableCar[]; fixed(
 
 /** The chase views' push-out pulls the eye in at most this many metres. */
 const PUSH_MAX = 6;
+
+/** A lamp post the orbit keeps clear of: it stands from its base up `POST_TOP` m and is thin, so the eye's distance to its axis is what counts. */
+type Post = { intact: boolean; group: { visible: boolean; position: THREE.Vector3 } };
+/**
+ * The orbit's target keeps this far (m) from a post's axis. The eye lags the target and cuts the bend a little short
+ * (0.1 m at the idle spin of 0.32 rad/s, measured), so it stays 3 m clear.
+ */
+const POST_CLEAR = 3.15;
+const POST_TOP = 5.3;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
@@ -296,6 +305,8 @@ export class ChaseCamera {
   readonly cine = new CineCam();
   readonly dutch = new DutchCam();
   readonly auto = new AutoCam();
+  /** The scene's lamp posts (the engine sets the array once; it fills as the world builds). */
+  posts: readonly Post[] = [];
   /** The followed car's cam; null = the scene's own (`specView`). */
   spec: SpecView | null = null;
   /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
@@ -474,12 +485,50 @@ export class ChaseCamera {
       this.look.y + this.radius * sp,
       this.look.z + Math.cos(this.angle) * this.radius * cp,
     );
+    this.pushFromPosts();
 
     const k = 1 - Math.exp((this.dragging || padTurn ? -18 : -5.5) * wallDt);
     this.camera.position.lerp(this.pos, k);
     this.camera.lookAt(this.look);
     if (shake) this.shake();
     easeFov(this.camera, this.baseFov, wallDt);
+  }
+
+  /**
+   * The orbit's target (`pos`) bends round each lamp post on its way, along the orbit's own radius (`look` to eye), so
+   * the eye keeps `POST_CLEAR` m from the post's axis (an eye over the post's top needs less). The bend is one smooth
+   * swell, deepest where the post is nearest and easing out over 3 × `POST_CLEAR` m of orbit either side, so a pass has
+   * no kink. It goes inward, so the post is behind the eye and out of the shot, unless the post's circle lies more than a
+   * quarter of the clearance inside the orbit's: then outward. That side is a plain comparison of the post's distance
+   * from `look` with the orbit's, so it only flips if the fleet's centre or the radius carries a post across the line
+   * while the eye is beside it (the eye then swings across within the spring's time). No allocation.
+   */
+  private pushFromPosts(): void {
+    const p = this.pos;
+    const ex = p.x - this.look.x;
+    const ez = p.z - this.look.z;
+    const R = Math.hypot(ex, ez);
+    if (R < 1e-3) return;
+    const ux = ex / R;
+    const uz = ez / R;
+    for (const post of this.posts) {
+      if (!post.intact || !post.group.visible) continue;
+      const q = post.group.position;
+      const h = Math.max(0, p.y - q.y - POST_TOP);
+      if (h >= POST_CLEAR) continue;
+      const c = Math.sqrt(POST_CLEAR * POST_CLEAR - h * h);
+      // The post from `look`: along the eye's radius (on the eye's side) and across it.
+      const px = q.x - this.look.x;
+      const pz = q.z - this.look.z;
+      const s = px * uz - pz * ux;
+      if (px * ux + pz * uz <= 0 || Math.abs(s) >= 3 * c) continue;
+      const swell = 1 - (s * s) / (9 * c * c);
+      // How far the post's circle lies beyond the orbit's (negative: inside it), and the shift that clears it on the chosen side.
+      const gap = Math.hypot(px, pz) - R;
+      const shift = gap >= -c / 4 ? -Math.max(0, c - gap) : Math.max(0, c + gap);
+      p.x += ux * shift * swell * swell;
+      p.z += uz * shift * swell * swell;
+    }
   }
 
   /** Chase, far chase or hood-cam view of the driven car; mouse drag / right stick look round it. */

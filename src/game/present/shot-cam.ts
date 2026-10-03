@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { camUsable, CINE, CineCam, DUTCH, DutchCam, sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { CINE, CLEAR_COST, CineCam, DUTCH, DutchCam, SightLines, sightLine, solid, type Sight } from "./spectate-cam.ts";
 
 /**
  * The shot director both the results reel (`ReelDirector`, from clip time) and the Auto spectator cam (`AutoCam`, live)
@@ -32,8 +32,6 @@ const SHOT_AHEAD = 2;
 const DUTCH_MOUNTS = 8;
 /** The chase shot: behind the car along its travel, this far (m) and this high, looking this far (m) ahead of it. */
 const CHASE = { back: 8, up: 2.8, look: 3, fov: 55 };
-/** What one high-shot candidate (`camUsable`) costs a search budget, in sight-line samples (about 300 solid tests). */
-const HIGH_COST = 300;
 /** Shares of the chase offset tried in order when a solid is at the eye (the last stands whatever is there). */
 const PULL = [1, 0.75, 0.55, 0.35] as const;
 
@@ -57,6 +55,8 @@ export class ShotCam {
   private mount = 0;
   /** The next eighth-turn the high search tries. */
   private turn = 0;
+  /** The sight lines being checked, over several calls: the high search's candidate, or the held shot's re-ask (`usable`). */
+  private readonly lines = new SightLines();
   /** The shot's own spot was found (cine, high, dutch); false: it poses as the chase. */
   found = false;
 
@@ -69,15 +69,17 @@ export class ShotCam {
     this.kind = shot.kind;
     this.found = shot.kind === "chase";
     this.turn = 0;
+    this.lines.cancel();
     if (shot.kind === "cine") this.cine.reset(shot.seed);
   }
 
   /**
-   * Search on for `shot`'s spot, until about `budget` sight-line samples are spent (a spot it started finishes): a cine
-   * shot tries `CINE.tries` trackside spots, a high shot the eight eighth-turns round the shot's centre (cx, cz), each
-   * clear and seeing the car (`camUsable`); a dutch shot takes the first of the eight wheel mounts from its seeded one
-   * whose eye is out of every solid and looks down a clear 8 m. True when the search is over: `found`, or false for a
-   * shot with no usable spot, which poses as the chase. No allocation.
+   * Search on for `shot`'s spot, until about `budget` sight-line samples are spent (a candidate's sight lines go on over
+   * the calls, one line at a time): a cine shot tries `CINE.tries` trackside spots, a high shot the eight eighth-turns
+   * round the shot's centre (cx, cz), each clear and seeing the car (`camUsable`; its room costs `CLEAR_COST`); a dutch
+   * shot takes the first of the eight wheel mounts from its seeded one whose eye is out of every solid and looks down a
+   * clear 8 m. True when the search is over: `found`, or false for a shot with no usable spot, which poses as the
+   * chase. No allocation.
    */
   step(shot: Shot, car: DeformableCar, cx: number, cz: number, budget: number): boolean {
     const sight = this.sight!;
@@ -89,10 +91,22 @@ export class ShotCam {
     if (shot.kind === "high") {
       const pos = car.group.position;
       const e = this.highEye;
-      for (let spent = 0; this.turn < 8 && spent < budget; this.turn++, spent += HIGH_COST) {
-        const a = shot.angle + (this.turn * Math.PI) / 4;
-        e.set(cx + Math.cos(a) * HIGH.dist, pos.y + HIGH.up, cz + Math.sin(a) * HIGH.dist);
-        if (camUsable(sight, e, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD)) {
+      const l = this.lines;
+      for (let spent = 0; this.turn < 8 && spent < budget; ) {
+        if (!l.active) {
+          const a = shot.angle + (this.turn * Math.PI) / 4;
+          e.set(cx + Math.cos(a) * HIGH.dist, pos.y + HIGH.up, cz + Math.sin(a) * HIGH.dist);
+          spent += CLEAR_COST;
+          if (!l.begin(sight, e, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD)) {
+            this.turn++;
+            continue;
+          }
+        }
+        const r = l.run(budget - spent);
+        spent += l.spent;
+        if (r === "more") return false;
+        this.turn++;
+        if (r === "clear") {
           this.found = true;
           return true;
         }
@@ -117,12 +131,25 @@ export class ShotCam {
     this.step(shot, car, cx, cz, Infinity);
   }
 
-  /** The held shot's spot is still usable (within `SHOT_RANGE`, clear, sees `car` now and `SHOT_AHEAD` s on); the chase and the wheel mount always are. */
-  usable(sight: Sight, car: DeformableCar): boolean {
-    if (!this.found) return true;
-    const pos = car.group.position;
-    const eye = this.kind === "cine" ? this.cine.eye : this.kind === "high" ? this.highEye : null;
-    return eye === null || (eye.distanceToSquared(pos) < SHOT_RANGE * SHOT_RANGE && camUsable(sight, eye, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD));
+  /** The held shot's spot is being re-asked: `usable` answered "more". */
+  get asking(): boolean {
+    return this.lines.active;
+  }
+
+  /**
+   * Is the held shot's spot still usable (within `SHOT_RANGE`, clear, sees `car` now and `SHOT_AHEAD` s on)? "clear" or
+   * "blocked", or "more" when `budget` samples ran out first: ask again (`sight` null) to go on with the lines, which
+   * keep the solids the ask began with. The chase and the wheel mount always are usable. No allocation.
+   */
+  usable(sight: Sight | null, car: DeformableCar, budget = Infinity): "clear" | "blocked" | "more" {
+    const l = this.lines;
+    if (!l.active) {
+      const eye = !this.found ? null : this.kind === "cine" ? this.cine.eye : this.kind === "high" ? this.highEye : null;
+      if (eye === null || sight === null) return "clear";
+      const pos = car.group.position;
+      if (eye.distanceToSquared(pos) >= SHOT_RANGE * SHOT_RANGE || !l.begin(sight, eye, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD)) return "blocked";
+    }
+    return l.run(budget);
   }
 
   /**
