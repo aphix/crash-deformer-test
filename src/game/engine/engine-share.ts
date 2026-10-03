@@ -138,7 +138,10 @@ export abstract class EngineShare extends EngineReel {
   /** Boot: apply the page's `#` (this is the first sandbox reset, so the first run already uses it), then follow it. */
   protected attachShare(): void {
     this.shareOn = true;
-    this.arrive(decodeShare(window.location.hash), true);
+    const t = decodeShare(window.location.hash);
+    // The stored car pick arrives after this (crash-lab's effect): a `#` that names a car keeps it (`driverCarApplies`).
+    this.linkNamedCar = t.car !== decodeShare("").car;
+    this.arrive(t, true);
     window.addEventListener("hashchange", this.onShareHash);
   }
 

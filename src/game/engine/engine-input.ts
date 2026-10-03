@@ -5,6 +5,7 @@ import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
 import { armKill, carClass, CLASSES, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { cleanName, DRIVER_CARS } from "../match/types.ts";
+import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
@@ -172,16 +173,28 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
+  /** The last car pick `setDriver` saw (null before the first) and whether the page's `#` named a car (`attachShare`). */
+  private driverCar: string | null = null;
+  protected linkNamedCar = false;
+
   /**
    * The player's pick from the race setup (the HUD keeps it in localStorage and sends it at boot and
    * on every change): the name on the race standings and netplay seats ("" → "You"), and the car
-   * type (`DRIVER_CARS` id; unknown → the first) slot 0 is built as. A new car re-parks the field.
+   * type (`DRIVER_CARS` id; unknown → the first) slot 0 is built as (`driverCarApplies`: a `#` that named a car wins at
+   * boot). A new car re-parks the field with the run's own seed, so the pick never re-rolls a shared link's layout.
    */
   setDriver(name: string, car: string): void {
     this.race.playerName = cleanName(name) || "You";
+    const applies = driverCarApplies(this.driverCar, car, this.linkNamedCar);
+    this.driverCar = car;
     const type = DRIVER_CARS.find((c) => c.id === car) ?? DRIVER_CARS[0]!;
-    if (this.net.client || !this.setPlayerCar(type.cls, type.style)) return;
-    this.randomizeAndReset();
+    if (this.net.client || !applies || !this.setPlayerCar(type.cls, type.style)) return;
+    this.pinnedSeed = this.sceneSeed;
+    try {
+      this.randomizeAndReset();
+    } finally {
+      this.pinnedSeed = null;
+    }
     this.emitHud();
   }
 
