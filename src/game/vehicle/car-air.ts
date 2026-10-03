@@ -71,7 +71,7 @@ const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
 const MU_BODY = 0.6;
-const MU_TYRE = 0.9;
+export const MU_TYRE = 0.9;
 /** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
  *  (g / speed) is a tumble's, not a jump's, and the body turns freely. */
 const NOSE_K = 6;

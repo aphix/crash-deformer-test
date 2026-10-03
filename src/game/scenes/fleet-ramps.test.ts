@@ -9,7 +9,8 @@ import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
-import { assignClass, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
+import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
 const TYRE_CENTRE = 0.32;
@@ -131,6 +132,37 @@ function jump(v: number): Jump {
     lastNose = nose;
   });
   return { air, peak, noseOff, turn, sink, gaps, endZ: p.z, slabHit: w.barrierHits[0] === true, crashed: car.crashed };
+}
+
+/**
+ * A car driven by the game's own drive model (`applyDrive`: throttle holding 3 m/s, steering never, so it pushes only while
+ * its tyres grip) at the +z ramp's side from 3.3 m out, `off` deg off the run (90 = square to the side), aimed so its centre
+ * line meets the side wall where the wall stands `wall` m high. Its worst roll about its own nose (deg, the lean of its right
+ * side) and highest point while it enters: until its centre passes the ramp's midline, comes within 1 m of the high end (where
+ * a jump starts), or 6 s are up.
+ */
+function approachSide(cls: VehicleClassId, off: number, wall: number): { roll: number; high: number; z: number } {
+  const { w, car } = scene(false);
+  assignClass(car, cls);
+  const th = off / DEG;
+  const zWall = RAMP.start + ((RAMP.top - wall) * RAMP.len) / RAMP.top;
+  car.spawnFacing(RAMP.halfW + 3.3, zWall + 3.3 / Math.tan(th), Math.PI + th, 0);
+  const q = car.group.quaternion;
+  const right = new THREE.Vector3();
+  const input = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
+  const st = { acc: 0 };
+  let roll = 0;
+  let high = 0;
+  const p = car.group.position;
+  for (let f = 0; f < 360 && p.z > RAMP.start + 1 && p.x > 0; f++) {
+    input.throttle = Math.max(0, Math.min(1, (3 - car.speed) / 1.5));
+    frame(w, input, st);
+    roll = Math.max(roll, Math.abs(Math.asin(Math.max(-1, Math.min(1, right.set(1, 0, 0).applyQuaternion(q).y)))) * DEG);
+    high = Math.max(high, p.y);
+  }
+  const out = { roll, high, z: p.z };
+  car.dispose();
+  return out;
 }
 
 describe("fleet ramps", () => {
@@ -340,5 +372,21 @@ describe("fleet ramps", () => {
     assert.ok(high.group.position.z > 3 && high.group.position.y > 1.9, `the high car is at z ${high.group.position.z.toFixed(1)} y ${high.group.position.y.toFixed(2)}: it never passed over`);
     assert.equal(hits, 0);
     assert.ok(!low.crashed && !high.crashed, "a car crashed");
+  });
+
+  it("a car driven at walking pace into a wedge's side, at any angle, any class, stops at the wall or climbs the low toe: it never rolls over", (t) => {
+    const failures: string[] = [];
+    const rows: string[] = [];
+    for (const cls of VEHICLE_CLASS_IDS) {
+      for (const off of [30, 45, 60, 90]) {
+        for (const wall of [0.05, 0.2, 0.4, 0.6, 0.9]) {
+          const r = approachSide(cls, off, wall);
+          rows.push(`${cls} ${off}° off the run, wall ${wall} m: worst roll ${r.roll.toFixed(0)}°, highest ${r.high.toFixed(2)} m, reached z ${r.z.toFixed(1)}`);
+          if (r.roll > 30) failures.push(rows[rows.length - 1]!);
+        }
+      }
+    }
+    t.diagnostic(`\n${rows.join("\n")}`);
+    assert.deepEqual(failures, []);
   });
 });
