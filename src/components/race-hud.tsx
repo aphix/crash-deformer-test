@@ -26,6 +26,7 @@ import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { ReelList, SavedList } from "@/components/race-reel";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
+import { SurvivalResults } from "@/components/survival-hud";
 import type { ResetInput } from "@/game/hud/reset-prompt";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
@@ -268,7 +269,7 @@ function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCom
     case "pause": {
       const resume = () => onCommand({ type: "resume" });
       return (
-        <MenuShell id="pause" eyebrow={`${race.trackName} · Lap ${race.you?.lap ?? 1}/${race.laps}`} title="Paused" pad={pad} onBack={resume} onStart={resume}>
+        <MenuShell id="pause" eyebrow={race.survival ? `${race.trackName} · Survival` : `${race.trackName} · Lap ${race.you?.lap ?? 1}/${race.laps}`} title="Paused" pad={pad} onBack={resume} onStart={resume}>
           <div className="grid gap-2">
             <NavButton onClick={resume}>
               <Play />
@@ -280,7 +281,7 @@ function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCom
             </NavButton>
             <NavButton variant="secondary" onClick={end}>
               <Flag />
-              End race
+              {race.survival ? "End run" : "End race"}
             </NavButton>
             <NavButton variant="secondary" onClick={() => onCommand({ type: "fullUi", on: !race.fullUi })} aria-keyshortcuts="H">
               {race.fullUi ? <Focus /> : <PanelsTopLeft />}
@@ -316,7 +317,7 @@ function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCom
         </MenuShell>
       );
     case "results":
-      return <ResultsMenu race={race} pad={pad} onCommand={onCommand} />;
+      return race.survival ? <SurvivalResults race={race} pad={pad} onCommand={onCommand} /> : <ResultsMenu race={race} pad={pad} onCommand={onCommand} />;
     case "standings":
       return <StandingsMenu race={race} pad={pad} onCommand={onCommand} />;
     case null:

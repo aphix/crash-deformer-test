@@ -59,6 +59,8 @@ export type CrashHudState = {
   showCorkscrew: boolean;
   /** The scene a pick is fading to (the switch comes at the transition's black), else null; the scene buttons light it. */
   pendingScene: SceneId | null;
+  /** This browser is in a netplay room (hosting or joined): the single-player scenes are not offered. */
+  inRoom: boolean;
   autoRotate: boolean;
   autoSlomo: boolean;
   audioOn: boolean;
@@ -165,6 +167,7 @@ export const INITIAL_HUD: CrashHudState = {
   range: null,
   showCorkscrew: false,
   pendingScene: null,
+  inRoom: false,
   autoRotate: true,
   autoSlomo: true,
   audioOn: false,

@@ -9,7 +9,7 @@ import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
 import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
-import { SCENE_IDS } from "../scenes/scene-id.ts";
+import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 
 /** One URL value: its default, how to read it back (undefined = malformed) and how to write it. */
@@ -120,7 +120,10 @@ export function decodeShare(fragment: string): ShareState {
     const raw = p.get(k);
     out[k] = (raw === null ? undefined : FIELDS[k].parse(raw)) ?? FIELDS[k].def;
   }
-  return out as ShareState;
+  const s = out as ShareState;
+  // A link that names a room joins the host's scene: a single-player scene beside it is dropped.
+  if (SOLO_SCENES[s.scene] && s.room !== "") s.scene = "fleet";
+  return s;
 }
 
 const DEFAULTS = decodeShare("");

@@ -20,6 +20,8 @@ import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
+import { SURVIVAL } from "@/game/match/survival";
+import { SOLO_SCENES } from "@/game/scenes/scene-id";
 import { cn } from "@/lib/utils";
 
 export type HudProps = {
@@ -47,7 +49,7 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto" };
 
 /** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew and range mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "range";
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "range" | "survival";
 /** `tone`: the mode's accent (a `--tone` variable), so the richer game modes carry a ring and a tinted fill; `quiet`: a test rig, muted until picked. */
 type SceneDef = { id: Scene; label: string; aria: string; tone?: string; quiet?: boolean };
 /** Richer game modes first, then the test rigs. */
@@ -56,6 +58,7 @@ const SCENES: SceneDef[] = [
   { id: "derby", label: "Derby", aria: "Demolition derby scene", tone: "[--tone:var(--color-scene-derby)]" },
   { id: "race", label: "Race", aria: "Race scene", tone: "[--tone:var(--color-scene-race)]" },
   { id: "range", label: "Range", aria: "Ejection range scene", tone: "[--tone:var(--color-scene-range)]" },
+  { id: "survival", label: "Survival", aria: "Survival scene: how long can you last", tone: "[--tone:var(--color-scene-survival)]" },
   { id: "press", label: "Press", aria: "Car compactor scene", quiet: true },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene", quiet: true },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene", quiet: true },
@@ -153,7 +156,7 @@ export function Hud(props: HudProps) {
       {focus && state.race ? (
         <header className="hud-ink min-w-0 pb-12 font-display" style={{ gridArea: "title" }}>
           <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
-            {state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
+            {state.race.survival ? "Survival" : state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
           </p>
         </header>
       ) : (
@@ -162,7 +165,9 @@ export function Hud(props: HudProps) {
           <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight idle:text-lg idle:opacity-70">Crush Stream</h1>
           <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block phone-landscape:hidden idle:hidden">
             {state.race
-              ? `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
+              ? state.race.survival
+                ? `Survival. One car, the cops dropped in more and more. Last as long as you can; held slow beside one for ${SURVIVAL.bustTime} s and you are busted.`
+                : `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
               : state.derby
                 ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
                 : state.showCompactor
@@ -197,7 +202,7 @@ export function Hud(props: HudProps) {
         {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
         {state.range ? <RangePanel range={state.range} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
-        {state.race ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
+        {state.race && !state.race.survival ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
         {state.race ? <ResetPrompt view={state.race.view} input={reset} race onTap={tapReset} className="mt-2 sm:hidden" /> : null}
       </div>
 
@@ -332,7 +337,9 @@ const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onToggleSettings: () => void }) {
   const { state, engine, raceCommand, settingsShown, onToggleSettings } = props;
   const inPlay: Scene = state.race
-    ? "race"
+    ? state.race.survival
+      ? "survival"
+      : "race"
     : state.derby
       ? "derby"
       : state.showCompactor
@@ -355,6 +362,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
     pistons: () => engine.current?.togglePistons(),
     doors: () => engine.current?.toggleDoors(),
     range: () => engine.current?.toggleRange(),
+    survival: () => engine.current?.toggleSurvival(),
     corkscrew: () => engine.current?.toggleCorkscrew(),
   };
   // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
@@ -378,7 +386,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         role="group"
         aria-label="Scene"
       >
-        {SCENES.map(({ id, label, aria, tone, quiet }) => (
+        {SCENES.filter((s) => !(SOLO_SCENES[s.id] && state.inRoom)).map(({ id, label, aria, tone, quiet }) => (
           <Button
             key={id}
             variant={scene === id ? "default" : "ghost"}

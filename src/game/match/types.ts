@@ -297,6 +297,23 @@ export type RaceView = {
   canReset: boolean;
 };
 
+/** Why a Survival run ended: the police held the car slow (`BUST`), it was wrecked (`judge`), or the player ended it. */
+export type SurvivalCause = "busted" | "wrecked" | "ended";
+
+/** Survival's HUD read: the stopwatch is `RaceHud.time`; the rest is here. */
+export type SurvivalHud = {
+  /** Cops chasing now. */
+  cops: number;
+  /** Cops wrecked so far this run. */
+  wrecked: number;
+  /** The best time (s) on this course before this run, null when there is none. */
+  best: number | null;
+  /** Share (0-1) of the bust hold the cops have already run down: the car held slow beside a cop. */
+  hold: number;
+  /** The run's result once it is over (the results card), else null. */
+  result: { time: number; best: number; isNew: boolean; cause: SurvivalCause; wrecked: number } | null;
+};
+
 /** What the HUD reads (built by the engine glue for the local viewer); null in `CrashHudState.race` outside race mode. */
 export type RaceHud = {
   menu: RaceMenu;
@@ -353,4 +370,6 @@ export type RaceHud = {
   solo: string | null;
   /** This browser's saved highlights, newest first (the setup menu lists them). */
   saved: SavedHud[];
+  /** Survival mode's panel (docs/SURVIVAL.md); null in a race. */
+  survival: SurvivalHud | null;
 };

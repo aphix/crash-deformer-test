@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { useSpeedUnit } from "@/components/use-speed-unit";
+import { SurvivalReadout } from "@/components/survival-hud";
 import type { RaceHud, RaceView } from "@/game/match/types";
 import { formatSpeed } from "@/game/hud/speed-units";
 import { cn } from "@/lib/utils";
@@ -46,7 +47,9 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
   const flash = useSplitFlash(r?.split ?? null, race.time);
   return (
     <div className="flex flex-col items-end gap-1 self-start text-right font-display tabular-nums" style={{ gridArea: "readouts" }}>
-      {r ? (
+      {race.survival ? (
+        <SurvivalReadout race={race} survival={race.survival} />
+      ) : r ? (
         <>
           <div className="hud-ink flex items-baseline gap-3">
             <p className="text-sm font-semibold uppercase tracking-[0.12em] text-fg/70">
@@ -68,15 +71,17 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
         </>
       ) : null}
       <Gauge view={view} corner={corner} />
-      <p
-        className={cn(
-          "rounded-full bg-accent px-2 text-sm font-semibold leading-5 text-accent-fg transition-opacity duration-[var(--motion-fast)]",
-          flash ? "opacity-100" : "opacity-0",
-        )}
-        aria-live="polite"
-      >
-        {r?.split == null ? "–" : r.split === 0 ? "Lead" : `Split ${fmtGap(r.split)}`}
-      </p>
+      {race.survival ? null : (
+        <p
+          className={cn(
+            "rounded-full bg-accent px-2 text-sm font-semibold leading-5 text-accent-fg transition-opacity duration-[var(--motion-fast)]",
+            flash ? "opacity-100" : "opacity-0",
+          )}
+          aria-live="polite"
+        >
+          {r?.split == null ? "–" : r.split === 0 ? "Lead" : `Split ${fmtGap(r.split)}`}
+        </p>
+      )}
     </div>
   );
 }

@@ -8,17 +8,21 @@ import { impulseCar, wallBounce, WALL_HALF_L, WALL_PROBES } from "../contact/pai
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
-import { POLICE_CAP, PoliceBrain, type PoliceWorld } from "../ai/police.ts";
+import { POLICE_CAP, PoliceBrain, type CopBrain, type HunterWorld } from "../ai/police.ts";
+import { HUNT, HunterBrain } from "../ai/hunter.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { RaceSession } from "../match/session.ts";
+import { SURVIVAL, settleRun } from "../match/survival.ts";
+import { loadBest, saveBest } from "./survival-store.ts";
 import { DORMANT, TrafficBrain } from "../ai/traffic.ts";
 import type { TrackArt } from "../present/track-art.ts";
-import { raceSight, type Sight } from "../present/spectate-cam.ts";
+import { raceSight, sightLine, type Sight } from "../present/spectate-cam.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
+import { HAVANA } from "../world/tracks/havana.ts";
 import { carClass, classStats, HANDLING } from "../vehicle/vehicle-classes.ts";
-import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions, type SurvivalHud } from "../match/types.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 
@@ -73,6 +77,8 @@ const TRAFFIC_DEAD = 6;
 /** Where put-away traffic waits (far off every course). */
 const PARK_X = 4000;
 const PARK_Z = 4000;
+/** A Survival drop-in must be this many metres outside the camera's view (or behind a solid): the view swings while the cop is already on the road. */
+const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
 
@@ -115,6 +121,9 @@ export abstract class RaceField {
   private readonly frustum = new THREE.Frustum();
   private readonly sphere = new THREE.Sphere();
   protected readonly host: RaceHost;
+  private readonly survivalJson: unknown;
+  /** The Survival course's id (`RaceDirector.enter(true)` starts the run on it). */
+  protected readonly survivalId: string;
   readonly courses: { id: string; name: string; blurb: string }[];
   private readonly tracks = new Map<string, Track>();
   protected track: Track | null = null;
@@ -126,11 +135,16 @@ export abstract class RaceField {
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
   protected traffic: TrafficBrain | null = null;
   /** Police chase (`options.police`): its cars are ids `policeFrom…`, after the racers and traffic; `policeFrom` is the car count without police. */
-  protected police: PoliceBrain | null = null;
+  protected police: CopBrain | null = null;
   protected policeFrom = MAX_CARS;
+  /** Survival (docs/SURVIVAL.md): the next `start` is a run on the Survival course with the hunters, not a race. */
+  survival = false;
+  /** This course's best Survival time before this run (s, null: none), and the run's result once it is over. */
+  protected bestBefore: number | null = null;
+  protected run: SurvivalHud["result"] = null;
   /** Per racer id: still racing (the police's quarry), refreshed each patrol. */
   private readonly hunt = new Uint8Array(MAX_CARS);
-  private readonly patrolWorld: PoliceWorld = {
+  private readonly patrolWorld: HunterWorld = {
     park: (id, x, y, z, yaw) => {
       const car = this.host.live()[id]!;
       this.dormant[id] = 0;
@@ -142,6 +156,7 @@ export abstract class RaceField {
     },
     store: (id) => this.putAway(id, this.host.live()[id]!),
     seen: (x, z) => this.seen(x, z),
+    hidden: (x, z) => this.hidden(x, z),
     down: (id) => this.deadFor[id]! > 0,
     sirens: (id, on) => {
       const car = this.host.live()[id]!;
@@ -178,8 +193,11 @@ export abstract class RaceField {
   protected readonly proj = blankProjection();
   protected saved: { background: THREE.Color | THREE.Texture | null; fog: THREE.Fog | THREE.FogExp2 | null; far: number } | null = null;
 
-  constructor(host: RaceHost) {
+  /** `survivalCourse`: the Survival course's file (a test passes a variant); it is not in `TRACKS`, so the race menu never lists it. */
+  constructor(host: RaceHost, survivalCourse: unknown = HAVANA) {
     this.host = host;
+    this.survivalJson = survivalCourse;
+    this.survivalId = parseTrack(survivalCourse).id;
     this.courses = TRACKS.map((json) => {
       const t = parseTrack(json);
       return { id: t.id, name: t.name, blurb: t.blurb };
@@ -198,7 +216,7 @@ export abstract class RaceField {
    * Spectate (`options.spectate`): this browser's car is one more AI racer, so there is no player car.
    */
   protected field(): Entrant[] {
-    let n = this.options.aiCount + 1;
+    let n = this.survival ? 1 : this.options.aiCount + 1;
     for (const id of this.seats.keys()) n = Math.max(n, id + 1);
     this.host.setPolice(n, 0);
     this.host.setCarCount(n);
@@ -206,7 +224,7 @@ export abstract class RaceField {
     this.seed++;
     this.look = (Math.random() * 0x100000000) >>> 0;
     return cars.map((car, i): Entrant => {
-      if (i === this.self && !this.options.spectate) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
+      if (i === this.self && (this.survival || !this.options.spectate)) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
       const peer = this.seats.get(i);
       if (peer !== undefined) return { id: i, name: peer, kind: "remote", aggression: 0 };
       return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) };
@@ -224,20 +242,22 @@ export abstract class RaceField {
     this.host.clear();
     const tr = this.load(trackId);
     // Quitting to the menu comes back to the course just raced.
-    this.options.trackId = tr.id;
+    if (!this.survival) this.options.trackId = tr.id;
+    const sv = this.survival ? tr.survival : null;
+    if (this.survival && !sv) throw new Error(`${tr.id} has no survival anchors`);
     const racers = this.entrants.length;
-    const traffic = tr.json.traffic ? new TrafficBrain(tr, racers) : null;
+    const traffic = !sv && tr.json.traffic ? new TrafficBrain(tr, racers) : null;
     const tcount = traffic ? Math.min(traffic.count, MAX_CARS - racers) : 0;
     this.traffic = tcount > 0 ? traffic : null;
     this.policeFrom = racers + tcount;
-    const pcount = this.options.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
+    const pcount = sv ? HUNT.units : this.options.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
     this.host.setPolice(this.policeFrom, pcount);
     this.host.setCarCount(this.policeFrom + pcount);
     this.grid = [...grid];
     const ordered = this.grid.map((id) => this.entrants[id]!);
-    this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: this.options.noReset });
+    this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: sv ? true : this.options.noReset, survival: sv ? SURVIVAL : undefined });
     this.brain = new RaceBrain(tr, racers);
-    this.police = pcount > 0 ? new PoliceBrain(tr, this.brain, this.policeFrom, pcount, this.seed) : null;
+    this.police = sv ? new HunterBrain(tr, this.colliders, racers, this.policeFrom, pcount, this.seed) : pcount > 0 ? new PoliceBrain(tr, this.brain, this.policeFrom, pcount, this.seed) : null;
     const n = this.policeFrom + pcount;
     while (this.snaps.length < n) this.snaps.push(blankAiCar(this.snaps.length));
     while (this.poses.length < racers) this.poses.push({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true });
@@ -260,12 +280,17 @@ export abstract class RaceField {
     }
     this.grid.forEach((id, k) => {
       this.rowOf[id] = k;
-      const slot = tr.gridSlot(k);
+      const slot = sv ? { ...sv.start, y: 0 } : tr.gridSlot(k);
       const car = cars[id]!;
       this.place(car, slot.x, slot.z, slot.yaw, slot.y);
       this.brain!.setAggression(id, this.entrants[id]!.aggression);
       this.brain!.setClass(id, classStats(carClass(car)));
     });
+    if (this.police instanceof HunterBrain) {
+      this.police.launch(this.patrolWorld);
+      this.bestBefore = loadBest(tr.id);
+      this.run = null;
+    }
     this.seg.fill(-1);
     this.flipFor.fill(0);
     this.stillFor.fill(0);
@@ -319,7 +344,7 @@ export abstract class RaceField {
     this.unload();
     let tr = this.tracks.get(trackId);
     if (!tr) {
-      const json = [...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
+      const json = [...TRACKS, this.survivalJson, ...OFF_MENU].find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
       tr = new Track(json);
       this.tracks.set(trackId, tr);
     }
@@ -369,7 +394,7 @@ export abstract class RaceField {
         const k = this.track!.project(e.x, e.z, this.seg[e.id]!, this.proj).k;
         this.place(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
         this.brain?.respawned(e.id);
-        this.police?.respawned(e.id, s.time);
+        this.police?.respawned?.(e.id, s.time);
         this.seg[e.id] = -1;
         this.flipFor[e.id] = 0;
         this.stillFor[e.id] = 0;
@@ -379,6 +404,7 @@ export abstract class RaceField {
         if (s.phase !== "finished") this.menu = "dead";
       } else if (e.type === "over") {
         this.overFor = 0;
+        if (this.survival) this.settle(s);
         this.recorder.end();
         this.host.reelReady(this.recorder.ledger.kept);
       }
@@ -445,15 +471,52 @@ export abstract class RaceField {
   }
 
   /** True when (x, z) is inside the local camera's view (traffic never pops in there). */
-  private readonly seen = (x: number, z: number): boolean => {
+  private readonly seen = (x: number, z: number, radius = 3): boolean => {
     const cam = this.host.camera;
     cam.updateMatrixWorld();
     this.viewProj.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse);
     this.frustum.setFromProjectionMatrix(this.viewProj);
     _c.set(x, (this.track?.ground().heightAt(x, z) ?? 0) + 0.8, z);
-    this.sphere.set(_c, 3);
+    this.sphere.set(_c, radius);
     return this.frustum.intersectsSphere(this.sphere);
   };
+
+  /**
+   * True when a car at (x, z) cannot be seen from the local camera: `HIDE_MARGIN` m outside its view, or behind the course's
+   * solids (terrain, buildings, props) from the eye to both its belly and its roof. What a Survival drop-in must satisfy.
+   */
+  private hidden(x: number, z: number): boolean {
+    if (!this.seen(x, z, HIDE_MARGIN)) return true;
+    const sight = this.courseSight();
+    if (!sight) return false;
+    const eye = this.host.camera.position;
+    const y = (this.track?.ground().heightAt(x, z) ?? 0) + 0.4;
+    return sightLine(sight, eye.x, eye.y, eye.z, x, y, z) < 0 && sightLine(sight, eye.x, eye.y, eye.z, x, y + 0.9, z) < 0;
+  }
+
+  /** A Survival run is over: its time, the best (kept when beaten) and why it ended. */
+  private settle(s: RaceSession): void {
+    const me = s.cars[this.rowOf[this.self]!]!;
+    const time = me.outTime ?? s.time;
+    const { best, isNew } = settleRun(this.bestBefore, time);
+    if (isNew) saveBest(s.track.id, time);
+    const cause = me.bustedAt != null ? "busted" : me.status === "out" ? "wrecked" : "ended";
+    this.run = { time, best, isNew, cause, wrecked: this.police instanceof HunterBrain ? this.police.stats.disabled : 0 };
+  }
+
+  /** Survival's part of the HUD read model (null in a race). */
+  protected survivalHud(): SurvivalHud | null {
+    const s = this.session;
+    if (!this.survival || !s) return null;
+    const hunter = this.police instanceof HunterBrain ? this.police : null;
+    return {
+      cops: hunter?.hunting ?? 0,
+      wrecked: hunter?.stats.disabled ?? 0,
+      best: this.bestBefore,
+      hold: Math.min(1, s.cars[this.rowOf[this.self]!]!.stopped / s.bustTime),
+      result: this.run,
+    };
+  }
 
   /** Spawn a car at (x, z) facing `yaw`, standing on the ground layer nearest `y`, dressed. */
   private place(car: DeformableCar, x: number, z: number, yaw: number, y: number): void {

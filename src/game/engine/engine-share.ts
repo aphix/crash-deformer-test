@@ -30,8 +30,8 @@ export abstract class EngineShare extends EngineReel {
       room: this.net.role !== "off" && isShareableRoom(this.net.room) ? this.net.room : "",
       tx: this.net.role === "off" ? "rtc" : this.net.tx,
       scene: sc,
-      // The race and the range put their own field up; the sandbox's size waits in `sandboxCars`.
-      cars: sc === "race" || sc === "range" ? this.sandboxCars : this.carCount,
+      // The race, the range and Survival put their own field up; the sandbox's size waits in `sandboxCars`.
+      cars: sc === "race" || sc === "range" || sc === "survival" ? this.sandboxCars : this.carCount,
       smin: this.speedMin,
       smax: this.speedMax,
       night: this.stage.night,
@@ -90,8 +90,8 @@ export abstract class EngineShare extends EngineReel {
     try {
       let c = this.shareState();
       const differs = (...keys: (keyof ShareState)[]): boolean => keys.some((k) => t[k] !== c[k]);
-      // The race and the range ignore the sandbox's car count: leave them first, the switch below stores it again.
-      if ((c.scene === "race" || c.scene === "range") && (t.scene !== c.scene || differs("cars"))) {
+      // The race, the range and Survival ignore the sandbox's car count: leave them first, the switch below stores it again.
+      if ((c.scene === "race" || c.scene === "range" || c.scene === "survival") && (t.scene !== c.scene || differs("cars"))) {
         this.applyScene("fleet");
         c = this.shareState();
       }
