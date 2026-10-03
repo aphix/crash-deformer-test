@@ -458,14 +458,13 @@ export function resolveRampBalls(
   return hit;
 }
 
-/** Stand the six lamp posts back up on the 16 m ring. */
-export function resetLampPoles(poles: readonly LampPole[], visible: boolean): void {
+/** Stand the six lamp posts back up on the 16 m ring (shown or hidden as they were). */
+export function resetLampPoles(poles: readonly LampPole[]): void {
   for (let i = 0; i < poles.length; i++) {
     const pole = poles[i]!;
     const a = (i / 6) * Math.PI * 2;
     pole.intact = true;
     pole.kicked.clear();
-    pole.group.visible = visible;
     pole.group.position.set(Math.sin(a) * 16, 0, Math.cos(a) * 16);
     pole.group.rotation.set(0, 0, 0);
   }

@@ -9,13 +9,14 @@ import { makeRangeArt } from "../present/range-art.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
-import { type ContactHit, resetLampPoles, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
+import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
 import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
+import { clearTransients } from "./scene-clear.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
 const _v = new THREE.Vector3();
@@ -259,6 +260,8 @@ export abstract class EngineScenes extends EngineHud {
   protected randomizeAndReset(): void {
     // A new run rolls a new seed (24 bits: up to six hex digits in the share URL) unless a pasted URL pinned one.
     this.sceneSeed = this.pinnedSeed ?? Math.floor(Math.random() * 0x1000000);
+    // Under the fade's black or not, every transition, loop and reset empties the last scene here, before the scene spawns its cars.
+    clearTransients(this.transients());
     this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
     // Built on first entry, not at boot: its programs link with this switch (`queueWarm`), never in the boot warm-up.
@@ -313,7 +316,7 @@ export abstract class EngineScenes extends EngineHud {
     this.ramps.group.visible = this.showRamps;
     this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
     scatterRampBalls(this.balls, this.showBalls, this.sceneRng(1));
-    resetLampPoles(this.poles, !this.derbyMode && !this.showRange);
+    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange;
     this.finishResetCommon();
   }
 
@@ -474,7 +477,6 @@ export abstract class EngineScenes extends EngineHud {
   private parkSolo(): DeformableCar {
     this.ensureCars(Math.max(this.carCount, 1));
     const parked = this.carA;
-    parked.resetVisual();
     parked.group.visible = true;
     parked.yaw = 0;
     parked.pitch = 0;
@@ -493,7 +495,6 @@ export abstract class EngineScenes extends EngineHud {
 
     for (let i = 1; i < this.cars.length; i++) {
       const extra = this.cars[i]!;
-      extra.resetVisual();
       extra.group.visible = false;
       extra.group.position.set(48 + i * 4, 0, 48);
       extra.velocity.set(0, 0, 0);
@@ -562,13 +563,6 @@ export abstract class EngineScenes extends EngineHud {
     this.impactKph = null;
     this.impactLightLife = 0;
     this.impactLight.intensity = 0;
-    this.debris.reset();
-    this.sparks.reset();
-    this.glassDots.reset();
-    this.smoke.reset();
-    this.ragdolls.reset();
-    this.rangeRun.reset();
-    this.cine.reset();
 
     if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
