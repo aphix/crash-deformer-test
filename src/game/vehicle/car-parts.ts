@@ -465,14 +465,14 @@ export abstract class CarParts extends CarCore {
     if (this.liveShells.length > LIVE_SHELLS) this.liveShells.shift()!.object.visible = false;
   }
 
-  /** First hinge or tear: the panel's shell joins the car and its patch of body turns to primer. */
+  /** First hinge or tear: the panel's shell joins the car (in the body's own frame: class lift, suspension pose) and its patch of body turns to primer. */
   protected openPanel(p: DetachPart): void {
     if (p.open) return;
     p.open = true;
     const mesh = p.object as THREE.Mesh;
     if (!mesh.geometry.getAttribute("position")) mesh.geometry = makeShell(p.region!, this.body.geometry);
     setPrimer(p.region!, this.body.geometry, true);
-    this.group.add(mesh);
+    this.body.parent!.add(mesh);
   }
 
   /** The panel is back on the car (reset): the shell leaves the scene and the body is paint again. */
