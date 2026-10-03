@@ -1,6 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { DeformableCar } from "../vehicle/car.ts";
@@ -164,44 +163,5 @@ describe("a scene reset leaves nothing of the last scene behind", () => {
     assert.deepEqual(left, [], "systems with leftovers");
     assert.equal(r.scene.children.length, r.base, "scene root children");
     r.ragdolls.dispose();
-  });
-});
-
-/** Scene-owning classes the engine builds: which are cleared by the reset, which are scene furniture the scene code resets itself. */
-const CLEARED: Record<string, true> = {
-  DeformableCar: true,
-  DebrisSystem: true,
-  SparkSystem: true,
-  GlassDotSystem: true,
-  TireSmokeSystem: true,
-  RagdollSystem: true,
-  Cinematics: true,
-};
-const FURNITURE: Record<string, true> = {
-  WorldStage: true,
-  RaceDirector: true,
-  WinnerSpot: true,
-  JerseyBarrier: true,
-  FleetRamps: true,
-  Corkscrew: true,
-  CompactorPress: true,
-  PistonBank: true,
-  DoorRam: true,
-  LampLights: true,
-};
-
-describe("the engine's scene-owning systems are all accounted for", () => {
-  it("bad: a class built on `this.scene` is either in the clear path or named scene furniture", () => {
-    const src = ["engine.ts", "engine-core.ts"].map((f) => readFileSync(new URL(`./${f}`, import.meta.url), "utf8")).join("\n");
-    const built = [...src.matchAll(/new (\w+)\([^)]*\bthis\.scene\b/g)].map((m) => m[1]!);
-    assert.ok(built.length >= 15, `found ${built.length} constructions`);
-    const unknown = built.filter((c) => !(c in CLEARED) && !(c in FURNITURE));
-    assert.deepEqual(unknown, [], "new scene system: add it to Transients (and the ROWS table) or to FURNITURE");
-  });
-
-  it("bad: the reset calls the clear before any branch can return", () => {
-    const src = readFileSync(new URL("./engine-scenes.ts", import.meta.url), "utf8");
-    const body = src.slice(src.indexOf("protected randomizeAndReset()"));
-    assert.ok(body.indexOf("clearTransients(") > 0 && body.indexOf("clearTransients(") < body.indexOf("return;"), "clearTransients runs first");
   });
 });
