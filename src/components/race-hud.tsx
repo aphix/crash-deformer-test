@@ -46,7 +46,7 @@ export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: S
   const watched = race.standings.find((r) => r.watched)?.place;
   const focusPlace = (race.spectating !== null ? watched : race.you?.place) ?? watched ?? 1;
   return (
-    <ol aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48">
+    <ol aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48 idle:opacity-60">
       {race.standings.map((row) => (
         <li key={row.id} className={cn(row.place !== 1 && !row.you && Math.abs(row.place - focusPlace) > 1 && "max-sm:hidden")}>
           <StandingRow row={row} lead={race.standings[0]!.lap} onWatch={() => onCommand({ type: "watch", id: row.id })} />

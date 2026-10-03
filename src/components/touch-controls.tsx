@@ -173,7 +173,7 @@ export function TouchControls({ state, engine }: HudProps) {
   // A spectated race car is never this player's to drive.
   const canDrive = driving || (state.seat === "follow" && !race?.spectating);
   return (
-    <div className="pointer-events-none flex w-full items-end justify-between gap-2">
+    <div data-keep-idle className="pointer-events-none flex w-full items-end justify-between gap-2">
       {canDrive ? <Stick engine={engine} /> : <span />}
       <div className="grid grid-cols-3 gap-2">
         {race ? null : (

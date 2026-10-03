@@ -39,7 +39,7 @@ export function HudSections(props: HudProps) {
       type="multiple"
       value={open.split(",").filter(Boolean)}
       onValueChange={(v) => setOpen(v.join(","))}
-      className="hud-panel hud-settings pointer-events-auto divide-y divide-border self-end overflow-y-auto"
+      className="hud-panel hud-settings pointer-events-auto divide-y divide-border self-end overflow-y-auto idle:hidden"
       style={{ gridArea: "settings" }}
     >
       <Section id="playback" title="Playback">
