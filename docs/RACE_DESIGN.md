@@ -87,8 +87,8 @@ With speed > 1.5 m/s, `c = v̂ · tangent`; while `c < −0.3` a timer grows, ot
 the rate; `wrongWay` on at 0.7 s, off at 0.
 
 ## Death, respawn, elimination
-- Dead for the rules: drivetrain dead, upside down for 2.5 s, or still for 8 s while the race AI or a
-  peer drives it (not while this browser's driver has it).
+- Dead for the rules: drivetrain dead, upside down for 2.5 s, or still for 8 s while the race AI drives it (not while a
+  human has it: this browser's driver or a netplay peer, who can press R).
 - Player reset: R / D-pad ↓, 1.5 s. AI reset: a car the race AI drives (a rival, or the player's car
   while its seat isn't driving) that gains < 25 m of track in 8 s (wedged on a wall, shoving a stopped
   car, two wrecks hooked together) takes the same reset.
@@ -97,6 +97,15 @@ the rate; `wrongWay` on at 0.7 s, off at 0.
   (centre, ±½ half-width, then 6 m further back, up to 12 tries), on the layer it was racing on
   (deck or road below), fully repaired.
 - No-reset: a death is final (`out`); resets are refused. The player gets the dead menu.
+- **Driver thrown out** (`DeformableCar.driverOut`, set by the sim's `EjectionWatch`, `vehicle/ejection.ts`, once per
+  fixed step at the end of `stepWorld`: a disabling or realistic-end-kill hit, head-on or from the side, closing ≥ 6 m/s):
+  the car freewheels (`RaceField.coast`: throttle 0, brake 0, wheel 0 and `DriveInput.neutral`, so no thrust and no lift-off
+  engine braking: only rolling resistance and air drag, `DRIVE.roll` / `DRIVE.drag`, ~0.5 m/s² at 130 km/h against the lift-off
+  drag's 12.6 on a sedan; tyres, ground and gravity as ever) whoever's it is: the player's seat, a peer, a rival, traffic or police. It is dead for
+  the rules (`judge`): the Respawn race's 3 s reset puts the driver back (`resetVisual`), the No-reset race eliminates it
+  (`out`). The HUD shows DRIVER OUT (`you.driverOut`). The flag rides netplay snapshots (flags byte, bits 5–6) and
+  the thrown dummy rides `MSG.eject`; highlight clips record each ejection (`ClipEjection`), score `EJECT_POINTS` for it
+  and relaunch the dummy from the recorded numbers.
 
 ## Winning and the end
 First car home wins (`winBy = laps`). Then the chequered flag: every other car finishes the next time

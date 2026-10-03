@@ -1,5 +1,6 @@
 import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_PACE, DERBY_RULES, type AiCar } from "../ai/derby-ai.ts";
-import { DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { aiRecoverDelay, DRIVE, FlipClock, idleDrive, mayRecoverFlipped, type DriveInput } from "../vehicle/car-drive.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { derbyRadius } from "../scenes/derby-arena.ts";
 import { COUNTDOWN, GRID_TIME } from "./session.ts";
@@ -87,6 +88,8 @@ export class DerbyMatch {
   private lastAttacker = new Map<number, number>();
   private wasAlive = new Map<number, boolean>();
   private boostQueue: number[] = [];
+  /** Per car: how long it has lain flipped (`recoverDue`). */
+  private readonly flips: FlipClock[] = [];
   readonly brain = new DerbyBrain();
   private snaps: AiCar[] = [];
   private readonly idle = idleDrive();
@@ -111,6 +114,7 @@ export class DerbyMatch {
     this.lastAttacker.clear();
     this.wasAlive.clear();
     this.boostQueue.length = 0;
+    this.flips.length = 0;
     this.brain.reset();
     this.brain.radius = opts.radius ?? derbyRadius(cars.length);
     this.lastAggro.clear();
@@ -220,6 +224,16 @@ export class DerbyMatch {
     const out = this.brain.think(self, others, dt);
     if (out.throttle > 0) out.throttle *= DERBY_PACE / DRIVE.maxFwd;
     return out;
+  }
+
+  /**
+   * The AI "presses R" for car `id`: true once it has lain flipped for the player's self-right delay
+   * (`aiRecoverDelay`) and the player's rule lets R right it (`mayRecoverFlipped`: it still runs). The engine then
+   * rights it as the R key does (`recoverCar`).
+   */
+  recoverDue(id: number, car: Pick<DeformableCar, "group" | "deform" | "velocity">, dt: number): boolean {
+    const clock = (this.flips[id] ??= new FlipClock());
+    return clock.step(car.group.matrixWorld.elements[5]!, car.velocity.length(), dt, aiRecoverDelay()) && mayRecoverFlipped(car);
   }
 
   step(dt: number, flags: readonly DerbyCarFlag[]): "running" | "winner" | "loop" {

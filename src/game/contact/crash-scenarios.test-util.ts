@@ -8,6 +8,7 @@ import { BARRIER_HALF, physicsSlice, sliceSpeed } from "./sat.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { mass, paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
+import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
 
 /**
  * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
@@ -77,6 +78,9 @@ export type CrashWorld = {
   slomo: boolean;
   /** Group position at the start of the last slice before each car's first contact. */
   preContact: Map<DeformableCar, THREE.Vector3>;
+  /** Every driver the sim threw out so far (`world.ejection`, drained each step), and a hook for the engine's own use of them (the ragdolls). */
+  ejections: Ejection[];
+  onEject: ((e: Ejection) => void) | null;
   /** The engine's step; the probes hook `afterCar` (their zip check). */
   world: World;
 };
@@ -161,6 +165,10 @@ export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
   while (w.acc > 1e-5 && steps < 8) {
     const h = physicsSlice(w.acc, vmax);
     stepWorld(w.world, h);
+    for (const e of w.world.ejection?.take() ?? []) {
+      w.ejections.push(e);
+      w.onEject?.(e);
+    }
     const hit = w.world.strongest;
     if (w.clock.phase === "approach" && hit.contact && hit.impulse > 0.4) beginImpact(w.clock, w.slomo);
     w.acc -= h;
@@ -397,7 +405,8 @@ export function makeWorld(cars: DeformableCar[], barrier: boolean, slomo: boolea
     for (const car of cars) if (!car.crashed) preContact.set(car, (preContact.get(car) ?? new THREE.Vector3()).copy(car.group.position));
     return false;
   };
-  return { cars, acc: 0, clock: phaseClock(), slomo, preContact, world };
+  world.ejection = new EjectionWatch();
+  return { cars, acc: 0, clock: phaseClock(), slomo, preContact, world, ejections: [], onEject: null };
 }
 
 export type WallApproach = "front" | "rear" | "side";

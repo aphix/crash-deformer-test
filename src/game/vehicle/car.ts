@@ -80,6 +80,7 @@ export class DeformableCar extends CarParts {
   resetVisual(): void {
     this.vaporized = false;
     this.falling = false;
+    this.driverOut = null;
     this.fallSpin.set(0, 0, 0);
     this.group.scale.setScalar(1);
     this.deform.reset();

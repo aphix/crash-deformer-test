@@ -1,4 +1,5 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import { EXIT_PANES } from "../vehicle/car-core.ts";
 import type { Snapshot } from "./codec.ts";
 import type { NetGame } from "./net-ports.ts";
 
@@ -76,6 +77,7 @@ export function drawSnapshots(
     if (car.falling && !fa.falling) car.group.scale.setScalar(1);
     car.falling = fa.falling;
     if (car.sirens !== fa.sirens) car.setSirens(fa.sirens);
+    car.driverOut = EXIT_PANES[fa.driverOut] ?? null;
 
     // The newest wreck section at or before the render time, once.
     let w = -1;

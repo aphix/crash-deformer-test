@@ -24,7 +24,7 @@ import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { LampLights } from "../vehicle/lamp-lights.ts";
-import { applyDrive, BOOST } from "../vehicle/car-drive.ts";
+import { applyDrive } from "../vehicle/car-drive.ts";
 import { makeDerbyArena, WinnerSpot } from "../scenes/derby-arena.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
@@ -118,10 +118,17 @@ export class CrashEngine extends EngineShare {
     clearScene: () => this.clearLocal(),
     playReel: (reel, startAt) => this.highlights.play(reel, startAt),
     reelPlaying: () => this.highlights.playing,
+    launchEjection: (e) => this.ragdolls.launch(e, this.live()),
     seat: this.seat,
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
   protected readonly highlights: ReelDirector;
+  private readonly hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
+    if (this.elapsedWall - this.sparkAt < 0.12 || !this.witness.sees(contact, FX_REACH.debris)) return;
+    this.sparkAt = this.elapsedWall;
+    this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
+    if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
+  };
 
   constructor(canvas: HTMLCanvasElement, hudStore: HudStore, veil: HTMLElement) {
     super();
@@ -199,12 +206,6 @@ export class CrashEngine extends EngineShare {
     this.scene.add(this.impactLight);
     // Four body lamps per car plus at most one lit siren (police flash red, then blue).
     this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
-    const hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
-      if (this.elapsedWall - this.sparkAt < 0.12 || !this.witness.sees(contact, FX_REACH.debris)) return;
-      this.sparkAt = this.elapsedWall;
-      this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
-      if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
-    };
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,
@@ -220,7 +221,7 @@ export class CrashEngine extends EngineShare {
       },
       leave: () => this.toggleRace(),
       watchCam: () => void (this.view.spec = "auto"),
-      hitFx,
+      hitFx: this.hitFx,
       buildArt: (track, placed) => {
         this.queueWarm();
         this.ragdolls.setCourse(track, placed, (i) => this.race.propKnocked(i));
@@ -241,7 +242,8 @@ export class CrashEngine extends EngineShare {
       sight: (focus) => this.sceneSight(focus, true),
       clock: this.clock,
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
-      hit: hitFx,
+      hit: this.hitFx,
+      eject: (e, ride) => { this.ragdolls.launch(e, this.live()); if (ride) this.ragdolls.follow(); },
     });
 
     this.resize();
@@ -439,11 +441,7 @@ export class CrashEngine extends EngineShare {
       this.stepDerby(simDt);
       this.seat.step(simDt);
       this.cine.update(wallDt, simDt, cars, this.followedCar(), this.seat.mode === "drive", this.fxDensity);
-      if (this.derbyMode) {
-        for (const id of this.derby.consumeBoosts()) {
-          if (id === this.seat.carIndex && this.seat.mode === "drive") this.seat.addBoost(BOOST.takedown);
-        }
-      }
+      if (this.derbyMode) for (const id of this.derby.consumeBoosts()) this.takedownBoost(id);
     }
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
@@ -592,6 +590,7 @@ export class CrashEngine extends EngineShare {
       for (let i = 0; i < cars.length; i++) {
         if (i === driven || this.derbySeated.has(i)) continue;
         applyDrive(cars[i]!, this.derby.think(snaps[i]!, snaps, dt), dt);
+        if (this.derby.recoverDue(i, cars[i]!, dt)) this.recoverCar(cars[i]!);
       }
     }
     const w = this.world;
@@ -608,7 +607,14 @@ export class CrashEngine extends EngineShare {
     // The ramps stay toggled (and hidden) through the rig scenes, like the slab and the balls: their faces must not
     // stand in for the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
     w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.showRamps && !this.rigScene ? this.rampCollide : null;
+    this.ejection.ctx = this.derbyMode ? "derby" : "default";
     stepWorld(w, dt);
+    // A driver thrown out this step (`EjectionWatch`): his dummy flies, the race recorder and the netplay peers hear of it.
+    for (const e of this.ejection.take()) {
+      this.ragdolls.launch(e, cars);
+      if (this.race.active) this.race.recorder.eject(e);
+      this.net.sendEject(e);
+    }
     if (this.race.active) this.race.step(dt);
 
     const { impulse, contact, normal } = w.strongest;
@@ -619,7 +625,6 @@ export class CrashEngine extends EngineShare {
       this.sparks.poof(contact, normal, Math.min(56, 18 + impulse * 0.8) * this.fxDensity);
     }
   }
-
 
   private emitContactFx(): void {
     if (this.clock.phase === "approach" || this.fxPoofed) return;
@@ -727,9 +732,12 @@ export class CrashEngine extends EngineShare {
 
   private aimRigs(wallDt: number): void {
     if (this.highlights.playing) {
-      // The reel frames its own shots (over any ride-along); the crash cam takes each clip's hit and holds one cut through it.
+      // The reel frames its own shots; the subject's thrown driver's ride-along takes the camera over them, the crash cam on a probe lens.
       this.reelFov ??= this.camera.fov;
-      if (!this.cine.direct(this.camera, wallDt, true, this.highlights.crashHold())) this.highlights.camera(this.camera);
+      const subject = this.highlights.focus();
+      const ride = this.ragdolls.rideAlong && subject ? this.ragdolls.frameCamera(this.camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) : "none";
+      const cut = this.cine.direct(ride === "none" ? this.camera : this.crashProbe, wallDt, true, this.highlights.crashHold());
+      if (ride === "none" && !cut) this.highlights.camera(this.camera);
       return;
     }
     // A thrown driver's ride-along holds the camera from his exit (the windshield shot, then the dummy), over the crash

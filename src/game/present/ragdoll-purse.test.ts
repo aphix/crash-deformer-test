@@ -168,6 +168,7 @@ describe("a woman driver's purse", () => {
     armKill(car.deform, "sedan", DEFAULT_REALISM, "default");
     launch(car, -RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6, 0);
     const w = makeWorld([car], true, false);
+    w.onEject = (e) => r.launch(e, [car]);
     w.clock.slomoAt = THROW_ONSET;
     const r = await system(seedWhere(true));
     r.sand = true;

@@ -4,7 +4,7 @@ import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-inp
 import type { PadState } from "./gamepad.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 import { floorUnder, gripUnder, hypot2 } from "../deform/physics-util.ts";
-import { assists, carClass, carDrivability, CLASSES, HANDLING, type Assists, type Drivability } from "./vehicle-classes.ts";
+import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 
 /** Shared by derby AI and the player seat. */
 export type DriveInput = {
@@ -14,6 +14,12 @@ export type DriveInput = {
   brake: number;
   ebrake: boolean;
   boost: boolean;
+  /**
+   * Freewheeling (a car whose driver was thrown out): no thrust and no lift-off engine braking, only rolling resistance and
+   * air drag (`DRIVE.roll`, `DRIVE.drag`) slow it; tyre grip, the ground and gravity act as ever. Not part of `shapeDrive`:
+   * the race director sets it, and a highlight clip records it (flag 8 of the step's input byte).
+   */
+  neutral?: boolean;
 };
 
 const SEDAN = CLASSES.sedan;
@@ -30,6 +36,10 @@ export const DRIVE = {
   ebrakeDrag: 0.22,
   /** Lift-off engine braking (× class brake). */
   coast: 0.45,
+  /** Freewheel rolling resistance (m/s²): 0.015 g, a road tyre's coefficient. */
+  roll: 0.15,
+  /** Freewheel air drag (1/m, × speed²): ½ρC_dA/m for a sedan, 0.3 m/s² at 32 m/s. */
+  drag: 0.0003,
   /** Axle offset from the car origin (m) where each axle reads the ground's grip. */
   axle: 1.34,
   /** No slide starts below this forward speed (m/s). */
@@ -57,6 +67,7 @@ export function clearDrive(out: DriveInput): DriveInput {
   out.brake = 0;
   out.ebrake = false;
   out.boost = false;
+  out.neutral = false;
   return out;
 }
 
@@ -85,6 +96,7 @@ function idleDriveState(d: DeformableCar["drive"]): void {
   d.lock = 0;
   d.slide = 0;
   d.boost = false;
+  d.neutral = false;
 }
 
 /** applyDrive's pedals: speed along the nose (`_pedal` layout above). */
@@ -109,6 +121,10 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
     speed = s < 0.4 ? 0 : Math.sign(speed) * s;
     // ABS hides most of the lock-up at the arcade end.
     if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
+  } else if (input.neutral) {
+    // Freewheeling: no thrust, no engine braking (`want` stays 0, the car is not under power), the road's drag alone.
+    const v = Math.abs(speed);
+    speed = Math.sign(speed) * Math.max(0, v - (DRIVE.roll + DRIVE.drag * v * v) * dt);
   } else {
     want = throttle * top;
     const v = Math.abs(speed);
@@ -170,8 +186,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   d.throttle = throttle;
   d.steer = steer;
   d.brake = brake;
-  d.ebrake = input.ebrake;
-  d.boost = boosting;
+  d.ebrake = input.ebrake; d.boost = boosting; d.neutral = input.neutral === true;
 
   car.refreshBasis();
   const fx0 = car.fwdFlat.x;
@@ -283,7 +298,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   // Yaw the body and push every mass: a cabin-only kick (kickCore) gets
   // averaged away by the unkicked crumple masses on a quiet wreck, and the
   // settle clamp then parks the car for good.
-  if (want !== 0) car.deform.notifyPower();
+  // A freewheeling car (`neutral`) is not a sliding wreck either: its tyres are applyDrive's, so it is kept under power.
+  if (want !== 0 || d.neutral) car.deform.notifyPower();
   _turn[0] = c;
   _turn[1] = s;
   _turn[2] = nvx - vx;
@@ -335,6 +351,54 @@ function driveMasses(masses: readonly DriveMass[], turn: Float64Array): void {
 
 export const BOOST = { full: 1.6, recharge: 4.5, takedown: 0.4 };
 
+/** One slice of a boost meter (0–1): it drains over `BOOST.full` s while boosting, refills over `BOOST.recharge` s otherwise. The seat, the race AI and the derby AI all keep their meters by it. */
+export function chargeBoost(level: number, boosting: boolean, dt: number): number {
+  return boosting ? Math.max(0, level - dt / BOOST.full) : Math.min(1, level + dt / BOOST.recharge);
+}
+
+/** A bonus (a takedown's `BOOST.takedown`, a draft) onto a meter, capped at full. */
+export function topUpBoost(level: number, amount: number): number {
+  return Math.min(1, level + amount);
+}
+
+/** Seconds on its roof the player's car waits before it rights itself (`assists`); Infinity at the realistic end, where only R rights it. */
+export function selfRightDelay(): number {
+  return assists(HANDLING.realism, _assist).selfRight;
+}
+
+/**
+ * Seconds a flipped derby AI car waits before it "presses R": the player's self-right delay, and where the slider
+ * leaves righting to R alone (the realistic end) the slowest delay the slider gives. The reset prompt has no delay of its own.
+ */
+export function aiRecoverDelay(): number {
+  return Math.min(selfRightDelay(), SELF_RIGHT_SLOWEST);
+}
+
+/**
+ * How long a car has sat on its roof or side (`upY`, the body's up·world-up, under 0.35) nearly still (under 2.5 m/s):
+ * the one timer the player's self-right and the derby AI's press of R both run.
+ */
+export class FlipClock {
+  private t = 0;
+
+  /** Counts `dt` while flipped; true (and restarts) once it has run `wait` s. Infinity `wait` holds it at 0. */
+  step(upY: number, speed: number, dt: number, wait: number): boolean {
+    if (upY > 0.35 || speed > 2.5 || wait === Infinity) {
+      this.t = 0;
+      return false;
+    }
+    this.t += dt;
+    if (this.t < wait) return false;
+    this.t = 0;
+    return true;
+  }
+}
+
+/** What R may right in a derby, for the player and the AI alike: a flipped car (body up·world-up ≤ 0.5) that still runs, so it is no free heal. */
+export function mayRecoverFlipped(car: Pick<DeformableCar, "group" | "deform">): boolean {
+  return !(car.group.matrixWorld.elements[5]! > 0.5) && car.deform.drivetrainAlive;
+}
+
 type SeatMode = "global" | "follow" | "drive";
 export type SeatView = "third" | "far" | "first";
 const VIEWS: readonly SeatView[] = ["third", "far", "first"];
@@ -350,7 +414,7 @@ export class DriverSeat {
   private readonly feel: DriveFeel = { wheel: 0, gas: 0, brake: 0 };
   private readonly out = idleDrive();
   private wasActive = false;
-  private flippedFor = 0;
+  private readonly flip = new FlipClock();
   /**
    * Controller-slot gate: when set, a pedal press only takes the wheel of a car it allows
    * (race mode: this browser's player car, never an AI or a remote peer's car).
@@ -371,19 +435,11 @@ export class DriverSeat {
   }
 
   /**
-   * True once the driven car has sat on its roof or side (`upY`, the body's up·world-up, under 0.35), nearly
-   * still, for the slider's self-right delay; the caller then rights it. The realistic end leaves it to R.
+   * True once the driven car has sat on its roof or side (`FlipClock`) for the slider's self-right delay; the
+   * caller then rights it. The realistic end leaves it to R.
    */
   selfRight(upY: number, speed: number, dt: number): boolean {
-    const wait = assists(HANDLING.realism, _assist).selfRight;
-    if (this.mode !== "drive" || upY > 0.35 || speed > 2.5 || wait === Infinity) {
-      this.flippedFor = 0;
-      return false;
-    }
-    this.flippedFor += dt;
-    if (this.flippedFor < wait) return false;
-    this.flippedFor = 0;
-    return true;
+    return this.flip.step(upY, speed, dt, this.mode === "drive" ? selfRightDelay() : Infinity);
   }
 
   esc(): void {
@@ -422,15 +478,11 @@ export class DriverSeat {
   }
 
   step(dt: number): void {
-    if (this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0) {
-      this.boost = Math.max(0, this.boost - dt / BOOST.full);
-    } else {
-      this.boost = Math.min(1, this.boost + dt / BOOST.recharge);
-    }
+    this.boost = chargeBoost(this.boost, this.mode === "drive" && this.intent.boost && this.intent.gas > 0.05 && this.boost > 0, dt);
   }
 
   addBoost(amount: number): void {
-    this.boost = Math.min(1, this.boost + amount);
+    this.boost = topUpBoost(this.boost, amount);
   }
 
   /** Shaped input for one physics slice of the driven car (pooled: read it before the next call). */

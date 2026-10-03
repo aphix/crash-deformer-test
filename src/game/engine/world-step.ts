@@ -6,6 +6,7 @@ import { partContactPair } from "../contact/external-contact.ts";
 import { resolveCarPair } from "../contact/pair-contact.ts";
 import { shareHeight } from "../contact/sat.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
+import type { EjectionWatch } from "../vehicle/ejection.ts";
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -34,9 +35,14 @@ export type World = {
   afterCar: ((car: DeformableCar, h: number) => void) | null;
   /** Each car at the end of a slice (race walls and props). */
   collide: ((car: DeformableCar, i: number) => void) | null;
+  /**
+   * Decides, at the end of every step, whether a disabling hit throws a driver out (`car.driverOut`, an `Ejection`
+   * event). Null where the cars' record already says who was thrown when: a highlight replay.
+   */
+  ejection: EjectionWatch | null;
 };
 
-export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null): World {
+export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
   return {
     cars,
     barrier,
@@ -49,6 +55,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     poleHit: null,
     afterCar: null,
     collide: null,
+    ejection,
   };
 }
 
@@ -166,6 +173,7 @@ export function stepWorld(w: World, dt: number): void {
     }
     if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci);
   }
+  w.ejection?.step(cars, dt);
 }
 
 /**

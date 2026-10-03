@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 import { beginImpact, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, stepPhase, type CrashPhase, type PhaseClock } from "../match/phase.ts";
 import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts";
 import type { ReelHud, SaveResult } from "../match/types.ts";
@@ -106,6 +107,8 @@ export type ReelHost = {
   impact(contact: THREE.Vector3, normal: THREE.Vector3, closing: number): void;
   /** A replay's car–car hit: sparks. */
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
+  /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he is the clip's subject, so the camera follows his flight. */
+  eject(e: Ejection, ride: boolean): void;
 };
 
 type Prepared = { clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[] };
@@ -346,7 +349,7 @@ export class ReelDirector {
     this.shot = -1;
     this.impacted = false;
     this.host.resetProps();
-    // The race's leftovers, torn parts of the cars hidden next included, stay out of the clip; the clip's cars respawn after.
+    // The race's leftovers, torn parts of the cars hidden next and any dummy included, stay out of the clip; the clip's cars respawn after.
     this.host.clear();
     for (const c of this.host.live()) c.group.visible = false;
     p.sim.restart();
@@ -373,12 +376,14 @@ export class ReelDirector {
     while (this.shot + 1 < shots.length && shots[this.shot + 1]!.at <= target) {
       const next = shots[this.shot + 1]!;
       sim.advanceTo(next.at, deadline);
+      this.launch(p);
       if (!sim.done && sim.time < next.at - 1e-9) return sim.time - before;
       sim.present(next.at);
       this.shot++;
       this.frameShot(p, next);
     }
     sim.advanceTo(target, deadline);
+    this.launch(p);
     sim.present(target);
     const hit = sim.world.strongest;
     if (hit.contact && hit.normal && hit.impulse > 1.2 && performance.now() / 1000 - this.sparkAt > SPARK_GAP) {
@@ -386,6 +391,12 @@ export class ReelDirector {
       this.host.hit(hit.contact, hit.normal, hit.impulse);
     }
     return sim.time - before;
+  }
+
+  /** The dummies the clip's steps threw since the last look fly; the clip's subject car's driver gets the ride-along. */
+  private launch(p: Prepared): void {
+    const focus = p.clip.cars[p.clip.focus]!.slot;
+    for (const e of p.sim.take()) this.host.eject(e, e.car === focus);
   }
 
   private frameShot(p: Prepared, s: Shot): void {

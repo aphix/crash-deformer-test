@@ -1,8 +1,9 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, simFingerprint, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
-import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Writer, type NetLayout } from "./codec.ts";
+import { INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { blankEjection } from "../vehicle/ejection.ts";
+import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
 /**
  * Highlight clips on the wire and in storage (docs/HIGHLIGHTS.md): one byte layout for the `MSG.reel` message and a
@@ -14,9 +15,10 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Wri
  * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
  * flight block and solver state; 3: that state XORed on the car's previous keyframe's; 4: the solver state's
  * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`; 5: the race's driver-look seed after
- * the deform mode). A saved clip also records `NET_VERSION` (its snapshots' layout).
+ * the deform mode; 6: `ejects` and the ejections tail, a thrown driver's step and launch numbers). A saved clip also
+ * records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 5;
+const REPLAY_VERSION = 6;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -25,13 +27,16 @@ export const REEL_MSG_MAX = 240 * 1024;
 const SAVE_MAGIC = 0x4c484353; // "SCHL"
 const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).length);
 
+/** A clip's ejection record: its step (u32), then `writeEjection`'s 2 + 22 × 4 bytes. */
+const EJECTION_BYTES = 4 + 2 + 22 * 4;
+
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
-  let n = 1 + utf8(c.trackId) + 73 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  let n = 1 + utf8(c.trackId) + 74 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (2 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 8 + k.length;
-  return n;
+  return n + 1 + c.ejections.length * EJECTION_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -39,6 +44,7 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.f32(c.score);
   w.u16(c.impacts);
   w.u8(c.kills);
+  w.u8(Math.min(255, c.ejects));
   w.f32(c.peakKph);
   w.f64(c.t0);
   w.f64(c.firstImpact);
@@ -74,6 +80,11 @@ export function writeClip(w: Writer, c: HighlightClip): void {
     w.bytes.set(c.keys[k]!, w.off);
     w.off += c.keys[k]!.length;
   }
+  w.u8(c.ejections.length);
+  for (const x of c.ejections) {
+    w.u32(x.step);
+    writeEjection(w, x.e);
+  }
 }
 
 /**
@@ -85,6 +96,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const score = r.fin32();
   const impacts = r.u16();
   const kills = r.u8();
+  const ejects = r.u8();
   const peakKph = r.fin32();
   const t0 = r.f64();
   const firstImpact = r.f64();
@@ -152,7 +164,16 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     keys.push(key);
   }
   if (firstStep >= steps) throw new RangeError("clip first step");
-  return { trackId, score, impacts, kills, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, keyStep, keys };
+  const ne = r.u8();
+  const ejections: ClipEjection[] = [];
+  for (let k = 0; k < ne; k++) {
+    const step = r.u32();
+    const e = blankEjection();
+    readEjection(r, e);
+    if (step >= steps || e.car >= nc || (k > 0 && step < ejections[k - 1]!.step)) throw new RangeError("clip ejection");
+    ejections.push({ step, e });
+  }
+  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, keyStep, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */
@@ -230,6 +251,19 @@ export async function unpackReel(data: Uint8Array, L: NetLayout): Promise<{ reel
   const clips: HighlightClip[] = [];
   for (let k = 0; k < n; k++) clips.push(readClip(body, L));
   return { reel: { seed, clips }, startAt };
+}
+
+/**
+ * A `MSG.reel` decoded and handed to `play`, its start (host clock) moved onto this browser's clock by `offset`. Decoding is
+ * async: `current` says the session is still the one the message came from, else it is dropped; a malformed one plays nothing.
+ */
+export function playHostReel(data: Uint8Array, L: NetLayout, offset: number, play: (reel: Reel, startAt: number) => void, current: () => boolean): void {
+  unpackReel(data, L).then(
+    ({ reel, startAt }) => {
+      if (current()) play(reel, startAt + offset);
+    },
+    () => {},
+  );
 }
 
 /** A clip for `localStorage`: magic, `REPLAY_VERSION`, `NET_VERSION`, the sim fingerprint, then the clip deflated; base64. */

@@ -1,14 +1,15 @@
 import * as THREE from "three";
 import { beginFakeFall, FLIGHT, type DeformableCar } from "../vehicle/car.ts";
-import type { WorldBounce } from "../vehicle/car-core.ts";
+import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
+import { countsAsImpact, INPUT_BYTES, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, Q, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { foldHeading } from "../present/shot-cam.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 
 /** What a replay needs from its scene: dress a respawned car, and the course's walls and props for car `slot`. */
 export type ReplayScene = {
@@ -22,6 +23,7 @@ const _from = new THREE.Quaternion();
 const _o = new THREE.Quaternion();
 const _p = new THREE.Quaternion();
 const IDENTITY = new THREE.Quaternion();
+const NO_EJECTIONS: readonly Ejection[] = [];
 /** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
 const TELEPORT = 5;
 /**
@@ -89,10 +91,21 @@ export class ClipSim {
   private readonly input: DriveInput = idleDrive();
   /** The first impact's car still had a running engine after the last step (a kill-opened cluster's impact is its death). */
   private aliveA = true;
+  /** Next of `clip.ejections` to fire, and the throws fired since `take`. */
+  private ejectAt = 0;
+  private fired: Ejection[] = [];
+  /**
+   * Clip time each car pair (a·n + b, a < b) and each car against the walls last touched: a contact marks the first hit
+   * only after a quiet spell and hard enough, the recorder's own rule (`countsAsImpact`).
+   */
+  private readonly pairAt: Float64Array;
+  private readonly wallAt: Float64Array;
 
   constructor(clip: HighlightClip, cars: readonly DeformableCar[], scene: ReplayScene) {
     this.clip = clip;
     this.cars = cars;
+    this.pairAt = new Float64Array(cars.length * cars.length);
+    this.wallAt = new Float64Array(cars.length);
     this.impactStep = clip.firstStep;
     this.length = clip.h.reduce((a, h) => a + h, 0);
     this.preSnap = new Float32Array(cars.length * 3);
@@ -132,7 +145,7 @@ export class ClipSim {
     const slots = clip.cars.map((c) => c.slot);
     w.collide = (car, k) => scene.collide(car, slots[k]!);
     w.bounce = scene.bounce;
-    w.pairHit = (a, b, _hit, first) => this.noteHit(a, b, first);
+    w.pairHit = (a, b, hit, first) => this.noteHit(a, b, hit.impulse, first);
     this.world = w;
     this.dress = scene.dress;
   }
@@ -141,15 +154,40 @@ export class ClipSim {
     return this.step >= this.clip.h.length;
   }
 
+  /**
+   * The dummies thrown since the last call: the clip's `ejections` as their steps ran, `car` the engine slot of the clip's
+   * car (a shared empty array when none). The recording's own numbers, so every replay launches the same throws.
+   */
+  take(): readonly Ejection[] {
+    if (this.fired.length === 0) return NO_EJECTIONS;
+    const out = this.fired;
+    this.fired = [];
+    return out;
+  }
+
+  /** Step `s` has run: the drivers the record threw out in it are out of their cars now. */
+  private fire(s: number): void {
+    const list = this.clip.ejections;
+    for (; this.ejectAt < list.length && list[this.ejectAt]!.step <= s; this.ejectAt++) {
+      const e = list[this.ejectAt]!.e;
+      this.cars[e.car]!.driverOut = e.exit;
+      this.fired.push({ ...e, car: this.clip.cars[e.car]!.slot });
+    }
+  }
+
   /** Respawn every car in its keyframe-0 state, at the clip's start. */
   restart(): void {
     this.step = 0;
     this.time = 0;
+    this.ejectAt = 0;
+    this.fired = [];
     this.stepAt = 0;
     this.presented = false;
     this.clearPop();
     this.heading.set(0, 0);
     this.firstHit = -1;
+    this.pairAt.fill(-Infinity);
+    this.wallAt.fill(-Infinity);
     for (let j = 0; j < this.cars.length; j++) this.spawn(j, 0);
     foldHeading(this.heading, this.cars[this.clip.focus]!, 0);
     this.aliveA = this.cars[this.clip.firstA]!.deform.drivetrainAlive;
@@ -208,10 +246,12 @@ export class ClipSim {
         d.brake = inp[o + 2]! / 255;
         d.ebrake = (inp[o + 3]! & 1) !== 0;
         d.boost = (inp[o + 3]! & 2) !== 0;
+        d.neutral = (inp[o + 3]! & 8) !== 0;
         applyDrive(cars[j]!, d, h, inp[o + 3]! & 4 ? DRAFT.top : 1);
       }
       stepWorld(this.world, h);
       settleStep(cars, h, clip.bleed);
+      this.fire(s);
       // A cluster opened by a kill: the struck car's drivetrain dying is the impact.
       const a = cars[clip.firstA]!;
       if (clip.firstB < 0 && this.aliveA && !a.deform.drivetrainAlive) this.markHit();
@@ -358,16 +398,24 @@ export class ClipSim {
     this.popping = false;
   }
 
-  /** The course's wall or a prop touched the clip's car in race slot `slot` (`RaceField.onWallHit`). */
-  noteWall(slot: number): void {
+  /** The course's wall or a prop touched the clip's car in race slot `slot`, closing at `closing` m/s (`RaceField.onWallHit`). */
+  noteWall(slot: number, closing: number): void {
     const c = this.clip;
-    if (c.firstB < 0 && c.cars[c.firstA]!.slot === slot) this.markHit();
+    const j = c.cars.findIndex((x) => x.slot === slot);
+    if (j < 0) return;
+    const counts = countsAsImpact(this.time - this.wallAt[j]!, closing, WALL_MIN);
+    this.wallAt[j] = this.time;
+    if (counts && c.firstB < 0 && j === c.firstA) this.markHit();
   }
 
-  /** The recorded first impact's pair touched (first SAT pass: the contact they came in with). */
-  private noteHit(a: number, b: number, first: boolean): void {
+  /** The recorded first impact's pair touched at `closing` m/s (first SAT pass: the contact they came in with). */
+  private noteHit(a: number, b: number, closing: number, first: boolean): void {
+    if (!first) return;
     const { firstA, firstB } = this.clip;
-    if (first && ((a === firstA && b === firstB) || (a === firstB && b === firstA))) this.markHit();
+    const k = a * this.cars.length + b;
+    const counts = countsAsImpact(this.time - this.pairAt[k]!, closing, PAIR_MIN);
+    this.pairAt[k] = this.time;
+    if (counts && ((a === firstA && b === firstB) || (a === firstB && b === firstA))) this.markHit();
   }
 
   private markHit(): void {
@@ -412,6 +460,7 @@ export class ClipSim {
     car.yaw = f.yaw;
     car.roll = f.roll;
     car.velocity.set(f.vx, f.vy, f.vz);
+    car.driverOut = EXIT_PANES[f.driverOut] ?? null;
     car.flight(this.flight[k]!, j * FLIGHT, true);
     car.speed = Math.hypot(f.vx, f.vz);
     car.drive.drift = this.drift[k]![j]!;

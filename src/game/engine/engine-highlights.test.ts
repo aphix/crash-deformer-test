@@ -42,6 +42,7 @@ function hostOf(w: World): ReelHost {
     clock: phaseClock(),
     impact: () => {},
     hit: () => {},
+    eject: () => {},
   };
 }
 

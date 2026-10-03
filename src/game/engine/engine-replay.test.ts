@@ -49,7 +49,7 @@ function replay(w: World, clip: HighlightClip, impactKey: boolean): { dt: number
   // The record's first impact was a fresh contact (the pair apart for `REHIT_S` before it): a replay contact in that quiet spell is drift.
   sim.watchFrom = Math.max(0, clip.firstImpact - REHIT_S);
   const prev = w.race.onWallHit;
-  w.race.onWallHit = (slot) => sim.noteWall(slot);
+  w.race.onWallHit = (slot, closing) => sim.noteWall(slot, closing);
   try {
     w.race.resetProps();
     sim.restart();

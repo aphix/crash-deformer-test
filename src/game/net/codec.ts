@@ -1,9 +1,10 @@
 import { z } from "zod";
 import type { DriveInput } from "../vehicle/car-drive.ts";
-import type { PartNetState } from "../vehicle/car-core.ts";
+import { EXIT_PANES, type PartNetState } from "../vehicle/car-core.ts";
 import type { DerbyBoardRow, DerbyDecided } from "../match/derby.ts";
 import type { RaceSnapshot } from "../match/types.ts";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 
 /**
  * Binary netplay messages (docs/MULTIPLAYER.md). Little-endian, quantized to i16 steps that keep
@@ -13,9 +14,9 @@ import type { DeformNetState } from "../deform/streamed-deform.ts";
  * `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`;
  * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes); `hello`: type,
  * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`); `reel`: the end-of-race
- * highlight reel (`reel-codec.ts`), sent once, reliably.
+ * highlight reel (`reel-codec.ts`), sent once, reliably; `eject`: a driver was thrown out (`writeEject`), reliably.
  */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8 } as const;
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8, eject: 9 } as const;
 
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
@@ -24,9 +25,10 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  * 4: 9 part slots per car (the police light bar; was 8), the "police" body style and class indices.
  * 5: `MSG.reel`, the highlight reel.
  * 6: 15 part slots per car (six body panels, quarters and arch flares; was 9).
- * 7: `MSG.race` carries the race's driver-look seed (`look`); a reel clip carries it too.
+ `MSG.race` carries the race's driver-look seed (`look`); a reel clip carries it too.
+ a snapshot car's flags byte carries `driverOut` (bits 5-6), and `MSG.eject`; a reel clip carries its ejections.
  */
-export const NET_VERSION = 7;
+export const NET_VERSION = 8;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -88,6 +90,8 @@ export interface CarFrame {
   falling: boolean;
   /** Police sirens flashing (race police chase). */
   sirens: boolean;
+  /** `EXIT_PANES` index of the pane the driver was thrown out through, 0 while he is at the wheel (`DeformableCar.driverOut`). */
+  driverOut: number;
   /** Index into `CAR_STYLE_IDS` / `VEHICLE_CLASS_IDS`: the body the client must build for this car. */
   style: number;
   cls: number;
@@ -134,6 +138,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
     vaporized: false,
     falling: false,
     sirens: false,
+    driverOut: 0,
     style: 0,
     cls: 0,
     wreck: false,
@@ -390,7 +395,7 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
   w.u16(Math.round(Math.max(0, Math.min(6, s.timeScale)) * 10000));
   for (let i = 0; i < s.count; i++) {
     const f = s.cars[i]!;
-    w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0));
+    w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0) | ((f.driverOut & 3) << 5));
     w.u8((f.style & 15) | ((f.cls & 15) << 4));
     const p = STAGE;
     p[0] = f.x;
@@ -434,6 +439,7 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
     f.vaporized = (flags & 4) !== 0;
     f.falling = (flags & 8) !== 0;
     f.sirens = (flags & 16) !== 0;
+    f.driverOut = (flags >> 5) & 3;
     const body = r.u8();
     f.style = body & 15;
     f.cls = body >> 4;
@@ -458,6 +464,55 @@ export function writeInput(w: Writer, input: DriveInput, respawn = false): void 
   w.u8(Math.round(Math.max(-1, Math.min(1, input.steer)) * 127) & 0xff);
   w.u8(Math.round(Math.max(0, Math.min(1, input.brake)) * 255));
   w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | (respawn ? 4 : 0));
+}
+
+/** A thrown driver as `launch` made him: car, pane and driver, then 22 f32 (position, car-local position, direction, orientation, relative and car velocity, spin). */
+export function writeEjection(w: Writer, e: Ejection): void {
+  w.u8(e.car);
+  w.u8(EXIT_PANES.indexOf(e.exit) | (e.cop ? 4 : 0));
+  w.f32s([e.pos.x, e.pos.y, e.pos.z, e.local.x, e.local.y, e.local.z, e.dir.x, e.dir.y, e.dir.z], 9);
+  w.f32s([e.quat.x, e.quat.y, e.quat.z, e.quat.w], 4);
+  w.f32s([e.rel.x, e.rel.y, e.rel.z, e.carVel.x, e.carVel.y, e.carVel.z, e.spin.x, e.spin.y, e.spin.z], 9);
+}
+
+/** Reads `writeEjection`'s bytes into `e`; a car, pane or number no host sends is a RangeError. */
+export function readEjection(r: Reader, e: Ejection): void {
+  e.car = r.u8();
+  const bits = r.u8();
+  const exit = EXIT_PANES[bits & 3];
+  if (e.car >= MAX_NET_CARS || !exit) throw new RangeError("ejection of no car or pane");
+  e.exit = exit;
+  e.cop = (bits & 4) !== 0;
+  e.pos.set(r.fin32(), r.fin32(), r.fin32());
+  e.local.set(r.fin32(), r.fin32(), r.fin32());
+  e.dir.set(r.fin32(), r.fin32(), r.fin32());
+  e.quat.set(r.fin32(), r.fin32(), r.fin32(), r.fin32());
+  e.rel.set(r.fin32(), r.fin32(), r.fin32());
+  e.carVel.set(r.fin32(), r.fin32(), r.fin32());
+  e.spin.set(r.fin32(), r.fin32(), r.fin32());
+}
+
+/** Host → clients: a driver was thrown out at host clock `time` (s), the clock snapshots carry; the clients launch the dummy when their draw time reaches it. */
+export function writeEject(w: Writer, e: Ejection, time: number): void {
+  w.u8(MSG.eject);
+  w.f64(time);
+  writeEjection(w, e);
+}
+
+/** `writeEject`'s message in a buffer of its own (type, host clock f64, `writeEjection`'s 2 + 22 × 4 bytes): one per throw, a handful a race. */
+export function packEject(e: Ejection, time: number): Uint8Array<ArrayBuffer> {
+  const w = new Writer(1 + 8 + 2 + 22 * 4);
+  writeEject(w, e, time);
+  return w.done();
+}
+
+/** Reads `writeEject`'s message into `e`; returns its host clock. */
+export function readEject(r: Reader, e: Ejection): number {
+  r.u8();
+  const time = r.f64();
+  if (!Number.isFinite(time)) throw new RangeError("non-finite host time");
+  readEjection(r, e);
+  return time;
 }
 
 /** Reads a client's input into `out`; returns its respawn request. */

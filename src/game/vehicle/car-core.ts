@@ -161,6 +161,12 @@ type GlassState = "intact" | "cracked" | "shattered";
 /** Panes by place: doorL / doorR are the front side windows (they ride the doors, −x is the car's left). */
 export type GlassName = "windshield" | "rear" | "doorL" | "doorR" | "quarterL" | "quarterR";
 
+/** Pane a thrown driver leaves through: the windshield on a head-on, the struck side's front window on a side hit. */
+export type ExitPane = Extract<GlassName, "windshield" | "doorL" | "doorR">;
+
+/** `ExitPane`s by wire code: `EXIT_PANES.indexOf(car.driverOut)` is a snapshot frame's 2 bits (0: still at the wheel). */
+export const EXIT_PANES: readonly (ExitPane | null)[] = [null, "windshield", "doorL", "doorR"];
+
 export interface GlassPane {
   name: GlassName;
   mesh: THREE.Mesh;
@@ -262,6 +268,12 @@ export abstract class CarCore {
   readonly fallSpin = new THREE.Vector3();
   /** Fell 20 m below the fleet disc and burst into smoke (`CrashEngine.setVaporized`): hidden and out of the sim until respawned. */
   vaporized = false;
+  /**
+   * The pane the driver was thrown out through, null while he is in the car (`EjectionWatch`, stepped with the world).
+   * Sim state: a race gives the car no pedals or steering while it is set (`RaceDirector.drive`) and counts it a wreck
+   * (`judge`); netplay snapshots and highlight clips carry it. `resetVisual` puts him back.
+   */
+  driverOut: ExitPane | null = null;
   yaw = 0;
   roll = 0;
   pitch = 0;
@@ -271,7 +283,7 @@ export abstract class CarCore {
    * launch wheelspin, brake lock-up, sideways slide; `drift` is the drift assist's own state. `-0`: doubles
    * from construction, or each field's first fractional write mid-race deoptimised applyDrive for seconds.
    */
-  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, spin: -0, lock: -0, slide: -0, drift: -0 };
+  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0 };
 
   protected world: THREE.Scene;
   protected onGlass: GlassBurst | null;

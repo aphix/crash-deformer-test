@@ -63,6 +63,29 @@ counts equal the no-bystander recorder's on all five measured races, cars within
 rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is unchanged
 (27 B a step against the 45 bound, `engine-record.test.ts`).
 
+## Ejections
+
+A driver thrown out of his car (`EjectionWatch`, `vehicle/ejection.ts`: a sim decision, once per fixed step; [RACE_DESIGN.md](RACE_DESIGN.md))
+is the biggest moment a crash can hold: `EJECT_POINTS` (12) per driver on top of the impacts' energy (a 100 km/h sedan head-on
+scores 7.7, a 4-car pile-up ~9), so a cluster with one ranks and tops the clips without; the first ejected car is
+the cluster's subject (`focus`), and the title reads "Driver thrown out". `CrashRecorder.eject` also keeps the event
+(`Ejection`: car, pane, torso position in the world and the car's frame, direction, orientation, velocity relative to the
+car and the car's own, spin; f32-exact) with the step it happened in (up to 64 a race). A clip carries those of its steps
+and cars as `ejections` (`ClipEjection`, `REPLAY_VERSION` 6, with the clip's driver-look seed `look` from 5: `ejects` u8 in the header, then count, and per ejection the step
+u32 and `writeEjection`'s bytes). Traffic and police ejections count only inside a cluster a racer's hit opened, like a kill.
+A thrown-out driver's car freewheels (`DriveInput.neutral`, flag 8 of the step's input byte), so the replay's recorded drive
+output needs nothing else; keyframes carry `driverOut` in the snapshot flags.
+
+`ClipSim` fires each ejection after its step ran (`take()` hands them out with `car` the engine slot), sets `driverOut`, and
+the reel launches the dummy from the recorded numbers (`ReelHost.eject`); the clip's subject car's driver gets the ride-along
+camera (`aimRigs`), over the clip's shots, until every dummy lies still. Two replays of one clip fly the dummy along exactly
+the same path (`race-eject-reel.test.ts`); the live dummy and the replay's start from the same point (0 m) but part once
+they bounce off replayed cars (a free flight stayed within 0.9 m of the live one over 4 s, one that hit the oncoming car
+did not): the launch falls on another frame boundary (up to 1/60 s) and the replayed cars are cm to dm off the live ones.
+
+The replay marks the first hit by the recorder's own rule (`countsAsImpact`: at least `PAIR_MIN` / `WALL_MIN` hard after a
+`REHIT_S` quiet spell), so a brush 0.35 s before the recorded impact no longer times it early.
+
 ## Replay
 
 `ClipSim` respawns the clip's cars from keyframe 0, wrecks included (dents, lost parts, lamps, glass, solver state).

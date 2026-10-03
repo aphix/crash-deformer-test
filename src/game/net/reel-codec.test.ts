@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
-import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
 import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, NET_VERSION, Q, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
@@ -52,6 +52,24 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     score: 12.5,
     impacts: 3,
     kills: 1,
+    ejects: 1,
+    ejections: [
+      {
+        step: 361,
+        e: {
+          car: 1,
+          exit: "windshield",
+          cop: false,
+          pos: new THREE.Vector3(1.5, 1.25, -2),
+          local: new THREE.Vector3(-0.25, 1.125, 0.5),
+          dir: new THREE.Vector3(0, 0, 1),
+          quat: new THREE.Quaternion(0.25, 0.5, 0.25, 0.75),
+          rel: new THREE.Vector3(3, 3.5, -1),
+          carVel: new THREE.Vector3(10, 0, 4),
+          spin: new THREE.Vector3(3, 0, 0),
+        },
+      },
+    ],
     peakKph: 96,
     t0: 41.25,
     firstImpact: 1.5,
@@ -82,7 +100,7 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
 }
 
 function sameClip(got: HighlightClip, want: HighlightClip): void {
-  for (const k of ["trackId", "impacts", "kills", "firstStep", "focus", "firstA", "firstB", "bleed", "t0", "firstImpact", "lastImpact", "realism"] as const) {
+  for (const k of ["trackId", "impacts", "kills", "ejects", "firstStep", "focus", "firstA", "firstB", "bleed", "t0", "firstImpact", "lastImpact", "realism"] as const) {
     assert.equal(got[k], want[k], k);
   }
   for (const k of ["score", "peakKph", "x", "z"] as const) assert.equal(got[k], Math.fround(want[k]), k);
@@ -95,6 +113,12 @@ function sameClip(got: HighlightClip, want: HighlightClip): void {
   assertSameNumbers(got.keyStep, want.keyStep, "keyframe steps");
   assert.equal(got.keys.length, want.keys.length);
   got.keys.forEach((k, i) => assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`));
+  assert.equal(got.ejections.length, want.ejections.length);
+  got.ejections.forEach((x, i) => {
+    const w = want.ejections[i]!;
+    assert.equal(x.step, w.step, `ejection ${i} step`);
+    assertSameDigest({ ...x.e, pos: x.e.pos.toArray(), local: x.e.local.toArray(), dir: x.e.dir.toArray(), quat: x.e.quat.toArray(), rel: x.e.rel.toArray(), carVel: x.e.carVel.toArray(), spin: x.e.spin.toArray() }, { ...w.e, pos: w.e.pos.toArray(), local: w.e.local.toArray(), dir: w.e.dir.toArray(), quat: w.e.quat.toArray(), rel: w.e.rel.toArray(), carVel: w.e.carVel.toArray(), spin: w.e.spin.toArray() }, `ejection ${i}`);
+  });
 }
 
 describe("highlight codec", () => {
