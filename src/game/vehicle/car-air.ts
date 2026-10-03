@@ -20,7 +20,7 @@ export const COM_Y = 0.55;
 /** Inverse inertia per unit mass (1/m²) of the body's box about its centre of mass: car-local x, y, z. */
 const INV_I = new THREE.Vector3(3 / (CAR_HALF.y ** 2 + CAR_HALF.z ** 2), 3 / (CAR_HALF.x ** 2 + CAR_HALF.z ** 2), 3 / (CAR_HALF.x ** 2 + CAR_HALF.y ** 2));
 /** Car-local hull points: the four hubs first (their tyres meet the ground, `stepAir`), then bumper, beltline and roof corners. */
-const HULL: readonly (readonly [number, number, number])[] = [
+export const HULL: readonly (readonly [number, number, number])[] = [
   ...WHEEL_POS.map(([x, y, z]): [number, number, number] => [x, y, z]),
   ...[-1, 1].flatMap((sx) =>
     [-1, 1].flatMap((sz): [number, number, number][] => [

@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
 import { UNDERSIDE } from "./car-suspension.ts";
+import { HULL } from "./car-air.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -165,6 +166,12 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   };
   for (const [x, z, h] of UNDERSIDE) probe(`under(${x},${z})`, x, h, z);
   for (const [x, y, z] of BUMPERS) probe(`bumper(${x > 0 ? "+" : "-"}x,${z > 0 ? "front" : "rear"})`, x, y, z);
+  // Beltline and roof corners (`HULL` in car-air.ts, as the drawn body carries them), so a car on its side or roof is judged on
+  // the points it lies on.
+  for (let i = 4; i < HULL.length; i++) {
+    const [x, y, z] = HULL[i]!;
+    probe(`hull(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`, x, y, z);
+  }
   const ge = car.group.matrixWorld.elements;
   return {
     airborne: car.airborne,
