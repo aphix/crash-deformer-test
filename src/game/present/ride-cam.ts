@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { wrapPi } from "../kernel/scalar.ts";
 import { easeFov } from "./engine-camera.ts";
-import { CINE, CineCam, sightLine, solid, type Sight, type Subject } from "./spectate-cam.ts";
+import { camUsable, CINE, CineCam, sightLine, solid, type Sight, type Subject } from "./spectate-cam.ts";
 
 /**
  * The ride-along's shots (camera only; nothing here reaches the sim). A ride opens on the windshield: the eye stands
@@ -77,6 +77,8 @@ type Framing = {
 };
 
 const _p = new THREE.Vector3();
+const _eye = new THREE.Vector3();
+const _vel = new THREE.Vector3();
 
 export class RideCam {
   shot: RideShot = "follow";
@@ -300,9 +302,10 @@ export class RideCam {
     const at = this.exitAt;
     const fwd = this.exitFwd;
     const own: Sight = { ...s, occ: s.occ.filter((o) => Math.hypot(o.x - at.x, o.z - at.z) > 1) };
-    for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, this.reach, up)) return;
+    _vel.set(f.vx / f.n, 0, f.vz / f.n);
+    for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, this.reach, up, true)) return;
     for (const up of GLASS_UP) {
-      for (const share of GLASS_SHARE) if (this.tryEye(s, f, this.reach * share, up)) return;
+      for (const share of GLASS_SHARE) if (this.tryEye(s, f, this.reach * share, up, false)) return;
     }
     // Nothing clear: the nearest spot, lifted out of whatever holds it.
     const x = at.x + fwd.x * this.reach * GLASS_SHARE[2];
@@ -313,14 +316,18 @@ export class RideCam {
     this.pos.set(x, y, z);
   }
 
-  /** The eye `ahead` m on the car's forward axis and `up` m over the ground, set when it stands clear and sees the heads. */
-  private tryEye(s: Sight, f: Framing, ahead: number, up: number): boolean {
+  /**
+   * The eye `ahead` m on the car's forward axis and `up` m over the ground, set when it can be used: a low eye
+   * passes `camUsable` (room round it, and sight of the heads now and `GLASS_LEAD` s on at their velocity); a
+   * high one stands clear of the solids and sees the heads.
+   */
+  private tryEye(s: Sight, f: Framing, ahead: number, up: number, low: boolean): boolean {
     const x = this.exitAt.x + this.exitFwd.x * ahead;
     const z = this.exitAt.z + this.exitFwd.z * ahead;
     const g = s.ground.heightAt(x, z, this.exitAt.y + 1);
     if (g === NO_FLOOR) return false;
     const y = g + up;
-    if (solid(s, x, y, z, CINE.pad) || sightLine(s, x, y, z, f.c.x, f.c.y, f.c.z) < 0) return false;
+    if (low ? !camUsable(s, _eye.set(x, y, z), f.c, _vel, GLASS_LEAD) : solid(s, x, y, z, CINE.pad) || sightLine(s, x, y, z, f.c.x, f.c.y, f.c.z) < 0) return false;
     this.pos.set(x, y, z);
     return true;
   }

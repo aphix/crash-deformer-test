@@ -9,7 +9,7 @@ import { beginImpact, holdForThrow, impactScale, phaseClock, stepPhase, THROW_ON
 import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
-import { occluder, solid, type Sight } from "./spectate-cam.ts";
+import { occluder, solid, type Occluder, type Sight } from "./spectate-cam.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 
 const FRAME = 1 / 60;
@@ -295,6 +295,42 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     assert.ok(clear.side < 1e-6, "on the forward axis");
     const blocked = await open((cars) => carSight(cars));
     assert.ok(blocked.up >= 3, `with the other car in the way: ${blocked.up.toFixed(2)} m up`);
+  });
+
+  it("good: the low windshield eye needs 2 m of room (camUsable): a wall 1.7 m beside the spot sends the pick up, and the cut frame's eye is finite and outside every solid", async () => {
+    /** The cut frame's eye; `spot` (the open pick): a wall along the throw beside it. */
+    const open = async (spot: THREE.Vector3 | null) => {
+      const cars = headOn(26);
+      const threw: number[] = [];
+      const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
+      await ragdolls.preload();
+      const w = makeWorld(cars, false, false);
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+      for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
+        tickWorld(w);
+        ragdolls.update(FRAME, cars, true, true, 0, null);
+      }
+      const car = cars[threw[0]!]!;
+      const fwd = car.fwdFlat.clone();
+      const occ: Occluder[] = [];
+      if (spot) {
+        // Its face is 1.55 m from the spot (the old test's pad is 0.5 m); the high eyes (3 m up) clear its top.
+        const mid = spot.clone().addScaledVector(new THREE.Vector3(-fwd.z, 0, fwd.x), 1.7);
+        occ.push(occluder(mid.x, mid.z, Math.atan2(fwd.x, fwd.z), 0.15, 8, false, 0, 2.2));
+      }
+      const sight = (): Sight => ({ ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ });
+      assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight), "shot");
+      const eye = camera.position.clone();
+      const dir = camera.getWorldDirection(new THREE.Vector3());
+      ragdolls.dispose();
+      assert.ok([eye.x, eye.y, eye.z, dir.x, dir.y, dir.z].every(Number.isFinite), "a finite eye and aim on the cut frame");
+      assert.equal(solid(sight(), eye.x, eye.y, eye.z, 0.5), false, "the eye stands outside every solid");
+      return eye;
+    };
+    const bare = await open(null);
+    assert.ok(bare.y >= 1.2 && bare.y <= 2, `open ground: low eye, ${bare.y.toFixed(2)} m up`);
+    const beside = await open(bare);
+    assert.ok(beside.y >= 3, `a wall 1.7 m beside the spot: ${beside.y.toFixed(2)} m up`);
   });
 
   it("bad: a dummy flying under the eye never whips the aim past MAX_TURN, and no shot change moves the camera more than a frame", async () => {
