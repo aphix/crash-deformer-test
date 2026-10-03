@@ -11,9 +11,12 @@ const H = 1 / 240;
  * A minute of racing: the 2 Hz keyframe encode (`writeSnapshot`) is cold code, so V8 runs it in the
  * interpreter, where every double is boxed, for its first ~20 s; the test measures the steady state after
  * it tiers up. Measured after 10 s: 26–30 B/step (the codec, a few KB per keyframe until tier-up).
+ * Under full-suite load the tier-up comes late (63.5 B/step in one 20 s window): the test takes the quietest
+ * of `WINDOWS` windows, so a steady per-step allocation still fails every one of them.
  */
 const WARM = 14400;
-const MEASURE = 4800;
+const WINDOWS = 5;
+const MEASURE = 1200;
 /**
  * Heap growth allowed per recorded step (B), summed over positive deltas: JIT and test noise, not a buffer per step,
  * plus each wreck's keyframe solver state (`simState`): its scalar fields are read by name, and V8 boxes every double
@@ -40,16 +43,19 @@ describe("highlight recorder", () => {
     };
     for (let s = 0; s < WARM; s++) step();
     // Read the heap once a recorded second (`memoryUsage` allocates its own result), positive deltas only.
-    let grown = 0;
-    let last = process.memoryUsage().heapUsed;
-    for (let s = 0; s < MEASURE; s++) {
-      step();
-      if (s % 240 !== 239) continue;
-      const now = process.memoryUsage().heapUsed;
-      if (now > last) grown += now - last;
-      last = now;
+    let perStep = Infinity;
+    for (let w = 0; w < WINDOWS; w++) {
+      let grown = 0;
+      let last = process.memoryUsage().heapUsed;
+      for (let s = 0; s < MEASURE; s++) {
+        step();
+        if (s % 240 !== 239) continue;
+        const now = process.memoryUsage().heapUsed;
+        if (now > last) grown += now - last;
+        last = now;
+      }
+      perStep = Math.min(perStep, grown / MEASURE);
     }
-    const perStep = grown / MEASURE;
     if (process.env.ALLOC_PRINT) console.log(`recorder: ${perStep.toFixed(1)} B/step`);
     assert.equal(rec.ledger.open.length, 0, "no cluster opened: this measures the steady state");
     assert.ok(perStep <= BOUND_B, `${perStep.toFixed(1)} B per recorded step > ${BOUND_B}: the recorder allocates in steady state`);

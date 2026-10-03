@@ -80,8 +80,14 @@ Each clip's shots come from `mulberry32(seed ^ clip)`, so the same seed gives th
 
 A shot is one of: chase (behind the car along its travel), trackside cinematic (`CineCam.pick`, searched in full when
 the shot starts, so the pick depends only on the poses and the seed), wheel-well dutch (`DutchCam.place` on a seeded
-mount) or a high static eye 22 m off the crash. Each shot is framed from the car as it stands at the shot's own clip
-time. The crash cam (`beginCinematic(..., crashCam = true)`) takes the hit itself, as it does in a sandbox crash.
+mount) or a high static eye 22 m off the crash (the seeded angle, else the first eighth-turn from it whose eye is clear
+and sees the car). Each shot is framed from the car as it stands at the shot's own clip time. The crash cam
+(`beginCinematic(..., crashCam = true)`) takes the hit itself, as it does in a sandbox crash. On a course it stands on
+the ground at the hit and turns its axis (`crashAxis`: as hit, reversed, the quarter turns) to the one whose three cut
+eyes see the hit from furthest out, pulling an eye in toward the hit (no closer than 3 m) when a wall is in the way.
+Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
+(`engine-cine.test.ts`) put an eye behind it; after it, none on oval, rally and city, and 20 of 272 on stunt (the long
+lens).
 
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.

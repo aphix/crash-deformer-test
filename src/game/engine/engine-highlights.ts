@@ -4,7 +4,7 @@ import { beginImpact, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, stepPhase, typ
 import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts";
 import type { ReelHud, SaveResult } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
-import { CINE, CineCam, DUTCH, DutchCam, type Sight } from "../present/spectate-cam.ts";
+import { CINE, CineCam, DUTCH, DutchCam, sightLine, solid, type Sight } from "../present/spectate-cam.ts";
 import { CRASH_CAM_END } from "../present/engine-cine.ts";
 import { overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
@@ -404,8 +404,17 @@ export class ReelDirector {
       // No budget: the whole search runs now, so the pick depends only on the poses and the seed.
       this.cineFound = this.cine.pick(this.host.sight(car), car) === "found";
     } else if (s.kind === "high") {
-      const y = car.group.position.y;
-      this.highEye.set(p.clip.x + Math.cos(s.angle) * 22, y + 9, p.clip.z + Math.sin(s.angle) * 22);
+      // The seeded angle, else the first eighth-turn from it whose eye stands clear and sees the car (a building or
+      // a wall between them showed only its face).
+      const sight = this.host.sight(car);
+      const pos = car.group.position;
+      const e = this.highEye;
+      for (let k = 8; k >= 0; k--) {
+        // k = 8..1: the eighth-turns from the seeded angle; 0 (none clear): the seeded angle anyway.
+        const a = s.angle + ((8 - k) * Math.PI) / 4;
+        e.set(p.clip.x + Math.cos(a) * 22, pos.y + 9, p.clip.z + Math.sin(a) * 22);
+        if (k > 0 && !solid(sight, e.x, e.y, e.z, 0.1) && sightLine(sight, e.x, e.y, e.z, pos.x, pos.y + CINE.aimUp, pos.z) >= 0) break;
+      }
     }
   }
 

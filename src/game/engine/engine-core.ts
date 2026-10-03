@@ -428,7 +428,7 @@ export abstract class EngineCore {
     this.impactKph = impulse * 3.6;
     this.view.kick(this.carCount);
     const rigScene = this.rigScene;
-    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed));
+    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.race.active ? this.race.courseSight() : null);
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
