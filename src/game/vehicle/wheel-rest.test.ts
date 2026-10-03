@@ -3,10 +3,10 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { assignClass, armKill, killClass, CLASSES, HANDLING, VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
-import { sagOffsets } from "./car-suspension.ts";
+import { droop, sagOffsets, Suspension } from "./car-suspension.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { DT, paint } from "./test-support.ts";
+import { assertSameNumbers, DT, paint } from "./test-support.ts";
 
 /**
  * A wreck missing wheels rests on the body corners where they were (and on the wheels it still has), as the drawn
@@ -109,6 +109,18 @@ describe("sag offsets", () => {
       const drop = (0.75 * o[0]! + 0.25 * o[1]! + 0.25 * o[2]! - 0.25 * o[3]!);
       assert.ok(drop < -0.03, `lift ${lift}: front-left corner ${drop.toFixed(3)} m`);
       assert.ok(o[3]! > o[0]!, `lift ${lift}: diagonal corner ${o[3]!.toFixed(3)} not above ${o[0]!.toFixed(3)}`);
+    }
+  });
+
+  it("good: a wreck that loses a second wheel settles on the new set's corners, not the first set's", () => {
+    const s = new Suspension();
+    const g = new THREE.Group();
+    g.updateMatrixWorld(true);
+    for (const gone of [1, 3]) {
+      for (let i = 0; i < 600; i++) s.step(g, [], "sedan", 0, false, false, gone, DT);
+      const want = new Float64Array(4);
+      sagOffsets(0, droop("sedan"), gone, want);
+      assertSameNumbers(s.offset, want, `wheels gone ${gone}`, 1e-4);
     }
   });
 });

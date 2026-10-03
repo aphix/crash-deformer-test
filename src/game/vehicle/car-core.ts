@@ -216,6 +216,8 @@ export interface DetachPart {
   /** Quarter panels and arch flares: the patch of body skin they are (null on every other part); once hinged, whether the shell is in the scene (the body under it is primer). */
   region: PanelRegion | null;
   open: boolean;
+  /** The hinge value the open shell was last posed at (`shellPose`): an attached panel is re-posed only when it changes (a changed skin re-poses all, `skinPanels`). */
+  posed: number;
   /** The bounces this part has taken (`loose-dent.ts`). */
   dent: DentState;
 }
@@ -315,8 +317,6 @@ export abstract class CarCore {
   protected readonly lightBarOrigin = new THREE.Vector3();
   /** The quarter panels and arch flares cut from this style's body (`panelRegions`). */
   private readonly regions: readonly PanelRegion[];
-  /** Dents on torn parts are carved while this is true; a caller that skipped them (off camera) sets it back to catch up. */
-  cosmetic = true;
   private sirenMat: THREE.MeshStandardMaterial | null = null;
   private sirensOn = false;
   /** Lens lit this frame: 0 none, 1 red, 2 blue. */
@@ -533,6 +533,7 @@ export abstract class CarCore {
         swing,
         region: null,
         open: false,
+        posed: -1,
         dent: newDentState(),
       };
       this.parts.push(p);
@@ -555,6 +556,7 @@ export abstract class CarCore {
       const mesh = new THREE.Mesh(new THREE.BufferGeometry(), this.bodyMat);
       // No shadow draw: a torn sheet's shadow is not worth a second draw per panel (32 cars with 192 panels torn: +590 draws with it).
       mesh.castShadow = false;
+      mesh.name = "panel";
       mesh.frustumCulled = false;
       mesh.position.copy(r.origin);
       add(r.name, mesh, cage, attachL, attachR, r.kind, r.kind === "quarter" ? 0.3 : 0.22).region = r;

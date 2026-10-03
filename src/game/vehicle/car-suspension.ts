@@ -122,6 +122,10 @@ export class Suspension {
   /** The ground pose's load transfer (squat, dive, roll): the springs' resting offsets while it lasts. */
   private readonly load = new LoadTransfer();
   private readonly target = new Float64Array(4);
+  /** The `lift`, `stop` and `gone` that `target` was solved for (a wreck's wheel set is fixed until the next spawn). */
+  private sagLift = NaN;
+  private sagStop = NaN;
+  private sagGone = -1;
   /** Slices seen since the spawn (2: both last height and last speed are real). */
   private seen = 0;
   /** The body group the springs carry (found once per spawn; null without a class lift). */
@@ -201,7 +205,12 @@ export class Suspension {
 
   /** A wreck's offsets one slice nearer the corners it rests on (`sagOffsets`); `dt` 0 takes them at once. */
   private sag(lift: number, stop: number, gone: number, dt: number): void {
-    sagOffsets(lift, stop, gone, this.target);
+    if (lift !== this.sagLift || stop !== this.sagStop || gone !== this.sagGone) {
+      sagOffsets(lift, stop, gone, this.target);
+      this.sagLift = lift;
+      this.sagStop = stop;
+      this.sagGone = gone;
+    }
     const k = dt > 0 ? 1 - Math.exp(-SETTLE * dt) : 1;
     let moved = false;
     for (let i = 0; i < 4; i++) {

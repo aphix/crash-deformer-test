@@ -215,8 +215,9 @@ export abstract class CarParts extends CarCore {
       p.object.position.y -= px * Math.sin(roll);
     } else if (p.region) {
       p.folding = t > PANEL_OPEN;
-      if (p.folding) this.shellPose(p);
-      else if (p.open) this.closePanel(p);
+      if (p.folding) {
+        if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
+      } else if (p.open) this.closePanel(p);
     }
   }
 
@@ -450,6 +451,7 @@ export abstract class CarParts extends CarCore {
   protected shellPose(p: DetachPart): void {
     this.openPanel(p);
     poseShell(p.region!, (p.object as THREE.Mesh).geometry, this.body.geometry, p.hingeT, Math.sin(this.deform.crushElapsed * 22));
+    p.posed = p.hingeT;
   }
 
   /** Netplay client: the host tore this panel off. Its shell as it hung (on this client's skin), centred as the host's is; the host's pose follows. */
@@ -517,10 +519,11 @@ export abstract class CarParts extends CarCore {
 
   protected stepLooseParts(dt: number, bounce?: WorldBounce): void {
     for (const p of this.parts) {
-      if (!p.detached) continue;
+      // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
+      if (!p.detached || !p.object.visible) continue;
       stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
       if (p.region && p.object.position.y < 0.3) layFlat(p.object, dt);
-      if (this.cosmetic) applyDents(p.dent, p.object);
+      applyDents(p.dent, p.object);
     }
     for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
   }

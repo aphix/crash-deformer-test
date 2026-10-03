@@ -524,8 +524,8 @@ export class CrashEngine extends EngineShare {
       const parts: THREE.Object3D[] = [];
       car.group.traverse((o) => {
         const m = o as THREE.Mesh;
-        // A lamp seat is drawn by the lamp batch, which skips a seat off layer 0.
-        if (o.name !== "lamp" && (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior")) return;
+        // A lamp seat is drawn by the lamp batch, which skips a seat off layer 0. A hinged panel's shell stays: the body under it is primer.
+        if (o.name !== "lamp" && (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior" || m.name === "panel")) return;
         m.layers.disable(0);
         parts.push(m);
       });

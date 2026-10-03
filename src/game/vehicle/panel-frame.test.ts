@@ -6,7 +6,7 @@ import type { DetachPart } from "./car-core.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { PANEL_NAMES } from "./car-panels.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
-import { DT, paint } from "./test-support.ts";
+import { assertSameNumbers, DT, paint } from "./test-support.ts";
 
 /**
  * A hinged panel's shell is drawn where its patch of body is: in the body's own frame, which carries the class lift,
@@ -101,4 +101,36 @@ describe("a hinged panel's shell rides the body it is cut from", () => {
       }
     });
   }
+});
+
+/** The vertex buffer's upload count: the shell is rebuilt (and re-uploaded) once per `needsUpdate`. */
+const uploads = (p: DetachPart) => ((p.object as THREE.Mesh).geometry.getAttribute("position") as THREE.BufferAttribute).version;
+
+describe("a panel shell is rebuilt when it changes, not every frame", () => {
+  it("good: a settled wreck's hinged shells are not rebuilt, and one whose hinge moves is", () => {
+    const car = wreck("sedan", null);
+    const open = ["quarterR", "archRL"].map((n) => car.hang(n, 0.5));
+    for (let f = 0; f < 30; f++) car.updateDeform(DT);
+    const before = open.map(uploads);
+    for (let f = 0; f < 30; f++) car.updateDeform(DT);
+    assertSameNumbers(open.map(uploads), before, "shell uploads over 30 settled frames");
+    open[0]!.hingeT = 0.8;
+    car.updateDeform(DT);
+    assert.ok(uploads(open[0]!) > before[0]!, "a shell whose hinge moved stayed as it was");
+    assert.equal(uploads(open[1]!), before[1], "the other shell was rebuilt");
+  });
+
+  it("good: a shell torn past the two a car draws stops where it was hidden, the drawn ones lie down", () => {
+    const car = new Probe(paint(), new THREE.Scene(), null, "sedan");
+    car.deform.setMode("shape");
+    const names = ["quarterL", "quarterR", "archFL"];
+    for (const n of names) car.tear(n);
+    const [hidden, ...drawn] = names.map((n) => car.part(n));
+    assert.ok(!hidden!.object.visible && drawn.every((p) => p.object.visible), "the oldest of three torn shells is the hidden one");
+    const at = hidden!.object.position.clone();
+    const was = drawn.map((p) => p.object.position.y);
+    for (let f = 0; f < 120; f++) car.step(DT);
+    assert.equal(hidden!.object.position.distanceTo(at), 0, "a hidden shell kept moving");
+    assert.ok(drawn.every((p, i) => p.object.position.y < was[i]! - 0.05), "a drawn shell did not fall");
+  });
 });
