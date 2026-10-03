@@ -108,6 +108,7 @@ export class CrashEngine extends EngineShare {
       if (this.race.active) this.race.setSeats(seats);
     },
     playerName: () => this.race.playerName,
+    hostFit: () => this.autoFx.canHost(),
     remoteDrivable: (i) => !this.derbyMode || (this.derbySeated.has(i) && !this.derby.held(i)),
     derbyPhase: () => (!this.derbyMode ? null : !this.derby.active ? "lobby" : this.derby.winnerId == null ? "running" : "over"),
     derbyState: () => this.derbyNetState(),

@@ -75,6 +75,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Fullscreen | (the browser's own F11) | | Fullscreen |
 | Key list | | | ? |
 | Multiplayer | | | Net |
+| Play online (join the best open race, else host), live races list, Join / Host, Leave (race mode, top-left under the title) | | | Play online, "N live", Join, Host, Leave |
 
 Control particles (P): size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel.
 

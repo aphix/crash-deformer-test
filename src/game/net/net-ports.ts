@@ -6,6 +6,7 @@ import type { CrashPhase } from "../match/phase.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { DerbyNetState } from "./codec.ts";
 import type { Reel } from "../match/highlights.ts";
+import type { NetPeer } from "./transport.ts";
 
 /** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */
 export type NetRace = Pick<
@@ -17,6 +18,7 @@ export type NetRace = Pick<
   | "snapshot"
   | "applySnapshot"
   | "showLobby"
+  | "command"
 >;
 
 /** Which public match a room runs; the room name says (`pub-race-…`, `pub-derby-…`). */
@@ -50,6 +52,8 @@ export interface NetGame {
   setSeats(seats: ReadonlyMap<number, string>): void;
   /** This browser's player's name (its `hello` carries it to the host). */
   playerName(): string;
+  /** Whether this device can host a full public match (`AutoFx`'s capability sample): a weak one searches longer first and runs a smaller field. */
+  hostFit(): boolean;
   /** Host: whether peer car `i` takes its input now (a derby only drives cars it seated and not counted out). */
   remoteDrivable(i: number): boolean;
   /** Host: derby mode's stage, null outside derby mode. */
@@ -68,4 +72,35 @@ export interface NetGame {
   /** Client: a reel or solo clip plays, so host snapshots are not drawn (the reel owns the cars). */
   reelPlaying(): boolean;
   readonly seat: DriverSeat;
+}
+
+export type NetRole = "off" | "host" | "client";
+/** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
+export type NetTx = "bc" | "rtc";
+
+/** `NetPlay.status()`: what the Net panel and the live-rooms chip show. */
+export interface NetStatus {
+  role: NetRole;
+  /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */
+  public: PublicKind | null;
+  /** Play online is still looking for a room to join or host (`publicMatch`). */
+  finding: boolean;
+  room: string;
+  tx: NetTx;
+  selfId: string;
+  /** This peer's car (host 0); −1 until the host assigns one. */
+  car: number;
+  /** Seconds until a public match starts (host lobby, mirrored to clients), null otherwise. */
+  lobby: number | null;
+  peers: readonly NetPeer[];
+  /** Snapshots per second sent (host) or taken (client) over the last second, and their payload. */
+  snapHz: number;
+  bytesPerSec: number;
+  /**
+   * Client: `version` the host runs another build (reload to play), `host-lost` no word from the host
+   * (waiting for one), `host-paused` its tab is hidden; null while all is well.
+   */
+  problem: "version" | "host-lost" | "host-paused" | null;
+  /** Why the relay refused this peer (room full, host seat taken, …), null while fine. */
+  relayError: string | null;
 }

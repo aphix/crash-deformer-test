@@ -7,13 +7,14 @@ export class RtcTransport implements NetTransport {
   readonly selfId: string;
   private readonly room: P2PRoom;
 
-  /** `role` is the roster tag the relay lists public rooms by ("host" / "client"); no personal name is sent. */
-  constructor(room: string, selfId: string, role: "host" | "client") {
+  /** `role` is the roster tag the relay lists public rooms by ("host" / "client"); no personal name is sent. `meta` is read on every poll: a public host's match tag. */
+  constructor(room: string, selfId: string, role: "host" | "client", meta: () => string) {
     this.selfId = selfId;
     this.room = new P2PRoom({
       room,
       selfId,
       name: role,
+      meta,
       onBinary: (from, data) => this.onMessage?.(from, new Uint8Array(data)),
     });
     void this.room.join();

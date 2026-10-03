@@ -30,6 +30,7 @@ function tab(sql: Sql, room: string, id: string, name = "client", ip = `10.0.${l
   const self = {
     id,
     name,
+    meta: "",
     token: "",
     async call(search: string, init?: RequestInit): Promise<Reply> {
       const headers = { "x-forwarded-for": ip, [TOKEN_HEADER]: self.token };
@@ -37,7 +38,7 @@ function tab(sql: Sql, room: string, id: string, name = "client", ip = `10.0.${l
       return { status: res.status, body: (await res.json()) as Reply["body"] };
     },
     async poll(): Promise<Reply> {
-      const res = await self.call(`?${new URLSearchParams({ room, peer: id, name: self.name, since: "0" })}`);
+      const res = await self.call(`?${new URLSearchParams({ room, peer: id, name: self.name, since: "0", ...(self.meta ? { meta: self.meta } : {}) })}`);
       if (res.body.token) self.token = res.body.token;
       return res;
     },
@@ -155,6 +156,34 @@ describe("signaling relay", () => {
     );
     const listed: { rooms: { room: string }[] } = await list.json();
     assert.deepEqual(listed.rooms.map((r) => r.room), ["pub-derby-STALL1"]);
+  });
+
+  it("lists a public room with its host's match tag: set at joining, replaced by the next poll, kept by one without a tag, never taken from a guest, refused when malformed", async () => {
+    const host = tab(sql, "pub-race-META01", "metahost", "host");
+    host.meta = "lobby.oval";
+    await host.poll();
+    const guest = tab(sql, "pub-race-META01", "metaguest");
+    guest.meta = "running.rally";
+    await guest.poll();
+    const listed = async () => {
+      const list = await handleSignaling(
+        new Request("http://relay.test/api/rtc?list=public&kind=race", { headers: { "x-forwarded-for": "10.9.9.7" } }),
+        async () => sql,
+      );
+      return ((await list.json()) as { rooms: { room: string; players: number; meta: string }[] }).rooms.filter((r) => r.room === "pub-race-META01");
+    };
+    assert.deepEqual(await listed(), [{ room: "pub-race-META01", players: 2, meta: "lobby.oval" }]);
+    host.meta = "running.oval";
+    await host.poll();
+    assert.equal((await listed())[0]!.meta, "running.oval");
+    host.meta = "";
+    await host.poll();
+    assert.equal((await listed())[0]!.meta, "running.oval", "a poll with no tag leaves the last one");
+    const bad = tab(sql, "pub-race-META02", "badhost", "host");
+    bad.meta = "Lobby Oval!";
+    assert.equal((await bad.poll()).status, 400);
+    bad.meta = "x".repeat(33);
+    assert.equal((await bad.poll()).status, 400);
   });
 
   it("migrates a store the pre-token relay wrote", async () => {

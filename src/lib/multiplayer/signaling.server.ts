@@ -2,9 +2,9 @@
  * WebRTC signaling over the app database (Neon deployed, PGLite on a node server or in preview).
  * Only rendezvous traffic passes through here — roster + SDP/ICE relay while a mesh forms; game
  * data then flows peer-to-peer. Mounted at /api/rtc (under the app's base path); the client side
- * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql`, `0003_webrtc_peer_tokens.sql`
- * and `0004_webrtc_peer_ip_tag.sql`, applied by `db:migrate` on deploy and by the PGLite fallback
- * before its first query.
+ * lives in `@/lib/multiplayer`. Tables: `migrations/0002_webrtc_signaling.sql`, `0003_webrtc_peer_tokens.sql`,
+ * `0004_webrtc_peer_ip_tag.sql` and `0005_webrtc_peer_meta.sql`, applied by `db:migrate` on deploy and by the
+ * PGLite fallback before its first query.
  *
  * The GET poll is the whole peer lifecycle. A peer's first poll registers it in a free seat with the
  * role tag it sent and returns a token (only the token's hash is stored). Every later poll (heartbeat
@@ -29,6 +29,8 @@ type GetSql = () => Promise<Sql>;
 const ID = z.string().regex(/^[a-zA-Z0-9_-]{1,64}$/);
 /** Peer display tag: the game sends its role ("host" / "client"), never a person's name. */
 const NAME = z.string().regex(/^[a-z]{0,12}$/);
+/** A public host's match tag (`<stage>.<course>`, game/net/matchmaking.ts `publicMeta`); the list shows it beside the room. */
+const META = z.string().regex(/^[a-z0-9._-]{0,32}$/);
 const signalSchema = z.object({
   op: z.literal("signal"),
   room: ID,
@@ -100,7 +102,7 @@ async function roster(sql: Sql, room: string): Promise<PeerRow[]> {
  * lowest free seat, and the unique (room, seat) and one-host indexes make it atomic: joins that race
  * never overfill a room, never seat a second host, and never displace a seated peer.
  */
-async function join(sql: Sql, room: string, peer: string, name: string, ip: string): Promise<string | Response> {
+async function join(sql: Sql, room: string, peer: string, name: string, ip: string, meta: string): Promise<string | Response> {
   const tag = (await sha256(salt + ip)).slice(0, 16);
   if (name === "host" && room.startsWith(PUBLIC_PREFIX)) {
     const [{ n }] = await sql.query<{ n: number }>(
@@ -113,12 +115,12 @@ async function join(sql: Sql, room: string, peer: string, name: string, ip: stri
   await sql.query(`DELETE FROM webrtc_peers WHERE room = $1 AND NOT (${LIVE})`, [room]);
   const token = crypto.randomUUID().replaceAll("-", "");
   const seated = await sql.query(
-    `INSERT INTO webrtc_peers (room, peer_id, name, secret_hash, ip_tag, seat, last_seen)
-     SELECT $1, $2, $3, $4, $5, seat, now() FROM generate_series(0, $6::int - 1) AS seat
+    `INSERT INTO webrtc_peers (room, peer_id, name, secret_hash, ip_tag, meta, seat, last_seen)
+     SELECT $1, $2, $3, $4, $5, $7, seat, now() FROM generate_series(0, $6::int - 1) AS seat
      WHERE seat NOT IN (SELECT seat FROM webrtc_peers WHERE room = $1)
      ORDER BY seat LIMIT 1
      ON CONFLICT DO NOTHING RETURNING seat`,
-    [room, peer, name, await sha256(token), tag, ROOM_MAX],
+    [room, peer, name, await sha256(token), tag, ROOM_MAX, meta],
   );
   if (seated.length) return token;
   const peers = await roster(sql, room);
@@ -148,6 +150,8 @@ function json(body: unknown, status = 200): Response {
 interface PublicRoom {
   room: string;
   players: number;
+  /** The host's `META` tag, "" from a host that sent none. */
+  meta: string;
 }
 
 /**
@@ -163,20 +167,21 @@ const HOST_FRESH_SECONDS = 15;
 const KIND = z.enum(["race", "derby"]).optional();
 
 /**
- * GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat).
- * Rooms with the most distinct addresses come first, ties in random order: one address padding its
- * own rooms with idle peers (and hosting at most `PUBLIC_HOSTS_PER_IP`) cannot outrank real players.
+ * GET ?list=public[&kind=race|derby] — open public rooms (a host that polled recently, a free seat), each
+ * with its host's `meta`. Rooms with the most distinct addresses come first, ties in random order: one
+ * address padding its own rooms with idle peers (and hosting at most `PUBLIC_HOSTS_PER_IP`) cannot outrank
+ * real players.
  */
 async function listPublic(sql: Sql, kind: "race" | "derby" | undefined): Promise<Response> {
-  const rows = await sql.query<{ room: string; players: number }>(
-    `SELECT room, count(*)::int AS players FROM webrtc_peers
+  const rows = await sql.query<{ room: string; players: number; meta: string }>(
+    `SELECT room, count(*)::int AS players, coalesce(max(meta) FILTER (WHERE name = 'host'), '') AS meta FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)
      GROUP BY room
      HAVING bool_or(name = 'host' AND last_seen > now() - make_interval(secs => $4)) AND count(*) < $3
      ORDER BY count(DISTINCT ip_tag) DESC, random() LIMIT 20`,
     [`${PUBLIC_PREFIX}${kind ? `${kind}-` : ""}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
   );
-  return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players) })) });
+  return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players), meta: r.meta })) });
 }
 
 /** GET ?room&peer&name&since — join (no valid token yet), heartbeat, and inbox. */
@@ -190,31 +195,33 @@ async function handleGet(request: Request, ip: string, getSql: GetSql): Promise<
     return listPublic(sql, kind.data);
   }
   const parsed = z
-    .object({ room: ID, peer: ID, name: NAME.default(""), since: z.coerce.number().int().min(0).default(0) })
+    .object({ room: ID, peer: ID, name: NAME.default(""), since: z.coerce.number().int().min(0).default(0), meta: META.default("") })
     .safeParse({
       room: url.searchParams.get("room"),
       peer: url.searchParams.get("peer"),
       name: url.searchParams.get("name") ?? "",
       since: url.searchParams.get("since") ?? 0,
+      meta: url.searchParams.get("meta") ?? "",
     });
   if (!parsed.success) return json({ error: "invalid query" }, 400);
-  const { room, peer, name, since } = parsed.data;
+  const { room, peer, name, since, meta } = parsed.data;
   if (!limiter.peer(ip, peer)) return json({ error: "rate limited" }, 429);
 
   const sql = await getSql();
   if (since === 0 || Math.random() < 0.02) await prune(sql);
   const token = request.headers.get(TOKEN_HEADER);
-  // A seated peer's poll is its heartbeat; its role tag stays the one it joined with.
+  // A seated peer's poll is its heartbeat; its role tag stays the one it joined with. A poll that names a
+  // `meta` replaces it (a host's match stage changes), one without leaves the last in place.
   const seated = token
     ? await sql.query(
-        `UPDATE webrtc_peers SET last_seen = now()
+        `UPDATE webrtc_peers SET last_seen = now(), meta = CASE WHEN $4 = '' THEN meta ELSE $4 END
          WHERE room = $1 AND peer_id = $2 AND secret_hash = $3 AND ${LIVE} RETURNING seat`,
-        [room, peer, await sha256(token)],
+        [room, peer, await sha256(token), meta],
       )
     : [];
   let issued: string | undefined;
   if (!seated.length) {
-    const joined = await join(sql, room, peer, name, ip);
+    const joined = await join(sql, room, peer, name, ip, meta);
     if (joined instanceof Response) return joined;
     issued = joined;
   }

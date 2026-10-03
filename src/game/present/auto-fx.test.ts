@@ -116,6 +116,26 @@ describe("auto FX tier", () => {
   });
 });
 
+describe("canHost (fit to host a public match)", () => {
+  it("a hardware desktop is fit before its load check and after it holds high, and when it falls to low", () => {
+    assert.equal(new AutoFx(true, true).canHost(), true);
+    const fx = onHigh();
+    assert.equal(fx.canHost(), true);
+    run(fx, 4, steady(49));
+    assert.equal(fx.canHost(), true, "low is still fit (3.5 s in)");
+  });
+
+  it("a phone or software GPU, a desktop under 57 fps at its load check, and one that fell to minimal are not", () => {
+    assert.equal(new AutoFx(false, true).canHost(), false);
+    const slow = new AutoFx(true, true);
+    run(slow, 10, steady(55));
+    assert.equal(slow.canHost(), false);
+    const fell = onHigh();
+    run(fell, 60, steady(49));
+    assert.equal(fell.canHost(), false);
+  });
+});
+
 describe("hardwareDesktop", () => {
   const nvidia = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)";
   it("a fine pointer with a hardware GPU is a hardware desktop", () => {
