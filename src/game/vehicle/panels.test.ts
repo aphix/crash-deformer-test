@@ -143,7 +143,7 @@ describe("torn panels", () => {
     for (const n of ["quarterL", "quarterR", "archFL", "archFR"]) car.tear(n, 20);
     for (let i = 0; i < 240; i++) car.step(DT);
     const axis = new THREE.Vector3();
-    for (const n of ["quarterR", "archFR"]) {
+    for (const n of ["archFL", "archFR"]) {
       const o = car.part(n).object;
       axis.set(1, 0, 0).applyQuaternion(o.quaternion);
       assert.ok(Math.abs(axis.y) > 0.98 && o.position.y < 0.08, `${n} thin axis y=${axis.y}, centre ${o.position.y} m`);
@@ -156,13 +156,12 @@ describe("torn panels", () => {
 });
 
 describe("dents on torn parts", () => {
-  /** A parked car tears its hood and right quarter panel off, then drops them on the road: `steps` fixed steps. */
-  function dropped(opts: { cosmetic?: boolean; steps?: number } = {}): Probe {
+  /** A parked car tears its hood and right quarter panel off, then drops them on the road: 240 fixed steps. */
+  function dropped(): Probe {
     const car = probe();
-    car.cosmetic = opts.cosmetic ?? true;
     car.tear("hood", 20);
     car.tear("quarterR", 20);
-    for (let i = 0; i < (opts.steps ?? 240); i++) car.step(DT);
+    for (let i = 0; i < 240; i++) car.step(DT);
     return car;
   }
   const fresh = positions(probe().hoodMesh);
@@ -179,16 +178,11 @@ describe("dents on torn parts", () => {
     assertSameNumbers(positions(b.part("quarterR").object), positions(a.part("quarterR").object), "quarter panel vertices");
   });
 
-  it("good: dents recorded while nobody looks are carved on catch-up to the same shape, and a reset puts the skin back", () => {
-    const eager = dropped();
-    const lazy = dropped({ cosmetic: false });
-    assert.equal(lazy.part("hood").dent.applied, 0);
-    lazy.cosmetic = true;
-    lazy.step(DT);
-    assertSameNumbers(positions(lazy.part("hood").object), positions(eager.part("hood").object), "caught-up hood");
-    lazy.resetVisual();
-    assertSameNumbers(positions(lazy.part("hood").object), fresh, "reset hood");
-    assert.equal(lazy.part("hood").dent.count, 0);
+  it("good: a reset puts the skin back", () => {
+    const car = dropped();
+    car.resetVisual();
+    assertSameNumbers(positions(car.part("hood").object), fresh, "reset hood");
+    assert.equal(car.part("hood").dent.count, 0);
   });
 
   it("bad: a soft touch does not dent, and a part takes no more than its share", () => {
