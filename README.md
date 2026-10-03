@@ -225,7 +225,7 @@ All game code is in `src/game/`, and the `*.test.ts` files sit next to the modul
   - `engine-props.ts`: jersey barrier, ramp balls, lamp poles, compactor press.
   - `engine-pistons.ts`: instanced rams.
   - `engine-doors.ts`: the door ram mesh.
-  - `engine-trace.ts`: JSON capture.
+  - `engine-trace.ts`: JSON capture. The setup (top level and `initial`) holds every HUD setting that changes the picture or the play (`scene`, `night`, `wet`, `realism`, `fxTier`, `ramps`, `barrier`, `balls`, `loop`, `autoSlomo`, `timeScale` (null = auto slow-mo), `deformMode`, `playerClass`, `carCount`, `speedMin`/`speedMax`, `fxDensity`, `squash`/`buckle`) and the canvas (`viewport` {w,h} drawing-buffer px, `pixelRatio` the renderer's capped ratio, `dpr` the device's). Each sample (4 Hz, ≤96) has `t`, `sim`, `phase`, `timeScale` and `camera`: `pos`, `quat` (x,y,z,w), `dir` (unit forward), `fov` (3 decimals), `follow` (followed car's paint name or null) and `rig`, which holds the camera: `reel`, `crash-cam`, `rear-view`, `ragdoll`, `fall-watch`, `drive-<third|far|first>`, `spectate-<third|far|first|cine|dutch>`, `orbit`, `orbit-user` (dragged / zoomed). That is enough to put the camera back and re-take a shot at a time; a trace grows ~150 B a sample.
   - `engine-race.ts`: `RaceDirector`, the race glue (slots, rules step, respawns, traffic, menus, campaign, HUD model).
   - `engine-cine.ts`: cinematic director (tiers, crash cam, hit-stop, tyre smoke).
   - `engine-post.ts`: HDR post chain and bloom.

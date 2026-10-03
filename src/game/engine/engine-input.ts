@@ -235,11 +235,11 @@ export abstract class EngineInput extends EngineRigs {
   copyTraceJson(): string {
     if (!this.trace.initial) this.trace.snapshotInitial(this.traceSetup(), this.live());
     if (!this.captureTrace) {
-      const json = this.trace.setupJson(this.deformMode, this.autoSlomo, this.clock.userTimeScale);
+      const json = this.trace.setupJson(this.traceSetup());
       this.emitHud();
       return json;
     }
-    return this.trace.traceJson(this.traceSetup(), this.deformMode);
+    return this.trace.traceJson(this.traceSetup());
   }
 
   reset(): void {

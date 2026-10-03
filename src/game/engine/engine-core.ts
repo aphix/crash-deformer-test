@@ -63,6 +63,8 @@ export abstract class EngineCore {
   protected abstract readonly net: NetPlay;
   protected abstract emitHud(): void;
   protected abstract queueWarm(): void;
+  /** Which rig is in charge of the camera this frame, for the trace (`CrashEngine.cameraRig`). */
+  protected abstract cameraRig(): string;
   playing = true;
   looping = true;
   showRig = false;
@@ -319,6 +321,20 @@ export abstract class EngineCore {
       carCount: this.carCount,
       speedMin: this.speedMin,
       speedMax: this.speedMax,
+      scene: this.sceneId,
+      night: this.stage.night,
+      wet: this.stage.wet,
+      realism: HANDLING.realism,
+      fxTier: this.cine.tier,
+      loop: this.looping,
+      autoSlomo: this.autoSlomo,
+      userTimeScale: this.clock.userTimeScale,
+      deformMode: this.deformMode,
+      playerClass: this.playerClass,
+      viewW: this.renderer.domElement.width,
+      viewH: this.renderer.domElement.height,
+      pixelRatio: this.renderer.getPixelRatio(),
+      dpr: globalThis.devicePixelRatio ?? 1,
     };
   }
 
@@ -330,6 +346,9 @@ export abstract class EngineCore {
       timeScale: this.clock.timeScale,
       closing: this.fleetClosing(),
       barrierHit: this.barrierHits.some(Boolean),
+      camera: this.camera,
+      rig: this.cameraRig(),
+      follow: this.followedCar()?.paint.name ?? null,
     };
   }
 

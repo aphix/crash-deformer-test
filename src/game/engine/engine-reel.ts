@@ -1,4 +1,5 @@
 import { carClass } from "../vehicle/vehicle-classes.ts";
+import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import type { FxTier } from "../present/engine-post.ts";
 import { FrameGuard } from "../present/fx-boost.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -155,5 +156,21 @@ export abstract class EngineReel extends EngineInput {
   protected reelHud(): Pick<RaceHud, "reel" | "solo" | "saved"> {
     this.savedList ??= listSaved();
     return { ...this.highlights.hud(), saved: this.savedList };
+  }
+
+  /** Which rig holds the camera, mirroring `aimRigs`' and `updateCamera`'s precedence from the state they read (the trace's `camera.rig`). */
+  protected cameraRig(): string {
+    if (this.highlights.playing) return this.cine.cutting ? "crash-cam" : "reel";
+    const followed = this.followedCar();
+    const shown = followed?.group.visible === true;
+    if (shown && this.view.rear) return "rear-view";
+    if (this.ragdolls.rideAlong) return "ragdoll";
+    if (this.cine.cutting) return "crash-cam";
+    const fp = followed?.group.position;
+    if (followed && fp && (followed.falling || followed.vaporized || (fp.y < -0.01 && activeGround().heightAt(fp.x, fp.z, fp.y) === NO_FLOOR))) return "fall-watch";
+    if (shown && this.seat.mode === "drive") return `drive-${this.seat.view}`;
+    const spec = this.view.specView(this.race.chase);
+    if (shown && !this.rigScene && spec !== "orbit") return `spectate-${spec}`;
+    return this.view.userFramed ? "orbit-user" : "orbit";
   }
 }

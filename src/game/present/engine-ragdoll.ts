@@ -313,6 +313,11 @@ export class RagdollSystem {
     }
   }
 
+  /** The ride-along camera is on (`follow` until every dummy out lies still). */
+  get rideAlong(): boolean {
+    return this.riding;
+  }
+
   /**
    * Ride along with the dummies thrown: the camera frames every one still moving (two out of a head-on, say, not
    * just the first), from ahead of or behind them (alternating per ride), until they all lie still.
