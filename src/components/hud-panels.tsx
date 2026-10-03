@@ -7,20 +7,21 @@ import type { CrashEngine } from "@/game/engine/engine";
 import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 
-/** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. */
+/** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. A phone on its side shows the three best scores and the watched car. */
 export function DerbyBoard({ board, engine }: { board: CrashHudState["derbyBoard"]; engine: RefObject<CrashEngine | null> }) {
+  const best = new Set([...board].sort((a, b) => b.score - a.score || a.id - b.id).slice(0, 3).map((r) => r.id));
   return (
     <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-2 idle:w-auto idle:opacity-70">
       <p className="hud-label">Board</p>
-      <ul className="-mx-1.5 mt-2 min-h-0 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain idle:hidden">
+      <ul aria-label="Board" className="-mx-1.5 mt-2 min-h-0 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain idle:hidden">
         {board.map((row) => (
-          <li key={row.id}>
+          <li key={row.id} className={!best.has(row.id) && !row.watched ? "phone-landscape:hidden" : undefined}>
             <button
               type="button"
               onClick={() => engine.current?.watchCar(row.id)}
               aria-pressed={row.watched}
               aria-label={`Follow ${row.name}`}
-              className={`flex h-11 w-full items-center justify-between gap-2 rounded px-1.5 text-left font-display text-sm hover:bg-surface-2 sm:h-6 ${row.watched ? "bg-surface-2" : ""}`}
+              className={`flex h-11 w-full items-center justify-between gap-2 rounded px-1.5 text-left font-display text-sm hover:bg-surface-2 sm:h-6 pointer-coarse:h-11 ${row.watched ? "bg-surface-2" : ""}`}
             >
               <span className={`min-w-0 truncate ${row.alive ? "text-fg" : "text-subtle line-through"}`}>{row.name}</span>
               <span className="flex shrink-0 gap-2 tabular-nums">

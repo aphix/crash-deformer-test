@@ -157,10 +157,10 @@ export function Hud(props: HudProps) {
           </p>
         </header>
       ) : (
-        <header className={cn("hud-ink min-w-0", state.race && "pb-12")} style={{ gridArea: "title" }}>
+        <header className={cn("hud-ink min-w-0 max-sm:min-h-11", state.race && "pb-12")} style={{ gridArea: "title" }}>
           <p className="hud-label idle:hidden">Streamed deformation</p>
           <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight idle:text-lg idle:opacity-70">Crush Stream</h1>
-          <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block idle:hidden">
+          <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block phone-landscape:hidden idle:hidden">
             {state.race
               ? `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
               : state.derby
@@ -192,7 +192,7 @@ export function Hud(props: HudProps) {
         <Readouts state={state} />
       )}
 
-      <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
+      <div className={cn("flex min-h-0 flex-col items-start", !focus && "phone-landscape:items-end")} style={{ gridArea: "context" }}>
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}
         {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
         {state.range ? <RangePanel range={state.range} /> : null}

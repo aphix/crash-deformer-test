@@ -162,6 +162,25 @@
   }
 }
 
+/* Sandbox HUD on a phone on its side: the left column is the title over the thumb pad's dock; the right column stacks the readouts,
+   the scene's panel (derby board, rig controls) and the settings, so the panel is never squeezed between the title and the stick. */
+@media (pointer: coarse) and (max-height: 500px) {
+  .hud-grid:not([data-focus]) {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-rows: auto minmax(0, 1fr) auto;
+    grid-template-areas:
+      "title readouts"
+      "dock context"
+      "dock settings";
+  }
+
+  .hud-settings {
+    justify-self: end;
+    width: 17rem;
+    max-height: 100%;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
