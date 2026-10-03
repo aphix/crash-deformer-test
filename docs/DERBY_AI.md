@@ -81,20 +81,23 @@ wall clip to it.
 ## Validation (10 cars, default slider, real stack, headless)
 
 `derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults,
-`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs seeds 3,4,6,11;
-`DERBY_SEEDS=1,2,3,4,5` for the full set. Asserted per seed: a winner by the heat time limit; no
-AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
-2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first; every
-heat ≥ 1 swing and sideswipe, and a J-turn share ≥ 0.7× main's. Moves count as manoeuvres: back in the same move
+`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs the fixed seeds 1–8
+(`DERBY_SEEDS=1,2,...` changes them); the statistics are judged on the set, not per seed, because every heat is chaotic
+and a single seed fails by chance (see below). Per seed, because they must never happen: a winner by the heat time
+limit; no AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
+2 min; no spin in pair contact; no zip (3·v·h + 5 cm); a contact heading-rate peak ≤ 6.5 rad/s; no death in the first
+8 s. Pooled over the heats: AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first; mean contact
+peak ≤ 5.2 rad/s; ≥ 80 % of heats won by wrecking within 300 s; every heat ≥ 1 swing and sideswipe, and a J-turn
+share ≥ 0.7 × 0.214 (the stopped start's seeds 1–12 share). Moves count as manoeuvres: back in the same move
 within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
-Todo, owned by CrashRealism8: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
-≥ 4/5 heats won by wrecking within 300 s with no death before 8 s.
+Todo, owned by the airborne lane (vertical motion/contact): the seed 2 zip (c6, 5.8 cm at t=50.90 s).
 
 Stopped start vs the old 12 m/s tangent start (main 0b7fc2f), seeds 1–12, times from green: decided by wreck 12/12
 vs 10/12 (plus a count-out and a time win); first death median 32.6 s vs 26.8 s (earliest 10.4 vs 11.4); rear-first
 53 % vs 55 % of AI impacts, J-turn share 0.210 vs 0.197. Single seeds fail by chance either way (old: rear share seed
-10, contact peak seed 4; new: rear share seeds 1 and 10, contact peak seed 5, a 6 cm zip on seed 2), so CI moved
-from 1,2,3,11 to 3,4,6,11.
+10, contact peak seed 4; new: rear share seeds 1 and 10, contact peak seed 5, a 6 cm zip on seed 2), so picking seeds
+that pass hides regressions; CI pools seeds 1–8 instead (seeds 1–12: per-seed rear share 37–65 %, pooled 55 %,
+mean contact peak 4.73 rad/s, range 4.33–5.41).
 
 Main 3aa4301 (realistic defaults, `DERBY_KILL_SCALE` 0.5), 5 seeds, heat limit 300 s:
 
