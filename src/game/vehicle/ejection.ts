@@ -25,8 +25,8 @@ const EJECT_CLOSING = 6;
 export const THROW_OUT = 3;
 const THROW_UP = 3.5;
 const TUMBLE = 3;
-/** Head centre above the torso's, once he leans out (m). */
-const HEAD_UP = 0.4;
+/** Head centre above the torso's, once he leans out (m): the dummy's `PARTS` head 0.52 m over the torso. */
+const HEAD_UP = 0.52;
 /** Head first out of the pane, superman style: 80 degrees from upright toward the exit, chest down. */
 const LEAN = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (80 * Math.PI) / 180);
 const Y = new THREE.Vector3(0, 1, 0);
