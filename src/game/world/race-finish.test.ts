@@ -97,6 +97,30 @@ describe("race: spectator only", () => {
     }
   });
 
+  it("a Watch race starts on Auto driver + Auto camera; a driving race starts on neither; a hand pick still overrides", () => {
+    const w = makeWorld();
+    w.race.enter();
+    try {
+      w.race.command({ type: "options", options: { trackId: "oval", laps: 1, aiCount: 2, spectate: false } });
+      w.race.reseed(1);
+      w.race.command({ type: "start" });
+      assert.equal(w.race.hud().auto, false);
+      assert.equal(w.watchCams, 0);
+      w.race.command({ type: "options", options: { trackId: "oval", laps: 1, aiCount: 2, spectate: true } });
+      w.race.command({ type: "start" });
+      assert.equal(w.race.hud().auto, true);
+      assert.equal(w.watchCams, 1);
+      w.race.command({ type: "cycle", dir: 1 });
+      assert.equal(w.race.hud().auto, false, "a hand pick overrides");
+      w.race.command({ type: "start" });
+      assert.equal(w.race.hud().auto, true, "each new Watch start re-applies it");
+      assert.equal(w.watchCams, 2);
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+
   it("Auto is one more entry in the driver list (cars, then Auto, then car 0); a car pick turns it off, watch -1 turns it on, and autoStep only ever lands on a car still racing", () => {
     const w = makeWorld();
     w.race.enter();

@@ -53,6 +53,8 @@ interface RaceHost {
   reelReady(clips: readonly HighlightClip[]): void;
   /** A run starts (start, retry, next, a campaign leg): the last run's torn parts, loose wheels, dummies and fx go (`CrashEngine.clearScene`). */
   clear(): void;
+  /** A race starts with no car of ours: the spectator camera goes to Auto. */
+  watchCam(): void;
 }
 
 /** Seconds upside down before a car counts as dead. */
