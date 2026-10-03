@@ -53,7 +53,7 @@ const SETTLE = 4;
  * wreck mesh of every style (sedan, wagon, coupe, hatchback and pickup alike): the keel along the middle, rising to
  * the tail, and the rocker and bumper corners 0.8 m out. The wheel arches are cut out and left out.
  */
-const UNDERSIDE: readonly (readonly [number, number, number])[] = [
+export const UNDERSIDE: readonly (readonly [number, number, number])[] = [
   [0, 2, 0.032], [0, 1, 0.072], [0, 0, 0.131], [0, -1, 0.136], [0, -2, 0.161],
   ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
 ];
