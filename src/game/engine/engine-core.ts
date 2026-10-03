@@ -38,6 +38,7 @@ import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
 import { RangeRun } from "../scenes/range.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
+import type { Transients } from "./scene-clear.ts";
 
 const _v = new THREE.Vector3();
 /**
@@ -249,6 +250,11 @@ export abstract class EngineCore {
     if (buf.length !== n) buf.length = n;
     for (let i = 0; i < n; i++) buf[i] = this.cars[i]!;
     return buf;
+  }
+
+  /** The systems a scene reset empties (`clearTransients`): add a new debris-like system here and to `Transients`. */
+  protected transients(): Transients {
+    return { cars: this.cars, poles: this.poles, debris: this.debris, sparks: this.sparks, glassDots: this.glassDots, smoke: this.smoke, ragdolls: this.ragdolls, rangeRun: this.rangeRun, cine: this.cine };
   }
 
   protected ensureCars(n: number): void {
