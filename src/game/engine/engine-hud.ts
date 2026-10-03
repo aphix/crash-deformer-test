@@ -1,6 +1,6 @@
 import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
-import { HANDLING } from "../vehicle/vehicle-classes.ts";
+import { carGear, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
 
@@ -18,6 +18,8 @@ export abstract class EngineHud extends EngineWarm {
       this.clock.phase === "approach" && !this.rigScene ? this.contactEta() : 0;
     const carMass = this.carA.deform.totalMass;
     const pistonEnergy = this.pistons.shotEnergy(carMass);
+    // A derby driver gets the race's speed, gear and boost gauge.
+    const driven = this.derbyMode && this.seat.mode === "drive" ? cars[this.seat.carIndex] : undefined;
     this.hudStore.publish({
       playing: this.playing,
       looping: this.looping,
@@ -90,6 +92,9 @@ export abstract class EngineHud extends EngineWarm {
       derbyWinner: this.derby.winnerName,
       derbyDecided: this.derby.decided,
       derbyTime: this.derby.active ? this.derby.time : null,
+      derbyView: driven
+        ? { id: this.seat.carIndex, racer: null, speedKph: driven.velocity.length() * 3.6, gear: carGear(driven), boost: this.seat.boost, boosting: driven.drive.boost }
+        : null,
       derbyBoard: this.derby.board.map((r) => ({
         id: r.id,
         name: r.name,

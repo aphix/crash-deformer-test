@@ -4,7 +4,7 @@ import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizo
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
-import { RaceReadouts } from "@/components/race-readouts";
+import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
@@ -163,7 +163,15 @@ export function Hud(props: HudProps) {
         </header>
       )}
 
-      {state.race ? <RaceReadouts race={state.race} corner={focus && !touch} /> : <Readouts state={state} />}
+      {state.race ? (
+        <RaceReadouts race={state.race} corner={focus && !touch} />
+      ) : state.derbyView ? (
+        <div className="flex flex-col items-end self-start font-display tabular-nums" style={{ gridArea: "readouts" }}>
+          <Gauge view={state.derbyView} corner={false} />
+        </div>
+      ) : (
+        <Readouts state={state} />
+      )}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}

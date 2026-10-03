@@ -81,8 +81,8 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
   );
 }
 
-/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue. */
-function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
+/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. */
+export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
   const unit = useSpeedUnit();
   const boost = view.boost;
   return (

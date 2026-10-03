@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
-import { CLASSES, carClass, gearAt } from "../vehicle/vehicle-classes.ts";
+import { carGear } from "../vehicle/vehicle-classes.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -505,7 +505,6 @@ export class RaceDirector extends RaceField {
     let view: RaceView | null = null;
     if (s && car) {
       const c = id < this.entrants.length ? s.cars[this.rowOf[id]!] : undefined;
-      const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
       view = {
         id,
         racer: c
@@ -520,7 +519,7 @@ export class RaceDirector extends RaceField {
             }
           : null,
         speedKph: car.velocity.length() * 3.6,
-        gear: along < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], along) + 1,
+        gear: carGear(car),
         // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
         boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
         boosting: car.drive.boost,
