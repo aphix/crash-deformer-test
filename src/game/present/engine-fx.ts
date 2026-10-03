@@ -532,10 +532,13 @@ export class TireSmokeSystem {
   private readonly tint: Float32Array;
   /** Scene light on the (unlit) smoke: 1 by day, low at night. */
   shade = 1;
+  /** How much a puff swells over its life (× its size at birth): crash plumes billow, tyre smoke stays a wisp. */
+  private readonly grow: number;
 
   /** `soft`: a thin, wide puff for tyre smoke (cinematic tiers) instead of the dense crash plume. */
   constructor(scene: THREE.Scene, n = 420, soft = false) {
     this.n = n;
+    this.grow = soft ? 0.7 : 1.8;
     this.px = new Float32Array(n);
     this.py = new Float32Array(n);
     this.pz = new Float32Array(n);
@@ -552,7 +555,7 @@ export class TireSmokeSystem {
         ? makeDotTexture("rgba(232,232,228,0.42)", "rgba(160,160,156,0.14)")
         : makeDotTexture("rgba(210,210,206,0.95)", "rgba(70,70,68,0.25)"),
       transparent: true,
-      opacity: soft ? 0.38 : 0.85,
+      opacity: soft ? 0.25 : 0.85,
       depthWrite: false,
       blending: THREE.NormalBlending,
       side: THREE.DoubleSide,
@@ -583,9 +586,9 @@ export class TireSmokeSystem {
     this.hideAll();
   }
 
-  /** Tyre smoke: wide, slow-rising, long-lived; `tint` colours it (dust on dirt, turf on grass), white when omitted. */
+  /** Tyre smoke: thin, low-rising, short-lived wisps; `tint` colours it (dust on dirt, turf on grass), white when omitted. */
   emitAt(origin: THREE.Vector3, inherit: THREE.Vector3, count: number, tint?: THREE.Color): void {
-    this.spawn(origin, inherit, count, 0.9, 1.7, 0.3, tint);
+    this.spawn(origin, inherit, count, 0.7, 1.13, 0.3, tint, 0.08, 0.73);
   }
 
   plume(origin: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
@@ -680,7 +683,7 @@ export class TireSmokeSystem {
       this.vx[i]! *= damp;
       this.vz[i]! *= damp;
       this.dummy.position.set(this.px[i]!, this.py[i]!, this.pz[i]!);
-      this.dummy.scale.setScalar(this.size[i]! * (0.7 + (1 - fade) * 1.8));
+      this.dummy.scale.setScalar(this.size[i]! * (0.7 + (1 - fade) * this.grow));
       this.dummy.quaternion.copy(camera.quaternion);
       this.dummy.updateMatrix();
       this.mesh.setMatrixAt(i, this.dummy.matrix);
