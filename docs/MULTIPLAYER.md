@@ -153,16 +153,23 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   the on-screen QR decodes to the copied link, including under `vite dev --base /crush/`.
 - **Public race / Play online**: one tap finds a room (see "Matchmaking" below): the relay lists open public rooms
   (`GET api/rtc?list=public&kind=race`: rooms named `pub-race-v<NET_VERSION>-XXXXXX` with a free seat whose
-  `host`-tagged peer polled in the last 15 s, most distinct addresses first, ties in random order, each with its
-  host's match tag), and the client joins the best one or hosts a new room on the race course when none is open.
+  `host`-tagged peer polled in the last 15 s, most distinct addresses (`addrs`) first, ties in random order, each with
+  its player count and its host's match tag), and the client joins the best one or hosts a new room on the race course
+  when none is open. The client ranks by `addrs` too (then the lexically first name, the same room on every screen):
+  `players` only shows and tests for a full room, since one address can pad a room with idle peers. A host's tag is
+  on its very first poll (`P2PRoom.join` waits one microtask, so the mode a public host enters in the same call is
+  in it): the relay row is created tagged. Measured (Chromium, `vite dev`): the room is listed with `lobby.oval` 19 ms
+  after the host's role flipped. A weak host's solo AI count comes back on Leave even when race mode closed first.
   - **Lobby**: the public host is car 0 on the course with no menu; the Net panel says "Waiting for
     players… starts in N s; AI drives the empty seats". After `LOBBY_S` = 15 s (or at once when the
     room fills) the race starts with every peer seated as a `remote` slot and AI in the rest. A
     finished race shows its results for 12 s, then the next one starts, seating whoever joined.
   - **Dead rooms**: a host that closes its tab sends `leave` on `pagehide`; one that crashes stops
     polling and drops off the list within 15 s. A client that joined a room whose host has gone
-    (no word from it for 5 s of the client's own frame time) searches again with that room skipped
-    (`publicMatch(kind, [room])`): another open room, else a fresh one of its own.
+    (no word from it for 5 s of the client's own frame time) searches again with every room it gave up on
+    this session skipped: another open room, else a fresh one of its own. Three rooms in a row that never
+    answered make it host at once instead of trying a fourth; a room that answered and then lost its host is a
+    normal end and does not count. Leave and the player's own Play online forget the list.
     Measured: host tab closed, second page presses Public race 0.5 s later. Before: it joined the dead
     room and sat at 0 snapshots/s for the whole 10 s probe. Now, normal close: a fresh room at once.
     `leave` dropped (a crashed tab): two runs, one joined the dead room and hosted a fresh one after
@@ -216,8 +223,9 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
     10 s collapsed, 4 s open, never while the tab is hidden or a session is on, and doubles its wait (to
     60 s) after each failure (`RoomPoller`; the relay allows 10 requests/s per address). In a session the
     pill is a status chip ("Finding a race…", "Waiting for players · starts in 9 s", "Joined · 3/8 · race on")
-    with Leave, which returns to the race setup menu. Buttons are 44 px tall on phones (32 px from `sm`) and
-    never take keyboard focus from the game.
+    with Leave, which returns to the race setup menu. Its screen-reader line (the only live region) leaves the
+    lobby countdown out, so a state change announces and the seconds do not. Buttons are 44 px tall on phones
+    (32 px from `sm`) and never take keyboard focus from the game.
     Measured (two to four Chromium contexts, `vite dev`): a capable desktop's Play online hosts in 0.6 s; a second page opens
     the list ("1/8 players · Open", later "Racing"), Joins; a third presses Play online and lands in the same room (3
     of 3 seated, race started with a field of 8 for all); the host's Leave returns to the setup menu. A phone (coarse

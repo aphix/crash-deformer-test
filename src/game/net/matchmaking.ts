@@ -12,7 +12,10 @@ import type { MatchStage, NetGame, PublicKind } from "./net-ports.ts";
 /** A public room as the relay lists it (signaling.server.ts `listPublic`); `meta` is its host's `publicMeta`. */
 export interface LobbyRoom {
   room: string;
+  /** Every peer in the room: the full-room test and what the list shows. One address can pad it with idle peers. */
   players: number;
+  /** Distinct addresses in the room: what ranks it, since padding adds players but not addresses. */
+  addrs: number;
   meta: string;
 }
 
@@ -20,6 +23,7 @@ export interface LobbyRoom {
 export interface OpenRoom {
   room: string;
   players: number;
+  addrs: number;
   /** Where the host says its match stands; null when the relay predates room meta. */
   stage: MatchStage | null;
   /** The host's course id ("" for a derby or an old relay). */
@@ -28,7 +32,7 @@ export interface OpenRoom {
 
 /** `GET api/rtc?list=public&kind=…`, as the game reads it: a relay without `meta` lists rooms without one. */
 const LIST = z.object({
-  rooms: z.array(z.object({ room: z.string().startsWith(PUBLIC_PREFIX).max(64), players: z.number().int(), meta: z.string().max(64).default("") })),
+  rooms: z.array(z.object({ room: z.string().startsWith(PUBLIC_PREFIX).max(64), players: z.number().int(), addrs: z.number().int(), meta: z.string().max(64).default("") })),
 });
 
 /** Rooms carry the build's `NET_VERSION`, so a search never lands in one it would be refused from. */
@@ -57,9 +61,10 @@ export const WEAK_DERBY_FIELD = 4;
 
 /**
  * Rooms of `kind` this build can join, best first: a match not mid-way (lobby or results, the next one
- * starts within ~30 s) before a running one (a late joiner spectates until its end), then the fullest, then
- * the lexically first, which is the same room on every searcher's screen. Wrong build, full rooms and `skip`
- * (the room the caller is leaving) are dropped.
+ * starts within ~30 s) before a running one (a late joiner spectates until its end), then the most distinct
+ * addresses (the relay's own order: one address padding a room with idle peers adds players, not addresses),
+ * then the lexically first, which is the same room on every searcher's screen. Wrong build, full rooms and
+ * `skip` (rooms the caller is leaving or gave up on) are dropped.
  */
 export function openRooms(list: readonly LobbyRoom[], kind: PublicKind, skip: readonly string[] = []): OpenRoom[] {
   const out: OpenRoom[] = [];
@@ -67,10 +72,10 @@ export function openRooms(list: readonly LobbyRoom[], kind: PublicKind, skip: re
     const m = ROOM_RE.exec(r.room);
     if (!m || m[1] !== kind || Number(m[2]) !== NET_VERSION || r.players >= ROOM_MAX || skip.includes(r.room)) continue;
     const [stage = "", course = ""] = r.meta.split(".");
-    out.push({ room: r.room, players: r.players, stage: STAGES.includes(stage) ? (stage as MatchStage) : null, course });
+    out.push({ room: r.room, players: r.players, addrs: r.addrs, stage: STAGES.includes(stage) ? (stage as MatchStage) : null, course });
   }
   const rank = (r: OpenRoom) => (r.stage === "running" ? 1 : 0);
-  return out.sort((a, b) => rank(a) - rank(b) || b.players - a.players || (a.room < b.room ? -1 : 1));
+  return out.sort((a, b) => rank(a) - rank(b) || b.addrs - a.addrs || (a.room < b.room ? -1 : 1));
 }
 
 /** The relay's open public rooms of `kind`, or null when it cannot be reached (offline, rate limited, down). */
@@ -152,7 +157,7 @@ export async function findMatch(kind: PublicKind, fit: boolean, deps: MatchDeps,
     if (!deps.live() || !list) continue;
     if ((list.find((r) => r.room === mine)?.players ?? 1) > 1 || !deps.alone()) return;
     const other = openRooms(list, kind, [...skip, mine])[0];
-    if (other && other.stage !== "running" && (other.players > 1 || other.room < mine)) return deps.join(other.room);
+    if (other && other.stage !== "running" && (other.addrs > 1 || other.room < mine)) return deps.join(other.room);
   }
 }
 

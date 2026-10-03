@@ -20,9 +20,11 @@ import {
 /** A room name without its kind and build: "A" for `publicRoomName("race", "A")`, so expectations read as literals. */
 const codeOf = (name: string): string => name.replace(/^pub-(race|derby)-v\d+-/, "");
 
-const room = (code: string, players: number, meta = "lobby.oval", kind: "race" | "derby" = "race"): LobbyRoom => ({
+/** `addrs` (distinct addresses) defaults to `players`: every player on their own address, as in a real room. */
+const room = (code: string, players: number, meta = "lobby.oval", kind: "race" | "derby" = "race", addrs = players): LobbyRoom => ({
   room: publicRoomName(kind, code),
   players,
+  addrs,
   meta,
 });
 
@@ -86,19 +88,27 @@ describe("matchmaking: which listed rooms are open", () => {
     const list: LobbyRoom[] = [
       room("A", 2),
       room("B", 2, "lobby.oval", "derby"),
-      { room: `pub-race-v${NET_VERSION + 1}-C`, players: 2, meta: "lobby.oval" },
-      { room: "pub-race-D", players: 2, meta: "" },
+      { room: `pub-race-v${NET_VERSION + 1}-C`, players: 2, addrs: 2, meta: "lobby.oval" },
+      { room: "pub-race-D", players: 2, addrs: 2, meta: "" },
       room("E", 8),
       room("F", 2),
     ];
     assert.deepEqual(openRooms(list, "race", [publicRoomName("race", "F")]).map((r) => codeOf(r.room)), ["A"]);
   });
 
-  it("ranks a match that has not started before a running one, then the fullest, then the first name", () => {
+  it("ranks a match that has not started before a running one, then the most addresses, then the first name", () => {
     const list = [room("A", 7, "running.oval"), room("B", 2), room("C", 5, "over.rally"), room("D", 5), room("E", 3, "")];
     assert.deepEqual(
       openRooms(list, "race").map((r) => r.room.slice(-1)),
       ["C", "D", "E", "B", "A"],
+    );
+  });
+
+  it("ranks by distinct addresses: a room one address padded with idle peers does not outrank a real 3-address room", () => {
+    const list = [room("AAAAPAD", 7, "lobby.oval", "race", 1), room("ZZREAL", 3), room("MMLONE", 1)];
+    assert.deepEqual(
+      openRooms(list, "race").map((r) => codeOf(r.room)),
+      ["ZZREAL", "AAAAPAD", "MMLONE"],
     );
   });
 
@@ -124,7 +134,7 @@ describe("matchmaking: Play online decides", () => {
   });
 
   it("skips a room of another build and a full one, and hosts when nothing else is open", async () => {
-    const h = harness(() => [{ room: `pub-race-v${NET_VERSION + 1}-A`, players: 3, meta: "lobby.oval" }, room("B", 8)]);
+    const h = harness(() => [{ room: `pub-race-v${NET_VERSION + 1}-A`, players: 3, addrs: 3, meta: "lobby.oval" }, room("B", 8)]);
     const done = findMatch("race", true, h.deps);
     await h.clock.drain();
     await done;
@@ -207,6 +217,16 @@ describe("matchmaking: Play online decides", () => {
     await done;
     assert.equal(h.log[0]!.what, "host");
   });
+
+  it("a lone host leaves its room for one with another address in it, never for one address's padding", async () => {
+    for (const [other, joins] of [[room("PAD", 7, "lobby.oval", "race", 1), false], [room("REAL", 3), true]] as const) {
+      const h = harness((call) => (call < 2 ? [] : [other]));
+      const done = findMatch("race", true, h.deps);
+      await h.clock.drain();
+      await done;
+      assert.equal(h.log.map((l) => l.what).join(", "), joins ? `host, join ${codeOf(other.room)}` : "host", codeOf(other.room));
+    }
+  });
 });
 
 describe("matchmaking: searchers who click together end in one room", () => {
@@ -239,7 +259,7 @@ describe("matchmaking: searchers who click together end in one room", () => {
         const deps: MatchDeps = {
           list: async () => {
             await clock.sleep(latency.list * (0.5 + dice()));
-            return [...rooms].map(([name, r]): LobbyRoom => ({ room: name, players: r.players, meta: "lobby.oval" }));
+            return [...rooms].map(([name, r]): LobbyRoom => ({ room: name, players: r.players, addrs: r.players, meta: "lobby.oval" }));
           },
           sleep: clock.sleep,
           random: dice,

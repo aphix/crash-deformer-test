@@ -130,8 +130,14 @@ export class P2PRoom {
    * The first poll IS the join: it registers this peer and returns the
    * roster. A failed first poll (cold DB, offline tab) must not strand the
    * room: the loop and timers start regardless and the next poll retries.
+   * It waits one microtask: a caller that builds the room and then finishes
+   * its own setup in the same call (a public host entering its match) has
+   * `opts.meta` read after that, so the relay row is created with the tag; a
+   * room closed in that call never joins.
    */
   async join(): Promise<void> {
+    await Promise.resolve();
+    if (this.closed) return;
     try {
       await this.pollOnce();
     } catch {

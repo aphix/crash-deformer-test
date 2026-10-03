@@ -438,7 +438,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
       >
         <SlidersHorizontal />
       </Button>
-      <KeyHelp className="idle:hidden" />
+      <KeyHelp className="idle:hidden idle:data-[state=open]:inline-flex" />
       <FullscreenButton className={BAR_BUTTON} />
     </div>
   );

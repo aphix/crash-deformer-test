@@ -15,16 +15,20 @@ const keepFocus = (e: { preventDefault: () => void }): void => e.preventDefault(
 
 const STAGE: Record<string, string> = { lobby: "Starting soon", over: "Results", running: "Racing" };
 
-/** What this session is doing, in a line (the chip's text; a stranded or refused guest says why). */
-function sessionText(s: NetStatus): string {
+/**
+ * What this session is doing, in a line (the chip's text; a stranded or refused guest says why). `seconds` false
+ * leaves the lobby countdown out, so the line only changes when the state does (the screen-reader copy).
+ */
+function sessionText(s: NetStatus, seconds = true): string {
   if (s.finding) return "Finding a race…";
   if (s.problem === "version") return "Different game version: reload";
   if (s.relayError) return s.relayError[0]!.toUpperCase() + s.relayError.slice(1);
   const players = s.peers.length + 1;
   const where = s.public ? (s.role === "host" ? "Hosting" : "Joined") : `Room ${s.room}`;
   if (s.lobby === null) return `${where} · ${players}/${ROOM_MAX} · race on`;
-  if (s.role === "host" && players === 1) return `Waiting for players · starts in ${s.lobby} s`;
-  return `${where} · ${players}/${ROOM_MAX} · starts in ${s.lobby} s`;
+  const start = seconds ? `starts in ${s.lobby} s` : "in the lobby";
+  if (s.role === "host" && players === 1) return `Waiting for players · ${start}`;
+  return `${where} · ${players}/${ROOM_MAX} · ${start}`;
 }
 
 function RoomRow({ r, courseName, onJoin }: { r: OpenRoom; courseName: string; onJoin: () => void }) {
@@ -80,9 +84,14 @@ export function LiveRooms({ engine, race }: { engine: RefObject<CrashEngine | nu
   if (online) {
     return (
       <div className={cn("pointer-events-none absolute z-30 flex", spot)}>
-        <div className={cn("hud-panel pointer-events-auto flex max-w-[calc(100vw-1rem)] items-center gap-1 py-1 pl-3 pr-1", setup && "ml-auto")} role="status" aria-live="polite">
+        <div className={cn("hud-panel pointer-events-auto flex max-w-[calc(100vw-1rem)] items-center gap-1 py-1 pl-3 pr-1", setup && "ml-auto")}>
           <span className="size-2 shrink-0 rounded-full bg-signal-green" aria-hidden />
-          <p className="min-w-0 truncate font-display text-xs tabular-nums sm:text-sm">{sessionText(status)}</p>
+          <p className="min-w-0 truncate font-display text-xs tabular-nums sm:text-sm" aria-hidden>
+            {sessionText(status)}
+          </p>
+          <span className="sr-only" role="status" aria-live="polite">
+            {sessionText(status, false)}
+          </span>
           <Button variant="ghost" size="sm" className={cn(TAP, "px-2")} onMouseDown={keepFocus} onClick={leave} aria-label="Leave online match">
             <LogOut />
             <span className="hidden sm:inline">Leave</span>
