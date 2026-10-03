@@ -253,6 +253,17 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   racer within 45 m, else the pack gives up, as it does after 160 m off for 4 s or 40 s of pursuit.
   Given-up units drive off and are put away out of view (or after 20 s); a knocked-out unit (dead
   drivetrain or upside down) after 6 s; a stakeout nobody came near after 45 s.
+- Busted (`BUST`, `RaceSession`): a racing car (player, AI or netplay peer; the host decides) held under
+  20 km/h within 20 m of a unit that is chasing (`PoliceBrain.chasers`: in pursuit with a pack; never a
+  parked stakeout, a knocked-out wreck or a unit driving off) for more than 4 s in a row is out the way a
+  DNF is: `dnf`, or `out` in a no-reset race. `CarRecord.stopped` / `bustedAt` ride the race snapshot to
+  peers (no `NET_VERSION` bump); results show "Busted". The busted player gets a BUSTED banner
+  (`race-busted.tsx`) for 2.5 s of race time, then the camera follows the leader as after a DNF.
+  Measured (the sweep below, police on, seeds 1–5 × oval / rally / city / stunt): 0 busts in 20 races;
+  the longest stop beside a chasing unit was 3.9 s (city seed 2).
+- Durability: an AI unit's class has durability ×1.3: +16 % kill travel over the sedan at the default
+  realism (0.45 → 0.52 m), +14.5 % at the arcade end (`KILL_CEILING`), +30 % at the realistic end. A
+  player who picks the Police car (slot 0) keeps the sedan's (`killClass`).
 
 Measured (`police-sweep.mts`: 4 AI + the AI-driven slot, 2 laps, slider 0.35, seeds 1–5; "contacts"
 counts physical police↔racer contacts a pair apart ≥ 0.5 s, a takedown is a racer death ≤ 3 s after

@@ -6,7 +6,7 @@ import { newWorld, settleStep, stepWorld, type World as StepWorld } from "../eng
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
-import { armKill, assignClass, carClass, HANDLING } from "../vehicle/vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
@@ -67,7 +67,7 @@ export function makeWorld(): World {
     car.deform.setMode(INITIAL_HUD.deformMode);
     const cls = carClass(car);
     assignClass(car, cls);
-    armKill(car.deform, cls, HANDLING.realism, "default");
+    armKill(car.deform, killClass(car), HANDLING.realism, "default");
   };
   const race = new RaceDirector({
     scene,
@@ -335,6 +335,6 @@ export function playerRace(w: World, track: Track, line: PlayerLine, laps: numbe
     }
   }
   // Null when the race never closed within `bound`: the live classification stands in.
-  const res = r.hud().results ?? r.snapshot()!.cars.map((c) => ({ id: c.id, name: c.name, kind: c.kind, place: c.place, status: c.status, time: c.finishTime, gap: null, bestLap: c.bestLap, laps: c.lap }));
+  const res = r.hud().results ?? r.snapshot()!.cars.map((c) => ({ id: c.id, name: c.name, kind: c.kind, place: c.place, status: c.status, time: c.finishTime, gap: null, bestLap: c.bestLap, laps: c.lap, busted: c.bustedAt != null }));
   return { you: res.find((x) => x.id === 0)!, ai: res.filter((x) => x.id !== 0), ...out };
 }

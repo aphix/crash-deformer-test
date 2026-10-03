@@ -43,6 +43,11 @@ const RESPAWN_TRIES = 12;
  * while it lasts its top speed is × `top` (`applyDrive`'s `topScale`).
  */
 export const DRAFT = { near: 2, far: 15, half: 1.5, speed: 15, every: 2, bonus: 0.05, top: 1.02 };
+/**
+ * Busted: a racing car held under `kph` within `near` m of a chasing police car for more than `time` s in a
+ * row is out of the race, the way a DNF is (DNF; out in a no-reset race, where a dead car is out).
+ */
+export const BUST = { near: 20, kph: 20, time: 4 };
 
 /** 0 off, 1 red, 2 yellow, 3 green (held 1.5 s after the start). */
 export function startLights(time: number): 0 | 1 | 2 | 3 {
@@ -53,6 +58,7 @@ export function startLights(time: number): 0 | 1 | 2 | 3 {
 }
 
 const NO_EVENTS: readonly RaceEvent[] = [];
+const NO_COPS: readonly { x: number; z: number }[] = [];
 
 const RANK_GROUP: Record<CarStatus, number> = { finished: 0, racing: 1, respawning: 1, dnf: 1, out: 2 };
 
@@ -86,6 +92,8 @@ function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
     seg: -1,
     draft: 0,
     drafts: 0,
+    stopped: 0,
+    bustedAt: null,
   };
 }
 
@@ -162,8 +170,8 @@ export class RaceSession {
     return out;
   }
 
-  /** Advance the clock by `dt` with the cars' poses at the end of the step. */
-  step(dt: number, poses: readonly CarPose[]): void {
+  /** Advance the clock by `dt` with the cars' poses at the end of the step, and the chasing police cars' positions (`BUST`). */
+  step(dt: number, poses: readonly CarPose[], cops: readonly { x: number; z: number }[] = NO_COPS): void {
     if (this.phase === "finished" || dt <= 0) return;
     const t0 = this.time;
     this.time += dt;
@@ -188,6 +196,7 @@ export class RaceSession {
     this.finishers.length = 0;
     for (let i = 0; i < this.cars.length; i++) this.stepCar(i, poses[i]!, from, span);
     this.drafting(poses, span);
+    this.busting(poses, cops, span);
     this.sortRank();
     this.settle();
   }
@@ -215,6 +224,32 @@ export class RaceSession {
       const was = Math.floor(c.draft / DRAFT.every);
       c.draft += dt;
       if (Math.floor(c.draft / DRAFT.every) > was) c.drafts++;
+    }
+  }
+
+  /** `BUST`: each racing car's unbroken seconds held slow beside a chasing police car, and the bust once that runs out. */
+  private busting(poses: readonly CarPose[], cops: readonly { x: number; z: number }[], dt: number): void {
+    for (let i = 0; i < this.cars.length; i++) {
+      const c = this.cars[i]!;
+      const p = poses[i]!;
+      let near = false;
+      for (let k = 0; k < cops.length && !near; k++) near = Math.hypot(cops[k]!.x - p.x, cops[k]!.z - p.z) <= BUST.near;
+      if (c.status !== "racing" || !near || Math.hypot(p.vx, p.vz) * 3.6 >= BUST.kph) {
+        c.stopped = 0;
+        continue;
+      }
+      c.stopped += dt;
+      if (c.stopped <= BUST.time) continue;
+      c.bustedAt = this.time;
+      c.wrongWay = false;
+      c.wrongFor = 0;
+      c.draft = 0;
+      if (!this.noReset) {
+        c.status = "dnf";
+        continue;
+      }
+      c.status = "out";
+      c.outTime = this.time;
     }
   }
 
@@ -271,6 +306,7 @@ export class RaceSession {
         gap: c.status === "finished" && c.lap >= this.laps && c.finishTime != null && winTime != null ? c.finishTime - winTime : null,
         bestLap: c.bestLap,
         laps: c.lap,
+        busted: c.bustedAt != null,
       };
     });
   }

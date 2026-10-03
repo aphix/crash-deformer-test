@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { GlassName } from "../vehicle/car-core.ts";
-import { carClass, killTravel } from "../vehicle/vehicle-classes.ts";
+import { killClass, killTravel } from "../vehicle/vehicle-classes.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 
 /** Pane a thrown driver leaves through: the windshield on a head-on, the struck side's front window on a side hit. */
@@ -71,7 +71,7 @@ export class EjectionWatch {
       // durability, × the derby scale in one). At the HUD's default realism (0.25) a fleet sedan dies only at 0.45 m
       // and one head-on tops out at 0.36 m from 2×24 m/s up (2×56 km/h: 0.16 m, 2×72: 0.30): without this no
       // sandbox or race car is ever disabled by one hit.
-      const now = car.deform.drivetrainAlive && car.deform.engineTravel < killTravel(carClass(car), 1, ctx) ? 1 : 0;
+      const now = car.deform.drivetrainAlive && car.deform.engineTravel < killTravel(killClass(car), 1, ctx) ? 1 : 0;
       const was = this.alive[i]!;
       this.alive[i] = now;
       if (was === 1 && now === 0 && !this.thrown[i]) this.judge(cars, i, eject);
