@@ -8,6 +8,7 @@ import { armKill, assignClass, DEFAULT_REALISM } from "../vehicle/vehicle-classe
 import { beginImpact, holdForThrow, impactScale, phaseClock, stepPhase, THROW_ONSET } from "../match/phase.ts";
 import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { SHIRTS } from "./driver-look.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
 import { occluder, solid, type Occluder, type Sight } from "./spectate-cam.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
@@ -226,7 +227,11 @@ describe("a police driver is thrown in uniform", () => {
     const chest = (s: number) => `#${mesh.getColorAt(s * per, new THREE.Color()).getHexString()}`;
     const shirts = [chest(0), chest(1)];
     ragdolls.dispose();
-    assert.deepEqual(shirts, ["#1b2a4a", "#2b2d32"]);
+    // The cop keeps the uniform whatever the look seed; the civilian wears a palette tee that is not the cop navy.
+    const tees = SHIRTS.map((h) => `#${new THREE.Color(h).getHexString()}`);
+    assert.equal(shirts[0], "#1b2a4a");
+    assert.ok(tees.includes(shirts[1]!), `civilian tee ${shirts[1]} is not in the palette`);
+    assert.ok(!tees.includes("#1b2a4a"), "the civilian palette holds the cop navy");
   });
 });
 

@@ -76,6 +76,7 @@ export class CrashRecorder {
   private trackId = "";
   private realism = 0;
   private bleed = false;
+  private look = 0;
   private names: (i: number) => string = (i) => `Car ${i}`;
   /** Cars below this index are racers; the rest are traffic and police, which score only against a racer. */
   private racers = 0;
@@ -124,7 +125,7 @@ export class CrashRecorder {
    * only by hitting or being hit by a racer); `names(i)` labels car i in the clips; `bleed`: the engine's wreck-slide
    * rule is on.
    */
-  begin(trackId: string, realism: number, bleed: boolean, racers: number, names: (i: number) => string): void {
+  begin(trackId: string, realism: number, bleed: boolean, racers: number, names: (i: number) => string, look: number): void {
     this.on = true;
     this.time = 0;
     this.step = 0;
@@ -133,6 +134,7 @@ export class CrashRecorder {
     this.trackId = trackId;
     this.realism = realism;
     this.bleed = bleed;
+    this.look = look;
     this.names = names;
     this.racers = racers;
     this.ledger.clear();
@@ -495,6 +497,7 @@ export class CrashRecorder {
       squash: this.cars[c.a0]!.deform.squash,
       buckle: this.cars[c.a0]!.deform.buckle,
       deformMode: this.cars[c.a0]!.deform.mode,
+      look: this.look,
       cars,
       h,
       inputs,

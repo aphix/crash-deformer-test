@@ -21,8 +21,11 @@ function clientOf(host: World, self: number): World {
   c.race.enter();
   // The host's field size (NetPlay sets it from snapshots); the setup park makes aiCount + 1 cars.
   c.race.command({ type: "options", options: { trackId: "oval", aiCount: host.live().length - 1 } });
-  const wire = readRace(writeRace({ lobby: null, trackId: "oval", snap: host.race.snapshot() }));
+  host.race.look = 0xcafe1234;
+  const wire = readRace(writeRace({ lobby: null, trackId: "oval", look: host.race.look, snap: host.race.snapshot() }));
   assert.ok(wire?.snap, "the host's race state passes the client's checks");
+  assert.equal(wire.look, 0xcafe1234, "the field's driver-look seed crosses the wire");
+  c.race.look = wire.look;
   c.race.applySnapshot(wire.snap, self);
   return c;
 }

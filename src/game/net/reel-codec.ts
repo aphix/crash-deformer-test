@@ -13,10 +13,10 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Wri
 /**
  * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
  * flight block and solver state; 3: that state XORed on the car's previous keyframe's; 4: the solver state's
- * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`). A saved clip also records
- * `NET_VERSION` (its snapshots' layout).
+ * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`; 5: the race's driver-look seed after
+ * the deform mode). A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 4;
+const REPLAY_VERSION = 5;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -28,7 +28,7 @@ const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).le
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
-  let n = 1 + utf8(c.trackId) + 69 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  let n = 1 + utf8(c.trackId) + 73 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (2 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 8 + k.length;
   return n;
@@ -54,6 +54,7 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.f32(c.squash);
   w.f32(c.buckle);
   w.u8(c.deformMode === "lattice" ? 1 : 0);
+  w.u32(c.look);
   w.u8(c.cars.length);
   for (const car of c.cars) {
     w.u8(car.slot);
@@ -100,6 +101,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const squash = r.fin32();
   const buckle = r.fin32();
   const deformMode = r.u8() === 1 ? "lattice" : "shape";
+  const look = r.u32();
   const nc = r.u8();
   if (nc < 1 || nc > MAX_NET_CARS || focus >= nc || firstA >= nc || firstB >= nc) throw new RangeError("clip cars");
   if (![t0, firstImpact, lastImpact, realism].every(Number.isFinite)) throw new RangeError("clip clock");
@@ -150,7 +152,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     keys.push(key);
   }
   if (firstStep >= steps) throw new RangeError("clip first step");
-  return { trackId, score, impacts, kills, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, cars, h, inputs, keyStep, keys };
+  return { trackId, score, impacts, kills, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, keyStep, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

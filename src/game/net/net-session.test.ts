@@ -114,6 +114,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
   const race = raceApplied
     ? {
         options: { ...DEFAULT_RACE_OPTIONS },
+        look: 0,
         phase: null as RacePhase | null,
         /** Every `command` the session sent; an `options` one also applies, as the director does. */
         commands: [] as RaceCommand[],
@@ -424,10 +425,15 @@ describe("netplay session: a client listens to its host only", () => {
     const applied: number[] = [];
     const s = session({ raceApplied: applied });
     const snap = { trackId: "oval", laps: 1e9, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [] };
-    const body = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", snap }));
+    const body = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }));
     s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.race, ...body]));
     s.hub.flush();
     assert.deepEqual(applied, []);
+    // Control: the same message with a sane lap count is applied, so the empty list above is the lap check's.
+    const ok = new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap: { ...snap, laps: 3 } }));
+    s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.race, ...ok]));
+    s.hub.flush();
+    assert.deepEqual(applied, [3]);
   });
 
   it("is not seated by a host on another build, and the host does not seat a peer on another build", () => {

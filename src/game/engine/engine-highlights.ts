@@ -155,6 +155,11 @@ export class ReelDirector {
     return this.clips.length > 0;
   }
 
+  /** The driver-look seed of the clip on screen (`driverLook`), null while no clip plays: its drivers look as they did in the race. */
+  get look(): number | null {
+    return this.playing ? (this.cur?.clip.look ?? null) : null;
+  }
+
   /** Play `reel` from `startAt` on, looping, replacing any reel. */
   play(reel: Reel, startAt: number): void {
     this.stop();

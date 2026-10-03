@@ -30,6 +30,8 @@ import type { Placed } from "../world/placements.ts";
 import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
+import { driverLook } from "./driver-look.ts";
+import { Purses } from "./ragdoll-purse.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
@@ -108,7 +110,10 @@ const G_DOLLS = 0x1e;
 const carBit = (i: number) => 0x40 << i % 10;
 const G_CARS = 0xffc0;
 const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CARS;
-const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS;
+/** A woman's purse and what falls out of it hit the world, the barrier and every car (not their own for `GRACE` s), never a dummy. */
+const G_PROPS = 0x20;
+const propGroups = (car: number) => (G_PROPS << 16) | G_STATIC | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
+const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS | G_PROPS;
 
 type Doll = {
   bodies: RigidBody[];
@@ -186,6 +191,9 @@ export class RagdollSystem {
   /** The HUD's Rig and Particles views of the dummies (`set`). */
   readonly debug: RagdollDebug;
   private readonly onThrow: (car: number) => void;
+  /** The look seed (`driverLook`) the engine sets each frame: a driver keeps his tee and hair through a race. */
+  lookSeed = 0;
+  private purses: Purses | null = null;
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
@@ -264,8 +272,8 @@ export class RagdollSystem {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
       // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
       // it the cabin (car-local, origin on the ground, +z forward). `fitEnds` follows the lower box's crushed ends.
-      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, LOW_HALF_Y, LOW_HALF_Z).setTranslation(0, LOW_Y, 0).setCollisionGroups((carBit(i) << 16) | G_DOLLS), body);
-      world.createCollider(R.ColliderDesc.cuboid(0.7, 0.27, 0.68).setTranslation(0, 1.07, -0.07).setCollisionGroups((carBit(i) << 16) | G_DOLLS), body);
+      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, LOW_HALF_Y, LOW_HALF_Z).setTranslation(0, LOW_Y, 0).setCollisionGroups((carBit(i) << 16) | G_DOLLS | G_PROPS), body);
+      world.createCollider(R.ColliderDesc.cuboid(0.7, 0.27, 0.68).setTranslation(0, 1.07, -0.07).setCollisionGroups((carBit(i) << 16) | G_DOLLS | G_PROPS), body);
       this.ends[2 * i] = LOW_HALF_Z;
       this.ends[2 * i + 1] = -LOW_HALF_Z;
       this.carBodies.push(body);
@@ -297,6 +305,8 @@ export class RagdollSystem {
       }
       this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0 });
     }
+    // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
+    this.mesh.add((this.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
     // One step with a dummy out, far below the world: links the step path before a crash needs it.
     const d = this.dolls[0]!;
     for (const b of d.bodies) b.setEnabled(true);
@@ -350,7 +360,9 @@ export class RagdollSystem {
     for (let j = 1; j <= steps; j++) {
       this.moveProxies(Math.min(1, (j * STEP - lead) / dt));
       if (j === steps) for (const d of this.dolls) if (d.live) this.capture(d, d.prev);
+      if (j === steps) this.purses?.capture(false);
       world.step();
+      this.purses?.advance(STEP);
       for (let s = 0; s < SLOTS; s++) {
         const d = this.dolls[s]!;
         if (!d.live) continue;
@@ -361,6 +373,7 @@ export class RagdollSystem {
     this.acc = Math.max(0, this.acc - steps * STEP);
     this.alpha = Math.min(1, this.acc / STEP);
     if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
+    if (steps > 0) this.purses?.capture(true);
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -380,6 +393,7 @@ export class RagdollSystem {
         if (this.debug.on) this.debug.pose(s, k, _p, _q);
       }
     }
+    this.purses?.pose(this.alpha);
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
@@ -610,6 +624,7 @@ export class RagdollSystem {
     this.disposed = true;
     this.debug.dispose();
     this.mesh.removeFromParent();
+    this.purses?.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.mesh.dispose();
@@ -639,24 +654,12 @@ export class RagdollSystem {
       this.on[i] = 1;
     }
     if (!jump) a.copyWithin(o, o + 7, o + 14);
-    a[o + 7] = p.x;
-    a[o + 8] = p.y;
-    a[o + 9] = p.z;
-    a[o + 10] = q.x;
-    a[o + 11] = q.y;
-    a[o + 12] = q.z;
-    a[o + 13] = q.w;
+    p.toArray(a, o + 7);
+    q.toArray(a, o + 10);
     if (!jump) return;
     a.copyWithin(o, o + 7, o + 14);
-    _v.x = p.x;
-    _v.y = p.y;
-    _v.z = p.z;
-    _rot.x = q.x;
-    _rot.y = q.y;
-    _rot.z = q.z;
-    _rot.w = q.w;
-    body.setTranslation(_v, false);
-    body.setRotation(_rot, false);
+    body.setTranslation(p, false);
+    body.setRotation(q, false);
   }
 
   /**
@@ -715,11 +718,7 @@ export class RagdollSystem {
       b.setTranslation(_v, false);
       _qx.copy(t.q);
       if (ARM(k)) _qx.multiply(_arm);
-      _rot.x = _qx.x;
-      _rot.y = _qx.y;
-      _rot.z = _qx.z;
-      _rot.w = _qx.w;
-      b.setRotation(_rot, false);
+      b.setRotation(_qx, false);
       // Rigid motion: v + ω × r.
       _s.copy(t.w).cross(_r);
       _v.x = t.v.x + _s.x;
@@ -752,7 +751,9 @@ export class RagdollSystem {
     }
     this.capture(d, d.prev);
     d.cur.set(d.prev);
-    this.mesh.dress(slot, t.cop);
+    const look = driverLook(this.lookSeed, t.car);
+    this.mesh.dress(slot, t.cop, look);
+    if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
     // The first dummy out starts the stepping afresh: no leftover from an earlier throw shifts this one's first step.
     if (this.live === 0) this.acc = 0;
     this.teleport ||= this.live === 0;
@@ -788,6 +789,7 @@ export class RagdollSystem {
     for (const c of d.patch) this.world!.removeCollider(c, false);
     d.patch.length = 0;
     this.mesh.hide(s);
+    this.purses?.clear(s);
     this.debug.hide(s);
     if (this.live === 0) this.mesh.visible = false;
   }

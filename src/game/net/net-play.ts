@@ -585,7 +585,7 @@ export class NetPlay {
 
   /** The rules state (or, between races, the lobby countdown and course) to every client. */
   private sendRace(race: NetRace, t: NetTransport): void {
-    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.options.trackId, snap: race.snapshot() });
+    const msg = writeRace({ lobby: this.lobbyLeft, trackId: race.options.trackId, look: race.look, snap: race.snapshot() });
     t.send(msg);
     this.statBytes += msg.length;
   }
@@ -672,6 +672,7 @@ export class NetPlay {
     this.game.enterRace();
     const race = this.game.race();
     if (!race) return;
+    race.look = s.look;
     try {
       if (s.snap) race.applySnapshot(s.snap, this.car);
       else race.showLobby(s.trackId);

@@ -67,6 +67,7 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     squash: 0.4,
     buckle: 0.55,
     deformMode: "lattice",
+    look: 0xdeadbeef,
     cars: [
       { slot: 3, style: a.style.id, cls: "sedan", name: "Ayla" },
       { slot: 7, style: b.style.id, cls: "truck", name: "Bo" },

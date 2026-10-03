@@ -72,7 +72,7 @@ function record(): Recorded {
     assert.ok(car.crashed, `car ${i} is a wreck`);
   });
   const rec = new CrashRecorder();
-  rec.begin("flat", HANDLING.realism, false, ALL, (i) => `c${i}`);
+  rec.begin("flat", HANDLING.realism, false, ALL, (i) => `c${i}`, 1);
   const world = newWorld(cars);
   world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
   const graze: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
