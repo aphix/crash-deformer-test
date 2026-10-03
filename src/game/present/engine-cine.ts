@@ -194,11 +194,6 @@ export class Cinematics {
     return this.hitStop > 0 ? HIT_STOP_SCALE : 1;
   }
 
-  /** The crash cam is on: its letterbox and replay cuts, from the first impact until it hands back. */
-  get directing(): boolean {
-    return this.camT >= 0;
-  }
-
   /** Scene reset: wipe marks, drop the crash cam and hit history. */
   reset(): void {
     this.marks.clear();

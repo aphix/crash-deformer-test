@@ -43,7 +43,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Free the camera (whole field) | Esc | Back | Free |
 | Spectator cam: chase → far → hood → trackside → wheel well → orbit | V / T | Y / Triangle | View (in a race: the Spectating bar's camera button) |
 | Look back from the followed car while held | ` | R3 | Rear (hold) |
-| Orbit | drag | right stick | one-finger drag |
+| Orbit (also a thrown driver's ride-along: it orbits the dummy, the ride's shot changes wait during the drag and 2.5 s after) | drag | right stick | one-finger drag |
 | Zoom | scroll | | two-finger pinch |
 
 ## Racing (no menu open)

@@ -118,24 +118,13 @@ export abstract class EngineReel extends EngineInput {
     return { ...this.highlights.hud(), saved: this.savedList };
   }
 
-  /**
-   * The crash is basically over, so a ride-along may take the camera (owner, 2026-10-03): the crash cam with its bars
-   * has handed back and time is back near 1× with no slow-mo still to come (in the aftermath, about 2 s after the
-   * hold ends); under a fixed HUD speed, once the crash settles into the aftermath.
-   */
-  protected rideReady(): boolean {
-    if (this.cine.directing) return false;
-    if (this.clock.userTimeScale != null) return this.clock.phase === "aftermath";
-    return this.clock.timeScale >= 0.9 && this.clock.slomoAt === 0;
-  }
-
   /** Which rig holds the camera, mirroring `aimRigs`' and `updateCamera`'s precedence from the state they read (the trace's `camera.rig`). */
   protected cameraRig(): string {
     if (this.highlights.playing) return this.cine.cutting ? "crash-cam" : "reel";
     const followed = this.followedCar();
     const shown = followed?.group.visible === true;
     if (shown && this.view.rear) return "rear-view";
-    if (this.ragdolls.rideAlong && (this.showRange || this.rideReady())) return "ragdoll";
+    if (this.ragdolls.rideAlong) return "ragdoll";
     if (this.cine.cutting) return "crash-cam";
     const fp = followed?.group.position;
     if (followed && fp && (followed.falling || followed.vaporized || (fp.y < -0.01 && activeGround().heightAt(fp.x, fp.z, fp.y) === NO_FLOOR))) return "fall-watch";

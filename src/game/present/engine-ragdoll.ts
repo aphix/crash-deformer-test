@@ -30,6 +30,8 @@ import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
+import { RideCam, type RideFrame } from "./ride-cam.ts";
+import type { Sight } from "./spectate-cam.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
@@ -58,14 +60,11 @@ const BOWL_T = 0.42;
 const BOWL_R0 = 16.4;
 /** Jersey barrier height (m): the barrier-block prefab's art. */
 const BARRIER_H = 0.81;
-/** Ride-along camera: metres ahead of or behind the head, out to the side and up; seconds still before it lets go. */
-const CAM_BACK = 4.5;
-const CAM_SIDE = 1.8;
-const CAM_UP = 1.3;
+/** Ride-along camera: seconds a dummy lies still before it lets go (`RideCam` places the shots). */
 const CAM_STILL = 1.5;
 /**
  * Ride-along framing: the dummies within this (m) of the primary one share its shot. At the widest it pulls back
- * to (`CAM_BACK` + 1.6 ×) about 15 m, where a 1.7 m dummy still fills about 1/8 of the 50° frame's height.
+ * to about 15 m, where a 1.7 m dummy still fills about 1/8 of the 50° frame's height.
  */
 const CAM_NEAR = 6;
 /** Torso speed (m/s) by which the watched car's driver wins the pick of the primary dummy. */
@@ -231,17 +230,17 @@ export class RagdollSystem {
   /** The car proxies sat still while no dummy was out: jump them to the cars before the next step. */
   private teleport = false;
   private lastSlot = 0;
-  /** Ride-along camera: on from `follow` until every dummy out lies still; ahead (1) or behind (-1), alternating per ride. */
+  /** Ride-along camera: on from `follow` until every dummy out lies still. */
   private riding = false;
-  private camSide = -1;
-  private camFresh = false;
+  /** The car whose driver was thrown last: the ride opens on its windshield. */
+  private exitCar = -1;
+  /** His flat throw speed (m/s): how far ahead the windshield eye stands. */
+  private exitSpeed = 0;
   /** The dummy slot the ride frames (`frameCamera`), -1 before its first pick. */
   private primary = -1;
   /** The framed dummies' heads, this frame. */
   private readonly heads = Array.from({ length: SLOTS }, () => new THREE.Vector3());
-  private readonly camDir = new THREE.Vector3(0, 0, 1);
-  private readonly camPos = new THREE.Vector3();
-  private readonly camLook = new THREE.Vector3();
+  private readonly cam = new RideCam();
 
   /**
    * `onThrow(car)`: a sandbox driver just left car `car` (the engine decides whether the camera follows).
@@ -438,16 +437,22 @@ export class RagdollSystem {
   }
 
   /**
-   * Ride along with the dummies thrown: the camera frames one at a time (and any near it), cutting to the next one
-   * still moving as each comes to rest, from ahead of or behind them (alternating per ride), until they all lie still.
+   * Ride along with the dummies thrown: the camera opens on the windshield of the car the driver left, then frames
+   * one dummy at a time (and any near it), cutting to the next one still moving as each comes to rest, until they all
+   * lie still.
    */
   follow(): void {
     if (!this.riding) {
-      this.camSide = -this.camSide;
-      this.camFresh = true;
+      const car = this.cars[this.exitCar];
+      this.cam.begin(car ?? null, this.exitSpeed);
       this.primary = -1;
     }
     this.riding = true;
+  }
+
+  /** The ride's aim, eased toward the dummies' heads (`frameCamera` "held": the orbit looks at it). */
+  get rideLook(): THREE.Vector3 {
+    return this.cam.look;
   }
 
   /** The latest throw's torso (world) into `out`, and the sim seconds it has lain still; -1 while it is not out. */
@@ -460,21 +465,26 @@ export class RagdollSystem {
   }
 
   /**
-   * Place `camera` on the dummies being followed; false when none is (the engine's own camera runs). It frames a
-   * primary dummy (the fastest still moving; the `watched` car's driver within `CAM_TIE`) with any others within
-   * `CAM_NEAR` of it, and cuts to the next one once it lies still: drivers flung far apart are each shown in turn,
-   * never all at once from a camera pulled back to fit them. `hold`: keep watching once they lie still, always from
-   * behind (the range: its signs read down the throw, and it shows where its driver came to rest).
+   * Place `camera` on the dummies being followed (`RideCam`'s shots): "none" when none is (the engine's own camera
+   * runs), "held" when the user's orbit has the camera (`held`; the dummies are still tracked, no cut to another
+   * while this one is out). It frames a primary dummy (the fastest still moving; the `watched` car's driver within
+   * `CAM_TIE`) with any others within `CAM_NEAR` of it, and cuts to the next one once it lies still: drivers flung
+   * far apart are each shown in turn, never all at once from a camera pulled back to fit them. `hold`: keep watching
+   * once they lie still, always from behind (the range: its signs read down the throw, and it shows where its driver
+   * came to rest). `lens`: the scene's lens (deg); `sight`: the scene's solids (the windshield and trackside eyes
+   * stand clear of them).
    */
-  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number): boolean {
-    if (!this.riding) return false;
-    if (!this.framed(this.dolls[this.primary], hold)) {
-      // The first pick, or a cut to the next dummy (not a pan across the field).
-      this.camFresh ||= this.primary >= 0;
+  frameCamera(camera: THREE.PerspectiveCamera, wallDt: number, hold: boolean, watched: number, held: boolean, lens: number, sight: () => Sight): RideFrame {
+    if (!this.riding) return "none";
+    const keep = hold || held;
+    let cut = false;
+    if (!this.framed(this.dolls[this.primary], keep)) {
+      // The first pick, or a cut to the next dummy.
+      cut = this.primary >= 0;
       let best = -Infinity;
       for (let s = 0; s < this.dolls.length; s++) {
         const d = this.dolls[s]!;
-        if (!this.framed(d, hold)) continue;
+        if (!this.framed(d, keep)) continue;
         const v = d.bodies[0]!.linvel();
         const score = Math.hypot(v.x, v.y, v.z) + (d.car === watched ? CAM_TIE : 0);
         if (score <= best) continue;
@@ -483,7 +493,7 @@ export class RagdollSystem {
       }
       if (best === -Infinity) {
         this.riding = false;
-        return false;
+        return "none";
       }
     }
     const ph = this.dolls[this.primary]!.bodies[1]!.translation();
@@ -492,9 +502,10 @@ export class RagdollSystem {
     let n = 0;
     let vx = 0;
     let vz = 0;
-    const c = _s.set(0, 0, 0);
+    const f = this.cam.framing;
+    const c = f.c.set(0, 0, 0);
     for (const d of this.dolls) {
-      if (!this.framed(d, hold)) continue;
+      if (!this.framed(d, keep)) continue;
       const h = d.bodies[1]!.translation();
       if (_r.distanceTo(this.heads[n]!.set(h.x, h.y, h.z)) > CAM_NEAR) continue;
       const v = d.bodies[0]!.linvel();
@@ -506,26 +517,16 @@ export class RagdollSystem {
     c.multiplyScalar(1 / n);
     let spread = 0;
     for (let k = 0; k < n; k++) spread = Math.max(spread, this.heads[k]!.distanceTo(c));
-    spread = Math.min(spread, CAM_NEAR);
-    const speed = Math.hypot(vx, vz);
-    if (speed > 0.5 * n) this.camDir.set(vx / speed, 0, vz / speed);
-    const dir = this.camDir;
-    const back = (CAM_BACK + spread * 1.6) * (hold ? -1 : this.camSide);
-    const side = CAM_SIDE + spread * 0.5;
-    _p.set(c.x + dir.x * back - dir.z * side, c.y + CAM_UP + spread * 0.4, c.z + dir.z * back + dir.x * side);
-    const ground = activeGround().heightAt(_p.x, _p.z);
-    if (Number.isFinite(ground)) _p.y = Math.max(_p.y, ground + 0.6);
-    if (this.camFresh) {
-      this.camPos.copy(_p);
-      this.camLook.copy(c);
-      this.camFresh = false;
-    } else {
-      this.camPos.lerp(_p, 1 - Math.exp(-wallDt * 5));
-      this.camLook.lerp(c, 1 - Math.exp(-wallDt * 12));
-    }
-    camera.position.copy(this.camPos);
-    camera.lookAt(this.camLook);
-    return true;
+    f.spread = Math.min(spread, CAM_NEAR);
+    f.n = n;
+    f.vx = vx;
+    f.vz = vz;
+    f.hold = hold;
+    f.held = held;
+    f.cut = cut;
+    f.lens = lens;
+    f.sight = sight;
+    return this.cam.update(camera, wallDt, f);
   }
 
   /** Is dummy `d` out and in the ride's shot: still moving, or (`hold`) anywhere out? */
@@ -681,6 +682,8 @@ export class RagdollSystem {
     this.live++;
     this.lastSlot = slot;
     this.mesh.visible = true;
+    this.exitCar = t.car;
+    this.exitSpeed = Math.hypot(t.v.x, t.v.z);
     if (this.sandbox) this.onThrow(t.car);
   }
 

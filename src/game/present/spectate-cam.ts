@@ -185,6 +185,9 @@ export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: numb
 const PER_LEAD = 4 * CINE.heights.length;
 const SPOTS = CINE.leadTry.length * PER_LEAD;
 
+/** What the trackside cam frames: a car, or anything with a ground position, velocity and flat heading (a thrown dummy). */
+export type Subject = { group: { position: THREE.Vector3 }; velocity: THREE.Vector3; fwdFlat: THREE.Vector3 };
+
 /**
  * Trackside cinematic: a fixed eye ahead of the car, between ground level and ~3 car heights, out of every solid
  * and with clear sight to the car (now, and halfway to the eye). It tracks the car until `CINE.after` s after it
@@ -202,7 +205,7 @@ export class CineCam {
   /** Flat travel direction at the pick: the car has passed once it is beyond the eye's plane across it. */
   private tx = 0;
   private tz = 1;
-  private car: DeformableCar | null = null;
+  private car: Subject | null = null;
   private readonly last = new THREE.Vector3();
   private age = 0;
   private past = 0;
@@ -219,7 +222,7 @@ export class CineCam {
   }
 
   /** Frame `car` from the eye (searching for the next one when due); false while no clear spot was found yet. */
-  update(camera: THREE.PerspectiveCamera, car: DeformableCar, sight: () => Sight, dt: number): boolean {
+  update(camera: THREE.PerspectiveCamera, car: Subject, sight: () => Sight, dt: number): boolean {
     const p = car.group.position;
     // A new car or a respawn jump: start over.
     if (this.car !== car || this.last.distanceToSquared(p) > 64) this.reset();
@@ -255,7 +258,7 @@ export class CineCam {
    * last call stopped, until `budget` sight-line samples are spent: "found" (sets `eye` and the pass plane), "none"
    * when every spot is blocked, "more" when the budget ran out first.
    */
-  pick(s: Sight, car: DeformableCar, budget = Infinity): "found" | "none" | "more" {
+  pick(s: Sight, car: Subject, budget = Infinity): "found" | "none" | "more" {
     const seq = this.picks;
     const p = car.group.position;
     const v = car.velocity;
