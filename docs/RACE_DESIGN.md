@@ -98,7 +98,10 @@ the rate; `wrongWay` on at 0.7 s, off at 0.
   (deck or road below), fully repaired.
 - No-reset: a death is final (`out`); resets are refused. The player gets the dead menu.
 - **Driver thrown out** (`DeformableCar.driverOut`, set by the sim's `EjectionWatch`, `vehicle/ejection.ts`, once per
-  fixed step at the end of `stepWorld`: a disabling or realistic-end-kill hit, head-on or from the side, closing ≥ 6 m/s):
+  fixed step at the end of `stepWorld`: a disabling or realistic-end-kill hit, head-on or from the side, closing ≥ 6 m/s,
+  that began (`beginCrush`, a re-armed `rearmHit`) within the last 0.35 s; a kill with no new hit, a damaged car over the
+  stunt course's CRUSH crest or on a bank, or a graze that only touched it, throws nobody, and the engine block only packs
+  for 0.35 s after a contact, `PACK_QUIET`):
   the car freewheels (`RaceField.coast`: throttle 0, brake 0, wheel 0 and `DriveInput.neutral`, so no thrust and no lift-off
   engine braking: only rolling resistance and air drag, `DRIVE.roll` / `DRIVE.drag`, ~0.5 m/s² at 130 km/h against the lift-off
   drag's 12.6 on a sedan; tyres, ground and gravity as ever) whoever's it is: the player's seat, a peer, a rival, traffic or police. It is dead for

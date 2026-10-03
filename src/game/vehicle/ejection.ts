@@ -134,7 +134,9 @@ function launch(car: DeformableCar, i: number, exit: ExitPane, pre: THREE.Vector
  * end of `stepWorld`, on the step's own dt, and reads only the cars' deform state, poses and velocities, so the
  * same steps give the same ejections on every run at every frame rate. A hit that throws sets `car.driverOut` (until
  * the car is put back: `resetVisual`) and queues an `Ejection` for `take`. Clients never run it: the flag rides the
- * snapshot, the event its own message.
+ * snapshot, the event its own message. The kill has to follow a fresh hit on that car, one that began (`beginCrush`,
+ * a re-armed `rearmHit`) at most `PRE` s ago: a drivetrain that dies with no new hit, long after the one whose normal is
+ * still in its deform state, is a damaged car on a crest or a bank, not a throw, and so is a graze that only touched it.
  */
 export class EjectionWatch {
   /** Kill context (`armKill`'s): a derby's limits or anywhere else's; the engine sets it per scene. */
@@ -189,7 +191,7 @@ export class EjectionWatch {
       const now = car.deform.drivetrainAlive && car.deform.engineTravel < killTravel(killClass(car), 1, this.ctx) ? 1 : 0;
       const was = this.alive[i]!;
       this.alive[i] = now;
-      if (was === 1 && now === 0 && car.driverOut === null) this.judge(cars, i);
+      if (was === 1 && now === 0 && car.driverOut === null && car.deform.sinceHit() <= PRE + dt) this.judge(cars, i);
     }
     if (!sample) return;
     for (let i = 0; i < n; i++) {
