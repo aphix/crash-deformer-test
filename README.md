@@ -166,7 +166,7 @@ Edit anything under `src/` and the page reloads. On WSL2, open `http://localhost
 
 | Command | What it does | State on `main` |
 |---|---|---|
-| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`; 1–4 min) | 1343 tests: 1293 pass, 50 todo, 0 fail. **This is the gate.** |
+| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`; 1–4 min) | 1479 tests: 1429 pass, 50 todo, 0 fail. **This is the gate.** |
 | `npm run test:game` | the `src/game/**` suites only | subset of the above |
 | `npm run typecheck` | `tsc --noEmit` | clean |
 | `npm run check:boundaries` | the structural rules of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), ratcheted against `scripts/boundary-caps.json` | total 23, at its caps |

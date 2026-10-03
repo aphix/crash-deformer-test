@@ -1,7 +1,11 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { HULL } from "../vehicle/car-air.ts";
+import { UNDERSIDE } from "../vehicle/car-suspension.ts";
+import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "../world/ground.ts";
 import { wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
+import { TYRE_R } from "../deform/deform-state.ts";
 import type { ContactHit, JerseyBarrier } from "./engine-props.ts";
 import { BARRIER_HALF, BARRIER_TOP } from "../contact/sat.ts";
 
@@ -10,18 +14,30 @@ import { BARRIER_HALF, BARRIER_TOP } from "../contact/sat.ts";
  * slab end and sloping down away from it. While they are on, this is the fleet's ground: `DISC_GROUND` plus the
  * wedges and the slab's top, so the disc itself stays bit-identical with them off. Wheels and masses ride the
  * faces (and a jump that comes down on the slab rides its top) through `heightAt`; the wedges' side and back
- * faces are walls (`contact`), the slab's sides stay its own contact.
+ * faces are walls (`contact`), the slab's sides stay its own contact. Ground and wall are ONE rule (`onFace`): a
+ * point either stands on the face or is in the wall, so nothing of a car, tyre or hull, is left between them.
  */
 export const RAMP = { start: BARRIER_HALF.z + 0.04, len: 4.6, halfW: 1.5, top: 1.2 } as const;
-/** A face this far (m) or less above the asking body is a kerb it climbs; higher, it is the wedge's side or back. */
+/** A face this far (m) or less above the asking body (plus how deep it is in the wall) is a kerb it climbs; higher, it is the wedge's side or back. */
 const CLIMB = 0.35;
 /** Most a face pushes a car out per slice (m): a corner that came down deep in a wedge slides out, never teleports. */
 const PUSH_CAP = 0.05;
+/**
+ * How far (m) under a face a body point (hull, belly) may be and still stand on it, before the wall takes it: a body does not climb
+ * a kerb the way a tyre does (`CLIMB`), but it lags a face it is climbing onto (its springs, its support plane), and its low front
+ * (the keel is 3 cm over the tyre plane 0.66 m ahead of the front axle) reaches a face before the tyre does. Swept 0.02 / 0.05 / 0.1 /
+ * 0.2 on the drop matrix: ramp cells failing 35 / 34 / 33 / 26, the deepest belly-in-ramp rest 28 / 33 / 12 / 14 cm.
+ */
+const SKIN = 0.2;
+/** Half the tread's width (m) at wheel scale 1: the shoulder the tyre's plan rectangle ends at (`TREAD` in car-suspension). */
+const TREAD_HALF = 0.104;
+const SIGNS = [-1, 1] as const;
 const SLOPE = RAMP.top / RAMP.len;
 const NORM = 1 / Math.hypot(1, SLOPE);
 
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const _p = new THREE.Vector3();
 
 export class FleetRamps implements Ground {
   readonly group = new THREE.Group();
@@ -30,6 +46,10 @@ export class FleetRamps implements Ground {
   private az = 1;
   /** The slab while it is in the scene (placed at the same yaw): its top is ground. */
   private slab: JerseyBarrier | null = null;
+  /** The deepest wall point of the current `contact` (m inside the wall) and its push direction. */
+  private pen = 0;
+  private nx = 0;
+  private nz = 0;
 
   constructor(scene: THREE.Scene) {
     const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(RAMP.len, 0), new THREE.Vector2(0, RAMP.top)]);
@@ -57,30 +77,37 @@ export class FleetRamps implements Ground {
     this.slab = slab;
   }
 
-  /** Wedge face height at (x, z): 0 off both footprints. */
-  private face(x: number, z: number): number {
-    const u = x * this.ax + z * this.az;
-    const a = Math.abs(u) - RAMP.start;
-    if (a < 0 || a > RAMP.len || Math.abs(x * this.az - z * this.ax) > RAMP.halfW) return 0;
-    return RAMP.top - a * SLOPE;
+  /**
+   * The one rule for ground and wall. A point `a` m in from a wedge's high end and `side` m in from its side wall, at
+   * height `y` (any when omitted), stands on the face while the face is at most `kerb` above it plus `reach` times how far it
+   * already is inside the nearest wall; deeper under the face than that the wall is nearer, and the way out is
+   * sideways (`contact`). Returns the face's height, 0 where the point is off the footprint or in the wall. (`heightAt`
+   * once stopped at `CLIMB` alone, so a tyre between that and the wall probes stood on the floor inside the wedge.)
+   */
+  private onFace(a: number, side: number, y?: number, kerb = CLIMB, reach = 1): number {
+    if (a < 0 || a > RAMP.len || side < 0) return 0;
+    const h = RAMP.top - a * SLOPE;
+    return y === undefined || h - y <= kerb + reach * Math.min(a, side) ? h : 0;
+  }
+
+  private face(x: number, z: number, y?: number): number {
+    return this.onFace(Math.abs(x * this.ax + z * this.az) - RAMP.start, RAMP.halfW - Math.abs(x * this.az - z * this.ax), y);
   }
 
   heightAt(x: number, z: number, y?: number): number {
     if (DISC_GROUND.heightAt(x, z, y) === NO_FLOOR) return NO_FLOOR;
-    let h = this.face(x, z);
     const s = this.slab;
     if (s) {
       // Slab frame from the shared yaw: across = (cos, −sin), along = (sin, cos).
       const dx = x - s.group.position.x;
       const dz = z - s.group.position.z;
-      if (Math.abs(dx * this.az - dz * this.ax) < s.hx() && Math.abs(dx * this.ax + dz * this.az) < BARRIER_HALF.z) h = BARRIER_TOP;
+      if (Math.abs(dx * this.az - dz * this.ax) < s.hx() && Math.abs(dx * this.ax + dz * this.az) < BARRIER_HALF.z) return y === undefined || BARRIER_TOP <= y + CLIMB ? BARRIER_TOP : 0;
     }
-    return y === undefined || h <= y + CLIMB ? h : 0;
+    return this.face(x, z, y);
   }
 
   normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y?: number): T {
-    const h = this.face(x, z);
-    if (h <= 0 || (y !== undefined && h > y + CLIMB)) return FLAT_GROUND.normalAt(x, z, out);
+    if (this.face(x, z, y) <= 0) return FLAT_GROUND.normalAt(x, z, out);
     const s = (x * this.ax + z * this.az >= 0 ? SLOPE : -SLOPE) * NORM;
     out.x = this.ax * s;
     out.y = NORM;
@@ -97,47 +124,61 @@ export class FleetRamps implements Ground {
   }
 
   /**
-   * The wedges' side and back faces against `car`: its deepest footprint probe under a face more than `CLIMB` above
-   * it is pushed out sideways or back toward the slab through the race walls' `wallBounce`. A probe nearer the
-   * kerb line above it than either face (a nose ahead of its centre's ground sample on the run, a corner coming
-   * down on the face) is the ground's, not a wall. Returns the hit for the step's strongest contact.
+   * The wedges' side and back faces against `car`, through the rule `onFace` gives the ground: a point of the car
+   * that is inside a wedge and not on its face is in the wall, and the deepest such point pushes the car out
+   * sideways or back toward the slab through the race walls' `wallBounce`. The points are the body's footprint
+   * (`WALL_PROBES` at its floor), each tyre's plan rectangle (four corners at its bottom), and the hull as the
+   * physics reads it (bumper, beltline and roof corners, the underside): a tyre or a belly that cannot climb the
+   * face is stopped by the wall like the footprint, so no part of a car rests inside a wedge, whatever its pose.
+   * Returns the hit for the step's strongest contact.
    */
   contact(car: DeformableCar): ContactHit | null {
     const pos = car.group.position;
     if (Math.abs(pos.x * this.ax + pos.z * this.az) > RAMP.start + RAMP.len + 2.5) return null;
-    let pen = 0;
-    let nx = 0;
-    let nz = 0;
-    for (const [ox, oz] of WALL_PROBES) {
-      const px = pos.x + car.right.x * ox + car.forward.x * oz;
-      const py = pos.y + car.right.y * ox + car.forward.y * oz;
-      const pz = pos.z + car.right.z * ox + car.forward.z * oz;
-      const u = px * this.ax + pz * this.az;
-      const v = px * this.az - pz * this.ax;
-      const side = RAMP.halfW - Math.abs(v);
-      const back = Math.abs(u) - RAMP.start;
-      if (side < 0 || back < 0 || back > RAMP.len) continue;
-      const over = Math.min(side, back);
-      // Depth below the face's kerb line (> 0: under a face more than CLIMB above it).
-      const up = RAMP.top - back * SLOPE - py - CLIMB;
-      if (up <= over || over <= pen) continue;
-      pen = over;
-      _c.set(px, py + 0.4, pz);
-      if (side < back) {
-        const s = v >= 0 ? 1 : -1;
-        nx = this.az * s;
-        nz = -this.ax * s;
-      } else {
-        const s = u >= 0 ? -1 : 1;
-        nx = this.ax * s;
-        nz = this.az * s;
-      }
+    this.pen = 0;
+    for (const [ox, oz] of WALL_PROBES) this.probe(car, ox, 0, oz, CLIMB, 1);
+    for (const wheel of car.wheels) {
+      const { x, z } = wheel.position;
+      const r = TYRE_R * wheel.scale.x;
+      const hw = TREAD_HALF * wheel.scale.x;
+      for (const sx of SIGNS) for (const sz of SIGNS) this.probe(car, x + sx * hw, 0, z + sz * r, CLIMB, 1);
     }
-    if (pen <= 0) return null;
+    for (let i = 4; i < HULL.length; i++) this.probe(car, HULL[i]![0], HULL[i]![1], HULL[i]![2], SKIN, 0);
+    const lift = CLASSES[carClass(car)].lift;
+    for (const [x, z, h] of UNDERSIDE) this.probe(car, x, h + lift, z, SKIN, 0);
+    if (this.pen <= 0) return null;
+    const { nx, nz } = this;
     const closing = Math.max(0, -(car.velocity.x * nx + car.velocity.z * nz));
     _n.set(nx, 0, nz);
-    wallBounce(car, nx, nz, Math.min(pen, PUSH_CAP), closing, _c, _n);
+    wallBounce(car, nx, nz, Math.min(this.pen, PUSH_CAP), closing, _c, _n);
     car.deform.notifyContact();
     return { impulse: Math.max(closing, 0.5), contact: _c.clone(), normal: _n.clone() };
+  }
+
+  /**
+   * One car-local point against the wedges: if it is in a wall (inside a wedge, not on its face) and deeper than `contact`'s
+   * deepest so far, it becomes the push. `kerb` and `reach` are the point's `onFace` rule: a tyre climbs (`CLIMB`, plus the
+   * depth it is in), a body point (hull, belly) does not (`SKIN`, no depth bias).
+   */
+  private probe(car: DeformableCar, x: number, y: number, z: number, kerb: number, reach: number): void {
+    _p.set(x, y, z).applyQuaternion(car.group.quaternion).add(car.group.position);
+    const u = _p.x * this.ax + _p.z * this.az;
+    const v = _p.x * this.az - _p.z * this.ax;
+    const side = RAMP.halfW - Math.abs(v);
+    const back = Math.abs(u) - RAMP.start;
+    if (side < 0 || back < 0 || back > RAMP.len) return;
+    const over = Math.min(side, back);
+    if (over <= this.pen || this.onFace(back, side, _p.y, kerb, reach) > 0) return;
+    this.pen = over;
+    _c.set(_p.x, _p.y + 0.4, _p.z);
+    if (side < back) {
+      const s = v >= 0 ? 1 : -1;
+      this.nx = this.az * s;
+      this.nz = -this.ax * s;
+    } else {
+      const s = u >= 0 ? -1 : 1;
+      this.nx = this.ax * s;
+      this.nz = this.az * s;
+    }
   }
 }

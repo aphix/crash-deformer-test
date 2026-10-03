@@ -72,6 +72,9 @@ export type Fit = {
   spread: number;
   /** Half the tread's width (m): a tyre turned `t` deg off the ground it stands on digs its outer shoulder `shoulder · sin t` in. */
   shoulder: number;
+  /** The deepest face crush (m, `load-crush.ts`): a car lying on a face yields it by its weight, and the hull points follow
+   *  the crushed face inward, so a probe at the stock face reads that much penetration for a body that is where it should be. */
+  crush: number;
 };
 
 const _p = new THREE.Vector3();
@@ -192,6 +195,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     warp,
     spread,
     shoulder: 0.104 * car.wheels[0]!.scale.x,
+    crush: Math.max(...car.deform.crush),
   };
 }
 

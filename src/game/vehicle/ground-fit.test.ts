@@ -74,8 +74,9 @@ const ROLLED = 60;
 function judge(kind: Kind, r: Cell): string[] {
   const b = BOUNDS[kind];
   const flags: string[] = [];
-  if (r.pen > b.pen) flags.push("pen");
-  if (r.overlap > b.overlap) flags.push("overlap");
+  // A face the car lies on yields by its crush (`Fit.crush`): the stock-face probes read that much too deep.
+  if (r.pen > b.pen + r.crush) flags.push("pen");
+  if (r.overlap > b.overlap + r.crush) flags.push("overlap");
   if (r.tilt > ROLLED) return flags;
   // A tyre turned `tilt` off the ground it stands on (a car across an edge) digs its outer tread shoulder `shoulder · sin(tilt)` in.
   const gap = b.gap + r.shoulder * Math.sin(r.tilt / DEG);
@@ -94,24 +95,26 @@ function judge(kind: Kind, r: Cell): string[] {
 }
 
 /**
- * Cells still breaking a bound: a budget that only goes down (main 4677c4b had 272 ramp and 113 bank cells). The judge departs from
- * its first form in three ways, each measured on this code (336 ramp cells of the 2166):
+ * Cells still breaking a bound: a budget that only goes down (main 4677c4b had 272 ramp and 113 bank cells; 7ec7db6 105 and 4; now
+ * 26 and 0 of 336 ramp cells). The judge departs from its first form in three ways, measured on 7ec7db6 (336 ramp cells of the 2166):
  * - Ramp drops run 6 s, not 3: a car dropped across an edge is still sliding or rolling at 3 s (60 of the 336 cells above 5 cm/s,
- *   49 at 6 s; one slides 0.86 m between 3 s and 6 s), so a pose read at 3 s is a frame of a motion. 6 s changes the verdict of
+ *   49 at 6 s; one slides 0.86 m between 3 s and 6 s), so a pose read at 3 s is a frame of a motion. 6 s changed the verdict of
  *   4 cells (109 → 105 failing).
  * - A car rolled past 60° rests on its side or roof, where no tyre, pose or slide bound applies (its tyres are metres up). Its whole
  *   hull (underside, bumpers, beltline and roof corners, as the drawn body carries them) must still be out of the ground and of the
- *   walls. On this code it covers 0 of the 2166 cells (none rolls); the extra belt and roof probes leave the ramp count at 105.
+ *   walls. It skipped 0 of the 2166 cells on 7ec7db6; with the ramps' wall and ground one rule, 17 ramp cells roll (a car dropped
+ *   half on a 0.6–1.1 m ledge falls off it onto its side or roof, where it used to sink into the wedge upright) and 0 elsewhere.
  * - A tyre tilted θ off the ground it stands on rests on its lower tread shoulder, while the sim holds the tread's centre on the
  *   ground: the drawn shoulder digs in by `shoulder · sin θ` (≤ 5 cm sedan, 8.9 cm monster at 30°). That is the one-point tyre's
- *   error, bounded by the tyre's own width, and a tyre that sinks further than it plus 2 cm still fails; it is the verdict of 64
- *   ramp cells (169 → 105 failing; the bank, crest and stopped groups do not change).
- * Ramps: a car dropped with a tyre or its hull inside a wedge's side or high-end wall (`FleetRamps.contact` pushes by the car's box
- * probes, not its tyres, so a tyre can rest in the wall), the monster's 0.54 m tyres on an edge, the low end's slide. Banks: the
- * underside of a car parked on a bank's shoulder crease (≤ 5 cm).
+ *   error, bounded by the tyre's own width, and a tyre that sinks further than it plus 2 cm still fails; it was the verdict of 64
+ *   ramp cells on 7ec7db6 (169 → 105 failing; the bank, crest and stopped groups did not change).
+ * A face the car lies on yields by its crush (`Fit.crush`); its stock-face hull probes read that much too deep, so pen and overlap
+ * allow it.
+ * The 26 ramp cells: 11 sunk and 8 float (a tyre hanging, or a monster's 0.54 m tyre in the wedge, on a car perched across an edge
+ * tilted 5–30°), 7 hull points 2–14 cm into a face edge (the deepest, 14 cm, a sedan dropped on the rear lip), and 4 slides of
+ * 0.62–0.75 m against 0.5 m at the low end's 7° toe.
  */
-const KNOWN_RAMPS = 105;
-const KNOWN_BANKS = 4;
+const KNOWN_RAMPS = 26;
 
 /** Run every cell of `sites`, print the matrix, and fail when more than `known` cells break their bounds. */
 function report(t: TestContext, sites: readonly Site[], known = 0): void {
@@ -286,7 +289,7 @@ describe("ground fit matrix: a braked car sits on the ground at every heading", 
     report(t, [...stoppedSites(), ...rolled]);
   });
 
-  it("banked turns: stunt bowl, stunt nodes 14-15, rally hairpin, across the road's width and its shoulders", (t) => report(t, bankSites(), KNOWN_BANKS));
+  it("banked turns: stunt bowl, stunt nodes 14-15, rally hairpin, across the road's width and its shoulders", (t) => report(t, bankSites()));
 });
 
 describe("braking dive on a flat straight", () => {
