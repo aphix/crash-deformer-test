@@ -192,7 +192,9 @@ top speed, brake, full-lock yaw, lateral grip, boost top).
   the surface's top speed. At 200 km/h the yaw term alone let cars into every corner faster than
   `applyDrive`'s lateral grip cap carries them. Throttle asks for that speed itself (`applyDrive` runs
   up to throttle × top at the class's gear rate), so a rival reaches the same top speed as a player
-  flat out.
+  flat out. Over a crest the speed is also capped at `√(g/κ_v)`, κ_v the road's vertical curvature
+  over ±6 m (`crestSpeed`): above it the road falls away faster than gravity pulls the car down, and a
+  car in the air can neither steer nor brake for the bend after it (stunt's kicker).
 - Junctions: a shortcut leaves and rejoins the loop at an angle (26°–106° on the four courses) that
   neither path's curvature shows. Both are planned as corners turning that angle over the pursuit's
   18 m look-ahead (`0.8 · 18 / angle` m radius on the shortcut's surface): the mouth from the run in
@@ -313,7 +315,10 @@ interface Ground {
 `TrackGround` bakes a 1 m heightfield over the bounds: banked road plane, flat shoulders over the
 runoff, smoothstep back to the base terrain (gaussian `hills`) over 24 m; every path (main, shortcuts,
 streets) is stamped, nearest centreline winning, except that a side path's blend skirt never replaces the
-main loop's road or runoff and eases back to the main loop's field, not the bare terrain; deck spans are skipped (their ends are rounded abutments) and answered
+main loop's road or runoff and eases back to the main loop's field, not the bare terrain, and a side path's
+height is the main loop's on its road + runoff and eases back to its own grade over `MEET` (8 m) beyond it
+(rally's mouths and ford left 0.25–0.35 m lips in the runoff; `course-intrusion.test.ts` holds every road +
+runoff to its bank + 0.05 m per 0.5 m across); deck spans are skipped (their ends are rounded abutments) and answered
 analytically from the path at its own height, so a bridge and the road under it coexist.
 Who reads it: driven cars (`car.ts` integrate: ride the ground, pitched and rolled onto its normal under the
 origin and held there between slices (`ramp.test.ts`: 4 tyres on a 10–30° wedge, every heading); where it falls away faster than
