@@ -341,8 +341,11 @@ export class CrashEngine extends EngineReel {
     this.pollInput();
     if (this.warming) return;
 
-    // The results reel lives while the race it came from shows its results (a client's host may start the next one).
-    if (this.highlights.hasReel && !(this.race.active && this.race.phase === "finished")) this.stopReel();
+    // The results reel lives until its race is left or the next one sets up (a client's host may start it). Not "until
+    // the phase leaves finished": a client's race state comes 5 times a second, unreliably, so the host's reel (reliable,
+    // sent at the finish) can land while it still reads "racing" (measured: stopped 106 ms after it arrived).
+    const p = this.race.phase;
+    if (this.highlights.hasReel && (!this.race.active || p === null || p === "grid" || p === "countdown")) this.stopReel();
     if (this.playing) {
       this.elapsedWall += wallDt;
       const reelDt = this.highlights.frame(now / 1000);
