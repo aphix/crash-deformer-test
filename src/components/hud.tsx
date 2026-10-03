@@ -4,6 +4,7 @@ import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizo
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { SoloExit } from "@/components/race-reel";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -124,6 +125,8 @@ export function Hud(props: HudProps) {
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
   const [settings, setSettings] = useStoredString("crush.hud.settings", "hidden", "shown");
   const settingsShown = settings === "shown";
+  // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
+  if (state.race?.solo != null) return <SoloExit title={state.race.solo} onCommand={raceCommand} />;
   return (
     <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined}>
       {focus && state.race ? (

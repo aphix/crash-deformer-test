@@ -1,4 +1,4 @@
-import { type ReactNode, useId, useRef, useState } from "react";
+import { useId, useState } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -17,10 +17,11 @@ import {
   Trophy,
   Video,
 } from "lucide-react";
-import { Button, type ButtonProps } from "@/components/ui/button";
-import { usePadMenu } from "@/components/use-pad-menu";
+import { Button } from "@/components/ui/button";
 import { DriverRows } from "@/components/race-driver";
+import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
+import { ReelList, SavedList } from "@/components/race-reel";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { formatSpeed } from "@/game/hud/speed-units";
@@ -30,9 +31,6 @@ type Send = (cmd: RaceCommand) => void;
 
 /** Seconds the split vs the leader stays up after each checkpoint. */
 const SPLIT_FLASH = 3;
-
-/** Opaque card for centre-screen moments and menus (the translucent `hud-panel` lets panels behind bleed through). */
-const CARD = "rounded-2xl bg-surface shadow-[var(--shadow-border)]";
 
 const LIT = ["", "bg-signal-red shadow-lg shadow-signal-red/50", "bg-signal-amber shadow-lg shadow-signal-amber/50", "bg-signal-green shadow-lg shadow-signal-green/50"] as const;
 
@@ -327,87 +325,6 @@ function FinishCard({ race }: { race: RaceHud }) {
   );
 }
 
-function NavButton({ className, ...props }: ButtonProps) {
-  return <Button data-nav className={cn("w-full sm:h-8", FOCUS, className)} {...props} />;
-}
-
-function MenuShell({
-  id,
-  eyebrow,
-  title,
-  pad,
-  wide,
-  adjust,
-  onBack,
-  onStart,
-  children,
-}: {
-  id: string;
-  eyebrow: string;
-  title: string;
-  pad: boolean;
-  wide?: boolean;
-  /** The menu has ←/→ adjustable rows (hint only). */
-  adjust?: boolean;
-  onBack: (() => void) | null;
-  onStart: (() => void) | null;
-  children: ReactNode;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  usePadMenu(ref, id, { onBack, onStart });
-  const chip = "rounded bg-surface-2 px-1.5 py-0.5 font-display text-xs text-fg shadow-[var(--shadow-border)]";
-  const glyph = "inline-flex size-5 items-center justify-center rounded-full bg-surface-2 font-display text-xs font-semibold text-fg shadow-[var(--shadow-border)]";
-  return (
-    <div className="pointer-events-auto absolute inset-0 z-30 flex items-center justify-center bg-bg/60 p-3 sm:p-6">
-      <div
-        ref={ref}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={`race-menu-${id}`}
-        className={cn(CARD, "max-h-full w-full overflow-y-auto p-3 sm:p-4", wide ? "max-w-2xl" : "max-w-sm")}
-      >
-        <p className="hud-label">{eyebrow}</p>
-        <h2 id={`race-menu-${id}`} className="mt-0.5 font-display text-2xl font-semibold leading-none tracking-tight">
-          {title}
-        </h2>
-        <div className="mt-3">{children}</div>
-        <p className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted">
-          {pad ? (
-            <>
-              <span className="flex items-center gap-1.5">
-                <span className={glyph}>A</span>Select
-              </span>
-              {onBack ? (
-                <span className="flex items-center gap-1.5">
-                  <span className={glyph}>B</span>Back
-                </span>
-              ) : null}
-              {onStart ? (
-                <span className="flex items-center gap-1.5">
-                  <span className={chip}>Start</span>Resume
-                </span>
-              ) : null}
-              <span>D-pad / stick move{adjust ? " · ←/→ adjust" : ""}</span>
-            </>
-          ) : (
-            <>
-              <span className="flex items-center gap-1.5">
-                <kbd className={chip}>Enter</kbd>Select
-              </span>
-              {onBack ? (
-                <span className="flex items-center gap-1.5">
-                  <kbd className={chip}>Esc</kbd>Back
-                </span>
-              ) : null}
-              <span>Arrows move{adjust ? " · ←/→ adjust" : ""}</span>
-            </>
-          )}
-        </p>
-      </div>
-    </div>
-  );
-}
-
 function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
   const quit = () => onCommand({ type: "quit" });
   const retry = () => onCommand({ type: "retry" });
@@ -638,6 +555,7 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
           Back
         </NavButton>
       </div>
+      <SavedList saved={race.saved} onCommand={onCommand} />
     </MenuShell>
   );
 }
@@ -651,7 +569,16 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
   const th = "py-1 font-normal";
   return (
     // Esc / B must not throw a campaign away: its round only counts on Standings (`next`), so Back is off there.
-    <MenuShell id="results" eyebrow={`${race.trackName} · ${race.laps} laps`} title="Results" pad={pad} wide onBack={campaign ? null : quit} onStart={null}>
+    <MenuShell
+      id="results"
+      eyebrow={`${race.trackName} · ${race.laps} laps`}
+      title="Results"
+      pad={pad}
+      wide
+      sheet={race.reel !== null}
+      onBack={campaign ? null : quit}
+      onStart={null}
+    >
       {race.winnerName ? (
         <p className="flex items-center gap-2 font-display text-lg font-semibold">
           <Trophy className="size-4 text-muted" />
@@ -682,14 +609,15 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
           ))}
         </tbody>
       </table>
-      <div className="mt-3 grid gap-1.5 sm:auto-cols-fr sm:grid-flow-col">
+      {/* The reel's side sheet is narrow: the long "next" label takes its own row. */}
+      <div className={cn("mt-3 grid gap-1.5", race.reel ? "grid-cols-2" : "sm:auto-cols-fr sm:grid-flow-col")}>
         {campaign ? (
-          <NavButton onClick={() => onCommand({ type: "next" })}>
+          <NavButton className={race.reel ? "col-span-2" : undefined} onClick={() => onCommand({ type: "next" })}>
             <Trophy />
             Standings
           </NavButton>
         ) : race.nextCourse !== null ? (
-          <NavButton onClick={() => onCommand({ type: "next" })}>
+          <NavButton className={race.reel ? "col-span-2" : undefined} onClick={() => onCommand({ type: "next" })}>
             <ChevronRight />
             Next course: {race.nextCourse}
           </NavButton>
@@ -702,6 +630,7 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
           Menu
         </NavButton>
       </div>
+      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }
@@ -720,6 +649,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
       title="Championship"
       pad={pad}
       wide
+      sheet={race.reel !== null}
       onBack={null}
       onStart={null}
     >
@@ -773,6 +703,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           Menu
         </NavButton>
       </div>
+      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }

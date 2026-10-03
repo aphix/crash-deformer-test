@@ -162,10 +162,19 @@ export abstract class EngineScenes extends EngineHud {
 
   /** HUD → race. The HUD never touches race state itself. A netplay client only views: the host runs the race. */
   raceCommand(cmd: RaceCommand): void {
+    if (this.reelCommand(cmd)) {
+      this.emitHud();
+      return;
+    }
     if (this.net.client && !CLIENT_RACE_COMMANDS.has(cmd.type)) return;
     this.race.command(cmd);
     this.emitHud();
   }
+
+  /** The results reel's commands (this browser only: true when handled); a command leaving the results stops the reel first. */
+  protected abstract reelCommand(cmd: RaceCommand): boolean;
+  /** Stop the results reel or a solo view now, giving the cars back as they were. */
+  protected abstract stopReel(): void;
 
   /** R / D-pad down: back on the track (a netplay client asks the host). */
   protected requestRespawn(): void {
@@ -200,6 +209,7 @@ export abstract class EngineScenes extends EngineHud {
       this.race.enter();
       this.race.setSeats(this.netSeats);
     } else {
+      this.stopReel();
       this.sceneId = "fleet";
       this.race.exit();
       this.ensureCars(this.sandboxCars);

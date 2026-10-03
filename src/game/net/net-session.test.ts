@@ -4,9 +4,11 @@ import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { DEFAULT_RACE_OPTIONS, type RaceSnapshot } from "../match/types.ts";
+import type { Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay, type NetTx } from "./net-play.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
+import { packReel } from "./reel-codec.ts";
 
 /** Frame time (ms) of the session loop: one host snapshot and one guest input per step. */
 const FRAME_MS = 1000 / 30;
@@ -118,6 +120,8 @@ function fakeGame(raceApplied?: number[], playerName = "") {
   return {
     seats,
     matched,
+    /** What `reelPlaying` answers. */
+    playing: false,
     seat,
     cars: () => cars,
     setCarCount(n: number): void {
@@ -146,6 +150,10 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     derbyLobby(): void {},
     startDerby(): void {},
     setVaporized(): void {},
+    playReel(_reel: Reel, _startAt: number): void {},
+    reelPlaying(): boolean {
+      return this.playing;
+    },
   };
 }
 
@@ -154,15 +162,15 @@ afterEach(() => {
   for (const n of open.splice(0)) n.leave();
 });
 
-/** A host and one guest in room R, linked through a `Hub`, on one fake clock. */
-function session(opts: { raceApplied?: number[]; name?: string } = {}) {
+/** A host and one guest in room R, linked through a `Hub`, on one fake clock (the guest's read `skewMs` ahead). */
+function session(opts: { raceApplied?: number[]; name?: string; skewMs?: number } = {}) {
   const hub = new Hub();
   let now = 1000;
   const clock = () => now;
   const hg = fakeGame();
   const cg = fakeGame(opts.raceApplied, opts.name);
   const host = new NetPlay(hg, { connect: hub.connect, now: clock });
-  const client = new NetPlay(cg, { connect: hub.connect, now: clock });
+  const client = new NetPlay(cg, { connect: hub.connect, now: () => now + (opts.skewMs ?? 0) });
   open.push(host, client);
   host.host("R", "bc");
   client.join("R", "bc");
@@ -424,6 +432,30 @@ describe("netplay session: stale input and hidden tabs", () => {
     s.step(1, { host: false });
     assert.equal(s.client.status().problem, "host-lost");
     assert.equal(s.client.status().car, 1, "it keeps its car (camera, held pedal) while it asks for a seat again");
+  });
+});
+
+describe("netplay session: the highlight reel", () => {
+  it("plays the host's reel at its start time moved onto the guest's clock, and draws no snapshots while one plays", { timeout: 5000 }, async () => {
+    const s = session({ skewMs: 5000 });
+    // Executor form: the tsconfig lib predates `Promise.withResolvers`.
+    const played = new Promise<[Reel, number]>((resolve) => {
+      s.cg.playReel = (reel, startAt) => resolve([reel, startAt]);
+    });
+    const hostStart = s.clock() / 1000 + 3;
+    s.host.sendReel((await packReel({ seed: 7, clips: [] }, hostStart)).msg);
+    s.hub.flush();
+    const [reel, startAt] = await played;
+    assert.equal(reel.seed, 7);
+    assert.ok(Math.abs(startAt - (hostStart + 5)) < 1e-6, `starts at host ${hostStart} + 5 s skew (${startAt})`);
+
+    s.cg.playing = true;
+    s.hg.cars()[0]!.group.position.x = 5;
+    s.step(20);
+    assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) > 1, "the reel keeps the cars while it plays");
+    s.cg.playing = false;
+    s.step(20);
+    assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) < 0.01, "snapshots draw again once it ends");
   });
 });
 

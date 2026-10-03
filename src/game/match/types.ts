@@ -219,7 +219,29 @@ export type RaceCommand =
   /** Back to the setup menu (from pause / results / standings), or leave race mode from setup. */
   | { type: "quit" }
   /** Race focus view (false) hides the sandbox HUD and its hotkeys; true shows the full menu. */
-  | { type: "fullUi"; on: boolean };
+  | { type: "fullUi"; on: boolean }
+  /** Results reel (docs/HIGHLIGHTS.md): show reel clip `clip` alone, full screen, no HUD (this browser only). */
+  | { type: "reelView"; clip: number }
+  /** Leave the solo view (a reel clip or a saved one) back to the reel or the setup menu. */
+  | { type: "reelBack" }
+  /** Keep reel clip `clip` in this browser's saved highlights (`localStorage`). */
+  | { type: "reelSave"; clip: number }
+  /** Setup menu: replay saved highlight `key` alone, or delete it. */
+  | { type: "savedPlay"; key: string }
+  | { type: "savedDelete"; key: string };
+
+/** One clip of the results reel, as the HUD lists it. */
+type ReelHudClip = { title: string; score: number; cars: number; saved: boolean };
+
+/** The results reel while it runs (docs/HIGHLIGHTS.md). */
+export type ReelHud = {
+  clips: ReelHudClip[];
+  /** The clip the shared reel shows now, −1 during the overhead flight between clips. */
+  playing: number;
+};
+
+/** A highlight saved in this browser; `key` names it to `savedPlay` / `savedDelete`. */
+export type SavedHud = { key: string; title: string; trackName: string; savedAt: number };
 
 export type RaceMenu = "setup" | "pause" | "dead" | "results" | "standings" | null;
 
@@ -288,4 +310,10 @@ export type RaceHud = {
   nextCourse: string | null;
   /** The full sandbox HUD (and its hotkeys) is shown; false = race focus view. */
   fullUi: boolean;
+  /** The results reel, null when none plays. */
+  reel: ReelHud | null;
+  /** Solo view: the title of the clip shown alone; the HUD draws nothing but its exit (tap anywhere, Esc). Null otherwise. */
+  solo: string | null;
+  /** This browser's saved highlights, newest first (the setup menu lists them). */
+  saved: SavedHud[];
 };

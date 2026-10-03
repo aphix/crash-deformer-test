@@ -12,35 +12,50 @@ import type { DeformNetState } from "../deform/streamed-deform.ts";
 /**
  * `race`: the host's race state as UTF-8 JSON after the type byte (`NetPlay.sendRace`); `derby`: `writeDerby`;
  * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes); `hello`: type,
- * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`).
+ * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`); `reel`: the end-of-race
+ * highlight reel (`reel-codec.ts`), sent once, reliably.
  */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7 } as const;
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8 } as const;
 
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
  * refuse each other instead of misreading snapshots. Bump on any change to a message layout.
  * 3: hello carries the player's name.
  * 4: 9 part slots per car (the police light bar; was 8), the "police" body style and class indices.
+ * 5: `MSG.reel`, the highlight reel.
  */
-export const NET_VERSION = 4;
+export const NET_VERSION = 5;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
 
-/** Quantization steps. */
-export const Q = {
+/**
+ * Quantization, in steps per unit. Integers on purpose: the writer's array methods take these, and a
+ * Smi argument is never boxed (see `Writer.q16s`).
+ */
+export const Q_PER = {
   /** Body-frame particle positions (m). */
-  pos: 1 / 2000,
+  pos: 2000,
   /** Cluster skin maps (unitless 3×3). */
-  xf: 1 / 8192,
+  xf: 8192,
   /** Euler angles (rad), sensor compression (m), impact entries, hinge values. */
-  fine: 1e-4,
+  fine: 10000,
   /** Velocity (m/s). */
-  vel: 0.01,
+  vel: 100,
   /** Yaw rate (rad/s). */
-  rate: 1e-3,
+  rate: 1000,
   /** Quaternion components. */
-  quat: 1 / 32767,
+  quat: 32767,
+} as const;
+
+/** Quantization steps, `1 / Q_PER` (the same doubles as the literals 1/2000, 1e-4, 0.01 …). */
+export const Q = {
+  pos: 1 / Q_PER.pos,
+  xf: 1 / Q_PER.xf,
+  fine: 1 / Q_PER.fine,
+  vel: 1 / Q_PER.vel,
+  rate: 1 / Q_PER.rate,
+  quat: 1 / Q_PER.quat,
 } as const;
 
 /** Per-car array sizes, from `StreamedDeformation.netSizes()` and `DeformableCar.partNetSizes()`. */
@@ -172,6 +187,13 @@ export class Writer {
     this.view.setFloat32(this.off, v, true);
     this.off += 4;
   }
+  /** `f32` over `a[from .. from + n)`. */
+  f32s(a: ArrayLike<number>, n: number, from = 0): void {
+    for (let i = from; i < from + n; i++) {
+      this.view.setFloat32(this.off, a[i]!, true);
+      this.off += 4;
+    }
+  }
   f64(v: number): void {
     this.view.setFloat64(this.off, v, true);
     this.off += 8;
@@ -182,8 +204,19 @@ export class Writer {
     this.view.setInt16(this.off, n > 32767 ? 32767 : n < -32767 ? -32767 : n || 0, true);
     this.off += 2;
   }
-  q16s(a: ArrayLike<number>, n: number, step: number): void {
-    for (let i = 0; i < n; i++) this.q16(a[i]!, step);
+  /**
+   * `q16(a[i], 1 / per)` over `a[from .. from + n)`, its arithmetic inlined. The codec hands the writer
+   * doubles only this way (and `f32s`): `writeSnapshot` runs cold (2 Hz highlight keyframes) in Maglev,
+   * which does not inline these calls, so a double argument (a value, or a `Q` step: a double field) was
+   * boxed in a HeapNumber per call, ~1.6 KB per 32-car snapshot with 11 wrecks. `per` is a Smi.
+   */
+  q16s(a: ArrayLike<number>, n: number, per: number, from = 0): void {
+    const step = 1 / per;
+    for (let i = from; i < from + n; i++) {
+      const v = Math.round(a[i]! / step);
+      this.view.setInt16(this.off, v > 32767 ? 32767 : v < -32767 ? -32767 : v || 0, true);
+      this.off += 2;
+    }
   }
   /** The bytes written so far (a view: send or copy it before the next write). */
   done(): Uint8Array<ArrayBuffer> {
@@ -255,32 +288,38 @@ export class Reader {
   }
 }
 
+/** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part and wheel loose. */
+export function snapshotMaxBytes(n: number, L: NetLayout): number {
+  const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + 18 + 13 + L.parts * 27 + 4 + L.wheels * 20;
+  return 17 + n * (28 + wreck);
+}
+
+/** A car's doubles staged for `f32s`/`q16s` (see `Writer.q16s`). */
+const STAGE = new Float64Array(10);
+
 /** Deform + parts of one car: what fixes its skin and hulls. */
 export function writeWreck(w: Writer, f: CarFrame, L: NetLayout): void {
   const d = f.deform;
-  w.q16s(d.local, L.masses * 3, Q.pos);
-  w.q16s(d.skinPos, L.masses * 3, Q.pos);
-  w.q16s(d.skinXf, L.clusters * 9, Q.xf);
-  w.q16s(d.sensor, L.sensors, Q.fine);
-  w.q16s(d.impact, 9, Q.fine);
+  w.q16s(d.local, L.masses * 3, Q_PER.pos);
+  w.q16s(d.skinPos, L.masses * 3, Q_PER.pos);
+  w.q16s(d.skinXf, L.clusters * 9, Q_PER.xf);
+  w.q16s(d.sensor, L.sensors, Q_PER.fine);
+  w.q16s(d.impact, 9, Q_PER.fine);
   w.u32(d.popped);
   w.u32(d.skinPopped);
   w.u8(d.flags);
-  w.q16(d.engineTravel, Q.pos);
-  w.q16(d.killTravel, Q.pos);
+  STAGE[0] = d.engineTravel;
+  STAGE[1] = d.killTravel;
+  w.q16s(STAGE, 2, Q_PER.pos);
   const p = f.parts;
   for (let i = 0; i < L.parts; i++) {
     const flags = p.flags[i]!;
     w.u8(flags);
-    w.q16(p.hinge[i * 3]!, Q.fine);
-    w.q16(p.hinge[i * 3 + 1]!, Q.fine);
-    w.q16(p.hinge[i * 3 + 2]!, Q.fine);
+    w.q16s(p.hinge, 3, Q_PER.fine, i * 3);
     if ((flags & 1) === 0) continue;
     const o = i * 7;
-    w.f32(p.pose[o]!);
-    w.f32(p.pose[o + 1]!);
-    w.f32(p.pose[o + 2]!);
-    for (let k = 3; k < 7; k++) w.q16(p.pose[o + k]!, Q.quat);
+    w.f32s(p.pose, 3, o);
+    w.q16s(p.pose, 4, Q_PER.quat, o + 3);
   }
   w.u8(p.lamps);
   w.u16(p.glass);
@@ -288,10 +327,8 @@ export function writeWreck(w: Writer, f: CarFrame, L: NetLayout): void {
   for (let i = 0; i < L.wheels; i++) {
     if (((p.wheelLoose >> i) & 1) === 0) continue;
     const o = i * 7;
-    w.f32(p.wheels[o]!);
-    w.f32(p.wheels[o + 1]!);
-    w.f32(p.wheels[o + 2]!);
-    for (let k = 3; k < 7; k++) w.q16(p.wheels[o + k]!, Q.quat);
+    w.f32s(p.wheels, 3, o);
+    w.q16s(p.wheels, 4, Q_PER.quat, o + 3);
   }
 }
 
@@ -347,16 +384,21 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
     const f = s.cars[i]!;
     w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0));
     w.u8((f.style & 15) | ((f.cls & 15) << 4));
-    w.f32(f.x);
-    w.f32(f.y);
-    w.f32(f.z);
-    w.q16(Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw)), Q.fine);
-    w.q16(f.pitch, Q.fine);
-    w.q16(f.roll, Q.fine);
-    w.q16(f.vx, Q.vel);
-    w.q16(f.vy, Q.vel);
-    w.q16(f.vz, Q.vel);
-    w.q16(f.wy, Q.rate);
+    const p = STAGE;
+    p[0] = f.x;
+    p[1] = f.y;
+    p[2] = f.z;
+    p[3] = Math.atan2(Math.sin(f.yaw), Math.cos(f.yaw));
+    p[4] = f.pitch;
+    p[5] = f.roll;
+    p[6] = f.vx;
+    p[7] = f.vy;
+    p[8] = f.vz;
+    p[9] = f.wy;
+    w.f32s(p, 3);
+    w.q16s(p, 3, Q_PER.fine, 3);
+    w.q16s(p, 3, Q_PER.vel, 6);
+    w.q16s(p, 1, Q_PER.rate, 9);
     if (f.wreck) writeWreck(w, f, L);
   }
 }

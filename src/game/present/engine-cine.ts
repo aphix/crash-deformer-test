@@ -18,6 +18,8 @@ const HIT_STOP_SCALE = 0.05;
 
 /** Crash cam: cut times (wall s after the first impact) for the three replay angles, then hand back. */
 const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
+/** Wall s after the impact when the crash cam hands the camera back (`direct` false again). */
+export const CRASH_CAM_END = CUTS[3];
 
 const DUST = new THREE.Color(0.78, 0.64, 0.46);
 const TURF = new THREE.Color(0.5, 0.58, 0.36);

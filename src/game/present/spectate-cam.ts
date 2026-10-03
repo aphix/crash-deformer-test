@@ -342,7 +342,7 @@ export class CineCam {
   }
 }
 
-const DUTCH = {
+export const DUTCH = {
   /** Seconds per mount before cutting to another; after `min` s it cuts early (checked every `check` s) to a mount seeing more rivals. */
   every: 3.5,
   min: 1.2,

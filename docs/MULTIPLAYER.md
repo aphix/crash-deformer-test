@@ -38,14 +38,15 @@ interface NetTransport {
   readonly selfId: string;
   readonly error?: string | null; // why the relay refused this peer (room full, host seat taken)
   onMessage: ((from: string, data: Uint8Array) => void) | null;
-  send(data: Uint8Array<ArrayBuffer>, to?: string): void; // unreliable, unordered; to = one peer, else all
+  send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void; // unreliable, unordered unless reliable; to = one peer, else all
   peers(): readonly { id: string; rttMs: number | null; host?: boolean }[]; // host: the relay roster's tag
   close(): void;
 }
 ```
 
-Implementations: `BroadcastTransport` (two tabs of one browser) and `RtcTransport` (wraps `P2PRoom`;
-binary frames go over its unreliable `state` channel). A PartyKit transport would be a third class.
+Implementations: `BroadcastTransport` (two tabs of one browser; reliable already, it ignores `reliable`) and
+`RtcTransport` (wraps `P2PRoom`; binary frames go over its unreliable `state` channel, or its ordered
+`reliable` one when asked). A PartyKit transport would be a third class.
 
 ## Authority
 
@@ -88,7 +89,11 @@ type, `NET_VERSION` u8, the player's name (u8 length + UTF-8; since version 3). 
 name as untrusted (`cleanName`: whitespace folded, control / bidi / zero-width characters dropped,
 combining marks capped, 16 characters); a hello without one (the old layout) is seated as "Player N".
 `assign` (host → one client): type, car u8 (255: refused), `NET_VERSION` u8.
-`hold` (hidden host → all): type only. `NET_VERSION` (`codec.ts`) is bumped on any layout change:
+`hold` (hidden host → all): type only. `reel` (host → all, on the reliable channel, since version 5):
+type, seed u32, the host-clock second the reel starts at (f64), then the clips deflated (`reel-codec.ts`,
+at most 240 KiB); sent once, when a race ends. A client moves the start onto its own clock with the
+snapshot clock offset and draws no snapshots while the reel plays ([HIGHLIGHTS.md](HIGHLIGHTS.md)).
+`NET_VERSION` (`codec.ts`, now 5) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 
@@ -179,7 +184,7 @@ most one snapshot per rendered frame, so a host below 30 fps sends at its frame 
   Join mid-session works the same: the keyframe carries every wreck.
 - **Who speaks for the room**: the first version-matched `assign` pins its sender as the host; with
   a relay roster it must be the peer tagged `host` (the relay freezes that tag and allows one per
-  room). Snapshots, race, derby and `hold` messages from any other peer are dropped. Decoding is
+  room). Snapshots, race, derby, reel and `hold` messages from any other peer are dropped. Decoding is
   checked: a snapshot that is truncated, has 0 or more than 32 cars, a non-finite clock or position,
   or a body style or class this build lacks is dropped whole, and the next one applies (the ring
   slot is cleared first, `lastSeq` only moves on success). A race state is applied only with laps

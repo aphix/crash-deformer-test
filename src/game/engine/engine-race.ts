@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { ContactHit } from "../scenes/engine-props.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -22,8 +23,8 @@ import { RaceField } from "./engine-race-field.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
-/** Seconds the finish card shows before the results menu. */
-const RESULTS_DELAY = 2.5;
+/** Seconds the finish card shows before the results menu (and the results reel). */
+export const RESULTS_DELAY = 2.5;
 const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
 
 /**
@@ -40,6 +41,9 @@ export class RaceDirector extends RaceField {
   get chase(): boolean {
     return this.active && this.session != null;
   }
+
+  /** `World.pairHit` while racing: car–car hits feed the highlight recorder. */
+  readonly pairHit = (a: number, b: number, hit: ContactHit, first: boolean): void => this.recorder.pairHit(a, b, hit, first);
 
   /** The engine ignores keys and pad buttons while a menu is open; the HUD owns them. */
   get menuOpen(): boolean {
@@ -305,6 +309,7 @@ export class RaceDirector extends RaceField {
       for (const car of cars) applyDrive(car, this.hold, dt);
       return;
     }
+    this.recorder.startStep(cars);
     const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i]!;
@@ -344,19 +349,27 @@ export class RaceDirector extends RaceField {
         this.cruise.brake = ai.brake;
         input = this.cruise;
       }
-      applyDrive(car, onSurface(input, surf, this.scratch), dt, rec.draft > 0 ? DRAFT.top : 1);
+      const top = rec.draft > 0 ? DRAFT.top : 1;
+      applyDrive(car, onSurface(input, surf, this.scratch), dt, top);
+      if (top !== 1) this.recorder.drafting(i);
     }
   }
 
   /** End of a physics slice, per car: walls and props. */
   collide(car: DeformableCar, i: number): void {
+    if (!this.track || this.dormant[i]) return;
+    this.courseHit(car, i);
+  }
+
+  /** Car `i` against the course's walls and props (a highlight replay runs it for put-away traffic too). */
+  courseHit(car: DeformableCar, i: number): void {
     const tr = this.track;
-    if (!tr || this.dormant[i]) return;
+    if (!tr) return;
     const p = car.group.position;
     const proj = tr.project(p.x, p.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
-    this.wall(car, proj.k, proj.lateral);
-    if (this.colliders.length > 0) this.props(car);
+    this.wall(car, i, proj.k, proj.lateral);
+    if (this.colliders.length > 0) this.props(car, i);
   }
 
   /** End of a physics slice: rules step, deaths, respawns. */
@@ -384,6 +397,7 @@ export class RaceDirector extends RaceField {
     }
     s.step(dt, this.poses);
     this.credit(s);
+    this.recorder.endStep(cars, dt);
     if (racing) this.stalls(s);
     this.drain();
     this.bubbleAcc += dt;
@@ -426,7 +440,8 @@ export class RaceDirector extends RaceField {
     this.followSun();
   }
 
-  hud(): RaceHud {
+  /** The race's part of the HUD read model; the engine adds the reel's (`reel`, `solo`, `saved`). */
+  hud(): Omit<RaceHud, "reel" | "solo" | "saved"> {
     const s = this.session;
     const tr = this.track;
     const cars = this.host.live();
@@ -589,16 +604,19 @@ export class RaceDirector extends RaceField {
     this.host.seat.clear();
     this.park();
   }
-  /** Keep the sun's shadow box on the followed car (or the grid). */
-  private followSun(): void {
-    const seat = this.host.seat;
-    const cars = this.host.live();
-    const car = seat.carIndex >= 0 && seat.carIndex < cars.length ? cars[seat.carIndex]! : cars[0];
+  /** Keep the sun's shadow box on `car`: the followed car (or the grid), a highlight's subject while the reel plays. */
+  followSun(car: DeformableCar | undefined = this.followed()): void {
     if (!car) return;
     const p = car.group.position;
     const sun = this.host.sun;
     sun.target.position.set(p.x, 0, p.z);
     sun.position.set(p.x + SUN_OFFSET.x, SUN_OFFSET.y, p.z + SUN_OFFSET.z);
     sun.target.updateMatrixWorld();
+  }
+
+  private followed(): DeformableCar | undefined {
+    const seat = this.host.seat;
+    const cars = this.host.live();
+    return seat.carIndex >= 0 && seat.carIndex < cars.length ? cars[seat.carIndex]! : cars[0];
   }
 }

@@ -398,12 +398,13 @@ export abstract class EngineCore {
 
     return this.showBarrier ? this.barrier.contactEta(cars, eta) : eta;
   }
-  protected beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void {
+  /** The crash's hit: slow-mo, kick, flash and burst; `crashCam` overrides the sandbox's rule for the crash cam (the reel always wants it). */
+  protected beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number, crashCam?: boolean): void {
     beginImpact(this.clock, this.autoSlomo);
     this.impactKph = impulse * 3.6;
     this.view.kick(this.carCount);
     const rigScene = this.rigScene;
-    this.cine.impact(contact, normal, impulse, !rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed);
+    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed));
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;

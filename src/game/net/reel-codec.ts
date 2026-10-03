@@ -1,0 +1,250 @@
+import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
+import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
+import { INPUT_BYTES, simFingerprint, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Writer, type NetLayout } from "./codec.ts";
+
+/**
+ * Highlight clips on the wire and in storage (docs/HIGHLIGHTS.md): one byte layout for the `MSG.reel` message and a
+ * saved clip. A clip's keyframes are netplay snapshot messages (`writeSnapshot`) of its cars, kept as bytes, so a host,
+ * its clients and a saved copy replay the very same numbers. Little-endian.
+ */
+
+/** Clip layout version: bump on any change to `writeClip`. A saved clip also records `NET_VERSION` (its keyframes' layout). */
+const REPLAY_VERSION = 1;
+/** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
+const MAX_STEPS = 8192;
+const MAX_KEYS = 64;
+/** A reel message stays under the WebRTC data channel's 256 KiB message cap. */
+export const REEL_MSG_MAX = 240 * 1024;
+const SAVE_MAGIC = 0x4c484353; // "SCHL"
+const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).length);
+
+/** Exact encoded size of `clip` (`writeClip`). */
+export function clipBytes(c: HighlightClip): number {
+  const nc = c.cars.length;
+  let n = 1 + utf8(c.trackId) + 69 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  n += 4 + c.h.length * (2 + nc * INPUT_BYTES) + 2;
+  for (const k of c.keys) n += 8 + k.length;
+  return n;
+}
+
+export function writeClip(w: Writer, c: HighlightClip): void {
+  w.str(c.trackId);
+  w.f32(c.score);
+  w.u16(c.impacts);
+  w.u8(c.kills);
+  w.f32(c.peakKph);
+  w.f64(c.t0);
+  w.f64(c.firstImpact);
+  w.u32(c.firstStep);
+  w.f64(c.lastImpact);
+  w.f32(c.x);
+  w.f32(c.z);
+  w.u8(c.focus);
+  w.u8(c.firstA);
+  w.u8(c.firstB < 0 ? 255 : c.firstB);
+  w.f64(c.realism);
+  w.u8(c.bleed ? 1 : 0);
+  w.f32(c.squash);
+  w.f32(c.buckle);
+  w.u8(c.deformMode === "lattice" ? 1 : 0);
+  w.u8(c.cars.length);
+  for (const car of c.cars) {
+    w.u8(car.slot);
+    w.u8(CAR_STYLE_IDS.indexOf(car.style));
+    w.u8(VEHICLE_CLASS_IDS.indexOf(car.cls));
+    w.str(car.name);
+  }
+  w.u32(c.h.length);
+  // Whole microseconds (the recorder rounds them so: `CrashRecorder.file`); a step is ≤ 50 ms.
+  for (const h of c.h) w.u16(Math.round(h * 1e6));
+  w.bytes.set(c.inputs, w.off);
+  w.off += c.inputs.length;
+  w.u16(c.keys.length);
+  for (let k = 0; k < c.keys.length; k++) {
+    w.u32(c.keyStep[k]!);
+    w.u32(c.keys[k]!.length);
+    w.bytes.set(c.keys[k]!, w.off);
+    w.off += c.keys[k]!.length;
+  }
+}
+
+/**
+ * One clip; throws RangeError on a truncated or out-of-range one (another build, a corrupt store, a hostile peer).
+ * Every keyframe is decoded once against the cars' netplay layout `L` to check it.
+ */
+export function readClip(r: Reader, L: NetLayout): HighlightClip {
+  const trackId = r.str();
+  const score = r.fin32();
+  const impacts = r.u16();
+  const kills = r.u8();
+  const peakKph = r.fin32();
+  const t0 = r.f64();
+  const firstImpact = r.f64();
+  const firstStep = r.u32();
+  const lastImpact = r.f64();
+  const x = r.fin32();
+  const z = r.fin32();
+  const focus = r.u8();
+  const firstA = r.u8();
+  const b = r.u8();
+  const firstB = b === 255 ? -1 : b;
+  const realism = r.f64();
+  const bleed = r.u8() === 1;
+  const squash = r.fin32();
+  const buckle = r.fin32();
+  const deformMode = r.u8() === 1 ? "lattice" : "shape";
+  const nc = r.u8();
+  if (nc < 1 || nc > MAX_NET_CARS || focus >= nc || firstA >= nc || firstB >= nc) throw new RangeError("clip cars");
+  if (![t0, firstImpact, lastImpact, realism].every(Number.isFinite)) throw new RangeError("clip clock");
+  const cars: ReelCar[] = [];
+  for (let j = 0; j < nc; j++) {
+    const slot = r.u8();
+    const style = CAR_STYLE_IDS[r.u8()];
+    const cls = VEHICLE_CLASS_IDS[r.u8()];
+    const name = r.str();
+    if (!style || !cls || slot >= MAX_NET_CARS) throw new RangeError("clip car");
+    cars.push({ slot, style, cls, name });
+  }
+  const steps = r.u32();
+  if (steps < 1 || steps > MAX_STEPS) throw new RangeError("clip steps");
+  const h = new Float32Array(steps);
+  for (let s = 0; s < steps; s++) {
+    h[s] = r.u16() / 1e6;
+    if (!(h[s]! > 0)) throw new RangeError("clip dt");
+  }
+  const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
+  for (let i = 0; i < inputs.length; i++) inputs[i] = r.u8();
+  const nk = r.u16();
+  if (nk < 1 || nk > MAX_KEYS) throw new RangeError("clip keys");
+  const keyStep = new Uint32Array(nk);
+  const keys: Uint8Array[] = [];
+  const check = makeSnapshot();
+  const kr = new Reader();
+  for (let k = 0; k < nk; k++) {
+    keyStep[k] = r.u32();
+    if (keyStep[k]! >= steps || (k > 0 && keyStep[k]! <= keyStep[k - 1]!) || (k === 0 && keyStep[0] !== 0)) throw new RangeError("clip key step");
+    const len = r.u32();
+    if (r.off + len > r.length) throw new RangeError("clip key length");
+    const key = new Uint8Array(len);
+    for (let i = 0; i < len; i++) key[i] = r.u8();
+    kr.reset(key);
+    if (kr.u8() !== MSG.snapshot) throw new RangeError("clip key type");
+    kr.off = 0;
+    readSnapshot(kr, check, L);
+    if (check.count !== nc || kr.off + nc * 2 !== len) throw new RangeError("clip key cars");
+    keys.push(key);
+  }
+  if (firstStep >= steps) throw new RangeError("clip first step");
+  return { trackId, score, impacts, kills, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, cars, h, inputs, keyStep, keys };
+}
+
+/** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */
+const INFLATE_MAX = 4 << 20;
+
+/** deflate-raw (the platform's `CompressionStream`): a reel's clips shrink about 4× (inputs and keyframes repeat). */
+async function deflate(data: Uint8Array<ArrayBuffer>): Promise<Uint8Array<ArrayBuffer>> {
+  return new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer());
+}
+
+/** Inflate at most `INFLATE_MAX` bytes; RangeError on bad or oversized data. */
+async function inflate(data: Uint8Array): Promise<Uint8Array<ArrayBuffer>> {
+  const reader = new Blob([data.slice()]).stream().pipeThrough(new DecompressionStream("deflate-raw")).getReader();
+  const parts: Uint8Array[] = [];
+  let n = 0;
+  try {
+    for (let r = await reader.read(); !r.done; r = await reader.read()) {
+      n += r.value.length;
+      if (n > INFLATE_MAX) throw new RangeError("inflates past the cap");
+      parts.push(r.value);
+    }
+  } catch (e) {
+    await reader.cancel().catch(() => {});
+    throw e instanceof RangeError ? e : new RangeError("bad deflate data");
+  }
+  const out = new Uint8Array(n);
+  let o = 0;
+  for (const p of parts) {
+    out.set(p, o);
+    o += p.length;
+  }
+  return out;
+}
+
+function clipsBytes(clips: readonly HighlightClip[]): Uint8Array<ArrayBuffer> {
+  const w = new Writer(1 + clips.reduce((n, c) => n + clipBytes(c), 0));
+  w.u8(clips.length);
+  for (const c of clips) writeClip(w, c);
+  return w.done();
+}
+
+/**
+ * `MSG.reel`, sent once, reliably: type, seed (u32), the host-clock second every peer starts the reel at (f64), then
+ * the clips deflated. Clips that would take it past `REEL_MSG_MAX` drop out, lowest ranked first; the host plays the
+ * clips it sent, so every peer shows the same ones.
+ */
+export async function packReel(reel: Reel, startAt: number): Promise<{ msg: Uint8Array<ArrayBuffer>; clips: number }> {
+  for (let n = reel.clips.length; ; n--) {
+    const body = await deflate(clipsBytes(reel.clips.slice(0, n)));
+    if (body.length + 13 > REEL_MSG_MAX && n > 0) continue;
+    const w = new Writer(13 + body.length);
+    w.u8(MSG.reel);
+    w.u32(reel.seed);
+    w.f64(startAt);
+    w.bytes.set(body, w.off);
+    w.off += body.length;
+    return { msg: w.done(), clips: n };
+  }
+}
+
+/** A `MSG.reel`; RangeError on a malformed one. */
+export async function unpackReel(data: Uint8Array, L: NetLayout): Promise<{ reel: Reel; startAt: number }> {
+  const r = new Reader().reset(data);
+  if (r.u8() !== MSG.reel) throw new RangeError("not a reel");
+  const seed = r.u32();
+  const startAt = r.f64();
+  if (!Number.isFinite(startAt)) throw new RangeError("reel clock");
+  const body = r.reset(await inflate(data.subarray(13)));
+  const n = body.u8();
+  const clips: HighlightClip[] = [];
+  for (let k = 0; k < n; k++) clips.push(readClip(body, L));
+  return { reel: { seed, clips }, startAt };
+}
+
+/** A clip for `localStorage`: magic, `REPLAY_VERSION`, `NET_VERSION`, the sim fingerprint, then the clip deflated; base64. */
+export async function encodeSaved(c: HighlightClip): Promise<string> {
+  const w = new Writer(clipBytes(c));
+  writeClip(w, c);
+  const body = await deflate(w.done());
+  const out = new Writer(11 + body.length);
+  out.u32(SAVE_MAGIC);
+  out.u16(REPLAY_VERSION);
+  out.u8(NET_VERSION);
+  out.u32(simFingerprint());
+  out.bytes.set(body, out.off);
+  out.off += body.length;
+  let s = "";
+  for (const b of out.done()) s += String.fromCharCode(b);
+  return btoa(s);
+}
+
+/** A saved clip, or why it cannot replay here: "version" (another clip or keyframe layout, or another sim build) or "corrupt". */
+export async function decodeSaved(text: string, L: NetLayout): Promise<HighlightClip | "version" | "corrupt"> {
+  let bin: string;
+  try {
+    bin = atob(text);
+  } catch {
+    return "corrupt";
+  }
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  const r = new Reader().reset(bytes);
+  try {
+    if (r.u32() !== SAVE_MAGIC) return "corrupt";
+    if (r.u16() !== REPLAY_VERSION || r.u8() !== NET_VERSION || r.u32() !== simFingerprint()) return "version";
+    return readClip(r.reset(await inflate(bytes.subarray(11))), L);
+  } catch (e) {
+    if (e instanceof RangeError) return "corrupt";
+    throw e;
+  }
+}

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DeformableCar } from "../vehicle/car.ts";
+import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
 import type { WorldBounce } from "../vehicle/car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
 import { partContactPair } from "../contact/external-contact.ts";
@@ -160,6 +160,17 @@ export function stepWorld(w: World, dt: number): void {
       w.afterCar?.(car, h);
     }
     if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci);
+  }
+}
+
+/**
+ * After each `stepWorld` (`CrashEngine.tickInner`, a highlight replay): a dead drivetrain's drive bleeds away, and with
+ * `bleed` (the crash clock is past the hit) a wreck slides to a stop on tyre-style friction.
+ */
+export function settleStep(cars: readonly DeformableCar[], h: number, bleed: boolean): void {
+  for (const car of cars) {
+    if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
+    if (bleed && car.crashed) bleedAfterSlide(car, h);
   }
 }
 

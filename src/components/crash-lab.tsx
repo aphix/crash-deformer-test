@@ -64,8 +64,8 @@ export function CrashLab() {
           {bootError}
         </p>
       ) : null}
-      {/* The race focus view shows race panels only; the Net button stays mounted (its room keeps running) but hidden. */}
-      <div className={hud.race && !hud.race.fullUi ? "hidden" : "contents"}>
+      {/* The race focus view and the solo highlight view hide the Net button; it stays mounted (its room keeps running). */}
+      <div className={hud.race && (!hud.race.fullUi || hud.race.solo !== null) ? "hidden" : "contents"}>
         <NetPanel engine={engineRef} />
       </div>
       <Hud state={hud} engine={engineRef} />

@@ -1,7 +1,7 @@
 import { P2PRoom } from "../../lib/multiplayer/p2p.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
 
-/** Cross-machine: the template's WebRTC mesh (`P2PRoom`), signaled through `/api/rtc`; binary on its unreliable channel. */
+/** Cross-machine: the template's WebRTC mesh (`P2PRoom`), signaled through `/api/rtc`; binary on its unreliable channel, or its reliable one on request. */
 export class RtcTransport implements NetTransport {
   onMessage: ((from: string, data: Uint8Array) => void) | null = null;
   readonly selfId: string;
@@ -24,8 +24,8 @@ export class RtcTransport implements NetTransport {
     return this.room.error;
   }
 
-  send(data: Uint8Array<ArrayBuffer>, to?: string): void {
-    this.room.sendBinary(data, to);
+  send(data: Uint8Array<ArrayBuffer>, to?: string, reliable = false): void {
+    this.room.sendBinary(data, to, reliable);
   }
 
   peers(): readonly NetPeer[] {
