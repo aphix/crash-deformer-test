@@ -147,8 +147,8 @@ describe("share URL: the netplay room", () => {
 
 /**
  * Boot precedence: the `#` alone decides what a page load starts as (engine-share.ts `arrive`: `decodeShare`, then
- * `joinsRoom`). Whatever the last run left in localStorage is not an input here at all: `stored-state.test.ts` pins that
- * the only things stored are preferences, so there is no session state for a hash to lose against.
+ * `joinsRoom`). The app stores only preferences (driver name and car, HUD layout, saved highlights), so no previous-run
+ * session state exists for a hash to lose against.
  */
 describe("share URL: what a page load starts as", () => {
   const off = { room: "", tx: "rtc" } as const;
