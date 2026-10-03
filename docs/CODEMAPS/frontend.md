@@ -11,8 +11,9 @@ src/routes/index.tsx   "/" → Home
       ├ components/net-panel.tsx  NetPanel        top-centre "Net" button → host / join / Public race, invite link + QR
       └ components/hud.tsx  Hud(HudProps)
           ├ hud-panels.tsx  PistonPanel · DoorPanel · DerbyBoard   (only in their scene)
-          ├ race-hud.tsx  RaceReadouts · RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle;
+          ├ race-hud.tsx  RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle;
           │   use-pad-menu.ts: pad / keyboard menu focus (hud/menu-nav.ts); HUD → engine.raceCommand(cmd)
+          ├ race-readouts.tsx  RaceReadouts: position, lap, clocks and the speed / gear / boost gauge of the driven or watched car
           ├ hud-sections.tsx  HudSections   accordion: Playback · Driving · Cars & crash · Debug views
           ├ touch-controls.tsx  TouchControls (thumb pad, coarse pointer only, via use-coarse-pointer.ts) · FullscreenButton
           └ ui/button.tsx

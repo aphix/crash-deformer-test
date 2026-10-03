@@ -11,6 +11,7 @@ import {
   assignClass,
   CLASSES,
   cornerSpeed,
+  gearAt,
   drivability,
   HANDLING,
   killClass,
@@ -208,16 +209,21 @@ describe("vehicle classes", () => {
       const top = v[v.length - 1]!;
       const t100 = v.findIndex((x) => x >= 100 / 3.6) * H;
       const tTop = v.findIndex((x) => x >= 0.995 * top) * H;
-      // Gear buckets: the pull holds within a gear and changes by > 10 % only at a shift, always down.
+      // Gear buckets: the pull holds within a gear and changes by > 10 % only at a shift, always down; the HUD's
+      // gear (`gearAt`) steps up on exactly those steps.
       const shifts: string[] = [];
+      const hudOff: string[] = [];
       let rises = 0;
       for (let i = 2; i < v.length && v[i]! < 0.99 * top; i++) {
         const before = (v[i - 1]! - v[i - 2]!) / H;
         const after = (v[i]! - v[i - 1]!) / H;
+        const hudShift = gearAt(CLASSES[id], v[i - 1]!) !== gearAt(CLASSES[id], v[i - 2]!);
+        if (hudShift !== Math.abs(after / before - 1) > 0.1) hudOff.push(`${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
         if (Math.abs(after / before - 1) <= 0.1) continue;
         shifts.push(`${before.toFixed(1)}→${after.toFixed(1)} m/s² at ${(v[i - 1]! * 3.6).toFixed(0)} km/h`);
         if (after > before) rises++;
       }
+      assert.deepEqual(hudOff, [], `HUD gear disagrees with the pull at ${hudOff.join(", ")}`);
       const got = `0–100 ${t100.toFixed(2)} s, top ${(top * 3.6).toFixed(0)} km/h at ${tTop.toFixed(2)} s, shifts [${shifts.join(", ")}]`;
       assert.ok(t100 > 0 && Math.abs(t100 / zeroTo100 - 1) <= 0.05, got);
       assert.ok(Math.abs((top * 3.6) / L.topKmh - 1) <= 0.05, got);

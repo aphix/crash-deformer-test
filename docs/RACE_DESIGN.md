@@ -118,7 +118,7 @@ the player is out, finished or spectating; a racing player can't be moved off th
 **Watch** (setup "You: Drive / Watch", `RaceOptions.spectate`): a spectator-only race. `field()` makes
 this browser's car one more AI racer (paint name, rolled aggression), so there is no player entrant:
 the grid is the AI field in car order, `start()` follows pole in spectate mode, cycling and the
-standings reach every car (our own AI one too), the HUD has no readouts, "You" row or finish card,
+standings reach every car (our own AI one too), the HUD has no "You" row or finish card,
 and nothing can take the wheel. Touch, keys and pad all switch cars through `raceCommand({ type:
 "cycle", dir })` (the spectate bar shows while `RaceHud.spectating` is non-null) and `{ type: "watch", id }`.
 With the police chase on, cycling runs on past the racers to every police car out on the course
@@ -400,8 +400,13 @@ leave the race). In the focus view every sandbox hotkey (scenes, Z, play, rig, w
 swallowed; in the full view they work as in the sandbox, except the fleet props B / K (the HUD locks them too).
 
 ## HUD and controller menus
-Focus view (default): race readouts (P3/8, Lap 2/3, race / lap / last / best, speed, split, the boost
-meter while driving, with a "Draft" tag while drafting), standings
+Focus view (default): race readouts for the HUD car (`RaceHud.view`: the driven car, or the watched car while
+spectating, so spectate shows what that driver sees): P3/8, Lap 2/3, race / lap / last / best, the split,
+and the gauge (speed, gear from `gearAt`, the segmented boost meter, lit while burning, with a "Draft" tag
+while drafting). The boost meter shows where this browser holds it (our seat, or the AI on a host / offline
+race); a peer's car and police have none, and a watched police car shows only the gauge. The gauge sits
+under the readouts (top right), or in the bottom-right corner on a wide screen without a touch pad, as in
+NFS and Burnout. The HUD republishes at ~8 Hz (`engine.ts` `hudAcc`), never per frame. Standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
 card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps

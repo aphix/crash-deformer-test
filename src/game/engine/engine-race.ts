@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
+import { CLASSES, carClass, gearAt } from "../vehicle/vehicle-classes.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -18,7 +19,8 @@ import {
   type RaceCommand,
   type RaceHud,
   type RaceHudRow, type RacePhase,
-  type RaceSnapshot
+  type RaceSnapshot,
+  type RaceView
 } from "../match/types.ts";
 import { RaceField } from "./engine-race-field.ts";
 
@@ -485,25 +487,44 @@ export class RaceDirector extends RaceField {
       }
       const me = this.entrants[this.self]?.kind === "player" ? s.cars[this.rowOf[this.self]!] : undefined;
       if (me) {
-        const car = cars[this.self];
         you = {
           id: this.self,
           place: me.place,
           lap: Math.min(s.laps, me.lap + 1),
-          lapTime: s.phase === "racing" && me.status !== "finished" ? Math.max(0, s.time - me.lapStart) : 0,
-          lastLap: me.lapTimes.length > 0 ? me.lapTimes[me.lapTimes.length - 1]! : null,
-          bestLap: me.bestLap,
           status: me.status,
           wrongWay: me.wrongWay,
           missed: me.missed && me.status === "racing",
           respawnIn: me.respawnAt == null ? null : Math.max(0, me.respawnAt - s.time),
           finishTime: me.finishTime,
-          split: me.split,
-          speedKph: car ? car.velocity.length() * 3.6 : 0,
-          drafting: me.draft > 0,
           busted: me.bustedAt != null,
         };
       }
+    }
+    const id = seat.mode === "global" ? -1 : seat.carIndex;
+    const car = s && id >= 0 ? cars[id] : undefined;
+    let view: RaceView | null = null;
+    if (s && car) {
+      const c = id < this.entrants.length ? s.cars[this.rowOf[id]!] : undefined;
+      const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
+      view = {
+        id,
+        racer: c
+          ? {
+              place: c.place,
+              lap: Math.min(s.laps, c.lap + 1),
+              lapTime: s.phase === "racing" && c.status !== "finished" ? Math.max(0, s.time - c.lapStart) : 0,
+              lastLap: c.lapTimes.length > 0 ? c.lapTimes[c.lapTimes.length - 1]! : null,
+              bestLap: c.bestLap,
+              split: c.split,
+              drafting: c.draft > 0,
+            }
+          : null,
+        speedKph: car.velocity.length() * 3.6,
+        gear: along < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], along) + 1,
+        // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
+        boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
+        boosting: car.drive.boost,
+      };
     }
     const winner = s && s.winnerId != null ? s.cars[this.rowOf[s.winnerId]!]!.name : null;
     const watched =
@@ -520,6 +541,7 @@ export class RaceDirector extends RaceField {
       time: s ? s.time : 0,
       lights: s ? s.lights : 0,
       you,
+      view,
       field: s ? s.cars.length : this.options.aiCount + 1,
       standings,
       spectating: watched,
