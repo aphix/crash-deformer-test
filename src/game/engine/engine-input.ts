@@ -14,6 +14,29 @@ import { EngineRigs } from "./engine-rigs.ts";
  * Player input: keyboard, gamepad, pointer picks and the HUD's commands and settings.
  */
 export abstract class EngineInput extends EngineRigs {
+  protected abstract tickInner(now: number): void;
+
+  /**
+   * Fast-forward for probes: the exact per-frame path of `tick` on a synthetic clock, synchronously (so the rAF loop
+   * cannot interleave). Only the last frame (or every frame with `render`) draws, so a screenshot after it shows the state.
+   */
+  advance(seconds: number, opts: { frameDt?: number; render?: boolean } = {}): void {
+    const dt = (opts.frameDt ?? 1 / 60) * 1000;
+    const frames = Math.max(1, Math.round((seconds * 1000) / dt));
+    const real = this.last;
+    let t = real;
+    try {
+      for (let i = 0; i < frames; i++) {
+        t += dt;
+        this.skipDraw = !opts.render && i < frames - 1;
+        this.tickInner(t);
+      }
+    } finally {
+      this.skipDraw = false;
+      this.last = performance.now();
+    }
+  }
+
   /** The touch HUD's stick and buttons; merged into the pad on every poll, so every pad path takes them. */
   get touch(): TouchPad {
     return this.pad.touch;

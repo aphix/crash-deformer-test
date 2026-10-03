@@ -121,6 +121,8 @@ export abstract class EngineCore {
   protected disposed = false;
   protected acc = 0;
   protected last = 0;
+  /** Set by `advance` on its silent frames: the frame steps everything but the post-chain draw. */
+  protected skipDraw = false;
   protected readonly clock = phaseClock();
   protected fps = 0;
   protected impactKph: number | null = null;
