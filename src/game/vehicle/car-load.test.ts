@@ -8,6 +8,7 @@ import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { DriveCam } from "../present/engine-camera.ts";
+import { setGround, type Ground } from "../world/ground.ts";
 
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
@@ -19,8 +20,29 @@ const ROLL_MAX = 6.5;
 
 type Sample = { pitch: number; roll: number; speed: number };
 
-/** One car on the flat from `v0` under `input` for `seconds`, as the engine steps it; the drawn body's pitch (+ nose up) and roll (+ the +x side up) each frame. */
-function drive(cls: VehicleClassId, v0: number, input: (speed: number) => Partial<DriveInput>, seconds: number): Sample[] {
+/** A plane falling `deg` toward +z (the way the car faces): a descent for `deg` > 0, a climb for < 0. */
+function slope(deg: number): Ground {
+  const s = Math.tan(deg / DEG);
+  const n = Math.hypot(1, s);
+  return {
+    heightAt: (_x, z) => -s * z,
+    normalAt: (_x, _z, out) => {
+      out.x = 0;
+      out.y = 1 / n;
+      out.z = s / n;
+      return out;
+    },
+    frictionAt: () => 1,
+    surfaceAt: () => "asphalt",
+  };
+}
+
+/**
+ * One car from `v0` under `input` for `seconds`, as the engine steps it, on the flat or on a `grade`° descent
+ * (negative: a climb); the drawn body's pitch (+ nose up) and roll (+ the +x side up) each frame.
+ */
+function drive(cls: VehicleClassId, v0: number, input: (speed: number) => Partial<DriveInput>, seconds: number, grade = 0): Sample[] {
+  setGround(grade ? slope(grade) : null);
   const car = new DeformableCar(paint(), new THREE.Scene());
   assignClass(car, cls);
   const w = newWorld([car], null);
@@ -40,6 +62,7 @@ function drive(cls: VehicleClassId, v0: number, input: (speed: number) => Partia
     out.push({ pitch: -body.rotation.x * DEG, roll: body.rotation.z * DEG, speed: car.speed });
   }
   car.dispose();
+  setGround(null);
   return out;
 }
 
@@ -67,6 +90,23 @@ describe("load transfer: the drawn body squats, dives and leans", () => {
       assert.ok(Math.abs(right[right.length - 1]!.roll + r) < 0.05, `right turn rolls ${right[right.length - 1]!.roll.toFixed(2)}°`);
     });
   }
+
+  it("good: on a slope the body never pitches against the road: the load that would is gone, the load along it stays", () => {
+    // After the first 0.8 s: the spawn onto the slope kicks the springs (the pose turns to it).
+    const settled = (s: Sample[]) => s.slice(Math.round(0.8 / FRAME));
+    for (const cls of VEHICLE_CLASS_IDS) {
+      // Driving down a 5° descent squats the body nose up, against the road (the monster 4.3° off it); braking up a climb dives it, likewise.
+      const squat = peak(settled(drive(cls, 25, () => ({ throttle: 1 }), 2, 5)), "pitch");
+      const dive = peak(settled(drive(cls, 40, () => ({ brake: 1 }), 1.3, -5)), "pitch");
+      assert.ok(squat < 0.5, `${cls} driving down 5°: ${squat.toFixed(2)}° nose up against the road`);
+      assert.ok(dive > -0.5, `${cls} braking up 5°: ${dive.toFixed(2)}° nose down against the road`);
+      // Driving up the climb and braking down the descent lean with the road, as on the flat.
+      const climb = peak(settled(drive(cls, 5, () => ({ throttle: 1 }), 2, -5)), "pitch");
+      const stop = peak(settled(drive(cls, 40, () => ({ brake: 1 }), 1.3, 5)), "pitch");
+      assert.ok(climb > 0.8 && climb <= PITCH_MAX[cls], `${cls} driving up 5°: ${climb.toFixed(2)}°`);
+      assert.ok(stop < -0.8 && stop >= -PITCH_MAX[cls], `${cls} braking down 5°: ${stop.toFixed(2)}°`);
+    }
+  });
 
   it("good: a stopped car is level, and one braked to a stop settles level", () => {
     for (const cls of VEHICLE_CLASS_IDS) {
