@@ -1,6 +1,8 @@
 import * as THREE from "three";
 import type { VehicleClassId } from "./vehicle-classes.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
+import { activeGround, NO_FLOOR } from "../world/ground.ts";
+import { TYRE_R } from "../deform/deform-state.ts";
 
 /**
  * A spring and a damper between each wheel and the body, drawn only: the physics frame (hulls, masses, contacts,
@@ -25,10 +27,27 @@ const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; trave
 /** Half the wheelbase and half the track (m). */
 const AXLE = WHEEL_POS[0]![2];
 const TRACK = Math.abs(WHEEL_POS[0]![0]);
+/**
+ * Tread points (m from the hub, wheel frame, × wheel scale) a seated wheel keeps on the ground: the crown's bottom arc
+ * ±29° about the body's down (a slope under it, a lip ahead or behind) and its shoulders (a bank's edge, a twist),
+ * after `TYRE_PROFILE` in car-materials.ts.
+ */
+const TREAD: readonly (readonly [number, number, number])[] = [
+  ...[-0.5, -0.25, 0, 0.25, 0.5].map((a) => [0, -TYRE_R * Math.cos(a), TYRE_R * Math.sin(a)] as const),
+  [0.104, -0.298, 0],
+  [-0.104, -0.298, 0],
+];
+/** Off the ground a seated wheel eases back onto its hub at this rate (1/s). */
+const UNSEAT = 15;
 
 export class Suspension {
   /** Each wheel's body offset from its rest ride (m): − bump (compressed), + droop. `WHEEL_POS` order. */
   readonly offset = new Float64Array(4);
+  /**
+   * Each drawn wheel's lift off its rest hub (m, + up): on the ground it follows the ground under its tread (a bank's
+   * edge, a crest, a twist the frame's one plane can't take), within its spring's stops of the body.
+   */
+  readonly seat = new Float64Array(4);
   private readonly rate = new Float64Array(4);
   private readonly lastY = new Float64Array(4);
   private readonly lastV = new Float64Array(4);
@@ -47,15 +66,17 @@ export class Suspension {
     }
     o.fill(0);
     this.rate.fill(0);
+    this.seat.fill(0);
     this.seen = 0;
     this.body = undefined;
   }
 
   /**
    * One slice for a car whose ground pose is `group` (its matrixWorld current), class `cls` with body `lift`;
-   * `air` while no wheel is on the ground. `free` false (a crash) puts the body back on its stock ride.
+   * `air` while no wheel is on the ground. `free` false (a crash) puts the body back on its stock ride; the
+   * wheels are then the wreck's (`nudgeWheels` puts them on their hubs).
    */
-  step(group: THREE.Object3D, cls: VehicleClassId, lift: number, free: boolean, air: boolean, dt: number): void {
+  step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, dt: number): void {
     if (this.body === undefined) this.body = group.getObjectByName("classLift") ?? null;
     if (!free) {
       if (this.seen > 0) {
@@ -63,6 +84,7 @@ export class Suspension {
         this.rate.fill(0);
         this.seen = 0;
         this.pose(lift);
+        this.seat.fill(0);
       }
       return;
     }
@@ -97,7 +119,51 @@ export class Suspension {
       this.rate[i] = r;
     }
     if (this.seen < 2) this.seen++;
-    if (moved) this.pose(lift);
+    if (this.seatWheels(e, wheels, stop, air, dt) || moved) this.pose(lift);
+  }
+
+  /**
+   * Each drawn wheel onto the ground under its tread's crown and shoulders (`seat`); off the ground back onto its hub.
+   * A wheel hangs up to the full travel below the body; up into its arch it stops `stop` above the body's ride there
+   * (a sedan's tyre top is 6 cm under its arch at rest) and lifts that corner of the body beyond. True when it lifted one.
+   */
+  private seatWheels(e: readonly number[], wheels: readonly THREE.Object3D[], stop: number, air: boolean, dt: number): boolean {
+    const ground = activeGround();
+    const uy = e[5]!;
+    let lifted = false;
+    for (let i = 0; i < 4; i++) {
+      const w = wheels[i]!;
+      let s = this.seat[i]! * Math.exp(-UNSEAT * dt);
+      if (!air && uy > 0.5) {
+        const [x, , z] = WHEEL_POS[i]!;
+        const sc = w.scale.x;
+        // The hub on its rest ride (the tyre's bottom is the body's y = 0 for every class).
+        const r = TYRE_R * sc;
+        const cx = e[0]! * x + e[4]! * r + e[8]! * z + e[12]!;
+        const cy = e[1]! * x + uy * r + e[9]! * z + e[13]!;
+        const cz = e[2]! * x + e[6]! * r + e[10]! * z + e[14]!;
+        // The lift (along the body's up) that puts the tread on the ground: its lowest point over the ground under it.
+        // The hub's height picks the ground's layer.
+        let need = -Infinity;
+        for (const [tx, ty, tz] of TREAD) {
+          const px = cx + sc * (e[0]! * tx + e[4]! * ty + e[8]! * tz);
+          const py = cy + sc * (e[1]! * tx + uy * ty + e[9]! * tz);
+          const pz = cz + sc * (e[2]! * tx + e[6]! * ty + e[10]! * tz);
+          const g = ground.heightAt(px, pz, cy);
+          if (g !== NO_FLOOR) need = Math.max(need, (g - py) / uy);
+        }
+        const o = this.offset[i]!;
+        s = Math.max(o - 2 * stop, need);
+        if (s > o + stop) {
+          this.offset[i] = s - stop;
+          this.rate[i] = Math.max(this.rate[i]!, 0);
+          lifted = true;
+        }
+      }
+      w.position.y = WHEEL_POS[i]![1] + s;
+      this.seat[i] = s;
+    }
+    return lifted;
   }
 
   /** The body's ride from the four offsets: heave, pitch (front over rear) and roll (+x side over −x). */

@@ -124,6 +124,8 @@ On a course's ground (a race track, the fleet ramps, the corkscrew; not the flat
 
 Measured by `scenes/fleet-ramps.test.ts` (the sill stays ≥ 0.21 m off the ground in every class). Monster ζ 0.20 still swung 1 cm 2.4 s after that landing, 0.30 for 2.3 s.
 
+**Drawn wheels sit on the ground.** The physics frame is one plane (the ground's normal under the car), so on a crest, a twist or across a banked road's edge some wheels would float or sink; `Suspension` also seats each drawn wheel on the ground under its tread (the crown's bottom arc ±29° and its shoulders, `TREAD`), up to the full travel below the body and `stop` above it, beyond which the wheel lifts that corner of the drawn body. In the air the wheels ease back onto their hubs (15/s). Drawn only: every crash, fleet, derby, oval and city digest is identical. `vehicle/bank-wheels.test.ts` drives a sedan and a monster through stunt's 18° bank on the low edge, centre and high edge: every tread within 2 cm of the ground (main b89ebeb: the low edge sank tyres 10.8 cm).
+
 ## The arcade ↔ realistic slider
 
 `HANDLING.realism`, HUD → Driving → Realism (default 0.25).

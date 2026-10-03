@@ -3,6 +3,7 @@ import { STEP_UP, type Ground } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type TrackJson } from "./track-schema.ts";
+import { bilinear, RoadCrease } from "./road-crease.ts";
 
 /**
  * A track JSON compiled into arc-length samples (≈1 m apart), gates, the start
@@ -585,6 +586,8 @@ export class TrackGround implements Ground {
   readonly nz: number;
   readonly heights: Float32Array;
   readonly surf: Uint8Array;
+  /** The main loop's road + runoff, crease kept (`RoadCrease`). */
+  private readonly crease: RoadCrease;
   private readonly hills: TrackJson["environment"]["hills"];
   private readonly terrain: number;
 
@@ -600,6 +603,7 @@ export class TrackGround implements Ground {
     const cells = this.nx * this.nz;
     this.heights = new Float32Array(cells);
     this.surf = new Uint8Array(cells).fill(this.terrain);
+    this.crease = new RoadCrease(cells);
     const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, gap: new Float32Array(cells).fill(Infinity), under: this.heights };
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) this.heights[j * this.nx + i] = this.base(this.minX + i * CELL, this.minZ + j * CELL);
@@ -662,10 +666,13 @@ export class TrackGround implements Ground {
           // runoff: a shortcut's mouth skirt dented a banked turn's inside edge 0.35 m (stunt's quarry-cut).
           if (d2 >= st.d2[c]! || (side && out > 0 && st.gap[c] === 0)) continue;
           st.d2[c] = d2;
-          if (!side) st.gap[c] = Math.max(0, out);
           const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f;
           const bank = p.bank[k]! + (p.bank[b]! - p.bank[k]!) * f;
           const edge = yc - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
+          if (!side) {
+            st.gap[c] = Math.max(0, out);
+            this.crease.set(c, out, lat, half, yc, bank);
+          }
           let h = edge;
           if (a <= half) {
             st.surf[c] = p.surface[k]!;
@@ -687,20 +694,16 @@ export class TrackGround implements Ground {
     }
   }
 
-  /** Bilinear heightfield (no decks). */
+  /** Bilinear heightfield (no decks); on the main road + runoff its crease kept (`RoadCrease`). */
   private fieldAt(x: number, z: number): number {
     const u = (x - this.minX) / CELL;
     const v = (z - this.minZ) / CELL;
     if (u < 0 || v < 0 || u >= this.nx - 1 || v >= this.nz - 1) return this.base(x, z);
     const i = u | 0;
     const j = v | 0;
-    const fu = u - i;
-    const fv = v - j;
     const c = j * this.nx + i;
-    const h = this.heights;
-    const a = h[c]! + (h[c + 1]! - h[c]!) * fu;
-    const b = h[c + this.nx]! + (h[c + this.nx + 1]! - h[c + this.nx]!) * fu;
-    return a + (b - a) * fv;
+    const r = this.crease.at(c, this.nx, u - i, v - j);
+    return r === r ? r : bilinear(this.heights, c, this.nx, u - i, v - j);
   }
 
   heightAt(x: number, z: number, y = Infinity): number {

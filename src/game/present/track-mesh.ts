@@ -183,8 +183,12 @@ export function sampleAt(p: TrackPath, s: number): number {
 
 /**
  * Sample indices to build sections at: every flag change (deck, tunnel, walls, surfaces), at most
- * MAX_STEP m apart, closer where the path bends or crests (chord sagitta ≤ 2 cm), and on every
- * multiple of `period` m when given. An open path ends on its last sample.
+ * MAX_STEP m apart, closer where the path bends or crests (chord sagitta ≤ 2 cm) or its bank turns,
+ * and on every multiple of `period` m when given. An open path ends on its last sample.
+ *
+ * A section quad across a bank that turns is twisted, and its two triangles meet along a diagonal
+ * through the road's centre half × Δtan(bank) / 2 off the road's surface: 6.9 cm over stunt's bank
+ * run-out at 4 m sections, wheels sunk in the drawn road. That too is held to 2 cm.
  */
 export function sections(p: TrackPath, period: number): number[] {
   const n = p.count;
@@ -192,13 +196,17 @@ export function sections(p: TrackPath, period: number): number[] {
   const out = [0];
   let run = 0;
   let bend = 0;
+  let twist = 0;
   for (let k = 1; k < n; k++) {
     run += ds;
     const a = k - 1;
     const b = p.closed ? (k + 1) % n : Math.min(n - 1, k + 1);
     const crest = Math.abs(p.y[b]! - 2 * p.y[k]! + p.y[a]!) / (ds * ds);
     bend = Math.max(bend, Math.abs(p.curv[a]!), Math.abs(p.curv[k]!), crest);
+    twist = Math.max(twist, (p.half[k]! * Math.abs(Math.tan(p.bank[b]!) - Math.tan(p.bank[a]!))) / (2 * ds));
     const step = Math.min(MAX_STEP, Math.max(ds, Math.sqrt(0.16 / Math.max(bend, 1e-6))));
+    // Twist: end the quad here if one more sample would take it past 2 cm (twist × length / 2).
+    const twisted = (run + ds) * twist > 0.04;
     const flag =
       p.deck[k] !== p.deck[a] ||
       p.tunnel[k] !== p.tunnel[a] ||
@@ -207,10 +215,11 @@ export function sections(p: TrackPath, period: number): number[] {
       p.surface[k] !== p.surface[a] ||
       p.runSurface[k] !== p.runSurface[a];
     const tick = period > 0 && Math.floor((k * ds) / period) !== Math.floor((a * ds) / period);
-    if (flag || tick || run >= step - 1e-6 || (!p.closed && k === n - 1)) {
+    if (flag || tick || twisted || run >= step - 1e-6 || (!p.closed && k === n - 1)) {
       out.push(k);
       run = 0;
       bend = 0;
+      twist = 0;
     }
   }
   return out;
