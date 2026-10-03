@@ -4,7 +4,7 @@ import { PISTON_ORBIT_RATE, PistonBank } from "../present/engine-pistons.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
-import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase } from "../match/phase.ts";
+import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase, THROW_ONSET } from "../match/phase.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { damageStage } from "../vehicle/vehicle-classes.ts";
@@ -14,6 +14,7 @@ import { FX_TIERS } from "../present/engine-post.ts";
 import { hardwareDesktop } from "../present/fx-boost.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
+import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
 import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
@@ -175,7 +176,7 @@ export class CrashEngine extends EngineReel {
     this.debris = new DebrisSystem(this.scene);
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
-    this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i));
+    this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i), (at, frame, inherit) => this.onExit(at, frame, inherit));
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|low|high` picks the starting tier (bench A/B); the HUD default otherwise.
     const fxParam = new URLSearchParams(window.location.search).get("fx");
@@ -539,10 +540,15 @@ export class CrashEngine extends EngineReel {
     if (this.rigScene) return;
     if (this.clock.phase !== "approach") return;
     const scale = impactScale(this.clock);
-    if (this.clock.timeScale <= scale * 1.2) return;
+    if (this.clock.timeScale <= scale * 1.2 || this.clock.slomoAt > 0) return;
     const eta = this.contactEta();
     if (!Number.isFinite(eta)) return;
     if (eta > Math.max(PRE_IMPACT_LEAD, wallDt + FIXED)) return;
+    // A hit that will throw a driver plays at 1× until his exit is clear (`THROW_ONSET`).
+    if (throwComing(this.live(), this.showBarrier ? this.barrier : null)) {
+      this.clock.slomoAt = THROW_ONSET;
+      return;
+    }
     this.clock.timeScale = scale;
     this.clock.targetScale = scale;
   }
@@ -671,10 +677,11 @@ export class CrashEngine extends EngineReel {
     if (this.derbyMode || this.race.active) return;
     const settled = this.clock.phase === "aftermath";
     stepPhase(this.clock, wallDt);
-    // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the fleet's.
+    // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the
+    // fleet's, after any ride-along with thrown drivers.
     const still = this.showRange ? this.ragdolls.latest(_v) : -1;
     const shown = this.showRange && this.rangeRun.step(still, _v.x, wallDt);
-    if (this.looping && (shown || (still < 0 && settled && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
+    if (this.looping && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
   }
 
   /** `aimRigs`'s derby centroid set, refilled per frame. */
@@ -712,17 +719,6 @@ export class CrashEngine extends EngineReel {
     return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }
 
-  /**
-   * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): the camera rides with the
-   * thrown drivers unless it follows another car or the user framed it. The clock is the hit's: its slow-mo, the
-   * letterbox and the post effects run on under the ride (`aimRigs`).
-   */
-  private onThrow(i: number): void {
-    const followed = this.followedCar();
-    if (this.view.userFramed || (followed && followed !== this.cars[i])) return;
-    this.ragdolls.follow();
-  }
-
   /** The rigs' shot, then the rear-view hold over it (undone before the next frame's rigs, so they never see it). */
   private updateCamera(wallDt: number): void {
     this.view.unflip();
@@ -739,11 +735,11 @@ export class CrashEngine extends EngineReel {
       if (!this.cine.direct(this.camera, wallDt, true)) this.highlights.camera(this.camera);
       return;
     }
-    // The crash cam steps first, so its letterbox runs on under a ride-along, which then takes the camera itself
-    // (the cut's position, and its lens: the ride keeps the one it started with).
+    // The crash cam steps first; a ride-along waits for the crash to be over (`rideReady`), but the range's own dummy
+    // cam rides at once. The ride keeps the lens it found.
     const fov = this.camera.fov;
     const cut = this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
-    if (this.ragdolls.frameCamera(this.camera, wallDt, this.showRange)) {
+    if ((this.showRange || this.rideReady()) && this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, this.followedCar() ? this.seat.carIndex : -1)) {
       if (this.camera.fov !== fov) {
         this.camera.fov = fov;
         this.camera.updateProjectionMatrix();

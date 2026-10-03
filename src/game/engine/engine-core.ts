@@ -8,7 +8,7 @@ import { PistonBank } from "../present/engine-pistons.ts";
 import { DoorRig, type RamShot } from "../scenes/door-rig.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { beginImpact, phaseClock } from "../match/phase.ts";
+import { beginImpact, holdForThrow, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
@@ -33,6 +33,11 @@ import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 
 const _v = new THREE.Vector3();
+/**
+ * A thrown driver's shard cover (`onExit`), half extents (m) in his way out's frame: 1.4 m across, 0.6 m tall, 1.6 m
+ * out of the pane (to the nose over the bonnet; past the door).
+ */
+const EXIT_COVER = new THREE.Vector3(0.7, 0.3, 0.8);
 
 const PAINT_A: CarPaint = { body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" };
 const PAINT_B: CarPaint = { body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" };
@@ -440,6 +445,29 @@ export abstract class EngineCore {
     if (this.audioOn) this.audio.impact(impulse);
     this.emitHud();
   }
+  /**
+   * A driver is being thrown, his way out centred on `at` (`frame`'s z out of the pane): a heavy, very short shatter
+   * (owner, 2026-10-03) fills it, pane to bonnet or door, as he crosses it, with bits of trim and dust.
+   */
+  protected onExit(at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3): void {
+    const k = this.fxDensity;
+    this.glassDots.shatter(at, frame, EXIT_COVER, inherit, 260 * k);
+    this.debris.burst(at, _v.set(0, 0, -1).applyQuaternion(frame), 14 * k);
+    this.smoke.glassDust(at, frame, EXIT_COVER, 14 * k);
+  }
+
+  /**
+   * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): his exit plays at 1×, the
+   * slow-mo `THROW_ONSET` on (`holdForThrow`, unless the hit's was held already), and once the crash is over
+   * (`rideReady`) the camera rides with the thrown drivers, unless it follows another car or the user framed it.
+   */
+  protected onThrow(i: number): void {
+    if (!this.net.client && !this.rigScene) holdForThrow(this.clock);
+    const followed = this.followedCar();
+    if (this.view.userFramed || (followed && followed !== this.cars[i])) return;
+    this.ragdolls.follow();
+  }
+
   protected nearestCar(point: THREE.Vector3): DeformableCar {
     const cars = this.live();
     let best = cars[0]!;

@@ -6,6 +6,9 @@ import { activeGround } from "../world/ground.ts";
 const _ha = new THREE.Vector3();
 const _hb = new THREE.Vector3();
 const _pv = new THREE.Vector3();
+const STILL = new THREE.Vector3();
+/** Pale blue-white: powdered glass. */
+const GLASS_DUST = new THREE.Color(0.86, 0.93, 1);
 
 /** Sliding friction of metal and glass bits on asphalt. */
 const FX_GROUND_MU = 0.6;
@@ -462,7 +465,8 @@ export class SparkSystem extends DotPoints {
 }
 
 export class GlassDotSystem extends DotPoints {
-  constructor(scene: THREE.Scene, n = 320) {
+  /** 640: a head-on's two `shatter`s (2 × 260 at full density) on top of its panes' bursts. */
+  constructor(scene: THREE.Scene, n = 640) {
     super(scene, n, {
       core: "rgba(255,255,255,1)",
       glow: "rgba(210,230,245,0.55)",
@@ -484,6 +488,27 @@ export class GlassDotSystem extends DotPoints {
       this.vy[k] = inherit.y * 0.55 + 1.4 + Math.random() * 3.6;
       this.vz[k] = inherit.z * 0.85 + (Math.random() - 0.5) * 5.5;
       this.life[k] = 1.1 + Math.random() * 1.1;
+    }
+    this.commit(n);
+  }
+
+  /**
+   * A thrown driver's cover (owner: heavy and very short): `count` shards packed through the box `half` (m, in frame
+   * `q`) round `origin`, flung out of it on top of `inherit`, gone in 0.15–0.3 s of FX time. FX time runs at least at
+   * 0.6 × wall, so the slow-mo holds them half a second at most.
+   */
+  shatter(origin: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, inherit: THREE.Vector3, count: number): void {
+    const n = Math.min(this.n, Math.floor(count));
+    for (let i = 0; i < n; i++) {
+      const k = this.claim();
+      _pv.set((Math.random() * 2 - 1) * half.x, (Math.random() * 2 - 1) * half.y, (Math.random() * 2 - 1) * half.z).applyQuaternion(q);
+      this.pos[k * 3] = origin.x + _pv.x;
+      this.pos[k * 3 + 1] = Math.max(0.12, origin.y + _pv.y);
+      this.pos[k * 3 + 2] = origin.z + _pv.z;
+      this.vx[k] = inherit.x + _pv.x * 3;
+      this.vy[k] = inherit.y + _pv.y * 3 + 1.5;
+      this.vz[k] = inherit.z + _pv.z * 3;
+      this.life[k] = 0.15 + Math.random() * 0.15;
     }
     this.commit(n);
   }
@@ -577,6 +602,17 @@ export class TireSmokeSystem {
     this.spawn(origin, inherit, count, 2, 2.6, 0.8, undefined, -Infinity);
   }
 
+  /**
+   * A thrown driver's glass dust over his way out, round `GlassDotSystem.shatter`'s shards: `count` big pale puffs
+   * through the box `half` (m, in frame `q`) round `origin`, gone in 0.2–0.35 s of FX time.
+   */
+  glassDust(origin: THREE.Vector3, q: THREE.Quaternion, half: THREE.Vector3, count: number): void {
+    for (let i = 0; i < count; i++) {
+      _pv.set((Math.random() * 2 - 1) * half.x, (Math.random() * 2 - 1) * half.y, (Math.random() * 2 - 1) * half.z).applyQuaternion(q).add(origin);
+      this.spawn(_pv, STILL, 1, 0.5, 0.2, 0.3, GLASS_DUST, 0.08, 0.15);
+    }
+  }
+
   private spawn(
     origin: THREE.Vector3,
     inherit: THREE.Vector3,
@@ -586,6 +622,7 @@ export class TireSmokeSystem {
     rise: number,
     tint?: THREE.Color,
     floor = 0.08,
+    lifeSpread = 1.1,
   ): void {
     const n = Math.min(this.n, Math.max(0, Math.floor(count)));
     for (let i = 0; i < n; i++) {
@@ -597,7 +634,7 @@ export class TireSmokeSystem {
       this.vx[k] = inherit.x * 0.04 + (Math.random() - 0.5) * 0.22;
       this.vy[k] = rise + Math.random() * 0.7;
       this.vz[k] = inherit.z * 0.04 + (Math.random() - 0.5) * 0.22;
-      const L = life + Math.random() * 1.1;
+      const L = life + Math.random() * lifeSpread;
       this.life[k] = L;
       this.maxLife[k] = L;
       this.size[k] = size + Math.random() * 0.4;
