@@ -94,7 +94,7 @@ eye trails the point it is over, so the view is never straight down.
 
 ### FX tier
 
-The reel has no FX switch of its own. A race runs `minimal` under the automatic tier (docs/CINEMATIC.md "Auto"); its end,
+The reel has no FX switch of its own. A race starts on `minimal` under the automatic tier and lifts back to the ceiling at green + 3 s if it holds 57 fps (docs/CINEMATIC.md "Auto"); its end,
 where the reel starts, returns the tier to the highest one that held this session, so a capable desktop plays the reel
 on "high" and steps down if it can't hold 50 fps. A manual pick keeps the user's tier through the reel. Switching tiers
 only switches post passes: on the RTX 4080 laptop run, `renderer.info.programs` stayed at 84 before, through and after
