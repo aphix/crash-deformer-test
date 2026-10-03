@@ -18,14 +18,16 @@ Each car carries a rig of named masses (`rig-spec.ts`) grouped into shape-match 
 | ![Control particles drawn over two crashed cars](docs/images/particles.webp) | ![Crush cages and sensors drawn over two crashed cars](docs/images/rig.webp) |
 
 ### Scenes
-One scene at a time, from the bottom bar or a key:
+One scene at a time, from the bottom bar or a key. A pick pulses the view into a cel-shaded look, fades through black while the new scene warms up, then fades in (a plain fade with FX off or minimal, or reduced motion):
 
-- **Fleet** (R): 1–32 cars on collision courses, with an optional jersey barrier (B) and ramp balls (K).
+- **Fleet** (R): 1–32 cars on collision courses, with an optional jersey barrier (B), ramp balls (K) and jump ramps (.).
 - **Derby** (D): a walled bowl where AI cars hunt each other until one is left running. Take the wheel of any of them.
 - **Race** (Z): circuit racing against AI; see [Race mode](#race-mode) below.
 - **Press** (C): two plates close on a parked car.
 - **Pistons** (I): eight rams around a parked car; fire one (1–8) or all (0). See [`docs/PISTON_RIG.md`](docs/PISTON_RIG.md).
 - **Doors** (N): one ram runs down a parked car's side, grazing the mirror, driving an open door past its stop or slamming it shut. See [`docs/DOOR_RIG.md`](docs/DOOR_RIG.md).
+- **Corkscrew** (,): a car launched up a twisted channel; the spawn-speed slider decides the stunt (no air, a roof landing, or one or two rolls back onto the wheels).
+- **Range** (bottom bar): the ejection range. A car hits a jersey barrier at 100 km/h and the driver is thrown over it into a sand field with distance signs.
 
 | Derby | Press |
 |---|---|
@@ -37,7 +39,7 @@ One scene at a time, from the bottom bar or a key:
 Four classes, **Sedan**, **Muscle**, **Truck** and **Monster**, each with its own mass, grip, power and damage tolerance. One **Realism** slider runs from arcade (assists, forgiving grip, cars survive more) to realistic. Damage changes how a car drives: a limping engine loses power, and a dead one stops. Boost (Shift) recharges, and a derby takedown fills it. Details are in [`docs/HANDLING.md`](docs/HANDLING.md).
 
 ### Cinematic FX
-Four tiers, **off / minimal / low / high**, plus **Auto**, the default (F key, HUD, or `?fx=off|minimal|low|high` in the URL; a manual pick turns Auto off). Auto lifts a desktop with a hardware GPU that holds 60 fps to `high` after boot, steps down a tier whenever it holds under 50 fps for 2 s, and runs every race on `minimal`. The `low` and `high` tiers add an HDR post chain with bloom, an ACES grade and film grain, an impact punch with a short hit-stop, a crash cam that cuts to three angles during the slow-mo, tyre marks on the GPU, tyre smoke, and spark streaks. Night (H) lights the lot with lamp-pole pools and the cars' own lamps, and Wet (X) makes the asphalt glossy. See [`docs/CINEMATIC.md`](docs/CINEMATIC.md).
+Four tiers, **off / minimal / low / high**, plus **Auto**, the default (F key, HUD, or `?fx=off|minimal|low|high` in the URL; a manual pick turns Auto off). Auto lifts a desktop with a hardware GPU that holds 60 fps to `high` after boot, steps down a tier whenever it holds under 50 fps for 2 s, and starts every race or derby on `minimal`, then lifts it to the tier the machine holds 3 s after the green light. The `low` and `high` tiers add an HDR post chain with bloom, an ACES grade and film grain, an impact punch with a short hit-stop, a crash cam that cuts to three angles during the slow-mo, tyre marks on the GPU, tyre smoke, and spark streaks. Night (H) lights the lot with lamp-pole pools and the cars' own lamps, and Wet (X) makes the asphalt glossy. See [`docs/CINEMATIC.md`](docs/CINEMATIC.md).
 
 ![Night: a teal sedan under the lamp-pole light pools, tyre smoke trailing behind](docs/images/night.webp)
 
@@ -48,10 +50,10 @@ Four tiers, **off / minimal / low / high**, plus **Auto**, the default (F key, H
 </details>
 
 ### Multiplayer
-Press **Net** (top centre) to host or join a room by code, or hit **Public race** to join the first open public room (or open one if there is none). A private room gives you a **Copy invite link** button and a QR code for phones. Rooms hold up to 8 players. One machine (the host) simulates and everyone else draws its snapshots, so the crushed meshes and contact points match on every screen. Peers talk over WebRTC data channels, and the server (`/api/rtc`) only relays the handshake. A "This browser (tabs)" link is there for local testing. See [`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md).
+Press **Net** (top centre) to host or join a room by code, or hit **Public race** / **Public derby** to join the best open public room of that kind and build (a lobby or results screen before a running match, then the most distinct players), or open one if there is none. In race mode, a one-tap **Play online** does the same (a weak device searches about 12 s before it hosts), and a live-races pill lists the open rooms with Join. A private room gives you a **Copy invite link** button and a QR code for phones. Rooms hold up to 8 players. One machine (the host) simulates and everyone else draws its snapshots, so the crushed meshes and contact points match on every screen. Peers talk over WebRTC data channels, and the server (`/api/rtc`) only relays the handshake. A "This browser (tabs)" link is there for local testing. See [`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md).
 
 ### Race mode
-Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon (a stunt course), for 2–16 racers over 3–5 laps, with NPC traffic on the city course. Hidden checkpoint gates count the laps, and every course has at least one designed shortcut. You can respawn, or play no-reset where a wrecked car is out. AI racers have an aggression dial, and a campaign runs over every course with points and standings. The arcade HUD has a focus view (H toggles the full menu), and the menus work with a controller. Pick **Race** in the bottom bar or press Z. See [`docs/RACE_DESIGN.md`](docs/RACE_DESIGN.md).
+Four courses, Brickyard Oval, Ridge Rally, Harbour Streets and Crossover Canyon (a stunt course), for 2–16 racers over 1–5 laps (3 by default), with NPC traffic on the city course and an optional police chase (packs of police cars park beside the course and hunt the racers). Hidden checkpoint gates count the laps, and every course has at least one designed shortcut. You can respawn, or play no-reset where a wrecked car is out. AI racers have an aggression dial, and a campaign runs over every course with points and standings. The arcade HUD has a focus view (H toggles the full menu), and the menus work with a controller. Pick **Race** in the bottom bar or press Z. See [`docs/RACE_DESIGN.md`](docs/RACE_DESIGN.md).
 
 | Crossover Canyon, with the race HUD | Harbour Streets, at the start |
 |---|---|
@@ -62,7 +64,7 @@ When a race ends, its five biggest crashes replay in slow motion behind the resu
 
 ## Controls
 
-Every action with its key, controller button and touch control is in [`docs/CONTROLS.md`](docs/CONTROLS.md). On phones and tablets a thumb pad (stick lower left, captioned buttons lower right) drives through the controller path, and the bottom bar has a **Fullscreen** button.
+Every action with its key, controller button and touch control is in [`docs/CONTROLS.md`](docs/CONTROLS.md). On phones and tablets a thumb pad (stick lower left, captioned buttons lower right) drives through the controller path, and the bottom bar has a **Fullscreen** button. The HUD mutes itself after 5 s without a tap and wakes on any tap.
 
 | Scene | |
 |---|---|
@@ -77,6 +79,8 @@ Every action with its key, controller button and touch control is in [`docs/CONT
 | 1–3 / 4 / 5 | doors scene: fire A (mirror graze, shut door) / B (open door from behind, past the stop) / C (open door from the front, toward shut); 4 opens or shuts the door; 5 swaps side |
 | D | demolition derby (from the whole-field view) |
 | K | ramp balls |
+| . (period) | jump ramps (fleet only) |
+| , (comma) | corkscrew scene |
 | G | deform rig |
 | P | control particles: size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel |
 | Y | shape ↔ lattice |
@@ -98,7 +102,7 @@ Hotkeys leave Ctrl / Cmd / Alt chords to the browser (Ctrl+R reloads, Ctrl+C cop
 | Esc / Start / Back | pause menu |
 | R / D-pad ↓ | respawn |
 | Q / E, LB / RB | previous / next car while spectating |
-| V / C / T, Y / Triangle, the Spectating bar's camera button | camera view. Driving: chase → far chase → hood cam. Spectating: those three, then **Trackside** (a fixed eye ahead of the car beside the track, clear of walls and props, tracking it past, then the next spot), **Wheel cam** (a dutch-angle mount on a wheel well, looking forward or back, cutting every few seconds to the well that shows the most rivals) and **Orbit** |
+| V / C / T, Y / Triangle, the Spectating bar's camera button | camera view. Driving: chase → far chase → hood cam. Spectating: those three, then **Trackside** (a fixed eye ahead of the car beside the track, clear of walls and props, tracking it past, then the next spot), **Wheel cam** (a dutch-angle mount on a wheel well, looking forward or back, cutting every few seconds to the well that shows the most rivals), **Orbit** and **Auto** (the highlight reel's shot director run live on the followed car) |
 | drag (one finger on a phone) | while spectating: look round the car in the chase views and keep that angle (the eye stays where you put it; nothing to steer); orbit in Orbit |
 | H | focus view ↔ full menu (the sandbox hotkeys only work in the full menu; B and K stay off while racing) |
 | ` (Backquote) / R3 | look back from the driven or spectated car while held |
@@ -136,7 +140,7 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel. V (Y) cycles t
 
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
-HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Press / Pistons / Doors), the wall and ramp balls (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
+HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Range / Press / Pistons / Doors / Corkscrew), the wall, ramp balls and jump ramps (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
 - **Playback**: loop, slow-mo, orbit, audio, night, wet, FX tier, and a typed time scale (clear it to return to auto).
 - **Driving**: your car's class and the realism slider.
 - **Cars & crash**: car count 1–32, spawn speed min/max, stroke, wrinkle, FX density, shape ↔ lattice, and **Defaults**, which resets them all.
@@ -162,11 +166,12 @@ Edit anything under `src/` and the page reloads. On WSL2, open `http://localhost
 
 | Command | What it does | State on `main` |
 |---|---|---|
-| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`; 1–4 min) | 746 tests: 695 pass, 51 todo, 0 fail. **This is the gate.** |
+| `npm run test:app` | `src/game/**` suites, `src/lib/multiplayer` suites and `scripts/with-app-env.test.mjs` (`node --test`; 1–4 min) | 1197 tests: 1146 pass, 51 todo, 0 fail. **This is the gate.** |
 | `npm run test:game` | the `src/game/**` suites only | subset of the above |
 | `npm run typecheck` | `tsc --noEmit` | clean |
-| `npm run lint` | `oxlint` (`.oxlintrc.json`; see [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md)) | **fails**: 3 known errors (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) and 2 warnings |
-| `npm test` | `scripts/**/*.test.mjs`, then `src/lib` + `src/game` suites | **fails** in its first half: 9 of 196 script tests (8 in the platform template's `scripts/grok-pwa-plugin.test.mjs`, 1 in `scripts/migration-plan.test.mjs`, which predates `migrations/0002_webrtc_signaling.sql`), and the `&&` stops it before the app suites. Use `test:app`. |
+| `npm run check:boundaries` | the structural rules of [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), ratcheted against `scripts/boundary-caps.json` | total 23, at its caps |
+| `npm run lint` | `oxlint` (`.oxlintrc.json`; see [`docs/TOOLCHAIN.md`](docs/TOOLCHAIN.md)) | **fails**: 3 known errors (`@ts-nocheck` in the two `*-core.js` kernels, an empty block in `src/lib/app-data/client.server.ts`) and 3 warnings |
+| `npm test` | `scripts/**/*.test.mjs`, then the `src/lib` + `src/game` suites | **fails** in its first half: 8 of 196 script tests, all in the platform template's `scripts/grok-pwa-plugin.test.mjs`, and the `&&` stops it before the app suites. Use `test:app`. |
 
 `todo` tests are documented targets the sim does not meet yet. They run and report, but don't fail the suite (see [`docs/CODEMAPS/testing.md`](docs/CODEMAPS/testing.md)).
 
@@ -195,7 +200,7 @@ node scripts/bench-browser.mjs --url http://127.0.0.1:8080/ --cars 2 --modes fle
 - WSL2 with Linux Chromium: prefix `GALLIUM_DRIVER=d3d12` so WebGL reaches the host GPU through D3D12 instead of llvmpipe.
 - WSL2 with a Windows browser (most representative): run the script with Windows node from a checkout on the Windows drive (`"/mnt/c/Program Files/nodejs/node.exe" scripts/bench-browser.mjs`). It drives the installed Edge (or else Chrome) on native D3D11.
 
-Kernels in `src/game/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
+Kernels in `src/game/kernel/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. The skin loop is Rust in `kernels/skin/`, committed as `src/game/deform/skin-kernel.wasm` (the deploy box has no cargo): rebuild it with `npm run build:kernel` (needs cargo and the `wasm32-unknown-unknown` target) whenever `lib.rs` changes. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
 
 ## Self-hosting
 
@@ -216,41 +221,25 @@ The live build is a Nitro `node-server` build served under a base path (`APP_BAS
 
 ## Project layout
 
-All game code is in `src/game/`, and the `*.test.ts` files sit next to the module they test. Details are in [`docs/CODEMAPS/`](docs/CODEMAPS/).
+All game code is in `src/game/`, one folder per bounded context (the layer rules are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md), the files in [`docs/CODEMAPS/`](docs/CODEMAPS/)). The `*.test.ts` files sit next to the module they test.
 
-- `engine.ts`: `CrashEngine`, with the frame loop (`tickInner` → `fixedStep`), scenes and HUD publish. Split out of it:
-  - `engine-camera.ts`: camera springs, chase / hood cam.
-  - `engine-fx.ts`: debris, sparks, glass, smoke, audio.
-  - `engine-world.ts`: asphalt, barrier mesh, lamps, night / wet stage.
-  - `engine-props.ts`: jersey barrier, ramp balls, lamp poles, compactor press.
-  - `engine-pistons.ts`: instanced rams.
-  - `engine-doors.ts`: the door ram mesh.
+- `kernel/`: number-only hot kernels and tables. `physics-core.js` / `shape-match-core.js` (plain JS, typed by `.d.ts`), `rig-spec.ts` (the rig tables), `rapier.ts` (the one Rapier loader).
+- `world/`: `ground.ts` (the active ground: height, normal, grip, surface; race tracks swap in their heightfield), `track-schema.ts` / `track.ts` and `tracks/*.json` (the courses), `placements.ts`, `catalog.ts` (surfaces, prefab specs), `road-crease.ts`.
+- `deform/`: `streamed-deform.ts` (`StreamedDeformation`: masses, shape-match clusters / lattice beams, cages, sensors and skin) and its `deform-*.ts` layers, `shape-match.ts` / `physics-util.ts` (the kernels' typed façades), `fast-normals.ts`, `skin-kernel.ts` with the prebuilt `skin-kernel.wasm` (the skin loop in WebAssembly), `deform-helper.ts` (rig and particle debug views), `hulls.ts`.
+- `vehicle/`: `car.ts` (`DeformableCar`: rigid pose, parts, glass, lamps, doors with hinge, latch, check-strap stop and breakaway mirrors) and its layers `car-core.ts` / `car-parts.ts`. `car-mesh.ts` (body geometry), `car-panels.ts` / `loose-dent.ts` (quarter panels and arches that peel off, dents on torn parts), `car-air.ts`, `car-suspension.ts`, `car-load.ts` (drawn squat, dive and roll), `car-glass.ts`, `car-variants.ts` (body styles: sedan, hatchback, wagon, coupe, pickup), `lamp-lights.ts`, `vehicle-classes.ts` (classes, `HANDLING.realism`, damage stages, kill travel), `car-drive.ts` (`DriverSeat`, `applyDrive`), `drive-input.ts` (keyboard / pad → intent), `gamepad.ts`.
+- `contact/`: `sat.ts` (hull SAT, slice length), `pair-contact.ts` (car-car), `external-contact.ts` (the shared striker contact: door / mirror colliders, body crush).
+- `scenes/`: one file per rig: `fleet.ts`, `fleet-ramps.ts`, `corkscrew.ts`, `derby-arena.ts`, `compactor.ts`, `piston-rig.ts` (rig and shot measurement), `door-rig.ts` (the knock rig, `fireRam`), `range.ts`, `engine-props.ts` (jersey barrier, ramp balls, lamp poles, compactor press).
+- `ai/`: `derby-ai.ts`, `race-ai.ts`, `traffic.ts`, `police.ts`, `ai-aggression.ts` (the aggression roll shared by derby and race AI).
+- `match/`: rules and scoring: `derby.ts`, `session.ts` (race rules), `campaign.ts`, `highlights.ts` (crash scoring), `auto-watch.ts` (the Auto spectator's car picker), `phase.ts` (the crash phase machine), `types.ts`.
+- `present/`: what the player sees: `engine-camera.ts` (camera springs, chase / hood cam), `spectate-cam.ts` / `shot-cam.ts` / `auto-cam.ts` / `ride-cam.ts` / `highlight-cam.ts` (spectator, reel and ragdoll-ride cameras), `engine-fx.ts` (debris, sparks, glass, smoke), `engine-world.ts` (asphalt, barrier mesh, lamps, night / wet stage), `engine-pistons.ts` (instanced rams), `engine-doors.ts` (the door ram mesh), `engine-cine.ts` (cinematic director: tiers, crash cam, hit-stop, tyre smoke), `engine-post.ts` (HDR post chain, bloom, the scene fade's cel pass), `scene-fade.ts`, `witness.ts` (the camera test behind every cosmetic skip), `engine-marks.ts` (GPU tyre-mark map), `engine-ragdoll.ts` with `ragdoll-*.ts` (the thrown driver), `track-art.ts` / `prefabs.ts` (course meshes and props), `range-art.ts`.
+- `net/`: netplay. `net-play.ts` (host / client roles), `codec.ts` (binary snapshots), `transport.ts` / `rtc-transport.ts` (BroadcastChannel and WebRTC), `matchmaking.ts` (Play online, live rooms), `net-constants.ts`.
+- `hud/`: the read model the UI renders: `hud-store.ts`, `menu-nav.ts`, `reset-prompt.ts`, `share-url.ts`, `speed-units.ts`, `race-clock.ts`.
+- `engine/`: `engine.ts` (`CrashEngine`, with the frame loop `tickInner` → `fixedStep`) and the layers it extends (`engine-core.ts` … `engine-share.ts`), `world-step.ts`, `engine-race.ts` (`RaceDirector`, the race glue: slots, rules step, respawns, traffic, menus, campaign, HUD model), `engine-reel.ts` and the recorder / replay files (crash highlights), and:
   - `engine-trace.ts`: JSON capture. The setup (top level and `initial`) holds every HUD setting that changes the picture or the play (`scene`, `night`, `wet`, `realism`, `fxTier`, `ramps`, `barrier`, `balls`, `loop`, `autoSlomo`, `timeScale` (null = auto slow-mo), `deformMode`, `playerClass`, `carCount`, `speedMin`/`speedMax`, `fxDensity`, `squash`/`buckle`) and the canvas (`viewport` {w,h} drawing-buffer px, `pixelRatio` the renderer's capped ratio, `dpr` the device's). Each sample (4 Hz, ≤96) has `t`, `sim`, `phase`, `timeScale` and `camera`: `pos`, `quat` (x,y,z,w), `dir` (unit forward), `fov` (3 decimals), `follow` (followed car's paint name or null) and `rig`, which holds the camera: `reel`, `crash-cam`, `rear-view`, `ragdoll`, `fall-watch`, `drive-<third|far|first>`, `spectate-<third|far|first|cine|dutch>`, `orbit`, `orbit-user` (dragged / zoomed). That is enough to put the camera back and re-take a shot at a time; a trace grows ~150 B a sample.
-  - `engine-race.ts`: `RaceDirector`, the race glue (slots, rules step, respawns, traffic, menus, campaign, HUD model).
-  - `engine-cine.ts`: cinematic director (tiers, crash cam, hit-stop, tyre smoke).
-  - `engine-post.ts`: HDR post chain and bloom.
-  - `engine-marks.ts`: GPU tyre-mark map.
-- `car.ts`: `DeformableCar`, with rigid pose, parts, glass, lamps and doors (hinge, latch, check-strap stop, breakaway mirrors).
-  - `car-mesh.ts`: body geometry and hulls.
-  - `car-variants.ts`: body styles (sedan, hatchback, wagon, coupe, pickup) with rig overrides.
-  - `lamp-lights.ts`: the pooled lamp lights.
-- `vehicle-classes.ts`: classes, `HANDLING.realism`, damage stages and kill travel. `car-drive.ts`: `DriverSeat`, `applyDrive`. `drive-input.ts`: keyboard / pad → intent. `gamepad.ts`.
-- `streamed-deform.ts`: `StreamedDeformation`, with masses, shape-match clusters / lattice beams, cages, sensors and skin. `rig-spec.ts`: the rig tables. `deform-helper.ts`: rig and particle debug views. `fast-normals.ts`.
-- `shape-match-core.js` / `shape-match.ts`: the Müller shape-matching kernel and its typed façade (hot path).
-- `physics-core.js` / `physics-util.ts`: crush bands, force transfer and impulses (hot path), plus Vector3 helpers.
-- `sat.ts`: hull SAT and slice length. `pair-contact.ts`: car-car contact. `external-contact.ts`: the shared striker contact (door / mirror colliders, body crush).
-- `ground.ts`: the active ground (height, normal, grip, surface); race tracks swap in their heightfield.
-- `fleet.ts`: fleet layout. `derby.ts` / `derby-ai.ts` / `derby-arena.ts`: derby match, AI and bowl. `ai-aggression.ts`: the aggression roll shared by derby and race AI.
-- `compactor.ts`: the compactor rig. `piston-rig.ts`: piston rig and shot measurement. `door-rig.ts`: the door / mirror knock rig (`fireRam`).
-- `net/`: netplay.
-  - `net-play.ts`: host / client roles.
-  - `codec.ts`: binary snapshots.
-  - `transport.ts`, `rtc-transport.ts`: BroadcastChannel and WebRTC transports.
-- `race/`: race mode. `track-schema.ts` / `track.ts` and `tracks/*.json` (the courses), `session.ts` (rules), `campaign.ts`, `race-ai.ts`, `traffic.ts`, `placements.ts` / `prefabs.ts` / `track-art.ts` (props and meshes), `catalog.ts` (surfaces, prefab specs), `menu-nav.ts`.
-- `hud-store.ts`: HUD state. `crash-scenarios.test-util.ts`, `test-support.ts`: the headless harness and test helpers.
+- Test helpers: `contact/crash-scenarios.test-util.ts` (the headless harness), `vehicle/test-support.ts`.
 
 Outside `src/game/`:
-- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`, `race-hud.tsx` and `use-pad-menu.ts` (race HUD and controller menus), `touch-controls.tsx` and `use-coarse-pointer.ts` (thumb pad and fullscreen on touch screens).
+- `src/components/`: `crash-lab.tsx` (canvas + engine), `hud.tsx`, `hud-panels.tsx`, `hud-sections.tsx`, `net-panel.tsx`, `live-rooms.tsx` (Play online and the live-races pill), `race-hud.tsx` with the other `race-*.tsx` files (standings, menus, results reel, BUSTED banner), `reset-prompt.tsx`, `boot-loader.tsx` (the loading cover), `use-pad-menu.ts` (controller menus), `touch-controls.tsx` with `use-coarse-pointer.ts` and `use-hud-idle.ts` (thumb pad, fullscreen and the 5 s HUD mute on touch screens).
 - `src/lib/multiplayer/`: the WebRTC mesh (`p2p.ts`), the signaling relay (`signaling.server.ts`, mounted at `src/routes/api/rtc.ts`), room rules and rate limits.
-- `deploy/`: systemd units, deploy script, nginx snippet. `migrations/`: SQL migrations.
+- `kernels/skin/`: the Rust source of `skin-kernel.wasm`. `deploy/`: systemd units, deploy script, nginx snippet. `migrations/`: SQL migrations.
 - `scripts/bench-physics.mjs`, `scripts/crush-sweep.mjs`, `scripts/bench-browser.mjs`: benchmarks.
