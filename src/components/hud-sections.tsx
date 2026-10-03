@@ -215,7 +215,7 @@ function TuningSection({ state, engine }: HudProps) {
             value={state.speedMax}
             digits={1}
             min={state.speedMin}
-            max={48}
+            max={KNOB_RANGES.speed.max}
             step={0.5}
             label="Maximum spawn speed"
             onValue={(n) => engine.current?.setSpeedRange(state.speedMin, n)}
@@ -244,7 +244,7 @@ function TuningSection({ state, engine }: HudProps) {
         digits={2}
         onValue={(v) => engine.current?.setBuckle(v)}
       />
-      <RangeRow label="FX" name="Particle density" value={state.fxDensity} min={0} max={1.2} step={0.01} digits={2} onValue={(v) => engine.current?.setFxDensity(v)} />
+      <RangeRow label="FX" name="Particle density" value={state.fxDensity} min={KNOB_RANGES.fxDensity.min} max={KNOB_RANGES.fxDensity.max} step={0.01} digits={2} onValue={(v) => engine.current?.setFxDensity(v)} />
       <div className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">Solver</span>
         <div className={cn(TRACK, "grid-cols-2")} role="group" aria-label="Deformer">

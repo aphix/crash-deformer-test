@@ -38,6 +38,7 @@ function cameraJson(camera: THREE.PerspectiveCamera, rig: string, follow: string
 function settingsJson(s: TraceSetup): TraceRecord {
   return {
     scene: s.scene,
+    seed: s.seed,
     night: s.night,
     wet: s.wet,
     realism: s.realism,
@@ -70,6 +71,8 @@ export type TraceSetup = {
   speedMax: number;
   /** `userTimeScale`: the HUD's fixed time scale, null while the auto slow-mo drives. */
   scene: string;
+  /** `sceneSeed`: the run's spawn seed, the share URL's `seed=`. */
+  seed: number;
   night: boolean;
   wet: boolean;
   realism: number;

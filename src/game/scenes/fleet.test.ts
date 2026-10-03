@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { FLEET_MIN_SEP, MAX_CARS, layoutFleet } from "./fleet.ts";
+import * as THREE from "three";
+import { FLEET_MIN_SEP, MAX_CARS, layoutDerby, layoutFleet } from "./fleet.ts";
+import { scatterRampBalls, type RampBall } from "./engine-props.ts";
+import { mulberry32 } from "../world/placements.ts";
 
 function rngFrom(seed: number): () => number {
   let s = seed >>> 0;
@@ -46,5 +49,27 @@ describe("layoutFleet", () => {
   it("good: count is clamped to MAX_CARS", () => {
     assert.equal(layoutFleet(99, 1, 2, rngFrom(4)).length, MAX_CARS);
     assert.equal(layoutFleet(0, 1, 2, rngFrom(4)).length, 1);
+  });
+
+  it("good: the same seed lays out the same spawns, another seed other ones (every layout shape)", () => {
+    const spawns = (n: number, seed: number): string => JSON.stringify(layoutFleet(n, 10, 32, mulberry32(seed)));
+    for (const n of [1, 2, 3, 8, MAX_CARS]) {
+      const first = spawns(n, 0x3fa2c1);
+      assert.equal(spawns(n, 0x3fa2c1), first, `${n} cars, same seed`);
+      assert.notEqual(spawns(n, 0x3fa2c2), first, `${n} cars, next seed`);
+    }
+  });
+
+  it("good: the derby's start bearing and the fleet's balls follow the seed the same way", () => {
+    const bowl = (seed: number): string => JSON.stringify(layoutDerby(6, 40, mulberry32(seed)));
+    assert.equal(bowl(7), bowl(7));
+    assert.notEqual(bowl(7), bowl(8));
+    const balls: RampBall[] = Array.from({ length: 3 }, () => ({ mesh: new THREE.Mesh(), radius: 0.78, intact: true, kicked: new Set<string>() }));
+    const ring = (seed: number): string => {
+      scatterRampBalls(balls, true, mulberry32(seed));
+      return JSON.stringify(balls.map((b) => [b.radius, b.mesh.position.toArray()]));
+    };
+    assert.equal(ring(7), ring(7));
+    assert.notEqual(ring(7), ring(8));
   });
 });
