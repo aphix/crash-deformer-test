@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { VehicleClassId } from "./vehicle-classes.ts";
-import { WHEEL_POS } from "./car-mesh.ts";
+import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { LoadTransfer } from "./car-load.ts";
@@ -53,9 +53,14 @@ const SETTLE = 4;
  * wreck mesh of every style (sedan, wagon, coupe, hatchback and pickup alike): the keel along the middle, rising to
  * the tail, and the rocker and bumper corners 0.8 m out. The wheel arches are cut out and left out.
  */
-const UNDERSIDE: readonly (readonly [number, number, number])[] = [
+export const UNDERSIDE: readonly (readonly [number, number, number])[] = [
   [0, 2, 0.032], [0, 1, 0.072], [0, 0, 0.131], [0, -1, 0.136], [0, -2, 0.161],
   ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
+];
+/** The underside samples and the bumpers' bottom corners (car-local x, z, height above the tyre plane): what the body bottoms out on. */
+export const HULL_UNDER: readonly (readonly [number, number, number])[] = [
+  ...UNDERSIDE,
+  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, number] => [sx * CAR_HALF.x, sz * CAR_HALF.z, 0.35])),
 ];
 /** The underside's height (m) at each hub's plan position (a front hub's is the bumper corner's, a rear hub's the tail's). */
 const SILL = [0.084, 0.084, 0.157, 0.157] as const;
@@ -130,12 +135,14 @@ export class Suspension {
   private seen = 0;
   /** The body group the springs carry (found once per spawn; null without a class lift). */
   private body: THREE.Object3D | null | undefined = undefined;
+  /** The drawn body's extra rise (m) over the springs' ride while its underside rests on the ground (`bottomOut`). */
+  private rise = 0;
 
   /** At rest on a new spawn: the body back on its stock ride. */
   reset(): void {
     const o = this.offset;
     if (this.body) {
-      this.body.position.y -= (o[0]! + o[1]! + o[2]! + o[3]!) / 4;
+      this.body.position.y -= (o[0]! + o[1]! + o[2]! + o[3]!) / 4 + this.rise;
       this.body.rotation.x = 0;
       this.body.rotation.z = 0;
     }
@@ -161,6 +168,7 @@ export class Suspension {
         this.rate.fill(0);
         this.load.reset();
         this.seen = 0;
+        this.rise = 0;
         this.pose(lift);
         this.seat.fill(0);
       }
@@ -200,7 +208,11 @@ export class Suspension {
       this.rate[i] = r;
     }
     if (this.seen < 2) this.seen++;
-    if (this.seatWheels(e, wheels, stop, air, dt) || moved) this.pose(lift);
+    const hit = air ? 0 : this.bottomOut(e, lift);
+    if (this.seatWheels(e, wheels, stop, air, dt) || moved || hit !== this.rise) {
+      this.rise = hit;
+      this.pose(lift);
+    }
   }
 
   /** A wreck's offsets one slice nearer the corners it rests on (`sagOffsets`); `dt` 0 takes them at once. */
@@ -278,13 +290,46 @@ export class Suspension {
     return Math.atan((o[0]! + o[1]! - o[2]! - o[3]!) / (4 * AXLE));
   }
 
-  /** The body's ride from the four offsets: heave, pitch (front over rear) and roll (+x side over −x). */
+  /** The body's ride from the four offsets: heave, pitch (front over rear) and roll (+x side over −x), and `rise`. */
   private pose(lift: number): void {
     const body = this.body;
     if (!body) return;
     const o = this.offset;
-    body.position.y = lift + this.heave;
+    body.position.y = lift + this.heave + this.rise;
     body.rotation.x = -this.pitch;
     body.rotation.z = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
+  }
+
+  /**
+   * How far (m, along the body's up) the drawn body, on the springs' ride, has to rise to bring its underside and bumper
+   * corners out of the ground: it bottoms out on what is under it (a landing's nose, a dip's far wall, a ramp's edge)
+   * instead of letting the springs press it through. 0 with the hull clear.
+   */
+  private bottomOut(e: readonly number[], lift: number): number {
+    const ground = activeGround();
+    const o = this.offset;
+    const uy = e[5]!;
+    if (uy < 0.5) return 0;
+    // The body group's turn (x then z, `pose`) and its place over the ground pose.
+    const rx = -this.pitch;
+    const rz = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
+    const sx = Math.sin(rx);
+    const cx = Math.cos(rx);
+    const sz = Math.sin(rz);
+    const cz = Math.cos(rz);
+    const dy = lift + this.heave;
+    let pen = 0;
+    for (const [x, z, h] of HULL_UNDER) {
+      const x1 = x * cz - h * sz;
+      const y1 = x * sz + h * cz;
+      const y = y1 * cx - z * sx + dy;
+      const z2 = y1 * sx + z * cx;
+      const px = e[0]! * x1 + e[4]! * y + e[8]! * z2 + e[12]!;
+      const py = e[1]! * x1 + uy * y + e[9]! * z2 + e[13]!;
+      const pz = e[2]! * x1 + e[6]! * y + e[10]! * z2 + e[14]!;
+      const g = ground.heightAt(px, pz, py);
+      if (g !== NO_FLOOR) pen = Math.max(pen, g - py);
+    }
+    return pen / uy;
   }
 }

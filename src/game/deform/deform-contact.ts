@@ -11,7 +11,8 @@ import {
   satPushCap,
   hypot2,
 } from "./physics-util.ts";
-import { DeformState, ENGINE_PACK_GAP, TYRE_R } from "./deform-state.ts";
+import { DeformState, ENGINE_PACK_GAP, HUB_FLOOR, TYRE_R } from "./deform-state.ts";
+import { HubPlane } from "./hub-plane.ts";
 import type { MassNode } from "./deform-rig.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
 
@@ -45,6 +46,10 @@ const _toLocal = new THREE.Matrix4();
 /** Sim seconds the frame's tilt takes to level out on planting, or to come back on a new hit (followGroup):
  *  0.1 s, CR8's eased level-out (64 km/h head-on roof 0.61× its per-slice 3·v·h + 5 cm limit). */
 const LEVEL_TIME = 0.1;
+const _plane = new HubPlane();
+/** The ground plane holds a wreck's tilt while its lowest hub is within this (m) of its `HUB_FLOOR`, and fades out over `PLANE_FADE` more: a wreck in flight has no ground under it to lie on. */
+const PLANE_FADE_FROM = 0.05;
+const PLANE_FADE = 0.25;
 /** A wreck's middle this far (m) over its ground band, with a wheel off its ground, takes off (followGroup's `aloft`). */
 const LIFT_OFF = 0.1;
 
@@ -203,7 +208,7 @@ export abstract class DeformContact extends DeformState {
 
   followGroup(group: THREE.Object3D, velocityOut: THREE.Vector3, angularOut: THREE.Vector3, dt: number): void {
     const cell = this.at.cell;
-    const plant = this.measurePose();
+    this.measurePose();
     const pose = this.pose;
     const pitch = pose[0]!;
     const yawSafe = pose[1]!;
@@ -214,7 +219,10 @@ export abstract class DeformContact extends DeformState {
     const floor = pose[8]!;
     if (Number.isFinite(pitch + roll)) group.rotation.set(pitch, yawSafe, roll, "YXZ");
     else group.rotation.set(0, yawSafe, 0, "YXZ");
-    let gy = plant ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
+    // The cell's height over the frame's origin under the frame's own tilt. A wreck planted on level ground keeps the
+    // rest height level (`pose[14]`); planted on a slope that read jumped the frame 3 cm at the plant switch of a wreck
+    // pitched 12° on a ramp's top.
+    let gy = pose[14] !== 0 ? cell.world.y - cell.rest.y : cell.world.y - _a.set(cell.local.x, cell.rest.y, cell.local.z).applyQuaternion(group.quaternion).y;
     // On its ground the frame keeps the body's middle in a band over the ground under the anchor (the body masses
     // carry no weight of their own: the hubs and that band hold the body up). Above the band nothing under the
     // middle holds it (in flight, or over a ramp's lip on its rear wheels): the frame follows the masses, which
@@ -303,10 +311,10 @@ export abstract class DeformContact extends DeformState {
   }
 
   /** followGroup's measurements into `pose`: pitch, yaw, roll, the anchor's world x/y/z and body x/z, the
-   *  ground under the anchor and the lowest hub; returns whether the wreck is planted. Its own method, with
+   *  ground under the anchor and the lowest hub, what holds the body up, and the slope tilt. Its own method, with
    *  no doubles in or out, so TurboFan inlines its `hypot2` and `Ground` calls: in followGroup they lost the
    *  inlining budget to the matrix calls, and each call left out boxed its doubles (~20 KB per race frame). */
-  private measurePose(): boolean {
+  private measurePose(): void {
     const cell = this.at.cell;
     const engL = this.at.engineL;
     const engR = this.at.engineR;
@@ -322,17 +330,43 @@ export abstract class DeformContact extends DeformState {
     const fy = (engL.world.y + engR.world.y) * 0.5 - axle.world.y;
     const fz = (engL.world.z + engR.world.z) * 0.5 - axle.world.z;
     const yawLen = hypot2(fx, fz);
+    let minHub = Infinity;
+    // The attached hubs' ground (last slice's floors, once sampled since the masses armed): their mean, whether
+    // every one is on it (within 3 cm of its `HUB_FLOOR` `groundMasses` holds it at), and the plane through it.
+    let held = 1;
+    let hubFloor = 0;
+    let hubs = 0;
+    let low = Infinity;
+    const plane = _plane;
+    plane.reset();
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      if (!m.hub) continue;
+      if (m.world.y < minHub) minHub = m.world.y;
+      const f = this.floorPost[mi]!;
+      if (m.popped || !this.floorsFresh || f === NO_FLOOR) continue;
+      hubFloor += f;
+      hubs++;
+      if (m.world.y - f > HUB_FLOOR + 0.03) held = 0;
+      low = Math.min(low, m.world.y - f);
+      plane.add(m.world.x - cell.world.x, m.world.z - cell.world.z, f);
+    }
+    if (hubs === 0) held = 0;
+    plane.fit(this.prevYaw, 1 - Math.max(0, Math.min(1, (low - HUB_FLOOR - PLANE_FADE_FROM) / PLANE_FADE)));
+    const planePitch = plane.pitch;
+    const planeRoll = plane.roll;
     // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
     const plant = !this.bidirectional && this.quietTime() > 0.2;
-    // A planted wreck levels out from 0.35 s quiet and a hit tilts it back, each eased over LEVEL_TIME of
-    // sim time. Either switch in one call swung every mass through the tilt: a stopped 64 km/h head-on's
-    // roof jumped 0.127 m in one slice (pitch −0.2 → 0), and a parked derby wreck nudged back into play
-    // 0.069 m (pitch 0 → −0.08, derby seed 1, c6 at 27.12 s).
+    // A planted wreck levels out from 0.35 s quiet, to the ground plane under its hubs (the world's level on the
+    // flat), and a hit tilts it back, each eased over LEVEL_TIME of sim time. Either switch in one call swung every
+    // mass through the tilt: a stopped 64 km/h head-on's roof jumped 0.127 m in one slice (pitch −0.2 → 0), and a
+    // parked derby wreck nudged back into play 0.069 m (pitch 0 → −0.08, derby seed 1, c6 at 27.12 s). Levelled
+    // to the world's 0 on a slope, it sat 21° off a −21° road with its tail 48 cm under it.
     const ease = (this.elapsed - this.leanAt) / LEVEL_TIME;
     this.leanAt = this.elapsed;
     this.lean += Math.max(-ease, Math.min(ease, (plant && this.quietTime() >= 0.35 ? 0 : 1) - this.lean));
-    const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean;
-    const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean;
+    const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean + planePitch * (1 - this.lean);
+    const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean + planeRoll * (1 - this.lean);
     const tilt = Number.isFinite(pitch + roll);
     const cp = Math.cos(tilt ? pitch : 0);
     const sp = Math.sin(tilt ? pitch : 0);
@@ -344,23 +378,6 @@ export abstract class DeformContact extends DeformState {
     const bx = ax * cr - ay * sr;
     const bz = (ax * sr + ay * cr) * sp + az * cp;
     const yaw = yawLen > 0.15 && hypot2(bx, bz) > 0.15 ? Math.atan2(fx, fz) - Math.atan2(bx, bz) : this.prevYaw;
-    let minHub = Infinity;
-    // The attached hubs' ground (last slice's floors, once sampled since the masses armed): their mean, and whether
-    // every one is on it (within 3 cm of the 0.28 m `groundMasses` holds it at).
-    let held = 1;
-    let hubFloor = 0;
-    let hubs = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      if (!m.hub) continue;
-      if (m.world.y < minHub) minHub = m.world.y;
-      const f = this.floorPost[mi]!;
-      if (m.popped || !this.floorsFresh || f === NO_FLOOR) continue;
-      hubFloor += f;
-      hubs++;
-      if (m.world.y - f > 0.31) held = 0;
-    }
-    if (hubs === 0) held = 0;
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
     // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
@@ -414,7 +431,9 @@ export abstract class DeformContact extends DeformState {
     p[9] = minHub;
     p[10] = held;
     p[11] = under === NO_FLOOR || hubs === 0 ? under : Math.max(under, hubFloor / hubs);
-    return plant;
+    p[12] = planePitch * (1 - this.lean);
+    p[13] = planeRoll * (1 - this.lean);
+    p[14] = plant && planePitch === 0 && planeRoll === 0 ? 1 : 0;
   }
 
   /** Move the whole wreck, including planted hubs, so a bowl clip is not undone next frame. */

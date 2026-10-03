@@ -1,6 +1,6 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { runPair, type CrashResult } from "./crash-scenarios.test-util.ts";
+import { runPair } from "./crash-scenarios.test-util.ts";
 import { setGround, type Ground } from "../world/ground.ts";
 
 /** A side slope across the cars' travel (+X): the ground rises 0.12 m per metre of +Z (6.8°), 0 on the line they drive. */
@@ -43,10 +43,10 @@ describe("crashes on a side slope", () => {
     assertSlopeKeepsDents("head-on", 48);
   });
 
-  // The struck car (facing uphill) levels out at quiet 0.35 s to world level, not to the slope: the frame turns
-  // 0.2 rad against masses resting on the ground, the cell shifts 0.058 m and the tail reads 0.083 m of crush
-  // (0.023 on the flat pad). No pops. RIG_ANALYSIS §6.12.
-  it.todo("slope:tbone-level — a 50 km/h t-bone on a 6.8° side slope keeps the flat pad's dents", () => {
+  // The struck car (facing uphill) used to level out at quiet 0.35 s to world level, not to the slope: the frame
+  // turned 0.2 rad against masses resting on the ground, the cell shifted 0.058 m and the tail read 0.083 m of crush
+  // (0.023 on the flat pad). It levels to the plane under its hubs now (RIG_ANALYSIS §6.14).
+  it("bad: a 50 km/h t-bone on a 6.8° side slope keeps the flat pad's dents, and no mass pops", () => {
     assertSlopeKeepsDents("t-bone", 50);
   });
 });
