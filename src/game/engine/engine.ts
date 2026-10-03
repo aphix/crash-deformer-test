@@ -121,9 +121,10 @@ export class CrashEngine extends EngineShare {
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
   protected readonly highlights: ReelDirector;
 
-  constructor(canvas: HTMLCanvasElement, hudStore: HudStore) {
+  constructor(canvas: HTMLCanvasElement, hudStore: HudStore, veil: HTMLElement) {
     super();
     this.canvas = canvas;
+    this.veil = veil;
     this.hudStore = hudStore;
     this.clock.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 

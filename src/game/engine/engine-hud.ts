@@ -45,6 +45,7 @@ export abstract class EngineHud extends EngineWarm {
       },
       showDoors: this.showDoors,
       showCorkscrew: this.showCorkscrew,
+      pendingScene: this.sceneFade.pending,
       doors: {
         side: this.doorRig.side,
         kph: this.doorRig.kph,
