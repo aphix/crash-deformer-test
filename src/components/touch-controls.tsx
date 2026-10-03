@@ -172,8 +172,10 @@ export function TouchControls({ state, engine }: HudProps) {
   const watching = state.seat !== "global";
   // A spectated race car is never this player's to drive.
   const canDrive = driving || (state.seat === "follow" && !race?.spectating);
+  // Whole field, no stick: the Prev / Next pair is the only thing here. Landscape puts it in the stick's corner, not mid-screen over the action.
+  const pair = !watching && !race;
   return (
-    <div data-keep-idle className="pointer-events-none flex w-full items-end justify-between gap-2">
+    <div data-keep-idle className={cn("pointer-events-none flex w-full items-end justify-between gap-2", pair && "landscape:flex-row-reverse")}>
       {canDrive ? <Stick engine={engine} /> : <span />}
       <div className="grid grid-cols-3 gap-2">
         {race ? null : (

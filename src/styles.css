@@ -87,6 +87,9 @@
    outrank breakpoint utilities because the ancestor selector adds specificity. */
 @custom-variant idle (.hud-grid[data-idle] &);
 
+/* A phone on its side: too short for the full race standings and the thumb pad together. */
+@custom-variant phone-landscape (@media (pointer: coarse) and (max-height: 500px));
+
 /* Scene picker chip of a richer mode: ring and tinted fill in its `--tone`, solid tone with dark text once picked. Unlayered so it
    outranks the button variant's colours. */
 .scene-chip {
@@ -142,6 +145,14 @@
       "title readouts"
       "context settings"
       "dock settings";
+  }
+
+  /* Race focus view: the standings sit under the title and the readouts run down the right, so a short window keeps both clear of the thumb pad (which gets the full-width dock row). */
+  .hud-grid[data-focus] {
+    grid-template-areas:
+      "title readouts"
+      "context readouts"
+      "dock dock";
   }
 
   .hud-settings {
