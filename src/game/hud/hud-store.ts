@@ -36,7 +36,7 @@ export type DoorHud = {
   busy: boolean;
   /** Ram kinetic energy (J). */
   energyJ: number;
-  shot: { detached: string[]; doorDeg: number; latched: boolean; bodyMm: number } | null;
+  shot: { detached: string[]; doorDeg: number; latched: boolean; panelHinge: number; bodyMm: number } | null;
 };
 
 export type CrashHudState = {

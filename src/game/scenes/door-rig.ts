@@ -9,11 +9,14 @@ import { bodyContact, makeBox, partContact } from "../contact/external-contact.t
  *   skin and catches only the mirror.
  * - `overOpen` (B): the door is open; the ram runs rear→front into it and drives it past the stop.
  * - `shut` (C): the door is open; the ram runs front→rear into it and drives it shut.
+ * - `panelPush` (D): the quarter panel stands out (a hinged, not yet fragile panel); the ram runs rear→front into it and
+ *   pushes it back onto the body (it stays dented), or tears it off when hard enough.
+ * - `panelPull` (E): the same panel; the ram runs front→rear into its free end and pulls it open (past its tear energy: off).
  * The ram is kinematic apart from the momentum it trades with the car; it is a striker box in the
  * shared contact (`external-contact.ts`): the door and mirror colliders a car running down the
  * side meets too, and the body contact if a lane reaches the skin (the stock lanes do not).
  */
-const DOOR_SCENARIOS = ["mirror", "overOpen", "shut"] as const;
+const DOOR_SCENARIOS = ["mirror", "overOpen", "shut", "panelPush", "panelPull"] as const;
 export type DoorScenario = (typeof DOOR_SCENARIOS)[number];
 
 type RamLane = {
@@ -26,8 +29,10 @@ type RamLane = {
   /** Face bottom and top (m above the ground). */
   bottom: number;
   top: number;
-  /** Door angle when the shot starts (rad); 0 is shut and latched. */
+  /** Door angle (rad) when the shot starts, 0 shut and latched; for a `panel` scenario the quarter panel's hinge value (0..1). */
   open: number;
+  /** The part the lane is for: a door and its mirror (default) or the quarter panel. */
+  part?: "panel";
 };
 
 export const DOOR_LANES: Readonly<Record<DoorScenario, RamLane>> = {
@@ -37,6 +42,9 @@ export const DOOR_LANES: Readonly<Record<DoorScenario, RamLane>> = {
   overOpen: { dir: 1, inner: 0.95, width: 0.6, bottom: 0.3, top: 0.75, open: (55 * Math.PI) / 180 },
   // Outside the mirror head on the open door, so the ram meets the slab first.
   shut: { dir: -1, inner: 1.1, width: 0.6, bottom: 0.3, top: 0.75, open: (55 * Math.PI) / 180 },
+  // Just outside the car's widest point (0.88): a quarter panel at hinge 0.45 stands 0.18 off the body, so its free end is in the lane.
+  panelPush: { dir: 1, inner: 0.885, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
+  panelPull: { dir: -1, inner: 0.885, width: 0.6, bottom: 0.3, top: 0.75, open: 0.45, part: "panel" },
 };
 
 export const RAM_DEFAULTS = { kph: 12, kg: 300 } as const;
@@ -70,6 +78,8 @@ export type RamShot = {
   /** Largest control-particle and skinned body-vertex move since the shot began (mm). */
   bodyParticleMm: number;
   bodyVertexMm: number;
+  /** The struck side's quarter panel hinge value at the end (0 flat, 1 full; kept when it is pushed back). */
+  panelHinge: number;
 };
 
 const D2R = Math.PI / 180;
@@ -97,6 +107,11 @@ export class DoorRig {
   private particles0 = new Float64Array(0);
   private verts0 = new Float32Array(0);
   private readonly box = makeBox();
+  /**
+   * Frame parity (docs/CONTACT_PARITY.md): the ram stands still in the world and the car is driven into it at the shot's
+   * speed, instead of the ram running along a parked car. Both are one relative motion through the same contact.
+   */
+  carMoves = false;
 
   /** A head of another shape on the scenario's lane (a car-shaped striker for docs/CONTACT_PARITY.md). */
   shape: Partial<Pick<RamLane, "bottom" | "top" | "width">> | null = null;
@@ -123,7 +138,14 @@ export class DoorRig {
     this.side = side;
     this.kph = THREE.MathUtils.clamp(kph, 1, 120);
     this.kg = THREE.MathUtils.clamp(kg, 5, 5000);
-    car.setDoorOpen(side, this.lane.open);
+    const drive = this.carMoves ? -this.lane.dir * (this.kph / 3.6) : 0;
+    car.velocity.set(car.fwdFlat.x * drive, 0, car.fwdFlat.z * drive);
+    car.speed = Math.abs(drive);
+    // After the velocity, so the door's pendulum starts from this motion rather than a jump to it.
+    if (this.lane.part === "panel") {
+      car.setDoorOpen(side, 0);
+      car.setPanelOpen(side, this.lane.open);
+    } else car.setDoorOpen(side, this.lane.open);
     const masses = car.deform.masses;
     for (let i = 0; i < masses.length; i++) masses[i]!.local.toArray(this.particles0, i * 3);
     this.verts0.set((car.body.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array);
@@ -203,6 +225,7 @@ export class DoorRig {
       ramStopped: this.stopped,
       bodyParticleMm: particle * 1000,
       bodyVertexMm: vertex * 1000,
+      panelHinge: car.quarterPanel(this.side).hingeT,
     };
   }
 

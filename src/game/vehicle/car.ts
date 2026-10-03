@@ -144,6 +144,8 @@ export class DeformableCar extends CarParts {
       p.detached = false;
       p.folding = false;
       p.hingeT = 0;
+      p.hingeMax = 1;
+      p.fatigue = 0;
       if (p.swing) {
         p.swing.theta = 0;
         p.swing.omega = 0;
@@ -159,6 +161,7 @@ export class DeformableCar extends CarParts {
       p.velocity.set(0, 0, 0);
       p.angular.set(0, 0, 0);
     }
+    this.resetWear();
     for (const g of this.glassPanes) this.resetGlass(g);
     this.resetLamps();
   }
@@ -292,6 +295,7 @@ export class DeformableCar extends CarParts {
     }
     if (this.endReach < Infinity && d.quietTime() > REARM_QUIET_S && Math.min(this.endAgo[0]!, this.endAgo[1]!) > END_WINDOW) this.endReach = Infinity;
     if (!this.doorParts[0]!.swing!.latched || !this.doorParts[1]!.swing!.latched) this.swingDoors(dt);
+    else this.sampleMotion();
     if (!d.massActive) return;
     this.nudgeWheels(dt);
     this.ride(dt);
@@ -596,6 +600,7 @@ export class DeformableCar extends CarParts {
    */
   writeNetState(deform: DeformNetState, parts: PartNetState): void {
     this.deform.writeNetState(deform, this.group, this.body.geometry);
+    this.restoreWear();
     for (let i = 0; i < this.parts.length; i++) {
       const p = this.parts[i]!;
       const f = parts.flags[i]!;
@@ -617,6 +622,9 @@ export class DeformableCar extends CarParts {
         p.swing.mirrorFold = parts.hinge[i * 3 + 2]!;
         p.swing.latched = (f & 4) !== 0;
         p.swing.omega = 0;
+      } else {
+        p.fatigue = parts.hinge[i * 3 + 1]!;
+        p.hingeMax = 1 - parts.hinge[i * 3 + 2]!;
       }
       if (!loose) continue;
       p.object.position.fromArray(parts.pose, i * 7);
@@ -680,6 +688,7 @@ export class DeformableCar extends CarParts {
   netFrame(dt: number): void {
     this.nudgeWheels(dt, false);
     this.ride(dt);
+    this.flutterParts(dt);
   }
 
   /**

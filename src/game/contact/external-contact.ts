@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, DOOR, type DeformableCar } from "../vehicle/car.ts";
 import { DOOR_INERTIA, DOOR_OPEN_MAX, HINGE_TEAR_J, MIRROR_BREAK_J, MIRROR_FOLD_MAX } from "../vehicle/car-core.ts";
+import { PANEL_BEND_NM, PANEL_FRAGILE_J, PANEL_FRAGILE_T, PANEL_PULL_J, PANEL_SLAM_J } from "../vehicle/car-wear.ts";
 
 /**
  * One contact model for anything that strikes a car: the Doors ram, a press plate, a piston face
@@ -283,6 +284,49 @@ function hitDoor(car: DeformableCar, side: -1 | 1, lane: Lane): void {
 }
 
 /**
+ * A stretched quarter panel (top view: hinge at the tail → free end ahead), the door slab's mirror image against the same
+ * face: rear→front pushes it back onto the body, front→rear pulls it out. Sheet steel creases rather than springs: the slab
+ * goes where the face pushes it and the striker pays the plastic work of the bend (`PANEL_BEND_NM` over the angle moved), with
+ * no rebound. A striker carrying more than the tear energy comes through instead and the panel goes (one already stretched
+ * to `PANEL_FRAGILE_T` goes at a nudge), the way the strap takes a door. Pushed back it stays dented (`bendPanel`: a hinge
+ * value kept, never flat); pulled out it opens up to full hinge and holds there. Only the relative motion enters, so the ram
+ * on a parked car and a car driven into a still ram agree.
+ */
+function hitPanel(car: DeformableCar, side: -1 | 1, lane: Lane): void {
+  const p = car.quarterPanel(side);
+  if (p.detached || !p.open) return;
+  const r = p.region!;
+  if (lane.bottom > r.span[1] || lane.top < r.span[0]) return;
+  const t = p.hingeT;
+  const theta = r.peel * t;
+  const sin = Math.sin(theta);
+  if (sin < 1e-3) return;
+  const hx = Math.abs(r.pivot[0]);
+  const rLo = (lane.inner - hx) / sin;
+  const rHi = Math.min(r.reach, (lane.inner + lane.width - hx) / sin);
+  if (rLo > rHi || rHi <= 0) return;
+  const s = lane.dir;
+  // A rear→front face meets the slab's rear-most (lowest-z) end in the lane first, a front→rear face its front-most.
+  const at = s > 0 ? Math.max(rLo, 0) : rHi;
+  const depth = s * (lane.face - (r.pivot[1] + at * Math.cos(theta)));
+  if (depth <= 0 || depth > lane.length) return;
+  partHit.touched = true;
+  const limit = t >= PANEL_FRAGILE_T ? PANEL_FRAGILE_J : s > 0 ? PANEL_SLAM_J : PANEL_PULL_J;
+  if (0.5 * lane.kg * lane.u * lane.u >= limit) {
+    // What the striker still carries after paying for the tear.
+    lane.u = Math.sqrt(Math.max(0, lane.u * lane.u - (2 * limit) / lane.kg));
+    car.ripPanel(side, _push.set(side * 0.9, 0.6, s * Math.max(lane.u, 1)));
+    return;
+  }
+  // Push the slab out of the face: back (s > 0: the angle falls) or out (s < 0: it rises).
+  const k = Math.max(at * sin, 0.02);
+  car.bendPanel(side, t - (s * depth) / (k * r.peel));
+  const moved = Math.abs(p.hingeT - t) * r.peel;
+  // A panel that cannot go further (full hinge) holds the striker.
+  lane.u = moved > 0 ? Math.sqrt(Math.max(0, lane.u * lane.u - (2 * PANEL_BEND_NM * moved) / lane.kg)) : 0;
+}
+
+/**
  * Door and mirror colliders of `car` against `box`, both sides. Only travel along the car moves a
  * door or a mirror (a shut door struck square is body crush, the crash rules' C1–C3). Returns
  * `partHit`; the caller takes `du` off the striker's speed along (`nx`, `nz`).
@@ -325,6 +369,7 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
     lane.width = 2 * ex;
     hitMirror(car, side, lane);
     hitDoor(car, side, lane);
+    hitPanel(car, side, lane);
   }
   partHit.du = u0 - lane.u;
   partHit.nx = az.x * lane.dir;

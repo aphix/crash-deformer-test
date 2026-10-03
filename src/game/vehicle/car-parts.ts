@@ -5,7 +5,7 @@ import { DOOR } from "./car-mesh.ts";
 import { getCrackMap, LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
-import { layFlat, makeShell, poseShell, recentre, setPrimer } from "./car-panels.ts";
+import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer } from "./car-panels.ts";
 import { applyDents, DENT_MIN_DV, recordDent, type DentState } from "./loose-dent.ts";
 import {
   CarCore,
@@ -26,6 +26,19 @@ import {
   SLAM_TEAR_J,
   type WorldBounce,
 } from "./car-core.ts";
+import {
+  DOOR_ACC_MAX,
+  DOOR_DRY,
+  DOOR_QUIET_S,
+  DOOR_YAW_ACC_MAX,
+  flapAmp,
+  flapRate,
+  flapWave,
+  PANEL_FRAGILE_T,
+  PANEL_SMUSH_MIN,
+  swingAccel,
+  windWear,
+} from "./car-wear.ts";
 
 const _qSpin = new THREE.Quaternion();
 const _push = new THREE.Vector3();
@@ -74,6 +87,11 @@ const BAR_ROLL = 0.5;
 /** A bumper hung by one corner rolls about it this much at full hinge and full asymmetry (rad), and sags this far (m). */
 const BUMPER_ROLL = 0.6;
 const BUMPER_SAG = 0.06;
+/** A hinged part below this hinge value is not worn by the wind (a shell hardly standing). */
+const WEAR_MIN_T = 0.04;
+/** A contact is fresh when the last was over `TOUCH_GAP` s ago and the next lands within `TOUCH_NOW` s. */
+const TOUCH_GAP = 0.15;
+const TOUCH_NOW = 0.03;
 
 /** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt; none past the fleet disc's rim. */
 function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce, dent?: DentState): void {
@@ -119,7 +137,17 @@ const GROUND_BAND = 0.005;
 export abstract class CarParts extends CarCore {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
+  /** The flap clock (rad) turns with speed and shakes every hinged panel and bumper (`flapAngle`). Cosmetic: no rule reads it. */
+  private flapClock = 0;
+  private flapSpeed = 0;
+  /** Seconds since the last contact, as of the last frame: tells a fresh touch from a continuing one (`evaluateBreakage`). */
+  private quietPrev = 0;
+  /** The car's velocity (x, z) and yaw rate at the last door-swing sample: their change is the pendulum's drive. */
+  private readonly motion = new Float64Array(3);
+  /** Pendulum drive, car frame: acceleration right, acceleration forward (m/s²), yaw rate (rad/s), yaw acceleration (rad/s²). */
+  private readonly swingDrive = new Float64Array(4);
   protected syncAttachedParts(dt: number): void {
+    this.advanceFlap(dt);
     const ix = this.deform.impactInward.x;
     const iz = this.deform.impactInward.z;
     for (const p of this.parts) {
@@ -147,7 +175,8 @@ export abstract class CarParts extends CarCore {
         else if (p.hinge === "tail") target = THREE.MathUtils.clamp((crush - 0.1) / 0.6, 0, 1);
         else if (p.region) target = THREE.MathUtils.clamp((crush - PANEL_HINGE[p.region.kind].on) / PANEL_HINGE[p.region.kind].range, 0, 1);
       }
-      p.hingeT = Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012)));
+      p.hingeT = Math.min(p.hingeMax, Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012))));
+      if (p.hinge === "door" && onHit) this.springDoor(p);
       this.posePart(p);
     }
   }
@@ -171,7 +200,7 @@ export abstract class CarParts extends CarCore {
         const left = this.deform.sensorCompression(p.attachL);
         const right = this.deform.sensorCompression(p.attachR);
         const asym = THREE.MathUtils.clamp((left - right) / Math.max(left, right, 0.05), -1, 1);
-        const roll = t * BUMPER_ROLL * asym;
+        const roll = t * BUMPER_ROLL * asym + (asym < 0 ? -1 : 1) * this.flapAngle(p);
         const px = (asym < 0 ? -0.6 : 0.6) * p.object.scale.x;
         p.object.rotation.z = roll;
         p.object.position.x += px * (1 - Math.cos(roll));
@@ -217,6 +246,8 @@ export abstract class CarParts extends CarCore {
       p.folding = t > PANEL_OPEN;
       if (p.folding) {
         if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
+        const a = this.flapAngle(p);
+        if (a > 0) flutterShell(p.region, p.object, a);
       } else if (p.open) this.closePanel(p);
     }
   }
@@ -226,9 +257,10 @@ export abstract class CarParts extends CarCore {
     return this.doorParts[side < 0 ? 0 : 1]!.swing!;
   }
 
-  /** Whether a door or mirror has left the car; a mirror rides off on its torn door. */
-  partOff(name: "doorL" | "doorR" | "mirrorL" | "mirrorR"): boolean {
+  /** Whether a door, mirror or quarter panel has left the car; a mirror rides off on its torn door. */
+  partOff(name: "doorL" | "doorR" | "mirrorL" | "mirrorR" | "quarterL" | "quarterR"): boolean {
     const i = name.endsWith("L") ? 0 : 1;
+    if (name.startsWith("quarter")) return this.quarterParts[i]!.detached;
     const door = this.doorParts[i]!.detached;
     return name.startsWith("door") ? door : door || this.mirrorParts[i]!.detached;
   }
@@ -241,6 +273,7 @@ export abstract class CarParts extends CarCore {
     h.theta = THREE.MathUtils.clamp(theta, 0, DOOR_OPEN_MAX);
     h.omega = 0;
     h.latched = h.theta === 0;
+    this.sampleMotion();
     this.posePart(p);
   }
 
@@ -270,14 +303,24 @@ export abstract class CarParts extends CarCore {
     this.detachPart(this.mirrorParts[side < 0 ? 0 : 1]!, 0, push);
   }
 
-  /** Free door swing: hinge friction, then the check-strap stop, or the latch / slam overload at 0. */
+  /**
+   * Free door swing: the car's acceleration drives the pendulum (`swingAccel`), hinge friction damps it, and it ends on the
+   * check-strap stop, on the crash jam (`hingeT`) or in the latch (`closeDoor`: the ram's shut scene and the car's own swing alike).
+   */
   swingDoors(dt: number): void {
+    this.sampleDrive(dt);
+    const d = this.swingDrive;
     for (let i = 0; i < 2; i++) {
       const p = this.doorParts[i]!;
       if (p.detached) continue;
       const h = p.swing!;
       const sign = i === 0 ? -1 : 1;
       if (!h.latched) {
+        // A door the crash jammed open never shuts past its jam.
+        const jam = Math.min(p.hingeT * 1.45, DOOR_OPEN_MAX);
+        h.omega += swingAccel(sign, h.theta, d[0]!, d[1]!, d[2]!, d[3]!) * dt;
+        const dry = DOOR_DRY * dt;
+        h.omega = Math.abs(h.omega) <= dry ? 0 : h.omega - Math.sign(h.omega) * dry;
         h.theta += h.omega * dt;
         h.omega *= Math.exp(-DOOR_DAMP * dt);
         if (h.theta >= DOOR_OPEN_MAX && h.omega > 0) {
@@ -288,24 +331,131 @@ export abstract class CarParts extends CarCore {
           // The strap's detent holds it on the stop.
           h.omega = 0;
           if (this.loadDoorStop(sign, e, _push)) continue;
-        } else if (h.theta <= 0 && h.omega < 0) {
-          h.theta = 0;
-          if (0.5 * DOOR_INERTIA * h.omega * h.omega >= SLAM_TEAR_J) {
-            // Wrenched out of its hinges against the frame: it leaves outward and rearward at its
-            // centre's swing speed.
-            _push.set(sign * 1.2, 0.6, 0.5 * DOOR.length * h.omega);
-            this.detachPart(p, 0, _push);
-            continue;
-          }
-          h.theta = 0;
-          h.omega = 0;
-          h.latched = true;
-        }
+        } else if (h.theta <= jam && h.omega < 0) {
+          if (this.closeDoor(p, sign, jam)) continue;
+        } else if (h.theta < jam) h.theta = jam;
       }
       this.posePart(p);
       const m = this.mirrorParts[i]!;
       if (!m.detached) this.posePart(m);
     }
+  }
+
+  /**
+   * A door swung into its frame at closing rate ω < 0: the latch takes it at `jam` 0 (a crash jam above stops it there), or past
+   * `SLAM_TEAR_J` it is wrenched off. True if it tore off.
+   */
+  private closeDoor(p: DetachPart, sign: number, jam: number): boolean {
+    const h = p.swing!;
+    h.theta = jam;
+    if (0.5 * DOOR_INERTIA * h.omega * h.omega >= SLAM_TEAR_J) {
+      // Wrenched out of its hinges against the frame: it leaves outward and rearward at its centre's swing speed.
+      _push.set(sign * 1.2, 0.6, 0.5 * DOOR.length * h.omega);
+      this.detachPart(p, 0, _push);
+      return true;
+    }
+    h.omega = 0;
+    h.latched = jam === 0;
+    return false;
+  }
+
+  /** A door a side hit has opened past `DOOR_AJAR` is off its latch: it hangs at least as far open as the crash jam (`hingeT`) and swings with the car. */
+  private springDoor(p: DetachPart): void {
+    const h = p.swing!;
+    if (h.latched) {
+      if (p.hingeT <= DOOR_AJAR) return;
+      h.latched = false;
+      h.omega = 0;
+      this.sampleMotion();
+    }
+    h.theta = Math.max(h.theta, Math.min(p.hingeT * 1.45, DOOR_OPEN_MAX));
+  }
+
+  /** Remember the car's velocity and yaw rate: the next `sampleDrive` reads their change as acceleration. Call after setting either by hand. */
+  sampleMotion(): void {
+    this.motion[0] = this.velocity.x;
+    this.motion[1] = this.velocity.z;
+    this.motion[2] = this.angular.y;
+  }
+
+  /** The car-frame acceleration since the last sample, capped (`DOOR_ACC_MAX`), into `swingDrive`; zero while the car is in contact (the crash rules own that moment). */
+  private sampleDrive(dt: number): void {
+    const m = this.motion;
+    const inv = dt > 0 ? 1 / dt : 0;
+    const ax = (this.velocity.x - m[0]!) * inv;
+    const az = (this.velocity.z - m[1]!) * inv;
+    const d = this.swingDrive;
+    const free = this.deform.quietTime() > DOOR_QUIET_S;
+    d[0] = free ? THREE.MathUtils.clamp(ax * this.rightFlat.x + az * this.rightFlat.z, -DOOR_ACC_MAX, DOOR_ACC_MAX) : 0;
+    d[1] = free ? THREE.MathUtils.clamp(ax * this.fwdFlat.x + az * this.fwdFlat.z, -DOOR_ACC_MAX, DOOR_ACC_MAX) : 0;
+    d[2] = free ? this.angular.y : 0;
+    d[3] = free ? THREE.MathUtils.clamp((this.angular.y - m[2]!) * inv, -DOOR_YAW_ACC_MAX, DOOR_YAW_ACC_MAX) : 0;
+    this.sampleMotion();
+  }
+
+  /** The flap clock turns with the car's ground speed. */
+  private advanceFlap(dt: number): void {
+    this.flapSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    this.flapClock += flapRate(this.flapSpeed) * dt;
+  }
+
+  /** A fresh car's flutter, contact timing and door motion sample (`resetVisual`): a reused car replays as a new one. */
+  protected resetWear(): void {
+    this.flapClock = 0;
+    this.flapSpeed = 0;
+    this.quietPrev = 0;
+    this.sampleMotion();
+  }
+
+  /** The contact timing and door motion sample of a car whose state was just written (`writeNetState`): the next frame reads them as a continuing one. */
+  protected restoreWear(): void {
+    this.quietPrev = this.deform.quietTime();
+    this.sampleMotion();
+  }
+
+  /** Flutter of `p` now (rad, ≥ 0): 0 at rest and for a part not hinged; each part beats at its own phase (its rest spot's). */
+  private flapAngle(p: DetachPart): number {
+    const a = flapAmp(this.flapSpeed, p.hingeT);
+    return a > 0 ? a * flapWave(this.flapClock + p.restPos.x * 13.1 + p.restPos.z * 7.7) : 0;
+  }
+
+  /** Netplay client, every frame: the flap clock turns with the car's speed and hinged panels and bumpers are re-posed with it. */
+  flutterParts(dt: number): void {
+    this.advanceFlap(dt);
+    for (const p of this.parts) if (p.folding && !p.detached && (p.region || p.name.startsWith("bumper"))) this.posePart(p);
+  }
+
+  /** The quarter panel on `side` (−1 left, +1 right), on the car or not. */
+  quarterPanel(side: number): DetachPart {
+    return this.quarterParts[side < 0 ? 0 : 1]!;
+  }
+
+  /**
+   * A striker moves the quarter panel to hinge value `t`: pushed back onto the body it stays dented (`hingeMax`, and never
+   * flat: `PANEL_SMUSH_MIN`), pushed out it opens up to full hinge.
+   */
+  bendPanel(side: number, t: number): void {
+    const p = this.quarterPanel(side);
+    if (p.detached) return;
+    const to = THREE.MathUtils.clamp(t, Math.min(PANEL_SMUSH_MIN, p.hingeT), 1);
+    if (to < p.hingeT) p.hingeMax = to;
+    p.hingeT = to;
+    this.posePart(p);
+  }
+
+  /** Hinge a quarter panel to `t` with no crash (the Doors scene's start), whole again. */
+  setPanelOpen(side: number, t: number): void {
+    const p = this.quarterPanel(side);
+    if (p.detached) return;
+    p.hingeMax = 1;
+    p.fatigue = 0;
+    p.hingeT = THREE.MathUtils.clamp(t, 0, 1);
+    this.posePart(p);
+  }
+
+  /** A striker tears the quarter panel off with `push` (car-space m/s on top of the car's velocity). */
+  ripPanel(side: number, push: THREE.Vector3): void {
+    this.detachPart(this.quarterPanel(side), 0, push);
   }
 
   protected fitInterior(): void {
@@ -351,8 +501,7 @@ export abstract class CarParts extends CarCore {
     return -(p.restPos.x * ix + p.restPos.z * iz) > 0.12;
   }
 
-  protected evaluateBreakage(impulse: number, _dt: number): void {
-    void _dt;
+  protected evaluateBreakage(impulse: number, dt: number): void {
     for (const g of this.glassPanes) {
       if (g.state === "shattered") continue;
       const strain = this.deform.cageStrain(g.skin ?? (g.parts.includes("doorLeft") ? "doorLeft" : "doorRight"));
@@ -367,11 +516,19 @@ export abstract class CarParts extends CarCore {
     }
 
     const ebs = this.deform.hitSpeedValue;
+    // Contact resumed after a pause is a fresh touch (a wall, a car, a prop: whatever feeds `notifyContact`).
+    const quiet = this.deform.quietTime();
+    const touched = quiet < TOUCH_NOW && this.quietPrev > TOUCH_GAP;
+    this.quietPrev = quiet;
     for (const p of this.parts) {
       if (p.detached) continue;
       if (p.hinge === "bar") {
         const sink = ROOF_REST_Y - this.deform.massLocal("roof").y;
         if (sink > BAR_TEAR_SINK || (ebs >= BAR_TEAR_MPS && this.deform.crushElapsed > 0.05)) this.detachPart(p, impulse);
+        continue;
+      }
+      if ((p.region || p.name.startsWith("bumper")) && this.wornOff(p, dt, touched)) {
+        this.detachPart(p, impulse);
         continue;
       }
       if (this.deform.bidirectional && p.hinge !== "door" && p.hinge !== "two-point") continue;
@@ -391,6 +548,30 @@ export abstract class CarParts extends CarCore {
       for (const s of lamp.sensors) crush = Math.max(crush, this.deform.sensorCompression(s));
       if (crush > 0.18 && this.deform.crushElapsed > 0.02) this.breakLamp(lamp);
     }
+  }
+
+  /**
+   * What a hinged panel or bumper takes between hits (docs/PANEL_FLAP.md): a stretched (`PANEL_FRAGILE_T`) quarter panel or arch
+   * flare goes on a fresh contact, a quarter panel also on a scrape of the ground (an arch flare's box includes the sill, which the body
+   * sinks to the road on its own); a bumper never on contact timing (its hulls shape the crash, a replay could not reproduce it); any
+   * hinged part goes in sustained speed (`windWear`). True once it is off.
+   */
+  private wornOff(p: DetachPart, dt: number, touched: boolean): boolean {
+    if (p.hingeT <= WEAR_MIN_T) {
+      p.fatigue = 0;
+      return false;
+    }
+    if (p.hingeT >= PANEL_FRAGILE_T && p.region !== null && (touched || (p.hinge === "quarter" && this.scrapes(p)))) return true;
+    p.fatigue = Math.max(0, p.fatigue + windWear(this.flapSpeed, p.hingeT) * dt);
+    return p.fatigue >= 1;
+  }
+
+  /** Whether the part's box reaches the ground under it. */
+  private scrapes(p: DetachPart): boolean {
+    p.object.updateWorldMatrix(true, false);
+    _box.setFromObject(p.object).getCenter(_doorW);
+    const g = activeGround().heightAt(_doorW.x, _doorW.z, _doorW.y);
+    return g !== NO_FLOOR && _box.min.y < g;
   }
 
   /** Out for good until the next reset; `LampBatch` draws it dark. */
@@ -561,8 +742,10 @@ export abstract class CarParts extends CarCore {
       const s = p.swing;
       out.flags[i] = (p.detached ? 1 : 0) | (p.folding ? 2 : 0) | (s?.latched ? 4 : 0);
       out.hinge[i * 3] = p.hingeT;
-      out.hinge[i * 3 + 1] = s ? s.theta : 0;
-      out.hinge[i * 3 + 2] = s ? s.mirrorFold : 0;
+      // Parts with no swing leave slots 1 and 2 free: they carry the host's wind wear and dent cap (`1 − hingeMax`, so 0 is "uncapped"
+      // and old data reads as before), which a headless replay re-simulating from a keyframe needs to tear the same parts at the same time.
+      out.hinge[i * 3 + 1] = s ? s.theta : p.fatigue;
+      out.hinge[i * 3 + 2] = s ? s.mirrorFold : 1 - p.hingeMax;
       if (!p.detached) continue;
       p.object.position.toArray(out.pose, i * 7);
       p.object.quaternion.toArray(out.pose, i * 7 + 3);

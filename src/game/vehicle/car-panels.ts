@@ -25,8 +25,13 @@ export interface PanelRegion {
   w: Float32Array;
   /** The panel's rest centroid in car space: its part's origin. */
   origin: THREE.Vector3;
-  /** Quarter panels: the vertical hinge line (x, z) at the trailing edge. */
+  /** Quarter panels: the vertical hinge line (x, z) at the trailing edge. Arch flares: the line along z at the arch's top, through (x, y). */
   pivot: readonly [number, number];
+  /** Quarter panels: lever length from the hinge line to the free end (m), and the peel angle (rad) at which that end stands `STAND_MAX` off the body. */
+  reach: number;
+  peel: number;
+  /** Lowest and highest body vertex of the panel (m). */
+  span: readonly [number, number];
   /** The shell's triangles (front, back, rim skirt), shared by every car of the style. */
   shell: THREE.BufferAttribute;
   /** The same triangles in body vertex ids. */
@@ -37,8 +42,8 @@ export interface PanelRegion {
 const PROUD = 0.004;
 /** Sheet thickness behind the skin (m). */
 const THICK = 0.02;
-/** Rad a quarter panel's free end peels at hinge value 1; lift (m) there. */
-const PEEL = 1;
+/** A quarter panel's free end stands at most this far off the body (m), at hinge value 1: no sheet sticks out a metre. Lift (m) there. */
+export const STAND_MAX = 0.4;
 const PEEL_LIFT = 0.03;
 /** m the arch flare's free ends flap out, and drop, at hinge value 1. */
 const FLAP = 0.16;
@@ -124,16 +129,22 @@ function region(name: PanelName, ids: number[], pos: Float32Array): PanelRegion 
   const origin = new THREE.Vector3();
   let zMin = Infinity;
   let zMax = -Infinity;
+  let yMin = Infinity;
+  let yMax = -Infinity;
   for (const g of verts) {
     origin.x += pos[g * 3]! / nv;
     origin.y += pos[g * 3 + 1]! / nv;
     origin.z += pos[g * 3 + 2]! / nv;
     zMin = Math.min(zMin, pos[g * 3 + 2]!);
     zMax = Math.max(zMax, pos[g * 3 + 2]!);
+    yMin = Math.min(yMin, pos[g * 3 + 1]!);
+    yMax = Math.max(yMax, pos[g * 3 + 1]!);
   }
   const hub = WHEEL_POS[PANEL_NAMES.indexOf(name) - 2];
   const w = new Float32Array(nv);
+  // The hinge line's mean: a quarter's trailing edge (x), an arch's top (x, y).
   let px = 0;
+  let py = 0;
   let pn = 0;
   for (let k = 0; k < nv; k++) {
     const g = verts[k]! * 3;
@@ -146,8 +157,14 @@ function region(name: PanelName, ids: number[], pos: Float32Array): PanelRegion 
     } else {
       // Hinged at the top of the arch, free where it meets the rocker.
       w[k] = Math.pow(Math.atan2(Math.abs(pos[g + 2]! - hub![2]), Math.max(pos[g + 1]! - hub![1], 0)) / (Math.PI / 2), 1.3);
+      if (w[k]! < 0.05) {
+        px += pos[g]!;
+        py += pos[g + 1]!;
+        pn++;
+      }
     }
   }
+  const reach = zMax - zMin;
   return {
     name,
     kind,
@@ -155,7 +172,10 @@ function region(name: PanelName, ids: number[], pos: Float32Array): PanelRegion 
     verts: Uint16Array.from(verts),
     w,
     origin,
-    pivot: [pn ? px / pn : side * 0.8, zMin],
+    pivot: kind === "quarter" ? [pn ? px / pn : side * 0.8, zMin] : [pn ? px / pn : side * 0.88, pn ? py / pn : yMax],
+    reach,
+    peel: kind === "quarter" ? Math.asin(Math.min(1, STAND_MAX / reach)) : 0,
+    span: [yMin, yMax],
     shell: new THREE.BufferAttribute(Uint16Array.from(shell), 1),
     tris: new THREE.BufferAttribute(Uint16Array.from(ids), 1),
   };
@@ -193,7 +213,7 @@ export function poseShell(r: PanelRegion, shell: THREE.BufferGeometry, body: THR
     let dy = -FLAP_DROP * t * w;
     let dz = 0;
     if (quarter) {
-      const phi = r.side * PEEL * t * w;
+      const phi = r.side * r.peel * t * w;
       const rx = x - r.pivot[0];
       const rz = z - r.pivot[1];
       const sin = Math.sin(phi);
@@ -210,6 +230,8 @@ export function poseShell(r: PanelRegion, shell: THREE.BufferGeometry, body: THR
   }
   attr.needsUpdate = true;
   computeNormalsFast(shell);
+  // The shell moved: a scrape test against its box (`setFromObject`) must not read the last pose's.
+  shell.boundingBox = null;
 }
 
 /** Move the shell's vertices so its centroid is the part's origin (a torn panel tumbles about its middle); `out` ← the centroid it had. */
@@ -225,6 +247,32 @@ export function recentre(shell: THREE.BufferGeometry, out: THREE.Vector3): void 
     o[i + 2] -= out.z;
   }
   attr.needsUpdate = true;
+}
+
+const _ay = new THREE.Vector3(0, 1, 0);
+const _az = new THREE.Vector3(0, 0, 1);
+
+/**
+ * Turn a posed shell as a whole by `a` rad (≥ 0, outward) about its hinge line: the mesh's own transform, so a flapping
+ * panel costs no vertex rebuild or upload. A quarter turns about the vertical line at its tail, an arch flare about the
+ * line along z at its top. `a` = 0 leaves the mesh where `posePart` put it (the region's origin).
+ */
+export function flutterShell(r: PanelRegion, object: THREE.Object3D, a: number): void {
+  const o = r.origin;
+  const phi = r.side * a;
+  const sin = Math.sin(phi);
+  const cos = Math.cos(phi);
+  if (r.kind === "quarter") {
+    const dx = o.x - r.pivot[0];
+    const dz = o.z - r.pivot[1];
+    object.position.set(r.pivot[0] + dx * cos + dz * sin, o.y, r.pivot[1] - dx * sin + dz * cos);
+    object.quaternion.setFromAxisAngle(_ay, phi);
+  } else {
+    const dx = o.x - r.pivot[0];
+    const dy = o.y - r.pivot[1];
+    object.position.set(r.pivot[0] + dx * cos - dy * sin, r.pivot[1] + dx * sin + dy * cos, o.z);
+    object.quaternion.setFromAxisAngle(_az, phi);
+  }
 }
 
 /** The under-panel: the panel's vertices on the body painted to primer (or back to paint), by the paint's `primer` attribute. */
