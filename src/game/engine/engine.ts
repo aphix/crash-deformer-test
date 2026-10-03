@@ -329,7 +329,7 @@ export class CrashEngine extends EngineReel {
     }
   };
 
-  private tickInner(now: number): void {
+  protected tickInner(now: number): void {
     if (this.disposed) return;
     // The first rAF stamp can predate `start()`'s performance.now(): a negative dt froze the sim for seconds.
     const wallDt = Math.min(Math.max(0, (now - this.last) / 1000), 0.1);
@@ -442,7 +442,7 @@ export class CrashEngine extends EngineReel {
     this.cullFarDetail();
     this.lampLights.update(this.live(), this.camera, this.followedCar());
     if (this.stage.night) this.stage.syncPools(this.poles);
-    this.cine.render(this.scene, this.camera, wallDt);
+    if (!this.skipDraw) this.cine.render(this.scene, this.camera, wallDt);
 
     this.hudAcc += wallDt;
     if (this.hudAcc > (this.clock.timeScale < 0.5 ? 0.05 : 0.12)) {
