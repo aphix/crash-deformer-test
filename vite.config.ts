@@ -1,4 +1,5 @@
-import { readdirSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
 import { defineConfig } from "vite";
@@ -142,6 +143,61 @@ function authPopupPlugin(): Plugin {
   };
 }
 
+/**
+ * WSL serves `/mnt/c` over 9p, where inotify never fires (measured: 0 `fs.watch` events for a WSL-side write), so
+ * Vite's watcher misses every change there and the page never reloads. Poll the checked-out commit instead (reading
+ * two small files: ~4 ms a second; stat-polling the source tree costs ~550 ms per pass over 9p), replay the files each
+ * new commit changed as watcher events (Vite invalidates them, and restarts on a config change), then reload the page:
+ * a merge is a new build, and hot-swapping the engine module would keep the old engine's state.
+ * ponytail: commits only; an uncommitted edit under /mnt still needs a manual reload.
+ */
+function gitHeadWatchPlugin(): Plugin {
+  return {
+    name: "crush:git-head-watch",
+    apply: "serve",
+    configureServer(server) {
+      const root = server.config.root;
+      const git = join(root, ".git");
+      // Only a main checkout on a Windows drive: a worktree's `.git` is a file, and ext4 has working inotify.
+      if (process.platform !== "linux" || !root.startsWith("/mnt/") || !existsSync(join(git, "HEAD"))) return;
+      const head = (): string | null => {
+        try {
+          const h = readFileSync(join(git, "HEAD"), "utf8").trim();
+          if (!h.startsWith("ref: ")) return h;
+          const ref = h.slice(5);
+          if (existsSync(join(git, ref))) return readFileSync(join(git, ref), "utf8").trim();
+          const packed = readFileSync(join(git, "packed-refs"), "utf8").split("\n");
+          return packed.find((l) => l.endsWith(` ${ref}`))?.slice(0, 40) ?? null;
+        } catch {
+          return null;
+        }
+      };
+      let seen = head();
+      const timer = setInterval(() => {
+        const now = head();
+        if (!now || now === seen) return;
+        const from = seen;
+        seen = now;
+        if (!from) return;
+        execFile("git", ["diff", "--name-status", "--no-renames", from, now], { cwd: root }, (err, out) => {
+          if (err) return server.config.logger.warn(`[git-head-watch] ${err.message}`);
+          let n = 0;
+          for (const line of out.split("\n")) {
+            const [status, file] = line.split("\t");
+            if (!file) continue;
+            server.watcher.emit(status === "A" ? "add" : status === "D" ? "unlink" : "change", join(root, file));
+            n++;
+          }
+          server.config.logger.info(`[git-head-watch] ${from.slice(0, 7)} -> ${now.slice(0, 7)}: ${n} files`, { timestamp: true });
+          if (n) setTimeout(() => server.ws.send({ type: "full-reload", path: "*" }), 1000);
+        });
+      }, 1000);
+      timer.unref();
+      server.httpServer?.on("close", () => clearInterval(timer));
+    },
+  };
+}
+
 // Build-time deploy knobs (docs/DEPLOY.md): APP_BASE serves the app under a
 // sub-path ("/crush/"; TanStack Start derives the router basepath from it), and
 // NITRO_PRESET picks the server target ("node-server" for self-hosting).
@@ -175,6 +231,8 @@ export default defineConfig(({ command, isPreview }) => ({
   },
   plugins: [
     pgliteBootstrapPlugin(),
+    // Reload on commits/merges where the file watcher is blind (a /mnt checkout under WSL).
+    gitHeadWatchPlugin(),
     // Before tanstackStart so /auth/popup never falls through to the SPA.
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
