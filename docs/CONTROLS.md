@@ -16,6 +16,7 @@ On a coarse pointer (phones, tablets) a thumb pad sits above the bottom bar. Des
 - **On the 3D view**: one finger drags to orbit (it looks round the car while driving), two fingers pinch to zoom, and a tap on a car follows it.
 - **Fullscreen**: a bottom-bar button (next to **Full menu** in the race focus view, which sits bottom centre on a phone on its side), using the Fullscreen API with the webkit fallback. Browsers that can't, such as iPhone Safari, don't show it.
 - **Sandbox HUD on a phone on its side**: the left column is the title over the thumb pad and the bottom bar; the right column stacks the readouts, the scene's panel (derby board, rig controls) and the settings, which start hidden here. The derby board shows the three best scores plus the car you watch, in 44 px rows.
+- **Idle HUD**: after 5 s without a tap the HUD mutes: the settings, key list and bottom-bar buttons hide, the scene picker keeps only the picked scene, the readouts and panels shrink and fade. Any tap on the page wakes it again; touches on the thumb pad don't count, so driving keeps it muted. Never while a menu is open (`use-hud-idle.ts`).
 
 A tap shorter than one frame still registers (the press is latched until the next poll), and each control tracks its own finger, so steering while holding the handbrake or boost works.
 

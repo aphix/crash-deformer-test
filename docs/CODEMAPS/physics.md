@@ -1,4 +1,4 @@
-<!-- Generated: 2026-10-02 | Files scanned: 18 | Token estimate: ~1700 -->
+<!-- Generated: 2026-10-03 | Files scanned: 18 | Token estimate: ~1700 -->
 # Physics / deformation stack
 
 ```
@@ -69,8 +69,12 @@ LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (cars outside `W
 ```
 Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` / `car-parts.ts` (`skinPanels`, `syncAttachedParts`, `evaluateBreakage`, `detachPart`).
 
+## Quarter panels, arches and dents
+- `car-panels.ts`: `panelRegions(style, body)` cuts six `PANEL_NAMES` (`quarterL` / `quarterR`, `archFL` … `archRR`) out of the body loft's own skin, per body style. Attached, a panel is just body (no mesh, no draw, no per-frame work). At its first hinge value or tear, `openPanel` (`car-parts.ts`) builds its shell (`makeShell`: the same skinned vertices, 4 mm proud of the body, in the body's frame so the class lift and the suspension pose carry it) and turns the body's patch under it to primer (`setPrimer`: the body paint's `primer` vertex attribute, no extra draw). `poseShell` bends it away (a quarter peels about its hinge line, an arch flare flaps out and drops) and `shellPose` re-poses it only when its hinge value or the skin changes. Torn, `detachPart` hands the shell to the world (`recentre` about its middle, `layFlat` on the ground); at most `LIVE_SHELLS` (2) torn shells per car are drawn, the oldest hides and stops stepping. `closePanel` puts the panel back (hinge value back to 0, or reset).
+- `loose-dent.ts`: every bounce of a torn part that changes its velocity by ≥ `DENT_MIN_DV` (1.8 m/s) is recorded in the part's frame (`recordDent`: contact normal and depth, at most `DENT_MAX` = 4 per part), a pure function of the part's motion, so a replay dents identically. `applyDents` carves the recorded dents into the mesh each step and `clearDents` resets them. Output-only: nothing in the sim reads it.
+
 ## Debug views
-- G `DeformRigHelper` (`deform-helper.ts`: cages, sensors, masses) + hull lines (`car-core.ts` hull overlay, `car.ts` `setRigVisible`); P `DeformParticleHelper` (size = mass, colour = plastic travel / contact, shape-match pull); Y shape ↔ lattice.
+- G `DeformRigHelper` (`deform-helper.ts`: cages, sensors, masses) + hull lines (`car-core.ts` hull overlay, `car.ts` `setRigVisible`); P `DeformParticleHelper` (size = mass, colour = plastic travel / contact, shape-match pull); Y shape ↔ lattice. Both views also draw the thrown-driver dummies (`present/ragdoll-debug.ts` `RagdollDebug`: limb boxes and joint lines for Rig, a mass-sized dot per limb for Particles; `engine-ragdoll.ts` builds it, `resetDefaults` / the toggles feed it through `ragdolls.debug.set`).
 
 ## Related
 `docs/RIG_ANALYSIS.md` (rig vs real structure), `docs/CRUSH_CALIBRATION.md` (squash/buckle), `docs/PISTON_RIG.md`, `docs/PARTICLE_LOD_SPEC.md` (fine-patch LoD: gate failed, not built), `.extraResearch/SYNTHESIS.md`, [architecture.md](architecture.md), [testing.md](testing.md)

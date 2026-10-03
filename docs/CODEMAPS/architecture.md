@@ -1,4 +1,4 @@
-<!-- Generated: 2026-10-02 | Files scanned: 34 | Token estimate: ~1480 -->
+<!-- Generated: 2026-10-03 | Files scanned: 34 | Token estimate: ~1480 -->
 # Architecture
 
 Browser crash lab: TanStack Start shell → one React page → `CrashEngine` (three.js, plain classes). All physics is in `src/game/`; React only renders the HUD. The server side is just the WebRTC signaling relay (`/api/rtc`).
@@ -9,20 +9,21 @@ src/routes/index.tsx  Home ─► src/components/crash-lab.tsx  CrashLab (+ NetP
                                    ▼
 src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / devtools handle)
   │  one class in layers, each `extends` the one before: engine-core.ts EngineCore (state, car roster, shared queries,
-  │  crash FX) → engine-warm.ts (shader warm-up) → engine-hud.ts (emitHud) → engine-scenes.ts (sceneId, setScene,
-  │  reset / spawn / park, derby netplay, disc edge) → engine-rigs.ts (press, pistons, doors) → engine-input.ts
-  │  (keys, pad, picks, HUD commands) → engine.ts CrashEngine (constructor, netplay host, frame loop, LoD, camera)
-  ├─ cars: DeformableCar[]        car.ts (layers car-core.ts → car-parts.ts) ─► StreamedDeformation (streamed-deform.ts, layers deform-*.ts); lamp-lights.ts LampLights
+  │  crash FX) → engine-warm.ts (shader warm-up, loads the skin kernel) → engine-hud.ts (emitHud) → engine-scenes.ts
+  │  (sceneId, setScene and the scene fade, reset / spawn / park, derby netplay, disc edge) → engine-rigs.ts (press,
+  │  pistons, doors) → engine-input.ts (keys, pad, picks, HUD commands) → engine-reel.ts (crash highlights) →
+  │  engine-share.ts (the `#` URL) → engine.ts CrashEngine (constructor, netplay host, frame loop, LoD, camera)
+  ├─ cars: DeformableCar[]        car.ts (layers car-core.ts → car-parts.ts) ─► StreamedDeformation (streamed-deform.ts, layers deform-*.ts; skin-kernel.ts WASM skin); car-panels.ts / loose-dent.ts (peeling panels), car-load.ts LoadTransfer; lamp-lights.ts LampLights
   ├─ classes / handling           vehicle-classes.ts (CLASSES, HANDLING.realism, killTravel), car-drive.ts
   ├─ contacts                     sat.ts, pair-contact.ts, external-contact.ts, engine-props.ts
   ├─ scenes                       fleet.ts, derby*.ts, compactor.ts, piston-rig.ts + engine-pistons.ts,
   │                               door-rig.ts DoorRig + engine-doors.ts DoorRam
-  ├─ input/camera                 drive-input.ts, gamepad.ts, engine-camera.ts
+  ├─ input/camera                 drive-input.ts, gamepad.ts, engine-camera.ts; spectate-cam.ts (CineCam, DutchCam, camUsable, SightLines, EyePull), shot-cam.ts ShotCam, auto-cam.ts AutoCam, highlight-cam.ts, ride-cam.ts RideCam
   ├─ FX / world                   engine-fx.ts, engine-world.ts WorldStage (night / wet), ground.ts
-  ├─ thrown drivers               ragdoll-trigger.ts EjectionWatch → engine-ragdoll.ts RagdollSystem (Rapier through rapier.ts loadRapier; a fixed 1/120 s step out of an accumulator, the draw blends the last two) over ragdoll-body.ts (parts, joints, damping, energy-only soft edits) and ragdoll-ground.ts (ground and wall colliders), ragdoll-mesh.ts DummyMesh
-  ├─ cinematics                   engine-cine.ts Cinematics → engine-post.ts PostFX, engine-marks.ts SkidMarks
-  ├─ netplay                      net/net-play.ts NetPlay (engine port net/net-ports.ts NetGame) → net/codec.ts, net/net-view.ts drawSnapshots, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom), net/matchmaking.ts findMatch / RoomPoller (Play online, live rooms)
-  ├─ race                         engine-race.ts RaceDirector → race/ (track, session, campaign, race-ai, traffic, track-art)
+  ├─ thrown drivers               ragdoll-trigger.ts EjectionWatch → engine-ragdoll.ts RagdollSystem (Rapier through rapier.ts loadRapier; a fixed 1/120 s step out of an accumulator, the draw blends the last two) over ragdoll-body.ts (parts, joints, damping, energy-only soft edits) and ragdoll-ground.ts (ground and wall colliders), ragdoll-mesh.ts DummyMesh, ragdoll-debug.ts RagdollDebug (limb boxes and joints in the Rig / Particles views); the ride-along's shots are ride-cam.ts
+  ├─ cinematics                   engine-cine.ts Cinematics → engine-post.ts PostFX, engine-marks.ts SkidMarks; scene-fade.ts SceneFade (scene switch transition); witness.ts Witness
+  ├─ netplay                      net/net-play.ts NetPlay (engine port net/net-ports.ts NetGame) → net/codec.ts, net/net-view.ts drawSnapshots, net/rtc-transport.ts (→ @/lib/multiplayer P2PRoom), net/matchmaking.ts findMatch / RoomPoller (Play online, live rooms), net/net-constants.ts (rates, windows, limits), net/car-pose.ts, net/reel-codec.ts
+  ├─ race                         engine-race.ts RaceDirector (+ engine-race-field.ts RaceField) → world/ (track, placements), match/ (session, campaign), ai/ (race-ai, traffic, police), present/track-art.ts
   ├─ trace                        engine-trace.ts (J key, JSON button)
   └─ emitHud() ─► hud-store.ts publishHud ─► useSyncExternalStore in CrashLab ─► components/hud*.tsx
 ```
@@ -38,7 +39,8 @@ src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / d
 ```
 tickInner(now)                               wallDt ≤ 0.1 s
  ├ pollInput()                               keys + pad → DriverSeat
- ├ simDt = wallDt × timeScale (slow-mo ramp, hit-stop); acc ≤ 0.05
+ ├ stepSceneFade(wallDt)                    scene switch: cel pulse → black → switch → fade-in; the new scene's sim waits while it is black (never in netplay or the results replay)
+ ├ simDt = wallDt × timeScale × cine.timeWarp (slow-mo ramp, hit-stop); acc ≤ 0.05
  ├ while acc: h = physicsSlice(acc, sliceSpeed(cars))   ≤ 8 steps, 8 ms budget
  │   fixedStep(h):
  │     applyDrive (player seat, derby AI via DerbyBrain.think, net.drive for remote peers on the host; in a race, race.drive drives every car)
@@ -52,15 +54,17 @@ tickInner(now)                               wallDt ≤ 0.1 s
  │   cutDrive, bleedAfterSlide
  ├ stepEdge()                               fleet disc: `edgeAction` (fleet.ts): 2 m below the top a car becomes a fake (`beginFakeFall`: soft body off, ballistic drop + constant spin), 20 m below it vaporizes (`setVaporized`: smoke, hidden, out of the sim), the driven one respawns after 2 s (`respawnOnDisc`)
  ├ scheduleSkins(cars) → car.updateDeform(simDt)   witness.aim(camera), then LoD stride (0 outside the cone, else by projected size) → skin
+ ├ updatePhase (stepPhase) · FX (`witness.sees` gates the spawns) · ragdolls.update · trace · stepDerby · seat.step · cine.update (marks, tyre smoke, punch)
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
- ├ updatePhase (stepPhase) · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step · race.frame
- ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit
- ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · lampLights.update · stage.syncPools (night)
- ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain
+ ├ race.frame(wallDt)
+ ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit / ride / spectator cams
+ ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · cullFarDetail · lampLights.update · stage.syncPools (night)
+ ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain (with the scene fade's cel pass)
  └ emitHud()  every 0.05–0.12 s
 ```
 `phase`: `approach → impact → slowmo → aftermath` (`phase.ts`: `CrashPhase`, `PhaseClock`, `easeTimeScale`, `beginImpact`, `stepPhase`, shared with the headless harnesses); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
-`Witness` (`present/witness.ts`): the one broad "could the camera see this?" test, `mayWitness(center, radius)` = the camera frustum grown by 1.5 m + the radius, occluders ignored on purpose. It only gates cosmetic work: off-cone skins (`skinStride` 0, caught up by `flushVisibleSkins`) and FX spawns (`sees(at, FX_REACH.x)`: sparks, debris, glass, engine smoke, tyre smoke and scrape sparks). Never gated: the sim, audio, tyre marks, the crash cinematic's own bursts, ragdoll exits. `witness.enabled` / `gateFx` switch it off for A/B probes.
+`Witness` (`present/witness.ts`): the one broad "could the camera see this?" test, `mayWitness(center, radius)` = the camera frustum grown by 1.5 m + the radius, occluders ignored on purpose. It only gates cosmetic work: off-cone skins (`skinStride` 0, caught up by `flushVisibleSkins`) and FX spawns (`sees(at, FX_REACH.x)`: sparks, debris, glass, engine smoke, tyre smoke and scrape sparks). Never gated: the sim, audio, tyre marks, the crash cinematic's own bursts, ragdoll exits. `witness.enabled` / `gateFx` switch it off for A/B probes. `cullFarDetail` (distance, not view): past `DETAIL_NEAR` (35 m) a car's small non-shadow parts leave camera layer 0 until it is back within `DETAIL_BACK` (32 m); lamp seats go too (the lamp batch skips a seat off layer 0), a hinged panel's shell stays (the body under it is primer).
+`SceneFade` (`present/scene-fade.ts`): the scene picker's transition, wall-clock presentation only. `setScene` requests it; `stepSceneFade` advances it each frame: the view eases into a cel look (`PostFX.cel`: 5 bands plus Sobel outlines in the existing composite pass, 0.25 s), cuts to black, `applyScene` switches on the first black frame, black holds through the new scene's first-use warm-ups (`warmsInFlight`, up to `FADE.waitMax` = 3 s; the new scene's sim waits too, `holding`, except in netplay and the results replay), then it fades in (0.2 s black, 0.35 s cel). With the canvas-only tiers (off / minimal) or reduced motion it is a plain 0.2 s fade. Black is a DOM veil over the canvas and the HUD (no pointer events) at every tier. The boot, the shared `#` link and netplay switch at once, and so does `window.__crush.fadeScenes = false` (probes).
 
 ## Scenes (one at a time: `sceneId` + `setScene()` in `engine-scenes.ts`)
 | Scene | Key | Entry | Code |
