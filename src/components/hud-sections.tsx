@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 
 type SectionId = "playback" | "driving" | "tuning" | "debug";
 
-/** Option buttons inside a segmented track. */
+/** Option buttons inside a segmented track. Five-option tracks wrap at three per row: one row of five overflows the panel. */
 const SEGMENT = "h-10 px-1 text-xs sm:h-7";
 const TRACK = "grid flex-1 gap-0.5 rounded-md bg-surface-2 p-0.5";
 
@@ -127,12 +127,7 @@ function PlaybackSection({ state, engine }: HudProps) {
       </div>
       <div className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">FX</span>
-        <div
-          className={TRACK}
-          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length + 1}, auto)` }}
-          role="group"
-          aria-label="Cinematic FX quality"
-        >
+        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Cinematic FX quality">
           {FX_TIERS.map((tier) => (
             <Button
               key={tier}
@@ -343,7 +338,7 @@ function DrivingSection({ state, engine }: HudProps) {
     <>
       <div className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">Car</span>
-        <div className={cn(TRACK, "grid-cols-5")} role="group" aria-label="Your car's class">
+        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Your car's class">
           {VEHICLE_CLASS_IDS.map((id) => (
             <Button
               key={id}
