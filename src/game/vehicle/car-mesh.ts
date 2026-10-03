@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { CAR_STYLES, type BodyStyle, type GlassQuad, type ProfileStation, type YZ } from "./car-variants.ts";
+import { CAR_STYLES, type BodyStyle, type ProfileStation, type YZ } from "./car-variants.ts";
 import { makePartsMaterial, makeWheelGeometry, treadNormalMap } from "./car-materials.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
@@ -19,19 +19,36 @@ const Y_FLOOR = 0.145;
 const SEDAN = CAR_STYLES.sedan;
 
 /** Platform hardpoints every style shares. */
-const WINDSHIELD_BASE: YZ = [0.78, 1.03];
-const WINDSHIELD_W = { base: 1.3, top: 0.96 } as const;
-const B_PILLAR_Z = { rear: -0.13, front: -0.03 } as const;
-const GLASS_BELT_Y = 0.83;
+export const WINDSHIELD_BASE: YZ = [0.78, 1.03];
+export const WINDSHIELD_W = { base: 1.3, top: 0.96 } as const;
+export const B_PILLAR_Z = { rear: -0.13, front: -0.03 } as const;
+export const GLASS_BELT_Y = 0.83;
 const GLASS_BELT_X = 0.85;
-/** Door glass pane origin in car space (door hinge + pane offset set in car.ts). */
-const DOOR_GLASS_ORIGIN = { x: 0.84, y: 1.06, z: 0.27 } as const;
 
 type Pt = { x: number; y: number };
 type V3 = readonly [number, number, number];
 
-function lerp(a: number, b: number, t: number): number {
+export function lerp(a: number, b: number, t: number): number {
   return a + (b - a) * t;
+}
+
+/**
+ * PCHIP tangent (Fritsch–Butland) of station field `key` at station `i`: flat at a local extremum, the end
+ * interval's secant at either end. Keeps the loft's width and beltline C1 along z without overshoot; a
+ * smoothstep per interval flattened every station into a visible ring.
+ */
+function stationSlope(p: readonly ProfileStation[], i: number, key: "hw" | "yBelt"): number {
+  const secant = (k: number) => (p[k + 1]![key] - p[k]![key]) / (p[k + 1]!.z - p[k]!.z);
+  if (i === 0) return secant(0);
+  if (i === p.length - 1) return secant(i - 1);
+  const d0 = secant(i - 1);
+  const d1 = secant(i);
+  if (d0 * d1 <= 0) return 0;
+  const h0 = p[i]!.z - p[i - 1]!.z;
+  const h1 = p[i + 1]!.z - p[i]!.z;
+  const w0 = 2 * h1 + h0;
+  const w1 = h1 + 2 * h0;
+  return (w0 + w1) / (w0 / d0 + w1 / d1);
 }
 
 function sampleSlice(z: number, profile: readonly ProfileStation[]): ProfileStation {
@@ -40,11 +57,19 @@ function sampleSlice(z: number, profile: readonly ProfileStation[]): ProfileStat
     const a = profile[i - 1]!;
     const b = profile[i]!;
     if (z <= b.z) {
-      const s = THREE.MathUtils.smoothstep((z - a.z) / (b.z - a.z), 0, 1);
+      const h = b.z - a.z;
+      const t = (z - a.z) / h;
+      const s = THREE.MathUtils.smoothstep(t, 0, 1);
+      // Cubic Hermite on [a, b] with PCHIP tangents for the shell's width and beltline.
+      const hermite = (key: "hw" | "yBelt") =>
+        (2 * t ** 3 - 3 * t ** 2 + 1) * a[key] +
+        (t ** 3 - 2 * t ** 2 + t) * h * stationSlope(profile, i - 1, key) +
+        (3 * t ** 2 - 2 * t ** 3) * b[key] +
+        (t ** 3 - t ** 2) * h * stationSlope(profile, i, key);
       return {
         z,
-        hw: lerp(a.hw, b.hw, s),
-        yBelt: lerp(a.yBelt, b.yBelt, s),
+        hw: hermite("hw"),
+        yBelt: hermite("yBelt"),
         yRoof: lerp(a.yRoof, b.yRoof, s),
         cabinHw: lerp(a.cabinHw, b.cabinHw, s),
         cabin: lerp(a.cabin, b.cabin, s),
@@ -61,13 +86,17 @@ function roofAt(z: number, style: BodyStyle): { y: number; x: number } {
   return { y: lerp(sl.yBelt, sl.yRoof, c), x: lerp(sl.hw * 0.55, sl.cabinHw, c) };
 }
 
-/** Height of the roof panel's centre-line crown at `z` (the top ring point of `makeRoofGeometry`). */
-export function roofCrownY(z: number, style: BodyStyle): number {
-  return roofAt(z, style).y + ROOF_CROWN;
+/** Height of the roof panel's top at (`x`, `z`), the top ring of `makeRoofGeometry`: the centre-line crown, the dome's
+ *  shoulder, then down to the cant line at the roof's half-width. */
+export function roofTopY(x: number, z: number, style: BodyStyle): number {
+  const r = roofAt(z, style);
+  const [us, ys] = ROOF_SHOULDER;
+  const u = Math.min(Math.abs(x) / r.x, 1);
+  return r.y + (u < us ? lerp(ROOF_CROWN, ys, u / us) : lerp(ys, 0, (u - us) / (1 - us)));
 }
 
 /** Side glass top edge: tucked under the roof cant rail. */
-function glassTopY(z: number, style: BodyStyle): number {
+export function glassTopY(z: number, style: BodyStyle): number {
   return roofAt(z, style).y - 0.075;
 }
 
@@ -76,7 +105,7 @@ function cantX(z: number, style: BodyStyle): number {
 }
 
 /** Tumblehome: side glass leans in from the belt to the roof cant. */
-function glassX(z: number, y: number, style: BodyStyle): number {
+export function glassX(z: number, y: number, style: BodyStyle): number {
   const top = glassTopY(z, style);
   return lerp(GLASS_BELT_X, cantX(z, style), THREE.MathUtils.clamp((y - GLASS_BELT_Y) / (top - GLASS_BELT_Y), 0, 1));
 }
@@ -143,10 +172,41 @@ function seamInset(z: number, style: BodyStyle): number {
   return 0.009 * Math.max(0, 1 - Math.abs(z - style.rearDoorSeam) / SEAM_HALF);
 }
 
+/** The side's widest line sits this far below the belt (m), `SIDE_OUT` proud of the station half-width. */
+const FEATURE_DROP = 0.1;
+const SIDE_OUT = 0.004;
+/** Shoulder: a quarter-ellipse from the feature line (vertical tangent) toward the deck edge, `SHOULDER` = [out, up] radii (m). */
+const SHOULDER = [0.074, 0.104] as const;
+/** The side's shoulder stops at this arc angle (rad); the deck (or the door glass) takes over above it. */
+const SHOULDER_TOP = Math.PI / 3;
+/** Tuck-under from the feature line to the rocker (m, parabolic in height). */
+const TUCK = 0.03;
+const ROCKER_Y = 0.2;
+
+/**
+ * Body-side half-width at height `y` for a station of half-width `hw` and belt `yb`: the shoulder rolls in
+ * above the feature line, the side tucks under below it, C1 at the feature line. The door skin follows it too.
+ */
+function sideX(y: number, hw: number, yb: number): number {
+  const yF = yb - FEATURE_DROP;
+  if (y >= yF) {
+    const sin = Math.min((y - yF) / SHOULDER[1], Math.sin(SHOULDER_TOP));
+    return hw + SIDE_OUT - SHOULDER[0] * (1 - Math.sqrt(1 - sin * sin));
+  }
+  const v = Math.min((yF - y) / (yF - ROCKER_Y), 1);
+  return hw + SIDE_OUT - TUCK * v * v;
+}
+
+/** Shoulder arc angles sampled by the ring (rad), top down; the feature line (0) follows. Two 30° chords sag 3 mm. */
+const SHOULDER_RING = [SHOULDER_TOP, Math.PI / 6] as const;
+/** Half-ring indices of the feature line and the rocker: the side points between them flare at the arches. */
+const FLARE_FIRST = 4;
+const ROCKER = 6;
+
 /**
  * Lower body ring (left half top→bottom, keel, right half bottom→top; the
- * wrap edge is the deck). Deck crown → shoulder → character crease → door
- * belly → rocker crease → sill. Tubs open the deck into a floor with walls;
+ * wrap edge is the deck). Deck crown → deck edge → rounded shoulder → feature
+ * line → tuck-under → rocker → sill. Tubs open the deck into a floor with walls;
  * the door cut drops the side to the sill. Greenhouse is never lofted metal.
  */
 function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
@@ -156,29 +216,34 @@ function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
   const well = wheelWell(z);
   const archY = WHEEL_Y + well;
   const inset = seamInset(z, style);
+  const yF = yb - FEATURE_DROP;
+  const side = (y: number): [number, number] => [sideX(y, hw, yb) - inset, y];
+  // One tuck point between the feature line and the rocker: the parabola's two chords sag under 2 mm.
   const half: [number, number][] = [
     [lerp(hw - 0.22, hw - 0.06, tub.t), lerp(yb + 0.012, tub.floor, tub.t)],
     [lerp(hw - 0.07, hw - 0.06, tub.t), lerp(yb + 0.004, yb - 0.006, tub.t)],
-    [hw - 0.02, yb - 0.022],
-    [hw + 0.004 - inset, yb - 0.1],
-    [hw - 0.012 - inset, lerp(yb - 0.1, 0.2, 0.45)],
-    [hw - 0.004 - inset, 0.2],
-    [hw - 0.045, 0.165],
+    ...SHOULDER_RING.map((a) => side(yF + SHOULDER[1] * Math.sin(a))),
+    side(yF),
+    side(lerp(yF, ROCKER_Y, 0.5)),
+    side(ROCKER_Y),
+    [hw - 0.05, 0.165],
     [hw * 0.8, Y_FLOOR + 0.004],
   ];
+  // The door cut: every point above the rocker drops onto the sill's top.
   const sill: [number, number][] = [
     [hw - 0.1, 0.235],
-    [hw - 0.06, 0.235],
-    [hw - 0.035, 0.232],
-    [hw - 0.028, 0.228],
-    [hw - 0.02, 0.224],
+    [hw - 0.07, 0.236],
+    [hw - 0.05, 0.234],
+    [hw - 0.036, 0.231],
+    [hw - 0.029, 0.226],
+    [hw - TUCK + SIDE_OUT, 0.22],
   ];
   for (let i = 0; i < sill.length; i++) {
     const p = half[i]!;
     p[0] = lerp(p[0], sill[i]![0], hole);
     p[1] = lerp(p[1], sill[i]![1], hole);
   }
-  for (let i = 3; i <= 5; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
+  for (let i = FLARE_FIRST; i <= ROCKER; i++) half[i]![0] += 0.022 * archFlare(z, half[i]![1]);
   for (const p of half) {
     if (well < 0.03 || p[0] < hw * 0.58 || p[1] > archY + 0.02) continue;
     const t = THREE.MathUtils.smoothstep((p[0] - hw * 0.58) / (hw * 0.42), 0, 1);
@@ -266,18 +331,24 @@ function loftFromRings(rings: Pt[][], zs: number[], u0: number, u1: number): THR
       indices.push(a, b, c, b, d, c);
     }
   }
+  // The end caps are the shell's real hard edges (end panels, ~50–90° off the loft): each gets its own copy of the end
+  // ring, so the cap shades flat and the loft smooth instead of averaging the corner into both. The copies share rest
+  // positions, so they skin (and wrinkle) as one.
   const cap = (slice: number, inward: boolean) => {
     const ring = rings[slice]!;
+    const z = zs[slice]!;
     let cx = 0,
       cy = 0;
+    const base = positions.length / 3;
     for (const p of ring) {
       cx += p.x;
       cy += p.y;
+      positions.push(p.x, p.y, z);
+      uvs.push(inward ? 0 : 1, 0.5);
     }
     const center = positions.length / 3;
-    positions.push(cx / n, cy / n, zs[slice]!);
+    positions.push(cx / n, cy / n, z);
     uvs.push(inward ? 0 : 1, 0.5);
-    const base = slice * n;
     for (let i = 0; i < n; i++) {
       const i1 = (i + 1) % n;
       if (inward) indices.push(center, base + i1, base + i);
@@ -346,6 +417,8 @@ function makeWellLiner(wx: number, wy: number, wz: number): THREE.BufferGeometry
 
 /** Roof crown above the cant line at the centre line (m): the roof panel's gentle dome. */
 const ROOF_CROWN = 0.026;
+/** The dome's shoulder: [share of the roof half-width, rise above the cant line (m)]. */
+const ROOF_SHOULDER = [0.45, 0.018] as const;
 
 function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
   const [z0, z1] = style.roofZ;
@@ -359,9 +432,9 @@ function makeRoofGeometry(style: BodyStyle): THREE.BufferGeometry {
       { x: -(x + 0.08), y: y - 0.075 },
       { x: -(x + 0.07), y: y - 0.03 },
       { x: -x, y },
-      { x: -x * 0.45, y: y + 0.018 },
+      { x: -x * ROOF_SHOULDER[0], y: y + ROOF_SHOULDER[1] },
       { x: 0, y: y + ROOF_CROWN },
-      { x: x * 0.45, y: y + 0.018 },
+      { x: x * ROOF_SHOULDER[0], y: y + ROOF_SHOULDER[1] },
       { x, y },
       { x: x + 0.07, y: y - 0.03 },
       { x: x + 0.08, y: y - 0.075 },
@@ -533,10 +606,13 @@ function makeDeckPanel(style: BodyStyle, z0: number, z1: number, origin: YZ): TH
   return geo;
 }
 
+/** The tailgate stops this far (m) inside the tail panel's half-width: the tail lamps stand upright in the corners. */
+const TAILGATE_INSET = 0.135;
+
 /** Hatch / tailgate: a slightly bowed vertical panel hinged at its top edge. */
 function makeTailgate(style: BodyStyle, y0: number, origin: YZ): THREE.BufferGeometry {
   const [y1, oz] = origin;
-  const w = sampleSlice(oz, style.profile).hw - 0.05;
+  const w = sampleSlice(oz, style.profile).hw - TAILGATE_INSET;
   const tk = 0.03;
   const bow = 0.02;
   const segs = 5;
@@ -624,6 +700,8 @@ export const DOOR = {
   /** Hinge axis to trailing edge (m). */
   length: 0.57,
   halfHeight: 0.31,
+  /** Door skin mesh offset from the hinge along z (m). */
+  skinZ: -0.28,
   /** Mirror base in door space (±mirrorX, mirrorY, 0); the cap reaches `mirrorReach` out and is ±`mirrorHalfDepth` deep. */
   mirrorX: 0.06,
   mirrorY: 0.32,
@@ -631,123 +709,32 @@ export const DOOR = {
   mirrorHalfDepth: 0.08,
 } as const;
 
-/** Door skin in hinge-local space. Parent at the A-pillar (sign*0.86, 0.54, 0.55). */
-export function makeDoorGeometry(sign: number): THREE.BufferGeometry {
-  const geo = new THREE.BoxGeometry(0.05, 0.62, 0.58, 2, 5, 6);
-  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
-  for (let i = 0; i < pos.count; i++) {
-    let x = pos.getX(i);
-    let y = pos.getY(i);
-    const z = pos.getZ(i);
-    x += sign * 0.012;
-    if (z > 0.16) {
-      y += (z - 0.16) * -0.06;
-      x += sign * (z - 0.16) * 0.04;
-    }
-    if (z < -0.2) y += (-0.2 - z) * -0.04;
-    const belt = THREE.MathUtils.clamp((y - 0.12) / 0.28, 0, 1);
-    if (belt > 0.55 && Math.abs(z) < 0.18) x += sign * 0.01;
-    pos.setXYZ(i, x, y, z);
-  }
-  geo.computeVertexNormals();
-  return geo;
-}
-
-/** Raked glass quad (windshield / rear glass), bowed by `bow` along z at the centre line. */
-function makeGlassQuad(q: GlassQuad, segX: number, segY: number, bow: number): THREE.BufferGeometry {
-  const positions: number[] = [];
-  const uvs: number[] = [];
-  const indices: number[] = [];
-  for (let j = 0; j <= segY; j++) {
-    const t = j / segY;
-    const y = lerp(q.base[0], q.top[0], t);
-    const z = lerp(q.base[1], q.top[1], t);
-    const w = lerp(q.wBase, q.wTop, t);
-    for (let i = 0; i <= segX; i++) {
-      const xn = (i / segX) * 2 - 1;
-      positions.push(xn * w * 0.5, y, z + bow * (1 - xn * xn));
-      uvs.push(i / segX, t);
-    }
-  }
-  const row = segX + 1;
-  for (let j = 0; j < segY; j++) {
-    for (let i = 0; i < segX; i++) {
-      const a = j * row + i;
-      indices.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(indices);
-  geo.computeVertexNormals();
-  return geo;
-}
-
-export function makeWindshield(style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  return makeGlassQuad({ base: WINDSHIELD_BASE, top: style.windshieldTop, wBase: WINDSHIELD_W.base, wTop: WINDSHIELD_W.top }, 10, 8, 0.02);
-}
-
-export function makeRearGlass(style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  return makeGlassQuad(style.rearGlass, 8, 6, -0.015);
-}
+/** Door skin over the body side at its outer face (m). */
+const DOOR_PROUD = 0.003;
 
 /**
- * Side glass from the belt to the roof cant, leaning in with the tumblehome.
- * Edges run rear (s=0) → front (s=1); `zBot`/`zTop` are the edge z at the
- * belt and at the top. Positions are relative to `origin`.
+ * Door skin in hinge-local space (parent at the A-pillar hinge, the skin `DOOR.skinZ` behind it). The outer face
+ * follows the body side (`sideX`) at each height and station, 5 cm thick inboard; its rows bunch toward the top so
+ * the shoulder roll reads round.
  */
-function makeSideGlassPane(
-  sign: number,
-  style: BodyStyle,
-  zBot: readonly [number, number],
-  zTop: readonly [number, number],
-  origin: V3,
-): THREE.BufferGeometry {
-  const segS = 6;
-  const segT = 3;
-  const positions: number[] = [];
-  const uvs: number[] = [];
-  const indices: number[] = [];
-  for (let j = 0; j <= segT; j++) {
-    const t = j / segT;
-    for (let i = 0; i <= segS; i++) {
-      const s = i / segS;
-      const zt = lerp(zTop[0], zTop[1], s);
-      const z = lerp(lerp(zBot[0], zBot[1], s), zt, t);
-      const y = lerp(GLASS_BELT_Y, glassTopY(zt, style), t);
-      positions.push(sign * glassX(z, y, style) - origin[0], y - origin[1], z - origin[2]);
-      uvs.push(s, t);
-    }
+export function makeDoorGeometry(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
+  const h = DOOR.halfHeight;
+  const geo = new THREE.BoxGeometry(0.05, 2 * h, 0.58, 2, 8, 6);
+  const pos = geo.getAttribute("position") as THREE.BufferAttribute;
+  for (let i = 0; i < pos.count; i++) {
+    const out = pos.getX(i) * sign;
+    // float32 rows can sit a hair past ±h: clamp before the fractional power.
+    const t = THREE.MathUtils.clamp((pos.getY(i) + h) / (2 * h), 0, 1);
+    let y = h * (1 - 2 * (1 - t) ** 1.6);
+    const z = pos.getZ(i);
+    if (z > 0.16) y += (z - 0.16) * -0.06;
+    if (z < -0.2) y += (-0.2 - z) * -0.04;
+    const sl = sampleSlice(DOOR.hingeZ + DOOR.skinZ + z, style.profile);
+    const outer = sideX(DOOR.hingeY + y, sl.hw, sl.yBelt) + DOOR_PROUD - DOOR.hingeX;
+    pos.setXYZ(i, sign * (outer - 0.025 + out), y, z);
   }
-  const row = segS + 1;
-  for (let j = 0; j < segT; j++) {
-    for (let i = 0; i < segS; i++) {
-      const a = j * row + i;
-      // Face outward (+x on the right) so the pane front-faces a viewer outside.
-      if (sign > 0) indices.push(a, a + row, a + 1, a + 1, a + row, a + row + 1);
-      else indices.push(a, a + 1, a + row, a + 1, a + row + 1, a + row);
-    }
-  }
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  geo.setAttribute("uv", new THREE.Float32BufferAttribute(uvs, 2));
-  geo.setIndex(indices);
   geo.computeVertexNormals();
   return geo;
-}
-
-/** Door glass in pane-local space: car.ts parents it to the door at (∓0.02, 0.52, -0.28). */
-export function makeSideGlass(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  const o = DOOR_GLASS_ORIGIN;
-  const frontTop = style.windshieldTop[1] - 0.05;
-  return makeSideGlassPane(sign, style, [0.01, 0.76], [0.03, frontTop], [sign * o.x, o.y, o.z]);
-}
-
-/** Quarter glass from the B-pillar back to the C-pillar, on the body (car local). */
-export function makeRearSideGlass(sign: number, style: BodyStyle = SEDAN): THREE.BufferGeometry {
-  const q = style.quarter;
-  return makeSideGlassPane(sign, style, [q.zRearBot, B_PILLAR_Z.rear], [q.zRearTop, B_PILLAR_Z.rear], [0, 0, 0]);
 }
 
 /**

@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
 import { LampBatch, LampLights, SPOT_POOL } from "./lamp-lights.ts";
+import { LAMP_HOUSING } from "./car-materials.ts";
+import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
+import { assignClass, STYLE_CLASS, type VehicleClassId } from "./vehicle-classes.ts";
 import { DT, forModes, paint } from "./test-support.ts";
 
 type LampRow = { kind: string; side: number; intact: boolean };
@@ -115,6 +118,54 @@ describe("a detached bumper leaves the lamps behind", () => {
       assert.ok(d < 1e-4, `lamp ${i} moved ${d.toFixed(4)} m relative to the body`);
     }
   });
+});
+
+describe("every body seats its own lamps", () => {
+  const bodies: [CarStyleId, VehicleClassId][] = [...CAR_STYLE_IDS.map((s): [CarStyleId, VehicleClassId] => [s, STYLE_CLASS[s]]), ["pickup", "monster"]];
+  for (const [style, cls] of bodies) {
+    it(`good: ${style} as ${cls} — each housing sits whole on its end panel, faces out, and lights from where it is drawn`, () => {
+      const car = new DeformableCar(paint(), new THREE.Scene(), null, style);
+      assignClass(car, cls);
+      car.group.updateMatrixWorld(true);
+      const exterior: THREE.Object3D[] = [];
+      car.group.traverse((o) => {
+        if (!(o instanceof THREE.Mesh) || o.name === "interior") return;
+        for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p.name === "deform-rig" || !p.visible) return;
+        exterior.push(o);
+      });
+      const ray = new THREE.Raycaster();
+      const x = new THREE.Vector3();
+      const y = new THREE.Vector3();
+      const axis = new THREE.Vector3();
+      const q = new THREE.Vector3();
+      const pos = new THREE.Vector3();
+      const dir = new THREE.Vector3();
+      car.lamps.forEach((l, i) => {
+        const name = `${l.kind}${l.side < 0 ? "L" : "R"}`;
+        const m = l.seat.matrixWorld;
+        x.setFromMatrixColumn(m, 0).normalize();
+        y.setFromMatrixColumn(m, 1).normalize();
+        axis.setFromMatrixColumn(m, 2).normalize();
+        assert.ok(axis.z * (l.kind === "head" ? 1 : -1) > 0.99, `${name} faces ${axis.toArray().map((v) => v.toFixed(2))}`);
+        // 5×5 probes over the housing's back face, each cast in from outside along the lamp axis: the first surface met
+        // must be the body skin within 1.5 cm of the seat plane (not air, not a bumper, grille or boot over the lamp).
+        const [w, h] = LAMP_HOUSING[l.kind];
+        for (let a = 0; a <= 4; a++) {
+          for (let b = 0; b <= 4; b++) {
+            q.setFromMatrixPosition(m).addScaledVector(x, (a / 4 - 0.5) * w).addScaledVector(y, (b / 4 - 0.5) * h);
+            ray.set(q.clone().addScaledVector(axis, 0.6), axis.clone().negate());
+            const hit = ray.intersectObjects(exterior, false)[0];
+            assert.ok(hit?.object === car.body, `${name} probe ${a},${b} meets ${hit ? hit.object.name || hit.object.parent?.name || "a part" : "nothing"}`);
+            const off = 0.6 - hit.distance;
+            assert.ok(Math.abs(off) < 0.015, `${name} probe ${a},${b}: skin ${(off * 100).toFixed(1)} cm off the seat plane`);
+          }
+        }
+        car.lampWorld(i, pos, dir);
+        assert.ok(pos.distanceTo(q.setFromMatrixPosition(m)) < 1e-6, `${name} lights from ${pos.distanceTo(q).toFixed(3)} m off the drawn lamp`);
+        assert.ok(dir.dot(axis) > 0.9999, `${name} light axis off the lamp's`);
+      });
+    });
+  }
 });
 
 describe("lamp light pool", () => {

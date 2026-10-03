@@ -3,8 +3,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DeformableCar, WHEEL_POS } from "./car.ts";
 import { CAR_STYLES, CAR_STYLE_IDS, FLEET_STYLE_IDS, type BodyStyle, type CarStyleId } from "./car-variants.ts";
-import { makeChassisGeometry, makeRearGlass, makeTrunkGeometry, makeWindshield } from "./car-mesh.ts";
-import { makeLightBar } from "./car-materials.ts";
+import { makeChassisGeometry, makeTrunkGeometry } from "./car-mesh.ts";
+import { makeRearGlass, makeWindshield } from "./car-glass.ts";
+import { LIGHT_BAR_FOOT, makeLightBar } from "./car-materials.ts";
 import { runWall } from "../contact/crash-scenarios.test-util.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
 import { StreamedDeformation } from "../deform/streamed-deform.ts";
@@ -204,6 +205,22 @@ describe("police cruiser", () => {
     assert.ok(!paints.has(new THREE.Color(PAINT.body).getHex()), "the fleet paint leaked onto the police car");
     const z = c.group.getObjectByName("lightBar")!.position.z;
     assert.ok(topAt("police", z) > topAt("sedan", z) + 0.1, `bar top ${topAt("police", z)} vs sedan roof ${topAt("sedan", z)}`);
+  });
+
+  it("good: the light bar stands on its feet: every sole corner within 1.2 cm of the roof under it (the crown seat sank them 2.3 cm)", () => {
+    const c = cars.police;
+    c.group.updateMatrixWorld(true);
+    const bar = c.group.getObjectByName("lightBar")!;
+    const sole = new THREE.Vector3();
+    for (const x of [-LIGHT_BAR_FOOT.x - 0.04, -LIGHT_BAR_FOOT.x + 0.04, LIGHT_BAR_FOOT.x - 0.04, LIGHT_BAR_FOOT.x + 0.04]) {
+      for (const z of [-0.09, 0.09]) {
+        sole.set(x, LIGHT_BAR_FOOT.sole, z).applyMatrix4(bar.matrixWorld);
+        const roof = new THREE.Raycaster(new THREE.Vector3(sole.x, 3, sole.z), new THREE.Vector3(0, -1, 0)).intersectObject(c.body, false)[0];
+        assert.ok(roof, `no roof under the sole at x=${x}`);
+        const gap = sole.y - roof.point.y;
+        assert.ok(Math.abs(gap) < 0.012, `sole at x=${x} z=${z} is ${(gap * 100).toFixed(1)} cm off the roof`);
+      }
+    }
   });
 
   it("good: a 56 km/h wall keeps the bar on, bent with the roof; every other part fares as the sedan's", () => {

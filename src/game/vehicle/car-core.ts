@@ -10,14 +10,12 @@ import {
   makeChassisGeometry,
   makeDoorGeometry,
   makeHoodGeometry,
-  makeRearGlass,
-  makeRearSideGlass,
-  makeSideGlass,
   makeTrunkGeometry,
-  makeWindshield,
-  roofCrownY,
+  roofTopY,
 } from "./car-mesh.ts";
+import { makeRearGlass, makeRearSideGlass, makeSideGlass, makeWindshield } from "./car-glass.ts";
 import {
+  LIGHT_BAR_FOOT,
   LIGHT_BAR_LENS,
   makeDoorLining,
   makeGlassMaterial,
@@ -38,8 +36,9 @@ import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();
+const _lampE = new THREE.Euler();
 
-/** Light bar seat on the roof crown (car z, m): over the front seats, behind the windshield header. */
+/** Light bar seat on the roof (car z, m): over the front seats, behind the windshield header. */
 const LIGHT_BAR_Z = -0.02;
 /** Siren flash: red, then blue, each half of this period (s). */
 const SIREN_PERIOD = 0.5;
@@ -327,7 +326,8 @@ export abstract class CarCore {
       this.lightBar = new THREE.Mesh(makeLightBar(), this.sirenMat);
       this.lightBar.name = "lightBar";
       this.lightBar.castShadow = true;
-      this.lightBar.position.set(0, roofCrownY(LIGHT_BAR_Z, this.style), LIGHT_BAR_Z);
+      // Feet soles on the roof's dome where they stand, not the crown between them (that sank them 0.5–2.3 cm).
+      this.lightBar.position.set(0, roofTopY(LIGHT_BAR_FOOT.x, LIGHT_BAR_Z, this.style) - LIGHT_BAR_FOOT.sole, LIGHT_BAR_Z);
       this.lightBarOrigin.copy(this.lightBar.position);
       this.group.add(this.lightBar);
       this.lightBarRest = this.copyRest(this.lightBar.geometry);
@@ -337,11 +337,11 @@ export abstract class CarCore {
     this.doorR = new THREE.Group();
     this.doorL.position.set(-DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
     this.doorR.position.set(DOOR.hingeX, DOOR.hingeY, DOOR.hingeZ);
-    this.doorMeshL = new THREE.Mesh(makeDoorGeometry(-1), doorMat);
-    this.doorMeshL.position.set(0, 0, -0.28);
+    this.doorMeshL = new THREE.Mesh(makeDoorGeometry(-1, this.style), doorMat);
+    this.doorMeshL.position.set(0, 0, DOOR.skinZ);
     this.doorMeshL.castShadow = true;
-    this.doorMeshR = new THREE.Mesh(makeDoorGeometry(1), doorMat);
-    this.doorMeshR.position.set(0, 0, -0.28);
+    this.doorMeshR = new THREE.Mesh(makeDoorGeometry(1, this.style), doorMat);
+    this.doorMeshR.position.set(0, 0, DOOR.skinZ);
     this.doorMeshR.castShadow = true;
     this.doorL.add(this.doorMeshL);
     this.doorR.add(this.doorMeshR);
@@ -410,23 +410,27 @@ export abstract class CarCore {
     return g;
   }
 
-  /** Head lamps on the nose cap's top corners, tails on the tail cap's, both just above the bumper so
-   *  they sit flush on the skin with the bumper gone. Each rides three nearby skin vertices. */
+  /** Head lamps on the nose, tails on the tail panel (upright in its corners beside a tailgate), at the body's own
+   *  seats (`BodyStyle.lamps`), so each sits flush on the skin with the bumper gone. Each rides three nearby skin vertices. */
   private addLamps(): void {
+    const { profile, lamps, boot } = this.style;
     for (const kind of ["head", "tail"] as const) {
       const head = kind === "head";
+      const [x, y] = lamps[kind];
+      const z = head ? profile[profile.length - 1]!.z : profile[0]!.z;
+      _lampQ.setFromEuler(_lampE.set(0, head ? 0 : Math.PI, !head && boot.kind === "tailgate" ? Math.PI / 2 : 0));
       for (const side of [-1, 1]) {
         const seat = new THREE.Object3D();
         seat.name = "lamp";
         this.group.add(seat);
-        _p.set(side * (head ? 0.48 : 0.52), head ? 0.505 : 0.51, head ? 2.11 : -2.11);
+        _p.set(side * x, y, z);
         this.lamps.push({
           seat,
           intact: true,
           kind,
           side,
           sensors: head ? (side < 0 ? [1, 4] : [2, 5]) : side < 0 ? [16, 10] : [17, 11],
-          anchor: anchorOnSkin(this.body.geometry, _p, head ? _lampQ.identity() : _lampQ.set(0, 1, 0, 0)),
+          anchor: anchorOnSkin(this.body.geometry, _p, _lampQ),
         });
       }
     }
@@ -585,12 +589,14 @@ export abstract class CarCore {
   }
 
   /** Writes lamp `i`'s world seat on the skin and outward axis; returns its kind, or null once broken.
-   *  Past the body lamps come the light bar's sirens, red then blue: lit only while flashing. */
+   *  Past the body lamps come the light bar's sirens, red then blue: lit only while flashing.
+   *  Both go through the full parent chain: a class lift (truck, monster) raises the lamps with the body. */
   lampWorld(i: number, pos: THREE.Vector3, dir: THREE.Vector3): GlowKind | null {
     const l = this.lamps[i];
     if (!l) return this.sirenWorld(i - this.lamps.length, pos, dir);
-    dir.set(0, 0, 1).applyQuaternion(l.seat.quaternion).applyQuaternion(this.group.quaternion);
-    pos.copy(l.seat.position).applyQuaternion(this.group.quaternion).add(this.group.position);
+    l.seat.updateWorldMatrix(true, false);
+    pos.setFromMatrixPosition(l.seat.matrixWorld);
+    dir.setFromMatrixColumn(l.seat.matrixWorld, 2).normalize();
     return l.intact ? l.kind : null;
   }
 
@@ -606,8 +612,9 @@ export abstract class CarCore {
       pos.y += a.getY(v);
       pos.z += a.getZ(v);
     }
-    pos.multiplyScalar(1 / count).add(bar.position).applyQuaternion(this.group.quaternion).add(this.group.position);
-    dir.set(0, 1, 0).applyQuaternion(this.group.quaternion);
+    bar.updateWorldMatrix(true, false);
+    pos.multiplyScalar(1 / count).applyMatrix4(bar.matrixWorld);
+    dir.setFromMatrixColumn(bar.matrixWorld, 1).normalize();
     return k === 0 ? "red" : "blue";
   }
 

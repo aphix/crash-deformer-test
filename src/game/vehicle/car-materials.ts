@@ -293,12 +293,16 @@ export function makeTailTrim(): THREE.Mesh {
 
 export type LampKind = "head" | "tail";
 
+/** Lamp housing [width, height] (m). The head lamp fits the nose between the grille and the header panel. */
+export const LAMP_HOUSING: Readonly<Record<LampKind, readonly [number, number]>> = { head: [0.22, 0.09], tail: [0.31, 0.11] };
+
 /** Lamp unit in lamp space (lens toward +z, origin on the body skin): dark housing plus lens, one draw.
  *  uv picks the `lampEmissiveMap` texel — housing 0, lens 1 — so a per-lamp emissive lights the lens alone. */
 export function makeLampUnit(kind: LampKind): THREE.BufferGeometry {
   const head = kind === "head";
-  const housing = toned(new THREE.BoxGeometry(head ? 0.27 : 0.31, 0.11, 0.05), head ? 0x1a1c20 : 0x15171a, 0, 0);
-  const lens = toned(new THREE.BoxGeometry(head ? 0.22 : 0.26, head ? 0.085 : 0.075, 0.03), head ? 0xf4f1e8 : 0xc4121c, 0, 0);
+  const [w, h] = LAMP_HOUSING[kind];
+  const housing = toned(new THREE.BoxGeometry(w, h, 0.05), head ? 0x1a1c20 : 0x15171a, 0, 0);
+  const lens = toned(new THREE.BoxGeometry(w - 0.04, h * 0.72, 0.03), head ? 0xf4f1e8 : 0xc4121c, 0, 0);
   (housing.getAttribute("uv").array as Float32Array).fill(0.25);
   (lens.getAttribute("uv").array as Float32Array).fill(0.75);
   return mergeToned([housing.translate(0, 0, 0.015), lens.translate(0, 0, 0.03)], "lamp unit");
@@ -314,8 +318,11 @@ export const lampEmissiveMap = once((): THREE.DataTexture => {
 /** Light bar lens texels in `sirenEmissiveMap` order: housing, red lens, blue lens. */
 const SIREN_U = [1 / 6, 3 / 6, 5 / 6] as const;
 
-/** Roof light bar in bar space (origin on the roof crown, +z forward): housing on two feet, a red lens
- *  on the left (−x) and a blue one on the right, one draw. `LIGHT_BAR_LENS` lists each lens's vertices. */
+/** The light bar's two feet in bar space: at ±`x`, their soles `sole` below the origin. They rest on the roof. */
+export const LIGHT_BAR_FOOT = { x: 0.4, sole: -0.03 } as const;
+
+/** Roof light bar in bar space (+z forward): housing on two feet (`LIGHT_BAR_FOOT`), a red lens on the left (−x)
+ *  and a blue one on the right, one draw. `LIGHT_BAR_LENS` lists each lens's vertices. */
 export function makeLightBar(): THREE.BufferGeometry {
   const box = (w: number, h: number, d: number, x: number, y: number, tone: number, texel: 0 | 1 | 2) => {
     const g = toned(new THREE.BoxGeometry(w, h, d), tone, 0, 0).translate(x, y, 0);
@@ -330,8 +337,8 @@ export function makeLightBar(): THREE.BufferGeometry {
     [
       box(1.06, 0.05, 0.25, 0, 0.04, 0x16181c, 0),
       box(0.06, 0.07, 0.2, 0, 0.1, 0x8a909a, 0),
-      box(0.08, 0.06, 0.18, -0.4, 0, 0x16181c, 0),
-      box(0.08, 0.06, 0.18, 0.4, 0, 0x16181c, 0),
+      box(0.08, -2 * LIGHT_BAR_FOOT.sole, 0.18, -LIGHT_BAR_FOOT.x, 0, 0x16181c, 0),
+      box(0.08, -2 * LIGHT_BAR_FOOT.sole, 0.18, LIGHT_BAR_FOOT.x, 0, 0x16181c, 0),
       box(0.47, 0.075, 0.22, -0.27, 0.1, 0x8c1218, 1),
       box(0.47, 0.075, 0.22, 0.27, 0.1, 0x1a36a8, 2),
     ],
