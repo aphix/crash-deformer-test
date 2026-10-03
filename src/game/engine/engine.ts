@@ -712,9 +712,9 @@ export class CrashEngine extends EngineShare {
 
   private aimRigs(wallDt: number): void {
     if (this.highlights.playing) {
-      // The reel frames its own shots (over any ride-along); the crash cam takes each clip's hit as in a sandbox crash.
+      // The reel frames its own shots (over any ride-along); the crash cam takes each clip's hit and holds one cut through it.
       this.reelFov ??= this.camera.fov;
-      if (!this.cine.direct(this.camera, wallDt, true)) this.highlights.camera(this.camera);
+      if (!this.cine.direct(this.camera, wallDt, true, this.highlights.crashHold())) this.highlights.camera(this.camera);
       return;
     }
     // A thrown driver's ride-along holds the camera from his exit (the windshield shot, then the dummy), over the crash

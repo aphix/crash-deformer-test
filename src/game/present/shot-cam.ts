@@ -125,8 +125,11 @@ export class ShotCam {
     return eye === null || (eye.distanceToSquared(pos) < SHOT_RANGE * SHOT_RANGE && camUsable(sight, eye, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD));
   }
 
-  /** `cam` on `shot`'s camera for `car`. */
-  pose(cam: THREE.PerspectiveCamera, car: DeformableCar, shot: Shot): void {
+  /**
+   * `cam` on `shot`'s camera for `car`. `heading` (flat, unit): the travel direction the chase follows in place of the
+   * car's velocity: a reel's low-passed one (`ClipSim.heading`), as a wreck's own velocity swings 4° and more a frame.
+   */
+  pose(cam: THREE.PerspectiveCamera, car: DeformableCar, shot: Shot, heading: { x: number; y: number } | null = null): void {
     const pos = car.group.position;
     if (shot.kind === "cine" && this.found) {
       cam.position.copy(this.cine.eye);
@@ -144,8 +147,8 @@ export class ShotCam {
       // a solid is at the eye (a street corner, a wall).
       const v = car.velocity;
       const speed = Math.hypot(v.x, v.z);
-      const fx = speed > 2 ? v.x / speed : car.fwdFlat.x;
-      const fz = speed > 2 ? v.z / speed : car.fwdFlat.z;
+      const fx = heading ? heading.x : speed > 2 ? v.x / speed : car.fwdFlat.x;
+      const fz = heading ? heading.y : speed > 2 ? v.z / speed : car.fwdFlat.z;
       const s = this.sight;
       for (const r of PULL) {
         _e.set(pos.x - fx * CHASE.back * r, pos.y + CHASE.up, pos.z - fz * CHASE.back * r);
