@@ -145,9 +145,10 @@ export class Backoff {
 
 /**
  * Within `ATTACK` m of its target: ram head-on or block from ahead, PIT or slam from alongside, line up by `role` (its
- * place in the pack) from behind. The one attack geometry of every police drive; `turn` is the class's full-lock yaw rate.
+ * place in the pack) from behind. The one attack geometry of every police drive; `turn` is the class's full-lock yaw rate. `block` false
+ * drops the getting-ahead-and-braking part: a quarry that has stopped is not worth blocking.
  */
-export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput): void {
+export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput, block = true): void {
   const tfx = Math.sin(tg.yaw);
   const tfz = Math.cos(tg.yaw);
   // Left of the target's travel = (fz, −fx).
@@ -170,7 +171,7 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
     lat = 0;
     lead = clamp(dist / Math.max(4, tv + speed), 0, 1.5);
     want = Infinity;
-  } else if (along > AHEAD_OF) {
+  } else if (block && along > AHEAD_OF) {
     // Ahead: onto its line in front of it, a little slower; brake-check when it closes.
     fwd = along + BLOCK_AHEAD;
     lat = 0;

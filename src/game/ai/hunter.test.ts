@@ -251,7 +251,7 @@ describe("HunterBrain: driving", () => {
     const got = { ...d.out() };
     const want = idleDrive();
     want.brake = 0;
-    attackTarget(d.cop, d.tg, 0, 1.5, 12, ATTACK - 10, false, want);
+    attackTarget(d.cop, d.tg, 0, 1.5, 12, ATTACK - 10, false, want, false);
     assert.equal(got.throttle, want.throttle);
     assert.equal(got.brake, want.brake);
     assert.equal(got.boost, want.boost);

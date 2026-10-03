@@ -47,6 +47,8 @@ const SWATH = 1.6;
 /** Metres between the probes along a heading (a palm is 3.8 m across with the swath), and the headings tried off the straight one, in turn, to either side. */
 const PROBE_STEP = 2;
 const TURNS = [0.3, 0.6, 0.9, 1.25, 1.6, 2.2, Math.PI] as const;
+/** A quarry slower than this (m/s) is not blocked from ahead (a unit braking in front of a stopped player waits for ever); it is rammed. */
+const BLOCKABLE = 6;
 /** Above this speed (m/s) a unit lifts when a solid is close ahead; below it, easing off only wedges it. */
 const DODGE_SPEED = 8;
 /** With no heading clear for the whole stretch, a bend of one radian is worth this many metres of clear run. */
@@ -239,7 +241,7 @@ export class HunterBrain implements CopBrain {
     const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
     const reach = along > 0 ? Math.max(ATTACK, tv * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
     if (dist <= reach) {
-      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out);
+      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out, tv > BLOCKABLE);
       this.dodge(u, self, tg, speed, dist, out);
     } else this.chase(u, self, tg, speed, dist, out);
     this.wedge.watch(u, speed, dt, out);
