@@ -10,6 +10,7 @@ import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
+import { useHudIdle } from "@/components/use-hud-idle";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
@@ -47,16 +48,19 @@ const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "C
 
 /** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew and range mutually exclusive. */
 type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "range";
-const SCENES = [
+/** `tone`: the mode's accent (a `--tone` variable), so the richer game modes carry a ring and a tinted fill; `quiet`: a test rig, muted until picked. */
+type SceneDef = { id: Scene; label: string; aria: string; tone?: string; quiet?: boolean };
+/** Richer game modes first, then the test rigs. */
+const SCENES: SceneDef[] = [
   { id: "fleet", label: "Fleet", aria: "Fleet scene" },
-  { id: "derby", label: "Derby", aria: "Demolition derby scene" },
-  { id: "race", label: "Race", aria: "Race scene" },
-  { id: "press", label: "Press", aria: "Car compactor scene" },
-  { id: "pistons", label: "Pistons", aria: "Piston rig scene" },
-  { id: "doors", label: "Doors", aria: "Door and mirror knock scene" },
-  { id: "corkscrew", label: "Corkscrew", aria: "Corkscrew ramp scene" },
-  { id: "range", label: "Range", aria: "Ejection range scene" },
-] as const;
+  { id: "derby", label: "Derby", aria: "Demolition derby scene", tone: "[--tone:var(--color-scene-derby)]" },
+  { id: "race", label: "Race", aria: "Race scene", tone: "[--tone:var(--color-scene-race)]" },
+  { id: "range", label: "Range", aria: "Ejection range scene", tone: "[--tone:var(--color-scene-range)]" },
+  { id: "press", label: "Press", aria: "Car compactor scene", quiet: true },
+  { id: "pistons", label: "Pistons", aria: "Piston rig scene", quiet: true },
+  { id: "doors", label: "Doors", aria: "Door and mirror knock scene", quiet: true },
+  { id: "corkscrew", label: "Corkscrew", aria: "Corkscrew ramp scene", quiet: true },
+];
 
 const SCENE_KEYS: [string, string][] = [
   ["Space", "Pause / play"],
@@ -137,21 +141,26 @@ export function Hud(props: HudProps) {
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
   const [settings, setSettings] = useStoredString("crush.hud.settings", "hidden", "shown");
   const settingsShown = settings === "shown";
+  // Touch only: after a few seconds without a tap the HUD mutes (`data-idle`, the `idle:` variant). A tap anywhere, or a menu
+  // opening (an expanded settings section, a race menu), restores it; the thumb pad keeps driving without waking it.
+  const [sections] = useStoredString("crush.hud.sections", "", "");
+  const menuOpen = (!focus && settingsShown && sections !== "") || state.race?.menu != null;
+  const idle = useHudIdle(touch && !menuOpen);
   // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
   if (state.race?.solo != null) return <SoloExit title={state.race.solo} onCommand={raceCommand} />;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined}>
+    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={idle || undefined}>
       {focus && state.race ? (
-        <header className="hud-ink min-w-0 font-display" style={{ gridArea: "title" }}>
+        <header className="hud-ink min-w-0 pb-12 font-display" style={{ gridArea: "title" }}>
           <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
             {state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
           </p>
         </header>
       ) : (
-        <header className="hud-ink min-w-0" style={{ gridArea: "title" }}>
-          <p className="hud-label">Streamed deformation</p>
-          <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight">Crush Stream</h1>
-          <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block">
+        <header className={cn("hud-ink min-w-0", state.race && "pb-12")} style={{ gridArea: "title" }}>
+          <p className="hud-label idle:hidden">Streamed deformation</p>
+          <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight idle:text-lg idle:opacity-70">Crush Stream</h1>
+          <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block idle:hidden">
             {state.race
               ? `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
               : state.derby
@@ -241,7 +250,7 @@ function Readouts({ state }: { state: CrashHudState }) {
   const hot = state.phase === "slowmo" || state.phase === "impact";
   const unit = useSpeedUnit();
   return (
-    <div className="hud-panel self-start px-2 py-1.5 md:justify-self-end" style={{ gridArea: "readouts" }}>
+    <div className="hud-panel self-start px-2 py-1.5 md:justify-self-end idle:opacity-60" style={{ gridArea: "readouts" }}>
       <dl className="grid grid-cols-4 gap-x-3 gap-y-1">
         <Readout
           label={press ? "Press gap" : state.carCount === 1 ? "Car" : "Lead"}
@@ -274,17 +283,17 @@ function Readouts({ state }: { state: CrashHudState }) {
             </span>
           </dd>
         </div>
-        <Readout label="Time scale" value={state.timeScale.toFixed(2)} unit="×" />
-        <Readout label="T+" value={state.elapsed.toFixed(2)} unit="s" />
-        <Readout label="FPS" value={String(Math.round(state.fps))} />
+        <Readout label="Time scale" value={state.timeScale.toFixed(2)} unit="×" className="idle:hidden" />
+        <Readout label="T+" value={state.elapsed.toFixed(2)} unit="s" className="idle:hidden" />
+        <Readout label="FPS" value={String(Math.round(state.fps))} className="idle:hidden" />
       </dl>
     </div>
   );
 }
 
-function Readout({ label, value, unit }: { label: string; value: string; unit?: string }) {
+function Readout({ label, value, unit, className }: { label: string; value: string; unit?: string; className?: string }) {
   return (
-    <div className="min-w-0">
+    <div className={cn("min-w-0", className)}>
       <dt className="hud-label truncate">{label}</dt>
       <dd className="truncate font-display text-sm font-semibold leading-5 tabular-nums">
         {value}
@@ -359,17 +368,17 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <RotateCcw />
       </Button>
       <div
-        className="order-last grid w-full grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto"
+        className="order-last grid w-full grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto idle:order-none idle:w-auto idle:grid-cols-1"
         role="group"
         aria-label="Scene"
       >
-        {SCENES.map(({ id, label, aria }) => (
+        {SCENES.map(({ id, label, aria, tone, quiet }) => (
           <Button
             key={id}
             variant={scene === id ? "default" : "ghost"}
             aria-pressed={scene === id}
             aria-label={aria}
-            className="h-10 px-1 text-xs sm:h-7 sm:px-2.5"
+            className={cn("h-10 px-1 text-xs sm:h-7 sm:px-2.5", tone, tone && "scene-chip", quiet && scene !== id && "font-normal text-muted", scene !== id && "idle:hidden")}
             onClick={() => {
               if (id === scene) return;
               if (id === "fleet") toggleScene[scene as Exclude<Scene, "fleet">]();
@@ -384,7 +393,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         onClick={() => engine.current?.toggleBarrier()}
         disabled={propsLocked}
         variant={state.showBarrier ? "default" : "ghost"}
-        className={BAR_BUTTON}
+        className={cn(BAR_BUTTON, "idle:hidden")}
         aria-pressed={state.showBarrier}
         aria-label="Toggle jersey barrier"
         title="Jersey barrier (B)"
@@ -395,7 +404,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         onClick={() => engine.current?.toggleBalls()}
         disabled={propsLocked}
         variant={state.showBalls ? "default" : "ghost"}
-        className={BAR_BUTTON}
+        className={cn(BAR_BUTTON, "idle:hidden")}
         aria-pressed={state.showBalls}
         aria-label="Toggle ramp balls"
         title="Ramp balls (K)"
@@ -406,7 +415,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         onClick={() => engine.current?.toggleRamps()}
         disabled={propsLocked}
         variant={state.showRamps ? "default" : "ghost"}
-        className={BAR_BUTTON}
+        className={cn(BAR_BUTTON, "idle:hidden")}
         aria-pressed={state.showRamps}
         aria-label="Toggle jump ramps"
         title="Jump ramps (.)"
@@ -423,17 +432,17 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
       >
         <SlidersHorizontal />
       </Button>
-      <KeyHelp />
+      <KeyHelp className="idle:hidden" />
       <FullscreenButton className={BAR_BUTTON} />
     </div>
   );
 }
 
-function KeyHelp() {
+function KeyHelp({ className }: { className?: string }) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
-        <Button variant="ghost" className={BAR_BUTTON} aria-label="Keyboard shortcuts" title="Keys">
+        <Button variant="ghost" className={cn(BAR_BUTTON, className)} aria-label="Keyboard shortcuts" title="Keys">
           <CircleHelp />
         </Button>
       </Popover.Trigger>

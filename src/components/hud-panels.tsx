@@ -10,9 +10,9 @@ import { formatSpeed } from "@/game/hud/speed-units";
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. */
 export function DerbyBoard({ board, engine }: { board: CrashHudState["derbyBoard"]; engine: RefObject<CrashEngine | null> }) {
   return (
-    <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-2">
+    <div className="hud-panel pointer-events-auto flex min-h-0 w-44 flex-col p-2 idle:w-auto idle:opacity-70">
       <p className="hud-label">Board</p>
-      <ul className="-mx-1.5 mt-2 min-h-0 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain">
+      <ul className="-mx-1.5 mt-2 min-h-0 space-y-0.5 overflow-y-auto overflow-x-hidden overscroll-contain idle:hidden">
         {board.map((row) => (
           <li key={row.id}>
             <button
@@ -46,7 +46,7 @@ const PISTON_NAMES = ["Front-left", "Front", "Front-right", "Right", "Rear-right
 export function PistonPanel({ pistons, engine }: { pistons: PistonHud; engine: RefObject<CrashEngine | null> }) {
   const unit = useSpeedUnit();
   return (
-    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
+    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2 idle:w-auto idle:opacity-70 idle:[&>:not(:first-child)]:hidden">
       <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Pistons</p>
         <p className="font-display text-xs tabular-nums text-muted">
@@ -127,7 +127,7 @@ export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject
   const shot = doors.shot;
   const unit = useSpeedUnit();
   return (
-    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2">
+    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2 idle:w-auto idle:opacity-70 idle:[&>:not(:first-child)]:hidden">
       <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Doors</p>
         <p className="font-display text-xs tabular-nums text-muted">{doors.energyJ.toFixed(0)} J</p>
