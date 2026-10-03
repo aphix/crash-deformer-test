@@ -632,7 +632,7 @@ export class DeformableCar extends CarParts {
   private ride(dt: number): void {
     const cls = carClass(this);
     const air = this.airborne && (!this.airContact || this.group.matrixWorld.elements[5]! < 0.5);
-    this.suspension.step(this.group, cls, CLASSES[cls].lift, !this.crashed, air, dt);
+    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, dt);
   }
 }
 

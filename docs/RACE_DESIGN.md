@@ -330,7 +330,12 @@ main loop's road or runoff and eases back to the main loop's field, not the bare
 height is the main loop's on its road + runoff and eases back to its own grade over `MEET` (8 m) beyond it
 (rally's mouths and ford left 0.25–0.35 m lips in the runoff; `course-intrusion.test.ts` holds every road +
 runoff to its bank + 0.05 m per 0.5 m across); deck spans are skipped (their ends are rounded abutments) and answered
-analytically from the path at its own height, so a bridge and the road under it coexist.
+analytically from the path at its own height, so a bridge and the road under it coexist. On the main loop's road +
+runoff `world/road-crease.ts` interpolates the road's centre height, lateral and edge drop instead of heights and
+clamps the lateral at the point, so the crease where a bank meets the flat runoff stays sharp (the bilinear field
+rounded it 8 cm above the plane on stunt's 18° bank; `bank-wheels.test.ts` holds it to 1 cm); on a level road it is
+the plain bilinear to the bit. The drawn road's sections close up where the bank turns (`sections`: a twisted quad's
+diagonal ≤ 2 cm off the road; 6.9 cm on stunt's bank run-out at 4 m).
 Who reads it: driven cars (`car.ts` integrate: ride the ground, pitched and rolled onto its normal under the
 origin and held there between slices (`ramp.test.ts`: 4 tyres on a 10–30° wedge, every heading); where it falls away faster than
 gravity follows — a ramp lip, a crest at speed — fly, and land on whatever layer is below), per-axle
