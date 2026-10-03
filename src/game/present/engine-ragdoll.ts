@@ -29,6 +29,7 @@ import type { Track } from "../world/track.ts";
 import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
+import { RagdollDebug } from "./ragdoll-debug.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
@@ -201,6 +202,8 @@ export class RagdollSystem {
   sand = false;
   private readonly watch = new EjectionWatch();
   private readonly mesh: DummyMesh;
+  /** The HUD's Rig and Particles views of the dummies (`set`). */
+  readonly debug: RagdollDebug;
   private readonly onThrow: (car: number) => void;
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
@@ -249,6 +252,7 @@ export class RagdollSystem {
     this.onThrow = onThrow;
     this.onExit = onExit;
     this.mesh = new DummyMesh(SLOTS);
+    this.debug = new RagdollDebug(scene, PARTS, JOINTS, SLOTS);
     this.mesh.name = "ragdolls";
     this.mesh.castShadow = true;
     this.mesh.receiveShadow = true;
@@ -369,6 +373,7 @@ export class RagdollSystem {
         const t = d.bodies[k]!.translation();
         const r = d.bodies[k]!.rotation();
         this.mesh.pose(s, k, _p.set(t.x, t.y, t.z), _q.set(r.x, r.y, r.z, r.w));
+        if (this.debug.on) this.debug.pose(s, k, _p, _q);
       }
     }
   }
@@ -546,6 +551,7 @@ export class RagdollSystem {
 
   dispose(): void {
     this.disposed = true;
+    this.debug.dispose();
     this.mesh.removeFromParent();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
@@ -761,6 +767,7 @@ export class RagdollSystem {
     for (const c of d.patch) this.world!.removeCollider(c, false);
     d.patch.length = 0;
     this.mesh.hide(s);
+    this.debug.hide(s);
     if (this.live === 0) this.mesh.visible = false;
   }
 }

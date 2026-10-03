@@ -58,12 +58,14 @@ export abstract class EngineInput extends EngineRigs {
   toggleRig(): void {
     this.showRig = !this.showRig;
     for (const car of this.live()) car.setRigVisible(this.showRig);
+    this.ragdolls.debug.set(this.showRig, this.showParticles);
     this.emitHud();
   }
 
   toggleParticles(): void {
     this.showParticles = !this.showParticles;
     for (const car of this.live()) car.deform.setParticlesVisible(this.showParticles);
+    this.ragdolls.debug.set(this.showRig, this.showParticles);
     this.emitHud();
   }
 
@@ -239,6 +241,7 @@ export abstract class EngineInput extends EngineRigs {
     this.looping = INITIAL_HUD.looping;
     this.showRig = INITIAL_HUD.showRig;
     this.showParticles = INITIAL_HUD.showParticles;
+    this.ragdolls.debug.set(this.showRig, this.showParticles);
     this.showBarrier = INITIAL_HUD.showBarrier;
     this.showBalls = INITIAL_HUD.showBalls;
     this.showRamps = INITIAL_HUD.showRamps;
