@@ -141,6 +141,13 @@ detached bumper leaves the lamps behind and a crushed corner carries its lamp. E
 only from its own corner's sensors (heads [1,4] / [2,5], tails [16,10] / [17,11]); see
 `lamps.test.ts`.
 
+Each body sets its own seats (`BodyStyle.lamps`, car-variants.ts): the head lamps on the nose between
+the grille and the header panel (the shared front clip, so the same on every body), the tail lamps on
+the tail panel, standing upright in its corners beside a tailgate (hatchback, wagon, pickup: the
+tailgate stops `TAILGATE_INSET` inside the corners). Every housing sits whole on its body's skin,
+not on a bumper, grille or boot. The pool's light and glow come from the seat's world matrix, so a
+class lift (truck +8 cm, monster +48 cm) raises them with the drawn lamp.
+
 Real lights come from a fixed pool created once in the `CrashEngine` constructor:
 `SPOT_POOL` = 4 white SpotLights for headlamps and `POINT_POOL` = 4 short red PointLights for tail
 lamps, with no shadows. Lights are never added, removed or visibility-toggled at runtime. Doing that

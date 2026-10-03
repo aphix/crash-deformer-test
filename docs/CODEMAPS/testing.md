@@ -24,8 +24,8 @@ Runner: `node --test` with `--experimental-strip-types` (no Vitest / Jest). Node
 | `skin.test.ts` / `skin-lod.test.ts` | skin follows particles (3 km/h tap, 40 km/h shot); deferred skin is owed, never lost |
 | `fast-normals.test.ts` | `computeNormalsFast` equals `computeVertexNormals` |
 | `zip.test.ts` | a captured two-car spawn does not zip at the slow-mo handoff |
-| `rest-mesh.test.ts` / `car-variants.test.ts` | rest body is a sedan (side profile, panel sizes, closed from the side); the wheel (crown = `TYRE_R`, x-symmetric, tread normals out, only the tread samples the tread map); body styles, per-style rig cages; police livery, light bar on the roof that bends with it at 56 km/h and tears off at 64 km/h |
-| `lamps.test.ts` | a detached bumper leaves the lamps behind; lamp light pool; police sirens flash red then blue through a pooled point light |
+| `rest-mesh.test.ts` / `car-variants.test.ts` | rest body is a sedan (side profile, panel sizes, closed from the side); the wheel (crown = `TYRE_R`, x-symmetric, tread normals out, only the tread samples the tread map); body styles, per-style rig cages; police livery, light bar on the roof (every foot sole within 1.2 cm of it) that bends with it at 56 km/h and tears off at 64 km/h |
+| `lamps.test.ts` | every body (and the lifted monster) seats each lamp whole on its own end panel, clear of every part, facing out, lit from where it is drawn; a detached bumper leaves the lamps behind; lamp light pool; police sirens flash red then blue through a pooled point light |
 | `vehicle-classes.test.ts` | class stats, realism axis, damage → drivability |
 | `knob-defaults.test.ts` | calibrated crash knob defaults |
 | `fleet.test.ts` / `derby.test.ts` | layouts, pile-up heading; derby AI, scoring, bowl clip, six-car match |

@@ -70,6 +70,12 @@ export interface BodyStyle {
   /** Rear door shut line on four-door bodies, or null. */
   rearDoorSeam: number | null;
   boot: BootSpec;
+  /**
+   * Lamp seats [x, y] (m, right side; the left mirrors it) on the end panels: the head lamps on the nose, the tail lamps
+   * on the tail panel, standing upright in its corners beside a tailgate. Each housing sits whole on the skin, clear of
+   * the bumpers, grille and boot (`lamps.test.ts`).
+   */
+  lamps: { head: readonly [number, number]; tail: readonly [number, number] };
   rig: RigOverrides;
   /** Fixed paint, or none (the fleet paint). */
   livery?: Livery;
@@ -89,6 +95,9 @@ const FRONT_CLIP: readonly ProfileStation[] = [
   st(1.9, 0.75, 0.64),
   st(2.11, 0.62, 0.54),
 ];
+
+/** The front clip's head lamp seat: outboard of the grille, under the header panel, above the bumper. */
+const HEAD_LAMP = [0.485, 0.485] as const;
 
 const CABIN_TUB = [-0.7, 0.7, 0.3] as const;
 
@@ -113,6 +122,7 @@ const SEDAN: BodyStyle = {
   tubs: [CABIN_TUB],
   rearDoorSeam: -0.62,
   boot: { kind: "lid", z0: -0.66, z1: -1.98, origin: [0.74, -0.72] },
+  lamps: { head: HEAD_LAMP, tail: [0.47, 0.56] },
   rig: {},
 };
 
@@ -140,6 +150,7 @@ const HATCHBACK: BodyStyle = {
   tubs: [[-1.82, 0.7, 0.3]],
   rearDoorSeam: -0.62,
   boot: { kind: "tailgate", y0: 0.46, origin: [0.83, -2.115] },
+  lamps: { head: HEAD_LAMP, tail: [0.675, 0.645] },
   rig: {
     cages: {
       roof: { min: [-0.58, 1.02, -1.36], max: [0.58, 1.36, 0.56] },
@@ -171,6 +182,7 @@ const WAGON: BodyStyle = {
   tubs: [[-1.96, 0.7, 0.3]],
   rearDoorSeam: -0.62,
   boot: { kind: "tailgate", y0: 0.46, origin: [0.87, -2.115] },
+  lamps: { head: HEAD_LAMP, tail: [0.7, 0.68] },
   rig: {
     cages: {
       roof: { min: [-0.6, 1.02, -1.72], max: [0.6, 1.36, 0.56] },
@@ -203,6 +215,7 @@ const COUPE: BodyStyle = {
   tubs: [CABIN_TUB],
   rearDoorSeam: null,
   boot: { kind: "lid", z0: -1.34, z1: -1.98, origin: [0.8, -1.34] },
+  lamps: { head: HEAD_LAMP, tail: [0.5, 0.58] },
   rig: {},
 };
 
@@ -227,6 +240,7 @@ const PICKUP: BodyStyle = {
   tubs: [CABIN_TUB, [-2.05, -0.8, 0.52]],
   rearDoorSeam: null,
   boot: { kind: "tailgate", y0: 0.44, origin: [0.915, -2.12] },
+  lamps: { head: HEAD_LAMP, tail: [0.79, 0.72] },
   rig: {
     cages: {
       roof: { min: [-0.58, 1.02, -0.72], max: [0.58, 1.36, 0.56] },
