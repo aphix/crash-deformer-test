@@ -68,6 +68,10 @@ export interface NetGame {
   startDerby(field: number): void;
   /** Client: car `i` vaporizes (the local smoke burst) or comes back, as the host's flag says (fleet disc edge). */
   setVaporized(i: number, on: boolean): void;
+  /** Host: how many times the scene has been cleared (mod 128), sent with every snapshot. */
+  clearGen(): number;
+  /** Client: the host cleared its scene (a change, loop, reset): empty this one the same way (torn parts, loose wheels, dummies, fx, poles). */
+  clearScene(): void;
   /** Client: play the host's results reel from `startAt` (this browser's `performance.now()` seconds; docs/HIGHLIGHTS.md). */
   playReel(reel: Reel, startAt: number): void;
   /** Client: a reel or solo clip plays, so host snapshots are not drawn (the reel owns the cars). */

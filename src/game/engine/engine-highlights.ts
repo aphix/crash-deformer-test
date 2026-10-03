@@ -96,6 +96,8 @@ export type ReelHost = {
   scene: ReplayScene;
   /** Every knocked prop back on its spot before a clip plays. */
   resetProps(): void;
+  /** Empties the scene (`CrashEngine.clearLocal`): torn parts, loose wheels, dummies, fx and downed poles that the race or an earlier clip left. */
+  clear(): void;
   /** The course's solids with every visible car but `focus` (the cinematic eye's sight lines). */
   sight(focus: DeformableCar): Sight;
   /** The engine's crash clock: the reel mirrors its slow-mo into it (letterbox, HUD). */
@@ -214,6 +216,8 @@ export class ReelDirector {
     if (shown) {
       const live = this.host.live();
       for (let i = 0; i < live.length && i < shown.length; i++) live[i]!.group.visible = shown[i]!;
+      // What the clips left (torn parts, dummies, sparks) must not reach the race or setup the player returns to.
+      this.host.clear();
     }
     const c = this.host.clock;
     c.phase = "approach";
@@ -342,6 +346,8 @@ export class ReelDirector {
     this.shot = -1;
     this.impacted = false;
     this.host.resetProps();
+    // The race's leftovers, torn parts of the cars hidden next included, stay out of the clip; the clip's cars respawn after.
+    this.host.clear();
     for (const c of this.host.live()) c.group.visible = false;
     p.sim.restart();
   }

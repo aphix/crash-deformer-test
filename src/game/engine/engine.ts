@@ -114,6 +114,8 @@ export class CrashEngine extends EngineShare {
     derbyLobby: (field) => this.netDerbyMatch(false, field),
     startDerby: (field) => this.netDerbyMatch(true, field),
     setVaporized: (i, on) => this.setVaporized(i, on),
+    clearGen: () => this.clearGen(),
+    clearScene: () => this.clearLocal(),
     playReel: (reel, startAt) => this.highlights.play(reel, startAt),
     reelPlaying: () => this.highlights.playing,
     seat: this.seat,
@@ -228,12 +230,14 @@ export class CrashEngine extends EngineShare {
       // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).
       bleeds: () => this.clock.wallSinceImpact > 0.2,
       reelReady: (clips) => this.startReel(clips),
+      clear: () => this.clearScene(),
     });
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
       scene: { dress: (car) => this.dressCar(car), collide: (car, slot) => this.race.courseHit(car, slot), bounce: this.bounceWorld },
       resetProps: () => this.race.resetProps(),
+      clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
       clock: this.clock,
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),

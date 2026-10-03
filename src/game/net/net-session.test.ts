@@ -177,6 +177,17 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     reelPlaying(): boolean {
       return this.playing;
     },
+    /** The host's clear count (`clearGen`), bumped by a test the way a scene change, loop or reset bumps it. */
+    gen: 0,
+    /** How many times the session asked this engine to clear its scene (`clearScene`), which repairs every car like the engine's. */
+    clears: 0,
+    clearGen(): number {
+      return this.gen;
+    },
+    clearScene(): void {
+      this.clears++;
+      for (const c of cars) c.resetVisual();
+    },
   };
 }
 
@@ -491,6 +502,52 @@ describe("netplay session: stale input and hidden tabs", () => {
     s.step(1, { host: false });
     assert.equal(s.client.status().problem, "host-lost");
     assert.equal(s.client.status().car, 1, "it keeps its car (camera, held pedal) while it asks for a seat again");
+  });
+});
+
+describe("netplay session: a client clears what the host's scene change, loop or reset clears", () => {
+  const torn = (car: DeformableCar): number => car["parts"].filter((p) => p.detached).length;
+  const tear = (car: DeformableCar): void => car["detachPart"](car["parts"].find((p) => p.region)!, 12);
+
+  it("bad: the host's clear count changing empties the client's scene once, and a steady count never does", () => {
+    const s = session();
+    s.step(10);
+    assert.equal(s.cg.clears, 0, "joining a running scene clears nothing");
+    tear(s.cg.cars()[1]!);
+    s.step(10);
+    assert.equal(s.cg.clears, 0, "a steady count leaves the client's scene alone");
+    assert.equal(torn(s.cg.cars()[1]!), 1, "the torn part is still there before the host clears");
+    s.hg.gen = 1;
+    s.step(10);
+    assert.equal(s.cg.clears, 1, "one clear for one change");
+    assert.equal(torn(s.cg.cars()[1]!), 0, "the client's torn part is gone");
+    s.step(30);
+    assert.equal(s.cg.clears, 1, "the new count is not cleared again");
+  });
+
+  it("bad: the clear lands before the new scene's own wreck, so a crash right after the host's clear survives on the client", () => {
+    const s = session();
+    s.step(10);
+    s.hg.gen = 1;
+    const host = s.hg.cars()[0]!;
+    host.crashed = true;
+    tear(host);
+    s.step(10);
+    assert.equal(s.cg.clears, 1);
+    assert.equal(s.cg.cars()[0]!.crashed, true, "the client shows the new scene's crash");
+    assert.equal(torn(s.cg.cars()[0]!), 1, "the new scene's torn part is drawn, not wiped by the clear");
+  });
+
+  it("bad: the client does not clear while the results reel plays, and does once it ends if the host cleared meanwhile", () => {
+    const s = session();
+    s.step(10);
+    s.cg.playing = true;
+    s.hg.gen = 3;
+    s.step(10);
+    assert.equal(s.cg.clears, 0, "the reel owns the cars");
+    s.cg.playing = false;
+    s.step(10);
+    assert.equal(s.cg.clears, 1, "back to the host's scene: its clear lands");
   });
 });
 

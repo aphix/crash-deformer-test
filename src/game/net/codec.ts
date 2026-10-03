@@ -102,6 +102,12 @@ export interface Snapshot {
   /** Host clock (s). */
   time: number;
   keyframe: boolean;
+  /**
+   * How many times the host has cleared its scene (`CrashEngine.clearScene`: a scene change, loop, reset, race start), mod 128.
+   * It rides in the keyframe byte's spare bits (an older host sends 0, an older client ignores them), so the layout and
+   * `NET_VERSION` stay. A client that draws a snapshot whose count differs from the last one drawn clears its own scene.
+   */
+  clearGen: number;
   count: number;
   /** The host's arcade (0) ↔ realistic (1) slider, `HANDLING.realism` (1/255 steps). */
   realism: number;
@@ -156,7 +162,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
 }
 
 export function makeSnapshot(): Snapshot {
-  return { seq: 0, time: 0, keyframe: false, count: 0, realism: 0, phase: 0, timeScale: 1, cars: [] };
+  return { seq: 0, time: 0, keyframe: false, clearGen: 0, count: 0, realism: 0, phase: 0, timeScale: 1, cars: [] };
 }
 
 export function ensureFrames(s: Snapshot, n: number, L: NetLayout): void {
@@ -375,7 +381,7 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
 
 export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
   w.u8(MSG.snapshot);
-  w.u8(s.keyframe ? 1 : 0);
+  w.u8((s.keyframe ? 1 : 0) | ((s.clearGen & 127) << 1));
   w.u16(s.seq & 0xffff);
   w.f64(s.time);
   w.u8(s.count);
@@ -408,7 +414,9 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
 /** Reads a whole snapshot message (type byte included) into `s`, growing its frames as needed. */
 export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   r.u8();
-  s.keyframe = (r.u8() & 1) !== 0;
+  const head = r.u8();
+  s.keyframe = (head & 1) !== 0;
+  s.clearGen = head >> 1;
   s.seq = r.u16();
   s.time = r.f64();
   s.count = r.u8();
