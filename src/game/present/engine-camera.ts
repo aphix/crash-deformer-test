@@ -24,6 +24,10 @@ const _up = new THREE.Vector3(0, 1, 0);
 /** `watchFall`: the eye stands this far (m) inside the fleet disc's rim, at shoulder height (m) over the disc. */
 const FALL_EYE_IN = 1.5;
 const FALL_EYE_Y = 1.5;
+/** Seconds after a drag ends that the ride-along's automatic cuts keep waiting (the user's view stays). */
+export const RIDE_PAUSE = 2.5;
+/** A pointer that travels less (px) than this is a click, not a drag. */
+const CLICK_PX = 8;
 
 /** Mean position of the cars still on the disc (falling and vaporized ones skipped; zero for an empty fleet). */
 export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): THREE.Vector3 {
@@ -258,7 +262,7 @@ export class DriveCam {
   }
 }
 
-function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number): void {
+export function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number): void {
   const d = fov - camera.fov;
   if (Math.abs(d) < 0.01) return;
   camera.fov += d * (1 - Math.exp(-3 * dt));
@@ -289,6 +293,10 @@ export class ChaseCamera {
   /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
   private rig: "orbit" | "chase" | "fixed" = "orbit";
   private readonly baseFov: number;
+  /** The ride-along (a thrown driver's camera) holds the camera: a drag orbits it, whatever the seat. */
+  private ride = false;
+  /** Seconds since the last ride drag ended (Infinity: none this ride). */
+  private rideIdle = Infinity;
   private angle = 0;
   private radius = 14;
   private pitch = 0.4;
@@ -359,6 +367,33 @@ export class ChaseCamera {
   /** Orbit bearing (rad, atan2(x, z) about `look`, unwrapped); auto-rotate increases it. */
   get bearing(): number {
     return this.angle;
+  }
+
+  /** The scene's own lens (deg): what the ride-along eases back to. */
+  get lens(): number {
+    return this.baseFov;
+  }
+
+  /**
+   * Per frame while a ride-along may hold the camera (`on`): whether the user holds it, a drag under way (a click
+   * is not one) or ended less than `RIDE_PAUSE` s ago. The ride's automatic cuts wait while it is true, then pick up
+   * from the user's view.
+   */
+  rideHeld(on: boolean, wallDt: number): boolean {
+    this.rideIdle = !on ? Infinity : this.dragging && this.pointerTravel >= CLICK_PX ? 0 : this.rideIdle + wallDt;
+    return this.rideIdle < RIDE_PAUSE;
+  }
+
+  /**
+   * The ride-along frames this frame (`look`: its aim) or not (null). Framed, a drag turns the orbit around `look`,
+   * the same yaw and pitch limits as anywhere, and does not count as framing the shot (the next throw still rides).
+   */
+  frameRide(look: THREE.Vector3 | null): void {
+    this.ride = look !== null;
+    if (!look) return;
+    this.rig = "orbit";
+    this.fallWatch = false;
+    this.look.copy(look);
   }
 
   /** Snap to the opening shot: a fixed solo-rig angle (`soloAngle`), or broadside to the fleet's approach line. */
@@ -578,10 +613,11 @@ export class ChaseCamera {
     this.dragId = e.pointerId;
     this.pointerTravel = 0;
     this.lookDragging = this.rig === "chase";
-    this.dragging = this.seat.mode !== "drive";
+    this.dragging = this.ride || this.seat.mode !== "drive";
     this.lastX = e.clientX;
     this.lastY = e.clientY;
-    if (this.dragging) this.userFramed = true;
+    if (this.ride) this.adoptPose();
+    else if (this.dragging) this.userFramed = true;
     this.canvas.setPointerCapture(e.pointerId);
     this.canvas.style.cursor = "grabbing";
   };
@@ -628,7 +664,7 @@ export class ChaseCamera {
     if (e.pointerId !== this.dragId) return;
     this.dragId = -1;
     this.pinchId = -1;
-    const click = this.pointerTravel < 8;
+    const click = this.pointerTravel < CLICK_PX;
     this.dragging = false;
     this.lookDragging = false;
     this.canvas.style.cursor = "grab";

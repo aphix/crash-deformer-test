@@ -469,8 +469,8 @@ export abstract class EngineCore {
 
   /**
    * A sandbox driver left car i (`RagdollSystem` never calls this in a race or a derby): his exit plays at 1×, the
-   * slow-mo `THROW_ONSET` on (`holdForThrow`, unless the hit's was held already), and once the crash is over
-   * (`rideReady`) the camera rides with the thrown drivers, unless it follows another car or the user framed it.
+   * slow-mo `THROW_ONSET` on (`holdForThrow`, unless the hit's was held already), and the camera rides with the
+   * thrown drivers from that moment (the crash cam's cuts wait), unless it follows another car or the user framed it.
    */
   protected onThrow(i: number): void {
     if (!this.net.client && !this.rigScene) holdForThrow(this.clock);

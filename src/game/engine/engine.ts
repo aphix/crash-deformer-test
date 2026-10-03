@@ -690,6 +690,9 @@ export class CrashEngine extends EngineShare {
   /** `aimRigs`'s derby centroid set, refilled per frame. */
   private readonly aliveBuf: DeformableCar[] = [];
 
+  /** Where the crash cam's cuts land while a ride-along holds the real camera (its bars and clock run on). */
+  private readonly crashProbe = new THREE.PerspectiveCamera();
+
   /** What the trackside and dutch cams read, only when they pick a shot: the scene's solids and the rival racers. */
   private readonly specScene: SpecScene = {
     sight: () => this.spectateSight(),
@@ -738,18 +741,16 @@ export class CrashEngine extends EngineShare {
       if (!this.cine.direct(this.camera, wallDt, true)) this.highlights.camera(this.camera);
       return;
     }
-    // The crash cam steps first; a ride-along waits for the crash to be over (`rideReady`), but the range's own dummy
-    // cam rides at once. The ride keeps the lens it found.
-    const fov = this.camera.fov;
-    const cut = this.cine.direct(this.camera, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
-    if ((this.showRange || this.rideReady()) && this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, this.followedCar() ? this.seat.carIndex : -1)) {
-      if (this.camera.fov !== fov) {
-        this.camera.fov = fov;
-        this.camera.updateProjectionMatrix();
-      }
-      return;
-    }
-    if (cut) return;
+    // A thrown driver's ride-along holds the camera from his exit (the windshield shot, then the dummy), over the crash
+    // cam's cuts: those keep their bars and clock on a probe lens and apply only when no driver is out. A drag hands
+    // the ride to the orbit around the dummy, the ride's cuts waiting; the ride then picks up from the user's view.
+    const watched = this.followedCar() ? this.seat.carIndex : -1;
+    const held = this.view.rideHeld(this.ragdolls.rideAlong, wallDt);
+    const ride = this.ragdolls.frameCamera(this.camera, wallDt, this.showRange, watched, held, this.view.lens, this.specScene.sight);
+    this.view.frameRide(ride === "none" ? null : this.ragdolls.rideLook);
+    const cut = this.cine.direct(ride === "none" ? this.camera : this.crashProbe, wallDt, !this.view.userFramed && this.seat.mode !== "drive");
+    if (ride === "held") this.view.orbit(wallDt, 0, false);
+    if (ride !== "none" || cut) return;
     const followed = this.followedCar();
     // Off the disc's rim (from the first centimetre of drop): the eye settles on the rim at shoulder height and keeps
     // the falling car centred, then holds once it vaporizes.

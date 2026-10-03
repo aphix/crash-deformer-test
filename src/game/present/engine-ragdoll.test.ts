@@ -8,8 +8,13 @@ import { armKill, assignClass, DEFAULT_REALISM } from "../vehicle/vehicle-classe
 import { beginImpact, holdForThrow, impactScale, phaseClock, stepPhase, THROW_ONSET } from "../match/phase.ts";
 import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
+import { FLAT_GROUND } from "../world/ground.ts";
+import { occluder, solid, type Sight } from "./spectate-cam.ts";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 
 const FRAME = 1 / 60;
+/** The sandbox's open flat ground: nothing to stand in or look through. */
+const OPEN: () => Sight = () => ({ ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [] });
 const TORSO = [0.18, 0.27, 0.11];
 
 /** A sedan armed as the fleet arms it; `police`: the police style and class. */
@@ -169,7 +174,7 @@ describe("the ride-along frames one dummy and those near it, never the whole fie
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     for (let f = 0; f < frames; f++) {
       ragdolls.update(FRAME, [], true, true, 0, null);
-      if (!ragdolls.frameCamera(camera, FRAME, false, -1)) break;
+      if (ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, OPEN) === "none") break;
       camera.updateMatrixWorld();
       each(camera, ragdolls);
     }
@@ -179,7 +184,8 @@ describe("the ride-along frames one dummy and those near it, never the whole fie
   it("bad: three dummies 40 m apart: the camera stays within the near-frame distance of its target", async () => {
     let far = 0;
     await ride([[-40, 0], [0, 0], [40, 0]], 6, 240, (camera, ragdolls) => {
-      far = Math.max(far, camera.position.distanceTo(ragdolls["camLook"]));
+      // Between shots the camera is flying to the next one; the framing is judged where it has arrived.
+      if (ragdolls["cam"]["blend"] >= 1) far = Math.max(far, camera.position.distanceTo(ragdolls.rideLook));
     });
     // `CAM_NEAR` 6 m: (4.5 + 1.6·6) back, (1.8 + 0.5·6) aside, (1.3 + 0.4·6) up is 15.4 m. On main: about 63 m.
     assert.ok(far > 4 && far < 15.5, `camera ${far.toFixed(1)} m from its target`);
@@ -221,5 +227,121 @@ describe("a police driver is thrown in uniform", () => {
     const shirts = [chest(0), chest(1)];
     ragdolls.dispose();
     assert.deepEqual(shirts, ["#1b2a4a", "#2b2d32"]);
+  });
+});
+
+/** The two cars as the engine's `spectateSight` sees them: upright cylinders the cinematic eye may not stand in. */
+function carSight(cars: readonly DeformableCar[]): () => Sight {
+  return () => ({
+    ground: FLAT_GROUND,
+    path: null,
+    wallTop: 0,
+    rim: Infinity,
+    occ: cars.map((c) => occluder(c.group.position.x, c.group.position.z, 0, CAR_HALF.z, CAR_HALF.z, true, c.group.position.y - 0.3, c.group.position.y + 1.6)),
+  });
+}
+
+describe("the ride opens on the windshield, then follows the dummy without a jump", () => {
+  it("good: a head-on's first ride frame stands ahead of the thrown car on its forward axis, up and clear of both cars, looking back at it", async () => {
+    const cars = headOn(26);
+    const threw: number[] = [];
+    const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
+    await ragdolls.preload();
+    const w = makeWorld(cars, false, false);
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    const sight = carSight(cars);
+    for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
+      tickWorld(w);
+      ragdolls.update(FRAME, cars, true, true, 0, null);
+    }
+    assert.ok(ragdolls.rideAlong, "a driver was thrown");
+    const car = cars[threw[0]!]!;
+    const fwd = car.fwdFlat.clone();
+    const carPos = car.group.position.clone();
+    assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight), "shot");
+    const rel = camera.position.clone().sub(carPos);
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    ragdolls.dispose();
+    assert.ok(rel.dot(fwd) > 4 && rel.dot(fwd) <= 18.001, `${rel.dot(fwd).toFixed(2)} m ahead of the car`);
+    assert.ok(Math.abs(rel.x * fwd.z - rel.z * fwd.x) < 1e-6, "on the forward axis");
+    assert.ok(rel.y >= 3, `${rel.y.toFixed(2)} m up`);
+    assert.equal(solid(sight(), camera.position.x, camera.position.y, camera.position.z, 0.5), false, "the eye stands clear of the cars");
+    assert.ok(dir.dot(fwd) < -0.3, `looking back at the car: ${dir.dot(fwd).toFixed(2)}`);
+  });
+
+  it("bad: a dummy flying under the eye never whips the aim past MAX_TURN, and no shot change moves the camera more than a frame", async () => {
+    const cars = headOn(26);
+    const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), () => ragdolls.follow(), () => {});
+    await ragdolls.preload();
+    const w = makeWorld(cars, false, false);
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    const sight = carSight(cars);
+    const dir = new THREE.Vector3();
+    const prevDir = new THREE.Vector3();
+    const prevPos = new THREE.Vector3();
+    let shot = "";
+    let riding = 0;
+    let maxTurn = 0;
+    const jumps: string[] = [];
+    const shots = new Set<string>();
+    for (let f = 0; f < 900 && riding < 480; f++) {
+      tickWorld(w);
+      ragdolls.update(FRAME, cars, true, true, 0, null);
+      if (!ragdolls.rideAlong) continue;
+      if (ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight) === "none") break;
+      camera.getWorldDirection(dir);
+      const now = ragdolls["cam"].shot;
+      shots.add(now);
+      if (riding > 0) {
+        const turn = dir.angleTo(prevDir);
+        maxTurn = Math.max(maxTurn, turn);
+        if (now !== shot && camera.position.distanceTo(prevPos) > 0.1) jumps.push(`${shot}->${now} moved ${camera.position.distanceTo(prevPos).toFixed(2)} m`);
+      }
+      shot = now;
+      prevPos.copy(camera.position);
+      prevDir.copy(dir);
+      riding++;
+    }
+    ragdolls.dispose();
+    assert.ok(riding > 300, `rode ${riding} frames`);
+    assert.deepEqual([...shots].slice(0, 2), ["glass", "follow"], "opens on the windshield, then follows");
+    assert.deepEqual(jumps, []);
+    assert.ok(maxTurn < 4 * FRAME * 1.1, `turned ${maxTurn.toFixed(3)} rad in one frame`);
+  });
+});
+
+describe("the user's drag holds the ride-along, which then resumes from his view", () => {
+  it("good: held, the cut to the next dummy waits and the camera is untouched; released, the first frame eases from his view and the cut lands", async () => {
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+    await ragdolls.preload();
+    ragdolls.update(FRAME, [], true, true, 0, null);
+    [[0, 0], [20, 0]].forEach(([x, z], car) => ragdolls["spawn"]({ car, p: new THREE.Vector3(x, 1.2, z), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, 4), w: new THREE.Vector3(), age: 0, cop: false }));
+    ragdolls.follow();
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    let held = false;
+    let first = -1;
+    // Once `first` lies still, with nobody holding the camera the ride would cut to the other one.
+    const frame = (): string => {
+      ragdolls.update(FRAME, [], true, true, 0, null);
+      if (first >= 0) ragdolls["dolls"][first]!.still = 9;
+      return ragdolls.frameCamera(camera, FRAME, false, -1, held, 50, OPEN);
+    };
+    for (let f = 0; f < 90; f++) frame();
+    first = ragdolls["primary"];
+    held = true;
+    const userPos = camera.position.clone().add(new THREE.Vector3(3, 2, 3));
+    const userQuat = camera.quaternion.clone();
+    camera.position.copy(userPos);
+    for (let f = 0; f < 120; f++) assert.equal(frame(), "held");
+    assert.equal(ragdolls["primary"], first, "no cut while held");
+    assert.ok(camera.position.equals(userPos) && camera.quaternion.equals(userQuat), "the ride leaves the user's camera alone");
+    held = false;
+    assert.equal(frame(), "shot");
+    assert.notEqual(ragdolls["primary"], first, "the cut lands once released");
+    assert.ok(camera.position.distanceTo(userPos) < 0.5, `moved ${camera.position.distanceTo(userPos).toFixed(2)} m on the first frame`);
+    assert.ok(camera.quaternion.angleTo(userQuat) < 0.1, "turned only a little on the first frame");
+    for (let f = 0; f < 150; f++) frame();
+    assert.ok(camera.position.distanceTo(ragdolls.rideLook) < 15.5, "settled on the new dummy");
+    ragdolls.dispose();
   });
 });
