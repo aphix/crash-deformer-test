@@ -83,14 +83,29 @@ the flanks vary 6 %.
 
 - A stack at rest: 0.07 ms per physics slice for four cars (three in flight), 0.29 ms per 60 Hz frame (4 slices) and 0.07
   ms at 240 Hz. `CarSurfaces.top` reads a 0.1 m height grid per body style (built once), not the loft.
-- A step where a body in flight is near a contact runs at 480 Hz (`stepWorld`: up to 8 slices); resting bodies and cars
+- A step runs at 480 Hz (`stepWorld`: up to 8 slices) only while a body in flight touched something last slice
+  (`nearContact`: `airContact`, a yielding face, standing on a car); free flight, a body frozen at rest, and every car
   with no flight cost what they cost before. No allocation in `stepAir`, `CarSurfaces` or `bakeLoadCrush`.
+- Step cost per 1/60 s frame, headless (`.bench/step-cost.ts`, median of 3 runs interleaved with the base, ms), main
+  e37d8cd -> this lane:
+
+  | scene | p50 | p95 | p99 | max |
+  |---|---|---|---|---|
+  | derby 24 | 12.8 -> 12.3 | 17.5 -> 16.6 | 21.3 -> 24.2 | 33.2 -> 34.2 |
+  | derby 32 | 18.3 -> 16.8 | 26.3 -> 24.4 | 27.1 -> 25.9 | 29.7 -> 27.0 |
+  | fleet 32 (crash pile-up) | 2.1 -> 2.2 | 15.8 -> 15.6 | 24.6 -> 24.7 | 30.7 -> 31.4 |
+  | city race, 8 cars | 1.3 -> 1.4 | 2.9 -> 3.1 | 5.3 -> 5.3 | 25.4 -> 26.2 |
+
+  The first design (any body within 1.6 m of the ground or beside a car costs 8 slices) raised derby 24's max from 17 to
+  29-36 ms in two of three runs; the trigger above replaced it. A box shared with other lanes moves a single run's max
+  between 18 and 35 ms on the base too.
 - The one-off re-skin after a face grows: `loadDirty`, one `bakeLocalSkin` + `solveCages` + `flushSkin`.
 
 ## Limits (not done)
 
-- Load crush lives in `crush[]` and the baked masses, not in `simState` or the netplay wreck section: a netplay client
-  and a highlight replay from a keyframe do not show it, and a replayed run re-derives it only from the recorded inputs.
+- Load crush rides replays and netplay: `crush[]` and `crushBaked` are in `simState` (NET_VERSION 9, REPLAY_VERSION 7),
+  and a car whose face yielded is `crashed`, so it rides the wreck section (its masses carry the crush; the client skins
+  from them). `stack-crush.test.ts` restores a 4-stack from a keyframe: the same roofs, the same 3 s later.
 - A wreck (`massActive`) keeps its lattice: it takes no load crush, and a car that load-crushed and is then hit re-fits its
   shape-match rests to the undamaged shape (the roof's vertical cap keeps its sag: `maxLift`).
 - Forces between stacked cars are vertical only: a tilted pair does not pass friction to the car below, and there is no

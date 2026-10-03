@@ -575,7 +575,7 @@ export class StreamedDeformation extends DeformSolve {
 
   /** Numbers in a `simState` block (fixed by the class and the rig: the same for every car). */
   simSize(): number {
-    let n = this.scalarKeys().length + this.masses.length * 17 + this.beams.length * 4;
+    let n = this.scalarKeys().length + this.masses.length * 17 + this.beams.length * 4 + this.crush.length * 2;
     for (const c of this.clusters) n += c.q0x.length * 3 + 24;
     return n;
   }
@@ -599,6 +599,9 @@ export class StreamedDeformation extends DeformSolve {
     for (const m of this.masses) o = simMass(buf, o, m, write);
     for (const b of this.beams) o = simBeam(buf, o, b, write);
     for (const c of this.clusters) o = simCluster(buf, o, c, write);
+    // Load crush (docs/LOAD_CRUSH.md): each face's depth and the depth already baked into the masses.
+    o = simArray(buf, o, this.crush, write);
+    simArray(buf, o, this.crushBaked, write);
   }
 
   /** Netplay: array sizes for a `DeformNetState` (fixed by the rig). */

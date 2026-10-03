@@ -90,6 +90,34 @@ describe("load crush: a stack of cars", () => {
       assert.ok(Math.max(...v) - Math.min(...v) < 0.04 * Math.max(...v) + 0.002, `car ${i}'s roof at 60/144/240 Hz: ${v.map((x) => x.toFixed(3)).join(" / ")} m`);
     }
   });
+
+  it("bad: a stack restored from a clip keyframe shows the roof crush it had live, carries on from it, and its crushed cars are wrecks", () => {
+    const { cars: live, w } = stack(4);
+    assert.ok(live.slice(0, 3).every((c) => c.crashed), "a load-crushed car is not a wreck (it would not ride the replay's and netplay's wreck sections)");
+    // The keyframe: pose, flight and solver state of each car (`engine-record` writes the same three), into fresh cars.
+    const restored = live.map((src) => {
+      const c = new DeformableCar(paint(), new THREE.Scene());
+      c.spawnFacing(0, 0, 0, 0);
+      const sim = new Float32Array(src.deform.simSize());
+      src.deform.simState(sim, false);
+      const flight = new Float32Array(16);
+      src.flight(flight, 0, false);
+      c.group.position.copy(src.group.position);
+      c.group.quaternion.copy(src.group.quaternion);
+      c.velocity.copy(src.velocity);
+      c.angular.copy(src.angular);
+      c.crashed = src.crashed;
+      c.deform.simState(sim, true);
+      c.flight(flight, 0, true);
+      c.refreshBasis();
+      return c;
+    });
+    live.forEach((c, i) => assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.0005, `car ${i}: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`));
+    const rw = makeWorld(restored, false, false);
+    run(w, 3);
+    run(rw, 3);
+    live.forEach((c, i) => assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.002, `car ${i} 3 s on: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`));
+  });
 });
 
 describe("load crush: a car dropped on a face", () => {

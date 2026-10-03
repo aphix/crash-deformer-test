@@ -81,10 +81,10 @@ export function stepWorld(w: World, dt: number): void {
     }
   }
   let slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
-  // A body in flight in or near a contact (a roof it is crushing, a stack it stands on) is solved at CONTACT_HZ whatever the frame rate.
+  // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
   if (dt * CONTACT_HZ > slices + 1e-6) {
     for (const car of cars) {
-      if (nearContact(car, dt)) {
+      if (nearContact(car)) {
         slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
         break;
       }

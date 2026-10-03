@@ -154,7 +154,10 @@ export class CarSurfaces implements Ground {
       if (this.yielded[s] === 0) continue;
       any = true;
       if (this.grew[s] === 0) continue;
-      const d = this.carOf(s).deform;
+      const car = this.carOf(s);
+      // A car with a load-crushed face is a wreck: it rides the replay's and netplay's wreck sections.
+      car.crashed = true;
+      const d = car.deform;
       const f = s % FACES;
       d.crush[f] = Math.min(faceMax(f), d.crush[f]! + this.grew[s]!);
       d.bakeLoadCrush();
@@ -171,6 +174,7 @@ export class CarSurfaces implements Ground {
       }
       if (o.airborne) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
     }
+    self.yielding = any;
     return any;
   }
 

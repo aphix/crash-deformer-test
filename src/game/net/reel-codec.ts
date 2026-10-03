@@ -17,8 +17,9 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`; 5: the race's driver-look seed after
  * the deform mode; 6: `ejects` and the ejections tail, a thrown driver's step and launch numbers). A saved clip also
  * records `NET_VERSION` (its snapshots' layout).
+ * 7: `simState` carries each face's load crush (a stack's roofs replay crushed as live, docs/LOAD_CRUSH.md).
  */
-const REPLAY_VERSION = 6;
+const REPLAY_VERSION = 7;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
