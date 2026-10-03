@@ -3,7 +3,8 @@ import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
-import { RaceOverlay, RaceReadouts, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
@@ -161,7 +162,7 @@ export function Hud(props: HudProps) {
         </header>
       )}
 
-      {state.race ? <RaceReadouts race={state.race} boost={state.seat === "drive" ? state.boost : null} /> : <Readouts state={state} />}
+      {state.race ? <RaceReadouts race={state.race} corner={focus && !touch} /> : <Readouts state={state} />}
 
       <div className="flex min-h-0 flex-col items-start" style={{ gridArea: "context" }}>
         {state.showPistons ? <PistonPanel pistons={state.pistons} engine={engine} /> : null}

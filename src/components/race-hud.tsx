@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -22,101 +22,18 @@ import { DriverRows } from "@/components/race-driver";
 import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { ReelList, SavedList } from "@/components/race-reel";
-import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
-import { formatSpeed } from "@/game/hud/speed-units";
+import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;
 
-/** Seconds the split vs the leader stays up after each checkpoint. */
-const SPLIT_FLASH = 3;
+
 
 const LIT = ["", "bg-signal-red shadow-lg shadow-signal-red/50", "bg-signal-amber shadow-lg shadow-signal-amber/50", "bg-signal-green shadow-lg shadow-signal-green/50"] as const;
 
-/** m:ss.mmm; negative clock (before green) reads 0. */
-function fmtTime(seconds: number): string {
-  const ms = Math.round(Math.max(0, seconds) * 1000);
-  const s = Math.floor(ms / 1000);
-  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}.${String(ms % 1000).padStart(3, "0")}`;
-}
-
-function fmtGap(seconds: number): string {
-  return seconds < 60 ? `+${seconds.toFixed(2)}` : `+${fmtTime(seconds)}`;
-}
-
 /** Keeps a click from parking focus on a HUD button while driving (Space / Enter would press it). */
 const keepFocus = (e: { preventDefault: () => void }): void => e.preventDefault();
-
-/** One clock in the readouts cluster: label and value on one line. */
-function Clock({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-baseline gap-1">
-      <dt className="uppercase tracking-[0.12em] text-fg/70">{label}</dt>
-      <dd className="font-semibold">{value}</dd>
-    </div>
-  );
-}
-
-/** Shows the split for `SPLIT_FLASH` race seconds each time it changes (not the one present on mount). */
-function useSplitFlash(split: number | null, time: number): boolean {
-  const [seen, setSeen] = useState<{ split: number | null; at: number }>({ split, at: -Infinity });
-  if (seen.split !== split) setSeen({ split, at: time });
-  return split !== null && seen.split === split && time - seen.at < SPLIT_FLASH;
-}
-
-/**
- * Position, lap, clocks, speed and the boost meter (`null` while not driving) in the readouts corner:
- * a panel-free cluster drawn straight on the view (`hud-ink`), position outermost.
- */
-export function RaceReadouts({ race, boost }: { race: RaceHud; boost: number | null }) {
-  const you = race.you;
-  const flash = useSplitFlash(you?.split ?? null, race.time);
-  const unit = useSpeedUnit();
-  if (!you || race.phase === null) return null;
-  return (
-    <div className="flex flex-col items-end gap-1 self-start text-right font-display tabular-nums" style={{ gridArea: "readouts" }}>
-      <div className="hud-ink flex items-baseline gap-3">
-        <p className="text-sm font-semibold uppercase tracking-[0.12em] text-fg/70">
-          Lap <span className="text-2xl text-fg">{you.lap}</span>/{race.laps}
-        </p>
-        <p className="text-5xl font-semibold leading-none tracking-tight">
-          P{you.place}
-          <span className="text-xl font-medium text-fg/70">/{race.field}</span>
-        </p>
-      </div>
-      <p className="hud-ink text-xl font-semibold leading-none" aria-label="Race time">
-        {fmtTime(race.time)}
-      </p>
-      <dl className="hud-ink flex gap-3 text-xs">
-        <Clock label="Lap" value={fmtTime(you.lapTime)} />
-        <Clock label="Last" value={you.lastLap === null ? "–" : fmtTime(you.lastLap)} />
-        <Clock label="Best" value={you.bestLap === null ? "–" : fmtTime(you.bestLap)} />
-      </dl>
-      <div className="flex items-center gap-2">
-        {boost !== null && you.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
-        {boost === null ? null : (
-          <div className="h-1 w-16 overflow-hidden rounded-full bg-fg/25 shadow-[var(--shadow-border)]" role="meter" aria-label="Boost" aria-valuenow={Math.round(boost * 100)}>
-            <div className="h-full bg-accent" style={{ width: `${Math.round(boost * 100)}%` }} />
-          </div>
-        )}
-        <p className="hud-ink text-lg font-semibold leading-none">
-          {formatSpeed(you.speedKph / 3.6, unit)}
-          <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
-        </p>
-      </div>
-      <p
-        className={cn(
-          "rounded-full bg-accent px-2 text-sm font-semibold leading-5 text-accent-fg transition-opacity duration-[var(--motion-fast)]",
-          flash ? "opacity-100" : "opacity-0",
-        )}
-        aria-live="polite"
-      >
-        {you.split === null ? "–" : you.split === 0 ? "Lead" : `Split ${fmtGap(you.split)}`}
-      </p>
-    </div>
-  );
-}
 
 const STATUS_ICON: Partial<Record<CarStatus, { Icon: typeof Flag; label: string }>> = {
   finished: { Icon: Flag, label: "Finished" },

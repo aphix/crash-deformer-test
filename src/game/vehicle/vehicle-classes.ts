@@ -169,6 +169,13 @@ export function classStats(id: VehicleClassId): ClassStats {
   return CLASSES[id];
 }
 
+/** The gear bucket (0-based) forward speed `v` (m/s) sits in, past the top gear's end (a boost) still top: the bucket `applyDrive`'s pedals pull in. */
+export function gearAt(k: ClassStats, v: number): number {
+  let g = 0;
+  while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
+  return g;
+}
+
 /** Where the arcade ↔ realistic slider starts: arcade-leaning, per the design pillars. */
 export const DEFAULT_REALISM = 0.25;
 

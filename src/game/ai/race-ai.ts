@@ -123,8 +123,8 @@ export class RaceBrain {
   private readonly aggression = new Float64Array(MAX_CARS);
   /** Per car: class figures (sedan until `setClass`). */
   private readonly cls: ClassStats[] = Array.from({ length: MAX_CARS }, () => classStats("sedan"));
-  /** Boost meter per car, 0–1, and whether a burst is running (it runs on to empty). */
-  private readonly meter = new Float64Array(MAX_CARS);
+  /** Boost meter per car, 0–1 (the HUD reads it), and whether a burst is running (it runs on to empty). */
+  readonly meter = new Float64Array(MAX_CARS);
   private readonly burst = new Uint8Array(MAX_CARS);
   private readonly seg = new Int32Array(MAX_CARS);
   private readonly route = new Int16Array(MAX_CARS);

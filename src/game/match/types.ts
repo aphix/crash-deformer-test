@@ -259,6 +259,31 @@ export type RaceHudRow = {
   watched: boolean;
 };
 
+/** The driving readouts of the car the HUD rides with: the driven car, or the watched one while spectating (what its driver sees). */
+export type RaceView = {
+  id: number;
+  /** Place, lap and clocks; null for a car outside the race (police). */
+  racer: {
+    place: number;
+    /** Lap being driven, 1-based, capped at `laps`. */
+    lap: number;
+    lapTime: number;
+    lastLap: number | null;
+    bestLap: number | null;
+    /** Seconds behind the first car through the last checkpoint (0 when it led). */
+    split: number | null;
+    /** In another car's trail (`DRAFT`): the HUD's draft cue. */
+    drafting: boolean;
+  } | null;
+  speedKph: number;
+  /** Gear the forward speed sits in, 1-based (`gearAt`); 0 rolling backwards. */
+  gear: number;
+  /** Boost meter 0–1; null when this browser doesn't hold it (a peer's car, police). */
+  boost: number | null;
+  /** Burning boost right now. */
+  boosting: boolean;
+};
+
 /** What the HUD reads (built by the engine glue for the local viewer); null in `CrashHudState.race` outside race mode. */
 export type RaceHud = {
   menu: RaceMenu;
@@ -273,27 +298,21 @@ export type RaceHud = {
   /** Race clock (s): negative before green. */
   time: number;
   lights: 0 | 1 | 2 | 3;
-  /** The local player's car, null when there is none in this race. */
+  /** The local player's car (the race moments: wrong way, respawn, finish), null when there is none in this race. */
   you: {
     id: number;
     place: number;
     /** Lap being driven, 1-based, capped at `laps`. */
     lap: number;
-    lapTime: number;
-    lastLap: number | null;
-    bestLap: number | null;
     status: CarStatus;
     wrongWay: boolean;
     missed: boolean;
     /** Seconds until the pending respawn, null when none. */
     respawnIn: number | null;
     finishTime: number | null;
-    /** Seconds behind the first car through the last checkpoint (0 when you led it). */
-    split: number | null;
-    speedKph: number;
-    /** In another car's trail (`DRAFT`): the HUD's draft cue. */
-    drafting: boolean;
   } | null;
+  /** The driving readouts: the driven car's, or the watched car's while spectating; null when the camera follows no car. */
+  view: RaceView | null;
   /** Cars in the race. */
   field: number;
   /** Live order (all cars). */
