@@ -189,8 +189,9 @@ export const CLEAR = {
   radius: 2,
   /** The spot and each sample keep this far (m) from every solid; the spot itself over the ground too. */
   pad: 0.25,
-  /** The target is sampled this many times over the shot's horizon, after its place now. */
-  ahead: 4,
+  /** The target is sampled every `every` s over the shot's horizon (at most `most` times), after its place now: a gap this short keeps a crest or a corner from hiding the car between two samples. */
+  every: 0.5,
+  most: 8,
 };
 /** Flat sample directions: 30° apart, so a face at least 0.25 m thick within 1.9 m of the spot is always reached. */
 const FLAT = 12;
@@ -213,10 +214,10 @@ export function clearSpot(s: Sight, x: number, y: number, z: number, radius: num
 }
 
 type Vec3 = { x: number; y: number; z: number };
-const _ahead = new Float64Array(3 * (CLEAR.ahead + 1));
+const _ahead = new Float64Array(3 * (CLEAR.most + 1));
 
 /**
- * Where the target (tx, ty, tz) moving at (vx, vz) will be over `horizon` s, sampled `CLEAR.ahead` times (into `out`
+ * Where the target (tx, ty, tz) moving at (vx, vz) will be over `horizon` s, sampled every `CLEAR.every` s (into `out`
  * as x, y, z triples; the first is the target now). Straight on its velocity in the open; along the course at the
  * same speed on one (a bend or a street corner would put a straight line through the infield or a building), at the
  * same lateral offset and height over the road. A sample no car could stand at (off the ground, inside a solid) is
@@ -224,7 +225,7 @@ const _ahead = new Float64Array(3 * (CLEAR.ahead + 1));
  */
 export function aheadPoints(s: Sight, tx: number, ty: number, tz: number, vx: number, vz: number, horizon: number, out: Float64Array, hint = -1): number {
   const speed = Math.hypot(vx, vz);
-  const steps = speed * horizon < 1 ? 0 : CLEAR.ahead;
+  const steps = speed * horizon < 1 ? 0 : Math.min(CLEAR.most, Math.max(1, Math.ceil(horizon / CLEAR.every)));
   const path = s.path;
   let s0 = 0;
   let dir = 1;
@@ -268,9 +269,9 @@ export function aheadPoints(s: Sight, tx: number, ty: number, tz: number, vx: nu
 
 /**
  * The one question a camera cut (and a held shot, re-asked as it plays) answers: is `eye` clear (`clearSpot`) and
- * does it see `target` (the point it aims at) now and at `CLEAR.ahead` more places over the next `horizon` s at its
+ * does it see `target` (the point it aims at) now and every `CLEAR.every` s over the next `horizon` s at its
  * velocity `vel` (`aheadPoints`; `vel.y` is ignored)? Walls, barriers, buildings, props and the other cars in `s` all
- * block. ~15 + (up to 5 sight lines) solid tests.
+ * block. ~15 + (up to 9 sight lines) solid tests.
  */
 export function camUsable(s: Sight, eye: Vec3, target: Vec3, vel: Vec3, horizon: number): boolean {
   if (!clearSpot(s, eye.x, eye.y, eye.z)) return false;

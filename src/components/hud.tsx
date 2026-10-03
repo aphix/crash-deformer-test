@@ -44,7 +44,7 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 };
 
 /** Camera names: the drive views and the spectator cams. */
-const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit" };
+const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto" };
 
 /** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew and range mutually exclusive. */
 type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "range";
@@ -93,7 +93,7 @@ const CAMERA_KEYS: [string, string][] = [
   ["Esc", "Step back out"],
   ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
-  ["V", "Camera view: chase, trackside, wheel, orbit"],
+  ["V", "Camera view: chase, trackside, wheel, orbit, auto"],
 ];
 
 function seatHint(state: CrashHudState): { title: string; keys: string } {

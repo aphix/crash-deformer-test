@@ -41,7 +41,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Previous / next car (starts following from the whole field) | Q / E | LB / RB (L1 / R1) | Prev / Next |
 | Take the wheel of the followed car | any drive key | RT, LT or the left stick | the stick |
 | Free the camera (whole field) | Esc | Back | Free |
-| Spectator cam: chase → far → hood → trackside → wheel well → orbit | V / T | Y / Triangle | View (in a race: the Spectating bar's camera button) |
+| Spectator cam: chase → far → hood → trackside → wheel well → orbit → Auto (the highlight reel's shots run live on the followed car; every cut checks room and sight first) | V / T | Y / Triangle | View (in a race: the Spectating bar's camera button) |
 | Look back from the followed car while held | ` | R3 | Rear (hold) |
 | Orbit (also a thrown driver's ride-along: it orbits the dummy, the ride's shot changes wait during the drag and 2.5 s after) | drag | right stick | one-finger drag |
 | Zoom | scroll | | two-finger pinch |
@@ -52,7 +52,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 |---|---|---|---|
 | Pause menu | Esc | Start / Back | Pause |
 | Respawn | R | D-pad ↓ | Respawn |
-| Previous / next car while spectating | Q / E | LB / RB | ‹ / › on the Spectating bar |
+| Previous / next car while spectating (the entry after the last car is **Auto**: the director picks the car, switching after every 3 camera shots or once nothing has happened to the car for 4 s and something may happen to another; the Standings' Auto row is the same pick) | Q / E | LB / RB | ‹ / › on the Spectating bar |
 | Camera view | V / C / T | Y / Triangle | View |
 | Look back from the driven or spectated car | ` | R3 | Rear (hold) |
 | Focus view ↔ full menu (the sandbox hotkeys work only in the full menu) | H | | Full menu / Race view |

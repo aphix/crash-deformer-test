@@ -4,7 +4,8 @@ import { beginImpact, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, stepPhase, typ
 import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts";
 import type { ReelHud, SaveResult } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
-import { CINE, CineCam, DUTCH, DutchCam, sightLine, solid, type Sight } from "../present/spectate-cam.ts";
+import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, type ShotKind } from "../present/shot-cam.ts";
+import type { Sight } from "../present/spectate-cam.ts";
 import { CRASH_CAM_END } from "../present/engine-cine.ts";
 import { overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
@@ -67,13 +68,8 @@ export function simAt(tl: Timeline, w: number): number {
   return tl.sim[i]! + (tl.sim[j]! - tl.sim[i]!) * Math.min(1, k - i);
 }
 
-type ShotKind = "chase" | "cine" | "dutch" | "high";
-/** A camera from clip time `at`: its kind and the seeded picks it frames with. */
-type Shot = { at: number; kind: ShotKind; mount: number; angle: number; seed: number };
-
-const OPENERS: readonly ShotKind[] = ["chase", "cine", "high", "dutch"];
-const RUN_INS: readonly ShotKind[] = ["cine", "dutch", "chase"];
-const AFTERS: readonly ShotKind[] = ["high", "cine", "chase"];
+/** A camera from clip time `at`: a picked shot (`present/shot-cam.ts`, the director the Auto spectator cam shares). */
+type Shot = PickedShot & { at: number };
 
 /**
  * A clip's shots, picked from the reel's seed (docs/HIGHLIGHTS.md "Cameras"): an opener, a run-in about a second before
@@ -82,9 +78,7 @@ const AFTERS: readonly ShotKind[] = ["high", "cine", "chase"];
 function shotsFor(clip: HighlightClip, tl: Timeline, rand: () => number): Shot[] {
   const shots: Shot[] = [];
   const add = (at: number, kinds: readonly ShotKind[]): void => {
-    const prev = shots[shots.length - 1]?.kind;
-    const pool = kinds.filter((k) => k !== prev);
-    shots.push({ at, kind: pool[Math.floor(rand() * pool.length)]!, mount: Math.floor(rand() * 8), angle: rand() * Math.PI * 2, seed: Math.floor(rand() * 1e6) });
+    shots.push({ at, ...pickShot(kinds, shots[shots.length - 1]?.kind, rand) });
   };
   add(0, OPENERS);
   const runIn = clip.firstImpact - 1 - rand() * 0.8;
@@ -146,10 +140,7 @@ export class ReelDirector {
   private showing = -1;
   private flying = false;
   private readonly flight = { ax: 0, az: 0, bx: 0, bz: 0, u: 0 };
-  private readonly cine = new CineCam();
-  private readonly dutch = new DutchCam();
-  private cineFound = false;
-  private readonly highEye = new THREE.Vector3();
+  private readonly shotCam = new ShotCam();
   /** Every live car's visibility when the reel took them. */
   private shown: boolean[] | null = null;
 
@@ -285,31 +276,7 @@ export class ReelDirector {
     }
     const p = this.cur;
     if (!p) return;
-    const car = p.sim.cars[p.clip.focus]!;
-    const pos = car.group.position;
-    const shot = p.shots[Math.max(0, this.shot)]!;
-    const kind = shot.kind;
-    if (kind === "cine" && this.cineFound) {
-      cam.position.copy(this.cine.eye);
-      cam.lookAt(pos.x, pos.y + CINE.aimUp, pos.z);
-      lens(cam, THREE.MathUtils.clamp(2 * THREE.MathUtils.radToDeg(Math.atan2(CINE.frame, this.cine.eye.distanceTo(pos))), CINE.fov[0]!, CINE.fov[1]!));
-    } else if (kind === "dutch") {
-      this.dutch.place(cam, car, shot.mount);
-      lens(cam, DUTCH.fov);
-    } else if (kind === "high") {
-      cam.position.copy(this.highEye);
-      cam.lookAt(pos.x, pos.y + CINE.aimUp, pos.z);
-      lens(cam, 42);
-    } else {
-      // Chase (and a cine shot with no clear spot): behind the car along its travel.
-      const v = car.velocity;
-      const speed = Math.hypot(v.x, v.z);
-      const fx = speed > 2 ? v.x / speed : car.fwdFlat.x;
-      const fz = speed > 2 ? v.z / speed : car.fwdFlat.z;
-      cam.position.set(pos.x - fx * 8, pos.y + 2.8, pos.z - fz * 8);
-      cam.lookAt(pos.x + fx * 3, pos.y + 0.8, pos.z + fz * 3);
-      lens(cam, 55);
-    }
+    this.shotCam.pose(cam, p.sim.cars[p.clip.focus]!, p.shots[Math.max(0, this.shot)]!);
   }
 
   /** The car the shot follows (the sun's shadow box goes with it); null in a flight. */
@@ -399,23 +366,7 @@ export class ReelDirector {
 
   private frameShot(p: Prepared, s: Shot): void {
     const car = p.sim.cars[p.clip.focus]!;
-    if (s.kind === "cine") {
-      this.cine.reset(s.seed);
-      // No budget: the whole search runs now, so the pick depends only on the poses and the seed.
-      this.cineFound = this.cine.pick(this.host.sight(car), car) === "found";
-    } else if (s.kind === "high") {
-      // The seeded angle, else the first eighth-turn from it whose eye stands clear and sees the car (a building or
-      // a wall between them showed only its face).
-      const sight = this.host.sight(car);
-      const pos = car.group.position;
-      const e = this.highEye;
-      for (let k = 8; k >= 0; k--) {
-        // k = 8..1: the eighth-turns from the seeded angle; 0 (none clear): the seeded angle anyway.
-        const a = s.angle + ((8 - k) * Math.PI) / 4;
-        e.set(p.clip.x + Math.cos(a) * 22, pos.y + 9, p.clip.z + Math.sin(a) * 22);
-        if (k > 0 && !solid(sight, e.x, e.y, e.z, 0.1) && sightLine(sight, e.x, e.y, e.z, pos.x, pos.y + CINE.aimUp, pos.z) >= 0) break;
-      }
-    }
+    this.shotCam.frame(s, car, this.host.sight(car), p.clip.x, p.clip.z);
   }
 
   private impact(p: Prepared): void {
@@ -428,10 +379,4 @@ export class ReelDirector {
     _n.normalize();
     this.host.impact(_c.set(clip.x, a.y, clip.z), _n, clip.peakKph / 3.6);
   }
-}
-
-function lens(cam: THREE.PerspectiveCamera, fov: number): void {
-  if (Math.abs(cam.fov - fov) < 0.01) return;
-  cam.fov = fov;
-  cam.updateProjectionMatrix();
 }

@@ -4,18 +4,25 @@ import { DRIVE, type DriverSeat, type SeatView } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { DISC_RADIUS } from "../world/ground.ts";
 import { wrapPiClosed } from "../kernel/scalar.ts";
-import { CineCam, DutchCam, type Sight } from "./spectate-cam.ts";
+import { AutoCam, type AutoScene } from "./auto-cam.ts";
+import { CINE, CineCam, DutchCam, solid, type Sight } from "./spectate-cam.ts";
 
 /**
  * A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic ("cine"),
- * the wheel-well dutch ("dutch") and the free orbit. A race opens on the chase, everything else on the orbit.
+ * the wheel-well dutch ("dutch"), the free orbit and Auto (the highlight reel's shot director run live, `AutoCam`). A
+ * race opens on the chase, everything else on the orbit.
  */
-export type SpecView = SeatView | "cine" | "dutch" | "orbit";
-const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit"];
+export type SpecView = SeatView | "cine" | "dutch" | "orbit" | "auto";
+const SPEC_VIEWS: readonly SpecView[] = ["third", "far", "first", "cine", "dutch", "orbit", "auto"];
 
-/** What the cinematic and dutch cams read from the scene, only when they pick a shot. */
-export type SpecScene = { sight(): Sight; rivals(): readonly DeformableCar[] };
+/**
+ * What the spectator cams read from the scene, only when they pick a shot (`rivals`, `sight`) or per frame (`fixed`):
+ * `fixed` is the course's own solids (cached, no cars; null off a race), for the chase views' push-out.
+ */
+export type SpecScene = AutoScene & { rivals(): readonly DeformableCar[]; fixed(): Sight | null };
 
+/** The chase views' push-out pulls the eye in at most this many metres. */
+const PUSH_MAX = 6;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
@@ -288,6 +295,7 @@ export class ChaseCamera {
   readonly drive = new DriveCam();
   readonly cine = new CineCam();
   readonly dutch = new DutchCam();
+  readonly auto = new AutoCam();
   /** The followed car's cam; null = the scene's own (`specView`). */
   spec: SpecView | null = null;
   /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
@@ -491,6 +499,7 @@ export class ChaseCamera {
   cycleSpec(chase: boolean): void {
     this.spec = SPEC_VIEWS[(SPEC_VIEWS.indexOf(this.specView(chase)) + 1) % SPEC_VIEWS.length]!;
     this.cine.reset();
+    this.auto.reset();
   }
 
   /**
@@ -501,6 +510,12 @@ export class ChaseCamera {
   frameSpectate(car: DeformableCar, view: SpecView, scene: SpecScene, wallDt: number, shake: boolean): boolean {
     if (view === "orbit") return false;
     this.fallWatch = false;
+    if (view === "auto") {
+      this.auto.update(this.camera, car, scene, wallDt);
+      this.drive.release();
+      this.rig = "fixed";
+      return true;
+    }
     if (view === "dutch" || (view === "cine" && this.cine.update(this.camera, car, scene.sight, wallDt))) {
       if (view === "dutch") this.dutch.update(this.camera, car, scene.rivals, wallDt);
       this.drive.release();
@@ -510,8 +525,21 @@ export class ChaseCamera {
     const chase = view === "cine" ? "third" : view;
     this.rig = "chase";
     this.drive.update(this.camera, car, chase, wallDt, this.pad.rx, this.pad.ry, true);
+    if (chase !== "first") this.pushOut(scene.fixed());
     if (shake && chase !== "first") this.shake();
     return true;
+  }
+
+  /**
+   * A chase eye inside a course solid (a street corner, a wall) is pulled in along the view, a metre at a time (at
+   * most `PUSH_MAX`), until it is out: one solid test per frame when it is already clear. The rig's own spring is
+   * untouched, so the eye is back on its line as soon as the way is clear. The orbit and the hood cam are not pushed.
+   */
+  private pushOut(s: Sight | null): void {
+    const c = this.camera.position;
+    if (!s || !solid(s, c.x, c.y, c.z, CINE.pad)) return;
+    this.camera.getWorldDirection(_v);
+    for (let d = 0; d < PUSH_MAX && solid(s, c.x, c.y, c.z, CINE.pad); d++) c.add(_v);
   }
 
   /**

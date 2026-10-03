@@ -218,9 +218,9 @@ export type RaceCommand =
   | { type: "end" }
   /** Dead menu → follow the live cars (no control). */
   | { type: "spectate" }
-  /** Spectating: next / previous live car. */
+  /** Spectating: next / previous live car, then Auto (one more entry after the last car). */
   | { type: "cycle"; dir: 1 | -1 }
-  /** Spectating or finished: follow car `id` (standings click). Ignored while the player still races. */
+  /** Spectating or finished: follow car `id` (standings click), or `id` -1 for Auto (the director picks the car). Ignored while the player still races. */
   | { type: "watch"; id: number }
   /** Back to the setup menu (from pause / results / standings), or leave race mode from setup. */
   | { type: "quit" }
@@ -333,6 +333,8 @@ export type RaceHud = {
   standings: RaceHudRow[];
   /** Name of the car the camera follows while spectating, null otherwise. */
   spectating: string | null;
+  /** Auto spectating is on (the director picks the car; `spectating` names the one it picked). */
+  auto: boolean;
   winnerName: string | null;
   winBy: WinBy | null;
   /** Final classification once the race is over, else null. */

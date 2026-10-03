@@ -10,6 +10,7 @@ import { blankPoint, blankProjection, projectPath, Track } from "../world/track.
 import { TRACKS } from "../world/tracks/index.ts";
 import { FRAME, frame, makeWorld } from "../world/race-world.test-util.ts";
 import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, type Sight } from "./spectate-cam.ts";
+import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { levelAt } from "./track-mesh.ts";
 
@@ -39,6 +40,28 @@ function blocked(track: Track, placed: readonly Placed[], cols: readonly PropCol
   const over = Math.abs(pr.lateral) - path.half[pr.k]! - (left ? path.runL[pr.k]! : path.runR[pr.k]!);
   if ((left ? path.wallL[pr.k] : path.wallR[pr.k]) && over > 0 && over < 0.6 && y < levelAt(path, pr.k, pr.lateral) + track.json.road.wallHeight) return "in the wall";
   return null;
+}
+
+/** What the oracle finds wrong with a camera at `e` filming the car at `p`: inside a solid, a blocked sight line (10 cm steps up to the car's `stop` margin), or a solid within 1.9 m flat (a spot may stand beside a bank, so not the ground). */
+function eyeProblems(track: Track, placed: readonly Placed[], cols: readonly PropCollider[], e: THREE.Vector3, p: THREE.Vector3): string[] {
+  const bad: string[] = [];
+  const at = blocked(track, placed, cols, e.x, e.y, e.z);
+  if (at) bad.push(`eye (${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ${at}`);
+  const len = e.distanceTo(p);
+  for (let d = 0.1; d < len - CINE.stop; d += 0.1) {
+    const f = d / len;
+    const why = blocked(track, placed, cols, e.x + (p.x - e.x) * f, e.y + (p.y + CINE.aimUp - e.y) * f, e.z + (p.z - e.z) * f);
+    if (why) {
+      bad.push(`sight line ${why} at ${d.toFixed(1)} m of ${len.toFixed(1)}`);
+      break;
+    }
+  }
+  for (let i = 0; i < 12; i++) {
+    const a = (i * Math.PI) / 6;
+    const why = blocked(track, placed, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
+    if (why && why !== "under the ground") bad.push(`${why} within 1.9 m of the eye`);
+  }
+  return bad;
 }
 
 const COURSES = TRACKS.map((j) => new Track(parseTrack(j)));
@@ -74,26 +97,8 @@ describe("trackside cinematic cam", () => {
           if (!ok) continue;
           found++;
           const e = cine.eye;
-          const p = car.group.position;
-          const at = blocked(track, placed, cols, e.x, e.y, e.z);
-          if (at) bad.push(`s ${s}: eye (${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ${at}`);
+          for (const why of eyeProblems(track, placed, cols, e, car.group.position)) bad.push(`s ${s}: ${why}`);
           if (e.y - ground.heightAt(e.x, e.z, e.y) > CINE.heights.at(-1)! + 0.01) bad.push(`s ${s}: eye ${e.y.toFixed(1)} m too high`);
-          // The sight line, 10 cm at a time, up to the car's own `stop` margin.
-          const len = e.distanceTo(p);
-          for (let d = 0.1; d < len - CINE.stop; d += 0.1) {
-            const f = d / len;
-            const why = blocked(track, placed, cols, e.x + (p.x - e.x) * f, e.y + (p.y + CINE.aimUp - e.y) * f, e.z + (p.z - e.z) * f);
-            if (why) {
-              bad.push(`s ${s}: sight line ${why} at ${d.toFixed(1)} m of ${len.toFixed(1)}`);
-              break;
-            }
-          }
-          // Room: no solid within 1.9 m flat of the eye (a spot may stand beside a bank, so not the ground).
-          for (let i = 0; i < 12; i++) {
-            const a = (i * Math.PI) / 6;
-            const why = blocked(track, placed, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
-            if (why && why !== "under the ground") bad.push(`s ${s}: ${why} within 1.9 m of the eye`);
-          }
         }
         t.diagnostic(`${track.id}: ${found}/${spots} spots framed, pick ${(total / spots).toFixed(2)} ms mean, ${worst.toFixed(2)} ms worst`);
         assert.deepEqual(bad, []);
@@ -237,6 +242,18 @@ describe("camera clearance", () => {
     assert.equal(camUsable(sight, { x: 0, y: 1.5, z: 0 }, target, still, 0), false, "eye inside the building");
   });
 
+  it("camUsable: a lamp post on the sight line or within 2 m of the eye rejects it; one well beside both does not", () => {
+    const eye = { x: -10, y: 1.5, z: 0 };
+    const target = { x: 0, y: 0.7, z: 0 };
+    const still = { x: 0, y: 0, z: 0 };
+    const post = (x: number, z: number): Sight => ({ ...sight, occ: [occluder(x, z, 0, 0.45, 0.45, true, 0, 5.3)] });
+    assert.equal(camUsable(post(-5, 0), eye, target, still, 0), false, "on the sight line");
+    assert.equal(camUsable(post(-5, 0.6), eye, target, still, 0), false, "0.6 m off the sight line (its head and arm reach 0.45 m)");
+    assert.equal(camUsable(post(-5, 1.2), eye, target, still, 0), true, "1.2 m off the sight line, 5 m from the eye");
+    assert.equal(camUsable(post(-9, 1.5), eye, target, still, 0), false, "1.8 m beside the eye");
+    assert.equal(camUsable(post(-10, 3.2), eye, target, still, 0), true, "3.2 m beside the eye");
+  });
+
   it("aheadPoints: on a course the car is predicted along it, not on the straight of its velocity", () => {
     const track = COURSES.find((c) => c.id === "oval")!;
     const open = raceSight(track, placeProps(track));
@@ -244,12 +261,12 @@ describe("camera clearance", () => {
     try {
       const pt = blankPoint();
       const pr = blankProjection();
-      const out = new Float64Array(3 * (CLEAR.ahead + 1));
+      const out = new Float64Array(3 * (CLEAR.most + 1));
       let bends = 0;
       for (let s = 0; s < track.length; s += 10) {
         track.pointAt(s, pt);
         const n = aheadPoints(open, pt.x, pt.y + 0.5, pt.z, pt.tx * 40, pt.tz * 40, 4, out);
-        assert.ok(n >= 1 && n <= CLEAR.ahead + 1, `s ${s}: ${n} samples`);
+        assert.ok(n >= 1 && n <= CLEAR.most + 1, `s ${s}: ${n} samples`);
         for (let i = 0; i < n; i++) assert.ok(Math.abs(projectPath(track.path, out[3 * i]!, out[3 * i + 2]!, -1, pr).lateral) < 1, `s ${s}: sample ${i} is ${pr.lateral.toFixed(1)} m off the course`);
         // The straight on its velocity leaves the road there: the prediction is not that line.
         const lat = Math.abs(projectPath(track.path, pt.x + pt.tx * 160, pt.z + pt.tz * 160, -1, pr).lateral);
@@ -260,4 +277,50 @@ describe("camera clearance", () => {
       setGround(null);
     }
   });
+});
+
+describe("Auto spectator cam", () => {
+  for (const id of ["oval", "city", "stunt"]) {
+    it(`${id}: over a race every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
+      const track = COURSES.find((c) => c.id === id)!;
+      const placed = placeProps(track);
+      const cols = propColliders(placed);
+      const w = makeWorld();
+      try {
+        w.race.enter();
+        w.race.command({ type: "options", options: { trackId: id, laps: 1, aiCount: 4, spectate: true } });
+        w.race.reseed(3);
+        w.race.command({ type: "start" });
+        const camera = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 900);
+        const auto = new AutoCam();
+        const scene: AutoScene = { sight: () => w.race.courseSight()!, crashing: () => false, cut: (car) => car };
+        const state = { acc: 0 };
+        const kinds = new Set<string>();
+        const bad: string[] = [];
+        let cuts = 0;
+        let checked = 0;
+        for (let n = 0; n < 90 / FRAME; n++) {
+          frame(w, state);
+          const car = w.cars[w.seat.carIndex]!;
+          auto.update(camera, car, scene, FRAME);
+          if (auto.cuts === cuts) continue;
+          cuts = auto.cuts;
+          const kind = auto.shot!.kind;
+          kinds.add(kind);
+          // A wheel mount rides the car and a chase pose has no spot to find: only the searched spots promise room and sight.
+          if (kind === "chase" || kind === "dutch" || !auto.cam.found) continue;
+          checked++;
+          for (const why of eyeProblems(track, placed, cols, camera.position, car.group.position)) bad.push(`cut ${cuts} (${kind}) at ${(n * FRAME).toFixed(1)} s: ${why}`);
+        }
+        t.diagnostic(`${id}: ${cuts} cuts in 90 s (${[...kinds].join(", ")}), ${checked} searched spots checked`);
+        assert.deepEqual(bad, []);
+        assert.ok(cuts >= 8, `${cuts} cuts in 90 s`);
+        assert.ok(kinds.size >= 3, `only ${[...kinds].join(", ")}`);
+        assert.ok(checked >= 3, `${checked} searched spots`);
+      } finally {
+        w.race.exit();
+        setGround(null);
+      }
+    });
+  }
 });

@@ -51,6 +51,10 @@ export class CrashRecorder {
   on = false;
   readonly ledger = new HighlightLedger<HighlightClip>();
   private time = 0;
+  /** The recorder's clock (s, from 0 at the race's start): what the open clusters' `first` / `last` are on. */
+  get now(): number {
+    return this.time;
+  }
   private step = 0;
   private nextKey = 0;
   private keyCount = 0;

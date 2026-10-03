@@ -17,6 +17,9 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
+import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
+import { activeGround } from "../world/ground.ts";
+import { BARRIER_HALF } from "../contact/sat.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
 import { FX_REACH, Witness } from "../present/witness.ts";
@@ -440,7 +443,7 @@ export abstract class EngineCore {
     this.impactKph = impulse * 3.6;
     this.view.kick(this.carCount);
     const rigScene = this.rigScene;
-    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.race.active ? this.race.courseSight() : null);
+    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.sceneSight(null, false));
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
@@ -456,6 +459,38 @@ export abstract class EngineCore {
     this.fxPoofed = true;
     if (this.audioOn) this.audio.impact(impulse);
     this.emitHud();
+  }
+
+  /**
+   * The scene's solids as the spectator and crash cams see them: the course's own, or the sandbox's lamp poles, barrier and
+   * balls, within the derby bowl's rim. `cars`: every visible car but `followed` stands in it too (a crash cam leaves them out:
+   * they are what it films).
+   */
+  protected sceneSight(followed: DeformableCar | null, cars: boolean): Sight {
+    const course = this.race.active ? this.race.courseSight() : null;
+    const occ: Occluder[] = course ? [...course.occ] : [];
+    if (cars) {
+      for (const c of this.live()) {
+        if (c === followed || c.vaporized || !c.group.visible) continue;
+        const p = c.group.position;
+        occ.push(occluder(p.x, p.z, 0, CAR_HALF.z, CAR_HALF.z, true, p.y - 0.3, p.y + 1.6));
+      }
+    }
+    if (course) return { ...course, occ };
+    for (const pole of this.poles) {
+      if (pole.intact && pole.group.visible) occ.push(occluder(pole.group.position.x, pole.group.position.z, 0, 0.45, 0.45, true, 0, 5.3));
+    }
+    if (this.showBarrier) {
+      const b = this.barrier.group.position;
+      occ.push(occluder(b.x, b.z, this.barrier.yaw, BARRIER_HALF.x, BARRIER_HALF.z, false, 0, 0.9));
+    }
+    if (this.showBalls) {
+      for (const ball of this.balls) {
+        const b = ball.mesh.position;
+        if (ball.mesh.visible) occ.push(occluder(b.x, b.z, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius));
+      }
+    }
+    return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }
   /**
    * A driver is being thrown, his way out centred on `at` (`frame`'s z out of the pane): a heavy, very short shatter
