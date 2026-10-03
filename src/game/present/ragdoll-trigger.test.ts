@@ -4,109 +4,11 @@ import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { BARRIER_HALF } from "../contact/sat.ts";
-import { armKill, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
-import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
+import { headOn } from "../vehicle/ejection.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 
 const FRAME = 1 / 60;
-
-/** Run the crash 2.5 s through the engine's frame, watching every car: each throw as [car, exit, pre-hit speed]. */
-function throws(cars: DeformableCar[], barrier = false): [number, ExitPane, number][] {
-  const w = makeWorld(cars, barrier, false);
-  const watch = new EjectionWatch();
-  const out: [number, ExitPane, number][] = [];
-  for (let f = 0; f < 150; f++) {
-    tickWorld(w);
-    watch.update(cars, FRAME, "default", (i, exit, pre) => out.push([i, exit, pre.length()]));
-  }
-  return out.sort((a, b) => a[0] - b[0]);
-}
-
-/** A derby wreck one hit from done: its wear limit is below a single hit's cap (36 m²/s²). */
-function worn(car: DeformableCar): DeformableCar {
-  car.deform.wreckEnergy = 20;
-  return car;
-}
-
-/** A sedan armed as the fleet arms it (`dressCar`): the HUD's default realism, no wear limit. */
-function fleetCar(): DeformableCar {
-  const car = makeCar("shape", 0.32, 0.45);
-  armKill(car.deform, "sedan", DEFAULT_REALISM, "default");
-  return car;
-}
-
-/** Two fleet sedans 10 m apart, head-on at `mps` each. */
-function headOn(mps: number): [DeformableCar, DeformableCar] {
-  const a = fleetCar();
-  const b = fleetCar();
-  launch(a, -5, 0, Math.PI / 2, mps, 0);
-  launch(b, 5, 0, -Math.PI / 2, -mps, 0);
-  return [a, b];
-}
-
-describe("a disabling head-on or side hit throws the driver out, nothing else does", () => {
-  it("bad: a 2×56 km/h head-on kills both engines and throws both drivers through the windshield at their pre-hit speed", () => {
-    const a = makeCar();
-    const b = makeCar();
-    launch(a, -5, 0, Math.PI / 2, 56 / 3.6, 0);
-    launch(b, 5, 0, -Math.PI / 2, -56 / 3.6, 0);
-    const out = throws([a, b]);
-    assert.ok(!a.deform.drivetrainAlive && !b.deform.drivetrainAlive, "the head-on disabled both");
-    assert.deepEqual(out.map(([i, exit]) => [i, exit]), [[0, "windshield"], [1, "windshield"]]);
-    for (const [, , speed] of out) assert.ok(Math.abs(speed - 56 / 3.6) < 0.5, `thrown from ${speed.toFixed(2)} m/s`);
-  });
-
-  it("bad: a T-bone that finishes a worn wreck throws its driver out of the struck (right) side's window; the bullet keeps its own", () => {
-    const struck = worn(makeCar());
-    const bullet = makeCar();
-    launch(struck, 0, 0, 0, 0, 0);
-    launch(bullet, 6, 0, -Math.PI / 2, -50 / 3.6, 0);
-    const out = throws([struck, bullet]);
-    assert.ok(!struck.deform.drivetrainAlive, "the T-bone disabled the worn car");
-    assert.deepEqual(out.map(([i, exit]) => [i, exit]), [[0, "doorR"]]);
-  });
-
-  it("bad: a 2×28 km/h head-on that leaves both engines running throws nobody", () => {
-    const a = makeCar();
-    const b = makeCar();
-    launch(a, -5, 0, Math.PI / 2, 28 / 3.6, 0);
-    launch(b, 5, 0, -Math.PI / 2, -28 / 3.6, 0);
-    const out = throws([a, b]);
-    assert.ok(a.deform.drivetrainAlive && b.deform.drivetrainAlive, "the hit did not disable");
-    assert.deepEqual(out, []);
-  });
-
-  it("bad: a fleet head-on at 2×72 km/h (the HUD's 0–32 m/s launch range) throws both drivers, though at the default realism neither car dies", () => {
-    const [a, b] = headOn(20);
-    const out = throws([a, b]);
-    assert.ok(a.deform.drivetrainAlive && b.deform.drivetrainAlive, "the default realism leaves both engines running");
-    assert.deepEqual(out.map(([i, exit]) => [i, exit]), [[0, "windshield"], [1, "windshield"]]);
-  });
-
-  it("bad: an 80 km/h scrape down the barrier's flank that finishes a worn wreck throws nobody", () => {
-    const car = worn(fleetCar());
-    // Angled 12° into the barrier's +x face, the left flank 0.3 m off it: the front-left corner meets it near z = 0.
-    const v = 80 / 3.6;
-    const a = (12 * Math.PI) / 180;
-    const t = 0.3 / (v * Math.sin(a));
-    launch(car, BARRIER_HALF.x + 1.2, -v * Math.cos(a) * t - 2.2, -a, -v * Math.sin(a), v * Math.cos(a));
-    const out = throws([car], true);
-    assert.ok(!car.deform.drivetrainAlive, "the scrape finished the worn car");
-    assert.ok(Math.abs(car.deform.impactInward.x) > 4 * Math.abs(car.deform.impactInward.z), "struck along its flank");
-    assert.deepEqual(out, []);
-  });
-
-  it("bad: a 50 km/h rear hit that finishes a worn wreck throws nobody", () => {
-    const car = worn(makeCar());
-    launch(car, BARRIER_HALF.x + 6.2, 0, Math.PI / 2, -50 / 3.6, 0);
-    const out = throws([car], true);
-    assert.ok(!car.deform.drivetrainAlive, "the rear hit disabled the worn car");
-    assert.ok(car.deform.impactInward.z > Math.abs(car.deform.impactInward.x), "it was struck from behind");
-    assert.deepEqual(out, []);
-  });
-});
 
 /** Every car's whole sim state: pose, velocities, each mass, the drivetrain. */
 function simState(cars: readonly DeformableCar[]): number[] {
@@ -141,6 +43,7 @@ describe("thrown drivers are cosmetic: the cars move the same, and only the sand
         const ragdolls = new RagdollSystem(scene, (i) => rideAlong.push(i), () => {});
         await ragdolls.preload();
         const w = makeWorld(cars, false, false);
+        w.onEject = (e) => ragdolls.launch(e, cars);
         const wPlain = makeWorld(plain, false, false);
         for (let f = 0; f < 240; f++) {
           tickWorld(w);
@@ -156,13 +59,14 @@ describe("thrown drivers are cosmetic: the cars move the same, and only the sand
   }
 });
 
-describe("a throw judged before Rapier has loaded", () => {
+describe("a throw launched before Rapier has loaded", () => {
   /** The fleet head-on with Rapier loading `late` frames in (the hit lands about 0.2 s in): dummies out at the end. */
   async function thrownAfterLoad(late: number): Promise<boolean> {
     const cars = headOn(20);
     const scene = new THREE.Scene();
     const ragdolls = new RagdollSystem(scene, () => {}, () => {});
     const w = makeWorld(cars, false, false);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     for (let f = 0; f < 150; f++) {
       if (f === late) await ragdolls.preload();
       tickWorld(w);
@@ -188,6 +92,7 @@ describe("a thrown dummy hits other cars", () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     const local = new THREE.Vector3();
     const inv = new THREE.Quaternion();
     const inside: string[] = [];

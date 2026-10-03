@@ -1,4 +1,4 @@
-import { clearDrive, DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { chargeBoost, clearDrive, DRIVE, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { mood } from "./ai-aggression.ts";
@@ -120,6 +120,21 @@ const SPIN_HOLD = 0.6;
 const SPIN_EASE = 3.5;
 const SPIN_LET_GO = 4.5;
 const SPIN_LAG = 0.05;
+/** A charge boosts only with the target this close (m)… */
+const BOOST_RANGE = 25;
+/**
+ * …and lets go this close to it (m): the last run-in coasts off the boost. Boosting through the hit took the ten-car
+ * contact-spin peak of seed 4 to 6.73 rad/s (limit 6.5, `derby-ai.test.ts`); letting go at 8 m reads 4.30–4.61 over seeds 1–8.
+ */
+const BOOST_RELEASE = 8;
+/** …and this far ahead: the target's bearing within ~25° of the nose (cosine of the angle)… */
+const BOOST_CONE = 0.9;
+/**
+ * …and never into a nose: head-on is banned in every rule book, and a boosted one doubles the closing speed (the target
+ * facing us past this cosine of its nose to our bearing). Without it a six-car heat's seed 17 lost two engines to one
+ * boosted nose-to-nose hit at 7.5 s (`derby.test.ts`: none before 8 s).
+ */
+const BOOST_FACED = 0.5;
 
 /** What a driver is doing this tick (`tacticOf`). */
 const TACTICS = ["idle", "unstick", "hold", "layback", "reverse", "jturn", "nose", "swing", "sideswipe"] as const;
@@ -178,6 +193,8 @@ export class DerbyBrain {
   private readonly yawWas = new Float64Array(MAX_CARS);
   private readonly spin = new Float64Array(MAX_CARS);
   private readonly nearFor = new Float64Array(MAX_CARS);
+  /** Boost meter per car, 0–1: the seat's (`BOOST`), earned by takedowns and kept by `driveBoost`. */
+  readonly meter = new Float64Array(MAX_CARS);
 
   constructor(radius = DERBY_RADIUS) {
     this.radius = radius;
@@ -209,11 +226,17 @@ export class DerbyBrain {
     this.yawWas.fill(Number.NaN);
     this.spin.fill(0);
     this.nearFor.fill(0);
+    this.meter.fill(1);
   }
 
   /** Driver `id`'s aggression, 0 … 1 (the match rolls it with `fieldAggression`). */
   setAggression(id: number, a: number): void {
     this.aggression[id] = Math.max(0, Math.min(1, a));
+  }
+
+  /** A bonus (a takedown's `BOOST.takedown`) onto driver `id`'s meter, as `DriverSeat.addBoost` does for the player. */
+  addBoost(id: number, amount: number): void {
+    this.meter[id] = topUpBoost(this.meter[id] ?? 0, amount);
   }
 
   aggressionOf(id: number): number {
@@ -241,6 +264,7 @@ export class DerbyBrain {
     const out = this.decide(self, others, dt);
     const i = self.id;
     if (i < 0 || i >= MAX_CARS || dt <= 0) return out;
+    this.driveBoost(self, others, out, dt);
     if (Number.isNaN(this.yawWas[i]!)) this.yawWas[i] = self.yaw;
     const rate = wrapPi(self.yaw - this.yawWas[i]!) / dt;
     this.yawWas[i] = self.yaw;
@@ -249,6 +273,28 @@ export class DerbyBrain {
     for (const o of others) if (o.id !== i && Math.hypot(o.x - self.x, o.z - self.z) < SPIN_NEAR) this.nearFor[i] = SPIN_HOLD;
     if (this.nearFor[i]! > 0 && out.steer * this.spin[i]! > 0) out.steer *= 1 - smooth(SPIN_EASE, SPIN_LET_GO, Math.abs(this.spin[i]!));
     return out;
+  }
+
+  /**
+   * Boost by the seat's rules (`BOOST`, `chargeBoost`): on while this driver charges its target nose first, the target
+   * between BOOST_RELEASE and BOOST_RANGE m away, within BOOST_CONE of its heading and not facing back at us (BOOST_FACED),
+   * on the gas, with meter left. The meter drains while boosting and refills otherwise; a takedown tops it up (`addBoost`).
+   */
+  private driveBoost(self: AiCar, others: readonly AiCar[], out: DriveInput, dt: number): void {
+    const i = self.id;
+    const tgt = this.tactic[i] === T_NOSE ? findCar(others, this.target[i]!) : null;
+    let want = false;
+    if (tgt && tgt.alive && out.throttle > 0.05) {
+      const dx = tgt.x - self.x;
+      const dz = tgt.z - self.z;
+      const d = Math.hypot(dx, dz);
+      const ahead = Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz;
+      const faced = -(Math.sin(tgt.yaw) * dx + Math.cos(tgt.yaw) * dz) / d;
+      want = d < BOOST_RANGE && d > BOOST_RELEASE && ahead > d * BOOST_CONE && faced < BOOST_FACED;
+    }
+    const m = this.meter[i]!;
+    out.boost = want && m > 0.02;
+    this.meter[i] = chargeBoost(m, want && m > 0, dt);
   }
 
   private decide(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {

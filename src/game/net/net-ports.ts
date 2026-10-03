@@ -1,4 +1,5 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { RaceDirector } from "../engine/engine-race.ts";
@@ -76,6 +77,8 @@ export interface NetGame {
   playReel(reel: Reel, startAt: number): void;
   /** Client: a reel or solo clip plays, so host snapshots are not drawn (the reel owns the cars). */
   reelPlaying(): boolean;
+  /** Client: the host's thrown driver (`MSG.eject`) flies as a dummy, launched from the host's own numbers. */
+  launchEjection(e: Ejection): void;
   readonly seat: DriverSeat;
 }
 

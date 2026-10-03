@@ -10,6 +10,7 @@ import { DoorRam } from "../present/engine-doors.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { beginImpact, holdForThrow, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
+import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
@@ -231,7 +232,9 @@ export abstract class EngineCore {
   protected winnerSpot!: WinnerSpot;
   protected view!: ChaseCamera;
   protected trace!: TraceRecorder;
-  protected readonly world = newWorld([]);
+  /** Decides who is thrown out of which car (`stepWorld` runs it each step through `world.ejection`). */
+  protected readonly ejection = new EjectionWatch();
+  protected readonly world = newWorld([], null, this.ejection);
   /** Sandbox floor, grid and rings: hidden while a race course is up. */
   protected readonly studio: THREE.Object3D[] = [];
   protected sun!: THREE.DirectionalLight;
@@ -260,9 +263,10 @@ export abstract class EngineCore {
     clearTransients({ cars: this.cars, poles: this.poles, debris: this.debris, sparks: this.sparks, glassDots: this.glassDots, smoke: this.smoke, ragdolls: this.ragdolls, rangeRun: this.rangeRun, cine: this.cine });
   }
 
-  /** A scene change, loop, reset or race start: the scene is emptied and netplay clients are told (their snapshots carry `clearGen`). */
+  /** A scene change, loop, reset or race start: the scene is emptied, the ejection watch forgets its history and netplay clients are told (their snapshots carry `clearGen`). */
   protected clearScene(): void {
     this.clears = (this.clears + 1) & 127;
+    this.ejection.reset();
     this.clearLocal();
   }
 

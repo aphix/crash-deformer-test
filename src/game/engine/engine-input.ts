@@ -4,6 +4,7 @@ import { RAM_DEFAULTS } from "../scenes/door-rig.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
 import { armKill, carClass, CLASSES, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 import { cleanName, DRIVER_CARS } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
@@ -463,13 +464,17 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /**
-   * R / D-pad down while driving: back on its wheels where it stands, at rest and
-   * repaired. In a derby only a flipped car that still runs may, so it is no free heal.
-   */
+  /** R / D-pad down while driving: the driven car back on its wheels (`recoverCar`). */
   protected recoverDriven(): void {
     const car = this.seat.carIndex < this.carCount ? this.cars[this.seat.carIndex] : undefined;
-    if (!car) return;
+    if (car) this.recoverCar(car);
+  }
+
+  /**
+   * Press R for `car`, the player's or a derby AI's: back on its wheels where it stands, at rest and
+   * repaired. In a derby only a flipped car that still runs may, so it is no free heal.
+   */
+  protected recoverCar(car: DeformableCar): void {
     car.refreshBasis();
     if (!this.mayRecover(car)) return;
     car.spawnFacing(car.group.position.x, car.group.position.z, Math.atan2(car.fwdFlat.x, car.fwdFlat.z), 0);

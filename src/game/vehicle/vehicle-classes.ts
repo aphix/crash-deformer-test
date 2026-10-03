@@ -245,6 +245,9 @@ export function armKill(deform: { killTravel: number; wreckEnergy: number }, id:
 /** Lateral grip share kept at the realistic end (the arcade end is 1). */
 const REAL_GRIP = 0.62;
 
+/** The slowest self-right delay (s) the slider gives, reached just under the realistic end where only R rights a car. */
+export const SELF_RIGHT_SLOWEST = 3;
+
 export type Assists = {
   /** × class grip. */
   grip: number;
@@ -264,7 +267,7 @@ export function assists(realism: number, out: Assists): Assists {
   out.slipCap = THREE.MathUtils.lerp(0.62, 1.45, r);
   out.catchRate = THREE.MathUtils.lerp(4.5, 1.1, r);
   out.scrub = THREE.MathUtils.lerp(0.2, 1, r);
-  out.selfRight = r < 0.6 ? THREE.MathUtils.lerp(1.2, 3, r / 0.6) : Infinity;
+  out.selfRight = r < 0.6 ? THREE.MathUtils.lerp(1.2, SELF_RIGHT_SLOWEST, r / 0.6) : Infinity;
   return out;
 }
 

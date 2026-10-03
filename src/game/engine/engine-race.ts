@@ -430,19 +430,25 @@ export class RaceDirector extends RaceField {
       const p = car.group.position;
       const surf = SURFACES[ground.surfaceAt(p.x, p.z, p.y)];
       if (i >= racers) {
-        const input = this.dormant[i]
-          ? this.hold
-          : i >= this.policeFrom
-            ? (police?.think(snaps[i]!, snaps, dt) ?? this.hold)
-            : traffic
-              ? traffic.think(snaps[i]!, snaps, dt)
-              : this.hold;
+        // A thrown-out driver is nobody's input: the car coasts (`coast`), police and traffic units too.
+        const input =
+          car.driverOut !== null
+            ? this.coast
+            : this.dormant[i]
+              ? this.hold
+              : i >= this.policeFrom
+                ? (police?.think(snaps[i]!, snaps, dt) ?? this.hold)
+                : traffic
+                  ? traffic.think(snaps[i]!, snaps, dt)
+                  : this.hold;
         applyDrive(car, onSurface(input, surf, this.scratch), dt);
         continue;
       }
       const rec = s.cars[this.rowOf[i]!]!;
+      // No driver, no pedals: not the player's seat, a peer's input or the AI (`coast`); the rules reset or retire the car (`judge`).
       let input: DriveInput = this.hold;
-      if (racing && rec.status === "racing") {
+      if (car.driverOut !== null) input = this.coast;
+      else if (racing && rec.status === "racing") {
         const kind = this.entrants[i]!.kind;
         if (kind === "remote") input = this.remote[i]!;
         else if (this.seatDrives(i)) input = this.host.seat.input(car, dt);
@@ -599,6 +605,7 @@ export class RaceDirector extends RaceField {
           respawnIn: me.respawnAt == null ? null : Math.max(0, me.respawnAt - s.time),
           finishTime: me.finishTime,
           busted: me.bustedAt != null,
+          driverOut: cars[this.self]?.driverOut != null,
         };
       }
     }

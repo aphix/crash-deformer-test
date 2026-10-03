@@ -1,4 +1,4 @@
-import { BOOST, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
 import { personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -19,6 +19,7 @@ export function onSurface(input: DriveInput, surf: Surface, out: DriveInput): Dr
   out.brake = input.brake;
   out.ebrake = input.ebrake;
   out.boost = input.boost;
+  out.neutral = input.neutral;
   return out;
 }
 
@@ -344,13 +345,13 @@ export class RaceBrain {
 
   /** Drain the meter while boosting, refill it otherwise (the seat's rates). */
   private charge(i: number, dt: number, boosting: boolean): void {
-    this.meter[i] = boosting ? Math.max(0, this.meter[i]! - dt / BOOST.full) : Math.min(1, this.meter[i]! + dt / BOOST.recharge);
+    this.meter[i] = chargeBoost(this.meter[i]!, boosting, dt);
     this.burst[i] = boosting ? 1 : 0;
   }
 
   /** A bonus onto car `i`'s meter (drafting, `DRAFT.bonus`), as `DriverSeat.addBoost` does for the player. */
   addBoost(i: number, amount: number): void {
-    this.meter[i] = Math.min(1, this.meter[i]! + amount);
+    this.meter[i] = topUpBoost(this.meter[i]!, amount);
   }
 
   /** Main loop or a designed shortcut: one seeded coin per car, lap and shortcut. */

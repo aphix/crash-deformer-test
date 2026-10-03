@@ -76,7 +76,7 @@ host-only.
 
 | State | Why | Encoding | Bytes |
 |---|---|---|---|
-| Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, `vaporized`, `falling`, body style + vehicle class | rigid placement; velocity for wheels; the Fleet disc edge's fake fall and smoke; the body the client must build (a host's class pick rebuilds car 0) | u8 flags (1 crashed, 2 wreck follows, 4 vaporized, 8 falling), u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
+| Pose: `group.position`, yaw / pitch / roll, `velocity`, `angular.y`, `crashed`, `vaporized`, `falling`, `driverOut`, body style + vehicle class | rigid placement; velocity for wheels; the Fleet disc edge's fake fall and smoke; the body the client must build (a host's class pick rebuilds car 0); whether the driver was thrown out (a race gives that car neutral input) | u8 flags (1 crashed, 2 wreck follows, 4 vaporized, 8 falling, 16 sirens, bits 5–6 `driverOut`: 0 at the wheel, 1 windshield, 2 left door, 3 right door), u8 style/class, f32×3, i16×3 (1e-4 rad), i16×3 (0.01 m/s), i16 (1e-3 rad/s) | 28 |
 | **Body**: the 20 control particles' current body-frame positions (`MassNode.local`), popped masses, `massActive`, `drivetrainAlive`, `engineTravel`, `killTravel` | the live hulls (`liveHulls` / `liveCrushHulls`) read only `local`, so these are the collision touchpoints; engine travel over kill travel (class × realism) is the graded damage | i16×60 (0.5 mm), u32, u8, i16×2 | 129 |
 | **Skin**, as of the last skin bake: the particles (`massPos`), each shape cluster's skin map (`skinM`, 16 × 3×3), popped hubs, `deepCrush` / `bidirectional` / lattice; plus the 20 sensor compressions, impact point + inward axis, wrinkle amplitude, buckle, squash | `skin()` writes every vertex from exactly these. After the crush window closes the host mesh stays frozen at the last bake while `local` drifts and the shape-rest rebase resets every `skinM`, so the bake keeps its own copy (`bakeLocalSkin`) and the client re-skins from that | i16×60, i16×144 (1/8192), u32, i16×20, i16×9 | 470 |
 | **Parts**: per detachable part slot (bumpers, bonnet, boot, doors, mirrors: 8, the six body panels (two quarter panels, four arch flares), plus the police light bar; every style sends 15 slots so all cars share one layout) detached / folding / latched, `hingeT`, door `theta`, `mirrorFold`; each loose part's world pose; lamp intact bits; glass pane states; loose-wheel bits and each loose wheel's world pose | part transforms and the panels' visibility; a body panel's shell and dark under-panel are rebuilt on the client from its hinge value on the client's own skin (dents on torn parts are host and replay only) | u8 + i16×3 per part, + f32×3 + i16×4 per loose part or wheel, u8, u16, u8 | 109 + 20 per loose part or wheel |
@@ -93,7 +93,13 @@ combining marks capped, 16 characters); a hello without one (the old layout) is 
 type, seed u32, the host-clock second the reel starts at (f64), then the clips deflated (`reel-codec.ts`,
 at most 240 KiB); sent once, when a race ends. A client moves the start onto its own clock with the
 snapshot clock offset and draws no snapshots while the reel plays ([HIGHLIGHTS.md](HIGHLIGHTS.md)).
-`NET_VERSION` (`codec.ts`, now 7: `MSG.race` carries the field's driver-look seed `look`, and a reel clip carries it too) is bumped on any layout change:
+**`MSG.eject`** (9, `writeEject`; reliable, host → every client): a driver was thrown out of a car. Type, the host clock (f64, the
+clock snapshots carry), car u8, pane + police bits u8, then 22 f32: the torso's start (world position, car-local position,
+out-of-the-pane direction, orientation) and his velocity relative to the car, the car's own, and the somersault spin: the
+`Ejection` the host's sim made (`EjectionWatch`, [RACE_DESIGN.md](RACE_DESIGN.md)), every number f32-exact. A client queues it
+(`EjectQueue`) and launches the dummy when its draw time (the host clock `INTERP_DELAY` behind) reaches the event's, so he
+leaves with the car it is drawn leaving; a reel that plays drops it. 100 bytes, a handful a race.
+`NET_VERSION` (`codec.ts`, now 8: `MSG.race` carries the field's driver-look seed `look`, a snapshot car's flags byte carries `driverOut`, `MSG.eject`, and a reel clip carries its ejections and the look) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 

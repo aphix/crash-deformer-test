@@ -80,6 +80,7 @@ async function rangeThrow(frame: () => number): Promise<Run> {
   armKill(car.deform, "sedan", DEFAULT_REALISM, "default");
   launch(car, -RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6, 0);
   const w = makeWorld([car], true, false);
+  w.onEject = (e) => ragdolls.launch(e, [car]);
   w.clock.slomoAt = THROW_ONSET;
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
@@ -200,6 +201,7 @@ describe("a thrown dummy is soft and settles", () => {
     const car = makeCar("shape", 0.32, 0.45);
     launch(car, -30, 0, Math.PI / 2, 0, 0);
     const w = makeWorld([car], false, false);
+    w.onEject = (e) => ragdolls.launch(e, [car]);
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     const frame = () => {

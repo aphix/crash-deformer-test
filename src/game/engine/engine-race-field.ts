@@ -59,7 +59,7 @@ interface RaceHost {
 
 /** Seconds upside down before a car counts as dead. */
 const FLIP_DEAD = 2.5;
-/** Seconds a car not driven by this browser's driver sits still mid-race before it counts as dead (respawned). */
+/** Seconds a car no human drives (a rival; a peer or this browser's driver may sit, and press R) sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
 /**
  * A car the race AI drives (a rival, or the player's car while its seat isn't driving) that gains
@@ -173,6 +173,8 @@ export abstract class RaceField {
   protected readonly remote: DriveInput[] = Array.from({ length: MAX_CARS }, () => idleDrive());
   protected readonly cruise: DriveInput = idleDrive();
   protected readonly hold: DriveInput = { ...idleDrive(), brake: 1 };
+  /** A car whose driver was thrown out (`driverOut`) freewheels: no throttle, brake or steering and no engine braking (`DriveInput.neutral`), only the tyres and the road. */
+  protected readonly coast: DriveInput = { ...idleDrive(), neutral: true };
   protected readonly proj = blankProjection();
   protected saved: { background: THREE.Color | THREE.Texture | null; fog: THREE.Fog | THREE.FogExp2 | null; far: number } | null = null;
 
@@ -466,6 +468,11 @@ export abstract class RaceField {
     return this.entrants[i]?.kind === "player" && !this.spectating && seat.mode === "drive" && seat.carIndex === i;
   }
 
+  /** A human has car `i`: this browser's driver or a netplay peer (who can press R too). Only the AI needs the rules' automatic resets. */
+  private humanDrives(i: number): boolean {
+    return this.seatDrives(i) || this.entrants[i]?.kind === "remote";
+  }
+
   /** The race AI drives car `i`: an AI rival, or the player's car while its seat isn't driving. */
   private aiDrives(i: number): boolean {
     const kind = this.entrants[i]?.kind;
@@ -483,13 +490,17 @@ export abstract class RaceField {
     }
   }
 
-  /** Alive for the rules: running engine, not upside down for long, not parked for long unless this browser's driver has it. */
+  /**
+   * Alive for the rules: a driver in the car, a running engine, not upside down for long, not parked for long unless a human
+   * (this browser's driver or a netplay peer) has it. A thrown-out driver (`driverOut`) is a wreck like a dead engine, whoever's car it is: the
+   * Respawn race's reset timer or the No-reset race's elimination follow.
+   */
   protected judge(i: number, car: DeformableCar, dt: number, racing: boolean): boolean {
-    if (!car.deform.drivetrainAlive) return false;
+    if (car.driverOut !== null || !car.deform.drivetrainAlive) return false;
     const upY = car.group.matrixWorld.elements[5]!;
     this.flipFor[i] = upY < 0.35 ? this.flipFor[i]! + dt : 0;
     if (this.flipFor[i]! > FLIP_DEAD) return false;
-    const still = racing && !this.seatDrives(i) && car.velocity.lengthSq() < 0.36;
+    const still = racing && !this.humanDrives(i) && car.velocity.lengthSq() < 0.36;
     this.stillFor[i] = still ? this.stillFor[i]! + dt : 0;
     return this.stillFor[i]! <= STILL_DEAD;
   }

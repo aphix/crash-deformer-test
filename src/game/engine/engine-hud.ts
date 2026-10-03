@@ -1,6 +1,7 @@
 import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
 import { carGear, HANDLING } from "../vehicle/vehicle-classes.ts";
+import { mayRecoverFlipped } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
@@ -128,9 +129,9 @@ export abstract class EngineHud extends EngineWarm {
     this.syncShareUrl();
   }
 
-  /** R / D-pad ↓ may put `car` back on its wheels: always, but in a derby only a flipped car that still runs (no free heal). */
+  /** R / D-pad ↓ may put `car` back on its wheels: always, but in a derby only a flipped car that still runs (`mayRecoverFlipped`, no free heal): the player's and the AI's R alike. */
   protected mayRecover(car: DeformableCar): boolean {
-    return !this.derbyMode || (!(car.group.matrixWorld.elements[5]! > 0.5) && car.deform.drivetrainAlive);
+    return !this.derbyMode || mayRecoverFlipped(car);
   }
 
   /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */

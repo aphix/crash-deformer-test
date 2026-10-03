@@ -27,7 +27,7 @@ import { MAX_CARS } from "../scenes/fleet.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
 import type { Placed } from "../world/placements.ts";
-import { EjectionWatch, type ExitPane } from "./ragdoll-trigger.ts";
+import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
@@ -48,10 +48,6 @@ const LIFE = 10;
 const GRACE = 0.35;
 /** Metres down the throw that a course ground patch (`groundColliders`) is centred. */
 const PATCH_AHEAD = 24;
-/** Throw on top of the car's pre-hit velocity (m/s): out through the pane, and up. Arcade, set by eye. */
-const THROW_OUT = 3;
-const THROW_UP = 3.5;
-const TUMBLE = 3;
 const GRAVITY = 9.6;
 /** Dummy friction against anything (the lower of the pair counts): low, so it slides a good way (owner, 2026-10-02). */
 const SLIDE = 0.12;
@@ -89,8 +85,6 @@ const MAX_ACC = 0.1;
  * iterations; 2–3 cm at 4).
  */
 const ITERATIONS = 8;
-/** Head centre above the torso's: the throw puts the head at the pane. */
-const HEAD_UP = 0.4;
 /** Each car's lower box (car-local, origin on the ground): half extents and centre height at rest; its ends past the bumpers' masses. */
 const LOW_HALF_X = 0.86;
 const LOW_HALF_Y = 0.4;
@@ -144,22 +138,14 @@ const _qx = new THREE.Quaternion();
 const _arm = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI);
 const _p = new THREE.Vector3();
 const _s = new THREE.Vector3();
-const _up = new THREE.Vector3();
-const _out = new THREE.Vector3();
 const _e = new THREE.Vector3();
 const _f = new THREE.Vector3();
 const _r = new THREE.Vector3();
-const _inv = new THREE.Quaternion();
 const _c = new THREE.Vector3();
 const _cq = new THREE.Quaternion();
 const _v = { x: 0, y: 0, z: 0 };
 const _rot = { x: 0, y: 0, z: 0, w: 1 };
 const Y = new THREE.Vector3(0, 1, 0);
-/**
- * Head first out of the pane, superman style: 80° from upright toward the exit, chest down. Leaned so, the torso
- * stands 0.31 m tall: centred on its pane's height it fits the opening (sedan windshield 0.48 m, side window 0.42).
- */
-const LEAN = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (80 * Math.PI) / 180);
 
 /** Car-local z (m) of `car`'s mass `name`, along its heading. */
 function endZ(car: DeformableCar, name: string): number {
@@ -186,7 +172,6 @@ export class RagdollSystem {
   private solids: readonly Solid[] | null = null;
   /** The flat ground is the range's sand pit (`SAND`), read when a run's first throw builds it (set by the engine). */
   sand = false;
-  private readonly watch = new EjectionWatch();
   private readonly mesh: DummyMesh;
   /** The HUD's Rig and Particles views of the dummies (`set`). */
   readonly debug: RagdollDebug;
@@ -316,7 +301,6 @@ export class RagdollSystem {
 
   /** A new run: no dummies out, every car's driver back in. */
   reset(): void {
-    this.watch.reset();
     this.pending.length = 0;
     this.acc = 0;
     this.riding = false;
@@ -327,11 +311,10 @@ export class RagdollSystem {
   }
 
   /**
-   * One frame: judge disabling hits (`authority`: this peer owns the glass, so it smashes the exit pane) and
-   * step the dummies `dt` sim seconds against the cars' poses. `sandbox`: neither a race nor a derby (`onThrow`);
-   * `bowlR`: the derby bowl's radius, 0 outside a derby; `barrier`: the sandbox's jersey
-   * barrier while it stands, else null. Hits are judged from the first frame; a throw judged before Rapier is in
-   * waits for it, up to `PENDING_MAX`.
+   * One frame: step the dummies `dt` sim seconds against the cars' poses (`authority`: this peer owns the glass, so
+   * it smashes the exit pane of a throw). `sandbox`: neither a race nor a derby (`onThrow`); `bowlR`: the derby
+   * bowl's radius, 0 outside a derby; `barrier`: the sandbox's jersey barrier while it stands, else null. Who is
+   * thrown is not decided here (`launch`); a throw launched before Rapier is in waits for it, up to `PENDING_MAX`.
    */
   update(dt: number, cars: readonly DeformableCar[], authority: boolean, sandbox: boolean, bowlR: number, barrier: THREE.Object3D | null): void {
     if (dt <= 0) return;
@@ -339,7 +322,6 @@ export class RagdollSystem {
     this.authority = authority;
     this.sandbox = sandbox;
     this.bowlR = bowlR;
-    this.watch.update(cars, dt, bowlR > 0 ? "derby" : "default", this.eject);
     const world = this.world;
     for (const t of this.pending) t.age += dt;
     if (!world) return;
@@ -663,41 +645,31 @@ export class RagdollSystem {
   }
 
   /**
-   * Car i's driver is thrown: the exit pane smashes and the way out gets its cover (`onExit`) now, the dummy flies now
-   * or (Rapier still loading) once it is in.
+   * A driver is thrown out of `cars[e.car]`: the exit pane smashes and the way out gets its cover (`onExit`) now, the
+   * dummy flies now or (Rapier still loading) once it is in. The sim's own event (`EjectionWatch`), a netplay host's
+   * message or a highlight clip's record: the dummy starts from the event's numbers alone, so the same event is the
+   * same throw wherever it is launched.
    */
-  private readonly eject = (i: number, exit: ExitPane, pre: THREE.Vector3): void => {
-    const car = this.cars[i]!;
-    if (this.authority) car.smashGlass(exit);
+  launch(e: Ejection, cars: readonly DeformableCar[]): void {
+    this.cars = cars;
+    const car = cars[e.car]!;
+    if (this.authority) car.smashGlass(e.exit);
     const t = this.next;
-    const g = car.group;
-    // The way out: z out of the pane (a side throw is the windshield's turned a quarter about the car's up). Leaning
-    // out along it (`LEAN`), his shoulders stay level, so they fit the side window's height.
-    const side = exit === "windshield" ? 0 : exit === "doorL" ? -1 : 1;
-    _cq.copy(g.quaternion).multiply(_qx.setFromAxisAngle(Y, (side * Math.PI) / 2));
-    _qx.multiply(LEAN);
-    t.q.copy(g.quaternion).multiply(_qx);
-    _out.set(side, 0, side === 0 ? 1 : 0).applyQuaternion(g.quaternion);
-    // The cover's centre, half a metre out of the pane: over the bonnet, or the door.
-    car.glassWorld(exit, _c).addScaledVector(_out, 0.5);
-    // Car-local: on the pane's height (a windshield's on the driver's side, −x), the torso down the lean behind it,
-    // so he leaves through the opening, clear of the bonnet or door below and the roof above.
-    car.glassWorld(exit, _p).sub(g.position).applyQuaternion(_inv.copy(g.quaternion).invert());
-    const paneY = _p.y;
-    if (side === 0) _p.x -= 0.25;
-    _p.addScaledVector(_up.set(0, 1, 0).applyQuaternion(_qx), -HEAD_UP);
-    _p.y = paneY;
-    t.p.copy(_p).applyQuaternion(g.quaternion).add(g.position);
-    // Tumble: a somersault over his shoulder line (the car's x axis out of the windshield, its z axis out of a side).
-    t.w.set(side === 0 ? 1 : 0, 0, side === 0 ? 0 : -side).applyQuaternion(g.quaternion).multiplyScalar(TUMBLE);
-    t.v.set(pre.x + _out.x * THROW_OUT, THROW_UP, pre.z + _out.z * THROW_OUT);
-    t.car = i;
+    // The cover's centre, half a metre out of the pane: over the bonnet, or the door; its frame's z out of the pane.
+    const side = e.exit === "windshield" ? 0 : e.exit === "doorL" ? -1 : 1;
+    car.glassWorld(e.exit, _c).addScaledVector(e.dir, 0.5);
+    _cq.copy(car.group.quaternion).multiply(_qx.setFromAxisAngle(Y, (side * Math.PI) / 2));
+    t.p.copy(e.pos);
+    t.q.copy(e.quat);
+    t.w.copy(e.spin);
+    ejectionVelocity(e, t.v);
+    t.car = e.car;
     t.age = 0;
-    t.cop = car.style.id === "police";
+    t.cop = e.cop;
     this.onExit(_c, _cq, car.velocity);
     if (this.world) this.spawn(t);
-    else this.pending.push({ car: i, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop });
-  };
+    else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop });
+  }
 
   /** Throw `t`'s dummy into a free slot (else the oldest one's). */
   private spawn(t: Throw): void {

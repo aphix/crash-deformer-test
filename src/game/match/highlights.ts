@@ -3,6 +3,7 @@ import { BEAM_SPECS, CAGES, MASS_SPECS, SENSORS, SHAPE_CLUSTERS } from "../kerne
 import { DRIVE } from "../vehicle/car-drive.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 import { CLASSES, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
 /**
@@ -36,6 +37,12 @@ export const REHIT_S = 0.35;
 const ENERGY_REF = 1e5;
 const CAR_POINTS = 1.5;
 const KILL_POINTS = 4;
+/**
+ * A driver thrown out of his car (`EjectionWatch`) is the moment the owner wants in the reel: 12 points each, above
+ * a 100 km/h sedan head-on (7.7, `highlights.test.ts`) or a 4-car pile-up (~9), so a cluster with one ranks and tops
+ * the clips without one. Racer-only rules still decide whose ejection counts (`CrashRecorder.eject`).
+ */
+const EJECT_POINTS = 12;
 const DENSITY_POINTS = 0.4;
 const DENSITY_CAP = 6;
 /** Below this a cluster is a scrape, not a highlight (a lone 20 km/h tap scores ~2.3). */
@@ -58,6 +65,16 @@ export function impactEnergy(closing: number, massA: number, massB: number): num
   return closing * closing * mu;
 }
 
+/**
+ * Whether a contact is an impact: `strength` (closing speed, m/s) is at least `min` (`PAIR_MIN` for two cars, `WALL_MIN`
+ * for a wall or prop) and its pair (or its car and the walls) had been apart `apart` s, at least `REHIT_S`: grinding never
+ * re-counts. The recorder's ledger and the replay's first-hit marker (`ClipSim`) both ask it, so a replay times the hit
+ * exactly as the record counted it.
+ */
+export function countsAsImpact(apart: number, strength: number, min: number): boolean {
+  return apart >= REHIT_S && strength >= min;
+}
+
 /** One burst of impacts: the cars in it, when, where and how hard. */
 export class CrashCluster {
   /** Race-clock seconds of the first and the last impact. */
@@ -66,6 +83,8 @@ export class CrashCluster {
   energy = 0;
   impacts = 0;
   kills = 0;
+  /** Drivers thrown out inside this cluster. */
+  ejects = 0;
   /** Bit i: car i took part. */
   cars = 0;
   /** Strongest closing speed (m/s) and the car with the most energy in it (the camera's subject). */
@@ -95,6 +114,7 @@ export class CrashCluster {
       this.energy / ENERGY_REF +
       CAR_POINTS * Math.max(0, popcount(this.cars) - 1) +
       KILL_POINTS * this.kills +
+      EJECT_POINTS * this.ejects +
       DENSITY_POINTS * Math.min(DENSITY_CAP, this.impacts / span)
     );
   }
@@ -126,6 +146,13 @@ export class CrashCluster {
     this.last = Math.max(this.last, t);
     this.cars = (this.cars | (1 << i)) >>> 0;
     if (this.focus < 0) this.focus = i;
+  }
+
+  /** Car `i`'s driver was thrown out inside this cluster; the first one's car is its subject (the camera frames his flight). */
+  eject(t: number, i: number): void {
+    if (this.ejects++ === 0) this.focus = i;
+    this.last = Math.max(this.last, t);
+    this.cars = (this.cars | (1 << i)) >>> 0;
   }
 }
 
@@ -176,6 +203,18 @@ export class HighlightLedger<C extends { score: number }> {
     return c;
   }
 
+  /** Car `i`'s driver was thrown out at (x, z): it joins (or opens) a cluster like an impact. */
+  eject(t: number, i: number, x: number, z: number): CrashCluster {
+    let c = this.joins(t, i, -1, x, z);
+    if (!c) {
+      c = new CrashCluster();
+      c.add(t, i, -1, 0, 0, x, z);
+      this.open.push(c);
+    }
+    c.eject(t, i);
+    return c;
+  }
+
   /** A cluster whose post-roll is over at `t` (removed from `open`), or null. `force`: any open cluster (race over). */
   due(t: number, force = false): CrashCluster | null {
     for (let k = 0; k < this.open.length; k++) {
@@ -202,10 +241,13 @@ export class HighlightLedger<C extends { score: number }> {
   }
 }
 
-/** Per car per step: throttle i8, steer i8 (1/127 steps, as a netplay peer's input), brake u8 (0–255), flags u8 (1 ebrake, 2 boost). */
+/** Per car per step: throttle i8, steer i8 (1/127 steps, as a netplay peer's input), brake u8 (0–255), flags u8 (1 ebrake, 2 boost, 4 drafting, 8 neutral: a thrown-out driver's freewheel). */
 export const INPUT_BYTES = 4;
 
 export type ReelCar = { slot: number; style: CarStyleId; cls: VehicleClassId; name: string };
+
+/** A driver thrown out during a clip: the step he left in (counted from the clip's first step) and the event, its `car` a clip car index. */
+export type ClipEjection = { step: number; e: Ejection };
 
 /** One highlight: initial conditions, every step's dt and drive outputs, and the keyframes that correct drift. */
 export type HighlightClip = {
@@ -213,6 +255,10 @@ export type HighlightClip = {
   score: number;
   impacts: number;
   kills: number;
+  /** Drivers thrown out inside the clip's cluster: its title, and the reel's flight shot follows `ejections`. */
+  ejects: number;
+  /** Every ejection during the clip's steps, in step order (cars the clip carries only). */
+  ejections: ClipEjection[];
   /** Strongest closing speed (km/h). */
   peakKph: number;
   /** Race-clock seconds of the clip's first step. */
@@ -266,9 +312,10 @@ export function simFingerprint(): number {
   return h >>> 0;
 }
 
-/** HUD line for a clip: "4-car pile-up", "Engine destroyed", "Head-on, 96 km/h". */
-export function clipTitle(c: Pick<HighlightClip, "cars" | "kills" | "peakKph" | "impacts">): string {
+/** HUD line for a clip: "Driver thrown out", "4-car pile-up", "Engine destroyed", "Head-on, 96 km/h". */
+export function clipTitle(c: Pick<HighlightClip, "cars" | "kills" | "ejects" | "peakKph" | "impacts">): string {
   const n = c.cars.length;
+  if (c.ejects > 0) return c.ejects > 1 ? `${c.ejects} drivers thrown out` : "Driver thrown out";
   if (n >= 3) return `${n}-car pile-up`;
   if (c.kills > 0) return c.kills > 1 ? `${c.kills} engines destroyed` : "Engine destroyed";
   if (n === 2) return `${Math.round(c.peakKph)} km/h smash`;

@@ -114,6 +114,7 @@ const ROWS: Record<keyof Transients, Row> = {
       launch(a, -5, 0, Math.PI / 2, 20, 0);
       launch(b, 5, 0, -Math.PI / 2, -20, 0);
       const w = makeWorld([a, b], false, false);
+      w.onEject = (e) => r.ragdolls.launch(e, [a, b]);
       await r.ragdolls.preload();
       for (let f = 0; f < 60; f++) {
         tickWorld(w);

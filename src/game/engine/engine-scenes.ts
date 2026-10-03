@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { beginFakeFall, DeformableCar } from "../vehicle/car.ts";
+import { BOOST } from "../vehicle/car-drive.ts";
 import { separateSphereFromAabb } from "../deform/physics-util.ts";
 import { COMPACTOR } from "../scenes/compactor.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
@@ -622,6 +623,15 @@ export abstract class EngineScenes extends EngineHud {
     if (champ) this.winnerSpot.follow(champ.group.position.x, champ.group.position.z);
     else this.winnerSpot.off();
     if (status === "loop" && this.looping) this.randomizeAndReset();
+  }
+
+  /**
+   * A takedown's boost for attacker `id` (`DerbyMatch.consumeBoosts`), by one rule for every driver: the seat's meter
+   * when the player drives that car, else the derby AI's (`DerbyBrain.addBoost`).
+   */
+  protected takedownBoost(id: number): void {
+    if (id === this.seat.carIndex && this.seat.mode === "drive") this.seat.addBoost(BOOST.takedown);
+    else this.derby.brain.addBoost(id, BOOST.takedown);
   }
 
   /** `derby.step`'s per-car flags, refilled in place (the match copies what it keeps); grows once per new car. */

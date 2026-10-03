@@ -69,6 +69,7 @@ describe("a throw's slow-mo waits until the driver is out of the car", () => {
   it("bad: a fleet head-on at 2×72 km/h plays the exit at 1× for THROW_ONSET, and in slow-mo no torso corner is ever inside a car's body", async () => {
     const cars = headOn(20);
     const w = makeWorld(cars, false, true);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     tickWorld(w);
     // The engine's pre-hit check (`maybePreSlowmo` → `throwComing`): this hit will throw, so the slow-mo is held.
     assert.ok(throwComing(cars, null), "the coming hit is judged a throw");
@@ -217,6 +218,7 @@ describe("a police driver is thrown in uniform", () => {
     const ragdolls = new RagdollSystem(scene, () => {}, () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     for (let f = 0; f < 60; f++) {
       tickWorld(w);
       ragdolls.update(FRAME, cars, true, true, 0, null);
@@ -253,6 +255,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     const sight = carSight(cars);
     for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
@@ -281,6 +284,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
       const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
       await ragdolls.preload();
       const w = makeWorld(cars, false, false);
+      w.onEject = (e) => ragdolls.launch(e, cars);
       const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
       for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
         tickWorld(w);
@@ -310,6 +314,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
       const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
       await ragdolls.preload();
       const w = makeWorld(cars, false, false);
+      w.onEject = (e) => ragdolls.launch(e, cars);
       const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
       for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
         tickWorld(w);
@@ -343,6 +348,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), () => ragdolls.follow(), () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
+    w.onEject = (e) => ragdolls.launch(e, cars);
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     const sight = carSight(cars);
     const dir = new THREE.Vector3();

@@ -1,4 +1,5 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import { EXIT_PANES } from "../vehicle/car-core.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { carClass, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 import type { CarFrame, NetLayout } from "./codec.ts";
@@ -26,6 +27,7 @@ export function readCarPose(car: DeformableCar, f: CarFrame): void {
   f.vaporized = car.vaporized;
   f.falling = car.falling;
   f.sirens = car.sirens;
+  f.driverOut = EXIT_PANES.indexOf(car.driverOut);
   f.style = CAR_STYLE_IDS.indexOf(car.style.id);
   f.cls = VEHICLE_CLASS_IDS.indexOf(carClass(car));
   f.wreck = false;

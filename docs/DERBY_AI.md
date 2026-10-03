@@ -54,6 +54,26 @@ failed the rear-first rule and the J-turn share fell to 0.19.
   running" (wreck) or "the rest counted out" (count-out). The board shows each car's count-out clock.
 - Counted-out cars take no input and read as dead to every driver.
 
+## Same rules as the player (R-recover and boost)
+
+- Recover: a flipped car (body up·world-up ≤ 0.5) that still runs may be put back on its wheels (`mayRecoverFlipped`,
+  shared with the player's `mayRecover`: no free heal, a dead drivetrain is never righted). The player's self-right
+  (`DriverSeat.selfRight`) and the AI's automatic press of R (`DerbyMatch.recoverDue`, called from `fixedStep` for every
+  AI-driven car) run one timer, `FlipClock`: on its roof or side (up·world-up < 0.35), under 2.5 m/s, for the slider's
+  self-right delay (1.2 s arcade … 3 s at realism 0.6). The reset prompt has no delay of its own. Where the slider leaves
+  righting to R alone (realism ≥ 0.6) the player must press it, and the AI waits `SELF_RIGHT_SLOWEST` (3 s) instead.
+  Then `recoverCar` rights it exactly as the R key does.
+- Boost: each driver keeps the seat's meter (`BOOST.full` s to drain, `BOOST.recharge` s to refill: `chargeBoost`, also
+  `RaceBrain`'s), full at the start of a match; a takedown tops it up by `BOOST.takedown` (`DerbyMatch.consumeBoosts`,
+  `takedownBoost`). It boosts while charging its target nose first (tactic `nose`) with the target between 8 and 25 m
+  away (`BOOST_RELEASE`, `BOOST_RANGE`), within ~25° of its heading (`BOOST_CONE`) and not facing back at it
+  (`BOOST_FACED`), throttle forward and meter left. It lets go for the last 8 m: boosting through the hit took seed 4's
+  contact-spin peak to 6.73 rad/s (limit 6.5); releasing there reads 4.30–4.61 over seeds 1–8. It never boosts into a
+  nose (head-on is banned in the rule books): one boosted nose-to-nose hit killed two engines of seed 17 at 7.5 s
+  (`derby.test.ts`: none before 8 s); with the guard no seed of 1–30 loses an engine before 8.5 s. The arena pace
+  (`DERBY_PACE`) still scales the throttle; the boost multiplies the class's boosted top on top of it, as it does for
+  the player.
+
 ## Scoring
 
 One point per hard hit (`SCORE_SPEED` 4 m/s into a live car), at most one per pair every `SCORE_GAP` 6 s,

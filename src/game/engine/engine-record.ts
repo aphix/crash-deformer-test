@@ -1,5 +1,6 @@
 import { FLIGHT, type DeformableCar } from "../vehicle/car.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
 import {
@@ -8,10 +9,11 @@ import {
   INPUT_BYTES,
   PAIR_MIN,
   PRE_ROLL,
-  REHIT_S,
+  countsAsImpact,
   TOP,
   WALL_MIN,
   type CrashCluster,
+  type ClipEjection,
   type HighlightClip,
   type ReelCar,
 } from "../match/highlights.ts";
@@ -38,6 +40,8 @@ const KEY_EVERY = 0.5;
 const JUMP = 5;
 /** Keyframes kept: the ring's span and then some. */
 const KEY_SLOTS = 40;
+/** Ejections remembered for the clips (a race has a handful; the oldest drop out of a pathological one). */
+const MAX_EJECTED = 64;
 
 /**
  * A clip also takes cars within this many metres of its hit (`bystanders`): a camera sees them, and a car left out of
@@ -119,6 +123,8 @@ export class CrashRecorder {
   private readonly impactKeys = new Map<CrashCluster, { step: number; bytes: Uint8Array | null }>();
   /** Clusters opened this step: their impact keyframe is encoded at the next step's start. */
   private readonly opening: CrashCluster[] = [];
+  /** Every driver thrown out this race (`eject`): the step he left in, and the event; a clip takes those of its steps and cars. */
+  private readonly ejected: { step: number; e: Ejection }[] = [];
 
   /**
    * A race starts: clear everything. Cars below `racers` are the field (the rest, traffic and police, make a moment
@@ -140,6 +146,7 @@ export class CrashRecorder {
     this.ledger.clear();
     this.impactKeys.clear();
     this.opening.length = 0;
+    this.ejected.length = 0;
     this.alive.fill(1);
     this.pairAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
@@ -221,7 +228,7 @@ export class CrashRecorder {
       inp[o] = Math.round(d.throttle * 127) & 255;
       inp[o + 1] = Math.round(d.steer * 127) & 255;
       inp[o + 2] = Math.round(d.brake * 255);
-      inp[o + 3] = (d.ebrake ? 1 : 0) | (d.boost ? 2 : 0) | (this.draft[i] ? 4 : 0);
+      inp[o + 3] = (d.ebrake ? 1 : 0) | (d.boost ? 2 : 0) | (this.draft[i] ? 4 : 0) | (d.neutral ? 8 : 0);
       this.draft[i] = 0;
       const alive = c.deform.drivetrainAlive ? 1 : 0;
       // A traffic or police car's death counts only inside a cluster a racer's hit opened.
@@ -245,10 +252,10 @@ export class CrashRecorder {
     const n = this.pre.count;
     if (!this.on || !first || a >= n || b >= n) return;
     const k = a * MAX_CARS + b;
-    const quiet = this.time - this.pairAt[k]! >= REHIT_S;
+    const counts = countsAsImpact(this.time - this.pairAt[k]!, hit.impulse, PAIR_MIN);
     this.pairAt[k] = this.time;
     // Traffic and police make a moment only against a racer (`begin`).
-    if (!quiet || hit.impulse < PAIR_MIN || (a >= this.racers && b >= this.racers)) return;
+    if (!counts || (a >= this.racers && b >= this.racers)) return;
     const e = impactEnergy(hit.impulse, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
     this.opened(this.ledger.impact(this.time, a, b, hit.impulse, e, hit.contact.x, hit.contact.z));
   }
@@ -256,11 +263,25 @@ export class CrashRecorder {
   /** A wall or prop touched car `i`, closing at `closing` m/s at (x, z). */
   wallHit(i: number, closing: number, x: number, z: number): void {
     if (!this.on || i >= this.pre.count) return;
-    const quiet = this.time - this.wallAt[i]! >= REHIT_S;
+    const counts = countsAsImpact(this.time - this.wallAt[i]!, closing, WALL_MIN);
     this.wallAt[i] = this.time;
-    if (!quiet || closing < WALL_MIN || i >= this.racers) return;
+    if (!counts || i >= this.racers) return;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[i]!)].mass, Infinity);
     this.opened(this.ledger.impact(this.time, i, -1, closing, e, x, z));
+  }
+
+  /**
+   * The driver of car `e.car` was thrown out during the step under way (`EjectionWatch`): a moment worth `EJECT_POINTS`,
+   * and the event is kept to throw his dummy again in a clip that carries the car. As for an engine kill, a traffic or
+   * police car's counts only inside a cluster a racer's hit opened.
+   */
+  eject(e: Ejection): void {
+    const car = this.cars[e.car];
+    if (!this.on || !car) return;
+    if (this.ejected.length >= MAX_EJECTED) this.ejected.shift();
+    this.ejected.push({ step: this.step, e });
+    if (e.car >= this.racers && !this.ledger.open.some((k) => (k.cars >>> e.car) & 1)) return;
+    this.opened(this.ledger.eject(this.time, e.car, car.group.position.x, car.group.position.z));
   }
 
   /** A cluster's first impact: its correction keyframe follows at the next step's start (`startStep`). */
@@ -477,11 +498,19 @@ export class CrashRecorder {
       const car = this.cars[i]!;
       return { slot: i, style: car.style.id, cls: carClass(car), name: this.names(i) };
     });
+    // The drivers thrown out during the clip's steps: their dummies fly again at those steps (car = the clip's own index).
+    const ejections: ClipEjection[] = [];
+    for (const x of this.ejected) {
+      const j = slots.indexOf(x.e.car);
+      if (j >= 0 && x.step >= start && x.step < this.step) ejections.push({ step: x.step - start, e: { ...x.e, car: j } });
+    }
     this.ledger.keep({
       trackId: this.trackId,
       score,
       impacts: c.impacts,
       kills: c.kills,
+      ejects: c.ejects,
+      ejections,
       peakKph: c.peak * 3.6,
       t0,
       firstImpact: c.first - t0,

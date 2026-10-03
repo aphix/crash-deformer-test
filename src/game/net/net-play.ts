@@ -2,6 +2,8 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { HANDLING, VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
+import type { Ejection } from "../vehicle/ejection.ts";
+import { EjectQueue } from "./eject-queue.ts";
 import {
   ensureFrames,
   makeSnapshot,
@@ -21,13 +23,14 @@ import {
   type DerbyNetState,
   readDerby,
   writeDerby,
+  packEject,
 } from "./codec.ts";
 import { PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetTransport } from "./transport.ts";
-import { unpackReel } from "./reel-codec.ts";
+import { playHostReel } from "./reel-codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
@@ -114,6 +117,7 @@ export class NetPlay {
   private readonly ringOrder = new Array<number>(RING).fill(0);
   private order = 0;
   private lastSeq = -1;
+  private readonly ejects = new EjectQueue();
   /** Smallest seen (local clock − host clock), s: the host time "now" is local − offset. */
   private offset = Infinity;
   /** Per car: receive order of the wreck section last applied. */
@@ -600,8 +604,11 @@ export class NetPlay {
     this.statBytes += msg.length;
   }
 
+  /** Host: a driver was thrown out (`EjectionWatch`): every peer launches his dummy from this event, on the reliable channel. */
+  sendEject(e: Ejection): void {
+    this.sendReel(packEject(e, this.now() / 1000));
+  }
   // ── client ────────────────────────────────────────────────────────────────
-
   private clientReceive(from: string, data: Uint8Array): void {
     const type = data[0];
     if (type === MSG.assign) {
@@ -617,22 +624,14 @@ export class NetPlay {
     else if (type === MSG.race) this.takeRace(data);
     else if (type === MSG.derby) this.takeDerby();
     else if (type === MSG.reel) this.takeReel(data);
+    else if (type === MSG.eject) this.ejects.take(this.r);
   }
 
-  /** The host's highlight reel: its start (host clock) moves onto this browser's clock by the snapshot offset. */
+  /** The host's highlight reel (`playHostReel`), its start moved onto this browser's clock by the snapshot offset. */
   private takeReel(data: Uint8Array): void {
     const car = this.game.cars()[0];
-    const offset = this.offset;
-    if (!car || !Number.isFinite(offset)) return;
     const t = this.transport;
-    unpackReel(data, this.layoutOf(car)).then(
-      ({ reel, startAt }) => {
-        // Decoding is async: a session left or rejoined meanwhile drops it.
-        if (this.transport === t) this.game.playReel(reel, startAt + offset);
-      },
-      // Malformed: no reel, like any message that fails to decode.
-      () => {},
-    );
+    if (car && Number.isFinite(this.offset)) playHostReel(data, this.layoutOf(car), this.offset, (reel, at) => this.game.playReel(reel, at), () => this.transport === t);
   }
 
   /**
@@ -665,6 +664,7 @@ export class NetPlay {
     this.offset = Infinity;
     this.applied.length = 0;
     this.drawnGen = -1;
+    this.ejects.clear();
   }
 
   /** The host's race state: race mode on, then its session (or its lobby) adopted. Never stepped here. */
@@ -781,9 +781,9 @@ export class NetPlay {
     const cars = this.game.cars();
     // A playing reel owns the cars; snapshots keep arriving for when it ends.
     // The host's world `INTERP_DELAY` behind this client's estimate of the host clock.
-    if (!this.game.reelPlaying()) {
-      this.drawnGen = drawSnapshots(this.ring, this.ringOrder, this.applied, cars, this.now() / 1000 - this.offset - INTERP_DELAY, wallDt, this.game, this.drawnGen);
-    }
+    const rt = this.now() / 1000 - this.offset - INTERP_DELAY;
+    if (!this.game.reelPlaying()) this.drawnGen = drawSnapshots(this.ring, this.ringOrder, this.applied, cars, rt, wallDt, this.game, this.drawnGen);
+    this.ejects.due(rt, this.game);
 
     if (this.car < 0 || this.car >= cars.length || this.hostId === null) return;
     const seat = this.game.seat;

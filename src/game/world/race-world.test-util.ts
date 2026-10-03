@@ -6,6 +6,7 @@ import { newWorld, settleStep, stepWorld, type World as StepWorld } from "../eng
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
+import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
@@ -38,6 +39,8 @@ export type World = {
   clears: number;
   /** Times a Watch race start asked for the Auto spectator camera (`RaceHost.watchCam`). */
   watchCams: number;
+  /** Every driver the sim threw out so far, in order (`CrashEngine.ejected` hands each to the recorder). */
+  ejections: Ejection[];
 };
 
 export function makeWorld(): World {
@@ -98,14 +101,16 @@ export function makeWorld(): World {
     reelReady: () => {},
     clear: () => {
       w.clears++;
+      step.ejection?.reset();
     },
     watchCam: () => {
       w.watchCams++;
     },
   });
   const step = newWorld(liveBuf);
+  step.ejection = new EjectionWatch();
   step.collide = (car, i) => race.collide(car, i);
-  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0 };
+  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [] };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);
@@ -118,6 +123,10 @@ function fixedStep(w: World, dt: number): void {
   w.step.cars = w.live();
   w.race.drive(dt);
   stepWorld(w.step, dt);
+  for (const e of w.step.ejection?.take() ?? []) {
+    w.ejections.push(e);
+    w.race.recorder.eject(e);
+  }
   w.race.step(dt);
 }
 

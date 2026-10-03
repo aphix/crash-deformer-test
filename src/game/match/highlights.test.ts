@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { HighlightLedger, impactEnergy, MAX_SPAN, MIN_SCORE, QUIET_GAP, TOP, type CrashCluster } from "./highlights.ts";
+import { countsAsImpact, HighlightLedger, impactEnergy, MAX_SPAN, MIN_SCORE, PAIR_MIN, QUIET_GAP, REHIT_S, TOP, WALL_MIN, type CrashCluster } from "./highlights.ts";
 
 const SEDAN = 1400;
 const kph = (v: number): number => v / 3.6;
@@ -32,6 +32,27 @@ describe("highlight scoring", () => {
     const scrape = new HighlightLedger();
     hit(scrape, 5, 0, -1, kph(50));
     assert.ok(kill.open[0]!.score > scrape.open[0]!.score + 3, `kill ${kill.open[0]!.score.toFixed(1)} vs scrape ${scrape.open[0]!.score.toFixed(1)}`);
+  });
+
+  it("bad: a driver thrown out is worth far more than a 100 km/h head-on, and a 20 km/h wall tap that throws one makes the reel alone", () => {
+    const head = new HighlightLedger();
+    hit(head, 5, 0, 1, kph(100));
+    const wall = new HighlightLedger();
+    hit(wall, 5, 0, -1, kph(20));
+    assert.ok(!wall.ranks(wall.open[0]!.score), `a 20 km/h wall tap alone scores ${wall.open[0]!.score.toFixed(2)}, under MIN_SCORE ${MIN_SCORE}`);
+    wall.eject(5.03, 0, 0, 0);
+    const thrown = wall.open[0]!;
+    assert.equal(thrown.ejects, 1);
+    assert.equal(thrown.focus, 0, "the ejected car is the subject");
+    assert.ok(thrown.score > head.open[0]!.score + 5, `ejection ${thrown.score.toFixed(1)} vs head-on ${head.open[0]!.score.toFixed(1)}`);
+    assert.ok(wall.ranks(thrown.score));
+  });
+
+  it("bad: an impact counts only after a REHIT_S quiet spell and from the class minimum (one rule for the recorder and the replay)", () => {
+    assert.equal(countsAsImpact(REHIT_S + 0.01, PAIR_MIN, PAIR_MIN), true);
+    assert.equal(countsAsImpact(REHIT_S - 0.01, 30, PAIR_MIN), false, "a contact 0.34 s after the last is grinding");
+    assert.equal(countsAsImpact(5, PAIR_MIN - 0.1, PAIR_MIN), false, "a soft touch");
+    assert.equal(countsAsImpact(Infinity, WALL_MIN, WALL_MIN), true, "the first ever contact");
   });
 
   it("bad: impacts inside the quiet gap must merge into one cluster; a later one, or one far away with other cars, must not", () => {

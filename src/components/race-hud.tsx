@@ -15,6 +15,7 @@ import {
   Skull,
   TriangleAlert,
   Trophy,
+  UserX,
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -176,6 +177,15 @@ export function RaceOverlay({ race, pad, reset, onReset, onCommand }: { race: Ra
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
       <ResetPrompt view={race.view} input={reset} race onTap={onReset} className="max-sm:hidden" />
       {race.phase === null ? null : <StartLights time={race.time} />}
+      {you?.driverOut && race.spectating === null ? (
+        <div
+          className="flex items-center gap-2 rounded-xl bg-signal-red px-4 py-2 font-display text-2xl font-semibold uppercase tracking-widest text-fg shadow-lg sm:text-3xl"
+          role="alert"
+        >
+          <UserX className="size-6" />
+          Driver out
+        </div>
+      ) : null}
       {you?.wrongWay ? (
         <div
           className="flex items-center gap-2 rounded-xl bg-signal-red px-4 py-2 font-display text-2xl font-semibold uppercase tracking-widest text-fg shadow-lg sm:text-3xl"
@@ -285,7 +295,7 @@ function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCom
     }
     case "dead":
       return (
-        <MenuShell id="dead" eyebrow={race.trackName} title="Wrecked" pad={pad} onBack={null} onStart={null}>
+        <MenuShell id="dead" eyebrow={race.trackName} title={race.you?.driverOut ? "Driver out" : "Wrecked"} pad={pad} onBack={null} onStart={null}>
           <p className="text-sm leading-relaxed text-muted">
             No resets: you are out{race.you ? ` in P${race.you.place} of ${race.field}` : ""}. The last car running wins.
           </p>

@@ -324,6 +324,8 @@ export type RaceHud = {
     finishTime: number | null;
     /** Busted by the police (`BUST`): the HUD's BUSTED banner until the camera moves on. */
     busted: boolean;
+    /** The driver was thrown out (`DeformableCar.driverOut`): the DRIVER OUT banner, until the respawn or the elimination. */
+    driverOut: boolean;
   } | null;
   /** The driving readouts: the driven car's, or the watched car's while spectating; null when the camera follows no car. */
   view: RaceView | null;

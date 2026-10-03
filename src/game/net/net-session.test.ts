@@ -174,6 +174,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     startDerby(): void {},
     setVaporized(): void {},
     playReel(_reel: Reel, _startAt: number): void {},
+    launchEjection(): void {},
     reelPlaying(): boolean {
       return this.playing;
     },
