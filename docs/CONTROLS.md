@@ -67,7 +67,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Scenes: Fleet, Derby, Race, Press, Pistons, Doors, Corkscrew, Range | D (from the whole field), Z, C (when not driving), I, N, , (comma), (none) | | scene buttons |
 | Jersey barrier / ramp balls / jump ramps (fleet only) | B / K / . (period) | | wall / balls / ramps buttons |
 | Loop, slow-mo, auto-orbit, audio | L, M, O, U | | Playback section |
-| Night, wet asphalt, cinematic FX tier (off → low → high) | H (outside a race), X, F | | Playback section |
+| Night, wet asphalt, cinematic FX tier (off → minimal → low → high; turns Auto off) | H (outside a race), X, F | | Playback section (FX Auto button too) |
 | Shape ↔ lattice | Y | | Cars & crash section |
 | Deform rig, control particles, JSON capture | G, P, J | | Debug views section |
 | Pistons: fire one ram (clockwise from front-left) / all eight | 1–8 / 0 | | piston panel |

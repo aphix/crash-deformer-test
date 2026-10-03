@@ -129,7 +129,7 @@ function PlaybackSection({ state, engine }: HudProps) {
         <span className="hud-label w-12 shrink-0">FX</span>
         <div
           className={TRACK}
-          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length}, minmax(0, 1fr))` }}
+          style={{ gridTemplateColumns: `repeat(${FX_TIERS.length + 1}, auto)` }}
           role="group"
           aria-label="Cinematic FX quality"
         >
@@ -145,6 +145,16 @@ function PlaybackSection({ state, engine }: HudProps) {
               {tier}
             </Button>
           ))}
+          <Button
+            className={SEGMENT}
+            variant={state.fxAuto ? "default" : "ghost"}
+            aria-pressed={state.fxAuto}
+            aria-label="Cinematic FX automatic"
+            title="Picks the tier from the frame rate; a race runs minimal"
+            onClick={() => engine.current?.setFxAuto()}
+          >
+            Auto
+          </Button>
         </div>
       </div>
       <label className="flex items-center gap-2">

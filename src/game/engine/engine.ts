@@ -11,7 +11,7 @@ import { damageStage } from "../vehicle/vehicle-classes.ts";
 import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
-import { hardwareDesktop } from "../present/fx-boost.ts";
+import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
@@ -121,7 +121,6 @@ export class CrashEngine extends EngineReel {
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
   protected readonly highlights: ReelDirector;
-  protected readonly boostable: boolean;
 
   constructor(canvas: HTMLCanvasElement, hudStore: HudStore) {
     super();
@@ -178,9 +177,12 @@ export class CrashEngine extends EngineReel {
     this.smoke = new TireSmokeSystem(this.scene);
     this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i), (at, frame, inherit) => this.onExit(at, frame, inherit));
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.clock.reduceMotion);
-    // `?fx=off|low|high` picks the starting tier (bench A/B); the HUD default otherwise.
-    const fxParam = new URLSearchParams(window.location.search).get("fx");
-    this.cine.setTier(FX_TIERS.find((t) => t === fxParam) ?? INITIAL_HUD.fxTier);
+    // `?fx=off|minimal|low|high` picks the tier for the session (bench A/B); the auto tier otherwise.
+    const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get("fx"));
+    this.cine.setTier(fxParam ?? INITIAL_HUD.fxTier);
+    const gl = this.renderer.getContext();
+    const gpu = gl.getExtension("WEBGL_debug_renderer_info");
+    this.autoFx = new AutoFx(hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches), fxParam === undefined);
     this.audio = new CrashAudio();
     this.trace = new TraceRecorder({
       barrier: this.barrier,
@@ -235,9 +237,6 @@ export class CrashEngine extends EngineReel {
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
       hit: hitFx,
     });
-    const gl = this.renderer.getContext();
-    const gpu = gl.getExtension("WEBGL_debug_renderer_info");
-    this.boostable = hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches);
 
     this.resize();
     this.resizeObs = new ResizeObserver(() => this.resize());
@@ -341,6 +340,7 @@ export class CrashEngine extends EngineReel {
     }
     this.pollInput();
     if (this.warming) return;
+    this.fxFrame(wallDt);
 
     // The results reel lives until its race is left or the next one sets up (a client's host may start it). Not "until
     // the phase leaves finished": a client's race state comes 5 times a second, unreliably, so the host's reel (reliable,
@@ -350,7 +350,7 @@ export class CrashEngine extends EngineReel {
     if (this.playing) {
       this.elapsedWall += wallDt;
       const reelDt = this.highlights.frame(now / 1000);
-      this.reelFrame(reelDt !== null, wallDt);
+      this.reelFrame(reelDt !== null);
       const cars = this.live();
       let simDt: number;
       if (reelDt !== null) simDt = reelDt;

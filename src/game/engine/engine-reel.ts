@@ -1,7 +1,5 @@
 import { carClass } from "../vehicle/vehicle-classes.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
-import type { FxTier } from "../present/engine-post.ts";
-import { FrameGuard } from "../present/fx-boost.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { decodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
 import type { HighlightClip } from "../match/highlights.ts";
@@ -11,16 +9,10 @@ import type { ReelDirector } from "./engine-highlights.ts";
 import { deleteSaved, listSaved, loadSaved, saveClip } from "./highlight-store.ts";
 import { EngineInput } from "./engine-input.ts";
 
-/** The engine's crash highlights layer (docs/HIGHLIGHTS.md): the reel's start, its commands, saved clips, the FX boost. */
+/** The engine's crash highlights layer (docs/HIGHLIGHTS.md): the reel's start, its commands, saved clips. */
 export abstract class EngineReel extends EngineInput {
   /** The results reel and its solo view. */
   protected abstract readonly highlights: ReelDirector;
-  /** A desktop with a hardware GPU runs the reel at the "high" FX tier (`boostFrom`: the user's tier while boosted). */
-  protected abstract readonly boostable: boolean;
-  private boostFrom: FxTier | null = null;
-  private readonly frameGuard = new FrameGuard();
-  /** The boost was tried this reel (a drop back stays dropped). */
-  private boostTried = false;
   /** The camera's field of view before the reel took it. */
   protected reelFov: number | null = null;
   /** `listSaved()`, re-read after a save or a delete. */
@@ -112,45 +104,12 @@ export abstract class EngineReel extends EngineInput {
     this.emitHud();
   }
 
-  /**
-   * Per frame: while the reel plays, a desktop with a hardware GPU runs the "high" FX tier, back to the user's after
-   * more than 10 frames in a row over 1.1× its refresh interval and under 60 fps (`FrameGuard`), or when the reel ends;
-   * the camera's lens comes back too.
-   */
-  protected reelFrame(on: boolean, wallDt: number): void {
-    const ms = wallDt * 1000;
-    this.frameGuard.sample(ms);
-    if (!on) {
-      this.boostTried = false;
-      if (this.boostFrom !== null) this.unboost();
-      if (this.reelFov !== null) {
-        this.camera.fov = this.reelFov;
-        this.camera.updateProjectionMatrix();
-        this.reelFov = null;
-      }
-      return;
-    }
-    if (this.boostFrom !== null) {
-      if (this.frameGuard.feed(ms)) this.unboost();
-      return;
-    }
-    if (this.boostTried || !this.boostable || this.cine.tier === "high") return;
-    this.boostTried = true;
-    this.boostFrom = this.cine.tier;
-    this.cine.setTier("high");
-    this.frameGuard.arm();
-  }
-
-  private unboost(): void {
-    this.cine.setTier(this.boostFrom!);
-    this.boostFrom = null;
-    this.emitHud();
-  }
-
-  /** The user's pick wins over the reel's boost. */
-  override setFxTier(tier: FxTier): void {
-    this.boostFrom = null;
-    super.setFxTier(tier);
+  /** Per frame: once the reel is over, the camera's lens comes back. */
+  protected reelFrame(on: boolean): void {
+    if (on || this.reelFov === null) return;
+    this.camera.fov = this.reelFov;
+    this.camera.updateProjectionMatrix();
+    this.reelFov = null;
   }
 
   protected reelHud(): Pick<RaceHud, "reel" | "solo" | "saved"> {

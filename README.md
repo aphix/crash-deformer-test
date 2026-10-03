@@ -37,7 +37,7 @@ One scene at a time, from the bottom bar or a key:
 Four classes, **Sedan**, **Muscle**, **Truck** and **Monster**, each with its own mass, grip, power and damage tolerance. One **Realism** slider runs from arcade (assists, forgiving grip, cars survive more) to realistic. Damage changes how a car drives: a limping engine loses power, and a dead one stops. Boost (Shift) recharges, and a derby takedown fills it. Details are in [`docs/HANDLING.md`](docs/HANDLING.md).
 
 ### Cinematic FX
-Three tiers, **off / low / high** (F key, HUD, or `?fx=off|low|high` in the URL). The `low` and `high` tiers add an HDR post chain with bloom, an ACES grade and film grain, an impact punch with a short hit-stop, a crash cam that cuts to three angles during the slow-mo, tyre marks on the GPU, tyre smoke, and spark streaks. Night (H) lights the lot with lamp-pole pools and the cars' own lamps, and Wet (X) makes the asphalt glossy. See [`docs/CINEMATIC.md`](docs/CINEMATIC.md).
+Four tiers, **off / minimal / low / high**, plus **Auto**, the default (F key, HUD, or `?fx=off|minimal|low|high` in the URL; a manual pick turns Auto off). Auto lifts a desktop with a hardware GPU that holds 60 fps to `high` after boot, steps down a tier whenever it holds under 50 fps for 2 s, and runs every race on `minimal`. The `low` and `high` tiers add an HDR post chain with bloom, an ACES grade and film grain, an impact punch with a short hit-stop, a crash cam that cuts to three angles during the slow-mo, tyre marks on the GPU, tyre smoke, and spark streaks. Night (H) lights the lot with lamp-pole pools and the cars' own lamps, and Wet (X) makes the asphalt glossy. See [`docs/CINEMATIC.md`](docs/CINEMATIC.md).
 
 ![Night: a teal sedan under the lamp-pole light pools, tyre smoke trailing behind](docs/images/night.webp)
 
@@ -83,7 +83,7 @@ Every action with its key, controller button and touch control is in [`docs/CONT
 | M | auto slow-mo |
 | O | auto-orbit camera |
 | U | audio |
-| F | cinematic FX tier: off → low → high |
+| F | cinematic FX tier: off → minimal → low → high (turns Auto off) |
 | H | night |
 | X | wet asphalt |
 | J | JSON trace capture (off by default) |
