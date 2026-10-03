@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
 import { UNDERSIDE } from "./car-suspension.ts";
+import { HULL } from "./car-air.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -71,6 +72,9 @@ export type Fit = {
   spread: number;
   /** Half the tread's width (m): a tyre turned `t` deg off the ground it stands on digs its outer shoulder `shoulder · sin t` in. */
   shoulder: number;
+  /** The deepest face crush (m, `load-crush.ts`): a car lying on a face yields it by its weight, and the hull points follow
+   *  the crushed face inward, so a probe at the stock face reads that much penetration for a body that is where it should be. */
+  crush: number;
 };
 
 const _p = new THREE.Vector3();
@@ -165,6 +169,12 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   };
   for (const [x, z, h] of UNDERSIDE) probe(`under(${x},${z})`, x, h, z);
   for (const [x, y, z] of BUMPERS) probe(`bumper(${x > 0 ? "+" : "-"}x,${z > 0 ? "front" : "rear"})`, x, y, z);
+  // Beltline and roof corners (`HULL` in car-air.ts, as the drawn body carries them), so a car on its side or roof is judged on
+  // the points it lies on.
+  for (let i = 4; i < HULL.length; i++) {
+    const [x, y, z] = HULL[i]!;
+    probe(`hull(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`, x, y, z);
+  }
   const ge = car.group.matrixWorld.elements;
   return {
     airborne: car.airborne,
@@ -185,6 +195,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     warp,
     spread,
     shoulder: 0.104 * car.wheels[0]!.scale.x,
+    crush: Math.max(...car.deform.crush),
   };
 }
 

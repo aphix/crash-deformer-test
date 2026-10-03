@@ -1,5 +1,6 @@
 import type { Object3D } from "three";
 import { hypot2 } from "../deform/physics-util.ts";
+import { TYRE_R } from "../deform/deform-state.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
 import { WHEEL_POS } from "./car-mesh.ts";
 import { HULL_UNDER } from "./car-suspension.ts";
@@ -21,8 +22,16 @@ import { HULL_UNDER } from "./car-suspension.ts";
 /** A ground pose: the plane's height (m) under the body's origin, its rise per metre along the heading (`a`) and toward the car's +x side (`b`). */
 type Plane = { y: number; a: number; b: number };
 
-/** Samples (tyre contacts first, then the underside points and bumper corners): car-local x, z and height above the tyre plane (m). */
-const SAMPLES: readonly (readonly [number, number, number])[] = [...WHEEL_POS.map(([x, , z]): [number, number, number] => [x, z, 0]), ...HULL_UNDER];
+/** Index of the first tyre-arc sample: they hold the rest plane up like the underside points, but with no body lift. */
+const ARC_FROM = 4 + HULL_UNDER.length;
+/**
+ * The tread's arc each side of a tyre's lowest point (car-local x, z, height over the tyre plane) at ±45° and ±90°, on the stock tyre
+ * like the other samples: a tyre is round, so a car perched across a wedge's top corner or a lip has the tyre's arc in it while its
+ * lowest point is still outside (the ground drop matrix's "sunk" cells on the fleet ramps: 12 → 8).
+ */
+const ARCS = WHEEL_POS.flatMap(([x, , z]) => [-1, 1].flatMap((s) => [Math.PI / 4, Math.PI / 2].map((th): [number, number, number] => [x, z + s * TYRE_R * Math.sin(th), TYRE_R * (1 - Math.cos(th))])));
+/** Samples (tyre contacts first, then the underside points and bumper corners, then the tyres' arcs): car-local x, z and height above the tyre plane (m). */
+const SAMPLES: readonly (readonly [number, number, number])[] = [...WHEEL_POS.map(([x, , z]): [number, number, number] => [x, z, 0]), ...HULL_UNDER, ...ARCS];
 const N = SAMPLES.length;
 const LX = Float64Array.from(SAMPLES, (s) => s[0]);
 const LZ = Float64Array.from(SAMPLES, (s) => s[1]);
@@ -78,7 +87,7 @@ function correct(g: Ground, x: number, z: number, hint: number, yaw: number, pit
   let sink = 0;
   for (let i = 0; i < N; i++) {
     const wheel = i < 4;
-    const h = wheel ? 0 : LH[i]! + lift;
+    const h = wheel ? 0 : i >= ARC_FROM ? LH[i]! : LH[i]! + lift;
     turn(sy, cy, sp, cp, sr, cr, LX[i]!, 0, LZ[i]!);
     U[i] = D[0]! * sy + D[2]! * cy;
     W[i] = D[0]! * cy - D[2]! * sy;
