@@ -9,6 +9,7 @@ import {
   PAIR_MIN,
   PRE_ROLL,
   REHIT_S,
+  TOP,
   WALL_MIN,
   type CrashCluster,
   type HighlightClip,
@@ -16,6 +17,7 @@ import {
 } from "../match/highlights.ts";
 import { ensureFrames, makeSnapshot, Q, Q_PER, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
 import { carLayout, readCarPose } from "../net/car-pose.ts";
+import { REEL_MSG_MAX } from "../net/reel-codec.ts";
 
 /**
  * Ring depth in steps. A race steps at 240–300 Hz (`physicsSlice` caps a step at 7 cm of travel, and a frame's
@@ -36,6 +38,19 @@ const KEY_EVERY = 0.5;
 const JUMP = 5;
 /** Keyframes kept: the ring's span and then some. */
 const KEY_SLOTS = 40;
+
+/**
+ * A clip also takes cars within this many metres of its hit (`bystanders`): a camera sees them, and a car left out of
+ * a clip is hidden for the whole replay. The longest sight line of a replay camera (the dutch cams' `DUTCH.range`) is
+ * 90 m.
+ */
+const BYSTANDER_R = 80;
+/**
+ * The size (estimated bytes, `bystanders`) a clip may grow to by bystanders: its share of a reel message, `REEL_MSG_MAX`
+ * over the `TOP` clips of a reel, at 3.3 estimated bytes per deflated byte (measured over 23 recorded clips). A clip
+ * that a pile-up already fills takes none.
+ */
+const CLIP_SHARE = (REEL_MSG_MAX / TOP) * 3.3;
 
 /**
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output
@@ -62,6 +77,8 @@ export class CrashRecorder {
   private realism = 0;
   private bleed = false;
   private names: (i: number) => string = (i) => `Car ${i}`;
+  /** Cars below this index are racers; the rest are traffic and police, which score only against a racer. */
+  private racers = 0;
   private cars: readonly DeformableCar[] = [];
   private layout: NetLayout | null = null;
   private readonly h = new Float32Array(RING);
@@ -84,6 +101,16 @@ export class CrashRecorder {
   /** Last contact time per car pair (a·MAX_CARS + b) and per car against walls and props: a contact out of a quiet spell is an impact. */
   private readonly pairAt = new Float64Array(MAX_CARS * MAX_CARS);
   private readonly wallAt = new Float64Array(MAX_CARS);
+  /** Per car: the recorder time it was last placed (`JUMP`), not driven. */
+  private readonly jumpAt = new Float64Array(MAX_CARS);
+  /** Every car's (x, z) at the current step's start, and as of each kept keyframe (with that keyframe's car count), for `file`'s bystander pass. */
+  private readonly lastPos = new Float32Array(MAX_CARS * 2);
+  private readonly keyPos = new Float32Array(KEY_SLOTS * MAX_CARS * 2);
+  private readonly keyN = new Uint8Array(KEY_SLOTS);
+  /** Per kept keyframe: the cars that carry a wreck (a solver state) in it. */
+  private readonly keyWreck = new Uint32Array(KEY_SLOTS);
+  /** `bystanders`' scratch: each car's least squared distance to the hit. */
+  private readonly near = new Float64Array(MAX_CARS);
   /**
    * Each open cluster's impact keyframe: every car as it stands at the start of the step after its first impact came
    * in (pose and wreck read together; mid-step a wreck's particles have moved on from the step-start pose).
@@ -92,8 +119,12 @@ export class CrashRecorder {
   /** Clusters opened this step: their impact keyframe is encoded at the next step's start. */
   private readonly opening: CrashCluster[] = [];
 
-  /** A race starts: clear everything. `names(i)` labels car i in the clips; `bleed`: the engine's wreck-slide rule is on. */
-  begin(trackId: string, realism: number, bleed: boolean, names: (i: number) => string): void {
+  /**
+   * A race starts: clear everything. Cars below `racers` are the field (the rest, traffic and police, make a moment
+   * only by hitting or being hit by a racer); `names(i)` labels car i in the clips; `bleed`: the engine's wreck-slide
+   * rule is on.
+   */
+  begin(trackId: string, realism: number, bleed: boolean, racers: number, names: (i: number) => string): void {
     this.on = true;
     this.time = 0;
     this.step = 0;
@@ -103,12 +134,14 @@ export class CrashRecorder {
     this.realism = realism;
     this.bleed = bleed;
     this.names = names;
+    this.racers = racers;
     this.ledger.clear();
     this.impactKeys.clear();
     this.opening.length = 0;
     this.alive.fill(1);
     this.pairAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
+    this.jumpAt.fill(-Infinity);
     this.pre.count = 0;
   }
 
@@ -143,7 +176,12 @@ export class CrashRecorder {
       const x = f.x;
       const z = f.z;
       readCarPose(cars[i]!, f);
-      if (i < prev && Math.abs(f.x - x) + Math.abs(f.z - z) > JUMP) jumped = true;
+      if (i < prev && Math.abs(f.x - x) + Math.abs(f.z - z) > JUMP) {
+        jumped = true;
+        this.jumpAt[i] = this.time;
+      }
+      this.lastPos[2 * i] = f.x;
+      this.lastPos[2 * i + 1] = f.z;
       this.drift[i] = cars[i]!.drive.drift;
     }
     if (this.opening.length > 0) {
@@ -159,6 +197,11 @@ export class CrashRecorder {
     const slot = this.keyCount++ % KEY_SLOTS;
     this.encodeKey(this.keys[slot]!);
     this.keyStep[slot] = this.step;
+    this.keyPos.set(this.lastPos, slot * MAX_CARS * 2);
+    this.keyN[slot] = n;
+    let wrecks = 0;
+    for (let i = 0; i < n; i++) if (s.cars[i]!.wreck) wrecks |= 1 << i;
+    this.keyWreck[slot] = wrecks >>> 0;
   }
 
   /** End of a fixed step of `h` s: the drive outputs it ran on, engine kills, and any cluster now due. */
@@ -179,7 +222,10 @@ export class CrashRecorder {
       inp[o + 3] = (d.ebrake ? 1 : 0) | (d.boost ? 2 : 0) | (this.draft[i] ? 4 : 0);
       this.draft[i] = 0;
       const alive = c.deform.drivetrainAlive ? 1 : 0;
-      if (this.alive[i] && !alive) this.opened(this.ledger.kill(this.time, i, c.group.position.x, c.group.position.z));
+      // A traffic or police car's death counts only inside a cluster a racer's hit opened.
+      if (this.alive[i] && !alive && (i < this.racers || this.ledger.open.some((k) => (k.cars >>> i) & 1))) {
+        this.opened(this.ledger.kill(this.time, i, c.group.position.x, c.group.position.z));
+      }
       this.alive[i] = alive;
     }
     this.time += h;
@@ -199,7 +245,8 @@ export class CrashRecorder {
     const k = a * MAX_CARS + b;
     const quiet = this.time - this.pairAt[k]! >= REHIT_S;
     this.pairAt[k] = this.time;
-    if (!quiet || hit.impulse < PAIR_MIN) return;
+    // Traffic and police make a moment only against a racer (`begin`).
+    if (!quiet || hit.impulse < PAIR_MIN || (a >= this.racers && b >= this.racers)) return;
     const e = impactEnergy(hit.impulse, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
     this.opened(this.ledger.impact(this.time, a, b, hit.impulse, e, hit.contact.x, hit.contact.z));
   }
@@ -209,7 +256,7 @@ export class CrashRecorder {
     if (!this.on || i >= this.pre.count) return;
     const quiet = this.time - this.wallAt[i]! >= REHIT_S;
     this.wallAt[i] = this.time;
-    if (!quiet || closing < WALL_MIN) return;
+    if (!quiet || closing < WALL_MIN || i >= this.racers) return;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[i]!)].mass, Infinity);
     this.opened(this.ledger.impact(this.time, i, -1, closing, e, x, z));
   }
@@ -260,6 +307,73 @@ export class CrashRecorder {
     return w;
   }
 
+  /** `mask` and, over and over, every car that touched one of them since `t0`. */
+  private touched(mask: number, n: number, t0: number): number {
+    for (let grew = true; grew; ) {
+      grew = false;
+      for (let a = 0; a < n; a++) {
+        if (!((mask >>> a) & 1)) continue;
+        for (let b = 0; b < n; b++) {
+          if ((mask >>> b) & 1 || this.pairAt[a < b ? a * MAX_CARS + b : b * MAX_CARS + a]! < t0) continue;
+          mask = (mask | (1 << b)) >>> 0;
+          grew = true;
+        }
+      }
+    }
+    return mask;
+  }
+
+  /**
+   * `mask` (cluster `c`'s cars and their touchers) with the bystanders added: the cars within `BYSTANDER_R` of the hit
+   * (`c`'s first impact, mean point or cars) at any keyframe from the clip's `start` step to its end, nearest first,
+   * each with the cars that touched it, while the clip's estimated size stays within `CLIP_SHARE`. A bystander too big
+   * for what is left is skipped; a smaller one further out may still fit. A car's estimate is its inputs plus its solver
+   * state in each keyframe it is a wreck in. Never taken: a car that did not exist for the whole clip (it has no state
+   * in the clip's first keyframe) and one placed (`JUMP`) after the first impact: the replay corrects drift only up
+   * to there and cannot place a car.
+   */
+  private bystanders(c: CrashCluster, mask: number, start: number, n: number, firstStep: number, t0: number): number {
+    const d = this.near.fill(Infinity);
+    const wreckKeys = new Uint8Array(MAX_CARS);
+    let all = n;
+    const filled = Math.min(this.keyCount, KEY_SLOTS);
+    // Every keyframe from the clip's start, then the current step's start: the clip's last moment.
+    for (let k = 0; k <= filled; k++) {
+      const last = k === filled;
+      if (!last && this.keyStep[k]! < start) continue;
+      const pos = last ? this.lastPos : this.keyPos;
+      const o = last ? 0 : k * MAX_CARS * 2;
+      const cnt = last ? n : this.keyN[k]!;
+      all = Math.min(all, cnt);
+      for (let i = 0; i < cnt; i++) {
+        if (!last && this.keyStep[k]! <= start + firstStep) wreckKeys[i] = wreckKeys[i]! + ((this.keyWreck[k]! >>> i) & 1);
+        const x = pos[o + 2 * i]!;
+        const z = pos[o + 2 * i + 1]!;
+        let m = Math.min((x - c.x0) ** 2 + (z - c.z0) ** 2, (x - c.x) ** 2 + (z - c.z) ** 2);
+        for (let a = 0; a < cnt; a++) if ((c.cars >>> a) & 1) m = Math.min(m, (x - pos[o + 2 * a]!) ** 2 + (z - pos[o + 2 * a + 1]!) ** 2);
+        d[i] = Math.min(d[i]!, m);
+      }
+    }
+    const bytes = (cars: number): number => {
+      let sum = 0;
+      for (let j = 0; j < n; j++) if ((cars >>> j) & 1) sum += (this.step - start) * INPUT_BYTES + wreckKeys[j]! * this.sim.length * 4;
+      return sum;
+    };
+    const order: number[] = [];
+    for (let i = 0; i < all; i++) if (d[i]! <= BYSTANDER_R * BYSTANDER_R && this.jumpAt[i]! <= c.first) order.push(i);
+    order.sort((a, b) => d[a]! - d[b]!);
+    let left = CLIP_SHARE - bytes(mask);
+    for (const i of order) {
+      if ((mask >>> i) & 1) continue;
+      const next = this.touched((mask | (1 << i)) >>> 0, n, t0);
+      const add = bytes(next ^ mask);
+      if (add > left) continue;
+      left -= add;
+      mask = next;
+    }
+    return mask;
+  }
+
   /** A cluster is over: if it ranks, copy its slice out of the rings into a clip and file it. */
   private file(c: CrashCluster): void {
     const impact = this.impactKeys.get(c);
@@ -284,22 +398,13 @@ export class CrashRecorder {
     const start = this.keyStep[slot]!;
     const steps = this.step - start;
     if (steps <= 0) return;
-    // The cluster's cars and every car that touched one of them since the clip's start (and so on): a car left out
-    // would leave its shoves out of the replay, which then drifts (measured: 1–3 m a second in a pile-up).
+    // The cluster's cars and what touched them since the clip's start, then the bystanders with what touched them
+    // (`bystanders`): a car left out would leave its shoves out of the replay, which then drifts (measured: 1–3 m a
+    // second in a pile-up).
     const t0 = this.at[start % RING]!;
     const n = this.pre.count;
-    let mask = c.cars;
-    for (let grew = true; grew; ) {
-      grew = false;
-      for (let a = 0; a < n; a++) {
-        if (!((mask >>> a) & 1)) continue;
-        for (let b = 0; b < n; b++) {
-          if ((mask >>> b) & 1 || this.pairAt[a < b ? a * MAX_CARS + b : b * MAX_CARS + a]! < t0) continue;
-          mask = (mask | (1 << b)) >>> 0;
-          grew = true;
-        }
-      }
-    }
+    const firstStep = impact && impact.step > start && impact.step < this.step ? impact.step - start : 0;
+    const mask = this.bystanders(c, this.touched(c.cars, n, t0), start, n, firstStep, t0);
     const slots: number[] = [];
     for (let i = 0; i < n; i++) if ((mask >>> i) & 1) slots.push(i);
     const nc = slots.length;
@@ -316,7 +421,6 @@ export class CrashRecorder {
     }
     // Keyframes from the clip's start to its first impact (the replay corrects drift up to there, never after), in
     // step order with the impact keyframe where it falls, each cut down to the clip's cars.
-    const firstStep = impact && impact.step > start && impact.step < this.step ? impact.step - start : 0;
     const src: { step: number; bytes: Uint8Array }[] = [];
     for (let k = 0; k < filled; k++) {
       const st = this.keyStep[k]!;

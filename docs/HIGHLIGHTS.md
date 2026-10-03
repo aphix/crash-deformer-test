@@ -39,8 +39,29 @@ a car or lies within 30 m. A cluster closes after `QUIET_GAP` (1.5 s) with no im
 Its score is energy, plus points per extra car, per engine destroyed and for impact density. A cluster below
 `MIN_SCORE` (3) is dropped. A clip is `PRE_ROLL` (3 s) before the first impact to `POST_ROLL` (3 s) after the last.
 
+A moment needs a racer. Traffic and police score only against one (`CrashRecorder.begin`'s `racers`): cop–cop,
+traffic–traffic, cop–traffic and a lone cop or traffic wall hit make no impact, and a traffic or police car's death
+counts only inside a cluster a racer's hit opened. A racer hitting (or hit by) a cop or a traffic car scores as before,
+with that car in the shot, and the clip's focus is the racer. On the city seeds 5 and 6 (8 AI, traffic, police) 2 of 5
+and 1 of 5 kept clips had no racer in their first impact (a cop's wall hit, traffic on a cop); after it, 0 of 5 and 0 of
+5, with the racer-on-traffic and racer-on-cop hits kept (`engine-record.test.ts`).
+
 When a cluster's post-roll ends and it ranks, its slice is copied out of the rings. That copy is the recorder's only
 allocation, a few times a race. Steady state allocates nothing (`engine-record.test`).
+
+A clip also takes **bystanders**: every car within `BYSTANDER_R` (80 m) of its hit (the first impact, the cluster's mean
+point or one of its cars) at any keyframe of the clip or at its end, nearest first, each with the cars that touched it
+since the clip's start. Left out: a car that did not exist at the clip's first keyframe and one placed (`JUMP`) after
+the first impact, which the replay cannot place. 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
+the 46 cars a camera could see on five seeded races, 80 m holds 44 and 60 m holds 39. A clip grows by bystanders only to
+`CLIP_SHARE` (`REEL_MSG_MAX` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 4.6 KB solver state in each
+keyframe it is a wreck in). A bystander too big for what is left is skipped (a cheaper one further out may still fit),
+and a pile-up that already fills the share takes none. Measured on city seed 6: an intact bystander costs 9 KiB raw and
+2 KiB deflated, a wreck churning through the whole clip 54 and 13. Uncapped, 80 m turned that reel (249 KiB of single
+clips, 4 of 5 fit the 240 KiB message) into 879 KiB with 1 fit, and saved clips past 300K chars. With the share, fit
+counts equal the no-bystander recorder's on all five measured races, cars within 80 m of a hit that end up in a clip
+rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is unchanged
+(27 B a step against the 45 bound, `engine-record.test.ts`).
 
 ## Replay
 
@@ -49,6 +70,20 @@ It then feeds each recorded step's dt and inputs through `applyDrive`, `stepWorl
 including the first impact's step, every keyframe snaps the cars back onto the record (drift correction). After that
 the crash plays out on its own. The clip also carries its crumple settings (`squash`, `buckle`, `deformMode`), so
 every peer dents the same way.
+
+**Drawing.** The sim only has whole recorded steps (1/240 to 1/114 s of clip time), and the reel plays the hit at about
+1/30 of that, so most frames land inside a step. Measured on city seeds 5 and 6 (3 clips each, the camera and the focus
+car per rendered frame at 60 and 240 Hz): 87–88% of the slow-mo's frames at 60 Hz and 97% at 240 Hz drew the focus car
+where the last frame had it, and a car-mounted camera saw 420–470 m/s² (60 Hz) and 6600–7500 m/s² (240 Hz) of second
+difference (p99). `advanceTo` therefore runs the step `until` falls in, and `ClipSim.present(until)` draws every car
+between the pose before that step and the one it left. The sim's own state is never the drawn one: `advanceTo` puts the
+exact state back first (`engine-highlights.test.ts`: a replay with a drawn frame inside every step ends on the same
+state as one without). Two more jerks, one in each window: a keyframe moves a car by the replay's drift (median 3–25 cm,
+some 1–2 m, every 0.5 s before the hit), which `present` draws as an offset decaying over `POP_TAU` (0.2 s) instead of a
+pop (not at the impact's keyframe, whose drift the hit shows); and the chase shot read the wreck's own velocity, which
+swings 4° and more a frame, so `ClipSim.heading` low-passes it over `HEADING_TAU` (0.3 s). Second difference p99, after:
+0 stalled frames; slow-mo 0.1–10 m/s² at 60 Hz and 0.3–5 at 240 Hz; run-in at 60 Hz 310–390 (was 2850–5200) and 21–117
+rad/s² of rotation (was 480–490); chase aftermath at 240 Hz 2200–4200 (was 29000–35000).
 
 Why the solver state: the netplay wreck section is display state (clients never simulate). A wreck restored from it
 alone had still masses and reset clocks. In `engine-replay.test.ts` (city, seed 5) one wreck caught mid-hit, its
@@ -95,6 +130,15 @@ the hit (no closer than 3 m) when a wall is in the way. A cut with no usable eye
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
 (`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 9 of 186 (rally) and
 54 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
+
+In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
+sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
+has `CLEAR.radius` m of room and sight of the car (`camUsable`), keeps its eye where its cut begins, turns toward the
+car at 4/s, and re-asks every 0.25 s: it moves to another cut only when the held eye has lost room or sight (a wall, a
+building or a car in the way), and hands the shot to the reel camera when none is usable. Camera changes from the hit
+to 7 s after, in the browser at 60 and 240 Hz: 4 before (bumper, crane, long lens, hand-back), 2 after (take-over,
+hand-back). The sandbox crash cam still cuts three times. A hit inside the window never re-picks (the reel calls
+`impact` once a pass).
 
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.

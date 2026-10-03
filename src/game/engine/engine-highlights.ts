@@ -5,8 +5,8 @@ import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts
 import type { ReelHud, SaveResult } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, type ShotKind } from "../present/shot-cam.ts";
-import type { Sight } from "../present/spectate-cam.ts";
-import { CRASH_CAM_END } from "../present/engine-cine.ts";
+import { CINE, type Sight } from "../present/spectate-cam.ts";
+import { CRASH_CAM_END, type CrashHold } from "../present/engine-cine.ts";
 import { overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
 
@@ -141,6 +141,8 @@ export class ReelDirector {
   private flying = false;
   private readonly flight = { ax: 0, az: 0, bx: 0, bz: 0, u: 0 };
   private readonly shotCam = new ShotCam();
+  /** What the held crash cam asks about the clip's focus car (`crashHold`). */
+  private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!) };
   /** Every live car's visibility when the reel took them. */
   private shown: boolean[] | null = null;
 
@@ -276,13 +278,22 @@ export class ReelDirector {
     }
     const p = this.cur;
     if (!p) return;
-    this.shotCam.pose(cam, p.sim.cars[p.clip.focus]!, p.shots[Math.max(0, this.shot)]!);
+    this.shotCam.pose(cam, p.sim.cars[p.clip.focus]!, p.shots[Math.max(0, this.shot)]!, p.sim.heading);
   }
 
   /** The car the shot follows (the sun's shadow box goes with it); null in a flight. */
   focus(): DeformableCar | null {
     const p = this.cur;
     return p && !this.flying ? p.sim.cars[p.clip.focus]! : null;
+  }
+
+  /** The crash cam's view of the clip: its focus car's aim point and the scene's solids; null in a flight. */
+  crashHold(): CrashHold | null {
+    const car = this.focus();
+    if (!car) return null;
+    const p = car.group.position;
+    this.hold.target.set(p.x, p.y + CINE.aimUp, p.z);
+    return this.hold;
   }
 
   hud(): { reel: ReelHud | null; solo: string | null } {
@@ -347,15 +358,17 @@ export class ReelDirector {
     const target = simAt(tl, w);
     const before = sim.time;
     const deadline = performance.now() + this.stepBudgetMs;
-    // Each shot is framed from the car as it stands at the shot's own clip time: every peer picks the same.
+    // Each shot is framed from the car as drawn at the shot's own clip time: every peer picks the same.
     while (this.shot + 1 < shots.length && shots[this.shot + 1]!.at <= target) {
       const next = shots[this.shot + 1]!;
       sim.advanceTo(next.at, deadline);
-      if (!sim.done && sim.time + sim.clip.h[sim.step]! <= next.at + 1e-9) return sim.time - before;
+      if (!sim.done && sim.time < next.at - 1e-9) return sim.time - before;
+      sim.present(next.at);
       this.shot++;
       this.frameShot(p, next);
     }
     sim.advanceTo(target, deadline);
+    sim.present(target);
     const hit = sim.world.strongest;
     if (hit.contact && hit.normal && hit.impulse > 1.2 && performance.now() / 1000 - this.sparkAt > SPARK_GAP) {
       this.sparkAt = performance.now() / 1000;

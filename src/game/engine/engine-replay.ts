@@ -1,3 +1,4 @@
+import * as THREE from "three";
 import { beginFakeFall, FLIGHT, type DeformableCar } from "../vehicle/car.ts";
 import type { WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
@@ -15,12 +16,30 @@ export type ReplayScene = {
   bounce: WorldBounce | undefined;
 };
 
+const _q = new THREE.Quaternion();
+const _from = new THREE.Quaternion();
+const _o = new THREE.Quaternion();
+const _p = new THREE.Quaternion();
+const IDENTITY = new THREE.Quaternion();
+/** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
+const TELEPORT = 5;
+/**
+ * A keyframe moves a car by the replay's drift (measured: a car's median 3–25 cm, a few cases 1–2 m, at every 0.5 s
+ * keyframe before the hit): `present` draws that move as an offset that decays by this time constant (clip s) instead
+ * of a pop. The sim itself takes the keyframe's pose whole.
+ */
+const POP_TAU = 0.2;
+/** The focus car's travel direction (`ClipSim.heading`) is low-passed over this many clip seconds. */
+const HEADING_TAU = 0.3;
+
 /**
  * One highlight clip re-run through the real sim (docs/HIGHLIGHTS.md): its cars respawned from keyframe 0 (a wreck
  * with its netplay wreck section: dents, lost parts, lamps, glass, then its solver state; style and class are the
  * caller's, `cars[j]` is `clip.cars[j]`), then each recorded step's dt and drive outputs fed through `applyDrive` +
  * `stepWorld` + `settleStep`. Up to and including the first impact's step, every keyframe snaps its cars back onto
- * the record (drift correction); after it the crash plays out on its own.
+ * the record (drift correction); after it the crash plays out on its own. The sim only has the whole steps' states
+ * (1/240–1/114 s of clip time each; the reel plays the hit at about 1/30 of that), so a frame mostly lands inside a
+ * step: `present` draws the cars between the last step's before and after.
  */
 export class ClipSim {
   readonly clip: HighlightClip;
@@ -38,6 +57,25 @@ export class ClipSim {
   readonly impactStep: number;
   /** False skips that keyframe (how the earlier keyframes alone carry the replay to the impact). */
   useImpactKey = true;
+  /** Clip second the last run step began at (`present`'s interpolation starts there, at `from`). */
+  private stepAt = 0;
+  /** Per car, before the last step: position (3) and rotation as a quaternion (4). */
+  private readonly from: Float64Array;
+  /** Per car, the sim's true pose `present` replaced: position (3), rotation as a quaternion (4) and Euler (3). */
+  private readonly kept: Float64Array;
+  private presented = false;
+  /**
+   * Per car, a keyframe's last moves: the offset `present` adds to the true position (x, y, z) and the rotation it
+   * puts over the true one (a quaternion), both decaying by `POP_TAU`.
+   */
+  private readonly pop: Float64Array;
+  private readonly popQ: Float64Array;
+  private popping = false;
+  /**
+   * The focus car's travel direction (flat, unit: its velocity, its body's heading when nearly still), low-passed over
+   * `HEADING_TAU`: a wreck's own velocity swings 4° and more between frames, which a camera behind it must not copy.
+   */
+  readonly heading = new THREE.Vector2();
   /** Clip seconds the recording runs. */
   readonly length: number;
   private key = 0;
@@ -59,6 +97,11 @@ export class ClipSim {
     this.impactStep = clip.firstStep;
     this.length = clip.h.reduce((a, h) => a + h, 0);
     this.preSnap = new Float32Array(cars.length * 3);
+    this.from = new Float64Array(cars.length * 7);
+    this.kept = new Float64Array(cars.length * 10);
+    this.pop = new Float64Array(cars.length * 3);
+    this.popQ = new Float64Array(cars.length * 4);
+    this.clearPop();
     const L = carLayout(cars[0]!);
     const r = new Reader();
     this.keys = [];
@@ -103,24 +146,43 @@ export class ClipSim {
   restart(): void {
     this.step = 0;
     this.time = 0;
+    this.stepAt = 0;
+    this.presented = false;
+    this.clearPop();
+    this.heading.set(0, 0);
     this.firstHit = -1;
     for (let j = 0; j < this.cars.length; j++) this.spawn(j, 0);
+    this.turn(0);
     this.aliveA = this.cars[this.clip.firstA]!.deform.drivetrainAlive;
     this.key = 1;
   }
 
   /**
-   * Run recorded steps until `time` would pass `until` (clip s) or the clip ends; with `deadline` (a
-   * `performance.now()` ms), also stop once it passes after at least one step, to resume next call.
+   * Run recorded steps until `time` reaches `until` (clip s) or the clip ends: the step `until` falls in runs, and
+   * `present` draws `until` between the pose before it and the one it left. With `deadline` (a `performance.now()`
+   * ms), also stop once it passes after at least one step, to resume next call.
    */
   advanceTo(until: number, deadline = Infinity): void {
+    this.restore();
     const { clip, cars } = this;
     const nc = cars.length;
     const saved = HANDLING.realism;
     HANDLING.realism = clip.realism;
     const s0 = this.step;
-    while (this.step < clip.h.length && this.time + clip.h[this.step]! <= until + 1e-9 && (this.step === s0 || performance.now() < deadline)) {
+    while (this.step < clip.h.length && this.time < until - 1e-9 && (this.step === s0 || performance.now() < deadline)) {
       const s = this.step;
+      this.stepAt = this.time;
+      for (let j = 0; j < nc; j++) {
+        const g = cars[j]!.group;
+        const o = j * 7;
+        this.from[o] = g.position.x;
+        this.from[o + 1] = g.position.y;
+        this.from[o + 2] = g.position.z;
+        this.from[o + 3] = g.quaternion.x;
+        this.from[o + 4] = g.quaternion.y;
+        this.from[o + 5] = g.quaternion.z;
+        this.from[o + 6] = g.quaternion.w;
+      }
       if (s === this.impactStep) {
         for (let j = 0; j < nc; j++) {
           const p = cars[j]!.group.position;
@@ -131,7 +193,10 @@ export class ClipSim {
       }
       while (this.key < clip.keyStep.length && clip.keyStep[this.key]! <= s) {
         const at = clip.keyStep[this.key]!;
-        if (at === s && s <= this.impactStep && (this.useImpactKey || at !== this.impactStep)) for (let j = 0; j < nc; j++) this.snap(j, this.key);
+        if (at === s && s <= this.impactStep && (this.useImpactKey || at !== this.impactStep)) {
+          for (let j = 0; j < nc; j++) this.snap(j, this.key);
+          this.popFrom(at !== this.impactStep);
+        }
         this.key++;
       }
       const h = clip.h[s]!;
@@ -154,8 +219,152 @@ export class ClipSim {
       this.aliveA = a.deform.drivetrainAlive;
       this.time += h;
       this.step++;
+      if (this.popping) this.decay(h);
+      this.turn(h);
     }
     HANDLING.realism = saved;
+  }
+
+  /**
+   * Every car drawn at clip time `until`, inside the last run step (as `advanceTo` leaves it): its pose between the one
+   * before that step and the one it left, so a frame inside a step moves the cars on instead of repeating the last
+   * step's pose, plus what is left of a keyframe's move (`POP_TAU`). A car the step placed (> `TELEPORT`) stays where
+   * it landed. The next `advanceTo` puts the true state back first: the replay itself never runs from a drawn pose.
+   */
+  present(until: number): void {
+    this.restore();
+    const span = this.time - this.stepAt;
+    const u = span > 1e-9 ? Math.min(1, Math.max(0, (until - this.stepAt) / span)) : 1;
+    if (u >= 1 && !this.popping) return;
+    this.presented = true;
+    // The offset at `until`: it decays over the step from `pop * e(0)` to `pop`.
+    const e = Math.exp(((1 - u) * span) / POP_TAU);
+    const f = this.from;
+    const k = this.kept;
+    for (let j = 0; j < this.cars.length; j++) {
+      const g = this.cars[j]!.group;
+      const o = j * 7;
+      const m = j * 10;
+      const p = g.position;
+      const q = g.quaternion;
+      const r = g.rotation;
+      k[m] = p.x;
+      k[m + 1] = p.y;
+      k[m + 2] = p.z;
+      k[m + 3] = q.x;
+      k[m + 4] = q.y;
+      k[m + 5] = q.z;
+      k[m + 6] = q.w;
+      k[m + 7] = r.x;
+      k[m + 8] = r.y;
+      k[m + 9] = r.z;
+      if (Math.abs(f[o]! - p.x) + Math.abs(f[o + 1]! - p.y) + Math.abs(f[o + 2]! - p.z) > TELEPORT) continue;
+      if (u < 1) {
+        p.set(f[o]! + (p.x - f[o]!) * u, f[o + 1]! + (p.y - f[o + 1]!) * u, f[o + 2]! + (p.z - f[o + 2]!) * u);
+        _from.set(f[o + 3]!, f[o + 4]!, f[o + 5]!, f[o + 6]!);
+        q.copy(_from.slerp(_q.set(k[m + 3]!, k[m + 4]!, k[m + 5]!, k[m + 6]!), u));
+      }
+      if (!this.popping) continue;
+      p.set(p.x + this.pop[j * 3]! * e, p.y + this.pop[j * 3 + 1]! * e, p.z + this.pop[j * 3 + 2]! * e);
+      const n = j * 4;
+      // `e` >= 1 (the offset at the step's start): the slerp runs past its end.
+      _o.copy(IDENTITY).slerp(_p.set(this.popQ[n]!, this.popQ[n + 1]!, this.popQ[n + 2]!, this.popQ[n + 3]!), e);
+      q.copy(_o.multiply(q));
+    }
+  }
+
+  /** Undo `present`: every car back on the sim's own pose, exactly (the Euler angles are what the sim reads). */
+  private restore(): void {
+    if (!this.presented) return;
+    this.presented = false;
+    const k = this.kept;
+    for (let j = 0; j < this.cars.length; j++) {
+      const g = this.cars[j]!.group;
+      const m = j * 10;
+      g.position.set(k[m]!, k[m + 1]!, k[m + 2]!);
+      g.rotation.set(k[m + 7]!, k[m + 8]!, k[m + 9]!);
+    }
+  }
+
+  /**
+   * A keyframe just moved every car: `from` restarts at the corrected position, and (`smooth`; not the impact's
+   * keyframe, whose drift the hit shows) the move so far becomes a drawn offset. A placement (> `TELEPORT`) is neither.
+   */
+  private popFrom(smooth: boolean): void {
+    for (let j = 0; j < this.cars.length; j++) {
+      const g = this.cars[j]!.group;
+      const p = g.position;
+      const o = j * 7;
+      const dx = this.from[o]! - p.x;
+      const dy = this.from[o + 1]! - p.y;
+      const dz = this.from[o + 2]! - p.z;
+      const far = Math.abs(dx) + Math.abs(dy) + Math.abs(dz) > TELEPORT;
+      if (smooth && !far) {
+        this.pop[j * 3]! += dx;
+        this.pop[j * 3 + 1]! += dy;
+        this.pop[j * 3 + 2]! += dz;
+        // The rotation offset keeps what is drawn: new = old * before * after⁻¹.
+        const n = j * 4;
+        _o.set(this.popQ[n]!, this.popQ[n + 1]!, this.popQ[n + 2]!, this.popQ[n + 3]!);
+        _p.set(this.from[o + 3]!, this.from[o + 4]!, this.from[o + 5]!, this.from[o + 6]!);
+        _o.multiply(_p).multiply(_p.copy(g.quaternion).invert()).normalize();
+        this.popQ[n] = _o.x;
+        this.popQ[n + 1] = _o.y;
+        this.popQ[n + 2] = _o.z;
+        this.popQ[n + 3] = _o.w;
+        this.popping = true;
+      }
+      if (smooth || far) {
+        this.from[o] = p.x;
+        this.from[o + 1] = p.y;
+        this.from[o + 2] = p.z;
+        this.from[o + 3] = g.quaternion.x;
+        this.from[o + 4] = g.quaternion.y;
+        this.from[o + 5] = g.quaternion.z;
+        this.from[o + 6] = g.quaternion.w;
+      }
+    }
+  }
+
+  /** One step of `h` s later: the drawn offsets shrink; gone when the biggest is under a millimetre (or a milliradian). */
+  private decay(h: number): void {
+    const k = Math.exp(-h / POP_TAU);
+    let big = 0;
+    for (let i = 0; i < this.pop.length; i++) {
+      this.pop[i]! *= k;
+      big = Math.max(big, Math.abs(this.pop[i]!));
+    }
+    for (let n = 0; n < this.popQ.length; n += 4) {
+      _o.set(this.popQ[n]!, this.popQ[n + 1]!, this.popQ[n + 2]!, this.popQ[n + 3]!).slerp(IDENTITY, 1 - k);
+      this.popQ[n] = _o.x;
+      this.popQ[n + 1] = _o.y;
+      this.popQ[n + 2] = _o.z;
+      this.popQ[n + 3] = _o.w;
+      big = Math.max(big, 2 * (Math.abs(_o.x) + Math.abs(_o.y) + Math.abs(_o.z)));
+    }
+    if (big < 1e-3) this.clearPop();
+  }
+
+  /** No keyframe offsets: every position offset 0, every rotation offset the identity. */
+  private clearPop(): void {
+    this.pop.fill(0);
+    this.popQ.fill(0);
+    for (let n = 3; n < this.popQ.length; n += 4) this.popQ[n] = 1;
+    this.popping = false;
+  }
+
+  /** After a step of `h` s: the focus car's travel direction folds into `heading`. */
+  private turn(h: number): void {
+    const car = this.cars[this.clip.focus]!;
+    const speed = Math.hypot(car.velocity.x, car.velocity.z);
+    const dx = speed > 2 ? car.velocity.x / speed : car.fwdFlat.x;
+    const dz = speed > 2 ? car.velocity.z / speed : car.fwdFlat.z;
+    const k = this.heading.lengthSq() < 1e-9 ? 1 : 1 - Math.exp(-h / HEADING_TAU);
+    const hx = this.heading.x + (dx - this.heading.x) * k;
+    const hz = this.heading.y + (dz - this.heading.y) * k;
+    const len = Math.hypot(hx, hz);
+    if (len > 1e-6) this.heading.set(hx / len, hz / len);
+    else this.heading.set(dx, dz);
   }
 
   /** The course's wall or a prop touched the clip's car in race slot `slot` (`RaceField.onWallHit`). */

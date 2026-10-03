@@ -273,7 +273,7 @@ export abstract class RaceField {
       seat.focus(this.grid[0]!);
     }
     this.host.setPaused(false);
-    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), (i) => this.entrants[i]?.name ?? "Traffic");
+    this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? "Traffic");
   }
 
   /** Every knocked prop back on its spot (a race start, each highlight clip). */

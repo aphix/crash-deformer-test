@@ -1,13 +1,14 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
+import { FLAT_GROUND } from "../world/ground.ts";
 import { placeProps } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { sampleAt } from "./track-mesh.ts";
-import { raceSight } from "./spectate-cam.ts";
-import { crashAxis, crashSeen } from "./engine-cine.ts";
+import { occluder, raceSight, type Sight } from "./spectate-cam.ts";
+import { crashAxis, crashEye, crashSeen, heldCut } from "./engine-cine.ts";
 
 describe("crash cam on a course", () => {
   for (const json of TRACKS) {
@@ -49,4 +50,41 @@ describe("crash cam on a course", () => {
       assert.ok(blind.length <= spots * most, `${track.id}: ${blind.length}/${spots} wall hits leave a crash-cam cut with no usable eye: ${blind.slice(0, 5).join(", ")}`);
     });
   }
+});
+
+describe("held crash cam", () => {
+  it("bad: a reel's crash cam keeps one cut through hits that shove the car about, and a wall across its sight moves it once", () => {
+    const open: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [] };
+    const at = new THREE.Vector3(0, 0.55, 0);
+    const n = new THREE.Vector3(1, 0, 0);
+    const reach = new Float32Array(3);
+    crashAxis(open, at, n, reach);
+    assert.deepEqual([...reach], [1, 1, 1], "an open field leaves every cut its full eye");
+    // The car after each of three hits: shoved a few metres about the impact, all on the near side of the wall below.
+    const walk = [[0, 0], [-3, 1], [2, -2], [-4, 4], [-6, -2], [-1, 3]];
+    const target = new THREE.Vector3();
+    const run = (s: Sight, from: number): { cut: number; cuts: number } => {
+      let cut = from;
+      let cuts = 0;
+      for (const [x, z] of walk) {
+        const next = heldCut(s, at, n, reach, target.set(x!, 0.55, z!), cut);
+        if (cut >= 0 && next !== cut) cuts++;
+        cut = next;
+      }
+      return { cut, cuts };
+    };
+    const first = heldCut(open, at, n, reach, target.set(0, 0.55, 0), -1);
+    assert.equal(first, 1, "the crane is the first choice");
+    assert.deepEqual(run(open, first), { cut: 1, cuts: 0 }, "no cut through the hits");
+    // A tall wall across the crane eye's sight line to the car where the hits start.
+    const eye = new THREE.Vector3();
+    crashEye(eye, 2.9, at, n, 0, 1);
+    const dx = eye.x - at.x;
+    const dz = eye.z - at.z;
+    const d = Math.hypot(dx, dz);
+    const walled: Sight = { ...open, occ: [occluder(at.x + (dx / d) * 3.3, at.z + (dz / d) * 3.3, Math.atan2(dx, dz), 8, 0.5, false, 0, 30)] };
+    assert.deepEqual(run(walled, first), { cut: 2, cuts: 1 }, "the long lens takes over from the blocked crane, once, and keeps the shot through the hits");
+    assert.equal(heldCut(open, at, n, reach, target.set(0, 0.55, 0), 2), 2, "it holds once the way is clear again");
+    assert.equal(heldCut(walled, at, n, new Float32Array(3), target, first), -1, "no eye on any cut: the reel's own camera");
+  });
 });
