@@ -32,6 +32,8 @@ const SHOT_AHEAD = 2;
 const DUTCH_MOUNTS = 8;
 /** The chase shot: behind the car along its travel, this far (m) and this high, looking this far (m) ahead of it. */
 const CHASE = { back: 8, up: 2.8, look: 3, fov: 55 };
+/** What one high-shot candidate (`camUsable`) costs a search budget, in sight-line samples (about 300 solid tests). */
+const HIGH_COST = 300;
 /** Shares of the chase offset tried in order when a solid is at the eye (the last stands whatever is there). */
 const PULL = [1, 0.75, 0.55, 0.35] as const;
 
@@ -53,33 +55,51 @@ export class ShotCam {
   private sight: Sight | null = null;
   private kind: ShotKind = "chase";
   private mount = 0;
+  /** The next eighth-turn the high search tries. */
+  private turn = 0;
   /** The shot's own spot was found (cine, high, dutch); false: it poses as the chase. */
   found = false;
 
   /**
-   * Set `shot` up for `car` as it stands now: a cine or high shot searches its spot (`CINE.tries` trackside spots, the
-   * eight eighth-turns round the high shot's centre (cx, cz), each clear and seeing the car, `camUsable`); a dutch shot
-   * takes the first of the eight wheel mounts from its seeded one whose eye is out of every solid and looks down a
-   * clear 8 m; a shot with no usable spot falls back to the chase. `sight`: the scene's solids, kept for the chase's
-   * per-frame push-out.
+   * Begin the search for `shot`'s spot: a cine shot resets its trackside search, a high shot its eight turns. Chase
+   * shots are found at once. Continue with `step`.
    */
-  frame(shot: Shot, car: DeformableCar, sight: Sight, cx: number, cz: number): void {
+  start(shot: Shot, sight: Sight): void {
     this.sight = sight;
     this.kind = shot.kind;
     this.found = shot.kind === "chase";
+    this.turn = 0;
+    if (shot.kind === "cine") this.cine.reset(shot.seed);
+  }
+
+  /**
+   * Search on for `shot`'s spot, until about `budget` sight-line samples are spent (a spot it started finishes): a cine
+   * shot tries `CINE.tries` trackside spots, a high shot the eight eighth-turns round the shot's centre (cx, cz), each
+   * clear and seeing the car (`camUsable`); a dutch shot takes the first of the eight wheel mounts from its seeded one
+   * whose eye is out of every solid and looks down a clear 8 m. True when the search is over: `found`, or false for a
+   * shot with no usable spot, which poses as the chase. No allocation.
+   */
+  step(shot: Shot, car: DeformableCar, cx: number, cz: number, budget: number): boolean {
+    const sight = this.sight!;
     if (shot.kind === "cine") {
-      this.cine.reset(shot.seed);
-      // No budget: the whole search runs now, so the pick depends only on the poses and the seed.
-      this.found = this.cine.pick(sight, car) === "found";
-    } else if (shot.kind === "high") {
+      const r = this.cine.pick(sight, car, budget);
+      this.found = r === "found";
+      return r !== "more";
+    }
+    if (shot.kind === "high") {
       const pos = car.group.position;
       const e = this.highEye;
-      for (let k = 0; k < 8 && !this.found; k++) {
-        const a = shot.angle + (k * Math.PI) / 4;
+      for (let spent = 0; this.turn < 8 && spent < budget; this.turn++, spent += HIGH_COST) {
+        const a = shot.angle + (this.turn * Math.PI) / 4;
         e.set(cx + Math.cos(a) * HIGH.dist, pos.y + HIGH.up, cz + Math.sin(a) * HIGH.dist);
-        this.found = camUsable(sight, e, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD);
+        if (camUsable(sight, e, _a.set(pos.x, pos.y + CINE.aimUp, pos.z), car.velocity, SHOT_AHEAD)) {
+          this.found = true;
+          return true;
+        }
       }
-    } else if (shot.kind === "dutch") {
+      return this.turn >= 8;
+    }
+    if (shot.kind === "dutch") {
       const p = this.probe;
       for (let d = 0; d < DUTCH_MOUNTS && !this.found; d++) {
         this.mount = (shot.mount + d) % DUTCH_MOUNTS;
@@ -88,6 +108,13 @@ export class ShotCam {
         this.found = !solid(sight, p.position.x, p.position.y, p.position.z, 0.1) && sightLine(sight, p.position.x, p.position.y, p.position.z, p.position.x + _e.x * 8, p.position.y + _e.y * 8, p.position.z + _e.z * 8) >= 0;
       }
     }
+    return true;
+  }
+
+  /** The whole search now (the reel: the pick depends only on the poses and the seed, never on frame times). `sight`: the scene's solids, kept for the chase's per-frame push-out. */
+  frame(shot: Shot, car: DeformableCar, sight: Sight, cx: number, cz: number): void {
+    this.start(shot, sight);
+    this.step(shot, car, cx, cz, Infinity);
   }
 
   /** The held shot's spot is still usable (within `SHOT_RANGE`, clear, sees `car` now and `SHOT_AHEAD` s on); the chase and the wheel mount always are. */

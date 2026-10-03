@@ -62,8 +62,8 @@ export const CINE = {
   retry: 0.4,
   /** A search gives up (no clear spot: the old shot holds, or the chase) after this many spots that reached a sight line. */
   tries: 40,
-  /** Sight-line samples a search spends per frame before it pauses (a spot it started still finishes: ≤ 2 lines). */
-  perFrame: 150,
+  /** Sight-line samples a search spends per frame before it pauses (a spot it started still finishes: ≤ 2 lines); each candidate spot also costs `SPOT_COST`. */
+  perFrame: 400,
   /** Lens (deg): `frame` m across the car at its range, clamped. */
   fov: [18, 60],
   frame: 6,
@@ -163,19 +163,23 @@ function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: n
   return _near;
 }
 
+/** Most sight-line samples a line takes: longer lines sample coarser, with a wider half-step margin. */
+const LINE_SAMPLES = 80;
 /**
- * Sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m, each kept half a step clear of every
- * solid, so the line between two samples can't clip a corner. Returns the samples taken, negated when one was solid.
+ * Sight from a to b up to `CINE.stop` m short of b: samples every `CINE.step` m (stretched to `len / LINE_SAMPLES` on a
+ * line longer than that, so a 90 m line costs 80 tests, not 180), each kept half a step clear of every solid, so the
+ * line between two samples can't clip a corner and a solid on the line is always met. Returns the samples taken, negated when one was solid.
  */
 export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: number, by: number, bz: number): number {
   const dx = bx - ax;
   const dy = by - ay;
   const dz = bz - az;
   const len = Math.hypot(dx, dy, dz);
-  const pad = CINE.step / 2;
+  const step = Math.max(CINE.step, len / LINE_SAMPLES);
+  const pad = step / 2;
   const occ = gather(s, ax, az, bx, bz, pad);
   let n = 0;
-  for (let d = CINE.step; d < len - CINE.stop + CINE.step; d += CINE.step) {
+  for (let d = step; d < len - CINE.stop + step; d += step) {
     const f = d / len;
     n++;
     if (solid(s, ax + dx * f, ay + dy * f, az + dz * f, pad, occ)) return -n;
@@ -198,6 +202,8 @@ const FLAT = 12;
 const RING = Array.from({ length: FLAT }, (_, i) => [Math.cos((i * 2 * Math.PI) / FLAT), Math.sin((i * 2 * Math.PI) / FLAT)] as const);
 /** What `clearSpot` costs a search budget: its solid tests (about one sight-line sample each). */
 const CLEAR_COST = FLAT + 3;
+/** What a candidate spot's cheap checks (ground height, solid) cost a search budget, in sight-line samples: measured at about 20 µs each, a search tries up to 160 of them. */
+const SPOT_COST = 20;
 
 /**
  * True when a camera at (x, y, z) has `radius` m (2) of room: the spot is out of every solid and over the ground,
@@ -389,6 +395,7 @@ export class CineCam {
     const ay0 = p.y + CINE.aimUp;
     for (const stop = this.spent + budget; this.next < SPOTS && this.spent < stop; this.next++) {
       const c = this.next;
+      this.spent += SPOT_COST;
       const f = CINE.leadTry[Math.floor(c / PER_LEAD)]!;
       const side = (Math.floor(c / (2 * hs.length)) + seq) % 2 === 0 ? 1 : -1;
       const outer = Math.floor(c / hs.length) % 2 === 0;

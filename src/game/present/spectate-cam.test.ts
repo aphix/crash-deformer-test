@@ -298,13 +298,15 @@ describe("Auto spectator cam", () => {
         const kinds = new Set<string>();
         const bad: string[] = [];
         let cuts = 0;
+        let playing: typeof auto.shot = null;
         let checked = 0;
         for (let n = 0; n < 90 / FRAME; n++) {
           frame(w, state);
           const car = w.cars[w.seat.carIndex]!;
           auto.update(camera, car, scene, FRAME);
-          if (auto.cuts === cuts) continue;
-          cuts = auto.cuts;
+          if (auto.shot === playing) continue;
+          playing = auto.shot;
+          cuts++;
           const kind = auto.shot!.kind;
           kinds.add(kind);
           // A wheel mount rides the car and a chase pose has no spot to find: only the searched spots promise room and sight.

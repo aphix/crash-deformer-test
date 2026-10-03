@@ -256,6 +256,11 @@ export class Cinematics {
     this.post.radial += (radial - this.post.radial) * Math.min(1, wallDt * 6);
   }
 
+  /** The crash cam is on: its letterbox and replay cuts, from the first impact until it hands back. */
+  get directing(): boolean {
+    return this.camT >= 0;
+  }
+
   /** The crash cam is on a cut (not just letterboxing in or out): it holds the camera this frame. */
   get cutting(): boolean {
     return this.camT >= CUTS[0] && this.camT < CUTS[3];

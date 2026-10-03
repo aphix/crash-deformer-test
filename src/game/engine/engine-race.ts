@@ -215,15 +215,15 @@ export class RaceDirector extends RaceField {
   }
 
   /**
-   * Q/E, LB/RB: next / previous car still on track (never our own racing car), then the police cars out on the course,
-   * then Auto (one more entry, after the last car, before the list wraps), when watching is allowed.
+   * Q/E, LB/RB: next / previous racer still on track (never our own racing car; police and traffic cars stand past the
+   * racers and are never watched), then Auto (one more entry, after the last racer, before the list wraps), when
+   * watching is allowed.
    */
   cycle(dir: 1 | -1): void {
     const s = this.session;
     if (!s || !this.mayWatch()) return;
-    const racers = this.entrants.length;
-    const n = this.police ? this.policeFrom + this.police.count : racers;
-    // Slots 0 … n − 1 are cars, slot n is Auto.
+    const n = this.entrants.length;
+    // Slots 0 … n − 1 are racers, slot n is Auto.
     let i = this.auto ? n : this.host.seat.carIndex;
     for (let k = 0; k <= n; k++) {
       i = (((i + dir) % (n + 1)) + (n + 1)) % (n + 1);
@@ -231,8 +231,8 @@ export class RaceDirector extends RaceField {
         this.goAuto();
         return;
       }
-      const st = i < racers ? s.cars[this.rowOf[i]!]!.status : null;
-      const ok = st === null ? i >= this.policeFrom && !this.dormant[i] : !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
+      const st = s.cars[this.rowOf[i]!]!.status;
+      const ok = !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
       if (ok) {
         this.spectating = true;
         this.auto = false;
