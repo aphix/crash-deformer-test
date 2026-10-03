@@ -1,8 +1,20 @@
 import * as THREE from "three";
 import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d";
 import type { Rapier } from "../kernel/rapier.ts";
+import { Corkscrew, corkscrewMesh } from "../scenes/corkscrew.ts";
+import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
 import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/ground.ts";
 import type { Track } from "../world/track.ts";
+import type { Solid } from "./ragdoll-solids.ts";
+
+/** The course under a throw: its road walls come from `track`, every other solid from `solids` (`courseSolids`); `knocked(i)`: prop `i` has been knocked off its spot. */
+type Course = { track: Track; solids: readonly Solid[]; knocked: (prop: number) => boolean };
+/** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
+export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
+/** Corkscrew channel triangle spacing (m) along the run: the floor's twist is held to a few cm per strip. */
+const CORK_STEP = 0.25;
+/** Sandbox lamp post height (m): the cinematic eye's occluder for it. */
+const POLE_H = 5.3;
 
 /** Course ground patch around a throw: cells per side and cell size (m), 96 m across. */
 const PATCH_N = 48;
@@ -24,40 +36,62 @@ const _q = new THREE.Quaternion();
 const _r = new THREE.Vector3();
 
 /**
- * The ground under a throw at (`cx`, `cz`): the flat pad, the fleet disc, or a course heightfield patch, and the walls
- * on it (the derby bowl's when `bowlR` > 0, the course's near it). `sand`: the range's pad. `onCourse`: the active
- * ground is `course`'s. `groups`: the collision groups of every collider built.
+ * The ground under a throw at (`cx`, `cz`), `y` high: the flat pad, the fleet disc (with the jump ramps' wedges), the
+ * corkscrew's pad and channel, or a course heightfield patch, and the solids on it: the derby bowl's wall when `bowlR` > 0,
+ * the sandbox's standing `poles`, and on a `course` the road walls, props, tunnels and decks near it. `sand`: the
+ * range's pad. `groups`: the collision groups of every collider built.
  */
-export function groundColliders(R: Rapier, world: World, groups: number, course: Track | null, onCourse: boolean, sand: boolean, bowlR: number, cx: number, cz: number): Collider[] {
+export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number): Collider[] {
   const ground = activeGround();
   const into: Collider[] = [];
   const add = (desc: ColliderDesc, friction = 0.9) => into.push(world.createCollider(desc.setFriction(friction).setCollisionGroups(groups)));
   const size = PATCH_N * PATCH_CELL;
-  if (ground === FLAT_GROUND) {
+  if (ground === FLAT_GROUND || ground instanceof Corkscrew) {
     const rule = sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average;
     add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0).setFrictionCombineRule(rule), sand ? SAND : 0.9);
-  } else if (ground === DISC_GROUND) add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
-  else {
+    if (ground instanceof Corkscrew) {
+      const mesh = corkscrewMesh(CORK_STEP);
+      add(R.ColliderDesc.trimesh(mesh.vertices, mesh.indices));
+    }
+  } else if (ground === DISC_GROUND || ground instanceof FleetRamps) {
+    add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
+    if (ground instanceof FleetRamps) {
+      // The two wedges (`FleetRamps`): high end against the slab, side and back faces are walls a heightfield could not give.
+      const yaw = ground.group.rotation.y;
+      const c = Math.cos(yaw);
+      const s = Math.sin(yaw);
+      for (const side of [1, -1]) {
+        const pts: number[] = [];
+        for (const [u, h] of [[RAMP.start, 0], [RAMP.start, RAMP.top], [RAMP.start + RAMP.len, 0]] as const) {
+          for (const v of [-RAMP.halfW, RAMP.halfW]) pts.push(v * c + side * u * s, h, -v * s + side * u * c);
+        }
+        const hull = R.ColliderDesc.convexHull(new Float32Array(pts));
+        if (hull) add(hull);
+      }
+    }
+  } else {
     const n = PATCH_N;
     const heights = new Float32Array((n + 1) * (n + 1));
     for (let ix = 0; ix <= n; ix++) {
       for (let iz = 0; iz <= n; iz++) {
-        const y = ground.heightAt(cx - size / 2 + ix * PATCH_CELL, cz - size / 2 + iz * PATCH_CELL);
+        // A bridge deck counts only for a throw at its height: under it the heightfield is the road.
+        const h = ground.heightAt(cx - size / 2 + ix * PATCH_CELL, cz - size / 2 + iz * PATCH_CELL, y);
         // Rapier's heightfield: rows run along z, columns along x.
-        heights[iz + ix * (n + 1)] = Number.isFinite(y) ? y : -40;
+        heights[iz + ix * (n + 1)] = Number.isFinite(h) ? h : -40;
       }
     }
     add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }).setTranslation(cx, 0, cz));
   }
   // Off a course every wall is built (the bowl's are all within reach of any throw in it); on one, those near it.
-  const reach = onCourse ? size / 2 : Infinity;
-  const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number) => {
+  const reach = course ? size / 2 : Infinity;
+  // `level`: the path's own height, so a wall under a bridge stands on the road and not on the deck above it.
+  const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number, level?: number) => {
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
     if (Math.hypot(mx - cx, mz - cz) > reach) return;
     const len = Math.hypot(bx - ax, bz - az);
     if (len < 1e-3) return;
-    const y = ground.heightAt(mx, mz);
+    const y = ground.heightAt(mx, mz, level);
     const base = Number.isFinite(y) ? y : 0;
     // Box long axis along the segment, its inner face on the line (`out`: the outward normal's sign).
     const nx = ((bz - az) / len) * out;
@@ -78,9 +112,19 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
       wall(Math.sin(a0) * r, Math.cos(a0) * r, Math.sin(a1) * r, Math.cos(a1) * r, BOWL_H, BOWL_T * scale, -1);
     }
   }
-  if (course && onCourse) {
-    const wallH = course.json.road.wallHeight;
-    for (const p of course.paths()) {
+  for (const p of poles) {
+    if (!p.intact || !p.group.visible) continue;
+    add(R.ColliderDesc.cylinder(POLE_H / 2, p.radius).setTranslation(p.group.position.x, POLE_H / 2, p.group.position.z));
+  }
+  if (course) {
+    for (const s of course.solids) {
+      if (s.prop !== undefined && course.knocked(s.prop)) continue;
+      if (Math.hypot(s.x - cx, s.z - cz) > reach + s.r) continue;
+      const desc = s.make(R);
+      if (desc) add(desc);
+    }
+    const wallH = course.track.json.road.wallHeight;
+    for (const p of course.track.paths()) {
       const segs = p.closed ? p.count : p.count - 1;
       for (let k = 0; k < segs; k++) {
         const b = (k + 1) % p.count;
@@ -90,7 +134,7 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
           if (!(side > 0 ? p.wallL[k] : p.wallR[k])) continue;
           const la = side * (p.half[k]! + (side > 0 ? p.runL[k]! : p.runR[k]!));
           const lb = side * (p.half[b]! + (side > 0 ? p.runL[b]! : p.runR[b]!));
-          wall(p.x[k]! + p.tz[k]! * la, p.z[k]! - p.tx[k]! * la, p.x[b]! + p.tz[b]! * lb, p.z[b]! - p.tx[b]! * lb, wallH, 0.4, side);
+          wall(p.x[k]! + p.tz[k]! * la, p.z[k]! - p.tx[k]! * la, p.x[b]! + p.tz[b]! * lb, p.z[b]! - p.tx[b]! * lb, wallH, 0.4, side, p.y[k]!);
         }
       }
     }

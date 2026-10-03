@@ -282,6 +282,10 @@ export abstract class RaceField {
     this.art?.reset();
   }
 
+  /** Whether car contact has knocked placed prop `i` off its spot (the ragdolls leave those out of their world). */
+  propKnocked(i: number): boolean {
+    return this.knocked[i] === 1;
+  }
 
   protected park(): void {
     const tr = this.load(this.options.trackId);
