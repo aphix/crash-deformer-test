@@ -153,6 +153,11 @@ export class Cinematics {
     this.post.radial += (radial - this.post.radial) * Math.min(1, wallDt * 6);
   }
 
+  /** The crash cam is on a cut (not just letterboxing in or out): it holds the camera this frame. */
+  get cutting(): boolean {
+    return this.camT >= CUTS[0] && this.camT < CUTS[3];
+  }
+
   /** Crash cam: takes the camera for the replay cuts. False when the orbit / chase camera should run. */
   direct(camera: THREE.PerspectiveCamera, wallDt: number, allowed: boolean): boolean {
     if (this.camT < 0) return false;

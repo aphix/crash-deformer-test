@@ -1,6 +1,6 @@
+import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { compactorStage } from "../scenes/compactor.ts";
-import type { DebrisSystem, SparkSystem, TireSmokeSystem } from "../present/engine-fx.ts";
 import { BALL_EXPOSE, type JerseyBarrier, type RampBall } from "../scenes/engine-props.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import { leftoverCrumple, round4, vec3 } from "../deform/physics-util.ts";
@@ -8,6 +8,50 @@ import { BARRIER_MASS } from "../contact/sat.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 
 type TraceRecord = Record<string, unknown>;
+
+/** A particle system's trace view (`SparkSystem`, `TireSmokeSystem`, `DebrisSystem`). */
+type Snapshot = { snapshot(): unknown };
+
+/** The copied JSON, indented, except each sample's camera: one line (indented, its number arrays cost twice as much). */
+const pretty = (v: unknown): string =>
+  JSON.stringify(v, null, 2).replace(/"camera": \{[^{}]*\}/g, (m) => `"camera": ${JSON.stringify(JSON.parse(m.slice(10)))}`);
+
+const r3 = (v: number): number => Math.round(v * 1000) / 1000;
+const _dir = new THREE.Vector3();
+
+/** What the owner sees: the eye, its lens and which rig put it there (`CrashEngine.cameraRig`). */
+function cameraJson(camera: THREE.PerspectiveCamera, rig: string, follow: string | null): TraceRecord {
+  const p = camera.position;
+  const q = camera.quaternion;
+  const d = _dir.set(0, 0, -1).applyQuaternion(q);
+  return {
+    rig,
+    follow,
+    pos: [r3(p.x), r3(p.y), r3(p.z)],
+    quat: [r3(q.x), r3(q.y), r3(q.z), r3(q.w)],
+    dir: [r3(d.x), r3(d.y), r3(d.z)],
+    fov: r3(camera.fov),
+  };
+}
+
+/** Every HUD setting that changes what the screen shows or how the run plays, plus the canvas it is drawn on. */
+function settingsJson(s: TraceSetup): TraceRecord {
+  return {
+    scene: s.scene,
+    night: s.night,
+    wet: s.wet,
+    realism: s.realism,
+    fxTier: s.fxTier,
+    loop: s.loop,
+    autoSlomo: s.autoSlomo,
+    timeScale: s.userTimeScale,
+    deformMode: s.deformMode,
+    playerClass: s.playerClass,
+    viewport: { w: s.viewW, h: s.viewH },
+    pixelRatio: s.pixelRatio,
+    dpr: s.dpr,
+  };
+}
 
 /** Scene knobs stamped on the spawn snapshot and on every sample. */
 export type TraceSetup = {
@@ -24,6 +68,23 @@ export type TraceSetup = {
   carCount: number;
   speedMin: number;
   speedMax: number;
+  /** `userTimeScale`: the HUD's fixed time scale, null while the auto slow-mo drives. */
+  scene: string;
+  night: boolean;
+  wet: boolean;
+  realism: number;
+  fxTier: string;
+  loop: boolean;
+  autoSlomo: boolean;
+  userTimeScale: number | null;
+  deformMode: DeformMode;
+  playerClass: string;
+  /** The renderer's drawing buffer, px (so it already includes `pixelRatio`). */
+  viewW: number;
+  viewH: number;
+  /** The renderer's (capped) ratio, and the device's own. */
+  pixelRatio: number;
+  dpr: number;
 };
 
 /** Engine clock and fleet aggregates for one sample. */
@@ -35,15 +96,19 @@ export type TraceClock = {
   /** Fastest pairwise closing speed, m/s. */
   closing: number;
   barrierHit: boolean;
+  /** The shared lens, which rig framed the last frame and the car it follows. */
+  camera: THREE.PerspectiveCamera;
+  rig: string;
+  follow: string | null;
 };
 
 /** Long-lived scene objects the samples read; captured once at engine construction. */
 type TraceScene = {
   barrier: JerseyBarrier;
   balls: readonly RampBall[];
-  sparks: SparkSystem;
-  smoke: TireSmokeSystem;
-  debris: DebrisSystem;
+  sparks: Snapshot;
+  smoke: Snapshot;
+  debris: Snapshot;
 };
 
 const MAX_SAMPLES = 96;
@@ -71,7 +136,11 @@ export class TraceRecorder {
   setupCopied = false;
   private acc = 0;
 
-  constructor(private readonly scene: TraceScene) {}
+  private readonly scene: TraceScene;
+
+  constructor(scene: TraceScene) {
+    this.scene = scene;
+  }
 
   snapshotInitial(setup: TraceSetup, cars: readonly DeformableCar[]): void {
     this.initial = {
@@ -87,6 +156,7 @@ export class TraceRecorder {
       carCount: setup.carCount,
       speedMin: setup.speedMin,
       speedMax: setup.speedMax,
+      ...settingsJson(setup),
       cars: cars.map((car) => ({
         paint: car.paint.name,
         spawn: {
@@ -132,6 +202,7 @@ export class TraceRecorder {
       sim: Math.round(clock.sim * 1000) / 1000,
       phase: clock.phase,
       timeScale: Math.round(clock.timeScale * 1000) / 1000,
+      camera: cameraJson(clock.camera, clock.rig, clock.follow),
       squash: setup.squash,
       buckle: setup.buckle,
       fxDensity: setup.fxDensity,
@@ -170,46 +241,37 @@ export class TraceRecorder {
   }
 
   /** Spawn-only export used while capture is off. */
-  setupJson(deformMode: DeformMode, autoSlomo: boolean, timeScale: number | null): string {
+  setupJson(setup: TraceSetup): string {
     this.setupCopied = true;
-    return JSON.stringify(
-      {
-        version: 1,
-        kind: "setup",
-        capturedAt: new Date().toISOString(),
-        deformMode,
-        autoSlomo,
-        timeScale,
-        ...this.initial,
-      },
-      null,
-      2,
-    );
+    return pretty({
+      version: 1,
+      kind: "setup",
+      capturedAt: new Date().toISOString(),
+      ...this.initial,
+      ...settingsJson(setup),
+    });
   }
 
-  traceJson(setup: TraceSetup, deformMode: DeformMode): string {
-    return JSON.stringify(
-      {
-        version: 1,
-        capturedAt: new Date().toISOString(),
-        squash: setup.squash,
-        buckle: setup.buckle,
-        deformMode,
-        fxDensity: setup.fxDensity,
-        barrier: setup.barrier,
-        balls: setup.balls,
-        compactor: setup.compactor,
-        carCount: setup.carCount,
-        speedMin: setup.speedMin,
-        speedMax: setup.speedMax,
-        barrierYaw: setup.barrierYaw,
-        captureTrace: true,
-        initial: this.initial,
-        ballHits: this.ballHits,
-        samples: this.samples,
-      },
-      null,
-      2,
-    );
+  traceJson(setup: TraceSetup): string {
+    return pretty({
+      version: 1,
+      capturedAt: new Date().toISOString(),
+      squash: setup.squash,
+      buckle: setup.buckle,
+      fxDensity: setup.fxDensity,
+      barrier: setup.barrier,
+      balls: setup.balls,
+      ramps: setup.ramps,
+      compactor: setup.compactor,
+      carCount: setup.carCount,
+      speedMin: setup.speedMin,
+      speedMax: setup.speedMax,
+      barrierYaw: setup.barrierYaw,
+      ...settingsJson(setup),
+      captureTrace: true,
+      initial: this.initial,
+      ballHits: this.ballHits,
+      samples: this.samples,
+    });
   }
 }
