@@ -5,6 +5,7 @@ import { DeformSolve } from "./deform-solve.ts";
 import { RES_SLOTS, SKIN_K, type Beam, type MassNode } from "./deform-rig.ts";
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
+import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
 
 const _a = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -366,6 +367,43 @@ export class StreamedDeformation extends DeformSolve {
     }
   }
 
+  /** The WASM skin's inputs (the arrays this car's skin reads, and the two it rewrites before each run), once the kernel is first used. */
+  private kernelIn: SkinDynamic | null = null;
+  /** This car's style in the kernel's memory (shared by every car of the style). */
+  private kernelSet: SkinTables | null = null;
+
+  private placeKernelTables(kernel: SkinKernel, index: ArrayLike<number>, d: SkinDynamic): SkinTables {
+    const n = this.vertexCount;
+    const s: SkinStatic = {
+      rest: this.restPos,
+      rC: this.resC.subarray(0, n * 3),
+      sN: this.skinN,
+      sXf: this.skinXf,
+      sW: this.skinW,
+      rJ: this.resJ.subarray(0, n * RES_SLOTS),
+      rW: this.resW.subarray(0, n * RES_SLOTS),
+      iN: this.infN,
+      iCo: this.infCo,
+      iUvw: this.infUvw,
+      hub: this.skinHub,
+      seed: this.wrinkleSeed,
+      idx: index instanceof Uint32Array ? index : Uint32Array.from(index),
+    };
+    return kernel.tables(skinKey(s, d), () => s, d);
+  }
+
+  /** The kernel's wheel-arch inputs: per mass, 5 numbers (popped, local x and z, rest x and z). */
+  private fillKernelHubs(hubs: Float64Array): void {
+    for (let j = 0, o = 0; j < this.masses.length; j++, o += 5) {
+      const m = this.masses[j]!;
+      hubs[o] = m.popped ? 1 : 0;
+      hubs[o + 1] = m.local.x;
+      hubs[o + 2] = m.rest.x;
+      hubs[o + 3] = m.local.z;
+      hubs[o + 4] = m.rest.z;
+    }
+  }
+
   protected skin(geometry: THREE.BufferGeometry): void {
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
@@ -395,6 +433,29 @@ export class StreamedDeformation extends DeformSolve {
     const extraCap = 0.03 + b * 0.08;
     const cap = shape ? 1.35 : 2.2;
     const roofClamp = !this.deepCrush;
+    const kernel = skinKernel();
+    const nor = geometry.getAttribute("normal") as THREE.BufferAttribute | undefined;
+    if (kernel && geometry.index && nor && nor.count === attr.count && nor.array instanceof Float32Array) {
+      // The kernel's loop is this one below, with `computeNormalsFast`: same bits out (skin-kernel.test.ts).
+      const d = (this.kernelIn ??= { X, co, pos, hubs: new Float64Array(this.masses.length * 5), params: new Float64Array(9) });
+      const p = d.params;
+      p[0] = wrinkles ? 1 : 0;
+      p[1] = ampK;
+      p[2] = extraCap;
+      p[3] = cap;
+      p[4] = roofClamp ? 1 : 0;
+      p[5] = ix;
+      p[6] = iy;
+      p[7] = iz;
+      p[8] = shape ? 1 : 0;
+      this.fillKernelHubs(d.hubs);
+      kernel.run((this.kernelSet ??= this.placeKernelTables(kernel, geometry.index.array, d)), d, arr, nor.array);
+      attr.needsUpdate = true;
+      nor.needsUpdate = true;
+      this.dirty = true;
+      this.skinnedThisFrame = true;
+      return;
+    }
 
     for (let i = 0, r = 0; i < this.vertexCount; i++, r += 3) {
       const rx = rest[r]!;

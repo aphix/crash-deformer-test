@@ -28,6 +28,7 @@
     "bench": "node scripts/bench-physics.mjs",
     "sweep": "node --experimental-strip-types --no-warnings scripts/crush-sweep.mjs",
     "bake:env": "node scripts/bake-env.mjs",
+    "build:kernel": "node scripts/build-skin-kernel.mjs",
     "lint": "oxlint",
     "format": "prettier --write ."
   },

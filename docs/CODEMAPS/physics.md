@@ -61,6 +61,8 @@ buildSkinWeights (ctor: each vertex → ≤ RES_SLOTS nearest masses, IDW)
   → bakeLocalSkin (matchSkinLocal per cluster, SKIN_STRAIN) → refreshClusterXf
   → solveCagesFromShape / lattice cage solve → capCageCorners
   → skin(geometry): positions + wrinkle → computeNormalsFast (fast-normals.ts)
+     with `skinKernel()` loaded (`skin-kernel.ts`; the Rust in `kernels/skin/`, prebuilt as `skin-kernel.wasm`): the same loop and normals in WASM on the main thread,
+     bit-identical (`skin-kernel.test.ts`); cars of one style share one set of tables in its memory (`skinKey`); the JS loop stays as the reference and the fallback
 flushSkin(geometry, force) writes only when owed; DeformableCar.updateDeform / flushDeferredSkin;
 LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (off-screen or tiny cars skip skin, never lose it)
 ```

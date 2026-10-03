@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { getCrackMap, makeGlassMaterial } from "../vehicle/car-materials.ts";
 import { warmCrashPath } from "./world-step.ts";
+import { loadSkinKernel, skinKernel } from "../deform/skin-kernel.ts";
 import { EngineCore } from "./engine-core.ts";
 
 /**
@@ -10,6 +11,11 @@ export abstract class EngineWarm extends EngineCore {
   private warmQueued = false;
   /** Until the boot warm-up resolves (`ready`), the loop reads input only; after it, new scene content warms through `queueWarm`. */
   protected warming = true;
+  /** Whether the WASM skin is loaded (else every car skins in JS). The probes read it from `window.__crush`. */
+  get skinKernelReady(): boolean {
+    return skinKernel() !== null;
+  }
+
   /**
    * Link every program play can reach before the loop starts: a first-use link stalls its frame 50–800 ms.
    * Waits for the studio env (part of every lit program's key), then warms the scene (`warmScene`) with two
@@ -18,6 +24,9 @@ export abstract class EngineWarm extends EngineCore {
    * Night, wet and the lamp pool's lights only change uniforms: the light count is fixed.
    */
   protected async warmPrograms(env: Promise<void>): Promise<void> {
+    const kernel = loadSkinKernel(fetch(new URL("../deform/skin-kernel.wasm", import.meta.url))).catch((err: unknown) =>
+      console.warn("Crush Stream skin kernel unavailable, skinning in JS", err),
+    );
     await env;
     if (this.disposed) return;
     const glass = makeGlassMaterial();
@@ -32,6 +41,9 @@ export abstract class EngineWarm extends EngineCore {
     }
     const scene = this.warmScene();
     // While the GPU process compiles: the crush path's first run, unoptimised, cost 26–48 ms frames mid-race.
+    // After the kernel is in (a 3 kB file, fetched since the start of this method), so the warm crash also runs the
+    // WASM skin: its first calls and each style's tables land here, not on the first real crash.
+    await kernel;
     warmCrashPath();
     await scene;
     for (const car of this.live()) {
