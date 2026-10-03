@@ -593,8 +593,13 @@ export abstract class DeformSolve extends DeformContact {
     }
   }
 
+  /** The contact window: shape matching runs and the wreck stays on its masses (a flying one too, `syncPose`). */
+  live(): boolean {
+    return this.bidirectional || this.quietTime() < 0.35;
+  }
+
   protected stepMassSlice(dt: number): void {
-    const live = this.bidirectional || this.quietTime() < 0.35;
+    const live = this.live();
     if (this.mode === "shape") {
       if (live) this.stepShapeMatch(dt);
       else this.goalOut?.fill(NaN);
@@ -613,6 +618,7 @@ export abstract class DeformSolve extends DeformContact {
     this.sampleGround(this.floorPre, null);
     this.moveMasses(dt, powered);
     this.sampleGround(this.floorPost, this.gripPost);
+    this.floorsFresh = true;
     this.groundMasses(dt, scuffed, powered && this.drivetrainAlive);
     this.holdEngineBlock();
     if (!live && !this.bidirectional) {
@@ -663,8 +669,9 @@ export abstract class DeformSolve extends DeformContact {
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
-      // Past the fleet disc's rim: gravity alike on every mass and no ground rules, so the car falls whole.
-      if (this.floorPre[i] === NO_FLOOR) {
+      // Past the fleet disc's rim, or the body in flight (`aloft`): gravity alike on every mass and no ground
+      // rules, so the car falls whole.
+      if (this.floorPre[i] === NO_FLOOR || this.aloft) {
         m.vel.y -= 9.6 * dt;
         clampSpeed(m.vel);
         m.world.addScaledVector(m.vel, dt);
@@ -704,6 +711,8 @@ export abstract class DeformSolve extends DeformContact {
       if (!m.dynamic || this.floorPre[i] === NO_FLOOR) continue;
       const floor = this.floorPost[i]!;
       if (floor === NO_FLOOR) continue;
+      // In flight only a mass that came down onto its ground meets it (held, as on the ground); the rest fly.
+      if (this.aloft && m.world.y >= floor + (m.hub ? 0.28 : 0.16)) continue;
       const grip = this.gripPost[i]!;
       const hub = m.hub;
       // One drag call site: two left TurboFan's budget short and boxed `mu`.

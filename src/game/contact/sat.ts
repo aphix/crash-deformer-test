@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { DeformableCar, type Hull } from "../vehicle/car.ts";
+import { CAR_HALF, DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
@@ -42,6 +42,20 @@ export function sliceSpeed(cars: readonly DeformableCar[]): number {
   let vmax = 8;
   for (let i = 0; i < cars.length; i++) vmax = Math.max(vmax, hypot2(cars[i]!.velocity.x, cars[i]!.velocity.z));
   return vmax;
+}
+
+/**
+ * Whether two cars' bodies share a height band: each body's box (`CAR_HALF` above its ground point, as tilted)
+ * spans `y ± (|right.y|·hx + |up.y|·hy + |fwd.y|·hz)` about its middle. Car-car contact tests the plan only, so a
+ * car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it there.
+ * Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
+ */
+export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
+  const ea = a.group.matrixWorld.elements;
+  const eb = b.group.matrixWorld.elements;
+  const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;
+  const hb = Math.abs(eb[1]!) * CAR_HALF.x + Math.abs(eb[5]!) * CAR_HALF.y + Math.abs(eb[9]!) * CAR_HALF.z;
+  return Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) < ha + hb;
 }
 
 export function satCarBarrier(

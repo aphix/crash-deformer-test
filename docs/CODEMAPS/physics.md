@@ -27,6 +27,7 @@ slices, ground, suspension) → `streamed-deform.ts` `StreamedDeformation` (sens
 - Activation / hits: `armMasses`, `applyImpact(localPoint, localInward, impulse, ebs)`, `rearmHit`, `applyImpulse`, `impulseAt`, `kickNearest`, `kickNearestHub`, `feedOverlap`, `notifyContact`, `notifyPower`.
 - Rigid ↔ soft coupling: `bindKinematic`, `followGroup(group, velOut, angOut, dt)` (driven by `DeformableCar.syncPose`), `translateMasses`.
 - Contacts: `collideWith(other, dt)` (mass spheres car↔car), `projectOutOfBox`, `separateAlong`, `brakeInbound`.
+- `followGroup`: the frame from the masses; `aloft` once the body's middle leaves its ground band (`LIFT_OFF`), then every mass flies (`stepMassSlice`); `live()` is the contact window, after which `DeformableCar.syncPose` hands an aloft wreck whose hull is clear (`hullClear`) to `stepAir`. `armMasses` (a wreck landing or struck in flight) and `unstep(h)` (masses armed after `stepAir` already moved the body this slice step back by it).
 - `stepStructure(dt)`: 1–4 sub-slices of `stepMassSlice` (`stepShapeMatch` or `stepBeams`, then `stepSuspension`, damping, settle); `rebaseShapeRest` when the contact window closes; `updateDrivetrain`.
 - `update(simDt, geometry)`: while crushing → `pullSensorsFromMasses` → `bakeLocalSkin` (shape) → `solveCages` → `flushSkin` or mark `skinOwed`.
 - Readouts: `crumpleTravel`, `crumpleTravelCorner`, `partCompression`, `sensorCompression`, `liveHulls`, `liveCrushHulls`, `snapshot()`.

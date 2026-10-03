@@ -4,6 +4,7 @@ import type { WorldBounce } from "../vehicle/car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
 import { partContactPair } from "../contact/external-contact.ts";
 import { resolveCarPair } from "../contact/pair-contact.ts";
+import { shareHeight } from "../contact/sat.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
 
 /**
@@ -74,7 +75,11 @@ export function stepWorld(w: World, dt: number): void {
   for (let i = 0; i < slices; i++) {
     if (w.beforeSlice?.(h)) continue;
     for (const car of cars) {
-      if (!car.deform.massActive) car.integrate(h);
+      // A wreck its masses hand to flight here (`syncPose`) flies this slice: handed over before the masses took it,
+      // and left at that, it lost the slice's motion.
+      if (car.deform.massActive) car.syncPose(h);
+      if (car.deform.massActive) continue;
+      car.integrate(h);
       if (car.deform.massActive) car.syncPose(h);
       else car.refreshBasis();
     }
@@ -86,8 +91,8 @@ export function stepWorld(w: World, dt: number): void {
         if (barrier && barrier.blocksPair(ca, cb)) continue;
         const dx = ca.group.position.x - cb.group.position.x;
         const dz = ca.group.position.z - cb.group.position.z;
-        // Cars on different levels (one on a bridge, one under it) never touch; nor does a fake falling off the fleet disc.
-        if (dx * dx + dz * dz > 28 || Math.abs(ca.group.position.y - cb.group.position.y) > 2.5 || ca.falling || cb.falling) continue;
+        // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
+        if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
         if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
         partContactPair(ca, cb);
       }
@@ -121,7 +126,7 @@ export function stepWorld(w: World, dt: number): void {
       for (let a = 0; a < cars.length; a++) {
         for (let b = a + 1; b < cars.length; b++) {
           if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-          if (Math.abs(cars[a]!.group.position.y - cars[b]!.group.position.y) > 2.5 || cars[a]!.falling || cars[b]!.falling) continue;
+          if (!shareHeight(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
           const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
           if (pair) {
             moved = true;

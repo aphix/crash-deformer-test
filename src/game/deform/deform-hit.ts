@@ -13,6 +13,7 @@ const REARM_EBS = 2.8;
 /** One hit's most wear (EBS², m²/s²; 6 m/s ≈ 22 km/h): a single hard hit is the engine travel's to
  *  judge, the wear counts how many hits a wreck has taken (`wreckEnergy`). */
 const WEAR_HIT = 36;
+const _r = new THREE.Vector3();
 
 /**
  * Reset and mode, the shape-match rest, kinematic binding, crush start and re-arm, and impulses into the masses.
@@ -196,6 +197,11 @@ export abstract class DeformHit extends DeformRig {
     this.rateYaw = this.prevYaw;
     this.rateAt = 0;
     this.leanAt = -Infinity;
+    this.aloft = false;
+    this.floorsFresh = false;
+    this.frameY = group.position.y;
+    this.frameAt = 0;
+    this.frameVy = worldVel.y;
     this.snapImpactToNearestMass();
     for (const s of this.sensors) {
       s.target = 0;
@@ -267,16 +273,40 @@ export abstract class DeformHit extends DeformRig {
     this.lastPower = this.elapsed;
   }
 
-  /** Enable lattice masses without starting the crash cinematic (speed-bump hop). */
+  /**
+   * Masses on without starting the crash cinematic (speed-bump hop, a wreck landing or struck in flight): each
+   * where the group carries its `local` (a wreck's dents kept; `bindKinematic` keeps a driven car's at rest),
+   * moving with the group's rigid motion (origin velocity `worldVel`, spin `worldOmega`).
+   */
   armMasses(group: THREE.Object3D, worldVel: THREE.Vector3, worldOmega: THREE.Vector3): void {
     if (this.massActive) return;
     this.massActive = true;
-    this.bindKinematic(group, worldVel, worldOmega);
-    for (const m of this.masses) m.dynamic = true;
+    group.updateWorldMatrix(false, false);
+    const o = group.position;
+    for (const m of this.masses) {
+      m.world.copy(m.local).applyMatrix4(group.matrixWorld);
+      m.vel.copy(worldVel).add(_r.subVectors(m.world, o).crossVectors(worldOmega, _r));
+      m.dynamic = true;
+    }
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
     this.rateYaw = this.prevYaw;
     this.rateAt = this.elapsed;
     this.leanAt = -Infinity;
+    this.aloft = false;
+    this.floorsFresh = false;
+    this.frameY = group.position.y;
+    this.frameAt = this.elapsed;
+    this.frameVy = worldVel.y;
+  }
+
+  /**
+   * Masses just armed on a body whose flight (`stepAir`) already moved it `h` of the slice under way: back along their
+   * velocities by that, which `stepStructure` then retakes (taken twice, a wreck touching another in flight fell at
+   * twice its speed). `h` is 0 between slices.
+   */
+  unstep(h: number): void {
+    for (const m of this.masses) m.world.addScaledVector(m.vel, -h);
+    this.frameY -= this.frameVy * h;
   }
 
   /** Pull impactLocal onto the nearest mass so L/R crush does not sit on the centerline. */
