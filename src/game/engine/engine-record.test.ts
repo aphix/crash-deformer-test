@@ -14,8 +14,12 @@ const H = 1 / 240;
  */
 const WARM = 14400;
 const MEASURE = 4800;
-/** Heap growth allowed per recorded step (B), summed over positive deltas: JIT and test noise, not a buffer per step. */
-const BOUND_B = 16;
+/**
+ * Heap growth allowed per recorded step (B), summed over positive deltas: JIT and test noise, not a buffer per step,
+ * plus each wreck's keyframe solver state (`simState`): its scalar fields are read by name, and V8 boxes every double
+ * read that way (measured 280 B a wreck, 3.1 KB a keyframe at 11 wrecks; 26 B/step here).
+ */
+const BOUND_B = 16 + (Math.ceil(MAX_CARS / 3) * 320 * 2) / 240;
 
 describe("highlight recorder", () => {
   it(`bad: recording a ${MAX_CARS}-car race with wrecks, contacts and twice-a-second keyframes must not allocate per step`, () => {

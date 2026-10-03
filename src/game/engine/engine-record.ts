@@ -1,4 +1,4 @@
-import type { DeformableCar } from "../vehicle/car.ts";
+import { FLIGHT, type DeformableCar } from "../vehicle/car.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
@@ -41,9 +41,10 @@ const KEY_SLOTS = 40;
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output
  * goes into a typed-array ring (`INPUT_BYTES`), with the step's dt, and every car's pose is read into a scratch
  * snapshot. Every `KEY_EVERY` s that snapshot, with each wreck's deform and parts (the netplay wreck section), is
- * encoded into a keyframe ring (`writeSnapshot`); a cluster's first impact encodes the poses once more. Impacts
- * feed the ledger; when a cluster's post-roll is over and it ranks, its slice is copied out of the rings into a
- * clip (the only allocation, a few times a race). Steady state allocates nothing.
+ * encoded into a keyframe ring (`writeSnapshot`), then per car its drift state, its flight block and, for a wreck,
+ * its solver state (`simState`); a cluster's first impact encodes them once more. Impacts feed the ledger; when a
+ * cluster's post-roll is over and it ranks, its slice is copied out of the rings into a clip (the only allocation,
+ * a few times a race). Steady state allocates nothing.
  */
 export class CrashRecorder {
   /** Recording (a race is running on this browser's sim). */
@@ -66,6 +67,10 @@ export class CrashRecorder {
   /** Every car at the start of the current step (wreck sections only on a keyframe step), and its drift state. */
   private readonly pre: Snapshot = makeSnapshot();
   private readonly drift = new Float32Array(MAX_CARS);
+  /** Scratch for one car's flight block and one wreck's solver state (sized at the first race: `simState`). */
+  private readonly fly = new Float32Array(FLIGHT);
+  private sim = new Float32Array(0);
+  private simBytes = new Uint8Array(0);
   /** Encoded keyframes (allocated at the first race), their lengths and the global step each was taken at. */
   private keys: Writer[] = [];
   private readonly keyStep = new Float64Array(KEY_SLOTS);
@@ -118,8 +123,10 @@ export class CrashRecorder {
     let L = this.layout;
     if (!L) {
       const lay = carLayout(cars[0]!);
-      this.keys = Array.from({ length: KEY_SLOTS }, () => new Writer(snapshotMaxBytes(MAX_CARS, lay) + MAX_CARS * 2));
+      this.sim = new Float32Array(cars[0]!.deform.simSize());
+      this.simBytes = new Uint8Array(this.sim.buffer);
       L = this.layout = lay;
+      this.keys = Array.from({ length: KEY_SLOTS }, () => new Writer(this.keyBytes(MAX_CARS)));
     }
     const s = this.pre;
     const prev = s.count;
@@ -136,7 +143,7 @@ export class CrashRecorder {
       this.drift[i] = cars[i]!.drive.drift;
     }
     if (this.opening.length > 0) {
-      const bytes = this.encodeKey(new Writer(snapshotMaxBytes(n, L) + n * 2)).done().slice();
+      const bytes = this.encodeKey(new Writer(this.keyBytes(n))).done().slice();
       for (const c of this.opening) {
         const key = this.impactKeys.get(c);
         if (key) key.bytes = bytes;
@@ -210,7 +217,15 @@ export class CrashRecorder {
     this.opening.push(c);
   }
 
-  /** The step-start snapshot (`pre`), each wreck's deform and parts read now, and the drift states, into `w`. */
+  /** Most bytes a keyframe of `n` cars takes: the snapshot, then per car its drift, flight block and solver state. */
+  private keyBytes(n: number): number {
+    return snapshotMaxBytes(n, this.layout!) + n * (2 + FLIGHT * 4 + 2 + this.sim.length * 4);
+  }
+
+  /**
+   * The step-start snapshot (`pre`) with each wreck's deform and parts read now, the drift states, then per car its
+   * flight block and its solver state (a u16 count, then that many f32: `simState` for a wreck, none otherwise).
+   */
   private encodeKey(w: Writer): Writer {
     const s = this.pre;
     for (let i = 0; i < s.count; i++) {
@@ -225,6 +240,19 @@ export class CrashRecorder {
     w.off = 0;
     writeSnapshot(w, s, this.layout!);
     w.q16s(this.drift, s.count, Q_PER.fine);
+    for (let i = 0; i < s.count; i++) {
+      const car = this.cars[i]!;
+      car.flight(this.fly, 0, false);
+      w.f32s(this.fly, FLIGHT);
+      const n = s.cars[i]!.wreck ? this.sim.length : 0;
+      w.u16(n);
+      if (n === 0) continue;
+      car.deform.simState(this.sim, false);
+      // One native byte copy (little-endian like the codec, as every browser's Float32Array): `f32s`, a number at a
+      // time in code too rarely run to be optimized, boxed each one (125 KB a keyframe at 11 wrecks).
+      w.bytes.set(this.simBytes, w.off);
+      w.off += this.simBytes.length;
+    }
     return w;
   }
 
@@ -282,14 +310,16 @@ export class CrashRecorder {
         inputs.set(this.inputs.subarray(src, src + INPUT_BYTES), (s * nc + j) * INPUT_BYTES);
       }
     }
-    // Keyframes inside the clip, in step order (the impact keyframe where it falls), each cut down to the clip's cars.
+    // Keyframes from the clip's start to its first impact (the replay corrects drift up to there, never after), in
+    // step order with the impact keyframe where it falls, each cut down to the clip's cars.
+    const firstStep = impact && impact.step > start && impact.step < this.step ? impact.step - start : 0;
     const src: { step: number; bytes: Uint8Array }[] = [];
     for (let k = 0; k < filled; k++) {
       const st = this.keyStep[k]!;
-      if (st >= start && st < this.step) src.push({ step: st, bytes: this.keys[k]!.done() });
+      if (st >= start && st <= start + firstStep) src.push({ step: st, bytes: this.keys[k]!.done() });
     }
     const ib = impact?.bytes;
-    if (impact && ib && impact.step > start && impact.step < this.step && !src.some((a) => a.step === impact.step)) src.push({ step: impact.step, bytes: ib });
+    if (firstStep > 0 && ib && !src.some((a) => a.step === start + firstStep)) src.push({ step: start + firstStep, bytes: ib });
     src.sort((a, b) => a.step - b.step);
     const all = makeSnapshot();
     const r = new Reader();
@@ -301,9 +331,22 @@ export class CrashRecorder {
         r.off = at + i * 2;
         return r.q16(Q.fine);
       });
-      const w = new Writer(snapshotMaxBytes(nc, L) + nc * 2);
+      // Each car's flight block and solver state (`encodeKey`), located by walking them.
+      const sec = [at + all.count * 2];
+      r.off = sec[0]!;
+      for (let i = 0; i < all.count; i++) {
+        r.off += FLIGHT * 4;
+        const n = r.u16();
+        r.off += n * 4;
+        sec.push(r.off);
+      }
+      const w = new Writer(snapshotMaxBytes(nc, L) + slots.reduce((n, i) => n + 2 + sec[i + 1]! - sec[i]!, 0));
       writeSnapshot(w, { ...all, count: nc, cars: slots.map((i) => all.cars[i]!) }, L);
       for (const d of drift) w.q16(d, Q.fine);
+      for (const i of slots) {
+        w.bytes.set(k.bytes.subarray(sec[i]!, sec[i + 1]!), w.off);
+        w.off += sec[i + 1]! - sec[i]!;
+      }
       return w.done().slice();
     });
     const cars: ReelCar[] = slots.map((i) => {
@@ -318,7 +361,7 @@ export class CrashRecorder {
       peakKph: c.peak * 3.6,
       t0,
       firstImpact: c.first - t0,
-      firstStep: impact && impact.step > start ? impact.step - start : 0,
+      firstStep,
       lastImpact: c.last - t0,
       x: c.x0,
       z: c.z0,

@@ -1,10 +1,10 @@
-import { beginFakeFall, type DeformableCar } from "../vehicle/car.ts";
+import { beginFakeFall, FLIGHT, type DeformableCar } from "../vehicle/car.ts";
 import type { WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
-import { makeSnapshot, Q, readSnapshot, Reader, type CarFrame, type Snapshot } from "../net/codec.ts";
+import { makeSnapshot, Q, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 
@@ -17,10 +17,10 @@ export type ReplayScene = {
 
 /**
  * One highlight clip re-run through the real sim (docs/HIGHLIGHTS.md): its cars respawned from keyframe 0 (a wreck
- * with its netplay wreck section: dents, lost parts, lamps, glass; style and class are the caller's, `cars[j]` is
- * `clip.cars[j]`), then each recorded step's dt and drive outputs fed through `applyDrive` + `stepWorld` +
- * `settleStep`. Up to and including the first impact's step, every keyframe snaps its cars back onto the record
- * (drift correction); after it the crash plays out on its own.
+ * with its netplay wreck section: dents, lost parts, lamps, glass, then its solver state; style and class are the
+ * caller's, `cars[j]` is `clip.cars[j]`), then each recorded step's dt and drive outputs fed through `applyDrive` +
+ * `stepWorld` + `settleStep`. Up to and including the first impact's step, every keyframe snaps its cars back onto
+ * the record (drift correction); after it the crash plays out on its own.
  */
 export class ClipSim {
   readonly clip: HighlightClip;
@@ -43,6 +43,9 @@ export class ClipSim {
   private key = 0;
   private readonly keys: Snapshot[];
   private readonly drift: Float32Array[];
+  /** Per keyframe: every car's flight block (`DeformableCar.flight`), and each wreck's solver state (`simState`). */
+  private readonly flight: Float32Array[] = [];
+  private readonly sim: (Float32Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
   readonly world: World;
   private readonly dress: (car: DeformableCar) => void;
@@ -65,6 +68,18 @@ export class ClipSim {
       this.keys.push(snap);
       const d = new Float32Array(cars.length);
       for (let j = 0; j < d.length; j++) d[j] = r.q16(Q.fine);
+      const fl = new Float32Array(cars.length * FLIGHT);
+      const sims: (Float32Array | null)[] = [];
+      for (let j = 0; j < cars.length; j++) {
+        for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f32();
+        const n = r.u16();
+        if (n > 0 && n !== cars[j]!.deform.simSize()) throw new RangeError("a keyframe's solver state is another build's");
+        const s = n > 0 ? new Float32Array(n) : null;
+        for (let i = 0; i < n; i++) s![i] = r.f32();
+        sims.push(s);
+      }
+      this.flight.push(fl);
+      this.sim.push(sims);
       return d;
     });
     const w = newWorld(cars);
@@ -155,7 +170,7 @@ export class ClipSim {
     if (this.firstHit < 0 && this.time >= this.watchFrom) this.firstHit = this.time;
   }
 
-  /** Car `j` respawned as keyframe `k` has it: pose and motion, then a wreck's dents, parts, lamps and glass. */
+  /** Car `j` respawned as keyframe `k` has it: pose and motion, then a wreck's dents, parts, lamps, glass and solver state. */
   private spawn(j: number, k: number): void {
     const car = this.cars[j]!;
     const f = this.keys[k]!.cars[j]!;
@@ -166,12 +181,11 @@ export class ClipSim {
     car.deform.buckle = this.clip.buckle;
     car.deform.setMode(this.clip.deformMode);
     car.group.visible = true;
-    this.pose(car, f, this.drift[k]![j]!);
+    this.pose(j, k);
     car.crashed = f.crashed;
-    if (f.wreck) {
-      car.writeNetState(f.deform, f.parts);
-      car.deform.resumeWreck(car.group, car.velocity, car.angular);
-    }
+    const sim = this.sim[k]![j];
+    if (f.wreck) car.writeNetState(f.deform, f.parts);
+    if (f.wreck && sim) car.deform.simState(sim, true);
     if (f.falling) beginFakeFall(car, car.angular);
   }
 
@@ -179,12 +193,14 @@ export class ClipSim {
   private snap(j: number, k: number): void {
     const car = this.cars[j]!;
     const f = this.keys[k]!.cars[j]!;
-    if (!f.crashed && !f.falling && !car.crashed && !car.falling && !car.deform.massActive) this.pose(car, f, this.drift[k]![j]!);
+    if (!f.crashed && !f.falling && !car.crashed && !car.falling && !car.deform.massActive) this.pose(j, k);
     else this.spawn(j, k);
   }
 
-  /** Kinematic pose and motion from a keyframe's frame. */
-  private pose(car: DeformableCar, f: CarFrame, drift: number): void {
+  /** Kinematic pose, motion and flight state from keyframe `k`'s frame of car `j`. */
+  private pose(j: number, k: number): void {
+    const car = this.cars[j]!;
+    const f = this.keys[k]!.cars[j]!;
     const g = car.group;
     g.position.set(f.x, f.y, f.z);
     g.rotation.set(f.pitch, f.yaw, f.roll, "YXZ");
@@ -192,9 +208,9 @@ export class ClipSim {
     car.yaw = f.yaw;
     car.roll = f.roll;
     car.velocity.set(f.vx, f.vy, f.vz);
-    car.angular.set(0, f.wy, 0);
+    car.flight(this.flight[k]!, j * FLIGHT, true);
     car.speed = Math.hypot(f.vx, f.vz);
-    car.drive.drift = drift;
+    car.drive.drift = this.drift[k]![j]!;
     car.refreshBasis();
     car.deform.bindKinematic(g, car.velocity, car.angular);
   }

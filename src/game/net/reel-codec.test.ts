@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DeformableCar } from "../vehicle/car.ts";
+import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, NET_VERSION, Q, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
@@ -29,10 +29,21 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       }
       return f;
     });
-    const w = new Writer(snapshotMaxBytes(2, L) + 4);
+    const sim = new Float32Array(a.deform.simSize());
+    const fly = new Float32Array(FLIGHT);
+    const w = new Writer(snapshotMaxBytes(2, L) + 4 + 2 * (FLIGHT * 4 + 2 + sim.length * 4));
     writeSnapshot(w, { ...makeSnapshot(), time: k, count: 2, cars: frames }, L);
     w.q16(0.25 * k, Q.fine);
     w.q16(0, Q.fine);
+    // As `CrashRecorder.encodeKey`: each car's flight block, then a wreck's solver state.
+    for (const car of [a, b]) {
+      car.flight(fly, 0, false);
+      w.f32s(fly, FLIGHT);
+      const n = car.crashed ? sim.length : 0;
+      if (n > 0) car.deform.simState(sim, false);
+      w.u16(n);
+      w.f32s(sim, n);
+    }
     return w.done().slice();
   });
   const steps = 600;

@@ -23,7 +23,10 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 `CrashRecorder` runs on the host (or offline), never on a client. Per fixed step it writes every car's drive output
 (`INPUT_BYTES`, 4 per car) and the step's dt into a typed-array ring of `RING` (5120) steps, at least 17 s at a race's
 240–300 steps/s. Every `KEY_EVERY` (0.5 s) it encodes a keyframe: the netplay snapshot of every car (`writeSnapshot`,
-with each wreck's deform and parts). A cluster's first impact encodes one more.
+with each wreck's deform and parts), then per car its drift state, its flight block (`DeformableCar.flight`: airborne,
+hull contact, the whole spin, the takeoff spin) and, for a wreck, its solver state (`simState`: every scalar such as
+the crash clocks, each mass's position, velocity and crush offsets, each beam's set, each shape cluster's plastic
+rest). A cluster's first impact encodes one more. A clip keeps the keyframes from its start to its first impact.
 
 An impact is a car–car contact closing at `PAIR_MIN` (5 m/s) or more, or a wall/prop contact at `WALL_MIN` (5 m/s),
 whose pair had been apart for `REHIT_S` (0.35 s), so grinding never re-counts. Impacts join an open cluster that shares
@@ -36,10 +39,16 @@ allocation, a few times a race. Steady state allocates nothing (`engine-record.t
 
 ## Replay
 
-`ClipSim` respawns the clip's cars from keyframe 0, wrecks included (dents, lost parts, lamps, glass). It then feeds
-each recorded step's dt and inputs through `applyDrive`, `stepWorld` and `settleStep`. Up to and including the first
-impact's step, every keyframe snaps the cars back onto the record (drift correction). After that the crash plays out on
-its own. The clip also carries its crumple settings (`squash`, `buckle`, `deformMode`), so every peer dents the same way.
+`ClipSim` respawns the clip's cars from keyframe 0, wrecks included (dents, lost parts, lamps, glass, solver state).
+It then feeds each recorded step's dt and inputs through `applyDrive`, `stepWorld` and `settleStep`. Up to and
+including the first impact's step, every keyframe snaps the cars back onto the record (drift correction). After that
+the crash plays out on its own. The clip also carries its crumple settings (`squash`, `buckle`, `deformMode`), so
+every peer dents the same way.
+
+Why the solver state: the netplay wreck section is display state (clients never simulate). A wreck restored from it
+alone had still masses and reset clocks. In `engine-replay.test.ts` (city, seed 5) one wreck caught mid-hit, its
+masses moving up to 31 m/s about their mean, shed 5.2 m/s in its first replayed step and reached the impact 2.8 m
+off the record. With the solver state the worst car is within the 1.5 m bound.
 
 ## The reel
 
@@ -93,7 +102,10 @@ The host runs the reel; clients never record.
    (`deflate-raw`, about 4× smaller). Clips that would push it past `REEL_MSG_MAX` (240 KiB, under WebRTC's 256 KiB
    message cap) drop out, lowest ranked first.
 3. A client decodes it (`unpackReel`) and plays it at `startAt + offset`, its estimate of the host clock. While the
-   reel plays it draws no host snapshots, because the reel owns the cars.
+   reel plays it draws no host snapshots, because the reel owns the cars. The reel stops when race mode ends or the
+   next race sets up (no session, grid or countdown). It does not stop on "racing": the host's race state reaches a
+   client 5 times a second, unreliably, so the reliable reel can arrive first (measured: stopped 106 ms after it
+   landed, when the rule was "stop unless finished").
 
 Every peer, the host included, replays the same decoded numbers. Same-engine peers match. Different browser engines
 may round `Math` functions differently, and the replays can then drift apart.

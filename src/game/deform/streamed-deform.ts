@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
-import { matchSkinLocal } from "./shape-match.ts";
+import { matchSkinLocal, type ShapeCluster } from "./shape-match.ts";
 import { DeformSolve } from "./deform-solve.ts";
-import { RES_SLOTS, SKIN_K } from "./deform-rig.ts";
+import { RES_SLOTS, SKIN_K, type Beam, type MassNode } from "./deform-rig.ts";
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 
@@ -19,6 +19,79 @@ const _axis = new THREE.Vector3();
  * 0.1 m outboard of a pushed door went 8% deeper than the door (piston `right`), at 0.65 within 1%.
  */
 const SKIN_STRAIN = 0.65;
+
+/** Skin LoD and bake flags: the renderer's, not the solver's, so a `simState` block leaves them out. */
+const SKIN_FLAGS = new Set(["dirty", "skinnedThisFrame", "skinDeferred", "skinOwed"]);
+/** `simState`: `v` into `buf` at `o`, or with `write` from it; returns the next offset. */
+function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean): number {
+  if (write) v.set(buf[o]!, buf[o + 1]!, buf[o + 2]!);
+  else {
+    buf[o] = v.x;
+    buf[o + 1] = v.y;
+    buf[o + 2] = v.z;
+  }
+  return o + 3;
+}
+/** `simState`: `a` into `buf` at `o` (a native copy: no double boxed even before V8 optimizes), or with `write` from it. */
+function simArray(buf: Float32Array, o: number, a: Float64Array, write: boolean): number {
+  if (!write) buf.set(a, o);
+  else for (let i = 0; i < a.length; i++) a[i] = buf[o + i]!;
+  return o + a.length;
+}
+// One helper per element: called many times per `simState`, they run optimized long before `simState` itself does.
+/** `simState`: a mass's world, local, velocity, crush offsets and flags; returns the next offset. */
+function simMass(buf: Float32Array, o: number, m: MassNode, write: boolean): number {
+  o = simVec(buf, simVec(buf, simVec(buf, o, m.world, write), m.local, write), m.vel, write);
+  if (write) {
+    m.shoveX = buf[o]!;
+    m.shoveZ = buf[o + 1]!;
+    m.crushSet = buf[o + 2]!;
+    m.baseX = buf[o + 3]!;
+    m.baseZ = buf[o + 4]!;
+    m.dynamic = buf[o + 5] !== 0;
+    m.clipping = buf[o + 6] !== 0;
+    m.popped = buf[o + 7] !== 0;
+  } else {
+    buf[o] = m.shoveX;
+    buf[o + 1] = m.shoveZ;
+    buf[o + 2] = m.crushSet;
+    buf[o + 3] = m.baseX;
+    buf[o + 4] = m.baseZ;
+    buf[o + 5] = m.dynamic ? 1 : 0;
+    buf[o + 6] = m.clipping ? 1 : 0;
+    buf[o + 7] = m.popped ? 1 : 0;
+  }
+  return o + 8;
+}
+/** `simState`: a beam's rest, set, floor and life; returns the next offset. */
+function simBeam(buf: Float32Array, o: number, b: Beam, write: boolean): number {
+  if (write) {
+    b.rest = buf[o]!;
+    b.plastic = buf[o + 1]!;
+    b.minLen = buf[o + 2]!;
+    b.alive = buf[o + 3] !== 0;
+  } else {
+    buf[o] = b.rest;
+    buf[o + 1] = b.plastic;
+    buf[o + 2] = b.minLen;
+    buf[o + 3] = b.alive ? 1 : 0;
+  }
+  return o + 4;
+}
+/** `simState`: a shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, Sp); returns the next offset. */
+function simCluster(buf: Float32Array, o: number, c: ShapeCluster, write: boolean): number {
+  o = simArray(buf, simArray(buf, simArray(buf, o, c.q0x, write), c.q0y, write), c.q0z, write);
+  if (write) {
+    c.cm0x = buf[o]!;
+    c.cm0y = buf[o + 1]!;
+    c.cm0z = buf[o + 2]!;
+  } else {
+    buf[o] = c.cm0x;
+    buf[o + 1] = c.cm0y;
+    buf[o + 2] = c.cm0z;
+  }
+  return simArray(buf, simArray(buf, simArray(buf, o + 3, c.AqqInv, write), c.n, write), c.Sp, write);
+}
 
 /** Netplay state of one car's deformation (docs/MULTIPLAYER.md), preallocated from `netSizes()`. */
 export interface DeformNetState {
@@ -418,6 +491,45 @@ export class StreamedDeformation extends DeformSolve {
     computeNormalsFast(geometry);
     this.dirty = true;
     this.skinnedThisFrame = true;
+  }
+
+  /** The solver's scalar fields (own and inherited numbers and flags, in declaration order), listed on first use. */
+  private simKeys: string[] | null = null;
+
+  private scalarKeys(): string[] {
+    this.simKeys ??= Object.keys(this).filter((k) => {
+      const v: unknown = Reflect.get(this, k);
+      return (typeof v === "number" || typeof v === "boolean") && !SKIN_FLAGS.has(k);
+    });
+    return this.simKeys;
+  }
+
+  /** Numbers in a `simState` block (fixed by the class and the rig: the same for every car). */
+  simSize(): number {
+    let n = this.scalarKeys().length + this.masses.length * 17 + this.beams.length * 4;
+    for (const c of this.clusters) n += c.q0x.length * 3 + 24;
+    return n;
+  }
+
+  /**
+   * Highlight keyframes (docs/HIGHLIGHTS.md): the solver state a netplay wreck section leaves out, `simSize()` numbers
+   * read into `buf`, or with `write` restored from it. Every scalar field (crash clocks, crush, settle and plant
+   * state; not the renderer's skin flags), each mass's world, local and velocity with its crush offsets, each beam's
+   * rest and set, each shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, Sp). Restored from the net state
+   * alone, a wreck in the middle of a hit lost its masses' motion (up to 31 m/s about their mean) and its clocks: it
+   * shed 5.2 m/s in its first replayed step and was 2.8 m off the record 76 steps later (engine-replay.test.ts).
+   */
+  simState(buf: Float32Array, write: boolean): void {
+    let o = 0;
+    for (const k of this.scalarKeys()) {
+      const v: unknown = Reflect.get(this, k);
+      if (write) Reflect.set(this, k, typeof v === "boolean" ? buf[o] !== 0 : buf[o]);
+      else buf[o] = Number(v);
+      o++;
+    }
+    for (const m of this.masses) o = simMass(buf, o, m, write);
+    for (const b of this.beams) o = simBeam(buf, o, b, write);
+    for (const c of this.clusters) o = simCluster(buf, o, c, write);
   }
 
   /** Netplay: array sizes for a `DeformNetState` (fixed by the rig). */

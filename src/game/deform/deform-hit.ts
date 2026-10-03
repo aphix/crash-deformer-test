@@ -279,28 +279,6 @@ export abstract class DeformHit extends DeformRig {
     this.leanAt = -Infinity;
   }
 
-  /**
-   * Highlight replay: a wreck just restored from netplay state (`writeNetState`, which leaves its masses still)
-   * carries on from there. Its current shape becomes the shape-match rest, so its dents stay, and every mass moves
-   * with the body at `worldVel` turning at `worldOmega` (about up, as `bindKinematic`).
-   */
-  resumeWreck(group: THREE.Object3D, worldVel: THREE.Vector3, worldOmega: THREE.Vector3): void {
-    if (!this.massActive) return;
-    const ox = group.position.x;
-    const oz = group.position.z;
-    for (const m of this.masses) {
-      m.vel.copy(worldVel);
-      m.vel.x += worldOmega.y * (m.world.z - oz);
-      m.vel.z -= worldOmega.y * (m.world.x - ox);
-      m.dynamic = true;
-    }
-    this.rebaseShapeRest();
-    this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
-    this.rateYaw = this.prevYaw;
-    this.rateAt = this.elapsed;
-    this.leanAt = -Infinity;
-  }
-
   /** Pull impactLocal onto the nearest mass so L/R crush does not sit on the centerline. */
   private snapImpactToNearestMass(): void {
     // A true centerline hit must stay centered — snapping to bumperFL (first of

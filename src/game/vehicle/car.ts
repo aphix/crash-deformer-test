@@ -32,6 +32,8 @@ const CHORD_LIFT = 0.005;
 const AXLE = WHEEL_POS[0]![2];
 /** A wreck whose every hub is this far (m) over its ground flies as a rigid body. */
 const WRECK_AIR = 0.7;
+/** Numbers in a `DeformableCar.flight` block. */
+export const FLIGHT = 8;
 const _q0 = new THREE.Quaternion();
 
 export class DeformableCar extends CarParts {
@@ -196,6 +198,30 @@ export class DeformableCar extends CarParts {
       if (h === NO_FLOOR || m.world.y - h < WRECK_AIR) return false;
     }
     return true;
+  }
+
+  /**
+   * Highlight keyframes (docs/HIGHLIGHTS.md): the flight state a netplay pose leaves out (airborne, a hull point on the
+   * ground, the whole spin, the spin a takeoff carries), `FLIGHT` numbers into `buf` at `o`, or with `write` from it.
+   */
+  flight(buf: Float32Array, o: number, write: boolean): void {
+    const a = this.angular;
+    const g = this.groundSpin;
+    if (write) {
+      this.airborne = buf[o] !== 0;
+      this.airContact = buf[o + 1] !== 0;
+      a.set(buf[o + 2]!, buf[o + 3]!, buf[o + 4]!);
+      g.set(buf[o + 5]!, buf[o + 6]!, buf[o + 7]!);
+      return;
+    }
+    buf[o] = this.airborne ? 1 : 0;
+    buf[o + 1] = this.airContact ? 1 : 0;
+    buf[o + 2] = a.x;
+    buf[o + 3] = a.y;
+    buf[o + 4] = a.z;
+    buf[o + 5] = g.x;
+    buf[o + 6] = g.y;
+    buf[o + 7] = g.z;
   }
 
   /** No wheel holds the body: it flies (`stepAir`) from its centre of mass, turning as the ground last turned it. */

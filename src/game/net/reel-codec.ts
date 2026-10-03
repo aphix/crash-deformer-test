@@ -1,3 +1,4 @@
+import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 import { INPUT_BYTES, simFingerprint, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
@@ -9,8 +10,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readSnapshot, Reader, Wri
  * its clients and a saved copy replay the very same numbers. Little-endian.
  */
 
-/** Clip layout version: bump on any change to `writeClip`. A saved clip also records `NET_VERSION` (its keyframes' layout). */
-const REPLAY_VERSION = 1;
+/**
+ * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
+ * flight block and solver state). A saved clip also records `NET_VERSION` (its snapshots' layout).
+ */
+const REPLAY_VERSION = 2;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -132,7 +136,15 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (kr.u8() !== MSG.snapshot) throw new RangeError("clip key type");
     kr.off = 0;
     readSnapshot(kr, check, L);
-    if (check.count !== nc || kr.off + nc * 2 !== len) throw new RangeError("clip key cars");
+    // Then per car: its drift (q16), and after all of them per car its flight block and solver state (`encodeKey`).
+    kr.off += nc * 2;
+    let j = 0;
+    for (; j < nc && kr.off + FLIGHT * 4 + 2 <= len; j++) {
+      kr.off += FLIGHT * 4;
+      const n = kr.u16();
+      kr.off += n * 4;
+    }
+    if (check.count !== nc || j !== nc || kr.off !== len) throw new RangeError("clip key cars");
     keys.push(key);
   }
   if (firstStep >= steps) throw new RangeError("clip first step");
