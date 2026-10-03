@@ -37,6 +37,7 @@ function hostOf(w: World): ReelHost {
     live: () => w.live(),
     scene: { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), bounce: undefined },
     resetProps: () => w.race.resetProps(),
+    clear: () => {},
     sight: () => w.race.courseSight()!,
     clock: phaseClock(),
     impact: () => {},
@@ -116,6 +117,41 @@ describe("highlight reel on two peers", () => {
     } finally {
       a.race.exit();
       b.race.exit();
+      setGround(null);
+    }
+  });
+});
+
+describe("highlight reel and the race's leftovers", () => {
+  it("bad: a clip's setup empties the scene (the race's torn parts on the cars it hides included) and the reel ending empties what the clips left; no reel up clears nothing", async () => {
+    const a = makeWorld();
+    try {
+      race(a);
+      const reel = await recordedReel(a);
+      const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
+      for (const c of a.cars) c["detachPart"](c["parts"].find((p) => p.region)!, 12);
+      assert.ok(torn() >= a.cars.length, `${torn()} torn parts over ${a.cars.length} cars`);
+      let clears = 0;
+      const d = new ReelDirector({
+        ...hostOf(a),
+        clear: () => {
+          clears++;
+          for (const c of a.cars) c.resetVisual();
+        },
+      });
+      d.stepBudgetMs = Infinity;
+      d.stop();
+      assert.equal(clears, 0, "stop with no reel up");
+      d.play(reel, 0);
+      d.frame(FLIGHT_S / 2);
+      assert.equal(clears, 1, "the first clip sets up as the flight to it begins");
+      assert.equal(torn(), 0, "no torn part of the race is left, in view or hidden");
+      d.frame(FLIGHT_S + 0.1);
+      assert.equal(clears, 1, "the clip's own frames clear nothing more");
+      d.stop();
+      assert.equal(clears, 2, "the reel ends");
+    } finally {
+      a.race.exit();
       setGround(null);
     }
   });

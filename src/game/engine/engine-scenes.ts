@@ -16,7 +16,6 @@ import type { RaceCommand } from "../match/types.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
-import { clearTransients } from "./scene-clear.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
 const _v = new THREE.Vector3();
@@ -261,7 +260,7 @@ export abstract class EngineScenes extends EngineHud {
     // A new run rolls a new seed (24 bits: up to six hex digits in the share URL) unless a pasted URL pinned one.
     this.sceneSeed = this.pinnedSeed ?? Math.floor(Math.random() * 0x1000000);
     // Under the fade's black or not, every transition, loop and reset empties the last scene here, before the scene spawns its cars.
-    clearTransients(this.transients());
+    this.clearScene();
     this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
     // Built on first entry, not at boot: its programs link with this switch (`queueWarm`), never in the boot warm-up.

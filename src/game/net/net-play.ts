@@ -118,6 +118,8 @@ export class NetPlay {
   private offset = Infinity;
   /** Per car: receive order of the wreck section last applied. */
   private readonly applied: number[] = [];
+  /** `clearGen` of the snapshot drawn last (-1: none since joining this host); a change clears this scene (`drawSnapshots`). */
+  private drawnGen = -1;
   private readonly idle = idleDrive();
   private helloAcc = HELLO_EVERY;
   /** Client: frame time (s, `wallDt` summed, each capped by the engine) since joining or the host's last message. */
@@ -511,6 +513,7 @@ export class NetPlay {
     s.seq = ++this.seq;
     s.time = this.now() / 1000;
     s.keyframe = this.keyframeDue || this.seq % KEYFRAME_EVERY === 0;
+    s.clearGen = this.game.clearGen();
     this.keyframeDue = false;
     s.count = cars.length;
     s.realism = HANDLING.realism;
@@ -661,6 +664,7 @@ export class NetPlay {
     this.lastSeq = -1;
     this.offset = Infinity;
     this.applied.length = 0;
+    this.drawnGen = -1;
   }
 
   /** The host's race state: race mode on, then its session (or its lobby) adopted. Never stepped here. */
@@ -777,7 +781,7 @@ export class NetPlay {
     // A playing reel owns the cars; snapshots keep arriving for when it ends.
     // The host's world `INTERP_DELAY` behind this client's estimate of the host clock.
     if (!this.game.reelPlaying()) {
-      drawSnapshots(this.ring, this.ringOrder, this.applied, cars, this.now() / 1000 - this.offset - INTERP_DELAY, wallDt, this.game);
+      this.drawnGen = drawSnapshots(this.ring, this.ringOrder, this.applied, cars, this.now() / 1000 - this.offset - INTERP_DELAY, wallDt, this.game, this.drawnGen);
     }
 
     if (this.car < 0 || this.car >= cars.length || this.hostId === null) return;

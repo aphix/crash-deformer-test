@@ -51,6 +51,8 @@ interface RaceHost {
   bleeds(): boolean;
   /** The race is over: its highlights (best first; empty when nothing ranked) for the results reel. */
   reelReady(clips: readonly HighlightClip[]): void;
+  /** A run starts (start, retry, next, a campaign leg): the last run's torn parts, loose wheels, dummies and fx go (`CrashEngine.clearScene`). */
+  clear(): void;
 }
 
 /** Seconds upside down before a car counts as dead. */
@@ -208,6 +210,7 @@ export abstract class RaceField {
   }
 
   protected start(trackId: string, grid: readonly number[]): void {
+    this.host.clear();
     const tr = this.load(trackId);
     // Quitting to the menu comes back to the course just raced.
     this.options.trackId = tr.id;

@@ -7,6 +7,9 @@ import type { NetGame } from "./net-ports.ts";
  * between the newest snapshot at or before `rt` and the oldest after it (held at either end); each
  * car's newest wreck section at or before `rt` is applied once. `ringOrder[k]` is slot k's receive
  * order (0 = empty); `applied[i]` the receive order of the wreck section car i last took.
+ * `drawnGen` is the clear count of the snapshot drawn last (-1: none yet); when the one drawn now differs, the host
+ * cleared its scene in between and this one is cleared first (before any pose or wreck, so the new scene's own wreck
+ * lands on clean cars). Returns the count drawn.
  */
 export function drawSnapshots(
   ring: readonly Snapshot[],
@@ -15,8 +18,9 @@ export function drawSnapshots(
   cars: readonly DeformableCar[],
   rt: number,
   wallDt: number,
-  game: Pick<NetGame, "setVaporized">,
-): void {
+  game: Pick<NetGame, "setVaporized" | "clearScene">,
+  drawnGen: number,
+): number {
   let a = -1;
   let b = -1;
   for (let k = 0; k < ringOrder.length; k++) {
@@ -31,10 +35,13 @@ export function drawSnapshots(
   const sb = ring[b >= 0 ? b : a]!;
   const u = sa === sb ? 0 : Math.min(1, Math.max(0, (rt - sa.time) / (sb.time - sa.time)));
 
+  const cleared = drawnGen >= 0 && sa.clearGen !== drawnGen;
+  if (cleared) game.clearScene();
   for (let i = 0; i < cars.length && i < sa.count; i++) {
     const car = cars[i]!;
     const fa = sa.cars[i]!;
     const fb = i < sb.count ? sb.cars[i]! : fa;
+    if (cleared) applied[i] = orderA - 1;
     if (car.crashed && !fa.crashed) {
       car.resetVisual();
       applied[i] = orderA;
@@ -91,4 +98,5 @@ export function drawSnapshots(
     }
     if (!car.falling && !car.vaporized) car.netFrame(wallDt);
   }
+  return sa.clearGen;
 }

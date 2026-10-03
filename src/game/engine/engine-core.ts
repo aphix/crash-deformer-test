@@ -38,7 +38,7 @@ import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
 import { RangeRun } from "../scenes/range.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
-import type { Transients } from "./scene-clear.ts";
+import { clearTransients } from "./scene-clear.ts";
 
 const _v = new THREE.Vector3();
 /**
@@ -252,9 +252,22 @@ export abstract class EngineCore {
     return buf;
   }
 
-  /** The systems a scene reset empties (`clearTransients`): add a new debris-like system here and to `Transients`. */
-  protected transients(): Transients {
-    return { cars: this.cars, poles: this.poles, debris: this.debris, sparks: this.sparks, glassDots: this.glassDots, smoke: this.smoke, ragdolls: this.ragdolls, rangeRun: this.rangeRun, cine: this.cine };
+  /** Times the scene was cleared, mod 128; every snapshot carries it so a netplay client clears its own scene when it moves (`Snapshot.clearGen`). */
+  private clears = 0;
+
+  /** Empties every system a run leaves behind (`clearTransients`). Add a new debris-like system here and to `Transients`. */
+  protected clearLocal(): void {
+    clearTransients({ cars: this.cars, poles: this.poles, debris: this.debris, sparks: this.sparks, glassDots: this.glassDots, smoke: this.smoke, ragdolls: this.ragdolls, rangeRun: this.rangeRun, cine: this.cine });
+  }
+
+  /** A scene change, loop, reset or race start: the scene is emptied and netplay clients are told (their snapshots carry `clearGen`). */
+  protected clearScene(): void {
+    this.clears = (this.clears + 1) & 127;
+    this.clearLocal();
+  }
+
+  protected clearGen(): number {
+    return this.clears;
   }
 
   protected ensureCars(n: number): void {

@@ -34,6 +34,8 @@ export type World = {
   step: StepWorld;
   /** The engine's `dressCar` at the sandbox defaults (a respawned car re-dressed). */
   dress: (car: DeformableCar) => void;
+  /** How many times the race asked the engine to empty the scene (`RaceHost.clear`: every start, retry, next). */
+  clears: number;
 };
 
 export function makeWorld(): World {
@@ -92,10 +94,13 @@ export function makeWorld(): World {
     markBounds: () => {},
     bleeds: () => false,
     reelReady: () => {},
+    clear: () => {
+      w.clears++;
+    },
   });
   const step = newWorld(liveBuf);
   step.collide = (car, i) => race.collide(car, i);
-  const w: World = { cars, live, race, seat, onPairContact: null, step, dress };
+  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0 };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);

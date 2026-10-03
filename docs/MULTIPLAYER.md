@@ -107,6 +107,8 @@ A wreck section rides along when its quantized bytes changed within the last 3 s
 snapshot says is not crashed gets `resetVisual()` on the client. Proper acked-baseline delta
 compression (Gaffer) is the upgrade if crash bursts saturate links.
 
+**Scene clears.** The snapshot header byte carries the host's clear count (`Snapshot.clearGen`, bits 1-7 beside the keyframe flag; mod 128), bumped by `CrashEngine.clearScene` on every scene change, loop, reset and race start. A client that draws a snapshot whose count differs from the last one it drew runs the same `clearTransients` first (torn parts and loose wheels of every built car, hidden ones too, dummies, fx pools, downed poles), then poses and applies the new scene's wreck sections on clean cars. The first snapshot after joining or after a lost host clears nothing, a playing reel postpones it to the reel's end, and an older host's 0 never clears. The bits were spare, so the layout and `NET_VERSION` stand.
+
 Interpolation: the client renders 100 ms behind its estimate of the host clock (smallest seen
 local − host time, relaxing 1 ms per snapshot). Position, angles (shortest arc) and velocity lerp
 between the two snapshots around render time; the wreck section snaps, applied once from the

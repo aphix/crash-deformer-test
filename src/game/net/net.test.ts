@@ -78,6 +78,24 @@ function looseParts(car: DeformableCar): number {
   return f.parts.flags.filter((x) => x & 1).length;
 }
 
+describe("netplay codec: scene clear count", () => {
+  it("bad: a snapshot carries the host's clear count beside its keyframe flag (0..127), and a count of 0 is what an older host sends", () => {
+    for (const [gen, keyframe] of [[0, false], [1, true], [77, false], [127, true]] as const) {
+      const s = makeSnapshot();
+      ensureFrames(s, 1, L);
+      s.count = 1;
+      s.keyframe = keyframe;
+      s.clearGen = gen;
+      const w = new Writer();
+      writeSnapshot(w, s, L);
+      const got = makeSnapshot();
+      readSnapshot(new Reader().reset(w.done()), got, L);
+      assert.equal(got.clearGen, gen, `clear count ${gen}`);
+      assert.equal(got.keyframe, keyframe, `keyframe flag beside clear count ${gen}`);
+    }
+  });
+});
+
 describe("netplay codec", () => {
   it("round-trips a snapshot within the quantization steps, and omits the wreck section when asked", () => {
     const s = makeSnapshot();
