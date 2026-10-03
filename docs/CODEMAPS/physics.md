@@ -65,7 +65,7 @@ buildSkinWeights (ctor: each vertex → ≤ RES_SLOTS nearest masses, IDW)
      with `skinKernel()` loaded (`skin-kernel.ts`; the Rust in `kernels/skin/`, prebuilt as `skin-kernel.wasm`): the same loop and normals in WASM on the main thread,
      bit-identical (`skin-kernel.test.ts`); cars of one style share one set of tables in its memory (`skinKey`); the JS loop stays as the reference and the fallback
 flushSkin(geometry, force) writes only when owed; DeformableCar.updateDeform / flushDeferredSkin;
-LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (off-screen or tiny cars skip skin, never lose it)
+LoD: CrashEngine.scheduleSkins / skinStride / flushVisibleSkins (cars outside `Witness`'s camera cone skip skin, tiny ones skin every 2nd/4th frame; never lose it)
 ```
 Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` / `car-parts.ts` (`skinPanels`, `syncAttachedParts`, `evaluateBreakage`, `detachPart`).
 
