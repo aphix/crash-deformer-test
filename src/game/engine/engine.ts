@@ -32,7 +32,7 @@ import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { ReelDirector } from "./engine-highlights.ts";
 import { TrackArt } from "../present/track-art.ts";
-import { EngineReel } from "./engine-reel.ts";
+import { EngineShare } from "./engine-share.ts";
 
 const FIXED = 1 / 60;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
@@ -69,7 +69,7 @@ const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
 if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
 if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
 
-export class CrashEngine extends EngineReel {
+export class CrashEngine extends EngineShare {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
@@ -248,9 +248,10 @@ export class CrashEngine extends EngineReel {
     this.pad.attach(() => this.emitHud());
     this.view.attach();
     try {
-      this.randomizeAndReset();
+      // Applies the page's `#` as this first reset, so the first run already uses it.
+      this.attachShare();
     } catch (err) {
-      console.error("randomizeAndReset failed", err);
+      console.error("first reset failed", err);
       // The window listeners above would keep calling into a half-built engine nobody can dispose.
       this.dispose();
       throw err;
@@ -284,6 +285,7 @@ export class CrashEngine extends EngineReel {
     window.removeEventListener("keyup", this.onKeyUp);
     window.removeEventListener("blur", this.onBlur);
     this.pad.detach();
+    this.detachShare();
     this.net.leave();
     this.view.detach();
     this.resizeObs.disconnect();

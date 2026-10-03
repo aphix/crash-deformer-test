@@ -149,7 +149,7 @@ export abstract class EngineInput extends EngineRigs {
   }
 
   setFxDensity(value: number): void {
-    this.fxDensity = THREE.MathUtils.clamp(value, 0, 1.2);
+    this.fxDensity = THREE.MathUtils.clamp(value, KNOB_RANGES.fxDensity.min, KNOB_RANGES.fxDensity.max);
     this.emitHud();
   }
 
@@ -207,8 +207,8 @@ export abstract class EngineInput extends EngineRigs {
   }
 
   setSpeedRange(min: number, max: number): void {
-    const a = Number.isFinite(min) ? THREE.MathUtils.clamp(min, 0, 48) : 0;
-    const b = Number.isFinite(max) ? THREE.MathUtils.clamp(max, 0, 48) : 32;
+    const a = Number.isFinite(min) ? THREE.MathUtils.clamp(min, KNOB_RANGES.speed.min, KNOB_RANGES.speed.max) : 0;
+    const b = Number.isFinite(max) ? THREE.MathUtils.clamp(max, KNOB_RANGES.speed.min, KNOB_RANGES.speed.max) : 32;
     this.speedMin = Math.min(a, b);
     this.speedMax = Math.max(a, b);
     this.emitHud();
@@ -220,7 +220,7 @@ export abstract class EngineInput extends EngineRigs {
       this.clock.targetScale = 1;
       this.clock.timeScale = 1;
     } else {
-      const v = THREE.MathUtils.clamp(value, 0.02, 2);
+      const v = THREE.MathUtils.clamp(value, KNOB_RANGES.timeScale.min, KNOB_RANGES.timeScale.max);
       this.clock.userTimeScale = v;
       this.clock.targetScale = v;
       this.clock.timeScale = v;

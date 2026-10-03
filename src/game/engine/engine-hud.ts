@@ -114,6 +114,7 @@ export abstract class EngineHud extends EngineWarm {
       realism: HANDLING.realism,
       playerClass: this.playerClass,
     });
+    this.syncShareUrl();
   }
 
   /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */

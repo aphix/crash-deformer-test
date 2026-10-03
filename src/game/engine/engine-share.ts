@@ -1,0 +1,149 @@
+import { decodeShare, encodeShare, type ShareState } from "../hud/share-url.ts";
+import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
+import { SEEDED_SCENES } from "../scenes/scene-id.ts";
+import { HANDLING } from "../vehicle/vehicle-classes.ts";
+import { EngineReel } from "./engine-reel.ts";
+
+/**
+ * The shareable URL (docs/CONTROLS.md): the page's `#` follows the HUD state (scene, settings that differ from the
+ * defaults, the run's spawn seed), and a pasted or edited `#` sets it. The hash is untrusted: `decodeShare`
+ * validates it and every value then goes through the setter the HUD uses, which clamps again.
+ */
+export abstract class EngineShare extends EngineReel {
+  /** Off until `attachShare` has read the page's `#`, so boot never overwrites it. */
+  private shareOn = false;
+  /** The fragment last written (null: none yet), so an unchanged state costs no `replaceState`. */
+  private shareLast: string | null = null;
+  /** True while `applyShare` runs: its setters publish half-applied states the URL must not show. */
+  private sharing = false;
+
+  /** The shared state as the engine holds it now. */
+  private shareState(): ShareState {
+    const sc = this.sceneId;
+    // Race options persist after leaving the race; they are shared only while it is the scene.
+    const o = sc === "race" ? this.race.options : DEFAULT_RACE_OPTIONS;
+    const p = this.pistons.config;
+    return {
+      scene: sc,
+      // The race and the range put their own field up; the sandbox's size waits in `sandboxCars`.
+      cars: sc === "race" || sc === "range" ? this.sandboxCars : this.carCount,
+      smin: this.speedMin,
+      smax: this.speedMax,
+      night: this.stage.night,
+      wet: this.stage.wet,
+      real: HANDLING.realism,
+      // Automatic: the machine chose the tier (`AutoFx`), so the URL does not pin it.
+      fx: this.autoFx.auto ? null : this.cine.tier,
+      fxd: this.fxDensity,
+      squash: this.squash,
+      buckle: this.buckle,
+      loop: this.looping,
+      slomo: this.autoSlomo,
+      ts: this.clock.userTimeScale,
+      deform: this.deformMode,
+      car: this.playerClass,
+      barrier: this.showBarrier,
+      balls: this.showBalls,
+      ramps: this.showRamps,
+      pkph: p.speedKph,
+      pkg: p.massKg,
+      phard: p.hardness,
+      phold: p.holdCar,
+      phop: p.hopSeconds,
+      dkph: this.doorRig.kph,
+      dkg: this.doorRig.kg,
+      dside: this.doorRig.side < 0 ? "left" : "right",
+      track: o.trackId,
+      laps: o.laps,
+      ai: o.aiCount,
+      aggr: o.aggression,
+      police: o.police,
+      noreset: o.noReset,
+      spectate: o.spectate,
+      seed: SEEDED_SCENES[sc] ? this.sceneSeed : null,
+    };
+  }
+
+  /** Called by every HUD publish: the page URL follows the state. A netplay client's scene is the host's, so it writes nothing. */
+  protected syncShareUrl(): void {
+    if (!this.shareOn || this.sharing || this.net.client) return;
+    const frag = encodeShare(this.shareState());
+    if (frag === this.shareLast) return;
+    this.shareLast = frag;
+    const { pathname, search } = window.location;
+    // replaceState: no history entry, no reload (and the router's history.state stays).
+    window.history.replaceState(window.history.state, "", pathname + search + (frag ? `#${frag}` : ""));
+  }
+
+  /**
+   * Set the engine to `t`, through the HUD's setters and only where it differs (the field resets once, not per
+   * setting). A seed in `t` pins the spawns of every reset on the way. `boot` also does the first reset.
+   */
+  private applyShare(t: ShareState, boot: boolean): void {
+    this.pinnedSeed = t.seed;
+    this.sharing = true;
+    try {
+      let c = this.shareState();
+      const differs = (...keys: (keyof ShareState)[]): boolean => keys.some((k) => t[k] !== c[k]);
+      // The race and the range ignore the sandbox's car count: leave them first, the switch below stores it again.
+      if ((c.scene === "race" || c.scene === "range") && (t.scene !== c.scene || differs("cars"))) {
+        this.setScene("fleet");
+        c = this.shareState();
+      }
+      if (differs("cars")) this.setCarCount(t.cars);
+      if (differs("smin", "smax")) this.setSpeedRange(t.smin, t.smax);
+      if (differs("night")) this.setNight(t.night);
+      if (differs("wet")) this.setWet(t.wet);
+      if (differs("real")) this.setRealism(t.real);
+      if (differs("fxd")) this.setFxDensity(t.fxd);
+      if (differs("squash")) this.setSquash(t.squash);
+      if (differs("buckle")) this.setBuckle(t.buckle);
+      // A tier only ever gets picked: leaving `fx=` out keeps the automatic one (or a `?fx=` bench pick).
+      if (t.fx !== null && differs("fx")) this.setFxTier(t.fx);
+      if (differs("ts")) this.setTimeScale(t.ts);
+      if (differs("loop")) this.toggleLoop();
+      if (differs("slomo")) this.toggleSlomo();
+      if (differs("deform")) this.toggleDeformMode();
+      if (differs("car")) this.setPlayerClass(t.car);
+      if (differs("pkph", "pkg", "phard", "phold", "phop")) {
+        this.setPistonConfig({ speedKph: t.pkph, massKg: t.pkg, hardness: t.phard, holdCar: t.phold, hopSeconds: t.phop });
+      }
+      if (differs("dkph", "dkg", "dside")) this.setDoorConfig({ kph: t.dkph, kg: t.dkg, side: t.dside === "left" ? -1 : 1 });
+      if (t.scene !== this.sceneId) this.setScene(t.scene);
+      if (t.scene === "fleet") {
+        c = this.shareState();
+        if (differs("barrier")) this.toggleBarrier();
+        if (differs("balls")) this.toggleBalls();
+        if (differs("ramps")) this.toggleRamps();
+      }
+      if (t.scene === "race") {
+        this.raceCommand({
+          type: "options",
+          options: { trackId: t.track, laps: t.laps, aiCount: t.ai, aggression: t.aggr, police: t.police, noReset: t.noreset, spectate: t.spectate },
+        });
+      }
+      if (boot || (t.seed !== null && SEEDED_SCENES[t.scene] && t.seed !== this.sceneSeed)) this.randomizeAndReset();
+    } finally {
+      this.pinnedSeed = null;
+      this.sharing = false;
+    }
+    this.emitHud();
+  }
+
+  /** Boot: apply the page's `#` (this is the first sandbox reset, so the first run already uses it), then follow it. */
+  protected attachShare(): void {
+    this.shareOn = true;
+    this.applyShare(decodeShare(window.location.hash), true);
+    window.addEventListener("hashchange", this.onShareHash);
+  }
+
+  protected detachShare(): void {
+    this.shareOn = false;
+    window.removeEventListener("hashchange", this.onShareHash);
+  }
+
+  /** The `#` was edited or pasted (our own `replaceState` fires no event). A client's scene is the host's. */
+  private onShareHash = (): void => {
+    if (!this.net.client) this.applyShare(decodeShare(window.location.hash), false);
+  };
+}

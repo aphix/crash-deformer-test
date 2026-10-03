@@ -13,7 +13,8 @@ import { type ContactHit, resetLampPoles, resolveLampPoles, resolveRampBalls, sc
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
 import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
-import type { SceneId } from "./engine-core.ts";
+import type { SceneId } from "../scenes/scene-id.ts";
+import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
@@ -58,7 +59,7 @@ export abstract class EngineScenes extends EngineHud {
       this.setDerby(false);
       this.randomizeAndReset();
     } else {
-      scatterRampBalls(this.balls, this.showBalls);
+      scatterRampBalls(this.balls, this.showBalls, this.sceneRng(1));
     }
     this.tryUnlockAudio();
     this.emitHud();
@@ -192,7 +193,7 @@ export abstract class EngineScenes extends EngineHud {
       this.sceneId = "race";
       this.barrier.group.visible = false;
       this.ramps.group.visible = false;
-      scatterRampBalls(this.balls, false);
+      scatterRampBalls(this.balls, false, this.sceneRng(1));
       this.press.group.visible = false;
       this.pistonBank.group.visible = false;
       this.doorRam.group.visible = false;
@@ -216,7 +217,14 @@ export abstract class EngineScenes extends EngineHud {
     }
   }
 
+  /** One stream of the run's seeded picks per `salt`: the fleet's spots and its balls draw apart, the same every time for a seed. */
+  private sceneRng(salt: number): () => number {
+    return mulberry32(this.sceneSeed + salt);
+  }
+
   protected randomizeAndReset(): void {
+    // A new run rolls a new seed (24 bits: up to six hex digits in the share URL) unless a pasted URL pinned one.
+    this.sceneSeed = this.pinnedSeed ?? Math.floor(Math.random() * 0x1000000);
     this.compactor.face = COMPACTOR.startFace;
     this.compactFxAt = 0;
     // Built on first entry, not at boot: its programs link with this switch (`queueWarm`), never in the boot warm-up.
@@ -270,14 +278,14 @@ export abstract class EngineScenes extends EngineHud {
     if (this.showBarrier || this.showRamps) this.barrier.orient(this.carA.group.position, this.showRamps);
     this.ramps.group.visible = this.showRamps;
     this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
-    scatterRampBalls(this.balls, this.showBalls);
+    scatterRampBalls(this.balls, this.showBalls, this.sceneRng(1));
     resetLampPoles(this.poles, !this.derbyMode && !this.showRange);
     this.finishResetCommon();
   }
 
   private spawnFleet(): void {
     const cars = this.live();
-    const slots = layoutFleet(cars.length, this.speedMin, this.speedMax);
+    const slots = layoutFleet(cars.length, this.speedMin, this.speedMax, this.sceneRng(0));
     for (let i = 0; i < cars.length; i++) {
       const slot = slots[i]!;
       const car = cars[i]!;
@@ -313,7 +321,7 @@ export abstract class EngineScenes extends EngineHud {
     this.derbyRound++;
     const cars = this.live();
     this.derbyR = derbyRadius(cars.length);
-    const slots = layoutDerby(cars.length, this.derbyR);
+    const slots = layoutDerby(cars.length, this.derbyR, this.sceneRng(0));
     this.derby.begin(
       cars.map((c, i) => ({ id: i, name: this.netSeats.get(i) ?? c.paint.name })),
       { radius: this.derbyR },
@@ -498,7 +506,7 @@ export abstract class EngineScenes extends EngineHud {
   /** One car lined up 6 m short of the corkscrew's mouth at a spawn-slider speed: the speed decides the stunt. */
   private parkCorkscrew(): void {
     const car = this.parkSolo();
-    car.spawnFacing(0, CORKSCREW.mouthZ - 6, 0, layoutFleet(1, this.speedMin, this.speedMax)[0]!.speed);
+    car.spawnFacing(0, CORKSCREW.mouthZ - 6, 0, layoutFleet(1, this.speedMin, this.speedMax, this.sceneRng(0))[0]!.speed);
     this.dressCar(car);
     this.corkFlight = "ground";
     this.corkscrew.group.visible = true;

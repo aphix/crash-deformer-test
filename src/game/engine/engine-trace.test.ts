@@ -20,6 +20,7 @@ const setup: TraceSetup = {
   speedMin: 0,
   speedMax: 32,
   scene: "fleet",
+  seed: 0x3fa2c1,
   night: true,
   wet: false,
   realism: 0.35,

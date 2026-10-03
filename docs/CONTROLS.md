@@ -77,3 +77,16 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Multiplayer | | | Net |
 
 Control particles (P): size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel.
+
+## Shareable URL
+
+The page's `#` follows the HUD: change a scene or setting and the address bar updates (no history entry, no reload); copy it, and anyone who opens it gets the same scene, settings and initial conditions. Only what differs from the defaults is written, so the default page's hash is just a seed:
+
+```
+#cars=5&smin=12&ramps=1&night=1&seed=3fa2c1
+```
+
+- **Keys** (`src/game/hud/share-url.ts` is the list): `scene` (omitted for fleet), `cars`, `smin`/`smax` (spawn speed, m/s), `night`, `wet`, `real` (realism), `fx` (only after a manual FX pick), `fxd` (particle density), `squash`, `buckle`, `loop`, `slomo`, `ts` (fixed time scale), `deform`, `car`, `barrier`/`balls`/`ramps` (fleet), the piston knobs `pkph`/`pkg`/`phard`/`phold`/`phop`, the door knobs `dkph`/`dkg`/`dside`, and, in the race, `track`/`laps`/`ai`/`aggr`/`police`/`noreset`/`spectate`. Booleans are `1`/`0`.
+- **Initial conditions:** every run picks a `seed` (up to six hex digits); the fleet's spawn spots and speeds, its balls, the corkscrew car's speed and the derby's start bearing all derive from it, so the same URL spawns the same field. With Loop on, each new run rolls a new seed and the hash follows. Fixed scenes (press, pistons, doors, range) carry no seed. A spawn-speed change applies from the next spawn (R), as in the HUD, so press R after it and the URL describes the run on screen. Not covered: what happens after spawn is a live physics run, and a race's random picks (rival aggression spread, traffic) are not seeded; a race URL restores the course, laps, field size, aggression and police setting.
+- **Applying:** the hash is applied when the page loads (it is the first reset, so the first run already uses it) and when it is edited or pasted into the open page. It is untrusted: unknown keys and malformed values are ignored, numbers clamp to the HUD's own ranges, and every value goes through the setter the HUD uses. A missing key means the default, except `fx` (a missing tier keeps Auto, or the `?fx=` pick).
+- **Netplay:** a host writes its hash like any page; a client's scene and settings are the host's, so a client neither writes nor applies the hash. `?fx=` still works beside the hash.

@@ -12,6 +12,7 @@ import { beginImpact, holdForThrow, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
+import type { SceneId } from "../scenes/scene-id.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
@@ -57,8 +58,6 @@ const FLEET_PAINT: CarPaint[] = [
   { body: 0x4a6a72, accent: 0x324850, name: "Teal" },
 ];
 
-export type SceneId = "fleet" | "press" | "pistons" | "doors" | "corkscrew" | "derby" | "race" | "range";
-
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
  * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineScenes` → `EngineRigs` →
@@ -68,6 +67,8 @@ export abstract class EngineCore {
   /** Defined by `CrashEngine` (its host callbacks reach every layer). */
   protected abstract readonly net: NetPlay;
   protected abstract emitHud(): void;
+  /** The page URL's `#` follows the HUD state (`EngineShare`). */
+  protected abstract syncShareUrl(): void;
   protected abstract queueWarm(): void;
   /** Which rig is in charge of the camera this frame, for the trace (`CrashEngine.cameraRig`). */
   protected abstract cameraRig(): string;
@@ -80,6 +81,10 @@ export abstract class EngineCore {
   showRamps = false;
   /** The one scene in play; `derbyMode` and the three rig flags read it. The race director's `active` mirrors "race". */
   protected sceneId: SceneId = "fleet";
+  /** This run's random picks (the spawns of the seeded scenes) all derive from it; the share URL carries it. */
+  protected sceneSeed = 0;
+  /** A seed the next resets reuse instead of rolling one (a pasted URL's); `EngineShare` clears it once applied. */
+  protected pinnedSeed: number | null = null;
   autoRotate = true;
   autoSlomo = true;
   audioOn = false;
@@ -332,6 +337,7 @@ export abstract class EngineCore {
       speedMin: this.speedMin,
       speedMax: this.speedMax,
       scene: this.sceneId,
+      seed: this.sceneSeed,
       night: this.stage.night,
       wet: this.stage.wet,
       realism: HANDLING.realism,

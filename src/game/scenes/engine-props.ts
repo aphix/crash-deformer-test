@@ -353,15 +353,16 @@ export function buildRampBalls(scene: THREE.Scene, balls: RampBall[]): void {
   }
 }
 
-export function scatterRampBalls(balls: readonly RampBall[], visible: boolean): void {
+/** Put the three balls on their ring; every pick comes from `rng`, so a seed lays them out the same way each time. */
+export function scatterRampBalls(balls: readonly RampBall[], visible: boolean, rng: () => number): void {
   const ringOuter = 2.32;
-  const base = Math.random() * Math.PI * 2;
+  const base = rng() * Math.PI * 2;
   for (let i = 0; i < balls.length; i++) {
     const b = balls[i]!;
-    b.radius = 0.68 + Math.random() * 0.24;
+    b.radius = 0.68 + rng() * 0.24;
     b.mesh.scale.setScalar(b.radius);
-    const a = base + (i / 3) * Math.PI * 2 + (Math.random() - 0.5) * 0.55;
-    const r = ringOuter + 3 + Math.random();
+    const a = base + (i / 3) * Math.PI * 2 + (rng() - 0.5) * 0.55;
+    const r = ringOuter + 3 + rng();
     b.mesh.position.set(Math.sin(a) * r, -(1 - BALL_EXPOSE) * b.radius, Math.cos(a) * r);
     b.intact = true;
     b.kicked.clear();

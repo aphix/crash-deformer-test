@@ -132,14 +132,18 @@ export function squashForStroke(m: number): number {
 export const STROKE_RANGE_M = { min: 0.4, max: 0.75 } as const;
 
 /**
- * Knob domains; the engine setters clamp to the same bounds. Squash is the Stroke
- * slider's range; buckle only sizes the skin wrinkle, so it keeps the full range;
- * realism is the arcade (0) ↔ realistic (1) axis (`HANDLING.realism`).
+ * Knob domains; the engine setters clamp to the same bounds, and so does the share URL. Squash is the Stroke
+ * slider's range; buckle only sizes the skin wrinkle, so it keeps the full range; realism is the arcade (0)
+ * ↔ realistic (1) axis (`HANDLING.realism`). `speed` is the spawn speed (m/s), `fxDensity` the particle
+ * density slider and `timeScale` the fixed slow-mo scale.
  */
 export const KNOB_RANGES = {
   squash: { min: squashForStroke(STROKE_RANGE_M.min), max: squashForStroke(STROKE_RANGE_M.max) },
   buckle: { min: 0, max: 1 },
   realism: { min: 0, max: 1 },
+  speed: { min: 0, max: 48 },
+  fxDensity: { min: 0, max: 1.2 },
+  timeScale: { min: 0.02, max: 2 },
 } as const;
 
 export const INITIAL_HUD: CrashHudState = {
