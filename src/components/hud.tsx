@@ -6,6 +6,7 @@ import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
+import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
@@ -13,6 +14,8 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
+import { resetInput } from "@/game/hud/reset-prompt";
+import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
@@ -121,7 +124,14 @@ export function Hud(props: HudProps) {
   const { state, engine } = props;
   // Phones and tablets get the thumb pad and touch hints; a fine pointer keeps the desktop HUD as it was.
   const touch = useCoarsePointer();
+  // What resets the driven car: the connected pad, the thumb pad's button, or R.
+  const reset = resetInput(state.pad !== null, touch, state.seat === "drive");
   const raceCommand = (cmd: RaceCommand) => engine.current?.raceCommand(cmd);
+  // The prompt's tap presses the thumb pad's reset button (D-pad down).
+  const tapReset = () => {
+    const t = engine.current?.touch;
+    if (t) t.tapped |= 1 << PAD_BUTTON.down;
+  };
   // Race focus view: race panels only; the sandbox HUD comes back with the Full menu toggle (H).
   const focus = state.race !== null && !state.race.fullUi;
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
@@ -215,7 +225,12 @@ export function Hud(props: HudProps) {
           <StartLights time={state.derbyTime} />
         </div>
       ) : null}
-      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}
+      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} reset={reset} onReset={tapReset} onCommand={raceCommand} /> : null}
+      {state.derbyView && !state.derbyWinner ? (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
+          <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} />
+        </div>
+      ) : null}
     </div>
   );
 }

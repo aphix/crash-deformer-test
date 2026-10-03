@@ -58,6 +58,8 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Focus view ↔ full menu (the sandbox hotkeys work only in the full menu) | H | | Full menu / Race view |
 | Menus: move, choose, back, resume | arrows, Enter / Space, Esc, Tab | D-pad / left stick, A, B, Start | tap |
 
+**Reset prompt**: once the car you drive has lost 2 or more wheels, a pulsing "R to reset" pill (pad: "D-pad ↓", touch: the pill itself is the button, "Tap to respawn" / "Tap to recover", pressing what the thumb pad's wrench presses) comes up mid-screen, in a race and in a derby. It shows only where the reset works: not in a no-reset race, while spectating, or in a derby while the car is upright.
+
 ## Scenes and the HUD
 
 | Action | Keyboard | Controller | Touch |

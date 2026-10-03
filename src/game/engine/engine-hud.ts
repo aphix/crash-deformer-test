@@ -1,6 +1,7 @@
 import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
 import { carGear, HANDLING } from "../vehicle/vehicle-classes.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
 
@@ -94,7 +95,16 @@ export abstract class EngineHud extends EngineWarm {
       derbyDecided: this.derby.decided,
       derbyTime: this.derby.active ? this.derby.time : null,
       derbyView: driven
-        ? { id: this.seat.carIndex, racer: null, speedKph: driven.velocity.length() * 3.6, gear: carGear(driven), boost: this.seat.boost, boosting: driven.drive.boost }
+        ? {
+            id: this.seat.carIndex,
+            racer: null,
+            speedKph: driven.velocity.length() * 3.6,
+            gear: carGear(driven),
+            boost: this.seat.boost,
+            boosting: driven.drive.boost,
+            wheelsOff: 4 - driven.deform.wheelsOn,
+            canReset: this.mayRecover(driven),
+          }
         : null,
       derbyBoard: this.derby.board.map((r) => ({
         id: r.id,
@@ -115,6 +125,11 @@ export abstract class EngineHud extends EngineWarm {
       playerClass: this.playerClass,
     });
     this.syncShareUrl();
+  }
+
+  /** R / D-pad ↓ may put `car` back on its wheels: always, but in a derby only a flipped car that still runs (no free heal). */
+  protected mayRecover(car: DeformableCar): boolean {
+    return !this.derbyMode || (!(car.group.matrixWorld.elements[5]! > 0.5) && car.deform.drivetrainAlive);
   }
 
   /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */

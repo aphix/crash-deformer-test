@@ -1028,7 +1028,18 @@ Mechanisms:
 - **C4** (`streamed-deform.ts:clampLocal`): a hub pops only on an off-centre
   (`|impactLocal.x| ≥ 0.2`, `cornerWeight > 0.6`) end-on hit at
   `hitSpeed ≥ 15 m/s` whose struck corner has crushed to within `TYRE_REACH`
-  (0.42 m) of the hub, which means 0.30 m of corner crush.
+  (0.42 m) of the hub, which means 0.30 m of corner crush. Past that a corner
+  crushed to within `HUB_OVERRUN` (0.12 m) of its hub, i.e. 0.60 m of crush,
+  loses the wheel on any real hit (`hitSpeed ≥ 3 m/s`, not a press), however
+  wide and from whichever end: a full-width hit that crushes the nose back to
+  the engine no longer keeps all four. Measured on main 108a7d8 and
+  this tree (`.bench/wheel-loss/measure.ts`): fleet sweep (40 resets × 3 cars,
+  115 crashed) wheels lost 26 → 32 (0.226 → 0.278 per crashed car), corners
+  crushed ≥ 0.6 m still holding one 5/27 → 0/28, corners crushed 0.4–0.6 m
+  unchanged; derby 10 cars × seeds 3, 4, 6 (30 cars) 9 → 10, ≥ 0.6 m still
+  holding 6/9 → 0/4. The standard crash set (wall 35/56/64, offset 64/56, side
+  50, rear 56, 2×56, 2×80, T-bone 64) changes only at 2×80 km/h head-on: both
+  front wheels now come off both cars; 2×64 and under take none.
 - **A3** (`holdEngineBlock`, every mass slice): engineL–engineR are projected
   back to their 0.60 m rest spacing, mass-weighted, with the relative
   velocity along the block removed.

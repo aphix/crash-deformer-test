@@ -291,6 +291,10 @@ export type RaceView = {
   boost: number | null;
   /** Burning boost right now. */
   boosting: boolean;
+  /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */
+  wheelsOff: number;
+  /** The reset key (R, D-pad ↓, the thumb pad's button) would act on this car right now: the HUD's reset prompt shows only then. */
+  canReset: boolean;
 };
 
 /** What the HUD reads (built by the engine glue for the local viewer); null in `CrashHudState.race` outside race mode. */

@@ -23,7 +23,9 @@ import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { BustedBanner } from "@/components/race-busted";
 import { FOCUS, FOCUS_WITHIN } from "@/components/race-menu-styles";
 import { ReelList, SavedList } from "@/components/race-reel";
+import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
+import type { ResetInput } from "@/game/hud/reset-prompt";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
@@ -137,12 +139,16 @@ export function RaceViewToggle({ race, onCommand, compact, bare }: { race: RaceH
   );
 }
 
-/** Centre-screen race moments (lights, wrong way, respawn, finish) and the modal race menus. */
-export function RaceOverlay({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
+/**
+ * Centre-screen race moments (lights, wrong way, respawn, finish) and the modal race menus. The reset prompt
+ * heads the column, so it holds its spot while the banners come and go beneath it.
+ */
+export function RaceOverlay({ race, pad, reset, onReset, onCommand }: { race: RaceHud; pad: boolean; reset: ResetInput | null; onReset: () => void; onCommand: Send }) {
   if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} />;
   const you = race.you;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
+      <ResetPrompt view={race.view} input={reset} race onTap={onReset} />
       {race.phase === null ? null : <StartLights time={race.time} />}
       {you?.wrongWay ? (
         <div
