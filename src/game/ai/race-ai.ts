@@ -56,7 +56,11 @@ const PIT_OFFSET = 1;
 /** A car on our line closer than this (m, centre to centre) is in the way even at our own pace. */
 const GAP_KEEP = 9;
 /** Centre-to-centre distance (m) a passing car closes to behind the car it is going round, until clear sideways. */
-const PASS_NOSE = 5;
+const PASS_NOSE = 7;
+/** A car with a racer this near (m) when its shortcut coin is tossed stays on the loop. */
+const MOUTH_GAP = 12;
+/** Cars this near lengthwise (m, centre to centre) still overlap each other's flanks: their lanes stay a car width apart. */
+const ABREAST = 6.5;
 /** Least closing speed (m/s) while going round a car, so the pass never stalls behind a parked one. */
 const PASS_CREEP = 2;
 /** A driver fights only above this speed (m/s), against a rival doing at least 0.6 of it. */
@@ -243,7 +247,7 @@ export class RaceBrain {
     this.seg[i] = main.k;
     // First look (race start, respawn): the line starts where the car is, no swerve to the middle.
     if (fresh) this.lane[i] = clamp(main.lateral, -tr.path.half[main.k]!, tr.path.half[main.k]!);
-    this.pickRoute(i, race, main.s);
+    this.pickRoute(i, race, main.s, self, others);
 
     let route = this.route[i]!;
     let proj = main;
@@ -269,11 +273,12 @@ export class RaceBrain {
     const fz = Math.cos(self.yaw);
     const along = self.vx * fx + self.vz * fz;
 
-    // L2: the line (main loop only; a shortcut is narrow, drive its middle).
+    // L2: the line. A shortcut is narrow, drive its middle: only the following gap (`follow`) applies there.
     this.follow = Number.NaN;
     this.chase = 0;
     this.swerve = 0;
-    const want = route < 0 ? this.line(self, p, proj.s, path.half[k]!, proj.lateral, fx, fz, along, others) : 0;
+    const wanted = this.line(self, p, proj.s, path.half[k]!, proj.lateral, fx, fz, along, others);
+    const want = route < 0 ? wanted : 0;
     const step = LANE_RATE * (1 + this.swerve) * dt;
     this.lane[i] = route < 0 ? this.lane[i]! + clamp(want - this.lane[i]!, -step, step) : 0;
     const lane = this.lane[i]!;
@@ -355,7 +360,7 @@ export class RaceBrain {
   }
 
   /** Main loop or a designed shortcut: one seeded coin per car, lap and shortcut. */
-  private pickRoute(i: number, race: RaceAiState, mainS: number): void {
+  private pickRoute(i: number, race: RaceAiState, mainS: number, self: AiCar, others: readonly AiCar[]): void {
     if (this.route[i]! >= 0) return;
     const tr = this.track;
     const n = tr.gates.length;
@@ -367,12 +372,18 @@ export class RaceBrain {
       const key = race.lap * 8 + k;
       if (this.tossed[i] === key) continue;
       this.tossed[i] = key;
-      if (this.takes(i, race.lap, k)) {
+      if (this.takes(i, race.lap, k) && !this.crowded(k, self, others)) {
         this.route[i] = k;
         this.routeSeg[i] = -1;
       }
       return;
     }
+  }
+
+  /** A racer already on shortcut `k` within `MOUTH_GAP` m of `self`: the narrow mouth takes one car at a time, the next stays on the loop. */
+  private crowded(k: number, self: AiCar, others: readonly AiCar[]): boolean {
+    for (const o of others) if (o.id !== self.id && o.id < this.racers && Math.hypot(o.x - self.x, o.z - self.z) < MOUTH_GAP) return true;
+    return false;
   }
 
   /** The car's seeded coin for shortcut `k` on lap `lap`: heads (take it) 0.3 + 0.4 × aggression of the time. */
@@ -496,9 +507,10 @@ export class RaceBrain {
       // Only at racing pace, both cars rolling on: two hungry cars that met slow or stopped brawled on
       // a wall until both were out of the race.
       const m = rival ? mood(aggr, self.damage, o.damage) : -1;
-      const fight = along > FIGHT_PACE && oAlong > 0.6 * FIGHT_PACE ? clamp(m, 0, 1) : 0;
+      const rolling = along > FIGHT_PACE && oAlong > 0.6 * FIGHT_PACE;
+      const fight = rolling ? clamp(m, 0, 1) : 0;
       const shy = clamp(-m, 0, 1);
-      if (ahead > 0.5 && ahead < SCAN * pace && inWay) {
+      if (ahead > 0.5 && ahead < SCAN * Math.max(pace, (along - oAlong) / PACE) && inWay) {
         if (along > oAlong + 0.3) {
           // Slower and on our line: pass it, ram it, or follow it.
           if (ahead < blockerAhead) {
@@ -522,6 +534,9 @@ export class RaceBrain {
       }
       if (!rival) continue;
       const oLat = lat + side;
+      // Both rolling and overlapping lengthwise: the lane keeps a car width off it, on the side it is on (the grid's
+      // two files, 4 m stagger, all steered for the middle and met nose to tail there).
+      if (rolling && Math.abs(ahead) < ABREAST && Math.abs(side) > 0.7) want = side > 0 ? Math.min(want, oLat - LINE_W - 0.9) : Math.max(want, oLat + LINE_W + 0.9);
       if (ahead < -1 && ahead > -11 && Math.abs(side) < 4.5 && oAlong > along + 0.5) {
         // Coming through from behind: a late block onto its line, or room for it.
         if (fight > 0) {
@@ -557,6 +572,8 @@ export class RaceBrain {
         this.chase = blockerFight;
         return clamp(oLat, -room, room);
       }
+      // Met head-on (closing at both cars' speed): round it at three times the lane change rate.
+      if (blockerAlong < 0) this.swerve = Math.max(this.swerve, 2);
       const left = oLat + LINE_W + 0.9;
       const right = oLat - LINE_W - 0.9;
       const leftOk = left <= room;
@@ -569,7 +586,7 @@ export class RaceBrain {
         // Passing a moving car but not yet clear of it sideways: close no faster than the gap allows
         // (a pass at boost speed side-swiped the car it was going round), so the nose waits beside its
         // tail. A stopped or crawling car is just driven round (capping speed behind one jammed the city's hairpins).
-        this.follow = blockerAlong + 0.5 + clamp((blockerAhead - PASS_NOSE) * 0.8, PASS_CREEP, 6);
+        this.follow = blockerAlong + 0.5 + clamp((blockerAhead - PASS_NOSE) * 0.8, blockerAhead > PASS_NOSE ? PASS_CREEP : -2, 6);
       }
     } else if (keep >= 0) {
       // Its speed at the gap's edge, slower inside it (`follow` is read 0.5 m/s under).

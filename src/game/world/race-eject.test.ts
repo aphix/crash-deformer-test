@@ -170,7 +170,7 @@ describe("a human who sits still is not reset by the rules (only the AI needs th
   });
 });
 
-/** The first rival, then the player, a head-on 14 m apart on the start straight, each at `mps`. */
+/** The first rival, then the player, a head-on 8 m apart on the start straight, each at `mps` (the AI rival swerves out of the way from 14 m). */
 function headOn(mps: number): void {
   const a = w.cars[PLAYER]!;
   const b = w.cars[RIVAL]!;
@@ -178,7 +178,7 @@ function headOn(mps: number): void {
   track.pointAt(s0, pt);
   const yaw = Math.atan2(pt.tx, pt.tz);
   a.spawnFacing(pt.x, pt.z, yaw, mps);
-  track.pointAt(s0 + 14, pt);
+  track.pointAt(s0 + 8, pt);
   b.spawnFacing(pt.x, pt.z, yaw + Math.PI, mps);
 }
 
