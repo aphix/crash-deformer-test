@@ -706,7 +706,11 @@ export class CrashEngine extends EngineShare {
   /** The rigs' shot, then the rear-view hold over it (undone before the next frame's rigs, so they never see it). */
   private updateCamera(wallDt: number): void {
     this.view.unflip();
+    // The ride's end hands the camera to the rigs below it: they work on the pose they left (`unfadeRide`), and the
+    // camera shown eases out of the ride's last pose into theirs, never a jump (a reel's shots are its own).
+    this.ragdolls.unfadeRide(this.camera);
     this.aimRigs(wallDt);
+    this.ragdolls.fadeRide(this.camera, wallDt, !this.highlights.playing);
     if (this.highlights.playing) return;
     const back = this.view.rear ? this.followedCar() : null;
     if (back?.group.visible) this.view.lookBack(back);

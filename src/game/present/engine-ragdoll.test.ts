@@ -269,6 +269,34 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     assert.ok(dir.dot(fwd) < -0.3, `looking back at the car: ${dir.dot(fwd).toFixed(2)}`);
   });
 
+  it("good: with no car ahead the windshield eye is low, past the dummy's slow-mo spot on the forward axis; a car ahead sends it up", async () => {
+    const open = async (sightOf: (cars: DeformableCar[], car: DeformableCar) => () => Sight) => {
+      const cars = headOn(26);
+      const threw: number[] = [];
+      const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
+      await ragdolls.preload();
+      const w = makeWorld(cars, false, false);
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+      for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
+        tickWorld(w);
+        ragdolls.update(FRAME, cars, true, true, 0, null);
+      }
+      const car = cars[threw[0]!]!;
+      const fwd = car.fwdFlat.clone();
+      const carPos = car.group.position.clone();
+      assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sightOf(cars, car)), "shot");
+      ragdolls.dispose();
+      const rel = camera.position.clone().sub(carPos);
+      return { ahead: rel.dot(fwd), up: rel.y, side: Math.abs(rel.x * fwd.z - rel.z * fwd.x) };
+    };
+    const clear = await open((_, car) => carSight([car]));
+    assert.ok(clear.up >= 1.2 && clear.up <= 2, `${clear.up.toFixed(2)} m up`);
+    assert.ok(clear.ahead >= 7 - 1e-6 && clear.ahead <= 18.001, `${clear.ahead.toFixed(2)} m ahead (as far as the high eye's first try)`);
+    assert.ok(clear.side < 1e-6, "on the forward axis");
+    const blocked = await open((cars) => carSight(cars));
+    assert.ok(blocked.up >= 3, `with the other car in the way: ${blocked.up.toFixed(2)} m up`);
+  });
+
   it("bad: a dummy flying under the eye never whips the aim past MAX_TURN, and no shot change moves the camera more than a frame", async () => {
     const cars = headOn(26);
     const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), () => ragdolls.follow(), () => {});
@@ -287,6 +315,9 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     for (let f = 0; f < 900 && riding < 480; f++) {
       tickWorld(w);
       ragdolls.update(FRAME, cars, true, true, 0, null);
+      // The settled dummy lies still ~2.5 s after landing, so the ride ends before the trackside turn: keep him
+      // "moving" so it runs through every shot change.
+      for (const d of ragdolls["dolls"]) if (d.live) d.still = 0;
       if (!ragdolls.rideAlong) continue;
       if (ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight) === "none") break;
       camera.getWorldDirection(dir);
@@ -303,12 +334,68 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
       riding++;
     }
     ragdolls.dispose();
-    // 5 s of ride. (300+ before the wheel-loss gate: this 94 km/h head-on now takes both front wheels off both cars, and the
-    // dummies' flight ends a frame sooner, 299.)
-    assert.ok(riding > 280, `rode ${riding} frames`);
-    assert.deepEqual([...shots].slice(0, 2), ["glass", "follow"], "opens on the windshield, then follows");
+    assert.ok(riding > 300, `rode ${riding} frames`);
+    assert.deepEqual([...shots].slice(0, 3), ["glass", "follow", "trackside"], "opens on the windshield, follows, then the trackside turn");
     assert.deepEqual(jumps, []);
     assert.ok(maxTurn < 4 * FRAME * 1.1, `turned ${maxTurn.toFixed(3)} rad in one frame`);
+  });
+});
+
+describe("the ride's end eases the camera into the engine's own view", () => {
+  it("bad: the first frame after the ride holds its last pose, no frame steps far, and the camera ends on the engine's view", async () => {
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+    await ragdolls.preload();
+    ragdolls.update(FRAME, [], true, true, 0, null);
+    ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, 4), w: new THREE.Vector3(), age: 0, cop: false });
+    ragdolls.follow();
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    for (let f = 0; f < 40; f++) {
+      ragdolls.update(FRAME, [], true, true, 0, null);
+      assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, OPEN), "shot");
+    }
+    const lastPos = camera.position.clone();
+    const lastQuat = camera.quaternion.clone();
+    // He lies still: the ride lets go, and the engine's own view (an orbit far from the ride's shot) places the camera.
+    ragdolls.update(FRAME, [], true, true, 0, null);
+    for (const d of ragdolls["dolls"]) d.still = 9;
+    assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, OPEN), "none");
+    const viewPos = new THREE.Vector3(14, 6, -9);
+    const viewQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(-0.4, 2.2, 0));
+    // The engine's frame: the rigs work on the pose they left (the orbit chases its view from where the camera stands), then the ease.
+    const frame = (): void => {
+      ragdolls.unfadeRide(camera);
+      camera.position.lerp(viewPos, 1 - Math.exp(-5.5 * FRAME));
+      camera.quaternion.copy(viewQuat);
+      ragdolls.fadeRide(camera, FRAME, true);
+    };
+    frame();
+    assert.ok(camera.position.distanceTo(lastPos) < 0.05 && camera.quaternion.angleTo(lastQuat) < 0.01, "the first frame keeps the ride's last pose");
+    const away = lastPos.distanceTo(viewPos);
+    const turn = lastQuat.angleTo(viewQuat);
+    let prev = camera.position.clone();
+    let prevQuat = camera.quaternion.clone();
+    let step = 0;
+    let spin = 0;
+    for (let f = 1; f <= 180; f++) {
+      frame();
+      step = Math.max(step, camera.position.distanceTo(prev));
+      spin = Math.max(spin, camera.quaternion.angleTo(prevQuat));
+      prev = camera.position.clone();
+      prevQuat = camera.quaternion.clone();
+      if (f === 29) {
+        // The 30th frame of the ease: the orbit's own chase, view + (from - view)(1 - k)^n, shown at smootherstep's weight over the ride's last pose.
+        const b = 30 * FRAME;
+        const w = b * b * b * (b * (b * 6 - 15) + 10);
+        const chase = viewPos.clone().add(lastPos.clone().sub(viewPos).multiplyScalar(Math.exp(-5.5 * FRAME * 30)));
+        const shown = lastPos.clone().lerp(chase, w);
+        assert.ok(camera.position.distanceTo(shown) < 1e-3, `${camera.position.distanceTo(shown).toFixed(3)} m from the eased chase`);
+      }
+    }
+    ragdolls.dispose();
+    // The ease is smootherstep over the whole way (steepest 1.875 of it per second) with the orbit's own chase underneath.
+    assert.ok(step < 2.2 * away * FRAME, `${step.toFixed(2)} m in one frame of ${away.toFixed(1)} m`);
+    assert.ok(spin < 1.875 * turn * FRAME * 1.05, `${spin.toFixed(3)} rad in one frame of ${turn.toFixed(2)} rad`);
+    assert.ok(camera.position.distanceTo(viewPos) < 1e-3 && camera.quaternion.angleTo(viewQuat) < 1e-6, "three seconds on, the camera is the engine's view");
   });
 });
 
@@ -325,7 +412,10 @@ describe("the user's drag holds the ride-along, which then resumes from his view
     // Once `first` lies still, with nobody holding the camera the ride would cut to the other one.
     const frame = (): string => {
       ragdolls.update(FRAME, [], true, true, 0, null);
-      if (first >= 0) ragdolls["dolls"][first]!.still = 9;
+      // The other dummy keeps moving, so the cut has somewhere to go (the settled body lies still within seconds).
+      ragdolls["dolls"].forEach((d, s) => {
+        if (d.live) d.still = s === first ? 9 : 0;
+      });
       return ragdolls.frameCamera(camera, FRAME, false, -1, held, 50, OPEN);
     };
     for (let f = 0; f < 90; f++) frame();
