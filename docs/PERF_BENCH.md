@@ -6,7 +6,7 @@ Both builds are the production `.output` already built (main `4677c4b`, base `a7
 
 - **No config is hitch-free at 240 Hz on either build.** Every config has frames over 4.2 ms and over 16.7 ms on base *and* main. Those worst frames are the browser/GL driver blocking, not game JS (see "Hitch attribution").
 - **The sim itself did not regress.** Headless step cost is within 0–13 % (p50) of base at every car count; 32 cars: 1.97 vs 1.91 ms p50.
-- **Browser frame cost: two configs look worse on main**, both render-side: **fleet 32** (median p50 7.25 vs 3.5 ms, but main runs span 4.6–9.6 and base 3.0–4.5, and the GPU was shared) and **derby 24** (p95 13.4 vs 6.1 ms, frames over 16.7 ms 168 vs 44; the two main runs 165–172, the two base runs 15–72). fleet 8, race city and race stunt are inside the repeat spread (race stunt/city p95 spread is as wide as the base-vs-main gap).
+- **Browser frame cost: two configs looked worse on main**, both render-side: **fleet 32** (median p50 7.25 vs 3.5 ms, but main runs span 4.6–9.6 and base 3.0–4.5, and the GPU was shared) and **derby 24** (p95 13.4 vs 6.1 ms, frames over 16.7 ms 168 vs 44; the two main runs 165–172, the two base runs 15–72). **Derby 24 did not reproduce on re-run (§6: 3 × 3, >16.7 ms frames base 60–189, main 76–105).** fleet 8, race city and race stunt are inside the repeat spread (race stunt/city p95 spread is as wide as the base-vs-main gap).
 - Suspects for the render-side cost are listed below; they are inferred from the diff and the profile, **not bisected** (no extra builds, as instructed).
 
 ## 1. Headless sim cost (node, no browser, no GPU)
@@ -127,3 +127,21 @@ To settle fleet 32 and derby 24, the cheapest next step is a pair of builds at *
 - **Race rows differ in workload** (Auto spectate only on main) and race length differs (base 33–36 s, main 34–38 s of sim).
 - **Headless step excludes** render, camera, FX, HUD, race director, and the derby director; derby 24 uses the derby AI and match scoring only.
 - Harness: `.bench/harness/headless.mjs`, `adv.mjs` (tracing and uncapped flags removed), `run-one.sh`, `matrix.sh`, `prof.sh`; not committed.
+
+## 6. Re-run (derby 24, 3×3)
+
+Same prebuilt outputs (a74c56e, ad535e3), same safe `adv.mjs` settings, alternating order b/m, m/b, b/m, one `heavy-slot --exclusive` hold per run. Columns: p50 / p95 / max ms, frames over 16.7 ms, draws p50, CPU ms/frame, GPU clock and utilisation at start→end, 1-minute load start→end. Every run: 63 programs, 0 linked after frame 0.
+
+| build | run | p50 | p95 | max | >16.7 ms | draws | CPU | GPU start→end | load |
+|---|---|---|---|---|---|---|---|---|---|
+| base | r1 | 4.0 | 15.7 | 1417 | 189 | 384 | 3.47 | 555 MHz P5 23 % → 2475 P0 48 % | 3.08→3.09 |
+| main | r1 | 4.8 | 7.0 | 481 | 103 | 441 | 4.28 | 2460 P0 52 % → 2460 P0 59 % | 2.77→2.72 |
+| main | r2 | 4.6 | 9.9 | 1620 | 105 | 420 | 4.07 | 2460 P0 51 % → 2460 P0 56 % | 2.51→2.89 |
+| base | r2 | 5.0 | 7.4 | 1012 | 60 | 400 | 4.45 | 2460 P0 57 % → 2460 P0 50 % | 2.99→4.04 |
+| base | r3 | 4.8 | 7.8 | 721 | 62 | 394 | 4.21 | 2460 P0 51 % → 2460 P0 63 % | 3.22→3.47 |
+| main | r3 | 4.8 | 8.0 | 1744 | 76 | 442 | 4.23 | 2460 P0 51 % → 2460 P0 55 % | 2.90→3.43 |
+
+- **Not reproducible.** Frames over 16.7 ms: base 60–189, main 76–105; p50 (4.0–5.0 vs 4.6–4.8) and p95 (7.4–15.7 vs 7.0–9.9) overlap too. No bisect was run.
+- **Pooled with §2's derby 24 runs** (base 15, 60, 62, 72, 189; main 76, 103, 105, 165, 172): exact one-sided Mann-Whitney p = 0.075 (U = 20 of 25). Leans main-worse, but it mixes two sessions with different box load; detecting a small effect would need about 8+ repeats per build in a quiet window.
+- **Hitches are ~1 s bursts of 20–77 consecutive frames over 16.7 ms on both builds** (base r2 sim-second 7: 45 frames; main r2 second 8: 77), and the 189-frame base run began on a cold GPU clock. Browser-thread CPU per frame is equal (medians 4.21 base, 4.23 main), so the stalls are GPU/driver waits, not JS.
+- **Draws are the one reproducible difference:** p50 420–442 on main vs 384–400 on base (about +47), no overlap. Sim-seconds 0–4 (before the first crash, frame ~1279) are identical on both builds (285/287/287/286/287); after damage main runs 20–100 draws above base. Probably post-damage panel shells and glass joining the scene (`openPanel` adds the shell mesh); **not enumerated**.
