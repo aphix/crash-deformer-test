@@ -136,8 +136,10 @@ describe("signaling relay", () => {
       new Request("http://relay.test/api/rtc?list=public&kind=race", { headers: { "x-forwarded-for": "10.9.9.9" } }),
       async () => sql,
     );
-    const listed: { rooms: { room: string }[] } = await list.json();
+    const listed: { rooms: { room: string; players: number; addrs: number }[] } = await list.json();
     assert.equal(listed.rooms[0]?.room, "pub-race-ZZZZ01");
+    // `players` counts every peer, `addrs` the distinct addresses the order uses: clients rank by it too.
+    assert.equal(listed.rooms.map((r) => `${r.players}/${r.addrs}`).join(" "), `2/2 ${ROOM_MAX - 1}/1 ${ROOM_MAX - 1}/1`);
 
     const third = await attacker("pub-race-AAAA03", "a2h", "host").poll();
     assert.deepEqual([third.status, third.body.error], [429, "too many public rooms"]);
@@ -170,9 +172,9 @@ describe("signaling relay", () => {
         new Request("http://relay.test/api/rtc?list=public&kind=race", { headers: { "x-forwarded-for": "10.9.9.7" } }),
         async () => sql,
       );
-      return ((await list.json()) as { rooms: { room: string; players: number; meta: string }[] }).rooms.filter((r) => r.room === "pub-race-META01");
+      return ((await list.json()) as { rooms: { room: string; players: number; addrs: number; meta: string }[] }).rooms.filter((r) => r.room === "pub-race-META01");
     };
-    assert.deepEqual(await listed(), [{ room: "pub-race-META01", players: 2, meta: "lobby.oval" }]);
+    assert.deepEqual(await listed(), [{ room: "pub-race-META01", players: 2, addrs: 2, meta: "lobby.oval" }]);
     host.meta = "running.oval";
     await host.poll();
     assert.equal((await listed())[0]!.meta, "running.oval");

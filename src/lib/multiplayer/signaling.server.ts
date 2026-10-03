@@ -150,6 +150,8 @@ function json(body: unknown, status = 200): Response {
 interface PublicRoom {
   room: string;
   players: number;
+  /** Distinct caller addresses in the room (the order below); `players` counts every peer, so one address can pad it. */
+  addrs: number;
   /** The host's `META` tag, "" from a host that sent none. */
   meta: string;
 }
@@ -173,15 +175,15 @@ const KIND = z.enum(["race", "derby"]).optional();
  * real players.
  */
 async function listPublic(sql: Sql, kind: "race" | "derby" | undefined): Promise<Response> {
-  const rows = await sql.query<{ room: string; players: number; meta: string }>(
-    `SELECT room, count(*)::int AS players, coalesce(max(meta) FILTER (WHERE name = 'host'), '') AS meta FROM webrtc_peers
+  const rows = await sql.query<{ room: string; players: number; addrs: number; meta: string }>(
+    `SELECT room, count(*)::int AS players, count(DISTINCT ip_tag)::int AS addrs, coalesce(max(meta) FILTER (WHERE name = 'host'), '') AS meta FROM webrtc_peers
      WHERE room LIKE $1 AND last_seen > now() - make_interval(secs => $2)
      GROUP BY room
      HAVING bool_or(name = 'host' AND last_seen > now() - make_interval(secs => $4)) AND count(*) < $3
-     ORDER BY count(DISTINCT ip_tag) DESC, random() LIMIT 20`,
+     ORDER BY addrs DESC, random() LIMIT 20`,
     [`${PUBLIC_PREFIX}${kind ? `${kind}-` : ""}%`, PEER_TTL_SECONDS, ROOM_MAX, HOST_FRESH_SECONDS],
   );
-  return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players), meta: r.meta })) });
+  return json({ rooms: rows.map((r): PublicRoom => ({ room: r.room, players: Number(r.players), addrs: Number(r.addrs), meta: r.meta })) });
 }
 
 /** GET ?room&peer&name&since — join (no valid token yet), heartbeat, and inbox. */

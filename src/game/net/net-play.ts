@@ -31,43 +31,10 @@ import { unpackReel } from "./reel-codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
-
-const SEND_HZ = 30;
-const KEYFRAME_EVERY = 30;
-/** A changed wreck section rides along this many snapshots (cover for lost packets). */
-const REDUNDANT = 3;
-/** Clients draw this far (s) behind the host's newest snapshot. */
-const INTERP_DELAY = 0.1;
-const RING = 8;
-/**
- * A public-race client whose host stays silent for this long (ms) of its own frame time hosts a fresh room.
- * Frame time, not wall time: the client's own stalls (the engine's boot warm-up runs no netplay frames, a
- * hidden tab, a course loading) would otherwise read as a dead host, and it would leave a live room to host a
- * duplicate (measured: 3 of 10 public rejoins after a reload).
- */
-const HOST_WAIT_MS = 5000;
-/** A public host waits this long (s) for players before the AI fills the empty seats and the race starts. */
-const LOBBY_S = 15;
-/** Seconds a finished public race shows its results before the next one starts (late joiners race then). */
-const RESULTS_HOLD = 12;
-/** The race state rides along every this many snapshots (5 Hz), and with every keyframe. */
-const RACE_EVERY = 6;
-/** A client in race mode with no race message from its host this long (ms) leaves race mode. */
-const RACE_GONE_MS = 2000;
-/** A public derby's field: peers plus AI up to this many cars. */
-const PUBLIC_DERBY_FIELD = 6;
-/** A client asks the host for a car this often (s) until it has one. */
-const HELLO_EVERY = 0.5;
-/** Host: a peer that dropped off the transport keeps its car this long (ms), so a connection blip doesn't cost its seat. */
-const SLOT_GRACE_MS = 10_000;
-/** Host: a peer's car idles once its input is this old (ms): a stalled or hidden tab must not hold full throttle. */
-const INPUT_STALE_MS = 500;
-/** Client: no word from its host this long (ms), and the host isn't merely paused, means the host is gone: ask any host for a car again. */
-const HOST_LOST_MS = 3000;
-/** A hidden host's heartbeat (ms): its tab draws no frames, so this is all its guests hear. */
-const HOLD_EVERY_MS = 1000;
-/** `MSG.assign` car: the host refuses this peer (another build). */
-const REFUSED = 255;
+import {
+  HELLO_EVERY, HOLD_EVERY_MS, HOST_LOST_MS, HOST_WAIT_MS, INPUT_STALE_MS, INTERP_DELAY, KEYFRAME_EVERY, LOBBY_S, MAX_DEAD_ROOMS,
+  PUBLIC_DERBY_FIELD, RACE_EVERY, RACE_GONE_MS, REDUNDANT, REFUSED, RESULTS_HOLD, RING, SEND_HZ, SLOT_GRACE_MS,
+} from "./net-constants.ts";
 
 /** Opens this peer's link to a room: `role` is the roster tag the relay knows it by. */
 type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta: () => string) => NetTransport;
@@ -99,8 +66,10 @@ export class NetPlay {
   /** The running public search's token (a newer search, or `leave`, cancels it) and whether it still looks. */
   private finder = 0;
   private finding = false;
-  /** A weak device's public race: the AI count to give back when its room closes. */
-  private soloAi: number | null = null;
+  /** Public rooms this session gave up on (no search joins them again) and how many in a row never answered; `leave` and `publicMatch` forget both. */
+  private dead: { rooms: string[]; unanswered: number } = { rooms: [], unanswered: 0 };
+  /** A weak device's public race: its director and the AI count to give back when the room closes. */
+  private soloAi: { race: NetRace; aiCount: number } | null = null;
   private derbyField = PUBLIC_DERBY_FIELD;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
@@ -205,9 +174,16 @@ export class NetPlay {
   /**
    * Play online (docs/MULTIPLAYER.md "Matchmaking"): join the best open public room of `kind`, else host one
    * (`findMatch` decides, with this device's `hostFit`). Resolves when the search is over; `status().finding`
-   * is true until it joins or hosts. A newer search or `leave` cancels this one; `skip` names rooms never to join.
+   * is true until it joins or hosts. A newer search or `leave` cancels this one. The player starts it, so the
+   * session's dead rooms are forgotten.
    */
-  async publicMatch(kind: PublicKind, skip: readonly string[] = []): Promise<void> {
+  async publicMatch(kind: PublicKind): Promise<void> {
+    this.dead = { rooms: [], unanswered: 0 };
+    await this.search(kind);
+  }
+
+  /** One `findMatch` that never joins a dead room: the player's search, or the one a dead room sends its guest on. */
+  private async search(kind: PublicKind): Promise<void> {
     const id = ++this.finder;
     // `start` leaves first, which cancels searches: the one deciding takes its token back.
     const claim = (): void => {
@@ -233,7 +209,7 @@ export class NetPlay {
     };
     this.finding = true;
     try {
-      await findMatch(kind, this.game.hostFit(), deps, skip);
+      await findMatch(kind, this.game.hostFit(), deps, this.dead.rooms);
     } finally {
       if (this.finder === id) this.finding = false;
     }
@@ -254,7 +230,7 @@ export class NetPlay {
       this.game.enterRace();
       const race = this.game.race();
       if (weak && race) {
-        this.soloAi = race.options.aiCount;
+        this.soloAi = { race, aiCount: race.options.aiCount };
         race.command({ type: "options", options: { aiCount: WEAK_AI } });
       }
       // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
@@ -276,7 +252,13 @@ export class NetPlay {
     this.respawnWanted = true;
   }
 
+  /** The player leaves, or the page closes: the session is over, so its dead rooms are forgotten. */
   leave(): void {
+    this.dead = { rooms: [], unanswered: 0 };
+    this.close();
+  }
+
+  private close(): void {
     this.finder++;
     this.finding = false;
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
@@ -287,8 +269,13 @@ export class NetPlay {
       // Back to a solo game: no seat stays a network peer's, and no peer's last input keeps driving.
       const race = this.game.race();
       for (const car of this.slots.values()) race?.setRemoteInput(car, this.idle);
-      if (this.soloAi !== null) race?.command({ type: "options", options: { aiCount: this.soloAi } });
-      this.soloAi = null;
+      if (this.soloAi) {
+        const { race: solo, aiCount } = this.soloAi;
+        // Race mode may have closed since (a scene pick): the director's options persist, so they are given back there too.
+        if (race) race.command({ type: "options", options: { aiCount } });
+        else solo.options = { ...solo.options, aiCount };
+        this.soloAi = null;
+      }
       this.game.setSeats(new Map());
     }
     this.setHidden(false);
@@ -385,7 +372,7 @@ export class NetPlay {
   }
 
   private start(role: NetRole, room: string, tx: NetTx): void {
-    this.leave();
+    this.close();
     const id = crypto.randomUUID().slice(0, 8);
     this.transport = this.connect(tx, room, id, role === "host" ? "host" : "client", () => this.metaNow());
     this.transport.onMessage = (from, data) => this.receive(from, data);
@@ -728,7 +715,10 @@ export class NetPlay {
     const paused = this.hostHeld && t.peers().some((p) => p.id === this.hostId);
     if (this.publicKind && !paused && !this.finding && this.silentFor * 1000 > HOST_WAIT_MS) {
       // A dead public room (its relay row outlives the host by up to 30 s) is no use to anyone: look for another, else host one.
-      void this.publicMatch(this.publicKind, [this.room]);
+      // A room that answered before and then went quiet (its host left) is a normal end, not a streak of dead ones.
+      this.dead = { rooms: [...this.dead.rooms, this.room], unanswered: this.heardHost ? 0 : this.dead.unanswered + 1 };
+      if (this.dead.unanswered < MAX_DEAD_ROOMS) void this.search(this.publicKind);
+      else this.publicHost(this.publicKind);
       return;
     }
     if (this.hostId !== null && !paused && quiet > HOST_LOST_MS) {
