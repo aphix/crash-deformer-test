@@ -249,6 +249,11 @@ export class RaceDirector extends RaceField {
     return this.session ? this.session.phase : null;
   }
 
+  /** Seconds on the race clock (negative before green, 0 at green); 0 outside a race. */
+  get time(): number {
+    return this.session ? this.session.time : 0;
+  }
+
   /**
    * Netplay client: adopt the host's rules state; a client renders it and never steps its own
    * session. `self` is this peer's car: it races only if the host seated it (`remote` in the host's

@@ -79,11 +79,11 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) runs minimal, the auto tier otherwise. */
+  /** Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier otherwise. */
   protected fxFrame(wallDt: number): void {
     const p = this.race.phase;
-    const match = p === "grid" || p === "countdown" || p === "racing" || (this.derbyMode && this.derby.active && this.derby.winnerId === null);
-    const tier = this.autoFx.frame(wallDt * 1000, match);
+    const matchTime = p === "grid" || p === "countdown" || p === "racing" ? this.race.time : this.derbyMode && this.derby.active && this.derby.winnerId === null ? this.derby.time : null;
+    const tier = this.autoFx.frame(wallDt * 1000, matchTime);
     if (tier === null) return;
     console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps)`);
     this.cine.setTier(tier);
