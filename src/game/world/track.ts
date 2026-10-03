@@ -24,8 +24,6 @@ const BLEND = 24;
  * held 0.25 m above the falling road beside it (rally node 6), a ford dropping off a bank's high side (0.35 m).
  */
 const MEET = 8;
-/** Depth of the wall band (m): only cars within it are clipped, so open ground beyond is left alone. */
-const WALL_BAND = 2.5;
 const CELL = 1;
 /** Deck lookup cell (m). */
 const DECK_CELL = 8;
@@ -114,8 +112,6 @@ export function segmentAt(p: TrackPath, k: number, x: number, z: number, out: Pa
   out.f = ((x - p.x[k]!) * ex + (z - p.z[k]!) * ez) / out.len2;
   return out;
 }
-
-export type WallHit = { x: number; z: number; nx: number; nz: number; k: number };
 
 /** A spot on the course: position (y = the path's height there, for picking the ground layer) and heading. */
 type Placement = { x: number; y: number; z: number; yaw: number };
@@ -535,33 +531,6 @@ export class Track {
     const pt = this.pointAt(s, this.pt);
     const lat = g.perRow === 1 ? 0 : (0.5 - col / (g.perRow - 1)) * 2 * pt.half * 0.55;
     return { x: pt.x + pt.tz * lat, y: pt.y, z: pt.z - pt.tx * lat, yaw: Math.atan2(pt.tx, pt.tz) };
-  }
-
-  /**
-   * Keep a body of radius `pad` inside the walls. True (and `out` = corrected position plus inward
-   * normal) when it was inside a wall band; cars beyond the band (round a wall end) are left alone.
-   */
-  wallClip(x: number, z: number, pad: number, proj: Projection, out: WallHit): boolean {
-    const k = proj.k;
-    const p = this.path;
-    const left = proj.lateral > 0;
-    if (!(left ? p.wallL[k] : p.wallR[k])) return false;
-    const limit = p.half[k]! + (left ? p.runL[k]! : p.runR[k]!) - pad;
-    const lat = Math.abs(proj.lateral);
-    if (lat <= limit || lat > limit + pad + WALL_BAND) return false;
-    const n = p.count;
-    const b = (k + 1) % n;
-    const ex = p.x[b]! - p.x[k]!;
-    const ez = p.z[b]! - p.z[k]!;
-    const len = Math.hypot(ex, ez) || 1;
-    const sx = left ? ez / len : -ez / len;
-    const sz = left ? -ex / len : ex / len;
-    out.x = proj.cx + sx * limit;
-    out.z = proj.cz + sz * limit;
-    out.nx = -sx;
-    out.nz = -sz;
-    out.k = k;
-    return true;
   }
 
   /** The baked ground (built on first use, ≈1 m heightfield over the track bounds). */

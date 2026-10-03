@@ -178,7 +178,7 @@ Every response stays ours: `wallBounce`, `applyImpact`, `kickNearestHub`, `Stron
   The course's 2163 wall segments as cuboids would cost about 730 KB per step; as one trimesh, 128 KB.
 - Accuracy: rays aimed exactly at heightfield grid vertices miss (5931 of 19 735 in 0.21.0), and 8 of 227 rays exactly on deck-mesh edges fall through to the road; tiny debris boxes with CCD fall through or off the ground (2–4 of 200).
 - Determinism: our race digest stayed identical in every process with the shadow worlds running, and every Rapier contact and pose hash matched across 2–3 worlds per process and across 3 processes.
-- Found on the way: `Track.wallClip` (26 lines) has no caller outside `track.test.ts` (ast_grep over `src`).
+- Found on the way: `Track.wallClip` (26 lines) had no caller outside `track.test.ts` (ast_grep over `src`); since removed.
 
 Verdict: reject, item by item.
 The closest are the lamp poles (even at 10 cars) and the slab (1.3× ours); neither deletes more than 62 lines, and both get worse with more cars.
