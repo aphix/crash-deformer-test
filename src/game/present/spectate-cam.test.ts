@@ -2,14 +2,14 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
-import { setGround } from "../world/ground.ts";
+import { FLAT_GROUND, setGround } from "../world/ground.ts";
 import { PREFABS } from "../world/catalog.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, blankProjection, projectPath, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { FRAME, frame, makeWorld } from "../world/race-world.test-util.ts";
-import { CINE, CineCam, DutchCam, raceSight } from "./spectate-cam.ts";
+import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, type Sight } from "./spectate-cam.ts";
 import { WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { levelAt } from "./track-mesh.ts";
 
@@ -87,6 +87,12 @@ describe("trackside cinematic cam", () => {
               bad.push(`s ${s}: sight line ${why} at ${d.toFixed(1)} m of ${len.toFixed(1)}`);
               break;
             }
+          }
+          // Room: no solid within 1.9 m flat of the eye (a spot may stand beside a bank, so not the ground).
+          for (let i = 0; i < 12; i++) {
+            const a = (i * Math.PI) / 6;
+            const why = blocked(track, placed, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
+            if (why && why !== "under the ground") bad.push(`s ${s}: ${why} within 1.9 m of the eye`);
           }
         }
         t.diagnostic(`${track.id}: ${found}/${spots} spots framed, pick ${(total / spots).toFixed(2)} ms mean, ${worst.toFixed(2)} ms worst`);
@@ -190,6 +196,67 @@ describe("wheel-well dutch cam", () => {
       for (let j = 0; j < MOUNT_COUNT; j++) assert.ok(mine >= fixed[j]!, `well ${j} kept ${fixed[j]} in view, the dutch cam ${mine}`);
     } finally {
       w.race.exit();
+      setGround(null);
+    }
+  });
+});
+
+describe("camera clearance", () => {
+  // One 12 × 14 × 12 m building, yawed 0.3 rad, on open flat ground.
+  const yaw = 0.3;
+  const sight: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [occluder(0, 0, yaw, 6, 6, false, 0, 14)] };
+  /** A point `d` m out of the building's face `side` (0..3), `slide` m along it, at height y. */
+  const off = (side: number, d: number, slide: number, y: number): [number, number, number] => {
+    const a = yaw + (side * Math.PI) / 2;
+    return [(6 + d) * Math.cos(a) - slide * Math.sin(a), y, -(6 + d) * Math.sin(a) - slide * Math.cos(a)];
+  };
+
+  it("clearSpot: false in the building, within 1.9 m of any face or roof, and at ground level; true in the open", () => {
+    assert.equal(clearSpot(sight, 0, 1.5, 0), false, "inside");
+    for (let side = 0; side < 4; side++) {
+      for (const slide of [0, 4]) {
+        assert.equal(clearSpot(sight, ...off(side, 1.9, slide, 1.5)), false, `side ${side} slide ${slide}: 1.9 m off the face`);
+        assert.equal(clearSpot(sight, ...off(side, 2.6, slide, 1.5)), true, `side ${side} slide ${slide}: 2.6 m off the face`);
+      }
+    }
+    assert.equal(clearSpot(sight, 0, 15.5, 0), false, "1.5 m over the roof");
+    assert.equal(clearSpot(sight, 0, 17, 0), true, "3 m over the roof");
+    assert.equal(clearSpot(sight, 40, 0.1, 0), false, "on the ground");
+    assert.equal(clearSpot(sight, 40, 1.5, 0), true, "open air");
+  });
+
+  it("camUsable: the building between eye and target blocks, and so does the car driving behind it within the horizon", () => {
+    const eye = { x: -30, y: 1.5, z: 0 };
+    const target = { x: 30, y: 0.7, z: -45 };
+    const still = { x: 0, y: 0, z: 0 };
+    const north = { x: 0, y: 0, z: 25 };
+    assert.equal(camUsable(sight, eye, { x: 30, y: 0.7, z: 0 }, still, 0), false, "building in the line");
+    assert.equal(camUsable(sight, eye, target, still, 2), true, "open line to a still car");
+    assert.equal(camUsable(sight, eye, target, north, 1), true, "1 s on it is still at z -20, clear of the building");
+    assert.equal(camUsable(sight, eye, target, north, 2), false, "2 s on it is behind the building");
+    assert.equal(camUsable(sight, { x: 0, y: 1.5, z: 0 }, target, still, 0), false, "eye inside the building");
+  });
+
+  it("aheadPoints: on a course the car is predicted along it, not on the straight of its velocity", () => {
+    const track = COURSES.find((c) => c.id === "oval")!;
+    const open = raceSight(track, placeProps(track));
+    setGround(track.ground());
+    try {
+      const pt = blankPoint();
+      const pr = blankProjection();
+      const out = new Float64Array(3 * (CLEAR.ahead + 1));
+      let bends = 0;
+      for (let s = 0; s < track.length; s += 10) {
+        track.pointAt(s, pt);
+        const n = aheadPoints(open, pt.x, pt.y + 0.5, pt.z, pt.tx * 40, pt.tz * 40, 4, out);
+        assert.ok(n >= 1 && n <= CLEAR.ahead + 1, `s ${s}: ${n} samples`);
+        for (let i = 0; i < n; i++) assert.ok(Math.abs(projectPath(track.path, out[3 * i]!, out[3 * i + 2]!, -1, pr).lateral) < 1, `s ${s}: sample ${i} is ${pr.lateral.toFixed(1)} m off the course`);
+        // The straight on its velocity leaves the road there: the prediction is not that line.
+        const lat = Math.abs(projectPath(track.path, pt.x + pt.tx * 160, pt.z + pt.tz * 160, -1, pr).lateral);
+        if (lat > 10) bends++;
+      }
+      assert.ok(bends > 0, "no bend in the lap leaves the straight 10 m off the road");
+    } finally {
       setGround(null);
     }
   });
