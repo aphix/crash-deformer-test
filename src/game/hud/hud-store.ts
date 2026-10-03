@@ -91,6 +91,8 @@ export type CrashHudState = {
   derbyWinner: string | null;
   /** How the derby was won: last car standing (wreck / count-out) or top score at the time limit. */
   derbyDecided: "wreck" | "countout" | "time" | null;
+  /** Derby match time (s), negative before the green light (`startLights`); null with no match running. */
+  derbyTime: number | null;
   /** `id` is the car index; `watched` marks the car the camera follows or drives; `clock` is seconds to a count-out. */
   derbyBoard: { id: number; name: string; score: number; alive: boolean; out: boolean; clock: number; watched: boolean }[];
   /** Race scene state for the HUD; null outside race mode. */
@@ -183,6 +185,7 @@ export const INITIAL_HUD: CrashHudState = {
   derby: false,
   derbyWinner: null,
   derbyDecided: null,
+  derbyTime: null,
   derbyBoard: [],
   race: null,
   seat: "global",

@@ -89,6 +89,7 @@ export abstract class EngineHud extends EngineWarm {
       derby: this.derbyMode,
       derbyWinner: this.derby.winnerName,
       derbyDecided: this.derby.decided,
+      derbyTime: this.derby.active ? this.derby.time : null,
       derbyBoard: this.derby.board.map((r) => ({
         id: r.id,
         name: r.name,

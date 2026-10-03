@@ -181,33 +181,37 @@ function PlaybackSection({ state, engine }: HudProps) {
 }
 
 function TuningSection({ state, engine }: HudProps) {
+  // Only the fleet and the corkscrew launch their cars at a spawn speed; every other scene places its own.
+  const launched = !state.race && !state.derby && !state.showCompactor && !state.showPistons && !state.showDoors && !state.range;
   return (
     <>
       <RangeRow label="Cars" name="Number of cars" value={state.carCount} min={1} max={32} step={1} digits={0} onValue={(n) => engine.current?.setCarCount(n)} />
-      <div className="flex items-center gap-2">
-        <span className="hud-label w-12 shrink-0">Spawn</span>
-        <span className="flex-1 text-xs text-muted">m/s</span>
-        {/* Each box live-commits only inside the other's bound, so typing never re-sorts the pair under the user. */}
-        <NumberField
-          value={state.speedMin}
-          digits={1}
-          min={0}
-          max={state.speedMax}
-          step={0.5}
-          label="Minimum spawn speed"
-          onValue={(n) => engine.current?.setSpeedRange(n, state.speedMax)}
-        />
-        <span className="text-xs text-muted">to</span>
-        <NumberField
-          value={state.speedMax}
-          digits={1}
-          min={state.speedMin}
-          max={48}
-          step={0.5}
-          label="Maximum spawn speed"
-          onValue={(n) => engine.current?.setSpeedRange(state.speedMin, n)}
-        />
-      </div>
+      {launched ? (
+        <div className="flex items-center gap-2">
+          <span className="hud-label w-12 shrink-0">Spawn</span>
+          <span className="flex-1 text-xs text-muted">m/s</span>
+          {/* Each box live-commits only inside the other's bound, so typing never re-sorts the pair under the user. */}
+          <NumberField
+            value={state.speedMin}
+            digits={1}
+            min={0}
+            max={state.speedMax}
+            step={0.5}
+            label="Minimum spawn speed"
+            onValue={(n) => engine.current?.setSpeedRange(n, state.speedMax)}
+          />
+          <span className="text-xs text-muted">to</span>
+          <NumberField
+            value={state.speedMax}
+            digits={1}
+            min={state.speedMin}
+            max={48}
+            step={0.5}
+            label="Maximum spawn speed"
+            onValue={(n) => engine.current?.setSpeedRange(state.speedMin, n)}
+          />
+        </div>
+      ) : null}
       <RangeRow
         label="Stroke"
         name="Crush stroke @56 km/h (m)"

@@ -303,7 +303,6 @@ export type RaceHud = {
   noReset: boolean;
   /** Race clock (s): negative before green. */
   time: number;
-  lights: 0 | 1 | 2 | 3;
   /** The local player's car (the race moments: wrong way, respawn, finish), null when there is none in this race. */
   you: {
     id: number;

@@ -62,15 +62,26 @@ the hit clock but don't score; pushes and grinding do neither. Headless, 10 cars
 medians 4–6 at 2 min (the earlier 2 m/s / 2 s rule read 15–21). The score only matters when the time limit
 decides the heat.
 
+## Start
+
+Every car starts stopped on the spawn ring, facing the bowl's centre (`layoutDerby`). The match clock runs from
+−4.5 s (`DerbyOptions.start`, default the race's `GRID_TIME + COUNTDOWN`) to the green light at 0, and the HUD shows
+race mode's start lights (`StartLights`, `startLights(time)`). Before green `DerbyMatch.held` refuses every input
+(AI, the local driver, netplay peers on the host), no count-out clock runs and nothing scores; clients mirror the
+host's clock through `MSG.derby`. The AI then launches through `applyDrive` like any driver: forward 0–50 km/h from
+its first throttle measured 0.964–0.965 s (sedan), 0.786 (muscle), 1.023–1.025 (truck) against full throttle's
+0.974 / 0.789 / 1.031 s. The brain's throttle only sets the speed it aims for (`DERBY_PACE`), never the thrust.
+
 ## Bowl size
 
-`derbyRadius(n)`: 16.4 m up to 12 cars, then wide enough that tangent neighbours on the spawn ring keep
-5.64 m (car + 1.2 m) — 32 cars ≈ 34 m. The engine scales the arena group, the AI and the wall clip to it.
+`derbyRadius(n)`: 16.4 m up to 12 cars, then wide enough that neighbours on the spawn ring keep 5.64 m
+(car + 1.2 m, sized for the old tangent spawn) — 32 cars ≈ 34 m. The engine scales the arena group, the AI and the
+wall clip to it.
 
 ## Validation (10 cars, default slider, real stack, headless)
 
 `derby-ai.test.ts` runs the engine's derby step path (dressed as `dressCar` at the game defaults,
-`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs seeds 1,2;
+`INITIAL_HUD` and killTravel(class, `HANDLING.realism`, "derby")) to the end of the heat. CI runs seeds 3,4,6,11;
 `DERBY_SEEDS=1,2,3,4,5` for the full set. Asserted per seed: a winner by the heat time limit; no
 AI-made spin (> 5 rad/s for 0.2 s with no car contact in the 0.5 s before it was flagged) in the first
 2 min; no zip (3·v·h + 5 cm); AI impacts (≥ 3 m/s closing) > 40 % rear-first and > 1.2× the nose-first; every
@@ -78,6 +89,12 @@ heat ≥ 1 swing and sideswipe, and a J-turn share ≥ 0.7× main's. Moves count
 within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
 Todo, owned by CrashRealism8: contact-induced spins (5–9 rad/s in pair contact, a physics artifact) and
 ≥ 4/5 heats won by wrecking within 300 s with no death before 8 s.
+
+Stopped start vs the old 12 m/s tangent start (main 0b7fc2f), seeds 1–12, times from green: decided by wreck 12/12
+vs 10/12 (plus a count-out and a time win); first death median 32.6 s vs 26.8 s (earliest 10.4 vs 11.4); rear-first
+53 % vs 55 % of AI impacts, J-turn share 0.210 vs 0.197. Single seeds fail by chance either way (old: rear share seed
+10, contact peak seed 4; new: rear share seeds 1 and 10, contact peak seed 5, a 6 cm zip on seed 2), so CI moved
+from 1,2,3,11 to 3,4,6,11.
 
 Main 3aa4301 (realistic defaults, `DERBY_KILL_SCALE` 0.5), 5 seeds, heat limit 300 s:
 

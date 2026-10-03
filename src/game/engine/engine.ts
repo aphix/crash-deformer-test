@@ -107,7 +107,7 @@ export class CrashEngine extends EngineReel {
       if (this.race.active) this.race.setSeats(seats);
     },
     playerName: () => this.race.playerName,
-    remoteDrivable: (i) => !this.derbyMode || (this.derbySeated.has(i) && !this.derby.isOut(i)),
+    remoteDrivable: (i) => !this.derbyMode || (this.derbySeated.has(i) && !this.derby.held(i)),
     derbyPhase: () => (!this.derbyMode ? null : !this.derby.active ? "lobby" : this.derby.winnerId == null ? "running" : "over"),
     derbyState: () => this.derbyNetState(),
     applyDerby: (s, self) => this.applyNetDerby(s, self),
@@ -555,7 +555,7 @@ export class CrashEngine extends EngineReel {
     const driven = this.seat.mode === "drive" && !this.race.active ? this.seat.carIndex : -1;
     if (driven >= 0 && driven < cars.length) {
       const car = cars[driven]!;
-      if (car.deform.drivetrainAlive && !(this.derbyMode && this.derby.isOut(driven))) applyDrive(car, this.seat.input(car, dt), dt);
+      if (car.deform.drivetrainAlive && !(this.derbyMode && this.derby.held(driven))) applyDrive(car, this.seat.input(car, dt), dt);
       if (this.seat.selfRight(car.group.matrixWorld.elements[5]!, car.velocity.length(), dt)) this.recoverDriven();
     }
     this.net.drive(cars, dt, driven);

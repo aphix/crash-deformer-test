@@ -6,6 +6,7 @@ import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
+import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -199,6 +200,11 @@ export function Hud(props: HudProps) {
               {state.derbyDecided === "time" ? "Winner on points" : state.derbyDecided === "countout" ? "Last car in the fight; the rest counted out" : "Last engine still running"}
             </p>
           </div>
+        </div>
+      ) : null}
+      {state.derbyTime !== null ? (
+        <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
+          <StartLights time={state.derbyTime} />
         </div>
       ) : null}
       {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} onCommand={raceCommand} /> : null}

@@ -539,7 +539,6 @@ export class RaceDirector extends RaceField {
       laps: s ? s.laps : this.options.laps,
       noReset: s ? s.noReset : this.options.noReset,
       time: s ? s.time : 0,
-      lights: s ? s.lights : 0,
       you,
       view,
       field: s ? s.cars.length : this.options.aiCount + 1,
