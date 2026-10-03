@@ -19,6 +19,7 @@ import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
+import { FX_REACH, Witness } from "../present/witness.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { ChaseCamera } from "../present/engine-camera.ts";
 import { CompactorPress, JerseyBarrier, buildRampBalls, type LampPole, type RampBall } from "../scenes/engine-props.ts";
@@ -163,8 +164,8 @@ export abstract class EngineCore {
   protected deadSmokeAcc: number[] = [];
   /** Per car: `elapsedWall` when it vaporized (fleet disc); unset while it is in play. */
   protected vaporAt: number[] = [];
-  protected readonly lodFrustum = new THREE.Frustum();
-  protected readonly lodMatrix = new THREE.Matrix4();
+  /** The camera cone every cosmetic skip asks (`present/witness.ts`); `scheduleSkins` and `flushVisibleSkins` read the camera into it. */
+  protected readonly witness = new Witness();
   protected lodFrame = 0;
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   protected lodStride: number[] = [];
@@ -263,7 +264,7 @@ export abstract class EngineCore {
     const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
     const paint: CarPaint =
       i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
-    const car = new DeformableCar(paint, this.scene, (origin, vel, count) => this.glassDots.burst(origin, vel, count), style);
+    const car = new DeformableCar(paint, this.scene, (origin, vel, count) => this.witness.sees(origin, FX_REACH.glass) && this.glassDots.burst(origin, vel, count), style);
     assignClass(car, cls);
     car.group.visible = false;
     car.group.userData.carIndex = i;
@@ -505,7 +506,7 @@ export abstract class EngineCore {
     const m = car.deform.massWorld("engineL");
     _v.copy(m);
     _v.y = Math.max(0.35, m.y);
-    this.smoke.wisp(_v, car.velocity);
+    if (this.witness.sees(_v, FX_REACH.smoke)) this.smoke.wisp(_v, car.velocity);
   }
 
   protected puffEngine(car: DeformableCar): void {
@@ -516,7 +517,7 @@ export abstract class EngineCore {
       const m = car.deform.massWorld(name);
       _v.copy(m);
       _v.y = 0.12;
-      this.smoke.plume(_v, car.velocity, n);
+      if (this.witness.sees(_v, FX_REACH.smoke)) this.smoke.plume(_v, car.velocity, n);
     }
   }
   /** The orbit paces the piston loop: turning, untouched by the user, and visibly moving. */

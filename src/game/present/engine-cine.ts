@@ -6,6 +6,7 @@ import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine
 import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
 import { sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { FX_REACH, type Witness } from "./witness.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 
 /** Mark-map edge (texels) per tier: 2048 over the 96 m sandbox is 4.7 cm a texel. */
@@ -123,7 +124,7 @@ export function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: 
 /** Tyre smoke rises free; it never bounces. */
 const NO_BOUNCE = (): void => {};
 
-type FxRefs = { sparks: SparkSystem; glass: GlassDotSystem };
+type FxRefs = { sparks: SparkSystem; glass: GlassDotSystem; witness: Witness };
 
 /**
  * Cinematic director: the quality tier, the post chain, the tyre-mark map and every effect that only reads
@@ -340,6 +341,11 @@ export class Cinematics {
         continue;
       }
       _v.set(w.px[s]!, 0.14, w.pz[s]!);
+      if (!this.fx.witness.sees(_v, FX_REACH.smoke)) {
+        this.smokeAcc[s] = 0;
+        this.sparkAcc[s] = 0;
+        continue;
+      }
       this.smokeAcc[s]! += slip * slip * wallDt * 60 * fxDensity;
       if (this.smokeAcc[s]! >= 1) {
         const count = this.smokeAcc[s]! | 0;

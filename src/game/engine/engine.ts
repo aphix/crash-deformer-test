@@ -13,6 +13,7 @@ import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
+import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
@@ -41,7 +42,7 @@ const LOD_RADIUS = 3.5;
 /** Projected sphere radius (CSS px) below which a car skins every 2nd / every 4th frame. */
 const LOD_SMALL_PX = 40;
 const LOD_TINY_PX = 20;
-const _lodSphere = new THREE.Sphere();
+const _lodCenter = new THREE.Vector3();
 /**
  * Distance detail: beyond `DETAIL_NEAR` m from the camera a car (never the followed one) drops its small parts
  * that cast no shadow (trims, grille, mirrors, door linings: 12 of its 20 draws) and its 4 lamps from the lamp
@@ -176,7 +177,7 @@ export class CrashEngine extends EngineShare {
     this.sparks = new SparkSystem(this.scene);
     this.smoke = new TireSmokeSystem(this.scene);
     this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i), (at, frame, inherit) => this.onExit(at, frame, inherit));
-    this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots }, MAX_CARS, this.clock.reduceMotion);
+    this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots, witness: this.witness }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|minimal|low|high` picks the tier for the session (bench A/B); the auto tier otherwise.
     const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get("fx"));
     this.cine.setTier(fxParam ?? INITIAL_HUD.fxTier);
@@ -197,7 +198,7 @@ export class CrashEngine extends EngineShare {
     // Four body lamps per car plus at most one lit siren (police flash red, then blue).
     this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
     const hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
-      if (this.elapsedWall - this.sparkAt < 0.12) return;
+      if (this.elapsedWall - this.sparkAt < 0.12 || !this.witness.sees(contact, FX_REACH.debris)) return;
       this.sparkAt = this.elapsedWall;
       this.sparks.poof(contact, normal, Math.min(56, 12 + impulse * 1.2) * this.fxDensity);
       if (impulse > 6) this.debris.burst(contact, normal, Math.min(40, impulse * 1.5) * this.fxDensity);
@@ -460,7 +461,7 @@ export class CrashEngine extends EngineShare {
    * so no car is ever drawn on-screen with a dent it has not been given. The followed car always skins.
    */
   private scheduleSkins(cars: DeformableCar[]): void {
-    this.updateLodFrustum();
+    this.witness.aim(this.camera);
     this.lodFrame++;
     const followed = this.followedCar();
     for (let i = 0; i < cars.length; i++) {
@@ -471,35 +472,29 @@ export class CrashEngine extends EngineShare {
     }
   }
 
-  /** After the camera update: any owed car now on screen at full rate, or just entering the view, skins before it draws. */
+  /**
+   * After the camera update: any owed car now on screen at full rate, or just entering the view, skins before it draws.
+   * Always reads the final camera into `witness`: next frame's FX spawns (decided before its rigs aim) ask that cone.
+   */
   private flushVisibleSkins(): void {
+    this.witness.aim(this.camera);
     const cars = this.live();
     let followed: DeformableCar | null | undefined;
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;
       if (!car.deform.skinOwed) continue;
-      if (followed === undefined) {
-        this.updateLodFrustum();
-        followed = this.followedCar();
-      }
+      if (followed === undefined) followed = this.followedCar();
       const stride = car === followed ? 1 : this.skinStride(car);
       if (stride === 1 || (stride > 1 && this.lodStride[i] === 0)) car.flushDeferredSkin();
       this.lodStride[i] = stride;
     }
   }
 
-  private updateLodFrustum(): void {
-    this.camera.updateMatrixWorld();
-    this.lodMatrix.multiplyMatrices(this.camera.projectionMatrix, this.camera.matrixWorldInverse);
-    this.lodFrustum.setFromProjectionMatrix(this.lodMatrix);
-  }
-
-  /** 0 off-screen, else skin every Nth frame by projected size. Needs `updateLodFrustum` this frame. */
+  /** 0 off-screen, else skin every Nth frame by projected size. Needs `witness.aim` this frame. */
   private skinStride(car: DeformableCar): number {
-    _lodSphere.center.set(car.group.position.x, car.group.position.y + 0.6, car.group.position.z);
-    _lodSphere.radius = LOD_RADIUS;
-    if (!this.lodFrustum.intersectsSphere(_lodSphere)) return 0;
-    const d = _v.setFromMatrixPosition(this.camera.matrixWorld).distanceTo(_lodSphere.center);
+    _lodCenter.set(car.group.position.x, car.group.position.y + 0.6, car.group.position.z);
+    if (!this.witness.mayWitness(_lodCenter, LOD_RADIUS)) return 0;
+    const d = _v.setFromMatrixPosition(this.camera.matrixWorld).distanceTo(_lodCenter);
     if (d <= LOD_RADIUS) return 1;
     const halfHeightPx = (this.renderer.domElement.height / this.renderer.getPixelRatio()) * 0.5;
     const px = (LOD_RADIUS / (d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)))) * halfHeightPx;
@@ -608,7 +603,7 @@ export class CrashEngine extends EngineShare {
     const { impulse, contact, normal } = w.strongest;
     if (!this.derbyMode && !this.race.active && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
-    } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16) {
+    } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16 && this.witness.sees(contact, FX_REACH.sparks)) {
       this.sparkAt = this.elapsedWall;
       this.sparks.poof(contact, normal, Math.min(56, 18 + impulse * 0.8) * this.fxDensity);
     }

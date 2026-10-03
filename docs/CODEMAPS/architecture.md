@@ -51,15 +51,16 @@ tickInner(now)                               wallDt ≤ 0.1 s
  │     race.step(h) (rules: gates, laps, respawns); the strongest hit starts the impact (beginImpact)
  │   cutDrive, bleedAfterSlide
  ├ stepEdge()                               fleet disc: `edgeAction` (fleet.ts): 2 m below the top a car becomes a fake (`beginFakeFall`: soft body off, ballistic drop + constant spin), 20 m below it vaporizes (`setVaporized`: smoke, hidden, out of the sim), the driven one respawns after 2 s (`respawnOnDisc`)
- ├ scheduleSkins(cars) → car.updateDeform(simDt)   LoD stride / frustum → skin
+ ├ scheduleSkins(cars) → car.updateDeform(simDt)   witness.aim(camera), then LoD stride (0 outside the cone, else by projected size) → skin
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
  ├ updatePhase (stepPhase) · FX · cine.update (marks, tyre smoke, punch) · trace · stepDerby · seat.step · race.frame
  ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit
- ├ flushVisibleSkins() · lampLights.update · stage.syncPools (night)
+ ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · lampLights.update · stage.syncPools (night)
  ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain
  └ emitHud()  every 0.05–0.12 s
 ```
 `phase`: `approach → impact → slowmo → aftermath` (`phase.ts`: `CrashPhase`, `PhaseClock`, `easeTimeScale`, `beginImpact`, `stepPhase`, shared with the headless harnesses); `beginCinematic` fires on the first strong contact and calls `cine.impact`.
+`Witness` (`present/witness.ts`): the one broad "could the camera see this?" test, `mayWitness(center, radius)` = the camera frustum grown by 1.5 m + the radius, occluders ignored on purpose. It only gates cosmetic work: off-cone skins (`skinStride` 0, caught up by `flushVisibleSkins`) and FX spawns (`sees(at, FX_REACH.x)`: sparks, debris, glass, engine smoke, tyre smoke and scrape sparks). Never gated: the sim, audio, tyre marks, the crash cinematic's own bursts, ragdoll exits. `witness.enabled` / `gateFx` switch it off for A/B probes.
 
 ## Scenes (one at a time: `sceneId` + `setScene()` in `engine-scenes.ts`)
 | Scene | Key | Entry | Code |
