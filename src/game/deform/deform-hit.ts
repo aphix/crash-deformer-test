@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { clampSpeed, hypot2 } from "./physics-util.ts";
 import { resetCluster } from "./shape-match.ts";
 import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
+import { FACES, FACE_AXIS } from "./load-crush.ts";
 
 /** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
 const REARM_QUIET = 0.3;
@@ -147,9 +148,11 @@ export abstract class DeformHit extends DeformRig {
     group.updateWorldMatrix(false, false);
     const ox = group.position.x;
     const oz = group.position.z;
-    for (const m of this.masses) {
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
       m.local.copy(m.rest);
-      m.world.copy(m.rest).applyMatrix4(group.matrixWorld);
+      this.offsetByCrush(i, m.local, this.crushBaked);
+      m.world.copy(m.local).applyMatrix4(group.matrixWorld);
       m.vel.copy(worldVel);
       // v = ω × r with ω = (0, ωy, 0): yaw integrates as rotation.y += ωy·dt.
       const rx = m.world.x - ox;
@@ -161,6 +164,37 @@ export abstract class DeformHit extends DeformRig {
       m.baseX = 0;
       m.baseZ = 0;
     }
+  }
+
+  /** Mass `i`'s `local` moved inward by the face depths `depth` (m): each face pushes the masses that follow it (`loadW`). */
+  private offsetByCrush(i: number, local: THREE.Vector3, depth: Float64Array): void {
+    for (let f = 0; f < FACES; f++) {
+      const d = depth[f]! * this.loadW[i * FACES + f]!;
+      if (d === 0) continue;
+      local.x -= FACE_AXIS[f * 3]! * d;
+      local.y -= FACE_AXIS[f * 3 + 1]! * d;
+      local.z -= FACE_AXIS[f * 3 + 2]! * d;
+    }
+  }
+
+  /**
+   * Bake the face depths that grew since the last bake into the masses of a body that is not simulating them (a
+   * kinematic car, or a wreck in rigid flight), and mark the skin owed: `update` re-skins from the masses once.
+   * `crushBaked` holds the growth while the masses take it, then the depths baked.
+   */
+  bakeLoadCrush(): void {
+    if (this.massActive) return;
+    let grew = false;
+    for (let f = 0; f < FACES; f++) {
+      const g = this.crush[f]! - this.crushBaked[f]!;
+      this.crushBaked[f] = g;
+      grew ||= g !== 0;
+    }
+    if (grew) {
+      for (let i = 0; i < this.masses.length; i++) this.offsetByCrush(i, this.masses[i]!.local, this.crushBaked);
+      this.loadDirty[0] = 1;
+    }
+    this.crushBaked.set(this.crush);
   }
 
   /** `impulse` drives FX and glass; `ebs` (equivalent barrier speed, m/s) sizes the crush. */

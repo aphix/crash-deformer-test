@@ -95,6 +95,19 @@ export function roofTopY(x: number, z: number, style: BodyStyle): number {
   return r.y + (u < us ? lerp(ROOF_CROWN, ys, u / us) : lerp(ys, 0, (u - us) / (1 - us)));
 }
 
+/**
+ * The body's top surface (m over the tyre plane) at car-local (`x`, `z`): the roof panel over the cabin, easing to the
+ * beltline over the bonnet and boot and out across the shoulder; NaN past the body's plan. What a car resting on this
+ * one stands on (`CarSurfaces`).
+ */
+export function bodyTopY(x: number, z: number, style: BodyStyle): number {
+  const sl = sampleSlice(z, style.profile);
+  const r = roofAt(z, style);
+  const ax = Math.abs(x);
+  if (ax > sl.hw || Math.abs(z) > CAR_HALF.z) return NaN;
+  return ax <= r.x ? roofTopY(x, z, style) : lerp(r.y, sl.yBelt, (ax - r.x) / Math.max(sl.hw - r.x, 1e-3));
+}
+
 /** Side glass top edge: tucked under the roof cant rail. */
 export function glassTopY(z: number, style: BodyStyle): number {
   return roofAt(z, style).y - 0.075;

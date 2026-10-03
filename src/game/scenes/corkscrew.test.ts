@@ -9,6 +9,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { droop } from "../vehicle/car-suspension.ts";
+import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
 
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
@@ -62,8 +63,19 @@ function launch(v: number): Run {
     }
     car.updateDeform(FRAME);
     let low = Infinity;
-    for (const [x, y, z] of HULL) {
-      p.set(x, y, z).applyQuaternion(q).add(car.group.position);
+    for (let i = 0; i < HULL.length; i++) {
+      const [x, y, z] = HULL[i]!;
+      p.set(x, y, z);
+      // A face that yielded (`load-crush.ts`) has its body points moved in: the crushed body is what meets the ground.
+      if (i >= WHEEL_POS.length) {
+        for (let f = 0; f < FACES; f++) {
+          const d = car.deform.crush[f]! * faceFollow(f, x, y, z);
+          p.x -= FACE_AXIS[f * 3]! * d;
+          p.y -= FACE_AXIS[f * 3 + 1]! * d;
+          p.z -= FACE_AXIS[f * 3 + 2]! * d;
+        }
+      }
+      p.applyQuaternion(q).add(car.group.position);
       low = Math.min(low, p.y - cork.heightAt(p.x, p.z, p.y));
     }
     up.set(0, 1, 0).applyQuaternion(q);
@@ -81,7 +93,7 @@ function launch(v: number): Run {
   }
   const upY = up.y;
   car.dispose();
-  return { air, landRoll, upY, dip, rest: upY > 0.5 ? "wheels" : upY < -0.5 ? "roof" : "side" };
+  return { air, landRoll, upY, dip, rest: upY > 0.5 ? "wheels" : upY < 0 ? "roof" : "side" };
 }
 
 /**

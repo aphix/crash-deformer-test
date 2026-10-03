@@ -20,6 +20,8 @@ const _axis = new THREE.Vector3();
  * 0.1 m outboard of a pushed door went 8% deeper than the door (piston `right`), at 0.65 within 1%.
  */
 const SKIN_STRAIN = 0.65;
+/** The roof mass sunk past this (m) is load crush: a crash alone holds it within `maxLift` (0.07 m, deep 0.28), so the skin's 0.1 m roof clamp lifts. */
+const SUNK_ROOF = 0.075;
 
 /** Skin LoD and bake flags: the renderer's, not the solver's, so a `simState` block leaves them out. */
 const SKIN_FLAGS = new Set(["dirty", "skinnedThisFrame", "skinDeferred", "skinOwed"]);
@@ -404,6 +406,12 @@ export class StreamedDeformation extends DeformSolve {
     }
   }
 
+  /** The skin's 0.1 m roof clamp holds unless load crush sank the roof mass past `SUNK_ROOF` (read off the baked masses: a netplay client's skin lifts it the same way). */
+  private roofHolds(): boolean {
+    const roof = this.byName.get("roof")!;
+    return this.massPos[this.masses.indexOf(roof) * 3 + 1]! > roof.rest.y - SUNK_ROOF;
+  }
+
   protected skin(geometry: THREE.BufferGeometry): void {
     const attr = geometry.getAttribute("position") as THREE.BufferAttribute;
     const arr = attr.array as Float32Array;
@@ -432,7 +440,7 @@ export class StreamedDeformation extends DeformSolve {
     const ampK = wrinkle * 0.16 * (0.35 + b * 0.65);
     const extraCap = 0.03 + b * 0.08;
     const cap = shape ? 1.35 : 2.2;
-    const roofClamp = !this.deepCrush;
+    const roofClamp = !this.deepCrush && this.roofHolds();
     const kernel = skinKernel();
     const nor = geometry.getAttribute("normal") as THREE.BufferAttribute | undefined;
     if (kernel && geometry.index && nor && nor.count === attr.count && nor.array instanceof Float32Array) {
