@@ -7,6 +7,7 @@ import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, Q, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
+import { foldHeading } from "../present/shot-cam.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 
 /** What a replay needs from its scene: dress a respawned car, and the course's walls and props for car `slot`. */
@@ -29,8 +30,6 @@ const TELEPORT = 5;
  * of a pop. The sim itself takes the keyframe's pose whole.
  */
 const POP_TAU = 0.2;
-/** The focus car's travel direction (`ClipSim.heading`) is low-passed over this many clip seconds. */
-const HEADING_TAU = 0.3;
 
 /**
  * One highlight clip re-run through the real sim (docs/HIGHLIGHTS.md): its cars respawned from keyframe 0 (a wreck
@@ -72,8 +71,8 @@ export class ClipSim {
   private readonly popQ: Float64Array;
   private popping = false;
   /**
-   * The focus car's travel direction (flat, unit: its velocity, its body's heading when nearly still), low-passed over
-   * `HEADING_TAU`: a wreck's own velocity swings 4° and more between frames, which a camera behind it must not copy.
+   * The focus car's travel direction (flat, unit: its velocity, its body's heading when nearly still), low-passed per
+   * step by `foldHeading`: a wreck's own velocity swings 4° and more between frames, which a camera behind it must not copy.
    */
   readonly heading = new THREE.Vector2();
   /** Clip seconds the recording runs. */
@@ -152,7 +151,7 @@ export class ClipSim {
     this.heading.set(0, 0);
     this.firstHit = -1;
     for (let j = 0; j < this.cars.length; j++) this.spawn(j, 0);
-    this.turn(0);
+    foldHeading(this.heading, this.cars[this.clip.focus]!, 0);
     this.aliveA = this.cars[this.clip.firstA]!.deform.drivetrainAlive;
     this.key = 1;
   }
@@ -220,7 +219,7 @@ export class ClipSim {
       this.time += h;
       this.step++;
       if (this.popping) this.decay(h);
-      this.turn(h);
+      foldHeading(this.heading, this.cars[this.clip.focus]!, h);
     }
     HANDLING.realism = saved;
   }
@@ -273,7 +272,11 @@ export class ClipSim {
     }
   }
 
-  /** Undo `present`: every car back on the sim's own pose, exactly (the Euler angles are what the sim reads). */
+  /**
+   * Undo `present`: every car back on the sim's own pose, exactly. A grounded car's Euler angles are what the sim
+   * reads; an airborne or falling one's quaternion is (the Euler is derived from it), and quaternion -> Euler -> quaternion
+   * is not exact: write the quaternion, then the Euler only if the car's own differs.
+   */
   private restore(): void {
     if (!this.presented) return;
     this.presented = false;
@@ -282,7 +285,9 @@ export class ClipSim {
       const g = this.cars[j]!.group;
       const m = j * 10;
       g.position.set(k[m]!, k[m + 1]!, k[m + 2]!);
-      g.rotation.set(k[m + 7]!, k[m + 8]!, k[m + 9]!);
+      g.quaternion.set(k[m + 3]!, k[m + 4]!, k[m + 5]!, k[m + 6]!);
+      const r = g.rotation;
+      if (r.x !== k[m + 7] || r.y !== k[m + 8] || r.z !== k[m + 9]) r.set(k[m + 7]!, k[m + 8]!, k[m + 9]!);
     }
   }
 
@@ -351,20 +356,6 @@ export class ClipSim {
     this.popQ.fill(0);
     for (let n = 3; n < this.popQ.length; n += 4) this.popQ[n] = 1;
     this.popping = false;
-  }
-
-  /** After a step of `h` s: the focus car's travel direction folds into `heading`. */
-  private turn(h: number): void {
-    const car = this.cars[this.clip.focus]!;
-    const speed = Math.hypot(car.velocity.x, car.velocity.z);
-    const dx = speed > 2 ? car.velocity.x / speed : car.fwdFlat.x;
-    const dz = speed > 2 ? car.velocity.z / speed : car.fwdFlat.z;
-    const k = this.heading.lengthSq() < 1e-9 ? 1 : 1 - Math.exp(-h / HEADING_TAU);
-    const hx = this.heading.x + (dx - this.heading.x) * k;
-    const hz = this.heading.y + (dz - this.heading.y) * k;
-    const len = Math.hypot(hx, hz);
-    if (len > 1e-6) this.heading.set(hx / len, hz / len);
-    else this.heading.set(dx, dz);
   }
 
   /** The course's wall or a prop touched the clip's car in race slot `slot` (`RaceField.onWallHit`). */

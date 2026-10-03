@@ -77,11 +77,15 @@ car per rendered frame at 60 and 240 Hz): 87–88% of the slow-mo's frames at 60
 where the last frame had it, and a car-mounted camera saw 420–470 m/s² (60 Hz) and 6600–7500 m/s² (240 Hz) of second
 difference (p99). `advanceTo` therefore runs the step `until` falls in, and `ClipSim.present(until)` draws every car
 between the pose before that step and the one it left. The sim's own state is never the drawn one: `advanceTo` puts the
-exact state back first (`engine-highlights.test.ts`: a replay with a drawn frame inside every step ends on the same
-state as one without). Two more jerks, one in each window: a keyframe moves a car by the replay's drift (median 3–25 cm,
-some 1–2 m, every 0.5 s before the hit), which `present` draws as an offset decaying over `POP_TAU` (0.2 s) instead of a
-pop (not at the impact's keyframe, whose drift the hit shows); and the chase shot read the wreck's own velocity, which
-swings 4° and more a frame, so `ClipSim.heading` low-passes it over `HEADING_TAU` (0.3 s). Second difference p99, after:
+exact state back first, the quaternion as well as the Euler angles (an airborne or falling car's quaternion is the sim's
+own, and quaternion to Euler to quaternion is not exact: stunt clips ended 1.1e-12 off at 60 Hz and 2.6e-13 at 240
+before; `engine-highlights.test.ts`: a replay with a drawn frame inside every step ends on the same state as one
+without, on the city's ramming clip and on every stunt clip). Two more jerks, one in each window: a keyframe moves a car
+by the replay's drift (median 3–25 cm, some 1–2 m, every 0.5 s before the hit), which `present` draws as an offset
+decaying over `POP_TAU` (0.2 s) instead of a pop (not at the impact's keyframe, whose drift the hit shows); and the chase
+shot read the wreck's own velocity, which swings 4° and more a frame, so `ClipSim.heading` low-passes it (`foldHeading` in
+`shot-cam.ts`, over `HEADING_TAU`, 0.3 s, per step; the Auto cam folds the same heading per frame). Second difference
+p99, after:
 0 stalled frames; slow-mo 0.1–10 m/s² at 60 Hz and 0.3–5 at 240 Hz; run-in at 60 Hz 310–390 (was 2850–5200) and 21–117
 rad/s² of rotation (was 480–490); chase aftermath at 240 Hz 2200–4200 (was 29000–35000).
 

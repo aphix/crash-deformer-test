@@ -149,6 +149,64 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   return false;
 }
 
+/** A chase eye is pulled in at most this far (m) toward its subject, and bisected to 1 / 2^`PULL_BISECT` m. */
+const PULL_MAX = 6;
+const PULL_BISECT = 6;
+/** The pull-in eases back out at this rate (1/s) once the way is clear. */
+const PULL_OMEGA = 8;
+
+function eyeSolid(s: Sight, eye: Vec3, dir: Vec3, d: number): boolean {
+  return solid(s, eye.x + dir.x * d, eye.y + dir.y * d, eye.z + dir.z * d, CINE.pad);
+}
+
+/**
+ * How far (m, at most `PULL_MAX`) a chase `eye` must move along `dir` (unit: its view) to stand `CINE.pad` clear of every
+ * solid (a street corner, a wall): 0 at one solid test when it already does. The first clear metre, bisected to 1.6 cm, so
+ * the distance grows and shrinks smoothly as the eye moves into or out of a solid (whole metres popped it a metre in one frame).
+ */
+function pullIn(s: Sight, eye: Vec3, dir: Vec3): number {
+  if (!eyeSolid(s, eye, dir, 0)) return 0;
+  let hi = 1;
+  while (hi < PULL_MAX && eyeSolid(s, eye, dir, hi)) hi++;
+  if (eyeSolid(s, eye, dir, hi)) return PULL_MAX;
+  let lo = hi - 1;
+  for (let i = 0; i < PULL_BISECT; i++) {
+    const mid = (lo + hi) / 2;
+    if (eyeSolid(s, eye, dir, mid)) lo = mid;
+    else hi = mid;
+  }
+  return hi;
+}
+
+/**
+ * The one pull-in of both chase rigs, `ChaseCamera` (the spectator's chase) and `ShotCam` (the Auto and reel chase): an eye
+ * inside a solid (a street corner, a wall) moves in along its view to stand clear (`pullIn`) at once as the solid closes on
+ * it, and eases back out (`PULL_OMEGA`) once the way is clear, unless the eased eye would stand in a solid: it never shows
+ * inside one and never pops by whole metres on the way out.
+ */
+export class EyePull {
+  /** How far (m) the eye is pulled in now. */
+  private d = 0;
+
+  reset(): void {
+    this.d = 0;
+  }
+
+  /**
+   * Move `eye` in along `dir` (unit, its view) past `s`'s solids, `dt` s after the last call. `dt` Infinity: no easing, so
+   * the eye depends on where it stands alone (a reel's camera depends only on the poses, never on frame times).
+   */
+  apply(s: Sight, eye: THREE.Vector3, dir: THREE.Vector3, dt: number): void {
+    let d = pullIn(s, eye, dir);
+    if (d < this.d) {
+      const e = d + (this.d - d) * Math.exp(-PULL_OMEGA * dt);
+      if (e > d && e > 0.01 && !eyeSolid(s, eye, dir, e)) d = e;
+    }
+    this.d = d;
+    eye.addScaledVector(dir, d);
+  }
+}
+
 /** `_near` = the occluders whose footprint, grown by `pad`, can reach the flat box around a→b. */
 function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: number): Occluder[] {
   _near.length = 0;
