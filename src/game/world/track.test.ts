@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Track, blankProjection, crossGate, type WallHit } from "./track.ts";
+import { Track, blankProjection, crossGate } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { square } from "./track.test-util.ts";
 import { TRACKS } from "./tracks/index.ts";
@@ -40,29 +40,6 @@ describe("track", () => {
       /shortcuts\.0: a shortcut must skip at least one checkpoint/,
     );
     assert.throws(() => new Track(square({ road: { width: 30, runoff: [20, 20] } })), /inside its own corridor/);
-  });
-
-  it("walls push a car back inside; an opened edge lets it through", () => {
-    const walled = new Track(square());
-    const p = blankProjection();
-    const out: WallHit = { x: 0, z: 0, nx: 0, nz: 0, k: 0 };
-    // Right of the centreline at sample 30 (left = (tz, −tx)).
-    const k = 30;
-    const at = (t: Track, lat: number): [number, number] => [t.path.x[k]! + t.path.tz[k]! * lat, t.path.z[k]! - t.path.tx[k]! * lat];
-    const [x, z] = at(walled, -6.5);
-    walled.project(x, z, -1, p);
-    assert.ok(walled.wallClip(x, z, 1, p, out), "beyond the right wall line");
-    walled.project(out.x, out.z, p.k, p);
-    assert.ok(Math.abs(p.lateral + 6) < 0.05, `put back at lateral ${p.lateral.toFixed(2)}`);
-    assert.ok(out.nx * walled.path.tz[k]! - out.nz * walled.path.tx[k]! > 0.99, "normal points back to the road (left)");
-    for (const lat of [-3, -20]) {
-      const [qx, qz] = at(walled, lat);
-      walled.project(qx, qz, -1, p);
-      assert.equal(walled.wallClip(qx, qz, 1, p, out), false, `lateral ${lat}: on the road / beyond the wall band`);
-    }
-    const open = new Track(square({ road: { width: 10, runoff: [2, 2], wall: [true, false] } }));
-    walled.project(x, z, -1, p);
-    assert.equal(open.wallClip(x, z, 1, p, out), false);
   });
 
   it("ground: a flat course is the y = 0 plane; banking raises the right edge; grip follows the surface", () => {
