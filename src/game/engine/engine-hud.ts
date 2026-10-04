@@ -1,6 +1,7 @@
 import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
-import { carGear, HANDLING } from "../vehicle/vehicle-classes.ts";
+import { carGauge } from "../match/car-view.ts";
+import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { mayRecoverFlipped } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
@@ -25,11 +26,9 @@ export abstract class EngineHud extends EngineWarm {
     const drivenView = driven && {
       id: this.seat.carIndex,
       racer: null,
-      speedKph: driven.velocity.length() * 3.6,
-      gear: carGear(driven),
+      ...carGauge(driven),
       boost: this.seat.boost,
-      boosting: driven.drive.boost,
-      wheelsOff: 4 - driven.deform.wheelsOn,
+      chase: null,
       canReset: this.mayRecover(driven),
     };
     this.hudStore.publish({

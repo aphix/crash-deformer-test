@@ -200,6 +200,27 @@ export function carGear(car: { style: { id: CarStyleId }; velocity: { x: number;
   return along < -0.5 ? 0 : gearAt(CLASSES[carClass(car)], along) + 1;
 }
 
+/** Revs (0-1 of the dial) at the foot of a gear bucket; a shift drops back to it. */
+const REV_FLOOR = 0.3;
+/** Revs at a stopped or reversing car. */
+const REV_IDLE = 0.18;
+
+/**
+ * The gauge's fake revs 0-1: there is no engine model, so they climb with forward speed through the current gear bucket
+ * (`gearAt`): `REV_FLOOR` at the bucket's foot, 1 (the redline) at its top, and back down at the next gear's foot.
+ * Pure function of speed and class, so it matches the gear shown beside it exactly.
+ */
+export function carRpm(car: { style: { id: CarStyleId }; velocity: { x: number; z: number }; fwdFlat: { x: number; z: number } }): number {
+  const along = car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
+  if (along < 0) return REV_IDLE;
+  const k = CLASSES[carClass(car)];
+  const g = gearAt(k, along);
+  const lo = g === 0 ? 0 : k.gears[g - 1]![0] * k.topSpeed;
+  const hi = k.gears[g]![0] * k.topSpeed;
+  const share = Math.min(1, (along - lo) / (hi - lo));
+  return g === 0 ? REV_IDLE + (1 - REV_IDLE) * share : REV_FLOOR + (1 - REV_FLOOR) * share;
+}
+
 /** The class whose durability arms a car's kill limits: a police cruiser in the player's slot (car 0) keeps the sedan's, so only AI police units are tougher. */
 export function killClass(car: { style: { id: CarStyleId }; group: { userData: Record<string, unknown> } }): VehicleClassId {
   const cls = carClass(car);

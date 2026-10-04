@@ -83,6 +83,13 @@
     0 0 8px rgb(0 0 0 / 0.5);
 }
 
+/* The race drive cluster (race-gauge.tsx): one size var, so the dial scales with the window height (a 768 px window gets a smaller dial); the bottle is sized in em of it. */
+.drive-cluster {
+  --g: clamp(9.5rem, 22dvh, 16rem);
+  --g-em: calc(var(--g) * 0.05);
+  width: var(--g);
+}
+
 /* Touch HUD at rest: `.hud-grid` carries `data-idle` once nothing in it has been tapped for a few seconds (use-hud-idle).
    `idle:` classes calm what blocks the view (hide details, dim, shrink to a chip that wakes the HUD when tapped) and
    outrank breakpoint utilities because the ancestor selector adds specificity. */
