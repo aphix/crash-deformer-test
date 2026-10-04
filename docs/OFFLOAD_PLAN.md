@@ -234,7 +234,37 @@ At derby-32:
 - `frontTransfer` runs 2246 times and `nodePacked` 13128 times, inclusive 5.6 ms.
 - The solve runs serially in pair order (Gauss–Seidel). A pool cannot split it without changing results, and a WASM port means porting the deform state, which the owner rules out.
 
-Candidate JS fixes: re-pose each car once per SAT pass instead of once per push, and cache `frontTransfer` per car per pass. Both change results, so they need new digests and replay validation. They live in `pair-contact.ts` and `deform-contact.ts`, so they belong to Airborne or a lane after Airborne lands. The upper bound is about 15 ms of the 44 ms derby-32 frame. Not measured beyond these inclusive times.
+Candidate JS fixes: re-pose each car once per SAT pass instead of once per push (lever A), and cache `frontTransfer` per car per pass (lever B). Both change results unless done exactly. The upper bound was about 15 ms of the 44 ms derby-32 frame.
+
+### Outcome (lane PairSolve, headless node, `.bench/pair`)
+Box: shared WSL, 14 cores, load 7–28 during every run, so absolute ms are noisy and only runs interleaved in one hold compare.
+
+**Landed: exact speed-ups (lever B, done without a cache).** Every digest equals main's (derby-32 `e3b57665`, fleet-32 `763b65dd`, derby-10 `c9ede8ed`), derby-10 seeds 1–48 give byte-identical results on every metric, and eight 16/24-car pile-ups give identical digests. REPLAY_VERSION is not bumped: the live sim is bit-identical.
+- `nodePacked` walks only the beams that end on its mass (`massBeams`, 4.6 of 46 beams), and `cornerWeight` is a per-hit table (`massCornerW`; it ran `exp` per mass per call, in `clampMass` too).
+- `tyreStop` skips tyre pairs clear of each other by more than their travel along some axis.
+- `satCars` skips hull pairs whose circumscribed circles are apart.
+- `collideWith` returns when the two cars' mass bounds are apart. `separateAlong` of nothing returns.
+
+| derby-32, wall ms/frame (mean / p50 / p95), load 7–11 | main | + nodePacked, cornerWeight | + tyreStop | + satCars | + collideWith, separateAlong |
+|---|---|---|---|---|---|
+| ms | 20.77 / 18.55 / 31.34 | 19.33 / 17.31 / 30.83 | 16.12 / 14.82 / 24.59 | 13.09 / 12.42 / 17.47 | 12.27 / 11.64 / 15.84 |
+| alloc KB/frame | 1997 | 1683 | 1677 | 1675 | 1639 |
+
+Same code, other holds: derby-32 `B` over main is 0.78 / 0.70 of the frame in the wall-time holds (load 13–28) and 0.80 in the CPU-time hold; fleet-32 0.87 (p50 3.11 → 2.58); derby-10 0.80 (p50 3.96 → 3.18).
+
+**Measured, not landed: lever A (re-pose once per SAT pass).** `pushBody` shifts the frame and refits the locals under the moved masses; `refit()` runs the full `followGroup` once per pass. `followGroup` calls per frame: derby-32 1732 → 569, fleet-32 511 → 333, derby-10 375 → 180; alloc 2001 → 1166 KB/frame at derby-32. It changes results (derby-32 digest `ac36174f`). Against main's spread, derby-10 seeds 1–48 (finish 40/48 vs 42/48, first death 31.4 vs 29.6 s, contacts per car-minute 8.46 vs 9.09, peak contact turn rate mean 4.73 vs 4.83 and max 6.49 vs 6.45 rad/s, zips 4 vs 6, hooked pairs per car-minute 0.36 vs 0.44) and the 16/24-car pile-ups (max push per slice 0.052 m, same cap) stay inside the spread. It is red on the race pile-up in `replay-fidelity.test.ts`: max velocity error 4.8e-4 to 8.4e-4 m/s against the bound 1e-4 in 12 of 12 shifted spawns (main: 2e-5, 12 of 12 pass). So it is not landed.
+- 87 % of `takePush` calls return 0 (the slice's budget is spent), and each still re-poses. That re-pose is not a no-op: 19 % change the car's velocity by 1e-3 m/s or more and 1 % move a mass 1 mm or more, so skipping them is not exact either.
+- The derby pile-up bound in `replay-fidelity.test.ts` passes 3 of 12 times on main itself when the four spawns shift by k·1e-9 m (`.bench/pair/fragility.ts`): any trajectory change has about a one in four chance of staying inside it.
+
+| derby-32 (wall ms/frame mean / p50 / p95, one interleaved hold, load 13–17) | main | B (landed) | A | A + B |
+|---|---|---|---|---|
+| ms | 22.80 / 20.65 / 33.50 | 17.87 / 15.63 / 27.36 | 20.36 / 18.18 / 30.62 | 15.81 / 14.50 / 24.79 |
+| alloc KB/frame | 2001 | 1639 | 1166 | 1009 |
+| `resolveCarPair` inclusive ms (profile) | 13.02 | 7.18 | 7.22 | 4.44 |
+| `followGroup` | 5.04 | 4.01 | 1.50 | 1.67 |
+| `satCars` | 3.56 | 1.93 | 2.83 | 2.03 |
+| `tyreStop` | 2.58 | 1.25 | 1.50 | 0.68 |
+| `frontTransfer` / `nodePacked` | 2.58 / 1.84 | 0.91 / 0.62 | 1.90 / 1.31 | 0.89 / 0.58 |
 
 ## 7. How this relates to Rapier
 - **Separate modules and instances.** The skin kernel is its own 11 KB module with its own memory, and runs on the main thread:
