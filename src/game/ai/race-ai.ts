@@ -125,7 +125,8 @@ type RaceAiState = {
  *     negative part, `shy`, keeps a clean driver off other cars. Fight: ram a slower rival ahead on
  *     our line, late-block a rival coming through, shove a rival alongside door to door, hunt a
  *     rival up to `HUNT` m (× pace) ahead (onto its line to push it, or a PIT tap at its rear quarter)
- *     and boost to catch it. Aggression 0: shy only, clean racing.
+ *     and boost to catch it. Aggression 0: shy only, clean racing. Up to 0.5 (`CAREFUL`) a driver fights only a rival it
+ *     can shove safely (`safeShove`: a nudge's closing speed, road beyond it, off a crest), swinging over gently (`SHOVE_LAT`).
  *  L3 drive: pure pursuit to a point ahead on the line; speed from the class's corner speed for the
  *     curvature, grip and shortcut junctions ahead under a braking budget. Boost on a clear run while
  *     the plan at the boosted top wants more speed, from a meter that drains and refills like the
