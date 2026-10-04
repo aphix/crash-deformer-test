@@ -12,6 +12,8 @@ const LON = 6;
 const TAP = DERBY_RULES.hitSpeed * 0.75;
 /** Sideways acceleration (m/s²) a car can steer away with. */
 const STEER_ACC = 6;
+/** Deceleration (m/s²) a car ahead is assumed to shed while the guard looks 1.5 s on: a driver brakes for what it sees up the road. */
+const LEAD_DECEL = 10;
 /** The most the guard moves the wheel (of full lock): a nudge to clear a side-swipe, never a swerve off the road or the route. */
 const STEER_CAP = 0.35;
 /** A yaw rate (rad/s) under this is a straight line. */
@@ -54,8 +56,9 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
     let n0 = 0;
     let l0 = 0;
     let w0 = 0;
-    const ox = Math.sin(o.yaw);
-    const oz = Math.cos(o.yaw);
+    const ospeed = Math.hypot(o.vx, o.vz);
+    const ox = ospeed > 0.1 ? o.vx / ospeed : Math.sin(o.yaw);
+    const oz = ospeed > 0.1 ? o.vz / ospeed : Math.cos(o.yaw);
     for (let t = 0; t <= HORIZON + 1e-9; t += STEP) {
       // Where the guarded car is and which way it points after t s on its arc (`dx`, `dz`: its displacement).
       const turned = omega * t;
@@ -63,15 +66,19 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
       const dz = straight ? sz * t : (speed / omega) * (Math.sin(heading + turned) - Math.sin(heading));
       const gx = Math.sin(nose + turned);
       const gz = Math.cos(nose + turned);
-      const rx = o.x + o.vx * t - self.x - dx;
-      const rz = o.z + o.vz * t - self.z - dz;
+      // The other keeps its heading and sheds speed at `LEAD_DECEL` (a car ahead braking for what it sees), down to a stop.
+      const te = Math.min(t, ospeed / LEAD_DECEL);
+      const shed = ospeed * te - 0.5 * LEAD_DECEL * te * te;
+      const rx = o.x + ox * shed - self.x - dx;
+      const rz = o.z + oz * shed - self.z - dz;
       const pn = rx * gx + rz * gz;
       const pl = rx * gz - rz * gx;
       // The zone is a car-shaped ellipse around either car: crossing traffic is long across the guarded car's path.
       const qn = -(rx * ox + rz * oz);
       const ql = -(rx * oz - rz * ox);
       const m = Math.min((pl / LAT) ** 2 + (pn / LON) ** 2, (ql / LAT) ** 2 + (qn / LON) ** 2);
-      const w = Math.hypot(o.vx - (straight ? sx : speed * Math.sin(heading + turned)), o.vz - (straight ? sz : speed * Math.cos(heading + turned)));
+      const ov = Math.max(0, ospeed - LEAD_DECEL * t);
+      const w = Math.hypot(ox * ov - (straight ? sx : speed * Math.sin(heading + turned)), oz * ov - (straight ? sz : speed * Math.cos(heading + turned)));
       if (t === 0) {
         n0 = pn;
         l0 = pl;
