@@ -437,8 +437,11 @@ One stack, `world/ground-stack.ts` (`GROUND_STACK`), orders every flat layer: te
 ## Contacts
 Walls: six footprint probes against the wall line on each side with a wall flag; push out along the
 inward normal, reflect normal speed (e = 0.15), crumple above 5.5 m/s closing, sparks above 1.5 m/s.
-Props: solid colliders push out the same way; knock props fly off (`TrackArt.knock`) and take speed in
-proportion to their mass. Car-to-car contact is the sandbox's own.
+Props: a solid or knock collider meets the car's whole footprint rectangle (`contact/prop-contact.ts`
+`footprintOverlap`, a separating-axis test against the box or circle) and pushes it out along the least overlap axis,
+toward the side the car's centre is on, so a thin panel (Havana's 0.6 m alley wall) can never push a corner out through
+its far face; knock props fly off (`TrackArt.knock`) and take speed in proportion to their mass. Car-to-car contact is
+the sandbox's own.
 
 ## Courses
 | Id | Name | Length | Character | Shortcuts |

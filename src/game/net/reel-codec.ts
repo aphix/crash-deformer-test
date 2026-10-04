@@ -19,10 +19,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * each face's load crush (a stack's roofs replay crushed as live, docs/LOAD_CRUSH.md); 8: each step's dt as a float32
  * instead of whole microseconds, and the solver state's hit block, `impactLocal`, `impactInward` and `endEbs2`; 9: the
  * solver state as doubles instead of float32 pairs (a keyframe restores a wreck bit for bit) and the clip's `fine` block
- * as the pedals' doubles, NaN where not recorded, instead of one rounding byte each; the pile-ups replay to the bit).
+ * as the pedals' doubles, NaN where not recorded, instead of one rounding byte each; the pile-ups replay to the bit; 10:
+ * the live sim changed under the same bytes: a car meets a solid or knock prop with its whole footprint, not six probes,
+ * so a clip recorded against a prop replays another hit).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 9;
+const REPLAY_VERSION = 10;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
