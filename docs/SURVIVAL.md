@@ -131,10 +131,12 @@ Single player. A netplay room never offers it: the button is hidden while hostin
 
 - Held still beside the cops (handbrake, 80 m down the boulevard behind a test wall), final map: the cops wreck the car at 28.6 s with 3 cops wrecked, after an 11.1 s hold: 0.9 s short of the bust. Ramming against the 12 s hold is an open tuning question; the cops already ease to a creep within 12 m of a stopped player. The exact 12 s is tested at the session (`match/survival.test.ts`); the full-stack test accepts a bust or a wreck and rejects an early bust.
 
+- CPU cost of a frame (physics, contacts, rules, hunters; no render), node, ring tour at 14 m/s with the pack forced up quickly: 5 hunting 1.05 ms p50 / 1.76 p95; 8: 2.12 / 3.26; 12: 3.05 / 3.82 (max 7.3); 15: 4.11 / 5.98 (max 8.1). About 0.27 ms per cop. The browser frame (render, 23 draws per car) was **not** measured, so `HUNT.cap` = 12 stays a CPU-only choice.
+
 ## Browser proof (vite dev in a heavy slot, `__crush.advance`, no uncapped flags)
 
 One scripted session on havana: pick Survival from the scene bar, the countdown, W held for 20 s (6 cops by 21.6 s, the schedule), then sat on the handbrake: **Busted** at 33.6 s (hold meter at 1, 0 cops wrecked, *New best*, a "4-car pile-up" highlight in the card), Retry (best 33.634 shown, formation back), W held: **Wrecked** at 1:18.416 with 9 cops wrecked and 5 highlights, Leave. Then Survival again, and hosting a room from it: the scene went back to Fleet and the Survival button was gone from the bar. Console errors: 0. Shots (git-ignored): `.bench/shots/02-countdown`, `04-run-20s`, `05-sitting`, `06-end-banner`, `07-results`, `09-end2-banner`, `12-hosting`.
 
 ## Not done
 
-The frame cost at the cap of 12 cops (`HUNT.cap` / `HUNT.units` are unmeasured), the set piece tuned on the final map (three cops at the foot within 0.5 s, cops leaving the ground at the crest, the brake-overshoot variant), the cop wedged at (21, 178), and a bust-or-wreck balance for a player who stops.
+The browser frame cost at the cap of 12 cops, the set piece tuned on the final map (three cops at the foot within 0.5 s, cops leaving the ground at the crest, the brake-overshoot variant), the cop wedged at (21, 178), and a bust-or-wreck balance for a player who stops.
