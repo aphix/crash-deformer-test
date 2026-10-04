@@ -203,8 +203,8 @@ searches the whole path: 12-18% of the cells within 25 m of a road. A trackside 
 courses (0.44-0.62 before), the grid builds in 3-30 ms once a course.
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
 (`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 14 of 186 (rally) and
-55 of 272 (stunt, tight walls) wall spots have a cut left to the chase. The pick costs 0.8-1.4 ms median (max 4.8 ms) a
-hit, once, where the middle-only pick cost 0.07-0.29 ms (max 1.1 ms).
+55 of 272 (stunt, tight walls) wall spots have a cut left to the chase. The crash cam's pick (`crashAxis`) costs 0.7-1.3 ms median, 1.1-4.7 ms at p95 and 15 ms at worst (stunt) a hit, once, where the
+middle-only pick cost 0.07-0.29 ms median and 1.1 ms at worst.
 
 In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
@@ -230,14 +230,17 @@ a switch to "high".
 
 The host runs the reel; clients never record.
 
-1. At "over" the race calls `reelReady`. The engine packs the reel (`packReel`), sends it once on the reliable channel
-   (`NetPlay.sendReel`, `MSG.reel`, since `NET_VERSION` 5) and plays the *decoded* bytes itself at
+1. At "over" the race calls `reelReady`. The engine packs the reel (`packReel`), sends it once on the reliable channel as
+   `MSG.reelPart` frames (`NetPlay.sendReliable`, `reelParts`) and plays the *decoded* bytes itself at
    `now + RESULTS_DELAY`, the moment the results sheet opens.
-2. `MSG.reel` is the type, the seed (u32), the start in host-clock seconds (f64), then the clips deflated
-   (`deflate-raw`). In rank order, a clip goes in only if the message still fits `REEL_MSG_MAX` (240 KiB, under
-   WebRTC's 256 KiB message cap): a clip too big drops alone, the ones below it that fit still go, and the host warns
-   in the console how many dropped. On the seed-5 race the 5-clip reel sends 3 (227.6 KiB); the largest clip alone is
-   176.5 KiB.
+2. The reel message is the type (`MSG.reel`), the seed (u32), the start in host-clock seconds (f64), then every clip deflated
+   (`deflate-raw`). It is cut into frames of 32 KiB (`net/reel-wire.ts`: `MSG.reelPart`, a flags byte `FIRST` / `LAST`, up to
+   `REEL_PART` bytes), so a reel of any size passes the relay's 240 KiB message cap and WebRTC's 256 KiB one: before
+   (`NET_VERSION` 5-9) a reel over `REEL_BUDGET` (240 KiB) dropped whole clips (the seed-5 race sent 3 of 5). The reliable
+   channel is ordered, so a client's `ReelParts` gathers a reel from its `FIRST` frame to its `LAST` (a new `FIRST` drops a
+   half-gathered one, and more than 4 MiB, `REEL_WIRE_MAX`, drops it). Measured in two Chromium pages over WebRTC (city, 10
+   cars, pedal bytes noise-filled to be incompressible): 280,795 bytes in 9 frames and 385,042 bytes in 12 frames, both with
+   every clip on the guest, which played the same shot as the host. `NET_VERSION` is 10.
 3. A client decodes it (`unpackReel`) and plays it at `startAt + offset`, its estimate of the host clock. While the
    reel plays it draws no host snapshots, because the reel owns the cars. The reel stops when race mode ends or the
    next race sets up (no session, grid or countdown). It does not stop on "racing": the host's race state reaches a
