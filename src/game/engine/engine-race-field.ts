@@ -198,8 +198,8 @@ export abstract class RaceField {
   protected spectating = false;
   protected overFor = -1;
   protected readonly seg = new Int32Array(MAX_CARS).fill(-1);
-  /** Per car, the end of its last wall step: where it stood (`Infinity` x: no history, as after a placement) and how far past a wall line (`wall`). */
-  private readonly wallX = new Float64Array(MAX_CARS).fill(Infinity);
+  /** Per car, the end of its last wall step: where it stood (`Infinity` x: no history, as after a placement: `relocated`) and how far past a wall line (`wall`). */
+  protected readonly wallX = new Float64Array(MAX_CARS).fill(Infinity);
   private readonly wallZ = new Float64Array(MAX_CARS);
   private readonly wallBeyond = new Float64Array(MAX_CARS);
   private readonly flipFor = new Float64Array(MAX_CARS);

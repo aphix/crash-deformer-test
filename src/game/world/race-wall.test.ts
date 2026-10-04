@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
 import { FRAME, frame, makeWorld, type World } from "./race-world.test-util.ts";
 import { Track, blankProjection } from "./track.ts";
+import { placeProps, propColliders } from "./placements.ts";
 import { TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
 
@@ -148,6 +149,45 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       w.race.courseHit(car, 0);
       const back = lat(0);
       assert.ok(back < limit - 0.9 && back > limit - 3, `returned to ${back.toFixed(2)} m, the wall line at ${limit.toFixed(2)} m`);
+    } finally {
+      w.race.exit();
+      setGround(null);
+    }
+  });
+
+  // A replay keyframe puts a car on its recorded spot (`ClipSim` -> `relocated`); a pose change under WALL_JUMP (4 m) alone forgets nothing.
+  it("a car put on a new spot by a keyframe 3.7 m from where it stood is judged afresh, not by the wall memory of the old spot", () => {
+    const w = raceWorld("city", 0);
+    try {
+      const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
+      const p = track.path;
+      // A walled stretch (10 samples either side) with no solid prop within 8 m of the three poses below: a prop would push the car too.
+      const props = propColliders(placeProps(track));
+      const free = (j: number) =>
+        [-2, -0.9, 2.8].every((d) => {
+          const lat = p.half[j]! + p.runL[j]! + d;
+          return props.every((c) => Math.hypot(c.x - (p.x[j]! + p.tz[j]! * lat), c.z - (p.z[j]! - p.tx[j]! * lat)) > c.r + 8);
+        });
+      let k = 20;
+      while (!(free(k) && Array.from({ length: 21 }, (_, d) => p.wallL[(k + d - 10 + p.count) % p.count]).every(Boolean))) k++;
+      const limit = p.half[k]! + p.runL[k]!;
+      const car = w.cars[0]!;
+      const lateral = () => track.project(car.group.position.x, car.group.position.z, k, blankProjection()).lateral;
+      const put = (lat: number) => car.spawnFacing(p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, Math.atan2(p.tx[k]!, p.tz[k]!), 0);
+      // On the road first (the course hint finds this stretch), then 2.8 m beyond the line (its footprint 3.7 m): a 4.8 m pose
+      // change forgets the road-side history, and a car that arrives beyond the line is outside it: the wall leaves it alone.
+      put(limit - 2);
+      w.race.courseHit(car, 0);
+      put(limit + 2.8);
+      w.race.courseHit(car, 0);
+      assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car beyond the wall line from outside is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
+      // A keyframe puts it 3.7 m back, its footprint 0.13 m past the line (0.05 m at the flank, the rest the bend under the
+      // front probes; under WALL_CONTACT): freshly placed, so it is in contact and the wall returns it that 0.13 m.
+      put(limit - 0.9);
+      w.race.relocated(0);
+      w.race.courseHit(car, 0);
+      const pushed = limit - 0.9 - lateral();
+      assert.ok(pushed > 0.1 && pushed < 0.2, `the placed car is pushed back ${pushed.toFixed(3)} m (expected about 0.13)`);
     } finally {
       w.race.exit();
       setGround(null);

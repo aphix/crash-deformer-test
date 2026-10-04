@@ -444,7 +444,8 @@ A wall remembers each car's last step (`RaceField.wall`): a push undoes a penetr
 road side, so a car left more than 0.25 m beyond the line last step (it came through a mouth or from another road, e.g. the
 city's back alley, 13 m off the loop) is outside the wall and is not pushed back across it until it is on the road; one
 left within 0.25 m (a wall starting under a car at the line) is pushed only what it went further this step; a pose change over
-4 m (spawn, respawn) forgets the history. Before this a car beyond the line by less than 3 m was thrown back the whole way in one step
+4 m (spawn, respawn) forgets the history, and so does any placement whatever its distance (a patrol park, a highlight replay's
+keyframe: `RaceDirector.relocated`). Before this a car beyond the line by less than 3 m was thrown back the whole way in one step
 (a 3 m teleport at 29 m/s; 18 of them in 120 s of the city race).
 Props: a solid or knock collider meets the car's whole footprint rectangle (`contact/prop-contact.ts`
 `footprintOverlap`, a separating-axis test against the box or circle) and pushes it out along the least overlap axis,
