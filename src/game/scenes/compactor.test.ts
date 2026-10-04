@@ -448,7 +448,8 @@ describe("a held press keeps its crush", () => {
       for (let f = 0; f < 120; f++) {
         r.step(1 / 60, COMPACTOR.maxFace);
         car.afterContacts(1 / 60);
-        car.updateDeform(1 / 60);
+        car.stepBreakage(1 / 60);
+        car.updateSkin();
         d.masses.forEach((m, i) => {
           if (at[i]! - crush(m) > drop) {
             drop = at[i]! - crush(m);

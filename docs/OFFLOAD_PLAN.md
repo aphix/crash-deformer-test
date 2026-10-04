@@ -10,7 +10,7 @@ The real cost is the car-pair solve: 64 % of a 32-car derby frame. It runs seria
 
 ## How this was measured
 - Box: the shared WSL dev box, 14 cores, node 24.15. Load average was 27–56 during every run, so treat absolute ms as noisy. Compare rows that ran back to back.
-- Headless harness: the engine's frame order (accumulator of fixed steps, `stepWorld`, `settleStep`, then `updateDeform` per car), after the boot `warmCrashPath`.
+- Headless harness: the engine's frame order (accumulator of fixed steps, `stepWorld`, `settleStep`, then `updateSkin` per car; the table below was measured when it was called `updateDeform`), after the boot `warmCrashPath`.
   - fleet: pile-up at 18–28 m/s, frames 0–360.
   - derby: every car driving at the bowl centre, as in `physics-alloc.test.ts`; 300 warm frames, then 600 measured.
   - race: the oval with the real `RaceDirector`, 900 frames from the green light.

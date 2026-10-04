@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { FINE_BYTES, INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -15,11 +15,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * Clip layout version: bump on any change to `writeClip` or to a keyframe's bytes after its snapshot (2: each car's
  * flight block and solver state; 3: that state XORed on the car's previous keyframe's; 4: the solver state's
  * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`; 5: the race's driver-look seed after
- * the deform mode; 6: `ejects` and the ejections tail, a thrown driver's step and launch numbers). A saved clip also
- * records `NET_VERSION` (its snapshots' layout).
- * 7: `simState` carries each face's load crush (a stack's roofs replay crushed as live, docs/LOAD_CRUSH.md).
+ * the deform mode; 6: `ejects` and the ejections tail, a thrown driver's step and launch numbers; 7: `simState` carries
+ * each face's load crush (a stack's roofs replay crushed as live, docs/LOAD_CRUSH.md); 8: each step's dt as a float32
+ * instead of whole microseconds, and the solver state's hit block, `impactLocal`, `impactInward` and `endEbs2`).
+ * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 7;
+const REPLAY_VERSION = 8;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -34,8 +35,8 @@ const EJECTION_BYTES = 4 + 2 + 22 * 4;
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
-  let n = 1 + utf8(c.trackId) + 74 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
-  n += 4 + c.h.length * (2 + nc * INPUT_BYTES) + 2;
+  let n = 1 + utf8(c.trackId) + 82 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  n += 4 + c.h.length * (4 + nc * INPUT_BYTES) + 8 + c.fine.length + 2;
   for (const k of c.keys) n += 8 + k.length;
   return n + 1 + c.ejections.length * EJECTION_BYTES;
 }
@@ -58,8 +59,8 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.u8(c.firstB < 0 ? 255 : c.firstB);
   w.f64(c.realism);
   w.u8(c.bleed ? 1 : 0);
-  w.f32(c.squash);
-  w.f32(c.buckle);
+  w.f64(c.squash);
+  w.f64(c.buckle);
   w.u8(c.deformMode === "lattice" ? 1 : 0);
   w.u32(c.look);
   w.u8(c.cars.length);
@@ -70,10 +71,14 @@ export function writeClip(w: Writer, c: HighlightClip): void {
     w.str(car.name);
   }
   w.u32(c.h.length);
-  // Whole microseconds (the recorder rounds them so: `CrashRecorder.file`); a step is ≤ 50 ms.
-  for (const h of c.h) w.u16(Math.round(h * 1e6));
+  // Each step's dt as the recorder's ring holds it (float32): whole microseconds moved a 2 x 20 m/s head-on's wreck 8 mm and its crush 10 mm.
+  for (const h of c.h) w.f32(h);
   w.bytes.set(c.inputs, w.off);
   w.off += c.inputs.length;
+  w.u32(c.fineFrom);
+  w.u32(c.fine.length / (c.cars.length * FINE_BYTES));
+  w.bytes.set(c.fine, w.off);
+  w.off += c.fine.length;
   w.u16(c.keys.length);
   for (let k = 0; k < c.keys.length; k++) {
     w.u32(c.keyStep[k]!);
@@ -111,8 +116,9 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const firstB = b === 255 ? -1 : b;
   const realism = r.f64();
   const bleed = r.u8() === 1;
-  const squash = r.fin32();
-  const buckle = r.fin32();
+  const squash = r.f64();
+  const buckle = r.f64();
+  if (!Number.isFinite(squash) || !Number.isFinite(buckle)) throw new RangeError("clip crumple");
   const deformMode = r.u8() === 1 ? "lattice" : "shape";
   const look = r.u32();
   const nc = r.u8();
@@ -131,11 +137,16 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   if (steps < 1 || steps > MAX_STEPS) throw new RangeError("clip steps");
   const h = new Float32Array(steps);
   for (let s = 0; s < steps; s++) {
-    h[s] = r.u16() / 1e6;
+    h[s] = r.fin32();
     if (!(h[s]! > 0)) throw new RangeError("clip dt");
   }
   const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
   for (let i = 0; i < inputs.length; i++) inputs[i] = r.u8();
+  const fineFrom = r.u32();
+  const fineSteps = r.u32();
+  if (fineFrom + fineSteps > steps) throw new RangeError("clip fine steps");
+  const fine = new Uint8Array(fineSteps * nc * FINE_BYTES);
+  for (let i = 0; i < fine.length; i++) fine[i] = r.u8();
   const nk = r.u16();
   if (nk < 1 || nk > MAX_KEYS) throw new RangeError("clip keys");
   const keyStep = new Uint32Array(nk);
@@ -153,11 +164,10 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (kr.u8() !== MSG.snapshot) throw new RangeError("clip key type");
     kr.off = 0;
     readSnapshot(kr, check, L);
-    // Then per car: its drift (q16), and after all of them per car its flight block and solver state (`encodeKey`).
-    kr.off += nc * 2;
+    // Then per car its flight block (`FLIGHT` doubles) and solver state (`encodeKey`).
     let j = 0;
-    for (; j < nc && kr.off + FLIGHT * 4 + 2 <= len; j++) {
-      kr.off += FLIGHT * 4;
+    for (; j < nc && kr.off + FLIGHT * 8 + 2 <= len; j++) {
+      kr.off += FLIGHT * 8;
       const n = kr.u16();
       kr.off += n * 4;
     }
@@ -174,7 +184,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || e.car >= nc || (k > 0 && step < ejections[k - 1]!.step)) throw new RangeError("clip ejection");
     ejections.push({ step, e });
   }
-  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, keyStep, keys };
+  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, fineFrom, fine, keyStep, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

@@ -17,7 +17,8 @@ export function fireRam(
   for (let t = 0; t < 30 && rig.phase !== "idle"; t += dt) {
     car.integrate(dt);
     rig.step(dt);
-    car.updateDeform(dt);
+    car.stepBreakage(dt);
+    car.updateSkin();
   }
   return rig.result();
 }

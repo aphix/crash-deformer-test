@@ -15,6 +15,12 @@ import { assertSameNumbers } from "../vehicle/test-support.ts";
 /** A ramming field on the city course: its first crash comes early in lap 1. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
 const SEED = 5;
+/**
+ * The seed of the tests that need the field's first clip to open on intact cars with its focus car driving (a clip that
+ * leaves nothing of the race torn but what it restores, and a car moving through the slow-mo). Seed 5's first clip opens
+ * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 4 and 8) opens on none, the focus car at 17 m/s.
+ */
+const CLEAN_SEED = 2;
 
 describe("highlight reel timeline", () => {
   it("bad: the reel must play a clip at 1× up to the hit, hold the phase.ts slow-mo over it, then catch up to the end", () => {
@@ -46,11 +52,11 @@ function hostOf(w: World): ReelHost {
   };
 }
 
-function race(w: World, field = FIELD): void {
+function race(w: World, field = FIELD, seed = SEED): void {
   w.race.enter();
   w.race.command({ type: "quit" });
   w.race.command({ type: "options", options: field });
-  w.race.reseed(SEED);
+  w.race.reseed(seed);
   w.race.command({ type: "start" });
   w.seat.mode = "follow";
 }
@@ -127,7 +133,7 @@ describe("highlight reel and the race's leftovers", () => {
   it("bad: a clip's setup empties the scene (the race's torn parts on the cars it hides included) and the reel ending empties what the clips left; no reel up clears nothing", async () => {
     const a = makeWorld();
     try {
-      race(a);
+      race(a, FIELD, CLEAN_SEED);
       const reel = await recordedReel(a);
       const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
       for (const c of a.cars) c["detachPart"](c["parts"].find((p) => p.region)!, 12);
@@ -191,7 +197,7 @@ describe("highlight reel frames", () => {
   it("bad: a car moving through the slow-mo is drawn moving on every frame at 60 and 240 Hz, and drawing never changes the replay", async () => {
     const a = makeWorld();
     try {
-      race(a);
+      race(a, FIELD, CLEAN_SEED);
       const reel = await recordedReel(a);
       const clip = reel.clips[0]!;
       const tl = clipTimeline(clip.firstImpact, clip.h.reduce((s, h) => s + h, 0));

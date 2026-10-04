@@ -53,7 +53,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
  │     race.step(h) (rules: gates, laps, respawns); the strongest hit starts the impact (beginImpact)
  │   cutDrive, bleedAfterSlide
  ├ stepEdge()                               fleet disc: `edgeAction` (fleet.ts): 2 m below the top a car becomes a fake (`beginFakeFall`: soft body off, ballistic drop + constant spin), 20 m below it vaporizes (`setVaporized`: smoke, hidden, out of the sim), the driven one respawns after 2 s (`respawnOnDisc`)
- ├ scheduleSkins(cars) → car.updateDeform(simDt)   witness.aim(camera), then LoD stride (0 outside the cone, else by projected size) → skin
+ ├ scheduleSkins(cars) → car.updateSkin()           witness.aim(camera), then LoD stride (0 outside the cone, else by projected size) → skin
  ├ updatePhase (stepPhase) · FX (`witness.sees` gates the spawns) · ragdolls.update · trace · stepDerby · seat.step · cine.update (marks, tyre smoke, punch)
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
  ├ race.frame(wallDt)

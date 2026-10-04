@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
-import { INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
-import { makeCarFrame, makeSnapshot, NET_VERSION, Q, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
+import { FINE_BYTES, INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
+import { makeCarFrame, makeSnapshot, NET_VERSION, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { decodeSaved, encodeSaved, packReel, REEL_MSG_MAX, unpackReel } from "./reel-codec.ts";
 
@@ -30,15 +30,14 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       return f;
     });
     const sim = new Float32Array(a.deform.simSize());
-    const fly = new Float32Array(FLIGHT);
-    const w = new Writer(snapshotMaxBytes(2, L) + 4 + 2 * (FLIGHT * 4 + 2 + sim.length * 4));
+    const fly = new Float64Array(FLIGHT);
+    const w = new Writer(snapshotMaxBytes(2, L) + 2 * (FLIGHT * 8 + 2 + sim.length * 4));
     writeSnapshot(w, { ...makeSnapshot(), time: k, count: 2, cars: frames }, L);
-    w.q16(0.25 * k, Q.fine);
-    w.q16(0, Q.fine);
-    // As `CrashRecorder.encodeKey`: each car's flight block, then a wreck's solver state.
+    // As `CrashRecorder.encodeKey`: each car's flight block (doubles), then a wreck's solver state.
     for (const car of [a, b]) {
       car.flight(fly, 0, false);
-      w.f32s(fly, FLIGHT);
+      w.bytes.set(new Uint8Array(fly.buffer), w.off);
+      w.off += FLIGHT * 8;
       const n = car.crashed ? sim.length : 0;
       if (n > 0) car.deform.simState(sim, false);
       w.u16(n);
@@ -90,8 +89,10 @@ function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { slot: 3, style: a.style.id, cls: "sedan", name: "Ayla" },
       { slot: 7, style: b.style.id, cls: "truck", name: "Bo" },
     ],
-    h: new Float32Array(steps).fill(Math.round(1e6 / 240) / 1e6),
+    h: new Float32Array(steps).fill(1 / 240),
     inputs: new Uint8Array(steps * 2 * INPUT_BYTES).map((_, i) => (i * 37) & 255),
+    fineFrom: 100,
+    fine: new Uint8Array((steps - 100) * 2 * FINE_BYTES).map((_, i) => (i * 11) & 255),
     keyStep: Uint32Array.of(0, 240),
     keys,
   };
@@ -110,6 +111,8 @@ function sameClip(got: HighlightClip, want: HighlightClip): void {
   });
   assertSameNumbers(got.h, want.h, "step dt");
   assertSameNumbers(got.inputs, want.inputs, "inputs");
+  assert.equal(got.fineFrom, want.fineFrom, "fine from");
+  assertSameNumbers(got.fine, want.fine, "fine pedal bytes");
   assertSameNumbers(got.keyStep, want.keyStep, "keyframe steps");
   assert.equal(got.keys.length, want.keys.length);
   got.keys.forEach((k, i) => assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`));

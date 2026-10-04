@@ -139,6 +139,10 @@ export abstract class DeformRig {
   skinDeferred = false;
   /** A skin was skipped since the mesh was last written — `flushSkin` before the car is seen. */
   skinOwed = false;
+  /** The crush has moved since the skin's solve (cluster fit, cage corners) last ran: `solveSkin` runs it. */
+  protected skinDue = false;
+  /** The crush window closed since the mesh was last written: a deferred skin is written once anyway. */
+  protected skinFinal = false;
   crushAmount = -0;
   impactLocal = new THREE.Vector3();
   impactInward = new THREE.Vector3(0, 0, -1);
@@ -427,6 +431,8 @@ export abstract class DeformRig {
     this.skinnedThisFrame = false;
     this.skinDeferred = false;
     this.skinOwed = false;
+    this.skinDue = false;
+    this.skinFinal = false;
     this.crushAmount = -0;
     this.impactLocal.set(0, 0, 0);
     this.impactInward.set(0, 0, -1);

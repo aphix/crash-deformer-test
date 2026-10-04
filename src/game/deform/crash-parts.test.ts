@@ -36,7 +36,8 @@ function stepWall(s: ReturnType<typeof spawnOffset>, dt: number, contactX: numbe
   s.d.feedOverlap(contact, n, 0.1, closing, dt);
   s.d.stepStructure(dt);
   s.d.followGroup(s.group, s.vel, s.omega, dt);
-  s.d.update(dt, s.geom);
+  s.d.stepCrush(dt, true);
+  s.d.update(s.geom);
 }
 
 forModes("banana lattice / corner crush", (mode) => {
@@ -161,7 +162,8 @@ forModes("doors hinge then detach", (mode) => {
       car.deform.feedOverlap(hit, inward, 0.08, 12, DT);
       car.deform.stepStructure(DT);
       car.syncPose(DT);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
+      car.updateSkin();
     }
     const snap = car.snapshot() as { parts: PartRow[] };
     return Object.fromEntries(snap.parts.map((p) => [p.name, p]));
@@ -194,7 +196,8 @@ forModes("doors hinge then detach", (mode) => {
       car.deform.feedOverlap(hit, inward, 0.1, 16, DT);
       car.deform.stepStructure(DT);
       car.syncPose(DT);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
+      car.updateSkin();
     }
     const snap = car.snapshot() as { parts: { name: string; hingeT: number; detached: boolean; folding: boolean }[] };
     const b = snap.parts.find((p) => p.name === "bumperF")!;
@@ -216,7 +219,8 @@ forModes("doors hinge then detach", (mode) => {
       car.deform.feedOverlap(hit, inward, 0.12, 18, DT);
       car.deform.stepStructure(DT);
       car.syncPose(DT);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
+      car.updateSkin();
       car.afterContacts(DT);
     }
     const snap = car.snapshot() as { parts: { name: string; detached: boolean; pos: { x: number; y: number; z: number } }[] };
@@ -288,7 +292,8 @@ forModes("doors hinge then detach", (mode) => {
       car.deform.feedOverlap(hit, inward, 0.08, 10, DT);
       car.deform.stepStructure(DT);
       car.syncPose(DT);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
+      car.updateSkin();
     }
     const snap = car.snapshot() as { lamps: { kind: string; side: number; intact: boolean }[] };
     const right = snap.lamps.find((l) => l.kind === "head" && l.side === 1)!;
@@ -322,7 +327,8 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
       car.deform.feedOverlap(hit, inward, 0.1, 16, DT);
       car.deform.stepStructure(DT);
       car.syncPose(DT);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
+      car.updateSkin();
     }
     const bumper = (car.snapshot() as { parts: PartRow[] }).parts.find((p) => p.name === "bumperF")!;
     assert.ok(!bumper.detached && bumper.hingeT > 0.1, `25 km/h EBS: hingeT ${bumper.hingeT} detached ${bumper.detached}`);
@@ -686,8 +692,10 @@ forModes("two-car first contact stays on the map", (mode) => {
       b.deform.stepStructure(DT);
       a.syncPose(DT);
       b.syncPose(DT);
-      a.updateDeform(DT);
-      b.updateDeform(DT);
+      a.stepBreakage(DT);
+      b.stepBreakage(DT);
+      a.updateSkin();
+      b.updateSkin();
     }
     for (const car of [a, b]) {
       assert.ok(car.group.position.length() < 40, `${mode} group ${car.group.position.toArray()}`);

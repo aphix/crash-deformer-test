@@ -63,7 +63,8 @@ function roofSkinDrift(style: BodyStyle): number {
   const attr = geo.getAttribute("position") as THREE.BufferAttribute;
   const rest = new Float32Array(attr.array as Float32Array);
   d.applyImpact(new THREE.Vector3(0, 0.4, 2), new THREE.Vector3(0, 0, -1), 4);
-  d.update(1 / 60, geo);
+  d.stepCrush(1 / 60, true);
+  d.update(geo);
   let drift = 0;
   for (let i = 0; i < attr.count; i++) {
     if (rest[i * 3 + 1]! < 1.0) continue;
@@ -163,7 +164,8 @@ describe("rig cages wrap every style", () => {
         d.feedOverlap(rl.world, new THREE.Vector3(0, 0, 1), 0.1, 14, 1 / 60);
         d.stepStructure(1 / 60);
         d.followGroup(c.group, vel, new THREE.Vector3(), 1 / 60);
-        d.update(1 / 60, geo);
+        d.stepCrush(1 / 60, true);
+        d.update(geo);
       }
       assert.ok(rl.local.z - z0 > 0.05, `${id} tail did not crush ${z0} → ${rl.local.z}`);
       const a = geo.getAttribute("position").array as Float32Array;

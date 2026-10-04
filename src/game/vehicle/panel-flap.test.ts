@@ -56,9 +56,10 @@ function run(car: Probe, frames: number, v: number | null = null): void {
       const h = physicsSlice(acc, sliceSpeed(w.cars));
       if (v !== null) applyDrive(car, { ...IDLE, throttle: Math.max(0, Math.min(1, (v - car.speed) * 0.5 + 0.3)) }, h);
       stepWorld(w, h);
+      car.stepBreakage(h);
       acc -= h;
     }
-    car.updateDeform(DT);
+    car.updateSkin();
   }
 }
 
@@ -138,7 +139,7 @@ describe("a stretched panel is easy to break", () => {
       const p = car.hang("quarterR", t);
       car.group.position.y = -0.5;
       car.group.updateMatrixWorld(true);
-      car.updateDeform(DT);
+      car.stepBreakage(DT);
       assert.equal(p.detached, off, `hinge ${t}`);
     }
   });
@@ -157,9 +158,10 @@ function cruise(name: string, t: number, v: number, secs: number): number | null
       const h = physicsSlice(acc, sliceSpeed(w.cars));
       applyDrive(car, { ...IDLE, throttle: Math.max(0, Math.min(1, (v - car.speed) * 0.5 + 0.3)) }, h);
       stepWorld(w, h);
+      car.stepBreakage(h);
       acc -= h;
     }
-    car.updateDeform(DT);
+    car.updateSkin();
     if (p.detached) return f / 60;
   }
   return null;
@@ -195,7 +197,7 @@ function flutter(name: string, t: number, v: number, frames = 90): number {
   let most = 0;
   for (let f = 0; f < frames; f++) {
     car.velocity.set(0, 0, v);
-    car.updateDeform(DT);
+    car.stepBreakage(DT);
     most = Math.max(most, p.object.quaternion.angleTo(p.restQuat));
   }
   return most;
@@ -220,7 +222,7 @@ describe("a hinged panel flaps with the car's speed", () => {
       let hi = -Infinity;
       for (let f = 0; f < 90; f++) {
         car.velocity.set(0, 0, v);
-        car.updateDeform(DT);
+        car.stepBreakage(DT);
         lo = Math.min(lo, b.object.rotation.z);
         hi = Math.max(hi, b.object.rotation.z);
       }
@@ -241,7 +243,7 @@ describe("a hinged panel flaps with the car's speed", () => {
       const uploads = (mesh.geometry.getAttribute("position") as THREE.BufferAttribute).version;
       for (let f = 0; f < 60; f++) {
         car.velocity.set(0, 0, 18);
-        car.updateDeform(DT);
+        car.stepBreakage(DT);
         out.push(p.object.quaternion.y, p.object.position.x, p.object.position.z);
       }
       assert.equal((mesh.geometry.getAttribute("position") as THREE.BufferAttribute).version, uploads, "a flapping shell was rebuilt");
@@ -255,7 +257,7 @@ describe("a hinged panel flaps with the car's speed", () => {
     const p = car.hang("quarterR", 0.4);
     const r = p.region!;
     car.velocity.set(0, 0, 20);
-    for (let f = 0; f < 30; f++) car.updateDeform(DT);
+    for (let f = 0; f < 30; f++) car.stepBreakage(DT);
     // A point on the hinge line (x, z) = pivot stays where it was whatever the angle.
     const tail = new THREE.Vector3(r.pivot[0], r.origin.y, r.pivot[1]).sub(r.origin);
     const before = tail.clone().add(r.origin);

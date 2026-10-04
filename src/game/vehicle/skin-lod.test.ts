@@ -49,7 +49,8 @@ function crashFront(c: DeformableCar, defer: boolean, frames: number): void {
     d.stepStructure(DT);
     d.followGroup(c.group, vel, new THREE.Vector3(), DT);
     d.skinDeferred = defer;
-    c.updateDeform(DT);
+    c.stepBreakage(DT);
+    c.updateSkin();
   }
 }
 
@@ -77,8 +78,8 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     crashFront(ref, false, CONTACT);
     crashFront(lod, true, CONTACT);
     lod.deform.skinDeferred = false;
-    lod.updateDeform(DT);
-    ref.updateDeform(DT);
+    lod.updateSkin();
+    ref.updateSkin();
     assert.equal(lod.deform.skinOwed, false);
     assert.equal(glassStates(lod), glassStates(ref));
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6);
@@ -101,7 +102,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     lod.resetVisual();
     assert.equal(lod.deform.skinOwed, false);
     lod.deform.skinDeferred = false;
-    lod.updateDeform(DT);
+    lod.updateSkin();
     assert.ok(maxDiff([bodyPositions(lod)], rest) < 1e-6);
   });
 });

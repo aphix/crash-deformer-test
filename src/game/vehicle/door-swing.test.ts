@@ -165,9 +165,10 @@ describe("driven for real", () => {
         const h = physicsSlice(acc, sliceSpeed(w.cars));
         applyDrive(car, { ...IDLE, ...input }, h);
         stepWorld(w, h);
+        car.stepBreakage(h);
         acc -= h;
       }
-      car.updateDeform(DT);
+      car.updateSkin();
     }
     return car;
   }

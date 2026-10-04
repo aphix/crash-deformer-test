@@ -37,9 +37,10 @@ function run(w: World, seconds: number, each: () => void): void {
     while (acc > 1e-5) {
       const h = physicsSlice(acc, sliceSpeed(w.cars));
       stepWorld(w, h);
+      for (const c of w.cars) c.stepBreakage(h);
       acc -= h;
     }
-    for (const c of w.cars) c.updateDeform(FRAME);
+    for (const c of w.cars) c.updateSkin();
     each();
   }
 }

@@ -14,7 +14,7 @@ import { loadSkinKernelForTest } from "./skin-kernel.test-util.ts";
 
 /**
  * The WASM skin (kernels/skin) is the JS skin's exact bits. The engine's own frame loop (accumulator of fixed steps,
- * `stepWorld`, `settleStep`, then `updateDeform` per car) runs the same seeded scenario twice: with no kernel loaded
+ * `stepWorld`, `settleStep`, then `updateSkin` per car) runs the same seeded scenario twice: with no kernel loaded
  * (every car skins in JS), then with it. Every car's position and normal attribute (and their versions and the skin
  * flag) is hashed each frame, and the final arrays are compared element by element.
  */
@@ -113,7 +113,7 @@ function play(s: Scenario): Leg {
       settleStep(cars, h, true);
       acc -= h;
     }
-    for (const c of cars) c.updateDeform(1 / 60);
+    for (const c of cars) c.updateSkin();
     let hash = 0x811c9dc5;
     for (const c of cars) {
       const d = c.deform;

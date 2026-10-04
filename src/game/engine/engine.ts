@@ -379,7 +379,7 @@ export class CrashEngine extends EngineShare {
         const budget = now + 8;
         let steps = 0;
         while (!this.net.client && this.acc > 1e-5 && steps < 8) {
-          const h = physicsSlice(this.acc, vmax);
+          const h = Math.fround(physicsSlice(this.acc, vmax)); // float32, as the highlight recorder stores it: a replay runs the live step
           this.fixedStep(h);
           this.elapsedSim += h;
           this.acc -= h;
@@ -393,8 +393,7 @@ export class CrashEngine extends EngineShare {
       // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
       if (reelDt !== null || !this.net.client) {
         for (const car of cars) {
-          if (reelDt !== null ? !car.group.visible : this.rigScene && car !== this.carA) continue;
-          car.updateDeform(simDt);
+          if (reelDt !== null ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
         }
       }
       if (reelDt === null && !this.net.client) this.updatePhase(wallDt);
@@ -599,7 +598,8 @@ export class CrashEngine extends EngineShare {
     w.barrierHits = this.barrierHits;
     w.bounce = this.bounceWorld;
     w.beforeSlice = this.rigScene ? this.rigSlice : null;
-    w.pairHit = this.derbyMode ? this.derbyHit : null;
+    w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : null;
+    w.partTouch = this.race.active ? this.race.partTouch : null;
     w.ballHit = this.showBalls ? this.ballHit : null;
     // The corkscrew hides the lamp posts its run passes through.
     w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;

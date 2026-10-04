@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DeformableCar } from "./car.ts";
+import { DeformableCar, FLIGHT } from "./car.ts";
 import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { FACE_LEFT, FACE_NOSE, FACE_RIGHT, FACE_TAIL, FACE_TOP, faceMax, faceStrength } from "../deform/load-crush.ts";
@@ -100,7 +100,7 @@ describe("load crush: a stack of cars", () => {
       c.spawnFacing(0, 0, 0, 0);
       const sim = new Float32Array(src.deform.simSize());
       src.deform.simState(sim, false);
-      const flight = new Float32Array(16);
+      const flight = new Float64Array(FLIGHT);
       src.flight(flight, 0, false);
       c.group.position.copy(src.group.position);
       c.group.quaternion.copy(src.group.quaternion);

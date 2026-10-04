@@ -61,7 +61,7 @@ function launch(v: number): Run {
       stepWorld(w, h);
       acc -= h;
     }
-    car.updateDeform(FRAME);
+    car.updateSkin();
     let low = Infinity;
     for (let i = 0; i < HULL.length; i++) {
       const [x, y, z] = HULL[i]!;

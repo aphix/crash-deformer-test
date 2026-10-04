@@ -65,7 +65,7 @@ function settle(deg: number, yaw: number): Settled {
       stepWorld(w, h);
       acc -= h;
     }
-    car.updateDeform(FRAME);
+    car.updateSkin();
   }
   car.group.updateWorldMatrix(true, true);
   const s = Math.sin(deg * DEG);

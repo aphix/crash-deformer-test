@@ -32,7 +32,7 @@ describe("deform reset", () => {
         stepWorld(w, h);
         acc -= h;
       }
-      for (const car of w.cars) car.updateDeform(DT);
+      for (const car of w.cars) car.updateSkin();
     }
     assert.ok(a.crashed && a.deform.massActive, "the head-on never crashed the car");
     a.resetVisual();

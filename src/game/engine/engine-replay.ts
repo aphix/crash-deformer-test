@@ -1,11 +1,11 @@
 import * as THREE from "three";
-import { beginFakeFall, FLIGHT, type DeformableCar } from "../vehicle/car.ts";
+import { beginFakeFall, FLIGHT, FLIGHT_POSE, type DeformableCar } from "../vehicle/car.ts";
 import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { countsAsImpact, INPUT_BYTES, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
+import { countsAsImpact, FINE_BYTES, INPUT_BYTES, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
-import { makeSnapshot, Q, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
+import { makeSnapshot, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { foldHeading } from "../present/shot-cam.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
@@ -24,6 +24,8 @@ const _o = new THREE.Quaternion();
 const _p = new THREE.Quaternion();
 const IDENTITY = new THREE.Quaternion();
 const NO_EJECTIONS: readonly Ejection[] = [];
+/** What a pedal's 8-bit step left out, in steps: the `fine` byte `k` of the step-and-car at `i` (`i` < 0 or a 0 byte: nothing kept). */
+const fineOf = (fine: Uint8Array, i: number, k: number): number => (i < 0 || fine[i + k] === 0 ? 0 : (fine[i + k]! - 128) / 255);
 /** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
 const TELEPORT = 5;
 /**
@@ -81,9 +83,8 @@ export class ClipSim {
   readonly length: number;
   private key = 0;
   private readonly keys: Snapshot[];
-  private readonly drift: Float32Array[];
   /** Per keyframe: every car's flight block (`DeformableCar.flight`), and each wreck's solver state (`simState`). */
-  private readonly flight: Float32Array[] = [];
+  private readonly flight: Float64Array[] = [];
   private readonly sim: (Float32Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
   readonly world: World;
@@ -116,19 +117,27 @@ export class ClipSim {
     this.clearPop();
     const L = carLayout(cars[0]!);
     const r = new Reader();
-    this.keys = [];
     // Per car: its solver state's words in the previous keyframe; a keyframe's are XORed on them (`CrashRecorder.file`).
     const prev: (Uint32Array | null)[] = cars.map(() => null);
-    this.drift = clip.keys.map((bytes) => {
+    this.keys = clip.keys.map((bytes) => {
       const snap = makeSnapshot();
       readSnapshot(r.reset(bytes), snap, L);
-      this.keys.push(snap);
-      const d = new Float32Array(cars.length);
-      for (let j = 0; j < d.length; j++) d[j] = r.q16(Q.fine);
-      const fl = new Float32Array(cars.length * FLIGHT);
+      const fl = new Float64Array(cars.length * FLIGHT);
       const sims: (Float32Array | null)[] = [];
       for (let j = 0; j < cars.length; j++) {
-        for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f32();
+        for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f64();
+        // The snapshot's pose is the netplay wire's (1e-4 rad, 1 cm/s, float32 metres); the block's is the car's own.
+        const f = snap.cars[j]!;
+        const o = j * FLIGHT + FLIGHT_POSE;
+        f.pitch = fl[o]!;
+        f.yaw = fl[o + 1]!;
+        f.roll = fl[o + 2]!;
+        f.vx = fl[o + 3]!;
+        f.vy = fl[o + 4]!;
+        f.vz = fl[o + 5]!;
+        f.x = fl[o + 6]!;
+        f.y = fl[o + 7]!;
+        f.z = fl[o + 8]!;
         const n = r.u16();
         if (n > 0 && n !== cars[j]!.deform.simSize()) throw new RangeError("a keyframe's solver state is another build's");
         const words = new Uint32Array(n);
@@ -139,7 +148,7 @@ export class ClipSim {
       }
       this.flight.push(fl);
       this.sim.push(sims);
-      return d;
+      return snap;
     });
     const w = newWorld(cars);
     const slots = clip.cars.map((c) => c.slot);
@@ -232,6 +241,10 @@ export class ClipSim {
         const at = clip.keyStep[this.key]!;
         if (at === s && s <= this.impactStep && (this.useImpactKey || at !== this.impactStep)) {
           for (let j = 0; j < nc; j++) this.snap(j, this.key);
+          // The cars are on the record again: contacts they made on their own before it are not its history (a pair the
+          // replay wedged for a second the record never touched would never count as the recorded first impact).
+          this.pairAt.fill(-Infinity);
+          this.wallAt.fill(-Infinity);
           this.popFrom(at !== this.impactStep);
         }
         this.key++;
@@ -239,11 +252,13 @@ export class ClipSim {
       const h = clip.h[s]!;
       const inp = clip.inputs;
       const d = this.input;
+      const fineTo = clip.fineFrom + clip.fine.length / (nc * FINE_BYTES);
       for (let j = 0; j < nc; j++) {
         const o = (s * nc + j) * INPUT_BYTES;
-        d.throttle = ((inp[o]! << 24) >> 24) / 127;
-        d.steer = ((inp[o + 1]! << 24) >> 24) / 127;
-        d.brake = inp[o + 2]! / 255;
+        const f = s >= clip.fineFrom && s < fineTo ? ((s - clip.fineFrom) * nc + j) * FINE_BYTES : -1;
+        d.throttle = (((inp[o]! << 24) >> 24) + fineOf(clip.fine, f, 0)) / 127;
+        d.steer = (((inp[o + 1]! << 24) >> 24) + fineOf(clip.fine, f, 1)) / 127;
+        d.brake = (inp[o + 2]! + fineOf(clip.fine, f, 2)) / 255;
         d.ebrake = (inp[o + 3]! & 1) !== 0;
         d.boost = (inp[o + 3]! & 2) !== 0;
         d.neutral = (inp[o + 3]! & 8) !== 0;
@@ -449,22 +464,14 @@ export class ClipSim {
     else this.spawn(j, k);
   }
 
-  /** Kinematic pose, motion and flight state from keyframe `k`'s frame of car `j`. */
+  /** Pose, motion, drift and flight state from keyframe `k`'s frame of car `j` (the flight block's doubles, not the wire's). */
   private pose(j: number, k: number): void {
     const car = this.cars[j]!;
     const f = this.keys[k]!.cars[j]!;
-    const g = car.group;
-    g.position.set(f.x, f.y, f.z);
-    g.rotation.set(f.pitch, f.yaw, f.roll, "YXZ");
-    car.pitch = f.pitch;
-    car.yaw = f.yaw;
-    car.roll = f.roll;
-    car.velocity.set(f.vx, f.vy, f.vz);
     car.driverOut = EXIT_PANES[f.driverOut] ?? null;
     car.flight(this.flight[k]!, j * FLIGHT, true);
-    car.speed = Math.hypot(f.vx, f.vz);
-    car.drive.drift = this.drift[k]![j]!;
+    car.speed = Math.hypot(car.velocity.x, car.velocity.z);
     car.refreshBasis();
-    car.deform.bindKinematic(g, car.velocity, car.angular);
+    car.deform.bindKinematic(car.group, car.velocity, car.angular);
   }
 }

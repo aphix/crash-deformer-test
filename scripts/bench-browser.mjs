@@ -9,7 +9,7 @@
  * auto-slomo cannot hide sim cost, and wraps the hot entry points on the live instance:
  *   tick      — whole frame on the main thread (sim + deform + FX + render submit)
  *   physics   — CrashEngine.fixedStep (integration, contacts, structure)
- *   deform    — DeformableCar.updateDeform (cages/skin/normals)
+ *   deform    — DeformableCar.updateSkin (the frame's mesh write: skin/normals; the crush's solve runs in `physics`)
  *   render    — WebGLRenderer.render (CPU-side submit; GPU work is async)
  * Frame interval comes from rAF deltas, uncapped by default (--disable-gpu-vsync,
  * --disable-frame-rate-limit), so fps reflects headroom rather than the display rate.
@@ -122,7 +122,7 @@ function installProbe() {
   wrap(e, "fixedStep", "physics");
   wrap(e.renderer, "render", "render");
   const proto = Object.getPrototypeOf(e.cars[0]);
-  wrap(proto, "updateDeform", "deform");
+  wrap(proto, "updateSkin", "deform");
   window.__bench = {
     reset() {
       acc.tick = acc.physics = acc.deform = acc.render = 0;

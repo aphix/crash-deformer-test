@@ -200,8 +200,9 @@ export function firePiston(car: DeformableCar, id: PistonId, shot: PistonShot = 
       rig.step(frame / 2);
       car.afterContacts(frame / 2);
       if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(frame / 2);
+      car.stepBreakage(frame / 2);
     }
-    car.updateDeform(frame);
+    car.updateSkin();
     if (head.contacted) since += frame;
     if (since >= after || (!head.contacted && head.phase === "idle")) break;
   }

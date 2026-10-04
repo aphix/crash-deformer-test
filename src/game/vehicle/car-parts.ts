@@ -474,6 +474,12 @@ export abstract class CarParts extends CarCore {
     this.interior.position.y = THREE.MathUtils.clamp(cell.y - 0.55, -0.08, 0.1);
   }
 
+  /** Whether any pane could still crack or shatter: its rule reads the cages' strain, so the steps solve the cages for it. */
+  protected glassLeft(): boolean {
+    for (const g of this.glassPanes) if (g.state !== "shattered") return true;
+    return false;
+  }
+
   protected followGlass(): void {
     const inward = this.deform.impactInward;
     for (const g of this.glassPanes) {

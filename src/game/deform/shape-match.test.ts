@@ -72,7 +72,8 @@ function wallFrame(r: Rig, dt: number, overlap: number, a = "bumperFL", b = "bum
   if (leftover > 0.3) r.d.applyImpulse(n.x, n.y, n.z, leftover * r.d.totalMass * dt * 4);
   r.d.stepStructure(dt);
   r.d.followGroup(r.group, r.vel, r.omega, dt);
-  r.d.update(dt, r.geom);
+  r.d.stepCrush(dt, true);
+  r.d.update(r.geom);
 }
 
 /** Left/right partner of a mass name (centre masses map to themselves). */
@@ -517,10 +518,12 @@ describe("StreamedDeformation shape mode", () => {
       d.feedOverlap(fl.world, new THREE.Vector3(0, 0, -1), 0.1, 16, 1 / 60);
       d.stepStructure(1 / 60);
       d.followGroup(group, vel, new THREE.Vector3(), 1 / 60);
-      d.update(1 / 60, geom);
+      d.stepCrush(1 / 60, true);
+      d.update(geom);
     }
     assert.ok(z0 - fl.local.z > 0.05, `shape mode did not crush ${z0} → ${fl.local.z}`);
-    d.update(1 / 60, geom);
+    d.stepCrush(1 / 60, true);
+    d.update(geom);
     const attr = geom.getAttribute("position") as THREE.BufferAttribute;
     let max = 0;
     let maxZ = -Infinity;
@@ -610,7 +613,8 @@ describe("StreamedDeformation shape mode", () => {
         r.d.feedOverlap(fl.world, n, 0.1, 16, FRAME);
         r.d.stepStructure(FRAME);
         r.d.followGroup(r.group, r.vel, r.omega, FRAME);
-        r.d.update(FRAME, r.geom);
+        r.d.stepCrush(FRAME, true);
+        r.d.update(r.geom);
       }
       return fl.local.z;
     };

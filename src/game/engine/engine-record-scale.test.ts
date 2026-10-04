@@ -37,7 +37,7 @@ function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?:
     for (const e of w.world.ejection?.take() ?? []) rec.eject(e);
     rec.endStep(cars, H);
     settleStep(cars, H, false);
-    for (const car of cars) car.updateDeform(H);
+    for (const car of cars) car.updateSkin();
   }
   rec.end();
   return { clusters, rec };

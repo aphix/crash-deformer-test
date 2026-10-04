@@ -151,7 +151,8 @@ export class CompactorRig {
     while (this.face > targetFace + 1e-4 && n < cap) {
       this.step(dt, targetFace);
       car.afterContacts(dt);
-      car.updateDeform(dt);
+      car.stepBreakage(dt);
+      car.updateSkin();
       n++;
     }
     return n;

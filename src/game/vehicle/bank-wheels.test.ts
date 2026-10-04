@@ -91,7 +91,7 @@ function bankRun(track: Track, cls: VehicleClassId, lat: (half: number) => numbe
       stepWorld(w, h);
       acc -= h;
     }
-    car.updateDeform(FRAME);
+    car.updateSkin();
     assert.equal(car.crashed, false, `${cls} crashed on ${track.id}'s bank`);
     if (car.airborne) continue;
     car.group.updateWorldMatrix(true, true);
