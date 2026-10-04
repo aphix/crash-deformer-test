@@ -433,12 +433,6 @@ the surface's top-speed share.
 ## Contacts
 Walls: six footprint probes against the wall line on each side with a wall flag; push out along the
 inward normal, reflect normal speed (e = 0.15), crumple above 5.5 m/s closing, sparks above 1.5 m/s.
-A wall remembers each car's last step (`RaceField.wall`): a push undoes a penetration, and a car penetrates only from the
-road side, so a car left more than 0.25 m beyond the line last step (it came through a mouth or from another road, e.g. the
-city's back alley, 13 m off the loop) is outside the wall and is not pushed back across it until it is on the road; one
-left within 0.25 m (a wall starting under a car at the line) is pushed only what it went further this step; a pose change over
-4 m (spawn, respawn) forgets the history. Before this a car beyond the line by less than 3 m was thrown back the whole way in one step
-(a 3 m teleport at 29 m/s; 18 of them in 120 s of the city race).
 Props: solid colliders push out the same way; knock props fly off (`TrackArt.knock`) and take speed in
 proportion to their mass. Car-to-car contact is the sandbox's own.
 
