@@ -43,7 +43,7 @@ interface RaceHost {
   /** Apply the sandbox's deform settings to a freshly spawned car. */
   dress(car: DeformableCar): void;
   setPaused(on: boolean): void;
-  /** Leave race mode (setup menu → Back). */
+  /** Leave to the fleet (setup menu → Back; Quit or Leave in Survival). */
   leave(): void;
   /** Sparks / debris at a wall or prop hit. */
   hitFx(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;

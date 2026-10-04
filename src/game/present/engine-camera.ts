@@ -120,6 +120,8 @@ export const CHASE = {
   floor: 0.45,
   /** A frame-to-frame car jump past this (m) is a respawn: cut instead of swooping. */
   cut: 8,
+  /** Taking a car up from a shot farther off than this (m) cuts to the chase shot: a swoop from the fleet's orbit to a course 400 m away showed in the first frames after the fade. */
+  blendRange: 40,
 };
 
 /**
@@ -230,8 +232,8 @@ export class DriveCam {
       _v.set(p.x - sy * flat, p.y + r * Math.sin(elev), p.z - cy * flat);
       const lead = THREE.MathUtils.clamp(along * CHASE.ahead, -0.5, 2.5);
       _w.set(p.x + fwd.x * lead, p.y + c.aimUp, p.z + fwd.z * lead);
-      if (enter) {
-        // Blend in from the current shot (orbit, another car, or the hood cam).
+      if (enter && camera.position.distanceToSquared(p) <= CHASE.blendRange * CHASE.blendRange) {
+        // Blend in from the current shot (orbit, another car, or the hood cam); a shot that far off (a scene change) is a cut.
         this.pos.snap(camera.position);
         camera.getWorldDirection(_e);
         this.aim.snap(_e.multiplyScalar(camera.position.distanceTo(p)).add(camera.position));

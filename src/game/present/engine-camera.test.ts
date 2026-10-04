@@ -5,7 +5,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
-import { ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
+import { CHASE, ChaseCamera, RIDE_PAUSE, type SpecScene } from "./engine-camera.ts";
 import { occluder, type Sight } from "./spectate-cam.ts";
 
 const DT = 1 / 60;
@@ -200,5 +200,32 @@ describe("the chase eye's pull-in past a wall", () => {
       assert.ok(pushed > 1, `${hz} Hz: the wall pushed the eye ${pushed.toFixed(2)} m (the test needs it to reach in)`);
       assert.ok(step < 0.1, `${hz} Hz: the pull-in moved the eye ${step.toFixed(3)} m in one frame, at ${at.toFixed(2)} s`);
     }
+  });
+});
+
+describe("taking a car up from another shot", () => {
+  const enter = (carZ: number): { first: number; moved: number } => {
+    const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+    camera.position.set(4, 2, 6);
+    camera.lookAt(0, 1, 0);
+    const seat = new DriverSeat();
+    seat.mode = "drive";
+    const view = new ChaseCamera(camera, fakeCanvas(), seat, { rx: 0, ry: 0 } as PadState, false, () => {});
+    const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, new THREE.Scene());
+    car.group.position.set(0, 0, carZ);
+    car.fwdFlat.set(0, 0, 1);
+    const from = camera.position.clone();
+    view.frameDrive(car, DT, false);
+    return { first: camera.position.distanceTo(car.group.position), moved: camera.position.distanceTo(from) };
+  };
+
+  it("good: a shot within blendRange blends in (the eye has hardly moved on the first frame)", () => {
+    const r = enter(CHASE.blendRange - 10);
+    assert.ok(r.moved < 2, `the eye moved ${r.moved.toFixed(2)} m on the first frame`);
+  });
+
+  it("good: a shot farther off than blendRange cuts to the chase shot (no swoop across the map after a scene change)", () => {
+    const r = enter(426);
+    assert.ok(r.first < 15, `the eye is ${r.first.toFixed(1)} m from the car on the first frame`);
   });
 });

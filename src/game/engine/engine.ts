@@ -219,7 +219,7 @@ export class CrashEngine extends EngineShare {
         this.playing = !on;
         this.emitHud();
       },
-      leave: () => this.toggleRace(),
+      leave: () => this.setScene("fleet"),
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
       buildArt: (track, placed) => {

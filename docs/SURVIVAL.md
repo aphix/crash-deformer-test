@@ -131,12 +131,56 @@ Single player. A netplay room never offers it: the button is hidden while hostin
 
 - Held still beside the cops (handbrake, 80 m down the boulevard behind a test wall), final map: the cops wreck the car at 28.6 s with 3 cops wrecked, after an 11.1 s hold: 0.9 s short of the bust. Ramming against the 12 s hold is an open tuning question; the cops already ease to a creep within 12 m of a stopped player. The exact 12 s is tested at the session (`match/survival.test.ts`); the full-stack test accepts a bust or a wreck and rejects an early bust.
 
-- CPU cost of a frame (physics, contacts, rules, hunters; no render), node, ring tour at 14 m/s with the pack forced up quickly: 5 hunting 1.05 ms p50 / 1.76 p95; 8: 2.12 / 3.26; 12: 3.05 / 3.82 (max 7.3); 15: 4.11 / 5.98 (max 8.1). About 0.27 ms per cop. The browser frame (render, 23 draws per car) was **not** measured, so `HUNT.cap` = 12 stays a CPU-only choice.
+- CPU cost of a frame (physics, contacts, rules, hunters; no render), node, ring tour at 14 m/s with the pack forced up quickly: 5 hunting 1.05 ms p50 / 1.76 p95; 8: 2.12 / 3.26; 12: 3.05 / 3.82 (max 7.3); 15: 4.11 / 5.98 (max 8.1). About 0.27 ms per cop.
 
-## Browser proof (vite dev in a heavy slot, `__crush.advance`, no uncapped flags)
+### The browser frame at 4 / 8 / 12 / 16 cops (`HUNT.cap`)
 
-One scripted session on havana: pick Survival from the scene bar, the countdown, W held for 20 s (6 cops by 21.6 s, the schedule), then sat on the handbrake: **Busted** at 33.6 s (hold meter at 1, 0 cops wrecked, *New best*, a "4-car pile-up" highlight in the card), Retry (best 33.634 shown, formation back), W held: **Wrecked** at 1:18.416 with 9 cops wrecked and 5 highlights, Leave. Then Survival again, and hosting a room from it: the scene went back to Fleet and the Survival button was gone from the bar. Console errors: 0. Shots (git-ignored): `.bench/shots/02-countdown`, `04-run-20s`, `05-sitting`, `06-end-banner`, `07-results`, `09-end2-banner`, `12-hosting`.
+Havana, Chromium, 1280×720, vsync (60 Hz), real rAF frames, `heavy-slot --exclusive`, the ring tour at 14 m/s driven through the touch stick, the pack forced with `HUNT.cap` / `every` / `gap` (and the formation cut to 4) from the page, a 2 s settle then a 12 s window (720 frames = no dropped frame). "CPU" is the engine's whole tick (physics, rules, hunters, render submission) timed in the page; "dropped" is a frame over 25 ms (the next vsync is missed). A run the pack ended inside the window is discarded and repeated.
+
+| Cops | Draw calls | CPU p50 / p95 ms (median of runs) | Batch A (quiet box), 3 runs: frames, dropped | Batch B, 3 runs | Batches C and D (box contended: 4 cops lose frames too) |
+|---|---|---|---|---|---|
+| 4 | 73-132 | 3.7 / 6.3 (max 16) | 720 / 0, 720 / 0, 720 / 0 | not run | 688 / 33, 642 / 76, 531 / 176 |
+| 8 | 143-235 | 5.7 / 9.3 (max 19) | 720 / 0 ×3 | not run | 608 / 111, 518 / 195, 453 / 246 |
+| 12 | 152-316 | 7.3 / 11.3 (max 21) | 720 / 0 ×3 | 712 / 9, 702 / 15, 703 / 17 | 354 / 329, 335 / 319, 308 / 303 (C); 540 / 173, 429 / 279, 323 / 308 (D) |
+| 16 | 264-363 | 8.1 / 12.0 (max 85) | 720 / 0, 678 / 38, 242 / 240 | 561 / 156, 373 / 259, 274 / 271 | 405 / 232, 297 / 291, 318 / 303 (C); 363 / 331, 286 / 278, 364 / 314 (D) |
+
+Reading it: the engine tick costs about 0.4 ms (p95) per cop and stays under the 16.7 ms budget at 16 (p95 12 ms), so CPU alone would allow 16. The frame does not: on a quiet box 4, 8 and 12 cops hold 720 / 720 frames with no frame over 16.8 ms; 16 does not (one run clean, one with 38 dropped frames and an 85 ms tick, one at 20 fps). Later batches on the same page and box (C, D) lost frames at every count, 4 included, with the same CPU per tick: the GPU path (a shared paravirtual device) got slower, so an absolute 60 fps claim holds only while the box is quiet, and the counts are compared inside a batch (D alternates the counts: frames per window fell 4 > 8 > 12 > 16 in every block). **`HUNT.cap` stays 12**: the largest count that held 60 fps with no hitch on a quiet box. 120 / 240 Hz displays are out of reach at any count: the tick alone is 3.7 ms p50 with 4 cops (the 240 Hz budget is 4.2 ms), mostly the course and the cars, not the cops. Scripts (git-ignored): `.bench/perf.mjs`, results `.bench/perf-run1.json`, `perf2.json` … `perf4.json`.
+
+### Race police under `PIT_MAX` (the shared rule; main 519a3ba against its parent 4504fa1)
+
+Headless races, police on, 4 AI + the AI-driven slot, 2 laps, seeds 1-5, the four menu courses, the same field and dice (three runs of main and two of the parent gave identical rows). Contacts are police-racer contact episodes (a gap over 0.25 s ends one); takedowns are racers busted; knocked out are police cars disabled; deaths are racer respawns; the last two columns are the winner's finish time and the time the race closed (mean, s). Script `.bench/police-ab.test.ts`.
+
+| Course | Tree | Pursuits | Contacts | Takedowns | Police knocked out | Racer deaths | Winner | Closed |
+|---|---|---|---|---|---|---|---|---|
+| oval | main | 13 | 24 | 0 | 2 | 0 | 35.9 | 39.9 |
+| oval | parent | 13 | 37 | 0 | 2 | 0 | 35.9 | 40.0 |
+| rally | main | 12 | 92 | 0 | 1 | 0 | 56.0 | 65.5 |
+| rally | parent | 12 | 114 | 0 | 5 | 1 | 58.6 | 69.8 |
+| stunt | main | 14 | 57 | 0 | 5 | 2 | 61.6 | 68.8 |
+| stunt | parent | 15 | 134 | 0 | 9 | 3 | 62.1 | 74.1 |
+| city | main | 16 | 206 | 2 | 19 | 14 | 53.1 | 75.4 |
+| city | parent | 15 | 218 | 0 | 17 | 13 | 56.0 | 81.2 |
+| all 20 races | main | 55 | 379 | 2 | 27 | 16 | 51.6 | 62.4 |
+| all 20 races | parent | 55 | 503 | 0 | 33 | 17 | 53.2 | 66.3 |
+
+Pursuits are the same (55 / 55). The rule trades contact for queueing: police-racer contacts fall 25 % (379 against 503; stunt −57 %, oval −35 %), police knocked out 18 % (27 against 33), the races close 4 s sooner. Takedowns do not collapse: they were already 0 of 20 races before the rule (AI racers do not sit still for the 4 s hold); main has 2, both in one city race. The rule is unchanged; the director decides whether fewer contacts at race speed is wanted.
+
+## Browser proof (vite dev in a heavy slot, `__crush.advance` to skip ahead, real frames for every shot, `fadeScenes` off, no uncapped flags)
+
+Havana, 1280×720 and a 390×844 touch phone. Console errors in every session: **0**. Shots are git-ignored (`.bench/shots3`; the script is `.bench/proof3.mjs`), each one looked at.
+
+- **Entry**: the scene bar's Survival button (the scene, the lit chip, the countdown grid); the **S** key from the whole-field view; the Race menu's 'Pick a course' **Survival** button; Full menu (H) with the Survival chip lit; the keys popover lists `S · Survival (whole-field view)`; on the phone the scene picker's Survival chip and the Race menu's Survival button (both tapped, both enter the scene; the thumb pad and the busted meter fit at 390 px).
+- **Leave**: Quit or Leave in Survival used to land on the Race 'Pick a course' menu (`RaceHost.leave` was `toggleRace()`, which from the survival scene is a switch to Race); it is now `setScene("fleet")`. After the fix: the Leave button on the results card, and the `quit` command (the pause menu's Quit; run on the phone), go to the fleet; Race menu Back still goes to the fleet.
+- **Busted**: held on the handbrake after 16 s of driving: the centre **BUSTED** banner ("The cops boxed you in: the run is over") on the frame the run ended (the sim paused for the shot; the card replaces it after `RESULTS_DELAY` = 2.5 s), then the card (time, *New best*, 0 cops wrecked, a "5-car pile-up" highlight with Watch / Save, the reel behind it), then Retry (best shown, formation back, countdown).
+- **Wrecked**: the centre **WRECKED** banner ("Your car is totaled: the run is over") and the card (*Wrecked*, 0:10.221, the best, a "6-car pile-up" highlight). The wreck was made by killing the player's drivetrain (as the tests do), because the pack boxes in and busts a driver first: a driven wreck was never reached in 4 tries (straight into a block, a ring tour at 14 m/s, the monument): each ended Busted after 37-107 s.
+- **Opening set piece**: a player holding the boulevard line at 45 m/s, the chase camera held back with the look-back key (`` ` ``): the cops are behind the player, so they are behind the chase camera and only a rear shot sees them. Three shots mid-air (t = 11.8 / 12.0 / 12.2 s, the player at 6.5 / 7.7 / 8.8 m): 2, 3 and 4 cops off the ground, 1.4-4.4 m over it, over the plaza top beside the monument.
+- **Scene entry with the real fade** (not the proof's `fadeScenes` off): the veil lifts at about 2.7 s (the first-use warm-up) and the first frames showed the chase camera still swooping in from the fleet's orbit, 426 m away, level with the ground and in a wall. `ChaseCamera.update` blended in from the current shot whatever its distance; it now cuts when the shot is farther than `CHASE.blendRange` = 40 m (a race start, at 29 m, still blends in: before / after shots match). `present/engine-camera.test.ts` covers both.
+
+## Found, not fixed
+
+- **No world edge.** Holding W, the player drove 6 km out (z −5900) at 55 m/s with the pack queued behind for ever: never busted, never wrecked, a stopwatch that only rises. SurvivalChase owns it (a closed map edge, cops that can win).
+- **Esc closes the keys popover and also pauses the race** (the same keydown reaches the engine). Not Survival's.
 
 ## Not done
 
-The browser frame cost at the cap of 12 cops (HUNT.cap is a CPU-only choice until then), the browser proof of the Busted / Wrecked centre banners (the card is proven, the banner shot is not), the Race-menu Survival button and the phone picker in a browser, and a bust-or-wreck balance for a player who stops.
+A driven (not injected) wreck, and a bust-or-wreck balance for a player who stops.
