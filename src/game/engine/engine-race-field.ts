@@ -269,6 +269,7 @@ export abstract class RaceField {
     const ordered = this.grid.map((id) => this.entrants[id]!);
     this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: sv ? true : this.options.noReset, survival: sv ? SURVIVAL : undefined });
     this.brain = new RaceBrain(tr, racers);
+    this.brain.guarded = this.policeFrom;
     this.police = sv ? new HunterBrain(tr, this.colliders, racers, this.policeFrom, pcount, this.seed) : pcount > 0 ? new PoliceBrain(tr, this.brain, this.policeFrom, pcount, this.seed) : null;
     const n = this.policeFrom + pcount;
     while (this.snaps.length < n) this.snaps.push(blankAiCar(this.snaps.length));

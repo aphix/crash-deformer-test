@@ -148,6 +148,52 @@ than itself, less willingly the more wrecked it is. The race AI splits it into `
 with its aggression, and `shy` keeps a clean driver off other cars (aggression 0: fight 0, shy 1). The
 derby AI uses the same two functions with its own thresholds.
 
+**Contact guard** (`ai/contact-guard.ts` `guardContact`, the last step of `RaceBrain.think` for racers; police share the line
+brain but are not guarded). Of the racers and traffic (not police) except the rivals the driver means to hit (`fight > 0`), the
+soonest contact within 1.5 s (in effect 1.4 s: the sixteenth sample, at 1.5000000000000002 s, is not under the horizon) is found by following the guarded car round the arc its steer asks for and every other car in the
+line it drives, each wearing a car-shaped zone (2.4 × 6 m half-axes). The other car keeps its heading and sheds speed at the
+racing plan's own braking budget (`PLAN_BRAKE` × the class brake: a car ahead brakes for what it sees up the road as the plan
+does). The contact is steered clear of (at most 0.35 of full lock) and every contact ahead that sideways room (6 m/s²) cannot
+clear is braked for at the deceleration that takes the closing speed down to a nudge (1.5 m/s, under the derby's `hitSpeed` 2) in
+the time left, counting on 0.72 of the class brake. A car under a nudge's speed is left to the plan. The guard keeps no state:
+it reads the cars' snapshots and the `hit` flags `line()` refreshes on every call, so a replay that restores the brain drives
+what the live race drove.
+
+**Aggression 0.5: aggressive only when safe** (`RaceBrain.safeShove`, `line()`). A driver with aggression up to 0.5 (`CAREFUL`) fights a
+rival only while the shove is safe, and then takes it: the shove adds `SAFE_SHOVE` (0.25) to its mood (so aggression 0.5 shoves a
+safe rival, and one under 0.375 never fights), and an unsafe one is vetoed (`min(mood, 0)`, even a wrecked target). Safe means the
+rival is within reach (up to `HUNT` m ahead, 11 m behind, 5 m aside) and: the cars' speeds along the road and the sideways speed they
+close at (`2 × SHOVE_LAT`, the rival may be shoving as well) come to under the derby's `hitSpeed` 2 m/s, a shove not a ram; at least
+2.5 m of road beyond the rival on the side it is pushed to; and not over a crest (`crestSpeed` under the cars' speed). A careful
+shove swings the driver's lane over at no more than `SHOVE_LAT` (0.5 m/s), so the two close at a nudge. Above 0.5 `mood` alone
+decides (1.0 rams regardless). Aggression 0 never fights (`mood` −1), so its drivers keep every guard.
+
+Measured with `world/race-contact.test-util.ts`: a **hit** is a racer-racer contact closing at ≥ 2 m/s where exactly one car's own
+velocity toward the other (≥ 0.5 m/s, not knocked by another contact in the 0.5 s before) closed it (`initiated`; the other is
+`suffered`); both closing is `converging`, neither `none`. `race-contact.test.ts` checks the classifier on seven hand-checked
+contacts and that an aggression-0 field has no hit on oval/rally/city/stunt with 4 and 7 rivals. Over 4 courses × 8 seeds × 2 laps
+(main → this branch) the racer-racer hits at slider 0 went 16 → 0 (4 rivals) and 80 → 0 (7 rivals), at 0.25 from 31 / 41 to 0 / 0,
+at 0.5 from 25 / 47 to 1 / 3. Deliberate contacts (`fight > 0` toward the car hit): at 0.5, 4 / 4 on main (2 / 2 closing at 2 m/s or more,
+median 12 / 8 m/s) → 0 / 6 (4 / 7 rivals; 5 of the 6 closing under 2 m/s). The careful drivers do attack: at 0.5 with 4 rivals they hold a
+fight 2022 driver-seconds over 32 races (1433 onsets), but a 0.5 m/s sideways lean rarely closes a lane's gap, hence the few contacts;
+`SHOVE_LAT` is the knob (0.8 gives 3 / 7 deliberate contacts, none / one at 2 m/s or more, with the along-road budget cut from 1.7 to
+1.2 m/s). At 1.0 (rams, unchanged by the gate) 310 / 676 of the contacts are deliberate: 140 / 370 close at 2 m/s or more, 75 / 116 are
+near a wall, 2 / 3 on a crest.
+
+Limits (measured, not fixed): the other car is not modelled turning, so two cars cornering side by side can read as a contact
+the guard steers away from (it fought a left-hand corner into the outer wall on oval seed 2 before the other car's braking was
+modelled), and the guarded car's own arc holds its steer for the whole 1.5 s although a pursuit steer decays as the car aligns.
+Both are errors of a few metres at the end of the horizon, so a guard result on one seed is one draw: the city's first corner at
+the default slider still wrecks 5 of 24 races within 10 s (main: 17 of 24), and each constant tried (`lead` 8, 10, 12 m/s², the
+plan's budget of 11–14) leaves a different single seed of the race-start, contact and police suites red or green.
+
+Cost: the guard works the guarded car's arc out once and skips cars its zone cannot reach in 1.5 s (centres further apart than the
+zone plus the two speeds added), with outputs bit-identical to the version that walked every pair (194k drive calls compared).
+`RaceBrain.think` summed over a 60 Hz frame (about 3 calls per racer), median / p95 ms, main → branch, three runs each, the two
+interleaved, headless oval and city at the default slider: 8 cars 0.07 / 0.13 → 0.11 / 0.21 (oval) and 0.07 / 0.13 → 0.11 / 0.20
+(city); 16 cars 0.14 / 0.2 → 0.27 / 0.48 (oval) and 0.14 / 0.2 → 0.29 / 0.50 (city). Before the optimisation the 16-car city read
+0.61 / 1.0 on the same bench (run under load).
+
 ## Campaign
 `CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
 Standings: points, wins, the better place in the latest round, entry order. Round 1's grid is the

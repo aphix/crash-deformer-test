@@ -103,14 +103,16 @@ every peer dents the same way.
 
 | crash | pose mm | velocity m/s | crush mm | impact step |
 |---|---|---|---|---|
-| race head-on | 0.010 / 0.015 | 0.0000 / 0.0000 | 0.025 / 0.045 | 0.001 mm |
-| race offset | 0.010 / 0.015 | 0.0000 / 0.0000 | 0.031 / 0.035 | 0.001 mm |
-| race T-bone | 0.608 / 1.437 | 0.0076 / 0.0096 | 0.109 / 0.128 | 0.384 mm, 0.0021 m/s |
-| race pile-up | 0.018 / 0.029 | 0.0000 / 0.0000 | 0.016 / 0.029 | 0.000 mm |
+| race head-on | 0.009 / 0.010 | 0.0000 / 0.0000 | 0.024 / 0.068 | 0.000 mm |
+| race offset | 0.018 / 0.020 | 0.0000 / 0.0000 | 0.067 / 0.074 | 0.000 mm |
+| race T-bone | 0.035 / 0.038 | 0.0001 / 0.0001 | 0.059 / 0.075 | 0.197 mm, 0.0004 m/s |
+| race pile-up | 0.005 / 0.007 | 0.0000 / 0.0000 | 0.024 / 0.044 | 0.008 mm, 0.0003 m/s |
 | derby head-on | 0.008 / 0.009 | 0.0003 / 0.0004 | 0.060 / 0.063 | 0.000 mm |
 | derby offset | 0.003 / 0.003 | 0.0000 / 0.0000 | 0.010 / 0.015 | 0.000 mm |
 | derby T-bone | 0.026 / 0.031 | 0.0001 / 0.0003 | 0.154 / 0.188 | 0.000 mm |
 | derby pile-up | 34.058 / 162.915 | 0.5214 / 7.8908 | 63.896 / 712.230 | 0.000 mm |
+
+The race rows run the crash's own cars: the head-on, offset and T-bone with two (the T-bone's striker is driven by a scripted human until the first contact, as the derby rows script their pedals), the pile-up with four. The race AI steers clear of what it closes on (`ai/contact-guard.ts`), so a spare grid car no longer runs into the crash, and a car the crash does not touch rides the clip as a bystander on 8-bit pedals (only the cars an impact involves keep their pedals' last digits) and replays 0.3 to 0.9 mm off. The test asserts that the clip's first impact is car 0 against car 1.
 
 What the clip lacked, in order of effect (each found by restoring the live state into the replay and seeing what moved it):
 

@@ -2,6 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { setGround } from "../world/ground.ts";
+import { blankPoint, Track } from "../world/track.ts";
+import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { frame, makeWorld, type World } from "../world/race-world.test-util.ts";
 import { phaseClock } from "../match/phase.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -233,10 +235,24 @@ describe("highlight reel frames", () => {
   it("bad: drawing never changes the replay of an airborne clip (the stunt course's jumps) at 60 and 240 Hz", async () => {
     const a = makeWorld();
     try {
-      // Two laps: the field no longer wrecks itself at the start, so one lap records fewer than 3 clips.
+      // Two laps: the field no longer wrecks itself at the start, so one lap records fewer than 3 clips. And the race AI steers clear
+      // of what it closes on (`guardContact`), so the field's own crashes are too few for 3 clips in two laps: three head-on pairs, far
+      // apart on flat road, are wrecked on purpose a second into the race (cars 2-3, 4-5 and 6-7 at 2 x 20 m/s).
       race(a, { ...FIELD, trackId: "stunt", laps: 2 });
+      const track = new Track(stunt);
+      const pt = blankPoint();
+      const state = { acc: 0 };
+      for (let n = 0; a.race.time < 1 && n < 900; n++) frame(a, state);
+      for (const [k, d] of [150, 530, 725].entries()) {
+        track.pointAt(d, pt);
+        a.cars[2 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 20);
+        track.pointAt(d + 8, pt);
+        a.cars[3 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
+      }
       const reel = await recordedReel(a, Infinity);
       assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
+      const firsts = reel.clips.map((c) => [c.cars[c.firstA]?.slot, c.cars[c.firstB]?.slot].sort().join("-"));
+      for (const pair of ["2-3", "4-5", "6-7"]) assert.ok(firsts.includes(pair), `no clip opens on the head-on of cars ${pair}: ${firsts.join(", ")}`);
       for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);
     } finally {
       a.race.exit();
