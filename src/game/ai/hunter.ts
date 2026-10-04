@@ -62,7 +62,7 @@ const QUEUE = 30;
 const CELL = 16;
 
 /** The course's solid props (`body: "solid"`) on a grid: is a point inside one, grown by the swath. */
-class Obstacles {
+export class Obstacles {
   private readonly cells = new Map<number, number[]>();
   private readonly x: Float64Array;
   private readonly z: Float64Array;
