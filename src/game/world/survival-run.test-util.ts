@@ -9,9 +9,10 @@ import { sightLine } from "../present/spectate-cam.ts";
  * Not a test file itself.
  */
 
-/** A fresh world with a Survival run entered (the director has started it: formation placed, hunters held for the green). */
-export function survivalWorld(course?: unknown): World {
+/** A fresh world with a Survival run entered (the director has started it: formation placed, hunters held for the green); `seed` pins the field's dice. */
+export function survivalWorld(course?: unknown, seed?: number): World {
   const w = makeWorld(course);
+  if (seed !== undefined) w.race.reseed(seed);
   w.race.enter(true);
   return w;
 }
@@ -91,6 +92,11 @@ export function steerAt(w: World, tx: number, tz: number, cap: number | null): v
   const over = cap !== null && speed > cap;
   seat.intent.gas = racing && !over ? 1 : 0;
   seat.intent.brake = racing && over ? 1 : 0;
+}
+
+/** The scripted player holds the line x = `x` down a straight toward −z, as a human does: it steers at the point `look` m ahead on that line, so a shove is steered back. */
+export function holdLine(w: World, x: number, look: number, cap: number | null): void {
+  steerAt(w, x, w.cars[0]!.group.position.z - look, cap);
 }
 
 /** The scripted player sits still: no gas, handbrake up (the brake pedal would reverse the car once it stopped). */
