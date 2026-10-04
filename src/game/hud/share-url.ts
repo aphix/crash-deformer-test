@@ -10,6 +10,7 @@ import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
+import { STACK_DEFAULTS, STACK_RANGES } from "../scenes/stack-rig.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 
 /** One URL value: its default, how to read it back (undefined = malformed) and how to write it. */
@@ -86,6 +87,9 @@ const FIELDS = {
   phard: num(0.05, 1, D.pistons.hardness),
   phold: flag(D.pistons.holdCar),
   phop: num(1.5, 20, D.pistons.hopSeconds),
+  scars: num(STACK_RANGES.cars.min, STACK_RANGES.cars.max, STACK_DEFAULTS.cars, true),
+  sdrop: num(STACK_RANGES.drop.min, STACK_RANGES.drop.max, STACK_DEFAULTS.drop),
+  sgap: num(STACK_RANGES.gap.min, STACK_RANGES.gap.max, STACK_DEFAULTS.gap),
   dkph: num(1, 120, D.doors.kph),
   dkg: num(5, 5000, D.doors.kg),
   dside: pick(["left", "right"] as const, D.doors.side < 0 ? "left" : "right"),

@@ -284,6 +284,9 @@ export function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number
   camera.updateProjectionMatrix();
 }
 
+/** The one-car rigs' orbit shot (`frameReset`): look height, distance and pitch. */
+const SOLO_SHOT = { lookY: 0.55, radius: 9.4, pitch: 0.44 };
+
 /**
  * Orbit / chase / first-person rig over the shared PerspectiveCamera, plus canvas pointer input:
  * left-drag orbits (or looks round the driven or spectated car), wheel or a two-finger pinch zooms, a short tap picks via `onClick`.
@@ -418,16 +421,16 @@ export class ChaseCamera {
     this.look.copy(look);
   }
 
-  /** Snap to the opening shot: a fixed solo-rig angle (`soloAngle`), or broadside to the fleet's approach line. */
-  frameReset(compactor: boolean, cars: readonly DeformableCar[], soloAngle = 0.85): void {
+  /** Snap to the opening shot: a fixed solo-rig angle (`soloAngle`) and `shot`, or broadside to the fleet's approach line. */
+  frameReset(compactor: boolean, cars: readonly DeformableCar[], soloAngle = 0.85, shot = SOLO_SHOT): void {
     this.userFramed = false;
     this.trauma = 0;
     // This snap replaces any shot `lookBack` parked.
     this.flipped = false;
     if (compactor) {
-      this.look.set(0, 0.55, 0);
-      this.radius = 9.4;
-      this.pitch = 0.44;
+      this.look.set(0, shot.lookY, 0);
+      this.radius = shot.radius;
+      this.pitch = shot.pitch;
       this.angle = soloAngle;
       const cp = Math.cos(this.pitch);
       this.pos.set(

@@ -111,7 +111,16 @@ the flanks vary 6 %.
 - Forces between stacked cars are vertical only: a tilted pair does not pass friction to the car below, and there is no
   rigid-body torque on the carrier.
 
-## Debug
+## Debug and the scene
 
-`window.__crush.dropStack(n)` stands `n` cars (default 4) one over the other on the origin, each 2 cm over the roof below;
-watch the roofs settle by the weight on them (sandbox scenes).
+The **Stack** scene (`/`, `scenes/stack-rig.ts`) is this test as a showcase. It drops cars one at a time onto a base car: the first
+after 1 s, then one every **gap** seconds (sim time), each from **drop** m over the roof of the stack below it (the roof of
+the car's own body style, 0.13 m belly room). After the last car's gap it restarts through the shared clear path (with Loop
+on). The three sliders (cars 2–20, drop 0.02–2 m, gap 1–20 s) default to the test's values (`stack(4)`, `GAP = 0.02`,
+`SETTLE_S = 8`), live in the share URL (`scars`/`sdrop`/`sgap`) and restart the stack when changed. The panel lists, per
+car, the load (kN: the mass of the cars standing in the column above it, each upright, within 0.6 m of the car under it and one
+car's height over it; a car off the column reads "—" and carries none; the load-crush step's force is per slice and not kept, so
+the column is read from the poses) and its roof's sink (mm, `ROOF_REST_Y` minus the roof mass's height),
+both read off the sim's cars. The cars are the fleet's mixed bodies, not the test's sedans, and a car lands a frame after
+it is placed (`placeDrop` updates its matrix first: the load crush reads the car below's `matrixWorld`). Tall stacks of mixed
+bodies topple; the scene shows what the physics does.

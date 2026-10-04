@@ -79,7 +79,7 @@ Panels (`skinPanel`), interior, glass and detachable parts follow in `car.ts` / 
 ## Load crush
 - `deform/load-crush.ts`: the five faces' strength laws (`faceStrength(face, d)` in car weights, `faceMax`, `faceFollow`); `DeformRig.crush` (m per face, typed array: not in `simState`), `bakeLoadCrush` (masses + one re-skin, `loadDirty`), `offsetByCrush`.
 - `vehicle/car-surfaces.ts`: `CarSurfaces`, the `Ground` `stepAir` stands on (world ground + other cars' tops, a flattened roof plate on a 0.1 m grid) and the per-slice face budgets (`take`, `note`, `commit`, `press`); `stepWorld` owns one (`World.surfaces`, `car.surfaces`, `car.restsOn`).
-- `vehicle/car-air.ts` `stepAir`: body points and belly points meet it; a face's contact impulse is capped (`take`), its penetration becomes depth (`commit`); `nearContact` / `CONTACT_HZ` make `stepWorld` solve such a step at 480 Hz. `contact/sat.ts` `shareHeight`: `restsOn` and `STACK_CLEAR` keep a stacked pair out of the plan SAT. See `docs/LOAD_CRUSH.md`; debug: `window.__crush.dropStack(n)`.
+- `vehicle/car-air.ts` `stepAir`: body points and belly points meet it; a face's contact impulse is capped (`take`), its penetration becomes depth (`commit`); `nearContact` / `CONTACT_HZ` make `stepWorld` solve such a step at 480 Hz. `contact/sat.ts` `shareHeight`: `restsOn` and `STACK_CLEAR` keep a stacked pair out of the plan SAT. See `docs/LOAD_CRUSH.md`; showcase: the Stack scene (`scenes/stack-rig.ts`).
 
 ## Related
 `docs/RIG_ANALYSIS.md` (rig vs real structure), `docs/CRUSH_CALIBRATION.md` (squash/buckle), `docs/PISTON_RIG.md`, `docs/PARTICLE_LOD_SPEC.md` (fine-patch LoD: gate failed, not built), `.extraResearch/SYNTHESIS.md`, [architecture.md](architecture.md), [testing.md](testing.md)

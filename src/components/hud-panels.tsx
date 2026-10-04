@@ -1,10 +1,11 @@
-import type { RefObject } from "react";
+import { Fragment, type RefObject } from "react";
+import { STACK_RANGES } from "@/game/scenes/stack-rig";
 import { RangeRow } from "@/components/hud-controls";
 import { Button } from "@/components/ui/button";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { DoorScenario } from "@/game/scenes/door-rig";
 import type { CrashEngine } from "@/game/engine/engine";
-import type { CrashHudState, DoorHud, PistonHud } from "@/game/hud/hud-store";
+import type { CrashHudState, DoorHud, PistonHud, StackHud } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. A phone on its side shows the three best scores and the watched car. */
@@ -187,6 +188,56 @@ export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject
           {shot.latched ? " latched" : ""} · panel {(shot.panelHinge * 100).toFixed(0)}% · body Δ {shot.bodyMm.toFixed(1)} mm
         </p>
       ) : null}
+    </div>
+  );
+}
+
+/** Stack scene: the three settings (a change restarts the stack) and, top car first as it stands, each car's load (kN of the cars on it) and roof crush (mm). */
+export function StackPanel({ stack, engine }: { stack: StackHud; engine: RefObject<CrashEngine | null> }) {
+  const rows = Array.from({ length: stack.dropped }, (_, i) => stack.dropped - 1 - i);
+  return (
+    <div className="hud-panel pointer-events-auto max-h-full w-56 space-y-1 overflow-y-auto p-2 idle:w-auto idle:opacity-70">
+      <div className="flex items-baseline justify-between gap-2">
+        <p className="hud-label">Stack</p>
+        <p className="font-display text-xs tabular-nums text-muted">
+          {stack.dropped} / {stack.cars} cars
+        </p>
+      </div>
+      <div className="space-y-1 idle:hidden">
+        <RangeRow label="Cars" name="Cars in the stack" value={stack.cars} min={STACK_RANGES.cars.min} max={STACK_RANGES.cars.max} step={1} digits={0} onValue={(v) => engine.current?.setStackConfig({ cars: v })} />
+        <RangeRow
+          label="Drop"
+          name="Drop height over the stack"
+          value={stack.drop}
+          min={STACK_RANGES.drop.min}
+          max={STACK_RANGES.drop.max}
+          step={0.01}
+          shown={`${stack.drop.toFixed(2)} m`}
+          onValue={(v) => engine.current?.setStackConfig({ drop: v })}
+        />
+        <RangeRow
+          label="Gap"
+          name="Seconds between drops"
+          value={stack.gap}
+          min={STACK_RANGES.gap.min}
+          max={STACK_RANGES.gap.max}
+          step={0.5}
+          shown={`${stack.gap.toFixed(1)} s`}
+          onValue={(v) => engine.current?.setStackConfig({ gap: v })}
+        />
+      </div>
+      <dl className="grid grid-cols-[1.5rem_1fr_1fr] gap-x-2 font-display text-xs tabular-nums" aria-label="Load and roof crush per car">
+        <dt className="hud-label">#</dt>
+        <dt className="hud-label text-right">Load</dt>
+        <dt className="hud-label text-right">Roof</dt>
+        {rows.map((i) => (
+          <Fragment key={i}>
+            <dd className="text-muted">{i + 1}</dd>
+            <dd className="text-right">{stack.loadKn[i] === null ? "—" : `${stack.loadKn[i]!.toFixed(1)} kN`}</dd>
+            <dd className="text-right">{stack.crushMm[i]!.toFixed(0)} mm</dd>
+          </Fragment>
+        ))}
+      </dl>
     </div>
   );
 }

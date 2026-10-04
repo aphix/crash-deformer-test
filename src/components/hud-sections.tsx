@@ -215,7 +215,7 @@ function PlaybackSection({ state, engine }: HudProps) {
 
 function TuningSection({ state, engine }: HudProps) {
   // Only the fleet and the corkscrew launch their cars at a spawn speed; every other scene places its own.
-  const launched = !state.race && !state.derby && !state.showCompactor && !state.showPistons && !state.showDoors && !state.range;
+  const launched = !state.race && !state.derby && !state.showCompactor && !state.showPistons && !state.showDoors && !state.stack && !state.range;
   return (
     <>
       <RangeRow label="Cars" name="Number of cars" value={state.carCount} min={1} max={32} step={1} digits={0} onValue={(n) => engine.current?.setCarCount(n)} />

@@ -65,7 +65,7 @@ const GLASS_LAMINATED = 0.25;
  *  it). Guessed, tuned by eye. (The roof sensor's compression is no measure: a 20 km/h frontal reads 0.36.) */
 const BAR_TEAR_SINK = 0.12;
 const BAR_TEAR_MPS = 60 / 3.6;
-const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
+export const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
 /** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
 const PART_SLOTS = 15;
 /**
