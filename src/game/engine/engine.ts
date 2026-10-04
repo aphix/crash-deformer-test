@@ -285,8 +285,8 @@ export class CrashEngine extends EngineShare {
     this.renderer.setAnimationLoop(this.tick);
   }
 
-
   dispose(): void {
+    this.mouseLook.exit();
     this.disposed = true;
     this.renderer.setAnimationLoop(null);
     window.removeEventListener("keydown", this.onKey);

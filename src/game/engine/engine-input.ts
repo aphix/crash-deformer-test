@@ -9,6 +9,8 @@ import { cleanName, DRIVER_CARS } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
+import type { SceneId } from "../scenes/scene-id.ts";
+import { MouseLook } from "./mouse-look.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 
@@ -313,10 +315,44 @@ export abstract class EngineInput extends EngineRigs {
     this.randomizeAndReset();
     this.emitHud();
   }
+  /** Mouse look (pointer lock on the canvas): raw movement looks round like a held drag; any loss of the lock pauses a run. */
+  protected readonly mouseLook = new MouseLook({
+    move: (dx, dy) => this.view.lookBy(dx, dy),
+    changed: () => {
+      this.view.locked = this.mouseLook.on;
+      this.emitHud();
+    },
+    lost: () => this.pauseRun(),
+  });
+  private lookScene: SceneId = "fleet";
+
+  /** The toggle key and the HUD button: a fine pointer and no menu or reel only. Call inside the user gesture. */
+  toggleMouseLook(): void {
+    if (this.mouseLook.on) {
+      this.mouseLook.exit();
+      return;
+    }
+    if (this.race.menuOpen || !window.matchMedia("(pointer: fine)").matches) return;
+    this.lookScene = this.sceneId;
+    this.mouseLook.request(this.canvas);
+  }
+
+  /** The same pause Esc and the pad's Start give: a race, Survival (a race) or the derby's clock. Once: a paused run ignores it. */
+  private pauseRun(): void {
+    if (this.race.active) this.raceCommand({ type: "pause" });
+    else if (this.derbyMode && this.derby.active && this.derby.winnerId === null && this.playing) this.togglePlay();
+  }
+
   protected onKey = (e: KeyboardEvent): void => {
     if (!gameKey(e)) return;
     // A race menu owns the keyboard (and the pad) through the HUD.
     if (this.race.menuOpen) return;
+    // Not a game key (no chord, no seat action): only ever asks for the lock, inside this keydown (the user gesture).
+    if (e.code === "Semicolon") {
+      e.preventDefault();
+      if (!e.repeat) this.toggleMouseLook();
+      return;
+    }
     this.keys.add(e.code);
     const driving = this.seat.mode === "drive";
     if (this.seat.mode !== "global" && e.code.startsWith("Arrow")) e.preventDefault();
@@ -435,6 +471,8 @@ export abstract class EngineInput extends EngineRigs {
   /** Once per frame: keys + pad → seat intent and the rear-view hold; pad button presses → seat / scene actions. */
   protected pollInput(): void {
     const pad = this.pad.poll();
+    // A menu or a scene switch ends mouse look cleanly (the pointer comes back).
+    if (this.mouseLook.on && (this.race.menuOpen || this.sceneFade.pending !== null || this.sceneId !== this.lookScene)) this.mouseLook.exit();
     // Held, not toggled: Backquote, R3 or the touch button looks back until released.
     this.view.rear = !this.race.menuOpen && (this.keys.has("Backquote") || (pad.held & (1 << PAD_BUTTON.r3)) !== 0);
     // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.

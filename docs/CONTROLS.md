@@ -32,6 +32,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Camera: chase → far chase → hood cam | V / C / T | Y / Triangle | View |
 | Look back from the car while held; release returns at once | ` (Backquote) | R3 (click the right stick) | Rear (hold) |
 | Look round the car (eases back 0.8 s after release) | mouse drag | right stick | one-finger drag on the view |
+| Mouse look: look round with no drag (see Following and the camera) | ; (Semicolon) | | |
 | Recover: back on its wheels where it stands, at rest and repaired (derby: only when flipped and still running) | R | D-pad ↓ | Recover |
 | Step out: drive → follow → whole field | Esc | Back / View / Create | Exit, then Free |
 
@@ -46,6 +47,7 @@ A tap shorter than one frame still registers (the press is latched until the nex
 | Spectator cam: chase → far → hood → trackside → wheel well → orbit → Auto (the highlight reel's shots run live on the followed car; every cut checks room and sight first) | V / T | Y / Triangle | View (in a race: the Spectating bar's camera button) |
 | Look back from the followed car while held | ` | R3 | Rear (hold) |
 | Orbit (also a thrown driver's ride-along: it orbits the dummy, the ride's shot changes wait during the drag and 2.5 s after) | drag | right stick | one-finger drag |
+| Mouse look (Pointer Lock on the canvas: the pointer hides and mouse movement looks round like a drag, no click; also the HUD's mouse button, desktop only). Chase views and the orbit when watching; the ride-along and fixed or cinematic spectator cams ignore it. Esc, a menu, a scene change or any lost lock (alt-tab, tab hide) ends it; a lost lock pauses a race, Survival run or derby once (the next Esc unpauses a race as usual). Chrome refuses a re-lock for ~1-2 s after an Esc exit: the toggle then stays off, press it again | ; (Semicolon) | | |
 | Zoom | scroll | | two-finger pinch |
 
 ## Racing (no menu open)

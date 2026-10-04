@@ -8,7 +8,7 @@ import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { SoloExit } from "@/components/race-reel";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
-import { FullscreenButton, TouchControls } from "@/components/touch-controls";
+import { FullscreenButton, MouseLookButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { useHudIdle } from "@/components/use-hud-idle";
 import { useSpeedUnit } from "@/components/use-speed-unit";
@@ -97,6 +97,7 @@ const CAMERA_KEYS: [string, string][] = [
   ["Esc", "Step back out"],
   ["` (hold)", "Look back"],
   ["Drag · scroll", "Orbit camera"],
+  [";", "Mouse look (Esc ends it)"],
   ["V", "Camera view: chase, trackside, wheel, orbit, auto"],
 ];
 
@@ -220,6 +221,7 @@ export function Hud(props: HudProps) {
           state.race.menu === null ? (
             <div className="flex items-center gap-1 phone-landscape:absolute phone-landscape:bottom-2 phone-landscape:left-1/2 phone-landscape:-translate-x-1/2">
               <RaceViewToggle race={state.race} onCommand={raceCommand} bare />
+              <MouseLookButton engine={engine} on={state.mouseLook} className="hud-ink pointer-events-auto text-fg/80 hover:bg-surface/60 hover:text-fg sm:h-8" />
               <FullscreenButton className="hud-ink pointer-events-auto text-fg/80 hover:bg-surface/60 hover:text-fg sm:h-8" />
             </div>
           ) : null
@@ -457,6 +459,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <SlidersHorizontal />
       </Button>
       <KeyHelp className="idle:hidden idle:data-[state=open]:inline-flex" />
+      <MouseLookButton engine={engine} on={state.mouseLook} className={BAR_BUTTON} />
       <FullscreenButton className={BAR_BUTTON} />
     </div>
   );

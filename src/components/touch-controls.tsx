@@ -1,8 +1,9 @@
 import { useEffect, useRef, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
-import { ChevronLeft, ChevronRight, CircleParking, LockOpen, LogOut, Maximize, Minimize, Pause, SwitchCamera, Video, Wrench, Zap } from "lucide-react";
+import { ChevronLeft, ChevronRight, CircleParking, LockOpen, LogOut, Maximize, Minimize, Mouse, Pause, SwitchCamera, Video, Wrench, Zap } from "lucide-react";
 import type { HudProps } from "@/components/hud";
 import { Button } from "@/components/ui/button";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
+import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { cn } from "@/lib/utils";
 
 /** The webkit prefixes Safari on iPad still ships (iPhone Safari has neither, so the button hides there). */
@@ -51,6 +52,18 @@ export function FullscreenButton({ className }: { className?: string }) {
   return (
     <Button variant="ghost" className={className} aria-label={label} aria-pressed={on} title={label} onClick={toggleFullscreen}>
       {on ? <Minimize /> : <Maximize />}
+    </Button>
+  );
+}
+
+/** Mouse look (pointer lock): the pointer hides and mouse movement looks round, no drag. A fine pointer only; Esc or this button ends it. */
+export function MouseLookButton({ engine, on, className }: Pick<HudProps, "engine"> & { on: boolean; className?: string }) {
+  const coarse = useCoarsePointer();
+  if (coarse) return null;
+  const label = on ? "Release the mouse" : "Mouse look";
+  return (
+    <Button variant={on ? "default" : "ghost"} className={cn(className, on && "bg-accent text-accent-fg hover:bg-accent hover:text-accent-fg")} aria-label={label} aria-pressed={on} title={`${label} (;)`} onClick={() => engine.current?.toggleMouseLook()}>
+      <Mouse />
     </Button>
   );
 }

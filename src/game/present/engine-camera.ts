@@ -300,6 +300,8 @@ export class ChaseCamera {
   userFramed = false;
   /** Rear-view hold, set by the input poll every frame (Backquote, R3, the touch button). */
   rear = false;
+  /** Pointer lock (mouse look) held: set by the engine; clicks are off and the orbit follows fast and never auto-spins. */
+  locked = false;
   readonly drive = new DriveCam();
   readonly cine = new CineCam();
   readonly dutch = new DutchCam();
@@ -477,7 +479,7 @@ export class ChaseCamera {
       this.pitch = THREE.MathUtils.clamp(this.pitch + ry * 1.4 * wallDt, 0.08, 1.22);
       this.userFramed = true;
     }
-    if (spinRate > 0 && !this.dragging && !padTurn && !this.reduceMotion) this.angle += spinRate * wallDt;
+    if (spinRate > 0 && !this.dragging && !this.locked && !padTurn && !this.reduceMotion) this.angle += spinRate * wallDt;
 
     const cp = Math.cos(this.pitch);
     const sp = Math.sin(this.pitch);
@@ -488,7 +490,7 @@ export class ChaseCamera {
     );
     this.pushFromPosts();
 
-    const k = 1 - Math.exp((this.dragging || padTurn ? -18 : -5.5) * wallDt);
+    const k = 1 - Math.exp((this.dragging || this.locked || padTurn ? -18 : -5.5) * wallDt);
     this.camera.position.lerp(this.pos, k);
     this.camera.lookAt(this.look);
     if (shake) this.shake();
@@ -678,7 +680,8 @@ export class ChaseCamera {
   }
 
   private onPointerDown = (e: PointerEvent): void => {
-    if (e.button !== 0) return;
+    // Mouse look has no clicks: a press must not pick a car at the frozen pointer.
+    if (e.button !== 0 || this.locked) return;
     // A second finger on the canvas pinch-zooms (the touch wheel); it never orbits or picks.
     if (this.dragId !== -1) {
       if (this.pinchId !== -1) return;
@@ -723,10 +726,26 @@ export class ChaseCamera {
       this.drive.nudge(dx, dy);
       return;
     }
-    if (!this.dragging) return;
+    if (this.dragging) this.orbitBy(dx, dy);
+  };
+
+  /** Drag right turns the orbit right, drag down tips it over (same limits for a drag and for mouse look). */
+  private orbitBy(dx: number, dy: number): void {
     this.angle -= dx * 0.005;
     this.pitch = THREE.MathUtils.clamp(this.pitch + dy * 0.004, 0.08, 1.22);
-  };
+  }
+
+  /**
+   * Pointer-lock mouse look: raw movement does what a held drag does (the chase look offset, or the orbit
+   * round a car in the other seats), with no button down. Not on the ride-along, which keeps its own shot.
+   */
+  lookBy(dx: number, dy: number): void {
+    if (this.rig === "chase") this.drive.nudge(dx, dy);
+    else if (this.rig === "orbit" && this.seat.mode !== "drive" && !this.ride) {
+      this.orbitBy(dx, dy);
+      this.userFramed = true;
+    }
+  }
 
   /** Two fingers apart zoom in, together zoom out, on the wheel's radius range. */
   private pinch(): void {
