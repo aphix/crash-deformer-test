@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { COMPACTOR, compactorStage } from "../scenes/compactor.ts";
 import { PISTON, PISTON_IDS, type PistonConfig } from "../scenes/piston-rig.ts";
+import { placeDrop, STACK_RANGES, type StackConfig } from "../scenes/stack-rig.ts";
 import { PISTON_ORBIT_RATE, pistonAhead, pistonToGo } from "../present/engine-pistons.ts";
 import { DOOR_LANES, RAM, type DoorScenario } from "../scenes/door-rig.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
@@ -218,4 +219,33 @@ export abstract class EngineRigs extends EngineScenes {
     }
   }
 
+  /** The stack's settings (sliders, share link), clamped to `STACK_RANGES`; in the scene a change restarts the stack through the shared clear path. */
+  setStackConfig(patch: Partial<StackConfig>): void {
+    const c = this.stack.config;
+    const R = STACK_RANGES;
+    const was = c.cars;
+    c.cars = THREE.MathUtils.clamp(Math.round(patch.cars ?? c.cars) || c.cars, R.cars.min, R.cars.max);
+    c.drop = THREE.MathUtils.clamp(patch.drop ?? c.drop, R.drop.min, R.drop.max);
+    c.gap = THREE.MathUtils.clamp(patch.gap ?? c.gap, R.gap.min, R.gap.max);
+    if (this.showStack && !this.net.client) {
+      this.ensureCars(c.cars);
+      this.randomizeAndReset();
+      if (c.cars !== was) this.frameStack();
+    }
+    this.emitHud();
+  }
+
+  /** Stack scene, per frame: the next car falls from `drop` over the stack's top once the gap has passed on the physics clock (`elapsedSim`); a finished, settled stack restarts when looping. */
+  protected stepStack(): void {
+    const act = this.stack.step(this.elapsedSim);
+    if (act === "loop") {
+      if (this.looping) this.randomizeAndReset();
+      return;
+    }
+    if (act === null) return;
+    const cars = this.live();
+    placeDrop(cars, this.stack.dropped - 1, this.stack.config.drop);
+    this.dressCar(cars[this.stack.dropped - 1]!);
+    this.emitHud();
+  }
 }

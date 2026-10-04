@@ -1,5 +1,6 @@
 import type { FxTier } from "../present/engine-post.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
+import type { StackConfig } from "../scenes/stack-rig.ts";
 import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { RaceHud, RaceView } from "../match/types.ts";
@@ -39,6 +40,9 @@ export type DoorHud = {
   shot: { detached: string[]; doorDeg: number; latched: boolean; panelHinge: number; bodyMm: number } | null;
 };
 
+/** The stack scene's HUD slice (`CrashHudState.stack`). */
+export type StackHud = StackConfig & { dropped: number; loadKn: (number | null)[]; crushMm: number[] };
+
 export type CrashHudState = {
   playing: boolean;
   looping: boolean;
@@ -57,6 +61,11 @@ export type CrashHudState = {
    *  the throw; `landed` once he lies still. */
   range: { distance: number | null; landed: boolean } | null;
   showCorkscrew: boolean;
+  /**
+   * The stack scene (null in every other scene): its three settings, the cars in the stack so far (`dropped`), and per
+   * car, bottom first, the weight above it (kN) and its roof's sink (mm), read off the sim's cars.
+   */
+  stack: StackHud | null;
   /** The scene a pick is fading to (the switch comes at the transition's black), else null; the scene buttons light it. */
   pendingScene: SceneId | null;
   /** This browser is in a netplay room (hosting or joined): the single-player scenes are not offered. */
@@ -174,6 +183,7 @@ export const INITIAL_HUD: CrashHudState = {
   doors: { side: 1, kph: 12, kg: 300, open: false, busy: false, energyJ: 0, shot: null },
   range: null,
   showCorkscrew: false,
+  stack: null,
   pendingScene: null,
   inRoom: false,
   autoRotate: true,

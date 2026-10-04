@@ -8,6 +8,7 @@ import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "
 import { RANGE } from "../scenes/range.ts";
 import { makeRangeArt } from "../present/range-art.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
+import { stackShot } from "../scenes/stack-rig.ts";
 import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
 import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
@@ -137,11 +138,13 @@ export abstract class EngineScenes extends EngineHud {
       this.showBarrier = false;
       this.ensureCars(this.sandboxCars);
     }
+    // The stack runs its own car count and gives the sandbox's back.
+    if (this.showStack) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
-    if (next === "range") {
+    if (next === "range" || next === "stack") {
       this.sandboxCars = this.carCount;
-      this.ensureCars(1);
+      this.ensureCars(next === "range" ? 1 : this.stack.config.cars);
     }
     if (next === "race" || next === "survival") this.setRace(true, next === "survival");
     else this.sceneId = next;
@@ -150,6 +153,7 @@ export abstract class EngineScenes extends EngineHud {
     // Frame only on entering: re-parks and loop hops keep the user's view and the orbit running. The camera
     // starts 1.2 s of orbit short of the front-right ram so the first synced shot comes from its side.
     if (next === "pistons") this.view.frameReset(true, this.live(), pistonBearing(2) - PISTON_ORBIT_RATE * 1.2);
+    if (next === "stack") this.frameStack();
     this.emitHud();
   }
 
@@ -178,22 +182,9 @@ export abstract class EngineScenes extends EngineHud {
     this.setScene("survival");
   }
 
-  /**
-   * Debug (`window.__crush.dropStack(n)`): `n` cars one above the other on the origin, each falling 2 cm onto the roof
-   * below (1.17 m up: a car's belly stands 0.13 m over its tyres, the roof 1.3 m). Every roof settles by the weight on
-   * it, the top one not at all (docs/LOAD_CRUSH.md).
-   */
-  dropStack(n = 4): void {
-    this.ensureCars(n);
-    this.parkSolo().spawnFacing(0, 0, 0, 0);
-    for (let i = 1; i < this.carCount; i++) {
-      const car = this.cars[i]!;
-      car.group.visible = true;
-      car.spawnFacing(0, 0, 0, 0);
-      car.group.position.y = i * 1.19;
-      car.airborne = true;
-      this.dressCar(car);
-    }
+  /** Stack (docs/LOAD_CRUSH.md): cars dropped one at a time onto a base car. */
+  toggleStack(): void {
+    this.setScene("stack");
   }
 
   toggleDerby(): void {
@@ -329,6 +320,11 @@ export abstract class EngineScenes extends EngineHud {
     }
     if (this.showCorkscrew) {
       this.parkCorkscrew();
+      this.finishResetCommon();
+      return;
+    }
+    if (this.showStack) {
+      this.parkStack();
       this.finishResetCommon();
       return;
     }
@@ -577,6 +573,36 @@ export abstract class EngineScenes extends EngineHud {
     this.corkscrew.group.visible = true;
   }
 
+  /** The base car alone at the origin; the rest wait upright out of the way, each to fall in turn (`stepStack`). */
+  private parkStack(): void {
+    this.parkSolo();
+    this.stack.restart();
+    for (let i = 1; i < this.carCount; i++) this.cars[i]!.spawnFacing(48 + i * 4, 48, 0, 0);
+  }
+
+  /** Height the stack's orbit looks at, eased: the middle of the tallest car's roof (the rest of the pile follows a topple down). */
+  private stackEye = 0;
+  /** The screen shape the opening shot was framed for (a portrait one stands the camera further back). */
+  private stackPortrait = false;
+
+  /** The stack's opening shot: far enough back for the finished tower (`stackShot`), further on a portrait screen, looking at the base car. */
+  protected frameStack(): void {
+    const shot = stackShot(this.stack.config.cars);
+    this.stackPortrait = this.camera.aspect < 1;
+    if (this.stackPortrait) shot.radius = Math.min(32, shot.radius * 1.3);
+    this.stackEye = shot.lookY;
+    this.view.frameReset(true, this.live(), undefined, shot);
+  }
+
+  /** Height the stack's orbit looks at this frame; a screen that turned portrait (or back) before the user touched the view is framed again. */
+  protected stackLookY(wallDt: number): number {
+    if (this.camera.aspect < 1 !== this.stackPortrait && !this.view.userFramed) this.frameStack();
+    let top = 0;
+    for (const car of this.live()) top = Math.max(top, car.group.position.y);
+    this.stackEye += ((top + 1.3) / 2 - this.stackEye) * (1 - Math.exp(-3 * wallDt));
+    return this.stackEye;
+  }
+
   private finishResetCommon(): void {
     this.clock.phase = "approach";
     if (this.clock.userTimeScale != null) {
@@ -594,7 +620,7 @@ export abstract class EngineScenes extends EngineHud {
     this.impactLightLife = 0;
     this.impactLight.intensity = 0;
 
-    if (!this.showPistons) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
+    if (!this.showPistons && !this.showStack) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.vaporAt.length = 0;

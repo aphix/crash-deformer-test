@@ -393,11 +393,11 @@ export class CrashEngine extends EngineShare {
       // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
       if (reelDt !== null || !this.net.client) {
         for (const car of cars) {
-          if (reelDt !== null ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
+          if (reelDt !== null || this.showStack ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
         }
       }
       if (reelDt === null && !this.net.client) this.updatePhase(wallDt);
-      if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
+      if (this.showStack) this.stepStack(); else if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (reelDt === null && this.clock.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
         this.impactLightLife -= wallDt;
@@ -597,7 +597,7 @@ export class CrashEngine extends EngineShare {
     w.barrier = this.showBarrier ? this.barrier : null;
     w.barrierHits = this.barrierHits;
     w.bounce = this.bounceWorld;
-    w.beforeSlice = this.rigScene ? this.rigSlice : null;
+    w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : null;
     w.partTouch = this.race.active ? this.race.partTouch : null;
     w.ballHit = this.showBalls ? this.ballHit : null;
@@ -618,7 +618,7 @@ export class CrashEngine extends EngineShare {
     if (this.race.active) this.race.step(dt);
 
     const { impulse, contact, normal } = w.strongest;
-    if (!this.derbyMode && !this.race.active && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
+    if (!this.derbyMode && !this.race.active && !this.showStack && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
     } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16 && this.witness.sees(contact, FX_REACH.sparks)) {
       this.sparkAt = this.elapsedWall;
@@ -775,7 +775,7 @@ export class CrashEngine extends EngineShare {
       // Over the car's own height: a race course climbs hills and bridges.
       look.set(followed.group.position.x, followed.group.position.y + 0.7, followed.group.position.z);
     } else if (this.rigScene) {
-      look.set(this.carA.group.position.x, 0.55, this.carA.group.position.z);
+      look.set(this.carA.group.position.x, this.showStack ? this.stackLookY(wallDt) : 0.55, this.carA.group.position.z);
     } else if (this.derbyMode && this.derby.winnerId != null) {
       const champ = this.cars[this.derby.winnerId];
       if (champ) look.set(champ.group.position.x, 0.7, champ.group.position.z);

@@ -1,5 +1,5 @@
 /** The scene picker's scenes (`CrashEngine.setScene`), and the values of the share URL's `scene=`. */
-export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "derby", "race", "range", "survival"] as const;
+export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "stack", "derby", "race", "range", "survival"] as const;
 export type SceneId = (typeof SCENE_IDS)[number];
 
 /**
