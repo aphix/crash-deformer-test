@@ -20,7 +20,7 @@ const HIT_STOP = 0.09;
 const HIT_STOP_SCALE = 0.05;
 
 /** Crash cam: cut times (wall s after the first impact) for the three replay angles, then hand back. */
-const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
+export const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
 /** Wall s after the impact when the crash cam hands the camera back (`direct` false again). */
 export const CRASH_CAM_END = CUTS[3];
 
@@ -49,6 +49,8 @@ const TURNS = [
 const REACH = [1, 0.75, 0.55, 0.35] as const;
 /** No pulled-in eye stands closer (m, flat) to the hit: the cars are not in the sight lines, and a closer one sat under the wreck. */
 const REACH_MIN = 3;
+/** Times through a cut (start to end, the middle among them) at which an eye must be usable. */
+const CUT_SAMPLES = 9;
 /** A reel's held crash cam prefers the crane (widest, highest, the cut least often in the way), then the long lens, then the bumper cam. */
 const HOLD_ORDER = [1, 2, 0] as const;
 /** A held eye's room and sight are asked again this often (wall s): `camUsable` costs about 0.15 ms a call. */
@@ -87,17 +89,27 @@ export function crashEye(out: THREE.Vector3, t: number, at: THREE.Vector3, n: TH
 }
 
 /**
- * Per crash-cam cut (its eye mid-cut about `at` and axis `n`): the longest `REACH` whose eye is usable (`camUsable`:
- * `CLEAR.radius` m of room, in sight of `at`), into `reach` (0: none). Returns how many cuts have one.
+ * Per crash-cam cut: the longest `REACH` whose eye is usable (`camUsable`: `CLEAR.radius` m of room, in sight of `at`) at
+ * the cut's start, middle and end, into `reach` (0: none). The eye pans and turns through its cut (and a held cut stands at
+ * its start, a still one at its middle), so a spot only the middle passes drifts into a wall or behind a corner: measured on
+ * the courses, 7 (stunt) to 74 (city) cuts lost their room or sight at one end of a middle-only pick (engine-cine.test.ts).
+ * Returns how many cuts have one.
  */
 export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
   let seen = 0;
   for (let cut = 0; cut < 3; cut++) {
     reach[cut] = 0;
+    const from = CUTS[cut]!;
+    const span = CUTS[cut + 1]! - from;
     for (const r of REACH) {
-      crashEye(_eye, (CUTS[cut]! + CUTS[cut + 1]!) / 2, at, n, 1, r);
+      crashEye(_eye, from + span / 2, at, n, 1, r);
       if (r < 1 && Math.hypot(_eye.x - at.x, _eye.z - at.z) < REACH_MIN) break;
-      if (!camUsable(s, _eye, at, STILL, 0)) continue;
+      let usable = true;
+      for (let i = 0; usable && i < CUT_SAMPLES; i++) {
+        crashEye(_eye, from + (span * i) / (CUT_SAMPLES - 1), at, n, 1, r);
+        usable = camUsable(s, _eye, at, STILL, 0);
+      }
+      if (!usable) continue;
       reach[cut] = r;
       seen++;
       break;

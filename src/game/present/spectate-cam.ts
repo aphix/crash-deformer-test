@@ -114,6 +114,11 @@ export function raceSight(track: Track, placed: readonly Placed[]): Sight {
   return sight;
 }
 
+/**
+ * `solid` projects each point onto the road starting from the last one's segment (a window of samples): a spot or a line begins
+ * with the hint cleared (`clearSpot`, `sightLine`), or the previous query's far-away strand, near enough to be accepted where a
+ * course crosses itself, decided the walls and tunnels of the wrong road (the same spot read differently after another).
+ */
 const _proj = blankProjection();
 const _pt = blankPoint();
 const _near: Occluder[] = [];
@@ -236,6 +241,7 @@ export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: numb
   const step = Math.max(CINE.step, len / LINE_SAMPLES);
   const pad = step / 2;
   const occ = gather(s, ax, az, bx, bz, pad);
+  _proj.k = -1;
   let n = 0;
   for (let d = step; d < len - CINE.stop + step; d += step) {
     const f = d / len;
@@ -275,6 +281,7 @@ const SPOT_COST = 20;
  * hugging one (or behind one, low) is not. Cheap: the occluders near the spot are gathered once, ~15 solid tests.
  */
 export function clearSpot(s: Sight, x: number, y: number, z: number, radius: number = CLEAR.radius): boolean {
+  _proj.k = -1;
   const pad = CLEAR.pad;
   const occ = gather(s, x - radius, z - radius, x + radius, z + radius, pad);
   if (solid(s, x, y, z, pad, occ)) return false;
