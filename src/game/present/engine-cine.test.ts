@@ -8,7 +8,7 @@ import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
-import { crashAxis, crashEye, crashSeen, CUTS, heldCut } from "./engine-cine.ts";
+import { crashAxis, crashEye, crashSeen, CrashPick, CUTS, heldCut } from "./engine-cine.ts";
 
 /** An eye's times through its cut, tried here: twice as many as the pick's, so half of them fall between its. */
 const CUT_TIMES = 17;
@@ -105,6 +105,47 @@ describe("crash cam on a course", () => {
         }
       }
       assert.deepEqual(differ, [], `${track.id}: eyes whose answer depends on the previous query`);
+    });
+    it(`${track.id}: a pick spread over frames (5 camUsable calls a run) chooses what the whole pick does`, () => {
+      // The crash cam's pick runs a few calls a frame over its lead-in: at 240 Hz one frame must not take the whole of it.
+      const sight = raceSight(track, placeProps(track));
+      const path = track.path;
+      const ground = track.ground();
+      const pt = blankPoint();
+      const at = new THREE.Vector3();
+      const whole = new THREE.Vector3();
+      const sliced = new THREE.Vector3();
+      const wholeReach = new Float32Array(3);
+      const slicedReach = new Float32Array(3);
+      const pick = new CrashPick();
+      let runs = 0;
+      let longest = 0;
+      let spots = 0;
+      for (let s = 0; s < track.length; s += 8) {
+        track.pointAt(s, pt);
+        const k = sampleAt(path, s);
+        for (const side of [1, -1]) {
+          if (!(side > 0 ? path.wallL[k] : path.wallR[k])) continue;
+          const lat = side * (path.half[k]! + (side > 0 ? path.runL[k]! : path.runR[k]!) - 1);
+          const x = pt.x + pt.tz * lat;
+          const z = pt.z - pt.tx * lat;
+          at.set(x, ground.heightAt(x, z, pt.y + 1) + 0.55, z);
+          whole.set(pt.tx, 0, pt.tz).normalize();
+          sliced.copy(whole);
+          crashAxis(sight, at, whole, wholeReach);
+          pick.begin(sight, at, sliced, slicedReach);
+          let mine = 0;
+          while (!pick.run(5)) mine++;
+          runs += mine;
+          longest = Math.max(longest, mine);
+          spots++;
+          assert.deepEqual([...slicedReach], [...wholeReach], `${track.id} s ${s} side ${side}: reach`);
+          assert.ok(sliced.distanceTo(whole) < 1e-9, `${track.id} s ${s} side ${side}: axis`);
+        }
+      }
+      // 1000 calls a second (`PICK_RATE`) must finish inside the lead-in before the first cut (`CUTS[0]` 1.3 s, less 0.05 s).
+      assert.ok(longest * 5 <= 1000 * (CUTS[0] - 0.05), `${track.id}: the longest pick needs ${longest * 5}+ calls`);
+      assert.ok(spots === 0 || runs > 0, "no pick took more than one run: the slicing is untested");
     });
   }
 });
