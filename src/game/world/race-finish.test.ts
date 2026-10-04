@@ -399,22 +399,24 @@ describe("race: police chase", () => {
   }
 
   it("police wait until a racer passes their stakeout, then lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
-    // Phases of one frame in 4 ms steps. A race with one start phase is one chaotic sample: the lead-ins a pack-mate
-    // rams (cop on cop, unbumped by the target) do not count, so a single race converges 0 to 6 of its 6. Samples that
-    // play out identically are one sample, and the phases must really differ.
+    // Four samples: four fields (seeds: each rolls its rivals' aggression and the cops' beats), each started at its own
+    // phase of one frame in 4 ms steps. Racers that never touch (the contact guard) no longer let one field's phases
+    // fall apart into chaotic samples, so the samples differ by construction. The lead-ins a pack-mate rams (cop on cop,
+    // unbumped by the target) do not count, so a single race converges 0 to 6 of its 6; samples that play out
+    // identically are one sample, and the fields must really differ.
     const seen = new Set<string>();
     let wakes = 0;
     let converged = 0;
     let pursuitHits = 0;
-    for (const phase of [0, 0.004, 0.008, 0.012]) {
-      const r = leadIns(phase);
+    for (const [phase, seed] of [[0, 1], [0.004, 2], [0.008, 3], [0.012, 4]] as const) {
+      const r = leadIns(phase, seed);
       if (seen.has(JSON.stringify(r))) continue;
       seen.add(JSON.stringify(r));
       wakes += r.wakes;
       converged += r.converged;
       pursuitHits += r.pursuitHits;
     }
-    assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 start phases`);
+    assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 fields`);
     assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
     assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
   });

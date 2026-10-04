@@ -144,11 +144,11 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
   return { clip, cars, scene: { dress, collide: () => {}, bounce: undefined }, trace, s0: clipStart(clip, times), frameEnd };
 }
 
-/** The race of `race-eject-reel.test.ts` (oval, 3 AI, seed 1) a second in; `place` puts the crash's cars on the road. */
-export function recordRace(w: World, place: () => void, seconds: number): Recording {
+/** The race of `race-eject-reel.test.ts` (oval, `ai` AI drivers besides the player's car, which the AI drives too; seed 1) a second in; `place` puts the crash's cars on the road. */
+export function recordRace(w: World, place: () => void, seconds: number, ai: number): Recording {
   const r = w.race;
   r.command({ type: "quit" });
-  r.command({ type: "options", options: { trackId: "oval", laps: 3, aiCount: 3, noReset: false, aggression: 0.35 } });
+  r.command({ type: "options", options: { trackId: "oval", laps: 3, aiCount: ai, noReset: false, aggression: 0.35 } });
   r.reseed(1);
   w.ejections.length = 0;
   r.command({ type: "start" });

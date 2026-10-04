@@ -53,7 +53,7 @@ function check(name: string, rec: Recording, a: Agreement): void {
 }
 
 describe("a clip replays the crash as the sim that recorded it ran it", () => {
-  describe("in a race (oval, 3 AI)", () => {
+  describe("in a race (oval, the crash's own cars)", () => {
     const track = new Track(oval);
     const pt = blankPoint();
     const w: World = makeWorld();
@@ -71,16 +71,42 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
       const yaw = Math.atan2(pt.tx, pt.tz);
       w.cars[slot]!.spawnFacing(pt.x + side * pt.tz, pt.z - side * pt.tx, yaw + turn, speed);
     }
-    const run = (name: string, place: () => void): void => {
-      const rec = recordRace(w, place, 9);
+    /**
+     * The crash's own cars and no others: `ai` AI drivers beside the player's car (which the AI drives too). A car the crash
+     * does not touch rides the clip as a bystander on 8-bit pedals (only the cars the impact involves keep their pedals' last
+     * digits: docs/HIGHLIGHTS.md), and the race AI steers clear of what it closes on (`guardContact`): the two spare cars of a
+     * four-car field no longer ran into the crash and replayed 0.3 to 0.9 mm off on their rounded pedals. The derby fixtures
+     * below spawn just their own cars too.
+     */
+    const run = (name: string, place: () => void, ai: number): void => {
+      const rec = recordRace(w, place, 9, ai);
+      const { clip } = rec;
+      const a = clip.cars[clip.firstA]?.slot;
+      const b = clip.cars[clip.firstB]?.slot;
+      assert.ok((a === 0 && b === 1) || (a === 1 && b === 0), `${name}: the clip's first impact is car ${a} against ${b ?? "a wall"}, not car 0 against car 1`);
       check(name, rec, agreement(rec, HIT_S, () => w.race.resetProps()));
     };
+    /**
+     * A human at car 0's wheel, gas down, until it first touches the other car, then the AI again. The race AI brakes and
+     * steers away from a car it closes on, so no AI-driven car is driven into another's side; the derby fixtures below script
+     * their cars' pedals the same way.
+     */
+    const drive = (): void => {
+      w.seat.carIndex = 0;
+      w.seat.mode = "drive";
+      w.seat.intent.gas = 1;
+      w.onPairContact = () => {
+        w.seat.mode = "follow";
+        w.seat.intent.gas = 0;
+        w.onPairContact = null;
+      };
+    };
 
-    it("bad: a head-on at 2 x 20 m/s", () => run("race head-on", () => (put(0, 40, 0, 0, 20), put(1, 48, 0, Math.PI, 20))));
-    it("bad: an offset head-on, a metre off centre", () => run("race offset", () => (put(0, 40, 0.5, 0, 20), put(1, 48, -0.5, Math.PI, 20))));
-    it("bad: a T-bone, a car driven into another's side", () => run("race T-bone", () => (put(0, 40, 0, 0, 20), put(1, 54, 0, Math.PI / 2, 0))));
+    it("bad: a head-on at 2 x 20 m/s", () => run("race head-on", () => (put(0, 40, 0, 0, 20), put(1, 48, 0, Math.PI, 20)), 1));
+    it("bad: an offset head-on, a metre off centre", () => run("race offset", () => (put(0, 40, 0.5, 0, 20), put(1, 48, -0.5, Math.PI, 20)), 1));
+    it("bad: a T-bone, a car driven into another's side", () => run("race T-bone", () => (put(0, 40, 0, 0, 20), put(1, 54, 0, Math.PI / 2, 0), drive()), 1));
     it("bad: a pile-up, two head-on and two more running into the wreck", () =>
-      run("race pile-up", () => (put(0, 40, 0, 0, 20), put(1, 48, 0, Math.PI, 20), put(2, 30, 0, 0, 20), put(3, 20, 0, 0, 20))));
+      run("race pile-up", () => (put(0, 40, 0, 0, 20), put(1, 48, 0, Math.PI, 20), put(2, 30, 0, 0, 20), put(3, 20, 0, 0, 20)), 3));
   });
 
   describe("in a derby (flat field, wear kill armed)", () => {

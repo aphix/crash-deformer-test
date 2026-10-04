@@ -150,14 +150,28 @@ derby AI uses the same two functions with its own thresholds.
 
 **Contact guard** (`ai/contact-guard.ts` `guardContact`, the last step of `RaceBrain.think` for racers; police share the line
 brain but are not guarded). Of the racers and traffic (not police) except the rivals the driver means to hit (`fight > 0`), the
-soonest contact within 1.5 s is found by following the guarded car round the arc its steer asks for and every other car in a straight
-line, each wearing a car-shaped zone (2.4 × 6 m half-axes). It is steered clear of (at most 0.35 of full lock) and every contact ahead
-that sideways room (6 m/s²) cannot clear is braked for at the deceleration that takes the closing speed down to a nudge
-(1.5 m/s, under the derby's `hitSpeed` 2) in the time left, counting on 0.72 of the class brake. A car under a nudge's speed is left to the
-plan. Measured with `world/race-contact.test-util.ts`: a **hit** is a racer-racer contact closing at ≥ 2 m/s where exactly one car's own
+soonest contact within 1.5 s is found by following the guarded car round the arc its steer asks for and every other car in the
+line it drives, each wearing a car-shaped zone (2.4 × 6 m half-axes). The other car keeps its heading and sheds speed at the
+racing plan's own braking budget (`PLAN_BRAKE` × the class brake: a car ahead brakes for what it sees up the road as the plan
+does). The contact is steered clear of (at most 0.35 of full lock) and every contact ahead that sideways room (6 m/s²) cannot
+clear is braked for at the deceleration that takes the closing speed down to a nudge (1.5 m/s, under the derby's `hitSpeed` 2) in
+the time left, counting on 0.72 of the class brake. A car under a nudge's speed is left to the plan. The guard keeps no state:
+it reads the cars' snapshots and the `hit` flags `line()` refreshes on every call, so a replay that restores the brain drives
+what the live race drove.
+
+Measured with `world/race-contact.test-util.ts`: a **hit** is a racer-racer contact closing at ≥ 2 m/s where exactly one car's own
 velocity toward the other (≥ 0.5 m/s, not knocked by another contact in the 0.5 s before) closed it (`initiated`; the other is
 `suffered`); both closing is `converging`, neither `none`. `race-contact.test.ts` checks the classifier on seven hand-checked
-contacts and that an aggression-0 field has no hit on oval/rally/city/stunt with 4 and 7 rivals.
+contacts and that an aggression-0 field has no hit on oval/rally/city/stunt with 4 and 7 rivals. Over 4 courses × 8 seeds × 2 laps
+the racer-racer hits at slider 0 went 16 → 0 (4 rivals) and 80 → 0 (7 rivals), at 0.25 from 31 / 41 to 0 / 0, at 0.5 from 25 / 47
+to 2 / 0; the 1.0 field's contacts are all deliberate (`fight > 0`, 263 of 272 with 4 rivals).
+
+Limits (measured, not fixed): the other car is not modelled turning, so two cars cornering side by side can read as a contact
+the guard steers away from (it fought a left-hand corner into the outer wall on oval seed 2 before the other car's braking was
+modelled), and the guarded car's own arc holds its steer for the whole 1.5 s although a pursuit steer decays as the car aligns.
+Both are errors of a few metres at the end of the horizon, so a guard result on one seed is one draw: the city's first corner at
+the default slider still wrecks 5 of 24 races within 10 s (main: 17 of 24), and each constant tried (`lead` 8, 10, 12 m/s², the
+plan's budget of 11–14) leaves a different single seed of the race-start, contact and police suites red or green.
 
 ## Campaign
 `CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
