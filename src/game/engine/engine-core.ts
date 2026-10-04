@@ -190,6 +190,8 @@ export abstract class EngineCore {
   private policeCount = 0;
   protected buckle = INITIAL_HUD.buckle;
   protected fxDensity = INITIAL_HUD.fxDensity;
+  /** The HUD's cel look (`CrashHudState.celLook`): null = Auto. */
+  protected celLook = INITIAL_HUD.celLook;
   protected speedMin = INITIAL_HUD.speedMin;
   protected speedMax = INITIAL_HUD.speedMax;
   protected balls: RampBall[] = [];

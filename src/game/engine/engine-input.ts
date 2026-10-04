@@ -106,6 +106,12 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
+  /** The HUD's cel look: a strength (clamped) holds it on under the scene-switch pulse, null is Auto (the pulse alone). */
+  setCelLook(value: number | null): void {
+    this.celLook = value === null || !Number.isFinite(value) ? null : THREE.MathUtils.clamp(value, KNOB_RANGES.cel.min, KNOB_RANGES.cel.max);
+    this.emitHud();
+  }
+
   /** Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier otherwise. */
   protected fxFrame(wallDt: number): void {
     const p = this.race.phase;
@@ -283,6 +289,7 @@ export abstract class EngineInput extends EngineRigs {
     this.setWet(INITIAL_HUD.wet);
     this.setRealism(INITIAL_HUD.realism);
     this.autoFx.resume(this.cine.tier);
+    this.celLook = INITIAL_HUD.celLook;
     if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
