@@ -122,6 +122,7 @@ export function makeWorld(survivalCourse?: unknown): World {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);
   };
+  step.partTouch = race.partTouch;
   return w;
 }
 
@@ -144,13 +145,13 @@ export function frame(w: World, state: { acc: number }): void {
   state.acc = Math.min(0.05, state.acc + FRAME);
   let steps = 0;
   while (state.acc > 1e-5 && steps < 8) {
-    const h = physicsSlice(state.acc, vmax);
+    const h = Math.fround(physicsSlice(state.acc, vmax)); // as the engine's step (`CrashEngine.tickInner`)
     fixedStep(w, h);
     state.acc -= h;
     settleStep(cars, h, false);
     steps++;
   }
-  for (const car of cars) car.updateDeform(FRAME);
+  for (const car of cars) car.updateSkin();
   w.race.frame(FRAME);
 }
 

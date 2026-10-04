@@ -161,8 +161,9 @@ function pressFrame(p: CompactorRig, target: number): void {
     p.step(FRAME / 4, target);
     car.afterContacts(FRAME / 4);
     if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(FRAME / 4);
+    car.stepBreakage(FRAME / 4);
   }
-  car.updateDeform(FRAME);
+  car.updateSkin();
 }
 
 /** Close the press (`CompactorRig`, the engine's) until `until` holds or the plates reach max. */

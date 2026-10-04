@@ -54,7 +54,8 @@ function crushFrontLeft(car: DeformableCar, deferSkin = false): void {
     car.deform.stepStructure(DT);
     car.syncPose(DT);
     car.deform.skinDeferred = deferSkin;
-    car.updateDeform(DT);
+    car.stepBreakage(DT);
+    car.updateSkin();
   }
 }
 

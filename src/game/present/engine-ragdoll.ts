@@ -91,6 +91,8 @@ const LOW_HALF_Y = 0.4;
 const LOW_HALF_Z = 2.15;
 const LOW_Y = 0.45;
 const NOSE_PAD = 0.09;
+/** How far (m) a car's lower box end may lag its crushed length before `fitEnds` refits it. */
+const FIT_EPS = 1e-4;
 
 /**
  * Collision groups (membership << 16 | filter), 16 bits: the world; each dummy slot; each car (its lower box, bumper
@@ -588,13 +590,15 @@ export class RagdollSystem {
 
   /**
    * Car i's lower box onto its crushed length, bumper to bumper by the end masses, so a thrown dummy meets a crumpled
-   * nose where it is. Refit only past 2 cm: each resize hands Rapier a new shape.
+   * nose where it is. Refit only past `FIT_EPS`: each resize hands Rapier a new shape. A coarser step (it was 2 cm) makes
+   * the box depend on the frames that led there, so a replay's nose sat up to 2 cm off the live one and a dummy thrown at
+   * it left 0.61 m from the live dummy 10 frames on (0.03 m at 0.1 mm).
    */
   private fitEnds(i: number, car: DeformableCar): void {
     _f.set(0, 0, 1).applyQuaternion(car.group.quaternion);
     const front = Math.max(endZ(car, "bumperFL"), endZ(car, "bumperFR")) + NOSE_PAD;
     const rear = Math.min(endZ(car, "bumperRL"), endZ(car, "bumperRR")) - NOSE_PAD;
-    if (Math.abs(front - this.ends[2 * i]!) < 0.02 && Math.abs(rear - this.ends[2 * i + 1]!) < 0.02) return;
+    if (Math.abs(front - this.ends[2 * i]!) < FIT_EPS && Math.abs(rear - this.ends[2 * i + 1]!) < FIT_EPS) return;
     this.ends[2 * i] = front;
     this.ends[2 * i + 1] = rear;
     const box = this.carBodies[i]!.collider(0);

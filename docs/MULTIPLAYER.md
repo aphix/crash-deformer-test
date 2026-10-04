@@ -55,7 +55,7 @@ Each peer owns one car through a **controller slot** (`player` on its own machin
 host). Clients:
 
 - never step physics, crush, breakage or `followGroup` on any car (`engine.net.client` skips the
-  fixed-step loop and `updateDeform`);
+  fixed-step loop and `updateSkin`);
 - sample their own `DriverSeat` as today and send the shaped `DriveInput` (throttle, steer, brake,
   ebrake, boost) to the host at frame rate, capped at 30 Hz;
 - render host snapshots ~100 ms in the past, interpolating between the two that bracket render time.
@@ -416,7 +416,7 @@ netFrame(dt: number): void                                       // wheels, as a
 ```
 `CrashEngine`: `net` (`NetPlay`: `host(room, tx)`, `join(room, tx)`, `leave()`, `status()`),
 `matchCar(i, style, cls)`; `fixedStep` calls `net.drive` after the local seat, `tickInner` skips
-the fixed steps and `updateDeform` on a client and calls `net.frame` after them.
+the fixed steps and `updateSkin` on a client and calls `net.frame` after them.
 `P2PRoom`: `sendBinary(data, peerId?)` and `onBinary` (raw frames on the unreliable channel).
 
 Loose wheels: `PartNetState.wheelLoose` (bit per wheel) and `wheels` (world pose per loose wheel)

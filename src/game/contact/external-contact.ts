@@ -391,13 +391,16 @@ function slowStriker(car: DeformableCar, nx: number, nz: number, du: number): vo
  * Car-car share of the shared contact model, once per physics slice per close pair, right after
  * the pair's `collideWith`: each body against the other's doors and mirrors. Car-car does not
  * report struck ends yet (docs/CONTACT_PARITY.md, "Open"): the squeeze mode's deform rules
- * assume a car held at the origin.
+ * assume a car held at the origin. Returns whether a door, mirror or panel met the other body: a sideswipe moves
+ * and breaks parts with no SAT contact, and the highlight recorder keeps both cars of it.
  */
-export function partContactPair(a: DeformableCar, b: DeformableCar): void {
+export function partContactPair(a: DeformableCar, b: DeformableCar): boolean {
   carBox(a, _ba);
   carBox(b, _bb);
   let hit = partContact(a, _bb);
+  const first = hit.touched;
   if (hit.du > 0) slowStriker(b, hit.nx, hit.nz, hit.du);
   hit = partContact(b, _ba);
   if (hit.du > 0) slowStriker(a, hit.nx, hit.nz, hit.du);
+  return first || hit.touched;
 }

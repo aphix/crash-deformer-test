@@ -6,6 +6,7 @@ import type { ContactHit } from "../scenes/engine-props.ts";
 import {
   HighlightLedger,
   impactEnergy,
+  FINE_BYTES,
   INPUT_BYTES,
   PAIR_MIN,
   PRE_ROLL,
@@ -17,7 +18,7 @@ import {
   type HighlightClip,
   type ReelCar,
 } from "../match/highlights.ts";
-import { ensureFrames, makeSnapshot, Q, Q_PER, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
+import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
 import { carLayout, readCarPose } from "../net/car-pose.ts";
 import { REEL_MSG_MAX } from "../net/reel-codec.ts";
 
@@ -28,10 +29,18 @@ import { REEL_MSG_MAX } from "../net/reel-codec.ts";
  */
 const RING = 5120;
 /**
- * Keyframe interval (s). At 1 s a restored wreck drifted far enough that a recorded first impact came 0.35 s early
- * in the replay (engine-replay.test.ts, city seed 5, 4th clip); at 0.5 s, 0.16 s.
+ * Keyframe interval (s). A wreck's solver state rides every keyframe a clip keeps before its first impact: about 70 % of
+ * a pile-up clip's bytes, and a reel message holds `REEL_MSG_MAX` of them. Restoring the shape clusters' fit state
+ * (`simState`) cut a restored wreck's drift enough for 1 s (it was 0.5 s: a wreck restored without it drifted so far
+ * that at 1 s the first impact came 0.35 s early, at 0.5 s 0.16 s). At 1 s a stunt race's top clips are 303 KB where
+ * 0.5 s made them 481 KB (3 clips fit a reel instead of 2), and engine-replay.test.ts (city seeds 1-8) keeps its
+ * 0.2 s / 1.5 m bounds.
  */
-const KEY_EVERY = 0.5;
+const KEY_EVERY = 1;
+/** Clip seconds after its first impact that the involved cars' pedals keep their last digits (`fine`). */
+const FINE_S = 2;
+/** A pedal's rounding error `r` (−0.5..0.5 of its 8-bit step) as a `FINE_BYTES` byte: 1..255, never 0 (none). */
+const fineByte = (r: number): number => Math.max(1, Math.min(255, Math.round(r * 255) + 128));
 /**
  * A car that moved further than this (m, |dx| + |dz|) in one step was placed, not driven (a respawn, a parked or
  * stored police unit, a traffic recycle): a step travels at most centimetres (`physicsSlice`). The replay cannot drive
@@ -55,6 +64,14 @@ const BYSTANDER_R = 80;
  * that a pile-up already fills takes none.
  */
 const CLIP_SHARE = (REEL_MSG_MAX / TOP) * 3.3;
+/**
+ * A clip's deflated bytes as a share of its raw ones, by part (measured on city and stunt clips: the keyframes 0.39 to
+ * 0.43, the inputs 0.24, the pedal digits 0.67), and the most a clip is allowed (estimated): three clips fit a reel message.
+ */
+const DEFLATED_KEYS = 0.42;
+const DEFLATED_INPUTS = 0.25;
+const DEFLATED_FINE = 0.67;
+const CLIP_BUDGET = REEL_MSG_MAX / 3;
 
 /**
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output
@@ -90,11 +107,13 @@ export class CrashRecorder {
   /** Recorder clock at each step's start. */
   private readonly at = new Float64Array(RING);
   private readonly inputs = new Uint8Array(RING * MAX_CARS * INPUT_BYTES);
-  /** Every car at the start of the current step (wreck sections only on a keyframe step), and its drift state. */
+  /** Per ring step × car: what `inputs`' pedals rounded off (`FINE_BYTES`). */
+  private readonly fine = new Uint8Array(RING * MAX_CARS * FINE_BYTES);
+  /** Every car at the start of the current step (wreck sections only on a keyframe step). */
   private readonly pre: Snapshot = makeSnapshot();
-  private readonly drift = new Float32Array(MAX_CARS);
-  /** Scratch for one car's flight block and one wreck's solver state (sized at the first race: `simState`). */
-  private readonly fly = new Float32Array(FLIGHT);
+  /** Scratch for one car's flight block (and its bytes) and one wreck's solver state (sized at the first race: `simState`). */
+  private readonly fly = new Float64Array(FLIGHT);
+  private readonly flyBytes = new Uint8Array(this.fly.buffer);
   private sim = new Float32Array(0);
   private simBytes = new Uint8Array(0);
   /** Encoded keyframes (allocated at the first race), their lengths and the global step each was taken at. */
@@ -105,6 +124,8 @@ export class CrashRecorder {
   private readonly draft = new Uint8Array(MAX_CARS);
   /** Last contact time per car pair (a·MAX_CARS + b) and per car against walls and props: a contact out of a quiet spell is an impact. */
   private readonly pairAt = new Float64Array(MAX_CARS * MAX_CARS);
+  /** Last time a door, mirror or panel of one car of the pair met the other (`touch`), per pair like `pairAt`. */
+  private readonly touchAt = new Float64Array(MAX_CARS * MAX_CARS);
   private readonly wallAt = new Float64Array(MAX_CARS);
   /** Per car: the recorder time it was last placed (`JUMP`), not driven. */
   private readonly jumpAt = new Float64Array(MAX_CARS);
@@ -149,6 +170,7 @@ export class CrashRecorder {
     this.ejected.length = 0;
     this.alive.fill(1);
     this.pairAt.fill(-Infinity);
+    this.touchAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
     this.jumpAt.fill(-Infinity);
     this.pre.count = 0;
@@ -191,7 +213,6 @@ export class CrashRecorder {
       }
       this.lastPos[2 * i] = f.x;
       this.lastPos[2 * i + 1] = f.z;
-      this.drift[i] = cars[i]!.drive.drift;
     }
     if (this.opening.length > 0) {
       const bytes = this.encodeKey(new Writer(this.keyBytes(n))).done().slice();
@@ -225,10 +246,17 @@ export class CrashRecorder {
       const c = cars[i]!;
       const d = c.drive;
       const o = (s * MAX_CARS + i) * INPUT_BYTES;
-      inp[o] = Math.round(d.throttle * 127) & 255;
-      inp[o + 1] = Math.round(d.steer * 127) & 255;
-      inp[o + 2] = Math.round(d.brake * 255);
+      const tx = d.throttle * 127;
+      const sx = d.steer * 127;
+      const bx = d.brake * 255;
+      const f = (s * MAX_CARS + i) * FINE_BYTES;
+      inp[o] = Math.round(tx) & 255;
+      inp[o + 1] = Math.round(sx) & 255;
+      inp[o + 2] = Math.round(bx);
       inp[o + 3] = (d.ebrake ? 1 : 0) | (d.boost ? 2 : 0) | (this.draft[i] ? 4 : 0) | (d.neutral ? 8 : 0);
+      this.fine[f] = fineByte(tx - Math.round(tx));
+      this.fine[f + 1] = fineByte(sx - Math.round(sx));
+      this.fine[f + 2] = fineByte(bx - Math.round(bx));
       this.draft[i] = 0;
       const alive = c.deform.drivetrainAlive ? 1 : 0;
       // A traffic or police car's death counts only inside a cluster a racer's hit opened.
@@ -258,6 +286,15 @@ export class CrashRecorder {
     if (!counts || (a >= this.racers && b >= this.racers)) return;
     const e = impactEnergy(hit.impulse, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
     this.opened(this.ledger.impact(this.time, a, b, hit.impulse, e, hit.contact.x, hit.contact.z));
+  }
+
+  /**
+   * `World.partTouch`: a door, mirror or panel of one car met the other, with no SAT contact (a sideswipe). It is no
+   * impact, but the struck car's parts tear and the striker slows, so a clip that left the striker out replays the
+   * struck car differently (a passing car 1.8 m off two wedged wrecks left them 61 cm out at the first impact).
+   */
+  touch(a: number, b: number): void {
+    if (this.on && a < this.pre.count && b < this.pre.count) this.touchAt[a * MAX_CARS + b] = this.time;
   }
 
   /** A wall or prop touched car `i`, closing at `closing` m/s at (x, z). */
@@ -291,14 +328,14 @@ export class CrashRecorder {
     this.opening.push(c);
   }
 
-  /** Most bytes a keyframe of `n` cars takes: the snapshot, then per car its drift, flight block and solver state. */
+  /** Most bytes a keyframe of `n` cars takes: the snapshot, then per car its flight block and solver state. */
   private keyBytes(n: number): number {
-    return snapshotMaxBytes(n, this.layout!) + n * (2 + FLIGHT * 4 + 2 + this.sim.length * 4);
+    return snapshotMaxBytes(n, this.layout!) + n * (FLIGHT * 8 + 2 + this.sim.length * 4);
   }
 
   /**
-   * The step-start snapshot (`pre`) with each wreck's deform and parts read now, the drift states, then per car its
-   * flight block and its solver state (a u16 count, then that many f32: `simState` for a wreck, none otherwise).
+   * The step-start snapshot (`pre`) with each wreck's deform and parts read now, then per car its flight block (`FLIGHT`
+   * doubles, native like the sim's bytes) and its solver state (a u16 count, then that many f32: `simState` for a wreck, none otherwise).
    */
   private encodeKey(w: Writer): Writer {
     const s = this.pre;
@@ -313,11 +350,11 @@ export class CrashRecorder {
     }
     w.off = 0;
     writeSnapshot(w, s, this.layout!);
-    w.q16s(this.drift, s.count, Q_PER.fine);
     for (let i = 0; i < s.count; i++) {
       const car = this.cars[i]!;
       car.flight(this.fly, 0, false);
-      w.f32s(this.fly, FLIGHT);
+      w.bytes.set(this.flyBytes, w.off);
+      w.off += this.flyBytes.length;
       const n = s.cars[i]!.wreck ? this.sim.length : 0;
       w.u16(n);
       if (n === 0) continue;
@@ -337,7 +374,8 @@ export class CrashRecorder {
       for (let a = 0; a < n; a++) {
         if (!((mask >>> a) & 1)) continue;
         for (let b = 0; b < n; b++) {
-          if ((mask >>> b) & 1 || this.pairAt[a < b ? a * MAX_CARS + b : b * MAX_CARS + a]! < t0) continue;
+          const k = a < b ? a * MAX_CARS + b : b * MAX_CARS + a;
+          if ((mask >>> b) & 1 || Math.max(this.pairAt[k]!, this.touchAt[k]!) < t0) continue;
           mask = (mask | (1 << b)) >>> 0;
           grew = true;
         }
@@ -397,6 +435,68 @@ export class CrashRecorder {
     return mask;
   }
 
+  /**
+   * `src`, a clip's keyframes by step, cut down to the clip's cars `slots` (their snapshot, then each car's flight block
+   * and solver state), a wreck's solver state XORed word by word on its previous kept keyframe's (`ClipSim` undoes it):
+   * what a wreck keeps between keyframes (its beams' and clusters' rest, offsets, flags) turns to zeros, which deflate
+   * drops (measured: the solver state of a 16-car clip deflated 195 KB raw, 72 KB XORed). A clip estimated over
+   * `CLIP_BUDGET` deflated (`others`: its inputs and pedal digits) first loses intermediate keyframes, oldest first, down
+   * to the first, the last before the impact and the impact's own: a pile-up of 15 wrecks was 262 KB and fitted no reel.
+   */
+  private cutKeys(src: { step: number; bytes: Uint8Array }[], slots: number[], others: number): { src: { step: number; bytes: Uint8Array }[]; keys: Uint8Array[] } {
+    const L = this.layout!;
+    const nc = slots.length;
+    const all = makeSnapshot();
+    const r = new Reader();
+    // Where each car's flight block and solver state start in every keyframe (`encodeKey`), found by walking them.
+    const sections = src.map((k) => {
+      r.reset(k.bytes);
+      readSnapshot(r, all, L);
+      const sec = [r.off];
+      for (let i = 0; i < all.count; i++) {
+        r.off += FLIGHT * 8;
+        const n = r.u16();
+        r.off += n * 4;
+        sec.push(r.off);
+      }
+      return sec;
+    });
+    const size = (sec: number[]): number => snapshotMaxBytes(nc, L) + slots.reduce((n, i) => n + sec[i + 1]! - sec[i]!, 0);
+    let est = others + DEFLATED_KEYS * sections.reduce((n, sec) => n + size(sec), 0);
+    const dropped = src.map(() => false);
+    for (let k = 1; est > CLIP_BUDGET && k < src.length - 2; k++) {
+      dropped[k] = true;
+      est -= DEFLATED_KEYS * size(sections[k]!);
+    }
+    // Per clip car: its solver state in the clip's previous kept keyframe (raw words), the base its next one is XORed on.
+    const prev: (Uint32Array | null)[] = slots.map(() => null);
+    const out: { src: { step: number; bytes: Uint8Array }[]; keys: Uint8Array[] } = { src: [], keys: [] };
+    src.forEach((k, ki) => {
+      if (dropped[ki]) return;
+      const sec = sections[ki]!;
+      r.reset(k.bytes);
+      readSnapshot(r, all, L);
+      const w = new Writer(size(sec));
+      writeSnapshot(w, { ...all, count: nc, cars: slots.map((i) => all.cars[i]!) }, L);
+      for (let j = 0; j < nc; j++) {
+        const body = k.bytes.subarray(sec[slots[j]!]!, sec[slots[j]! + 1]!);
+        const head = FLIGHT * 8 + 2;
+        w.bytes.set(body.subarray(0, head), w.off);
+        w.off += head;
+        const raw = new Uint32Array(body.slice(head).buffer);
+        const xored = raw.slice();
+        const p = prev[j];
+        if (p && p.length === raw.length) for (let q = 0; q < raw.length; q++) xored[q] = xored[q]! ^ p[q]!;
+        prev[j] = raw.length > 0 ? raw : null;
+        w.bytes.set(new Uint8Array(xored.buffer), w.off);
+        w.off += xored.byteLength;
+      }
+      out.src.push(k);
+      out.keys.push(w.done().slice());
+    });
+    return out;
+  }
+
   /** A cluster is over: if it ranks, copy its slice out of the rings into a clip and file it. */
   private file(c: CrashCluster): void {
     const impact = this.impactKeys.get(c);
@@ -427,19 +527,40 @@ export class CrashRecorder {
     const t0 = this.at[start % RING]!;
     const n = this.pre.count;
     const firstStep = impact && impact.step > start && impact.step < this.step ? impact.step - start : 0;
-    const mask = this.bystanders(c, this.touched(c.cars, n, t0), start, n, firstStep, t0);
+    const core = this.touched(c.cars, n, t0);
+    const mask = this.bystanders(c, core, start, n, firstStep, t0);
     const slots: number[] = [];
     for (let i = 0; i < n; i++) if ((mask >>> i) & 1) slots.push(i);
     const nc = slots.length;
     const h = new Float32Array(steps);
     const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
+    // The cars the impact involves keep their pedals' last digits from the last keyframe before it to the clip's end.
+    let fineFrom = 0;
+    for (let k = 0; k < filled && firstStep > 0; k++) {
+      const st = this.keyStep[k]! - start;
+      if (st >= 0 && st < firstStep) fineFrom = Math.max(fineFrom, st);
+    }
+    // ... and for FINE_S s after it: the cars crash and slide to rest on their pedals' real values for that long.
+    let fineTo = steps;
+    for (let s = 0, t = 0; s < steps; s++) {
+      t += this.h[(start + s) % RING]!;
+      if (t >= c.first - t0 + FINE_S) {
+        fineTo = s + 1;
+        break;
+      }
+    }
+    const fine = new Uint8Array(Math.max(0, fineTo - fineFrom) * nc * FINE_BYTES);
     for (let s = 0; s < steps; s++) {
       const r = (start + s) % RING;
-      // Whole microseconds: the codec's step clock (`writeClip`), so this clip and its decoded copy run the same steps.
-      h[s] = Math.round(this.h[r]! * 1e6) / 1e6;
+      // The ring's float32, whole: the codec stores it as is (`writeClip`), so this clip, its decoded copy and the live step agree to 6e-8.
+      h[s] = this.h[r]!;
       for (let j = 0; j < nc; j++) {
         const src = (r * MAX_CARS + slots[j]!) * INPUT_BYTES;
         inputs.set(this.inputs.subarray(src, src + INPUT_BYTES), (s * nc + j) * INPUT_BYTES);
+        if (s >= fineFrom && s < fineTo && (core >>> slots[j]!) & 1) {
+          const f = (r * MAX_CARS + slots[j]!) * FINE_BYTES;
+          fine.set(this.fine.subarray(f, f + FINE_BYTES), ((s - fineFrom) * nc + j) * FINE_BYTES);
+        }
       }
     }
     // Keyframes from the clip's start to its first impact (the replay corrects drift up to there, never after), in
@@ -452,52 +573,8 @@ export class CrashRecorder {
     const ib = impact?.bytes;
     if (firstStep > 0 && ib && !src.some((a) => a.step === start + firstStep)) src.push({ step: start + firstStep, bytes: ib });
     src.sort((a, b) => a.step - b.step);
-    const all = makeSnapshot();
-    const r = new Reader();
-    // Per clip car: its solver state in the clip's previous keyframe (raw words), the base its next one is XORed on.
-    const prev: (Uint32Array | null)[] = slots.map(() => null);
-    const keys = src.map((k) => {
-      r.reset(k.bytes);
-      readSnapshot(r, all, L);
-      const at = r.off;
-      const drift = slots.map((i) => {
-        r.off = at + i * 2;
-        return r.q16(Q.fine);
-      });
-      // Each car's flight block and solver state (`encodeKey`), located by walking them.
-      const sec = [at + all.count * 2];
-      r.off = sec[0]!;
-      for (let i = 0; i < all.count; i++) {
-        r.off += FLIGHT * 4;
-        const n = r.u16();
-        r.off += n * 4;
-        sec.push(r.off);
-      }
-      const w = new Writer(snapshotMaxBytes(nc, L) + slots.reduce((n, i) => n + 2 + sec[i + 1]! - sec[i]!, 0));
-      writeSnapshot(w, { ...all, count: nc, cars: slots.map((i) => all.cars[i]!) }, L);
-      for (const d of drift) w.q16(d, Q.fine);
-      for (let j = 0; j < nc; j++) {
-        const body = k.bytes.subarray(sec[slots[j]!]!, sec[slots[j]! + 1]!);
-        const head = FLIGHT * 4 + 2;
-        w.bytes.set(body.subarray(0, head), w.off);
-        w.off += head;
-        // A wreck's solver state XORed word by word on its previous keyframe's (`ClipSim` undoes it): what a wreck
-        // keeps between keyframes (its beams' and clusters' rest, offsets, flags) turns to zeros, which deflate drops.
-        // Measured: the solver state of a 16-car clip deflated 195 KB raw, 72 KB XORed (12 cars: 195 → 113).
-        const raw = new Uint32Array(body.slice(head).buffer);
-        const out = raw.slice();
-        const p = prev[j];
-        if (p && p.length === raw.length) for (let q = 0; q < raw.length; q++) out[q] = out[q]! ^ p[q]!;
-        prev[j] = raw.length > 0 ? raw : null;
-        w.bytes.set(new Uint8Array(out.buffer), w.off);
-        w.off += out.byteLength;
-      }
-      return w.done().slice();
-    });
-    const cars: ReelCar[] = slots.map((i) => {
-      const car = this.cars[i]!;
-      return { slot: i, style: car.style.id, cls: carClass(car), name: this.names(i) };
-    });
+    const { src: kept, keys } = this.cutKeys(src, slots, DEFLATED_INPUTS * inputs.length + DEFLATED_FINE * fine.length);
+    const cars: ReelCar[] = slots.map((i) => ({ slot: i, style: this.cars[i]!.style.id, cls: carClass(this.cars[i]!), name: this.names(i) }));
     // The drivers thrown out during the clip's steps: their dummies fly again at those steps (car = the clip's own index).
     const ejections: ClipEjection[] = [];
     for (const x of this.ejected) {
@@ -530,7 +607,9 @@ export class CrashRecorder {
       cars,
       h,
       inputs,
-      keyStep: Uint32Array.from(src, (k) => k.step - start),
+      fineFrom,
+      fine,
+      keyStep: Uint32Array.from(kept, (k) => k.step - start),
       keys,
     });
   }

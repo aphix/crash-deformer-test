@@ -265,6 +265,8 @@ export class HighlightLedger<C extends { score: number }> {
 
 /** Per car per step: throttle i8, steer i8 (1/127 steps, as a netplay peer's input), brake u8 (0–255), flags u8 (1 ebrake, 2 boost, 4 drafting, 8 neutral: a thrown-out driver's freewheel). */
 export const INPUT_BYTES = 4;
+/** Per car per step of the clip's `fine` block: throttle, steer, brake; a byte `f` > 0 is the pedal's rounding error, (`f` − 128) / 255 of its 8-bit step. */
+export const FINE_BYTES = 3;
 
 export type ReelCar = { slot: number; style: CarStyleId; cls: VehicleClassId; name: string };
 
@@ -309,10 +311,18 @@ export type HighlightClip = {
   /** The race's driver-look seed (`driverLook`): every peer, and a clip saved for another day, replays the same tees, hair and women. */
   look: number;
   cars: ReelCar[];
-  /** Per step: dt (s, whole microseconds). */
+  /** Per step: dt (s), exactly as the recorder's ring (float32) and the live step had it. */
   h: Float32Array;
   /** Per step × car: `INPUT_BYTES`. */
   inputs: Uint8Array;
+  /**
+   * From step `fineFrom` (the last keyframe before the first impact) to the clip's end, per step × car: `FINE_BYTES` of
+   * what the 8-bit pedals rounded off, for the cars the impact involves (0: none, the byte is all there is). A cruising
+   * car's speed follows its throttle at once, so 1/127 of throttle moved a car 20-80 mm in the half second before the
+   * impact and the replay's hit missed, came late or soft; and a wreck keeps driving its pedals through the crash.
+   */
+  fineFrom: number;
+  fine: Uint8Array;
   /** Per keyframe: the step it applies at (before that step's drive). Keyframe 0 is step 0; one may sit at the first impact. */
   keyStep: Uint32Array;
   /**

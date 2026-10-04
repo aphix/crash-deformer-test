@@ -51,7 +51,8 @@ function rest(cls: VehicleClassId, lost: readonly number[], secs = 5): Rest {
   for (let f = 0; f < secs * 60; f++) {
     if (f === (secs - 1) * 60) before = bodyY();
     stepWorld(w, DT);
-    car.updateDeform(DT);
+    car.stepBreakage(DT);
+    car.updateSkin();
   }
   const low = bodyY();
   return {

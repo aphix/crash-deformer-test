@@ -107,7 +107,7 @@ function runFor(car: DeformableCar, simSec: number, frameDt: number): void {
   while (t < simSec) {
     const h = physicsSlice(Math.min(frameDt, simSec - t), car.speed);
     stepWorld(w, h);
-    car.updateDeform(h);
+    car.updateSkin();
     t += h;
   }
 }

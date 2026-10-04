@@ -29,6 +29,8 @@ export type World = {
   beforeSlice: ((h: number) => boolean) | null;
   /** Each SAT pair hit, before it is offered to `strongest`; `first` on the slice's first pass (cars in physical contact). */
   pairHit: ((a: number, b: number, hit: ContactHit, first: boolean) => void) | null;
+  /** A door, mirror or panel of one car met the other (`partContactPair`): they touched without a SAT hit. */
+  partTouch: ((a: number, b: number) => void) | null;
   /** Ramp balls against one car: its hit, if any. */
   ballHit: ((car: DeformableCar) => ContactHit | null) | null;
   /** Lamp poles against one car: whether one moved it. */
@@ -55,6 +57,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     strongest: new StrongestContact(),
     beforeSlice: null,
     pairHit: null,
+    partTouch: null,
     ballHit: null,
     poleHit: null,
     afterCar: null,
@@ -117,7 +120,7 @@ export function stepWorld(w: World, dt: number): void {
         // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
         if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
         if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        partContactPair(ca, cb);
+        if (partContactPair(ca, cb)) w.partTouch?.(a, b);
       }
     }
 
@@ -193,13 +196,15 @@ export function stepWorld(w: World, dt: number): void {
 }
 
 /**
- * After each `stepWorld` (`CrashEngine.tickInner`, a highlight replay): a dead drivetrain's drive bleeds away, and with
- * `bleed` (the crash clock is past the hit) a wreck slides to a stop on tyre-style friction.
+ * After each `stepWorld` (`CrashEngine.tickInner`, a highlight replay): a dead drivetrain's drive bleeds away, with
+ * `bleed` (the crash clock is past the hit) a wreck slides to a stop on tyre-style friction, and each car's parts
+ * follow the crash (`stepBreakage`: hinges, tears, lamps, glass) once for the whole step, never by the frame rate.
  */
 export function settleStep(cars: readonly DeformableCar[], h: number, bleed: boolean): void {
   for (const car of cars) {
     if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
     if (bleed && car.crashed) bleedAfterSlide(car, h);
+    car.stepBreakage(h);
   }
 }
 

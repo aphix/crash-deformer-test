@@ -43,8 +43,8 @@ function sampleTrails(ragdolls: RagdollSystem, trails: Trails): void {
   }
 }
 
-/** The race, a head-on at 2×20 m/s a second in, its dummies flown live; the clips the recorder kept. */
-async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events: readonly Ejection[] }> {
+/** The race, a head-on at 2×20 m/s a second in, its dummies flown live; the clips the recorder kept, and the recorder's clock at the end of every frame. */
+async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events: readonly Ejection[]; frameEnds: number[] }> {
   const r = w.race;
   r.command({ type: "quit" });
   r.command({ type: "options", options: { trackId: "oval", laps: 3, aiCount: 3, noReset: false, aggression: 0.35 } });
@@ -61,20 +61,26 @@ async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events:
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
   const trails: Trails = new Map();
+  const frameEnds: number[] = [];
   let seen = 0;
   for (let n = 0; n < 60 * 9; n++) {
     frame(w, state);
+    frameEnds.push(r.recorder.now);
     for (; seen < w.ejections.length; seen++) ragdolls.launch(w.ejections[seen]!, w.live());
     ragdolls.update(FRAME, w.live(), true, false, 0, null);
     sampleTrails(ragdolls, trails);
   }
   ragdolls.dispose();
   r.recorder.end();
-  return { clips: [...r.recorder.ledger.kept], trails, events: [...w.ejections] };
+  return { clips: [...r.recorder.ledger.kept], trails, events: [...w.ejections], frameEnds };
 }
 
-/** `clip` replayed on the world's cars with the ragdolls launching what the replay throws: the dummies' trails. */
-async function replay(clip: HighlightClip): Promise<Trails> {
+/**
+ * `clip` replayed on the world's cars with the ragdolls launching what the replay throws: the dummies' trails. The replay
+ * is stepped to the clock of each live frame (`frameEnds`) after the clip's start, as the live sim's frames fell: its
+ * dummies are sampled at the very moments the live ones were, so what parts the trails is the replayed cars alone.
+ */
+async function replay(clip: HighlightClip, frameEnds: readonly number[]): Promise<Trails> {
   const cars = clip.cars.map((c) => w.cars[c.slot]!);
   const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), bounce: undefined });
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
@@ -82,11 +88,18 @@ async function replay(clip: HighlightClip): Promise<Trails> {
   const trails: Trails = new Map();
   w.race.resetProps();
   sim.restart();
-  while (!sim.done) {
-    sim.advanceTo(sim.time + FRAME);
+  const ends: number[] = [0];
+  for (const h of clip.h) ends.push(ends.at(-1)! + h);
+  let n = 0;
+  for (const t of frameEnds) {
+    const at = t - clip.t0;
+    if (at <= 0) continue;
+    while (n + 1 < ends.length && Math.abs(ends[n + 1]! - at) < Math.abs(ends[n]! - at)) n++;
+    sim.advanceTo(ends[n]!);
     for (const e of sim.take()) ragdolls.launch(e, w.live());
     ragdolls.update(FRAME, w.live(), true, false, 0, null);
     sampleTrails(ragdolls, trails);
+    if (sim.done) break;
   }
   ragdolls.dispose();
   return trails;
@@ -106,18 +119,18 @@ describe("a driver thrown out is a highlight, and its replay throws him again", 
   });
 
   it("bad: the same clip played twice throws the same dummies along the very same paths, from the very launch numbers of the live throw", async (t) => {
-    const { clips, trails: liveTrails } = await live();
+    const { clips, trails: liveTrails, frameEnds } = await live();
     const clip = clips.find((c) => c.ejections.length > 0)!;
-    const first = await replay(clip);
-    const again = await replay(clip);
+    const first = await replay(clip, frameEnds);
+    const again = await replay(clip, frameEnds);
     assert.ok(first.size >= 2, `${first.size} dummies thrown in the replay`);
     for (const [car, trail] of first) {
       assert.ok(trail.length >= 3 * 120, `car ${car}'s dummy flew ${trail.length / 3} frames`);
       assertSameNumbers(again.get(car)!, trail, `car ${car}'s dummy, replay 2 vs replay 1`);
     }
-    // Live vs replay: the launch numbers are the record's, so the first sample is the same point; after that the dummy flies
-    // against cars that are replayed (a few cm to dm off the live ones) and the launch falls on another frame boundary
-    // (up to 1/60 s), so the paths part: a free flight stays within about a metre, one that bounces off the oncoming car does not.
+    // Live vs replay, sampled on the same frames: the launch numbers are the record's, so the first sample is the same
+    // point, and the dummy then flies against cars the replay has back to within millimetres of the live ones
+    // (replay-fidelity.test.ts), so the paths stay together.
     const report: string[] = [];
     for (const [car, trail] of first) {
       const lv = liveTrails.get(car)!;

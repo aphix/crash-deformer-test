@@ -10,9 +10,13 @@ import { ClipSim } from "./engine-replay.ts";
 
 /** A ramming field (aggression 1) of 12 on the city course: crashes come in the first lap. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
-// Seed 1 passes (so do 2 and 3): with the race AI no longer wrecking the field at the start the ramming field piles up elsewhere.
-// Seeds 4, 5 and 6 miss the 0.2 s bound (seed 5: a wall impact of slot 6 at 3.2 s is never reached by the replay, dt Infinity).
-const SEED = 1;
+/**
+ * Seeds 1 to 8, each its own race (the field piles up in different places: clips that open on wrecks already in motion,
+ * wall hits, pile-ups of 3 to 17 cars). Seeds 4 to 8 once missed the bound (a wall impact never reached, dt Infinity;
+ * a restored wreck 18 mm off after one step): the solver state a keyframe restored left out each shape cluster's last
+ * rotation and warm start (`simState`).
+ */
+const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
 /** Race seconds recorded (the first lap's crashes), and the clips wanted from them. */
 const RACE_S = 75;
 const CLIPS = 5;
@@ -21,11 +25,11 @@ const TIME_TOL = 0.2;
 const POS_TOL = 1.5;
 
 /** Clips recorded from one seeded race, through the codec (what a peer or a saved copy replays). */
-function record(w: World): HighlightClip[] {
+function record(w: World, seed: number): HighlightClip[] {
   const r = w.race;
   r.command({ type: "quit" });
   r.command({ type: "options", options: FIELD });
-  r.reseed(SEED);
+  r.reseed(seed);
   r.command({ type: "start" });
   w.seat.mode = "follow";
   const state = { acc: 0 };
@@ -69,12 +73,12 @@ function replay(w: World, clip: HighlightClip, impactKey: boolean): { dt: number
 }
 
 describe("highlight replay", () => {
-  it(`bad: a recorded race crash replayed headless must hit within ${TIME_TOL} s and ${POS_TOL} m of the record`, (t) => {
+  for (const seed of SEEDS) it(`bad: seed ${seed}: a recorded race crash replayed headless must hit within ${TIME_TOL} s and ${POS_TOL} m of the record`, (t) => {
     const w = makeWorld();
     w.race.enter();
     try {
-      const clips = record(w);
-      assert.ok(clips.length >= 1, `no clip in ${RACE_S} s of a ramming field: the recorder or the ledger saw no crash`);
+      const clips = record(w, seed);
+      assert.ok(clips.length >= 1, `seed ${seed}: no clip in ${RACE_S} s of a ramming field: the recorder or the ledger saw no crash`);
       let worst = { dt: 0, dPos: 0 };
       const rows: string[] = [];
       for (const clip of clips) {
@@ -87,8 +91,8 @@ describe("highlight replay", () => {
         worst = { dt: Math.max(worst.dt, full.dt), dPos: Math.max(worst.dPos, full.dPos) };
       }
       t.diagnostic(rows.join("\n"));
-      assert.ok(worst.dt <= TIME_TOL, `first impact ${worst.dt.toFixed(3)} s off the record (> ${TIME_TOL})\n${rows.join("\n")}`);
-      assert.ok(worst.dPos <= POS_TOL, `a car ${worst.dPos.toFixed(2)} m off its recorded spot at the first impact (> ${POS_TOL})\n${rows.join("\n")}`);
+      assert.ok(worst.dt <= TIME_TOL, `seed ${seed}: first impact ${worst.dt.toFixed(3)} s off the record (> ${TIME_TOL})\n${rows.join("\n")}`);
+      assert.ok(worst.dPos <= POS_TOL, `seed ${seed}: a car ${worst.dPos.toFixed(2)} m off its recorded spot at the first impact (> ${POS_TOL})\n${rows.join("\n")}`);
     } finally {
       w.race.exit();
       setGround(null);

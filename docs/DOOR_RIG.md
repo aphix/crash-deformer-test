@@ -98,7 +98,7 @@ across the travel. Then the slab is pushed out of the face.
 | C `shut` | front→rear | 1.10 (outside the open door's mirror) | 0.6 | 0.30–0.75 | 55° |
 
 `fireRam(car, scenario, { kph, kg, side })` runs one shot at 60 Hz the way the engine does
-(`integrate`, `step`, `updateDeform`). It returns:
+(`integrate`, `step`, `stepBreakage`, `updateSkin`). It returns:
 
 - what is off the car (a mirror riding its torn door counts),
 - the door angle, latch state and hinge load,

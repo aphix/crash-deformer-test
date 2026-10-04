@@ -96,9 +96,10 @@ export function frame(w: World, input: DriveInput | null, st: { acc: number }): 
     const h = physicsSlice(st.acc, sliceSpeed(w.cars));
     if (input) for (const c of w.cars) applyDrive(c, input, h);
     stepWorld(w, h);
+    for (const c of w.cars) c.stepBreakage(h);
     st.acc -= h;
   }
-  for (const c of w.cars) c.updateDeform(FRAME);
+  for (const c of w.cars) c.updateSkin();
 }
 
 export function worldOf(car: DeformableCar, collide: ((c: DeformableCar) => unknown) | null = null): World {

@@ -83,7 +83,7 @@ describe("a panel smushed back stays dented", () => {
       else {
         p.hingeT = 0.15;
       }
-      for (let f = 0; f < 60; f++) car.updateDeform(DT);
+      for (let f = 0; f < 60; f++) car.stepBreakage(DT);
       return p.hingeT;
     };
     assert.ok(Math.abs(hit(true) - 0.15) < 1e-9, `a pushed-back panel rose to ${hit(true)}`);

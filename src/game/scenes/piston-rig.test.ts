@@ -360,8 +360,9 @@ describe("a squeeze's crush stays after the squeeze ends", () => {
         for (let s = 0; s < 2; s++) {
           rig.step(1 / 120);
           car.afterContacts(1 / 120);
+          car.stepBreakage(1 / 120);
         }
-        car.updateDeform(1 / 60);
+        car.updateSkin();
         const touching = rig.heads.some((h) => h.touching);
         touched ||= touching;
         const crush = d.masses.map((m) => (m.hub ? 0 : rel(m)));

@@ -68,7 +68,8 @@ function stepWall(
   if (leftover > 0.3) s.d.applyImpulse(n.x, n.y, n.z, leftover * s.d.totalMass * dt * 4);
   s.d.stepStructure(dt);
   s.d.followGroup(s.group, s.vel, s.omega, dt);
-  s.d.update(dt, s.geom);
+  s.d.stepCrush(dt, true);
+  s.d.update(s.geom);
 }
 
 function travel(d: StreamedDeformation, name: string): number {
@@ -593,7 +594,8 @@ forModes("rear / side impacts go the other way", (spawn) => {
       s.d.applyImpulse(n.x, 0, n.z, 80);
       s.d.stepStructure(DT);
       s.d.followGroup(s.group, s.vel, s.omega, DT);
-      s.d.update(DT, s.geom);
+      s.d.stepCrush(DT, true);
+      s.d.update(s.geom);
     }
     const L = travel(s.d, "doorL") + travel(s.d, "wingFL");
     const R = travel(s.d, "doorR") + travel(s.d, "wingFR");

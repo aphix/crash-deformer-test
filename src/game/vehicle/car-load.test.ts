@@ -58,7 +58,7 @@ function drive(cls: VehicleClassId, v0: number, input: (speed: number) => Partia
       stepWorld(w, h);
       acc -= h;
     }
-    car.updateDeform(FRAME);
+    car.updateSkin();
     out.push({ pitch: -body.rotation.x * DEG, roll: body.rotation.z * DEG, speed: car.speed });
   }
   car.dispose();

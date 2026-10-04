@@ -11,7 +11,7 @@ Both builds are the production `.output` already built (main `4677c4b`, base `a7
 
 ## 1. Headless sim cost (node, no browser, no GPU)
 
-One step = one 1/60 s frame of the engine's sim path: `physicsSlice` loop of `stepWorld` + `settleStep`, then every car's `updateDeform` (what `CrashEngine.tick` does minus render, camera, FX, HUD). Fleet: `layoutFleet` with HUD default speeds 10–32 m/s (cars crash into each other within the first second). Derby: 24 AI cars through `DerbyMatch` as in `engine.fixedStep`, bowl clip on. 60 warm-up steps, then 600 timed steps, 3 repeats, run twice per build (base, main, base, main), so 6 repeats per cell. Cells: median over the 6 repeats (min–max in brackets). A step covers 1/60 s of sim time; a 240 Hz render frame advances a quarter of that.
+One step = one 1/60 s frame of the engine's sim path: `physicsSlice` loop of `stepWorld` + `settleStep`, then every car's `updateSkin` (the frame's mesh write; the crush's solve, part tears, lamps and glass run per step inside `settleStep`: `stepBreakage`) (what `CrashEngine.tick` does minus render, camera, FX, HUD). Fleet: `layoutFleet` with HUD default speeds 10–32 m/s (cars crash into each other within the first second). Derby: 24 AI cars through `DerbyMatch` as in `engine.fixedStep`, bowl clip on. 60 warm-up steps, then 600 timed steps, 3 repeats, run twice per build (base, main, base, main), so 6 repeats per cell. Cells: median over the 6 repeats (min–max in brackets). A step covers 1/60 s of sim time; a 240 Hz render frame advances a quarter of that.
 
 | cfg | build | p50 ms | p95 ms | p99 ms | max ms (worst of 6) | allocated MB / 600 steps | heap retained after GC (MB) |
 |---|---|---|---|---|---|---|---|

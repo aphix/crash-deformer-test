@@ -175,10 +175,11 @@ export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
     for (const car of w.cars) {
       if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
       if (w.clock.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
+      car.stepBreakage(h);
     }
     steps++;
   }
-  for (const car of w.cars) car.updateDeform(simDt);
+  for (const car of w.cars) car.updateSkin();
   stepPhase(w.clock, wallDt);
 }
 

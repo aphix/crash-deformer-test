@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
-import { hypot2 } from "../deform/physics-util.ts";
+import { hypot2, round4 } from "../deform/physics-util.ts";
 import {
   DOOR,
   WHEEL_POS,
@@ -754,5 +754,32 @@ export abstract class CarCore {
       this.velocity.y,
       this.velocity.z - w * (world.x - this.group.position.x),
     );
+  }
+
+  /** The car's state at 4 decimals (digests and test reads). */
+  snapshot(): Record<string, unknown> {
+    return {
+      name: this.paint.name,
+      crashed: this.crashed,
+      pos: { x: round4(this.group.position.x), y: round4(this.group.position.y), z: round4(this.group.position.z) },
+      vel: { x: round4(this.velocity.x), y: round4(this.velocity.y), z: round4(this.velocity.z) },
+      speed: round4(this.velocity.length()),
+      angular: { x: round4(this.angular.x), y: round4(this.angular.y), z: round4(this.angular.z) },
+      yaw: round4(this.yaw),
+      pitch: round4(this.pitch),
+      roll: round4(this.roll),
+      spawnSpeed: round4(this.spawnSpeed),
+      deform: this.deform.snapshot(),
+      parts: this.parts.map((p) => ({
+        name: p.name,
+        detached: p.detached,
+        folding: p.folding,
+        hingeT: round4(p.hingeT),
+        pos: { x: round4(p.object.position.x), y: round4(p.object.position.y), z: round4(p.object.position.z) },
+        vel: { x: round4(p.velocity.x), y: round4(p.velocity.y), z: round4(p.velocity.z) },
+      })),
+      lamps: this.lamps.map((l) => ({ kind: l.kind, side: l.side, intact: l.intact })),
+      glass: this.glassPanes.map((g) => g.state),
+    };
   }
 }

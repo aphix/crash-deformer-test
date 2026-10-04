@@ -395,20 +395,22 @@ export abstract class DeformState extends DeformHit {
     }
   }
 
-  update(simDt: number, geometry: THREE.BufferGeometry): void {
-    this.skinnedThisFrame = false;
+  /**
+   * One fixed step of the crush: the sensors follow the masses, and the hit's window closes (here, in sim time, never
+   * by the frame rate). With `solve`, the skin's solve (cluster fit, cage corners) is redone from them too: the glass
+   * reads the cages' strain. Without it the solve waits for the next frame (`update`); the mesh write is always the
+   * frame's. Called once per fixed step (`settleStep`): a part's tear, a lamp's break and the glass depended on how often
+   * the renderer drew, and a replay drew at another rate than the live sim it re-ran.
+   */
+  stepCrush(dt: number, solve: boolean): void {
     if (this.crushing) {
-      this.pullSensorsFromMasses(simDt);
+      this.pullSensorsFromMasses(dt);
 
       let maxC = 0;
       for (const s of this.sensors) if (s.compression > maxC) maxC = s.compression;
       this.crushAmount = maxC;
       this.wrinkleAmp = THREE.MathUtils.clamp(maxC * (0.2 + this.buckle * 0.5), 0, 0.18 + this.buckle * 0.5);
-
-      this.bakeLocalSkin();
-      this.solveCages();
-      if (this.skinDeferred) this.skinOwed = true;
-      else this.flushSkin(geometry, true);
+      this.skinDue = true;
       // Plastic leftover (maxC) is not "still crushing". Keep skinning while
       // masses are live or contact is fresh — otherwise we rewrite the mesh
       // from a jittering polar every frame (flicker) and pay computeVertexNormals
@@ -416,16 +418,33 @@ export abstract class DeformState extends DeformHit {
       // Contact window only. Residual bounce / cluster breathing is not crush —
       // reskinning it every frame is the polar snap-back flicker.
       this.crushing = this.bidirectional || this.quietTime() < 0.28;
-      // Window closed with a deferred skin: write it now, from this frame's solve — the pose an
+      // Window closed with a deferred skin: write it at the next frame, from this solve — the pose an
       // always-skinned car freezes on. Later state drifts (cm), so a late catch-up would not match.
-      if (!this.crushing && this.skinOwed) this.flushSkin(geometry);
+      if (!this.crushing) this.skinFinal = true;
     } else if (this.loadDirty[0] !== 0) {
       // Load crush baked into the masses (`bakeLoadCrush`) with no crash window open: skin once from them.
       this.loadDirty[0] = 0;
-      this.bakeLocalSkin();
-      this.solveCages();
-      if (this.skinDeferred) this.skinOwed = true;
-      else this.flushSkin(geometry, true);
+      this.skinDue = true;
+    }
+    if (solve) this.solveSkin();
+  }
+
+  /** The skin's solve from the masses as they are, if the crush has moved since the last one; the mesh write is owed. */
+  private solveSkin(): void {
+    if (!this.skinDue) return;
+    this.skinDue = false;
+    this.bakeLocalSkin();
+    this.solveCages();
+    this.skinOwed = true;
+  }
+
+  /** Per frame: solve what the steps left unsolved and write the mesh (a deferred skin waits unless the crush just ended). */
+  update(geometry: THREE.BufferGeometry): void {
+    this.skinnedThisFrame = false;
+    this.solveSkin();
+    if (this.skinOwed && (!this.skinDeferred || this.skinFinal)) {
+      this.skinFinal = false;
+      this.flushSkin(geometry);
     }
     this.helper?.update();
     this.particleHelper?.update();

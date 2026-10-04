@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
-import { applyGroundFriction, CRASH, hypot2, round4 } from "../deform/physics-util.ts";
+import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { getCrackMap } from "./car-materials.ts";
  import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR } from "../world/ground.ts";
@@ -30,8 +30,9 @@ const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
 const _sup: Support = { y: 0, grade: NaN };
-/** Numbers in a `DeformableCar.flight` block. */
-export const FLIGHT = 8;
+/** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
+export const FLIGHT = 22;
+export const FLIGHT_POSE = 8;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
@@ -228,27 +229,41 @@ export class DeformableCar extends CarParts {
   }
 
   /**
-   * Highlight keyframes (docs/HIGHLIGHTS.md): the flight state a netplay pose leaves out (airborne, a hull point on the
-   * ground, the whole spin, the spin a takeoff carries), `FLIGHT` numbers into `buf` at `o`, or with `write` from it.
+   * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
+   * or with `write` from it: airborne and a hull point on the ground, the spins, the pose, velocity and position whole (the
+   * wire rounds them: a first impact 0.5 m/s off), the squeeze clocks and the drift state. A float32 here moved wrecks.
    */
-  flight(buf: Float32Array, o: number, write: boolean): void {
-    const a = this.angular;
-    const g = this.groundSpin;
+  flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
       this.airborne = buf[o] !== 0;
       this.airContact = buf[o + 1] !== 0;
-      a.set(buf[o + 2]!, buf[o + 3]!, buf[o + 4]!);
-      g.set(buf[o + 5]!, buf[o + 6]!, buf[o + 7]!);
+      this.angular.fromArray(buf, o + 2);
+      this.groundSpin.fromArray(buf, o + 5);
+      this.pitch = buf[o + FLIGHT_POSE]!;
+      this.yaw = buf[o + FLIGHT_POSE + 1]!;
+      this.roll = buf[o + FLIGHT_POSE + 2]!;
+      this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
+      this.velocity.fromArray(buf, o + FLIGHT_POSE + 3);
+      this.group.position.fromArray(buf, o + FLIGHT_POSE + 6);
+      this.endAgo.set(buf.subarray(o + 17, o + 19));
+      this.endReach = buf[o + 19]!;
+      this.endSqueeze = buf[o + 20] !== 0;
+      this.drive.drift = buf[o + 21]!;
       return;
     }
     buf[o] = this.airborne ? 1 : 0;
     buf[o + 1] = this.airContact ? 1 : 0;
-    buf[o + 2] = a.x;
-    buf[o + 3] = a.y;
-    buf[o + 4] = a.z;
-    buf[o + 5] = g.x;
-    buf[o + 6] = g.y;
-    buf[o + 7] = g.z;
+    this.angular.toArray(buf, o + 2);
+    this.groundSpin.toArray(buf, o + 5);
+    buf[o + FLIGHT_POSE] = this.pitch;
+    buf[o + FLIGHT_POSE + 1] = this.yaw;
+    buf[o + FLIGHT_POSE + 2] = this.roll;
+    this.velocity.toArray(buf, o + FLIGHT_POSE + 3);
+    this.group.position.toArray(buf, o + FLIGHT_POSE + 6);
+    buf.set(this.endAgo, o + 17);
+    buf[o + 19] = this.endReach;
+    buf[o + 20] = this.endSqueeze ? 1 : 0;
+    buf[o + 21] = this.drive.drift;
   }
 
   /** No wheel holds the body: it flies (`stepAir`) from its centre of mass, turning as the ground last turned it. */
@@ -319,35 +334,10 @@ export class DeformableCar extends CarParts {
     if (this.endSqueeze && this.endReach < WHEEL_POS[0]![2]) this.deform.deepCrush = true;
   }
 
-  snapshot(): Record<string, unknown> {
-    return {
-      name: this.paint.name,
-      crashed: this.crashed,
-      pos: { x: round4(this.group.position.x), y: round4(this.group.position.y), z: round4(this.group.position.z) },
-      vel: { x: round4(this.velocity.x), y: round4(this.velocity.y), z: round4(this.velocity.z) },
-      speed: round4(this.velocity.length()),
-      angular: { x: round4(this.angular.x), y: round4(this.angular.y), z: round4(this.angular.z) },
-      yaw: round4(this.yaw),
-      pitch: round4(this.pitch),
-      roll: round4(this.roll),
-      spawnSpeed: round4(this.spawnSpeed),
-      deform: this.deform.snapshot(),
-      parts: this.parts.map((p) => ({
-        name: p.name,
-        detached: p.detached,
-        folding: p.folding,
-        hingeT: round4(p.hingeT),
-        pos: { x: round4(p.object.position.x), y: round4(p.object.position.y), z: round4(p.object.position.z) },
-        vel: { x: round4(p.velocity.x), y: round4(p.velocity.y), z: round4(p.velocity.z) },
-      })),
-      lamps: this.lamps.map((l) => ({ kind: l.kind, side: l.side, intact: l.intact })),
-      glass: this.glassPanes.map((g) => g.state),
-    };
-  }
-
   step(dt: number): void {
     this.integrate(dt);
-    this.updateDeform(dt);
+    this.stepBreakage(dt);
+    this.updateSkin();
   }
 
   integrate(dt: number): void {
@@ -493,17 +483,27 @@ export class DeformableCar extends CarParts {
     this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
 
-  updateDeform(dt: number): void {
+  /**
+   * One fixed step of what the crash does to the car's parts (`settleStep`, once per step; docs/HIGHLIGHTS.md): the
+   * sensors follow the masses, hinges move, parts tear off, lamps break, glass cracks. Drawing never decides any of it:
+   * at 60, 144 or 240 Hz the same crash tears the same parts at the same step, and a replay re-running the steps does too.
+   */
+  stepBreakage(dt: number): void {
     if (this.vaporized || this.falling) return;
-    this.deform.update(dt, this.body.geometry);
-    // LoD gate lifted (back on screen / large again): catch the mesh up to the cages first.
-    if (!this.deform.skinDeferred) this.deform.flushSkin(this.body.geometry);
+    this.deform.stepCrush(dt, this.glassLeft());
+    if (!this.crashed) return;
+    this.syncAttachedParts(dt);
+    this.evaluateBreakage(this.deform.impulseValue, dt);
+  }
+
+  /** Per rendered frame: the mesh follows the solve (skin, lamps, panels, glass, interior); nothing here changes the sim. */
+  updateSkin(): void {
+    if (this.vaporized || this.falling) return;
+    this.deform.update(this.body.geometry);
     if (this.deform.skinnedThisFrame) this.poseLamps();
     if (this.crashed) {
       if (this.deform.skinnedThisFrame) this.skinPanels();
-      this.syncAttachedParts(dt);
       this.followGlass();
-      this.evaluateBreakage(this.deform.impulseValue, dt);
     }
     if (this.deform.massActive) this.fitInterior();
     if (this.hullHelper?.visible) this.updateHullHelper();

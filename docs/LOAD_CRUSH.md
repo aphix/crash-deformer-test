@@ -103,7 +103,7 @@ the flanks vary 6 %.
 
 ## Limits (not done)
 
-- Load crush rides replays and netplay: `crush[]` and `crushBaked` are in `simState` (NET_VERSION 9, REPLAY_VERSION 7),
+- Load crush rides replays and netplay: `crush[]` and `crushBaked` are in `simState` (NET_VERSION 9, REPLAY_VERSION 8),
   and a car whose face yielded is `crashed`, so it rides the wreck section (its masses carry the crush; the client skins
   from them). `stack-crush.test.ts` restores a 4-stack from a keyframe: the same roofs, the same 3 s later.
 - A wreck (`massActive`) keeps its lattice: it takes no load crush, and a car that load-crushed and is then hit re-fits its

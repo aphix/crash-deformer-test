@@ -24,7 +24,7 @@ const SKIN_STRAIN = 0.65;
 const SUNK_ROOF = 0.075;
 
 /** Skin LoD and bake flags: the renderer's, not the solver's, so a `simState` block leaves them out. */
-const SKIN_FLAGS = new Set(["dirty", "skinnedThisFrame", "skinDeferred", "skinOwed"]);
+const SKIN_FLAGS = new Set(["dirty", "skinnedThisFrame", "skinDeferred", "skinOwed", "skinDue", "skinFinal"]);
 /** `simState`: `v` into `buf` at `o`, or with `write` from it; returns the next offset. */
 function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean): number {
   if (write) v.set(buf[o]!, buf[o + 1]!, buf[o + 2]!);
@@ -81,19 +81,41 @@ function simBeam(buf: Float32Array, o: number, b: Beam, write: boolean): number 
   }
   return o + 4;
 }
-/** `simState`: a shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, Sp); returns the next offset. */
+/** `simState`: q ← Sp·q0, the rest points a cluster's fit reads (`applyPlasticity` keeps them so whenever it moves Sp). */
+function plasticRestPoints(c: ShapeCluster): void {
+  const s = c.Sp;
+  for (let i = 0; i < c.q0x.length; i++) {
+    const x = c.q0x[i]!;
+    const y = c.q0y[i]!;
+    const z = c.q0z[i]!;
+    c.qx[i] = s[0]! * x + s[1]! * y + s[2]! * z;
+    c.qy[i] = s[3]! * x + s[4]! * y + s[5]! * z;
+    c.qz[i] = s[6]! * x + s[7]! * y + s[8]! * z;
+  }
+}
+/**
+ * `simState`: a shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, `planar`, Sp) and the fit's carried state:
+ * the last rotation `Rprev` that `stabilizeMat` blends the next one with and the warm start `rotQ` (the rest points the
+ * fit reads, Sp·q0, are rebuilt from Sp). Without those a restored wreck's first fit ran against the identity and a
+ * respawn's rest: 16 of a monster wreck's 20 masses sat 5-200 mm off the live ones one step later. Returns the next offset.
+ */
 function simCluster(buf: Float32Array, o: number, c: ShapeCluster, write: boolean): number {
   o = simArray(buf, simArray(buf, simArray(buf, o, c.q0x, write), c.q0y, write), c.q0z, write);
   if (write) {
     c.cm0x = buf[o]!;
     c.cm0y = buf[o + 1]!;
     c.cm0z = buf[o + 2]!;
+    c.planar = buf[o + 3] !== 0;
   } else {
     buf[o] = c.cm0x;
     buf[o + 1] = c.cm0y;
     buf[o + 2] = c.cm0z;
+    buf[o + 3] = c.planar ? 1 : 0;
   }
-  return simArray(buf, simArray(buf, simArray(buf, o + 3, c.AqqInv, write), c.n, write), c.Sp, write);
+  o = simArray(buf, simArray(buf, simArray(buf, o + 4, c.AqqInv, write), c.n, write), c.Sp, write);
+  o = simArray(buf, simArray(buf, o, c.Rprev, write), c.rotQ, write);
+  if (write) plasticRestPoints(c);
+  return o;
 }
 
 /** Netplay state of one car's deformation (docs/MULTIPLAYER.md), preallocated from `netSizes()`. */
@@ -564,6 +586,11 @@ export class StreamedDeformation extends DeformSolve {
 
   /** The solver's scalar fields (own and inherited numbers and flags, in declaration order), listed on first use. */
   private simKeys: string[] | null = null;
+  /** The solver arrays and vectors outside `scalarKeys`, `masses`, `beams` and `clusters` that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
+  private readonly simTables = {
+    vecs: [this.impactLocal, this.impactInward, this.bodyC, this.bodyRestC],
+    arrays: [this.endEbs2, this.floorPre, this.floorPost, this.gripPost, this.pose],
+  };
 
   private scalarKeys(): string[] {
     this.simKeys ??= Object.keys(this).filter((k) => {
@@ -573,29 +600,63 @@ export class StreamedDeformation extends DeformSolve {
     return this.simKeys;
   }
 
+  private simBlocks(): { vecs: THREE.Vector3[]; arrays: Float64Array[] } {
+    return this.simTables;
+  }
+
   /** Numbers in a `simState` block (fixed by the class and the rig: the same for every car). */
   simSize(): number {
-    let n = this.scalarKeys().length + this.masses.length * 17 + this.beams.length * 4 + this.crush.length * 2;
-    for (const c of this.clusters) n += c.q0x.length * 3 + 24;
+    const { vecs, arrays } = this.simBlocks();
+    let n = this.scalarKeys().length * 2 + this.sensors.length * 2 + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
+    n += this.crush.length * 2;
+    for (let i = 0; i < arrays.length; i++) n += arrays[i]!.length;
+    for (const c of this.clusters) n += c.q0x.length * 3 + 38;
     return n;
   }
 
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): the solver state a netplay wreck section leaves out, `simSize()` numbers
    * read into `buf`, or with `write` restored from it. Every scalar field (crash clocks, crush, settle and plant
-   * state; not the renderer's skin flags), each mass's world, local and velocity with its crush offsets, each beam's
-   * rest and set, each shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, Sp). Restored from the net state
-   * alone, a wreck in the middle of a hit lost its masses' motion (up to 31 m/s about their mean) and its clocks: it
-   * shed 5.2 m/s in its first replayed step and was 2.8 m off the record 76 steps later (engine-replay.test.ts).
+   * state; not the renderer's skin flags); the current hit (`impactLocal`, `impactInward`), the body frame
+   * (`bodyC`, `bodyRestC`), each end's accumulated hit energy (`endEbs2`), the ground under each mass and the body pose
+   * the last step measured (`floorPre`, `floorPost`, `gripPost`, `pose`: the next step's hub plane and suspension tilt
+   * read them before they are measured again); each mass's world, local and velocity with its crush offsets, each
+   * beam's rest and set, each shape cluster's plastic rest (q0, cm0, AqqInv, plane normal, `planar`, Sp) and the fit's
+   * carried `Rprev` and `rotQ`. Restored from the net
+   * state alone, a wreck in the middle of a hit lost its masses' motion (up to 31 m/s about their mean) and its clocks:
+   * it shed 5.2 m/s in its first replayed step and was 2.8 m off the record 76 steps later (engine-replay.test.ts).
+   * The net state's hit vectors are the last skin bake's, which comes after the frame and not after the step: a
+   * keyframe cut the step after a first impact held the default `impactInward`, the replayed wreck pushed along the
+   * wrong axis and a 2 x 20 m/s head-on played 2.6 m/s and 0.3 m off the live one (replay-fidelity.test.ts).
    */
   simState(buf: Float32Array, write: boolean): void {
     let o = 0;
+    // Each scalar as a float32 and what it rounded off: the crash clocks (`elapsed`, `lastContact`, `lastPower`, `contactAt`)
+    // are compared by differences with holds that are whole steps (CONTACT_HOLD 2/60 s = 8 steps of 1/240), so a float32
+    // clock flipped a hold at a step the live sim did not (a wreck's restored state drifted 12 mm in a second).
     for (const k of this.scalarKeys()) {
       const v: unknown = Reflect.get(this, k);
-      if (write) Reflect.set(this, k, typeof v === "boolean" ? buf[o] !== 0 : buf[o]);
-      else buf[o] = Number(v);
-      o++;
+      if (write) Reflect.set(this, k, typeof v === "boolean" ? buf[o] !== 0 : buf[o]! + buf[o + 1]!);
+      else {
+        const x = Number(v);
+        buf[o] = x;
+        buf[o + 1] = Number.isFinite(x) ? x - buf[o]! : 0;
+      }
+      o += 2;
     }
+    // Each sensor's compression: a netplay state carries it to 1e-4 m, and the next step's pull, the parts' hinge targets
+    // and the glass read it (a quantized 5e-5 m moved two wedged wrecks 9 cm in 21 steps).
+    for (const sensor of this.sensors) {
+      if (write) sensor.compression = buf[o]! + buf[o + 1]!;
+      else {
+        buf[o] = sensor.compression;
+        buf[o + 1] = sensor.compression - buf[o]!;
+      }
+      o += 2;
+    }
+    const { vecs, arrays } = this.simBlocks();
+    for (let i = 0; i < vecs.length; i++) o = simVec(buf, o, vecs[i]!, write);
+    for (let i = 0; i < arrays.length; i++) o = simArray(buf, o, arrays[i]!, write);
     for (const m of this.masses) o = simMass(buf, o, m, write);
     for (const b of this.beams) o = simBeam(buf, o, b, write);
     for (const c of this.clusters) o = simCluster(buf, o, c, write);
