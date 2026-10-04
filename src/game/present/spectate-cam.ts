@@ -4,7 +4,8 @@ import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
 import { PREFABS } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
-import { blankPoint, blankProjection, pointOn, projectPath, WINDOW, type Track, type TrackPath } from "../world/track.ts";
+import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
+import { projectGrid, roadGrid, type RoadGrid } from "./road-grid.ts";
 import { GANTRY_BEAM, levelAt, RoadIndex, sampleAt, sections, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
 import { pillarPieces } from "./track-structures.ts";
 
@@ -37,9 +38,6 @@ export type Sight = {
   /** Where `solid` starts its road projection (`roadGrid`); unset: from the whole path. */
   grid?: RoadGrid;
 };
-
-/** A square grid over the path's bounds: per cell (row-major from `x0`, `z0`), `GRID_HINTS` path samples to project from (-1: unused). */
-type RoadGrid = { x0: number; z0: number; cols: number; rows: number; hint: Int16Array };
 
 export const CINE = {
   /** The eye stands this many seconds of the car's speed ahead, clamped (m): along the course, or along the travel off a race. */
@@ -119,97 +117,6 @@ export function raceSight(track: Track, placed: readonly Placed[]): Sight {
   return sight;
 }
 
-/** Cell side (m) of a `RoadGrid`, how far (m) from the road a cell still has hints, and how many stretches of road a cell may name. */
-const GRID_CELL = 8;
-const GRID_REACH = 40;
-const GRID_HINTS = 3;
-
-/**
- * `Sight.grid`: per cell, up to `GRID_HINTS` path samples to project from: the nearest to the cell centre on each stretch of
- * road (samples more than `WINDOW` along from each other are different stretches) that lies within `GRID_CELL` * √2 of
- * the nearest one, the margin by which a point of the cell can reorder two distances. The nearest road to any point of the
- * cell is then in one of those samples' windows (`projectPath`), whichever crossing or hairpin it is at; a cell with no road within
- * `GRID_REACH`, or more stretches than that, has none (the whole path is searched). `solid` used to start from the last
- * query's segment, which on a crossing course could be the other road's. O(cells × samples) once a course.
- */
-function roadGrid(p: TrackPath): RoadGrid {
-  let x0 = Infinity;
-  let z0 = Infinity;
-  let x1 = -Infinity;
-  let z1 = -Infinity;
-  for (let k = 0; k < p.count; k++) {
-    x0 = Math.min(x0, p.x[k]!);
-    x1 = Math.max(x1, p.x[k]!);
-    z0 = Math.min(z0, p.z[k]!);
-    z1 = Math.max(z1, p.z[k]!);
-  }
-  x0 -= GRID_REACH;
-  z0 -= GRID_REACH;
-  const cols = Math.ceil((x1 + GRID_REACH - x0) / GRID_CELL);
-  const rows = Math.ceil((z1 + GRID_REACH - z0) / GRID_CELL);
-  const hint = new Int16Array(cols * rows * GRID_HINTS).fill(-1);
-  const n = p.count;
-  const dist2 = new Float64Array(n);
-  const best: number[] = [];
-  for (let r = 0; r < rows; r++) {
-    for (let c = 0; c < cols; c++) {
-      const cx = x0 + (c + 0.5) * GRID_CELL;
-      const cz = z0 + (r + 0.5) * GRID_CELL;
-      let bd = GRID_REACH * GRID_REACH;
-      for (let k = 0; k < n; k++) {
-        const d = (p.x[k]! - cx) ** 2 + (p.z[k]! - cz) ** 2;
-        dist2[k] = d;
-        if (d < bd) bd = d;
-      }
-      if (bd >= GRID_REACH * GRID_REACH) continue;
-      const reorder = (Math.sqrt(bd) + GRID_CELL * Math.SQRT2) ** 2;
-      // Stretches: runs of samples within `reorder` of the centre, a new one past a gap of more than `WINDOW`.
-      best.length = 0;
-      let first = -1;
-      let last = -Infinity;
-      for (let k = 0; k < n; k++) {
-        if (dist2[k]! >= reorder) continue;
-        if (first < 0) first = k;
-        if (k - last > WINDOW) best.push(k);
-        else if (dist2[k]! < dist2[best[best.length - 1]!]!) best[best.length - 1] = k;
-        last = k;
-      }
-      // A closed path's last stretch continues into its first.
-      if (p.closed && best.length > 1 && first + n - last <= WINDOW) {
-        if (dist2[best[best.length - 1]!]! < dist2[best[0]!]!) best[0] = best[best.length - 1]!;
-        best.pop();
-      }
-      if (best.length > GRID_HINTS) continue;
-      for (let h = 0; h < best.length; h++) hint[(r * cols + c) * GRID_HINTS + h] = best[h]!;
-    }
-  }
-  return { x0, z0, cols, rows, hint };
-}
-
-/** The nearest road to (x, z) into `_proj`: from each of the cell's hints' windows, or the whole path where it has none. */
-function project(s: Sight, p: TrackPath, x: number, z: number): void {
-  const g = s.grid;
-  const c = g ? Math.floor((x - g.x0) / GRID_CELL) : -1;
-  const r = g ? Math.floor((z - g.z0) / GRID_CELL) : -1;
-  const at = g && c >= 0 && c < g.cols && r >= 0 && r < g.rows ? (r * g.cols + c) * GRID_HINTS : -1;
-  if (!g || at < 0 || g.hint[at]! < 0) {
-    projectPath(p, x, z, -1, _proj);
-    return;
-  }
-  projectPath(p, x, z, g.hint[at]!, _proj);
-  for (let h = 1; h < GRID_HINTS && g.hint[at + h]! >= 0; h++) {
-    projectPath(p, x, z, g.hint[at + h]!, _alt);
-    if (_alt.dist2 >= _proj.dist2) continue;
-    _proj.k = _alt.k;
-    _proj.s = _alt.s;
-    _proj.lateral = _alt.lateral;
-    _proj.dist2 = _alt.dist2;
-    _proj.cx = _alt.cx;
-    _proj.cz = _alt.cz;
-  }
-}
-
-const _alt = blankProjection();
 const _proj = blankProjection();
 const _pt = blankPoint();
 const _near: Occluder[] = [];
@@ -221,7 +128,7 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
   const p = s.path;
   if (p) {
-    project(s, p, x, z);
+    projectGrid(s.grid, p, x, z, _proj);
     const k = _proj.k;
     const lat = _proj.lateral;
     const left = lat > 0;

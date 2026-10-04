@@ -8,11 +8,26 @@ import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
-import { crashAxis, crashEye, crashSeen, CrashPick, CUTS, heldCut } from "./engine-cine.ts";
+import { CrashPick, crashEye, CUTS, heldCut } from "./engine-cine.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /** An eye's times through its cut, tried here: twice as many as the pick's, so half of them fall between its. */
 const CUT_TIMES = 17;
 const STILL = { x: 0, y: 0, z: 0 };
+
+/** The crash cam's pick, whole: `n` turned to the best axis and each cut's reach into `reach`. */
+function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): void {
+  const pick = new CrashPick();
+  pick.begin(s, at, n, reach);
+  pick.run(Infinity);
+}
+/** The cuts of axis `n` alone (no turning) that have an eye, their reach into `reach`. */
+function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
+  const pick = new CrashPick();
+  pick.begin(s, at, n.clone(), reach, 1);
+  pick.run(Infinity);
+  return reach.reduce((k, r) => k + (r > 0 ? 1 : 0), 0);
+}
 
 describe("crash cam on a course", () => {
   for (const json of TRACKS) {
@@ -139,7 +154,7 @@ describe("crash cam on a course", () => {
           runs += mine;
           longest = Math.max(longest, mine);
           spots++;
-          assert.deepEqual([...slicedReach], [...wholeReach], `${track.id} s ${s} side ${side}: reach`);
+          assertSameNumbers(slicedReach, wholeReach, `${track.id} s ${s} side ${side}: reach`);
           assert.ok(sliced.distanceTo(whole) < 1e-9, `${track.id} s ${s} side ${side}: axis`);
         }
       }

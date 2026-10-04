@@ -31,7 +31,6 @@ const _v = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _eye = new THREE.Vector3();
-const _n = new THREE.Vector3();
 /** The hit holds still: `camUsable`'s target velocity for a crash-cam eye. */
 const STILL = { x: 0, y: 0, z: 0 };
 /** Crash cam: it aims this high (m) over the ground at the impact. */
@@ -194,24 +193,6 @@ export class CrashPick {
       this.s = null;
     } else this.nextTurn();
   }
-}
-
-const _pick = new CrashPick();
-
-/**
- * Per crash-cam cut of axis `n` alone (no turning): the longest usable `REACH` into `reach` (0: none), whole at once
- * (`CrashPick`). Returns how many cuts have one.
- */
-export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
-  _pick.begin(s, at, _n.copy(n), reach, 1);
-  _pick.run(Infinity);
-  return reach.reduce((k, r) => k + (r > 0 ? 1 : 0), 0);
-}
-
-/** Impact axis `n` (flat, unit) turned to the one whose cuts see `at` from furthest out, whole at once; its reach into `reach`. */
-export function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): void {
-  _pick.begin(s, at, n, reach);
-  _pick.run(Infinity);
 }
 
 /**
