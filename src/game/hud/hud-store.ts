@@ -122,6 +122,8 @@ export type CrashHudState = {
   realism: number;
   /** The player's car class (slot 0). */
   playerClass: VehicleClassId;
+  /** Mouse look (pointer lock) is on. */
+  mouseLook: boolean;
 };
 
 /** The stroke slider reads out at 56 km/h, the NCAP full-frontal barrier speed. */
@@ -219,6 +221,7 @@ export const INITIAL_HUD: CrashHudState = {
   pad: null,
   realism: DEFAULT_REALISM,
   playerClass: "sedan",
+  mouseLook: false,
 };
 
 /** The HUD's read model: the engine publishes a fresh snapshot, the UI subscribes. CrashLab makes one per engine. */

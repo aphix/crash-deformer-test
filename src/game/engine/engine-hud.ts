@@ -128,6 +128,7 @@ export abstract class EngineHud extends EngineWarm {
       pad: this.pad.label,
       realism: HANDLING.realism,
       playerClass: this.playerClass,
+      mouseLook: this.view.locked,
     });
     this.syncShareUrl();
   }
