@@ -2,7 +2,9 @@ import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { PISTON_ORBIT_RATE, PistonBank } from "../present/engine-pistons.ts";
 import { DoorRam } from "../present/engine-doors.ts";
-import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
+import { sliceSpeed } from "../contact/sat.ts";
+import { SimPacer } from "./sim-pace.ts";
+import { PoseBlend } from "../present/pose-blend.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
 import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase, THROW_ONSET } from "../match/phase.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
@@ -123,6 +125,18 @@ export class CrashEngine extends EngineShare {
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
   protected readonly highlights: ReelDirector;
+  /** The sim's steps against the frames (`SimPacer`), and the cars drawn between the last two (`PoseBlend`). */
+  readonly pace = new SimPacer();
+  private readonly blend = new PoseBlend();
+  /** One sim step of the frame (`SimPacer.run`): the cars' poses either side of it kept for the blend. */
+  private readonly slice = (h: number): void => {
+    const cars = this.live();
+    this.blend.begin(cars);
+    this.fixedStep(h);
+    this.elapsedSim += h;
+    settleStep(cars, h, this.clock.wallSinceImpact > 0.2);
+    this.blend.end(cars);
+  };
   private readonly hitFx = (contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void => {
     if (this.elapsedWall - this.sparkAt < 0.12 || !this.witness.sees(contact, FX_REACH.debris)) return;
     this.sparkAt = this.elapsedWall;
@@ -336,6 +350,7 @@ export class CrashEngine extends EngineShare {
       console.error("Crush Stream tick failed", err);
       this.renderer.setRenderTarget(null);
       this.renderer.render(this.scene, this.camera);
+      this.blend.restore();
     }
   };
 
@@ -373,31 +388,18 @@ export class CrashEngine extends EngineShare {
         if (!this.net.client) this.maybePreSlowmo(wallDt);
         easeTimeScale(this.clock, wallDt);
         simDt = wallDt * this.clock.timeScale * this.cine.timeWarp;
-        const vmax = sliceSpeed(cars);
-        this.acc += simDt;
-        if (this.acc > 0.05) this.acc = 0.05;
-        const budget = now + 8;
-        let steps = 0;
-        while (!this.net.client && this.acc > 1e-5 && steps < 8) {
-          const h = Math.fround(physicsSlice(this.acc, vmax)); // float32, as the highlight recorder stores it: a replay runs the live step
-          this.fixedStep(h);
-          this.elapsedSim += h;
-          this.acc -= h;
-          settleStep(cars, h, this.clock.wallSinceImpact > 0.2);
-          steps++;
-          if (steps >= 2 && performance.now() > budget) break;
-        }
+        if (!this.net.client) this.pace.run(simDt, this.clock.timeScale * this.cine.timeWarp, sliceSpeed(cars), performance.now() + 8, this.slice);
       }
       this.stepEdge();
       this.scheduleSkins(cars);
       // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
       if (reelDt !== null || !this.net.client) {
         for (const car of cars) {
-          if (reelDt !== null ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
+          if (reelDt !== null || this.showStack ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
         }
       }
       if (reelDt === null && !this.net.client) this.updatePhase(wallDt);
-      if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
+      if (this.showStack) this.stepStack(); else if (this.showPistons && this.looping) this.stepPistonLoop(wallDt);
       if (reelDt === null && this.clock.phase !== "approach") this.emitContactFx();
       if (this.impactLightLife > 0) {
         this.impactLightLife -= wallDt;
@@ -445,6 +447,7 @@ export class CrashEngine extends EngineShare {
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
     this.net.frame(wallDt);
+    this.blend.present(this.live(), this.pace.alpha);
     if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0);
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);
@@ -454,7 +457,7 @@ export class CrashEngine extends EngineShare {
     this.lampLights.update(this.live(), this.camera, this.followedCar());
     if (this.stage.night) this.stage.syncPools(this.poles);
     if (!this.skipDraw) this.cine.render(this.scene, this.camera, wallDt);
-
+    this.blend.restore();
     this.hudAcc += wallDt;
     if (this.hudAcc > (this.clock.timeScale < 0.5 ? 0.05 : 0.12)) {
       this.hudAcc = 0;
@@ -537,7 +540,6 @@ export class CrashEngine extends EngineShare {
     }
   }
 
-
   private maybePreSlowmo(wallDt: number): void {
     if (this.derbyMode || this.race.active) return;
     if (this.clock.userTimeScale != null) return;
@@ -557,7 +559,6 @@ export class CrashEngine extends EngineShare {
     this.clock.timeScale = scale;
     this.clock.targetScale = scale;
   }
-
 
   private fixedStep(dt: number): void {
     const cars = this.live();
@@ -597,7 +598,7 @@ export class CrashEngine extends EngineShare {
     w.barrier = this.showBarrier ? this.barrier : null;
     w.barrierHits = this.barrierHits;
     w.bounce = this.bounceWorld;
-    w.beforeSlice = this.rigScene ? this.rigSlice : null;
+    w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : null;
     w.partTouch = this.race.active ? this.race.partTouch : null;
     w.ballHit = this.showBalls ? this.ballHit : null;
@@ -618,7 +619,7 @@ export class CrashEngine extends EngineShare {
     if (this.race.active) this.race.step(dt);
 
     const { impulse, contact, normal } = w.strongest;
-    if (!this.derbyMode && !this.race.active && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
+    if (!this.derbyMode && !this.race.active && !this.showStack && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
     } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16 && this.witness.sees(contact, FX_REACH.sparks)) {
       this.sparkAt = this.elapsedWall;
@@ -684,7 +685,6 @@ export class CrashEngine extends EngineShare {
       this.fxPoofed = true;
     }
   }
-
 
   private updatePhase(wallDt: number): void {
     if (this.derbyMode || this.race.active) return;
@@ -775,7 +775,7 @@ export class CrashEngine extends EngineShare {
       // Over the car's own height: a race course climbs hills and bridges.
       look.set(followed.group.position.x, followed.group.position.y + 0.7, followed.group.position.z);
     } else if (this.rigScene) {
-      look.set(this.carA.group.position.x, 0.55, this.carA.group.position.z);
+      look.set(this.carA.group.position.x, this.showStack ? this.stackLookY(wallDt) : 0.55, this.carA.group.position.z);
     } else if (this.derbyMode && this.derby.winnerId != null) {
       const champ = this.cars[this.derby.winnerId];
       if (champ) look.set(champ.group.position.x, 0.7, champ.group.position.z);

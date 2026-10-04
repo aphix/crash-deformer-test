@@ -65,7 +65,7 @@ const GLASS_LAMINATED = 0.25;
  *  it). Guessed, tuned by eye. (The roof sensor's compression is no measure: a 20 km/h frontal reads 0.36.) */
 const BAR_TEAR_SINK = 0.12;
 const BAR_TEAR_MPS = 60 / 3.6;
-const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
+export const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
 /** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
 const PART_SLOTS = 15;
 /**
@@ -713,6 +713,12 @@ export abstract class CarParts extends CarCore {
       applyDents(p.dent, p.object);
     }
     for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
+  }
+
+  /** Into `out`: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). */
+  freeObjects(out: THREE.Object3D[]): void {
+    for (const p of this.parts) if (p.detached && p.object.visible) out.push(p.object);
+    for (const w of this.looseWheels) if (w.loose) out.push(w.object);
   }
 
   /** A popped hub's wheel leaves the car: a world object launched at the hub's speed, out and up. */

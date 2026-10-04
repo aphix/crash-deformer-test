@@ -1,3 +1,4 @@
+import { stackLoads } from "../scenes/stack-rig.ts";
 import { compactorStage } from "../scenes/compactor.ts";
 import type { HudStore } from "../hud/hud-store.ts";
 import { carGauge } from "../match/car-view.ts";
@@ -55,6 +56,7 @@ export abstract class EngineHud extends EngineWarm {
       },
       showDoors: this.showDoors,
       showCorkscrew: this.showCorkscrew,
+      stack: this.showStack ? { ...this.stack.config, dropped: this.stack.dropped, ...stackLoads(cars, this.stack.dropped) } : null,
       pendingScene: this.sceneFade.pending,
       inRoom: this.net.role !== "off",
       doors: {

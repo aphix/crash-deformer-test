@@ -28,6 +28,7 @@ One scene at a time, from the bottom bar or a key. A pick pulses the view into a
 - **Pistons** (I): eight rams around a parked car; fire one (1–8) or all (0). See [`docs/PISTON_RIG.md`](docs/PISTON_RIG.md).
 - **Doors** (N): one ram runs down a parked car's side, grazing the mirror, driving an open door past its stop or slamming it shut. D and E do the same to a stretched quarter panel. See [`docs/DOOR_RIG.md`](docs/DOOR_RIG.md).
 - **Corkscrew** (,): a car launched up a twisted channel; the spawn-speed slider decides the stunt (no air, a roof landing, or one or two rolls back onto the wheels).
+- **Stack** (/): cars dropped one at a time onto a base car, so the bottom roof crushes by the weight above it ([`docs/LOAD_CRUSH.md`](docs/LOAD_CRUSH.md)). Sliders: cars in the stack (2–20), drop height over the stack, seconds between drops; defaults 4 / 0.02 m / 8 s, the values of `vehicle/stack-crush.test.ts`. The panel reads each car's load (kN of the cars on it) and roof crush (mm) off the sim.
 - **Range** (bottom bar): the ejection range. A car hits a jersey barrier at 100 km/h and the driver is thrown over it into a sand field with distance signs.
 
 | Derby | Press |
@@ -82,6 +83,7 @@ Every action with its key, controller button and touch control is in [`docs/CONT
 | K | ramp balls |
 | . (period) | jump ramps (fleet only) |
 | , (comma) | corkscrew scene |
+| / (slash) | stack scene |
 | G | deform rig |
 | P | control particles: size = mass, lime → red = plastic travel, magenta = contact, yellow line = shape-match pull (short pulls drawn up to 4×), blue line = rest → now; the bar above each car marks its worst travel |
 | Y | shape ↔ lattice |
@@ -141,13 +143,13 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel. V (Y) cycles t
 
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
-HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Range / Survival / Press / Pistons / Doors / Corkscrew), the wall, ramp balls and jump ramps (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
+HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Range / Survival / Press / Pistons / Doors / Corkscrew / Stack), the wall, ramp balls and jump ramps (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
 - **Playback**: loop, slow-mo, orbit, audio, night, wet, FX tier, a cel look (Auto, or a 0-100 % slider that keeps it on), and a typed time scale (clear it to return to auto).
 - **Driving**: your car's class and the realism slider.
 - **Cars & crash**: car count 1–32, spawn speed min/max, stroke, wrinkle, FX density, shape ↔ lattice, and **Defaults**, which resets them all.
 - **Debug views**: rig, particles, JSON capture and copy.
 
-The piston and door panels and the derby board appear only in their scenes.
+The piston, door and stack panels and the derby board appear only in their scenes.
 
 ## Quick start
 
@@ -201,7 +203,7 @@ node scripts/bench-browser.mjs --url http://127.0.0.1:8080/ --cars 2 --modes fle
 - WSL2 with Linux Chromium: prefix `GALLIUM_DRIVER=d3d12` so WebGL reaches the host GPU through D3D12 instead of llvmpipe.
 - WSL2 with a Windows browser (most representative): run the script with Windows node from a checkout on the Windows drive (`"/mnt/c/Program Files/nodejs/node.exe" scripts/bench-browser.mjs`). It drives the installed Edge (or else Chrome) on native D3D11.
 
-Kernels in `src/game/kernel/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. The skin loop is Rust in `kernels/skin/`, committed as `src/game/deform/skin-kernel.wasm` (the deploy box has no cargo): rebuild it with `npm run build:kernel` (needs cargo and the `wasm32-unknown-unknown` target) whenever `lib.rs` changes. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
+Kernels in `src/game/kernel/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. The skin loop is Rust in `kernels/skin/`, committed as `src/game/deform/skin-kernel.wasm` (the deploy box has no cargo): rebuild it with `npm run build:kernel` (needs cargo and the `wasm32-unknown-unknown` target; it builds through [mbx](https://mr-boxington.jdx.dev) when that is installed, one build at a time per machine) whenever `lib.rs` changes. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
 
 ## Self-hosting
 
@@ -229,7 +231,7 @@ All game code is in `src/game/`, one folder per bounded context (the layer rules
 - `deform/`: `streamed-deform.ts` (`StreamedDeformation`: masses, shape-match clusters / lattice beams, cages, sensors and skin) and its `deform-*.ts` layers, `shape-match.ts` / `physics-util.ts` (the kernels' typed façades), `fast-normals.ts`, `skin-kernel.ts` with the prebuilt `skin-kernel.wasm` (the skin loop in WebAssembly), `deform-helper.ts` (rig and particle debug views), `hulls.ts`.
 - `vehicle/`: `car.ts` (`DeformableCar`: rigid pose, parts, glass, lamps, doors with hinge, latch, check-strap stop and breakaway mirrors) and its layers `car-core.ts` / `car-parts.ts`. `car-mesh.ts` (body geometry), `car-panels.ts` / `loose-dent.ts` (quarter panels and arches that peel off, dents on torn parts), `car-air.ts`, `car-suspension.ts`, `car-load.ts` (drawn squat, dive and roll), `car-glass.ts`, `car-variants.ts` (body styles: sedan, hatchback, wagon, coupe, pickup), `lamp-lights.ts`, `vehicle-classes.ts` (classes, `HANDLING.realism`, damage stages, kill travel), `car-drive.ts` (`DriverSeat`, `applyDrive`), `drive-input.ts` (keyboard / pad → intent), `gamepad.ts`.
 - `contact/`: `sat.ts` (hull SAT, slice length), `pair-contact.ts` (car-car), `external-contact.ts` (the shared striker contact: door / mirror colliders, body crush).
-- `scenes/`: one file per rig: `fleet.ts`, `fleet-ramps.ts`, `corkscrew.ts`, `derby-arena.ts`, `compactor.ts`, `piston-rig.ts` (rig and shot measurement), `door-rig.ts` (the knock rig, `fireRam`), `range.ts`, `engine-props.ts` (jersey barrier, ramp balls, lamp poles, compactor press).
+- `scenes/`: one file per rig: `fleet.ts`, `fleet-ramps.ts`, `corkscrew.ts`, `derby-arena.ts`, `compactor.ts`, `piston-rig.ts` (rig and shot measurement), `door-rig.ts` (the knock rig, `fireRam`), `stack-rig.ts` (the stack's drops, settings and readout), `range.ts`, `engine-props.ts` (jersey barrier, ramp balls, lamp poles, compactor press).
 - `ai/`: `derby-ai.ts`, `race-ai.ts`, `traffic.ts`, `police.ts` (also the attack geometry, steering rule and wedge back-off every police drive shares), `hunter.ts` (Survival's open-ground cops), `ai-aggression.ts` (the aggression roll shared by derby and race AI).
 - `match/`: rules and scoring: `derby.ts`, `session.ts` (race rules), `survival.ts` (Survival's hold time and best-time rule), `campaign.ts`, `highlights.ts` (crash scoring), `auto-watch.ts` (the Auto spectator's car picker), `phase.ts` (the crash phase machine), `types.ts`.
 - `present/`: what the player sees: `engine-camera.ts` (camera springs, chase / hood cam), `spectate-cam.ts` / `shot-cam.ts` / `auto-cam.ts` / `ride-cam.ts` / `highlight-cam.ts` (spectator, reel and ragdoll-ride cameras), `engine-fx.ts` (debris, sparks, glass, smoke), `engine-world.ts` (asphalt, barrier mesh, lamps, night / wet stage), `engine-pistons.ts` (instanced rams), `engine-doors.ts` (the door ram mesh), `engine-cine.ts` (cinematic director: tiers, crash cam, hit-stop, tyre smoke), `engine-post.ts` (HDR post chain, bloom, the scene fade's cel pass), `scene-fade.ts`, `witness.ts` (the camera test behind every cosmetic skip), `engine-marks.ts` (GPU tyre-mark map), `engine-ragdoll.ts` with `ragdoll-*.ts` (the thrown driver), `track-art.ts` / `prefabs.ts` (course meshes and props), `range-art.ts`.

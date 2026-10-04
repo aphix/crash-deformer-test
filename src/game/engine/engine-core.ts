@@ -3,6 +3,7 @@ import { CAR_HALF, DeformableCar } from "../vehicle/car.ts";
 import type { CarPaint } from "../vehicle/car-core.ts";
 import { WheelBatch } from "../vehicle/car-mesh.ts";
 import { COMPACTOR, CompactorRig } from "../scenes/compactor.ts";
+import { StackRig } from "../scenes/stack-rig.ts";
 import { PistonRig } from "../scenes/piston-rig.ts";
 import { PistonBank } from "../present/engine-pistons.ts";
 import { DoorRig, type RamShot } from "../scenes/door-rig.ts";
@@ -118,9 +119,13 @@ export abstract class EngineCore {
   get showCorkscrew(): boolean {
     return this.sceneId === "corkscrew";
   }
-  /** A staged one-car scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it. */
+  /** Cars dropped one at a time onto a base car: the bottom roof crushes by the weight above it (`StackRig`). */
+  get showStack(): boolean {
+    return this.sceneId === "stack";
+  }
+  /** A staged scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it; the stack's cars fall under the world step alone. */
   protected get rigScene(): boolean {
-    return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew";
+    return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew" || this.sceneId === "stack";
   }
 
   protected canvas!: HTMLCanvasElement;
@@ -136,7 +141,6 @@ export abstract class EngineCore {
     return this.cars[0]!;
   }
   protected disposed = false;
-  protected acc = 0;
   protected last = 0;
   /** Set by `advance` on its silent frames: the frame steps everything but the post-chain draw. */
   protected skipDraw = false;
@@ -211,6 +215,8 @@ export abstract class EngineCore {
   protected pistonSinceFire = 0;
   protected pistonFxAt = 0;
   protected doorRig = new DoorRig();
+  /** The stack scene's drops and settings (`scenes/stack-rig.ts`). */
+  protected readonly stack = new StackRig();
   protected doorRam!: DoorRam;
   /** Last finished door shot, for the HUD. */
   protected doorShot: RamShot | null = null;

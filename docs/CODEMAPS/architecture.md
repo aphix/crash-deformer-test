@@ -40,8 +40,10 @@ src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / d
 tickInner(now)                               wallDt ≤ 0.1 s
  ├ pollInput()                               keys + pad → DriverSeat
  ├ stepSceneFade(wallDt)                    scene switch: cel pulse → black → switch → fade-in; the new scene's sim waits while it is black (never in netplay or the results replay)
- ├ simDt = wallDt × timeScale × cine.timeWarp (slow-mo ramp, hit-stop); acc ≤ 0.05
- ├ while acc: h = physicsSlice(acc, sliceSpeed(cars))   ≤ 8 steps, 8 ms budget
+ ├ simDt = wallDt × timeScale × cine.timeWarp (slow-mo ramp, hit-stop)
+ ├ SimPacer.run: whole steps of h = physicsSlice(∞, sliceSpeed(cars)) × min(1, timeScale) while sim time is owed, the last one running past the
+ │   frame's time by < h; ≤ 8 steps, 8 ms of steps (counted from the first step); what a stopped frame did not step is dropped (`lost`), never carried
+ │   (sim-pace.ts). Per step PoseBlend.begin/end keep the cars' poses either side of it.
  │   fixedStep(h):
  │     applyDrive (player seat, derby AI via DerbyBrain.think, net.drive for remote peers on the host; in a race, race.drive drives every car)
  │     stepWorld(world, h)  (world-step.ts; every headless harness calls it too) → 1–3 slices:
@@ -56,6 +58,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
  ├ scheduleSkins(cars) → car.updateSkin()           witness.aim(camera), then LoD stride (0 outside the cone, else by projected size) → skin
  ├ updatePhase (stepPhase) · FX (`witness.sees` gates the spawns) · ragdolls.update · trace · stepDerby · seat.step · cine.update (marks, tyre smoke, punch)
  ├ net.frame(wallDt)                         host: send snapshots; client: apply them instead of physics
+ ├ PoseBlend.present(cars, pace.alpha)       every car (group, torn parts, popped wheels) drawn at the frame's time between its poses either side of the last step; restore() after the draw puts the sim's own poses back bit for bit (present/pose-blend.ts)
  ├ race.frame(wallDt)
  ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit / ride / spectator cams
  ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · cullFarDetail · lampLights.update · stage.syncPools (night)

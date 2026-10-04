@@ -222,8 +222,8 @@ export abstract class EngineInput extends EngineRigs {
 
   setCarCount(n: number): void {
     if (this.net.client) return;
-    // The race sets its own field (setup menu) and the range runs one car; the sandbox slider must not reshape them.
-    if (this.race.active || this.showRange) return;
+    // The race sets its own field (setup menu), the range runs one car and the stack its own count; the sandbox slider must not reshape them.
+    if (this.race.active || this.showRange || this.showStack) return;
     this.ensureCars(n);
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -397,6 +397,9 @@ export abstract class EngineInput extends EngineRigs {
       this.toggleDoors();
     } else if (e.code === "Comma") {
       this.toggleCorkscrew();
+    } else if (e.code === "Slash") {
+      e.preventDefault(); // Firefox's quick find
+      this.toggleStack();
     } else if (e.code === "Period") {
       this.toggleRamps();
     } else if (this.showDoors && /^Digit[1-7]$/.test(e.code)) {
