@@ -73,24 +73,24 @@ const REST_SPEED = 0.4;
 const PENDING_MAX = 1;
 /**
  * Rapier's step (sim s), the same at any display rate: `update` steps whole `STEP`s out of an accumulator and the draw
- * blends the last two. It used to step once per frame with that frame's dt, and Rapier warm-starts each contact and
- * joint with the last step's impulse, which is wrong once dt changes. Lane ragdoll-6's range probe, frames that
- * varied: landings of 25.6–58.1 m, a joint 43 cm apart and one step gaining 8.4 kJ.
+ * blends the last two (it once stepped per frame, and Rapier warm-starts with the last step's impulse: landings 25.6–58.1 m).
+ * 1/960, was 1/120 (lane ragdoll-rate): the slow-mo is 0.032×, so 1/120 was 273 ms of wall time, 3.7 poses a real second
+ * drawn as chords, 8.3 sim ms behind the cars that step every frame; now 33 ms and 1.04 sim ms. A step per frame at
+ * 240 Hz would be 1/7500: 125 steps a frame at 1× (0.09 ms each with four dummies out). Tables: docs/CINEMATIC.md.
  */
-const STEP = 1 / 120;
-/** Most sim seconds one frame steps: a longer hitch drops the rest instead of spiralling. */
-const MAX_ACC = 0.1;
-/**
- * Rapier's solver iterations (default 4) and no CCD on the parts: CCD clamps each part to its own time of impact and
- * tears the joints apart (range probe, 3 render rates: joints up to 11–28 cm apart with it, 0.9 cm without, 8
- * iterations; 2–3 cm at 4).
- */
-const ITERATIONS = 8;
-/**
- * Rapier's internal solver passes per iteration (default 1). The elbows' and knees' hinge limits and the sand's contact
- * fight over a forearm at the first touch of a 29 m/s throw, and one pass left them kicking it to 100 rad/s: energy
- * rose 75–325 J in one frame (range probe, 4 of 4 runs at 1 pass); at 2 passes at most 0.6 J over 60 runs (60/144/240 Hz).
- */
+const STEP = 1 / 960;
+/** The skin's hits, the spin limit and the purses are judged at this interval (sim s) whatever `STEP` is: `HIT_DV` is a speed change per interval. */
+const WATCH = 1 / 120;
+const WATCH_EVERY = Math.round(WATCH / STEP);
+/** Most sim seconds one frame steps: a longer hitch drops the rest instead of spiralling (the cars drop beyond 0.05 too). */
+const MAX_ACC = 0.05;
+/** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. */
+const WAKE_SPEED = 0.5;
+const WAKE_NEAR = 10;
+const BARRIER_REACH = Math.hypot(BARRIER_HALF.x, BARRIER_HALF.z);
+/** Rapier's solver iterations (default 4); no CCD on the parts (it tears the joints: 11–28 cm apart vs 0.9 cm at 8 iterations of 1/120). At 1/960 four hold a joint to 0.1 cm; two kicked one to 125 rad/s. */
+const ITERATIONS = 4;
+/** Rapier's internal solver passes per iteration (default 1): at the first touch of a 29 m/s throw one pass rose energy 75–325 J in a frame at 1/120 and 26–30 J (1 of 5 runs) at 1/480 and 1/960; two at most 0.6 J over 60 runs (60/144/240 Hz). */
 const INTERNAL_PASSES = 2;
 /** Each car's lower box (car-local, origin on the ground): half extents and centre height at rest; its ends past the bumpers' masses. */
 const LOW_HALF_X = 0.86;
@@ -212,7 +212,11 @@ export class RagdollSystem {
   private teleport = false;
   /** Sim seconds the world has not stepped yet (under `STEP` after each frame), and how far into the next step the draw is. */
   private acc = 0;
+  /** Steps since the first dummy out: every `WATCH_EVERY`th one the skin, spin limit and purses are watched. */
+  private tick = 0;
   private alpha = 0;
+  /** The last frame stepped nothing (`dormant`), so the proxies are where the cars were when it began. */
+  private slept = false;
   /** The kinematic proxies (cars, then the barrier): last frame's pose then this frame's, 7 numbers each (position, rotation); which are on. */
   private readonly aim = new Float32Array((MAX_CARS + 1) * 14);
   private readonly on = new Uint8Array(MAX_CARS + 1).fill(1);
@@ -307,7 +311,7 @@ export class RagdollSystem {
   /** A new run: no dummies out, every car's driver back in. */
   reset(): void {
     this.pending.length = 0;
-    this.acc = 0;
+    this.acc = this.tick = 0;
     this.riding = false;
     this.cam.leave(null);
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
@@ -333,6 +337,10 @@ export class RagdollSystem {
     for (const t of this.pending) if (t.age <= PENDING_MAX) this.spawn(t);
     this.pending.length = 0;
     if (this.live === 0) return;
+    const dormant = this.dormant(cars, barrier);
+    // The proxies stood still while nothing stepped: jump them to where the cars are now instead of flinging dummies.
+    this.teleport ||= this.slept;
+    this.slept = dormant;
     for (let i = 0; i < MAX_CARS; i++) {
       const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized ? cars[i]! : null;
       this.follow3(i, this.carBodies[i]!, car?.group ?? null);
@@ -342,14 +350,15 @@ export class RagdollSystem {
     this.teleport = false;
     // Whole `STEP`s out of the accumulator, each proxy a step further along its frame's path.
     const lead = this.acc;
-    this.acc = Math.min(lead + dt, MAX_ACC);
+    this.acc = dormant ? 0 : Math.min(lead + dt, MAX_ACC);
     const steps = Math.floor(this.acc / STEP + 1e-6);
     for (let j = 1; j <= steps; j++) {
       this.moveProxies(Math.min(1, (j * STEP - lead) / dt));
       if (j === steps) for (const d of this.dolls) if (d.live) this.capture(d, d.prev);
       if (j === steps) this.purses?.capture(false);
       world.step();
-      this.purses?.advance(STEP);
+      if (++this.tick % WATCH_EVERY !== 0) continue;
+      this.purses?.advance(WATCH_EVERY * STEP);
       for (let s = 0; s < SLOTS; s++) {
         const d = this.dolls[s]!;
         if (!d.live) continue;
@@ -358,7 +367,7 @@ export class RagdollSystem {
       }
     }
     this.acc = Math.max(0, this.acc - steps * STEP);
-    this.alpha = Math.min(1, this.acc / STEP);
+    this.alpha = dormant ? 1 : Math.min(1, this.acc / STEP);
     if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
     if (steps > 0) this.purses?.capture(true);
     for (let s = 0; s < SLOTS; s++) {
@@ -381,6 +390,18 @@ export class RagdollSystem {
       }
     }
     this.purses?.pose(this.alpha);
+  }
+
+  /** Nothing to step: every dummy and purse thing lies asleep, and no car moving over `WAKE_SPEED` nor the barrier is within `WAKE_NEAR` of a dummy. */
+  private dormant(cars: readonly DeformableCar[], barrier: THREE.Object3D | null): boolean {
+    if (this.purses && !this.purses.asleep()) return false;
+    for (const d of this.dolls) {
+      if (!d.live) continue;
+      _r.set(d.cur[0]!, d.cur[1]!, d.cur[2]!);
+      if (!d.bodies[0]!.isSleeping() || (barrier && barrier.position.distanceTo(_r) < WAKE_NEAR + BARRIER_REACH)) return false;
+      for (const car of cars) if (!car.falling && !car.vaporized && car.velocity.lengthSq() > WAKE_SPEED ** 2 && car.group.position.distanceTo(_r) < WAKE_NEAR) return false;
+    }
+    return true;
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
@@ -734,7 +755,7 @@ export class RagdollSystem {
     this.mesh.dress(slot, t.cop, look);
     if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
     // The first dummy out starts the stepping afresh: no leftover from an earlier throw shifts this one's first step.
-    if (this.live === 0) this.acc = 0;
+    if (this.live === 0) this.acc = this.tick = 0;
     this.teleport ||= this.live === 0;
     this.live++;
     this.lastSlot = slot;
