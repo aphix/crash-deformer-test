@@ -43,9 +43,11 @@ type Run = {
 
 /**
  * A fleet car hit once at 0.5 s (a pair of AI cars gave each other 7 m/s closing), driven down `trk`'s main loop from
- * 60 m before `s0` at `pace` m/s to `s1`, the edge-triggered ejection watch running as in a race.
+ * 60 m before `s0` at `pace` m/s to `s1`, the edge-triggered ejection watch running as in a race. `touch` = [from, to]:
+ * something brushes the car every frame while it is between those two distances along the course (`notifyContact`,
+ * the call the contact pass makes for every touching slice), with no force on it.
  */
-function crashedRun(trk: Track, cls: VehicleClassId, pace: number, hit: Hit, s0: number, s1: number): Run {
+function crashedRun(trk: Track, cls: VehicleClassId, pace: number, hit: Hit, s0: number, s1: number, touch?: readonly [number, number]): Run {
   const ground = trk.ground();
   setGround(ground);
   const car = makeCar(cls);
@@ -85,6 +87,7 @@ function crashedRun(trk: Track, cls: VehicleClassId, pace: number, hit: Hit, s0:
     input.steer = Math.max(-1, Math.min(1, 2.5 * Math.atan2(Math.sin(err), Math.cos(err))));
     input.throttle = car.speed < pace ? 1 : 0;
     input.brake = car.speed > pace + 2 ? 1 : 0;
+    if (touch && s >= touch[0] && s <= touch[1]) car.deform.notifyContact();
     frame(w, input, st);
     for (const e of watch.take()) thrown.push(e.exit);
   }
@@ -109,6 +112,25 @@ describe("a car that was hit once and drives on is not killed, and its driver no
         assert.ok(r.end - r.settled <= DRIFT, `the block moved ${((r.end - r.settled) * 1000).toFixed(0)} mm with nothing touching the car`);
         assert.ok(r.alive, "the engine died");
         assert.deepEqual(r.thrown, []);
+      });
+    }
+  }
+
+  // Owner/EjectFalse: "a car hit once earlier, touched at the stunt CRUSH crest, gains 0.08-0.12 m phantom engine-block
+  // travel" (drivetrainHealth, handling, HUD damage). A planted wreck's frame sits on its hubs' mean, the cell 0.05-0.09 m
+  // off it, and a touch moves the anchor back to the cell: the block, read in that frame, moves by the cell's offset.
+  // Touched every frame over s 885-902 the block adds 62-66 mm here (15 of 15). Todo: branch lane/phantom-crush-discount
+  // has `updateDrivetrain` discount the cell's drift back outside a nose hit, which cuts it to 0-6.1 mm (target 5 mm; the
+  // rest is one call at the plant switch, 0.2 s after the touch) but turns engine-replay.test.ts "a recorded race crash
+  // replayed headless must hit within 0.2 s and 1.5 m of the record" red: replayed physics changes, REPLAY_VERSION's call.
+  for (const cls of VEHICLE_CLASS_IDS) {
+    for (const pace of [20, 30, 38]) {
+      it(`bad: ${cls}, hit on its flank, then touched all the way over the stunt CRUSH crest (s 885-902) at ${pace} m/s: the touch adds under 5 mm of block travel`, { todo: "the cell's drift in the planted frame reads as block travel" }, (t) => {
+        const r = crashedRun(stunt, cls, pace, "side", 860, 960, [885, 902]);
+        t.diagnostic(`${cls} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm`);
+        assert.ok(r.endS > 950, `the run reached s ${r.endS.toFixed(0)}`);
+        assert.ok(r.end - r.settled <= DRIFT, `the touch moved the block ${((r.end - r.settled) * 1000).toFixed(1)} mm`);
+        assert.ok(r.alive, "the engine died");
       });
     }
   }

@@ -206,8 +206,8 @@ export abstract class DeformRig {
   /** `floorPost` sampled since the masses last armed (`measurePose` reads the hubs' floors from it). */
   protected floorsFresh = false;
   /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub, 1 when every hub is
-   *  on its ground, the ground that holds the body up, then the pitch and roll (rad) the frame holds off the masses'
-   *  own to lie on the plane under its hubs: `stepSuspension` tilts its rest offsets by them; 1 when planted on level ground). */
+   *  on its ground, the ground that holds the body up, then the pitch and roll (rad) of the plane under its hubs, at any
+   *  lean (the frame lies on it once levelled; `stepSuspension` tilts its rest offsets by it); 1 when planted on level ground). */
   protected readonly pose = new Float64Array(15);
   /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's. */
   protected readonly spinHeld = new Float64Array(2);

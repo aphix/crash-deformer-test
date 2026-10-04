@@ -22,6 +22,7 @@ const DENTS = ["noseShortL", "noseShortR", "tailShort", "doorMaxL", "doorMaxR"] 
 
 /** Both cars on the slope against the same crash on the flat pad: no mass pops, final dents within 0.03 m or 15 %. */
 function assertSlopeKeepsDents(kind: "head-on" | "t-bone", kph: number): void {
+  setGround(null);
   const flat = runPair(kph, kph, kind, { after: 2.5 });
   setGround(SIDE_SLOPE);
   const slope = runPair(kph, kph, kind, { after: 2.5 });
@@ -49,4 +50,15 @@ describe("crashes on a side slope", () => {
   it("bad: a 50 km/h t-bone on a 6.8° side slope keeps the flat pad's dents, and no mass pops", () => {
     assertSlopeKeepsDents("t-bone", 50);
   });
+
+  // ReplayFidelity2: the 50 km/h pass sat on a cliff. The slope's tightest dent margin against max(0.03 m, 15 %) at
+  // 46 / 48 / 49 / 50 / 51 / 52 / 54 km/h was +0.0091 / +0.0064 / +0.0016 / +0.0006 / -0.0024 / -0.0387 / -0.0497 m
+  // (the bullet's nose, 0.172 -> 0.202 m). Peak dents were the same on both grounds; the live car's suspension hung
+  // world-vertical on the slope (the high-side hubs 0.16 m over the road, the low side on it) until it levelled out, so
+  // at 52 km/h its cell sank 0.014 m (flat pad 0.106) and its nose sprang back 0.012 m (0.052). It hangs from the plane now.
+  for (let kph = 46; kph <= 56; kph++) {
+    it(`bad: sweep, a ${kph} km/h t-bone on a 6.8° side slope keeps the flat pad's dents, and no mass pops`, () => {
+      assertSlopeKeepsDents("t-bone", kph);
+    });
+  }
 });

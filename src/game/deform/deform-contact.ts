@@ -431,8 +431,11 @@ export abstract class DeformContact extends DeformState {
     p[9] = minHub;
     p[10] = held;
     p[11] = under === NO_FLOOR || hubs === 0 ? under : Math.max(under, hubFloor / hubs);
-    p[12] = planePitch * (1 - this.lean);
-    p[13] = planeRoll * (1 - this.lean);
+    // The suspension hangs from the plane under the hubs at any lean: world-vertical rest offsets left a live car's
+    // hubs on a side slope 0.16 m over the road on its high side while the low side sat on it, so after a 52 km/h
+    // T-bone the cell sank 0.014 m (flat pad 0.106) and the nose sprang back 0.012 m (0.052).
+    p[12] = planePitch;
+    p[13] = planeRoll;
     p[14] = plant && planePitch === 0 && planeRoll === 0 ? 1 : 0;
   }
 
