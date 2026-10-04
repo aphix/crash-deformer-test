@@ -323,6 +323,17 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
       if (!b.hub || b.popped) continue;
       const dx = a.world.x - b.world.x;
       const dz = a.world.z - b.world.z;
+      // Clear of each other along some axis by more than the travel along it: no overlap now, none within the slice.
+      let apart = false;
+      for (let k = 0; k < 12; k += 3) {
+        const ux = _axes[k]!,
+          uz = _axes[k + 1]!;
+        if (Math.abs(dx * ux + dz * uz) - _axes[k + 2]! > Math.abs(wx * ux + wz * uz) + 1e-9) {
+          apart = true;
+          break;
+        }
+      }
+      if (apart) continue;
       let enter = -Infinity,
         exit = Infinity,
         ex = 0,
