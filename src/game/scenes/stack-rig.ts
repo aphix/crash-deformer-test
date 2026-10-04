@@ -1,6 +1,6 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import { ROOF_REST_Y } from "../vehicle/car-parts.ts";
-import { bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
+import { BELLY_Y, bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
 
 /**
  * The stack scene (docs/LOAD_CRUSH.md): cars dropped one at a time onto a base car, so the bottom roof crushes by the

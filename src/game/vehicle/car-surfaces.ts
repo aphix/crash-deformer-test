@@ -30,7 +30,7 @@ const YIELDS = 0.3;
 const PLATE = 0.5;
 const CROWN_Z = -0.1;
 /** The keel's height (m) over a car's origin at the stock ride; the class's body lift (`bellyY`) is on top of it. */
-const BELLY_Y = 0.13;
+export const BELLY_Y = 0.13;
 
 /** How high (m) over `car`'s origin its belly rides: a car on another's roof sits its roof's crown less this over that car's origin. */
 export function bellyY(car: DeformableCar): number {
