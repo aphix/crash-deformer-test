@@ -143,6 +143,25 @@ describe("a stretched panel is easy to break", () => {
       assert.equal(p.detached, off, `hinge ${t}`);
     }
   });
+
+  it("good: a scrape is decided on the sim's state, never on the drawn skin (a replay draws at other times than the sim it re-ran)", () => {
+    // The same car and hinge, the body's drawn vertices (the skin the shell is posed on) thrown far below the car or high above it:
+    // the scrape is the sim's, so no change.
+    for (const [y, drawn, off] of [
+      [-0.5, 5, true],
+      [3, -5, false],
+    ] as const) {
+      const car = crashed();
+      run(car, 40);
+      const skin = car.body.geometry.getAttribute("position") as THREE.BufferAttribute;
+      for (let i = 1; i < skin.array.length; i += 3) (skin.array as Float32Array)[i] = drawn;
+      const p = car.hang("quarterR", 0.7);
+      car.group.position.y = y;
+      car.group.updateMatrixWorld(true);
+      car.stepBreakage(DT);
+      assert.equal(p.detached, off, `car at ${y} m, drawn skin at ${drawn} m`);
+    }
+  });
 });
 
 /** The first time (s) `name` came off a crashed car cruising at `v` m/s with `name` hinged to `t`, or null in `secs`. */

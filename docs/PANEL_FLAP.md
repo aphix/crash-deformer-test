@@ -19,7 +19,7 @@ A quarter panel or arch flare hinged to `PANEL_FRAGILE_T` = 0.5 (a quarter panel
 
 - a **fresh contact**: whatever feeds `deform.notifyContact()` (wall, car, prop, ground rig) after a quiet pause of 0.15 s
   (`TOUCH_GAP`). The crash's own continuing contact does not count; the next touch does;
-- a **scrape** (quarter panels only; an arch flare's box includes the sill, which the body sinks to the road on its own): its box reaches the ground under it.
+- a **scrape** (quarter panels only; an arch flare's box includes the sill, which the body sinks to the road on its own): its box reaches the ground under it. The box is the shell on the body’s REST skin bent to its hinge value, carried by the car’s pose and class lift (`shellBox`): sim state only. The drawn shell (the skin’s solve, which a camera’s view cone and the frame rate decide, the suspension’s heave, the flutter) once decided it, and a replay that drew at other times than the live sim tore the panel one step off (city seed 5, a car-to-car door and panel contact lost).
 
 A bumper is not torn by contact timing: a torn bumper changes the crash hulls, which a headless replay re-simulating from a keyframe could
 not reproduce (tried: it moved a replayed first impact out of the 0.2 s window). It wears off in the wind like the panels.

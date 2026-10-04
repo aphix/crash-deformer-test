@@ -184,6 +184,10 @@ export abstract class DeformRig {
   protected cages: Cage[];
   protected sensors: Sensor[];
   protected restPos: Float32Array;
+  /** The body's rest skin (x, y, z per vertex): what a scrape test measures a panel on, in place of the drawn skin. */
+  get restSkin(): Float32Array {
+    return this.restPos;
+  }
   /** Per-vertex wrinkle phase noise in [−0.5, 0.5). */
   protected readonly wrinkleSeed: Float64Array;
   /** Cage influences per vertex (≤ INF_K): count, `cageCo` offset, (u, v, w, weight). */
