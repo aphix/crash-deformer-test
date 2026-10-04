@@ -55,11 +55,13 @@ export const FEEL = {
 };
 
 /**
- * A keydown the game may take: no Ctrl / Cmd / Alt chord (those stay the browser's: Ctrl+R reloads, Ctrl+C copies;
- * Shift is boost), and not typed into a text field, select or contentEditable (a focused range slider still drives).
+ * A keydown the game may take: not already consumed (an overlay that handled it, e.g. a popover closing on Esc,
+ * calls preventDefault, so one press never does two things), no Ctrl / Cmd / Alt chord (those stay the browser's:
+ * Ctrl+R reloads, Ctrl+C copies; Shift is boost), and not typed into a text field, select or contentEditable
+ * (a focused range slider still drives).
  */
-export function gameKey(e: Pick<KeyboardEvent, "ctrlKey" | "metaKey" | "altKey" | "target">): boolean {
-  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+export function gameKey(e: Pick<KeyboardEvent, "defaultPrevented" | "ctrlKey" | "metaKey" | "altKey" | "target">): boolean {
+  if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return false;
   const t = e.target as Partial<HTMLInputElement> | null;
   if (t?.tagName === "TEXTAREA" || t?.tagName === "SELECT" || t?.isContentEditable) return false;
   return !(t?.tagName === "INPUT" && t.type !== "range");

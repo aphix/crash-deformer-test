@@ -313,8 +313,13 @@ describe("drive camera look and cuts", () => {
 });
 
 describe("which keydowns the game takes", () => {
-  const key = (target: object | null, mods: { ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {}) =>
-    gameKey({ ctrlKey: false, metaKey: false, altKey: false, ...mods, target: target as EventTarget | null });
+  const key = (target: object | null, mods: { defaultPrevented?: boolean; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {}) =>
+    gameKey({ defaultPrevented: false, ctrlKey: false, metaKey: false, altKey: false, ...mods, target: target as EventTarget | null });
+
+  it("good: a keydown an overlay already consumed (Esc closing a popover) is not the game's", () => {
+    assert.equal(key(null, { defaultPrevented: true }), false);
+    assert.equal(key(null), true);
+  });
 
   it("good: Ctrl, Cmd and Alt chords stay the browser's (Ctrl+R reloads, Ctrl+C copies); Shift is boost and stays ours", () => {
     assert.equal(key(null, { ctrlKey: true }), false);
