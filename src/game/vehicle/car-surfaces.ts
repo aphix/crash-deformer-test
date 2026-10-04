@@ -97,6 +97,7 @@ export class CarSurfaces implements Ground {
   private yielded = new Uint8Array(FACES);
   private grew = new Float64Array(FACES);
   private react = new Float64Array(1);
+  private touched = new Uint8Array(1);
 
   /** A car's slice starts: nothing of any face is spent, yielded or pressed yet. */
   begin(car: DeformableCar): void {
@@ -107,11 +108,13 @@ export class CarSurfaces implements Ground {
       this.yielded = new Uint8Array(n);
       this.grew = new Float64Array(n);
       this.react = new Float64Array(1 + this.cars.length);
+      this.touched = new Uint8Array(1 + this.cars.length);
     }
     this.left.fill(NaN);
     this.yielded.fill(0);
     this.grew.fill(0);
     this.react.fill(0);
+    this.touched.fill(0);
     this.owner = -1;
     this.near = this.nearTo(car);
   }
@@ -163,6 +166,11 @@ export class CarSurfaces implements Ground {
     this.react[own]! += j;
   }
 
+  /** The stepping car has a point in car `own`'s top this slice, pressing or not: a body at rest has slices with no impulse. */
+  touch(own: number): void {
+    this.touched[own] = 1;
+  }
+
   /** Contact penetration `pen` (m) at a point of slot `slot`, which `follow` of the face's depth reaches. */
   note(slot: number, pen: number, follow: number): void {
     this.grew[slot] = Math.max(this.grew[slot]!, pen / follow);
@@ -200,13 +208,20 @@ export class CarSurfaces implements Ground {
       }
       if (o.airborne) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
     }
+    if (self.restsOn === null) {
+      for (let i = 0; i < this.cars.length; i++) {
+        if (this.touched[i] !== 0) {
+          self.restsOn = this.cars[i]!;
+          break;
+        }
+      }
+    }
     self.yielding = any;
     return any;
   }
 
   /** How far the surface point `top` last answered follows its car's roof crush. */
   private topFollow = 0;
-
   /** The surface of car `o` at world plan (x, z) seen from height `y`: its world height or NO_FLOOR; sets `_n` and `topFollow`. */
   private top(o: DeformableCar, x: number, z: number, y: number): number {
     const e = o.group.matrixWorld.elements;

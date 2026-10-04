@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
-import { bellyY, roofHeight, SKIN, UPRIGHT } from "../vehicle/car-surfaces.ts";
+import { bellyY, roofHeight, UPRIGHT } from "../vehicle/car-surfaces.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
 /** The slab's top (m): `makeJerseyBarrier`'s profile peak. A car whose every mass clears it flies over (a ramp jump). */
@@ -55,6 +55,8 @@ export function sliceSpeed(cars: readonly DeformableCar[]): number {
  * plan SAT shoved it off before `CarSurfaces` carried it.
  */
 const STACK_CLEAR = 0.3;
+/** The slack (m) under a roof's crown that `STACK_CLEAR` allows a belly on it (0.3 less the 0.19 a sedan's overlap is when it touches). */
+const ROOF_SLACK = 0.11;
 
 /**
  * Whether two cars' bodies share a height band: each body's box (`CAR_HALF` above its ground point, as tilted)
@@ -62,11 +64,13 @@ const STACK_CLEAR = 0.3;
  * plan only, so a car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it
  * there. Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
  *
- * A car whose belly is over the crown of the upright car under it, less that roof's crush depth and the `SKIN` the
- * surfaces carry within (`CarSurfaces`), is stacked on it: the surfaces carry it and the plan SAT must not shove it off,
- * whatever the body styles' roof heights and belly lifts (a coupe's roof is lower than the box's, a monster's belly
- * 0.48 m higher), however far the load has crushed the roof (the box's `STACK_CLEAR` allows 0.11 m of crush; three
- * sedans' weight is 0.12 m) and whether this slice's contact pressed (`restsOn` flickers at rest).
+ * A car whose box bottom (plus its belly's rise over it, `bellyY`) is over the roof crown of the upright car under it
+ * (`roofHeight`: that car's class lift on, its crush depth off, along its own up axis) less `ROOF_SLACK` is stacked on
+ * it: the surfaces carry it and the plan SAT must not shove it off, whatever the body styles' roof heights and belly
+ * lifts (a coupe's roof is lower than the box's, a monster's belly 0.48 m higher), however far the load has crushed
+ * the roof (the box's slack is 0.11 m of crush; three sedans' weight is 0.12 m), however the car under tilts, and
+ * whether this slice's contact pressed (`restsOn` flickers at rest). A car pitched over the other's roof has its nose
+ * below its box's bottom less that rise and still shares.
  */
 export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   if ((a.airborne && a.restsOn === b) || (b.airborne && b.restsOn === a)) return false;
@@ -74,13 +78,16 @@ export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   const eb = b.group.matrixWorld.elements;
   const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;
   const hb = Math.abs(eb[1]!) * CAR_HALF.x + Math.abs(eb[5]!) * CAR_HALF.y + Math.abs(eb[9]!) * CAR_HALF.z;
-  if (Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) >= ha + hb - STACK_CLEAR) return false;
-  const aUnder = ea[13]! <= eb[13]!;
+  const ca = ea[13]! + ea[5]! * CAR_HALF.y;
+  const cb = eb[13]! + eb[5]! * CAR_HALF.y;
+  if (Math.abs(ca - cb) >= ha + hb - STACK_CLEAR) return false;
+  const aUnder = ca <= cb;
   const under = aUnder ? a : b;
-  const eu = aUnder ? ea : eb;
-  const ev = aUnder ? eb : ea;
   const over = aUnder ? b : a;
-  return !(eu[5]! > UPRIGHT && ev[13]! + bellyY(over) >= eu[13]! + roofHeight(under) - SKIN);
+  const eu = aUnder ? ea : eb;
+  const top = eu[13]! + eu[5]! * roofHeight(under);
+  const bottom = (aUnder ? cb - hb : ca - ha) + bellyY(over);
+  return !(eu[5]! > UPRIGHT && bottom >= top - ROOF_SLACK);
 }
 
 export function satCarBarrier(
