@@ -3,7 +3,7 @@ import { beginFakeFall, FLIGHT, FLIGHT_POSE, type DeformableCar } from "../vehic
 import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { countsAsImpact, FINE_BYTES, INPUT_BYTES, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
+import { countsAsImpact, FINE_PEDALS, INPUT_BYTES, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -11,10 +11,15 @@ import { foldHeading } from "../present/shot-cam.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 
-/** What a replay needs from its scene: dress a respawned car, and the course's walls and props for car `slot`. */
+/**
+ * What a replay needs from its scene: dress a respawned car, the course's walls and props for car `slot`, and (a scene
+ * with a course) `placed`: car `slot` was put on a keyframe's spot, so what the course remembers of where it last stood
+ * (`RaceDirector.relocated`: the projection hint a live respawn clears too) is stale.
+ */
 export type ReplayScene = {
   dress(car: DeformableCar): void;
   collide(car: DeformableCar, slot: number): void;
+  placed?(slot: number): void;
   bounce: WorldBounce | undefined;
 };
 
@@ -24,8 +29,6 @@ const _o = new THREE.Quaternion();
 const _p = new THREE.Quaternion();
 const IDENTITY = new THREE.Quaternion();
 const NO_EJECTIONS: readonly Ejection[] = [];
-/** What a pedal's 8-bit step left out, in steps: the `fine` byte `k` of the step-and-car at `i` (`i` < 0 or a 0 byte: nothing kept). */
-const fineOf = (fine: Uint8Array, i: number, k: number): number => (i < 0 || fine[i + k] === 0 ? 0 : (fine[i + k]! - 128) / 255);
 /** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
 const TELEPORT = 5;
 /**
@@ -85,10 +88,11 @@ export class ClipSim {
   private readonly keys: Snapshot[];
   /** Per keyframe: every car's flight block (`DeformableCar.flight`), and each wreck's solver state (`simState`). */
   private readonly flight: Float64Array[] = [];
-  private readonly sim: (Float32Array | null)[][] = [];
+  private readonly sim: (Float64Array | null)[][] = [];
   /** The replay's own world: `strongest` holds the last step's hardest contact. */
   readonly world: World;
   private readonly dress: (car: DeformableCar) => void;
+  private readonly placed: ((slot: number) => void) | undefined;
   private readonly input: DriveInput = idleDrive();
   /** The first impact's car still had a running engine after the last step (a kill-opened cluster's impact is its death). */
   private aliveA = true;
@@ -123,7 +127,7 @@ export class ClipSim {
       const snap = makeSnapshot();
       readSnapshot(r.reset(bytes), snap, L);
       const fl = new Float64Array(cars.length * FLIGHT);
-      const sims: (Float32Array | null)[] = [];
+      const sims: (Float64Array | null)[] = [];
       for (let j = 0; j < cars.length; j++) {
         for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f64();
         // The snapshot's pose is the netplay wire's (1e-4 rad, 1 cm/s, float32 metres); the block's is the car's own.
@@ -140,11 +144,11 @@ export class ClipSim {
         f.z = fl[o + 8]!;
         const n = r.u16();
         if (n > 0 && n !== cars[j]!.deform.simSize()) throw new RangeError("a keyframe's solver state is another build's");
-        const words = new Uint32Array(n);
+        const words = new Uint32Array(2 * n);
         const p = prev[j];
-        for (let i = 0; i < n; i++) words[i] = r.u32() ^ (p && p.length === n ? p[i]! : 0);
+        for (let i = 0; i < words.length; i++) words[i] = r.u32() ^ (p && p.length === words.length ? p[i]! : 0);
         prev[j] = n > 0 ? words : null;
-        sims.push(n > 0 ? new Float32Array(words.buffer) : null);
+        sims.push(n > 0 ? new Float64Array(words.buffer) : null);
       }
       this.flight.push(fl);
       this.sim.push(sims);
@@ -157,6 +161,7 @@ export class ClipSim {
     w.pairHit = (a, b, hit, first) => this.noteHit(a, b, hit.impulse, first);
     this.world = w;
     this.dress = scene.dress;
+    this.placed = scene.placed;
   }
 
   get done(): boolean {
@@ -242,9 +247,13 @@ export class ClipSim {
         if (at === s && s <= this.impactStep && (this.useImpactKey || at !== this.impactStep)) {
           for (let j = 0; j < nc; j++) this.snap(j, this.key);
           // The cars are on the record again: contacts they made on their own before it are not its history (a pair the
-          // replay wedged for a second the record never touched would never count as the recorded first impact).
+          // replay wedged for a second the record never touched would never count as the recorded first impact), and
+          // neither is a first hit the drift made before this correction (seed 6 of engine-replay.test.ts: a pair of
+          // cars the record never put together touched 0.25 s before it, between keyframes 0 and 720, and the replay's
+          // first hit was marked there). The hit that counts is the one after the last correction before the impact.
           this.pairAt.fill(-Infinity);
           this.wallAt.fill(-Infinity);
+          if (at !== this.impactStep) this.firstHit = -1;
           this.popFrom(at !== this.impactStep);
         }
         this.key++;
@@ -252,13 +261,16 @@ export class ClipSim {
       const h = clip.h[s]!;
       const inp = clip.inputs;
       const d = this.input;
-      const fineTo = clip.fineFrom + clip.fine.length / (nc * FINE_BYTES);
+      const fineTo = clip.fineFrom + clip.fine.length / (nc * FINE_PEDALS);
       for (let j = 0; j < nc; j++) {
         const o = (s * nc + j) * INPUT_BYTES;
-        const f = s >= clip.fineFrom && s < fineTo ? ((s - clip.fineFrom) * nc + j) * FINE_BYTES : -1;
-        d.throttle = (((inp[o]! << 24) >> 24) + fineOf(clip.fine, f, 0)) / 127;
-        d.steer = (((inp[o + 1]! << 24) >> 24) + fineOf(clip.fine, f, 1)) / 127;
-        d.brake = (inp[o + 2]! + fineOf(clip.fine, f, 2)) / 255;
+        const f = s >= clip.fineFrom && s < fineTo ? ((s - clip.fineFrom) * nc + j) * FINE_PEDALS : -1;
+        // The recorded pedals whole where the clip has them (a NaN: none), the 8-bit ones elsewhere.
+        const fine = f >= 0 ? clip.fine[f]! : NaN;
+        const exact = !Number.isNaN(fine);
+        d.throttle = exact ? fine : ((inp[o]! << 24) >> 24) / 127;
+        d.steer = exact ? clip.fine[f + 1]! : ((inp[o + 1]! << 24) >> 24) / 127;
+        d.brake = exact ? clip.fine[f + 2]! : inp[o + 2]! / 255;
         d.ebrake = (inp[o + 3]! & 1) !== 0;
         d.boost = (inp[o + 3]! & 2) !== 0;
         d.neutral = (inp[o + 3]! & 8) !== 0;
@@ -470,6 +482,7 @@ export class ClipSim {
     const f = this.keys[k]!.cars[j]!;
     car.driverOut = EXIT_PANES[f.driverOut] ?? null;
     car.flight(this.flight[k]!, j * FLIGHT, true);
+    this.placed?.(this.clip.cars[j]!.slot);
     car.speed = Math.hypot(car.velocity.x, car.velocity.z);
     car.refreshBasis();
     car.deform.bindKinematic(car.group, car.velocity, car.angular);

@@ -6,7 +6,7 @@ import type { ContactHit } from "../scenes/engine-props.ts";
 import {
   HighlightLedger,
   impactEnergy,
-  FINE_BYTES,
+  FINE_PEDALS,
   INPUT_BYTES,
   PAIR_MIN,
   PRE_ROLL,
@@ -37,10 +37,8 @@ const RING = 5120;
  * 0.2 s / 1.5 m bounds.
  */
 const KEY_EVERY = 1;
-/** Clip seconds after its first impact that the involved cars' pedals keep their last digits (`fine`). */
+/** Clip seconds after its first impact that the involved cars' exact pedals are kept (`fine`). */
 const FINE_S = 2;
-/** A pedal's rounding error `r` (−0.5..0.5 of its 8-bit step) as a `FINE_BYTES` byte: 1..255, never 0 (none). */
-const fineByte = (r: number): number => Math.max(1, Math.min(255, Math.round(r * 255) + 128));
 /**
  * A car that moved further than this (m, |dx| + |dz|) in one step was placed, not driven (a respawn, a parked or
  * stored police unit, a traffic recycle): a step travels at most centimetres (`physicsSlice`). The replay cannot drive
@@ -107,14 +105,14 @@ export class CrashRecorder {
   /** Recorder clock at each step's start. */
   private readonly at = new Float64Array(RING);
   private readonly inputs = new Uint8Array(RING * MAX_CARS * INPUT_BYTES);
-  /** Per ring step × car: what `inputs`' pedals rounded off (`FINE_BYTES`). */
-  private readonly fine = new Uint8Array(RING * MAX_CARS * FINE_BYTES);
+  /** Per ring step × car: the pedals exactly as the sim ran them (`FINE_PEDALS` doubles: throttle, steer, brake). */
+  private readonly fine = new Float64Array(RING * MAX_CARS * FINE_PEDALS);
   /** Every car at the start of the current step (wreck sections only on a keyframe step). */
   private readonly pre: Snapshot = makeSnapshot();
   /** Scratch for one car's flight block (and its bytes) and one wreck's solver state (sized at the first race: `simState`). */
   private readonly fly = new Float64Array(FLIGHT);
   private readonly flyBytes = new Uint8Array(this.fly.buffer);
-  private sim = new Float32Array(0);
+  private sim = new Float64Array(0);
   private simBytes = new Uint8Array(0);
   /** Encoded keyframes (allocated at the first race), their lengths and the global step each was taken at. */
   private keys: Writer[] = [];
@@ -191,7 +189,7 @@ export class CrashRecorder {
     let L = this.layout;
     if (!L) {
       const lay = carLayout(cars[0]!);
-      this.sim = new Float32Array(cars[0]!.deform.simSize());
+      this.sim = new Float64Array(cars[0]!.deform.simSize());
       this.simBytes = new Uint8Array(this.sim.buffer);
       L = this.layout = lay;
       this.keys = Array.from({ length: KEY_SLOTS }, () => new Writer(this.keyBytes(MAX_CARS)));
@@ -249,14 +247,14 @@ export class CrashRecorder {
       const tx = d.throttle * 127;
       const sx = d.steer * 127;
       const bx = d.brake * 255;
-      const f = (s * MAX_CARS + i) * FINE_BYTES;
+      const f = (s * MAX_CARS + i) * FINE_PEDALS;
       inp[o] = Math.round(tx) & 255;
       inp[o + 1] = Math.round(sx) & 255;
       inp[o + 2] = Math.round(bx);
       inp[o + 3] = (d.ebrake ? 1 : 0) | (d.boost ? 2 : 0) | (this.draft[i] ? 4 : 0) | (d.neutral ? 8 : 0);
-      this.fine[f] = fineByte(tx - Math.round(tx));
-      this.fine[f + 1] = fineByte(sx - Math.round(sx));
-      this.fine[f + 2] = fineByte(bx - Math.round(bx));
+      this.fine[f] = d.throttle;
+      this.fine[f + 1] = d.steer;
+      this.fine[f + 2] = d.brake;
       this.draft[i] = 0;
       const alive = c.deform.drivetrainAlive ? 1 : 0;
       // A traffic or police car's death counts only inside a cluster a racer's hit opened.
@@ -330,12 +328,12 @@ export class CrashRecorder {
 
   /** Most bytes a keyframe of `n` cars takes: the snapshot, then per car its flight block and solver state. */
   private keyBytes(n: number): number {
-    return snapshotMaxBytes(n, this.layout!) + n * (FLIGHT * 8 + 2 + this.sim.length * 4);
+    return snapshotMaxBytes(n, this.layout!) + n * (FLIGHT * 8 + 2 + this.sim.length * 8);
   }
 
   /**
    * The step-start snapshot (`pre`) with each wreck's deform and parts read now, then per car its flight block (`FLIGHT`
-   * doubles, native like the sim's bytes) and its solver state (a u16 count, then that many f32: `simState` for a wreck, none otherwise).
+   * doubles, native like the sim's bytes) and its solver state (a u16 count, then that many doubles: `simState` for a wreck, none otherwise).
    */
   private encodeKey(w: Writer): Writer {
     const s = this.pre;
@@ -359,7 +357,7 @@ export class CrashRecorder {
       w.u16(n);
       if (n === 0) continue;
       car.deform.simState(this.sim, false);
-      // One native byte copy (little-endian like the codec, as every browser's Float32Array): `f32s`, a number at a
+      // One native byte copy (little-endian like the codec, as every browser's Float64Array): `f64s`, a number at a
       // time in code too rarely run to be optimized, boxed each one (125 KB a keyframe at 11 wrecks).
       w.bytes.set(this.simBytes, w.off);
       w.off += this.simBytes.length;
@@ -417,7 +415,7 @@ export class CrashRecorder {
     }
     const bytes = (cars: number): number => {
       let sum = 0;
-      for (let j = 0; j < n; j++) if ((cars >>> j) & 1) sum += (this.step - start) * INPUT_BYTES + wreckKeys[j]! * this.sim.length * 4;
+      for (let j = 0; j < n; j++) if ((cars >>> j) & 1) sum += (this.step - start) * INPUT_BYTES + wreckKeys[j]! * this.sim.length * 8;
       return sum;
     };
     const order: number[] = [];
@@ -456,7 +454,7 @@ export class CrashRecorder {
       for (let i = 0; i < all.count; i++) {
         r.off += FLIGHT * 8;
         const n = r.u16();
-        r.off += n * 4;
+        r.off += n * 8;
         sec.push(r.off);
       }
       return sec;
@@ -534,13 +532,13 @@ export class CrashRecorder {
     const nc = slots.length;
     const h = new Float32Array(steps);
     const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
-    // The cars the impact involves keep their pedals' last digits from the last keyframe before it to the clip's end.
+    // The cars the impact involves keep their pedals exactly (doubles) from the last keyframe before it to FINE_S s after it.
     let fineFrom = 0;
     for (let k = 0; k < filled && firstStep > 0; k++) {
       const st = this.keyStep[k]! - start;
       if (st >= 0 && st < firstStep) fineFrom = Math.max(fineFrom, st);
     }
-    // ... and for FINE_S s after it: the cars crash and slide to rest on their pedals' real values for that long.
+    // ... the cars crash and slide to rest on their pedals' real values for that long.
     let fineTo = steps;
     for (let s = 0, t = 0; s < steps; s++) {
       t += this.h[(start + s) % RING]!;
@@ -549,7 +547,7 @@ export class CrashRecorder {
         break;
       }
     }
-    const fine = new Uint8Array(Math.max(0, fineTo - fineFrom) * nc * FINE_BYTES);
+    const fine = new Float64Array(Math.max(0, fineTo - fineFrom) * nc * FINE_PEDALS).fill(NaN);
     for (let s = 0; s < steps; s++) {
       const r = (start + s) % RING;
       // The ring's float32, whole: the codec stores it as is (`writeClip`), so this clip, its decoded copy and the live step agree to 6e-8.
@@ -558,8 +556,8 @@ export class CrashRecorder {
         const src = (r * MAX_CARS + slots[j]!) * INPUT_BYTES;
         inputs.set(this.inputs.subarray(src, src + INPUT_BYTES), (s * nc + j) * INPUT_BYTES);
         if (s >= fineFrom && s < fineTo && (core >>> slots[j]!) & 1) {
-          const f = (r * MAX_CARS + slots[j]!) * FINE_BYTES;
-          fine.set(this.fine.subarray(f, f + FINE_BYTES), ((s - fineFrom) * nc + j) * FINE_BYTES);
+          const f = (r * MAX_CARS + slots[j]!) * FINE_PEDALS;
+          fine.set(this.fine.subarray(f, f + FINE_PEDALS), ((s - fineFrom) * nc + j) * FINE_PEDALS);
         }
       }
     }
@@ -573,7 +571,7 @@ export class CrashRecorder {
     const ib = impact?.bytes;
     if (firstStep > 0 && ib && !src.some((a) => a.step === start + firstStep)) src.push({ step: start + firstStep, bytes: ib });
     src.sort((a, b) => a.step - b.step);
-    const { src: kept, keys } = this.cutKeys(src, slots, DEFLATED_INPUTS * inputs.length + DEFLATED_FINE * fine.length);
+    const { src: kept, keys } = this.cutKeys(src, slots, DEFLATED_INPUTS * inputs.length + DEFLATED_FINE * fine.byteLength);
     const cars: ReelCar[] = slots.map((i) => ({ slot: i, style: this.cars[i]!.style.id, cls: carClass(this.cars[i]!), name: this.names(i) }));
     // The drivers thrown out during the clip's steps: their dummies fly again at those steps (car = the clip's own index).
     const ejections: ClipEjection[] = [];

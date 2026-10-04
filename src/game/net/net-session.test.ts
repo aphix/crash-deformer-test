@@ -4,7 +4,7 @@ import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
-import { FINE_BYTES, INPUT_BYTES, type Reel } from "../match/highlights.ts";
+import { FINE_PEDALS, INPUT_BYTES, type Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
 import type { NetTx } from "./net-ports.ts";
@@ -588,9 +588,12 @@ describe("netplay session: the highlight reel", () => {
     const { clip } = makeClip();
     // Incompressible pedals and digits: three clips that deflate to over the cap together.
     let seed = 1;
-    const noise = (n: number): Uint8Array => Uint8Array.from({ length: n }, () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 24);
+    const next = (): number => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0);
+    const noise = (n: number): Uint8Array => Uint8Array.from({ length: n }, () => next() >>> 24);
+    // Doubles in [0, 1) with all 53 mantissa bits random.
+    const pedals = (n: number): Float64Array => Float64Array.from({ length: n }, () => (next() * 2 ** 21 + (next() >>> 11)) / 2 ** 53);
     const steps = 8000;
-    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: noise((steps - 100) * 2 * FINE_BYTES) };
+    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: pedals((steps - 100) * 2 * FINE_PEDALS) };
     const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }];
     const msg = await packReel({ seed: 5, clips }, s.clock() / 1000 + 3);
     assert.ok(msg.length > RELAY_MSG_MAX, `precondition: the reel is ${msg.length} bytes, over the cap`);

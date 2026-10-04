@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { FINE_BYTES, INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { FINE_PEDALS, INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -17,10 +17,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * wreck-flight scalars `aloft`, `floorsFresh`, `frameY`, `frameAt`, `frameVy`; 5: the race's driver-look seed after
  * the deform mode; 6: `ejects` and the ejections tail, a thrown driver's step and launch numbers; 7: `simState` carries
  * each face's load crush (a stack's roofs replay crushed as live, docs/LOAD_CRUSH.md); 8: each step's dt as a float32
- * instead of whole microseconds, and the solver state's hit block, `impactLocal`, `impactInward` and `endEbs2`).
+ * instead of whole microseconds, and the solver state's hit block, `impactLocal`, `impactInward` and `endEbs2`; 9: the
+ * solver state as doubles instead of float32 pairs (a keyframe restores a wreck bit for bit) and the clip's `fine` block
+ * as the pedals' doubles, NaN where not recorded, instead of one rounding byte each; the pile-ups replay to the bit).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 8;
+const REPLAY_VERSION = 9;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -36,7 +38,7 @@ const EJECTION_BYTES = 4 + 2 + 22 * 4;
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
   let n = 1 + utf8(c.trackId) + 82 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
-  n += 4 + c.h.length * (4 + nc * INPUT_BYTES) + 8 + c.fine.length + 2;
+  n += 4 + c.h.length * (4 + nc * INPUT_BYTES) + 8 + c.fine.length * 8 + 2;
   for (const k of c.keys) n += 8 + k.length;
   return n + 1 + c.ejections.length * EJECTION_BYTES;
 }
@@ -76,9 +78,8 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.bytes.set(c.inputs, w.off);
   w.off += c.inputs.length;
   w.u32(c.fineFrom);
-  w.u32(c.fine.length / (c.cars.length * FINE_BYTES));
-  w.bytes.set(c.fine, w.off);
-  w.off += c.fine.length;
+  w.u32(c.fine.length / (c.cars.length * FINE_PEDALS));
+  for (const p of c.fine) w.f64(p);
   w.u16(c.keys.length);
   for (let k = 0; k < c.keys.length; k++) {
     w.u32(c.keyStep[k]!);
@@ -145,8 +146,13 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const fineFrom = r.u32();
   const fineSteps = r.u32();
   if (fineFrom + fineSteps > steps) throw new RangeError("clip fine steps");
-  const fine = new Uint8Array(fineSteps * nc * FINE_BYTES);
-  for (let i = 0; i < fine.length; i++) fine[i] = r.u8();
+  const fine = new Float64Array(fineSteps * nc * FINE_PEDALS);
+  for (let i = 0; i < fine.length; i++) {
+    // NaN: not recorded. A pedal is a throttle or steer in −1..1, a brake in 0..1.
+    const p = r.f64();
+    if (!Number.isNaN(p) && !(Math.abs(p) <= 1 && (i % FINE_PEDALS !== 2 || p >= 0))) throw new RangeError("clip fine pedal");
+    fine[i] = p;
+  }
   const nk = r.u16();
   if (nk < 1 || nk > MAX_KEYS) throw new RangeError("clip keys");
   const keyStep = new Uint32Array(nk);
@@ -169,7 +175,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     for (; j < nc && kr.off + FLIGHT * 8 + 2 <= len; j++) {
       kr.off += FLIGHT * 8;
       const n = kr.u16();
-      kr.off += n * 4;
+      kr.off += n * 8;
     }
     if (check.count !== nc || j !== nc || kr.off !== len) throw new RangeError("clip key cars");
     keys.push(key);

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
-import { FINE_BYTES, INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
+import { FINE_PEDALS, INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 
@@ -27,9 +27,9 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       }
       return f;
     });
-    const sim = new Float32Array(a.deform.simSize());
+    const sim = new Float64Array(a.deform.simSize());
     const fly = new Float64Array(FLIGHT);
-    const w = new Writer(snapshotMaxBytes(2, L) + 2 * (FLIGHT * 8 + 2 + sim.length * 4));
+    const w = new Writer(snapshotMaxBytes(2, L) + 2 * (FLIGHT * 8 + 2 + sim.length * 8));
     writeSnapshot(w, { ...makeSnapshot(), time: k, count: 2, cars: frames }, L);
     // As `CrashRecorder.encodeKey`: each car's flight block (doubles), then a wreck's solver state.
     for (const car of [a, b]) {
@@ -39,7 +39,8 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       const n = car.crashed ? sim.length : 0;
       if (n > 0) car.deform.simState(sim, false);
       w.u16(n);
-      w.f32s(sim, n);
+      w.bytes.set(new Uint8Array(sim.buffer, 0, n * 8), w.off);
+      w.off += n * 8;
     }
     return w.done().slice();
   });
@@ -90,7 +91,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     h: new Float32Array(steps).fill(1 / 240),
     inputs: new Uint8Array(steps * 2 * INPUT_BYTES).map((_, i) => (i * 37) & 255),
     fineFrom: 100,
-    fine: new Uint8Array((steps - 100) * 2 * FINE_BYTES).map((_, i) => (i * 11) & 255),
+    fine: new Float64Array((steps - 100) * 2 * FINE_PEDALS).map((_, i) => (i % 7 === 0 ? NaN : ((i * 11) % 256) / 511)),
     keyStep: Uint32Array.of(0, 240),
     keys,
   };
@@ -111,7 +112,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   assertSameNumbers(got.h, want.h, "step dt");
   assertSameNumbers(got.inputs, want.inputs, "inputs");
   assert.equal(got.fineFrom, want.fineFrom, "fine from");
-  assertSameNumbers(got.fine, want.fine, "fine pedal bytes");
+  assertSameDigest(got.fine, want.fine, "fine pedals (a NaN is a step the recorder kept none for)");
   assertSameNumbers(got.keyStep, want.keyStep, "keyframe steps");
   assert.equal(got.keys.length, want.keys.length);
   got.keys.forEach((k, i) => assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`));

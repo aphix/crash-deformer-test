@@ -6,7 +6,7 @@ import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { FRAME, frame, type World } from "../world/race-world.test-util.ts";
-import type { HighlightClip } from "../match/highlights.ts";
+import { FINE_PEDALS, type HighlightClip } from "../match/highlights.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
@@ -179,7 +179,7 @@ export function recordRace(w: World, place: () => void, seconds: number, ai: num
   }
   const clip = rec.ledger.kept[0];
   if (!clip) throw new Error("the crash did not rank as a highlight");
-  const scene: ReplayScene = { dress: w.dress, collide: (car, slot) => r.courseHit(car, slot), bounce: undefined };
+  const scene: ReplayScene = { dress: w.dress, collide: (car, slot) => r.courseHit(car, slot), placed: (slot) => r.relocated(slot), bounce: undefined };
   return { clip, cars: w.cars, scene, trace, s0: clipStart(clip, times), frameEnd };
 }
 
@@ -193,7 +193,7 @@ export interface Spread {
 export interface Agreement {
   /** Steps compared (the cars of each counted). */
   steps: number;
-  /** The first impact's own step (the replay runs it from its drifted state: the keyframe corrects the step after): position (m) and velocity (m/s) error. */
+  /** The first impact's own step (the replay runs it from its drifted state: the keyframe corrects the step after), of the involved cars (see `involved`): position (m) and velocity (m/s) error. */
   impact: { pose: number; vel: number };
   /** Over the window after the correction: position (m), velocity (m/s) and total crush (m) errors. */
   pose: Spread;
@@ -201,6 +201,13 @@ export interface Agreement {
   crush: Spread;
   /** Cars (slots) found in the window with a wreck state the replay's lacks, or the other way about. */
   wreckMismatch: number;
+  /**
+   * The worst error, at the impact's step and over the window, of the cars whose pedals the clip keeps exactly (`HighlightClip.fine`:
+   * the cars the impact involves, and everything that touched them): their replay is the sim that recorded it, to the bit.
+   */
+  involved: { pose: number; vel: number; crush: number };
+  /** The same over the cars that never touched one (a bystander drives on 8-bit pedals between keyframes and cannot feed back into the crash). */
+  bystanders: { pose: number; vel: number; crush: number };
 }
 
 function spread(errors: number[]): Spread {
@@ -220,7 +227,18 @@ export function agreement(rec: Recording, span: number, resetProps: () => void =
   const sim = new ClipSim(clip, cars, rec.scene);
   resetProps();
   sim.restart();
-  const out: Agreement = { steps: 0, impact: { pose: 0, vel: 0 }, pose: { p95: 0, max: 0 }, vel: { p95: 0, max: 0 }, crush: { p95: 0, max: 0 }, wreckMismatch: 0 };
+  const out: Agreement = {
+    steps: 0,
+    impact: { pose: 0, vel: 0 },
+    pose: { p95: 0, max: 0 },
+    vel: { p95: 0, max: 0 },
+    crush: { p95: 0, max: 0 },
+    wreckMismatch: 0,
+    involved: { pose: 0, vel: 0, crush: 0 },
+    bystanders: { pose: 0, vel: 0, crush: 0 },
+  };
+  const nc = clip.cars.length;
+  const exact = clip.cars.map((_, j) => clip.fine.some((p, i) => Math.floor(i / FINE_PEDALS) % nc === j && !Number.isNaN(p)));
   const pose: number[] = [];
   const vel: number[] = [];
   const crushes: number[] = [];
@@ -234,18 +252,24 @@ export function agreement(rec: Recording, span: number, resetProps: () => void =
     if (!live) break;
     capture(rec.cars, replay);
     if (!hit) out.steps++;
-    for (const { slot } of clip.cars) {
+    for (const [j, { slot }] of clip.cars.entries()) {
       const o = slot * STATE;
       const dp = Math.hypot(replay[o]! - live[o]!, replay[o + 1]! - live[o + 1]!, replay[o + 2]! - live[o + 2]!);
       const dv = Math.hypot(replay[o + 3]! - live[o + 3]!, replay[o + 4]! - live[o + 4]!, replay[o + 5]! - live[o + 5]!);
       if (hit) {
-        out.impact.pose = Math.max(out.impact.pose, dp);
-        out.impact.vel = Math.max(out.impact.vel, dv);
+        const who = exact[j] ? out.impact : out.bystanders;
+        who.pose = Math.max(who.pose, dp);
+        who.vel = Math.max(who.vel, dv);
         continue;
       }
       pose.push(dp);
       vel.push(dv);
-      crushes.push(Math.abs(replay[o + 6]! - live[o + 6]!));
+      const dc = Math.abs(replay[o + 6]! - live[o + 6]!);
+      crushes.push(dc);
+      const who = exact[j] ? out.involved : out.bystanders;
+      who.pose = Math.max(who.pose, dp);
+      who.vel = Math.max(who.vel, dv);
+      who.crush = Math.max(who.crush, dc);
       if (replay[o + 7] !== live[o + 7]) out.wreckMismatch++;
     }
   }
