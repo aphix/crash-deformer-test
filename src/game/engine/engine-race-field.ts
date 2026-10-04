@@ -5,6 +5,7 @@ import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
 import { impulseCar, wallBounce, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { footprintOverlap, type Overlap } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
@@ -81,6 +82,7 @@ const PARK_Z = 4000;
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const _o: Overlap = { pen: 0, nx: 0, nz: 0, cx: 0, cz: 0 };
 
 /**
  * Height (m) of the lowest point of `car`'s body box (`CAR_HALF` about its ground point), as tilted: the origin's height plus
@@ -637,48 +639,9 @@ export abstract class RaceField {
       const dx = pos.x - col.x;
       const dz = pos.z - col.z;
       if (dx * dx + dz * dz > reach * reach) continue;
-      // Deepest footprint probe inside the collider; normal points out of it.
-      let pen = 0;
-      let nx = 0;
-      let nz = 0;
-      let cx = 0;
-      let cz = 0;
-      const cos = Math.cos(col.yaw);
-      const sin = Math.sin(col.yaw);
-      for (const [ox, oz] of WALL_PROBES) {
-        const px = pos.x + car.rightFlat.x * ox + car.fwdFlat.x * oz;
-        const pz = pos.z + car.rightFlat.z * ox + car.fwdFlat.z * oz;
-        const ex = px - col.x;
-        const ez = pz - col.z;
-        if (col.kind === "circle") {
-          const d = Math.hypot(ex, ez);
-          const over = col.r - d;
-          if (over > pen && d > 1e-6) {
-            pen = over;
-            nx = ex / d;
-            nz = ez / d;
-            cx = px;
-            cz = pz;
-          }
-        } else {
-          // Box frame: local x = (cos, −sin), local z = (sin, cos).
-          const lx = ex * cos - ez * sin;
-          const lz = ex * sin + ez * cos;
-          const ox2 = col.hx - Math.abs(lx);
-          const oz2 = col.hz - Math.abs(lz);
-          if (ox2 <= 0 || oz2 <= 0) continue;
-          const over = Math.min(ox2, oz2);
-          if (over <= pen) continue;
-          pen = over;
-          const sx = ox2 < oz2 ? Math.sign(lx) || 1 : 0;
-          const sz = ox2 < oz2 ? 0 : Math.sign(lz) || 1;
-          nx = sx * cos + sz * sin;
-          nz = -sx * sin + sz * cos;
-          cx = px;
-          cz = pz;
-        }
-      }
-      if (pen <= 0) continue;
+      // The car's footprint against the collider; the normal points out of it.
+      if (!footprintOverlap(car, col, _o)) continue;
+      const { pen, nx, nz, cx, cz } = _o;
       const vn = v.x * nx + v.z * nz;
       const closing = Math.max(0, -vn);
       _c.set(cx, 0.5, cz);
