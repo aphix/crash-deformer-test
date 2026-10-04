@@ -71,6 +71,7 @@ const SCENE_KEYS: [string, string][] = [
   ["L", "Loop"],
   ["D", "Derby"],
   ["Z", "Race"],
+  ["S", "Survival (whole-field view)"],
   ["H", "In a race: race view · full menu"],
   ["C", "Press"],
   ["I", "Pistons"],
@@ -243,7 +244,16 @@ export function Hud(props: HudProps) {
           <StartLights time={state.derbyTime} />
         </div>
       ) : null}
-      {state.race ? <RaceOverlay race={state.race} pad={state.pad !== null} reset={reset} onReset={tapReset} onCommand={raceCommand} /> : null}
+      {state.race ? (
+        <RaceOverlay
+          race={state.race}
+          pad={state.pad !== null}
+          reset={reset}
+          onReset={tapReset}
+          onCommand={raceCommand}
+          onSurvival={state.inRoom ? null : () => engine.current?.toggleSurvival()}
+        />
+      ) : null}
       {state.derbyView && !state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
           <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} className="mt-14 sm:mt-0" />

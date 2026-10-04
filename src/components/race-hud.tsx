@@ -12,6 +12,7 @@ import {
   Play,
   Plus,
   RotateCcw,
+  Siren,
   Skull,
   TriangleAlert,
   Trophy,
@@ -171,8 +172,23 @@ export function RaceViewToggle({ race, onCommand, compact, bare }: { race: RaceH
  * Centre-screen race moments (lights, wrong way, respawn, finish) and the modal race menus. The reset prompt
  * heads the column, so it holds its spot while the banners come and go beneath it.
  */
-export function RaceOverlay({ race, pad, reset, onReset, onCommand }: { race: RaceHud; pad: boolean; reset: ResetInput | null; onReset: () => void; onCommand: Send }) {
-  if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} />;
+export function RaceOverlay({
+  race,
+  pad,
+  reset,
+  onReset,
+  onCommand,
+  onSurvival,
+}: {
+  race: RaceHud;
+  pad: boolean;
+  reset: ResetInput | null;
+  onReset: () => void;
+  onCommand: Send;
+  /** Enter Survival from the setup menu; null where the mode is not offered (a room). */
+  onSurvival: (() => void) | null;
+}) {
+  if (race.menu !== null) return <RaceMenu race={race} pad={pad} onCommand={onCommand} onSurvival={onSurvival} />;
   const you = race.you;
   return (
     <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex flex-col items-center gap-3 px-3 sm:top-1/4">
@@ -259,13 +275,13 @@ function FinishCard({ race }: { race: RaceHud }) {
   );
 }
 
-function RaceMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
+function RaceMenu({ race, pad, onCommand, onSurvival }: { race: RaceHud; pad: boolean; onCommand: Send; onSurvival: (() => void) | null }) {
   const quit = () => onCommand({ type: "quit" });
   const retry = () => onCommand({ type: "retry" });
   const end = () => onCommand({ type: "end" });
   switch (race.menu) {
     case "setup":
-      return <SetupMenu race={race} pad={pad} onCommand={onCommand} />;
+      return <SetupMenu race={race} pad={pad} onCommand={onCommand} onSurvival={onSurvival} />;
     case "pause": {
       const resume = () => onCommand({ type: "resume" });
       return (
@@ -430,7 +446,7 @@ function Choice({ label, off, on, value, onSet }: { label: string; off: string; 
   );
 }
 
-function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
+function SetupMenu({ race, pad, onCommand, onSurvival }: { race: RaceHud; pad: boolean; onCommand: Send; onSurvival: (() => void) | null }) {
   const o = race.options;
   const options = (patch: Partial<RaceOptions>) => onCommand({ type: "options", options: patch });
   return (
@@ -485,7 +501,13 @@ function SetupMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCo
           <Trophy />
           Campaign
         </NavButton>
-        <NavButton variant="ghost" onClick={() => onCommand({ type: "quit" })}>
+        {onSurvival ? (
+          <NavButton variant="secondary" onClick={onSurvival}>
+            <Siren />
+            Survival
+          </NavButton>
+        ) : null}
+        <NavButton variant="ghost" className={onSurvival ? "col-span-2" : undefined} onClick={() => onCommand({ type: "quit" })}>
           Back
         </NavButton>
       </div>

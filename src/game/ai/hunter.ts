@@ -6,7 +6,7 @@ import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 import type { PropCollider } from "../world/placements.ts";
 import type { SurvivalSpec } from "../world/track-schema.ts";
 import type { Track } from "../world/track.ts";
-import { ATTACK, attackTarget, Backoff, CATCH_UP, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, WAIT_BEHIND, type CopBrain, type HunterWorld } from "./police.ts";
+import { ATTACK, attackTarget, Backoff, CATCH_UP, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type CopBrain, type HunterWorld } from "./police.ts";
 
 /** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
 export const HUNT = {
@@ -56,6 +56,8 @@ const CREEP = 3;
 const DODGE_SPEED = 8;
 /** With no heading clear for the whole stretch, a bend of one radian is worth this many metres of clear run. */
 const TURN_COST = 6;
+/** Metres of road behind a target that a queue lane must keep clear of solids. */
+const QUEUE = 30;
 /** Obstacle grid cell (m). */
 const CELL = 16;
 
@@ -162,7 +164,10 @@ export class HunterBrain implements CopBrain {
   private go = false;
   private nextDrop = 0;
   private dice = 0;
-  /** Scratch: the last drop-in spot found. */
+  /** Per unit: the lane it last queued in (−1 / +1; 0 none). Scratch: the queue place `slot` found, and the last drop-in spot found. */
+  private readonly queued: Int8Array;
+  private lane = 0;
+  private row = 0;
   private readonly at = { x: 0, z: 0, yaw: 0 };
 
   /** `racers` cars (ids 0 …) are hunted; the units follow them from `first`. */
@@ -179,6 +184,7 @@ export class HunterBrain implements CopBrain {
     this.since = new Float64Array(count);
     this.lost = new Float64Array(count);
     this.role = new Uint8Array(count);
+    this.queued = new Int8Array(count);
     this.side = new Int8Array(count).fill(1);
     this.wedge = new Backoff(count);
     for (const p of track.paths()) {
@@ -244,7 +250,8 @@ export class HunterBrain implements CopBrain {
     const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
     const reach = along > 0 ? Math.max(ATTACK, tv * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
     if (dist <= reach) {
-      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out, tv > BLOCKABLE);
+      this.slot(u, self, tg, dist, cars);
+      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out, tv > BLOCKABLE, this.lane, this.row);
       this.dodge(u, self, tg, speed, dist, out);
       // A stopped player is boxed in, not rammed: a hit at 8 m/s throws the car over the bust's 20 km/h and restarts its hold.
       if (tv <= BLOCKABLE && dist < SETTLE && speed > CREEP) {
@@ -253,8 +260,31 @@ export class HunterBrain implements CopBrain {
         out.boost = false;
       }
     } else this.chase(u, self, tg, speed, dist, out);
-    this.wedge.watch(u, speed, dt, out);
+    this.wedge.watch(u, self.x, self.z, dt, out);
     return out;
+  }
+
+  /**
+   * Where unit `u` queues behind a target too fast to PIT: a lane (±`TAIL_LANE` m either side of the target's line, never the line itself:
+   * a car right behind a target that brakes has nowhere to go) and its row there. The unit keeps the side it is on, or a side it took
+   * before while it is within a metre of the line, and takes the other while a prop stands in the way of its queue (a palm row the
+   * target hugs). Its row counts the hunters queued in that lane that are nearer the target, so the queue keeps the order the pack has.
+   * Sets `lane`, `row`.
+   */
+  private slot(u: number, self: AiCar, tg: AiCar, dist: number, cars: readonly AiCar[]): void {
+    const lx = Math.cos(tg.yaw);
+    const lz = -Math.sin(tg.yaw);
+    const side = (self.x - tg.x) * lx + (self.z - tg.z) * lz;
+    let lane = side > 1 ? 1 : side < -1 ? -1 : this.queued[u] || (side >= 0 ? 1 : -1);
+    if (this.obstacles.run(tg.x + lx * lane * TAIL_LANE, tg.z + lz * lane * TAIL_LANE, tg.yaw + Math.PI, QUEUE) < QUEUE) lane = -lane;
+    this.queued[u] = lane;
+    this.lane = lane;
+    this.row = 0;
+    for (let v = 0; v < this.count; v++) {
+      if (v === u || this.state[v] !== HUNTING || this.queued[v] !== lane) continue;
+      const c = cars[this.first + v]!;
+      if (c.alive && Math.hypot(c.x - tg.x, c.z - tg.z) < dist) this.row++;
+    }
   }
 
   /** A solid nearer than the target dead ahead of an attacking unit: bend round it (the police's attack geometry knows no walls). */
@@ -359,6 +389,7 @@ export class HunterBrain implements CopBrain {
     this.since[u] = 0;
     this.lost[u] = 0;
     this.role[u] = u;
+    this.queued[u] = 0;
     this.wedge.reset(u);
     world.sirens(this.first + u, true);
   }

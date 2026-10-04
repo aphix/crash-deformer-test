@@ -350,6 +350,9 @@ export abstract class EngineInput extends EngineRigs {
       this.toggleBalls();
     } else if (e.code === "KeyD") {
       if (this.seat.mode === "global") this.toggleDerby();
+    } else if (e.code === "KeyS") {
+      // The scene key, like D: S is the brake once a car is driven, so only from the whole-field view.
+      if (this.seat.mode === "global") this.toggleSurvival();
     } else if (e.code === "KeyC") {
       this.toggleCompactor();
     } else if (e.code === "KeyI") {

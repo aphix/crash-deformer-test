@@ -1,6 +1,6 @@
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { ClassStats } from "../vehicle/vehicle-classes.ts";
-import { STUCK_SPEED, type AiCar } from "./derby-ai.ts";
+import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 import type { RaceBrain } from "./race-ai.ts";
@@ -79,6 +79,24 @@ export const WAIT_BEHIND = 5;
 const PIT_BACK = 2;
 const PIT_SIDE = 1.7;
 const SLAM_SIDE = 2.8;
+/**
+ * A target faster than `PIT_MAX` (m/s) is not PIT'd or slammed: a turn-in at that speed wrecks both cars. Measured on Havana, the
+ * pack's slam lines shoved a player holding the boulevard at 40 m/s into the palms, and the pack lost 25 m/s there. Its units queue
+ * behind it instead (`attackTarget`): `TAIL` m back in the first row, a row every `ROW` m (a car and a gap), in a lane `TAIL_LANE` m
+ * either side of its line, aiming `LOOK` m ahead along the lane (pure pursuit, so a unit merging into its lane does not overshoot).
+ */
+const PIT_MAX = 20;
+const TAIL = 6;
+const ROW = 8;
+export const TAIL_LANE = 2.6;
+const LOOK = 14;
+/**
+ * Closing on its target at more than 6 m/s, and with that speed squared over `OVERRUN` × the distance, a unit cannot brake to it (a
+ * car's brake is about `OVERRUN` / 2 m/s²): it cannot turn into a PIT, a block or a ram either, so it goes straight on, braking hard
+ * only while it is within `IN_PATH` m of the line it would hit.
+ */
+const OVERRUN = 16;
+const IN_PATH = 2.2;
 const BLOCK_AHEAD = 10;
 /** A unit this far ahead of its target (m) blocks; alongside within `BESIDE` m it turns into it. */
 const AHEAD_OF = 3.5;
@@ -87,9 +105,10 @@ const BESIDE = 3.4;
 /** A block holds this share of its target's speed, and brakes hard when the target closes within `CHECK` m. */
 const BLOCK_PACE = 0.8;
 const CHECK = 9;
-/** Seconds of throttle without motion before a unit backs off for another run, and how long it backs off. */
+/** Seconds of throttle without progress before a unit backs off for another run, how long it backs off, and the metres that count as progress. */
 const STUCK_FOR = 1.2;
 const BACK_FOR = 0.9;
+const PROGRESS = 1.5;
 
 /** An aim past this angle (rad) off the nose is behind the shoulder (`pursuitSteer`, `PoliceBrain.lead`). */
 const BEHIND = 1.5;
@@ -105,21 +124,27 @@ export function pursuitSteer(alpha: number, reach: number, speed: number, turn: 
   return clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / Math.max(4, reach) / Math.max(0.2, turnMax), -1, 1);
 }
 
-/** Wedge recovery of every police drive: throttle held without motion for `STUCK_FOR` s backs a unit off for `BACK_FOR` s, steering the other way. */
+/** Wedge recovery of every police drive: throttle held without progress for `STUCK_FOR` s backs a unit off for `BACK_FOR` s, steering the other way. */
 export class Backoff {
   private readonly stuck: Float64Array;
   private readonly back: Float64Array;
   private readonly backSteer: Float64Array;
+  /** Per unit: where its current stretch of throttle began (it has moved on once it is `PROGRESS` m from here). */
+  private readonly anchorX: Float64Array;
+  private readonly anchorZ: Float64Array;
 
   constructor(count: number) {
     this.stuck = new Float64Array(count);
     this.back = new Float64Array(count);
     this.backSteer = new Float64Array(count);
+    this.anchorX = new Float64Array(count).fill(Infinity);
+    this.anchorZ = new Float64Array(count).fill(Infinity);
   }
 
   reset(u: number): void {
     this.stuck[u] = 0;
     this.back[u] = 0;
+    this.anchorX[u] = Infinity;
   }
 
   /** True (with `out` set to reverse) while unit `u` backs off. */
@@ -131,9 +156,17 @@ export class Backoff {
     return true;
   }
 
-  /** Count unit `u`'s wedged seconds from the `out` it just got at `speed`; a wedge of `STUCK_FOR` s starts a back-off. */
-  watch(u: number, speed: number, dt: number, out: DriveInput): void {
-    if (out.throttle > 0.35 && speed < STUCK_SPEED) this.stuck[u]! += dt;
+  /**
+   * Count unit `u`'s wedged seconds from the `out` it just got at (`x`, `z`); a wedge of `STUCK_FOR` s starts a back-off. Wedged is no
+   * progress under throttle, not low speed: a car pushing a wall corner reads 1–3 m/s from its velocity (the contact takes the step
+   * back), and sat there for 10 s on Havana.
+   */
+  watch(u: number, x: number, z: number, dt: number, out: DriveInput): void {
+    if (Math.hypot(x - this.anchorX[u]!, z - this.anchorZ[u]!) > PROGRESS) {
+      this.anchorX[u] = x;
+      this.anchorZ[u] = z;
+      this.stuck[u] = 0;
+    } else if (out.throttle > 0.35) this.stuck[u]! += dt;
     else this.stuck[u] = Math.max(0, this.stuck[u]! - dt * 2);
     if (this.stuck[u]! > STUCK_FOR) {
       this.stuck[u] = 0;
@@ -145,10 +178,12 @@ export class Backoff {
 
 /**
  * Within `ATTACK` m of its target: ram head-on or block from ahead, PIT or slam from alongside, line up by `role` (its
- * place in the pack) from behind. The one attack geometry of every police drive; `turn` is the class's full-lock yaw rate. `block` false
- * drops the getting-ahead-and-braking part: a quarry that has stopped is not worth blocking.
+ * place in the pack) from behind; queue behind a target too fast for any of that (`PIT_MAX`) in the `lane` and `row` the caller
+ * gives (by `role` by default); go straight on when it closes faster than it can brake (`OVERRUN`). The one attack geometry of every
+ * police drive; `turn` is the class's full-lock yaw rate. `block` false drops the getting-ahead-and-braking part: a quarry that has
+ * stopped is not worth blocking.
  */
-export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput, block = true): void {
+export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput, block = true, lane = (role % 3) - 1, row = role % 5): void {
   const tfx = Math.sin(tg.yaw);
   const tfz = Math.cos(tg.yaw);
   // Left of the target's travel = (fz, −fx).
@@ -165,18 +200,33 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
   let lat: number;
   let want = tv + 8;
   let brakeCheck = false;
+  let queue = false;
+  let straight = false;
   if (headOn) {
     // Facing it from ahead: flat out at where it will be when they meet.
     fwd = 0;
     lat = 0;
     lead = clamp(dist / Math.max(4, tv + speed), 0, 1.5);
     want = Infinity;
+  } else if (speed - tv > 6 && (speed - tv) ** 2 > OVERRUN * dist) {
+    // Closing on its target faster than it can brake to it: it cannot turn into a PIT, a block or a ram. Past it, or beside it, straight on at speed; behind it and in its path, straight on braking hard.
+    straight = true;
+    fwd = 0;
+    lat = 0;
+    want = Infinity;
+    brakeCheck = along < 0 && Math.abs(side) < IN_PATH;
   } else if (block && along > AHEAD_OF) {
     // Ahead: onto its line in front of it, a little slower; brake-check when it closes.
     fwd = along + BLOCK_AHEAD;
     lat = 0;
     want = tv * BLOCK_PACE;
     brakeCheck = along < CHECK && tv > speed;
+  } else if (tv > PIT_MAX) {
+    // Too fast to PIT or slam: queue behind it, closing up to its row but not into it.
+    queue = true;
+    lead = 0;
+    fwd = along + Math.max(LOOK, speed * 0.5);
+    lat = lane * TAIL_LANE;
   } else if (along > BESIDE_BACK && Math.abs(side) < BESIDE) {
     // Alongside: at its rear quarter a PIT (nose across its tail), level with it a door slam.
     fwd = along < -0.8 ? 1 : 1.5;
@@ -194,15 +244,16 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
   }
   const ax = tg.x + tg.vx * lead + tfx * fwd + tlx * lat;
   const az = tg.z + tg.vz * lead + tfz * fwd + tlz * lat;
+  if (queue) want = tv + clamp(-(TAIL + ROW * row) - along, -tv, 8);
   const alpha = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
-  out.steer = pursuitSteer(alpha, Math.hypot(ax - self.x, az - self.z), speed, turn);
+  out.steer = straight ? 0 : pursuitSteer(alpha, Math.hypot(ax - self.x, az - self.z), speed, turn);
   if (brakeCheck) {
     out.brake = 1;
     return;
   }
-  if (speed > want + 2) out.brake = 0.4;
+  if (speed > want + (queue ? 0 : 2)) out.brake = 0.4;
   else out.throttle = 1;
-  out.boost = out.throttle > 0 && (along < -6 || headOn) && Math.abs(alpha) < 0.35;
+  out.boost = out.throttle > 0 && (queue ? want > tv + 7 : along < -6 || headOn) && Math.abs(alpha) < 0.35;
 }
 
 type UnitState = "stored" | "parked" | "pursuit" | "down";
@@ -398,7 +449,7 @@ export class PoliceBrain implements CopBrain {
     }
     attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out);
     // Wedged (against its target on a wall, or a car): back off for another run.
-    this.wedge.watch(u, speed, dt, out);
+    this.wedge.watch(u, self.x, self.z, dt, out);
     return out;
   }
 

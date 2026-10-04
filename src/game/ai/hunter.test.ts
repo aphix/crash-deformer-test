@@ -266,4 +266,45 @@ describe("HunterBrain: driving", () => {
     for (let i = 0; i < 60 * 3 && !reversed; i++) reversed = d.out().throttle < 0;
     assert.ok(reversed, "never backed off");
   });
+
+  it("backs off a cop at full throttle that goes nowhere while its velocity still reads over the wedge gate (pushing a wall corner: the Havana wedge, 10 s)", () => {
+    const d = drive(100);
+    let reversed = false;
+    // The contact takes the displacement back each step, so the velocity the brain reads stays at 1.5 m/s: the car moves 0.3 m in 3 s.
+    for (let i = 0; i < 60 * 3 && !reversed; i++) {
+      Object.assign(d.cop, { vx: 0, vz: 1.5, z: d.cop.z + 0.1 / 60 });
+      reversed = d.out().throttle < 0;
+    }
+    assert.ok(reversed, "a car pushing a wall for 3 s without moving never backed off");
+  });
+
+  it("holds its row behind a target too fast to PIT instead of closing up on it, and PITs a slow one the same way round", () => {
+    // The cop 4 m behind the target and 2.6 m to one side, at the target's own speed: inside the first row (6 m).
+    const fast = drive(4);
+    Object.assign(fast.tg, { x: 0, z: 4, vx: 0, vz: 30 });
+    Object.assign(fast.cop, { x: 2.6, z: 0, vx: 0, vz: 30 });
+    const held = { ...fast.out() };
+    assert.equal(held.throttle, 0, "closed up on a fast target it was already inside the row of");
+    assert.ok(held.brake > 0, "did not ease back to its row");
+    const slow = drive(4);
+    Object.assign(slow.tg, { x: 0, z: 4, vx: 0, vz: 10 });
+    Object.assign(slow.cop, { x: 2.6, z: 0, vx: 0, vz: 10 });
+    const pit = { ...slow.out() };
+    assert.equal(pit.throttle, 1, "did not press its PIT on a slow target");
+  });
+
+  it("goes straight on, braking only if it is in the target's path, when it closes faster than it can brake", () => {
+    // A stopped target 13 m ahead, the cop at 20 m/s: 20² > 16 × 13.
+    const inLine = drive(13);
+    Object.assign(inLine.cop, { x: 0, z: 0, vx: 0, vz: 20 });
+    const hit = { ...inLine.out() };
+    assert.equal(hit.brake, 1, "did not brake for a stopped car in its lane");
+    assert.equal(hit.steer, 0, "turned into it");
+    // The same closing speed, a lane over: it goes past at speed and does not turn in.
+    const beside = drive(13);
+    Object.assign(beside.cop, { x: 3, z: 0, vx: 0, vz: 20 });
+    const past = { ...beside.out() };
+    assert.equal(past.steer, 0, "turned into a target it was passing");
+    assert.equal(past.brake, 0, "braked beside a lane that was clear");
+  });
 });
