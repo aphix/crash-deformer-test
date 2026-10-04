@@ -3,8 +3,8 @@ import type { RaceHud, RaceView } from "../match/types.ts";
 /** Wheels off at which the reset prompt comes up, and the reset controls glow: two gone and the car is a crawling wreck. */
 const PROMPT_WHEELS_OFF = 2;
 
-/** The wreck the player should reset: two or more wheels off and a reset the game would accept. */
-function needsReset(view: RaceView): boolean {
+/** The wreck the player should reset: two or more wheels off and a reset the game would accept. The one rule behind the prompt and the glow. */
+export function needsReset(view: RaceView): boolean {
   return view.wheelsOff >= PROMPT_WHEELS_OFF && view.canReset;
 }
 

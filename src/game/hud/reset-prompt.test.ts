@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { RaceView } from "../match/types.ts";
-import { resetGlow, resetInput, resetPromptLabel } from "./reset-prompt.ts";
+import { needsReset, resetGlow, resetInput, resetPromptLabel } from "./reset-prompt.ts";
 
 const view = (wheelsOff: number, canReset = true): RaceView => ({
   id: 0,
@@ -41,6 +41,13 @@ describe("reset prompt", () => {
     assert.equal(resetInput(false, true, false), null);
     assert.equal(resetInput(false, false, false), "keyboard");
     assert.equal(resetInput(false, false, true), "keyboard");
+  });
+
+  it("boundary: needsReset is two or more wheels off and an allowed reset, nothing else", () => {
+    assert.equal(needsReset(view(1)), false);
+    assert.equal(needsReset(view(2)), true);
+    assert.equal(needsReset(view(4)), true);
+    assert.equal(needsReset(view(4, false)), false);
   });
 
   describe("reset control glow", () => {

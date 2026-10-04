@@ -342,7 +342,7 @@ function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
           {keys.split(" · ").map((key, i) => (
             <Fragment key={key}>
               {i > 0 ? " · " : null}
-              {glow && RESET_KEY.test(key) ? <span className={cn(RESET_GLOW, "rounded px-1 text-fg")}>{key}</span> : key}
+              {glow && RESET_KEY.test(key) ? <span className={cn(RESET_GLOW, "rounded bg-accent px-1 text-accent-fg")}>{key}</span> : key}
             </Fragment>
           ))}
         </p>

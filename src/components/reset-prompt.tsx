@@ -10,7 +10,7 @@ const PILL =
  * The glow of a reset control while its car needs a reset (`resetGlow`): a bright ring and halo in the accent
  * colour that pulses, and under reduced motion stays lit and still.
  */
-export const RESET_GLOW = "ring-2 ring-accent shadow-[0_0_16px_3px_color-mix(in_oklab,var(--color-accent)_70%,transparent)] motion-safe:animate-pulse";
+export const RESET_GLOW = "ring-4 ring-accent shadow-[0_0_24px_6px_color-mix(in_oklab,var(--color-accent)_90%,transparent)] motion-safe:animate-pulse";
 
 /**
  * "[R] to reset" once the view's car has lost two wheels: big, near-white and pulsing (not under reduced
