@@ -281,7 +281,7 @@ describe("race: police chase", () => {
    * and the same cops, but the physics steps partition the frames differently, so the cars take a different chaotic
    * path through it. Every lead-in's heading is checked as it ends; the counts come back for the pooled floors.
    */
-  function leadIns(phase: number, seed = 1): { wakes: number; converged: number; tbones: number; pursuitHits: number; leadInPairs: number } {
+  function leadIns(phase: number, seed = 1): { wakes: number; converged: number; offRoadLeadIns: number; tbones: number; pursuitHits: number; leadInPairs: number } {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -295,8 +295,8 @@ describe("race: police chase", () => {
       const ahead = (s: number, from: number) => s - from - L * Math.round((s - from) / L);
       const angle = (ax: number, az: number, bx: number, bz: number) => Math.abs(Math.atan2(ax * bz - az * bx, ax * bx + az * bz));
       const racers = w.race.racers.length;
-      // Each racer's velocity where it last drove, per 2 m of road: a police car following its path matches it there.
-      const trail = Array.from({ length: racers }, () => new Float64Array(Math.ceil(L / 2) * 2));
+      // Each racer's velocity where it last drove the road, per 2 m of it (NaN: never): a police car following its path matches it there.
+      const trail = Array.from({ length: racers }, () => new Float64Array(Math.ceil(L / 2) * 2).fill(NaN));
       // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, and its last
       // contact with any car (a parked car knocked along, or a lead-in knocked off line by a pack-mate, says nothing of its steering).
       const parkS = new Float64Array(64).fill(NaN);
@@ -308,9 +308,13 @@ describe("race: police chase", () => {
       // says nothing of its steering toward the target, as a knock from one does not).
       const CROWD = 8;
       const crowded = new Uint8Array(64);
+      // Per police car: a stretch of the target's heading the cop is matching was never driven on the road (the target merged off a
+      // shortcut there), so the lead-in has no reference and is not checked; `offRoadLeadIns` counts those.
+      const offRoad = new Uint8Array(64);
       let t = 0;
       let wakes = 0;
       let converged = 0;
+      let offRoadLeadIns = 0;
       let tbones = 0;
       let pursuitHits = 0;
       // Pairs of police cars that touched while both were inside their lead-in windows (a stakeout pair parks 12 m apart, one
@@ -343,7 +347,13 @@ describe("race: police chase", () => {
         frame(w, state);
         t = n * FRAME;
         for (let r = 0; r < racers; r++) {
-          const k = Math.floor(arc(r) / 2) * 2;
+          const p = w.cars[r]!.group.position;
+          const on = track.project(p.x, p.z, -1, proj);
+          // Only where the racer drives the road: a racer merging off a shortcut has no heading a cop on the road could match
+          // (seed 1, cop 6 at 38 s: the cells it wrote there were 0.41 to 0.68 rad off the road, so the cop's error to them grew
+          // 0.161 → 0.207 while its error to the racer's own velocity fell 0.205 → 0.084). Cells never driven on the road stay NaN: no reference, no sample.
+          if (Math.abs(on.lateral) > track.path.half[on.k]!) continue;
+          const k = Math.floor(on.s / 2) * 2;
           trail[r]![k] = w.cars[r]!.velocity.x;
           trail[r]![k + 1] = w.cars[r]!.velocity.z;
         }
@@ -373,6 +383,7 @@ describe("race: police chase", () => {
             leadEnd[i] = t + 1.8;
             angle0[i] = NaN;
             crowded[i] = 0;
+            offRoad[i] = 0;
             wakes++;
           }
           const r = target[i]!;
@@ -381,9 +392,14 @@ describe("race: police chase", () => {
             if (j !== i && w.cars[j]!.group.visible && w.cars[i]!.group.position.distanceTo(w.cars[j]!.group.position) < CROWD) crowded[i] = 1;
           }
           const k = Math.floor(arc(i) / 2) * 2;
+          if (Number.isNaN(trail[r]![k]!)) offRoad[i] = 1;
           const a = angle(v.x, v.z, trail[r]![k]!, trail[r]![k + 1]!);
           if (Number.isNaN(angle0[i]!)) angle0[i] = a;
           if (t + FRAME >= leadEnd[i]! && bumped[i]! < leadEnd[i]! - 1.8 && !crowded[i]) {
+            if (offRoad[i]) {
+              offRoadLeadIns++;
+              continue;
+            }
             assert.ok(a < angle0[i]! || a < 0.2, `police car ${i}'s heading to its target's went ${angle0[i]!.toFixed(2)} → ${a.toFixed(2)} rad over its lead-in`);
             converged++;
           }
@@ -391,7 +407,7 @@ describe("race: police chase", () => {
       }
       assert.equal(w.race.phase, "finished", "the race closed");
       assert.equal(tbones, 0, "a police car T-boned its target during its lead-in");
-      return { wakes, converged, tbones, pursuitHits, leadInPairs: leadInPairs.size };
+      return { wakes, converged, offRoadLeadIns, tbones, pursuitHits, leadInPairs: leadInPairs.size };
     } finally {
       w.race.exit();
       setGround(null);
@@ -407,6 +423,7 @@ describe("race: police chase", () => {
     const seen = new Set<string>();
     let wakes = 0;
     let converged = 0;
+    let offRoad = 0;
     let pursuitHits = 0;
     for (const [phase, seed] of [[0, 1], [0.004, 2], [0.008, 3], [0.012, 4]] as const) {
       const r = leadIns(phase, seed);
@@ -414,22 +431,29 @@ describe("race: police chase", () => {
       seen.add(JSON.stringify(r));
       wakes += r.wakes;
       converged += r.converged;
+      offRoad += r.offRoadLeadIns;
       pursuitHits += r.pursuitHits;
     }
     assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 fields`);
-    assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
+    assert.ok(wakes >= 4 && converged >= 3 && offRoad <= converged, `wakes ${wakes}, unbumped lead-ins converged ${converged}, ${offRoad} left out for a target off the road`);
     assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
   });
 
   it("two police cars never meet during their lead-ins (a stakeout pair woken together drove into each other at 17-25 m/s)", () => {
     let wakes = 0;
+    let converged = 0;
+    let offRoad = 0;
     const met: string[] = [];
     for (let seed = 1; seed <= 12; seed++) {
       const r = leadIns(0, seed);
       wakes += r.wakes;
+      converged += r.converged;
+      offRoad += r.offRoadLeadIns;
       if (r.leadInPairs > 0) met.push(`seed ${seed}: ${r.leadInPairs} pairs`);
     }
     assert.ok(wakes >= 40, `only ${wakes} lead-ins over 12 seeds`);
+    // The headings really were checked (13 of 73 on this course, 2 more left out for a target off the road), so this cannot pass on an empty check.
+    assert.ok(converged >= 8 && offRoad <= converged, `${converged} lead-in headings checked, ${offRoad} left out for a target off the road (of ${wakes})`);
     assert.deepEqual(met, [], `lead-in pairs that touched (of ${wakes} lead-ins)`);
   });
 });
