@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { celStrength, FADE, SceneFade } from "./scene-fade.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 const DT = 1 / 60;
 
@@ -201,7 +202,7 @@ describe("celStrength (the cel value the composite pass gets)", () => {
 
   it("manual 100% is flat 1; manual 0% plays exactly the Auto pulse", () => {
     assert.ok(run(1).every((v) => v === 1));
-    assert.deepEqual(run(0), run(null));
+    assertSameNumbers(run(0), run(null), "manual 0% vs Auto");
   });
 
   it("reduced motion: the pulse stays 0 (calm fade), so Auto stays 0 and a manual look is its steady value", () => {
