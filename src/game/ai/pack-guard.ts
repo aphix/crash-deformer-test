@@ -9,17 +9,19 @@ const BRAKE_TIME = 1.5;
 /** Metres between two cars' centres at their closest approach: under `CLEAR` the guard acts in full, between `CLEAR` and `SOFT` it fades out. A car is 1.9 × 4.6 m (broadside they touch at 3.3 m); the pursuit steer pulls a car back toward its mate, so it settles near the middle. */
 const CLEAR = 4.6;
 const SOFT = 5.2;
-/** A car is read as moving at least this fast (m/s) along its nose: a stopped one may be pulling out (a woken stakeout is at 8 m/s within a second). */
+/** A mate that is driving is read as moving at least this fast (m/s) along its nose: a stopped one may be pulling out (a woken stakeout is at 8 m/s within a second). */
 const MOVING = 8;
 
 /**
- * The one rule every police drive (lead-in, attack, open-ground hunt) ends with: do not drive into a pack-mate. Of the cars
- * `first … first + count − 1` the one `self` reaches soonest within `HORIZON` s (relative motion; closest approach under `SOFT` m)
+ * The one rule every police drive (lead-in, attack, open-ground hunt) ends with: do not drive into a pack-mate. Of the units
+ * `first … first + count − 1` that `onRoad(unit)` says are out on the road (not parked at a stakeout or stored out of view: those
+ * cannot pull out until something wakes them, and read as a phantom car coming at 8 m/s), the one `self` reaches soonest within
+ * `HORIZON` s (relative motion; closest approach under `SOFT` m)
  * is steered away from, to the side it passes on (a dead-centre meeting turns both cars the same way, so they pass), and within
  * `BRAKE_TIME` s of the hit, when it is ahead, braked for. A car that is not driving forward (stopped, reversing, braking) is
  * left alone. No allocation.
  */
-export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, count: number, out: DriveInput): void {
+export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, count: number, out: DriveInput, onRoad: (unit: number) => boolean): void {
   if (out.throttle <= 0) return;
   const fx = Math.sin(self.yaw);
   const fz = Math.cos(self.yaw);
@@ -32,7 +34,7 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
   let ahead = false;
   for (let k = 0; k < count; k++) {
     const m = cars[first + k]!;
-    if (m.id === self.id) continue;
+    if (m.id === self.id || !onRoad(k)) continue;
     const rx = m.x - self.x;
     const rz = m.z - self.z;
     const slow = Math.hypot(m.vx, m.vz) < MOVING;

@@ -322,6 +322,8 @@ export class PoliceBrain implements CopBrain {
   private readonly line: RaceBrain;
   private readonly seed: number;
   private readonly out: DriveInput = idleDrive();
+  /** The pack-mate guard's view of a unit: out on the road, not parked at a stakeout or stored (bound once: no allocation per call). */
+  private readonly onRoad = (u: number): boolean => this.state[u] !== "parked" && this.state[u] !== "stored";
   private readonly state: UnitState[] = [];
   /** Per unit: its pack (−1 none: stored, or giving up), its place in the pack, seconds in its state. */
   private readonly pack: Int16Array;
@@ -401,7 +403,7 @@ export class PoliceBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.drive(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out);
+    guardMates(self, cars, this.first, this.count, out, this.onRoad);
     return out;
   }
 
