@@ -7,6 +7,12 @@ const PILL =
   "flex items-center gap-2 rounded-xl bg-fg px-4 py-1.5 font-display text-xl font-semibold uppercase tracking-widest text-accent-fg shadow-lg motion-safe:animate-pulse sm:text-2xl";
 
 /**
+ * The glow of a reset control while its car needs a reset (`resetGlow`): a bright ring and halo in the accent
+ * colour that pulses, and under reduced motion stays lit and still.
+ */
+export const RESET_GLOW = "ring-2 ring-accent shadow-[0_0_16px_3px_color-mix(in_oklab,var(--color-accent)_70%,transparent)] motion-safe:animate-pulse";
+
+/**
  * "[R] to reset" once the view's car has lost two wheels: big, near-white and pulsing (not under reduced
  * motion), naming the control of the input in use. On touch the whole pill is a button that does what the
  * thumb pad's wrench does (`onTap`). The caller places it (`className`): the race overlay and the derby HUD draw it in a

@@ -107,6 +107,8 @@ export type CrashHudState = {
   derbyTime: number | null;
   /** The derby driver's gauge (speed, gear, boost; `racer` null); null unless driving a derby car. */
   derbyView: RaceView | null;
+  /** The fleet driver's wreck state (`wheelsOff`, `canReset`) outside a race and a derby; null unless driving a sandbox car. Only the reset controls' glow reads it. */
+  fleetView: RaceView | null;
   /** `id` is the car index; `watched` marks the car the camera follows or drives; `clock` is seconds to a count-out. */
   derbyBoard: { id: number; name: string; score: number; alive: boolean; out: boolean; clock: number; watched: boolean }[];
   /** Race scene state for the HUD; null outside race mode. */
@@ -212,6 +214,7 @@ export const INITIAL_HUD: CrashHudState = {
   derbyDecided: null,
   derbyTime: null,
   derbyView: null,
+  fleetView: null,
   derbyBoard: [],
   race: null,
   seat: "global",
