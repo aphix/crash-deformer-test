@@ -138,14 +138,15 @@ function fixedStep(w: World, dt: number): void {
   w.race.step(dt);
 }
 
-/** One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time. */
-export function frame(w: World, state: { acc: number }): void {
+/** One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time; `slice` sees each step's length before it runs. */
+export function frame(w: World, state: { acc: number }, slice?: (h: number) => void): void {
   const cars = w.live();
   const vmax = sliceSpeed(cars);
   state.acc = Math.min(0.05, state.acc + FRAME);
   let steps = 0;
   while (state.acc > 1e-5 && steps < 8) {
     const h = Math.fround(physicsSlice(state.acc, vmax)); // as the engine's step (`CrashEngine.tickInner`)
+    slice?.(h);
     fixedStep(w, h);
     state.acc -= h;
     settleStep(cars, h, false);
