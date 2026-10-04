@@ -4,17 +4,21 @@ import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
-import type { Reel } from "../match/highlights.ts";
+import { FINE_BYTES, INPUT_BYTES, type Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
 import type { NetTx } from "./net-ports.ts";
 import { publicRoomName } from "./matchmaking.ts";
 import type { NetPeer, NetTransport } from "./transport.ts";
 import { packReel } from "./reel-codec.ts";
+import { reelParts } from "./reel-wire.ts";
+import { makeClip, sameClip } from "./reel-clip.test-util.ts";
 import { HOST_WAIT_MS } from "./net-constants.ts";
 
 /** Frame time (ms) of the session loop: one host snapshot and one guest input per step. */
 const FRAME_MS = 1000 / 30;
+/** The relay's message cap (bytes): a longer message never arrives. */
+const RELAY_MSG_MAX = 240 * 1024;
 
 /**
  * An in-memory room: every end reaches every other end unless their pair is cut (a connection blip).
@@ -83,6 +87,7 @@ class Link implements NetTransport {
   }
 
   send(data: Uint8Array, to?: string): void {
+    if (data.length > RELAY_MSG_MAX) return;
     for (const [id, end] of this.hub.ends) {
       if (id === this.selfId || end.closed || (to !== undefined && to !== id) || !this.hub.linked(this.selfId, id)) continue;
       const copy = data.slice();
@@ -560,7 +565,7 @@ describe("netplay session: the highlight reel", () => {
       s.cg.playReel = (reel, startAt) => resolve([reel, startAt]);
     });
     const hostStart = s.clock() / 1000 + 3;
-    s.host.sendReel((await packReel({ seed: 7, clips: [] }, hostStart)).msg);
+    for (const part of reelParts(await packReel({ seed: 7, clips: [] }, hostStart))) s.host.sendReliable(part);
     s.hub.flush();
     const [reel, startAt] = await played;
     assert.equal(reel.seed, 7);
@@ -573,6 +578,30 @@ describe("netplay session: the highlight reel", () => {
     s.cg.playing = false;
     s.step(20);
     assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) < 0.01, "snapshots draw again once it ends");
+  });
+
+  it("bad: a reel over the relay's message cap reaches the guest with every clip", { timeout: 20000 }, async () => {
+    const s = session();
+    const played = new Promise<Reel>((resolve) => {
+      s.cg.playReel = (reel) => resolve(reel);
+    });
+    const { clip } = makeClip();
+    // Incompressible pedals and digits: three clips that deflate to over the cap together.
+    let seed = 1;
+    const noise = (n: number): Uint8Array => Uint8Array.from({ length: n }, () => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0) >>> 24);
+    const steps = 8000;
+    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: noise((steps - 100) * 2 * FINE_BYTES) };
+    const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }];
+    const msg = await packReel({ seed: 5, clips }, s.clock() / 1000 + 3);
+    assert.ok(msg.length > RELAY_MSG_MAX, `precondition: the reel is ${msg.length} bytes, over the cap`);
+    const parts = reelParts(msg);
+    assert.ok(parts.length > 1 && parts.every((p) => p.length <= RELAY_MSG_MAX), "no frame over the cap");
+    for (const part of parts) s.host.sendReliable(part);
+    s.hub.flush();
+    const reel = await played;
+    assert.equal(reel.clips.length, 3, "every clip arrives");
+    sameClip(reel.clips[0]!, big);
+    sameClip(reel.clips[2]!, clips[2]!);
   });
 });
 

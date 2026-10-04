@@ -20,10 +20,7 @@ import {
   Writer,
   type NetLayout,
   type Snapshot,
-  type DerbyNetState,
-  readDerby,
-  writeDerby,
-  packEject,
+  type DerbyNetState, readDerby, writeDerby, packEject,
 } from "./codec.ts";
 import { PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
@@ -31,6 +28,7 @@ import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetTransport } from "./transport.ts";
 import { playHostReel } from "./reel-codec.ts";
+import { ReelParts } from "./reel-wire.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
 import { fetchRooms, findMatch, matchStage, publicMeta, publicRoomName, WEAK_AI, WEAK_DERBY_FIELD, type MatchDeps } from "./matchmaking.ts";
@@ -118,6 +116,7 @@ export class NetPlay {
   private order = 0;
   private lastSeq = -1;
   private readonly ejects = new EjectQueue();
+  private readonly reelIn = new ReelParts();
   /** Smallest seen (local clock − host clock), s: the host time "now" is local − offset. */
   private offset = Infinity;
   /** Per car: receive order of the wreck section last applied. */
@@ -597,8 +596,8 @@ export class NetPlay {
     this.statBytes += msg.length;
   }
 
-  /** Host: the end-of-race highlight reel (`packReel`) to every peer, on the reliable channel. */
-  sendReel(msg: Uint8Array<ArrayBuffer>): void {
+  /** Host: one message to every peer on the reliable channel (a `reelParts` frame of the end-of-race highlight reel, an ejection). */
+  sendReliable(msg: Uint8Array<ArrayBuffer>): void {
     if (this.role !== "host" || !this.transport) return;
     this.transport.send(msg, undefined, true);
     this.statBytes += msg.length;
@@ -606,7 +605,7 @@ export class NetPlay {
 
   /** Host: a driver was thrown out (`EjectionWatch`): every peer launches his dummy from this event, on the reliable channel. */
   sendEject(e: Ejection): void {
-    this.sendReel(packEject(e, this.now() / 1000));
+    this.sendReliable(packEject(e, this.now() / 1000));
   }
   // ── client ────────────────────────────────────────────────────────────────
   private clientReceive(from: string, data: Uint8Array): void {
@@ -623,15 +622,15 @@ export class NetPlay {
     if (type === MSG.snapshot) this.takeSnapshot(data);
     else if (type === MSG.race) this.takeRace(data);
     else if (type === MSG.derby) this.takeDerby();
-    else if (type === MSG.reel) this.takeReel(data);
+    else if (type === MSG.reelPart) this.takeReel(this.reelIn.take(data));
     else if (type === MSG.eject) this.ejects.take(this.r);
   }
 
-  /** The host's highlight reel (`playHostReel`), its start moved onto this browser's clock by the snapshot offset. */
-  private takeReel(data: Uint8Array): void {
+  /** The host's highlight reel (`playHostReel`) once its last part is in, its start moved onto this browser's clock by the snapshot offset. */
+  private takeReel(data: Uint8Array | null): void {
     const car = this.game.cars()[0];
     const t = this.transport;
-    if (car && Number.isFinite(this.offset)) playHostReel(data, this.layoutOf(car), this.offset, (reel, at) => this.game.playReel(reel, at), () => this.transport === t);
+    if (data && car && Number.isFinite(this.offset)) playHostReel(data, this.layoutOf(car), this.offset, (reel, at) => this.game.playReel(reel, at), () => this.transport === t);
   }
 
   /**

@@ -24,8 +24,8 @@ const REPLAY_VERSION = 8;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
-/** A reel message stays under the WebRTC data channel's 256 KiB message cap. */
-export const REEL_MSG_MAX = 240 * 1024;
+/** The deflated size the recorder budgets a reel's clips to (`CrashRecorder`). A reel over it still goes whole, in `reelParts` frames. */
+export const REEL_BUDGET = 240 * 1024;
 const SAVE_MAGIC = 0x4c484353; // "SCHL"
 const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).length);
 
@@ -227,27 +227,18 @@ function clipsBytes(clips: readonly HighlightClip[]): Uint8Array<ArrayBuffer> {
 }
 
 /**
- * `MSG.reel`, sent once, reliably: type, seed (u32), the host-clock second every peer starts the reel at (f64), then
- * the clips deflated. In rank order, a clip goes in only if the message still fits `max` (`REEL_MSG_MAX`), so a top
- * clip too big to send drops alone instead of taking every clip below it along; the host plays the clips it sent,
- * so every peer shows the same ones. `clips`: how many went in.
+ * The reel as one message (`reelParts` frames it for the wire): `MSG.reel`, seed (u32), the host-clock second every
+ * peer starts the reel at (f64), then every clip deflated. The host plays the clips it sent, so every peer shows the same ones.
  */
-export async function packReel(reel: Reel, startAt: number, max = REEL_MSG_MAX): Promise<{ msg: Uint8Array<ArrayBuffer>; clips: number }> {
-  const kept: HighlightClip[] = [];
-  let body = await deflate(clipsBytes(kept));
-  for (const c of reel.clips) {
-    const next = await deflate(clipsBytes([...kept, c]));
-    if (next.length + 13 > max) continue;
-    kept.push(c);
-    body = next;
-  }
+export async function packReel(reel: Reel, startAt: number): Promise<Uint8Array<ArrayBuffer>> {
+  const body = await deflate(clipsBytes(reel.clips));
   const w = new Writer(13 + body.length);
   w.u8(MSG.reel);
   w.u32(reel.seed);
   w.f64(startAt);
   w.bytes.set(body, w.off);
   w.off += body.length;
-  return { msg: w.done(), clips: kept.length };
+  return w.done();
 }
 
 /** A `MSG.reel`; RangeError on a malformed one. */
