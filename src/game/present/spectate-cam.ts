@@ -38,7 +38,7 @@ export type Sight = {
   grid?: RoadGrid;
 };
 
-/** A square grid over the path's bounds: per cell (row-major from `x0`, `z0`), the path sample to project from, or -1. */
+/** A square grid over the path's bounds: per cell (row-major from `x0`, `z0`), `GRID_HINTS` path samples to project from (-1: unused). */
 type RoadGrid = { x0: number; z0: number; cols: number; rows: number; hint: Int16Array };
 
 export const CINE = {
@@ -119,16 +119,18 @@ export function raceSight(track: Track, placed: readonly Placed[]): Sight {
   return sight;
 }
 
-/** Cell side (m) of a `RoadGrid`, and how far (m) from the road a cell still has a hint. */
+/** Cell side (m) of a `RoadGrid`, how far (m) from the road a cell still has hints, and how many stretches of road a cell may name. */
 const GRID_CELL = 8;
 const GRID_REACH = 40;
+const GRID_HINTS = 3;
 
 /**
- * `Sight.grid`: per cell, the path sample nearest its centre when one road alone is near it, else -1 (no road within
- * `GRID_REACH`, or a second stretch more than `WINDOW` samples along from it within the `GRID_CELL` * √2 by which a point of the cell can
- * reorder two distances: a crossing, a hairpin). A projection from that sample's window is the nearest road's (`projectPath`),
- * so `solid` no longer starts from the last query's segment, which on a crossing course could be the other road's.
- * O(cells × samples) once a course.
+ * `Sight.grid`: per cell, up to `GRID_HINTS` path samples to project from: the nearest to the cell centre on each stretch of
+ * road (samples more than `WINDOW` along from each other are different stretches) that lies within `GRID_CELL` * √2 of
+ * the nearest one, the margin by which a point of the cell can reorder two distances. The nearest road to any point of the
+ * cell is then in one of those samples' windows (`projectPath`), whichever crossing or hairpin it is at; a cell with no road within
+ * `GRID_REACH`, or more stretches than that, has none (the whole path is searched). `solid` used to start from the last
+ * query's segment, which on a crossing course could be the other road's. O(cells × samples) once a course.
  */
 function roadGrid(p: TrackPath): RoadGrid {
   let x0 = Infinity;
@@ -145,41 +147,69 @@ function roadGrid(p: TrackPath): RoadGrid {
   z0 -= GRID_REACH;
   const cols = Math.ceil((x1 + GRID_REACH - x0) / GRID_CELL);
   const rows = Math.ceil((z1 + GRID_REACH - z0) / GRID_CELL);
-  const hint = new Int16Array(cols * rows).fill(-1);
+  const hint = new Int16Array(cols * rows * GRID_HINTS).fill(-1);
   const n = p.count;
+  const dist2 = new Float64Array(n);
+  const best: number[] = [];
   for (let r = 0; r < rows; r++) {
     for (let c = 0; c < cols; c++) {
       const cx = x0 + (c + 0.5) * GRID_CELL;
       const cz = z0 + (r + 0.5) * GRID_CELL;
-      let best = -1;
       let bd = GRID_REACH * GRID_REACH;
       for (let k = 0; k < n; k++) {
         const d = (p.x[k]! - cx) ** 2 + (p.z[k]! - cz) ** 2;
-        if (d < bd) {
-          bd = d;
-          best = k;
-        }
+        dist2[k] = d;
+        if (d < bd) bd = d;
       }
-      if (best < 0) continue;
+      if (bd >= GRID_REACH * GRID_REACH) continue;
       const reorder = (Math.sqrt(bd) + GRID_CELL * Math.SQRT2) ** 2;
-      let alone = true;
-      for (let j = 0; j < n && alone; j++) {
-        const gap = p.closed ? Math.min(Math.abs(j - best), n - Math.abs(j - best)) : Math.abs(j - best);
-        if (gap > WINDOW && (p.x[j]! - cx) ** 2 + (p.z[j]! - cz) ** 2 < reorder) alone = false;
+      // Stretches: runs of samples within `reorder` of the centre, a new one past a gap of more than `WINDOW`.
+      best.length = 0;
+      let first = -1;
+      let last = -Infinity;
+      for (let k = 0; k < n; k++) {
+        if (dist2[k]! >= reorder) continue;
+        if (first < 0) first = k;
+        if (k - last > WINDOW) best.push(k);
+        else if (dist2[k]! < dist2[best[best.length - 1]!]!) best[best.length - 1] = k;
+        last = k;
       }
-      if (alone) hint[r * cols + c] = best;
+      // A closed path's last stretch continues into its first.
+      if (p.closed && best.length > 1 && first + n - last <= WINDOW) {
+        if (dist2[best[best.length - 1]!]! < dist2[best[0]!]!) best[0] = best[best.length - 1]!;
+        best.pop();
+      }
+      if (best.length > GRID_HINTS) continue;
+      for (let h = 0; h < best.length; h++) hint[(r * cols + c) * GRID_HINTS + h] = best[h]!;
     }
   }
   return { x0, z0, cols, rows, hint };
 }
 
-/** The path sample to start `solid`'s projection from at (x, z): -1 (search the whole path) where the grid has none. */
-function gridHint(g: RoadGrid, x: number, z: number): number {
-  const c = Math.floor((x - g.x0) / GRID_CELL);
-  const r = Math.floor((z - g.z0) / GRID_CELL);
-  return c >= 0 && c < g.cols && r >= 0 && r < g.rows ? g.hint[r * g.cols + c]! : -1;
+/** The nearest road to (x, z) into `_proj`: from each of the cell's hints' windows, or the whole path where it has none. */
+function project(s: Sight, p: TrackPath, x: number, z: number): void {
+  const g = s.grid;
+  const c = g ? Math.floor((x - g.x0) / GRID_CELL) : -1;
+  const r = g ? Math.floor((z - g.z0) / GRID_CELL) : -1;
+  const at = g && c >= 0 && c < g.cols && r >= 0 && r < g.rows ? (r * g.cols + c) * GRID_HINTS : -1;
+  if (!g || at < 0 || g.hint[at]! < 0) {
+    projectPath(p, x, z, -1, _proj);
+    return;
+  }
+  projectPath(p, x, z, g.hint[at]!, _proj);
+  for (let h = 1; h < GRID_HINTS && g.hint[at + h]! >= 0; h++) {
+    projectPath(p, x, z, g.hint[at + h]!, _alt);
+    if (_alt.dist2 >= _proj.dist2) continue;
+    _proj.k = _alt.k;
+    _proj.s = _alt.s;
+    _proj.lateral = _alt.lateral;
+    _proj.dist2 = _alt.dist2;
+    _proj.cx = _alt.cx;
+    _proj.cz = _alt.cz;
+  }
 }
 
+const _alt = blankProjection();
 const _proj = blankProjection();
 const _pt = blankPoint();
 const _near: Occluder[] = [];
@@ -191,7 +221,7 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
   const p = s.path;
   if (p) {
-    projectPath(p, x, z, s.grid ? gridHint(s.grid, x, z) : -1, _proj);
+    project(s, p, x, z);
     const k = _proj.k;
     const lat = _proj.lateral;
     const left = lat > 0;
