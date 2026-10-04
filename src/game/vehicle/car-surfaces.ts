@@ -241,13 +241,15 @@ export class CarSurfaces implements Ground {
     return _p.y;
   }
 
+  /** Only a car below the stepping car (by origin height) is its ground: two cars each standing on the other lifted one another up, 1.5 m a frame. */
   heightAt(x: number, z: number, y?: number): number {
     let best = activeGround().heightAt(x, z, y);
     this.owner = -1;
     if (y === undefined) return best;
+    const above = this.self!.group.position.y;
     for (let i = 0; i < this.cars.length; i++) {
       const o = this.cars[i]!;
-      if (o === this.self || o.falling || o.vaporized) continue;
+      if (o === this.self || o.falling || o.vaporized || o.group.position.y > above) continue;
       const h = this.top(o, x, z, y);
       if (h > best) {
         best = h;
