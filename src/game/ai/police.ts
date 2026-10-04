@@ -534,7 +534,7 @@ export class PoliceBrain implements CopBrain {
       if (!this.huntable(t, hunt, time)) {
         const next = this.nearestTo(p, cars, hunt, time);
         if (next < 0) {
-          this.disband(p);
+          this.disband(p, cars, world);
           continue;
         }
         this.target[p] = next;
@@ -553,7 +553,7 @@ export class PoliceBrain implements CopBrain {
       this.sustain[p] = near < ENGAGE ? this.sustain[p]! + dt : 0;
       this.lost[p] = near > LOSE ? this.lost[p]! + dt : 0;
       if (this.lost[p]! > LOSE_TIME || this.age[p]! > PURSUIT_MAX) {
-        this.disband(p);
+        this.disband(p, cars, world);
         continue;
       }
       if (this.sustain[p]! >= REINFORCE_EVERY && size < PACK_MAX) {
@@ -672,15 +672,20 @@ export class PoliceBrain implements CopBrain {
     this.stats.pursuits++;
   }
 
-  /** Pack `p` gives up: its units drive off and are stored out of view. */
-  private disband(p: number): void {
+  /**
+   * Pack `p` gives up: its chasers drive off and are stored out of view. A unit still parked (no racer passed its
+   * spot, so it never woke) has nothing to give up: unseen, it is put away where it stands; in view, it drives off
+   * like the rest rather than vanish.
+   */
+  private disband(p: number, cars: readonly AiCar[], world: PoliceWorld): void {
     this.packLive[p] = 0;
     this.target[p] = -1;
     for (let u = 0; u < this.count; u++) {
       if (this.pack[u] !== p) continue;
       this.pack[u] = -1;
-      if (this.state[u] === "parked") this.setState(u, "pursuit");
-      else this.since[u] = 0;
+      if (this.state[u] !== "parked") this.since[u] = 0;
+      else if (world.seen(cars[this.first + u]!.x, cars[this.first + u]!.z)) this.setState(u, "pursuit");
+      else this.store(u, world);
     }
   }
 
