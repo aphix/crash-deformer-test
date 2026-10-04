@@ -20,9 +20,11 @@ const SEED = 5;
 /**
  * The seed of the tests that need the field's first clip to open on intact cars with its focus car driving (a clip that
  * leaves nothing of the race torn but what it restores, and a car moving through the slow-mo). Seed 5's first clip opens
- * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 4 and 8) opens on none, the focus car at 17 m/s.
+ * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 8) opens on none, the focus car at
+ * 17 m/s. Any change to the car sim moves a seed's whole race (seed 2 lost it when a pair's contact axis moved), so the
+ * leftovers test asserts the precondition by name first.
  */
-const CLEAN_SEED = 2;
+const CLEAN_SEED = 4;
 
 describe("highlight reel timeline", () => {
   it("bad: the reel must play a clip at 1× up to the hit, hold the phase.ts slow-mo over it, then catch up to the end", () => {
@@ -138,6 +140,13 @@ describe("highlight reel and the race's leftovers", () => {
       race(a, FIELD, CLEAN_SEED);
       const reel = await recordedReel(a);
       const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
+      // Precondition of the seed, not the rule: the first clip itself restores no torn part, so what a setup leaves is the race's.
+      const opening = new ReelDirector({ ...hostOf(a), clear: () => a.cars.forEach((c) => c.resetVisual()) });
+      opening.stepBudgetMs = Infinity;
+      opening.play(reel, 0);
+      opening.frame(FLIGHT_S / 2);
+      assert.equal(torn(), 0, `seed ${CLEAN_SEED} lost its precondition: its first clip opens on ${torn()} torn parts of an earlier pile-up; pick a seed whose first clip opens on intact cars`);
+      opening.stop();
       for (const c of a.cars) c["detachPart"](c["parts"].find((p) => p.region)!, 12);
       assert.ok(torn() >= a.cars.length, `${torn()} torn parts over ${a.cars.length} cars`);
       let clears = 0;

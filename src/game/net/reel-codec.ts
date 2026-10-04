@@ -21,10 +21,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * solver state as doubles instead of float32 pairs (a keyframe restores a wreck bit for bit) and the clip's `fine` block
  * as the pedals' doubles, NaN where not recorded, instead of one rounding byte each; the pile-ups replay to the bit; 10:
  * the live sim changed under the same bytes: a car meets a solid or knock prop with its whole footprint, not six probes,
- * so a clip recorded against a prop replays another hit).
+ * so a clip recorded against a prop replays another hit; 11: the same for car-car contact: a pair's contact axis is
+ * signed by the cars' centres (`satTwoHulls`), so a clip saved under 10 replays its pairs' pushes the other way round).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 10;
+const REPLAY_VERSION = 11;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
