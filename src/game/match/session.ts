@@ -108,6 +108,10 @@ export class RaceSession {
   readonly track: Track;
   readonly laps: number;
   readonly noReset: boolean;
+  /** Seconds a car must stay held slow beside a chasing police car before the bust (`BUST.time`; a Survival run's own). */
+  readonly bustTime: number;
+  /** No gate credit, so no lap or finish: a Survival run ends only when its car is out (`Survival` rules). */
+  readonly endless: boolean;
   phase: RacePhase = "grid";
   time = -(GRID_TIME + COUNTDOWN);
   winnerId: number | null = null;
@@ -122,10 +126,12 @@ export class RaceSession {
   private readonly pt = blankPoint();
 
   /** `entrants` in grid order (index 0 on pole). */
-  constructor(track: Track, entrants: readonly Entrant[], opts: { laps: number; noReset: boolean }) {
+  constructor(track: Track, entrants: readonly Entrant[], opts: { laps: number; noReset: boolean; survival?: { bustTime: number } }) {
     this.track = track;
     this.laps = Math.max(1, Math.round(opts.laps));
     this.noReset = opts.noReset;
+    this.bustTime = opts.survival?.bustTime ?? BUST.time;
+    this.endless = opts.survival !== undefined;
     this.cars = entrants.map((e, i) => {
       const slot = track.gridSlot(i);
       return newRecord(e, i, slot.x, slot.z);
@@ -239,7 +245,7 @@ export class RaceSession {
         continue;
       }
       c.stopped += dt;
-      if (c.stopped <= BUST.time) continue;
+      if (c.stopped <= this.bustTime) continue;
       c.bustedAt = this.time;
       c.wrongWay = false;
       c.wrongFor = 0;
@@ -337,8 +343,8 @@ export class RaceSession {
     c.z = pose.z;
     const mx = pose.x - x0;
     const mz = pose.z - z0;
-    if (mx * mx + mz * mz < TELEPORT * TELEPORT) this.gates(i, x0, z0, t0, dt);
-    if (c.status === "racing") this.measure(i, pose.vx, pose.vz, dt);
+    if (!this.endless && mx * mx + mz * mz < TELEPORT * TELEPORT) this.gates(i, x0, z0, t0, dt);
+    if (!this.endless && c.status === "racing") this.measure(i, pose.vx, pose.vz, dt);
   }
 
   /**

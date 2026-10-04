@@ -8,7 +8,8 @@ import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { Campaign } from "../match/campaign.ts";
 import { SURFACES } from "../world/catalog.ts";
-import type { PoliceBrain } from "../ai/police.ts";
+import { PoliceBrain } from "../ai/police.ts";
+import { HunterBrain } from "../ai/hunter.ts";
 import type { AiCar } from "../ai/derby-ai.ts";
 import { onSurface } from "../ai/race-ai.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
@@ -76,18 +77,24 @@ export class RaceDirector extends RaceField {
     return this.active && this.menu != null;
   }
 
-  enter(): void {
+  /** Race mode on. `survival`: a Survival run on its own course instead of the setup menu (docs/SURVIVAL.md). */
+  enter(survival = false): void {
     if (this.active) return;
     this.active = true;
+    this.survival = survival;
     const scene = this.host.scene;
     this.saved = { background: scene.background as THREE.Color | null, fog: scene.fog, far: this.host.camera.far };
     this.host.seat.drivable = (i) => this.entrants[i]?.kind === "player" && this.session != null && !this.spectating;
-    this.toSetup();
+    if (survival) {
+      this.entrants = this.field();
+      this.start(this.survivalId, this.defaultGrid());
+    } else this.toSetup();
   }
 
   exit(): void {
     if (!this.active) return;
     this.active = false;
+    this.survival = false;
     this.menu = null;
     this.session = null;
     this.brain = null;
@@ -192,7 +199,7 @@ export class RaceDirector extends RaceField {
         this.watch(cmd.id);
         return;
       case "quit":
-        if (this.menu === "setup") this.host.leave();
+        if (this.menu === "setup" || this.survival) this.host.leave();
         else this.toSetup();
         return;
     }
@@ -315,7 +322,12 @@ export class RaceDirector extends RaceField {
 
   /** This race's police chase stats (null with police off). */
   get policeStats(): Readonly<PoliceBrain["stats"]> | null {
-    return this.police?.stats ?? null;
+    return this.police instanceof PoliceBrain ? this.police.stats : null;
+  }
+
+  /** This Survival run's pack stats (null outside Survival). */
+  get hunterStats(): Readonly<HunterBrain["stats"]> | null {
+    return this.police instanceof HunterBrain ? this.police.stats : null;
   }
 
   /** A network peer's latest input for car `carId` (slot kind "remote"); held until the next one arrives. */
@@ -662,6 +674,7 @@ export class RaceDirector extends RaceField {
       campaign: this.campaign ? this.campaign.snapshot() : null,
       nextCourse: this.nextCourseName(),
       fullUi: this.fullUi,
+      survival: this.survivalHud(),
     };
   }
 

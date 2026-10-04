@@ -14,7 +14,7 @@ import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls }
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
 import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
-import type { SceneId } from "../scenes/scene-id.ts";
+import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
@@ -97,7 +97,7 @@ export abstract class EngineScenes extends EngineHud {
    * presentation only; a pick mid-transition retargets it.
    */
   protected setScene(next: SceneId): void {
-    if (this.net.client) return;
+    if (this.net.client || (SOLO_SCENES[next] && this.net.role !== "off")) return;
     if (next === (this.sceneFade.pending ?? this.sceneId)) next = "fleet";
     if (this.fadeScenes && !this.warming) {
       this.sceneFade.request(next);
@@ -108,6 +108,12 @@ export abstract class EngineScenes extends EngineHud {
   /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the cel pass and the veil. */
   protected stepSceneFade(wallDt: number): void {
     const fade = this.sceneFade;
+    // Survival is single player: a room (hosted or joined) takes the player back to the fleet.
+    if (SOLO_SCENES[this.sceneId] && this.net.role !== "off") {
+      this.setRace(false);
+      this.randomizeAndReset();
+      this.emitHud();
+    }
     // The canvas-only tiers have no cel pass: they fade to black and back alone.
     const calm = this.clock.reduceMotion || this.cine.tier === "off" || this.cine.tier === "minimal";
     const next = fade.frame(wallDt, calm, this.warmsInFlight > 0);
@@ -130,13 +136,13 @@ export abstract class EngineScenes extends EngineHud {
       this.showBarrier = false;
       this.ensureCars(this.sandboxCars);
     }
-    if (this.race.active && next !== "race") this.setRace(false);
+    if (this.race.active && next !== this.sceneId) this.setRace(false);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
     if (next === "range") {
       this.sandboxCars = this.carCount;
       this.ensureCars(1);
     }
-    if (next === "race") this.setRace(true);
+    if (next === "race" || next === "survival") this.setRace(true, next === "survival");
     else this.sceneId = next;
     this.tryUnlockAudio();
     this.randomizeAndReset();
@@ -164,6 +170,11 @@ export abstract class EngineScenes extends EngineHud {
 
   toggleCorkscrew(): void {
     this.setScene("corkscrew");
+  }
+
+  /** Survival (docs/SURVIVAL.md): single player, on its own course. */
+  toggleSurvival(): void {
+    this.setScene("survival");
   }
 
   /**
@@ -236,14 +247,14 @@ export abstract class EngineScenes extends EngineHud {
     else this.race.requestRespawn();
   }
 
-  protected setRace(on: boolean): void {
+  protected setRace(on: boolean, survival = false): void {
     if (on === this.race.active) return;
     if (on) {
       if (this.derbyMode) this.setDerby(false);
       this.showBarrier = false;
       this.showBalls = false;
       this.showRamps = false;
-      this.sceneId = "race";
+      this.sceneId = survival ? "survival" : "race";
       this.barrier.group.visible = false;
       this.ramps.group.visible = false;
       scatterRampBalls(this.balls, false, this.sceneRng(1));
@@ -260,7 +271,7 @@ export abstract class EngineScenes extends EngineHud {
     for (const o of this.studio) o.visible = !on;
     for (const p of this.poles) p.group.visible = !on;
     if (on) {
-      this.race.enter();
+      this.race.enter(survival);
       this.race.setSeats(this.netSeats);
     } else {
       this.stopReel();

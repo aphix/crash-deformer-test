@@ -1,0 +1,419 @@
+import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import type { ClassStats } from "../vehicle/vehicle-classes.ts";
+import type { AiCar } from "./derby-ai.ts";
+import { MAX_CARS } from "../scenes/fleet.ts";
+import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
+import type { PropCollider } from "../world/placements.ts";
+import type { SurvivalSpec } from "../world/track-schema.ts";
+import type { Track } from "../world/track.ts";
+import { ATTACK, attackTarget, Backoff, CATCH_UP, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, WAIT_BEHIND, type CopBrain, type HunterWorld } from "./police.ts";
+
+/** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
+export const HUNT = {
+  /** Seconds between one more cop wanted. */
+  every: 12,
+  /** Most cops hunting at once. */
+  cap: 12,
+  /** Cars built for the pack: the cap, and a few wrecks that lie until nobody can see them go. */
+  units: 16,
+  /** A wrecked cop lies this long (s) before it may be put away, once nobody can see it go. */
+  wreckStore: 6,
+  /** A cop farther than `far` m from the player and out of sight for `farTime` s is put away, and dropped in again. */
+  far: 140,
+  farTime: 5,
+  /** Seconds between two drop-ins. */
+  gap: 1.5,
+  /** A cop drops in this far (m) from the player: at least, at most. */
+  dropMin: 70,
+  dropMax: 120,
+  /** Metres between the candidate drop-in spots along the roads, and the room a spot keeps from every car. */
+  spacing: 6,
+  clear: 12,
+  /** Most `hidden` tests a drop-in beat spends (each may sight-line the camera against the course's solids). */
+  tests: 16,
+} as const;
+
+/** The cops the run wants `time` s after the green, from the `formation` at the start: one more every `HUNT.every` s up to the cap. */
+export function copsWanted(time: number, formation: number): number {
+  return Math.min(HUNT.cap, formation + Math.floor(Math.max(0, time) / HUNT.every));
+}
+
+const STORED = 0;
+const HUNTING = 1;
+const DOWN = 2;
+
+/** Half width (m) of the swath a hunter keeps clear of solids, and the room a probe keeps from a solid's face. */
+const SWATH = 1.6;
+/** Metres between the probes along a heading (a palm is 3.8 m across with the swath), and the headings tried off the straight one, in turn, to either side. */
+const PROBE_STEP = 2;
+const TURNS = [0.3, 0.6, 0.9, 1.25, 1.6, 2.2, Math.PI] as const;
+/** A quarry slower than this (m/s) is not blocked from ahead (a unit braking in front of a stopped player waits for ever); it is rammed. */
+const BLOCKABLE = 6;
+/** A unit this close (m) to a quarry that has stopped eases to a creep (m/s): the bust needs the quarry slow, and a ram makes it fast. */
+const SETTLE = 12;
+const CREEP = 3;
+/** Above this speed (m/s) a unit lifts when a solid is close ahead; below it, easing off only wedges it. */
+const DODGE_SPEED = 8;
+/** With no heading clear for the whole stretch, a bend of one radian is worth this many metres of clear run. */
+const TURN_COST = 6;
+/** Obstacle grid cell (m). */
+const CELL = 16;
+
+/** The course's solid props (`body: "solid"`) on a grid: is a point inside one, grown by the swath. */
+class Obstacles {
+  private readonly cells = new Map<number, number[]>();
+  private readonly x: Float64Array;
+  private readonly z: Float64Array;
+  private readonly cos: Float64Array;
+  private readonly sin: Float64Array;
+  private readonly hx: Float64Array;
+  private readonly hz: Float64Array;
+  private readonly circle: Uint8Array;
+
+  constructor(colliders: readonly PropCollider[]) {
+    const solid = colliders.filter((c) => c.body === "solid");
+    this.x = Float64Array.from(solid, (c) => c.x);
+    this.z = Float64Array.from(solid, (c) => c.z);
+    this.cos = Float64Array.from(solid, (c) => Math.cos(c.yaw));
+    this.sin = Float64Array.from(solid, (c) => Math.sin(c.yaw));
+    this.hx = Float64Array.from(solid, (c) => c.hx + SWATH);
+    this.hz = Float64Array.from(solid, (c) => c.hz + SWATH);
+    this.circle = Uint8Array.from(solid, (c) => (c.kind === "circle" ? 1 : 0));
+    solid.forEach((c, i) => {
+      const r = c.r + SWATH;
+      for (let gx = Math.floor((c.x - r) / CELL); gx <= Math.floor((c.x + r) / CELL); gx++) {
+        for (let gz = Math.floor((c.z - r) / CELL); gz <= Math.floor((c.z + r) / CELL); gz++) {
+          const key = cellKey(gx, gz);
+          const list = this.cells.get(key);
+          if (list) list.push(i);
+          else this.cells.set(key, [i]);
+        }
+      }
+    });
+  }
+
+  blocked(x: number, z: number): boolean {
+    const list = this.cells.get(cellKey(Math.floor(x / CELL), Math.floor(z / CELL)));
+    if (!list) return false;
+    for (const i of list) {
+      const ex = x - this.x[i]!;
+      const ez = z - this.z[i]!;
+      if (this.circle[i]) {
+        if (ex * ex + ez * ez < this.hx[i]! * this.hx[i]!) return true;
+        continue;
+      }
+      // The prop's frame: local x = (cos, −sin), local z = (sin, cos).
+      const lx = ex * this.cos[i]! - ez * this.sin[i]!;
+      const lz = ex * this.sin[i]! + ez * this.cos[i]!;
+      if (Math.abs(lx) < this.hx[i]! && Math.abs(lz) < this.hz[i]!) return true;
+    }
+    return false;
+  }
+
+  /** Metres from (x, z) along heading `h` to the first solid (`len` when the way is clear that far). */
+  run(x: number, z: number, h: number, len: number): number {
+    const dx = Math.sin(h);
+    const dz = Math.cos(h);
+    for (let d = PROBE_STEP; d <= len; d += PROBE_STEP) if (this.blocked(x + dx * d, z + dz * d)) return d - PROBE_STEP;
+    return len;
+  }
+}
+
+function cellKey(gx: number, gz: number): number {
+  return (gx + 4096) * 8192 + (gz + 4096);
+}
+
+/**
+ * Survival's cops (Driver 2's mode, docs/SURVIVAL.md): cars `first … first + count − 1` hunt the player over open ground, up
+ * the embankment and across the plaza, not along a road: the aim is the player (led by its velocity), the heading is bent to the
+ * most open of a few headings when a solid prop stands in the way, and within `ATTACK` m the unit attacks with the police's own
+ * geometry (`attackTarget`: PIT, slam, block, head-on ram), steers by their one rule (`pursuitSteer`) and backs off when wedged
+ * (`Backoff`). Far behind it boosts to catch up (police have no meter), so a full-throttle player cannot simply outrun the pack.
+ *
+ * The pack grows (`copsWanted`): the formation at the green, one more every `HUNT.every` s up to `HUNT.cap`. A cop wrecked (`down`)
+ * or lost (far and unseen) is put away and a new one dropped in on a road, `HUNT.dropMin`…`dropMax` m from the player, ahead of it
+ * first, only where `world.hidden` says the camera cannot see it. Deterministic (seeded dice, no clock); no allocation per call.
+ */
+export class HunterBrain implements CopBrain {
+  readonly first: number;
+  readonly count: number;
+  /** This run: cops dropped in after the start, put away for being lost, knocked out, and the most hunting at once. */
+  readonly stats = { drops: 0, despawns: 0, disabled: 0, peak: 0 };
+  private readonly racers: number;
+  private readonly formation: SurvivalSpec["formation"];
+  private readonly obstacles: Obstacles;
+  private readonly seed: number;
+  private readonly out: DriveInput = idleDrive();
+  private readonly state: Uint8Array;
+  private readonly since: Float64Array;
+  private readonly lost: Float64Array;
+  private readonly role: Uint8Array;
+  /** Per unit: the side (+1 / −1) it last bent round a solid, so it keeps to it. */
+  private readonly side: Int8Array;
+  private readonly wedge: Backoff;
+  /** Per car id: a class's full-lock yaw rate. */
+  private readonly turn = new Float64Array(MAX_CARS).fill(1.5);
+  /** Candidate drop-in spots along every road: position and the road's direction. */
+  private readonly spotX: number[] = [];
+  private readonly spotZ: number[] = [];
+  private readonly spotTx: number[] = [];
+  private readonly spotTz: number[] = [];
+  private target = -1;
+  private go = false;
+  private nextDrop = 0;
+  private dice = 0;
+  /** Scratch: the last drop-in spot found. */
+  private readonly at = { x: 0, z: 0, yaw: 0 };
+
+  /** `racers` cars (ids 0 …) are hunted; the units follow them from `first`. */
+  constructor(track: Track, colliders: readonly PropCollider[], racers: number, first: number, count: number, seed: number) {
+    const spec = track.survival;
+    if (!spec) throw new Error(`${track.id} has no survival anchors`);
+    this.racers = racers;
+    this.first = first;
+    this.count = count;
+    this.seed = seed;
+    this.formation = spec.formation;
+    this.obstacles = new Obstacles(colliders);
+    this.state = new Uint8Array(count);
+    this.since = new Float64Array(count);
+    this.lost = new Float64Array(count);
+    this.role = new Uint8Array(count);
+    this.side = new Int8Array(count).fill(1);
+    this.wedge = new Backoff(count);
+    for (const p of track.paths()) {
+      for (let k = 0; k < p.count; k += HUNT.spacing) {
+        if (p.deck[k]) continue;
+        this.spotX.push(p.x[k]!);
+        this.spotZ.push(p.z[k]!);
+        this.spotTx.push(p.tx[k]!);
+        this.spotTz.push(p.tz[k]!);
+      }
+    }
+  }
+
+  setClass(id: number, s: ClassStats): void {
+    this.turn[id] = s.turn;
+  }
+
+  /** Cops hunting now. */
+  get hunting(): number {
+    let n = 0;
+    for (let u = 0; u < this.count; u++) if (this.state[u] === HUNTING) n++;
+    return n;
+  }
+
+  /** The run starts: the formation takes its slots, held until the green (`update` sees time ≥ 0). */
+  launch(world: HunterWorld): void {
+    this.go = false;
+    this.target = -1;
+    this.nextDrop = 0;
+    for (let u = 0; u < this.count; u++) this.state[u] = STORED;
+    this.formation.forEach((f, k) => {
+      if (k >= this.count) return;
+      world.park(this.first + k, f.x, 0, f.z, f.yaw);
+      this.deploy(k, world);
+    });
+  }
+
+  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[] {
+    out.length = 0;
+    for (let u = 0; u < this.count; u++) if (this.state[u] === HUNTING) out.push(cars[this.first + u]!);
+    return out;
+  }
+
+  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+    const out = this.out;
+    out.throttle = 0;
+    out.steer = 0;
+    out.brake = 1;
+    out.ebrake = false;
+    out.boost = false;
+    const u = self.id - this.first;
+    if (u < 0 || u >= this.count || !self.alive || this.state[u] !== HUNTING || !this.go || this.target < 0) return out;
+    out.brake = 0;
+    if (this.wedge.backing(u, dt, out)) return out;
+    const speed = Math.hypot(self.vx, self.vz);
+    const tg = cars[this.target]!;
+    const dx = tg.x - self.x;
+    const dz = tg.z - self.z;
+    const dist = Math.hypot(dx, dz);
+    const tv = Math.hypot(tg.vx, tg.vz);
+    // How far the unit stands ahead of its target along the target's travel (+), and whether it faces it from there.
+    const along = -(dx * Math.sin(tg.yaw) + dz * Math.cos(tg.yaw));
+    const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
+    const reach = along > 0 ? Math.max(ATTACK, tv * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
+    if (dist <= reach) {
+      attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out, tv > BLOCKABLE);
+      this.dodge(u, self, tg, speed, dist, out);
+      // A stopped player is boxed in, not rammed: a hit at 8 m/s throws the car over the bust's 20 km/h and restarts its hold.
+      if (tv <= BLOCKABLE && dist < SETTLE && speed > CREEP) {
+        out.throttle = 0;
+        out.brake = 0.5;
+        out.boost = false;
+      }
+    } else this.chase(u, self, tg, speed, dist, out);
+    this.wedge.watch(u, speed, dt, out);
+    return out;
+  }
+
+  /** A solid nearer than the target dead ahead of an attacking unit: bend round it (the police's attack geometry knows no walls). */
+  private dodge(u: number, self: AiCar, tg: AiCar, speed: number, dist: number, out: DriveInput): void {
+    const len = clamp(speed * 0.7 + 4, 6, 20);
+    const clear = this.obstacles.run(self.x, self.z, self.yaw, len);
+    if (clear >= len || clear >= dist - 3) return;
+    const h = this.openHeading(u, self, Math.atan2(tg.x - self.x, tg.z - self.z), speed, dist);
+    out.steer = pursuitSteer(wrapPi(h - self.yaw), clamp(speed * 0.8, 8, 24), speed, this.turn[self.id]!);
+    if (speed > DODGE_SPEED && clear < speed * 0.35) out.throttle = Math.min(out.throttle, 0.3);
+  }
+
+  /** Beyond `ATTACK`: flat out at where the target will be, round any solid in the way, boosting when far behind. */
+  private chase(u: number, self: AiCar, tg: AiCar, speed: number, dist: number, out: DriveInput): void {
+    const lead = Math.min(2, dist / Math.max(8, speed));
+    const ax = tg.x + tg.vx * lead;
+    const az = tg.z + tg.vz * lead;
+    const aimDist = Math.hypot(ax - self.x, az - self.z);
+    const h = this.openHeading(u, self, Math.atan2(ax - self.x, az - self.z), speed, aimDist);
+    const alpha = wrapPi(h - self.yaw);
+    // Pure pursuit looks a speed-scaled way ahead, so a heading bent round a solid is followed as sharply as it was asked.
+    out.steer = pursuitSteer(alpha, Math.min(aimDist, clamp(speed * 0.8, 8, 24)), speed, this.turn[self.id]!);
+    out.throttle = Math.abs(alpha) > 1.3 && speed > 6 ? 0.2 : 1;
+    out.boost = out.throttle > 0.5 && dist > CATCH_UP && Math.abs(alpha) < 0.35;
+  }
+
+  /** The heading nearest `want` whose way is clear of solids for the next stretch; else the one with the longest clear run, a bend costing `TURN_COST` m per radian. */
+  private openHeading(u: number, self: AiCar, want: number, speed: number, aimDist: number): number {
+    const len = Math.min(aimDist, clamp(speed * 1.1 + 8, 12, 34));
+    let best = want;
+    let bestScore = this.obstacles.run(self.x, self.z, want, len);
+    if (bestScore >= len) return want;
+    const s0 = this.side[u]!;
+    for (const t of TURNS) {
+      for (let k = 0; k < 2; k++) {
+        const s = k === 0 ? s0 : -s0;
+        const h = want + s * t;
+        const run = this.obstacles.run(self.x, self.z, h, len);
+        const score = run >= len ? Infinity : run - t * TURN_COST;
+        if (score > bestScore) {
+          bestScore = score;
+          best = h;
+          this.side[u] = s;
+          if (run >= len) return h;
+        }
+      }
+    }
+    return best;
+  }
+
+  update(time: number, dt: number, cars: readonly AiCar[], hunt: Uint8Array, _lead: number, world: HunterWorld): void {
+    this.go = time >= 0;
+    this.target = -1;
+    for (let i = 0; i < this.racers; i++) {
+      if (hunt[i] === 1) {
+        this.target = i;
+        break;
+      }
+    }
+    const tg = this.target >= 0 ? cars[this.target]! : null;
+    let hunting = 0;
+    for (let u = 0; u < this.count; u++) {
+      const st = this.state[u]!;
+      if (st === STORED) continue;
+      const id = this.first + u;
+      const car = cars[id]!;
+      this.since[u]! += dt;
+      if (st === DOWN) {
+        if (this.since[u]! > HUNT.wreckStore && world.hidden(car.x, car.z)) this.store(u, world);
+        continue;
+      }
+      if (world.down(id)) {
+        this.state[u] = DOWN;
+        this.since[u] = 0;
+        world.sirens(id, false);
+        this.stats.disabled++;
+        continue;
+      }
+      // Lost: far from the player and nobody to see it go.
+      const far = tg !== null && Math.hypot(car.x - tg.x, car.z - tg.z) > HUNT.far;
+      this.lost[u] = far && world.hidden(car.x, car.z) ? this.lost[u]! + dt : 0;
+      if (this.lost[u]! > HUNT.farTime) {
+        this.store(u, world);
+        this.stats.despawns++;
+        continue;
+      }
+      hunting++;
+    }
+    this.stats.peak = Math.max(this.stats.peak, hunting);
+    if (!this.go || tg === null || time < this.nextDrop || hunting >= copsWanted(time, this.formation.length)) return;
+    const u = this.free();
+    if (u < 0 || !this.dropSpot(tg, cars, world)) return;
+    world.park(this.first + u, this.at.x, 0, this.at.z, this.at.yaw);
+    this.deploy(u, world);
+    this.stats.drops++;
+    this.nextDrop = time + HUNT.gap;
+  }
+
+  /** Unit `u` is parked and starts hunting. */
+  private deploy(u: number, world: HunterWorld): void {
+    this.state[u] = HUNTING;
+    this.since[u] = 0;
+    this.lost[u] = 0;
+    this.role[u] = u;
+    this.wedge.reset(u);
+    world.sirens(this.first + u, true);
+  }
+
+  private store(u: number, world: HunterWorld): void {
+    world.sirens(this.first + u, false);
+    world.store(this.first + u);
+    this.state[u] = STORED;
+  }
+
+  private free(): number {
+    for (let u = 0; u < this.count; u++) if (this.state[u] === STORED) return u;
+    return -1;
+  }
+
+  /**
+   * A road spot `dropMin … dropMax` m from `tg`, clear of every car, that the camera cannot see (`world.hidden`), facing along the
+   * road toward the player: ahead of the player's travel first, anywhere round it if none is. Fills `at`.
+   */
+  private dropSpot(tg: AiCar, cars: readonly AiCar[], world: HunterWorld): boolean {
+    const n = this.spotX.length;
+    const fx = Math.sin(tg.yaw);
+    const fz = Math.cos(tg.yaw);
+    const moving = Math.hypot(tg.vx, tg.vz) > 5;
+    let tests = 0;
+    for (let pass = moving ? 0 : 1; pass < 2; pass++) {
+      const ahead = pass === 0;
+      const from = Math.floor(this.roll() * n);
+      for (let k = 0; k < n; k++) {
+        const i = (from + k) % n;
+        const dx = this.spotX[i]! - tg.x;
+        const dz = this.spotZ[i]! - tg.z;
+        const d = Math.hypot(dx, dz);
+        if (d < HUNT.dropMin || d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
+        if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars)) continue;
+        if (tests++ >= HUNT.tests) return false;
+        if (!world.hidden(this.spotX[i]!, this.spotZ[i]!)) continue;
+        // Along the road, the way that points at the player.
+        const sign = this.spotTx[i]! * -dx + this.spotTz[i]! * -dz >= 0 ? 1 : -1;
+        this.at.x = this.spotX[i]!;
+        this.at.z = this.spotZ[i]!;
+        this.at.yaw = Math.atan2(this.spotTx[i]! * sign, this.spotTz[i]! * sign);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private crowded(x: number, z: number, cars: readonly AiCar[]): boolean {
+    for (const c of cars) if (Math.hypot(c.x - x, c.z - z) < HUNT.clear) return true;
+    return false;
+  }
+
+  /** Next seeded die, 0..1. */
+  private roll(): number {
+    return hash01(this.seed * 7.13 + 3.1, ++this.dice);
+  }
+}

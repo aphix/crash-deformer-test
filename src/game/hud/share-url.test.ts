@@ -120,6 +120,17 @@ describe("share URL: the netplay room", () => {
     assert.equal(decodeShare("tx=udp").tx, "rtc");
   });
 
+  it("good: scene=survival round-trips in the # when alone; a link that names a room never opens it (Survival is single player)", () => {
+    const alone: ShareState = { ...DEFAULTS, scene: "survival" };
+    assert.equal(encodeShare(alone), "scene=survival");
+    assert.equal(decodeShare("#scene=survival").scene, "survival");
+    assert.equal(json(decodeShare(`#${encodeShare(alone)}`)), json(alone));
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=survival").scene, "fleet", "a room's link with Survival in it joins the host's scene");
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=survival").room, "K7M2QX9P");
+    // The other scenes are still a room's to carry.
+    assert.equal(decodeShare("#room=K7M2QX9P&scene=range").scene, "range");
+  });
+
   it("good: a host's # carries its settings and room, a guest's only the room, and leaving drops it", () => {
     const hosting: ShareState = { ...DEFAULTS, room: "ABCD2345", cars: 5 };
     assert.equal(shareFragment(hosting, false), "room=ABCD2345&cars=5");

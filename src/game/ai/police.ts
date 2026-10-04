@@ -1,4 +1,5 @@
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import type { ClassStats } from "../vehicle/vehicle-classes.ts";
 import { STUCK_SPEED, type AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
@@ -64,16 +65,16 @@ const DOWN_STORE = 6;
 const RETIRE_FAR = 50;
 const RETIRE_MAX = 20;
 /** Closer than this (m), on the same stretch of road, a unit attacks; beyond it it drives the racing line. */
-const ATTACK = 35;
+export const ATTACK = 35;
 /** A unit ahead of its target attacks (pulls out into its path) once the target is this many seconds off, if that is farther than `ATTACK`. */
-const PULL_OUT = 1.6;
+export const PULL_OUT = 1.6;
 /** A unit ahead of its target and facing it (the target within acos(`HEAD_ON`) of its nose) rams it head-on from `RAM_TIME` s off. */
-const HEAD_ON = 0.7;
-const RAM_TIME = 3;
+export const HEAD_ON = 0.7;
+export const RAM_TIME = 3;
 /** Driving the line more than this far (m) behind its target, a unit boosts (police have no meter). */
-const CATCH_UP = 20;
+export const CATCH_UP = 20;
 /** Its target this far (m) behind along the road, a unit ahead of it crawls until it comes up. */
-const WAIT_BEHIND = 5;
+export const WAIT_BEHIND = 5;
 /** Attack geometry (m, in the target's frame): the rear quarter a PIT starts from, how far alongside a door slam lines up, the gap ahead of a block. */
 const PIT_BACK = 2;
 const PIT_SIDE = 1.7;
@@ -90,6 +91,120 @@ const CHECK = 9;
 const STUCK_FOR = 1.2;
 const BACK_FOR = 0.9;
 
+/** An aim past this angle (rad) off the nose is behind the shoulder (`pursuitSteer`, `PoliceBrain.lead`). */
+const BEHIND = 1.5;
+
+/**
+ * The one steering rule of every police drive (lead-in, attack, open-ground hunt): pure pursuit. Lock for the heading error
+ * `alpha` to an aim `reach` m ahead at `speed`, on a class whose full-lock yaw rate is `turn`.
+ */
+export function pursuitSteer(alpha: number, reach: number, speed: number, turn: number): number {
+  // An aim behind the shoulder: sin(alpha) fades to nothing as it nears dead astern, which drove a unit straight away from it. Full lock toward it.
+  if (Math.abs(alpha) > BEHIND) return Math.sign(alpha);
+  const turnMax = turn * (0.35 + 0.65 * Math.min(1, speed / 8));
+  return clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / Math.max(4, reach) / Math.max(0.2, turnMax), -1, 1);
+}
+
+/** Wedge recovery of every police drive: throttle held without motion for `STUCK_FOR` s backs a unit off for `BACK_FOR` s, steering the other way. */
+export class Backoff {
+  private readonly stuck: Float64Array;
+  private readonly back: Float64Array;
+  private readonly backSteer: Float64Array;
+
+  constructor(count: number) {
+    this.stuck = new Float64Array(count);
+    this.back = new Float64Array(count);
+    this.backSteer = new Float64Array(count);
+  }
+
+  reset(u: number): void {
+    this.stuck[u] = 0;
+    this.back[u] = 0;
+  }
+
+  /** True (with `out` set to reverse) while unit `u` backs off. */
+  backing(u: number, dt: number, out: DriveInput): boolean {
+    if (this.back[u]! <= 0) return false;
+    this.back[u]! -= dt;
+    out.throttle = -0.9;
+    out.steer = this.backSteer[u]!;
+    return true;
+  }
+
+  /** Count unit `u`'s wedged seconds from the `out` it just got at `speed`; a wedge of `STUCK_FOR` s starts a back-off. */
+  watch(u: number, speed: number, dt: number, out: DriveInput): void {
+    if (out.throttle > 0.35 && speed < STUCK_SPEED) this.stuck[u]! += dt;
+    else this.stuck[u] = Math.max(0, this.stuck[u]! - dt * 2);
+    if (this.stuck[u]! > STUCK_FOR) {
+      this.stuck[u] = 0;
+      this.back[u] = BACK_FOR;
+      this.backSteer[u] = -out.steer || 1;
+    }
+  }
+}
+
+/**
+ * Within `ATTACK` m of its target: ram head-on or block from ahead, PIT or slam from alongside, line up by `role` (its
+ * place in the pack) from behind. The one attack geometry of every police drive; `turn` is the class's full-lock yaw rate. `block` false
+ * drops the getting-ahead-and-braking part: a quarry that has stopped is not worth blocking.
+ */
+export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput, block = true): void {
+  const tfx = Math.sin(tg.yaw);
+  const tfz = Math.cos(tg.yaw);
+  // Left of the target's travel = (fz, −fx).
+  const tlx = tfz;
+  const tlz = -tfx;
+  const rx = self.x - tg.x;
+  const rz = self.z - tg.z;
+  const along = rx * tfx + rz * tfz;
+  const side = rx * tlx + rz * tlz;
+  const sideSign = side >= 0 ? 1 : -1;
+  const tv = Math.hypot(tg.vx, tg.vz);
+  let lead = clamp(dist / Math.max(4, speed), 0, 0.5);
+  let fwd: number;
+  let lat: number;
+  let want = tv + 8;
+  let brakeCheck = false;
+  if (headOn) {
+    // Facing it from ahead: flat out at where it will be when they meet.
+    fwd = 0;
+    lat = 0;
+    lead = clamp(dist / Math.max(4, tv + speed), 0, 1.5);
+    want = Infinity;
+  } else if (block && along > AHEAD_OF) {
+    // Ahead: onto its line in front of it, a little slower; brake-check when it closes.
+    fwd = along + BLOCK_AHEAD;
+    lat = 0;
+    want = tv * BLOCK_PACE;
+    brakeCheck = along < CHECK && tv > speed;
+  } else if (along > BESIDE_BACK && Math.abs(side) < BESIDE) {
+    // Alongside: at its rear quarter a PIT (nose across its tail), level with it a door slam.
+    fwd = along < -0.8 ? 1 : 1.5;
+    lat = -sideSign * (along < -0.8 ? 0.5 : 1.5);
+  } else if (role % 3 === 0) {
+    // Behind: line up by place in the pack.
+    fwd = -PIT_BACK;
+    lat = sideSign * PIT_SIDE;
+  } else if (role % 3 === 1) {
+    fwd = BLOCK_AHEAD * 0.6;
+    lat = sideSign * SLAM_SIDE;
+  } else {
+    fwd = 0;
+    lat = (role % 2 === 0 ? 1 : -1) * SLAM_SIDE;
+  }
+  const ax = tg.x + tg.vx * lead + tfx * fwd + tlx * lat;
+  const az = tg.z + tg.vz * lead + tfz * fwd + tlz * lat;
+  const alpha = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
+  out.steer = pursuitSteer(alpha, Math.hypot(ax - self.x, az - self.z), speed, turn);
+  if (brakeCheck) {
+    out.brake = 1;
+    return;
+  }
+  if (speed > want + 2) out.brake = 0.4;
+  else out.throttle = 1;
+  out.boost = out.throttle > 0 && (along < -6 || headOn) && Math.abs(alpha) < 0.35;
+}
+
 type UnitState = "stored" | "parked" | "pursuit" | "down";
 
 /** What the police need from the race director. */
@@ -104,6 +219,26 @@ export interface PoliceWorld {
   down(id: number): boolean;
   /** Car `id`'s sirens on or off. */
   sirens(id: number, on: boolean): void;
+}
+
+/** What Survival's hunters need besides the police's: whether a spot can be seen from the local camera at all (outside its view, or behind a solid). */
+export interface HunterWorld extends PoliceWorld {
+  hidden(x: number, z: number): boolean;
+}
+
+/** What the race director asks of a police brain: the road-bound chase (`PoliceBrain`) and Survival's open-ground hunt (`HunterBrain`). */
+export interface CopBrain {
+  readonly first: number;
+  readonly count: number;
+  setClass(id: number, s: ClassStats): void;
+  /** Racer `id` respawned at race time `time` (a brain that leaves it alone for a while). */
+  respawned?(id: number, time: number): void;
+  /** The units chasing a racer right now, from `cars` into `out` (cleared first): the rules' `BUST` counts only these. */
+  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[];
+  /** A unit's input for this physics slice (scratch output: apply it before the next call). */
+  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput;
+  /** One patrol pass (the director's bubble beat, `dt` s). `hunt[id]` is 1 for a racer still racing; `lead` is the leader's progress (m). */
+  update(time: number, dt: number, cars: readonly AiCar[], hunt: Uint8Array, lead: number, world: HunterWorld): void;
 }
 
 /** The racing line's rules state for a unit driving it: main loop only, never a shortcut. */
@@ -124,7 +259,7 @@ const LINE_STATE = { next: -1, lap: 0 };
  * Police are never entrants: the rules and standings never see them.
  * Deterministic (seeded dice, no clock); no allocation per call.
  */
-export class PoliceBrain {
+export class PoliceBrain implements CopBrain {
   readonly first: number;
   readonly count: number;
   /** This race: stakeouts parked, pursuits started (stakeouts woken), the largest pack in pursuit, units knocked out. */
@@ -138,9 +273,7 @@ export class PoliceBrain {
   private readonly pack: Int16Array;
   private readonly role: Uint8Array;
   private readonly since: Float64Array;
-  private readonly stuck: Float64Array;
-  private readonly back: Float64Array;
-  private readonly backSteer: Float64Array;
+  private readonly wedge: Backoff;
   /** Per unit: seconds of lead-in left, and its parking spot's road arc (m). */
   private readonly leadIn: Float64Array;
   private readonly parkS: Float64Array;
@@ -172,9 +305,7 @@ export class PoliceBrain {
     this.pack = new Int16Array(count).fill(-1);
     this.role = new Uint8Array(count);
     this.since = new Float64Array(count);
-    this.stuck = new Float64Array(count);
-    this.back = new Float64Array(count);
-    this.backSteer = new Float64Array(count);
+    this.wedge = new Backoff(count);
     this.leadIn = new Float64Array(count);
     this.parkS = new Float64Array(count);
     this.packLive = new Uint8Array(count);
@@ -186,7 +317,7 @@ export class PoliceBrain {
   }
 
   /** Unit `id`'s class figures (the line driver's and its own steering). */
-  setClass(id: number, s: Parameters<RaceBrain["setClass"]>[1]): void {
+  setClass(id: number, s: ClassStats): void {
     this.line.setClass(id, s);
     this.line.setAggression(id, 1);
     this.turn[id] = s.turn;
@@ -219,12 +350,7 @@ export class PoliceBrain {
     if (u < 0 || u >= this.count || !self.alive || this.state[u] !== "pursuit") return out;
     out.brake = 0;
     const speed = Math.hypot(self.vx, self.vz);
-    if (this.back[u]! > 0) {
-      this.back[u]! -= dt;
-      out.throttle = -0.9;
-      out.steer = this.backSteer[u]!;
-      return out;
-    }
+    if (this.wedge.backing(u, dt, out)) return out;
     const p = this.pack[u]!;
     const t = p >= 0 ? this.target[p]! : -1;
     const line = this.line.think(self, cars, LINE_STATE, dt);
@@ -270,79 +396,10 @@ export class PoliceBrain {
       out.boost = arc > CATCH_UP && line.throttle > 0.5;
       return out;
     }
-    this.attack(u, self, tg, speed, dist, headOn, out);
+    attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out);
     // Wedged (against its target on a wall, or a car): back off for another run.
-    if (out.throttle > 0.35 && speed < STUCK_SPEED) this.stuck[u]! += dt;
-    else this.stuck[u] = Math.max(0, this.stuck[u]! - dt * 2);
-    if (this.stuck[u]! > STUCK_FOR) {
-      this.stuck[u] = 0;
-      this.back[u] = BACK_FOR;
-      this.backSteer[u] = -out.steer || 1;
-    }
+    this.wedge.watch(u, speed, dt, out);
     return out;
-  }
-
-  /** Within `ATTACK` m: ram head-on or block from ahead, PIT or slam from alongside, line up by pack role from behind. */
-  private attack(u: number, self: AiCar, tg: AiCar, speed: number, dist: number, headOn: boolean, out: DriveInput): void {
-    const tfx = Math.sin(tg.yaw);
-    const tfz = Math.cos(tg.yaw);
-    // Left of the target's travel = (fz, −fx).
-    const tlx = tfz;
-    const tlz = -tfx;
-    const rx = self.x - tg.x;
-    const rz = self.z - tg.z;
-    const along = rx * tfx + rz * tfz;
-    const side = rx * tlx + rz * tlz;
-    const sideSign = side >= 0 ? 1 : -1;
-    const tv = Math.hypot(tg.vx, tg.vz);
-    let lead = clamp(dist / Math.max(4, speed), 0, 0.5);
-    let fwd: number;
-    let lat: number;
-    let want = tv + 8;
-    let brakeCheck = false;
-    if (headOn) {
-      // Facing it from ahead: flat out at where it will be when they meet.
-      fwd = 0;
-      lat = 0;
-      lead = clamp(dist / Math.max(4, tv + speed), 0, 1.5);
-      want = Infinity;
-    } else if (along > AHEAD_OF) {
-      // Ahead: onto its line in front of it, a little slower; brake-check when it closes.
-      fwd = along + BLOCK_AHEAD;
-      lat = 0;
-      want = tv * BLOCK_PACE;
-      brakeCheck = along < CHECK && tv > speed;
-    } else if (along > BESIDE_BACK && Math.abs(side) < BESIDE) {
-      // Alongside: at its rear quarter a PIT (nose across its tail), level with it a door slam.
-      fwd = along < -0.8 ? 1 : 1.5;
-      lat = -sideSign * (along < -0.8 ? 0.5 : 1.5);
-    } else {
-      // Behind: line up by place in the pack.
-      const r = this.role[u]!;
-      if (r % 3 === 0) {
-        fwd = -PIT_BACK;
-        lat = sideSign * PIT_SIDE;
-      } else if (r % 3 === 1) {
-        fwd = BLOCK_AHEAD * 0.6;
-        lat = sideSign * SLAM_SIDE;
-      } else {
-        fwd = 0;
-        lat = (r % 2 === 0 ? 1 : -1) * SLAM_SIDE;
-      }
-    }
-    const ax = tg.x + tg.vx * lead + tfx * fwd + tlx * lat;
-    const az = tg.z + tg.vz * lead + tfz * fwd + tlz * lat;
-    const alpha = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
-    const reach = Math.max(4, Math.hypot(ax - self.x, az - self.z));
-    const turnMax = this.turn[self.id]! * (0.35 + 0.65 * Math.min(1, speed / 8));
-    out.steer = clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / reach / Math.max(0.2, turnMax), -1, 1);
-    if (brakeCheck) {
-      out.brake = 1;
-      return;
-    }
-    if (speed > want + 2) out.brake = 0.4;
-    else out.throttle = 1;
-    out.boost = out.throttle > 0 && (along < -6 || headOn) && Math.abs(alpha) < 0.35;
   }
 
   /** Lead-in: full throttle along the road toward where the target is heading (`sTo`), never straight at its side. */
@@ -353,11 +410,10 @@ export class PoliceBrain {
     const pt = this.track.pointAt(((s % L) + L) % L, this.pt);
     const blend = Math.min(1, (2 * (LEAD_IN - this.leadIn[u]!)) / LEAD_IN);
     const alpha = blend * wrapPi(Math.atan2(pt.x - self.x, pt.z - self.z) - self.yaw);
-    const reach = Math.max(4, Math.hypot(pt.x - self.x, pt.z - self.z));
-    const turnMax = this.turn[self.id]! * (0.35 + 0.65 * Math.min(1, speed / 8));
+    const reach = Math.hypot(pt.x - self.x, pt.z - self.z);
     // An aim behind its shoulder (the stakeout car facing the oncoming racers): full lock, half throttle.
-    const behind = Math.abs(alpha) > 1.5;
-    out.steer = behind ? Math.sign(alpha) : clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / reach / Math.max(0.2, turnMax), -1, 1);
+    const behind = Math.abs(alpha) > BEHIND;
+    out.steer = behind ? Math.sign(alpha) : pursuitSteer(alpha, reach, speed, this.turn[self.id]!);
     out.throttle = behind ? 0.5 : 1;
     out.boost = Math.abs(alpha) < 0.35;
   }
@@ -490,8 +546,7 @@ export class PoliceBrain {
     this.seg[id] = -1;
     this.pack[u] = p;
     this.role[u] = role;
-    this.stuck[u] = 0;
-    this.back[u] = 0;
+    this.wedge.reset(u);
     this.parkS[u] = s.s;
     this.setState(u, "parked");
     if (!this.packLive[p]) {

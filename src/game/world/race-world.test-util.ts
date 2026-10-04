@@ -29,6 +29,10 @@ export type World = {
   cars: DeformableCar[];
   live: () => DeformableCar[];
   race: RaceDirector;
+  /** The camera the director's view tests read (looking down from far below the world until a test aims it). */
+  camera: THREE.PerspectiveCamera;
+  /** Times the race asked the engine to leave its scene (`RaceHost.leave`: Quit in Survival). */
+  leaves: number;
   seat: DriverSeat;
   /** Called for every car pair in physical contact (the slice's first SAT pass), car indices a < b. */
   onPairContact: ((a: number, b: number) => void) | null;
@@ -43,7 +47,8 @@ export type World = {
   ejections: Ejection[];
 };
 
-export function makeWorld(): World {
+/** `survivalCourse`: a variant of the Survival course file (props added, say); the real one when omitted. */
+export function makeWorld(survivalCourse?: unknown): World {
   const scene = new THREE.Scene();
   const cars: DeformableCar[] = [];
   const liveBuf: DeformableCar[] = [];
@@ -93,7 +98,9 @@ export function makeWorld(): World {
     },
     dress: (car) => dress(car),
     setPaused: () => {},
-    leave: () => {},
+    leave: () => {
+      w.leaves++;
+    },
     hitFx: () => {},
     buildArt: () => null,
     markBounds: () => {},
@@ -106,11 +113,11 @@ export function makeWorld(): World {
     watchCam: () => {
       w.watchCams++;
     },
-  });
+  }, survivalCourse);
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();
   step.collide = (car, i) => race.collide(car, i);
-  const w: World = { cars, live, race, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [] };
+  const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [] };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);
