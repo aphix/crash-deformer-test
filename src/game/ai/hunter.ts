@@ -7,6 +7,7 @@ import type { PropCollider } from "../world/placements.ts";
 import type { SurvivalSpec } from "../world/track-schema.ts";
 import type { Track } from "../world/track.ts";
 import { ATTACK, attackTarget, Backoff, CATCH_UP, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type CopBrain, type HunterWorld } from "./police.ts";
+import { guardMates } from "./pack-guard.ts";
 
 /** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
 export const HUNT = {
@@ -228,7 +229,14 @@ export class HunterBrain implements CopBrain {
     return out;
   }
 
+  /** A unit's input for this physics slice (scratch output: apply it before the next call): its hunt, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+    const out = this.hunt(self, cars, dt);
+    guardMates(self, cars, this.first, this.count, out);
+    return out;
+  }
+
+  private hunt(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;
     out.throttle = 0;
     out.steer = 0;

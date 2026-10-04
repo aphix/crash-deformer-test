@@ -281,12 +281,12 @@ describe("race: police chase", () => {
    * and the same cops, but the physics steps partition the frames differently, so the cars take a different chaotic
    * path through it. Every lead-in's heading is checked as it ends; the counts come back for the pooled floors.
    */
-  function leadIns(phase: number): { wakes: number; converged: number; tbones: number; pursuitHits: number } {
+  function leadIns(phase: number, seed = 1): { wakes: number; converged: number; tbones: number; pursuitHits: number; leadInPairs: number } {
     const w = makeWorld();
     w.race.enter();
     try {
       w.race.command({ type: "options", options: { trackId: "oval", laps: 2, aiCount: 4, spectate: true, police: true } });
-      w.race.reseed(1);
+      w.race.reseed(seed);
       w.race.command({ type: "start" });
       const track = new Track(oval);
       const L = track.length;
@@ -297,28 +297,34 @@ describe("race: police chase", () => {
       const racers = w.race.racers.length;
       // Each racer's velocity where it last drove, per 2 m of road: a police car following its path matches it there.
       const trail = Array.from({ length: racers }, () => new Float64Array(Math.ceil(L / 2) * 2));
-      // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, last racer
-      // contact, and last contact with any car (a lead-in knocked off line by a pack-mate says nothing of its steering).
+      // Per police car: its parked spot's arc (NaN: not parked), the lead-in window's target and end, and its last
+      // contact with any car (a parked car knocked along, or a lead-in knocked off line by a pack-mate, says nothing of its steering).
       const parkS = new Float64Array(64).fill(NaN);
       const target = new Int32Array(64).fill(-1);
       const leadEnd = new Float64Array(64);
       const angle0 = new Float64Array(64).fill(NaN);
-      const touched = new Float64Array(64).fill(-1e9);
       const bumped = new Float64Array(64).fill(-1e9);
+      // Per police car: a pack-mate came within `CROWD` m during its lead-in (the pack guard swerved it round the mate, which
+      // says nothing of its steering toward the target, as a knock from one does not).
+      const CROWD = 8;
+      const crowded = new Uint8Array(64);
       let t = 0;
       let wakes = 0;
       let converged = 0;
       let tbones = 0;
       let pursuitHits = 0;
+      // Pairs of police cars that touched while both were inside their lead-in windows (a stakeout pair parks 12 m apart, one
+      // facing each racer's travel and one against it, so both full-throttle lead-ins met head-on).
+      const leadInPairs = new Set<number>();
       const hit = w.step.pairHit;
       w.step.pairHit = (a, b, h, first) => {
         hit?.(a, b, h, first);
         if (!first) return;
+        if (a >= racers && b >= racers && t < leadEnd[a]! && t < leadEnd[b]!) leadInPairs.add((a * 64 + b) * 1e4 + Math.round(leadEnd[a]!));
         if (a >= racers) bumped[a] = t;
         if (b >= racers) bumped[b] = t;
         if (a >= racers === b >= racers) return;
         const [p, r] = a >= racers ? [a, b] : [b, a];
-        touched[p] = t;
         if (t >= leadEnd[p]!) {
           pursuitHits++;
           return;
@@ -361,19 +367,23 @@ describe("race: police chase", () => {
               const d = ahead(arc(r), parkS[i]!);
               if (d >= 0 && d < bestD) [best, bestD] = [r, d];
             }
-            assert.ok(bestD < 80 || t - touched[i]! < 0.5, `police car ${i} pulled away at ${t.toFixed(2)} s with no racer past its spot (nearest past ${bestD.toFixed(0)} m)`);
+            assert.ok(bestD < 80 || t - bumped[i]! < 0.5, `police car ${i} pulled away at ${t.toFixed(2)} s with no racer past its spot (nearest past ${bestD.toFixed(0)} m)`);
             parkS[i] = NaN;
             target[i] = best;
             leadEnd[i] = t + 1.8;
             angle0[i] = NaN;
+            crowded[i] = 0;
             wakes++;
           }
           const r = target[i]!;
           if (r < 0 || t >= leadEnd[i]! || speed < 3) continue;
+          for (let j = racers; j < w.live().length; j++) {
+            if (j !== i && w.cars[j]!.group.visible && w.cars[i]!.group.position.distanceTo(w.cars[j]!.group.position) < CROWD) crowded[i] = 1;
+          }
           const k = Math.floor(arc(i) / 2) * 2;
           const a = angle(v.x, v.z, trail[r]![k]!, trail[r]![k + 1]!);
           if (Number.isNaN(angle0[i]!)) angle0[i] = a;
-          if (t + FRAME >= leadEnd[i]! && bumped[i]! < leadEnd[i]! - 1.8) {
+          if (t + FRAME >= leadEnd[i]! && bumped[i]! < leadEnd[i]! - 1.8 && !crowded[i]) {
             assert.ok(a < angle0[i]! || a < 0.2, `police car ${i}'s heading to its target's went ${angle0[i]!.toFixed(2)} → ${a.toFixed(2)} rad over its lead-in`);
             converged++;
           }
@@ -381,7 +391,7 @@ describe("race: police chase", () => {
       }
       assert.equal(w.race.phase, "finished", "the race closed");
       assert.equal(tbones, 0, "a police car T-boned its target during its lead-in");
-      return { wakes, converged, tbones, pursuitHits };
+      return { wakes, converged, tbones, pursuitHits, leadInPairs: leadInPairs.size };
     } finally {
       w.race.exit();
       setGround(null);
@@ -407,5 +417,17 @@ describe("race: police chase", () => {
     assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 start phases`);
     assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
     assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
+  });
+
+  it("two police cars never meet during their lead-ins (a stakeout pair woken together drove into each other at 17-25 m/s)", () => {
+    let wakes = 0;
+    const met: string[] = [];
+    for (let seed = 1; seed <= 12; seed++) {
+      const r = leadIns(0, seed);
+      wakes += r.wakes;
+      if (r.leadInPairs > 0) met.push(`seed ${seed}: ${r.leadInPairs} pairs`);
+    }
+    assert.ok(wakes >= 40, `only ${wakes} lead-ins over 12 seeds`);
+    assert.deepEqual(met, [], `lead-in pairs that touched (of ${wakes} lead-ins)`);
   });
 });

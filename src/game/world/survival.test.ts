@@ -301,11 +301,12 @@ function ringTour(): [number, number][] {
   return pts;
 }
 
-/** The scripted player: round the ring at 22 m/s, steering at the next waypoint. */
+/** The scripted player: round the ring at 22 m/s, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
 function tour(pts: readonly (readonly [number, number])[]): (w: World) => void {
-  let i = 0;
+  let i = -1;
   return (w) => {
     const car = w.cars[0]!.group.position;
+    if (i < 0) i = pts.reduce((best, q, k) => (Math.hypot(q[0] - car.x, q[1] - car.z) < Math.hypot(pts[best]![0] - car.x, pts[best]![1] - car.z) ? k : best), 0);
     if (Math.hypot(pts[i]![0] - car.x, pts[i]![1] - car.z) < 14) i = (i + 1) % pts.length;
     steerAt(w, pts[i]![0], pts[i]![1], 22);
   };
