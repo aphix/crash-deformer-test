@@ -276,7 +276,12 @@ describe("race: police chase", () => {
     }
   });
 
-  it("police wait until a racer passes their stakeout, then lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
+  /**
+   * One 2-lap police race on the oval (field seed 1), its frame accumulator starting at `phase` seconds: the same field
+   * and the same cops, but the physics steps partition the frames differently, so the cars take a different chaotic
+   * path through it. Every lead-in's heading is checked as it ends; the counts come back for the pooled floors.
+   */
+  function leadIns(phase: number): { wakes: number; converged: number; tbones: number; pursuitHits: number } {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -326,7 +331,7 @@ describe("race: police chase", () => {
         const cross = Math.abs(Math.sin(py) * Math.sin(ty) + Math.cos(py) * Math.cos(ty));
         if (nAlong < 0.5 && cross < 0.5) tbones++;
       };
-      const state = { acc: 0 };
+      const state = { acc: phase };
       const bound = 4.5 + 2 * 3 * (new Track(oval).length / 9);
       for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) {
         frame(w, state);
@@ -375,12 +380,32 @@ describe("race: police chase", () => {
         }
       }
       assert.equal(w.race.phase, "finished", "the race closed");
-      assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
       assert.equal(tbones, 0, "a police car T-boned its target during its lead-in");
-      assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
+      return { wakes, converged, tbones, pursuitHits };
     } finally {
       w.race.exit();
       setGround(null);
     }
+  }
+
+  it("police wait until a racer passes their stakeout, then lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
+    // Phases of one frame in 4 ms steps. A race with one start phase is one chaotic sample: the lead-ins a pack-mate
+    // rams (cop on cop, unbumped by the target) do not count, so a single race converges 0 to 6 of its 6. Samples that
+    // play out identically are one sample, and the phases must really differ.
+    const seen = new Set<string>();
+    let wakes = 0;
+    let converged = 0;
+    let pursuitHits = 0;
+    for (const phase of [0, 0.004, 0.008, 0.012]) {
+      const r = leadIns(phase);
+      if (seen.has(JSON.stringify(r))) continue;
+      seen.add(JSON.stringify(r));
+      wakes += r.wakes;
+      converged += r.converged;
+      pursuitHits += r.pursuitHits;
+    }
+    assert.ok(seen.size >= 3, `only ${seen.size} different samples out of 4 start phases`);
+    assert.ok(wakes >= 4 && converged >= 3, `wakes ${wakes}, unbumped lead-ins converged ${converged}`);
+    assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
   });
 });
