@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyMarkMap } from "./engine-marks.ts";
+import type { WorldStage } from "./engine-world.ts";
 import { PREFABS, SURFACE_IDS, type PrefabId, type SurfaceId } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
 import { box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type Piece, type RaceTextures } from "./prefabs.ts";
@@ -19,6 +20,9 @@ import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures
  */
 
 type RaceMeshKind = "road" | "runoff" | "terrain" | "wall" | "marking" | "kerb" | "deck" | "pillar" | "tunnel" | "prop";
+/** Weathered pastel stucco (pink, mint, ochre, sky, cream, terracotta, lilac): the Havana blocks and walls. */
+const PASTELS = [0xf3c6c0, 0xbfe0d0, 0xf2d9a0, 0xb8d4ea, 0xf0e2cb, 0xe8b9a0, 0xd9c8e6];
+
 type RaceMeshTag = { kind: RaceMeshKind; surface?: SurfaceId; prefab?: PrefabId };
 
 
@@ -59,9 +63,13 @@ export class TrackArt {
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly identity = new THREE.Quaternion();
   private readonly col = new THREE.Color();
+  private readonly stage: Pick<WorldStage, "look">;
 
-  constructor(track: Track, placed: readonly Placed[]) {
+  /** `stage` takes the course's own daylight while the art stands (its sun, hemisphere and fill; none: the default). */
+  constructor(track: Track, placed: readonly Placed[], stage: Pick<WorldStage, "look">) {
     this.group.name = "track-art";
+    this.stage = stage;
+    stage.look(track.json.environment.light ?? null);
     this.placed = placed;
     this.ground = track.ground();
     const ground = this.ground;
@@ -313,6 +321,7 @@ export class TrackArt {
   }
 
   dispose(): void {
+    this.stage.look(null);
     const geos = new Set<THREE.BufferGeometry>();
     const mats = new Set<THREE.Material>();
     this.group.traverse((o) => {
@@ -359,7 +368,7 @@ export class TrackArt {
   private tint(id: PrefabId, i: number, out: THREE.Color): boolean {
     const h = hash01(i, 11);
     const h2 = hash01(i, 12);
-    if (id === "tree") {
+    if (id === "tree" || id === "palm") {
       const k = 0.8 + 0.35 * h;
       out.setRGB(k * (1 + 0.24 * (h2 - 0.5)), k, k * (1 - 0.2 * (h2 - 0.5)), THREE.LinearSRGBColorSpace);
       return true;
@@ -371,6 +380,10 @@ export class TrackArt {
     }
     if (id === "building") {
       out.setHex([0xffffff, 0xf2e3c6, 0xd5dde8, 0xeccbb6, 0xdcd8c4][Math.floor(h * 5)]!);
+      return true;
+    }
+    if (id === "stucco" || id === "wall") {
+      out.setHex(PASTELS[Math.floor(h * PASTELS.length)]!);
       return true;
     }
     return false;

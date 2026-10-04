@@ -158,7 +158,9 @@ export function makePoolTexture(): THREE.CanvasTexture {
   return tex;
 }
 
-const DAY = {
+/** The day's lights: colour and intensity of the hemisphere, the sun and the fill, plus the sky, the studio env, the lamps and the smoke. */
+type Day = { sky: number; hemi: readonly [number, number]; sun: readonly [number, number]; fill: readonly [number, number]; env: number; lamp: number; smoke: number };
+const DAY: Day = {
   sky: 0x12141a,
   hemi: [0xb7c4d8, 1.35],
   sun: [0xf2f5ff, 2.6],
@@ -166,7 +168,11 @@ const DAY = {
   env: 0.72,
   lamp: 1.4,
   smoke: 1,
-} as const;
+};
+
+/** A course's own daylight (`environment.light`): sun, hemisphere and fill colours (hex) and the sun's intensity. */
+type Daylight = { sun: string; sunIntensity: number; hemi: string; fill: string };
+const hex = (c: string): number => parseInt(c.slice(1), 16);
 const NIGHT = {
   sky: 0x040509,
   hemi: [0x5a6c94, 0.16],
@@ -201,6 +207,7 @@ export class WorldStage {
   /** Share of the full DAY → NIGHT darkening that night applies (sky, ambient, sun, fill, env, smoke). At 1 the
    * owner found night too dark; 0.62–0.83 is the agreed range. The lamp heads always glow at full night strength. */
   nightDepth = 0.72;
+  private day = DAY;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -239,17 +246,23 @@ export class WorldStage {
 
   /** Environment-map strength for the current time of day (the studio env loads async). */
   get envIntensity(): number {
-    return THREE.MathUtils.lerp(DAY.env, NIGHT.env, this.depth);
+    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth);
   }
 
   /** Smoke brightness for the current time of day. */
   get smokeShade(): number {
-    return THREE.MathUtils.lerp(DAY.smoke, NIGHT.smoke, this.depth);
+    return THREE.MathUtils.lerp(this.day.smoke, NIGHT.smoke, this.depth);
   }
 
   /** How far toward full night the lighting sits: `nightDepth` at night, 0 by day. */
   private get depth(): number {
     return this.night ? this.nightDepth : 0;
+  }
+
+  /** A course's own daylight, or the default (null: it leaves). The sky and fog are the course's (`RaceField.load`). */
+  look(light: Daylight | null): void {
+    this.day = light ? { ...DAY, sun: [hex(light.sun), light.sunIntensity], hemi: [hex(light.hemi), DAY.hemi[1]], fill: [hex(light.fill), DAY.fill[1]] } : DAY;
+    this.apply();
   }
 
   setNight(on: boolean): void {
@@ -275,16 +288,17 @@ export class WorldStage {
     const k = this.depth;
     if (!(this.scene.background instanceof THREE.Color)) this.scene.background = new THREE.Color();
     const sky = this.scene.background;
-    mixHex(sky, DAY.sky, NIGHT.sky, k);
+    mixHex(sky, this.day.sky, NIGHT.sky, k);
     this.scene.fog?.color.copy(sky);
-    mixHex(this.hemi.color, DAY.hemi[0], NIGHT.hemi[0], k);
-    this.hemi.intensity = THREE.MathUtils.lerp(DAY.hemi[1], NIGHT.hemi[1], k);
-    mixHex(this.sun.color, DAY.sun[0], NIGHT.sun[0], k);
-    this.sun.intensity = THREE.MathUtils.lerp(DAY.sun[1], NIGHT.sun[1], k);
-    mixHex(this.fill.color, DAY.fill[0], NIGHT.fill[0], k);
-    this.fill.intensity = THREE.MathUtils.lerp(DAY.fill[1], NIGHT.fill[1], k);
+    const day = this.day;
+    mixHex(this.hemi.color, day.hemi[0], NIGHT.hemi[0], k);
+    this.hemi.intensity = THREE.MathUtils.lerp(day.hemi[1], NIGHT.hemi[1], k);
+    mixHex(this.sun.color, day.sun[0], NIGHT.sun[0], k);
+    this.sun.intensity = THREE.MathUtils.lerp(day.sun[1], NIGHT.sun[1], k);
+    mixHex(this.fill.color, day.fill[0], NIGHT.fill[0], k);
+    this.fill.intensity = THREE.MathUtils.lerp(day.fill[1], NIGHT.fill[1], k);
     if (this.scene.environment) this.scene.environmentIntensity = this.envIntensity;
-    lampHead.emissiveIntensity = this.night ? NIGHT.lamp : DAY.lamp;
+    lampHead.emissiveIntensity = this.night ? NIGHT.lamp : day.lamp;
     lampPool.visible = this.night;
     // Wet is a satin sheen on the dry albedo. The old mirror (roughness 0.2, env 1.8, darker albedo) laid a
     // bright glare band over the ground: ground luminance +35 % vs dry; this one +16 %, car/ground contrast 2.67

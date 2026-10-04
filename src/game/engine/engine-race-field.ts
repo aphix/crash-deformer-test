@@ -16,7 +16,7 @@ import type { TrackArt } from "../present/track-art.ts";
 import { raceSight, type Sight } from "../present/spectate-cam.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { Track, blankProjection } from "../world/track.ts";
-import { TRACKS } from "../world/tracks/index.ts";
+import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { carClass, classStats, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions } from "../match/types.ts";
 import { CrashRecorder } from "./engine-record.ts";
@@ -319,7 +319,7 @@ export abstract class RaceField {
     this.unload();
     let tr = this.tracks.get(trackId);
     if (!tr) {
-      const json = TRACKS.find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
+      const json = [...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
       tr = new Track(json);
       this.tracks.set(trackId, tr);
     }

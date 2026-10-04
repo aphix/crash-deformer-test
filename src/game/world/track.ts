@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { STEP_UP, type Ground } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
-import { parseTrack, type TrackJson } from "./track-schema.ts";
+import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
+import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
 import { bilinear, RoadCrease } from "./road-crease.ts";
 
 /**
@@ -406,6 +407,8 @@ export class Track {
   /** Arc length (m) of each JSON node on the main loop. */
   readonly nodeS: readonly number[];
   readonly routes: Route[];
+  /** Survival mode's start and cop formation slots; null on a course without them. */
+  readonly survival: SurvivalSpec | null;
   readonly bounds: { minX: number; maxX: number; minZ: number; maxZ: number };
   private baked: TrackGround | null = null;
   private readonly pt = blankPoint();
@@ -414,6 +417,7 @@ export class Track {
     this.json = parseTrack(json);
     this.id = this.json.id;
     this.name = this.json.name;
+    this.survival = this.json.survival ?? null;
     const attrs = nodeAttrs(this.json);
     const pts = this.json.nodes.map((n, i) => new THREE.Vector3(n.x, attrs.y[i]!, n.z));
     const { path, param } = samplePath(pts, true, attrs);
@@ -445,6 +449,7 @@ export class Track {
       lanes: r.lanes,
     }));
     this.checkCrossings();
+    checkPlateaus(this.id, this.json.environment.plateaus, this.paths());
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -580,6 +585,8 @@ export class TrackGround implements Ground {
     this.stampPath(track.path, stamp, false);
     stamp.under = this.heights.slice();
     for (const p of track.paths()) if (p !== track.path) this.stampPath(p, stamp, true);
+    paintGrid(env.paint, this.surf, this.terrain, this.minX, this.minZ, this.nx, CELL);
+    raisePlateaus(env.plateaus, this.heights, this.surf, this.minX, this.minZ, this.nx, CELL);
     this.indexDecks(track.path);
   }
 
