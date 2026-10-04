@@ -7,7 +7,7 @@ import type { RaceView } from "./types.ts";
  * its crush travel against the travel that kills it, 0 once dead) and the wheels still on (a quarter each). One scalar the
  * driver can read at a glance; a car that has lost two wheels reads at most half, whatever its engine says.
  */
-export function carDamage(car: DeformableCar): number {
+function carDamage(car: DeformableCar): number {
   const d = car.deform;
   return Math.min(d.drivetrainHealth, d.wheelsOn / 4);
 }
