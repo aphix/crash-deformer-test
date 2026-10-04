@@ -4,6 +4,7 @@ import { activeGround, NO_FLOOR, type Ground } from "../world/ground.ts";
 import { bodyTopY } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength } from "../deform/load-crush.ts";
+import { CLASSES, carClass } from "./vehicle-classes.ts";
 
 /**
  * What a body in flight (`stepAir`) rests on: the world's ground and the other cars' tops, through the one `Ground`
@@ -17,10 +18,10 @@ import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength } from ".
  * of impulse; a contact asking for more yields, and its penetration becomes crush depth (`commit`).
  */
 
-/** A point this far (m) under another car's top counts as standing on it; deeper is inside the car (the plan SAT's). */
-const SKIN = 0.25;
+/** A point this far (m) under another car's top counts as standing on it; deeper is inside the car (the plan SAT's, `shareHeight`). */
+export const SKIN = 0.25;
 /** A car more than ~60° off vertical is not a surface to stand on. */
-const UPRIGHT = 0.5;
+export const UPRIGHT = 0.5;
 /** Plan radius (m) past which a car's top is out of reach: its half-diagonal. */
 const REACH = 2.5;
 /** A top point that follows its car's roof crush less than this is rigid (bonnet and boot ends carry, never yield). */
@@ -28,6 +29,31 @@ const YIELDS = 0.3;
 /** The top within this (m) of the middle across and 0.5 m of the crown along is one flat plate at the crown's height: the roof's crown is 3 cm across and 9 cm along, and a belly on a ridge rolls or pitches off. */
 const PLATE = 0.5;
 const CROWN_Z = -0.1;
+/** The keel's height (m) over a car's origin at the stock ride; the class's body lift (`bellyY`) is on top of it. */
+const BELLY_Y = 0.13;
+
+/** How high (m) over `car`'s origin its belly rides: a car on another's roof sits its roof's crown less this over that car's origin. */
+export function bellyY(car: DeformableCar): number {
+  return BELLY_Y + CLASSES[carClass(car)].lift;
+}
+
+const CROWNS = new WeakMap<BodyStyle, number>();
+
+/** Highest point of a body style's roof along its centreline (m over the car's origin at the stock ride). */
+function roofCrown(style: BodyStyle): number {
+  let top = CROWNS.get(style);
+  if (top === undefined) {
+    top = 0;
+    for (let z = -2.2; z <= 2.2; z += 0.1) top = Math.max(top, bodyTopY(0, z, style) || 0);
+    CROWNS.set(style, top);
+  }
+  return top;
+}
+
+/** How high (m) over `car`'s origin its roof's crown stands now (class lift on, load crush off): the surface a car above stands on. */
+export function roofHeight(car: DeformableCar): number {
+  return roofCrown(car.style) + CLASSES[carClass(car)].lift - car.deform.crush[FACE_TOP]!;
+}
 
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -207,7 +233,7 @@ export class CarSurfaces implements Ground {
     const h0 = (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
     const depth = o.deform.crush[FACE_TOP]!;
     this.topFollow = faceFollow(FACE_TOP, 0, h0, 0);
-    _p.set(xl, h0 - depth * this.topFollow, zl).applyMatrix4(o.group.matrixWorld);
+    _p.set(xl, h0 - depth * this.topFollow + CLASSES[carClass(o)].lift, zl).applyMatrix4(o.group.matrixWorld);
     if (y < _p.y - SKIN) return NO_FLOOR;
     const gx = ((h10 - h00) * (1 - fz) + (h11 - h01) * fz) / GRID_STEP;
     const gz = ((h01 - h00) * (1 - fx) + (h11 - h10) * fx) / GRID_STEP;

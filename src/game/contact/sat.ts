@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
+import { bellyY, roofHeight, SKIN, UPRIGHT } from "../vehicle/car-surfaces.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
 /** The slab's top (m): `makeJerseyBarrier`'s profile peak. A car whose every mass clears it flies over (a ramp jump). */
@@ -51,7 +52,7 @@ export function sliceSpeed(cars: readonly DeformableCar[]): number {
 /**
  * Bodies whose height bands overlap by less than this (m) are one on the other, not side by side: a car coming down on
  * another's roof (its belly 0.13 m up, the roof 1.3 m, bands 1.36 m tall) overlaps by 0.19 m when it touches, and the
- * plan SAT shoved it off before `CarSurfaces` carried it. Once it rests on it, `restsOn` keeps them apart.
+ * plan SAT shoved it off before `CarSurfaces` carried it.
  */
 const STACK_CLEAR = 0.3;
 
@@ -60,6 +61,12 @@ const STACK_CLEAR = 0.3;
  * spans `y ± (|right.y|·hx + |up.y|·hy + |fwd.y|·hz)` about its middle, less `STACK_CLEAR`. Car-car contact tests the
  * plan only, so a car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it
  * there. Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
+ *
+ * A car whose belly is over the crown of the upright car under it, less that roof's crush depth and the `SKIN` the
+ * surfaces carry within (`CarSurfaces`), is stacked on it: the surfaces carry it and the plan SAT must not shove it off,
+ * whatever the body styles' roof heights and belly lifts (a coupe's roof is lower than the box's, a monster's belly
+ * 0.48 m higher), however far the load has crushed the roof (the box's `STACK_CLEAR` allows 0.11 m of crush; three
+ * sedans' weight is 0.12 m) and whether this slice's contact pressed (`restsOn` flickers at rest).
  */
 export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   if ((a.airborne && a.restsOn === b) || (b.airborne && b.restsOn === a)) return false;
@@ -67,7 +74,13 @@ export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   const eb = b.group.matrixWorld.elements;
   const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;
   const hb = Math.abs(eb[1]!) * CAR_HALF.x + Math.abs(eb[5]!) * CAR_HALF.y + Math.abs(eb[9]!) * CAR_HALF.z;
-  return Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) < ha + hb - STACK_CLEAR;
+  if (Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) >= ha + hb - STACK_CLEAR) return false;
+  const aUnder = ea[13]! <= eb[13]!;
+  const under = aUnder ? a : b;
+  const eu = aUnder ? ea : eb;
+  const ev = aUnder ? eb : ea;
+  const over = aUnder ? b : a;
+  return !(eu[5]! > UPRIGHT && ev[13]! + bellyY(over) >= eu[13]! + roofHeight(under) - SKIN);
 }
 
 export function satCarBarrier(
