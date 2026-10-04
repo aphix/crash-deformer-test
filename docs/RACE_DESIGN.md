@@ -384,6 +384,10 @@ height clamp, `dragGround`, `bleedAfterSlide`. Car pairs more than 2.5 m apart i
 Grip is applied per axle in `applyDrive`; the race glue (`onSurface`) only scales forward throttle by
 the surface's top-speed share.
 
+### Ground layers (what is drawn on the ground, and in what order)
+One stack, `world/ground-stack.ts` (`GROUND_STACK`), orders every flat layer: terrain, run-off, concrete, asphalt, cobble, marking, kerb, dirt, gravel, grass, sand, then the scenes' decals and glow. A mesh is one level (every road of one surface is one mesh) and the level sets its `polygonOffsetUnits` (`levelOffset`): run-off 0, each level above 4 depth steps nearer, the terrain 16 behind. Depth-offset units are depth-buffer steps at any distance, while the height a step spans grows with the square of the distance (13 mm at 150 m, 0.24 mm at 20 m, 24 bits over 0.1–900 m), so lifts of centimetres order layers only near the camera. Every road ribbon lies `ROAD_LIFT` (1.5 cm) over the ground, so crossing roads are coplanar and the level alone says which is on top (a dirt track or cobble alley over the asphalt it crosses); markings and kerbs keep their own lifts. A new flat layer takes a level (`levelOffset("decal")` in its material), not a height nudge; lines (the sandbox grid) take no depth offset in hardware and sit `LINE_LIFT` (2.5 cm) up instead.
+`present/ground-overlap.test-util.ts` scans a course's real ground meshes (`courseLayers`) for the pairs the stack leaves ambiguous: fewer than 3 depth steps apart at 150 m (offsets included), or drawn in front of a layer more than 15 cm above it. `ground-overlap.test.ts` holds every course to under 2 m² at 150 m. What is left is where two layers' true heights cross (a ford's mouth, a crest under the run-off's edge): a contour band a few mm wide at 20 m.
+
 ## Contacts
 Walls: six footprint probes against the wall line on each side with a wall flag; push out along the
 inward normal, reflect normal speed (e = 0.15), crumple above 5.5 m/s closing, sparks above 1.5 m/s.

@@ -11,9 +11,8 @@ export const CELL = 2;
 /** A block stays one quad when no cell height is further than this (m) from its corners' bilinear. */
 export const FLAT_TOL = 0.06;
 export const SKIRT_RADIUS = 900;
-/** Lifts over the ground (m); the terrain is also pushed back with a polygon offset. */
+/** Lifts over the ground (m); `ground-stack.ts` orders overlapping layers by depth offset, not by these. */
 export const ROAD_LIFT = 0.015;
-export const SIDE_LIFT = 0.03;
 export const MARK_LIFT = 0.045;
 export const KERB_LIFT = 0.06;
 /** Section spacing cap (m); bends get closer sections (chord sagitta ≤ 2 cm). */

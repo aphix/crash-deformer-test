@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyMarkMap } from "./engine-marks.ts";
+import { levelOffset } from "../world/ground-stack.ts";
 
 function makeConcrete(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -121,6 +122,7 @@ const lampPool = new THREE.MeshBasicMaterial({
   blending: THREE.AdditiveBlending,
   depthWrite: false,
   visible: false,
+  ...levelOffset("decal"),
 });
 
 export function makeLamp(): THREE.Group {
@@ -231,6 +233,7 @@ export class WorldStage {
     scene.add(this.fill);
 
     this.groundMat = new THREE.MeshStandardMaterial({
+      ...levelOffset("terrain"),
       color: 0x2a2c34,
       roughness: 0.88,
       metalness: 0.06,

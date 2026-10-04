@@ -1,16 +1,17 @@
 import * as THREE from "three";
 import { clamp } from "../kernel/scalar.ts";
-import { SURFACE_IDS } from "../world/catalog.ts";
+import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 import { TILE } from "./prefabs.ts";
 import { type Track, type TrackGround, type TrackPath } from "../world/track.ts";
+import type { GroundLevel } from "../world/ground-stack.ts";
 import {
   BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, mottle, PAVED,
-  RED, RoadIndex, sampleAt, sampleStep, SKIRT_RADIUS, surfaceHex, surfY, texClass, WHITE,
+  RED, ROAD_LIFT, RoadIndex, sampleAt, sampleStep, SKIRT_RADIUS, surfaceHex, surfY, texClass, WHITE,
 } from "./track-mesh.ts";
 
 /** Track art on the ground: terrain with its far skirt, road / runoff ribbons, markings and kerbs. */
 
-export function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): THREE.BufferGeometry {
+function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): Mesher {
   const m = new Mesher();
   const far = Math.max(60, ...track.json.scatter.map((s) => s.far));
   const margin = Math.max(80, far + 40);
@@ -135,7 +136,7 @@ export function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex
     }
   }
   addSkirt(m, ground, x0, z0, bx, bz, surfaceHex(terrain), tile);
-  return m.geometry(false);
+  return m;
 }
 
 /** Far skirt: an annulus under the terrain grid's edge out to the horizon, just below the base terrain. */
@@ -166,10 +167,10 @@ function addSkirt(m: Mesher, ground: TrackGround, x0: number, z0: number, bx: nu
 }
 
 /** Ribbon meshers by kind and surface. */
-export type Ribbons = Map<string, { kind: "road" | "runoff"; surface: number; m: Mesher }>;
+type Ribbons = Map<string, { kind: "road" | "runoff"; surface: number; m: Mesher }>;
 
 /** Road and runoff strips of `p` (smooth along the path, one mesher per kind + surface). */
-export function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground: TrackGround, lift: number): void {
+function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground: TrackGround, lift: number): void {
   const n = secs.length;
   const last = p.closed ? n : n - 1;
   // Strip 0: road [−half, half]; 1: left runoff; 2: right runoff.
@@ -219,15 +220,17 @@ export function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], 
 }
 
 /** One path's ribbon as built (its section samples), so markings lie exactly on it. */
-export class RibbonSurface {
+class RibbonSurface {
+  readonly p: TrackPath;
+  private readonly secs: readonly number[];
+  private readonly ground: TrackGround;
   private readonly n: number;
   private readonly ds: number;
 
-  constructor(
-    readonly p: TrackPath,
-    private readonly secs: readonly number[],
-    private readonly ground: TrackGround,
-  ) {
+  constructor(p: TrackPath, secs: readonly number[], ground: TrackGround) {
+    this.p = p;
+    this.secs = secs;
+    this.ground = ground;
     this.n = p.count;
     this.ds = sampleStep(p);
   }
@@ -327,7 +330,7 @@ function addSpan(m: Mesher, rs: RibbonSurface, s0: number, s1: number, l0: numbe
 }
 
 /** Edge lines and centre dashes on paved stretches, a chequered line on the loop; none where another road crosses. */
-export function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly number[], index: RoadIndex): void {
+function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly number[], index: RoadIndex): void {
   const p = rs.p;
   const n = secs.length;
   const last = p.closed ? n : n - 1;
@@ -370,7 +373,7 @@ export function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: read
 }
 
 /** Red / white kerbs on the inside of the loop's tight turns (paved, not at crossings). */
-export function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
+function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
   const p = rs.p;
   for (let s = 0; s + 2 <= p.length; s += 2) {
     const k = sampleAt(p, s + 1);
@@ -390,3 +393,27 @@ export function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
   }
 }
 
+
+/** One ground mesh of a course: what it is, the surface it shows, its level in the stack (`ground-stack.ts`) and its geometry. */
+type GroundLayer = { kind: "terrain" | "runoff" | "road" | "marking" | "kerb"; surface: SurfaceId | null; level: GroundLevel; m: Mesher; smooth: boolean };
+
+/**
+ * Every ground mesh of a course, bottom of the stack up: the terrain, the road and runoff ribbons (one per kind and
+ * surface, all paths together), markings, kerbs. The ribbons all lift by `ROAD_LIFT`; their level orders them.
+ */
+export function buildGroundLayers(track: Track, ground: TrackGround, index: RoadIndex, paths: readonly TrackPath[], secs: readonly (readonly number[])[]): GroundLayer[] {
+  const out: GroundLayer[] = [{ kind: "terrain", surface: track.json.environment.terrain, level: "terrain", m: buildTerrain(track, ground, index), smooth: false }];
+  const ribbons: Ribbons = new Map();
+  paths.forEach((p, i) => addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT));
+  for (const r of ribbons.values()) {
+    const surface = SURFACE_IDS[r.surface]!;
+    out.push({ kind: r.kind, surface, level: r.kind === "road" ? surface : "runoff", m: r.m, smooth: true });
+  }
+  const marks = new Mesher();
+  paths.forEach((p, i) => addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index));
+  out.push({ kind: "marking", surface: null, level: "marking", m: marks, smooth: true });
+  const kerbs = new Mesher();
+  addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
+  if (!kerbs.empty) out.push({ kind: "kerb", surface: null, level: "kerb", m: kerbs, smooth: true });
+  return out;
+}

@@ -7,9 +7,10 @@ import { box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type 
 import { blankPoint, type Track, type TrackGround } from "../world/track.ts";
 import {
   BLACK, DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR, type DrawKind, GANTRY_BEAM, GRAVITY, hash01, LIGHT_OFF, LIGHT_ON,
-  LIGHT_RGB, Mesher, RED, ROAD_LIFT, RoadIndex, sections, SIDE_LIFT, texClass,
+  LIGHT_RGB, Mesher, RED, RoadIndex, sections, texClass,
 } from "./track-mesh.ts";
-import { addKerbs, addMarkings, addRibbons, buildTerrain, type Ribbons, RibbonSurface } from "./track-ground.ts";
+import { buildGroundLayers } from "./track-ground.ts";
+import { levelOffset } from "../world/ground-stack.ts";
 import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures.ts";
 
 /**
@@ -79,7 +80,6 @@ export class TrackArt {
     const paths = track.paths();
     const index = new RoadIndex(paths);
     const secs = paths.map((p) => sections(p, 0));
-    const env = track.json.environment;
     // Ground materials (one per mesh) also darken under the tyre-mark map.
     const textured = (sid: number, extra: THREE.MeshStandardMaterialParameters = {}) => {
       const t = texClass(sid);
@@ -95,24 +95,22 @@ export class TrackArt {
       return mat;
     };
 
-    const terrainSid = SURFACE_IDS.indexOf(env.terrain);
-    this.add(
-      new THREE.Mesh(buildTerrain(track, ground, index), textured(terrainSid, { polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 })),
-      { kind: "terrain", surface: env.terrain },
-      false,
-    );
-
-    const ribbons: Ribbons = new Map();
-    paths.forEach((p, i) => addRibbons(ribbons, p, secs[i]!, ground, i === 0 ? ROAD_LIFT : SIDE_LIFT));
-    for (const r of ribbons.values()) this.add(new THREE.Mesh(r.m.geometry(true), textured(r.surface)), { kind: r.kind, surface: SURFACE_IDS[r.surface]! }, false);
-
-    const markMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
-    const marks = new Mesher();
-    paths.forEach((p, i) => addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index));
-    this.add(new THREE.Mesh(marks.geometry(true), markMat), { kind: "marking" }, false);
-    const kerbs = new Mesher();
-    addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
-    if (!kerbs.empty) this.add(new THREE.Mesh(kerbs.geometry(true), markMat), { kind: "kerb" }, false);
+    // Every ground mesh takes its depth offset from its level in the one stack (`ground-stack.ts`).
+    const sharedMarkMat = new Map<string, THREE.MeshStandardMaterial>();
+    for (const layer of buildGroundLayers(track, ground, index, paths, secs)) {
+      const offset = levelOffset(layer.level);
+      if (layer.surface == null) {
+        // Markings and kerbs: vertex colour only, one material per level.
+        let mat = sharedMarkMat.get(layer.level);
+        if (!mat) {
+          mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, ...offset });
+          sharedMarkMat.set(layer.level, mat);
+        }
+        if (!layer.m.empty) this.add(new THREE.Mesh(layer.m.geometry(layer.smooth), mat), { kind: layer.kind }, false);
+        continue;
+      }
+      this.add(new THREE.Mesh(layer.m.geometry(layer.smooth), textured(SURFACE_IDS.indexOf(layer.surface), offset)), { kind: layer.kind, surface: layer.surface }, false);
+    }
 
     const walls = new Mesher();
     const decks = new Mesher();
