@@ -1,7 +1,7 @@
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
 import { guardContact } from "./contact-guard.ts";
-import { personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
+import { DERBY_RULES, personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "../world/track.ts";
@@ -70,6 +70,16 @@ const PASS_CREEP = 2;
 const FIGHT_PACE = 5;
 /** The following gap is kept only behind a car doing at least this (m/s): two stopped cars waited on each other for 40 s. */
 const CRAWL = 3;
+/** A driver with this much aggression or less takes only a shove that is safe (`RaceBrain.safeShove`); above it `mood` alone decides. */
+const CAREFUL = 0.5;
+/** What a safe shove adds to a careful driver's mood, a quarter of the most a driver wants a fight: aggression 0.5 shoves a safe one, under 0.375 never fights. */
+const SAFE_SHOVE = 0.25;
+/** A shove is safe at a closing speed under this (m/s, the derby's hit speed: a nudge, not a ram), ... */
+const SHOVE_SPEED = DERBY_RULES.hitSpeed;
+/** A careful driver's shove swings its lane over at no more than this (m/s), so two of them shoving each other close sideways at under `SHOVE_SPEED`. */
+const SHOVE_LAT = 0.5;
+/** ... and with this much road (m) beyond the rival on the side it is pushed to. */
+const WALL_ROOM = 2.5;
 
 function surfaceAt(path: TrackPath, k: number): Surface {
   return SURFACES[SURFACE_IDS[path.surface[k]!]!];
@@ -156,6 +166,8 @@ export class RaceBrain {
   private follow = Number.NaN;
   /** Fight (0–1) of a shove or block this call: the lane swings over faster by this much. */
   private swerve = 0;
+  /** This call: a careful driver is shoving a rival, so its lane moves at no more than `SHOVE_LAT`. */
+  private nudge = false;
   /** Fight (0–1) toward the rival being hunted or rammed this call, 0 when none. */
   private chase = 0;
   /** Per car id, this call: 1 for a rival this driver is fighting (the contact guard leaves it alone), else 0. */
@@ -288,9 +300,10 @@ export class RaceBrain {
     this.follow = Number.NaN;
     this.chase = 0;
     this.swerve = 0;
+    this.nudge = false;
     const wanted = this.line(self, p, proj.s, path.half[k]!, proj.lateral, fx, fz, along, others);
     const want = route < 0 ? wanted : 0;
-    const step = LANE_RATE * (1 + this.swerve) * dt;
+    const step = (this.nudge ? SHOVE_LAT : LANE_RATE * (1 + this.swerve)) * dt;
     this.lane[i] = route < 0 ? this.lane[i]! + clamp(want - this.lane[i]!, -step, step) : 0;
     const lane = this.lane[i]!;
 
@@ -471,6 +484,17 @@ export class RaceBrain {
     return Math.sqrt(corner * corner + 2 * decel * d);
   }
 
+  /**
+   * Whether shoving the car `ahead` m on and `side` m to the left (its lateral `oLat`) is safe: a shove, not a ram (the two cars' speeds along the road,
+   * with the sideways speed they close at, come to less than `SHOVE_SPEED`), with `WALL_ROOM` m of road beyond it on the side it is pushed to, and not over a crest.
+   */
+  private safeShove(s: number, half: number, oLat: number, side: number, ahead: number, along: number, oAlong: number): boolean {
+    // The rival may be shoving too, so the sideways closing counts twice.
+    if (Math.hypot(along - oAlong, 2 * SHOVE_LAT) >= SHOVE_SPEED) return false;
+    if (half - (side >= 0 ? oLat : -oLat) < WALL_ROOM) return false;
+    return crestSpeed(this.track.path, s + ahead) > Math.max(along, oAlong);
+  }
+
   /** Lateral target (m, + = left of travel) on the main loop; sets `follow` when boxed in. */
   private line(
     self: AiCar,
@@ -520,11 +544,17 @@ export class RaceBrain {
       // Rivals: fight or keep clear by mood (aggression, and both cars' damage); traffic is only avoided.
       // Only at racing pace, both cars rolling on: two hungry cars that met slow or stopped brawled on
       // a wall until both were out of the race.
-      const m = rival ? mood(aggr, self.damage, o.damage) : -1;
       const rolling = along > FIGHT_PACE && oAlong > 0.6 * FIGHT_PACE;
+      let m = rival ? mood(aggr, self.damage, o.damage) : -1;
+      // A careful driver (aggression up to `CAREFUL`) fights only a rival it is on terms with and can shove safely; the others fight by `mood` alone.
+      if (rival && rolling && aggr > 0 && aggr <= CAREFUL && m + SAFE_SHOVE > 0) {
+        const near = ahead > -11 && ahead < HUNT * pace && Math.abs(side) < HUNT_SIDE;
+        m = near && this.safeShove(s, half, lat + side, side, ahead, along, oAlong) ? m + SAFE_SHOVE : Math.min(m, 0);
+      }
       const fight = rolling ? clamp(m, 0, 1) : 0;
       const shy = clamp(-m, 0, 1);
       this.hit[o.id] = fight > 0 ? 1 : 0;
+      if (fight > 0 && aggr <= CAREFUL) this.nudge = true;
       if (ahead > 0.5 && ahead < SCAN * Math.max(pace, (along - oAlong) / PACE) && inWay) {
         if (along > oAlong + 0.3) {
           // Slower and on our line: pass it, ram it, or follow it.

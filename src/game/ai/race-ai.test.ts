@@ -12,6 +12,7 @@ import { RaceBrain, onSurface } from "./race-ai.ts";
 import { fieldAggression, mood } from "./ai-aggression.ts";
 import { RaceSession } from "../match/session.ts";
 import { Track, blankProjection, projectPath } from "../world/track.ts";
+import { parseTrack } from "../world/track-schema.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { setGround } from "../world/ground.ts";
 import type { CarPose, Entrant } from "../match/types.ts";
@@ -116,6 +117,11 @@ describe("race AI", () => {
     return steer;
   };
   const pt = oval.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+  /** A car on `track`'s centre line `s` m along, `off` m to the left of it (+), doing `v` m/s along the road. */
+  const onRoad = (track: Track, id: number, s: number, off: number, v: number): AiCar => {
+    const p = track.pointAt(s, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+    return { ...blankAiCar(id), x: p.x + off * p.tz, z: p.z - off * p.tx, yaw: Math.atan2(p.tx, p.tz), vx: p.tx * v, vz: p.tz * v };
+  };
 
   it("passes a slower car ahead on its line; an aggressive driver rams it instead", () => {
     // Back straight runs +Z at x = −55: left of travel is +X. Both near the left edge, so the only pass is to the right.
@@ -144,22 +150,47 @@ describe("race AI", () => {
     assert.ok(yields < -0.02, `clean moves away from it, steer ${yields.toFixed(3)}`);
   });
 
-  it("at middling aggression a driver only goes for a rival more wrecked than itself; at full it goes for anyone", () => {
+  it("at middling aggression a driver goes for a rival only when it is safe (closing at a nudge's speed); at full it goes for anyone", () => {
     const me = at(0, pt.x + 6, pt.z, 17);
-    const wrecked = { ...at(1, pt.x + 6, pt.z + 9, 8), damage: 0.6 };
-    const healthy = at(1, pt.x + 6, pt.z + 9, 8);
     const mid = () => {
       const b = new RaceBrain(oval, 2);
       b.setAggression(0, 0.5);
       return b;
     };
-    assert.ok(Math.abs(lane(mid(), me, [me, wrecked], 40)) < 0.06, "rams the wrecked car");
-    assert.ok(lane(mid(), me, [me, healthy], 40) < -0.05, "passes the healthy one");
+    // A rival 9 m ahead doing 8 m/s is a ram (closing 9 m/s): passed, wrecked or not. One doing 16 m/s is a nudge (1 m/s): pushed.
+    const slow = at(1, pt.x + 6, pt.z + 9, 8);
+    const pace = at(1, pt.x + 6, pt.z + 9, 16);
+    assert.ok(lane(mid(), me, [me, slow], 40) < -0.05, "passes the slow car it would ram");
+    assert.ok(lane(mid(), me, [me, { ...slow, damage: 0.6 }], 40) < -0.05, "and a wrecked one too");
+    assert.ok(Math.abs(lane(mid(), me, [me, pace], 40)) < 0.06, "pushes the one it closes on at a nudge");
     const hurtMe = { ...me, damage: 0.8 };
-    assert.ok(lane(mid(), hurtMe, [hurtMe, wrecked], 40) < -0.05, "but not when it is the more wrecked of the two");
+    assert.ok(lane(mid(), hurtMe, [hurtMe, { ...pace, damage: 0.6 }], 40) < -0.05, "but not when it is the more wrecked of the two");
     const brute = new RaceBrain(oval, 2);
     brute.setAggression(0, 1);
-    assert.ok(Math.abs(lane(brute, hurtMe, [hurtMe, healthy], 40)) < 0.06, "full aggression rams regardless of its own state");
+    assert.ok(Math.abs(lane(brute, hurtMe, [hurtMe, slow], 40)) < 0.06, "full aggression rams regardless of its own state");
+  });
+
+  it("door to door, a middling driver shoves only a safe rival (not into the wall, not at a ram's closing speed, not over a crest); a clean one never, a full one always", () => {
+    const stunt = new Track(TRACKS.find((j) => parseTrack(j).id === "stunt"));
+    // `me` abreast of a rival 2.6 m to its left (+) on `track` at `s`, doing `my` and `its` m/s, the rival `lean` m left of the road's middle: the steer after a second.
+    // A middling driver's shove swings over gently (0.5 m/s: the two close at a nudge), so its steer stays about level where a clean driver's goes away.
+    const abreast = (aggression: number, track: Track, s: number, lean: number, my = 15, its = 15) => {
+      const b = new RaceBrain(track, 2);
+      b.setAggression(0, aggression);
+      const self = onRoad(track, 0, s, lean - 2.6, my);
+      return lane(b, self, [self, onRoad(track, 1, s + 0.5, lean, its)], 60);
+    };
+    const edge = pt.half - 1.5;
+    assert.ok(abreast(0, oval, s0, 1.3) < -0.05, "a clean driver steers away");
+    assert.ok(abreast(1, oval, s0, 1.3) > 0.15, "a full one shoves");
+    assert.ok(abreast(0.5, oval, s0, 1.3) > 0, "a middling one shoves a rival mid-road, level");
+    assert.ok(abreast(0.5, oval, s0, edge) < -0.05, "but not one 1.5 m off the wall it would be pushed into");
+    assert.ok(abreast(1, oval, s0, edge) > 0.15, "where a full driver shoves regardless");
+    assert.ok(abreast(0.5, oval, s0, 1.3, 15, 12) < -0.05, "nor closing on it at 3 m/s");
+    assert.ok(abreast(0.5, oval, s0, 1.3, 12, 15) < -0.05, "nor with the rival the faster by 3 m/s");
+    assert.ok(abreast(0.5, stunt, 300, 1.3, 20, 20) > 0.1, "on level road at 20 m/s it shoves");
+    assert.ok(abreast(0.5, stunt, 899.5, 1.3, 20, 20) < -0.05, "the same pair on the stunt course's crest (a car leaves it above 17 m/s): it keeps off");
+    assert.ok(abreast(1, stunt, 899.5, 1.3, 20, 20) > 0.1, "and a full driver shoves there regardless");
   });
 
   it("a clean driver keeps a gap behind a rival at its own pace; a hungry one boosts to catch it", () => {
