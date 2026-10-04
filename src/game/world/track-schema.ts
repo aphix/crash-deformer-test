@@ -100,7 +100,24 @@ const scatter = z.object({
   scaleMax: z.number().positive().default(1.25),
 });
 
+const hexColour = z.string().regex(/^#[0-9a-fA-F]{6}$/);
+
 const hill = z.object({ x: z.number(), z: z.number(), radius: z.number().positive(), height: z.number() });
+
+/** A raised platform (`plateau.ts`): flat top at `height`, each side a plane to the ground over `run` (-x, +x, -z, +z), crest and foot rounded over `round` m. */
+const plateau = z.object({
+  x: z.number(),
+  z: z.number(),
+  halfX: z.number().positive(),
+  halfZ: z.number().positive(),
+  height: z.number().positive(),
+  run: z.tuple([z.number().positive(), z.number().positive(), z.number().positive(), z.number().positive()]),
+  round: z.number().min(0).default(1.5),
+  top: surface.default("concrete"),
+});
+
+/** A surface painted over the bare terrain inside a polygon (`terrain.ts`): the lawn of an island, a park. */
+const paint = z.object({ surface, poly: z.array(z.tuple([z.number(), z.number()])).min(3) });
 
 /** A ground anchor: position and heading (yaw 0 faces +Z, forward = (sin yaw, cos yaw)). */
 const anchor = z.object({ x: z.number(), z: z.number(), yaw: z.number() });
@@ -158,10 +175,16 @@ const TrackSchema = z
     survival: survival.optional(),
     environment: z
       .object({
-        sky: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#12141a"),
+        sky: hexColour.default("#12141a"),
         fog: z.number().min(0).max(0.05).default(0.0035),
         terrain: surface.default("grass"),
         hills: z.array(hill).default([]),
+        plateaus: z.array(plateau).default([]),
+        paint: z.array(paint).default([]),
+        /** The course's own daylight (sun, hemisphere and fill colours, the sun's intensity); absent: the default day. */
+        light: z
+          .object({ sun: hexColour, sunIntensity: z.number().positive(), hemi: hexColour, fill: hexColour })
+          .optional(),
       })
       .prefault({}),
   })

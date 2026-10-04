@@ -30,7 +30,7 @@ src/game/engine/engine.ts  CrashEngine(canvas)  ── window.__crush (bench / d
 
 ## Module boundaries
 - `*-core.js` (`physics-core.js`, `shape-match-core.js`): number-only hot kernels, no THREE; typed by `*.d.ts`, re-exported by `physics-util.ts` / `shape-match.ts`.
-- `rig-spec.ts`, `vehicle-classes.ts`, `world/catalog.ts`, `world/tracks/*.json`: data tables. Race rules and campaign (`match/`), AI and traffic (`ai/`) and placements (`world/`) never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
+- `rig-spec.ts`, `vehicle-classes.ts`, `world/catalog.ts`, `world/tracks/*.json` (and the off-menu `havana.json`, the Survival course: `docs/SURVIVAL.md`): data tables. Race rules and campaign (`match/`), AI and traffic (`ai/`) and placements (`world/`) never touch the scene graph or the DOM (`docs/RACE_DESIGN.md`).
 - `streamed-deform.ts` and its `deform-*.ts` layers: own masses, clusters, cages, skin. Never touches the scene graph beyond its debug helpers.
 - `engine*.ts`: orchestration; `CrashEngine` is the only owner of the frame loop. `engine-cine.ts` and friends read sim state only; the hit-stop is their one sim-side effect (`timeWarp`).
 - `ground.ts`: `activeGround()` is what physics, wheels and marks read; `setGround` swaps in a track heightfield, `FLAT_GROUND` is the y = 0 asphalt (derby, rigs). The fleet / barrier / balls scenes set `DISC_GROUND`: the same plane inside `DISC_RADIUS` (48 m), and `NO_FLOOR` (-Infinity, grip 0) past it. Every `floor + k` clamp tests `=== NO_FLOOR` first (`car.integrate`, `followGroup`, the `stepStructure` mass loop, `applyDrive`).

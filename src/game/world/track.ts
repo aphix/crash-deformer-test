@@ -3,6 +3,7 @@ import { STEP_UP, type Ground } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
+import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
 import { bilinear, RoadCrease } from "./road-crease.ts";
 
 /**
@@ -448,6 +449,7 @@ export class Track {
       lanes: r.lanes,
     }));
     this.checkCrossings();
+    checkPlateaus(this.id, this.json.environment.plateaus, this.paths());
     let minX = Infinity;
     let maxX = -Infinity;
     let minZ = Infinity;
@@ -583,6 +585,8 @@ export class TrackGround implements Ground {
     this.stampPath(track.path, stamp, false);
     stamp.under = this.heights.slice();
     for (const p of track.paths()) if (p !== track.path) this.stampPath(p, stamp, true);
+    paintGrid(env.paint, this.surf, this.terrain, this.minX, this.minZ, this.nx, CELL);
+    raisePlateaus(env.plateaus, this.heights, this.surf, this.minX, this.minZ, this.nx, CELL);
     this.indexDecks(track.path);
   }
 

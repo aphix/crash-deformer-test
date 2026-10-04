@@ -225,7 +225,7 @@ export class CrashEngine extends EngineShare {
       buildArt: (track, placed) => {
         this.queueWarm();
         this.ragdolls.setCourse(track, placed, (i) => this.race.propKnocked(i));
-        return new TrackArt(track, placed);
+        return new TrackArt(track, placed, this.stage);
       },
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
       // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).

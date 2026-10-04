@@ -360,6 +360,57 @@ function building(): Piece[] {
   return out;
 }
 
+/** A five-pointed star prism (outer radius R, one tip towards +z) from y0 to y1. */
+function star(R: number, y0: number, y1: number): THREE.BufferGeometry {
+  const s = new THREE.Shape();
+  for (let i = 0; i < 10; i++) {
+    const a = (i * Math.PI) / 5;
+    const r = i % 2 ? R * 0.45 : R;
+    if (i) s.lineTo(Math.sin(a) * r, -Math.cos(a) * r);
+    else s.moveTo(0, -r);
+  }
+  // The extrusion runs along the shape's z; turned upright, the shape's y maps to −z.
+  return new THREE.ExtrudeGeometry(s, { depth: y1 - y0, bevelEnabled: false }).rotateX(-Math.PI / 2).translate(0, y0, 0);
+}
+
+/** The Plaza de la Revolución memorial: a stone tower in star-plan steps, tapering to a spire. */
+function monument(): Piece[] {
+  const steps = [[6.2, -0.8, 1.4], [5.7, 1.4, 4.2], [5.1, 4.2, 9], [4.5, 9, 15], [3.9, 15, 22], [3.3, 22, 30], [2.8, 30, 38], [2.3, 38, 45], [1.8, 45, 50]] as const;
+  const out = steps.map(([R, y0, y1], i): Piece => [star(R, y0, y1), i % 2 ? 0xd9d3c3 : 0xc4bdab]);
+  out.push([new THREE.ConeGeometry(0.8, 5, 5).translate(0, 52.5, 0), 0xb4ad9b]);
+  return out;
+}
+
+/** A royal palm: a leaning trunk and a crown of eight drooping fronds. */
+function palm(): Piece[] {
+  const lean = -0.08;
+  const out: Piece[] = [[cyl(0.15, 0.27, 0, 8.2, 6).rotateZ(lean), C.trunk]];
+  const top = new THREE.Vector3(0, 8.2, 0).applyAxisAngle(new THREE.Vector3(0, 0, 1), lean);
+  for (let k = 0; k < 8; k++) {
+    const frond = new THREE.BoxGeometry(0.5, 0.05, 3.4).translate(0, 0, 1.8).rotateX(0.5).rotateY((k * Math.PI) / 4).translate(top.x, top.y, 0);
+    out.push([frond, C.leaf[k % 2]!]);
+  }
+  return out;
+}
+
+/** A stucco wall 10 m long (tinted per placement), a cap and a weathered footing. */
+function wall(): Piece[] {
+  return [
+    [box(0.4, 3, 10, 0, 1.5, 0), 0xffffff],
+    [box(0.6, 0.2, 10, 0, 3.1, 0), C.concrete],
+    [box(0.44, 0.5, 10.02, 0, 0.25, 0), C.rock],
+  ];
+}
+
+function dumpster(): Piece[] {
+  return [
+    [box(1.9, 1.05, 1.1, 0, 0.7, 0), 0x2f5d3a],
+    [box(2, 0.1, 1.25, 0, 1.3, 0), C.black],
+    [box(0.12, 0.3, 1.1, -0.82, 0.15, 0), C.metal],
+    [box(0.12, 0.3, 1.1, 0.82, 0.15, 0), C.metal],
+  ];
+}
+
 function grandstand(): Piece[] {
   const out: Piece[] = [];
   const depth = 1.2;
@@ -471,6 +522,16 @@ export function prefabParts(id: PrefabId, mats: PrefabMaterials): PrefabPart[] {
       return one(tree(), mats.plain);
     case "building":
       return one(building(), mats.building);
+    case "stucco":
+      return one(building(), mats.building);
+    case "monument":
+      return one(monument(), mats.plain);
+    case "palm":
+      return one(palm(), mats.plain);
+    case "wall":
+      return one(wall(), mats.plain);
+    case "dumpster":
+      return one(dumpster(), mats.plain);
     case "grandstand":
       return one(grandstand(), mats.plain);
     case "billboard":

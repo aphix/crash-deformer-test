@@ -38,6 +38,11 @@ export const PREFAB_IDS = [
   "billboard",
   "lamp",
   "gantry",
+  "monument",
+  "stucco",
+  "palm",
+  "wall",
+  "dumpster",
 ] as const;
 export type PrefabId = (typeof PREFAB_IDS)[number];
 
@@ -71,4 +76,10 @@ export const PREFABS: Record<PrefabId, PrefabSpec> = {
   billboard: { body: "solid", collider: { kind: "box", hx: 0.2, hz: 3 }, size: [0.4, 4.5, 6], mass: 0 },
   lamp: { body: "solid", collider: { kind: "circle", r: 0.14 }, size: [0.3, 4.4, 0.3], mass: 0 },
   gantry: { body: "none", collider: null, size: [1, 6, 1], mass: 0 },
+  // The Havana course: a stepped star-plan tower, pastel flat-roofed blocks (the building's shape), palms, stucco walls (long axis +Z), a dumpster (long axis +X).
+  monument: { body: "solid", collider: { kind: "circle", r: 5.8 }, size: [13, 55, 13], mass: 0 },
+  stucco: { body: "solid", collider: { kind: "box", hx: 6, hz: 6 }, size: [12, 14, 12], mass: 0 },
+  palm: { body: "solid", collider: { kind: "circle", r: 0.3 }, size: [4.4, 8.5, 4.4], mass: 0 },
+  wall: { body: "solid", collider: { kind: "box", hx: 0.3, hz: 5 }, size: [0.6, 3.2, 10], mass: 0 },
+  dumpster: { body: "solid", collider: { kind: "box", hx: 1, hz: 0.62 }, size: [2, 1.4, 1.25], mass: 0 },
 };

@@ -2,24 +2,9 @@
   "id": "havana",
   "name": "Plaza de la Revolución",
   "blurb": "Survival ground: a D-shaped green island in a street grid, a grassy embankment and a monument on top. Not in the race menu.",
-  "road": {
-    "width": 12,
-    "surface": "asphalt",
-    "runoff": [3, 3],
-    "runoffSurface": "concrete",
-    "wall": [false, false]
-  },
+  "road": { "width": 12, "surface": "asphalt", "runoff": [3, 3], "runoffSurface": "concrete", "wall": [false, false] },
   "nodes": [
-    { "x": 0, "z": 46 },
-    { "x": 13.7, "z": 46 },
-    { "x": 27.3, "z": 46 },
-    { "x": 41, "z": 46 },
-    { "x": 46.4, "z": 44.9 },
-    { "x": 50.9, "z": 41.9 },
-    { "x": 53.9, "z": 37.4 },
-    { "x": 55, "z": 32 },
-    { "x": 55, "z": 20 },
-    { "x": 55, "z": 8 },
+    { "x": 55, "z": 12 },
     { "x": 55, "z": -2 },
     { "x": 53.1, "z": -16.2 },
     { "x": 47.6, "z": -29.5 },
@@ -33,46 +18,188 @@
     { "x": -47.6, "z": -29.5 },
     { "x": -53.1, "z": -16.2 },
     { "x": -55, "z": -2 },
-    { "x": -55, "z": 8 },
-    { "x": -55, "z": 20 },
-    { "x": -55, "z": 32 },
-    { "x": -53.9, "z": 37.4 },
-    { "x": -50.9, "z": 41.9 },
-    { "x": -46.4, "z": 44.9 },
-    { "x": -41, "z": 46 },
-    { "x": -27.3, "z": 46 },
-    { "x": -13.7, "z": 46 }
+    { "x": -55, "z": 12 },
+    { "x": -55, "z": 25 },
+    { "x": -55, "z": 38 },
+    { "x": -53.9, "z": 43.4 },
+    { "x": -50.9, "z": 47.9 },
+    { "x": -46.4, "z": 50.9 },
+    { "x": -41, "z": 52 },
+    { "x": -27.3, "z": 52 },
+    { "x": -13.7, "z": 52 },
+    { "x": 0, "z": 52 },
+    { "x": 13.7, "z": 52 },
+    { "x": 27.3, "z": 52 },
+    { "x": 41, "z": 52 },
+    { "x": 46.4, "z": 50.9 },
+    { "x": 50.9, "z": 47.9 },
+    { "x": 53.9, "z": 43.4 },
+    { "x": 55, "z": 38 },
+    { "x": 55, "z": 25 }
   ],
   "checkpoints": [{ "node": 0 }, { "node": 8 }, { "node": 16 }, { "node": 24 }],
+  "props": [
+    { "prefab": "monument", "x": 4.5, "z": 0, "yaw": 0 },
+    { "prefab": "wall", "x": -38.95, "z": -12, "yaw": 1.5708, "size": [0.6, 3.2, 2.6] },
+    { "prefab": "dumpster", "x": -39.65, "z": -15, "yaw": 1.5708 }
+  ],
+  "along": [
+    { "prefab": "palm", "every": 15, "side": "left", "offset": 2, "fromNode": 29, "toNode": 1 },
+    { "prefab": "palm", "every": 15, "side": "left", "offset": 2, "fromNode": 13, "toNode": 18 },
+    { "prefab": "stucco", "every": 19, "side": "right", "offset": 4, "fromNode": 13, "toNode": 1 },
+    { "prefab": "palm", "every": 14, "side": "both", "offset": 3, "route": "boulevard" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 11, "route": "boulevard" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 7.5, "route": "north-st" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 7.5, "route": "cross-130" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 7.5, "route": "cross-220" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 7.5, "route": "cross-310" },
+    { "prefab": "stucco", "every": 17, "side": "both", "offset": 7.5, "route": "cross-400" },
+    { "prefab": "stucco", "every": 19, "side": "both", "offset": 7.5, "route": "avenue-east" },
+    { "prefab": "stucco", "every": 19, "side": "both", "offset": 7.5, "route": "avenue-west" },
+    { "prefab": "palm", "every": 16, "side": "both", "offset": 3, "route": "paseo" },
+    { "prefab": "wall", "every": 10, "side": "left", "offset": 1, "route": "alley" }
+  ],
   "traffic": {
     "count": 0,
     "lanes": [],
     "routes": [
       {
         "id": "boulevard",
-        "path": [
-          { "x": 0, "z": 470 },
-          { "x": 0, "z": 258 },
-          { "x": 0, "z": 46 }
-        ],
+        "path": [{ "x": 0, "z": 476 }, { "x": 0, "z": 52 }],
         "width": 20,
         "count": 0,
-        "lanes": [
-          { "offset": -4, "dir": 1 },
-          { "offset": 4, "dir": -1 }
-        ]
+        "lanes": [{ "offset": -5, "dir": 1 }, { "offset": 5, "dir": -1 }]
+      },
+      {
+        "id": "north-st",
+        "path": [{ "x": -170, "z": 52 }, { "x": 170, "z": 52 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "cross-130",
+        "path": [{ "x": -170, "z": 130 }, { "x": 170, "z": 130 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "cross-220",
+        "path": [{ "x": -170, "z": 220 }, { "x": 170, "z": 220 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "cross-310",
+        "path": [{ "x": -170, "z": 310 }, { "x": 170, "z": 310 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "cross-400",
+        "path": [{ "x": -170, "z": 400 }, { "x": 170, "z": 400 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "avenue-east",
+        "path": [{ "x": 110, "z": -215 }, { "x": 110, "z": 470 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "avenue-west",
+        "path": [{ "x": -110, "z": -215 }, { "x": -110, "z": 470 }],
+        "width": 12,
+        "count": 0,
+        "lanes": [{ "offset": -3, "dir": 1 }, { "offset": 3, "dir": -1 }]
+      },
+      {
+        "id": "paseo",
+        "path": [{ "x": 0, "z": -57 }, { "x": 0, "z": -215 }],
+        "width": 24,
+        "count": 0,
+        "lanes": [{ "offset": -6, "dir": 1 }, { "offset": 6, "dir": -1 }]
+      },
+      {
+        "id": "alley",
+        "path": [{ "x": -36.5, "z": 52 }, { "x": -36.5, "z": -46 }],
+        "width": 5.5,
+        "surface": "cobble",
+        "count": 0,
+        "lanes": [{ "offset": -1.375, "dir": 1 }, { "offset": 1.375, "dir": -1 }]
       }
     ]
   },
   "survival": {
-    "start": { "x": 0, "z": 420, "yaw": 3.1416 },
+    "start": { "x": 0, "z": 426, "yaw": 3.1416 },
     "formation": [
-      { "x": -2.6, "z": 431, "yaw": 3.1416 },
-      { "x": 2.6, "z": 435, "yaw": 3.1416 },
-      { "x": -2.6, "z": 442, "yaw": 3.1416 },
-      { "x": 2.6, "z": 446, "yaw": 3.1416 },
-      { "x": 0, "z": 453, "yaw": 3.1416 }
+      { "x": -2.6, "z": 437, "yaw": 3.1416 },
+      { "x": 2.6, "z": 441, "yaw": 3.1416 },
+      { "x": -2.6, "z": 448, "yaw": 3.1416 },
+      { "x": 2.6, "z": 452, "yaw": 3.1416 },
+      { "x": 0, "z": 459, "yaw": 3.1416 }
     ]
   },
-  "environment": { "sky": "#a8cfe3", "fog": 0.0012, "terrain": "grass", "hills": [] }
+  "environment": {
+    "sky": "#a8cfe3",
+    "fog": 0.0012,
+    "light": { "sun": "#ffd49a", "sunIntensity": 2.9, "hemi": "#bcd3ea", "fill": "#ffe0c2" },
+    "terrain": "concrete",
+    "hills": [],
+    "plateaus": [
+      {
+        "x": 0,
+        "z": 0,
+        "halfX": 12,
+        "halfZ": 18,
+        "height": 4,
+        "run": [10, 10, 18, 16],
+        "round": 6,
+        "top": "concrete"
+      }
+    ],
+    "paint": [
+      {
+        "surface": "grass",
+        "poly": [
+          [-41, 42.2],
+          [41, 42.2],
+          [41, 42.2],
+          [42.6, 41.9],
+          [44, 41],
+          [44.9, 39.6],
+          [45.2, 38],
+          [45.2, -2],
+          [44.3, -10.8],
+          [41.8, -19.3],
+          [37.6, -27.1],
+          [32, -34],
+          [25.1, -39.6],
+          [17.3, -43.8],
+          [8.8, -46.3],
+          [0, -47.2],
+          [-8.8, -46.3],
+          [-17.3, -43.8],
+          [-25.1, -39.6],
+          [-32, -34],
+          [-37.6, -27.1],
+          [-41.8, -19.3],
+          [-44.3, -10.8],
+          [-45.2, -2],
+          [-45.2, 38],
+          [-44.9, 39.6],
+          [-44, 41],
+          [-42.6, 41.9],
+          [-41, 42.2]
+        ]
+      },
+      { "surface": "grass", "poly": [[-90, -68], [90, -68], [90, -215], [-90, -215]] }
+    ]
+  }
 }
