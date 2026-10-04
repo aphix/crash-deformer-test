@@ -715,6 +715,12 @@ export abstract class CarParts extends CarCore {
     for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
   }
 
+  /** Into `out`: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). */
+  freeObjects(out: THREE.Object3D[]): void {
+    for (const p of this.parts) if (p.detached && p.object.visible) out.push(p.object);
+    for (const w of this.looseWheels) if (w.loose) out.push(w.object);
+  }
+
   /** A popped hub's wheel leaves the car: a world object launched at the hub's speed, out and up. */
   protected dropWheel(i: number, hub: string): void {
     const w = this.looseWheels[i]!;
