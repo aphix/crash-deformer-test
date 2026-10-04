@@ -150,7 +150,7 @@ derby AI uses the same two functions with its own thresholds.
 
 **Contact guard** (`ai/contact-guard.ts` `guardContact`, the last step of `RaceBrain.think` for racers; police share the line
 brain but are not guarded). Of the racers and traffic (not police) except the rivals the driver means to hit (`fight > 0`), the
-soonest contact within 1.5 s is found by following the guarded car round the arc its steer asks for and every other car in the
+soonest contact within 1.5 s (in effect 1.4 s: the sixteenth sample, at 1.5000000000000002 s, is not under the horizon) is found by following the guarded car round the arc its steer asks for and every other car in the
 line it drives, each wearing a car-shaped zone (2.4 × 6 m half-axes). The other car keeps its heading and sheds speed at the
 racing plan's own braking budget (`PLAN_BRAKE` × the class brake: a car ahead brakes for what it sees up the road as the plan
 does). The contact is steered clear of (at most 0.35 of full lock) and every contact ahead that sideways room (6 m/s²) cannot

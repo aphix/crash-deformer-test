@@ -17,7 +17,10 @@ const STEER_CAP = 0.35;
 /** A yaw rate (rad/s) under this is a straight line. */
 const STRAIGHT = 1e-3;
 
-/** The look-ahead's sample times: 0 to `HORIZON` in steps of `STEP`. */
+/**
+ * The look-ahead's sample times: 0 to `HORIZON` in steps of `STEP`, accumulated as the first version of the guard did. The last,
+ * 1.5000000000000002 s, is not under `HORIZON`, so a contact first met there is not acted on: the guard acts on contacts within 1.4 s.
+ */
 const TIMES = sampleTimes();
 const STEPS = TIMES.length;
 /** Where the guarded car is (`DX`, `DZ`: its displacement), which way it points (`GX`, `GZ`) and how it moves (`VX`, `VZ`) at each sample time, filled once per call. */
