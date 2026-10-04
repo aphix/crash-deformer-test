@@ -16,7 +16,7 @@ import { bilinear, RoadCrease } from "./road-crease.ts";
 
 const STEP = 1;
 /** Projection search half-window (samples) around a hint. */
-const WINDOW = 24;
+export const WINDOW = 24;
 /** Beyond the wall line the ground eases back to the base terrain over this (m). */
 const BLEND = 24;
 /**

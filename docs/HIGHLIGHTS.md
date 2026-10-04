@@ -58,14 +58,15 @@ point or one of its cars) at any keyframe of the clip or at its end, nearest fir
 since the clip's start. Left out: a car that did not exist at the clip's first keyframe and one placed (`JUMP`) after
 the first impact, which the replay cannot place. 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
 the 46 cars a camera could see on five seeded races, 80 m holds 44 and 60 m holds 39. A clip grows by bystanders only to
-`CLIP_SHARE` (`REEL_MSG_MAX` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state in each
+`CLIP_SHARE` (`REEL_BUDGET` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state in each
 keyframe it is a wreck in). A bystander too big for what is left is skipped (a cheaper one further out may still fit),
 and a pile-up that already fills the share takes none. Measured on city seed 6: an intact bystander costs 9 KiB raw and
 2 KiB deflated, a wreck churning through the whole clip 54 and 13. Uncapped, 80 m turned that reel (249 KiB of single
 clips, 4 of 5 fit the 240 KiB message) into 879 KiB with 1 fit, and saved clips past 300K chars. With the share, fit
 counts equal the no-bystander recorder's on all five measured races, cars within 80 m of a hit that end up in a clip
-rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is unchanged
-(27 B a step against the 45 bound, `engine-record.test.ts`).
+rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is 1.2 B a step
+against a 16 B bound (`engine-record.test.ts`): `simState` reads a wreck's scalar fields as plain properties (`simScalarsOut`,
+`simScalarsIn`; read by name, V8 boxed every double: 1050 B a wreck a keyframe, 46.0 B a step at 11 wrecks, now 48 B a wreck a keyframe).
 
 ## Ejections
 
@@ -191,9 +192,25 @@ shot is framed from the car as it stands at the shot's own clip time. The crash 
 sandbox (lamp posts, barrier, balls: `sceneSight`), it stands on the ground at the hit and turns its axis (`crashAxis`: as
 hit, reversed, the quarter turns) to the one whose three cut eyes see the hit from furthest out, pulling an eye in toward
 the hit (no closer than 3 m) when a wall is in the way. A cut with no usable eye is left to the chase / reel camera.
+An eye counts as usable only if it passes `camUsable` at 9 times from its cut's start to its end (`CUT_SAMPLES`): the eye
+pans (long lens), creeps (bumper) and turns (crane) through its cut, and a pick made at the middle alone let eyes drift
+into a wall or behind a corner at either end (tested at 17 times: 36 of 549 eyes on rally, 75 of 432 city, 61 of 761 stunt,
+0 on oval; now 0, 0, 0 and 1 of 730). `solid` no longer projects each point onto the road from the last query's segment: where
+stunt's course crosses itself that left the walls of the wrong road in charge (1 of 544 eyes read differently by what was asked
+before). `Sight.grid` (`roadGrid`,
+8 m cells over the course) names, per cell, a path sample on each stretch of road near it (up to 3), and `solid` projects from those
+windows: a trackside pick costs what it did (0.40 / 0.59 / 0.48 / 0.41 ms mean on oval / rally / city / stunt; 0.44 / 0.62 / 0.50
+/ 0.41 before), and the grid builds in about the time `raceSight` already took.
+The crash cam's pick is `CrashPick`, a search that runs over the lead-in before the first cut (`CUTS[0]`, 1.3 s): `Cinematics.direct`
+spends `PICK_RATE` (1000) `camUsable` calls a wall second on it, so at 240 Hz about 5 a frame, and finishes what is left 0.05 s
+before the cut. Whole, the pick costs 0.6-1.1 ms median and 1.3-4.3 ms at worst (stunt); a frame of it costs 0.05-0.06 ms median, 0.13-0.19 ms
+at p95 and 0.38-0.85 ms at worst, and it needs at most 34 five-call runs. Its answer does not depend on the slicing
+(`engine-cine.test.ts`). Measured in Chromium on stunt (a seeded 12-lap, 15-car race, its reel at 240 Hz pacing, the tick
+without the draw): over 150 frames after each crash-cam impact, 13 impacts / 1661 frames here against 11 / 1359 on main:
+median 0.10 ms (main 0.20), p95 0.30 (0.30), max 1.40 (2.10), none over 4.2 ms on either.
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
-(`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 9 of 186 (rally) and
-54 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
+(`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 14 of 186 (rally) and
+55 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
 
 In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
@@ -219,14 +236,17 @@ a switch to "high".
 
 The host runs the reel; clients never record.
 
-1. At "over" the race calls `reelReady`. The engine packs the reel (`packReel`), sends it once on the reliable channel
-   (`NetPlay.sendReel`, `MSG.reel`, since `NET_VERSION` 5) and plays the *decoded* bytes itself at
+1. At "over" the race calls `reelReady`. The engine packs the reel (`packReel`), sends it once on the reliable channel as
+   `MSG.reelPart` frames (`NetPlay.sendReliable`, `reelParts`) and plays the *decoded* bytes itself at
    `now + RESULTS_DELAY`, the moment the results sheet opens.
-2. `MSG.reel` is the type, the seed (u32), the start in host-clock seconds (f64), then the clips deflated
-   (`deflate-raw`). In rank order, a clip goes in only if the message still fits `REEL_MSG_MAX` (240 KiB, under
-   WebRTC's 256 KiB message cap): a clip too big drops alone, the ones below it that fit still go, and the host warns
-   in the console how many dropped. On the seed-5 race the 5-clip reel sends 3 (227.6 KiB); the largest clip alone is
-   176.5 KiB.
+2. The reel message is the type (`MSG.reel`), the seed (u32), the start in host-clock seconds (f64), then every clip deflated
+   (`deflate-raw`). It is cut into frames of 32 KiB (`net/reel-wire.ts`: `MSG.reelPart`, a flags byte `FIRST` / `LAST`, up to
+   `REEL_PART` bytes), so a reel of any size passes the relay's 240 KiB message cap and WebRTC's 256 KiB one: before
+   (`NET_VERSION` 5-9) a reel over `REEL_BUDGET` (240 KiB) dropped whole clips (the seed-5 race sent 3 of 5). The reliable
+   channel is ordered, so a client's `ReelParts` gathers a reel from its `FIRST` frame to its `LAST` (a new `FIRST` drops a
+   half-gathered one, and more than 4 MiB, `REEL_WIRE_MAX`, drops it). Measured in two Chromium pages over WebRTC (city, 10
+   cars, pedal bytes noise-filled to be incompressible): 280,795 bytes in 9 frames and 385,042 bytes in 12 frames, both with
+   every clip on the guest, which played the same shot as the host. `NET_VERSION` is 10.
 3. A client decodes it (`unpackReel`) and plays it at `startAt + offset`, its estimate of the host clock. While the
    reel plays it draws no host snapshots, because the reel owns the cars. The reel stops when race mode ends or the
    next race sets up (no session, grid or countdown). It does not stop on "racing": the host's race state reaches a

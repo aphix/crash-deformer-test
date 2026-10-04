@@ -89,9 +89,10 @@ type, `NET_VERSION` u8, the player's name (u8 length + UTF-8; since version 3). 
 name as untrusted (`cleanName`: whitespace folded, control / bidi / zero-width characters dropped,
 combining marks capped, 16 characters); a hello without one (the old layout) is seated as "Player N".
 `assign` (host → one client): type, car u8 (255: refused), `NET_VERSION` u8.
-`hold` (hidden host → all): type only. `reel` (host → all, on the reliable channel, since version 5):
-type, seed u32, the host-clock second the reel starts at (f64), then the clips deflated (`reel-codec.ts`,
-at most 240 KiB); sent once, when a race ends. A client moves the start onto its own clock with the
+`hold` (hidden host → all): type only. `reelPart` (host → all, on the reliable channel; version 10, before it one `reel`
+message of at most 240 KiB): one 32 KiB frame (`reel-wire.ts`: type, flags `FIRST` 1 / `LAST` 2, up to 32 KiB) of the reel
+message `MSG.reel` (type, seed u32, the host-clock second the reel starts at (f64), then every clip deflated, `reel-codec.ts`);
+sent once, when a race ends, so a reel of any size gets every clip past the relay. A client moves the start onto its own clock with the
 snapshot clock offset and draws no snapshots while the reel plays ([HIGHLIGHTS.md](HIGHLIGHTS.md)).
 **`MSG.eject`** (9, `writeEject`; reliable, host → every client): a driver was thrown out of a car. Type, the host clock (f64, the
 clock snapshots carry), car u8, pane + police bits u8, then 22 f32: the torso's start (world position, car-local position,
@@ -99,7 +100,7 @@ out-of-the-pane direction, orientation) and his velocity relative to the car, th
 `Ejection` the host's sim made (`EjectionWatch`, [RACE_DESIGN.md](RACE_DESIGN.md)), every number f32-exact. A client queues it
 (`EjectQueue`) and launches the dummy when its draw time (the host clock `INTERP_DELAY` behind) reaches the event's, so he
 leaves with the car it is drawn leaving; a reel that plays drops it. 100 bytes, a handful a race.
-`NET_VERSION` (`codec.ts`, now 8: `MSG.race` carries the field's driver-look seed `look`, a snapshot car's flags byte carries `driverOut`, `MSG.eject`, and a reel clip carries its ejections and the look) is bumped on any layout change:
+`NET_VERSION` (`codec.ts`, now 10: the reel travels as `MSG.reelPart` frames; 8: `MSG.race` carries the field's driver-look seed `look`, a snapshot car's flags byte carries `driverOut`, `MSG.eject`, and a reel clip carries its ejections and the look) is bumped on any layout change:
 a host answers another build's hello with a refusal and a client refuses another build's assign, so
 mixed builds (an auto-deploy mid-session) say "reload" instead of misreading snapshots.
 

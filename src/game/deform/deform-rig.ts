@@ -22,6 +22,9 @@ import { FACES, faceFollow } from "./load-crush.ts";
  * the passenger cell is what SAT actually separates.
  */
 
+/** Numbers a `simState` block spends on the rig’s scalar fields (`simScalarsOut`: 50 fields, two numbers each). */
+export const SIM_SCALAR_NUMBERS = 100;
+
 export type DeformMode = "shape" | "lattice";
 
 /** Rearward engine travel (m, vs the cell, along the hit) that leaves the car undriveable.
@@ -635,4 +638,157 @@ export abstract class DeformRig {
     this.cornerXf = Int32Array.from(xf);
     this.cornerW = Float64Array.from(ws);
   }
+
+  /** `simState`: every scalar field (declaration order: a saved clip’s layout, `REPLAY_VERSION`, fixes it), two numbers each: a float32 and what it rounded off. Returns the offset after them. */
+  protected simScalarsOut(buf: Float32Array, o: number): number {
+    buf[o] = this.cageCount;
+    buf[o + 1] = (this.cageCount - buf[o]!) || 0;
+    buf[o + 2] = this.sensorCount;
+    buf[o + 3] = (this.sensorCount - buf[o + 2]!) || 0;
+    buf[o + 4] = this.crushAmount;
+    buf[o + 5] = (this.crushAmount - buf[o + 4]!) || 0;
+    simFlag(buf, o + 6, this.massActive);
+    simFlag(buf, o + 8, this.drivetrainAlive);
+    buf[o + 10] = this.engineTravel;
+    buf[o + 11] = (this.engineTravel - buf[o + 10]!) || 0;
+    buf[o + 12] = this.killTravel;
+    buf[o + 13] = (this.killTravel - buf[o + 12]!) || 0;
+    buf[o + 14] = this.wreckEnergy;
+    buf[o + 15] = (this.wreckEnergy - buf[o + 14]!) || 0;
+    buf[o + 16] = this.wear;
+    buf[o + 17] = (this.wear - buf[o + 16]!) || 0;
+    simFlag(buf, o + 18, this.bidirectional);
+    simFlag(buf, o + 20, this.squeezeShape);
+    simFlag(buf, o + 22, this.deepShape);
+    buf[o + 24] = this.faceContacts;
+    buf[o + 25] = (this.faceContacts - buf[o + 24]!) || 0;
+    simFlag(buf, o + 26, this.squeezed);
+    simFlag(buf, o + 28, this.frameCrush);
+    simFlag(buf, o + 30, this.wheelsDetach);
+    buf[o + 32] = this.vertexCount;
+    buf[o + 33] = (this.vertexCount - buf[o + 32]!) || 0;
+    buf[o + 34] = this.elapsed;
+    buf[o + 35] = (this.elapsed - buf[o + 34]!) || 0;
+    buf[o + 36] = this.lastContact;
+    buf[o + 37] = (this.lastContact - buf[o + 36]!) || 0;
+    simFlag(buf, o + 38, this.crushing);
+    buf[o + 40] = this.impulse;
+    buf[o + 41] = (this.impulse - buf[o + 40]!) || 0;
+    buf[o + 42] = this.hitSpeed;
+    buf[o + 43] = (this.hitSpeed - buf[o + 42]!) || 0;
+    simFlag(buf, o + 44, this.floorsFresh);
+    simFlag(buf, o + 46, this.rearmed);
+    buf[o + 48] = this.lastPower;
+    buf[o + 49] = (this.lastPower - buf[o + 48]!) || 0;
+    buf[o + 50] = this.hitAt;
+    buf[o + 51] = (this.hitAt - buf[o + 50]!) || 0;
+    buf[o + 52] = this.wrinkleAmp;
+    buf[o + 53] = (this.wrinkleAmp - buf[o + 52]!) || 0;
+    buf[o + 54] = this.cornerLow;
+    buf[o + 55] = (this.cornerLow - buf[o + 54]!) || 0;
+    buf[o + 56] = this._totalMass;
+    buf[o + 57] = (this._totalMass - buf[o + 56]!) || 0;
+    buf[o + 58] = this.prevYaw;
+    buf[o + 59] = (this.prevYaw - buf[o + 58]!) || 0;
+    buf[o + 60] = this.rateYaw;
+    buf[o + 61] = (this.rateYaw - buf[o + 60]!) || 0;
+    buf[o + 62] = this.rateAt;
+    buf[o + 63] = (this.rateAt - buf[o + 62]!) || 0;
+    buf[o + 64] = this.lean;
+    buf[o + 65] = (this.lean - buf[o + 64]!) || 0;
+    buf[o + 66] = this.leanAt;
+    buf[o + 67] = (this.leanAt - buf[o + 66]!) || 0;
+    simFlag(buf, o + 68, this.aloft);
+    buf[o + 70] = this.frameY;
+    buf[o + 71] = (this.frameY - buf[o + 70]!) || 0;
+    buf[o + 72] = this.frameAt;
+    buf[o + 73] = (this.frameAt - buf[o + 72]!) || 0;
+    buf[o + 74] = this.frameVy;
+    buf[o + 75] = (this.frameVy - buf[o + 74]!) || 0;
+    buf[o + 76] = this.pushUsed;
+    buf[o + 77] = (this.pushUsed - buf[o + 76]!) || 0;
+    buf[o + 78] = this.pushAt;
+    buf[o + 79] = (this.pushAt - buf[o + 78]!) || 0;
+    simFlag(buf, o + 80, this.overlapFrame);
+    buf[o + 82] = this.contactAt;
+    buf[o + 83] = (this.contactAt - buf[o + 82]!) || 0;
+    simFlag(buf, o + 84, this.shapeRan);
+    simFlag(buf, o + 86, this.shapeWasLive);
+    buf[o + 88] = this.bodyCos;
+    buf[o + 89] = (this.bodyCos - buf[o + 88]!) || 0;
+    buf[o + 90] = this.bodySin;
+    buf[o + 91] = (this.bodySin - buf[o + 90]!) || 0;
+    buf[o + 92] = this.squash;
+    buf[o + 93] = (this.squash - buf[o + 92]!) || 0;
+    buf[o + 94] = this.buckle;
+    buf[o + 95] = (this.buckle - buf[o + 94]!) || 0;
+    buf[o + 96] = this.netPopped;
+    buf[o + 97] = (this.netPopped - buf[o + 96]!) || 0;
+    buf[o + 98] = this.netFlags;
+    buf[o + 99] = (this.netFlags - buf[o + 98]!) || 0;
+    return o + SIM_SCALAR_NUMBERS;
+  }
+
+  /** The scalar fields restored from `buf` (`simScalarsOut`); the rig’s two counts are fixed by the build, so their slots are skipped. */
+  protected simScalarsIn(buf: Float32Array, o: number): number {
+    this.crushAmount = simBack(buf, o + 4);
+    this.massActive = buf[o + 6]! !== 0;
+    this.drivetrainAlive = buf[o + 8]! !== 0;
+    this.engineTravel = simBack(buf, o + 10);
+    this.killTravel = simBack(buf, o + 12);
+    this.wreckEnergy = simBack(buf, o + 14);
+    this.wear = simBack(buf, o + 16);
+    this.bidirectional = buf[o + 18]! !== 0;
+    this.squeezeShape = buf[o + 20]! !== 0;
+    this.deepShape = buf[o + 22]! !== 0;
+    this.faceContacts = simBack(buf, o + 24);
+    this.squeezed = buf[o + 26]! !== 0;
+    this.frameCrush = buf[o + 28]! !== 0;
+    this.wheelsDetach = buf[o + 30]! !== 0;
+    this.vertexCount = simBack(buf, o + 32);
+    this.elapsed = simBack(buf, o + 34);
+    this.lastContact = simBack(buf, o + 36);
+    this.crushing = buf[o + 38]! !== 0;
+    this.impulse = simBack(buf, o + 40);
+    this.hitSpeed = simBack(buf, o + 42);
+    this.floorsFresh = buf[o + 44]! !== 0;
+    this.rearmed = buf[o + 46]! !== 0;
+    this.lastPower = simBack(buf, o + 48);
+    this.hitAt = simBack(buf, o + 50);
+    this.wrinkleAmp = simBack(buf, o + 52);
+    this.cornerLow = simBack(buf, o + 54);
+    this._totalMass = simBack(buf, o + 56);
+    this.prevYaw = simBack(buf, o + 58);
+    this.rateYaw = simBack(buf, o + 60);
+    this.rateAt = simBack(buf, o + 62);
+    this.lean = simBack(buf, o + 64);
+    this.leanAt = simBack(buf, o + 66);
+    this.aloft = buf[o + 68]! !== 0;
+    this.frameY = simBack(buf, o + 70);
+    this.frameAt = simBack(buf, o + 72);
+    this.frameVy = simBack(buf, o + 74);
+    this.pushUsed = simBack(buf, o + 76);
+    this.pushAt = simBack(buf, o + 78);
+    this.overlapFrame = buf[o + 80]! !== 0;
+    this.contactAt = simBack(buf, o + 82);
+    this.shapeRan = buf[o + 84]! !== 0;
+    this.shapeWasLive = buf[o + 86]! !== 0;
+    this.bodyCos = simBack(buf, o + 88);
+    this.bodySin = simBack(buf, o + 90);
+    this.squash = simBack(buf, o + 92);
+    this.buckle = simBack(buf, o + 94);
+    this.netPopped = simBack(buf, o + 96);
+    this.netFlags = simBack(buf, o + 98);
+    return o + SIM_SCALAR_NUMBERS;
+  }
+}
+
+/** `simState`: a flag as 1 or 0 at `o`; its second slot stays 0. */
+function simFlag(buf: Float32Array, o: number, on: boolean): void {
+  buf[o] = on ? 1 : 0;
+  buf[o + 1] = 0;
+}
+/** `simState`: the number a scalar's pair of slots at `o` hold (a float32 and what it rounded off: a crash clock is compared by differences, so a float32 alone flips a hold). */
+function simBack(buf: Float32Array, o: number): number {
+  return buf[o]! + buf[o + 1]!;
 }

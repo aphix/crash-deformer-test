@@ -2,6 +2,7 @@ import { carClass } from "../vehicle/vehicle-classes.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { decodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
+import { reelParts } from "../net/reel-wire.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 import type { RaceCommand, RaceHud, SavedHud } from "../match/types.ts";
 import { RESULTS_DELAY } from "./engine-race.ts";
@@ -26,10 +27,9 @@ export abstract class EngineReel extends EngineInput {
     const startAt = performance.now() / 1000 + RESULTS_DELAY;
     const current = (): boolean => this.race.active && this.race.phase === "finished";
     void (async () => {
-      const { msg, clips: sent } = await packReel(reel, startAt);
-      if (sent < reel.clips.length) console.warn(`Highlight reel: ${reel.clips.length - sent} of ${reel.clips.length} clips too big for the netplay message; the reel plays the ${sent} sent`);
+      const msg = await packReel(reel, startAt);
       if (!current()) return;
-      this.net.sendReel(msg);
+      for (const part of reelParts(msg)) this.net.sendReliable(part);
       const got = await unpackReel(msg, lay);
       if (current()) this.highlights.play(got.reel, got.startAt);
     })().catch((err: unknown) => console.error("Crush Stream highlight reel failed", err));

@@ -20,7 +20,7 @@ const HIT_STOP = 0.09;
 const HIT_STOP_SCALE = 0.05;
 
 /** Crash cam: cut times (wall s after the first impact) for the three replay angles, then hand back. */
-const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
+export const CUTS = [1.3, 2.9, 4.5, 6.1] as const;
 /** Wall s after the impact when the crash cam hands the camera back (`direct` false again). */
 export const CRASH_CAM_END = CUTS[3];
 
@@ -31,9 +31,6 @@ const _v = new THREE.Vector3();
 const _side = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 const _eye = new THREE.Vector3();
-const _n = new THREE.Vector3();
-const _best = new THREE.Vector3();
-const _reach = new Float32Array(3);
 /** The hit holds still: `camUsable`'s target velocity for a crash-cam eye. */
 const STILL = { x: 0, y: 0, z: 0 };
 /** Crash cam: it aims this high (m) over the ground at the impact. */
@@ -49,6 +46,11 @@ const TURNS = [
 const REACH = [1, 0.75, 0.55, 0.35] as const;
 /** No pulled-in eye stands closer (m, flat) to the hit: the cars are not in the sight lines, and a closer one sat under the wreck. */
 const REACH_MIN = 3;
+/** Times through a cut (start to end, the middle among them) at which an eye must be usable. */
+const CUT_SAMPLES = 9;
+/** The crash cam's pick spends this many `camUsable` calls a wall second (about 15 % of a frame), and finishes whatever is left this long (s) before its first cut. */
+const PICK_RATE = 1000;
+const PICK_DEADLINE = 0.05;
 /** A reel's held crash cam prefers the crane (widest, highest, the cut least often in the way), then the long lens, then the bumper cam. */
 const HOLD_ORDER = [1, 2, 0] as const;
 /** A held eye's room and sight are asked again this often (wall s): `camUsable` costs about 0.15 ms a call. */
@@ -87,45 +89,110 @@ export function crashEye(out: THREE.Vector3, t: number, at: THREE.Vector3, n: TH
 }
 
 /**
- * Per crash-cam cut (its eye mid-cut about `at` and axis `n`): the longest `REACH` whose eye is usable (`camUsable`:
- * `CLEAR.radius` m of room, in sight of `at`), into `reach` (0: none). Returns how many cuts have one.
+ * The crash cam's pick as a search that can pause between two `camUsable` calls (`run`): the cut eyes are only needed
+ * `CUTS[0]` s after the hit, and the whole search, at 1-15 ms, would drop a frame at the impact. For each impact-axis turn
+ * (`TURNS`; as hit, reversed, then the quarter turns) and each cut: the longest `REACH` whose eye is usable (`camUsable`:
+ * `CLEAR.radius` m of room, in sight of `at`) at `CUT_SAMPLES` times from the cut's start to its end, the middle among them.
+ * The eye pans and turns through its cut (a held cut stands at its start, a still one at its middle), so a spot only the middle
+ * passes drifts into a wall or behind a corner: measured on the courses, 7 (stunt) to 74 (city) cuts lost their room or sight at
+ * one end of a middle-only pick (engine-cine.test.ts). The axis kept is the turn whose cuts see `at` from furthest out (summed
+ * reach), the first at full reach on all three. A race hit on a wall or beside one put the side-on eyes behind it: the replay
+ * showed the wall's back, never the cars. The answer does not depend on how `run` is sliced.
  */
-export function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): number {
-  let seen = 0;
-  for (let cut = 0; cut < 3; cut++) {
-    reach[cut] = 0;
-    for (const r of REACH) {
-      crashEye(_eye, (CUTS[cut]! + CUTS[cut + 1]!) / 2, at, n, 1, r);
-      if (r < 1 && Math.hypot(_eye.x - at.x, _eye.z - at.z) < REACH_MIN) break;
-      if (!camUsable(s, _eye, at, STILL, 0)) continue;
-      reach[cut] = r;
-      seen++;
-      break;
-    }
-  }
-  return seen;
-}
+export class CrashPick {
+  private s: Sight | null = null;
+  private at = new THREE.Vector3();
+  private n = new THREE.Vector3();
+  private out: Float32Array = new Float32Array(3);
+  private readonly base = new THREE.Vector3();
+  private readonly axis = new THREE.Vector3();
+  private readonly turnReach = new Float32Array(3);
+  private readonly best = new THREE.Vector3();
+  private readonly bestReach = new Float32Array(3);
+  private most = -1;
+  private turns = 0;
+  private turn = 0;
+  private cut = 0;
+  private ri = 0;
+  private i = 0;
 
-/**
- * Impact axis `n` (flat, unit) turned (`TURNS`) to the one whose crash-cam cuts see `at` from furthest out
- * (`crashSeen`, summed reach; their reach into `reach`), the first at full reach on all three. A race hit on a wall
- * or beside one put the side-on eyes behind it: the replay showed the wall's back, never the cars.
- */
-export function crashAxis(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array): void {
-  let most = -1;
-  for (const [c, sn] of TURNS) {
-    _n.set(c * n.x - sn * n.z, 0, c * n.z + sn * n.x);
-    crashSeen(s, at, _n, _reach);
-    const score = _reach[0]! + _reach[1]! + _reach[2]!;
-    if (score > most) {
-      most = score;
-      _best.copy(_n);
-      reach.set(_reach);
-    }
-    if (score === 3) break;
+  /** A search is under way (`begin` ran, `run` has not finished it). */
+  get pending(): boolean {
+    return this.s !== null;
   }
-  n.copy(_best);
-  // A cut with no usable eye keeps `reach` 0: `direct` leaves that cut to the chase / reel camera.
+
+  /** Start a search over `turns` of `TURNS`; it leaves the chosen axis in `n` (turned in place) and each cut's reach in `reach` when `run` finishes it. */
+  begin(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array, turns: number = TURNS.length): void {
+    this.s = s;
+    this.at = at;
+    this.n = n;
+    this.out = reach;
+    this.base.copy(n);
+    this.turns = turns;
+    this.most = -1;
+    this.turn = -1;
+    this.nextTurn();
+  }
+
+  /** Drop an unfinished search. */
+  cancel(): void {
+    this.s = null;
+  }
+
+  /** Spend up to `units` `camUsable` calls (about 0.15 ms each) on the search; true when it is finished. */
+  run(units: number): boolean {
+    for (; this.s && units > 0; units--) this.step();
+    return this.s === null;
+  }
+
+  private nextTurn(): void {
+    this.turn++;
+    const [c, sn] = TURNS[this.turn]!;
+    this.axis.set(c * this.base.x - sn * this.base.z, 0, c * this.base.z + sn * this.base.x);
+    this.turnReach.fill(0);
+    this.cut = 0;
+    this.ri = 0;
+    this.i = 0;
+  }
+
+  /** One `camUsable` call (or the cheap distance check that ends a cut's search) on the current cut, reach and time. */
+  private step(): void {
+    const s = this.s!;
+    const from = CUTS[this.cut]!;
+    const span = CUTS[this.cut + 1]! - from;
+    const r = REACH[this.ri]!;
+    if (this.i === 0) {
+      crashEye(_eye, from + span / 2, this.at, this.axis, 1, r);
+      if (r < 1 && Math.hypot(_eye.x - this.at.x, _eye.z - this.at.z) < REACH_MIN) return this.nextCut();
+    }
+    crashEye(_eye, from + (span * this.i) / (CUT_SAMPLES - 1), this.at, this.axis, 1, r);
+    if (!camUsable(s, _eye, this.at, STILL, 0)) {
+      this.i = 0;
+      if (++this.ri === REACH.length) this.nextCut();
+      return;
+    }
+    if (++this.i < CUT_SAMPLES) return;
+    this.turnReach[this.cut] = r;
+    this.nextCut();
+  }
+
+  private nextCut(): void {
+    this.i = 0;
+    this.ri = 0;
+    if (++this.cut < 3) return;
+    const score = this.turnReach[0]! + this.turnReach[1]! + this.turnReach[2]!;
+    if (score > this.most) {
+      this.most = score;
+      this.best.copy(this.axis);
+      this.bestReach.set(this.turnReach);
+    }
+    if (score === 3 || this.turn + 1 === this.turns) {
+      // A cut with no usable eye keeps `reach` 0: `direct` leaves that cut to the chase / reel camera.
+      this.n.copy(this.best);
+      this.out.set(this.bestReach);
+      this.s = null;
+    } else this.nextTurn();
+  }
 }
 
 /**
@@ -183,6 +250,7 @@ export class Cinematics {
   private readonly camN = new THREE.Vector3(1, 0, 0);
   /** Per crash-cam cut: the share of its eye's offset from the hit that sees it (`crashAxis`). */
   private readonly camReach = new Float32Array([1, 1, 1]);
+  private readonly pick = new CrashPick();
   /** A reel's held crash cam: the cut it stands on (-1 none usable), when it is asked again (`camT`), and where it aims. */
   private heldAt = -1;
   private held = -1;
@@ -257,8 +325,10 @@ export class Cinematics {
     this.camN.set(normal.x, 0, normal.z);
     if (this.camN.lengthSq() < 1e-6) this.camN.set(1, 0, 0);
     this.camN.normalize();
-    this.camReach.fill(1);
-    if (sight) crashAxis(sight, this.camAt, this.camN, this.camReach);
+    // On a course the pick runs over the lead-in frames (`direct`): no eye on any cut until it is done.
+    this.camReach.fill(sight ? 0 : 1);
+    if (sight) this.pick.begin(sight, this.camAt, this.camN, this.camReach);
+    else this.pick.cancel();
     this.camT = 0;
     this.held = -1;
     this.heldAt = -1;
@@ -308,9 +378,11 @@ export class Cinematics {
     this.post.letterbox = box;
     if (t < 0 || t >= CUTS[3] + 0.5) {
       this.camT = -1;
+      this.pick.cancel();
       this.post.letterbox = 0;
       return false;
     }
+    if (this.pick.pending) this.pick.run(t >= CUTS[0] - PICK_DEADLINE ? Infinity : wallDt * PICK_RATE);
     if (t < CUTS[0] || t >= CUTS[3]) return false;
     let cut = t < CUTS[1] ? 0 : t < CUTS[2] ? 1 : 2;
     let eyeT = t;

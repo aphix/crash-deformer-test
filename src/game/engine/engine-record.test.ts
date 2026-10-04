@@ -23,12 +23,11 @@ const WARM = 28800;
 const WINDOWS = 5;
 const MEASURE = 1200;
 /**
- * Heap growth allowed per recorded step (B), summed over positive deltas: JIT and test noise, not a buffer per step,
- * plus each wreck's keyframe solver state (`simState`): its scalar fields are read by name, and V8 boxes every double
- * read that way (measured 980 B a wreck once optimized, 10.8 KB a keyframe at 11 wrecks: 45 B/step at one keyframe a
- * second; the state grew from 280 B a wreck with the clusters', sensors' and scalars' remainders).
+ * Heap growth allowed per recorded step (B), summed over positive deltas: JIT and test noise, not a buffer per step.
+ * The keyframes' `simState` reads each wreck's scalar fields as plain properties (read by name, V8 boxed every double:
+ * ~1050 B a wreck a keyframe, 46.0 B/step at 11 wrecks; now 1.2 B/step), so no wreck allowance remains.
  */
-const BOUND_B = 16 + (Math.ceil(MAX_CARS / 3) * 1000) / 240;
+const BOUND_B = 16;
 
 describe("highlight recorder", () => {
   it(`bad: recording a ${MAX_CARS}-car race with wrecks, contacts and once-a-second keyframes must not allocate per step`, () => {

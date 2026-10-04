@@ -5,6 +5,7 @@ import { NO_FLOOR, type Ground } from "../world/ground.ts";
 import { PREFABS } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
+import { projectGrid, roadGrid, type RoadGrid } from "./road-grid.ts";
 import { GANTRY_BEAM, levelAt, RoadIndex, sampleAt, sections, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
 import { pillarPieces } from "./track-structures.ts";
 
@@ -34,6 +35,8 @@ export type Sight = {
   /** Bowl wall radius (m) the eye stays inside (derby); Infinity elsewhere. */
   rim: number;
   occ: readonly Occluder[];
+  /** Where `solid` starts its road projection (`roadGrid`); unset: from the whole path. */
+  grid?: RoadGrid;
 };
 
 export const CINE = {
@@ -109,7 +112,7 @@ export function raceSight(track: Track, placed: readonly Placed[]): Sight {
       occ.push(occluder((box.min.x + box.max.x) / 2, (box.min.z + box.max.z) / 2, 0, (box.max.x - box.min.x) / 2, (box.max.z - box.min.z) / 2, false, box.min.y, box.max.y));
     }
   }
-  const sight: Sight = { ground, path, wallTop: track.json.road.wallHeight, rim: Infinity, occ };
+  const sight: Sight = { ground, path, wallTop: track.json.road.wallHeight, rim: Infinity, occ, grid: roadGrid(path) };
   raceSights.set(track, sight);
   return sight;
 }
@@ -125,7 +128,7 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
   const p = s.path;
   if (p) {
-    projectPath(p, x, z, _proj.k, _proj);
+    projectGrid(s.grid, p, x, z, _proj);
     const k = _proj.k;
     const lat = _proj.lateral;
     const left = lat > 0;

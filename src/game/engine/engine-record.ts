@@ -20,7 +20,7 @@ import {
 } from "../match/highlights.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
 import { carLayout, readCarPose } from "../net/car-pose.ts";
-import { REEL_MSG_MAX } from "../net/reel-codec.ts";
+import { REEL_BUDGET } from "../net/reel-codec.ts";
 
 /**
  * Ring depth in steps. A race steps at 240–300 Hz (`physicsSlice` caps a step at 7 cm of travel, and a frame's
@@ -30,7 +30,7 @@ import { REEL_MSG_MAX } from "../net/reel-codec.ts";
 const RING = 5120;
 /**
  * Keyframe interval (s). A wreck's solver state rides every keyframe a clip keeps before its first impact: about 70 % of
- * a pile-up clip's bytes, and a reel message holds `REEL_MSG_MAX` of them. Restoring the shape clusters' fit state
+ * a pile-up clip's bytes, and a reel budgets `REEL_BUDGET` of them. Restoring the shape clusters' fit state
  * (`simState`) cut a restored wreck's drift enough for 1 s (it was 0.5 s: a wreck restored without it drifted so far
  * that at 1 s the first impact came 0.35 s early, at 0.5 s 0.16 s). At 1 s a stunt race's top clips are 303 KB where
  * 0.5 s made them 481 KB (3 clips fit a reel instead of 2), and engine-replay.test.ts (city seeds 1-8) keeps its
@@ -59,11 +59,11 @@ const MAX_EJECTED = 64;
  */
 const BYSTANDER_R = 80;
 /**
- * The size (estimated bytes, `bystanders`) a clip may grow to by bystanders: its share of a reel message, `REEL_MSG_MAX`
+ * The size (estimated bytes, `bystanders`) a clip may grow to by bystanders: its share of a reel's budget, `REEL_BUDGET`
  * over the `TOP` clips of a reel, at 3.3 estimated bytes per deflated byte (measured over 23 recorded clips). A clip
  * that a pile-up already fills takes none.
  */
-const CLIP_SHARE = (REEL_MSG_MAX / TOP) * 3.3;
+const CLIP_SHARE = (REEL_BUDGET / TOP) * 3.3;
 /**
  * A clip's deflated bytes as a share of its raw ones, by part (measured on city and stunt clips: the keyframes 0.39 to
  * 0.43, the inputs 0.24, the pedal digits 0.67), and the most a clip is allowed (estimated): three clips fit a reel message.
@@ -71,7 +71,7 @@ const CLIP_SHARE = (REEL_MSG_MAX / TOP) * 3.3;
 const DEFLATED_KEYS = 0.42;
 const DEFLATED_INPUTS = 0.25;
 const DEFLATED_FINE = 0.67;
-const CLIP_BUDGET = REEL_MSG_MAX / 3;
+const CLIP_BUDGET = REEL_BUDGET / 3;
 
 /**
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output
