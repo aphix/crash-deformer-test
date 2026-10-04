@@ -11,10 +11,10 @@ const YARDS_PER_M = 1.0936;
 /** The pursuit strip: police are chasing the viewed car. Cop count and, while the cops hold it slow beside one (the bust rule counting), the bust hold running out with the seconds left. */
 function PursuitStrip({ chase }: { chase: NonNullable<RaceView["chase"]> }) {
   return (
-    <div className="hud-ink relative flex min-w-80 flex-col items-center gap-1 px-16 py-1.5 font-display" role="status">
+    <div className="hud-ink relative flex flex-col items-center gap-1 whitespace-nowrap px-8 py-1 font-display md:min-w-80 md:px-16 md:py-1.5" role="status">
       <div className="absolute inset-0 bg-linear-to-r from-transparent via-signal-red/60 to-transparent" aria-hidden />
-      <p className="relative flex items-center gap-2 text-2xl font-semibold uppercase tracking-[0.2em] text-fg">
-        <Siren className={cn("size-6", chase.hold > 0.6 && "motion-safe:animate-pulse")} />
+      <p className="relative flex items-center gap-2 text-lg font-semibold uppercase tracking-[0.2em] text-fg md:text-2xl">
+        <Siren className={cn("size-5 md:size-6", chase.hold > 0.6 && "motion-safe:animate-pulse")} />
         Chased by {chase.cops} {chase.cops === 1 ? "cop" : "cops"}
       </p>
       {chase.hold > 0 ? (
@@ -52,7 +52,7 @@ export function RaceStatus({ race, corner }: { race: RaceHud; corner: boolean })
       {left === null ? null : (
         <div className={cn("pointer-events-none absolute inset-x-0 z-10 flex justify-center", corner ? "top-[12%]" : "bottom-[37%]")}>
           <p
-            className="hud-ink bg-linear-to-r from-transparent via-scene-race/75 to-transparent px-16 py-1 font-display text-3xl font-semibold uppercase tracking-wide tabular-nums text-fg sm:text-4xl"
+            className="hud-ink whitespace-nowrap bg-linear-to-r from-transparent via-scene-race/75 to-transparent px-10 py-1 font-display text-2xl font-semibold uppercase tracking-wide tabular-nums text-fg md:px-16 md:text-4xl"
             role="status"
           >
             {left} {unit === "mph" ? "yd" : "m"} remaining
