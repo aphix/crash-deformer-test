@@ -58,14 +58,15 @@ point or one of its cars) at any keyframe of the clip or at its end, nearest fir
 since the clip's start. Left out: a car that did not exist at the clip's first keyframe and one placed (`JUMP`) after
 the first impact, which the replay cannot place. 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
 the 46 cars a camera could see on five seeded races, 80 m holds 44 and 60 m holds 39. A clip grows by bystanders only to
-`CLIP_SHARE` (`REEL_MSG_MAX` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state in each
+`CLIP_SHARE` (`REEL_BUDGET` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state in each
 keyframe it is a wreck in). A bystander too big for what is left is skipped (a cheaper one further out may still fit),
 and a pile-up that already fills the share takes none. Measured on city seed 6: an intact bystander costs 9 KiB raw and
 2 KiB deflated, a wreck churning through the whole clip 54 and 13. Uncapped, 80 m turned that reel (249 KiB of single
 clips, 4 of 5 fit the 240 KiB message) into 879 KiB with 1 fit, and saved clips past 300K chars. With the share, fit
 counts equal the no-bystander recorder's on all five measured races, cars within 80 m of a hit that end up in a clip
-rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is unchanged
-(27 B a step against the 45 bound, `engine-record.test.ts`).
+rise from 144 of 239 to 171 of 241, and the largest saved clip is 267K chars. The recorder's steady-state allocation is 1.2 B a step
+against a 16 B bound (`engine-record.test.ts`): `simState` reads a wreck's scalar fields as plain properties (`simScalarsOut`,
+`simScalarsIn`; read by name, V8 boxed every double: 1050 B a wreck a keyframe, 46.0 B a step at 11 wrecks, now 48 B a wreck a keyframe).
 
 ## Ejections
 
@@ -191,9 +192,19 @@ shot is framed from the car as it stands at the shot's own clip time. The crash 
 sandbox (lamp posts, barrier, balls: `sceneSight`), it stands on the ground at the hit and turns its axis (`crashAxis`: as
 hit, reversed, the quarter turns) to the one whose three cut eyes see the hit from furthest out, pulling an eye in toward
 the hit (no closer than 3 m) when a wall is in the way. A cut with no usable eye is left to the chase / reel camera.
+An eye counts as usable only if it passes `camUsable` at 9 times from its cut's start to its end (`CUT_SAMPLES`): the eye
+pans (long lens), creeps (bumper) and turns (crane) through its cut, and a pick made at the middle alone let eyes drift
+into a wall or behind a corner at either end (tested at 17 times: 36 of 549 eyes on rally, 75 of 432 city, 61 of 761 stunt,
+0 on oval; now 0, 0, 0 and 1 of 730). `solid` no longer projects each point onto the road from the last query's segment: where
+stunt's course crosses itself that left the walls of the wrong road in charge (1 of 544 eyes read differently by what was asked
+before). `Sight.grid` (`roadGrid`,
+8 m cells over the course) gives each cell the one road's sample to project from, or none where two roads are near, which
+searches the whole path: 12-18% of the cells within 25 m of a road. A trackside pick costs 0.74-0.85 ms mean on the four
+courses (0.44-0.62 before), the grid builds in 3-30 ms once a course.
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
-(`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 9 of 186 (rally) and
-54 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
+(`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 14 of 186 (rally) and
+55 of 272 (stunt, tight walls) wall spots have a cut left to the chase. The pick costs 0.8-1.4 ms median (max 4.8 ms) a
+hit, once, where the middle-only pick cost 0.07-0.29 ms (max 1.1 ms).
 
 In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye

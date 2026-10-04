@@ -68,7 +68,7 @@ async function recordedReel(w: World, clips = 1): Promise<Reel> {
   w.race.recorder.end();
   const kept = w.race.recorder.ledger.kept;
   assert.ok(kept.length >= 1, "no clip in 120 s");
-  const { msg } = await packReel({ seed: 77, clips: kept.slice(0, clips) }, 0);
+  const msg = await packReel({ seed: 77, clips: kept.slice(0, clips) }, 0);
   return (await unpackReel(msg, carLayout(w.cars[0]!))).reel;
 }
 

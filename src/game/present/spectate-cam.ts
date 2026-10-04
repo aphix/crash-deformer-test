@@ -4,7 +4,7 @@ import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
 import { PREFABS } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
-import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
+import { blankPoint, blankProjection, pointOn, projectPath, WINDOW, type Track, type TrackPath } from "../world/track.ts";
 import { GANTRY_BEAM, levelAt, RoadIndex, sampleAt, sections, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
 import { pillarPieces } from "./track-structures.ts";
 
@@ -34,7 +34,12 @@ export type Sight = {
   /** Bowl wall radius (m) the eye stays inside (derby); Infinity elsewhere. */
   rim: number;
   occ: readonly Occluder[];
+  /** Where `solid` starts its road projection (`roadGrid`); unset: from the whole path. */
+  grid?: RoadGrid;
 };
+
+/** A square grid over the path's bounds: per cell (row-major from `x0`, `z0`), the path sample to project from, or -1. */
+export type RoadGrid = { x0: number; z0: number; cols: number; rows: number; hint: Int16Array };
 
 export const CINE = {
   /** The eye stands this many seconds of the car's speed ahead, clamped (m): along the course, or along the travel off a race. */
@@ -109,16 +114,72 @@ export function raceSight(track: Track, placed: readonly Placed[]): Sight {
       occ.push(occluder((box.min.x + box.max.x) / 2, (box.min.z + box.max.z) / 2, 0, (box.max.x - box.min.x) / 2, (box.max.z - box.min.z) / 2, false, box.min.y, box.max.y));
     }
   }
-  const sight: Sight = { ground, path, wallTop: track.json.road.wallHeight, rim: Infinity, occ };
+  const sight: Sight = { ground, path, wallTop: track.json.road.wallHeight, rim: Infinity, occ, grid: roadGrid(path) };
   raceSights.set(track, sight);
   return sight;
 }
 
+/** Cell side (m) of a `RoadGrid`, and how far (m) from the road a cell still has a hint. */
+const GRID_CELL = 8;
+const GRID_REACH = 40;
+
 /**
- * `solid` projects each point onto the road starting from the last one's segment (a window of samples): a spot or a line begins
- * with the hint cleared (`clearSpot`, `sightLine`), or the previous query's far-away strand, near enough to be accepted where a
- * course crosses itself, decided the walls and tunnels of the wrong road (the same spot read differently after another).
+ * `Sight.grid`: per cell, the path sample nearest its centre when one road alone is near it, else -1 (no road within
+ * `GRID_REACH`, or a second stretch more than `WINDOW` samples along from it within the `GRID_CELL` * √2 by which a point of the cell can
+ * reorder two distances: a crossing, a hairpin). A projection from that sample's window is the nearest road's (`projectPath`),
+ * so `solid` no longer starts from the last query's segment, which on a crossing course could be the other road's.
+ * O(cells × samples) once a course.
  */
+function roadGrid(p: TrackPath): RoadGrid {
+  let x0 = Infinity;
+  let z0 = Infinity;
+  let x1 = -Infinity;
+  let z1 = -Infinity;
+  for (let k = 0; k < p.count; k++) {
+    x0 = Math.min(x0, p.x[k]!);
+    x1 = Math.max(x1, p.x[k]!);
+    z0 = Math.min(z0, p.z[k]!);
+    z1 = Math.max(z1, p.z[k]!);
+  }
+  x0 -= GRID_REACH;
+  z0 -= GRID_REACH;
+  const cols = Math.ceil((x1 + GRID_REACH - x0) / GRID_CELL);
+  const rows = Math.ceil((z1 + GRID_REACH - z0) / GRID_CELL);
+  const hint = new Int16Array(cols * rows).fill(-1);
+  const n = p.count;
+  for (let r = 0; r < rows; r++) {
+    for (let c = 0; c < cols; c++) {
+      const cx = x0 + (c + 0.5) * GRID_CELL;
+      const cz = z0 + (r + 0.5) * GRID_CELL;
+      let best = -1;
+      let bd = GRID_REACH * GRID_REACH;
+      for (let k = 0; k < n; k++) {
+        const d = (p.x[k]! - cx) ** 2 + (p.z[k]! - cz) ** 2;
+        if (d < bd) {
+          bd = d;
+          best = k;
+        }
+      }
+      if (best < 0) continue;
+      const reorder = (Math.sqrt(bd) + GRID_CELL * Math.SQRT2) ** 2;
+      let alone = true;
+      for (let j = 0; j < n && alone; j++) {
+        const gap = p.closed ? Math.min(Math.abs(j - best), n - Math.abs(j - best)) : Math.abs(j - best);
+        if (gap > WINDOW && (p.x[j]! - cx) ** 2 + (p.z[j]! - cz) ** 2 < reorder) alone = false;
+      }
+      if (alone) hint[r * cols + c] = best;
+    }
+  }
+  return { x0, z0, cols, rows, hint };
+}
+
+/** The path sample to start `solid`'s projection from at (x, z): -1 (search the whole path) where the grid has none. */
+function gridHint(g: RoadGrid, x: number, z: number): number {
+  const c = Math.floor((x - g.x0) / GRID_CELL);
+  const r = Math.floor((z - g.z0) / GRID_CELL);
+  return c >= 0 && c < g.cols && r >= 0 && r < g.rows ? g.hint[r * g.cols + c]! : -1;
+}
+
 const _proj = blankProjection();
 const _pt = blankPoint();
 const _near: Occluder[] = [];
@@ -130,7 +191,7 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
   if (x * x + z * z > (s.rim - pad) ** 2) return true;
   const p = s.path;
   if (p) {
-    projectPath(p, x, z, _proj.k, _proj);
+    projectPath(p, x, z, s.grid ? gridHint(s.grid, x, z) : -1, _proj);
     const k = _proj.k;
     const lat = _proj.lateral;
     const left = lat > 0;
@@ -241,7 +302,6 @@ export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: numb
   const step = Math.max(CINE.step, len / LINE_SAMPLES);
   const pad = step / 2;
   const occ = gather(s, ax, az, bx, bz, pad);
-  _proj.k = -1;
   let n = 0;
   for (let d = step; d < len - CINE.stop + step; d += step) {
     const f = d / len;
@@ -281,7 +341,6 @@ const SPOT_COST = 20;
  * hugging one (or behind one, low) is not. Cheap: the occluders near the spot are gathered once, ~15 solid tests.
  */
 export function clearSpot(s: Sight, x: number, y: number, z: number, radius: number = CLEAR.radius): boolean {
-  _proj.k = -1;
   const pad = CLEAR.pad;
   const occ = gather(s, x - radius, z - radius, x + radius, z + radius, pad);
   if (solid(s, x, y, z, pad, occ)) return false;

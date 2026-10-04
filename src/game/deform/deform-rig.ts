@@ -783,17 +783,12 @@ export abstract class DeformRig {
   }
 }
 
-/** `simState`: `x` as a float32 at `o` and what that rounded off at `o + 1` (a crash clock is compared by differences, so a float32 alone flips a hold). */
-function simNum(buf: Float32Array, o: number, x: number): void {
-  buf[o] = x;
-  buf[o + 1] = Number.isFinite(x) ? x - buf[o]! : 0;
-}
 /** `simState`: a flag as 1 or 0 at `o`; its second slot stays 0. */
 function simFlag(buf: Float32Array, o: number, on: boolean): void {
   buf[o] = on ? 1 : 0;
   buf[o + 1] = 0;
 }
-/** `simState`: the number `simNum` wrote at `o`. */
+/** `simState`: the number a scalar's pair of slots at `o` hold (a float32 and what it rounded off: a crash clock is compared by differences, so a float32 alone flips a hold). */
 function simBack(buf: Float32Array, o: number): number {
   return buf[o]! + buf[o + 1]!;
 }
