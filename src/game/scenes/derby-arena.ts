@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { levelOffset } from "../world/ground-stack.ts";
 
 /** Inside the lamp ring (16 m) and well inside the 48 m pad: the bowl for up to 12 cars. */
 export const DERBY_RADIUS = 16.4;
@@ -56,7 +57,7 @@ export function makeDerbyArena(): THREE.Group {
   }
   const lip = new THREE.Mesh(
     new THREE.RingGeometry(DERBY_RADIUS - 0.35, DERBY_RADIUS + 0.2, 64),
-    new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.18, side: THREE.DoubleSide, forceSinglePass: true }),
+    new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.18, side: THREE.DoubleSide, forceSinglePass: true, ...levelOffset("decal") }),
   );
   lip.rotation.x = -Math.PI / 2;
   lip.position.y = 0.03;
@@ -82,7 +83,7 @@ export class WinnerSpot {
   constructor(scene: THREE.Scene, pool: THREE.Texture) {
     this.glow = new THREE.Mesh(
       new THREE.PlaneGeometry(6.5, 6.5),
-      new THREE.MeshBasicMaterial({ color: 0xffd9a0, map: pool, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }),
+      new THREE.MeshBasicMaterial({ color: 0xffd9a0, map: pool, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false, ...levelOffset("glow") }),
     );
     this.glow.rotation.x = -Math.PI / 2;
     this.glow.position.y = 0.03;

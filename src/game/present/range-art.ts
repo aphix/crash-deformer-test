@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { RANGE } from "../scenes/range.ts";
+import { levelOffset } from "../world/ground-stack.ts";
 
 /** Distance signs: board size (m), board centre height, and how far outside the field's left edge (−z) they stand. */
 const BOARD_W = 2.6;
@@ -19,7 +20,7 @@ export function makeRangeArt(): THREE.Group {
   const { length: L, halfWidth: W } = RANGE;
   const sand = new THREE.Mesh(
     new THREE.PlaneGeometry(L, W * 2).rotateX(-Math.PI / 2).translate(L / 2, 0.012, 0),
-    new THREE.MeshStandardMaterial({ color: 0xc8a466, roughness: 1, metalness: 0 }),
+    new THREE.MeshStandardMaterial({ color: 0xc8a466, roughness: 1, metalness: 0, ...levelOffset("runoff") }),
   );
   sand.receiveShadow = true;
   const kerbs = [
