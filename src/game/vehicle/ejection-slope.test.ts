@@ -118,14 +118,12 @@ describe("a car that was hit once and drives on is not killed, and its driver no
 
   // Owner/EjectFalse: "a car hit once earlier, touched at the stunt CRUSH crest, gains 0.08-0.12 m phantom engine-block
   // travel" (drivetrainHealth, handling, HUD damage). A planted wreck's frame sits on its hubs' mean, the cell 0.05-0.09 m
-  // off it, and a touch moves the anchor back to the cell: the block, read in that frame, moves by the cell's offset.
-  // Touched every frame over s 885-902 the block adds 62-66 mm here (15 of 15). Todo: branch lane/phantom-crush-discount
-  // has `updateDrivetrain` discount the cell's drift back outside a nose hit, which cuts it to 0-6.1 mm (target 5 mm; the
-  // rest is one call at the plant switch, 0.2 s after the touch) but turns engine-replay.test.ts "a recorded race crash
-  // replayed headless must hit within 0.2 s and 1.5 m of the record" red: replayed physics changes, REPLAY_VERSION's call.
+  // off it, and a touch moves the anchor back to the cell: the block, read in that frame, moved by the cell's offset, and
+  // touched every frame over s 885-902 it added 62-66 mm (15 of 15 cases, main 9e1250e). `updateDrivetrain` now reads a
+  // side or rear hit's block against the cabin and only while the frame sits on it (to PLANT_QUIET): the touch adds none.
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pace of [20, 30, 38]) {
-      it(`bad: ${cls}, hit on its flank, then touched all the way over the stunt CRUSH crest (s 885-902) at ${pace} m/s: the touch adds under 5 mm of block travel`, { todo: "the cell's drift in the planted frame reads as block travel" }, (t) => {
+      it(`bad: ${cls}, hit on its flank, then touched all the way over the stunt CRUSH crest (s 885-902) at ${pace} m/s: the touch adds under 5 mm of block travel`, (t) => {
         const r = crashedRun(stunt, cls, pace, "side", 860, 960, [885, 902]);
         t.diagnostic(`${cls} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm`);
         assert.ok(r.endS > 950, `the run reached s ${r.endS.toFixed(0)}`);

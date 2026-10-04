@@ -54,6 +54,8 @@ export type CrashResult = {
   engineGapErr: number;
   impactLocalX: number;
   drivetrainAlive: boolean;
+  /** The car's `engineTravel` at the end (m): the block's worst travel toward the cabin. */
+  engineTravel: number;
   detached: string[];
   hubsPopped: string[];
   lampsOut: string[];
@@ -222,6 +224,7 @@ class Probe {
     engineGapErr: 0,
     impactLocalX: 0,
     drivetrainAlive: true,
+    engineTravel: 0,
     detached: [],
     hubsPopped: [],
     lampsOut: [],
@@ -369,6 +372,7 @@ class Probe {
       }
     }
     r.drivetrainAlive = car.deform.drivetrainAlive;
+    r.engineTravel = car.deform.engineTravel;
     const snap = car.snapshot() as {
       parts: { name: string; detached: boolean; hingeT: number }[];
       lamps: { kind: string; side: number; intact: boolean }[];
