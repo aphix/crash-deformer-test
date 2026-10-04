@@ -20,7 +20,10 @@ const SIDE_SLOPE: Ground = {
 
 const DENTS = ["noseShortL", "noseShortR", "tailShort", "doorMaxL", "doorMaxR"] as const;
 
-/** Both cars on the slope against the same crash on the flat pad: no mass pops, final dents within 0.03 m or 15 %. */
+/** The most the engine block may differ between the slope and the flat pad (m): the lattice's settling noise (ejection-slope.test.ts `DRIFT`). */
+const BLOCK_NOISE = 0.005;
+
+/** Both cars on the slope against the same crash on the flat pad: no mass pops, final dents within 0.03 m or 15 %, the block's travel within `BLOCK_NOISE`. */
 function assertSlopeKeepsDents(kind: "head-on" | "t-bone", kph: number): void {
   setGround(null);
   const flat = runPair(kph, kph, kind, { after: 2.5 });
@@ -34,6 +37,7 @@ function assertSlopeKeepsDents(kind: "head-on" | "t-bone", kph: number): void {
       const f = flat[i]![k];
       assert.ok(Math.abs(s - f) <= Math.max(0.03, 0.15 * Math.abs(f)), `${kind} car ${i} ${k}: slope ${s.toFixed(3)} vs flat ${f.toFixed(3)}`);
     }
+    assert.ok(Math.abs(r.engineTravel - flat[i]!.engineTravel) <= BLOCK_NOISE, `${kind} car ${i} engine block: slope ${r.engineTravel.toFixed(4)} vs flat ${flat[i]!.engineTravel.toFixed(4)}`);
   }
 }
 

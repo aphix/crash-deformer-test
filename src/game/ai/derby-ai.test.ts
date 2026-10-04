@@ -402,6 +402,23 @@ describe("derby, ten AI cars at the default slider", () => {
     assert.ok(sum("rear") > REAR_SHARE * all && sum("rear") > 1.2 * sum("front"), `F${sum("front")}/R${sum("rear")}/S${sum("side")}\n${rows.join("\n")}`);
   });
 
+  // A tail swing or a sideswipe is a chance that passes by (`opening`): it needs a rival's nose beside our rear wheel
+  // (or a car alongside) at 4-13 m/s and a mood above -0.2 or a due hit clock, and a field of low-aggression drivers
+  // (aggression is hashed per race) lays back through the whole heat and is given none. "Every heat has one" was a
+  // chance claim. Measured over seeds 1–192 on main 8659248 and on the tree without the crest phantom in the block read:
+  // 3 of 192 heats have no swing on each (seeds 11, 31, 148 vs 7, 36, 131; 1.6 %, Fisher p 1.00) and 1 vs 0 of 192 no
+  // sideswipe (seed 148, p 1.00). Seed 7 there had 3 swing chances in 300 s (2 inside its own committed sideswipe, 1 in
+  // an unstick) with six of its ten drivers under aggression 0.2 and 86 % of their ticks in layback; main's seed 11 had 1
+  // (87 % layback); heats that swing had 5–60. The bar is ≥ 7 of 8 (87.5 %) for each: pooled over the 384 heats the
+  // rates are 98.4 % and 99.7 %, and at those rates 7 of 8 false-fails 0.64 % and 0.02 % of the time (8 of 8: 11.8 % and
+  // 2.1 %). All 48 disjoint 8-seed windows (24 per tree) reach 7 for swings (min 7) and for sideswipes (min 7, one window
+  // on main). Do not tighten it back to every heat without re-measuring on that many seeds.
+  it("bad: ≥ 7 of 8 ten-car heats have a tail swing, and ≥ 7 of 8 a sideswipe", () => {
+    const need = 0.875 * runs.length;
+    assert.ok(runs.filter((r) => r.swings >= 1).length >= need, rows.join("\n"));
+    assert.ok(runs.filter((r) => r.sideswipes >= 1).length >= need, rows.join("\n"));
+  });
+
   // The contact-spin steer cap must leave the owner's tactics alone. Counted as manoeuvres (`MOVE_GAP`) on main
   // c877552 with the pair impulse uncapped, seeds 1/2/3/11: swings 20, J-turns 36, sideswipes 53 (J-turn share
   // 0.33); seeds 1–5 0.25, seeds 1–9 and 11 0.28. The old count of tactic flips read 0.73–0.78 there (one J-turn
@@ -409,17 +426,14 @@ describe("derby, ten AI cars at the default slider", () => {
   // At those tops the AI drove 45–55 m/s targets into the bowl and its J-turn share fell to 0.19 (24 of 128).
   // Stopped start (lane derby-start, seeds 1–12): 115 J-turns of 537 = 0.214, seeds 1–8 74 of 316 = 0.234; the floor
   // is 0.7 of the 12-seed share, so it holds on any seed set instead of the one that happens to clear 0.231.
-  it("good: every heat has a tail swing and a sideswipe, and J-turns keep their share of the moves", () => {
-    let swings = 0;
+  it("good: J-turns keep their share of the moves", () => {
+    let moves = 0;
     let jturns = 0;
-    let sideswipes = 0;
     for (const r of runs) {
-      assert.ok(r.swings >= 1 && r.sideswipes >= 1, rows.join("\n"));
-      swings += r.swings;
+      moves += r.swings + r.jturns + r.sideswipes;
       jturns += r.jturns;
-      sideswipes += r.sideswipes;
     }
-    assert.ok(jturns / (swings + jturns + sideswipes) >= 0.214 * 0.7, rows.join("\n"));
+    assert.ok(jturns / moves >= 0.214 * 0.7, rows.join("\n"));
   });
 
   // Measured on 3aa4301 (derby kill travel, seeds 1–5): wreck 2/5 (72.6 s, 112.4 s), count-out 1, time 2;

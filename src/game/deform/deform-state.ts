@@ -36,6 +36,8 @@ export const POWER_HOLD = 0.1;
  * read 0.1 m "back" and killed the engine of a car hit softly 30 s before.
  */
 const PACK_QUIET = 0.35;
+/** Quiet time (s) past which a wreck is planted: its frame moves from the cell onto its hubs (`measurePose`) and its hubs stop being clamped (`clampLocal`). */
+const PLANT_QUIET = 0.2;
 /** Height (m) a planted hub's centre stands over the ground under it (`groundMasses`): its sphere's radius, 4 cm short of the tyre's. */
 export const HUB_FLOOR = 0.28;
 /** A hub this close (m) above its `HUB_FLOOR` still slides on the ground (dragGround). */
@@ -236,8 +238,9 @@ export abstract class DeformState extends DeformHit {
 
   /**
    * Engine pushed back toward the cell along the hit; forward stretch is not a
-   * dead block. `local` is already the cell frame (followGroup places the group
-   * on the cell); the cell's own capped wobble in that frame is not block travel.
+   * dead block. `local` is the frame's: a live car's group sits on the cell, but a planted wreck's sits on
+   * its hubs, so the cell's held offset in it (a flank scrape leaves the cabin 0.05–0.09 m back of the
+   * wheels) is not the block's travel.
    */
   updateDrivetrain(): void {
     if (!this.drivetrainAlive || !this.massActive || this.quietTime() > PACK_QUIET) return;
@@ -247,7 +250,19 @@ export abstract class DeformState extends DeformHit {
     // the hit, a 45° corner counted the nose's sideways shove and killed at 52 km/h, below the
     // front-middle's 56). It counts whatever the current hit's direction: a side or rear hit on a nose an
     // earlier hit had packed returned early or measured the other way, and derby cars ran 0.25 m back alive.
-    let travel = Math.max(el.rest.z - el.local.z, er.rest.z - er.local.z);
+    const noseHit = this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x);
+    // Outside a nose hit the block is read against the cabin, and only in a frame that sits on it (live, to
+    // PLANT_QUIET). A touch that woke a planted wreck moved the frame from its hubs onto the cell, and the block
+    // read the cabin's 0.05 m offset as travel (62-66 mm on the stunt crest, nothing near the block); the replant
+    // after the touch pulled the cell 11 mm back against its cap in the hub frame, and the block read that. A nose
+    // hit's calibrated kills (measured up to PACK_QUIET) ride on the cabin's shove in whatever frame the wreck is in.
+    // What counts is the read less that offset, floored at zero; a block read forward stays as read, as before (the
+    // wear kill below sums it as slack).
+    const back = Math.max(el.rest.z - el.local.z, er.rest.z - er.local.z);
+    let counted = 0;
+    if (noseHit) counted = back;
+    else if (this.quietTime() <= PLANT_QUIET) counted = back - Math.max(0, this.at.cell.rest.z - this.at.cell.local.z);
+    let travel = Math.min(back, Math.max(0, counted));
     // A rear hit has to cross the cabin to get here: its push along the hit counts too, so the same travel
     // kills a nose around 50 km/h and a tail much later. A side hit shoves the block sideways only.
     if (this.impactInward.z > Math.abs(this.impactInward.x)) travel = Math.max(travel, el.local.z - el.rest.z, er.local.z - er.rest.z);
@@ -257,7 +272,7 @@ export abstract class DeformState extends DeformHit {
     // died, 50 km/h 0.139 m lived). A re-armed hit counts it outright: its own peak rides the packed nose's
     // springback and the clip, so three 35 km/h hits killed on the 4th at squash 0.32 (0.128 m at 60 km/h
     // equivalent) and on the 2nd at 0.4 (0.154 m at 49 km/h).
-    if (this.hitSpeed >= 0 && -this.impactInward.z > Math.abs(this.impactInward.x)) {
+    if (noseHit) {
       const crumple = Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - Math.max(el.rest.z, er.rest.z) - ENGINE_PACK_GAP;
       const energy = this.hitStroke() - crumple - STROKE_SHORTFALL;
       travel = this.rearmed ? energy : Math.min(travel, energy);
