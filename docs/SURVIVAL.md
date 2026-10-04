@@ -122,13 +122,15 @@ Single player. A netplay room never offers it: the button is hidden while hostin
 
 `world/survival-run.test-util.ts` is the harness: the director in survival mode, a scripted player (waypoints, hold, wedge recovery), the chase camera, and the numbers (`play`: drop-ins and their visibility, the nearest cop each second, stuck cops, ends).
 
-## Numbers (headless, havana at 5603c4a, scripted players)
+## Numbers (headless, scripted players; not a human's play)
 
-- Drop-ins in view: 0 of 39 and 0 of 18 (5 min of ring tour on two map versions).
-- Stuck cops (a live cop under 1 m/s for over 3 s, more than 12 m from the player): 1 event in three 300 s runs (ring tour at 22 m/s, an over-the-hill shuttle, a slow ring at 12 m/s); it was 5.3 s long with no prop within 14 m and is not explained. Earlier causes found and fixed: a unit braking in front of a stopped player for ever, a unit pressed against a wall with no heading away from it tried, steering that fades to nothing when the aim is dead astern, a back-off that never triggered under the dodge's throttle cap. Target 0 is **not met** by one event.
-- Catch-up: flat out down the boulevard without boost, the nearest cop is 11 m behind at the green, 3 m by 4 s and stays within 2-6 m for 30 s. The cops boost whenever 20 m or more behind.
-- Opening set piece, from the first havana tip: of the five formation cops, three reach the embankment's foot (z = 44) within 0.09 s of each other and a fourth 1 s earlier; a fifth is knocked sideways by a cop-to-cop contact. The launch at the crest and the overshoot when the player brakes are **not measured**: on that tip the cars followed the far slope instead of leaving the ground. Re-measure on the merged map.
+- Drop-ins in view: 0 of 39 and 0 of 18 in 5 minutes of ring tour (the test's 5-minute run on the contract map and on the first havana tip). Not re-run on the final map.
+- Stuck cops (a live cop under 1 m/s for over 3 s, more than 12 m from the player): on the first havana tip, 1 event in three 300 s runs (ring tour at 22 m/s, an over-the-hill shuttle, a slow ring at 12 m/s), 5.3 s long, no prop within 14 m, cause not found. On the final map (58d9aaf) the opening trace below shows a cop wedged at (21, 178) for over 6 s. Target 0 is **not met**. Causes found and fixed on the way: a unit braking in front of a stopped player for ever, a unit against a wall with no heading away from it tried, steering that fades to nothing when the aim is dead astern, a back-off that never counted under the dodge's throttle cap, a ram that restarted the bust hold.
+- Catch-up: flat out down the boulevard without boost, the nearest cop is 11 m behind at the green, 3 m by 4 s and stays within 2-6 m for 30 s (first tip). The cops boost whenever 20 m or more behind.
+- Opening set piece, final map, full throttle at x = -6: the five formation cops reach the embankment's foot (z = 45) at 19.6, 20.1, 22.5, 23.5 and 24.5 s. Two within 0.6 s, the rest 2-5 s late: **the "three within 0.5 s" target is not met**. The trace shows why: the pack drifts to the palm line at x = 13 near z = 290, loses 25 m/s there, two cops slow to 6 m/s and 1 m/s, one wedges at (21, 178). No car left the ground at the crest in that 26 s run and the hard-braking variant was not measured past 26 s. On the first tip three cops had reached the foot within 0.09 s.
+
+- Held still beside the cops (handbrake, 80 m down the boulevard behind a test wall), final map: the cops wreck the car at 28.6 s with 3 cops wrecked, after an 11.1 s hold: 0.9 s short of the bust. Ramming against the 12 s hold is an open tuning question; the cops already ease to a creep within 12 m of a stopped player. The exact 12 s is tested at the session (`match/survival.test.ts`); the full-stack test accepts a bust or a wreck and rejects an early bust.
 
 ## Not done
 
-Browser proof (60 s of play, the HUD, banners and results card as shots), the frame cost at the cap of 12 cops, and the full gate at the merge sha are not in this page's numbers: see the lane report.
+Browser proof (60 s of play, the HUD, banners and the results card as shots), the frame cost at the cap of 12 cops, the crash reel at the end of a run, and the set piece tuned on the final map are not done: see the lane report.
