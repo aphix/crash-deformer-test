@@ -267,6 +267,16 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   Ahead of its target a unit pulls out into its path 1.6 s before it arrives; one facing it rams it
   head-on from 3 s off (the main source of takedowns: closing speeds up to 60–70 m/s). Wedged, it
   backs off for another run.
+- Pack guard (`ai/pack-guard.ts` `guardMates`, the last step of `PoliceBrain.think` and `HunterBrain.think`, so race police and
+  Survival's cops share it): of the pack-mates, the one a car reaches soonest within 3 s (relative motion; a mate at a standstill
+  is read as pulling out at 8 m/s along its nose, as the car itself is) is steered away from, to the side it passes on, and
+  braked for within 1.5 s when ahead. A stakeout pair parks 12 m apart, one car facing each racer's travel and one against it,
+  and both used to wake at full throttle into a head-on. Measured (2-lap races, 4 AI + the AI-driven slot, police on, seeds
+  1-12, oval / rally / city / stunt, a lead-in being the 2 s after a wake): lead-ins that touched a pack-mate 181 → 22 of
+  398 → 395; two cops touching while both were in their lead-ins 76 → 2 (oval 23 → 0, closing 17-25 m/s); oval lead-ins
+  that touched no pack-mate and ended converging on their racer 25 of 72 → 57 of 74. Over seeds 1-5 (the sweep above): cop
+  contacts with racers 88595 → 94424 (physics steps in contact), takedowns 1 → 2, police knocked out 21 → 12, winner times
+  within 0.6 s per course. What remains is a car pulling out of its stakeout in front of a mate already past 30 m/s.
 - Packs build: 5 s sustained within 45 m calls one more car (parked 70 m ahead out of view, else
   coming up from 70 m behind already chasing), up to 5.
 - Stand-down: a target that finishes, dies or respawns (left alone 4 s) hands the pack to another

@@ -1,3 +1,4 @@
+import { guardMates } from "./pack-guard.ts";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -389,8 +390,14 @@ export class PoliceBrain implements CopBrain {
     return out;
   }
 
-  /** A unit's input for this physics slice (scratch output: apply it before the next call). */
+  /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+    const out = this.drive(self, cars, dt);
+    guardMates(self, cars, this.first, this.count, out);
+    return out;
+  }
+
+  private drive(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;
     out.throttle = 0;
     out.steer = 0;
