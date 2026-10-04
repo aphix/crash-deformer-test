@@ -118,10 +118,11 @@ describe("survival run", () => {
         held = near && me.velocity.length() * 3.6 < 20 ? held + FRAME : 0;
         longest = Math.max(longest, held);
         if (hud(w).you?.busted) bustedAfter = held;
-        else assert.ok(held < SURVIVAL.bustTime + 0.05, `held ${held.toFixed(2)} s and not busted`);
       }
       assert.ok(bustedAfter >= 0, `never busted (longest hold ${longest.toFixed(1)} s)`);
-      assert.ok(bustedAfter >= SURVIVAL.bustTime - 0.05 && bustedAfter < SURVIVAL.bustTime + 0.3, `busted after holding ${bustedAfter.toFixed(2)} s`);
+      // The frame-end count cannot see a cop's shove spike inside a frame (which restarts the real hold), so it may run past 12 s
+      // before the bust; it may never be short of it. The exact upper bound is the session test's (`match/survival.test.ts`).
+      assert.ok(bustedAfter >= SURVIVAL.bustTime - 0.05, `busted after holding only ${bustedAfter.toFixed(2)} s`);
       const h = hud(w);
       assert.equal(h.phase, "finished", "the run ends on the bust");
       assert.equal(h.survival?.result?.cause, "busted");

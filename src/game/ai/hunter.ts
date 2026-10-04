@@ -49,6 +49,9 @@ const PROBE_STEP = 2;
 const TURNS = [0.3, 0.6, 0.9, 1.25, 1.6, 2.2, Math.PI] as const;
 /** A quarry slower than this (m/s) is not blocked from ahead (a unit braking in front of a stopped player waits for ever); it is rammed. */
 const BLOCKABLE = 6;
+/** A unit this close (m) to a quarry that has stopped eases to a creep (m/s): the bust needs the quarry slow, and a ram makes it fast. */
+const SETTLE = 12;
+const CREEP = 3;
 /** Above this speed (m/s) a unit lifts when a solid is close ahead; below it, easing off only wedges it. */
 const DODGE_SPEED = 8;
 /** With no heading clear for the whole stretch, a bend of one radian is worth this many metres of clear run. */
@@ -243,6 +246,12 @@ export class HunterBrain implements CopBrain {
     if (dist <= reach) {
       attackTarget(self, tg, this.role[u]!, this.turn[self.id]!, speed, dist, headOn, out, tv > BLOCKABLE);
       this.dodge(u, self, tg, speed, dist, out);
+      // A stopped player is boxed in, not rammed: a hit at 8 m/s throws the car over the bust's 20 km/h and restarts its hold.
+      if (tv <= BLOCKABLE && dist < SETTLE && speed > CREEP) {
+        out.throttle = 0;
+        out.brake = 0.5;
+        out.boost = false;
+      }
     } else this.chase(u, self, tg, speed, dist, out);
     this.wedge.watch(u, speed, dt, out);
     return out;
