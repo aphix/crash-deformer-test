@@ -301,8 +301,8 @@ export type RaceView = {
   boosting: boolean;
   /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */
   wheelsOff: number;
-  /** Police chasing this car, null when none is (`BUST`'s chasers): `cops` units, `hold` the 0–1 share of the bust hold already run (the car held slow beside one). */
-  chase: { cops: number; hold: number } | null;
+  /** Police chasing this car, null when none is (`BUST`'s chasers): `cops` units; `hold` is the 0–1 share of the bust hold already run (the car held slow beside one) and `left` the seconds before the bust at this rate. */
+  chase: { cops: number; hold: number; left: number } | null;
   /** The reset key (R, D-pad ↓, the thumb pad's button) would act on this car right now: the HUD's reset prompt shows only then. */
   canReset: boolean;
 };
@@ -318,8 +318,6 @@ export type SurvivalHud = {
   wrecked: number;
   /** The best time (s) on this course before this run, null when there is none. */
   best: number | null;
-  /** Share (0-1) of the bust hold the cops have already run down: the car held slow beside a cop. */
-  hold: number;
   /** The run's result once it is over (the results card), else null. */
   result: { time: number; best: number; isNew: boolean; cause: SurvivalCause; wrecked: number } | null;
 };

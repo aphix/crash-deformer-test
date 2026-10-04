@@ -8,18 +8,21 @@ import { cn } from "@/lib/utils";
 const NEAR_GOAL = 500;
 const YARDS_PER_M = 1.0936;
 
-/** The pursuit strip: police are chasing the viewed car. Cop count and, while the cops hold it slow beside one (the bust rule counting), the bust hold running out. */
+/** The pursuit strip: police are chasing the viewed car. Cop count and, while the cops hold it slow beside one (the bust rule counting), the bust hold running out with the seconds left. */
 function PursuitStrip({ chase }: { chase: NonNullable<RaceView["chase"]> }) {
   return (
-    <div className="hud-ink relative flex min-w-72 flex-col items-center gap-1 px-12 py-1 font-display" role="status">
-      <div className="absolute inset-0 bg-linear-to-r from-transparent via-signal-red/55 to-transparent" aria-hidden />
-      <p className="relative flex items-center gap-2 text-xl font-semibold uppercase tracking-[0.2em] text-fg">
-        <Siren className={cn("size-5", chase.hold > 0.6 && "motion-safe:animate-pulse")} />
+    <div className="hud-ink relative flex min-w-80 flex-col items-center gap-1 px-16 py-1.5 font-display" role="status">
+      <div className="absolute inset-0 bg-linear-to-r from-transparent via-signal-red/60 to-transparent" aria-hidden />
+      <p className="relative flex items-center gap-2 text-2xl font-semibold uppercase tracking-[0.2em] text-fg">
+        <Siren className={cn("size-6", chase.hold > 0.6 && "motion-safe:animate-pulse")} />
         Chased by {chase.cops} {chase.cops === 1 ? "cop" : "cops"}
       </p>
       {chase.hold > 0 ? (
-        <div className="relative h-1.5 w-48 overflow-hidden rounded-full bg-fg/25 shadow-[var(--shadow-border)]" role="meter" aria-label="Bust hold" aria-valuenow={Math.round(chase.hold * 100)}>
-          <div className="h-full w-full origin-left bg-signal-red transition-transform duration-150 ease-linear will-change-transform" style={{ transform: `scaleX(${chase.hold})` }} />
+        <div className="relative flex items-center gap-2">
+          <div className="h-2 w-48 overflow-hidden rounded-full bg-fg/25 shadow-[var(--shadow-border)]" role="meter" aria-label="Bust hold" aria-valuenow={Math.round(chase.hold * 100)}>
+            <div className="h-full w-full origin-left bg-signal-red transition-transform duration-150 ease-linear will-change-transform" style={{ transform: `scaleX(${chase.hold})` }} />
+          </div>
+          <span className="w-12 text-sm font-semibold tabular-nums">{chase.left.toFixed(1)} s</span>
         </div>
       ) : null}
     </div>
@@ -35,11 +38,11 @@ function remaining(race: RaceHud, view: RaceView, unit: SpeedUnit): number | nul
 }
 
 /**
- * The race's status strips, over the 3D view and clear of every control: the pursuit strip (bottom centre; hung under
- * the readouts on a phone, where the thumb pad owns the bottom) while police chase the viewed car, and the near-goal
- * banner (top centre) for the last stretch of the last lap. None under a menu or the reel.
+ * The race's status strips, over the 3D view and clear of every control: the pursuit strip (bottom centre) while police chase
+ * the viewed car, and the near-goal banner (top centre) for the last stretch of the last lap. With a touch pad (`!corner`) both
+ * ride above it instead, in the gap between the standings and the thumb controls. None under a menu or the reel.
  */
-export function RaceStatus({ race }: { race: RaceHud }) {
+export function RaceStatus({ race, corner }: { race: RaceHud; corner: boolean }) {
   const unit = useSpeedUnit();
   const view = race.view;
   if (!view || race.phase !== "racing" || race.menu !== null || race.reel !== null) return null;
@@ -47,9 +50,9 @@ export function RaceStatus({ race }: { race: RaceHud }) {
   return (
     <>
       {left === null ? null : (
-        <div className="pointer-events-none absolute inset-x-0 top-[12%] z-10 flex justify-center">
+        <div className={cn("pointer-events-none absolute inset-x-0 z-10 flex justify-center", corner ? "top-[12%]" : "bottom-[37%]")}>
           <p
-            className="hud-ink bg-linear-to-r from-transparent via-scene-race/70 to-transparent px-16 py-1 font-display text-2xl font-semibold uppercase tracking-wide tabular-nums text-fg sm:text-4xl"
+            className="hud-ink bg-linear-to-r from-transparent via-scene-race/75 to-transparent px-16 py-1 font-display text-3xl font-semibold uppercase tracking-wide tabular-nums text-fg sm:text-4xl"
             role="status"
           >
             {left} {unit === "mph" ? "yd" : "m"} remaining
@@ -57,7 +60,7 @@ export function RaceStatus({ race }: { race: RaceHud }) {
         </div>
       )}
       {view.chase === null ? null : (
-        <div className="pointer-events-none absolute inset-x-0 bottom-[7%] z-10 flex justify-center max-md:bottom-auto max-md:top-[30%]">
+        <div className={cn("pointer-events-none absolute inset-x-0 z-10 flex justify-center", corner ? "bottom-[7%]" : "bottom-[30%]")}>
           <PursuitStrip chase={view.chase} />
         </div>
       )}

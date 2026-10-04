@@ -122,11 +122,11 @@ export function DriveCluster({ view }: { view: RaceView }) {
         aria-valuemax={100}
         aria-valuenow={Math.round(view.rpm * 100)}
       >
-        <div className="absolute left-1/2 top-[11%] h-[34%] w-[1.2%] -translate-x-1/2 rounded-full bg-signal-red shadow-[0_0_6px_var(--color-signal-red)]" />
+        <div className="absolute left-1/2 top-[13.5%] h-[17.5%] w-[1.6%] -translate-x-1/2 rounded-full bg-signal-red shadow-[0_0_6px_var(--color-signal-red)]" />
       </div>
       <div
         className={cn(
-          "absolute left-[16%] top-[84%] grid size-[14%] place-items-center rounded-full transition-colors duration-[var(--motion-fast)]",
+          "absolute left-[14%] top-[83%] grid size-[16%] place-items-center rounded-full transition-colors duration-[var(--motion-fast)]",
           needsReset(view) ? cn("bg-fg text-accent-fg", RESET_GLOW) : view.canReset ? "text-fg" : "text-fg/25",
         )}
         role="img"

@@ -631,7 +631,7 @@ export class RaceDirector extends RaceField {
       // Race distance covered: the rules' own ranking measure (`progress`), a finisher's all of it.
       const total = s.laps * s.track.length;
       const done = c === undefined ? 0 : c.status === "finished" ? 1 : clamp(c.progress / total, 0, 1);
-      const cops = c !== undefined && c.status === "racing" ? (this.police?.copsOn(id) ?? 0) : 0;
+      const cops = c !== undefined ? (this.police?.copsOn(id) ?? 0) : 0;
       view = {
         id,
         racer: c
@@ -650,7 +650,7 @@ export class RaceDirector extends RaceField {
         ...carGauge(car),
         // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
         boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
-        chase: cops > 0 && c !== undefined ? { cops, hold: Math.min(1, c.stopped / s.bustTime) } : null,
+        chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
         // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing).
         canReset: c !== undefined && this.mine(id) && !this.spectating && this.menu === null && s.phase === "racing" && !s.noReset && c.status === "racing",
       };

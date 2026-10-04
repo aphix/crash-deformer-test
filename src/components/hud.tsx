@@ -257,7 +257,7 @@ export function Hud(props: HudProps) {
           onSurvival={state.inRoom ? null : () => engine.current?.toggleSurvival()}
         />
       ) : null}
-      {state.race ? <RaceStatus race={state.race} /> : null}
+      {state.race ? <RaceStatus race={state.race} corner={focus && !touch} /> : null}
       {state.derbyView && !state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
           <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} className="mt-14 sm:mt-0" />

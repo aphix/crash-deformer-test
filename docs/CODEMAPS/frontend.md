@@ -16,7 +16,9 @@ src/routes/index.tsx   "/" → Home
       │   ├ hud-panels.tsx  PistonPanel · DoorPanel · RangePanel · DerbyBoard   (only in their scene)
       │   ├ race-hud.tsx  RaceStandings · RaceOverlay (menus) · SpectateBar · RaceViewToggle; race-menu-shell.tsx MenuShell · race-reel.tsx ReelList / SavedList / SoloExit (highlights) · race-driver.tsx DriverRows (setup) · race-busted.tsx BustedBanner;
       │   │   use-pad-menu.ts: pad / keyboard menu focus (hud/menu-nav.ts); HUD → engine.raceCommand(cmd)
-      │   ├ race-readouts.tsx  RaceReadouts · Gauge: position, lap, clocks and the speed / gear / boost gauge of the driven or watched car (use-speed-unit.ts: km/h or mph from the browser's language)
+      │   ├ race-readouts.tsx  RaceReadouts · Gauge: position, lap, race time + completion %, clocks and the speed / gear / boost gauge of the driven or watched car (use-speed-unit.ts: km/h or mph from the browser's language)
+      │   ├ race-gauge.tsx  DriveCluster (big screen, bottom right): rev dial (faked from `carRpm`), damage arc, repair wrench (`canReset` / `needsReset`), nitrous bottle (boost)
+      │   ├ race-status.tsx  RaceStatus: pursuit strip ("chased by N cops" + bust hold) and the last-lap near-goal banner
       │   ├ start-lights.tsx  StartLights: the 3-2-1-GO numeral of a race or derby match clock
       │   ├ reset-prompt.tsx  ResetPrompt ← hud/reset-prompt.ts resetInput / resetPromptLabel: the pulsing "R to reset" pill at 2+ wheels off
       │   ├ hud-sections.tsx  HudSections   accordion: Playback · Driving · Cars & crash · Debug views (use-stored-string.ts: which sections stay open)

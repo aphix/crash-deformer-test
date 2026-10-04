@@ -85,7 +85,7 @@
 
 /* The race drive cluster (race-gauge.tsx): one size var, so the dial scales with the window height (a 768 px window gets a smaller dial); the bottle is sized in em of it. */
 .drive-cluster {
-  --g: clamp(9.5rem, 22dvh, 16rem);
+  --g: clamp(10rem, 25dvh, 18rem);
   --g-em: calc(var(--g) * 0.05);
   width: var(--g);
 }
