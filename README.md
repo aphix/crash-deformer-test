@@ -201,7 +201,7 @@ node scripts/bench-browser.mjs --url http://127.0.0.1:8080/ --cars 2 --modes fle
 - WSL2 with Linux Chromium: prefix `GALLIUM_DRIVER=d3d12` so WebGL reaches the host GPU through D3D12 instead of llvmpipe.
 - WSL2 with a Windows browser (most representative): run the script with Windows node from a checkout on the Windows drive (`"/mnt/c/Program Files/nodejs/node.exe" scripts/bench-browser.mjs`). It drives the installed Edge (or else Chrome) on native D3D11.
 
-Kernels in `src/game/kernel/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. The skin loop is Rust in `kernels/skin/`, committed as `src/game/deform/skin-kernel.wasm` (the deploy box has no cargo): rebuild it with `npm run build:kernel` (needs cargo and the `wasm32-unknown-unknown` target) whenever `lib.rs` changes. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
+Kernels in `src/game/kernel/*-core.js` are plain JavaScript on purpose: TypeScript's emit is several times slower on these loops. The skin loop is Rust in `kernels/skin/`, committed as `src/game/deform/skin-kernel.wasm` (the deploy box has no cargo): rebuild it with `npm run build:kernel` (needs cargo and the `wasm32-unknown-unknown` target; it builds through [mbx](https://mr-boxington.jdx.dev) when that is installed, one build at a time per machine) whenever `lib.rs` changes. Studio reflections come from `public/env-studio.jpg` (a pre-baked RoomEnvironment); rebuild it with `npm run bake:env` if you change the bake script.
 
 ## Self-hosting
 

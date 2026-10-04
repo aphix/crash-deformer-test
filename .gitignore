@@ -19,5 +19,5 @@ build/
 screenshots/*
 !screenshots/.gitkeep
 
-# Rust kernel build output (the committed skin-kernel.wasm is what ships).
-kernels/skin/target/
+# Rust kernel build output (the committed skin-kernel.wasm is what ships). No trailing slash: under mbx it is a symlink.
+kernels/skin/target
