@@ -39,7 +39,7 @@ export type Sight = {
 };
 
 /** A square grid over the path's bounds: per cell (row-major from `x0`, `z0`), the path sample to project from, or -1. */
-export type RoadGrid = { x0: number; z0: number; cols: number; rows: number; hint: Int16Array };
+type RoadGrid = { x0: number; z0: number; cols: number; rows: number; hint: Int16Array };
 
 export const CINE = {
   /** The eye stands this many seconds of the car's speed ahead, clamped (m): along the course, or along the travel off a race. */
