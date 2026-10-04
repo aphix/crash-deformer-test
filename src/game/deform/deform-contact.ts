@@ -51,7 +51,7 @@ const _plane = new HubPlane();
 const PLANE_FADE_FROM = 0.05;
 const PLANE_FADE = 0.25;
 /** A wreck's middle this far (m) over its ground band, with a wheel off its ground, takes off (followGroup's `aloft`). */
-const LIFT_OFF = 0.1;
+export const LIFT_OFF = 0.1;
 
 /** `slice` is the call's slice over CONTACT_REF_SLICE: the overlap and inbound shares are per-slice rates. */
 function sphereHit(a: MassNode, b: MassNode, slice: number): void {
