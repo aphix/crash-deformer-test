@@ -189,6 +189,10 @@ plan's budget of 11–14) leaves a different single seed of the race-start, cont
 
 Cost: the guard works the guarded car's arc out once and skips cars its zone cannot reach in 1.5 s (centres further apart than the
 zone plus the two speeds added), with outputs bit-identical to the version that walked every pair (194k drive calls compared).
+`RaceBrain.think` summed over a 60 Hz frame (about 3 calls per racer), median / p95 ms, main → branch, three runs each, the two
+interleaved, headless oval and city at the default slider: 8 cars 0.07 / 0.13 → 0.11 / 0.21 (oval) and 0.07 / 0.13 → 0.11 / 0.20
+(city); 16 cars 0.14 / 0.2 → 0.27 / 0.48 (oval) and 0.14 / 0.2 → 0.29 / 0.50 (city). Before the optimisation the 16-car city read
+0.61 / 1.0 on the same bench (run under load).
 
 ## Campaign
 `CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
