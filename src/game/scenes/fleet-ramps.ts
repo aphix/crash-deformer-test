@@ -59,6 +59,8 @@ const _p = new THREE.Vector3();
 
 export class FleetRamps implements Ground {
   readonly group = new THREE.Group();
+  /** Its wedges' sides and ends are walls `contact` parts a body from. */
+  readonly walls = true;
   /** Unit slab axis (plan), from the slab's yaw. */
   private ax = 0;
   private az = 1;

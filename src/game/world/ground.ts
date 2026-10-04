@@ -21,6 +21,8 @@ export interface Ground {
   frictionAt(x: number, z: number, y?: number): number;
   /** Surface material at (x, z) (`SURFACES` in race/catalog.ts has its grip, speed and colour). */
   surfaceAt(x: number, z: number, y?: number): SurfaceId;
+  /** True where the ground's sides and ends are walls its scene's own contact parts a body from (the fleet ramps): a flying body's hull point inside one met it from the side, and the ground does not lift it out. */
+  readonly walls?: boolean;
 }
 
 /** A surface this far (m) above a body still counts as under it (kerbs, ramp lips, a wreck's dropped hub). */

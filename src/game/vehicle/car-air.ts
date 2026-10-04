@@ -14,7 +14,7 @@ import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
  * over or rock back, and come to rest on any of them. It goes back to the ground sim once three wheels are down
  * with the body upright (`stepAir`'s return).
  */
-const G = 9.6;
+export const G = 9.6;
 /** Centre of mass above the group's origin (car-local y, m); the origin is on the ground under the body's middle. */
 export const COM_Y = 0.55;
 /** Inverse inertia per unit mass (1/m²) of the body's box about its centre of mass: car-local x, y, z. */
@@ -57,9 +57,11 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
   return p < BODY_FROM ? 0 : faceFollow(k % FACES, x, y, z);
 });
 /** A body at rest lifts out of its belly's depth in the ground by at most this (m) a slice: a body that has stopped on its belly can't pump energy, it only settles on it. */
-const REST_LIFT = 0.02;
+export const REST_LIFT = 0.02;
 /** A wheel this close (m) to the ground counts as down. */
-const TOUCH = 0.03;
+export const TOUCH = 0.03;
+/** How far (m) past its own fall a point may be under another car's top and still stand on it. */
+const STAND_SLOP = 0.005;
 /** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
  *  peaked at 4–12 g on the same ramps and crests). The ground sim's grounded support shares it. */
 export const SUPPORT = 8 * G;
@@ -106,6 +108,8 @@ const SLOT = POINTS.map(() => -1);
 const OWN = POINTS.map(() => -1);
 const FOLLOW = POINTS.map(() => 1);
 const SINK = POINTS.map(() => 0);
+/** Per contact: the point is still closing on its surface (a point moving off needs no lift). */
+const CLOSE = POINTS.map(() => false);
 /** Per contact: the belly resting on the world's ground (it only resists, see `stepAir`). */
 const UNDER = POINTS.map(() => false);
 /** The surfaces of a car in no world (a bare harness): the world's ground alone. */
@@ -190,6 +194,22 @@ export function nearContact(car: DeformableCar): boolean {
 }
 
 /**
+ * Whether the hull point at `r` from the body's centre (`i`, `pen` m inside its surface, the world's ground or the top
+ * of car `own`) reached that surface from the side. A point deeper than its own fall this slice explains is inside a
+ * flank or a wedge's end, not standing on it: lifting its whole depth moved a body 0.07-0.24 m in one slice with no
+ * speed to show for it (fleet-ramps D1), and the plan SAT, the masses and the ramp's wall (`contact`) part such a point.
+ * A tyre keeps its springs' travel (`stop`) and mounts a step only while driven (a wreck's tyre mounts no kerb), the belly has its
+ * own rule, and a roof that yields to its load (`CarSurfaces.slot`) its own law: the flanks are the rigid tops of other
+ * cars (a wreck on its masses, a roof too stiff to follow) and, over a ground with walls (`Ground.walls`), the hull points
+ * and a wreck's tyres (a roof corner landing on the corkscrew's bank is no flank: nothing else holds it up there).
+ */
+function fromSide(car: DeformableCar, surf: CarSurfaces, own: number, i: number, pen: number, stop: number, r: THREE.Vector3, dt: number, walls: boolean): boolean {
+  if (own >= 0 ? surf.slot(own, r, false, car.group.quaternion) >= 0 : !walls || i >= HULL.length || (i < 4 && !car.crashed)) return false;
+  const fall = Math.max(0, (own >= 0 ? surf.cars[own]!.velocity.y : 0) - (car.velocity.y + car.angular.z * r.x - car.angular.x * r.z)) * dt;
+  return pen > (i < 4 ? stop : 0) + STAND_SLOP + fall;
+}
+
+/**
  * One slice of flight for `car` (`velocity` is its centre of mass's, `angular` its world spin). Returns true when it
  * is back on its wheels, upright: the caller hands it to the ground sim. `car.airContact` is set while any hull
  * point is on the ground.
@@ -253,6 +273,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
     // support from here snapped a wreck falling on another car 31 cm in one frame (fleet-ramps D1).
     if (i >= HULL.length && own < 0 && car.crashed) continue;
     const pen = gy - py;
+    if (fromSide(car, surf, own, i, pen, stop, R[n]!, dt, world.walls === true)) continue;
     if (i < 4 && pen > -TOUCH) wheels++;
     if (pen <= 0) continue;
     ground.normalAt(px, pz, N[n]!, py);
@@ -265,6 +286,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
     const sink = pen * N[n]!.y - (i < 4 ? stop : 0);
     SOFT[n] = i < 4 && sink < 0;
     SINK[n] = sink;
+    CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
     n++;
   }
 
@@ -301,12 +323,14 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   // The deepest point the ground can still hold up lifts the body out (a face that yields sinks instead). The belly over the
   // world's ground only resists (impulse, no bounce, no lift while it moves): lifting a moving body out by a belly point's
   // depth pumped energy into a car resting on a ramp's edge (it tipped off) and hopped a car rolling back out of the corkscrew's mouth.
+  // Nor does a point already moving off its surface lift anything: its impulse is nil, so the lift raised the body with no speed to
+  // show for it (a wreck's pitching tail moved it 1-3 cm a frame over another car's roof, fleet-ramps D1).
   for (let c = 0; c < n; c++) {
     const s = SLOT[c]!;
     if (UNDER[c]) under = Math.max(under, SINK[c]!);
     else if (s >= 0 && surf.isYielding(s)) {
       if (!SOFT[c]) surf.note(s, SINK[c]!, FOLLOW[c]!);
-    } else if (SINK[c]! > deep) {
+    } else if (CLOSE[c] && SINK[c]! > deep) {
       deep = SINK[c]!;
       _lift.copy(N[c]!).multiplyScalar(deep);
     }

@@ -2,14 +2,16 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
-import { COM_Y } from "../vehicle/car-air.ts";
+import { COM_Y, G, REST_LIFT, TOUCH } from "../vehicle/car-air.ts";
+import { droop } from "../vehicle/car-suspension.ts";
+import { LIFT_OFF } from "../deform/deform-contact.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
 import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
-import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { assignClass, carClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
@@ -30,7 +32,8 @@ function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: Deformabl
   return { ramps, w, car };
 }
 
-function run(w: World, seconds: number, each: () => void): void {
+/** Runs the world for `seconds` of frames: `slice` after every physics slice, `each` after every frame. */
+function run(w: World, seconds: number, each: () => void, slice?: (h: number) => void): void {
   let acc = 0;
   for (let t = 0; t < seconds; t += FRAME) {
     acc = Math.min(0.05, acc + FRAME);
@@ -39,38 +42,70 @@ function run(w: World, seconds: number, each: () => void): void {
       stepWorld(w, h);
       for (const c of w.cars) c.stepBreakage(h);
       acc -= h;
+      slice?.(h);
     }
     for (const c of w.cars) c.updateSkin();
     each();
   }
 }
 
-/** Two cars head-on up the two ramps (no slab): `vA` from −z, `vB` from +z, 0.4 m apart across. */
-function pair(vA: number, vB: number): { w: World; cars: [DeformableCar, DeformableCar] } {
+/** Two cars head-on up the two ramps (no slab): `vA` from −z, `vB` from +z, `dx` m apart across. */
+function pair(vA: number, vB: number, dx = 0.4): { w: World; cars: [DeformableCar, DeformableCar] } {
   const { ramps, w } = scene(false);
   const b = new DeformableCar(paint(), new THREE.Scene());
   w.cars[0]!.spawnFacing(0, -14, 0, vA);
-  b.spawnFacing(0.4, 14, Math.PI, vB);
+  b.spawnFacing(dx, 14, Math.PI, vB);
   const w2 = newWorld([w.cars[0]!, b]);
   w2.collide = (c) => void ramps.contact(c);
   return { w: w2, cars: [w.cars[0]!, b] };
 }
 
 /**
- * Ballistic check per frame: a car's height change must lie between its start and end vertical speeds × the frame,
- * give or take 2 cm (a snap to the ground, or a height that never moves under a stale speed, falls outside). In
- * flight at both ends the height is the centre of mass's, whose speed `velocity` is (`stepAir`).
+ * Ballistic check per frame: the height a car moves in a frame must be what its vertical speeds say, give or take a
+ * snap's 2 cm (a snap to the ground, or a height that never moves under a stale speed, falls outside). In flight at both
+ * ends the height is the centre of mass's, whose speed `velocity` is (`stepAir`); on the ground it is the origin's.
+ *
+ * The speeds are every slice's (`slice`), not the frame's two ends: a slice's contact can reverse a speed inside the
+ * frame, and the frame's end speeds alone then put the same motion in or out of its bound by which slice the frame ended
+ * on (a landing wreck's frame 101 moved 3.3 cm inside the speeds of its first slice and outside those at its end).
+ * `stepAir` is semi-implicit: `v −= G·h`, `y += v·h`, then the contacts' impulses and lift. So:
+ *  - Without an impulse in the frame, y moved by Σ vₖ·hₖ over the slices' speeds: dy ∈ [vmin, vmax]·F, ±2 cm.
+ *  - With one (a slice's speed changed by more than gravity, or a car on the ground), a slice moved by the speed before
+ *    its impulse (at least vmin − G·h), and the contact then lifted by at most the depth it had fallen in, which its
+ *    impulse took the speed of: dy ∈ [(vmin − G·hmax)·F, max(vmax, 0)·F], ±(`TOUCH` + `REST_LIFT`): the two ways a slice's
+ *    contact moves a body with no speed (a wheel that close counts as down; a body stopped on its belly lifts out of the
+ *    belly's depth, up to `REST_LIFT` a slice).
+ *  - A frame with an end on the ground measures the group's origin, which a wreck's pose (`followGroup`) keeps in a band over
+ *    its floor: the frame drops onto the band by up to `LIFT_OFF` in a slice (beyond that the wreck goes aloft instead),
+ *    and a body landing (`land`) within its springs' `droop` of its ground goes to the ground pose. The wreck's masses keep
+ *    their world places through either (the frame is re-solved around them), so the body drawn does not move: that much
+ *    either way for such a frame, and a snap past it (a struck flier dropped 1.85 m onto the ground) is still outside.
  */
-function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => void } {
+function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => void; slice: (h: number) => void } {
   const heights = (c: DeformableCar): [number, number] => {
     const q = c.group.quaternion;
     return [c.group.position.y, c.group.position.y + COM_Y * (1 - 2 * (q.x * q.x + q.z * q.z))];
   };
   const last = cars.map((c) => [...heights(c), c.velocity.y, c.airborne] as const);
+  const vmin = cars.map((c) => c.velocity.y);
+  const vmax = [...vmin];
+  const prev = [...vmin];
+  const touch = cars.map((c) => !c.airborne);
+  let hmax = 0;
   const list: string[] = [];
   let n = 0;
   return {
     list,
+    slice: (h) => {
+      hmax = Math.max(hmax, h);
+      cars.forEach((c, i) => {
+        const vy = c.velocity.y;
+        vmin[i] = Math.min(vmin[i]!, vy);
+        vmax[i] = Math.max(vmax[i]!, vy);
+        if (!c.airborne || Math.abs(vy - prev[i]! + G * h) > 1e-6) touch[i] = true;
+        prev[i] = vy;
+      });
+    },
     frame: () => {
       n++;
       cars.forEach((c, i) => {
@@ -79,13 +114,19 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
         const flying = air0 && c.airborne;
         const y0 = flying ? com0 : o0;
         const y = flying ? com : o;
-        const vy = c.velocity.y;
         const dy = y - y0;
-        if (dy < Math.min(vy0, vy) * FRAME - 0.02 || dy > Math.max(vy0, vy) * FRAME + 0.02) {
-          list.push(`car ${i} frame ${n}: y ${y0.toFixed(3)} → ${y.toFixed(3)}, vy ${vy0.toFixed(2)} → ${vy.toFixed(2)}`);
+        const tol = touch[i] ? TOUCH + REST_LIFT : 0.02;
+        const pose = flying ? 0 : LIFT_OFF + droop(carClass(c));
+        const lo = (touch[i] ? vmin[i]! - G * hmax : vmin[i]!) * FRAME - tol - pose;
+        const hi = (touch[i] ? Math.max(vmax[i]!, 0) : vmax[i]!) * FRAME + tol + pose;
+        if (dy < lo || dy > hi) {
+          list.push(`car ${i} frame ${n}: y ${y0.toFixed(3)} → ${y.toFixed(3)}, vy ${vy0.toFixed(2)} → ${c.velocity.y.toFixed(2)} (slices ${vmin[i]!.toFixed(2)}..${vmax[i]!.toFixed(2)})`);
         }
-        last[i] = [o, com, vy, c.airborne];
+        last[i] = [o, com, c.velocity.y, c.airborne];
+        vmin[i] = vmax[i] = prev[i] = c.velocity.y;
+        touch[i] = !c.airborne;
       });
+      hmax = 0;
     },
   };
 }
@@ -288,7 +329,7 @@ describe("fleet ramps", () => {
     assert.ok(stuck < 0.25, `stopped yet flying for ${stuck.toFixed(2)} s`);
   });
 
-  it("D1: a car struck mid-air by one still on its ramp keeps a ballistic height: no frame moves y more than 2 cm off its velocity", (t) => {
+  it("D1: a car struck mid-air by one still on its ramp keeps a ballistic height: no frame moves y off its speeds (`watch`)", (t) => {
     const { w, cars } = pair(16, 8);
     const [a] = cars;
     let struckAt = -1;
@@ -304,10 +345,32 @@ describe("fleet ramps", () => {
       }
       lastY = a.group.position.y;
       flags.frame();
-    });
+    }, flags.slice);
     t.diagnostic(`struck at ${struckAt.toFixed(2)} s, ${struckY.toFixed(2)} m up; flagged ${flags.list.length}: ${flags.list.slice(0, 4).join("; ")}`);
     assert.ok(struckAt > 0 && struckY > 1, `struck at ${struckAt.toFixed(2)} s, ${struckY.toFixed(2)} m up: not a mid-air hit`);
     assert.deepEqual(flags.list, []);
+  });
+
+  // The case above passed on main for its own cell only: on the speeds and offsets around it, 23 of 75 cells flagged (a wreck
+  // coming down beside another was lifted its whole depth into the other's flank, up to 0.45 m in one slice). The whole
+  // neighbourhood is the test: a result that holds for one realisation of a chaotic pile-up and not its neighbours is a defect.
+  it("D1: and over the speeds and offsets around it (vA 15–17, vB 7–9 m/s, 0.3–0.5 m across: 75 cells)", (t) => {
+    const failures: string[] = [];
+    let frames = 0;
+    for (const vA of [15, 15.5, 16, 16.5, 17]) {
+      for (const vB of [7, 7.5, 8, 8.5, 9]) {
+        for (const dx of [0.3, 0.4, 0.5]) {
+          const { w, cars } = pair(vA, vB, dx);
+          const flags = watch(cars);
+          run(w, 4, flags.frame, flags.slice);
+          frames += flags.list.length;
+          if (flags.list.length > 0) failures.push(`${vA}/${vB}/${dx}: ${flags.list.length} frames, first ${flags.list[0]}`);
+          for (const c of cars) c.dispose();
+        }
+      }
+    }
+    t.diagnostic(`${failures.length} of 75 cells flagged, ${frames} frames`);
+    assert.deepEqual(failures, []);
   });
 
   it("D2: a wreck sliding off a ramp's lip flies and lands, with no frame off its velocity", (t) => {
@@ -324,7 +387,7 @@ describe("fleet ramps", () => {
       }
       if (struck && p.z > -RAMP.start) flew = Math.max(flew, p.y - ramps.heightAt(p.x, p.z, p.y));
       flags.frame();
-    });
+    }, flags.slice);
     t.diagnostic(`crashed ${car.crashed}; past the lip ${flew.toFixed(2)} m over the ground; end y ${p.y.toFixed(3)} at z ${p.z.toFixed(1)}; flagged ${flags.list.length}: ${flags.list.slice(0, 4).join("; ")}`);
     assert.ok(car.crashed, "the hit did not wreck the car");
     assert.ok(flew > 0.5, `past the lip only ${flew.toFixed(2)} m over the ground: it did not fly`);
