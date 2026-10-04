@@ -17,6 +17,23 @@ const STEER_CAP = 0.35;
 /** A yaw rate (rad/s) under this is a straight line. */
 const STRAIGHT = 1e-3;
 
+/** The look-ahead's sample times: 0 to `HORIZON` in steps of `STEP`. */
+const TIMES = sampleTimes();
+const STEPS = TIMES.length;
+/** Where the guarded car is (`DX`, `DZ`: its displacement), which way it points (`GX`, `GZ`) and how it moves (`VX`, `VZ`) at each sample time, filled once per call. */
+const DX = new Float64Array(STEPS);
+const DZ = new Float64Array(STEPS);
+const GX = new Float64Array(STEPS);
+const GZ = new Float64Array(STEPS);
+const VX = new Float64Array(STEPS);
+const VZ = new Float64Array(STEPS);
+
+function sampleTimes(): Float64Array {
+  const times: number[] = [];
+  for (let t = 0; t <= HORIZON + 1e-9; t += STEP) times.push(t);
+  return Float64Array.from(times);
+}
+
 /**
  * The last rule of every racing drive: do not drive into a car you are closing on. The guarded car is followed at its
  * speed round the arc its steer asks for (`turn`: yaw rate at full lock, rad/s), each car of `cars` (ids below `count`) that
@@ -26,6 +43,9 @@ const STRAIGHT = 1e-3;
  * (by its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
  * ahead that steering cannot clear is braked for, at the deceleration that takes the closing speed off, down to a `TAP`,
  * in the time left (`brake`, m/s²). A pair already touching and moving apart is left to the physics. No allocation.
+ *
+ * Cost: the guarded car's own arc is worked out once, and only when some other car is near enough to reach it: a pair
+ * whose centres are further apart than the zone plus what the two cars can close in `HORIZON` s (their speeds added) cannot touch.
  */
 export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, brake: number, lead: number, turn: number, out: DriveInput): void {
   const nose = self.yaw;
@@ -37,6 +57,8 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   const heading = Math.atan2(sx, sz);
   const omega = out.steer * turn;
   const straight = Math.abs(omega) < STRAIGHT;
+  const last = TIMES[STEPS - 1]!;
+  let arc = false;
   let soonest = HORIZON;
   let lateral = 0;
   let offset = 0;
@@ -46,6 +68,23 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   for (let k = 0; k < count; k++) {
     const o = cars[k]!;
     if (o.id === self.id || !o.alive || spare[o.id] === 1) continue;
+    const ospeed = Math.hypot(o.vx, o.vz);
+    // Out of reach: the two centres are further apart than the zone and the most they can close in `HORIZON` s.
+    const gap = Math.hypot(o.x - self.x, o.z - self.z) - (speed + ospeed) * last;
+    if (gap >= LON) continue;
+    if (!arc) {
+      arc = true;
+      for (let i = 0; i < STEPS; i++) {
+        const t = TIMES[i]!;
+        const turned = omega * t;
+        DX[i] = straight ? sx * t : (speed / omega) * (Math.cos(heading) - Math.cos(heading + turned));
+        DZ[i] = straight ? sz * t : (speed / omega) * (Math.sin(heading + turned) - Math.sin(heading));
+        GX[i] = Math.sin(nose + turned);
+        GZ[i] = Math.cos(nose + turned);
+        VX[i] = straight ? sx : speed * Math.sin(heading + turned);
+        VZ[i] = straight ? sz : speed * Math.cos(heading + turned);
+      }
+    }
     // `prev`: the zone metric at the last step (2 = outside before the first); `tc` < 0 until a contact is found.
     let prev = 2;
     let tc = -1;
@@ -54,34 +93,24 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
     let cw = 0;
     let n0 = 0;
     let l0 = 0;
-    let w0 = 0;
-    const ospeed = Math.hypot(o.vx, o.vz);
     const ox = ospeed > 0.1 ? o.vx / ospeed : Math.sin(o.yaw);
     const oz = ospeed > 0.1 ? o.vz / ospeed : Math.cos(o.yaw);
-    for (let t = 0; t <= HORIZON + 1e-9; t += STEP) {
-      // Where the guarded car is and which way it points after t s on its arc (`dx`, `dz`: its displacement).
-      const turned = omega * t;
-      const dx = straight ? sx * t : (speed / omega) * (Math.cos(heading) - Math.cos(heading + turned));
-      const dz = straight ? sz * t : (speed / omega) * (Math.sin(heading + turned) - Math.sin(heading));
-      const gx = Math.sin(nose + turned);
-      const gz = Math.cos(nose + turned);
+    for (let i = 0; i < STEPS; i++) {
+      const t = TIMES[i]!;
       // The other keeps its heading and sheds speed at `lead` (a car ahead braking for what it sees), down to a stop.
       const te = Math.min(t, ospeed / lead);
       const shed = ospeed * te - 0.5 * lead * te * te;
-      const rx = o.x + ox * shed - self.x - dx;
-      const rz = o.z + oz * shed - self.z - dz;
-      const pn = rx * gx + rz * gz;
-      const pl = rx * gz - rz * gx;
+      const rx = o.x + ox * shed - self.x - DX[i]!;
+      const rz = o.z + oz * shed - self.z - DZ[i]!;
+      const pn = rx * GX[i]! + rz * GZ[i]!;
+      const pl = rx * GZ[i]! - rz * GX[i]!;
       // The zone is a car-shaped ellipse around either car: crossing traffic is long across the guarded car's path.
       const qn = -(rx * ox + rz * oz);
       const ql = -(rx * oz - rz * ox);
       const m = Math.min((pl / LAT) ** 2 + (pn / LON) ** 2, (ql / LAT) ** 2 + (qn / LON) ** 2);
-      const ov = Math.max(0, ospeed - lead * t);
-      const w = Math.hypot(ox * ov - (straight ? sx : speed * Math.sin(heading + turned)), oz * ov - (straight ? sz : speed * Math.cos(heading + turned)));
-      if (t === 0) {
+      if (i === 0) {
         n0 = pn;
         l0 = pl;
-        w0 = w;
       }
       if (prev < 1) {
         // Inside at t = 0: a contact now if it is still closing a step on, else the physics' business.
@@ -89,19 +118,21 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
           tc = 0;
           cn = n0;
           cl = l0;
-          cw = w0;
+          cw = Math.hypot(ox * ospeed - VX[0]!, oz * ospeed - VZ[0]!);
         }
         break;
       }
-      if (t > 0 && m < 1) {
+      if (i > 0 && m < 1) {
+        // The closing speed at the contact: the other's speed then, against the guarded car's.
+        const ov = Math.max(0, ospeed - lead * t);
         tc = t;
         cn = pn;
         cl = pl;
-        cw = w;
+        cw = Math.hypot(ox * ov - VX[i]!, oz * ov - VZ[i]!);
         break;
       }
       // Moving apart from outside the zone: nothing further out is a contact.
-      if (t > 0 && m > prev) break;
+      if (i > 0 && m > prev) break;
       prev = m;
     }
     if (tc < 0) continue;
