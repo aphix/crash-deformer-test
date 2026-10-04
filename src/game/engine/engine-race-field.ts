@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { idleDrive, type DriveInput, type DriverSeat } from "../vehicle/car-drive.ts";
-import type { DeformableCar } from "../vehicle/car.ts";
+import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
@@ -81,6 +81,18 @@ const PARK_Z = 4000;
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
+
+/**
+ * Height (m) of the lowest point of `car`'s body box (`CAR_HALF` about its ground point), as tilted: the origin's height plus
+ * the box middle's rise along up, less the box's extent along up (`|right.y|·hx + |up.y|·hy + |fwd.y|·hz`). Read from the
+ * group's own quaternion, never a slice stale. A level car reads its ground point's height, a nose-down one its front corner's.
+ */
+export function lowestY(car: DeformableCar): number {
+  const { x, y, z, w } = car.group.quaternion;
+  const up = 1 - 2 * (x * x + z * z);
+  const extent = Math.abs(2 * (x * y + w * z)) * CAR_HALF.x + Math.abs(up) * CAR_HALF.y + Math.abs(2 * (y * z - w * x)) * CAR_HALF.z;
+  return car.group.position.y + up * CAR_HALF.y - extent;
+}
 
 /**
  * The race field: course loading (track, art, ground, props), the grid, spawns and respawns, the traffic bubble and
@@ -611,12 +623,16 @@ export abstract class RaceField {
     this.onWallHit(i, closing, cx, cz);
   }
 
-  /** Solid props push the car out (and crumple it on a hard hit); knockable props fly off. */
+  /**
+   * Solid props push the car out (and crumple it on a hard hit); knockable props fly off. A prop touches only a car whose
+   * lowest point (the tilted body box, `lowestY`) is under the prop's top: a car flying over it clears it.
+   */
   protected props(car: DeformableCar, i: number): void {
     const pos = car.group.position;
     const v = car.velocity;
+    const low = lowestY(car);
     for (const col of this.colliders) {
-      if (this.knocked[col.index]) continue;
+      if (this.knocked[col.index] || low >= col.top) continue;
       const reach = (col.kind === "circle" ? col.r : Math.max(col.hx, col.hz)) + WALL_HALF_L + 0.3;
       const dx = pos.x - col.x;
       const dz = pos.z - col.z;

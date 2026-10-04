@@ -31,6 +31,8 @@ export type PropCollider = {
   hx: number;
   hz: number;
   mass: number;
+  /** Height of the prop's top (m, world): its stand height plus its prefab's height scaled by `sy`. A car whose lowest point is above it flies over. */
+  top: number;
 };
 
 /** Scatter points closer than this (m) beyond a corridor's wall line, plus the prop's radius, are rejected. */
@@ -280,6 +282,7 @@ export function propColliders(placed: readonly Placed[]): PropCollider[] {
       hx,
       hz,
       mass: spec.mass * p.sx * p.sy * p.sz,
+      top: p.y + spec.size[1] * p.sy,
     });
   });
   return out;
