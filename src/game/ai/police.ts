@@ -287,6 +287,8 @@ export interface CopBrain {
   respawned?(id: number, time: number): void;
   /** The units chasing a racer right now, from `cars` into `out` (cleared first): the rules' `BUST` counts only these. */
   chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[];
+  /** How many of the `chasers` are after racer `id` (the HUD's pursuit strip). */
+  copsOn(id: number): number;
   /** A unit's input for this physics slice (scratch output: apply it before the next call). */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput;
   /** One patrol pass (the director's bubble beat, `dt` s). `hunt[id]` is 1 for a racer still racing; `lead` is the leader's progress (m). */
@@ -388,6 +390,12 @@ export class PoliceBrain implements CopBrain {
     out.length = 0;
     for (let u = 0; u < this.count; u++) if (this.state[u] === "pursuit" && this.pack[u]! >= 0) out.push(cars[this.first + u]!);
     return out;
+  }
+
+  copsOn(id: number): number {
+    let n = 0;
+    for (let u = 0; u < this.count; u++) if (this.state[u] === "pursuit" && this.pack[u]! >= 0 && this.target[this.pack[u]!] === id) n++;
+    return n;
   }
 
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */

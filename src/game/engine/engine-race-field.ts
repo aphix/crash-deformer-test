@@ -526,7 +526,6 @@ export abstract class RaceField {
       cops: hunter?.hunting ?? 0,
       wrecked: hunter?.stats.disabled ?? 0,
       best: this.bestBefore,
-      hold: Math.min(1, s.cars[this.rowOf[this.self]!]!.stopped / s.bustTime),
       result: this.run,
     };
   }

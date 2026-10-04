@@ -64,6 +64,16 @@ A tap shorter than one frame still registers (the press is latched until the nex
 
 **Reset prompt**: once the car you drive has lost 2 or more wheels, a pulsing "R to reset" pill (pad: "D-pad ↓", touch: the pill itself is the button, "Tap to respawn" / "Tap to recover", pressing what the thumb pad's wrench presses) comes up mid-screen, in a race and in a derby (on a race phone under 640 px it hangs directly under the standings instead). It shows only where the reset works: not in a no-reset race, while spectating, or in a derby while the car is upright.
 
+### Race HUD (focus view)
+
+Top left: the standings with gaps. Top right: lap, position, the race time beside the **race completion %** (share of laps × lap length covered, the measure positions rank by), lap / last / best and the split. On a wide screen without a touch pad the **drive cluster** sits bottom right (a phone and a narrow window keep the compact speed / gear / boost line under the readouts):
+
+- **Rev dial**: speed in the centre (mph with a US locale, else km/h), the gear under it. The revs are faked from the speed inside the gear's bucket: low at the bucket's foot, the redline at its top, falling back at every upshift.
+- **Damage arc** (left of the dial): the weaker of the engine block's health and the wheels still on, amber under 60 %, red under 25 %. Under it the **wrench**: lit while a reset would be accepted (R, D-pad ↓), dim in a no-reset race and while spectating, and glowing like the other reset controls once two wheels are gone.
+- **Nitrous bottle**: the boost meter (blue fill, glowing while there is a burst in it, white while burning; "Draft" above it while drafting). Hidden where this browser does not hold the meter.
+- **Pursuit strip** (bottom centre): "Chased by N cops" while police chase the viewed car (a police race or Survival), with the bust hold and the seconds left while a cop holds the car slow. Hidden otherwise.
+- **Near-goal banner** (top centre): "N yd remaining" (mph) or "N m remaining" (km/h) for the last 500 of the last lap.
+
 ## Scenes and the HUD
 
 | Action | Keyboard | Controller | Touch |

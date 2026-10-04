@@ -1,12 +1,13 @@
-import type { RefObject } from "react";
+import { Fragment, type RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
+import { RaceStatus } from "@/components/race-status";
 import { SoloExit } from "@/components/race-reel";
-import { ResetPrompt } from "@/components/reset-prompt";
+import { RESET_GLOW, ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, MouseLookButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
@@ -15,7 +16,7 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
 import type { CrashEngine } from "@/game/engine/engine";
-import { resetInput } from "@/game/hud/reset-prompt";
+import { resetGlow, resetInput } from "@/game/hud/reset-prompt";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
@@ -261,6 +262,7 @@ export function Hud(props: HudProps) {
           onSurvival={state.inRoom ? null : () => engine.current?.toggleSurvival()}
         />
       ) : null}
+      {state.race ? <RaceStatus race={state.race} corner={focus && !touch} /> : null}
       {state.derbyView && !state.derbyWinner ? (
         <div className="pointer-events-none absolute inset-x-0 top-1/3 z-10 flex justify-center px-3 sm:top-1/4">
           <ResetPrompt view={state.derbyView} input={reset} race={false} onTap={tapReset} className="mt-14 sm:mt-0" />
@@ -329,16 +331,29 @@ function Readout({ label, value, unit, className }: { label: string; value: stri
   );
 }
 
+/** The reset entry of a seat hint's key list ("R respawn", "D-pad ↓ recover"): what glows while the car needs a reset. */
+const RESET_KEY = /^(R|D-pad ↓) (respawn|recover)$/;
+
 /** Seat keys and the controller label, inked straight onto the view above the dock so it never covers a control. Touch screens drop the key list: their buttons carry captions. */
 function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
   const { title, keys } = seatHint(state);
+  const glow = resetGlow(state);
   return (
     <div className="hud-ink w-full max-w-md" role="status">
       <p className="font-display text-xs font-semibold uppercase tracking-[0.12em] text-fg">
         {title}
         {state.pad ? <span className="hud-label ml-2 text-fg/80">{state.pad} connected</span> : null}
       </p>
-      {touch ? null : <p className="text-xs leading-snug text-fg/80">{keys}</p>}
+      {touch ? null : (
+        <p className="text-xs leading-snug text-fg/80">
+          {keys.split(" · ").map((key, i) => (
+            <Fragment key={key}>
+              {i > 0 ? " · " : null}
+              {glow && RESET_KEY.test(key) ? <span className={cn(RESET_GLOW, "rounded bg-accent px-1 text-accent-fg")}>{key}</span> : key}
+            </Fragment>
+          ))}
+        </p>
+      )}
       {state.seat === "drive" ? (
         <div className="mt-1 h-1 w-40 overflow-hidden rounded-full bg-surface-2/80" aria-label="Boost">
           <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
@@ -398,7 +413,14 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
       >
         {state.playing ? <Pause /> : <Play className="ml-0.5" />}
       </Button>
-      <Button onClick={() => engine.current?.reset()} variant="secondary" className={BAR_BUTTON} aria-label="Reset crash" title="Reset (R)">
+      <Button
+        onClick={() => engine.current?.reset()}
+        variant="secondary"
+        // A race or derby restarts the whole match, so only the sandbox's reset (which does put a wreck right) hints.
+        className={cn(BAR_BUTTON, state.fleetView && resetGlow(state) && RESET_GLOW)}
+        aria-label="Reset crash"
+        title="Reset (R)"
+      >
         <RotateCcw />
       </Button>
       <div
@@ -466,14 +488,14 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
       >
         <SlidersHorizontal />
       </Button>
-      <KeyHelp className="idle:hidden idle:data-[state=open]:inline-flex" />
+      <KeyHelp className="idle:hidden idle:data-[state=open]:inline-flex" glow={resetGlow(state)} />
       <MouseLookButton engine={engine} on={state.mouseLook} className={BAR_BUTTON} />
       <FullscreenButton className={BAR_BUTTON} />
     </div>
   );
 }
 
-function KeyHelp({ className }: { className?: string }) {
+function KeyHelp({ className, glow }: { className?: string; glow: boolean }) {
   return (
     <Popover.Root>
       <Popover.Trigger asChild>
@@ -489,7 +511,7 @@ function KeyHelp({ className }: { className?: string }) {
           collisionPadding={8}
           className="z-50 w-80 max-w-[calc(100vw-1rem)] rounded-lg bg-surface p-3 text-fg shadow-[var(--shadow-border)]"
         >
-          <KeyList title="Scene" keys={SCENE_KEYS} />
+          <KeyList title="Scene" keys={SCENE_KEYS} glowKey={glow ? "R" : undefined} />
           <KeyList title="Cars & camera" keys={CAMERA_KEYS} className="mt-3" />
           <p className="mt-2 text-xs text-muted">Reversing steers like a real car: left swings the tail left.</p>
         </Popover.Content>
@@ -498,7 +520,7 @@ function KeyHelp({ className }: { className?: string }) {
   );
 }
 
-function KeyList({ title, keys, className }: { title: string; keys: [string, string][]; className?: string }) {
+function KeyList({ title, keys, glowKey, className }: { title: string; keys: [string, string][]; glowKey?: string; className?: string }) {
   return (
     <div className={className}>
       <p className="hud-label">{title}</p>
@@ -506,7 +528,7 @@ function KeyList({ title, keys, className }: { title: string; keys: [string, str
         {keys.map(([key, action]) => (
           <div key={key} className="flex items-baseline gap-2 text-xs">
             <dt>
-              <kbd className="rounded bg-surface-2 px-1.5 py-0.5 font-display text-xs text-fg shadow-[var(--shadow-border)]">{key}</kbd>
+              <kbd className={cn("rounded bg-surface-2 px-1.5 py-0.5 font-display text-xs text-fg shadow-[var(--shadow-border)]", key === glowKey && RESET_GLOW)}>{key}</kbd>
             </dt>
             <dd className="text-muted">{action}</dd>
           </div>

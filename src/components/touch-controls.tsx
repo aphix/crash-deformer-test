@@ -1,9 +1,11 @@
 import { useEffect, useRef, useSyncExternalStore, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
 import { ChevronLeft, ChevronRight, CircleParking, LockOpen, LogOut, Maximize, Minimize, Mouse, Pause, SwitchCamera, Video, Wrench, Zap } from "lucide-react";
 import type { HudProps } from "@/components/hud";
+import { RESET_GLOW } from "@/components/reset-prompt";
 import { Button } from "@/components/ui/button";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
+import { resetGlow } from "@/game/hud/reset-prompt";
 import { cn } from "@/lib/utils";
 
 /** The webkit prefixes Safari on iPad still ships (iPhone Safari has neither, so the button hides there). */
@@ -219,7 +221,7 @@ export function TouchControls({ state, engine }: HudProps) {
           </PadButton>
         ) : null}
         {driving ? (
-          <PadButton engine={engine} button={PAD_BUTTON.down} label={race ? "Respawn" : "Recover car"} caption={race ? "Respawn" : "Recover"} className="col-start-2 row-start-2">
+          <PadButton engine={engine} button={PAD_BUTTON.down} label={race ? "Respawn" : "Recover car"} caption={race ? "Respawn" : "Recover"} className={cn("col-start-2 row-start-2", resetGlow(state) && RESET_GLOW)}>
             <Wrench />
           </PadButton>
         ) : null}

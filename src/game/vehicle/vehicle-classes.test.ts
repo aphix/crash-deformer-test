@@ -12,6 +12,7 @@ import {
   CLASSES,
   cornerSpeed,
   gearAt,
+  carRpm,
   drivability,
   HANDLING,
   killClass,
@@ -265,6 +266,26 @@ describe("vehicle classes", () => {
       }
     });
   }
+
+  it("good: the fake revs climb from the bucket's foot to the redline and drop at each shift, in step with the gauge gear", () => {
+    const k = CLASSES.sedan;
+    const at = (v: number) => carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: v }, fwdFlat: { x: 0, z: 1 } });
+    let drops = 0;
+    let prev = at(0);
+    for (let v = 0.1; v < k.topSpeed * 1.3; v += 0.05) {
+      const rpm = at(v);
+      assert.ok(rpm >= 0 && rpm <= 1, `${v} m/s: ${rpm}`);
+      if (rpm < prev - 0.05) {
+        drops++;
+        assert.notEqual(gearAt(k, v), gearAt(k, v - 0.05), `revs fell at ${v} m/s without a shift`);
+      }
+      prev = rpm;
+    }
+    assert.equal(drops, k.gears.length - 1, "one drop per upshift");
+    assert.ok(at(k.gears[1]![0] * k.topSpeed - 0.01) > 0.99, "near the redline at the top of a bucket");
+    assert.ok(at(k.gears[1]![0] * k.topSpeed + 0.01) < 0.35, "back at the foot of the next");
+    assert.equal(carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: -5 }, fwdFlat: { x: 0, z: 1 } }), 0.18, "idles in reverse");
+  });
 
   it("good: monster truck — big wheels on the ground, body high, wider turning circle than a sedan", () => {
     const monster = classCar("monster");

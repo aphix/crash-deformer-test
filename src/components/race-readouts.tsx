@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { DriveCluster } from "@/components/race-gauge";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { SurvivalReadout } from "@/components/survival-hud";
@@ -60,9 +61,20 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
               <span className="text-xl font-medium text-fg/70">/{race.field}</span>
             </p>
           </div>
-          <p className="hud-ink text-xl font-semibold leading-none" aria-label="Race time">
-            {fmtTime(race.time)}
-          </p>
+          <div className={cn("hud-ink flex items-center gap-3", corner && "md:gap-4")}>
+            <p className={cn("text-xl font-semibold leading-none", corner && "md:text-3xl")} aria-label="Race time">
+              {fmtTime(race.time)}
+            </p>
+            {r.done === null ? null : (
+              <>
+                <span className={cn("h-6 w-px bg-fg/40", corner && "md:h-12")} aria-hidden />
+                <p className={cn("text-3xl font-semibold leading-none tracking-tight", corner && "md:text-7xl")} aria-label="Race completed">
+                  {Math.floor(r.done * 100)}
+                  <span className={cn("ml-0.5 text-lg font-medium text-fg/70", corner && "md:text-3xl")}>%</span>
+                </p>
+              </>
+            )}
+          </div>
           <dl className="hud-ink flex gap-3 text-xs">
             <Clock label="Lap" value={fmtTime(r.lapTime)} />
             <Clock label="Last" value={r.lastLap === null ? "–" : fmtTime(r.lastLap)} />
@@ -86,42 +98,46 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
   );
 }
 
-/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. */
+/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. In `corner` mode a big window gets the race's drive cluster (`DriveCluster`) in the bottom-right corner instead. */
 export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
   const unit = useSpeedUnit();
   const boost = view.boost;
   return (
-    <div className={cn("flex flex-col items-end gap-1", corner && "md:absolute md:bottom-4 md:right-4")}>
-      <div className="hud-ink flex items-baseline gap-2">
-        <p
-          className={cn("grid size-7 place-items-center self-center rounded-md text-lg font-semibold leading-none shadow-[var(--shadow-border)]", corner && "md:size-10 md:text-2xl")}
-          aria-label="Gear"
-        >
-          {view.gear === 0 ? "R" : view.gear}
-        </p>
-        <p className={cn("text-3xl font-semibold leading-none tracking-tight", corner && "md:text-6xl")} aria-label="Speed">
-          {formatSpeed(view.speedKph / 3.6, unit)}
-          <span className={cn("ml-0.5 text-xs font-medium text-fg/70", corner && "md:text-base")}>{unit}</span>
-        </p>
-      </div>
-      {boost === null ? null : (
-        <div className="flex items-center gap-2">
-          {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
-          <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">Boost</span>
-          <div
-            className={cn("flex h-2 w-24 gap-0.5", corner && "md:h-3 md:w-44", view.boosting && "drop-shadow-[0_0_6px_var(--color-accent)]")}
-            role="meter"
-            aria-label="Boost"
-            aria-valuenow={Math.round(boost * 100)}
-          >
-            {Array.from({ length: CELLS }, (_, i) => (
-              <div key={i} className="flex-1 overflow-hidden rounded-[2px] bg-fg/25 shadow-[var(--shadow-border)]">
-                <div className={cn("h-full", view.boosting ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, boost * CELLS - i)) * 100)}%` }} />
-              </div>
-            ))}
-          </div>
+    <>
+      {corner ? (
+        <div className="absolute bottom-4 right-4 hidden md:block">
+          <DriveCluster view={view} />
         </div>
-      )}
-    </div>
+      ) : null}
+      <div className={cn("flex flex-col items-end gap-1", corner && "md:hidden")}>
+        <div className="hud-ink flex items-baseline gap-2">
+          <p className="grid size-7 place-items-center self-center rounded-md text-lg font-semibold leading-none shadow-[var(--shadow-border)]" aria-label="Gear">
+            {view.gear === 0 ? "R" : view.gear}
+          </p>
+          <p className="text-3xl font-semibold leading-none tracking-tight" aria-label="Speed">
+            {formatSpeed(view.speedKph / 3.6, unit)}
+            <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
+          </p>
+        </div>
+        {boost === null ? null : (
+          <div className="flex items-center gap-2">
+            {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
+            <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">Boost</span>
+            <div
+              className={cn("flex h-2 w-24 gap-0.5", view.boosting && "drop-shadow-[0_0_6px_var(--color-accent)]")}
+              role="meter"
+              aria-label="Boost"
+              aria-valuenow={Math.round(boost * 100)}
+            >
+              {Array.from({ length: CELLS }, (_, i) => (
+                <div key={i} className="flex-1 overflow-hidden rounded-[2px] bg-fg/25 shadow-[var(--shadow-border)]">
+                  <div className={cn("h-full", view.boosting ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, boost * CELLS - i)) * 100)}%` }} />
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </>
   );
 }

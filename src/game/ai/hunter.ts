@@ -229,6 +229,10 @@ export class HunterBrain implements CopBrain {
     return out;
   }
 
+  copsOn(id: number): number {
+    return id === this.target ? this.hunting : 0;
+  }
+
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its hunt, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.hunt(self, cars, dt);

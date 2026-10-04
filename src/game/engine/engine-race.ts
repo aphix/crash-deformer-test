@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
-import { carGear } from "../vehicle/vehicle-classes.ts";
+import { carGauge } from "../match/car-view.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -628,6 +628,10 @@ export class RaceDirector extends RaceField {
     let view: RaceView | null = null;
     if (s && car) {
       const c = id < this.entrants.length ? s.cars[this.rowOf[id]!] : undefined;
+      // Race distance covered: the rules' own ranking measure (`progress`), a finisher's all of it.
+      const total = s.laps * s.track.length;
+      const done = c === undefined ? 0 : c.status === "finished" ? 1 : clamp(c.progress / total, 0, 1);
+      const cops = c !== undefined ? (this.police?.copsOn(id) ?? 0) : 0;
       view = {
         id,
         racer: c
@@ -639,14 +643,14 @@ export class RaceDirector extends RaceField {
               bestLap: c.bestLap,
               split: c.split,
               drafting: c.draft > 0,
+              done: s.endless ? null : done,
+              toGo: s.endless ? null : (1 - done) * total,
             }
           : null,
-        speedKph: car.velocity.length() * 3.6,
-        gear: carGear(car),
+        ...carGauge(car),
         // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
         boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
-        boosting: car.drive.boost,
-        wheelsOff: 4 - car.deform.wheelsOn,
+        chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
         // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing).
         canReset: c !== undefined && this.mine(id) && !this.spectating && this.menu === null && s.phase === "racing" && !s.noReset && c.status === "racing",
       };

@@ -283,16 +283,26 @@ export type RaceView = {
     split: number | null;
     /** In another car's trail (`DRAFT`): the HUD's draft cue. */
     drafting: boolean;
+    /** Share (0-1) of the race distance covered: `CarRecord.progress` (what positions rank by) over laps × lap length; null in an endless Survival run. */
+    done: number | null;
+    /** Metres of the race left (same measure), 0 once finished; null in Survival. */
+    toGo: number | null;
   } | null;
   speedKph: number;
   /** Gear the forward speed sits in, 1-based (`gearAt`); 0 rolling backwards. */
   gear: number;
+  /** Fake revs 0–1 of the dial (`carRpm`): they follow the speed through the gear bucket, so they match `gear`. */
+  rpm: number;
+  /** Damage arc 0–1, 1 untouched (`carDamage`: the weaker of engine-block health and wheels on). */
+  damage: number;
   /** Boost meter 0–1; null when this browser doesn't hold it (a peer's car, police). */
   boost: number | null;
   /** Burning boost right now. */
   boosting: boolean;
   /** Wheels off the car, 0–4 (`4 - deform.wheelsOn`). */
   wheelsOff: number;
+  /** Police chasing this car, null when none is (`BUST`'s chasers): `cops` units; `hold` is the 0–1 share of the bust hold already run (the car held slow beside one) and `left` the seconds before the bust at this rate. */
+  chase: { cops: number; hold: number; left: number } | null;
   /** The reset key (R, D-pad ↓, the thumb pad's button) would act on this car right now: the HUD's reset prompt shows only then. */
   canReset: boolean;
 };
@@ -308,8 +318,6 @@ export type SurvivalHud = {
   wrecked: number;
   /** The best time (s) on this course before this run, null when there is none. */
   best: number | null;
-  /** Share (0-1) of the bust hold the cops have already run down: the car held slow beside a cop. */
-  hold: number;
   /** The run's result once it is over (the results card), else null. */
   result: { time: number; best: number; isNew: boolean; cause: SurvivalCause; wrecked: number } | null;
 };

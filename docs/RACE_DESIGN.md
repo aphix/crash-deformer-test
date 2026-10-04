@@ -482,12 +482,29 @@ swallowed; in the full view they work as in the sandbox, except the fleet props 
 
 ## HUD and controller menus
 Focus view (default): race readouts for the HUD car (`RaceHud.view`: the driven car, or the watched car while
-spectating, so spectate shows what that driver sees): P3/8, Lap 2/3, race / lap / last / best, the split,
-and the gauge (speed, gear from `gearAt`, the segmented boost meter, lit while burning, with a "Draft" tag
-while drafting). The boost meter shows where this browser holds it (our seat, or the AI on a host / offline
-race); a peer's car and police have none, and a watched police car shows only the gauge. The gauge sits
-under the readouts (top right), or in the bottom-right corner on a wide screen without a touch pad, as in
-NFS and Burnout. The HUD republishes at ~8 Hz (`engine.ts` `hudAcc`), never per frame. Standings
+spectating, so spectate shows what that driver sees): P3/8, Lap 2/3, the race time beside the **race completion
+%** (`racer.done`: the rules' own `progress` (what positions rank by) over laps × lap length, a finisher's all
+of it; none in Survival), lap / last / best, the split, and the gauge. On a wide screen without a touch pad
+(`corner`) the gauge is the **drive cluster** (`race-gauge.tsx`) in the bottom-right corner, as in NFS Heat:
+an arc rev dial with a redline (needle on a `transform` transition, so the compositor moves it between the ~8 Hz
+snapshots), the speed in the centre and the gear (`gearAt`) under it; the **revs are faked** (`carRpm`): 0.3 at the
+foot of the gear's bucket, 1 (the redline) at its top, back to 0.3 at the next gear's foot, so the needle drops
+on every upshift exactly where the gear digit changes; a **damage arc** on its left (`RaceView.damage`, 1
+untouched: the weaker of the engine block's `drivetrainHealth` and wheels on / 4; amber under 0.6 and red under
+0.25, the drivetrain's own bands) over a **wrench** that is lit while the game would accept a reset (`canReset`),
+dim in a no-reset race or while spectating, and glows with the same pulse as the other reset controls once the
+car needs one (`needsReset`, 2+ wheels off: one rule with the prompt, the thumb pad's wrench and the R hint);
+and the **nitrous bottle**, the boost meter (fill = level, glow while there is a burst in it, white fill and a
+stronger glow while burning, "Draft" above it while drafting). The boost shows where this browser holds it
+(our seat, or the AI on a host / offline race); a peer's car and police have none (no bottle), and a
+watched police car shows only the gauge. Phones and narrow windows keep the compact speed / gear / segmented
+boost line under the readouts. **Status strips** (`race-status.tsx`): the **pursuit strip** (bottom centre;
+under the standings on a phone) shows "CHASED BY N COPS" while police chase the viewed car
+(`RaceView.chase`, `CopBrain.copsOn`), with the bust hold running down under it while the busted rule counts
+(`CarRecord.stopped` over `bustTime`); the **near-goal banner** (top centre) counts the last 500 yd (mph) / 500
+m (km/h) of the last lap down in 10s. There is no minimap in the game, so none was added (owner: noise). The
+HUD republishes at ~8 Hz (`engine.ts` `hudAcc`), never per frame, and the new pieces add no store
+subscription or per-frame state. Standings
 (names are spectate buttons), start lights with 3·2·1·GO, WRONG WAY, respawn countdown, finish card,
 spectate bar, and one "Full menu" button (H). Full view adds the sandbox title, settings panel, drive
 card and dock (first item "Race view"). Modal menus: setup (course cards, Name, Car, You: Drive / Watch, laps

@@ -1,10 +1,8 @@
-import { RotateCcw, Siren, Trophy } from "lucide-react";
+import { RotateCcw, Trophy } from "lucide-react";
 import { MenuShell, NavButton } from "@/components/race-menu-shell";
 import { ReelList } from "@/components/race-reel";
 import { fmtTime } from "@/game/hud/race-clock";
-import { SURVIVAL } from "@/game/match/survival";
 import type { RaceCommand, RaceHud, SurvivalCause, SurvivalHud } from "@/game/match/types";
-import { cn } from "@/lib/utils";
 
 const CAUSE: Record<SurvivalCause, string> = { busted: "Busted", wrecked: "Wrecked", ended: "Run ended" };
 
@@ -20,10 +18,9 @@ function Stat({ label, value }: { label: string; value: string }) {
 
 /**
  * Survival's readouts, top right (Driver 2's): the stopwatch that is the score, the best time, the cops chasing and the cops
- * wrecked, and, while the car is held slow beside a cop, the seconds left before the bust.
+ * wrecked. The bust hold counting down has the pursuit strip (`race-status.tsx`).
  */
 export function SurvivalReadout({ race, survival }: { race: RaceHud; survival: SurvivalHud }) {
-  const left = Math.max(0, (1 - survival.hold) * SURVIVAL.bustTime);
   return (
     <>
       <p className="hud-ink text-5xl font-semibold leading-none tracking-tight" aria-label="Survived">
@@ -37,15 +34,6 @@ export function SurvivalReadout({ race, survival }: { race: RaceHud; survival: S
         <Stat label="Cops" value={String(survival.cops)} />
         <Stat label="Wrecked" value={String(survival.wrecked)} />
       </dl>
-      {survival.hold > 0 && race.phase === "racing" ? (
-        <div className="hud-ink flex items-center gap-2" role="meter" aria-label="Bust hold" aria-valuenow={Math.round(survival.hold * 100)}>
-          <Siren className={cn("size-4", survival.hold > 0.6 && "text-signal-red")} />
-          <div className="h-2 w-28 overflow-hidden rounded-full bg-fg/25 shadow-[var(--shadow-border)]">
-            <div className="h-full bg-signal-red" style={{ width: `${Math.round(survival.hold * 100)}%` }} />
-          </div>
-          <span className="text-xs font-semibold tabular-nums">{left.toFixed(1)} s</span>
-        </div>
-      ) : null}
     </>
   );
 }
