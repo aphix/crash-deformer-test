@@ -189,10 +189,10 @@ const RACE_LAPS = 2;
  * One race of 4 AI rivals (plus the AI-driven player slot) with the aggression slider at `slider`;
  * the field rolls its random picks (each rival's aggression in [0, slider]) with `seed`.
  */
-export function raceOnce(w: World, track: Track, bound: number, seed: number, slider: number): Outcome {
+export function raceOnce(w: World, track: Track, bound: number, seed: number, slider: number, afterFrame?: (n: number) => void, aiCount = 4): Outcome {
   const r = w.race;
   r.command({ type: "quit" });
-  r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount: 4, noReset: false, aggression: slider } });
+  r.command({ type: "options", options: { trackId: track.id, laps: RACE_LAPS, aiCount, noReset: false, aggression: slider } });
   // The start command's new field rolls with this seed: the same path a player's race takes.
   r.reseed(seed);
   r.command({ type: "start" });
@@ -202,6 +202,7 @@ export function raceOnce(w: World, track: Track, bound: number, seed: number, sl
   let snap: RaceSnapshot = r.snapshot()!;
   for (let n = 0; snap.phase !== "finished" && n * FRAME < bound; n++) {
     frame(w, state);
+    afterFrame?.(n);
     if (n % 30 === 29) snap = r.snapshot()!;
   }
   snap = r.snapshot()!;

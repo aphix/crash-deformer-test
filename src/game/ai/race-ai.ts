@@ -1,5 +1,6 @@
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
+import { guardContact } from "./contact-guard.ts";
 import { personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
@@ -28,6 +29,8 @@ export function onSurface(input: DriveInput, surf: Surface, out: DriveInput): Dr
 const CORNER_MARGIN = 0.8;
 /** Planned braking: this share of the car's class brake. */
 const PLAN_BRAKE = 0.5;
+/** The guard counts on this share of the class brake: a steered or locked car sheds less of it than `applyDrive` asks (a hit at 0.9 came from braking at the limit). */
+const GUARD_BRAKE = 0.72;
 /** Look this far (m) ahead for traffic. */
 const SCAN = 18;
 /** `SCAN`, `GAP_KEEP` and `HUNT` hold at up to this speed (m/s), the field's pace they were tuned at, and stretch with speed above it. */
@@ -87,7 +90,7 @@ const CREST_SPAN = 6;
  * the road falls away faster than gravity pulls the car down above √(g/κ), and an airborne car can neither steer
  * nor brake for the bend after it. Infinity in a dip or on the level.
  */
-function crestSpeed(path: TrackPath, s: number): number {
+export function crestSpeed(path: TrackPath, s: number): number {
   const y = path.y;
   const k = (y[sampleAt(path, s - CREST_SPAN)]! - 2 * y[sampleAt(path, s)]! + y[sampleAt(path, s + CREST_SPAN)]!) / (CREST_SPAN * CREST_SPAN);
   return k < -1e-4 ? Math.sqrt(G / -k) : Infinity;
@@ -117,12 +120,17 @@ type RaceAiState = {
  *     curvature, grip and shortcut junctions ahead under a braking budget. Boost on a clear run while
  *     the plan at the boosted top wants more speed, from a meter that drains and refills like the
  *     player's seat (`BOOST`).
+ *  L4 guard (`contact-guard.ts`): of every car it is closing on except the ones it means to hit (fight > 0), the
+ *     soonest contact within 1.5 s is steered clear of and braked for, so a clean driver (aggression 0)
+ *     starts no contact (`race-contact.test.ts`) and a hungrier one hits only the rivals its mood sends it after.
  * Deterministic (no clock, no Math.random); no allocation per call.
  */
 export class RaceBrain {
   readonly track: Track;
   /** Ids below this are racers; the rest (traffic) are only avoided. */
   racers: number;
+  /** Ids below this are the cars a racer keeps clear of (`guardContact`): the racers and the traffic; police past it hit on purpose. */
+  guarded: number;
   private readonly out: DriveInput = idleDrive();
   private readonly traits: Personality[] = [];
   private readonly aggression = new Float64Array(MAX_CARS);
@@ -150,6 +158,8 @@ export class RaceBrain {
   private swerve = 0;
   /** Fight (0–1) toward the rival being hunted or rammed this call, 0 when none. */
   private chase = 0;
+  /** Per car id, this call: 1 for a rival this driver is fighting (the contact guard leaves it alone), else 0. */
+  private readonly hit = new Uint8Array(MAX_CARS);
   /** This call: the shortcut being turned into (−1 none), the distance (m) to its mouth while short of it, and the turn (rad) still to make onto it. */
   private entry = -1;
   private lead = 0;
@@ -165,6 +175,7 @@ export class RaceBrain {
   constructor(track: Track, racers: number) {
     this.track = track;
     this.racers = racers;
+    this.guarded = racers;
     for (let i = 0; i < MAX_CARS; i++) this.traits.push(personality(i));
     const p = blankProjection();
     this.mouthS = track.shortcuts.map((sc) => projectPath(track.path, sc.path.x[0]!, sc.path.z[0]!, -1, p).s);
@@ -329,6 +340,9 @@ export class RaceBrain {
     } else {
       out.brake = clamp(-err / 6, 0.2, 1);
     }
+
+    // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`).
+    if (i < this.racers) guardContact(self, others, this.guarded, this.hit, cls.brake * GUARD_BRAKE, turnMax, out);
 
     // L0: wedged against something.
     if (this.lastThrottle[i]! > 0.35 && speed < STUCK_SPEED) this.stuck[i]! += dt;
@@ -510,6 +524,7 @@ export class RaceBrain {
       const rolling = along > FIGHT_PACE && oAlong > 0.6 * FIGHT_PACE;
       const fight = rolling ? clamp(m, 0, 1) : 0;
       const shy = clamp(-m, 0, 1);
+      this.hit[o.id] = fight > 0 ? 1 : 0;
       if (ahead > 0.5 && ahead < SCAN * Math.max(pace, (along - oAlong) / PACE) && inWay) {
         if (along > oAlong + 0.3) {
           // Slower and on our line: pass it, ram it, or follow it.

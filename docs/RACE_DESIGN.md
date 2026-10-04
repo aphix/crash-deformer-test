@@ -148,6 +148,17 @@ than itself, less willingly the more wrecked it is. The race AI splits it into `
 with its aggression, and `shy` keeps a clean driver off other cars (aggression 0: fight 0, shy 1). The
 derby AI uses the same two functions with its own thresholds.
 
+**Contact guard** (`ai/contact-guard.ts` `guardContact`, the last step of `RaceBrain.think` for racers; police share the line
+brain but are not guarded). Of the racers and traffic (not police) except the rivals the driver means to hit (`fight > 0`), the
+soonest contact within 1.5 s is found by following the guarded car round the arc its steer asks for and every other car in a straight
+line, each wearing a car-shaped zone (2.4 × 6 m half-axes). It is steered clear of (at most 0.35 of full lock) and every contact ahead
+that sideways room (6 m/s²) cannot clear is braked for at the deceleration that takes the closing speed down to a nudge
+(1.5 m/s, under the derby's `hitSpeed` 2) in the time left, counting on 0.72 of the class brake. A car under a nudge's speed is left to the
+plan. Measured with `world/race-contact.test-util.ts`: a **hit** is a racer-racer contact closing at ≥ 2 m/s where exactly one car's own
+velocity toward the other (≥ 0.5 m/s, not knocked by another contact in the 0.5 s before) closed it (`initiated`; the other is
+`suffered`); both closing is `converging`, neither `none`. `race-contact.test.ts` checks the classifier on seven hand-checked
+contacts and that an aggression-0 field has no hit on oval/rally/city/stunt with 4 and 7 rivals.
+
 ## Campaign
 `CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
 Standings: points, wins, the better place in the latest round, entry order. Round 1's grid is the
