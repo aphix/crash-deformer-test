@@ -219,4 +219,32 @@ describe("a thrown dummy is soft and settles", () => {
     ragdolls.dispose();
     assert.ok(x > 3, `the car pushed him ${x.toFixed(1)} m`);
   });
+
+  it("good: nothing is stepped while every dummy lies asleep and no car is near, and a car coming within reach steps the world again", async () => {
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+    await ragdolls.preload();
+    ragdolls.update(1 / 60, [], true, true, 0, null);
+    ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false });
+    const world: World = ragdolls["world"]!;
+    const step = world.step.bind(world);
+    let steps = 0;
+    world.step = () => {
+      steps++;
+      step();
+    };
+    const torso: RigidBody = ragdolls["dolls"][0]!.bodies[0]!;
+    for (let f = 0; f < 240; f++) ragdolls.update(1 / 60, [], true, true, 0, null);
+    assert.ok(torso.isSleeping(), "he lies asleep after four seconds");
+    const asleep = steps;
+    for (let f = 0; f < 60; f++) ragdolls.update(1 / 60, [], true, true, 0, null);
+    assert.equal(steps, asleep, "a second of him asleep stepped nothing");
+    const car = makeCar("shape", 0.32, 0.45);
+    launch(car, -3, 0, Math.PI / 2, 0, 0);
+    for (let f = 0; f < 60; f++) ragdolls.update(1 / 60, [car], true, true, 0, null);
+    assert.equal(steps, asleep, "a wreck lying 3 m from him steps nothing either");
+    launch(car, -8, 0, Math.PI / 2, 5, 0);
+    ragdolls.update(1 / 60, [car], true, true, 0, null);
+    ragdolls.dispose();
+    assert.ok(steps > asleep, "a car driving 8 m away steps the world");
+  });
 });

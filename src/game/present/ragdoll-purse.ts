@@ -229,6 +229,14 @@ export class Purses {
     this.setCount();
   }
 
+  /** Is everything out (the purses and their things) asleep? Then a step moves none of it. */
+  asleep(): boolean {
+    for (let s = 0; s < this.sets; s++) {
+      for (let b = 0; b < BODIES; b++) if (this.on[s]! & (1 << b) && !this.bodies[s]![b]!.isSleeping()) return false;
+    }
+    return true;
+  }
+
   /** Poses after the last step (`cur`) or the one before it, for `pose`'s blend. */
   capture(cur: boolean): void {
     const into = cur ? this.cur : this.prev;
