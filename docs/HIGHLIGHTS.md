@@ -198,13 +198,19 @@ into a wall or behind a corner at either end (tested at 17 times: 36 of 549 eyes
 0 on oval; now 0, 0, 0 and 1 of 730). `solid` no longer projects each point onto the road from the last query's segment: where
 stunt's course crosses itself that left the walls of the wrong road in charge (1 of 544 eyes read differently by what was asked
 before). `Sight.grid` (`roadGrid`,
-8 m cells over the course) gives each cell the one road's sample to project from, or none where two roads are near, which
-searches the whole path: 12-18% of the cells within 25 m of a road. A trackside pick costs 0.74-0.85 ms mean on the four
-courses (0.44-0.62 before), the grid builds in 3-30 ms once a course.
+8 m cells over the course) names, per cell, a path sample on each stretch of road near it (up to 3), and `solid` projects from those
+windows: a trackside pick costs what it did (0.40 / 0.59 / 0.48 / 0.41 ms mean on oval / rally / city / stunt; 0.44 / 0.62 / 0.50
+/ 0.41 before), and the grid builds in about the time `raceSight` already took.
+The crash cam's pick is `CrashPick`, a search that runs over the lead-in before the first cut (`CUTS[0]`, 1.3 s): `Cinematics.direct`
+spends `PICK_RATE` (1000) `camUsable` calls a wall second on it, so at 240 Hz about 5 a frame, and finishes what is left 0.05 s
+before the cut. Whole, the pick costs 0.6-1.1 ms median and 1.3-4.3 ms at worst (stunt); a frame of it costs 0.05-0.06 ms median, 0.13-0.19 ms
+at p95 and 0.38-0.85 ms at worst, and it needs at most 34 five-call runs. Its answer does not depend on the slicing
+(`engine-cine.test.ts`). Measured in Chromium on stunt (a seeded 12-lap, 15-car race, its reel at 240 Hz pacing, the tick
+without the draw): over 150 frames after each crash-cam impact, 13 impacts / 1661 frames here against 11 / 1359 on main:
+median 0.10 ms (main 0.20), p95 0.30 (0.30), max 1.40 (2.10), none over 4.2 ms on either.
 Before that check, a wall hit filmed the back of the wall: 86–178 of each course's wall spots
 (`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 14 of 186 (rally) and
-55 of 272 (stunt, tight walls) wall spots have a cut left to the chase. The crash cam's pick (`crashAxis`) costs 0.7-1.3 ms median, 1.1-4.7 ms at p95 and 15 ms at worst (stunt) a hit, once, where the
-middle-only pick cost 0.07-0.29 ms median and 1.1 ms at worst.
+55 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
 
 In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
