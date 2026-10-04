@@ -57,8 +57,12 @@ const AIR_ANGULAR = 0.8;
 const GROUND_LINEAR = 4;
 const GROUND_ANGULAR = 8;
 const SPIN_MAX = 15;
-/** A body this near (m) the ground below it (its centre) is on it. */
-const GROUND_REACH = 0.15;
+/**
+ * A body this near (m) the ground below it (its centre) is on it: more than the purse's longest half extent (0.15), as
+ * a purse tumbling on its edge at 18 m/s keeps its centre at 0.18 and never counted as down, so nothing shed its speed
+ * before the sand's friction (3) vaulted it 2.5 m up and 10 m past her (range probe, 8 iterations and 2 internal passes).
+ */
+const GROUND_REACH = 0.22;
 /** The share of its speed a body keeps at its first touchdown. */
 const TOUCH_KEEP = 0.5;
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);

@@ -36,6 +36,7 @@ import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
 import { AIR_ANGULAR, AIR_LINEAR, ARM, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
+import { joinUp } from "./ragdoll-joints.ts";
 import { groundColliders, type Pole } from "./ragdoll-ground.ts";
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 
@@ -85,6 +86,12 @@ const MAX_ACC = 0.1;
  * iterations; 2–3 cm at 4).
  */
 const ITERATIONS = 8;
+/**
+ * Rapier's internal solver passes per iteration (default 1). The elbows' and knees' hinge limits and the sand's contact
+ * fight over a forearm at the first touch of a 29 m/s throw, and one pass left them kicking it to 100 rad/s: energy
+ * rose 75–325 J in one frame (range probe, 4 of 4 runs at 1 pass); at 2 passes at most 0.6 J over 60 runs (60/144/240 Hz).
+ */
+const INTERNAL_PASSES = 2;
 /** Each car's lower box (car-local, origin on the ground): half extents and centre height at rest; its ends past the bumpers' masses. */
 const LOW_HALF_X = 0.86;
 const LOW_HALF_Y = 0.4;
@@ -255,6 +262,7 @@ export class RagdollSystem {
     this.world = world;
     world.timestep = STEP;
     world.numSolverIterations = ITERATIONS;
+    world.integrationParameters.numInternalPgsIterations = INTERNAL_PASSES;
     for (let i = 0; i < MAX_CARS; i++) {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
       // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
@@ -284,12 +292,7 @@ export class RagdollSystem {
         );
         return body;
       });
-      for (const [a, b, x, y, z] of JOINTS) {
-        const pa = PARTS[a]!.c;
-        const pb = PARTS[b]!.c;
-        const data = R.JointData.spherical({ x: x - pa[0], y: y - pa[1], z: z - pa[2] }, { x: x - pb[0], y: y - pb[1], z: z - pb[2] });
-        world.createImpulseJoint(data, bodies[a]!, bodies[b]!, true).setContactsEnabled(false);
-      }
+      joinUp(R, world, bodies);
       this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0 });
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
