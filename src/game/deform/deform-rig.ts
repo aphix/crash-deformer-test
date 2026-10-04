@@ -107,6 +107,8 @@ export interface MassNode {
   /** Bumper or wing: soft sheet metal that yields on sphere-sphere contact. */
   crumple: boolean;
   softness: number;
+  /** Position in `masses`: the key of the per-mass tables (`massBeams`). */
+  index: number;
 }
 
 export interface Beam {
@@ -210,6 +212,8 @@ export abstract class DeformRig {
   protected readonly floorPre = new Float64Array(MASS_SPECS.length);
   protected readonly floorPost = new Float64Array(MASS_SPECS.length);
   protected readonly gripPost = new Float64Array(MASS_SPECS.length);
+  protected readonly massCornerW = new Float64Array(MASS_SPECS.length);
+  protected massCornerX = NaN;
   /** `floorPost` sampled since the masses last armed (`measurePose` reads the hubs' floors from it). */
   protected floorsFresh = false;
   /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub, 1 when every hub is
@@ -438,6 +442,7 @@ export abstract class DeformRig {
     this.skinFinal = false;
     this.crushAmount = -0;
     this.impactLocal.set(0, 0, 0);
+    this.massCornerX = NaN;
     this.impactInward.set(0, 0, -1);
     this.massActive = false;
     this.drivetrainAlive = true;
@@ -485,7 +490,7 @@ export abstract class DeformRig {
     this.loadDirty.fill(0);
     for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;
-    for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.pose, this.spinHeld, this.strokeOut]) b.fill(0);
+    for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.pose, this.spinHeld, this.strokeOut, this.massCornerW]) b.fill(0);
     for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
     for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);
     this.goalView.fill(NaN);

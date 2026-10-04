@@ -119,6 +119,7 @@ function makeMasses(nameIndex: Map<MassName, number>): MassNode[] {
       rail: spec.name.startsWith("rail"),
       crumple: spec.name.startsWith("bumper") || spec.name.startsWith("wing"),
       softness: regionSoftness(spec.name),
+      index: i,
     };
   });
 }

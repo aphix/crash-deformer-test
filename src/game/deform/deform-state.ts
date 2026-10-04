@@ -103,6 +103,8 @@ export abstract class DeformState extends DeformHit {
   protected abstract pullSensorsFromMasses(dt: number): void;
   protected abstract skin(geometry: THREE.BufferGeometry): void;
   protected abstract solveCages(): void;
+  /** Per mass (by `MassNode.index`), the beams that end on it, in beam order: rest-only, like `skinRest`. */
+  private readonly massBeams = this.masses.map((_, mi) => this.beams.flatMap((b, bi) => (b.a === mi || b.b === mi ? [bi] : [])));
 
   kickNearest(worldPoint: THREE.Vector3, nx: number, ny: number, nz: number, j: number): void {
     if (!this.massActive || j === 0) return;
@@ -322,12 +324,10 @@ export abstract class DeformState extends DeformHit {
     const ix = this.impactInward.x;
     const iz = this.impactInward.z;
     const alongM = -(m.rest.x * ix + m.rest.z * iz);
-    for (let bi = 0; bi < this.beams.length; bi++) {
-      const beam = this.beams[bi]!;
-      const a = this.masses[beam.a]!;
-      const b = this.masses[beam.b]!;
-      if (a !== m && b !== m) continue;
-      const other = a === m ? b : a;
+    const own = this.massBeams[m.index]!;
+    for (let k = 0; k < own.length; k++) {
+      const beam = this.beams[own[k]!]!;
+      const other = beam.a === m.index ? this.masses[beam.b]! : this.masses[beam.a]!;
       const alongO = -(other.rest.x * ix + other.rest.z * iz);
       if (alongO >= alongM - 0.04) continue;
       if (!beam.alive) continue;
@@ -358,12 +358,25 @@ export abstract class DeformState extends DeformHit {
   /** 1 at the hit corner, ~0 on the opposite side of the same axle. */
   protected cornerWeight(m: MassNode): number {
     const hitX = this.impactLocal.x;
-    if (Math.abs(hitX) < 0.2) return 1;
-    const lat = Math.abs(m.rest.x - hitX);
-    const hitSide = Math.sign(hitX);
-    const nodeSide = Math.sign(m.rest.x);
-    const opposite = nodeSide !== 0 && nodeSide !== hitSide;
-    return Math.exp(-lat * (opposite ? 4.6 : 1.8)) * (opposite ? 0.06 : 1);
+    if (hitX !== this.massCornerX) this.fillCornerWeights(hitX);
+    return this.massCornerW[m.index]!;
+  }
+
+  /** `cornerWeight` of every mass for a hit at car-frame x `hitX`: it reads nothing else, and `exp` per mass per call was 6% of a derby-32 frame. */
+  private fillCornerWeights(hitX: number): void {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      if (Math.abs(hitX) < 0.2) {
+        this.massCornerW[mi] = 1;
+        continue;
+      }
+      const lat = Math.abs(m.rest.x - hitX);
+      const hitSide = Math.sign(hitX);
+      const nodeSide = Math.sign(m.rest.x);
+      const opposite = nodeSide !== 0 && nodeSide !== hitSide;
+      this.massCornerW[mi] = Math.exp(-lat * (opposite ? 4.6 : 1.8)) * (opposite ? 0.06 : 1);
+    }
+    this.massCornerX = hitX;
   }
 
   protected impactWeight(m: MassNode): number {

@@ -53,6 +53,19 @@ const PLANE_FADE = 0.25;
 /** A wreck's middle this far (m) over its ground band, with a wheel off its ground, takes off (followGroup's `aloft`). */
 export const LIFT_OFF = 0.1;
 
+const _boxA = new THREE.Box3();
+const _boxB = new THREE.Box3();
+/** `box` round `masses`, grown by their largest radius and a hair: masses of two cars whose boxes are apart cannot touch. */
+function massBox(masses: readonly MassNode[], box: THREE.Box3): THREE.Box3 {
+  box.makeEmpty();
+  let r = 0;
+  for (let i = 0; i < masses.length; i++) {
+    box.expandByPoint(masses[i]!.world);
+    r = Math.max(r, masses[i]!.radius);
+  }
+  return box.expandByScalar(r + 5e-10);
+}
+
 /** `slice` is the call's slice over CONTACT_REF_SLICE: the overlap and inbound shares are per-slice rates. */
 function sphereHit(a: MassNode, b: MassNode, slice: number): void {
   _n.copy(b.world).sub(a.world);
@@ -140,6 +153,7 @@ export abstract class DeformContact extends DeformState {
     const slice = dt / CONTACT_REF_SLICE;
     for (let i = 0; i < nA; i++) massesA[i]!.clipping = false;
     for (let j = 0; j < nB; j++) massesB[j]!.clipping = false;
+    if (!massBox(massesA, _boxA).intersectsBox(massBox(massesB, _boxB))) return;
     let hit = false;
     for (let i = 0; i < nA; i++) {
       const a = massesA[i]!;
@@ -626,9 +640,10 @@ export abstract class DeformContact extends DeformState {
    * Positions only: the uneven push changed Σ m r × v of a wreck whose nose and
    * cabin move apart, and the next clamp kept it as spin (derby seed 4 c0: −2.5
    * rad/s of L/I in 0.6 s of shoving), so the angular momentum is handed back.
+   * A push of nothing (the slice's `takePush` budget spent: 87 % of a derby-32's pushes) moves nothing and returns.
    */
   separateAlong(nx: number, ny: number, nz: number, amount: number): void {
-    if (!this.massActive) return;
+    if (!this.massActive || amount === 0) return;
     this.yawMomentum(1, false);
     const gc = Math.cos(this.prevYaw);
     const gs = Math.sin(this.prevYaw);

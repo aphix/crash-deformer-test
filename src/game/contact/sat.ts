@@ -19,6 +19,10 @@ const _cx = new Float64Array(SPLIT_HULLS);
 const _cz = new Float64Array(SPLIT_HULLS);
 /** satTwoHulls' overlap: a returned double was boxed on every hull pair. */
 const _overlap = new Float64Array(1);
+/** `satCars`' hull circles, car A's hulls from 0 and car B's from `CIRCLE_B`: per hull its centre x, z and the radius of the circle round its box. */
+const MAX_HULLS = 8;
+const CIRCLE_B = MAX_HULLS * 3;
+const _circle = new Float64Array(MAX_HULLS * 6);
 
 function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
   const p = car.group.position;
@@ -221,6 +225,14 @@ function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): bo
   return true;
 }
 
+/** Hull `h` of `car` as a circle (centre and radius) at `_circle[o]`: boxes whose circles are clear of each other cannot overlap. */
+function hullCircle(car: DeformableCar, h: Hull, o: number): void {
+  hullCenter(car, h, _ha);
+  _circle[o] = _ha.x;
+  _circle[o + 1] = _ha.z;
+  _circle[o + 2] = hypot2(h.hx, h.hz);
+}
+
 const carHulls = (c: DeformableCar): Hull[] => c.hulls();
 /** The crush-hull getter for `satCars`, made once (a closure per call allocated on every SAT pass). */
 export const carCrushHulls = (c: DeformableCar): Hull[] => c.crushHulls();
@@ -244,11 +256,17 @@ export function satCars(
   let bestI = -1;
   const hullsA = hullsOf(a);
   const hullsB = hullsOf(b);
+  for (let i = 0; i < hullsA.length; i++) hullCircle(a, hullsA[i]!, i * 3);
+  for (let j = 0; j < hullsB.length; j++) hullCircle(b, hullsB[j]!, CIRCLE_B + j * 3);
   for (let i = 0; i < hullsA.length; i++) {
     const ha = hullsA[i]!;
     if (i < SPLIT_HULLS) _pen[i] = 0;
     for (let j = 0; j < hullsB.length; j++) {
       const hb = hullsB[j]!;
+      const apartX = _circle[i * 3]! - _circle[CIRCLE_B + j * 3]!;
+      const apartZ = _circle[i * 3 + 1]! - _circle[CIRCLE_B + j * 3 + 1]!;
+      const reach = _circle[i * 3 + 2]! + _circle[CIRCLE_B + j * 3 + 2]! + 1e-6;
+      if (apartX * apartX + apartZ * apartZ > reach * reach) continue;
       if (!satTwoHulls(a, ha, b, hb)) continue;
       const hit = _overlap[0]!;
       const better = hit > best;
