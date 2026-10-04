@@ -12,8 +12,6 @@ const LON = 6;
 const TAP = DERBY_RULES.hitSpeed * 0.75;
 /** Sideways acceleration (m/s²) a car can steer away with. */
 const STEER_ACC = 6;
-/** Deceleration (m/s²) a car ahead is assumed to shed while the guard looks 1.5 s on: a driver brakes for what it sees up the road. */
-const LEAD_DECEL = 10;
 /** The most the guard moves the wheel (of full lock): a nudge to clear a side-swipe, never a swerve off the road or the route. */
 const STEER_CAP = 0.35;
 /** A yaw rate (rad/s) under this is a straight line. */
@@ -22,13 +20,14 @@ const STRAIGHT = 1e-3;
 /**
  * The last rule of every racing drive: do not drive into a car you are closing on. The guarded car is followed at its
  * speed round the arc its steer asks for (`turn`: yaw rate at full lock, rad/s), each car of `cars` (ids below `count`) that
- * is not `spare[id]` (the ones the driver means to hit) in a straight line; `HORIZON` s on, the first moment the guarded
- * car and the other overlap, each wearing the contact zone, is the contact. The soonest contact is steered clear of (by
- * its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
+ * is not `spare[id]` (the ones the driver means to hit) in the line it is driving, shedding speed at `lead` (m/s²: a driver
+ * brakes for what it sees up the road, at the racing plan's own braking budget); `HORIZON` s on, the first moment the
+ * guarded car and the other overlap, each wearing the contact zone, is the contact. The soonest contact is steered clear of
+ * (by its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
  * ahead that steering cannot clear is braked for, at the deceleration that takes the closing speed off, down to a `TAP`,
  * in the time left (`brake`, m/s²). A pair already touching and moving apart is left to the physics. No allocation.
  */
-export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, brake: number, turn: number, out: DriveInput): void {
+export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, brake: number, lead: number, turn: number, out: DriveInput): void {
   const nose = self.yaw;
   const sx = self.vx;
   const sz = self.vz;
@@ -66,9 +65,9 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
       const dz = straight ? sz * t : (speed / omega) * (Math.sin(heading + turned) - Math.sin(heading));
       const gx = Math.sin(nose + turned);
       const gz = Math.cos(nose + turned);
-      // The other keeps its heading and sheds speed at `LEAD_DECEL` (a car ahead braking for what it sees), down to a stop.
-      const te = Math.min(t, ospeed / LEAD_DECEL);
-      const shed = ospeed * te - 0.5 * LEAD_DECEL * te * te;
+      // The other keeps its heading and sheds speed at `lead` (a car ahead braking for what it sees), down to a stop.
+      const te = Math.min(t, ospeed / lead);
+      const shed = ospeed * te - 0.5 * lead * te * te;
       const rx = o.x + ox * shed - self.x - dx;
       const rz = o.z + oz * shed - self.z - dz;
       const pn = rx * gx + rz * gz;
@@ -77,7 +76,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
       const qn = -(rx * ox + rz * oz);
       const ql = -(rx * oz - rz * ox);
       const m = Math.min((pl / LAT) ** 2 + (pn / LON) ** 2, (ql / LAT) ** 2 + (qn / LON) ** 2);
-      const ov = Math.max(0, ospeed - LEAD_DECEL * t);
+      const ov = Math.max(0, ospeed - lead * t);
       const w = Math.hypot(ox * ov - (straight ? sx : speed * Math.sin(heading + turned)), oz * ov - (straight ? sz : speed * Math.cos(heading + turned)));
       if (t === 0) {
         n0 = pn;

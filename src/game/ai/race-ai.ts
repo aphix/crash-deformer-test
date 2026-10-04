@@ -341,8 +341,8 @@ export class RaceBrain {
       out.brake = clamp(-err / 6, 0.2, 1);
     }
 
-    // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`).
-    if (i < this.racers) guardContact(self, others, this.guarded, this.hit, cls.brake * GUARD_BRAKE, turnMax, out);
+    // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`); a car ahead is taken to brake as the plan does (`PLAN_BRAKE`).
+    if (i < this.racers) guardContact(self, others, this.guarded, this.hit, cls.brake * GUARD_BRAKE, cls.brake * PLAN_BRAKE, turnMax, out);
 
     // L0: wedged against something.
     if (this.lastThrottle[i]! > 0.35 && speed < STUCK_SPEED) this.stuck[i]! += dt;
