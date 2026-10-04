@@ -98,7 +98,7 @@ describe("load crush: a stack of cars", () => {
     const restored = live.map((src) => {
       const c = new DeformableCar(paint(), new THREE.Scene());
       c.spawnFacing(0, 0, 0, 0);
-      const sim = new Float32Array(src.deform.simSize());
+      const sim = new Float64Array(src.deform.simSize());
       src.deform.simState(sim, false);
       const flight = new Float64Array(FLIGHT);
       src.flight(flight, 0, false);

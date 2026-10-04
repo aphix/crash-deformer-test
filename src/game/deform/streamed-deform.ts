@@ -24,7 +24,7 @@ const SKIN_STRAIN = 0.65;
 const SUNK_ROOF = 0.075;
 
 /** `simState`: `v` into `buf` at `o`, or with `write` from it; returns the next offset. */
-function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean): number {
+function simVec(buf: Float64Array, o: number, v: THREE.Vector3, write: boolean): number {
   if (write) v.set(buf[o]!, buf[o + 1]!, buf[o + 2]!);
   else {
     buf[o] = v.x;
@@ -33,24 +33,21 @@ function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean):
   }
   return o + 3;
 }
-/** `simState`: a sensor's compression as a float32 and what it rounded off (a netplay state carries it to 1e-4 m, and the next step's pull, the parts' hinge targets and the glass read it: a quantized 5e-5 m moved two wedged wrecks 9 cm in 21 steps). */
-function simSensor(buf: Float32Array, o: number, s: Sensor, write: boolean): number {
-  if (write) s.compression = buf[o]! + buf[o + 1]!;
-  else {
-    buf[o] = s.compression;
-    buf[o + 1] = s.compression - buf[o]!;
-  }
-  return o + 2;
+/** `simState`: a sensor's compression. */
+function simSensor(buf: Float64Array, o: number, s: Sensor, write: boolean): number {
+  if (write) s.compression = buf[o]!;
+  else buf[o] = s.compression;
+  return o + 1;
 }
 /** `simState`: `a` into `buf` at `o` (a native copy: no double boxed even before V8 optimizes), or with `write` from it. */
-function simArray(buf: Float32Array, o: number, a: Float64Array, write: boolean): number {
+function simArray(buf: Float64Array, o: number, a: Float64Array, write: boolean): number {
   if (!write) buf.set(a, o);
   else for (let i = 0; i < a.length; i++) a[i] = buf[o + i]!;
   return o + a.length;
 }
 // One helper per element: called many times per `simState`, they run optimized long before `simState` itself does.
 /** `simState`: a mass's world, local, velocity, crush offsets and flags; returns the next offset. */
-function simMass(buf: Float32Array, o: number, m: MassNode, write: boolean): number {
+function simMass(buf: Float64Array, o: number, m: MassNode, write: boolean): number {
   o = simVec(buf, simVec(buf, simVec(buf, o, m.world, write), m.local, write), m.vel, write);
   if (write) {
     m.shoveX = buf[o]!;
@@ -74,7 +71,7 @@ function simMass(buf: Float32Array, o: number, m: MassNode, write: boolean): num
   return o + 8;
 }
 /** `simState`: a beam's rest, set, floor and life; returns the next offset. */
-function simBeam(buf: Float32Array, o: number, b: Beam, write: boolean): number {
+function simBeam(buf: Float64Array, o: number, b: Beam, write: boolean): number {
   if (write) {
     b.rest = buf[o]!;
     b.plastic = buf[o + 1]!;
@@ -106,7 +103,7 @@ function plasticRestPoints(c: ShapeCluster): void {
  * fit reads, Sp·q0, are rebuilt from Sp). Without those a restored wreck's first fit ran against the identity and a
  * respawn's rest: 16 of a monster wreck's 20 masses sat 5-200 mm off the live ones one step later. Returns the next offset.
  */
-function simCluster(buf: Float32Array, o: number, c: ShapeCluster, write: boolean): number {
+function simCluster(buf: Float64Array, o: number, c: ShapeCluster, write: boolean): number {
   o = simArray(buf, simArray(buf, simArray(buf, o, c.q0x, write), c.q0y, write), c.q0z, write);
   if (write) {
     c.cm0x = buf[o]!;
@@ -604,7 +601,7 @@ export class StreamedDeformation extends DeformSolve {
   /** Numbers in a `simState` block (fixed by the class and the rig: the same for every car). */
   simSize(): number {
     const { vecs, arrays } = this.simBlocks();
-    let n = SIM_SCALAR_NUMBERS + this.sensors.length * 2 + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
+    let n = SIM_SCALAR_NUMBERS + this.sensors.length + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
     n += this.crush.length * 2;
     for (let i = 0; i < arrays.length; i++) n += arrays[i]!.length;
     for (const c of this.clusters) n += c.q0x.length * 3 + 38;
@@ -626,11 +623,10 @@ export class StreamedDeformation extends DeformSolve {
    * keyframe cut the step after a first impact held the default `impactInward`, the replayed wreck pushed along the
    * wrong axis and a 2 x 20 m/s head-on played 2.6 m/s and 0.3 m off the live one (replay-fidelity.test.ts).
    */
-  simState(buf: Float32Array, write: boolean): void {
+  simState(buf: Float64Array, write: boolean): void {
     let o = 0;
-    // Each scalar as a float32 and what it rounded off: the crash clocks (`elapsed`, `lastContact`, `lastPower`, `contactAt`)
-    // are compared by differences with holds that are whole steps (CONTACT_HOLD 2/60 s = 8 steps of 1/240), so a float32
-    // clock flipped a hold at a step the live sim did not (a wreck's restored state drifted 12 mm in a second).
+    // Every number a double: the replay is the sim that recorded it only if its restored state is bit for bit the record's (a
+    // 1e-9 m difference between two wedged wrecks becomes decimetres within a second).
     o = write ? this.simScalarsIn(buf, o) : this.simScalarsOut(buf, o);
     for (let i = 0; i < this.sensors.length; i++) o = simSensor(buf, o, this.sensors[i]!, write);
     const { vecs, arrays } = this.simBlocks();

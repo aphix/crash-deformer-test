@@ -5,7 +5,8 @@ import { DOOR } from "./car-mesh.ts";
 import { getCrackMap, LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
-import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer } from "./car-panels.ts";
+import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
+import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { applyDents, DENT_MIN_DV, recordDent, type DentState } from "./loose-dent.ts";
 import {
   CarCore,
@@ -572,10 +573,14 @@ export abstract class CarParts extends CarCore {
     return p.fatigue >= 1;
   }
 
-  /** Whether the part's box reaches the ground under it. */
+  /**
+   * Whether the part's box reaches the ground under it. The panel's shell on the body's rest skin, bent to its hinge value,
+   * carried by the car's pose: sim state only. The drawn shell (its skin's solve, the suspension's heave, its flutter) depends
+   * on how often and where the car is drawn, and the replay of a crash drew at other times than the live sim did.
+   */
   private scrapes(p: DetachPart): boolean {
-    p.object.updateWorldMatrix(true, false);
-    _box.setFromObject(p.object).getCenter(_doorW);
+    const lift = CLASSES[carClass(this)].lift; // the drawn body rides on the class's lift (`Car.ride`); the panel with it
+    shellBox(p.region!, this.deform.restSkin, p.hingeT, this.group.position, this.group.quaternion, lift, _box).getCenter(_doorW);
     const g = activeGround().heightAt(_doorW.x, _doorW.z, _doorW.y);
     return g !== NO_FLOOR && _box.min.y < g;
   }

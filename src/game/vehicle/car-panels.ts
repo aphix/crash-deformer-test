@@ -190,6 +190,27 @@ export function makeShell(r: PanelRegion, body: THREE.BufferGeometry): THREE.Buf
   return g;
 }
 
+const _shift = new Float64Array(3);
+
+/** Vertex `k` of region `r` (body position x, z) shifted by hinge value `t` into `_shift`: the peel of a quarter panel, the flap of an arch flare. */
+function bend(r: PanelRegion, k: number, x: number, z: number, t: number, flutter: number): void {
+  const w = r.w[k]!;
+  if (r.kind === "quarter") {
+    const phi = r.side * r.peel * t * w;
+    const rx = x - r.pivot[0];
+    const rz = z - r.pivot[1];
+    const sin = Math.sin(phi);
+    const cos = Math.cos(phi) - 1;
+    _shift[0] = rx * cos + rz * sin;
+    _shift[1] = PEEL_LIFT * t * w;
+    _shift[2] = -rx * sin + rz * cos;
+  } else {
+    _shift[0] = r.side * FLAP * t * (1 + 0.18 * flutter) * w;
+    _shift[1] = -FLAP_DROP * t * w;
+    _shift[2] = 0;
+  }
+}
+
 /**
  * Rebuild `shell` from the body's skin, bent by hinge value `t`: a quarter panel peels from its leading edge
  * about the vertical hinge line at its tail; an arch flare flaps out at both feet (`flutter` -1..1 shakes it).
@@ -201,37 +222,42 @@ export function poseShell(r: PanelRegion, shell: THREE.BufferGeometry, body: THR
   const attr = shell.getAttribute("position") as THREE.BufferAttribute;
   const o = attr.array as Float32Array;
   const nv = r.verts.length;
-  const quarter = r.kind === "quarter";
-  const flap = r.side * FLAP * t * (1 + 0.18 * flutter);
   for (let k = 0; k < nv; k++) {
     const g = r.verts[k]! * 3;
     const x = bp[g]!;
     const y = bp[g + 1]!;
     const z = bp[g + 2]!;
-    const w = r.w[k]!;
-    let dx = flap * w;
-    let dy = -FLAP_DROP * t * w;
-    let dz = 0;
-    if (quarter) {
-      const phi = r.side * r.peel * t * w;
-      const rx = x - r.pivot[0];
-      const rz = z - r.pivot[1];
-      const sin = Math.sin(phi);
-      const cos = Math.cos(phi) - 1;
-      dx = rx * cos + rz * sin;
-      dz = -rx * sin + rz * cos;
-      dy = PEEL_LIFT * t * w;
-    }
+    bend(r, k, x, z, t, flutter);
     for (let c = 0, at = k * 3, sign = PROUD; c < 2; c++, at += nv * 3, sign = -THICK) {
-      o[at] = x + dx + bn[g]! * sign - r.origin.x;
-      o[at + 1] = y + dy + bn[g + 1]! * sign - r.origin.y;
-      o[at + 2] = z + dz + bn[g + 2]! * sign - r.origin.z;
+      o[at] = x + _shift[0]! + bn[g]! * sign - r.origin.x;
+      o[at + 1] = y + _shift[1]! + bn[g + 1]! * sign - r.origin.y;
+      o[at + 2] = z + _shift[2]! + bn[g + 2]! * sign - r.origin.z;
     }
   }
   attr.needsUpdate = true;
   computeNormalsFast(shell);
   // The shell moved: a scrape test against its box (`setFromObject`) must not read the last pose's.
   shell.boundingBox = null;
+}
+
+const _v = new THREE.Vector3();
+
+/**
+ * The box (world) of region `r`'s shell bent to hinge value `t` on the body's REST skin, carried by the car's pose (`pos`,
+ * `quat`) and a body lifted `lift` m (its class). Everything in it is sim state: the drawn skin, the suspension's heave
+ * and the shell's flutter, which `poseShell` and `flutterShell` draw with, are not, and a scrape decided on them depended on
+ * how often and where the car was drawn (a replay at another frame rate, a camera's view cone: docs/HIGHLIGHTS.md).
+ */
+export function shellBox(r: PanelRegion, rest: Float32Array, t: number, pos: THREE.Vector3, quat: THREE.Quaternion, lift: number, out: THREE.Box3): THREE.Box3 {
+  out.makeEmpty();
+  for (let k = 0; k < r.verts.length; k++) {
+    const g = r.verts[k]! * 3;
+    const x = rest[g]!;
+    const z = rest[g + 2]!;
+    bend(r, k, x, z, t, 0);
+    out.expandByPoint(_v.set(x + _shift[0]!, rest[g + 1]! + _shift[1]! + lift, z + _shift[2]!).applyQuaternion(quat).add(pos));
+  }
+  return out;
 }
 
 /** Move the shell's vertices so its centroid is the part's origin (a torn panel tumbles about its middle); `out` ← the centroid it had. */

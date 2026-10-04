@@ -50,7 +50,7 @@ function record(w: World, seed: number): HighlightClip[] {
  */
 function replay(w: World, clip: HighlightClip, impactKey: boolean): { dt: number; dPos: number } {
   const cars = clip.cars.map((c) => w.cars[c.slot]!);
-  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), bounce: undefined });
+  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), placed: (slot) => w.race.relocated(slot), bounce: undefined });
   sim.useImpactKey = impactKey;
   // The record's first impact was a fresh contact (the pair apart for `REHIT_S` before it): a replay contact in that quiet spell is drift.
   sim.watchFrom = Math.max(0, clip.firstImpact - REHIT_S);
