@@ -35,6 +35,13 @@ This file is shared by the two lanes that build it. **The Map part** (this secti
 - **The escape alley.** A cobbled street 5.5 m wide at x -36.5 along the plaza's left side, from the foot road to the ring's
   south-west, a stucco `wall` (solid, 10 m panels, tinted per panel) along its west side, a stub wall across it at z -12
   and a `dumpster` (solid) in the corner behind the stub.
+- **The rim.** The city is closed: one row of 184 `stucco` blocks (explicit `props` of the course file, 12 m blocks 11.7-11.8 m apart so
+  they overlap, 14 m tall) stands round the whole grid, centred at x ±182 and z -227 / 488, so its inner faces are at x ±176, z -221
+  and 482: 6 m of concrete past the end of every street (the paseo, the boulevard, the cross streets, the avenues). A car at 60 m/s
+  in any street stops at it. Blocks, not a rule: a wall needs no code, and the hunters' obstacle grid, the ragdoll's `courseSolids`
+  and the camera's sight lines all see the course's props. There is no out-of-bounds end: a flood fill over the solids on a 1 m grid
+  (a 1.1 m disc) from the start reaches 0 edge cells, and 20 launches at 60 m/s (every side's first, middle and last seam and one
+  block centre, four corners) all stop inside the faces (`world/survival-chase.test.ts`).
 - **Light.** `environment.light`: a warm sun (#ffd49a, 2.9), a cool sky hemisphere and a warm fill; sky and fog #a8cfe3,
   fog 0.0012 (a 55 m tower reads at 430 m). `TrackArt` gives them to `WorldStage.look` while the art stands and takes them
   back at dispose.
@@ -78,8 +85,13 @@ and up; the 30° diagonal landings roll less the softer the crest.
 
 ### For the Survival lane
 
-- Prop contact is height-blind (`RaceField.props` ignores `y`): a car flying over a wall or a palm collides with it. The monument is
-  55 m, so that is right for it; an airborne car over the alley wall (3.2 m) is stopped.
+- Prop contact is height-aware (`PropCollider.top`, `lowestY(car)`): a car flying over a wall or a palm clears it. A rim block is
+  14 m, higher than any car in Survival flies (the crest's apex is 8-11 m over the ground, 200 m from the rim).
+- `RaceField.props` skipped a box prop until the car's centre was within `max(hx, hz) + 2.6` m of the box's centre. A box's corner is
+  `hypot(hx, hz)` away, so a car centred on a seam between two touching blocks was not tested until its nose was about 2 m inside, and
+  the push-out then went sideways: at 60 m/s the first seam of the west rim let a car through (69 m past it). The reach is now
+  `PropCollider.r` (the bounding radius of both kinds) + 2.6 m. It is the race's rule too: of the 20 race-police races (4 courses x 5
+  seeds, 2 laps) 16 are identical, 4 city races change (see the table in Numbers).
 - The race's throttle cap on grass (`onSurface`, 60 % of top speed) slows a car on the face; the drive matrix applies it.
 - A car that lands rolled can stay `airborne` while it slides on its side (`car.speed` is stale then; use the velocity).
 - `Track.paths()` lists the grid; spawn points and respawns can use `routes` (count 0: no civilian traffic).
@@ -108,7 +120,7 @@ Single player. A netplay room never offers it: the button is hidden while hostin
 - Beyond `ATTACK` it aims at where the player will be, bent round solid props (`PropCollider`s of `body: "solid"`, on a 16 m grid): the straight heading if it is clear for the next stretch, else the nearest clear one to either side, else the longest clear run. An attacking unit does the same when a solid is nearer than the player. A player slower than 6 m/s is rammed, not blocked from ahead.
 - **Escalation**: `copsWanted(time, formation)` = the formation, plus one every `HUNT.every` = 12 s, up to `HUNT.cap` = 12 hunting at once; `HUNT.units` = 16 cars are built, the rest are wrecks waiting to be put away. One drop-in per `HUNT.gap` = 1.5 s.
 - **Drop-in**: a cop wrecked (`judge`) or lost (more than `HUNT.far` = 140 m from the player and hidden for `HUNT.farTime` = 5 s) is put away, and a new one is dropped onto a road 70-120 m from the player, ahead of its travel first, 12 m clear of every car, **where `world.hidden` says the camera cannot see it**: outside the view frustum by 8 m, or behind a solid from the eye to both the belly and the roof of a car (`spectate-cam.sightLine` against the course's solids). A wreck is put away only after `HUNT.wreckStore` = 6 s and only while hidden. The formation at the start is placed by the course and is in view by design.
-- Cops are as tough as the race's police (`police` class, durability 1.3). Measured fun does not call for more yet (no browser play was run, see below).
+- Cops are as tough as the race's police (`police` class, durability 1.3). **No chase rule changed** for the closed map: on the closed map every scripted fleeing player's run ends under the unchanged cops (Numbers, "A fleeing player"), so the only fix that was needed was the missing edge. The cops ahead (drop-ins at 70-120 m facing the player, `HEAD_ON` / `RAM_TIME`) and the pack behind it (queued behind a target over `PIT_MAX` = 20 m/s, a rear hit when the target brakes) end the run; `police.ts` is untouched, so the race police need no re-measure beyond the `props()` reach row below.
 
 ## Tests
 
@@ -119,8 +131,12 @@ Single player. A netplay room never offers it: the button is hidden while hostin
 | start, countdown, bust through the real stack, wrecked ends the run, best-time store (new / worse / blocked), Retry, Quit, schedule on the HUD | `world/survival.test.ts` |
 | 5 minutes of scripted play with a chase camera: no drop-in in the camera's view (an independent visibility test; the test checks it can see a car ahead of the camera) | `world/survival.test.ts` |
 | `scene=survival` round trip, never with a room | `hud/share-url.test.ts` |
+| the map is closed: no gap in the solids (flood fill), no seam of the rim lets a car at 60 m/s through, a W-holder stays inside the rim | `world/survival-chase.test.ts` |
+| a fleeing player's run ends (straight, flee, ring, held, shuttle, orbit: busted or wrecked within 300 s; the three that avoid the walls end with a cop in contact) | `world/survival-chase.test.ts` |
 
 `world/survival-run.test-util.ts` is the harness: the director in survival mode, a scripted player (waypoints, hold, wedge recovery), the chase camera, and the numbers (`play`: drop-ins and their visibility, the nearest cop each second, stuck cops, ends).
+
+`world/survival-players.test-util.ts` is the scripted fleeing players, and `chase(fleer, seed, seconds)` is one run with its numbers (end, cause, cop contacts, the rectangle driven over).
 
 ## Numbers (headless, scripted players; not a human's play)
 
@@ -165,6 +181,31 @@ Headless races, police on, 4 AI + the AI-driven slot, 2 laps, seeds 1-5, the fou
 
 Pursuits are the same (55 / 55). The rule trades contact for queueing: police-racer contacts fall 25 % (379 against 503; stunt −57 %, oval −35 %), police knocked out 18 % (27 against 33), the races close 4 s sooner. Takedowns do not collapse: they were already 0 of 20 races before the rule (AI racers do not sit still for the 4 s hold); main has 2, both in one city race. The rule is unchanged; the director decides whether fewer contacts at race speed is wanted.
 
+### A fleeing player (the map edge and the chase; this lane on main 2359116, scripted players, 5 seeds each, 300 s cap)
+
+The defect: holding W straight, the player drove 6 km out of town with the pack queued behind for ever. Measured on the open map with the same code (untouched main 9e1250e plus the scripted players): flee, held and shuttle were all still running at 295 s, 15.6 km out (z -15 646 … -15 697), 55.6 m/s, **0 cops in contact**; only the ring (22 m/s) and the orbit (14 m/s), which stay inside the streets, ended (15.8 s and 16.0 s).
+
+Closed (the rim), cops unchanged: **30 of 30 runs end**, 26 of 30 with a cop in contact in the last 2 s (the four others are the player's own wall wreck).
+
+| Scripted player | Ends (s, sorted) | Median | Cause |
+|---|---|---|---|
+| straight: over the hill on the boulevard line, then pedal down and wheel dead ahead | 16.9 16.9 17.1 19.8 28.8 | 17.1 | 4 wrecked, 1 busted |
+| flee: holds W and its heading, steers only to keep clear of solids | 16.9 x5 | 16.9 | 5 wrecked |
+| ring: boulevard, then laps the D ring at 22 m/s | 15.8 15.8 27.0 38.4 93.2 | 27.0 | 5 wrecked |
+| held: the set piece's driver, flat out over the hill, then flees | 16.9 17.3 32.5 41.5 59.6 | 32.5 | 4 wrecked, 1 busted |
+| shuttle: lifts for a wall, turns back, so it keeps running | 63.3 x4, 63.6 | 63.3 | 5 wrecked |
+| orbit: circles the lawn round the hill at 14 m/s | 16.0 16.0 22.5 34.9 61.6 | 22.5 | 4 wrecked, 1 busted |
+
+Median of all 30: 21 s. **The owner's target of a median of 1-4 minutes is not met by these players**, and a rule change would not meet it for the W-holders: the map is 710 m long, so a car at 40-50 m/s is at the far wall in 17 s, and a head-on hit at that speed totals the car (straight and flee end at the south rim). Only the shuttle, the best evader the harness has, lasts a minute. A human's play is not measured.
+
+Seeds pin the field's dice, which only the drop-ins use (the first one at 12 s); every run that ends before it is the same run (flee, shuttle).
+
+### Race police under the `props()` reach fix (main 2359116 against this lane; same script and table as above)
+
+Headless races, police on, 4 AI + the AI-driven slot, 2 laps, 4 courses x 5 seeds. 16 of 20 rows are identical (all oval, rally and stunt rows, and city seed 2). City seeds 1, 3, 4, 5 change: contacts 33 -> 37, 73 -> 51, 43 -> 39, 48 -> 37; police knocked out 1 -> 2, 0 -> 2, 6 -> 5; racer deaths 4 -> 5, 5 -> 2, 5 -> 4, 3 -> 4; the winner's time 74.9 -> 63.2 s in seed 3 (the rest within 0.2 s); pursuits 4 -> 3 in seed 5. All 20 races: pursuits 57 -> 56, contacts 429 -> 396, takedowns 1 -> 1, police knocked out 19 -> 21, racer deaths 27 -> 25, mean winner 53.7 -> 53.1 s, races closed in 64.7 s both. Takedowns do not collapse (1 and 1) and no racer is wrecked more at the start. The cause: a racer's corner hit on a building (`building`, `stucco` are 12 m boxes) is now found at the bounding radius rather than `max(hx, hz)`.
+
+Opening set piece (`world/survival-setpiece.test.ts`, 3 seeds, tests unchanged and green; the rows are identical on untouched main 2359116 and on this lane): 5 / 5 / 4 cops within 0.5 s at the foot (15.53-16.10 s); 5 / 5 / 3 left the ground at the crest; a player who brakes at the crest's left: 5 / 5 / 5 overshoot, 5 / 5 / 3 fly off the crest. (Seed 3's take-offs are 3 on untouched main as well; they were 5 at 519a3ba.)
+
 ## Browser proof (vite dev in a heavy slot, `__crush.advance` to skip ahead, real frames for every shot, `fadeScenes` off, no uncapped flags)
 
 Havana, 1280×720 and a 390×844 touch phone. Console errors in every session: **0**. Shots are git-ignored (`.bench/shots3`; the script is `.bench/proof3.mjs`), each one looked at.
@@ -172,15 +213,17 @@ Havana, 1280×720 and a 390×844 touch phone. Console errors in every session: *
 - **Entry**: the scene bar's Survival button (the scene, the lit chip, the countdown grid); the **S** key from the whole-field view; the Race menu's 'Pick a course' **Survival** button; Full menu (H) with the Survival chip lit; the keys popover lists `S · Survival (whole-field view)`; on the phone the scene picker's Survival chip and the Race menu's Survival button (both tapped, both enter the scene; the thumb pad and the busted meter fit at 390 px).
 - **Leave**: Quit or Leave in Survival used to land on the Race 'Pick a course' menu (`RaceHost.leave` was `toggleRace()`, which from the survival scene is a switch to Race); it is now `setScene("fleet")`. After the fix: the Leave button on the results card, and the `quit` command (the pause menu's Quit; run on the phone), go to the fleet; Race menu Back still goes to the fleet.
 - **Busted**: held on the handbrake after 16 s of driving: the centre **BUSTED** banner ("The cops boxed you in: the run is over") on the frame the run ended (the sim paused for the shot; the card replaces it after `RESULTS_DELAY` = 2.5 s), then the card (time, *New best*, 0 cops wrecked, a "5-car pile-up" highlight with Watch / Save, the reel behind it), then Retry (best shown, formation back, countdown).
-- **Wrecked**: the centre **WRECKED** banner ("Your car is totaled: the run is over") and the card (*Wrecked*, 0:10.221, the best, a "6-car pile-up" highlight). The wreck was made by killing the player's drivetrain (as the tests do), because the pack boxes in and busts a driver first: a driven wreck was never reached in 4 tries (straight into a block, a ring tour at 14 m/s, the monument): each ended Busted after 37-107 s.
+- **Wrecked**: the centre **WRECKED** banner ("Your car is totaled: the run is over") and the card (*Wrecked*, 0:10.221, the best, a "6-car pile-up" highlight). The wreck was made by killing the player's drivetrain (as the tests do), because the pack boxes in and busts a driver first: a driven wreck was never reached in 4 tries (straight into a block, a ring tour at 14 m/s, the monument): each ended Busted after 37-107 s. (On the open map. With the rim, a driven wreck is the usual end: the next three bullets.)
 - **Opening set piece**: a player holding the boulevard line at 45 m/s, the chase camera held back with the look-back key (`` ` ``): the cops are behind the player, so they are behind the chase camera and only a rear shot sees them. Three shots mid-air (t = 11.8 / 12.0 / 12.2 s, the player at 6.5 / 7.7 / 8.8 m): 2, 3 and 4 cops off the ground, 1.4-4.4 m over it, over the plaza top beside the monument.
 - **Scene entry with the real fade** (not the proof's `fadeScenes` off): the veil lifts at about 2.7 s (the first-use warm-up) and the first frames showed the chase camera still swooping in from the fleet's orbit, 426 m away, level with the ground and in a wall. `ChaseCamera.update` blended in from the current shot whatever its distance; it now cuts when the shot is farther than `CHASE.blendRange` = 40 m (a race start, at 29 m, still blends in: before / after shots match). `present/engine-camera.test.ts` covers both.
+- **The map edge, from the chase camera** (`fadeScenes` off; an in-page driver reads the touch stick every frame; this lane on main 2359116; shots git-ignored in `.bench/shots`): the boulevard to the foot (103 mph); over the hill; the paseo with the rim across the whole end of the street as a row of pastel blocks (90 mph, 95 m from its face, palms in front of it); 100 mph with the rim filling the frame and the speed blur on; the stop at the wall (z -217.9, 0.2 m/s) with cops piled on both sides and the bust meter at 11.7 s; the pile 2 s later (1 cop wrecked, a dummy on the road, meter 10.0 s); and the run ending **Busted** at 1:23 with the car pushed to the east rim (x 173.6, z -48.5), then the card (*Busted*, *New best*, 6 cops wrecked, four highlights). Console errors: 0.
+- **A cop hits a fleeing player at speed**: the player brakes for the ring's corner from 41 m/s to 14 m/s at z 110 and the formation, 2-3 m behind, comes through: three shots at t = 10.8 / 11.2 / 11.5 s show cops #2 and #4 beside and behind the car at 31 mph, sparks. The run ends **Wrecked** at 29.0 s: the centre **DRIVER OUT** banner over a cop car in the air above the player's, then the card.
+- **A player who holds W**: three runs from the green, over the hill on the boulevard line then wheel dead ahead for good: **Wrecked** at 20.7, 19.7 and 16.9 s, all at the south rim (z -217.3, -218.3, -218.7), the **WRECKED** banner over the row of blocks and the cops' pile. Headless the same player ends at 16.9-28.8 s over 5 seeds. One W-holder of the map-edge run above survived the impact at 44 m/s and lasted 83 s, so the end of a W-holder is not always the wall.
 
 ## Found, not fixed
 
-- **No world edge.** Holding W, the player drove 6 km out (z −5900) at 55 m/s with the pack queued behind for ever: never busted, never wrecked, a stopwatch that only rises. SurvivalChase owns it (a closed map edge, cops that can win).
 - **Esc closes the keys popover and also pauses the race** (the same keydown reaches the engine). Not Survival's.
 
 ## Not done
 
-A driven (not injected) wreck, and a bust-or-wreck balance for a player who stops.
+A human's play (the 1-4 minute target is measured only on scripted players, above) and a bust-or-wreck balance for a player who stops.

@@ -633,7 +633,7 @@ export abstract class RaceField {
     const low = lowestY(car);
     for (const col of this.colliders) {
       if (this.knocked[col.index] || low >= col.top) continue;
-      const reach = (col.kind === "circle" ? col.r : Math.max(col.hx, col.hz)) + WALL_HALF_L + 0.3;
+      const reach = col.r + WALL_HALF_L + 0.3;
       const dx = pos.x - col.x;
       const dz = pos.z - col.z;
       if (dx * dx + dz * dz > reach * reach) continue;

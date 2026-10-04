@@ -137,8 +137,8 @@ export type Play = {
   stuck: { id: number; t: number; seconds: number; x: number; z: number }[];
   /** Most cops live at once. */
   peak: number;
-  /** Runs started (the first, and a Retry after each end) and how each ended. */
-  ends: { t: number; cause: string }[];
+  /** Runs started (the first, and a Retry after each end) and how each ended: at which frame second `t`, race second `time` (from the green), and why. */
+  ends: { t: number; time: number; cause: string }[];
 };
 
 export type PlayOpts = {
@@ -172,7 +172,7 @@ export function play(w: World, o: PlayOpts): Play {
     const time = w.race.time;
     const hud = w.race.hud();
     const over = hud.phase === "finished";
-    if (over && !wasOver) out.ends.push({ t, cause: hud.survival?.result?.cause ?? "?" });
+    if (over && !wasOver) out.ends.push({ t, time, cause: hud.survival?.result?.cause ?? "?" });
     wasOver = over;
     if (over) {
       if (!o.retry || hud.menu === null) {
