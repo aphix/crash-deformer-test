@@ -220,7 +220,9 @@ function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): bo
       _mtv.z = nz;
     }
   }
-  if ((_ha.x - _hb.x) * _mtv.x + (_ha.z - _hb.z) * _mtv.z < 0) _mtv.negate();
+  // Out along the axis, b → a, by the cars' centres, not the hulls': a corner hull pushed past its partner's midplane
+  // reads "out" the way that drives the whole cars deeper in, and the next pass picks the opposite pair (a hooked pair).
+  if ((a.group.position.x - b.group.position.x) * _mtv.x + (a.group.position.z - b.group.position.z) * _mtv.z < 0) _mtv.negate();
   _overlap[0] = minOverlap;
   return true;
 }
