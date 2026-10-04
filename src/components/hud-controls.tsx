@@ -17,6 +17,7 @@ export function RangeRow({
   max,
   step,
   onValue,
+  disabled,
   ...end
 }: {
   label: string;
@@ -29,6 +30,8 @@ export function RangeRow({
   max: number;
   step: number;
   onValue: (v: number) => void;
+  /** Greys the slider; the row stays in place. */
+  disabled?: boolean;
 } & ({ shown: string } | { digits: number })) {
   return (
     <label className="flex items-center gap-2" title={title}>
@@ -41,7 +44,8 @@ export function RangeRow({
         value={value}
         onChange={(e) => onValue(Number(e.target.value))}
         aria-label={name}
-        className="h-11 w-full min-w-0 cursor-pointer accent-current sm:h-6"
+        disabled={disabled}
+        className="h-11 w-full min-w-0 cursor-pointer accent-current disabled:cursor-not-allowed disabled:opacity-40 sm:h-6"
       />
       {"shown" in end ? (
         <span className="w-14 shrink-0 text-right font-display text-xs tabular-nums text-fg">{end.shown}</span>

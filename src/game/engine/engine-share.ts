@@ -40,6 +40,7 @@ export abstract class EngineShare extends EngineReel {
       // Automatic: the machine chose the tier (`AutoFx`), so the URL does not pin it.
       fx: this.autoFx.auto ? null : this.cine.tier,
       fxd: this.fxDensity,
+      cel: this.celLook,
       squash: this.squash,
       buckle: this.buckle,
       loop: this.looping,
@@ -101,6 +102,7 @@ export abstract class EngineShare extends EngineReel {
       if (differs("wet")) this.setWet(t.wet);
       if (differs("real")) this.setRealism(t.real);
       if (differs("fxd")) this.setFxDensity(t.fxd);
+      if (differs("cel")) this.setCelLook(t.cel);
       if (differs("squash")) this.setSquash(t.squash);
       if (differs("buckle")) this.setBuckle(t.buckle);
       // A tier only ever gets picked: leaving `fx=` out keeps the automatic one (or a `?fx=` bench pick).

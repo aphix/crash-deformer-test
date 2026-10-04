@@ -69,6 +69,8 @@ const FIELDS = {
   // null = automatic: `AutoFx` picks the tier, so the URL pins it only after a manual pick.
   fx: orNull(pick(FX_TIERS, D.fxTier)),
   fxd: num(R.fxDensity.min, R.fxDensity.max, D.fxDensity),
+  // null = Auto (the scene-switch pulse alone); a number holds the cel look on at that strength.
+  cel: orNull(num(R.cel.min, R.cel.max, 0)),
   squash: num(R.squash.min, R.squash.max, D.squash),
   buckle: num(R.buckle.min, R.buckle.max, D.buckle),
   loop: flag(D.looping),

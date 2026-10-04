@@ -16,6 +16,7 @@ import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
+import { celStrength } from "../present/scene-fade.ts";
 import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
@@ -118,7 +119,7 @@ export abstract class EngineScenes extends EngineHud {
     const calm = this.clock.reduceMotion || this.cine.tier === "off" || this.cine.tier === "minimal";
     const next = fade.frame(wallDt, calm, this.warmsInFlight > 0);
     if (next !== null) this.applyScene(next);
-    this.cine.post.cel = fade.cel;
+    this.cine.post.cel = celStrength(this.celLook, fade.cel);
     // Black is a DOM veil over the canvas and the HUD at every tier; written only while it changes.
     if (fade.black !== this.veilBlack) {
       this.veilBlack = fade.black;

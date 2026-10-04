@@ -68,6 +68,11 @@ export type CrashHudState = {
   fxTier: FxTier;
   /** The tier is the automatic one (`present/auto-fx.ts`); a manual pick turns it off. */
   fxAuto: boolean;
+  /**
+   * Cel look held on at this strength (0-1), under the scene-switch pulse; null = Auto, the pulse alone. It shows
+   * at the post tiers only (low / high).
+   */
+  celLook: number | null;
   /** Night lighting (H) and wet asphalt (X). */
   night: boolean;
   wet: boolean;
@@ -148,6 +153,7 @@ export const KNOB_RANGES = {
   realism: { min: 0, max: 1 },
   speed: { min: 0, max: 48 },
   fxDensity: { min: 0, max: 1.2 },
+  cel: { min: 0, max: 1 },
   timeScale: { min: 0.02, max: 2 },
 } as const;
 
@@ -173,6 +179,7 @@ export const INITIAL_HUD: CrashHudState = {
   audioOn: false,
   fxTier: "minimal",
   fxAuto: true,
+  celLook: null,
   night: false,
   wet: false,
   deformMode: "shape",

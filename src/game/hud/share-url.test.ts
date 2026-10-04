@@ -35,6 +35,7 @@ describe("share URL", () => {
       real: 0.8,
       fx: "low",
       fxd: 1.1,
+      cel: 0.65,
       squash: KNOB_RANGES.squash.min,
       buckle: 0.9,
       loop: false,
@@ -80,6 +81,16 @@ describe("share URL", () => {
     assert.equal(d.laps, 9);
     assert.equal(d.aggr, 1);
     assert.equal(d.squash, KNOB_RANGES.squash.max);
+  });
+
+  it("good: cel is Auto (null, never written) until a manual strength is set; it clamps and 0 is a real value", () => {
+    assert.equal(DEFAULTS.cel, null);
+    assert.equal(encodeShare({ ...DEFAULTS, cel: null }), "");
+    assert.equal(encodeShare({ ...DEFAULTS, cel: 0.5 }), "cel=0.5");
+    assert.equal(decodeShare("cel=0").cel, 0);
+    assert.equal(decodeShare("cel=7").cel, KNOB_RANGES.cel.max);
+    assert.equal(decodeShare("cel=-1").cel, KNOB_RANGES.cel.min);
+    assert.equal(decodeShare("cel=abc").cel, null);
   });
 
   it("good: a seed is written in hex, read in either case, holds 32 bits and no more", () => {

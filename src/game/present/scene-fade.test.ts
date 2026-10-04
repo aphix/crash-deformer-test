@@ -1,6 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { FADE, SceneFade } from "./scene-fade.ts";
+import { celStrength, FADE, SceneFade } from "./scene-fade.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 const DT = 1 / 60;
 
@@ -168,5 +169,44 @@ describe("SceneFade", () => {
     assert.equal(f.holding, true);
     f.request("range");
     assert.equal(f.holding, false);
+  });
+});
+
+describe("celStrength (the cel value the composite pass gets)", () => {
+  /** Per-frame strengths over one full scene switch plus the idle frames after it. */
+  function run(look: number | null, calm = false): number[] {
+    const f = new SceneFade<string>();
+    const out = [celStrength(look, f.cel)];
+    f.request("race");
+    for (let i = 0; i < 90; i++) {
+      f.frame(DT, calm);
+      out.push(celStrength(look, f.cel));
+    }
+    return out;
+  }
+
+  it("Auto: zero outside a pulse, the pulse itself (up to 1) during one", () => {
+    const s = run(null);
+    assert.equal(s[0], 0);
+    assert.equal(s[s.length - 1], 0);
+    assert.equal(Math.max(...s), 1);
+  });
+
+  it("manual: held at the slider outside a pulse, and the pulse still peaks at 1 over it", () => {
+    const s = run(0.5);
+    assert.equal(s[0], 0.5);
+    assert.equal(s[s.length - 1], 0.5);
+    assert.equal(Math.max(...s), 1);
+    assert.ok(Math.min(...s) >= 0.5, "never dips under the slider while the pulse ramps down");
+  });
+
+  it("manual 100% is flat 1; manual 0% plays exactly the Auto pulse", () => {
+    assert.ok(run(1).every((v) => v === 1));
+    assertSameNumbers(run(0), run(null), "manual 0% vs Auto");
+  });
+
+  it("reduced motion: the pulse stays 0 (calm fade), so Auto stays 0 and a manual look is its steady value", () => {
+    assert.ok(run(null, true).every((v) => v === 0));
+    assert.ok(run(0.3, true).every((v) => v === 0.3));
   });
 });

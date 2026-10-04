@@ -142,7 +142,7 @@ While following, any drive key (W/A/S/D, arrows) takes the wheel. V (Y) cycles t
 Keyboard and controller work together; per control the stronger input wins. Browsers only expose a pad after its first button press; the HUD then shows "Xbox controller connected" (or PlayStation / Controller).
 
 HUD: the bottom bar holds play/pause, reset, the scene (Fleet / Derby / Race / Range / Survival / Press / Pistons / Doors / Corkscrew), the wall, ramp balls and jump ramps (fleet only) and a **?** key list. **Net** at the top opens multiplayer. Readouts sit in the top-right card. Four collapsible sections below it hold the rest and remember whether they are open:
-- **Playback**: loop, slow-mo, orbit, audio, night, wet, FX tier, and a typed time scale (clear it to return to auto).
+- **Playback**: loop, slow-mo, orbit, audio, night, wet, FX tier, a cel look (Auto, or a 0-100 % slider that keeps it on), and a typed time scale (clear it to return to auto).
 - **Driving**: your car's class and the realism slider.
 - **Cars & crash**: car count 1–32, spawn speed min/max, stroke, wrinkle, FX density, shape ↔ lattice, and **Defaults**, which resets them all.
 - **Debug views**: rig, particles, JSON capture and copy.

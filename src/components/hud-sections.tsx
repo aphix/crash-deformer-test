@@ -152,6 +152,34 @@ function PlaybackSection({ state, engine }: HudProps) {
           </Button>
         </div>
       </div>
+      {/* The cel look is part of the post chain: low / high only (minimal and off draw straight to the canvas). */}
+      <div className="flex items-center gap-2">
+        <div className="min-w-0 flex-1">
+          <RangeRow
+            label="Cel"
+            name="Cel look strength"
+            title="Cel look held on at this strength; the scene-switch pulse still plays over it"
+            value={state.celLook ?? 0}
+            min={KNOB_RANGES.cel.min}
+            max={KNOB_RANGES.cel.max}
+            step={0.01}
+            shown={state.celLook === null ? "auto" : `${Math.round(state.celLook * 100)}%`}
+            disabled={state.fxTier === "off" || state.fxTier === "minimal"}
+            onValue={(v) => engine.current?.setCelLook(v)}
+          />
+        </div>
+        <Button
+          className="h-11 shrink-0 px-2 text-xs sm:h-8"
+          variant={state.celLook === null ? "default" : "ghost"}
+          aria-pressed={state.celLook === null}
+          aria-label="Cel look automatic"
+          title="Cel look only during the scene-switch pulse"
+          onClick={() => engine.current?.setCelLook(null)}
+        >
+          Auto
+        </Button>
+      </div>
+      {state.fxTier === "off" || state.fxTier === "minimal" ? <p className="hud-label">Cel look needs FX low or high (a race runs minimal on Auto)</p> : null}
       <label className="flex items-center gap-2">
         <span className="hud-label w-12 shrink-0">Time</span>
         <span className="flex-1 text-xs text-muted">Fixed scale; clear for auto</span>

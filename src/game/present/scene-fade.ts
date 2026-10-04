@@ -2,6 +2,12 @@
 export const FADE = { out: 0.25, cut: 0.06, hold: 0.05, inBlack: 0.2, inCel: 0.35, calm: 0.2, waitMax: 3 } as const;
 
 /**
+ * The cel strength the composite pass gets: the scene-switch pulse alone in Auto (`look` null), else the HUD slider's
+ * look held on, with the pulse still playing over it (so it never dips under the pulse's peak).
+ */
+export const celStrength = (look: number | null, pulse: number): number => (look === null ? pulse : Math.max(look, pulse));
+
+/**
  * The scene-switch transition: wall-clock presentation only (the sim never reads it). `cel` (0-1) is how far the view
  * has gone to the cel look, `black` (0-1) how far to black. `request` stores the target; `frame` returns it on the
  * frame after the first fully black one was drawn, for the caller to switch while nothing shows (the switch's hitch
