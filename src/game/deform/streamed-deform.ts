@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { computeNormalsFast } from "./fast-normals.ts";
 import { matchSkinLocal, type ShapeCluster } from "./shape-match.ts";
 import { DeformSolve } from "./deform-solve.ts";
-import { RES_SLOTS, SKIN_K, type Beam, type MassNode } from "./deform-rig.ts";
+import { RES_SLOTS, SIM_SCALAR_NUMBERS, SKIN_K, type Beam, type MassNode, type Sensor } from "./deform-rig.ts";
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
@@ -23,8 +23,6 @@ const SKIN_STRAIN = 0.65;
 /** The roof mass sunk past this (m) is load crush: a crash alone holds it within `maxLift` (0.07 m, deep 0.28), so the skin's 0.1 m roof clamp lifts. */
 const SUNK_ROOF = 0.075;
 
-/** Skin LoD and bake flags: the renderer's, not the solver's, so a `simState` block leaves them out. */
-const SKIN_FLAGS = new Set(["dirty", "skinnedThisFrame", "skinDeferred", "skinOwed", "skinDue", "skinFinal"]);
 /** `simState`: `v` into `buf` at `o`, or with `write` from it; returns the next offset. */
 function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean): number {
   if (write) v.set(buf[o]!, buf[o + 1]!, buf[o + 2]!);
@@ -34,6 +32,15 @@ function simVec(buf: Float32Array, o: number, v: THREE.Vector3, write: boolean):
     buf[o + 2] = v.z;
   }
   return o + 3;
+}
+/** `simState`: a sensor's compression as a float32 and what it rounded off (a netplay state carries it to 1e-4 m, and the next step's pull, the parts' hinge targets and the glass read it: a quantized 5e-5 m moved two wedged wrecks 9 cm in 21 steps). */
+function simSensor(buf: Float32Array, o: number, s: Sensor, write: boolean): number {
+  if (write) s.compression = buf[o]! + buf[o + 1]!;
+  else {
+    buf[o] = s.compression;
+    buf[o + 1] = s.compression - buf[o]!;
+  }
+  return o + 2;
 }
 /** `simState`: `a` into `buf` at `o` (a native copy: no double boxed even before V8 optimizes), or with `write` from it. */
 function simArray(buf: Float32Array, o: number, a: Float64Array, write: boolean): number {
@@ -584,21 +591,11 @@ export class StreamedDeformation extends DeformSolve {
     this.skinnedThisFrame = true;
   }
 
-  /** The solver's scalar fields (own and inherited numbers and flags, in declaration order), listed on first use. */
-  private simKeys: string[] | null = null;
-  /** The solver arrays and vectors outside `scalarKeys`, `masses`, `beams` and `clusters` that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
+  /** The solver arrays and vectors outside the scalar fields, `masses`, `beams` and `clusters` that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
   private readonly simTables = {
     vecs: [this.impactLocal, this.impactInward, this.bodyC, this.bodyRestC],
     arrays: [this.endEbs2, this.floorPre, this.floorPost, this.gripPost, this.pose],
   };
-
-  private scalarKeys(): string[] {
-    this.simKeys ??= Object.keys(this).filter((k) => {
-      const v: unknown = Reflect.get(this, k);
-      return (typeof v === "number" || typeof v === "boolean") && !SKIN_FLAGS.has(k);
-    });
-    return this.simKeys;
-  }
 
   private simBlocks(): { vecs: THREE.Vector3[]; arrays: Float64Array[] } {
     return this.simTables;
@@ -607,7 +604,7 @@ export class StreamedDeformation extends DeformSolve {
   /** Numbers in a `simState` block (fixed by the class and the rig: the same for every car). */
   simSize(): number {
     const { vecs, arrays } = this.simBlocks();
-    let n = this.scalarKeys().length * 2 + this.sensors.length * 2 + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
+    let n = SIM_SCALAR_NUMBERS + this.sensors.length * 2 + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
     n += this.crush.length * 2;
     for (let i = 0; i < arrays.length; i++) n += arrays[i]!.length;
     for (const c of this.clusters) n += c.q0x.length * 3 + 38;
@@ -634,32 +631,14 @@ export class StreamedDeformation extends DeformSolve {
     // Each scalar as a float32 and what it rounded off: the crash clocks (`elapsed`, `lastContact`, `lastPower`, `contactAt`)
     // are compared by differences with holds that are whole steps (CONTACT_HOLD 2/60 s = 8 steps of 1/240), so a float32
     // clock flipped a hold at a step the live sim did not (a wreck's restored state drifted 12 mm in a second).
-    for (const k of this.scalarKeys()) {
-      const v: unknown = Reflect.get(this, k);
-      if (write) Reflect.set(this, k, typeof v === "boolean" ? buf[o] !== 0 : buf[o]! + buf[o + 1]!);
-      else {
-        const x = Number(v);
-        buf[o] = x;
-        buf[o + 1] = Number.isFinite(x) ? x - buf[o]! : 0;
-      }
-      o += 2;
-    }
-    // Each sensor's compression: a netplay state carries it to 1e-4 m, and the next step's pull, the parts' hinge targets
-    // and the glass read it (a quantized 5e-5 m moved two wedged wrecks 9 cm in 21 steps).
-    for (const sensor of this.sensors) {
-      if (write) sensor.compression = buf[o]! + buf[o + 1]!;
-      else {
-        buf[o] = sensor.compression;
-        buf[o + 1] = sensor.compression - buf[o]!;
-      }
-      o += 2;
-    }
+    o = write ? this.simScalarsIn(buf, o) : this.simScalarsOut(buf, o);
+    for (let i = 0; i < this.sensors.length; i++) o = simSensor(buf, o, this.sensors[i]!, write);
     const { vecs, arrays } = this.simBlocks();
     for (let i = 0; i < vecs.length; i++) o = simVec(buf, o, vecs[i]!, write);
     for (let i = 0; i < arrays.length; i++) o = simArray(buf, o, arrays[i]!, write);
-    for (const m of this.masses) o = simMass(buf, o, m, write);
-    for (const b of this.beams) o = simBeam(buf, o, b, write);
-    for (const c of this.clusters) o = simCluster(buf, o, c, write);
+    for (let i = 0; i < this.masses.length; i++) o = simMass(buf, o, this.masses[i]!, write);
+    for (let i = 0; i < this.beams.length; i++) o = simBeam(buf, o, this.beams[i]!, write);
+    for (let i = 0; i < this.clusters.length; i++) o = simCluster(buf, o, this.clusters[i]!, write);
     // Load crush (docs/LOAD_CRUSH.md): each face's depth and the depth already baked into the masses.
     o = simArray(buf, o, this.crush, write);
     simArray(buf, o, this.crushBaked, write);
