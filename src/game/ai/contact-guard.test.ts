@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 import { guardContact } from "./contact-guard.ts";
 
 /** A car at (`x`, `z`) doing `speed` m/s along +z (`dir` 1) or −z (−1). */
@@ -41,7 +42,7 @@ describe("contact guard", () => {
     const alone = guarded(me, [meets]);
     assert.ok(alone.brake > 0.5, `the car in reach is braked for: ${alone.brake.toFixed(2)}`);
     const withFar = guarded(me, [car(2, -40, 500, 10, -1), meets, car(3, 30, -400, 25)]);
-    assert.deepEqual(pedals(withFar), pedals(alone));
+    assertSameNumbers(pedals(withFar), pedals(alone), "pedals with cars out of reach about");
   });
 
   it("spares the cars the driver means to hit", () => {
