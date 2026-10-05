@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
-import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RaceOptions, type RacePhase, type RaceSnapshot } from "../match/types.ts";
 import { INPUT_BYTES, type Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
@@ -123,9 +123,11 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         phase: null as RacePhase | null,
         /** Every `command` the session sent; an `options` one also applies, as the director does. */
         commands: [] as RaceCommand[],
+        program: null as Partial<RaceOptions> | null,
         command(cmd: RaceCommand): void {
           this.commands.push(cmd);
           if (cmd.type === "options") Object.assign(this.options, cmd.options);
+          if (cmd.type === "program") this.program = cmd.options;
         },
         setRemoteInput(_car: number, _input: DriveInput): void {},
         requestRespawn(_id?: number): void {},
@@ -719,7 +721,7 @@ describe("given public matches played over a stubbed relay on a virtual clock", 
     assert.deepEqual([client.status().role, client.status().room === dead, client.status().car], ["client", true, 1]);
   });
 
-  it("given a weak device with nothing to join, when it presses Play online, then it looks, hosts a field of 4 (the player plus 3 AI cars), and gives its AI count back to the default on leaving", async () => {
+  it("given a weak device with nothing to join, when it presses Play online, then it looks, hosts a field of 4 (the player plus 3 AI cars) without changing the player's own AI count, and drops that field on leaving", async () => {
     const v = virtual();
     const g = fakeGame([]);
     g.fit = false;
@@ -730,9 +732,11 @@ describe("given public matches played over a stubbed relay on a virtual clock", 
     assert.equal(np.status().finding, true);
     await searching;
     assert.deepEqual([np.status().role, np.status().public, np.status().finding], ["host", "race", false]);
-    assert.equal(g.race()!.options.aiCount, 3, "a weak host's field is the player plus 3");
+    assert.equal(g.race()!.program?.aiCount, 3, "a weak host's field is the player plus 3");
+    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount, "the player's own field size stays");
     np.leave();
-    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount, "a solo race is back to its own field");
+    assert.equal(g.race()!.program, null, "a solo race is back to its own field");
+    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount);
   });
 
   it("given a device able to host with nothing to join, when it presses Play online, then it hosts a full field at once, within 5 s of the start", async () => {
@@ -825,7 +829,7 @@ describe("given public matches played over a stubbed relay on a virtual clock", 
     assert.equal(g.linked.at(-1), `client ${x}`, "first in the list again");
   });
 
-  it("given a weak host, when race mode closes before it leaves, then its solo AI count is still given back and is the default once race mode is on again", async () => {
+  it("given a weak host, when race mode closes before it leaves, then the player's own AI count was never changed and is the default once race mode is on again", async () => {
     const v = virtual();
     const g = fakeGame([]);
     g.fit = false;
@@ -833,7 +837,7 @@ describe("given public matches played over a stubbed relay on a virtual clock", 
     open.push(np);
     globalThis.fetch = listing([]);
     await np.publicMatch("race");
-    assert.equal(g.race()!.options.aiCount, 3);
+    assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount);
     g.raceOn = false;
     np.leave();
     g.raceOn = true;

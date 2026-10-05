@@ -16,6 +16,8 @@ export abstract class EngineShare extends EngineReel {
   private shareOn = false;
   /** True while `applyShare` runs: its setters publish half-applied states the URL must not show. */
   private sharing = false;
+  /** Off for a program that drives the player's setters to measure (the bench pins the fx tier in its A/Bs): the address bar then stays as the player left it. */
+  followUrl = true;
 
   /** The shared state as the engine holds it now. */
   private shareState(): ShareState {
@@ -74,7 +76,7 @@ export abstract class EngineShare extends EngineReel {
 
   /** Called by every HUD publish: the page URL follows the state. A netplay client's scene is the host's, so its URL keeps the room alone. */
   protected syncShareUrl(): void {
-    if (!this.shareOn || this.sharing) return;
+    if (!this.shareOn || this.sharing || !this.followUrl) return;
     const { pathname, search, hash } = window.location;
     const bar = hash.replace(/^#/, "");
     const frag = followShare(this.shareState(), this.net.client, bar);

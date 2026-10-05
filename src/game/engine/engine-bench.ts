@@ -9,6 +9,8 @@ import type { SimPacer } from "./sim-pace.ts";
 
 /** The one bench: city, 16 racers, police, the player's car on autopilot (the camera follows it), seed 1. */
 const BENCH = { course: "city", aiCount: 15, seed: 1, warmS: 20, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, settleFrames: 10 } as const;
+/** The bench's race: its own course, field and rules as a program over the player's options, which it never touches. */
+export const BENCH_RACE: RaceCommand = { type: "program", options: { trackId: BENCH.course, laps: 9, aiCount: BENCH.aiCount, police: true, aggression: 1, spectate: false, noReset: false } };
 /** Samples kept: far above any display rate, so the window always fits. */
 const CAP = BENCH.measureS * 400;
 
@@ -29,6 +31,8 @@ interface BenchEngine {
   readonly ready: Promise<void>;
   readonly pace: SimPacer;
   fadeScenes: boolean;
+  /** Off for the bench page's life: it enters the race scene and pins the fx tier through the player's setters, and none of that is the player's pick. */
+  followUrl: boolean;
   toggleRace(): void;
   raceCommand(cmd: RaceCommand): void;
   advance(seconds: number, opts?: { frameDt?: number; render?: boolean }): void;
@@ -687,9 +691,10 @@ export async function runBench(engine: BenchEngine, hud: () => object): Promise<
   const parts = engine.benchParts();
   parts.renderer.setAnimationLoop(null);
   engine.fadeScenes = false;
+  engine.followUrl = false;
   engine.toggleRace();
   const t0 = performance.now();
-  engine.raceCommand({ type: "options", options: { trackId: BENCH.course, laps: 9, aiCount: BENCH.aiCount, police: true, aggression: 1, spectate: false, noReset: false } });
+  engine.raceCommand(BENCH_RACE);
   const t1 = performance.now();
   parts.race.reseed(BENCH.seed);
   engine.raceCommand({ type: "start" });

@@ -64,6 +64,7 @@ export function HudSections(props: HudProps) {
  * own (the Defaults button resets them all).
  */
 function Section({ id, title, changed, engine, children }: { id: SectionId; title: string; changed: SettingId[]; engine: HudProps["engine"]; children: ReactNode }) {
+  const driver = useDriver();
   return (
     <Accordion.Item value={id}>
       <Accordion.Header>
@@ -96,7 +97,10 @@ function Section({ id, title, changed, engine, children }: { id: SectionId; titl
                 variant="ghost"
                 className="h-11 gap-1 px-1.5 text-xs sm:h-8"
                 aria-label={`Reset ${SETTINGS[s].label} to its default`}
-                onClick={() => engine.current?.resetSetting(s)}
+                onClick={() => {
+                  if (s === "car") driver.setCar(INITIAL_HUD.playerCar);
+                  engine.current?.resetSetting(s);
+                }}
               >
                 <Undo2 className="size-3.5" />
                 {SETTINGS[s].label}
@@ -258,6 +262,7 @@ function PlaybackSection({ state, engine }: HudProps) {
 }
 
 function TuningSection({ state, engine }: HudProps) {
+  const driver = useDriver();
   const ch = (id: SettingId) => isChanged(state, id);
   // Only the fleet and the corkscrew launch their cars at a spawn speed; every other scene places its own.
   const launched = fleetLaunched(state);
@@ -341,7 +346,11 @@ function TuningSection({ state, engine }: HudProps) {
         </div>
       </div>
       <Button
-        onClick={() => engine.current?.resetDefaults()}
+        onClick={() => {
+          // Defaults is the player's own action, so it puts the saved car pick back too.
+          driver.setCar(INITIAL_HUD.playerCar);
+          engine.current?.resetDefaults();
+        }}
         variant="secondary"
         className="h-11 w-full text-xs sm:h-8"
         aria-label="Reset all settings to defaults"

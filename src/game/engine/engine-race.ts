@@ -105,6 +105,7 @@ export class RaceDirector extends RaceField {
     // Police cruisers go back to fleet cars before the sandbox shows them.
     this.host.setPolice(MAX_CARS, 0);
     this.campaign = null;
+    this.setProgram(null);
     this.spectating = false;
     this.auto = false;
     this.unload();
@@ -147,13 +148,17 @@ export class RaceDirector extends RaceField {
         if (!this.courses.some((c) => c.id === o.trackId)) o.trackId = this.options.trackId;
         const moved = o.trackId !== this.options.trackId || o.aiCount !== this.options.aiCount || o.spectate !== this.options.spectate;
         this.options = o;
+        this.syncRules();
         if (this.menu === "setup" && moved) this.park();
         return;
       }
+      case "program":
+        this.setProgram(cmd.options);
+        return;
       case "start":
         this.campaign = null;
         this.entrants = this.field();
-        this.start(this.options.trackId, this.defaultGrid());
+        this.start(this.rules.trackId, this.defaultGrid());
         return;
       case "campaign":
         this.entrants = this.field();
@@ -665,12 +670,12 @@ export class RaceDirector extends RaceField {
       courses: this.courses,
       phase: s ? s.phase : null,
       trackName: tr ? tr.name : "",
-      laps: s ? s.laps : this.options.laps,
-      noReset: s ? s.noReset : this.options.noReset,
+      laps: s ? s.laps : this.rules.laps,
+      noReset: s ? s.noReset : this.rules.noReset,
       time: s ? s.time : 0,
       you,
       view,
-      field: s ? s.cars.length : this.options.aiCount + 1,
+      field: s ? s.cars.length : this.rules.aiCount + 1,
       standings,
       spectating: watched,
       auto: this.auto && watched !== null,
@@ -757,6 +762,7 @@ export class RaceDirector extends RaceField {
   /** Setup menu: the chosen course with the field parked on its grid, no race running. */
   private toSetup(): void {
     this.campaign = null;
+    this.setProgram(null);
     this.session = null;
     this.brain = null;
     this.traffic = null;

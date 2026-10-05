@@ -207,6 +207,8 @@ export type CampaignSnapshot = {
  */
 export type RaceCommand =
   | { type: "options"; options: Partial<RaceOptions> }
+  /** A program's own rules (the bench, a weak public host) for the runs that follow, laid over the player's options without changing them; null drops them. */
+  | { type: "program"; options: Partial<RaceOptions> | null }
   /** Single race on `options.trackId`. */
   | { type: "start" }
   /** New campaign over `CAMPAIGN` from round 1. */

@@ -70,8 +70,6 @@ export class NetPlay {
   private finding = false;
   /** Public rooms this session gave up on (no search joins them again) and how many in a row never answered; `leave` and `publicMatch` forget both. */
   private dead: { rooms: string[]; unanswered: number } = { rooms: [], unanswered: 0 };
-  /** A weak device's public race: its director and the AI count to give back when the room closes. */
-  private soloAi: { race: NetRace; aiCount: number } | null = null;
   private derbyField = PUBLIC_DERBY_FIELD;
   private readonly sleep: (ms: number) => Promise<void>;
   private readonly random: () => number;
@@ -235,10 +233,8 @@ export class NetPlay {
     if (kind === "race") {
       this.game.enterRace();
       const race = this.game.race();
-      if (weak && race) {
-        this.soloAi = { race, aiCount: race.options.aiCount };
-        race.command({ type: "options", options: { aiCount: WEAK_AI } });
-      }
+      // The weak device's smaller field is the room's own rules; the player's options stay as they were.
+      if (weak && race) race.command({ type: "program", options: { aiCount: WEAK_AI } });
       // No setup menu: the lobby picks nothing; the race starts on its own when the countdown ends.
       race?.showLobby(race.options.trackId);
     } else this.game.derbyLobby(this.derbyField);
@@ -275,13 +271,7 @@ export class NetPlay {
       // Back to a solo game: no seat stays a network peer's, and no peer's last input keeps driving.
       const race = this.game.race();
       for (const car of this.slots.values()) race?.setRemoteInput(car, this.idle);
-      if (this.soloAi) {
-        const { race: solo, aiCount } = this.soloAi;
-        // Race mode may have closed since (a scene pick): the director's options persist, so they are given back there too.
-        if (race) race.command({ type: "options", options: { aiCount } });
-        else solo.options = { ...solo.options, aiCount };
-        this.soloAi = null;
-      }
+      race?.command({ type: "program", options: null });
       this.game.setSeats(new Map());
     }
     this.setHidden(false);

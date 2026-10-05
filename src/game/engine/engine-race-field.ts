@@ -117,6 +117,16 @@ export abstract class RaceField {
   active = false;
   menu: RaceMenu = null;
   options: RaceOptions = { ...DEFAULT_RACE_OPTIONS };
+  /** What a run reads: the user's `options`, or with a program (the bench, a weak public host) its rules laid over them; the user's own are never written. */
+  rules: RaceOptions = this.options;
+  private program: Partial<RaceOptions> | null = null;
+  setProgram(program: Partial<RaceOptions> | null): void {
+    this.program = program;
+    this.syncRules();
+  }
+  protected syncRules(): void {
+    this.rules = this.program ? { ...this.options, ...this.program } : this.options;
+  }
   /** Full sandbox HUD and hotkeys (true) or the race focus view (false). */
   fullUi = false;
   /** The car this browser drives: 0 on a host or offline, the host-assigned car on a netplay client. */
@@ -256,7 +266,7 @@ export abstract class RaceField {
    * Spectate (`options.spectate`): this browser's car is one more AI racer, so there is no player car.
    */
   protected field(): Entrant[] {
-    let n = this.survival ? 1 : this.options.aiCount + 1;
+    let n = this.survival ? 1 : this.rules.aiCount + 1;
     for (const id of this.seats.keys()) n = Math.max(n, id + 1);
     this.host.setPolice(n, 0);
     this.host.setCarCount(n);
@@ -264,10 +274,10 @@ export abstract class RaceField {
     this.seed++;
     this.look = (Math.random() * 0x100000000) >>> 0;
     return cars.map((car, i): Entrant => {
-      if (i === this.self && (this.survival || !this.options.spectate)) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
+      if (i === this.self && (this.survival || !this.rules.spectate)) return { id: i, name: this.playerName, kind: "player", aggression: 0 };
       const peer = this.seats.get(i);
       if (peer !== undefined) return { id: i, name: peer, kind: "remote", aggression: 0 };
-      return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.options.aggression, this.seed, i) };
+      return { id: i, name: car.paint.name, kind: "ai", aggression: fieldAggression(this.rules.aggression, this.seed, i) };
     });
   }
 
@@ -281,8 +291,8 @@ export abstract class RaceField {
   protected start(trackId: string, grid: readonly number[]): void {
     this.host.clear();
     const tr = this.load(trackId);
-    // Quitting to the menu comes back to the course just raced.
-    if (!this.survival) this.options.trackId = tr.id;
+    // Quitting to the menu comes back to the course the player just raced; a campaign's rounds and a program's course are not the player's pick.
+    if (!this.survival && !this.campaign && this.rules === this.options) this.options.trackId = tr.id;
     const sv = this.survival ? tr.survival : null;
     if (this.survival && !sv) throw new Error(`${tr.id} has no survival anchors`);
     const racers = this.entrants.length;
@@ -290,12 +300,12 @@ export abstract class RaceField {
     const tcount = traffic ? Math.min(traffic.count, MAX_CARS - racers) : 0;
     this.traffic = tcount > 0 ? traffic : null;
     this.policeFrom = racers + tcount;
-    const pcount = sv ? HUNT.units : this.options.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
+    const pcount = sv ? HUNT.units : this.rules.police ? Math.min(POLICE_CAP, MAX_CARS - this.policeFrom) : 0;
     this.host.setPolice(this.policeFrom, pcount);
     this.host.setCarCount(this.policeFrom + pcount);
     this.grid = [...grid];
     const ordered = this.grid.map((id) => this.entrants[id]!);
-    this.session = new RaceSession(tr, ordered, { laps: this.options.laps, noReset: sv ? true : this.options.noReset, survival: sv ? SURVIVAL : undefined });
+    this.session = new RaceSession(tr, ordered, { laps: this.rules.laps, noReset: sv ? true : this.rules.noReset, survival: sv ? SURVIVAL : undefined });
     this.brain = new RaceBrain(tr, racers);
     this.brain.guarded = this.policeFrom;
     this.police = sv ? new HunterBrain(tr, this.colliders, racers, this.policeFrom, pcount, this.seed) : pcount > 0 ? new PoliceBrain(tr, this.brain, this.policeFrom, pcount, this.seed) : null;
@@ -392,7 +402,7 @@ export abstract class RaceField {
   }
 
   protected park(): void {
-    const tr = this.load(this.options.trackId);
+    const tr = this.load(this.rules.trackId);
     this.entrants = this.field();
     this.grid = this.defaultGrid();
     const cars = this.host.live();

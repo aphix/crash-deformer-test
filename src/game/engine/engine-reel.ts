@@ -92,14 +92,14 @@ export abstract class EngineReel extends EngineInput {
       return;
     }
     if (!this.race.active || this.race.menu !== "setup") return;
-    const track = this.race.options.trackId;
-    this.race.command({ type: "options", options: { trackId: clip.trackId } });
+    this.race.command({ type: "program", options: { trackId: clip.trackId } });
+    this.race.reset();
     this.ensureCars(Math.max(this.carCount, ...clip.cars.map((c) => c.slot + 1)));
     const looks = clip.cars.map((c) => ({ slot: c.slot, style: this.cars[c.slot]!.style.id, cls: carClass(this.cars[c.slot]!) }));
     for (const c of clip.cars) this.matchCar(c.slot, c.style, c.cls);
     this.highlights.viewSaved(clip, performance.now() / 1000, () => {
       for (const l of looks) this.matchCar(l.slot, l.style, l.cls);
-      this.race.command({ type: "options", options: { trackId: track } });
+      this.race.command({ type: "program", options: null });
       this.race.reset();
     });
     this.emitHud();
