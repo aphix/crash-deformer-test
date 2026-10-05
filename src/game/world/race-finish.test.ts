@@ -366,7 +366,9 @@ describe("race: police chase", () => {
             parkS[i] = NaN;
             continue;
           }
-          if (speed < 0.3 && !car.sirens && t >= leadEnd[i]!) {
+          // A wrecked cop that lies still is not a stakeout: a racer wreck that shoves it along would read as the cop waking (a wall now slows a racer
+          // that hits it at speed, and the cop that was pursuing it ends up a wreck beside it).
+          if (speed < 0.3 && !car.sirens && !car.crashed && t >= leadEnd[i]!) {
             parkS[i] = arc(i);
             continue;
           }
