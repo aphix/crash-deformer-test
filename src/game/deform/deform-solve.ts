@@ -98,6 +98,8 @@ export abstract class DeformSolve extends DeformContact {
     _clamp[2] = maxAway;
     _clamp[3] = maxCrush;
     _clamp[4] = stroke;
+    // The group's world matrix once for the masses below (`localToWorld` re-composed it and its parents for every mass).
+    group.updateWorldMatrix(true, false);
     for (let i = 0; i < this.masses.length; i++) this.clampMass(this.masses[i]!, group, sideHit, pinned, squeeze, deep);
     this.settleHubStand(pinned);
     // A3: each mount caps its own side of the block, but the block is one casting; hold its rest
@@ -111,8 +113,8 @@ export abstract class DeformSolve extends DeformContact {
       _a.multiplyScalar((gap - eL.rest.distanceTo(eR.rest)) / gap / (eL.mass + eR.mass));
       eL.local.addScaledVector(_a, eR.mass);
       eR.local.addScaledVector(_a, -eL.mass);
-      group.localToWorld(eL.world.copy(eL.local));
-      group.localToWorld(eR.world.copy(eR.local));
+      eL.world.copy(eL.local).applyMatrix4(group.matrixWorld);
+      eR.world.copy(eR.local).applyMatrix4(group.matrixWorld);
     }
     // The write-back reshapes the wreck toward the frame; it must not turn it. Read off an axis that a
     // shove bent (engine → axle), the frame turned and the clamp turned the whole cloud after it with
@@ -255,8 +257,7 @@ export abstract class DeformSolve extends DeformContact {
     // Planted tires are the world pin. Projecting them through a pitched
     // group was ratcheting the wreck backward every followGroup.
     if (m.hub && !m.popped && pinned) return;
-    m.world.copy(m.local);
-    group.localToWorld(m.world);
+    m.world.copy(m.local).applyMatrix4(group.matrixWorld);
   }
 
   /**
