@@ -8,41 +8,23 @@ import { clipBytes } from "../net/reel-codec.ts";
 import { agreement, recordFlat, recordRace, type Agreement, type Recording, type Spawn } from "./replay-fidelity.test-util.ts";
 
 /**
- * The owner wants a replay or a highlight reel to show the crash as it happened. The recorder's clip (keyframes to the
- * first impact, then the recorded pedals) is re-run by `ClipSim`; over the hit window, from the step after the first
- * impact to HIT_S after it, it is held to the sim that recorded it. A replay that restores every word the sim steps on
- * and runs the same steps on the same pedals IS that sim: the cars the impact involves match the live run to the bit,
- * however chaotic the crash. REPLAY_VERSION 9 keyframes and the clip's pedal block carry what a replay needs for that:
- * the solver state and the pedals as doubles (version 8 kept them as float32 and 8-bit-plus-a-digit, and a 1e-9 m
- * shift of a derby pile-up's spawns decided whether the replay held its bound at all: 3 of 12 realizations did).
- *
- * A car the impact does not involve (it never touched one that was: with the race AI steering clear of what it closes on,
- * a pile-up's third AI car may drive by) keeps only 8-bit pedals between keyframes. It cannot feed back into the crash;
- * its error is bounded, below.
+ * The owner wants a replay or a highlight reel to show the crash as it happened. The recorder's clip (its first keyframe,
+ * the steps' dt, schedule and pedals, and a keyframe where a car was put on a spot) is re-run by `ClipSim`; over the
+ * whole clip, every car of it is held to the sim that recorded it. A replay that restores every word the sim steps on and
+ * runs the same steps on the same pedals IS that sim: the pedals are on the 8-bit grid in the live sim itself
+ * (`applyDrive`), so the clip holds exactly what the sim ran, and a pile-up replays to the bit however chaotic it is.
  */
-const HIT_S = 1.9;
 /** Spawn shifts (m) of the pile-ups: the same crash as other, equally valid realizations of it. */
 const SHIFTS = [1e-9, 3e-9, 1e-6, 1e-3];
-/** A bystander's worst error over the window: measured 6 mm and 0.063 m/s (4 of the 12 shifted race pile-ups), with a margin of 2x. */
-const BYSTANDER = { pose: 0.012, vel: 0.13, crush: 1e-5 };
 
 const rows: string[] = [];
 const mm = (m: number): string => (m * 1000).toFixed(3);
 function check(name: string, rec: Recording, a: Agreement): void {
-  rows.push(
-    `${name}: ${rec.clip.cars.length} cars ${a.steps} steps ${(clipBytes(rec.clip) / 1024).toFixed(0)} KB; wreck flags differ ${a.wreckMismatch}; ` +
-      `involved cars: impact step ${a.impact.pose} m ${a.impact.vel} m/s, window ${a.involved.pose} m ${a.involved.vel} m/s ${a.involved.crush} m; ` +
-      `bystanders: ${mm(a.bystanders.pose)} mm ${a.bystanders.vel.toFixed(4)} m/s ${mm(a.bystanders.crush)} mm`,
-  );
-  assert.ok(a.steps >= 30, `${name}: ${a.steps} steps in the hit window`);
+  rows.push(`${name}: ${rec.clip.cars.length} cars ${a.steps} steps ${(clipBytes(rec.clip) / 1024).toFixed(0)} KB; wreck flags differ ${a.wreckMismatch}; pose ${mm(a.pose.max)} mm, ${a.vel.max} m/s, crush ${mm(a.crush.max)} mm`);
+  assert.ok(a.steps >= 100, `${name}: ${a.steps} steps compared`);
   assert.equal(a.wreckMismatch, 0, `${name}: a car is a wreck in one run and not in the other for ${a.wreckMismatch} car-steps`);
   // The point of the keyframes: what a replay restores is all the sim reads. Any error here is state a keyframe fails to carry.
-  assert.deepEqual(a.involved, { pose: 0, vel: 0, crush: 0 }, `${name}: a car of the impact strays from the live sim (m, m/s, m)\n${rows.at(-1)}`);
-  assert.deepEqual(a.impact, { pose: 0, vel: 0 }, `${name}: a car of the impact is off at the impact's own step (the keyframes carry its exact state)\n${rows.at(-1)}`);
-  assert.ok(
-    a.bystanders.pose <= BYSTANDER.pose && a.bystanders.vel <= BYSTANDER.vel && a.bystanders.crush <= BYSTANDER.crush,
-    `${name}: a bystander strays ${a.bystanders.pose} m, ${a.bystanders.vel} m/s, ${a.bystanders.crush} m (bound ${JSON.stringify(BYSTANDER)})`,
-  );
+  assert.deepEqual({ pose: a.pose.max, vel: a.vel.max, crush: a.crush.max }, { pose: 0, vel: 0, crush: 0 }, `${name}: a car strays from the live sim (m, m/s, m)\n${rows.at(-1)}`);
 }
 
 describe("a clip replays the crash as the sim that recorded it ran it", () => {
@@ -65,10 +47,9 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
       w.cars[slot]!.spawnFacing(pt.x + side * pt.tz, pt.z - side * pt.tx, yaw + turn, speed);
     }
     /**
-     * The crash's own cars and no others: `ai` AI drivers beside the player's car (which the AI drives too). A car the crash
-     * does not touch rides the clip as a bystander on 8-bit pedals (only the cars the impact involves keep their exact pedals:
-     * docs/HIGHLIGHTS.md), and the race AI steers clear of what it closes on (`guardContact`): the two spare cars of a
-     * four-car field no longer ran into the crash. The derby fixtures below spawn just their own cars too.
+     * The crash's own cars and no others: `ai` AI drivers beside the player's car (which the AI drives too). The race AI
+     * steers clear of what it closes on (`guardContact`): the two spare cars of a four-car field no longer ran into the
+     * crash. The derby fixtures below spawn just their own cars too.
      */
     const run = (name: string, place: () => void, ai: number): void => {
       const rec = recordRace(w, place, 9, ai);
@@ -76,7 +57,7 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
       const a = clip.cars[clip.firstA]?.slot;
       const b = clip.cars[clip.firstB]?.slot;
       assert.ok((a === 0 && b === 1) || (a === 1 && b === 0), `${name}: the clip's first impact is car ${a} against ${b ?? "a wall"}, not car 0 against car 1`);
-      check(name, rec, agreement(rec, HIT_S, () => w.race.resetProps()));
+      check(name, rec, agreement(rec, () => w.race.resetProps()));
     };
     /**
      * A human at car 0's wheel, gas down, until it first touches the other car, then the AI again. The race AI brakes and
@@ -107,7 +88,7 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
     const HEAD = Math.PI / 2;
     const run = (name: string, spawns: Spawn[]): void => {
       const rec = recordFlat(spawns, 8, true);
-      check(name, rec, agreement(rec, HIT_S));
+      check(name, rec, agreement(rec));
     };
     /** The pile-up with its start x (or z) shifted by `s` m: two head-on, one behind, one across. */
     const pile = (s: number): Spawn[] => [

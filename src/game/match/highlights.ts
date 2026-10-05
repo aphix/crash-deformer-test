@@ -263,10 +263,11 @@ export class HighlightLedger<C extends { score: number }> {
   }
 }
 
-/** Per car per step: throttle i8, steer i8 (1/127 steps, as a netplay peer's input), brake u8 (0–255), flags u8 (1 ebrake, 2 boost, 4 drafting, 8 neutral: a thrown-out driver's freewheel). */
+/**
+ * Per car per step: throttle i8, steer i8 (1/127 steps, as a netplay peer's input), brake u8 (0–255), flags u8 (1 ebrake, 2 boost,
+ * 4 drafting, 8 neutral: a thrown-out driver's freewheel). Exactly the pedals the sim ran: `applyDrive` puts them on this grid.
+ */
 export const INPUT_BYTES = 4;
-/** Doubles per car per step of the clip's `fine` block: throttle, steer, brake, exactly as the sim ran them. */
-export const FINE_PEDALS = 3;
 /**
  * Doubles of course memory per car in a keyframe: where the race's wall contact last stood (x, z), how far past a wall
  * line it stood (m), and the road segment its projection hint is on (-1: none), as `RaceField` keeps them.
@@ -275,10 +276,16 @@ export const MEMORY = 4;
 
 export type ReelCar = { slot: number; style: CarStyleId; cls: VehicleClassId; name: string };
 
+/** Most props a clip lists as knocked by cars it leaves out (the recorder remembers no more knocks than this, and a decoder takes no more). */
+export const MAX_KNOCKS = 256;
+
 /** A driver thrown out during a clip: the step he left in (counted from the clip's first step) and the event, its `car` a clip car index. */
 export type ClipEjection = { step: number; e: Ejection };
 
-/** One highlight: initial conditions, every step's dt and drive outputs, and the keyframes that correct drift. */
+/** A prop (the course's placed props, by index) a car the clip does not carry knocked off its spot in the step `step` (counted from the clip's first step). */
+export type ClipKnock = { step: number; prop: number };
+
+/** One highlight: initial conditions, every step's dt and drive outputs, and the steps a car was put on a spot. */
 export type HighlightClip = {
   trackId: string;
   score: number;
@@ -288,6 +295,12 @@ export type HighlightClip = {
   ejects: number;
   /** Every ejection during the clip's steps, in step order (cars the clip carries only). */
   ejections: ClipEjection[];
+  /**
+   * The props knocked off their spot during the clip by cars it leaves out, in step order. A knocked prop is gone for every
+   * car: a clip car that reaches its place finds nothing there in the record, and would hit it standing in a replay that
+   * did not knock it. Knocks by the clip's own cars are not listed: the replay does them itself. Keyframe 0 holds the props knocked before the clip.
+   */
+  knocks: ClipKnock[];
   /** Strongest closing speed (km/h). */
   peakKph: number;
   /** Race-clock seconds of the clip's first step. */
@@ -295,7 +308,7 @@ export type HighlightClip = {
   /** Seconds from the clip's start: first and last impact. */
   firstImpact: number;
   lastImpact: number;
-  /** The step the first impact came in (the last one a keyframe corrects; one keyframe sits there). */
+  /** The step the first impact came in (counted from the clip's first step). */
   firstStep: number;
   /** The first impact's world position. */
   x: number;
@@ -326,20 +339,17 @@ export type HighlightClip = {
   /** Per step × car: `INPUT_BYTES`. */
   inputs: Uint8Array;
   /**
-   * From step `fineFrom` (the last keyframe before the first impact) to `FINE_S` s after it, per step × car: `FINE_PEDALS`
-   * doubles, the pedals exactly as the sim ran them, for the cars the impact involves (NaN: not recorded, the 8-bit
-   * `inputs` are all there is). A cruising car's speed follows its throttle at once, so 1/127 of throttle moved a car
-   * 20-80 mm in the half second before the impact; a pedal one part in 30000 off (16 bits) became centimetres in a
-   * pile-up, and a wreck keeps driving its pedals through the crash. The replay is the sim that recorded it only on the same inputs.
+   * Per keyframe: the step it applies at (before that step's drive). Keyframe 0 is step 0, the clip's start; any other is
+   * a step some of the clip's cars were put on a spot in (a respawn, a police wake or put-away: `DeformableCar.placements`),
+   * which the replay cannot drive there.
    */
-  fineFrom: number;
-  fine: Float64Array;
-  /** Per keyframe: the step it applies at (before that step's drive). Keyframe 0 is step 0; one may sit at the first impact. */
   keyStep: Uint32Array;
+  /** Per keyframe: a mask of the clip cars (bit j: `cars[j]`) it carries. Keyframe 0 carries them all, a later one the cars placed in its step. */
+  keyCars: Uint32Array;
   /**
-   * Per keyframe: the clip's cars as a netplay snapshot message (`net/codec.ts` `writeSnapshot`, `cars` order; a wreck
-   * carries its wreck section in keyframe 0), then the course's knocked props (u16 byte count, a bit per prop), then per
-   * car its flight block, its course memory (`MEMORY` doubles) and its solver state (`CrashRecorder.encodeKey`).
+   * Per keyframe: its cars as a netplay snapshot message (`net/codec.ts` `writeSnapshot`, `cars` order; a wreck carries its
+   * wreck section), then the course's knocked props (u16 byte count, a bit per prop), then per car its flight block, its
+   * course memory (`MEMORY` doubles) and its solver state (`CrashRecorder.encodeKey`).
    */
   keys: Uint8Array[];
 };

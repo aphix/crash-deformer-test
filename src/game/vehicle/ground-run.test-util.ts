@@ -49,13 +49,14 @@ const SETTLE = 60;
 /**
  * `cls` driven along `line` from `lead` m before its point, at `speed` m/s held (it starts at that speed), or from rest with the
  * throttle full when `speed` is "top". Ends after `seconds`, or when it passes `stopZ` (heading −z) or stands still for 2 s.
- * A flight counts as the crest's when it begins past `crestZ` (z, heading −z); `at` asks for the speed at that z. The caller restores the ground.
+ * A flight counts as the crest's when it begins past `crestZ` (z, heading −z); `at` asks for the speed at that z. `slices` also
+ * judges the hull after every physics slice, not only where each rendered frame ends. The caller restores the ground.
  */
 export function runLine(
   ground: Ground,
   cls: VehicleClassId,
   line: Line,
-  o: { lead: number; speed: number | "top"; seconds: number; crestZ: number; stopZ: number; at?: number },
+  o: { lead: number; speed: number | "top"; seconds: number; crestZ: number; stopZ: number; at?: number; slices?: boolean },
 ): LineRun {
   setGround(ground);
   const car = makeCar(cls);
@@ -89,7 +90,12 @@ export function runLine(
     input.steer = Math.max(-1, Math.min(1, 2.5 * Math.atan2(Math.sin(err), Math.cos(err))));
     // The race's own rule (`onSurface`): the throttle is the surface's share of top speed.
     input.throttle = o.speed === "top" || car.speed < o.speed ? SURFACES[ground.surfaceAt(p.x, p.z, p.y)].speed : 0;
-    frame(w, input, st);
+    const slice = (): void => {
+      if (n < SETTLE) return;
+      const g = fit(car, ground);
+      out.pen = Math.max(out.pen, g.pen - g.crush);
+    };
+    frame(w, input, st, o.slices ? slice : undefined);
     const f = fit(car, ground);
     // The first second is the spawn's 0.5 m drop settling, not the line.
     if (n >= SETTLE) out.pen = Math.max(out.pen, f.pen - f.crush);

@@ -160,6 +160,14 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   io[11] = lock;
 }
 
+/** Steps per unit of throttle and steer (signed 8 bits, the netplay wire's) and of brake (unsigned 8 bits): `HighlightClip.inputs` holds a pedal in one byte each. */
+export const THROTTLE_STEPS = 127;
+export const BRAKE_STEPS = 255;
+/** `v` clamped to [`lo`, 1] and rounded to the nearest 1/`steps` (never -0). */
+function pedal(v: number, lo: number, steps: number): number {
+  return Math.round(Math.max(lo, Math.min(1, v)) * steps) / steps + 0;
+}
+
 /**
  * Arcade drive, per class. Steer +1 swings the nose LEFT (+yaw with this
  * car's +Z forward) whichever way it rolls. The car's lateral grip is finite,
@@ -174,10 +182,14 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   if (dt <= 0) return;
   const d = car.drive;
   const p = car.group.position;
+  // The pedals the sim runs: clamped and on the grid a clip stores them on, so a replay of the recording runs the very same numbers.
+  const throttle = pedal(input.throttle, -1, THROTTLE_STEPS);
+  const command = pedal(input.steer, -1, THROTTLE_STEPS);
+  const brake = pedal(input.brake, 0, BRAKE_STEPS);
   // Off the fleet disc's rim or in the air (no wheel down): the car keeps its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
   if (alive) floorUnder(p, _ground, 0);
-  car.airThrottle = alive && car.airborne ? Math.max(-1, Math.min(1, input.throttle)) : 0; // in the air the gas winds the wheels (`spinWheels`)
+  car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
   if (!alive || _ground[0] === NO_FLOOR || car.airborne) return idleDriveState(d);
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
@@ -188,12 +200,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   }
   const a = _assist;
   const dmg = carDrivability(car, realism, _dmg);
-  // Math.max/min, not THREE's clamp and lerp (the same arithmetic): those spent TurboFan's inlining budget here and boxed doubles.
-  const throttle = Math.max(-1, Math.min(1, input.throttle));
   wheelLoss(car.deform.wheelsOnMask, _loss);
-  const command = Math.max(-1, Math.min(1, input.steer));
   const steer = command * _loss[0]!;
-  const brake = Math.max(0, Math.min(1, input.brake));
   const boosting = !!input.boost && throttle > 0;
   const ebrake = input.ebrake && _loss[6]! > 0; // the handbrake locks the rear wheels: with none left it holds nothing
   // The pedals as commanded (a replay re-applies them to the same wheels): what the wheels do with them is `wheelLoss`'s.

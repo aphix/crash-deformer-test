@@ -588,9 +588,9 @@ export class StreamedDeformation extends DeformSolve {
     this.skinnedThisFrame = true;
   }
 
-  /** The solver arrays and vectors outside the scalar fields, `masses`, `beams` and `clusters` that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
+  /** The solver arrays and vectors outside the scalar fields, `masses`, `beams` and `clusters` (the cage corners and the sensors' positions too: the next step's contacts read them before the structure step moves them) that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
   private readonly simTables = {
-    vecs: [this.impactLocal, this.impactInward, this.bodyC, this.bodyRestC],
+    vecs: [this.impactLocal, this.impactInward, this.bodyC, this.bodyRestC, ...this.cages.flatMap((c) => c.corners), ...this.sensors.map((x) => x.pos)],
     arrays: [this.endEbs2, this.floorPre, this.floorPost, this.gripPost, this.pose, this.hubStand],
   };
 

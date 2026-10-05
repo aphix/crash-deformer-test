@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { frame } from "./race-world.test-util.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import { FLEERS, chase, type Fleer } from "./survival-players.test-util.ts";
+import { FLEERS, chase, type Chase, type Fleer } from "./survival-players.test-util.ts";
 import { leaveSurvival, survivalWorld } from "./survival-run.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
@@ -131,16 +131,46 @@ describe("survival: the map is closed", () => {
   });
 });
 
+/** Runs a pooled bar counts (seeds 1 to this), and the least the pack must end per script (measured on 50caa01 and b6c012a: shuttle 22 and 19 of 24, orbit 23 and 24; the bars are the lower of each). */
+const POOLED_SEEDS = 24;
+const POOLED: Partial<Record<Fleer, number>> = { shuttle: 19, orbit: 23 };
 describe("survival: a fleeing player's run ends", () => {
   /** The scripted players that avoid the walls: what ends their run is the pack, so a cop is in contact at the end. */
   const PACK_WINS: readonly Fleer[] = ["ring", "shuttle", "orbit"];
+  /** Why `c` is not a run the pack ended (null: it is): still running, ended by something else, or a run that ended itself with no cop near. */
+  const miss = (c: Chase, packWins: boolean): string | null => {
+    if (!c.ended) return `still running after ${END_BY} s (${c.touches} cop contacts, z ${c.reach.maxZ.toFixed(0)}…${c.reach.minZ.toFixed(0)})`;
+    if (c.cause !== "busted" && c.cause !== "wrecked") return `ended by ${c.cause}`;
+    if (packWins && c.time - c.lastTouch >= 2) return `no cop touched the player in the last ${(c.time - c.lastTouch).toFixed(1)} s: it ended itself`;
+    return null;
+  };
   for (const fleer of FLEERS) {
+    if (fleer in POOLED) continue;
     it(`${fleer}: the run ends within ${END_BY} s, busted or wrecked${PACK_WINS.includes(fleer) ? ", with a cop in contact" : ""}`, (t) => {
       const c = chase(fleer, 1, END_BY);
       t.diagnostic(`${c.cause} at ${c.time.toFixed(1)} s; ${c.touches} cop contacts, the last at ${c.lastTouch.toFixed(1)} s; ${c.speed.toFixed(1)} m/s at the end; peak ${c.peak} cops`);
-      assert.ok(c.ended, `still running after ${END_BY} s (${c.touches} cop contacts, z ${c.reach.maxZ.toFixed(0)}…${c.reach.minZ.toFixed(0)})`);
-      assert.ok(c.cause === "busted" || c.cause === "wrecked", `ended by ${c.cause}`);
-      if (PACK_WINS.includes(fleer)) assert.ok(c.time - c.lastTouch < 2, `no cop touched the player in the last ${(c.time - c.lastTouch).toFixed(1)} s: it ended itself`);
+      const why = miss(c, PACK_WINS.includes(fleer));
+      assert.ok(why === null, why ?? "");
+    });
+  }
+  /**
+   * The shuttle and the orbiter are a knife edge per seed: the pack ends them in most runs, and a few seeds a trajectory
+   * away they dodge it too long (the single seed flipped red under trajectory changes that left the cops alone). So each is
+   * held to a count over seeds 1 to 24, each run to the definition above. The bars are the lower of the
+   * rates measured on 50caa01 (shuttle 22, orbit 23 of 24) and on b6c012a (shuttle 19, orbit 24 of 24); on the merged head 23 and 24. A
+   * pack that cannot catch the player ends 0 of 24 (the boost dropped on any lift: 24 of 24 bad), far under either bar.
+   * A run stops early once the bar is out of reach.
+   */
+  for (const [fleer, bar] of Object.entries(POOLED) as [Fleer, number][]) {
+    it(`${fleer}: the pack ends ≥ ${bar} of ${POOLED_SEEDS} runs (seeds 1-${POOLED_SEEDS}) within ${END_BY} s, busted or wrecked, with a cop in contact`, (t) => {
+      const bad: string[] = [];
+      let seed = 1;
+      for (; seed <= POOLED_SEEDS && bad.length <= POOLED_SEEDS - bar; seed++) {
+        const why = miss(chase(fleer, seed, END_BY), true);
+        if (why !== null) bad.push(`seed ${seed}: ${why}`);
+      }
+      t.diagnostic(`${seed - 1} runs, ${bad.length} not ended by the pack${bad.length ? `\n${bad.join("\n")}` : ""}`);
+      assert.ok(bad.length <= POOLED_SEEDS - bar, `${bad.length} of ${seed - 1} runs were not ended by the pack (at most ${POOLED_SEEDS - bar} of ${POOLED_SEEDS} allowed):\n${bad.join("\n")}`);
     });
   }
 });

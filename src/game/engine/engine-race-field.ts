@@ -723,6 +723,7 @@ export abstract class RaceField {
       _n.set(nx, 0, nz);
       if (col.body === "knock") {
         this.knocked[col.index] = 1;
+        this.recorder.knock(col.index, i);
         const speed = Math.hypot(v.x, v.z);
         this.art?.knock(col.index, v.x * 1.1 - nx * 1.5, 2 + speed * 0.25, v.z * 1.1 - nz * 1.5);
         const keep = 1 - col.mass / (col.mass + 1400);

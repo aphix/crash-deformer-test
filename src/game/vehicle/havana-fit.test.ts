@@ -118,6 +118,23 @@ describe("havana drive matrix: every class up the face and over the crest", () =
   });
 });
 
+describe("havana crest landing, judged at every physics slice", () => {
+  afterEach(() => setGround(null));
+
+  it("the drawn hull is never more than 2 cm in the ground, on whichever slice of a frame the landing falls", () => {
+    // A slice at 30 m/s is 12.5 cm of travel: six leads 2 cm apart shift where in a slice the nose meets the lawn. The nose bounces off the
+    // landing and the hull's contact lapses for one slice (`airContact`); that slice must not drop the body its springs hold up.
+    const bad: string[] = [];
+    for (const cls of VEHICLE_CLASS_IDS) {
+      for (let k = 0; k < 6; k++) {
+        const r = runLine(ground, cls, FOOT, { ...LIMITS, lead: 60 + k * 0.02, speed: 30, stopZ: -60, slices: true });
+        if (r.pen > 0.02) bad.push(`${cls} lead +${k * 2} cm: the hull ${f(r.pen * 100)} cm in the ground`);
+      }
+    }
+    assert.deepEqual(bad, []);
+  });
+});
+
 describe("havana's approach and its set piece", () => {
   afterEach(() => setGround(null));
   const rows = driveMatrix();

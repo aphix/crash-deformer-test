@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
-import { FINE_PEDALS, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
+import { INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 
@@ -11,7 +11,7 @@ const KNOCKS = [0b101, 0, 0b10000001];
 const MEMORY_A = [Infinity, 0, 0, -1];
 const MEMORY_B = [12.5, -7.25, 0.125, 392];
 
-/** Two cars, one a wreck (a crushed nose): a clip whose keyframes carry a wreck section. */
+/** Two cars, one a wreck (a crushed nose): a clip whose first keyframe carries a wreck section, and a later one only the second car (put on a spot in its step). */
 export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
   const scene = new THREE.Scene();
   const a = new DeformableCar({ body: 0xff0000, accent: 0, name: "a" }, scene);
@@ -22,7 +22,8 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
   for (let i = 0; i < 30; i++) a.step(1 / 240);
   const L = carLayout(a);
   const keys = [0, 1].map((k) => {
-    const frames = [a, b].map((car) => {
+    const here = k === 0 ? [a, b] : [b];
+    const frames = here.map((car) => {
       const f = makeCarFrame(L);
       readCarPose(car, f);
       f.wreck = car.crashed;
@@ -34,12 +35,12 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     });
     const sim = new Float64Array(a.deform.simSize());
     const fly = new Float64Array(FLIGHT);
-    const w = new Writer(snapshotMaxBytes(2, L) + 2 + KNOCKS.length + 2 * (FLIGHT * 8 + MEMORY * 8 + 2 + sim.length * 8));
-    writeSnapshot(w, { ...makeSnapshot(), time: k, count: 2, cars: frames }, L);
+    const w = new Writer(snapshotMaxBytes(2, L) + 2 + KNOCKS.length + here.length * (FLIGHT * 8 + MEMORY * 8 + 2 + sim.length * 8));
+    writeSnapshot(w, { ...makeSnapshot(), time: k, count: here.length, cars: frames }, L);
     // As `CrashRecorder.encodeKey`: the knocked props' bits, then each car's flight block (doubles), course memory and a wreck's solver state.
     w.u16(KNOCKS.length);
     for (const v of KNOCKS) w.u8(v);
-    for (const car of [a, b]) {
+    for (const car of here) {
       car.flight(fly, 0, false);
       w.bytes.set(new Uint8Array(fly.buffer), w.off);
       w.off += FLIGHT * 8;
@@ -76,6 +77,11 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
         },
       },
     ],
+    knocks: [
+      { step: 100, prop: 3 },
+      { step: 100, prop: 17 },
+      { step: 432, prop: 200 },
+    ],
     peakKph: 96,
     t0: 41.25,
     firstImpact: 1.5,
@@ -99,9 +105,8 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     h: new Float32Array(steps).fill(1 / 240),
     shape: new Uint32Array(steps).map((_, i) => (i % 5 === 0 ? (0b100111 << 3) | 2 : 0b1 << 3)),
     inputs: new Uint8Array(steps * 2 * INPUT_BYTES).map((_, i) => (i * 37) & 255),
-    fineFrom: 100,
-    fine: new Float64Array((steps - 100) * 2 * FINE_PEDALS).map((_, i) => (i % 7 === 0 ? NaN : ((i * 11) % 256) / 511)),
     keyStep: Uint32Array.of(0, 240),
+    keyCars: Uint32Array.of(0b11, 0b10),
     keys,
   };
   assert.ok(a.crashed, "car a is a wreck");
@@ -121,9 +126,8 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   assertSameNumbers(got.h, want.h, "step dt");
   assertSameNumbers(got.shape, want.shape, "step schedule");
   assertSameNumbers(got.inputs, want.inputs, "inputs");
-  assert.equal(got.fineFrom, want.fineFrom, "fine from");
-  assertSameDigest(got.fine, want.fine, "fine pedals (a NaN is a step the recorder kept none for)");
   assertSameNumbers(got.keyStep, want.keyStep, "keyframe steps");
+  assertSameNumbers(got.keyCars, want.keyCars, "keyframe car masks");
   assert.equal(got.keys.length, want.keys.length);
   got.keys.forEach((k, i) => assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`));
   assert.equal(got.ejections.length, want.ejections.length);
@@ -132,4 +136,5 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
     assert.equal(x.step, w.step, `ejection ${i} step`);
     assertSameDigest({ ...x.e, pos: x.e.pos.toArray(), local: x.e.local.toArray(), dir: x.e.dir.toArray(), quat: x.e.quat.toArray(), rel: x.e.rel.toArray(), carVel: x.e.carVel.toArray(), spin: x.e.spin.toArray() }, { ...w.e, pos: w.e.pos.toArray(), local: w.e.local.toArray(), dir: w.e.dir.toArray(), quat: w.e.quat.toArray(), rel: w.e.rel.toArray(), carVel: w.e.carVel.toArray(), spin: w.e.spin.toArray() }, `ejection ${i}`);
   });
+  assert.deepEqual(got.knocks, want.knocks, "knocked props");
 }

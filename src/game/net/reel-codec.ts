@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { FINE_PEDALS, INPUT_BYTES, MEMORY, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { INPUT_BYTES, MAX_KNOCKS, MEMORY, simFingerprint, type ClipEjection, type ClipKnock, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -47,10 +47,13 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * mate ahead first and a parked mate as an obstacle, drops the boost only for a predicted hit, and same-beat stakeouts
  * don't stack, a live-trajectory change of every pursuit; 26: pair contact trades momentum (the COM-gap floor holds
  * only once the struck face's crush is spent, as an inelastic exchange), mass pairs solve mirror-symmetrically, and a
- * flying body lands only with its middle no deeper than its springs, all live-trajectory changes).
+ * flying body lands only with its middle no deeper than its springs, all live-trajectory changes; 27: pedals run on
+ * the grid a clip stores (throttle/steer 1/127, brake 1/255), a clip keeps keyframe 0 plus one per placement, every
+ * wreck or loose-part car's keyframe carries its parts, cage and sensor state, a clip lists props knocked by cars it
+ * leaves out, and a straddled fleet-wedge wall seats an axle on its lower tyre).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 26;
+const REPLAY_VERSION = 27;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -61,14 +64,16 @@ const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).le
 
 /** A clip's ejection record: its step (u32), then `writeEjection`'s 2 + 22 × 4 bytes. */
 const EJECTION_BYTES = 4 + 2 + 22 * 4;
+/** A clip's knocked prop: its step (u32) and the prop (u16). */
+const KNOCK_BYTES = 4 + 2;
 
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
   let n = 1 + utf8(c.trackId) + 82 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
-  n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 8 + c.fine.length * 8 + 2;
-  for (const k of c.keys) n += 8 + k.length;
-  return n + 1 + c.ejections.length * EJECTION_BYTES;
+  n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
+  for (const k of c.keys) n += 12 + k.length;
+  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -106,12 +111,10 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   for (const s of c.shape) w.u32(s);
   w.bytes.set(c.inputs, w.off);
   w.off += c.inputs.length;
-  w.u32(c.fineFrom);
-  w.u32(c.fine.length / (c.cars.length * FINE_PEDALS));
-  for (const p of c.fine) w.f64(p);
   w.u16(c.keys.length);
   for (let k = 0; k < c.keys.length; k++) {
     w.u32(c.keyStep[k]!);
+    w.u32(c.keyCars[k]!);
     w.u32(c.keys[k]!.length);
     w.bytes.set(c.keys[k]!, w.off);
     w.off += c.keys[k]!.length;
@@ -120,6 +123,11 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   for (const x of c.ejections) {
     w.u32(x.step);
     writeEjection(w, x.e);
+  }
+  w.u16(c.knocks.length);
+  for (const x of c.knocks) {
+    w.u32(x.step);
+    w.u16(x.prop);
   }
 }
 
@@ -178,25 +186,20 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   }
   const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
   for (let i = 0; i < inputs.length; i++) inputs[i] = r.u8();
-  const fineFrom = r.u32();
-  const fineSteps = r.u32();
-  if (fineFrom + fineSteps > steps) throw new RangeError("clip fine steps");
-  const fine = new Float64Array(fineSteps * nc * FINE_PEDALS);
-  for (let i = 0; i < fine.length; i++) {
-    // NaN: not recorded. A pedal is a throttle or steer in −1..1, a brake in 0..1.
-    const p = r.f64();
-    if (!Number.isNaN(p) && !(Math.abs(p) <= 1 && (i % FINE_PEDALS !== 2 || p >= 0))) throw new RangeError("clip fine pedal");
-    fine[i] = p;
-  }
   const nk = r.u16();
   if (nk < 1 || nk > MAX_KEYS) throw new RangeError("clip keys");
   const keyStep = new Uint32Array(nk);
+  const keyCars = new Uint32Array(nk);
   const keys: Uint8Array[] = [];
   const check = makeSnapshot();
   const kr = new Reader();
+  const everyCar = 2 ** nc - 1;
   for (let k = 0; k < nk; k++) {
     keyStep[k] = r.u32();
+    keyCars[k] = r.u32();
     if (keyStep[k]! >= steps || (k > 0 && keyStep[k]! <= keyStep[k - 1]!) || (k === 0 && keyStep[0] !== 0)) throw new RangeError("clip key step");
+    // The first keyframe carries every clip car; a later one a nonempty subset.
+    if (k === 0 ? keyCars[0] !== everyCar : keyCars[k] === 0 || keyCars[k]! > everyCar) throw new RangeError("clip key cars");
     const len = r.u32();
     if (r.off + len > r.length) throw new RangeError("clip key length");
     const key = new Uint8Array(len);
@@ -208,8 +211,9 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     // Then the knocked props (a u16 byte count and the bytes), and per car its flight block, course memory and solver state (`encodeKey`).
     const knockBytes = kr.u16();
     kr.off += knockBytes;
+    const here = keyCars[k]!.toString(2).split("1").length - 1;
     let j = 0;
-    for (; j < nc && kr.off + FLIGHT * 8 + MEMORY * 8 + 2 <= len; j++) {
+    for (; j < here && kr.off + FLIGHT * 8 + MEMORY * 8 + 2 <= len; j++) {
       kr.off += FLIGHT * 8;
       // The wall memory (`RaceField.remember`): where the car stood (x ±Infinity: no history), how far past a wall line (m), the road segment its projection hint is on (-1: none).
       const wallX = kr.f64();
@@ -220,7 +224,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
       const n = kr.u16();
       kr.off += n * 8;
     }
-    if (check.count !== nc || j !== nc || kr.off !== len) throw new RangeError("clip key cars");
+    if (check.count !== here || j !== here || kr.off !== len) throw new RangeError("clip key cars");
     keys.push(key);
   }
   if (firstStep >= steps) throw new RangeError("clip first step");
@@ -233,7 +237,16 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || e.car >= nc || (k > 0 && step < ejections[k - 1]!.step)) throw new RangeError("clip ejection");
     ejections.push({ step, e });
   }
-  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, fineFrom, fine, keyStep, keys };
+  const nkn = r.u16();
+  if (nkn > MAX_KNOCKS) throw new RangeError("clip knocks");
+  const knocks: ClipKnock[] = [];
+  for (let k = 0; k < nkn; k++) {
+    const step = r.u32();
+    const prop = r.u16();
+    if (step >= steps || (k > 0 && step < knocks[k - 1]!.step)) throw new RangeError("clip knock");
+    knocks.push({ step, prop });
+  }
+  return { trackId, score, impacts, kills, ejects, ejections, knocks, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

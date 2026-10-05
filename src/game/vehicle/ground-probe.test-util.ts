@@ -89,14 +89,15 @@ export function makeCar(cls: VehicleClassId): DeformableCar {
   return car;
 }
 
-/** One rendered frame at 60 Hz (the engine's slicing); `input` null leaves the car undriven. */
-export function frame(w: World, input: DriveInput | null, st: { acc: number }): void {
+/** One rendered frame at 60 Hz (the engine's slicing); `input` null leaves the car undriven; `each` runs after every physics slice (a pose the frame's end never shows). */
+export function frame(w: World, input: DriveInput | null, st: { acc: number }, each?: () => void): void {
   st.acc = Math.min(0.05, st.acc + FRAME);
   while (st.acc > 1e-5) {
     const h = physicsSlice(st.acc, sliceSpeed(w.cars));
     if (input) for (const c of w.cars) applyDrive(c, input, h);
     stepWorld(w, h);
     for (const c of w.cars) c.stepBreakage(h);
+    each?.();
     st.acc -= h;
   }
   for (const c of w.cars) c.updateSkin();

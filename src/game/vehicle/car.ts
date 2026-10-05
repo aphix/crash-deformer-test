@@ -8,7 +8,7 @@ import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { COM_Y, hullClear, stepAir, SUPPORT } from "./car-air.ts";
 import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
-import { AXLE, landPose, settle, support, tilt, type Support } from "./car-support.ts";
+import { AXLE, axleGround, landPose, settle, support, tilt, type Support } from "./car-support.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 import type { CarSurfaces } from "./car-surfaces.ts";
@@ -422,8 +422,8 @@ export class DeformableCar extends CarParts {
           let was: number;
           let wasGrade = NaN;
           if (chord) {
-            const hF = ground.heightAt(bx + ax, bz + az, y0);
-            const hR = ground.heightAt(bx - ax, bz - az, y0);
+            const hF = axleGround(ground, bx + ax, bz + az, y0, this.yaw);
+            const hR = axleGround(ground, bx - ax, bz - az, y0, this.yaw);
             was = (hF + hR) / 2;
             wasGrade = (hF - hR) / (2 * AXLE);
           } else was = ground.heightAt(bx, bz, y0);

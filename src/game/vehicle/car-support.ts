@@ -210,8 +210,32 @@ export const AXLE = WHEEL_POS[0]![2];
 /** The axle chord lifts a driven body off its centre's ground beyond this (m): a hollow under it (a ramp's foot). */
 const CHORD_LIFT = 0.005;
 
+/** Half the track (m): an axle's tyres stand this far either side of its middle. */
+const HALF_TRACK = Math.abs(WHEEL_POS[0]![0]);
+/**
+ * The most (m) an axle rides above the lower of its two tyres' ground over a ground with walls. A step one tyre mounts (0.14 m
+ * for the monster's, `MOUNT_MAX` in fleet-ramps.ts) is the body's to ride; more is a wall the other tyre stands beside. Swept on the
+ * monster's side approach (fleet-ramps.test.ts): 0.1 gives 0 of 420 throttle-nudged runs over 30° of roll, 0.2 gives 10, 0.3 gives 33.
+ */
+const AXLE_STEP = 0.1;
+
 /** What a driven body stands on: its height (m) under the origin and the axle chord's rise per metre ahead (NaN: the centre's ground alone). */
 export type Support = { y: number; grade: number };
+
+/**
+ * The ground under an axle whose middle is at plan (cx, cz), asked at `hint`. Over a ground with walls (the fleet ramps) an axle
+ * with one tyre on a wedge's face and the other beside its wall rides at most `AXLE_STEP` above the lower: the middle sits inside
+ * the wedge, so the face alone held the whole axle up, and a monster driven at a wedge's side at 30° climbed the flank on one tyre
+ * at 3 m/s, took off at the high end and rolled over (14 of 21 throttle nudges of ±1 % over 30°; the 6 s window hid the rest).
+ */
+export function axleGround(g: Ground, cx: number, cz: number, hint: number, yaw: number): number {
+  const mid = g.heightAt(cx, cz, hint);
+  if (!g.walls) return mid;
+  const tx = Math.cos(yaw) * HALF_TRACK;
+  const tz = -Math.sin(yaw) * HALF_TRACK;
+  const low = Math.min(g.heightAt(cx - tx, cz - tz, hint), g.heightAt(cx + tx, cz + tz, hint));
+  return low === NO_FLOOR ? mid : Math.min(mid, low + AXLE_STEP);
+}
 
 /**
  * The support under a body whose origin is at plan (x, z), asked at height `y0`, facing `yaw`: the ground under its middle,
@@ -223,8 +247,8 @@ export function support(g: Ground, x: number, z: number, y0: number, yaw: number
   if (!driven) return;
   const ax = Math.sin(yaw) * AXLE;
   const az = Math.cos(yaw) * AXLE;
-  const hF = g.heightAt(x + ax, z + az, y0);
-  const hR = g.heightAt(x - ax, z - az, y0);
+  const hF = axleGround(g, x + ax, z + az, y0, yaw);
+  const hR = axleGround(g, x - ax, z - az, y0, yaw);
   if ((hF + hR) / 2 > out.y + CHORD_LIFT) {
     out.y = (hF + hR) / 2;
     out.grade = (hF - hR) / (2 * AXLE);

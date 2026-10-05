@@ -40,6 +40,7 @@ import {
   swingAccel,
   windWear,
 } from "./car-wear.ts";
+import { partState, PART_SLOTS, type PartStateCar } from "./part-state.ts";
 
 const _qSpin = new THREE.Quaternion();
 const _push = new THREE.Vector3();
@@ -67,8 +68,6 @@ const GLASS_LAMINATED = 0.25;
 const BAR_TEAR_SINK = 0.12;
 const BAR_TEAR_MPS = 60 / 3.6;
 export const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
-/** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
-const PART_SLOTS = 15;
 /**
  * Quarter panels and arch flares hinge by the crush under them, `(crush - on) / range`, and tear off once the hinge value
  * passes `PANEL_TEAR` on a hit this fast (EBS). Tuned on the walls (docs/RIG_ANALYSIS.md, body panels): the rear wing sensor peaks
@@ -135,18 +134,18 @@ const GROUND_BAND = 0.005;
  * Detachable parts: attached-part posing, door hinges and mirrors, glass following, breakage and detaching,
  * loose parts and wheels, and their netplay state.
  */
-export abstract class CarParts extends CarCore {
+export abstract class CarParts extends CarCore implements PartStateCar {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
   /** The flap clock (rad) turns with speed and shakes every hinged panel and bumper (`flapAngle`). Cosmetic: no rule reads it. */
-  private flapClock = 0;
-  private flapSpeed = 0;
+  flapClock = 0;
+  flapSpeed = 0;
   /** Seconds since the last contact, as of the last frame: tells a fresh touch from a continuing one (`evaluateBreakage`). */
-  private quietPrev = 0;
+  quietPrev = 0;
   /** The car's velocity (x, z) and yaw rate at the last door-swing sample: their change is the pendulum's drive. */
-  private readonly motion = new Float64Array(3);
+  readonly motion = new Float64Array(3);
   /** Pendulum drive, car frame: acceleration right, acceleration forward (m/s²), yaw rate (rad/s), yaw acceleration (rad/s²). */
-  private readonly swingDrive = new Float64Array(4);
+  readonly swingDrive = new Float64Array(4);
   protected syncAttachedParts(dt: number): void {
     this.advanceFlap(dt);
     const ix = this.deform.impactInward.x;
@@ -784,6 +783,17 @@ export abstract class CarParts extends CarCore {
       this.wheels[i]!.quaternion.toArray(out.wheels, i * 7 + 3);
     }
     out.wheelLoose = wheels;
+  }
+
+  /** A part is off the car (a torn mirror, panel or bumper): its net state rides a highlight keyframe even if the car is no wreck. */
+  hasLoosePart(): boolean {
+    for (let i = 0; i < this.parts.length; i++) if (this.parts[i]!.detached) return true;
+    return false;
+  }
+
+  /** The parts' sim state as doubles (`part-state.ts`): the replay keyframe's. */
+  partState(buf: Float64Array, write: boolean): void {
+    partState(this, this.parts, buf, write);
   }
 
 }

@@ -4,7 +4,7 @@ import { DriverSeat, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
 import { DEFAULT_RACE_OPTIONS, type RaceCommand, type RacePhase, type RaceSnapshot } from "../match/types.ts";
-import { FINE_PEDALS, INPUT_BYTES, type Reel } from "../match/highlights.ts";
+import { INPUT_BYTES, type Reel } from "../match/highlights.ts";
 import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
 import type { NetTx } from "./net-ports.ts";
@@ -586,16 +586,14 @@ describe("netplay session: the highlight reel", () => {
       s.cg.playReel = (reel) => resolve(reel);
     });
     const { clip } = makeClip();
-    // Incompressible pedals and digits: three clips that deflate to over the cap together.
+    // Incompressible inputs and schedules: five clips that deflate to over the cap together.
     let seed = 1;
     const next = (): number => (seed = (Math.imul(seed, 1103515245) + 12345) >>> 0);
     const noise = (n: number): Uint8Array => Uint8Array.from({ length: n }, () => next() >>> 24);
-    // Doubles in [0, 1) with all 53 mantissa bits random.
-    const pedals = (n: number): Float64Array => Float64Array.from({ length: n }, () => (next() * 2 ** 21 + (next() >>> 11)) / 2 ** 53);
     const steps = 8000;
     const shape = Uint32Array.from({ length: steps }, () => next() >>> 13);
-    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), shape, inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: pedals((steps - 100) * 2 * FINE_PEDALS) };
-    const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }];
+    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), shape, inputs: noise(steps * 2 * INPUT_BYTES) };
+    const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }, { ...big, score: 7 }, { ...big, score: 6 }];
     const msg = await packReel({ seed: 5, clips }, s.clock() / 1000 + 3);
     assert.ok(msg.length > RELAY_MSG_MAX, `precondition: the reel is ${msg.length} bytes, over the cap`);
     const parts = reelParts(msg);
@@ -603,9 +601,9 @@ describe("netplay session: the highlight reel", () => {
     for (const part of parts) s.host.sendReliable(part);
     s.hub.flush();
     const reel = await played;
-    assert.equal(reel.clips.length, 3, "every clip arrives");
+    assert.equal(reel.clips.length, 5, "every clip arrives");
     sameClip(reel.clips[0]!, big);
-    sameClip(reel.clips[2]!, clips[2]!);
+    sameClip(reel.clips[4]!, clips[4]!);
   });
 });
 

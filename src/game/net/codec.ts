@@ -32,8 +32,10 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  10: `MSG.reelPart`: the reel travels in frames under the relay's message cap, so no clip drops for size.
  11: a reel clip carries the world's step schedule, each keyframe the course's wall memory and knocked props, and the
  keyframe's `simState` drops two doubles (the wreck's fitted yaw rate).
+ 12: a reel clip carries per-key car masks and a knocks list (no fine block), and a keyframe's car section carries its
+ parts state, cage corners and sensor positions.
  */
-export const NET_VERSION = 11;
+export const NET_VERSION = 12;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

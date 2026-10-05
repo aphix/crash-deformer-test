@@ -182,14 +182,14 @@ function jump(v: number): Jump {
  * its tyres grip) at the +z ramp's side from 3.3 m out, `off` deg off the run (90 = square to the side), aimed so its centre
  * line meets the side wall where the wall stands `wall` m high. Its worst roll about its own nose (deg, the lean of its right
  * side) and highest point while it enters: until its centre passes the ramp's midline, comes within 1 m of the high end (where
- * a jump starts), or 6 s are up.
+ * a jump starts), or `frames` (default 360: 6 s) are up. `dx` moves the spawn along +x (m).
  */
-function approachSide(cls: VehicleClassId, off: number, wall: number): { roll: number; high: number; z: number } {
+function approachSide(cls: VehicleClassId, off: number, wall: number, { frames = 360, dx = 0 } = {}): { roll: number; high: number; z: number } {
   const { w, car } = scene(false);
   assignClass(car, cls);
   const th = off / DEG;
   const zWall = RAMP.start + ((RAMP.top - wall) * RAMP.len) / RAMP.top;
-  car.spawnFacing(RAMP.halfW + 3.3, zWall + 3.3 / Math.tan(th), Math.PI + th, 0);
+  car.spawnFacing(RAMP.halfW + 3.3 + dx, zWall + 3.3 / Math.tan(th), Math.PI + th, 0);
   const q = car.group.quaternion;
   const right = new THREE.Vector3();
   const input = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
@@ -197,7 +197,7 @@ function approachSide(cls: VehicleClassId, off: number, wall: number): { roll: n
   let roll = 0;
   let high = 0;
   const p = car.group.position;
-  for (let f = 0; f < 360 && p.z > RAMP.start + 1 && p.x > 0; f++) {
+  for (let f = 0; f < frames && p.z > RAMP.start + 1 && p.x > 0; f++) {
     input.throttle = Math.max(0, Math.min(1, (3 - car.speed) / 1.5));
     frame(w, input, st);
     roll = Math.max(roll, Math.abs(Math.asin(Math.max(-1, Math.min(1, right.set(1, 0, 0).applyQuaternion(q).y)))) * DEG);
@@ -494,6 +494,26 @@ describe("fleet ramps", () => {
       }
     }
     t.diagnostic(`\n${rows.join("\n")}`);
+    assert.deepEqual(failures, []);
+  });
+
+  it("the same side approaches, given 12 s to run and the spawn a few mm either way, never roll over", (t) => {
+    // The monster driven at the flank at 30° crept up it on one tyre, took off at the high end (z 3.4) and tipped onto the wall
+    // (72° on main). That lands between 4.3 and 5.8 s, so the 6 s window above passed 7 of 21 throttle draws at wall 0.2 m and all 21 at 0.05 m by timing alone.
+    const failures: string[] = [];
+    let n = 0;
+    for (const cls of VEHICLE_CLASS_IDS) {
+      for (const off of [30, 45]) {
+        for (const wall of [0.05, 0.2, 0.4]) {
+          for (const dx of [-0.003, 0, 0.003]) {
+            const r = approachSide(cls, off, wall, { frames: 720, dx });
+            n++;
+            if (r.roll > 30) failures.push(`${cls} ${off}° off the run, wall ${wall} m, spawn ${dx * 1000} mm: worst roll ${r.roll.toFixed(0)}°, reached z ${r.z.toFixed(1)}`);
+          }
+        }
+      }
+    }
+    t.diagnostic(`${n} runs, ${failures.length} over 30°`);
     assert.deepEqual(failures, []);
   });
 });

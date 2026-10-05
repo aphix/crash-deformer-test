@@ -208,7 +208,11 @@ export class Suspension {
       this.rate[i] = r;
     }
     if (this.seen < 2) this.seen++;
-    const hit = air ? 0 : this.bottomOut(e, lift);
+    // Still held up (`rise`) or sprung down on a compressed spring, the drawn body keeps bottoming out through a slice the hull is clear
+    // in: a nose bouncing off a landing lifts it out for one slice (`airContact` false), and dropping `rise` then sank the underside 4.7 cm.
+    const off = this.offset;
+    const sunk = this.rise > 0 || off[0]! < 0 || off[1]! < 0 || off[2]! < 0 || off[3]! < 0;
+    const hit = air && !sunk ? 0 : this.bottomOut(e, lift);
     if (this.seatWheels(e, wheels, stop, air, dt) || moved || hit !== this.rise) {
       this.rise = hit;
       this.pose(lift);
