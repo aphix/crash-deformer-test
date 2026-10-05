@@ -261,6 +261,27 @@ forModes("given a car with one part detached", () => {
   });
 });
 
+forModes("given a freshly built car", () => {
+  it("when it is disposed of, then every geometry and own material in its group, the hull overlay's lines included, is freed", () => {
+    const scene = new THREE.Scene();
+    const car = new DeformableCar(paint(), scene);
+    const live = new Set<THREE.BufferGeometry | THREE.Material>();
+    let drawn = 0;
+    car.group.traverse((o) => {
+      const d = o as THREE.Mesh | THREE.Line | THREE.Points;
+      if (!d.geometry) return;
+      drawn++;
+      live.add(d.geometry);
+      for (const m of [d.material].flat() as THREE.Material[]) if (!m.userData.shared) live.add(m);
+    });
+    assert.ok([...live].some((r) => r instanceof THREE.BufferGeometry && r === (car["hullHelper"] as THREE.LineSegments).geometry), "the hull overlay is among what the car owns");
+    assert.ok(drawn > 20, `${drawn} drawn objects found`);
+    for (const r of live) r.addEventListener("dispose", () => live.delete(r));
+    car.dispose();
+    assert.equal(live.size, 0, `${live.size} geometries/materials left undisposed`);
+  });
+});
+
 forModes("given a car whose wheel hubs all pop off after a 2 m/s nose knock", (mode) => {
   it("when it runs for 5 s, then each wheel leaves the car as its own body, lands on its tyre at ground level and stops sliding, and the drivetrain is dead with no wheels left", () => {
     const scene = new THREE.Scene();

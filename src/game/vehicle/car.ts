@@ -580,11 +580,10 @@ export class DeformableCar extends CarParts {
   dispose(): void {
     this.deform.disposeHelper();
     const free = (obj: THREE.Object3D) => {
-      if (obj instanceof THREE.Mesh) {
-        obj.geometry.dispose();
-        const mats = Array.isArray(obj.material) ? obj.material : [obj.material];
-        for (const m of mats) if (!m.userData.shared) m.dispose();
-      }
+      // Meshes, lines and points alike: the hull overlay is a LineSegments, and freeing meshes alone left its buffer for good.
+      const drawn = obj as THREE.Mesh | THREE.Line | THREE.Points;
+      drawn.geometry?.dispose();
+      for (const m of [drawn.material].flat()) if (m && !m.userData.shared) m.dispose();
       if (obj instanceof THREE.Light) obj.dispose();
     };
     // Loose parts live in the world, attached ones in the group: free each part before it leaves either.
