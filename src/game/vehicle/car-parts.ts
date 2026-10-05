@@ -1,13 +1,13 @@
 import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
-import { applyGroundFriction, CRASH } from "../deform/physics-util.ts";
 import { DOOR } from "./car-mesh.ts";
 import { getCrackMap, LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
 import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
-import { applyDents, DENT_MIN_DV, recordDent, type DentState } from "./loose-dent.ts";
+import { applyDents } from "./loose-dent.ts";
+import { stepLoose } from "./loose-step.ts";
 import {
   CarCore,
   BUMPER_TEAR_MPS,
@@ -22,7 +22,6 @@ import {
   type GlassPane,
   HINGE_TEAR_J,
   type Lamp,
-  type LooseBody,
   type PartNetState,
   SLAM_TEAR_J,
   type WorldBounce,
@@ -42,15 +41,12 @@ import {
 } from "./car-wear.ts";
 import { partState, PART_SLOTS, type PartStateCar } from "./part-state.ts";
 
-const _qSpin = new THREE.Quaternion();
 const _push = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _box = new THREE.Box3();
 const _lampQ = new THREE.Quaternion();
 const _doorW = new THREE.Vector3();
-const _dv = new THREE.Vector3();
-const _v0 = new THREE.Vector3();
 const _c = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
@@ -93,42 +89,14 @@ const WEAR_MIN_T = 0.04;
 const TOUCH_GAP = 0.15;
 const TOUCH_NOW = 0.03;
 
-/** A part or wheel off the car: gravity, tumble, the world's walls, a floor at `floor` (m) and asphalt; none past the fleet disc's rim. */
-function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: WorldBounce, dent?: DentState): void {
-  p.velocity.y -= 9.6 * dt;
-  p.object.position.addScaledVector(p.velocity, dt);
-  const spin = p.angular.length();
-  if (spin > 1e-5) {
-    _n.copy(p.angular).multiplyScalar(1 / spin);
-    _qSpin.setFromAxisAngle(_n, spin * dt);
-    p.object.quaternion.premultiply(_qSpin);
-  }
-  p.angular.multiplyScalar(Math.pow(0.72, dt));
-  if (dent) _v0.copy(p.velocity);
-  bounce?.(p.object.position, p.velocity, Math.min(0.22, p.radius * 0.45));
-  const q = p.object.position;
-  const grounded = activeGround().heightAt(q.x, q.z, q.y) !== NO_FLOOR;
-  if (grounded && q.y < floor) {
-    q.y = floor;
-    if (p.velocity.y < 0) p.velocity.y *= -0.28;
-  }
-  if (dent) {
-    // A settled part's tiny velocity change never reaches recordDent.
-    const dx = p.velocity.x - _v0.x;
-    const dy = p.velocity.y - _v0.y;
-    const dz = p.velocity.z - _v0.z;
-    if (dx * dx + dy * dy + dz * dz >= DENT_MIN_DV * DENT_MIN_DV) recordDent(dent, p.object, _dv.set(dx, dy, dz));
-  }
-  if (grounded && q.y <= floor + GROUND_BAND) {
-    // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
-    // band keeps the millimetre hops of the bounce in contact at any frame rate.
-    const slide = Math.hypot(p.velocity.x, p.velocity.z);
-    applyGroundFriction(p.velocity, dt, CRASH.muSlide, true);
-    p.angular.multiplyScalar(slide > 1e-5 ? Math.hypot(p.velocity.x, p.velocity.z) / slide : 0);
-  }
+/** The hinge value above which a part counts as folding (hung open, crushed, flapping), by hinge kind. */
+function foldAt(p: DetachPart): number {
+  if (p.hinge === "two-point") return p.name.startsWith("bumper") ? 0.04 : 0.08;
+  if (p.hinge === "cowl" || p.hinge === "tail") return 0.06;
+  if (p.hinge === "door") return 0.08;
+  if (p.hinge === "bar") return 0.05;
+  return p.region ? PANEL_OPEN : Infinity;
 }
-/** Height above its rest (m) at which a loose part still slides on the ground. */
-const GROUND_BAND = 0.005;
 
 /**
  * Detachable parts: attached-part posing, door hinges and mirrors, glass following, breakage and detaching,
@@ -176,21 +144,38 @@ export abstract class CarParts extends CarCore implements PartStateCar {
         else if (p.region) target = THREE.MathUtils.clamp((crush - PANEL_HINGE[p.region.kind].on) / PANEL_HINGE[p.region.kind].range, 0, 1);
       }
       p.hingeT = Math.min(p.hingeMax, Math.max(p.hingeT, Math.min(target, p.hingeT + Math.max(dt * 3.2, 0.012))));
+      // `folding` is read by the net state and the recorder's keyframes at every step, so it is set here, not in the frame's pose.
+      p.folding = p.hingeT > foldAt(p);
       if (p.hinge === "door" && onHit) this.springDoor(p);
-      this.posePart(p);
     }
+    this.partsDirty = true;
+  }
+
+  /**
+   * Set when `syncAttachedParts` moved a part's state; `poseParts` (once per rendered frame, from `updateSkin`) writes the
+   * poses. A pose is presentation only and a step is 1/240 s: writing it every step cost 10 % of a crowded crash race.
+   */
+  protected partsDirty = false;
+
+  /** Every attached part posed from its current state, if a step moved any (`updateSkin`, before lamps, panels and glass follow). */
+  protected poseParts(): void {
+    if (!this.partsDirty) return;
+    this.partsDirty = false;
+    // A car reset since the step that set the flag has its parts back at rest: nothing to pose.
+    if (!this.crashed) return;
+    for (const p of this.parts) if (!p.detached) this.posePart(p);
   }
 
   /** Rest pose plus the hinge value `hingeT` (crash) and, on doors and mirrors, the free swing. */
   protected posePart(p: DetachPart): void {
     const t = p.hingeT;
+    p.folding = t > foldAt(p);
     p.object.position.copy(p.restPos);
     p.object.quaternion.copy(p.restQuat);
     p.object.scale.set(1, 1, 1);
 
     if (p.hinge === "two-point") {
       if (p.name.startsWith("bumper")) {
-        p.folding = t > 0.04;
         const fl = this.deform.massLocal(p.name === "bumperF" ? "bumperFL" : "bumperRL");
         const fr = this.deform.massLocal(p.name === "bumperF" ? "bumperFR" : "bumperRR");
         p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
@@ -206,7 +191,6 @@ export abstract class CarParts extends CarCore implements PartStateCar {
         p.object.position.x += px * (1 - Math.cos(roll));
         p.object.position.y -= px * Math.sin(roll) + t * BUMPER_SAG;
       } else {
-        p.folding = t > 0.08;
         const side = p.name === "mirrorL" ? -1 : 1;
         p.object.rotation.z += side * t * 1.4;
         p.object.rotation.y = p.swing!.mirrorFold;
@@ -214,17 +198,14 @@ export abstract class CarParts extends CarCore implements PartStateCar {
         p.object.position.x += side * t * 0.18;
       }
     } else if (p.hinge === "cowl") {
-      p.folding = t > 0.06;
       p.object.position.z -= t * 0.08;
       p.object.position.y += t * 0.26;
       p.object.rotation.x = -t * 0.5;
     } else if (p.hinge === "tail") {
-      p.folding = t > 0.06;
       p.object.position.z += t * 0.08;
       p.object.position.y += t * 0.22;
       p.object.rotation.x = t * 0.5;
     } else if (p.hinge === "door") {
-      p.folding = t > 0.08;
       const sign = p.name === "doorL" ? -1 : 1;
       p.object.rotation.y = -sign * Math.max(t * 1.45, p.swing!.theta);
       p.object.position.x += sign * t * 0.06;
@@ -234,7 +215,6 @@ export abstract class CarParts extends CarCore implements PartStateCar {
       const g = p.object.getWorldPosition(_doorW);
       if (_box.min.y < 0.04 && activeGround().heightAt(g.x, g.z, g.y) !== NO_FLOOR) p.object.position.y += 0.04 - _box.min.y;
     } else if (p.hinge === "bar") {
-      p.folding = t > 0.05;
       // Tilts on its far mount, the struck side dropping.
       const dir = this.deform.impactInward.x < 0 ? -1 : 1;
       const roll = dir * t * BAR_ROLL;
@@ -243,7 +223,6 @@ export abstract class CarParts extends CarCore implements PartStateCar {
       p.object.position.x += px * (1 - Math.cos(roll));
       p.object.position.y -= px * Math.sin(roll);
     } else if (p.region) {
-      p.folding = t > PANEL_OPEN;
       if (p.folding) {
         if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
         const a = this.flapAngle(p);
@@ -480,7 +459,9 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     return false;
   }
 
+  /** Once a frame on a crashed car (`updateSkin`, after the skin): the parts' poses a step left pending are written first, door glass rides its door. */
   protected followGlass(): void {
+    this.poseParts();
     const inward = this.deform.impactInward;
     for (const g of this.glassPanes) {
       if (g.state === "shattered" || g.skin) continue;
@@ -593,6 +574,9 @@ export abstract class CarParts extends CarCore implements PartStateCar {
    *  crash launch: outward from the body by `impulse`, popped up by `hingeT`. */
   protected detachPart(p: DetachPart, impulse: number, push?: THREE.Vector3): void {
     if (p.detached) return;
+    // The part leaves in the pose its state gives now, not the last frame's (poses are written once a frame, `poseParts`; a door
+    // torn off by `swingDoors` finds none pending).
+    this.posePart(p);
     p.detached = true;
     this.group.updateMatrixWorld();
     const wpos = new THREE.Vector3();

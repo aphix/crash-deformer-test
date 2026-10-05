@@ -217,6 +217,7 @@ function flutter(name: string, t: number, v: number, frames = 90): number {
   for (let f = 0; f < frames; f++) {
     car.velocity.set(0, 0, v);
     car.stepBreakage(DT);
+    car.updateSkin();
     most = Math.max(most, p.object.quaternion.angleTo(p.restQuat));
   }
   return most;
@@ -242,6 +243,7 @@ describe("a hinged panel flaps with the car's speed", () => {
       for (let f = 0; f < 90; f++) {
         car.velocity.set(0, 0, v);
         car.stepBreakage(DT);
+        car.updateSkin();
         lo = Math.min(lo, b.object.rotation.z);
         hi = Math.max(hi, b.object.rotation.z);
       }
@@ -263,6 +265,7 @@ describe("a hinged panel flaps with the car's speed", () => {
       for (let f = 0; f < 60; f++) {
         car.velocity.set(0, 0, 18);
         car.stepBreakage(DT);
+        car.updateSkin();
         out.push(p.object.quaternion.y, p.object.position.x, p.object.position.z);
       }
       assert.equal((mesh.geometry.getAttribute("position") as THREE.BufferAttribute).version, uploads, "a flapping shell was rebuilt");
@@ -276,7 +279,10 @@ describe("a hinged panel flaps with the car's speed", () => {
     const p = car.hang("quarterR", 0.4);
     const r = p.region!;
     car.velocity.set(0, 0, 20);
-    for (let f = 0; f < 30; f++) car.stepBreakage(DT);
+    for (let f = 0; f < 30; f++) {
+      car.stepBreakage(DT);
+      car.updateSkin();
+    }
     // A point on the hinge line (x, z) = pivot stays where it was whatever the angle.
     const tail = new THREE.Vector3(r.pivot[0], r.origin.y, r.pivot[1]).sub(r.origin);
     const before = tail.clone().add(r.origin);

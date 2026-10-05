@@ -111,12 +111,19 @@ describe("a panel shell is rebuilt when it changes, not every frame", () => {
   it("good: a settled wreck's hinged shells are not rebuilt, and one whose hinge moves is", () => {
     const car = wreck("sedan", null);
     const open = ["quarterR", "archRL"].map((n) => car.hang(n, 0.5));
-    for (let f = 0; f < 30; f++) car.stepBreakage(1 / 60);
+    for (let f = 0; f < 30; f++) {
+      car.stepBreakage(1 / 60);
+      car.updateSkin();
+    }
     const before = open.map(uploads);
-    for (let f = 0; f < 30; f++) car.stepBreakage(1 / 60);
+    for (let f = 0; f < 30; f++) {
+      car.stepBreakage(1 / 60);
+      car.updateSkin();
+    }
     assertSameNumbers(open.map(uploads), before, "shell uploads over 30 settled frames");
     open[0]!.hingeT = 0.8;
     car.stepBreakage(1 / 60);
+    car.updateSkin();
     assert.ok(uploads(open[0]!) > before[0]!, "a shell whose hinge moved stayed as it was");
     assert.equal(uploads(open[1]!), before[1], "the other shell was rebuilt");
   });
