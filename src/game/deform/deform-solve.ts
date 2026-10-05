@@ -20,6 +20,7 @@ import { HUB_OVERRUN, type MassNode } from "./deform-rig.ts";
 import { FACE_TOP } from "./load-crush.ts";
 import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
 import { tiltedRise } from "./hub-plane.ts";
+import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
@@ -90,7 +91,7 @@ export abstract class DeformSolve extends DeformContact {
     // the plain write-back. Undoing its turn on a planted wreck turned the body against its hubs each
     // call and let a capped door drift 36–118 µm off its cap (left piston 60–80 km/h).
     const unturn = !squeeze && !pinned;
-    if (unturn) this.holdTurn();
+    if (!squeeze) this.holdTurn();
     _clamp[0] = ix;
     _clamp[1] = iz;
     _clamp[2] = maxAway;
@@ -117,6 +118,7 @@ export abstract class DeformSolve extends DeformContact {
     // no torque: derby seed 3 c4 0.45 rad in 0.15 s, seed 4 c8 0.78 rad, ΔL = 0. The frame follows the
     // cloud on the next read instead.
     if (unturn) this.undoTurn();
+    else if (!squeeze) this.carryTurn();
     // The clamp moves positions only: writing back a crushing body (its front masses slower than its
     // rear) changed Σ m r × v, spin from nowhere (dump16 replay: clampLocal put +8.7 rad/s of L/I into
     // Khaki, −8.6 into Bronze). Hand back the angular momentum the masses had, as a rigid turn.
@@ -272,80 +274,22 @@ export abstract class DeformSolve extends DeformContact {
   }
 
   holdTurn(): void {
-    for (let i = 0; i < this.masses.length; i++) {
-      this.turnX[i] = this.masses[i]!.world.x;
-      this.turnZ[i] = this.masses[i]!.world.z;
-    }
+    holdPositions(this.masses, this.turnX, this.turnZ);
   }
 
-  /** Undo the net turn (about the held centroid, as stepShapeMatch does for its goals) that a
-   *  position-only pass made since `holdTurn`; its translation and reshaping stay. */
+  /** Undo the net turn that a position-only pass made since `holdTurn` (turn-hold.ts). */
   undoTurn(): void {
-    let mx = 0,
-      mz = 0,
-      mm = 0;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      mx += this.turnX[i]! * m.mass;
-      mz += this.turnZ[i]! * m.mass;
-      mm += m.mass;
-    }
-    mx /= mm;
-    mz /= mm;
-    let turn = 0,
-      turnI = 0;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      const rx = this.turnX[i]! - mx;
-      const rz = this.turnZ[i]! - mz;
-      turn += m.mass * (rz * (m.world.x - this.turnX[i]!) - rx * (m.world.z - this.turnZ[i]!));
-      turnI += m.mass * (rx * rx + rz * rz);
-    }
-    const w = turn / turnI;
-    for (let i = 0; i < this.masses.length; i++) {
-      const m = this.masses[i]!;
-      m.world.x -= w * (this.turnZ[i]! - mz);
-      m.world.z += w * (this.turnX[i]! - mx);
-    }
+    undoNetTurn(this.masses, this.turnX, this.turnZ);
   }
 
-  /** The masses' angular momentum about their centroid (y) into `spinHeld[slot]`, or with `restore`, a rigid
-   *  turn added to every mass's velocity that sets it back to `spinHeld[slot]`. Through a typed array, not
-   *  an argument and return value: clampLocal calls it out of line, and both were boxed per call. */
+  /** Keep the turn a pinned write-back made, and turn the masses' relative velocities with it (turn-hold.ts). */
+  protected carryTurn(): void {
+    turnVelocities(this.masses, this.turnX, this.turnZ);
+  }
+
+  /** The masses' angular momentum about their centroid into `spinHeld[slot]`, or with `restore`, back to it as a rigid turn (turn-hold.ts). */
   protected yawMomentum(slot: number, restore: boolean): void {
-    let mass = 0,
-      cx = 0,
-      cz = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      cx += m.world.x * m.mass;
-      cz += m.world.z * m.mass;
-      mass += m.mass;
-    }
-    cx /= mass;
-    cz /= mass;
-    let l = 0,
-      inertia = 0;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      const rx = m.world.x - cx;
-      const rz = m.world.z - cz;
-      l += m.mass * (rz * m.vel.x - rx * m.vel.z);
-      inertia += m.mass * (rx * rx + rz * rz);
-    }
-    const held = this.spinHeld;
-    if (!restore) {
-      held[slot] = l;
-      return;
-    }
-    const target = held[slot]!;
-    if (Number.isNaN(target) || inertia < 1e-9) return;
-    const w = (target - l) / inertia;
-    for (let mi = 0; mi < this.masses.length; mi++) {
-      const m = this.masses[mi]!;
-      m.vel.x += w * (m.world.z - cz);
-      m.vel.z -= w * (m.world.x - cx);
-    }
+    holdMomentum(this.masses, this.spinHeld, slot, restore);
   }
 
   private stepBeams(dt: number): void {
@@ -603,8 +547,14 @@ export abstract class DeformSolve extends DeformContact {
   protected stepMassSlice(dt: number): void {
     const live = this.live();
     if (this.mode === "shape") {
-      if (live) this.stepShapeMatch(dt);
-      else this.goalOut?.fill(NaN);
+      if (live) {
+        // Shape matching moves positions only, so over the masses' velocities each correction moved Σ m r × v: a car shoved
+        // against a wall went 0.9 → 7.5 rad/s with the matching alone adding 6400 kg·m²/s in 1.2 s (derby seed 8, c6).
+        // Its goals are internal: the angular momentum it moved is handed back as a rigid turn, as clampLocal's is.
+        this.yawMomentum(2, false);
+        this.stepShapeMatch(dt);
+        this.yawMomentum(2, true);
+      } else this.goalOut?.fill(NaN);
     } else {
       this.goalOut?.fill(NaN);
       this.stepBeams(dt);
@@ -622,7 +572,10 @@ export abstract class DeformSolve extends DeformContact {
     this.sampleGround(this.floorPost, this.gripPost);
     this.floorsFresh = true;
     this.groundMasses(dt, scuffed, powered && this.drivetrainAlive);
+    // The block's spacing is internal too: its position correction over a turning pair moved 680 of a flying wreck's 730 kg·m²/s.
+    this.yawMomentum(2, false);
     this.holdEngineBlock();
+    this.yawMomentum(2, true);
     if (!live && !this.bidirectional) {
       let mx = 0,
         mz = 0,

@@ -328,7 +328,12 @@ type DriveMass = {
   readonly vel: { x: number; z: number };
 };
 
-/** Rigid yaw (cos `turn[0]`, sin `turn[1]`) of every dynamic mass about their centre of mass, plus a shared Δv (`turn[2]`, `turn[3]`). */
+/**
+ * Rigid yaw (cos `turn[0]`, sin `turn[1]`) of every dynamic mass about their centre of mass, its positions and its velocities
+ * relative to the mean alike (the body's internal motion, spin included, turns with it: turning positions alone left the
+ * velocities behind, and a steered spinning wreck lost or gained angular momentum with no torque), plus a shared Δv
+ * (`turn[2]`, `turn[3]`).
+ */
 function driveMasses(masses: readonly DriveMass[], turn: Float64Array): void {
   const c = turn[0]!;
   const s = turn[1]!;
@@ -336,26 +341,34 @@ function driveMasses(masses: readonly DriveMass[], turn: Float64Array): void {
   const az = turn[3]!;
   let cx = 0;
   let cz = 0;
+  let vx = 0;
+  let vz = 0;
   let m = 0;
   for (let ni = 0; ni < masses.length; ni++) {
     const n = masses[ni]!;
     if (!n.dynamic) continue;
     cx += n.world.x * n.mass;
     cz += n.world.z * n.mass;
+    vx += n.vel.x * n.mass;
+    vz += n.vel.z * n.mass;
     m += n.mass;
   }
   if (m <= 1e-8) return;
   cx /= m;
   cz /= m;
+  vx /= m;
+  vz /= m;
   for (let ni = 0; ni < masses.length; ni++) {
     const n = masses[ni]!;
     if (!n.dynamic) continue;
     const dx = n.world.x - cx;
     const dz = n.world.z - cz;
+    const ux = n.vel.x - vx;
+    const uz = n.vel.z - vz;
     n.world.x = cx + dx * c + dz * s;
     n.world.z = cz - dx * s + dz * c;
-    n.vel.x += ax;
-    n.vel.z += az;
+    n.vel.x = vx + ux * c + uz * s + ax;
+    n.vel.z = vz - ux * s + uz * c + az;
   }
 }
 

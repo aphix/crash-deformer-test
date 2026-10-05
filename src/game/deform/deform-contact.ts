@@ -12,6 +12,7 @@ import {
 } from "./physics-util.ts";
 import { DeformState, ENGINE_PACK_GAP, HUB_FLOOR, PLANT_QUIET, TYRE_R } from "./deform-state.ts";
 import { HubPlane } from "./hub-plane.ts";
+import { BodyFit } from "./body-fit.ts";
 import type { MassNode } from "./deform-rig.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
 
@@ -26,10 +27,6 @@ export const TYRE_HALF_W = 0.11;
 const SHEET_MU = 0.45;
 /** Largest overlap (m) one car-car mass pair resolves per CONTACT_REF_SLICE (sphereHit). */
 const SPHERE_STEP = 0.06;
-/** Yaw-rate sanity guard (rad/s) on followGroup's measured heading change; a real wreck spins < 5. */
-const YAW_RATE_GUARD = 12;
-/** Shortest sim time (s) a yaw-rate sample spans. */
-const YAW_RATE_SPAN = 1 / 60;
 /** Shortest sim time (s) a wreck's vertical-speed sample spans: just under the 1/240 s shortest slice (followGroup). */
 const VY_SPAN = 0.004;
 /** A mass this close (m) to a rigid face still counts as resting on it. */
@@ -48,6 +45,8 @@ const _toLocal = new THREE.Matrix4();
  *  0.1 s, CR8's eased level-out (64 km/h head-on roof 0.61× its per-slice 3·v·h + 5 cm limit). */
 const LEVEL_TIME = 0.1;
 const _plane = new HubPlane();
+/** The masses' spin sums (`followGroup` resets and fills them). */
+const _fit = new BodyFit();
 /** The ground plane holds a wreck's tilt while its lowest hub is within this (m) of its `HUB_FLOOR`, and fades out over `PLANE_FADE` more: a wreck in flight has no ground under it to lie on. */
 const PLANE_FADE_FROM = 0.05;
 const PLANE_FADE = 0.25;
@@ -190,8 +189,9 @@ export abstract class DeformContact extends DeformState {
     if (hit) {
       this.undoTurn();
       other.undoTurn();
-      this.push.debit(this.elapsed, _shift[0]! / this.totalMass, _shift[1]! / this.totalMass);
-      other.push.debit(other.elapsed, _shift[2]! / other.totalMass, _shift[3]! / other.totalMass);
+      this.push.debit(this.budgetAt(), _shift[0]! / this.totalMass, _shift[1]! / this.totalMass);
+      other.push.debit(other.budgetAt(), _shift[2]! / other.totalMass, _shift[3]! / other.totalMass);
+      this.noteTouch(other);
     }
     return hit;
   }
@@ -204,6 +204,8 @@ export abstract class DeformContact extends DeformState {
       this.overlapFrame = false;
       this.contactAt = this.elapsed;
     }
+    const at = this.budgetAt();
+    this.driftFrom();
     const wasLive = this.quietTime() < PLANT_QUIET;
     this.elapsed += dt;
     if (wasLive && !this.bidirectional && this.quietTime() >= PLANT_QUIET) this.seatHubs();
@@ -229,10 +231,15 @@ export abstract class DeformContact extends DeformState {
     }
     this.shapeWasLive = this.shapeRan;
     this.updateDrivetrain();
+    this.settleDrift(dt, at);
   }
 
   followGroup(group: THREE.Object3D, velocityOut: THREE.Vector3, angularOut: THREE.Vector3, dt: number): void {
     const cell = this.at.cell;
+    const y0 = group.position.y;
+    // leanAt is unset from arming to the first read: that read re-poses the frame from the masses.
+    const first = this.leanAt === -Infinity;
+    _fit.reset();
     this.measurePose();
     const pose = this.pose;
     const pitch = pose[0]!;
@@ -302,38 +309,33 @@ export abstract class DeformContact extends DeformState {
       mx += m.vel.x * m.mass;
       mz += m.vel.z * m.mass;
       mass += m.mass;
+      _fit.addSpin(m.mass, m.world.x - cell.world.x, m.world.z - cell.world.z, m.vel.x, m.vel.z);
     }
+    this.driftFrom();
     this.clampLocal(group);
+    this.settleDrift(0, this.budgetAt());
     // Vertical speed, measured: the frame's rise over at least `VY_SPAN` of sim time (the SAT passes in between move it
     // too). The masses' own would not do: on the ground the band, not they, sets the frame's height, and a mass the
     // ground lifts keeps its old speed (a wreck at rest on the level read up to 4 m/s, one sliding up a ramp's face
     // 1.9 m/s against the face's 3.9). Over the 24 µs remainder of a frame it is noise: 0.2 mm of band jitter read
     // −9.9 m/s (a derby heat: 7 frames flagged by the 2 cm rule, vy down to −29 m/s). A slice is never shorter than
     // 1/240 s, so a span that short folds into the next call's.
+    // A re-measure (a call that took no time: the SAT passes, a pair push; or the first read since arming) re-poses the
+    // frame without the body moving: its shift is taken off the sample, not read as a speed (a tilted car pushed 0.15 m
+    // moved its frame 0.35 m in one dt = 0 call, then read −55 m/s).
     const vySpan = this.elapsed - this.frameAt;
-    if (dt > 0 && vySpan >= VY_SPAN) {
+    if (dt > 0 && !first && vySpan >= VY_SPAN) {
       this.frameVy = (gy - this.frameY) / vySpan;
       this.frameY = gy;
       this.frameAt = this.elapsed;
-    }
+    } else if (dt === 0 || first) this.frameY += gy - y0;
     velocityOut.set(mx / mass, this.frameVy, mz / mass);
     clampSpeed(velocityOut, CRASH.maxMassMps);
-    const span = this.elapsed - this.rateAt;
-    if (dt > 1e-5 && span >= YAW_RATE_SPAN) {
-      // Heading change over at least a frame of sim time, so the SAT passes (dt = 0), the two pose
-      // syncs of one slice and contact jitter inside a frame are not divided by a 1/240 s slice.
-      // The clamp is only a guard against a bad fit.
-      let dyaw = yawSafe - this.rateYaw;
-      if (dyaw > Math.PI) dyaw -= Math.PI * 2;
-      if (dyaw < -Math.PI) dyaw += Math.PI * 2;
-      const yawRate = Math.max(-YAW_RATE_GUARD, Math.min(YAW_RATE_GUARD, dyaw / span));
-      // Field writes, not set(): an out-of-line set() boxed all three per call.
-      angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
-      angularOut.y = Number.isFinite(yawRate) ? yawRate : 0;
-      angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
-      this.rateYaw = yawSafe;
-      this.rateAt = this.elapsed;
-    }
+    // The spin the masses carry (angular momentum over inertia about their centroid), never the frame's own turn: a fit
+    // that jumps (a mass pushed, a re-measure) is no motion. Field writes, not set(): an out-of-line set() boxed all three per call.
+    angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
+    angularOut.y = _fit.spin();
+    angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
     this.prevYaw = yawSafe;
   }
 
@@ -470,7 +472,7 @@ export abstract class DeformContact extends DeformState {
 
   /** Move the whole wreck, including planted hubs, so a bowl clip is not undone next frame. */
   translateMasses(dx: number, dz: number, dvx: number, dvz: number): void {
-    this.push.debit(this.elapsed, dx, dz);
+    this.push.debit(this.budgetAt(), dx, dz);
     for (const m of this.masses) {
       m.world.x += dx;
       m.world.z += dz;
@@ -639,7 +641,8 @@ export abstract class DeformContact extends DeformState {
    * the two touching cars.
    */
   takePush(nx: number, nz: number, amount: number, dt: number, touchSpeed: number): number {
-    return this.push.take(this.elapsed, nx, nz, amount, dt, touchSpeed);
+    if (touchSpeed > this.sliceTouch) this.sliceTouch = touchSpeed;
+    return this.push.take(this.budgetAt(), nx, nz, amount, dt, touchSpeed);
   }
 
   /**

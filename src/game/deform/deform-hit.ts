@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { clampSpeed, hypot2 } from "./physics-util.ts";
 import { resetCluster } from "./shape-match.ts";
+import { BodyFit } from "./body-fit.ts";
 import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
 import { FACES, FACE_AXIS } from "./load-crush.ts";
 
@@ -17,6 +18,11 @@ const REARM_EBS = 2.8;
  *  judge, the wear counts how many hits a wreck has taken (`wreckEnergy`). */
 const WEAR_HIT = 36;
 const _r = new THREE.Vector3();
+/** `seatHubs`' spin sums (it resets and fills them). */
+const _fit = new BodyFit();
+/** A position-only pass's start (`driftFrom`): the centroid x, z; and its end (`settleDrift`): centroid x, z then mean velocity x, z. */
+const _driftFrom = new Float64Array(2);
+const _driftNow = new Float64Array(4);
 
 /**
  * Reset and mode, the shape-match rest, kinematic binding, crush start and re-arm, and impulses into the masses.
@@ -25,6 +31,91 @@ export abstract class DeformHit extends DeformRig {
   /** Defined by a later layer. */
   protected abstract crumpleWeight(m: MassNode): number;
   protected abstract frontTransfer(): number;
+
+  /**
+   * A world slice of `dt` seconds begins. Its pair pushes, sphere shifts, structure step, re-fits and wall translations
+   * share one `PushBudget` window: `stepStructure` advances the sim clock the window was keyed by, and everything after
+   * the pushes (the structure step, the re-fits, the bowl clip) was debited to the NEXT slice's, on top of a full cap.
+   */
+  beginSlice(dt: number): void {
+    this.sliceDt = dt;
+    this.sliceTouch = 0;
+    if (this.massActive) this.sliceAt = this.elapsed;
+    else {
+      this.sliceAt = -1.5;
+      this.push.reset();
+    }
+  }
+
+  endSlice(): void {
+    this.sliceAt = -1.5;
+  }
+
+  /** The `PushBudget` window now. */
+  protected budgetAt(): number {
+    return this.sliceAt < 0 ? this.elapsed : this.sliceAt;
+  }
+
+  /** The masses' centroid and mean velocity (x, z) into `out[0..3]`. */
+  private meanInto(out: Float64Array): void {
+    let x = 0;
+    let z = 0;
+    let vx = 0;
+    let vz = 0;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      x += m.world.x * m.mass;
+      z += m.world.z * m.mass;
+      vx += m.vel.x * m.mass;
+      vz += m.vel.z * m.mass;
+    }
+    const inv = 1 / this.totalMass;
+    out[0] = x * inv;
+    out[1] = z * inv;
+    out[2] = vx * inv;
+    out[3] = vz * inv;
+  }
+
+  /** Two cars' masses touch: each notes the other's speed, what the re-fits that follow may move its centroid with. */
+  protected noteTouch(other: DeformHit): void {
+    this.meanInto(_driftNow);
+    const mine = hypot2(_driftNow[2]!, _driftNow[3]!);
+    other.meanInto(_driftNow);
+    this.sliceTouch = Math.max(this.sliceTouch, hypot2(_driftNow[2]!, _driftNow[3]!));
+    other.sliceTouch = Math.max(other.sliceTouch, mine);
+  }
+
+  /** A pass that moves positions alone (the structure step, a clamp's re-fit) begins: where the centroid is. */
+  protected driftFrom(): void {
+    this.meanInto(_driftNow);
+    _driftFrom[0] = _driftNow[0]!;
+    _driftFrom[1] = _driftNow[1]!;
+  }
+
+  /**
+   * The pass ends. Its move of the centroid beyond `dt` of the masses' own velocity is a position correction, and takes
+   * from the slice's budget (window `at`) as a pair push does: a re-fit after a 7 mm sphere shift moved a wreck 7 mm more,
+   * the structure step 12 mm and a second re-fit 9 mm, all on top of the pushes' whole cap (derby `o6`, 17491eb). What the
+   * budget does not allow is taken back, the wreck as one body: its shape is the pass's, its place is the slice's.
+   */
+  protected settleDrift(dt: number, at: number): void {
+    this.meanInto(_driftNow);
+    const vx = _driftNow[2]!;
+    const vz = _driftNow[3]!;
+    const dx = _driftNow[0]! - _driftFrom[0]! - vx * dt;
+    const dz = _driftNow[1]! - _driftFrom[1]! - vz * dt;
+    const drift = hypot2(dx, dz);
+    if (!(drift > 1e-9)) return;
+    const nx = dx / drift;
+    const nz = dz / drift;
+    const back = drift - this.push.settle(at, nx, nz, drift, this.sliceDt, Math.max(this.sliceTouch, hypot2(vx, vz)));
+    if (back <= 1e-9) return;
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
+      m.world.x -= nx * back;
+      m.world.z -= nz * back;
+    }
+  }
   protected abstract impactWeight(m: MassNode): number;
 
   /** Back to the car as built (`initRunState`, `rebuildRunStructures`); settings stay. */
@@ -230,8 +321,6 @@ export abstract class DeformHit extends DeformRig {
     for (const m of this.masses) m.dynamic = true;
     this.captureShapeRest();
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
-    this.rateYaw = this.prevYaw;
-    this.rateAt = 0;
     this.leanAt = -Infinity;
     this.aloft = false;
     this.floorsFresh = false;
@@ -294,32 +383,46 @@ export abstract class DeformHit extends DeformRig {
   }
 
   /**
-   * The wheels go free at no more than `HUB_SLIP` m/s off the body when the plant starts. A hub written back every call
-   * keeps its own velocity, which went on taking contact impulses with no position to show for them: 17–42 m/s against
-   * a body at 2 m/s at the plant of a derby pile (seed 65), and the frame anchored on the hubs followed them 0.08 m a
-   * step. A hub within that of the body keeps its speed (the calibrated slide of a struck car).
+   * The wheels go free at no more than `HUB_SLIP` m/s off the body's own speed at the wheel (the centroid's plus the
+   * spin's) when the plant starts. A hub written back every call keeps its own velocity, which went on taking contact
+   * impulses with no position to show for them: 17–42 m/s against a body at 2 m/s at the plant of a derby pile
+   * (seed 65), and the frame anchored on the hubs followed them 0.08 m a step. A hub within that of the body keeps its
+   * speed (the calibrated slide of a struck car); measured off the centroid alone, a wreck turning 8 rad/s lost its wheels' share of L.
    */
   protected seatHubs(): void {
+    const cell = this.at.cell;
     let vx = 0;
     let vz = 0;
+    let cx = 0;
+    let cz = 0;
     let mass = 0;
+    _fit.reset();
     for (const m of this.masses) {
       if (!m.dynamic || m.hub) continue;
       vx += m.vel.x * m.mass;
       vz += m.vel.z * m.mass;
+      cx += m.world.x * m.mass;
+      cz += m.world.z * m.mass;
       mass += m.mass;
+      _fit.addSpin(m.mass, m.world.x - cell.world.x, m.world.z - cell.world.z, m.vel.x, m.vel.z);
     }
     if (mass <= 0) return;
     vx /= mass;
     vz /= mass;
+    cx /= mass;
+    cz /= mass;
+    const spin = _fit.spin();
     for (const m of this.masses) {
       if (!m.hub || m.popped || !m.dynamic) continue;
-      const sx = m.vel.x - vx;
-      const sz = m.vel.z - vz;
+      // The body's own speed at the wheel: the centroid's plus the spin's (a turning wreck's wheels ride it).
+      const bx = vx + spin * (m.world.z - cz);
+      const bz = vz - spin * (m.world.x - cx);
+      const sx = m.vel.x - bx;
+      const sz = m.vel.z - bz;
       const slip = Math.hypot(sx, sz);
       if (slip <= HUB_SLIP) continue;
-      m.vel.x = vx + (sx * HUB_SLIP) / slip;
-      m.vel.z = vz + (sz * HUB_SLIP) / slip;
+      m.vel.x = bx + (sx * HUB_SLIP) / slip;
+      m.vel.z = bz + (sz * HUB_SLIP) / slip;
     }
   }
 
@@ -352,8 +455,6 @@ export abstract class DeformHit extends DeformRig {
       m.dynamic = true;
     }
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
-    this.rateYaw = this.prevYaw;
-    this.rateAt = this.elapsed;
     this.leanAt = -Infinity;
     this.aloft = false;
     this.floorsFresh = false;

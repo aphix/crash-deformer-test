@@ -121,6 +121,7 @@ export function stepWorld(w: World, dt: number): void {
     if (w.beforeSlice?.(h)) continue;
     w.surfaces.cars = cars;
     for (const car of cars) {
+      car.deform.beginSlice(h);
       car.surfaces = w.surfaces;
       // A wreck its masses hand to flight here (`syncPose`) flies this slice: handed over before the masses took it,
       // and left at that, it lost the slice's motion.
@@ -216,6 +217,7 @@ export function stepWorld(w: World, dt: number): void {
       w.afterCar?.(car, h);
     }
     if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci, h);
+    for (const car of cars) car.deform.endSlice();
   }
   w.ejection?.step(cars, dt);
   w.shape = shape;

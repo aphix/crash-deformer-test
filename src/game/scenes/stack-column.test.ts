@@ -99,5 +99,25 @@ describe("stack scene: the cars pile into a column", () => {
     assert.ok(moved < 0.005, `a car moved ${(moved * 1000).toFixed(1)} mm in 5 s at rest`);
   });
 
+  // The owner's drops of the mixed fleet: after pair pushes a tilted wreck's frame moved 0.35 m in one re-measure and the next
+  // timed read wrote −55 m/s into car.velocity.y (c9 −25 m/s against its masses' −4 on this run), which applyImpulse and
+  // brakeInbound then used as real (the Stack HUD read CLOSING 125 mph).
+  it("bad: no car reports a vertical speed its masses do not have: the mixed fleet, 11 cars, 0.15 m, 1 s (c9 −25.2 m/s against −4.3 on main)", () => {
+    let worst = 0;
+    let at = "";
+    column(OWNER, "fleet", 12, (cs) => {
+      cs.forEach((c, i) => {
+        if (!c.deform.massActive) return;
+        const masses = c.deform.masses.reduce((s, m) => s + m.vel.y * m.mass, 0) / c.deform.totalMass;
+        const off = Math.abs(c.velocity.y - masses);
+        if (off > worst) {
+          worst = off;
+          at = `car ${i}: ${c.velocity.y.toFixed(1)} m/s, its masses ${masses.toFixed(1)}`;
+        }
+      });
+    });
+    assert.ok(worst < 4, `a car reported ${worst.toFixed(1)} m/s off its masses (${at})`);
+  });
+
   it.todo("the fleet's monster truck (slot 5; tyres on 0.9 m of spring, body 0.48 m up) carrying four cars or more rolls 5-30° on the support of its tyres, which has no spring to bring it level, and the column above it falls: 11 fleet cars, 0.15 m, 1 s");
 });

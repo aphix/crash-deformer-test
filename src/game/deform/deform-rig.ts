@@ -23,8 +23,8 @@ import { PushBudget } from "./push-budget.ts";
  * the passenger cell is what SAT actually separates.
  */
 
-/** Numbers a `simState` block spends on the rig’s scalar fields (`simScalarsOut`: 49 fields, one double each). */
-export const SIM_SCALAR_NUMBERS = 49;
+/** Numbers a `simState` block spends on the rig’s scalar fields (`simScalarsOut`: 47 fields, one double each). */
+export const SIM_SCALAR_NUMBERS = 47;
 
 export type DeformMode = "shape" | "lattice";
 
@@ -230,8 +230,8 @@ export abstract class DeformRig {
    *  on its ground, the ground that holds the body up, then the pitch and roll (rad) of the plane under its hubs, at any
    *  lean (the frame lies on it once levelled; `stepSuspension` tilts its rest offsets by it); 1 when planted on level ground). */
   protected readonly pose = new Float64Array(15);
-  /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's. */
-  protected readonly spinHeld = new Float64Array(2);
+  /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's, [2] stepShapeMatch's. */
+  protected readonly spinHeld = new Float64Array(3);
   /** `measureStroke` output. */
   protected readonly strokeOut = new Float64Array(1);
   /** The current hit is a re-armed one (`rearmHit`), not the crash's first. */
@@ -265,9 +265,6 @@ export abstract class DeformRig {
   }
 
   protected prevYaw = 0;
-  /** Heading and sim time (`elapsed`) of the last yaw-rate sample in followGroup. */
-  protected rateYaw = 0;
-  protected rateAt = 0;
   /** Share (0–1) of the read pitch/roll the frame takes, and the sim time it was last eased at (followGroup). */
   protected lean = 1;
   protected leanAt = -Infinity;
@@ -279,6 +276,14 @@ export abstract class DeformRig {
   protected frameVy = 0;
   /** The slice's position corrections (pair pushes, mass-sphere shifts, wall translations): one net budget. */
   protected readonly push = new PushBudget();
+  /**
+   * `elapsed` at the start of the world slice being stepped (`beginSlice`), the `push` window of everything in it;
+   * negative outside one (the sim clock keys it). A double from the start: a Smi field's first double write changes the maps.
+   */
+  protected sliceAt = -1.5;
+  /** The slice's length (s) and the faster of the touching cars in it (m/s): what the drift cap (`settleDrift`) grows with. */
+  protected sliceDt = 1 / 60;
+  protected sliceTouch = -0;
   protected overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
   protected contactAt = -Infinity;
@@ -480,8 +485,6 @@ export abstract class DeformRig {
     this.wrinkleAmp = -0;
     this.cornerLow = Infinity;
     this.prevYaw = 0;
-    this.rateYaw = 0;
-    this.rateAt = 0;
     this.lean = 1;
     this.leanAt = -Infinity;
     this.aloft = false;
@@ -490,6 +493,9 @@ export abstract class DeformRig {
     this.frameAt = 0;
     this.frameVy = 0;
     this.push.reset();
+    this.sliceAt = -1.5;
+    this.sliceDt = 1 / 60;
+    this.sliceTouch = -0;
     this.overlapFrame = false;
     this.contactAt = -Infinity;
     this.shapeRan = false;
@@ -704,27 +710,25 @@ export abstract class DeformRig {
     buf[o + 25] = this.cornerLow;
     buf[o + 26] = this._totalMass;
     buf[o + 27] = this.prevYaw;
-    buf[o + 28] = this.rateYaw;
-    buf[o + 29] = this.rateAt;
-    buf[o + 30] = this.lean;
-    buf[o + 31] = this.leanAt;
-    buf[o + 32] = this.aloft ? 1 : 0;
-    buf[o + 33] = this.frameY;
-    buf[o + 34] = this.frameAt;
-    buf[o + 35] = this.frameVy;
-    buf[o + 36] = this.push.x;
-    buf[o + 37] = this.push.at;
-    buf[o + 38] = this.overlapFrame ? 1 : 0;
-    buf[o + 39] = this.contactAt;
-    buf[o + 40] = this.shapeRan ? 1 : 0;
-    buf[o + 41] = this.shapeWasLive ? 1 : 0;
-    buf[o + 42] = this.bodyCos;
-    buf[o + 43] = this.bodySin;
-    buf[o + 44] = this.squash;
-    buf[o + 45] = this.buckle;
-    buf[o + 46] = this.netPopped;
-    buf[o + 47] = this.netFlags;
-    buf[o + 48] = this.push.z;
+    buf[o + 28] = this.lean;
+    buf[o + 29] = this.leanAt;
+    buf[o + 30] = this.aloft ? 1 : 0;
+    buf[o + 31] = this.frameY;
+    buf[o + 32] = this.frameAt;
+    buf[o + 33] = this.frameVy;
+    buf[o + 34] = this.push.x;
+    buf[o + 35] = this.push.at;
+    buf[o + 36] = this.overlapFrame ? 1 : 0;
+    buf[o + 37] = this.contactAt;
+    buf[o + 38] = this.shapeRan ? 1 : 0;
+    buf[o + 39] = this.shapeWasLive ? 1 : 0;
+    buf[o + 40] = this.bodyCos;
+    buf[o + 41] = this.bodySin;
+    buf[o + 42] = this.squash;
+    buf[o + 43] = this.buckle;
+    buf[o + 44] = this.netPopped;
+    buf[o + 45] = this.netFlags;
+    buf[o + 46] = this.push.z;
     return o + SIM_SCALAR_NUMBERS;
   }
 
@@ -758,27 +762,25 @@ export abstract class DeformRig {
     this.cornerLow = buf[o + 25]!;
     this._totalMass = buf[o + 26]!;
     this.prevYaw = buf[o + 27]!;
-    this.rateYaw = buf[o + 28]!;
-    this.rateAt = buf[o + 29]!;
-    this.lean = buf[o + 30]!;
-    this.leanAt = buf[o + 31]!;
-    this.aloft = buf[o + 32]! !== 0;
-    this.frameY = buf[o + 33]!;
-    this.frameAt = buf[o + 34]!;
-    this.frameVy = buf[o + 35]!;
-    this.push.x = buf[o + 36]!;
-    this.push.at = buf[o + 37]!;
-    this.overlapFrame = buf[o + 38]! !== 0;
-    this.contactAt = buf[o + 39]!;
-    this.shapeRan = buf[o + 40]! !== 0;
-    this.shapeWasLive = buf[o + 41]! !== 0;
-    this.bodyCos = buf[o + 42]!;
-    this.bodySin = buf[o + 43]!;
-    this.squash = buf[o + 44]!;
-    this.buckle = buf[o + 45]!;
-    this.netPopped = buf[o + 46]!;
-    this.netFlags = buf[o + 47]!;
-    this.push.z = buf[o + 48]!;
+    this.lean = buf[o + 28]!;
+    this.leanAt = buf[o + 29]!;
+    this.aloft = buf[o + 30]! !== 0;
+    this.frameY = buf[o + 31]!;
+    this.frameAt = buf[o + 32]!;
+    this.frameVy = buf[o + 33]!;
+    this.push.x = buf[o + 34]!;
+    this.push.at = buf[o + 35]!;
+    this.overlapFrame = buf[o + 36]! !== 0;
+    this.contactAt = buf[o + 37]!;
+    this.shapeRan = buf[o + 38]! !== 0;
+    this.shapeWasLive = buf[o + 39]! !== 0;
+    this.bodyCos = buf[o + 40]!;
+    this.bodySin = buf[o + 41]!;
+    this.squash = buf[o + 42]!;
+    this.buckle = buf[o + 43]!;
+    this.netPopped = buf[o + 44]!;
+    this.netFlags = buf[o + 45]!;
+    this.push.z = buf[o + 46]!;
     return o + SIM_SCALAR_NUMBERS;
   }
 }

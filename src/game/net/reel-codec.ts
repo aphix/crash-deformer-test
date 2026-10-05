@@ -40,10 +40,13 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 22: derby drivers that pace in one pocket go bold, the first 8 s lift off high-closing rams, and lost wheels take
  * their steering, thrust, brakes and grip with them, all live-trajectory changes; 23: a clip carries the world's step
  * schedule (`shape`), each keyframe the course's wall memory and knocked props, a placed car takes a keyframe, and
- * masses touching keep a car in the clip).
+ * masses touching keep a car in the clip; 24: a wreck's spin is its masses' momentum, a re-measure is no vertical
+ * speed, steering, the plant's wheel seat and the planted write-back turn the masses' velocities with their positions,
+ * shape matching hands back the angular momentum it moves, and a slice's pushes, structure step and re-fits share one
+ * budget, all live-trajectory changes; the sim scalars drop two doubles).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 23;
+const REPLAY_VERSION = 24;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
