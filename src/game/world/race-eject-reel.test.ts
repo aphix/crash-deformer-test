@@ -82,7 +82,7 @@ async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events:
  */
 async function replay(clip: HighlightClip, frameEnds: readonly number[]): Promise<Trails> {
   const cars = clip.cars.map((c) => w.cars[c.slot]!);
-  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), placed: (slot) => w.race.relocated(slot), bounce: undefined });
+  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), placed: (slot) => w.race.relocated(slot), bounce: undefined });
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
   const trails: Trails = new Map();

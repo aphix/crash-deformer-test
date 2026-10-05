@@ -532,9 +532,10 @@ export abstract class DeformContact extends DeformState {
    * inbound speed there. Planted hubs are the world pin and stay put on a one-sided
    * hit (the car moves away from the face); squeezed (`bidirectional`) the car
    * cannot, so the face meets the tyre and shoves the hub (`shoveHub`).
-   * Returns the momentum taken out (N·s) for the caller to hand to the slab.
+   * Returns the momentum taken out (N·s) for the caller to hand to the slab. Without `ends` a mass never leaves round an end
+   * face (a fixed wall's end is the joint to the next panel, which would hold it in the wall): only by the car-side face.
    */
-  projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number): number {
+  projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number, ends = true): number {
     if (!this.massActive) return 0;
     const rx = Math.cos(yaw);
     const rz = -Math.sin(yaw);
@@ -571,7 +572,7 @@ export abstract class DeformContact extends DeformState {
       let nx: number;
       let nz: number;
       let pen: number;
-      if (penX <= penZ) {
+      if (penX <= penZ || !ends) {
         nx = rx * side;
         nz = rz * side;
         pen = penX;

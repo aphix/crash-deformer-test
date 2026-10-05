@@ -7,8 +7,15 @@ const [FOOT_W, FOOT_L] = WALL_PROBES[1]!;
 /** A prop's plan shape (`PropCollider`): a circle of radius `r`, or a box of half extents `hx` (local x) and `hz` (local z) yawed by `yaw`. */
 type Solid = { kind: "circle" | "box"; x: number; z: number; yaw: number; r: number; hx: number; hz: number };
 
+/**
+ * The side of a prop the car met, not the footprint's own separating axis: the unit normal (nx, nz) out of it toward the car,
+ * the middle of the face (x, z), and its half extents (m) across it (`w`) and behind it (`d`). A hard hit meets this face as a
+ * solid (`solidFace`), so the car is held on the prop's own side wherever the footprint's axis fell.
+ */
+type PropFace = { nx: number; nz: number; x: number; z: number; w: number; d: number };
+
 /** Where the footprint overlaps a prop: move the car `pen` along (nx, nz), out of the prop; (cx, cz) is its deepest point in. */
-export type Overlap = { pen: number; nx: number; nz: number; cx: number; cz: number };
+export type Overlap = { pen: number; nx: number; nz: number; cx: number; cz: number; face: PropFace };
 
 /** −1 or 1, never 0: the side of an axis a centre is on (0 sits on the positive side). */
 const sign = (v: number): number => (v < 0 ? -1 : 1);
@@ -87,10 +94,31 @@ export function footprintOverlap(car: DeformableCar, s: Solid, out: Overlap): bo
       nx = sign(df) * fx;
       nz = sign(df) * fz;
     }
+    // The prop's own face: a long thin one (a wall panel) is met on its wide side, never its end, which is the joint to the next
+    // panel; otherwise the one of its two axes the footprint is least deep along. Always on the car's side.
+    const useU = s.hx * 2 < s.hz ? true : s.hz * 2 < s.hx ? false : oU <= oW;
+    const half = useU ? s.hx : s.hz;
+    const f = out.face;
+    f.nx = useU ? sign(du) * c : sign(dw) * n;
+    f.nz = useU ? -sign(du) * n : sign(dw) * c;
+    f.x = s.x + f.nx * half;
+    f.z = s.z + f.nz * half;
+    f.w = useU ? s.hz : s.hx;
+    f.d = half;
   }
   out.pen = pen;
   out.nx = nx;
   out.nz = nz;
+  if (s.kind === "circle") {
+    // A circle's face is its tangent at the footprint's nearest point.
+    const f = out.face;
+    f.nx = nx;
+    f.nz = nz;
+    f.x = s.x + nx * s.r;
+    f.z = s.z + nz * s.r;
+    f.w = s.r;
+    f.d = s.r;
+  }
   // The footprint's deepest point into the prop: its support point against the normal (an edge's middle when it lies flat on it).
   const sr = -Math.sign(nx * rx + nz * rz) * FOOT_W;
   const sf = -Math.sign(nx * fx + nz * fz) * FOOT_L;

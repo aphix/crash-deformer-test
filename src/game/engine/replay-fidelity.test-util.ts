@@ -179,7 +179,7 @@ export function recordRace(w: World, place: () => void, seconds: number, ai: num
   }
   const clip = rec.ledger.kept[0];
   if (!clip) throw new Error("the crash did not rank as a highlight");
-  const scene: ReplayScene = { dress: w.dress, collide: (car, slot) => r.courseHit(car, slot), placed: (slot) => r.relocated(slot), bounce: undefined };
+  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), placed: (slot) => r.relocated(slot), bounce: undefined };
   return { clip, cars: w.cars, scene, trace, s0: clipStart(clip, times), frameEnd };
 }
 

@@ -116,7 +116,7 @@ export function makeWorld(survivalCourse?: unknown): World {
   }, survivalCourse);
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();
-  step.collide = (car, i) => race.collide(car, i);
+  step.collide = (car, i, h) => race.collide(car, i, h);
   const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [] };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);

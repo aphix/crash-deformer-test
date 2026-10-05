@@ -481,10 +481,10 @@ export class RaceDirector extends RaceField {
     }
   }
 
-  /** End of a physics slice, per car: walls and props. */
-  collide(car: DeformableCar, i: number): void {
+  /** End of a physics slice of `h` s, per car: walls and props. */
+  collide(car: DeformableCar, i: number, h: number): void {
     if (!this.track || this.dormant[i]) return;
-    this.courseHit(car, i);
+    this.courseHit(car, i, h);
   }
 
   /**
@@ -498,15 +498,15 @@ export class RaceDirector extends RaceField {
     this.wallX[i] = Infinity;
   }
 
-  /** Car `i` against the course's walls and props (a highlight replay runs it for put-away traffic too). */
-  courseHit(car: DeformableCar, i: number): void {
+  /** Car `i` against the course's walls and props over a slice of `h` s (a highlight replay runs it for put-away traffic too). */
+  courseHit(car: DeformableCar, i: number, h: number): void {
     const tr = this.track;
     if (!tr) return;
     const p = car.group.position;
     const proj = tr.project(p.x, p.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
-    this.wall(car, i, proj.k, proj.lateral);
-    if (this.colliders.length > 0) this.props(car, i);
+    this.wall(car, i, proj.k, proj.lateral, h);
+    if (this.colliders.length > 0) this.props(car, i, h);
   }
 
   /** End of a physics slice: rules step, deaths, respawns. */

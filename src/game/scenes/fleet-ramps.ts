@@ -5,6 +5,7 @@ import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "../world/ground.ts";
 import { wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
+import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import type { ContactHit, JerseyBarrier } from "./engine-props.ts";
 import { BARRIER_HALF, BARRIER_TOP } from "../contact/sat.ts";
@@ -56,6 +57,7 @@ const NORM = 1 / Math.hypot(1, SLOPE);
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const _face = makeBox();
 
 export class FleetRamps implements Ground {
   readonly group = new THREE.Group();
@@ -70,6 +72,10 @@ export class FleetRamps implements Ground {
   private pen = 0;
   private nx = 0;
   private nz = 0;
+  /** The middle of that wall's face (plan) and its half width (m): the face a hard hit meets as a solid (`wallBounce`). */
+  private mx = 0;
+  private mz = 0;
+  private hw = 0;
 
   constructor(scene: THREE.Scene) {
     const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(RAMP.len, 0), new THREE.Vector2(0, RAMP.top)]);
@@ -150,13 +156,14 @@ export class FleetRamps implements Ground {
   /**
    * The wedges' side and back faces against `car`, through the rule `onFace` gives the ground: a point of the car
    * that is inside a wedge and not on its face is in the wall, and the deepest such point pushes the car out
-   * sideways or back toward the slab through the race walls' `wallBounce`. The points are the body's footprint
+   * sideways or back toward the slab through the race walls' `wallBounce`: a light touch pushes out, a hard hit
+   * crushes as the range's slab does (the face is a solid). The points are the body's footprint
    * (`WALL_PROBES` at its floor), each tyre's plan rectangle (four corners at its bottom), and the hull as the
    * physics reads it (bumper, beltline and roof corners, the underside): a tyre or a belly that cannot climb the
    * face is stopped by the wall like the footprint, so no part of a car rests inside a wedge, whatever its pose.
-   * Returns the hit for the step's strongest contact.
+   * `dt` is the slice's time (s). Returns the hit for the step's strongest contact.
    */
-  contact(car: DeformableCar): ContactHit | null {
+  contact(car: DeformableCar, dt: number): ContactHit | null {
     const pos = car.group.position;
     // A car's farthest point is 2.5 m from its origin (a rolled one's roof 1.4 m up): past that of the wedges' footprint, nothing of it can touch them.
     if (Math.abs(pos.x * this.ax + pos.z * this.az) > RAMP.start + RAMP.len + 2.5 || Math.abs(pos.x * this.az - pos.z * this.ax) > RAMP.halfW + 2.5) return null;
@@ -175,7 +182,9 @@ export class FleetRamps implements Ground {
     const { nx, nz } = this;
     const closing = Math.max(0, -(car.velocity.x * nx + car.velocity.z * nz));
     _n.set(nx, 0, nz);
-    wallBounce(car, nx, nz, Math.min(this.pen, PUSH_CAP), closing, _c, _n);
+    // The face holds the masses within `CLIMB` of it: deeper, a mass is riding the wedge's slope (over the footprint of the flank and the end),
+    // not in its wall. A 2 m thick face threw a wreck climbing the ramp out through the end it was climbing to (D1: 2.1 m in one slice).
+    wallBounce(car, solidFace(_face, nx, nz, this.mx, this.mz, this.mx, this.mz, this.hw, CLIMB), nx, nz, Math.min(this.pen, PUSH_CAP), dt);
     car.deform.notifyContact();
     return { impulse: Math.max(closing, 0.5), contact: _c.clone(), normal: _n.clone() };
   }
@@ -197,14 +206,25 @@ export class FleetRamps implements Ground {
     if (over <= this.pen || this.onFace(back, side, _p.y, kerb, reach) > 0) return;
     this.pen = over;
     _c.set(_p.x, _p.y + 0.4, _p.z);
+    // The wall's face: a side's plane `RAMP.halfW` off the slab's axis along the wedge, or the back's against the slab's end across it.
+    let u0: number;
+    let v0: number;
     if (side < back) {
       const s = v >= 0 ? 1 : -1;
       this.nx = this.az * s;
       this.nz = -this.ax * s;
+      u0 = (u >= 0 ? 1 : -1) * (RAMP.start + RAMP.len / 2);
+      v0 = s * RAMP.halfW;
+      this.hw = RAMP.len / 2;
     } else {
       const s = u >= 0 ? -1 : 1;
       this.nx = this.ax * s;
       this.nz = this.az * s;
+      u0 = -s * RAMP.start;
+      v0 = 0;
+      this.hw = RAMP.halfW;
     }
+    this.mx = u0 * this.ax + v0 * this.az;
+    this.mz = u0 * this.az - v0 * this.ax;
   }
 }

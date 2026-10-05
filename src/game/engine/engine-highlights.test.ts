@@ -20,11 +20,12 @@ const SEED = 5;
 /**
  * The seed of the tests that need the field's first clip to open on intact cars with its focus car driving (a clip that
  * leaves nothing of the race torn but what it restores, and a car moving through the slow-mo). Seed 5's first clip opens
- * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 8) opens on none, the focus car at
- * 17 m/s. Any change to the car sim moves a seed's whole race (seed 2 lost it when a pair's contact axis moved), so the
- * leftovers test asserts the precondition by name first.
+ * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 6) opens on none, the focus car
+ * driving. Any change to the car sim moves a seed's whole race (seed 2 lost it when a pair's contact axis moved; with the walls
+ * crushing a car as the range's slab does, a racer that rams one at speed is a wreck there, not bounced back on, and 2, 3, 4 and 7
+ * lose it too), so the leftovers test asserts the precondition by name first.
  */
-const CLEAN_SEED = 4;
+const CLEAN_SEED = 8;
 
 describe("highlight reel timeline", () => {
   it("bad: the reel must play a clip at 1× up to the hit, hold the phase.ts slow-mo over it, then catch up to the end", () => {
@@ -45,7 +46,7 @@ function hostOf(w: World): ReelHost {
   return {
     carsOf: (clip) => clip.cars.map((c) => w.cars[c.slot]!),
     live: () => w.live(),
-    scene: { dress: w.dress, collide: (car, slot) => w.race.courseHit(car, slot), placed: (slot) => w.race.relocated(slot), bounce: undefined },
+    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), placed: (slot) => w.race.relocated(slot), bounce: undefined },
     resetProps: () => w.race.resetProps(),
     clear: () => {},
     sight: () => w.race.courseSight()!,

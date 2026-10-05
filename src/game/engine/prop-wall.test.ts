@@ -43,14 +43,17 @@ function alley() {
   return w;
 }
 
-/** The car's body (box corners, crush hull corners, body masses; not the wheel hubs) as world points. */
+/**
+ * The car's body as world points: a live car's box corners and crush hulls; a wreck's crush hulls and body masses (not the
+ * wheel hubs). A crushed nose is shorter than the box it was built in, so a wreck's box corners are no longer its body.
+ */
 function bodyPoints(car: DeformableCar): [number, number][] {
   const out: [number, number][] = [];
   const p = car.group.position;
   const c = Math.cos(car.yaw);
   const s = Math.sin(car.yaw);
   const add = (lx: number, lz: number): void => void out.push([p.x + lx * c + lz * s, p.z - lx * s + lz * c]);
-  for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(sx * CAR_HALF.x, sz * CAR_HALF.z);
+  if (!car.deform.massActive) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(sx * CAR_HALF.x, sz * CAR_HALF.z);
   for (const h of car.crushHulls()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(h.cx + sx * h.hx, h.cz + sz * h.hz);
   if (car.deform.massActive) for (const m of car.deform.masses) if (!m.hub) out.push([m.world.x, m.world.z]);
   return out;
@@ -76,7 +79,7 @@ describe("a solid prop pushes a car out on the side its centre is on", () => {
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
       const x0 = -40.45 + WALL_HALF_L;
       car.spawnFacing(x0, PANEL.z, 90 * D, 0);
-      w.race["props"](car, 0);
+      w.race["props"](car, 0, 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       const { past, inside } = reach(car);
       assert.equal(past, 0, "no corner past the far face");
@@ -88,7 +91,7 @@ describe("a solid prop pushes a car out on the side its centre is on", () => {
       const car = makeCar(cls);
       const x0 = -40.45 + WALL_PROBES[1]![0];
       car.spawnFacing(x0, PANEL.z, 0, 0);
-      w.race["props"](car, 0);
+      w.race["props"](car, 0, 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       assert.equal(reach(car).past, 0);
     });
@@ -105,7 +108,7 @@ function hit(cls: VehicleClassId, o: { dw: number; alpha: number; vdir: number; 
   const cop = pinned ? makeCar("police") : null;
   const cars = cop ? [car, cop] : [car];
   const world = newWorld(cars);
-  world.collide = (c, i) => w.race.courseHit(c, i);
+  world.collide = (c, i, h) => w.race.courseHit(c, i, h);
   // Toward the wall is −x: yaw −90° has the nose there.
   const toward = -Math.PI / 2;
   car.spawnFacing(NEAR + 5, PANEL.z + o.dw, toward + o.alpha, o.speed);

@@ -212,3 +212,33 @@ stayed inside the follower's nose for seconds (the owner's "hooked cops"; any cl
   kept; the budget rule belongs with the pair-solve lane.
 
 A clip saved before this rule replays its pairs' pushes the other way round: `REPLAY_VERSION` 13.
+
+## Fixed solids: race walls, props and ramp flanks meet the car as the jersey slab does
+
+Owner, 2026-10-04: a fixed, very hard object does what the range's jersey slab does, on every map. Race walls
+(`RaceField.wall`), solid props (`props`) and the fleet ramps' flanks (`FleetRamps.contact`) were met through `wallBounce`,
+which cancelled the whole closing speed and bounced the car in one step (`v += n·closing·(1 + 0.15)`), then crushed it from
+`applyImpact` at a footprint corner (or `kickNearest(closing·8)` on a wreck). Oval sedan, 55 m/s head-on: block travel 0.04 m
+from the hit itself (the slab at the same speed: 0.454 m, dead), later reaching 0.25 m only because the throttle squeezed the
+crushed nose into the wall. `wallBounce` has been that since the race scene began (d06d122: the same `WALL_CRUSH` branch inline).
+
+Now `wallBounce(car, face, nx, nz, pen, dt)` meets a hard hit (more than `WALL_CRUSH` 5.5 m/s into the face) or a wreck through
+`bodyContact` on `solidFace(...)`, a fixed striker box (`ContactBox.fixed`): the first touch starts the crash from the hull's
+own overlap with the face, a fresh hard one re-arms a wreck's hit, the masses are held on the face (no way round the box's ends:
+a wall's end is the joint to the next panel) and the crush force spends the hit's stroke. A light touch of a whole car pushes
+out and bounces by 0.15 as before. A rigid car whose footprint is `WALL_HOLD` (0.4 m) in with its hull not on the face yet, and a
+wreck whose footprint is `WALL_REACH` (1.2 m) in (rammed by another car), are put back by the push. The prop's face is its own
+(`PropFace`): a long thin one (a wall panel) on its wide side, a circle's tangent; a course wall is a 6 m slab at the line.
+
+A wreck's crush hulls are wider than the masses held on the face (the cabin hull spans the least crushed door on both sides, a nose
+hull is 0.34 m either side of 0.85 of its bumper), so a wreck a cop rams against a 0.6 m panel sat 0.2-0.3 m in it, or reached past
+its far face. The wall pushes the whole wreck (every mass and the group, one rigid shove: `separateAlong` leaves the crumple zone
+behind and stretches the nose) out until the hulls are on the face: to the slab's `0.4 · leftover crumple` while the car still drives
+into it (`into` over 0.2 m/s), to a 1.5 cm skin once it has stopped. Uncapped but by the contact's own push (`max(pen, satPushCap)`,
+the ramps' `pen` is `PUSH_CAP`): a capped shove lost to a cop's three SAT passes (tail first at 12 m/s ended 0.15 m past the far face).
+The ramps' faces hold the masses within `CLIMB` of them: deeper a mass rides the wedge's slope, and a 2 m thick face threw a wreck
+that was climbing the ramp out through its high end (2.1 m in one slice, a 0.44 m jump in `D1`).
+
+`src/game/world/solid-parity.test.ts` holds every solid to the slab for the same armed car at 8 and 55 m/s and on a second
+hit: the driver thrown alike, health within 0.2, `alive` alike unless both are within 0.2 of the kill line (the slab kills a
+default sedan by 0.004 m of block travel). REPLAY_VERSION 14.

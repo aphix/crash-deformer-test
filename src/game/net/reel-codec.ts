@@ -26,10 +26,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 12: no layout change, the live trajectories of cars stacked on each other moved: a car over another's roof is carried
  * by it, not shoved off by the plan SAT, and a tyre on a car grips both ways, so an older clip is refused; 13: a car
  * pair's contact axis is signed by the cars' centres (`satTwoHulls`), so a clip saved under 12 replays its pairs' pushes
- * the other way round).
+ * the other way round; 14: a hard hit on a fixed solid (a course wall, a prop, a ramp's flank) is met as the range's slab
+ * is, masses held on its face and the crush spending the hit's stroke, not cancelled and bounced in one step).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 13;
+const REPLAY_VERSION = 14;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

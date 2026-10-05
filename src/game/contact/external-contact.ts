@@ -31,10 +31,40 @@ export type ContactBox = {
   /** Share of the crush energy the struck car takes: 1 for a rigid face, less for a face that
    *  crushes too (a piston's honeycomb). */
   hardness: number;
+  /**
+   * A solid fixed in the world (`solidFace`): a fresh hard touch re-arms a wreck's hit (`DeformableCar.applyImpact`, on quiet
+   * time and energy, as the barrier and car-car do), and a particle in it leaves by the car-side face, never round an end (a
+   * wall's end is the joint to its neighbour, so the particle would stay in the wall).
+   */
+  fixed: boolean;
 };
 
 export function makeBox(): ContactBox {
-  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1 };
+  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1, fixed: false };
+}
+
+/**
+ * `out` as the car-side face of a fixed solid, a striker that never moves: its leading face lies on the point (`fx`, `fz`)
+ * with the unit normal (`nx`, `nz`) pointing out of the solid toward the car, `halfWidth` wide either side of the line
+ * through (`mx`, `mz`) along that normal, and `depth` thick behind the face. A race wall, a prop's side, a ramp's flank:
+ * each is met through `bodyContact` as the range's jersey slab is.
+ */
+export function solidFace(out: ContactBox, nx: number, nz: number, fx: number, fz: number, mx: number, mz: number, halfWidth: number, depth: number): ContactBox {
+  // The face's lateral centre is where (mx, mz) projects onto it; the box centre is `depth` behind that.
+  const lat = (mx - fx) * -nz + (mz - fz) * nx;
+  out.x = fx - nz * lat - nx * depth;
+  out.z = fz + nx * lat - nz * depth;
+  out.y = 0.48;
+  out.hx = halfWidth;
+  out.hy = 0.48;
+  out.hz = depth;
+  out.yaw = Math.atan2(nx, nz);
+  out.vx = 0;
+  out.vz = 0;
+  out.kg = Infinity;
+  out.hardness = 1;
+  out.fixed = true;
+  return out;
 }
 
 /**
@@ -55,7 +85,7 @@ const _n = new THREE.Vector3();
  * How far the box's leading face (its +z end) has pushed into the car's crush hulls along its
  * travel (m, ≤ 0 clear), with the contact point on the face in `point`.
  */
-function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Vector3): number {
+export function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Vector3): number {
   const fx = Math.sin(box.yaw);
   const fz = Math.cos(box.yaw);
   const rx = fz;
@@ -113,12 +143,12 @@ export function bodyContact(car: DeformableCar, box: ContactBox, dt: number, cru
   const overlap = faceOverlap(car, box, _p);
   bodyHit.touching = overlap > 0;
   _n.set(fx, 0, fz);
-  if (overlap > 0.004 && closing > 0.2 && !car.crashed) car.applyImpact(_p, _n, closing, strikeEbs(closing, box.kg, d.totalMass, box.hardness));
+  if (overlap > 0.004 && closing > 0.2 && (box.fixed || !car.crashed)) car.applyImpact(_p, _n, closing, strikeEbs(closing, box.kg, d.totalMass, box.hardness));
   if (!d.massActive) return 0;
   const ub = box.vx * fx + box.vz * fz;
   shiftVelocities(car, -fx * ub, -fz * ub);
   // The slab's thin axis (`projectOutOfBox` x) is the striker's travel.
-  let taken = d.projectOutOfBox(box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2);
+  let taken = d.projectOutOfBox(box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed);
   if (d.faceContacts > 0) {
     bodyHit.touching = true;
     d.notifyContact();

@@ -31,7 +31,7 @@ function course(id: string) {
   const colliders = propColliders(placed);
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
-  const props = (car: DeformableCar): void => w.race["props"](car, 0);
+  const props = (car: DeformableCar): void => w.race["props"](car, 0, 1 / 120);
   return { w, colliders, placed, hits, props, top: (c: PropCollider) => placed[c.index]!.y + PREFABS[c.prefab].size[1] * placed[c.index]!.sy };
 }
 

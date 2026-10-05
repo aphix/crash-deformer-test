@@ -37,8 +37,8 @@ export type World = {
   poleHit: ((car: DeformableCar) => boolean) | null;
   /** Each car right after its `afterContacts` (the derby bowl). */
   afterCar: ((car: DeformableCar, h: number) => void) | null;
-  /** Each car at the end of a slice (race walls and props). */
-  collide: ((car: DeformableCar, i: number) => void) | null;
+  /** Each car at the end of a slice of `h` s (race walls and props). */
+  collide: ((car: DeformableCar, i: number, h: number) => void) | null;
   /**
    * Decides, at the end of every step, whether a disabling hit throws a driver out (`car.driverOut`, an `Ejection`
    * event). Null where the cars' record already says who was thrown when: a highlight replay.
@@ -190,7 +190,7 @@ export function stepWorld(w: World, dt: number): void {
       car.afterContacts(h, w.bounce);
       w.afterCar?.(car, h);
     }
-    if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci);
+    if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci, h);
   }
   w.ejection?.step(cars, dt);
 }

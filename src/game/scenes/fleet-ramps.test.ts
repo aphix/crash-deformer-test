@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { COM_Y, G, REST_LIFT, TOUCH } from "../vehicle/car-air.ts";
+import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { droop } from "../vehicle/car-suspension.ts";
 import { LIFT_OFF } from "../deform/deform-contact.ts";
 import { JerseyBarrier } from "./engine-props.ts";
@@ -28,7 +29,7 @@ function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: Deformabl
   setGround(ramps);
   const car = new DeformableCar(paint(), three);
   const w = newWorld([car], slab);
-  w.collide = (c) => void ramps.contact(c);
+  w.collide = (c, _i, h) => void ramps.contact(c, h);
   return { ramps, w, car };
 }
 
@@ -56,7 +57,7 @@ function pair(vA: number, vB: number, dx = 0.4): { w: World; cars: [DeformableCa
   w.cars[0]!.spawnFacing(0, -14, 0, vA);
   b.spawnFacing(dx, 14, Math.PI, vB);
   const w2 = newWorld([w.cars[0]!, b]);
-  w2.collide = (c) => void ramps.contact(c);
+  w2.collide = (c, _i, h) => void ramps.contact(c, h);
   return { w: w2, cars: [w.cars[0]!, b] };
 }
 
@@ -207,6 +208,24 @@ function approachSide(cls: VehicleClassId, off: number, wall: number): { roll: n
   return out;
 }
 
+/**
+ * How far along +x (m) the car's body reaches: a live car's box, a wreck's crush hulls and body masses (a crushed nose is
+ * shorter than the box it was built in, so the box no longer says where the car is).
+ */
+function bodyReachX(car: DeformableCar): number {
+  const p = car.group.position;
+  const c = Math.cos(car.yaw);
+  const s = Math.sin(car.yaw);
+  let x = -Infinity;
+  const add = (lx: number, lz: number): void => void (x = Math.max(x, p.x + lx * c + lz * s));
+  if (!car.deform.massActive) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(sx * CAR_HALF.x, sz * CAR_HALF.z);
+  else {
+    for (const h of car.crushHulls()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(h.cx + sx * h.hx, h.cz + sz * h.hz);
+    for (const m of car.deform.masses) if (!m.hub) x = Math.max(x, m.world.x);
+  }
+  return x;
+}
+
 describe("fleet ramps", () => {
   afterEach(() => setGround(null));
 
@@ -294,8 +313,8 @@ describe("fleet ramps", () => {
     let deepest = -Infinity;
     let highest = 0;
     run(w, 2, () => {
-      // How far the nose (2.22 m ahead of the centre) reached past the ramp's side face.
-      deepest = Math.max(deepest, p.x + 2.22 + RAMP.halfW);
+      // How far the body reached past the ramp's side face.
+      deepest = Math.max(deepest, bodyReachX(car) + RAMP.halfW);
       highest = Math.max(highest, p.y);
     });
     t.diagnostic(`face ${ramps.heightAt(0, z).toFixed(2)} m high; nose reached ${deepest.toFixed(3)} m past it, highest ${highest.toFixed(3)} m, end vx ${car.velocity.x.toFixed(2)} m/s, crashed ${car.crashed}`);

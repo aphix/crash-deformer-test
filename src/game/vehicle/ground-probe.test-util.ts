@@ -102,9 +102,9 @@ export function frame(w: World, input: DriveInput | null, st: { acc: number }): 
   for (const c of w.cars) c.updateSkin();
 }
 
-export function worldOf(car: DeformableCar, collide: ((c: DeformableCar) => unknown) | null = null): World {
+export function worldOf(car: DeformableCar, collide: ((c: DeformableCar, h: number) => unknown) | null = null): World {
   const w = newWorld([car]);
-  if (collide) w.collide = (c) => void collide(c);
+  if (collide) w.collide = (c, _i, h) => void collide(c, h);
   return w;
 }
 
@@ -219,7 +219,7 @@ export function drop(
   x: number,
   z: number,
   yaw: number,
-  o: { height?: number; seconds?: number; hint?: number; collide?: ((c: DeformableCar) => unknown) | null } = {},
+  o: { height?: number; seconds?: number; hint?: number; collide?: ((c: DeformableCar, h: number) => unknown) | null } = {},
 ): Drop {
   setGround(ground);
   const car = makeCar(cls);

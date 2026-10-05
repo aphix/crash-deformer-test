@@ -250,7 +250,7 @@ export class CrashEngine extends EngineShare {
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot) => this.race.courseHit(car, slot), placed: (slot) => this.race.relocated(slot), bounce: this.bounceWorld },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), placed: (slot) => this.race.relocated(slot), bounce: this.bounceWorld },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),

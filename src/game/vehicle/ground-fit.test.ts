@@ -54,7 +54,7 @@ const KNOWN_RAMPS = 20;
 // (a) The fleet's jump ramps, exactly as fleet-ramps.test.ts `scene()` builds them (no slab).
 const ramps = new FleetRamps(new THREE.Scene());
 ramps.place(0, null);
-const collide = (c: DeformableCar) => ramps.contact(c);
+const collide = (c: DeformableCar, h: number) => ramps.contact(c, h);
 const MID = RAMP.start + RAMP.len / 2;
 
 function rampSites(): Site[] {

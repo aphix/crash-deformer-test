@@ -18,7 +18,7 @@ import type { Ejection } from "../vehicle/ejection.ts";
  */
 export type ReplayScene = {
   dress(car: DeformableCar): void;
-  collide(car: DeformableCar, slot: number): void;
+  collide(car: DeformableCar, slot: number, h: number): void;
   placed?(slot: number): void;
   bounce: WorldBounce | undefined;
 };
@@ -156,7 +156,7 @@ export class ClipSim {
     });
     const w = newWorld(cars);
     const slots = clip.cars.map((c) => c.slot);
-    w.collide = (car, k) => scene.collide(car, slots[k]!);
+    w.collide = (car, k, h) => scene.collide(car, slots[k]!, h);
     w.bounce = scene.bounce;
     w.pairHit = (a, b, hit, first) => this.noteHit(a, b, hit.impulse, first);
     this.world = w;

@@ -658,11 +658,11 @@ export abstract class EngineScenes extends EngineHud {
 
   protected readonly clipDerby = (car: DeformableCar): void => clipDerbyCar(car, this.derbyR);
 
-  protected readonly raceCollide = (car: DeformableCar, i: number): void => this.race.collide(car, i);
+  protected readonly raceCollide = (car: DeformableCar, i: number, h: number): void => this.race.collide(car, i, h);
 
   /** The fleet ramps' side and back faces; a hit can start the crash cinematic like any other. */
-  protected readonly rampCollide = (car: DeformableCar): void => {
-    const hit = this.ramps.contact(car);
+  protected readonly rampCollide = (car: DeformableCar, _i: number, h: number): void => {
+    const hit = this.ramps.contact(car, h);
     if (hit) this.world.strongest.offer(hit);
   };
 

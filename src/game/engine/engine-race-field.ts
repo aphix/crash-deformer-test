@@ -5,6 +5,7 @@ import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
 import { impulseCar, wallBounce, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { footprintOverlap, type Overlap } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
@@ -89,7 +90,12 @@ const PARK_Z = 4000;
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
-const _o: Overlap = { pen: 0, nx: 0, nz: 0, cx: 0, cz: 0 };
+const _o: Overlap = { pen: 0, nx: 0, nz: 0, cx: 0, cz: 0, face: { nx: 0, nz: 0, x: 0, z: 0, w: 0, d: 0 } };
+/** The solid face of the wall or prop the car is meeting this slice (`solidFace`), reused. */
+const _face = makeBox();
+/** A course wall met as a slab: how far (m) it reaches along the road either side of the contact (more than a car's length), and how thick it is behind its face. */
+const WALL_SPAN = 6;
+const WALL_DEPTH = 2;
 
 /**
  * Height (m) of the lowest point of `car`'s body box (`CAR_HALF` about its ground point), as tilted: the origin's height plus
@@ -597,15 +603,16 @@ export abstract class RaceField {
   }
 
   /**
-   * Probe the footprint against the wall line on each side; push out, bounce, crumple on a hard hit. A push undoes a
+   * Probe the footprint against the wall line on each side; a hard hit crushes the car as the range's slab does (`wallBounce`),
+   * a light one pushes out and bounces. A push undoes a
    * penetration, and a car only penetrates from the road side: it was at the wall (or on the road) last step, so it is at most a
    * step of travel past the line. A car left more than `WALL_CONTACT` beyond the line last step was not pushed back then, so it
    * came from outside, through a mouth or from another road (the back alley's exit): the wall is behind it and it is left alone
    * until it is back on the road, instead of being thrown across the line. One left less beyond it (a wall starting under a
    * car already at the line) is pushed only what it went further this step. A placement (`WALL_JUMP`) forgets the history: the
-   * car is in contact if it stands within `WALL_CONTACT` of the line, and outside it beyond.
+   * car is in contact if it stands within `WALL_CONTACT` of the line, and outside it beyond. `dt` is the slice's time (s).
    */
-  protected wall(car: DeformableCar, i: number, k: number, lateral: number): void {
+  protected wall(car: DeformableCar, i: number, k: number, lateral: number, dt: number): void {
     const p = this.track!.path;
     const tx = p.tx[k]!;
     const tz = p.tz[k]!;
@@ -649,7 +656,7 @@ export abstract class RaceField {
     const closing = Math.max(0, -vn);
     _c.set(cx, 0.5, cz);
     _n.set(nx, 0, nz);
-    wallBounce(car, nx, nz, push, closing, _c, _n);
+    wallBounce(car, solidFace(_face, nx, nz, cx + nx * pen, cz + nz * pen, cx, cz, WALL_SPAN, WALL_DEPTH), nx, nz, push, dt);
     this.wallMemo(i, pos, held);
     if (closing >= 1.5) this.host.hitFx(_c, _n, closing);
     this.onWallHit(i, closing, cx, cz);
@@ -666,7 +673,7 @@ export abstract class RaceField {
    * Solid props push the car out (and crumple it on a hard hit); knockable props fly off. A prop touches only a car whose
    * lowest point (the tilted body box, `lowestY`) is under the prop's top: a car flying over it clears it.
    */
-  protected props(car: DeformableCar, i: number): void {
+  protected props(car: DeformableCar, i: number, dt: number): void {
     const pos = car.group.position;
     const v = car.velocity;
     const low = lowestY(car);
@@ -678,7 +685,7 @@ export abstract class RaceField {
       if (dx * dx + dz * dz > reach * reach) continue;
       // The car's footprint against the collider; the normal points out of it.
       if (!footprintOverlap(car, col, _o)) continue;
-      const { pen, nx, nz, cx, cz } = _o;
+      const { pen, nx, nz, cx, cz, face } = _o;
       const vn = v.x * nx + v.z * nz;
       const closing = Math.max(0, -vn);
       _c.set(cx, 0.5, cz);
@@ -696,7 +703,7 @@ export abstract class RaceField {
         if (closing > 2) this.host.hitFx(_c, _n, closing * 0.4);
         continue;
       }
-      wallBounce(car, nx, nz, pen, closing, _c, _n);
+      wallBounce(car, solidFace(_face, face.nx, face.nz, face.x, face.z, face.x, face.z, face.w, face.d), nx, nz, pen, dt);
       if (closing > 1.5) this.host.hitFx(_c, _n, closing);
       this.onWallHit(i, closing, cx, cz);
     }

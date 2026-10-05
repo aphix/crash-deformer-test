@@ -125,7 +125,7 @@ export function launch(car: DeformableCar, x: number, z: number, yaw: number, vx
  * between hits: past REARM_QUIET, so the next contact is a fresh hit, not the last one's tail), then
  * takes the velocity.
  */
-function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
+export function relaunchDamaged(car: DeformableCar, x: number, z: number, yaw: number, vx: number, vz: number): void {
   const g = car.group;
   g.position.set(x, 0, z);
   g.rotation.set(0, yaw, 0, "YXZ");
@@ -439,7 +439,7 @@ export function runWall(speedKph: number, overlap = 1, approach: WallApproach = 
 }
 
 /** Car-local reach of the end that strikes the slab, from the group origin (m). */
-function strikeReach(car: DeformableCar, approach: WallApproach): number {
+export function strikeReach(car: DeformableCar, approach: WallApproach): number {
   const d = car.deform;
   if (approach === "front") return Math.max(mass(d, "bumperFL").local.z, mass(d, "bumperFR").local.z);
   if (approach === "rear") return -Math.min(mass(d, "bumperRL").local.z, mass(d, "bumperRR").local.z);

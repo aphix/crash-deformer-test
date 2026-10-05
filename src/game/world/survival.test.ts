@@ -301,13 +301,20 @@ function ringTour(): [number, number][] {
   return pts;
 }
 
-/** The scripted player: round the ring at 22 m/s, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
+/**
+ * The scripted player's speed (m/s). It was 22: the ring's 90° corner is more than the car turns at that speed, so it ran off the road into a stucco block
+ * at 18 m/s closing (65 km/h), which a solid now crushes and ejects the driver from as the range's slab does, wrecking the player at the same spot every
+ * run; the runs ended 14.5 s apart and too few cops dropped in to check anything (1 drop-in against the 12 the guard needs). Measured at 16: 46 drop-ins.
+ */
+const TOUR_SPEED = 16;
+
+/** The scripted player: round the ring at `TOUR_SPEED`, steering at the next waypoint, starting with the waypoint nearest to where it is (waypoint 0 lies across a stucco block from the start: the car drove into it and sat there until the cops finished it). */
 function tour(pts: readonly (readonly [number, number])[]): (w: World) => void {
   let i = -1;
   return (w) => {
     const car = w.cars[0]!.group.position;
     if (i < 0) i = pts.reduce((best, q, k) => (Math.hypot(q[0] - car.x, q[1] - car.z) < Math.hypot(pts[best]![0] - car.x, pts[best]![1] - car.z) ? k : best), 0);
     if (Math.hypot(pts[i]![0] - car.x, pts[i]![1] - car.z) < 14) i = (i + 1) % pts.length;
-    steerAt(w, pts[i]![0], pts[i]![1], 22);
+    steerAt(w, pts[i]![0], pts[i]![1], TOUR_SPEED);
   };
 }

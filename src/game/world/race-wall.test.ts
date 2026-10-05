@@ -43,11 +43,11 @@ function overPushes(w: World, secs: number): Push[] {
   let t = 0;
   let h = 0;
   const hit = w.step.collide!;
-  w.step.collide = (car, i) => {
+  w.step.collide = (car, i, step) => {
     const x = car.group.position.x;
     const z = car.group.position.z;
     const speed = Math.hypot(car.velocity.x, car.velocity.z);
-    hit(car, i);
+    hit(car, i, step);
     const moved = Math.hypot(car.group.position.x - x, car.group.position.z - z);
     const allowed = bound(speed, h);
     if (moved > allowed) out.push({ t, car: i, moved, allowed });
@@ -141,12 +141,12 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       const lat = (at: number) => track.project(w.cars[0]!.group.position.x, w.cars[0]!.group.position.z, k, blankProjection()).lateral - at;
       const car = w.cars[0]!;
       car.spawnFacing(p.x[k]! + p.tz[k]! * (limit - 2), p.z[k]! - p.tx[k]! * (limit - 2), Math.atan2(p.tx[k]!, p.tz[k]!), 0);
-      w.race.courseHit(car, 0);
+      w.race.courseHit(car, 0, 1 / 120);
       assert.ok(Math.abs(lat(limit - 2)) < 0.05, "on the road side, the wall leaves the car alone");
       // A car-car shove: 3.5 m toward the wall in one step, the footprint 1.5-2.4 m past the line.
       car.group.position.x += p.tz[k]! * 3.5;
       car.group.position.z -= p.tx[k]! * 3.5;
-      w.race.courseHit(car, 0);
+      w.race.courseHit(car, 0, 1 / 120);
       const back = lat(0);
       assert.ok(back < limit - 0.9 && back > limit - 3, `returned to ${back.toFixed(2)} m, the wall line at ${limit.toFixed(2)} m`);
     } finally {
@@ -177,15 +177,15 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       // On the road first (the course hint finds this stretch), then 2.8 m beyond the line (its footprint 3.7 m): a 4.8 m pose
       // change forgets the road-side history, and a car that arrives beyond the line is outside it: the wall leaves it alone.
       put(limit - 2);
-      w.race.courseHit(car, 0);
+      w.race.courseHit(car, 0, 1 / 120);
       put(limit + 2.8);
-      w.race.courseHit(car, 0);
+      w.race.courseHit(car, 0, 1 / 120);
       assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car beyond the wall line from outside is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
       // A keyframe puts it 3.7 m back, its footprint 0.13 m past the line (0.05 m at the flank, the rest the bend under the
       // front probes; under WALL_CONTACT): freshly placed, so it is in contact and the wall returns it that 0.13 m.
       put(limit - 0.9);
       w.race.relocated(0);
-      w.race.courseHit(car, 0);
+      w.race.courseHit(car, 0, 1 / 120);
       const pushed = limit - 0.9 - lateral();
       assert.ok(pushed > 0.1 && pushed < 0.2, `the placed car is pushed back ${pushed.toFixed(3)} m (expected about 0.13)`);
     } finally {
