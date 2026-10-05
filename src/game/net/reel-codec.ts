@@ -31,10 +31,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * solver state's `hubStand` (where each hub stood in the car frame) and the planted anchor that reads it, a
  * live-trajectory change; 16: the solver state's position-correction budget is a net translation (`PushBudget`: one
  * more double), a live-trajectory change of every pile: pair pushes, sphere shifts and wall translations share it, and
- * the plant frees the wheels within 8 m/s of the body).
+ * the plant frees the wheels within 8 m/s of the body; 19: no layout change, the live sim changed: head-on tyres whose
+ * hit stroke reaches the wheels, with stroke left, tear off their hubs instead of stopping the pair, so a fast head-on
+ * crushes on and an older clip replays another hit).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 16;
+const REPLAY_VERSION = 19;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -16,7 +16,7 @@ import {
   deformBeta,
 } from "./shape-match.ts";
 import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
-import type { MassNode } from "./deform-rig.ts";
+import { HUB_OVERRUN, type MassNode } from "./deform-rig.ts";
 import { FACE_TOP } from "./load-crush.ts";
 import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
 import { tiltedRise } from "./hub-plane.ts";
@@ -28,9 +28,7 @@ const HUB_POP_MPS = 15;
 /** …once the struck corner has crushed to within this of the hub (m): tyre radius 0.32 plus a 0.10 m
  *  packed bumper beam. With the 0.72 m overhang the wheel is reached after 0.30 m of corner crush. */
 const TYRE_REACH = 0.42;
-/** A corner crushed to within this of its hub (m) takes the wheel on any real hit (HUB_OVERRUN_MPS), however wide and from
- *  whichever end: the bumper has overrun the tyre. Not a press: the compactor's plates ride the hubs back at under 1 m/s. */
-const HUB_OVERRUN = 0.12;
+/** The hit speed (m/s EBS) from which a corner crushed to `HUB_OVERRUN` of its hub takes the wheel. */
 const HUB_OVERRUN_MPS = 3;
 
 const _a = new THREE.Vector3();

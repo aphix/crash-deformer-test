@@ -382,6 +382,42 @@ for 0.9 s there too; the bullet then drove through the struck car (cell 5 m past
 (RIG_ANALYSIS §6.6). With the side-contact fix the door intrudes 0.242 / 0.263 m (squash 0.32 / 0.4) within 0.1 s
 and the bullet stays 2.4 m clear of the struck cell.
 
+### 5.7 A faster head-on crushed less (lane `car-crush`, main `73439a8`) — fixed
+
+Owner (10-04): hard car-v-car hits no longer eject. Measured through the sandbox engine step (`tickWorld` + `EjectionWatch`,
+class-dressed cars at the HUD defaults, `.bench/crush/table.ts`): a 2×30 m/s head-on killed both engines (block 0.52 m, 80 %
+of the stroke used), 2×40 and 2×55 left both alive at health 0.21 / 0.17 with the block at 0.36–0.37 m. Every faster
+head-on did less. T-bone and rear-end strikers grow monotonically and never moved (31 m/s is where a sedan striker's block
+crosses the 0.15 m throw line; a struck door or tail spares its engine by design).
+
+Mechanism (per-slice ledger, `.bench/crush/dbg.ts`): `tyreStop` (`pair-contact.ts`, b4b76d9) is the pair's final stop and
+cancelled the whole closing at the first wheel-on-wheel touch. The wheels meet with the cars' centres 3.3 m apart; the
+hub-pop rule (`HUB_OVERRUN`) takes a wheel once its corner is within 0.12 m of the hub, 0.60 m of crush (rig-spec: bumper
+z 2.06, hub 1.34), and `tyreStop` skips popped hubs. At 30 m/s the corner has crushed 0.58 m as the tyres touch and pops
+the hubs a slice later, so the noses crush on to their full stroke; at 55 m/s the corner has crushed only 0.44 m when the
+tyres meet. The ledger: 58.3 ms closing 103 → 59 m/s (tyre sweep, `first` 0.58), 62.5 ms the remaining 59 m/s cancelled
+at once with 0.45 of the stroke used; the block never reached the cabin. The crush feed, the SAT push, `brakeInbound`
+and the re-arm were not at fault (`followGroup` writes no vertical speed in either head-on: max |v.y| 0.000).
+
+Fix: end-on tyre contact (normal within 45° of both headings) whose hit stroke reaches both wheels (`hubReach`: the
+stroke is at least the corner crush that overruns the hub, 0.60 m; the derby's 4–13 m/s hits never do, a first version
+without this gate tore wheels off in the ten-car derby and zipped 5 of 8 seeds 5–28 cm) and has stroke left in either nose
+(`strokeUsed` < 0.9, B1's gate) tears the touching wheels off their hubs instead of stopping the pair; the packed stop (B1)
+and, with the stroke spent, the tyres still end it. Head-on, sedan / sedan (block m, health, thrown), before → after:
+
+| 2× m/s | 20 | 25 | 30 | 40 | 55 |
+| --- | --- | --- | --- | --- | --- |
+| block (m) | 0.30 → 0.30 | 0.46 → 0.46 | 0.52 → 0.51 | 0.36 → 0.51 | 0.37 → 0.59 |
+| health | 0.33 → 0.33 | 0 → 0 | 0 → 0 | 0.21 → 0 | 0.17 → 0 |
+| alive | yes | no | no | yes → no | yes → no |
+| both thrown | yes | yes | yes | yes | yes |
+
+The block reads the frozen value at death above the kill (0.45 m sedan, 0.536 monster); the nose is the crush measure:
+`runPair` 100 / 115 / 130 / 150 / 180 / 200 km/h mean nose 0.757 / 0.586 / 0.814 / 0.51 / 0.53 / 0.50 m → 0.794 / 0.815 /
+0.878 / 0.864 / 0.838 / 0.835 m (the stroke cap). `vehicle/ejection-matrix.test.ts` pins every striker × struck class
+pair (sedan, truck, monster) of the head-on, T-bone and rear-end at a survivable and a lethal speed and a speed ladder;
+`crash-parts.test.ts` pins the nose ladder. REPLAY_VERSION 14.
+
 ## 6. Owner's 1/1 setting (lane tree, `fe381c3`)
 
 Full speed: score 0.475, 16 targets missed. Slomo: score 0.504. Max quiet drift 0.27 rad, no spin-clamp frames.

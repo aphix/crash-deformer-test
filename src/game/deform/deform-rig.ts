@@ -36,6 +36,9 @@ export type DeformMode = "shape" | "lattice";
  *  A tail-first hit does not reach the block (it lives in the nose), so the
  *  same threshold stays driveable from the rear well past 80 km/h. */
 export const ENGINE_KILL_TRAVEL = 0.15;
+/** A corner crushed to within this of its hub (m) takes the wheel on any real hit, however wide and from whichever end: the
+ *  bumper has overrun the tyre (`clampMass`, `hubReach`). Not a press: the compactor's plates ride the hubs back at under 1 m/s. */
+export const HUB_OVERRUN = 0.12;
 
 /** Per-body-style rig: cage boxes / sensor rests (by SENSORS index) that differ
  *  from the platform tables so the cages wrap that style's roof, glass and boot. */
@@ -254,6 +257,13 @@ export abstract class DeformRig {
   protected readonly suspension: readonly (readonly [MassNode, MassNode])[];
   protected readonly cageByPart: Map<BodyPartName, Cage>;
   protected _totalMass = 1;
+
+  /** Crush (m) a hit's stroke must reach to overrun `hub`'s wheel and tear it off (`HUB_OVERRUN` short of the hub): the corner's rest distance to the hub. */
+  hubReach(hub: MassNode): number {
+    const corner = hub.rest.z > 0 ? (hub.rest.x < 0 ? this.at.bumperFL : this.at.bumperFR) : hub.rest.x < 0 ? this.at.bumperRL : this.at.bumperRR;
+    return Math.abs(corner.rest.z - hub.rest.z) - HUB_OVERRUN;
+  }
+
   protected prevYaw = 0;
   /** Heading and sim time (`elapsed`) of the last yaw-rate sample in followGroup. */
   protected rateYaw = 0;

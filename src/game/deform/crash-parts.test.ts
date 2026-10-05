@@ -383,6 +383,16 @@ describe("the tyres are a head-on's final stop", () => {
       }
     }
   });
+
+  it("bad: a faster head-on never crushes the noses less: 100 → 200 km/h, each mean nose is within 5 % of or past the slower hit's (the tyres stopped a 150+ km/h pair at 0.48–0.57 m after 0.81 m at 130)", () => {
+    let prev = 0;
+    for (const kph of [100, 115, 130, 150, 180, 200]) {
+      const [a, b] = runPair(kph, kph, "head-on", { squash: 0.32 });
+      const nose = (a.noseShortL + b.noseShortL) / 2;
+      assert.ok(nose >= prev * 0.95, `${kph} km/h head-on: mean nose ${nose.toFixed(3)} m after ${prev.toFixed(3)} m at the slower speed`);
+      prev = nose;
+    }
+  });
 });
 
 describe("a stopped wreck levels out without popping", () => {

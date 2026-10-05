@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { MassNode } from "../deform/deform-rig.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { carCrushHulls, satCars } from "./sat.ts";
 import { bodyContact, faceOverlap, type ContactBox } from "./external-contact.ts";
@@ -131,6 +132,11 @@ function pushPair(car: DeformableCar, other: DeformableCar, nx: number, nz: numb
 /** Centre-to-centre gap (m, about a car's width) that `closingCap` stops a pair's closing before. */
 const STOP_GAP = 2;
 
+/** Share of a hit's stroke (`strokeUsed`) both noses must have crushed before the packed structure (B1) or the tyres stop a pair's closing. */
+const PACKED_STROKE = 0.9;
+/** |cos| between a tyre contact's normal and each car's heading above which the contact is end-on (head-on, nose into tail). */
+const END_ON = 0.7;
+
 /**
  * Most closing impulse (N·s) one slice may cancel: 18 + 36·pass lets a hit grind on through the crumple,
  * raised to the impulse that stops the closing before the centres come within STOP_GAP. Uncapped, a derby
@@ -211,7 +217,7 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const remainB = carB.deform.feedOverlap(_cp, _w.copy(_cn).negate(), crushHit, Math.max(0, closing), dt, -vc);
     remain = Math.max(0, Math.min(remainA, remainB));
   }
-  if (feed && crushHit && closing > 0 && carA.crashed && carB.crashed && Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) >= 0.9) {
+  if (feed && crushHit && closing > 0 && carA.crashed && carB.crashed && Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) >= PACKED_STROKE) {
     // Both noses have crushed their stroke for this hit (B1): the packed
     // structure stops the relative closing, toward the pair's common velocity.
     const mA = carA.deform.totalMass;
@@ -343,6 +349,8 @@ export function tyreOverlap(carA: DeformableCar, carB: DeformableCar): number {
  * meet, and its normal (B → A, into `normalOut`): the closing that would carry those tyres in goes to the
  * pair's common speed, as for packed noses (B1), and tyres already overlapping part within the push budget.
  * Stopping only once they overlapped let one slice carry them its whole travel through (80 km/h: 0.17 m).
+ * That stop is final for packed noses and for hits too soft to reach the wheels (`hubReach`); end-on with stroke
+ * left (`PACKED_STROKE`) the touching wheels tear off their hubs and the noses crush on, so a harder hit crushes at least as far.
  */
 function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOut: THREE.Vector3): boolean {
   if (!carA.deform.massActive || !carB.deform.massActive) return false;
@@ -351,7 +359,9 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
   const wx = (carA.velocity.x - carB.velocity.x) * dt;
   const wz = (carA.velocity.z - carB.velocity.z) * dt;
   let first = Infinity,
-    depth = 0;
+    depth = 0,
+    hubA: MassNode | null = null,
+    hubB: MassNode | null = null;
   for (let ai = 0; ai < carA.deform.masses.length; ai++) {
     const a = carA.deform.masses[ai]!;
     if (!a.hub || a.popped) continue;
@@ -408,15 +418,36 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
           first = 0;
           depth = pen;
           normalOut.set(px, 0, pz);
+          hubA = a;
+          hubB = b;
         }
       } else if (enter <= exit && enter >= 0 && enter <= 1 && enter < first) {
         first = enter;
         normalOut.set(ex, 0, ez);
+        hubA = a;
+        hubB = b;
       }
     }
   }
   if (first > 1) return false;
   const n = normalOut;
+  // Head-on (or nose into tail) whose crush stroke reaches both wheels and has some left in either nose: the wheel that
+  // met a wheel is torn back off its hub, as a nose crushed onto its tyre tears it (`HUB_OVERRUN`), and the noses go
+  // on crushing. Stopping the whole pair at the tyres here cut a 55 m/s head-on's stroke at 45 % (engine block 0.37 m,
+  // alive) while 30 m/s crushed on through it (0.52 m, dead). A hit too soft to reach the wheels meets them as a rigid stop.
+  if (
+    hubA &&
+    hubB &&
+    Math.abs(n.x * carA.fwdFlat.x + n.z * carA.fwdFlat.z) > END_ON &&
+    Math.abs(n.x * carB.fwdFlat.x + n.z * carB.fwdFlat.z) > END_ON &&
+    carA.deform.hitStroke() >= carA.deform.hubReach(hubA) &&
+    carB.deform.hitStroke() >= carB.deform.hubReach(hubB) &&
+    Math.min(carA.deform.strokeUsed(), carB.deform.strokeUsed()) < PACKED_STROKE
+  ) {
+    carA.deform.popHub(hubA);
+    carB.deform.popHub(hubB);
+    return true;
+  }
   const mA = carA.deform.totalMass;
   const mB = carB.deform.totalMass;
   const vA = carA.velocity.x * n.x + carA.velocity.z * n.z;
