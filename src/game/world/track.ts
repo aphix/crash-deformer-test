@@ -5,6 +5,7 @@ import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
 import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
 import { bilinear, RoadCrease } from "./road-crease.ts";
+import { nearestOnPath } from "./path-grid.ts";
 
 /**
  * A track JSON compiled into arc-length samples (≈1 m apart), gates, the start
@@ -317,50 +318,45 @@ export function pointOn(path: TrackPath, s: number, out: TrackPoint): TrackPoint
   return out;
 }
 
-/** Nearest point on segment k→k+1 into `out` if closer than out.dist2. */
-function trySegment(path: TrackPath, k: number, x: number, z: number, out: Projection): void {
-  const n = path.count;
-  const b = path.closed ? (k + 1) % n : k + 1;
-  if (b >= n) return;
-  const ax = path.x[k]!;
-  const az = path.z[k]!;
-  const ex = path.x[b]! - ax;
-  const ez = path.z[b]! - az;
-  const len2 = ex * ex + ez * ez || 1e-12;
-  let f = ((x - ax) * ex + (z - az) * ez) / len2;
-  f = f < 0 ? 0 : f > 1 ? 1 : f;
-  const cx = ax + ex * f;
-  const cz = az + ez * f;
-  const dx = x - cx;
-  const dz = z - cz;
-  const d2 = dx * dx + dz * dz;
-  if (d2 >= out.dist2) return;
-  const segs = path.closed ? n : n - 1;
-  out.dist2 = d2;
-  out.k = k;
-  out.s = ((k + f) / segs) * path.length;
-  out.cx = cx;
-  out.cz = cz;
-  const len = Math.sqrt(len2);
-  out.lateral = (dx * ez - dz * ex) / len;
-}
-
 /** Nearest centreline point; searches ±WINDOW samples around `hint` (≥ 0), the whole path otherwise or when that lands off the corridor. */
 export function projectPath(path: TrackPath, x: number, z: number, hint: number, out: Projection): Projection {
   out.dist2 = Infinity;
   const n = path.count;
   if (hint >= 0 && hint < n) {
-    for (let d = -WINDOW; d <= WINDOW; d++) {
-      let k = hint + d;
-      if (path.closed) k = (k + n) % n;
-      else if (k < 0 || k >= n - 1) continue;
-      trySegment(path, k, x, z, out);
+    // In offset order (the first of equal distances wins), no division where the point clamps to a segment's end, no `%`.
+    const closed = path.closed;
+    const segs = closed ? n : n - 1;
+    let k = closed ? (((hint - WINDOW) % n) + n) % n : hint - WINDOW;
+    for (let d = -WINDOW; d <= WINDOW; d++, k++) {
+      if (closed) {
+        if (k >= n) k -= n;
+      } else if (k < 0 || k >= n - 1) continue;
+      const b = k + 1 === n ? 0 : k + 1;
+      const ax = path.x[k]!;
+      const az = path.z[k]!;
+      const ex = path.x[b]! - ax;
+      const ez = path.z[b]! - az;
+      const len2 = ex * ex + ez * ez || 1e-12;
+      const num = (x - ax) * ex + (z - az) * ez;
+      const f = num <= 0 ? 0 : num >= len2 ? 1 : num / len2;
+      const cx = ax + ex * f;
+      const cz = az + ez * f;
+      const dx = x - cx;
+      const dz = z - cz;
+      const d2 = dx * dx + dz * dz;
+      if (d2 >= out.dist2) continue;
+      out.dist2 = d2;
+      out.k = k;
+      out.s = ((k + f) / segs) * path.length;
+      out.cx = cx;
+      out.cz = cz;
+      out.lateral = (dx * ez - dz * ex) / Math.sqrt(len2);
     }
     const reach = path.half[out.k]! + Math.max(path.runL[out.k]!, path.runR[out.k]!) + 8;
     if (out.dist2 <= reach * reach) return out;
     out.dist2 = Infinity;
   }
-  for (let k = 0; k < n; k++) trySegment(path, k, x, z, out);
+  nearestOnPath(path, x, z, out);
   return out;
 }
 
