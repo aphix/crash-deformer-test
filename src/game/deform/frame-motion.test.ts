@@ -1,8 +1,9 @@
-import { describe, it } from "node:test";
+import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { StreamedDeformation } from "./streamed-deform.ts";
 import { DT, dummyGeom, mass } from "../vehicle/test-support.ts";
+import { FLAT_GROUND, setGround, type Ground } from "../world/ground.ts";
 
 /**
  * What `followGroup` reports for a wreck (its `velocity` and `angular`) is what its masses do. It fits a frame to them
@@ -143,5 +144,51 @@ describe("a wreck's own steps move no angular momentum", () => {
     assert.ok(Math.abs(l0) > 400, `the hit left ${l0.toFixed(0)} kg·m²/s: the setup no longer turns the wreck`);
     assert.ok(worst < 0.01 * Math.abs(l0), `a step moved ${worst.toFixed(1)} of ${l0.toFixed(0)} kg·m²/s`);
     assert.ok(Math.abs(momentum(s.d) - l0) < 0.02 * Math.abs(l0), `${l0.toFixed(0)} → ${momentum(s.d).toFixed(0)} kg·m²/s over the live window`);
+  });
+});
+
+/** A plateau `TOP` m up under every body point within `KERB` of it, the road (0) under the rest: a wedge's high end (`FleetRamps.heightAt`). */
+const TOP = 1.2;
+const KERB = 0.35;
+function plateau(walls: boolean): Ground {
+  return {
+    walls,
+    heightAt: (_x, _z, y) => (y === undefined || TOP - y <= KERB ? TOP : 0),
+    normalAt: FLAT_GROUND.normalAt,
+    frictionAt: () => 1,
+    surfaceAt: () => "asphalt",
+  };
+}
+
+describe("followGroup does not lift a wreck out of a ground's wall", () => {
+  // The frame is where the masses are, within the band over the ground under the wreck's anchor. Under a wedge's end that ground is a
+  // wall to a body falling beside it: the frame stepped up onto the top (0.24-0.27 m in one call, fleet-ramps D1) and `clampLocal`
+  // shoved the masses after it (0.18-0.29 m), with no speed to show for it. Here the setup gives 0.250 / 0.221 m on main.
+  afterEach(() => setGround(null));
+
+  /** A wreck in flight with its origin `depth` m under the plateau's top, middle over it: how far the frame and the highest-moved mass rose in its first read. */
+  function rise(walls: boolean, depth: number): { frame: number; mass: number } {
+    setGround(plateau(walls));
+    const s = wreck({ pitch: 0, roll: 0, y: TOP - depth });
+    s.d.aloft = true;
+    const y0 = s.group.position.y;
+    const before = s.d.masses.map((m) => m.world.y);
+    s.d.followGroup(s.group, s.vel, s.omega, DT);
+    return { frame: s.group.position.y - y0, mass: Math.max(...s.d.masses.map((m, i) => m.world.y - before[i]!)) };
+  }
+
+  it("bad: a wreck in flight whose origin is 0.25 m under a walled plateau's top stays on its masses: it does not land on it", () => {
+    const r = rise(true, 0.25);
+    assert.ok(r.frame < 0.02 && r.mass < 0.02, `the frame rose ${r.frame.toFixed(3)} m and a mass ${r.mass.toFixed(3)} m onto a top 0.25 m above the wreck`);
+  });
+
+  it("good: the same wreck over a ground with no walls lands on it: nothing else parts it", () => {
+    const r = rise(false, 0.25);
+    assert.ok(r.frame > 0.24, `the frame rose ${r.frame.toFixed(3)} m`);
+  });
+
+  it("good: a wreck in flight 0.05 m under a walled plateau's top (a settled cell's sag) lands on it", () => {
+    const r = rise(true, 0.05);
+    assert.ok(r.frame > 0.04, `the frame rose ${r.frame.toFixed(3)} m`);
   });
 });

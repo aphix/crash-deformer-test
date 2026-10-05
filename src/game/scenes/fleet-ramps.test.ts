@@ -4,7 +4,6 @@ import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { COM_Y, G, REST_LIFT, TOUCH } from "../vehicle/car-air.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
-import { droop } from "../vehicle/car-suspension.ts";
 import { LIFT_OFF } from "../deform/deform-contact.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
@@ -12,7 +11,7 @@ import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
-import { assignClass, carClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
@@ -77,10 +76,11 @@ function pair(vA: number, vB: number, dx = 0.4): { w: World; cars: [DeformableCa
  *    contact moves a body with no speed (a wheel that close counts as down; a body stopped on its belly lifts out of the
  *    belly's depth, up to `REST_LIFT` a slice).
  *  - A frame with an end on the ground measures the group's origin, which a wreck's pose (`followGroup`) keeps in a band over
- *    its floor: the frame drops onto the band by up to `LIFT_OFF` in a slice (beyond that the wreck goes aloft instead),
- *    and a body landing (`land`) within its springs' `droop` of its ground goes to the ground pose. The wreck's masses keep
- *    their world places through either (the frame is re-solved around them), so the body drawn does not move: that much
- *    either way for such a frame, and a snap past it (a struck flier dropped 1.85 m onto the ground) is still outside.
+ *    its floor: the frame drops onto the band by up to `LIFT_OFF` in a slice (beyond that the wreck goes aloft instead), so
+ *    a drop is allowed that much (measured over the cells below: 0.0116 m past the speeds, 16/9/0.4 car B frame 121). A rise
+ *    is not: a wreck in flight lands on a wedge's end only from within `LIFT_OFF` and its fall under its top (under that the end is
+ *    a wall: its frame rose 0.24 m with no speed, and the masses were shoved after it, on main). A snap past that (a struck
+ *    flier dropped 1.85 m onto the ground) is still outside.
  */
 function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => void; slice: (h: number) => void } {
   const heights = (c: DeformableCar): [number, number] => {
@@ -117,9 +117,8 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
         const y = flying ? com : o;
         const dy = y - y0;
         const tol = touch[i] ? TOUCH + REST_LIFT : 0.02;
-        const pose = flying ? 0 : LIFT_OFF + droop(carClass(c));
-        const lo = (touch[i] ? vmin[i]! - G * hmax : vmin[i]!) * FRAME - tol - pose;
-        const hi = (touch[i] ? Math.max(vmax[i]!, 0) : vmax[i]!) * FRAME + tol + pose;
+        const lo = (touch[i] ? vmin[i]! - G * hmax : vmin[i]!) * FRAME - tol - (flying ? 0 : LIFT_OFF);
+        const hi = (touch[i] ? Math.max(vmax[i]!, 0) : vmax[i]!) * FRAME + tol;
         if (dy < lo || dy > hi) {
           list.push(`car ${i} frame ${n}: y ${y0.toFixed(3)} → ${y.toFixed(3)}, vy ${vy0.toFixed(2)} → ${c.velocity.y.toFixed(2)} (slices ${vmin[i]!.toFixed(2)}..${vmax[i]!.toFixed(2)})`);
         }
