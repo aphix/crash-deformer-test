@@ -50,6 +50,7 @@ const RESULT: BenchResult = {
     squash: 1,
     buckle: 1,
     deformMode: "shape",
+    depth: { bits: 24, contextDepth: true, fragmentHighFloat: { precision: 23, rangeMin: 127, rangeMax: 127 }, near: 0.1, far: 180, logarithmicDepthBuffer: false },
   },
   abPace: { fine: B(41, 3), coarse: B(58, 3) },
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
@@ -93,6 +94,9 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.ok(lines.some((l) => l.includes("2.7 steps/frame, 1.56 ms/step, 212 ms per sim-second")));
     assert.ok(lines.some((l) => l.startsWith("fx tier: high 97 %, minimal 3 % (auto)") && l.includes("radial blur, grain 0.03")));
     assert.ok(lines.some((l) => l.includes("PCF 2048x2048, 223 casters") && l.includes("pixel ratio 1.5 of device 2.625, canvas 1373x618, no MSAA")));
+    assert.ok(lines.some((l) => l === "depth: 24 bits (drawing buffer), fragment highp 23 bits, range 2^127..2^127, camera near 0.1 far 180, log depth off"));
+    const noDepth = describeBench({ ...RESULT, settings: { ...RESULT.settings, depth: { ...RESULT.settings.depth, bits: 16, contextDepth: false, fragmentHighFloat: null, logarithmicDepthBuffer: true } } });
+    assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), fragment highp not supported, camera near 0.1 far 180, log depth on"));
     assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps")) && lines.some((l) => l.includes("1/120 s 58.0 fps")));
     assert.ok(lines.some((l) => l.includes("minimal 60.0 fps") && l.includes("gpu 1.1")) && lines.some((l) => l.includes("high 48.0 fps") && l.includes("gpu n/a")));
     assert.ok(!lines.some((l) => l.includes("masked")));
@@ -100,6 +104,6 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.ok(masked.some((l) => l.includes("GTX 980") && l.includes("[masked by the browser: not the real GPU]")));
     const timed = describeBench({ ...RESULT, gpuMs: S(3) });
     assert.ok(timed.some((l) => /^GPU {7}p50 3\.0 {2}p95 6\.0/.test(l)));
-    assert.ok(lines.length <= 24, "fits a 412 px tall phone screen at 11 px type");
+    assert.ok(lines.length <= 26, "fits a 412 px tall phone screen at 11 px type, scrolling");
   });
 });

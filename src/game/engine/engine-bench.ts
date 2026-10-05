@@ -17,6 +17,7 @@ export interface BenchParts {
   renderer: THREE.WebGLRenderer;
   cine: Pick<Cinematics, "render" | "tier">;
   scene: THREE.Scene;
+  camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight;
   race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats">;
   seat: DriverSeat;
@@ -82,6 +83,7 @@ interface BenchSettings {
   squash: number;
   buckle: number;
   deformMode: string;
+  depth: { bits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean };
 }
 
 export interface BenchResult {
@@ -213,6 +215,7 @@ export function describeBench(r: BenchResult): string[] {
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
+    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}`,
     `                  ${arm("1/120 s", r.abPace.coarse)}`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
@@ -544,9 +547,23 @@ async function alternate(
   return { accs, blockKeys };
 }
 
+/** The depth buffer facts a ground flicker (z-fighting) depends on: the drawing buffer's depth bits, the fragment shader's float precision, the camera's planes. */
+function depthOf(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): BenchSettings["depth"] {
+  const gl = renderer.getContext();
+  const frag = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
+  return {
+    bits: gl.getParameter(gl.DEPTH_BITS) as number,
+    contextDepth: gl.getContextAttributes()?.depth === true,
+    fragmentHighFloat: frag ? { precision: frag.precision, rangeMin: frag.rangeMin, rangeMax: frag.rangeMax } : null,
+    near: camera.near,
+    far: camera.far,
+    logarithmicDepthBuffer: renderer.capabilities.logarithmicDepthBuffer,
+  };
+}
+
 /** What was switched on, read off the renderer, the sun and the HUD's own state. */
 function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string): BenchSettings {
-  const { renderer, scene, sun } = parts;
+  const { renderer, scene, sun, camera } = parts;
   const size = renderer.domElement;
   let casters = 0;
   scene.traverseVisible((o) => {
@@ -570,6 +587,7 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
     squash: Number(hud["squash"]),
     buckle: Number(hud["buckle"]),
     deformMode: String(hud["deformMode"]),
+    depth: depthOf(renderer, camera),
   };
 }
 
