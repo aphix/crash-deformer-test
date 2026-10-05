@@ -4,7 +4,7 @@ import { PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
-import { countsAsImpact, INPUT_BYTES, MEMORY, PAIR_MIN, WALL_MIN, type HighlightClip } from "../match/highlights.ts";
+import { countsAsImpact, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -334,7 +334,7 @@ export class ClipSim {
     const c = this.clip;
     const j = c.cars.findIndex((x) => x.slot === slot);
     if (j < 0) return;
-    const counts = countsAsImpact(this.time - this.wallAt[j]!, closing, WALL_MIN);
+    const counts = countsAsImpact(this.time - this.wallAt[j]!, closing);
     this.wallAt[j] = this.time;
     if (counts && c.firstB < 0 && j === c.firstA) this.markHit();
   }
@@ -344,7 +344,7 @@ export class ClipSim {
     if (!first) return;
     const { firstA, firstB } = this.clip;
     const k = a * this.cars.length + b;
-    const counts = countsAsImpact(this.time - this.pairAt[k]!, closing, PAIR_MIN);
+    const counts = countsAsImpact(this.time - this.pairAt[k]!, closing);
     this.pairAt[k] = this.time;
     if (counts && ((a === firstA && b === firstB) || (a === firstB && b === firstA))) this.markHit();
   }

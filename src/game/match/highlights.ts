@@ -22,10 +22,12 @@ const POST_ROLL = 3;
 export const MAX_SPAN = 6;
 /** An impact joins an open cluster that shares a car, or whose centre is within this distance (m). */
 const JOIN_R = 30;
-/** Car–car closing speed (m/s) that counts as an impact: wrecks grinding in a pile close at 3–4, a real hit at 5+ (18 km/h). */
-export const PAIR_MIN = 5;
-/** Wall and prop closing speed (m/s) that counts: a wall brush along the barrier closes at 1–4. */
-export const WALL_MIN = 5;
+/**
+ * Closing speed (m/s) at which any contact counts as an impact: car–car, wall and prop alike (45 km/h). Measured on 192 races
+ * (docs/HIGHLIGHTS.md): below it a hit cannot make a clip alone (a sedan head-on scores `MIN_SCORE` at 12.5 m/s), so a
+ * slower bump could only ever join a cluster and lift its score and car count: the "pile-ups of slow bumps".
+ */
+export const IMPACT_MIN = 12.5;
 /** A contact is an impact only when its pair (or its car and the walls) had been apart this long (s): grinding never re-counts. */
 export const REHIT_S = 0.35;
 /**
@@ -83,13 +85,12 @@ function impactWeight(closing: number): number {
 }
 
 /**
- * Whether a contact is an impact: `strength` (closing speed, m/s) is at least `min` (`PAIR_MIN` for two cars, `WALL_MIN`
- * for a wall or prop) and its pair (or its car and the walls) had been apart `apart` s, at least `REHIT_S`: grinding never
- * re-counts. The recorder's ledger and the replay's first-hit marker (`ClipSim`) both ask it, so a replay times the hit
- * exactly as the record counted it.
+ * Whether a contact is an impact: `strength` (closing speed, m/s) is at least `IMPACT_MIN` and its pair (or its car and
+ * the walls) had been apart `apart` s, at least `REHIT_S`: grinding never re-counts. The recorder's ledger and the
+ * replay's first-hit marker (`ClipSim`) both ask it, so a replay times the hit exactly as the record counted it.
  */
-export function countsAsImpact(apart: number, strength: number, min: number): boolean {
-  return apart >= REHIT_S && strength >= min;
+export function countsAsImpact(apart: number, strength: number): boolean {
+  return apart >= REHIT_S && strength >= IMPACT_MIN;
 }
 
 /** One burst of impacts: the cars in it, when, where and how hard. */
@@ -119,6 +120,11 @@ export class CrashCluster {
   z0 = 0;
   a0 = -1;
   b0 = -1;
+
+  /** Cars in it (impacts, an engine kill, a throw): the pile-up count of its title. */
+  get hit(): number {
+    return popcount(this.cars);
+  }
 
   get x(): number {
     return this.sx / Math.max(1, this.impacts);
@@ -293,6 +299,8 @@ export type HighlightClip = {
   kills: number;
   /** Drivers thrown out inside the clip's cluster: its title, and the reel's flight shot follows `ejections`. */
   ejects: number;
+  /** Cars the clip's cluster involved (impacts, a kill, a throw): `cars` also holds bystanders, so the title counts these. */
+  hit: number;
   /** Every ejection during the clip's steps, in step order (cars the clip carries only). */
   ejections: ClipEjection[];
   /**
@@ -366,12 +374,11 @@ export function simFingerprint(): number {
   return h >>> 0;
 }
 
-/** HUD line for a clip: "Driver thrown out", "4-car pile-up", "Engine destroyed", "Head-on, 96 km/h". */
-export function clipTitle(c: Pick<HighlightClip, "cars" | "kills" | "ejects" | "peakKph" | "impacts">): string {
-  const n = c.cars.length;
+/** HUD line for a clip: "Driver thrown out", "4-car pile-up", "Engine destroyed", "Head-on, 96 km/h". Counts the cars hit, not the bystanders the clip also carries. */
+export function clipTitle(c: Pick<HighlightClip, "hit" | "kills" | "ejects" | "peakKph">): string {
   if (c.ejects > 0) return c.ejects > 1 ? `${c.ejects} drivers thrown out` : "Driver thrown out";
-  if (n >= 3) return `${n}-car pile-up`;
+  if (c.hit >= 3) return `${c.hit}-car pile-up`;
   if (c.kills > 0) return c.kills > 1 ? `${c.kills} engines destroyed` : "Engine destroyed";
-  if (n === 2) return `${Math.round(c.peakKph)} km/h smash`;
+  if (c.hit === 2) return `${Math.round(c.peakKph)} km/h smash`;
   return `Wall hit, ${Math.round(c.peakKph)} km/h`;
 }

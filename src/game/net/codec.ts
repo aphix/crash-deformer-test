@@ -34,8 +34,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  keyframe's `simState` drops two doubles (the wreck's fitted yaw rate).
  12: a reel clip carries per-key car masks and a knocks list (no fine block), and a keyframe's car section carries its
  parts state, cage corners and sensor positions.
+ 13: a reel clip carries the count of cars its cluster hit (`hit`, a byte after `ejects`).
  */
-export const NET_VERSION = 12;
+export const NET_VERSION = 13;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

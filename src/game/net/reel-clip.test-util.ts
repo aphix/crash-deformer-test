@@ -60,6 +60,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     impacts: 3,
     kills: 1,
     ejects: 1,
+    hit: 3,
     ejections: [
       {
         step: 361,
@@ -115,7 +116,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
 
 /** `got` is `want` after the wire (floats fround). */
 export function sameClip(got: HighlightClip, want: HighlightClip): void {
-  for (const k of ["trackId", "impacts", "kills", "ejects", "firstStep", "focus", "firstA", "firstB", "bleed", "t0", "firstImpact", "lastImpact", "realism"] as const) {
+  for (const k of ["trackId", "impacts", "kills", "ejects", "hit", "firstStep", "focus", "firstA", "firstB", "bleed", "t0", "firstImpact", "lastImpact", "realism"] as const) {
     assert.equal(got[k], want[k], k);
   }
   for (const k of ["score", "peakKph", "x", "z"] as const) assert.equal(got[k], Math.fround(want[k]), k);

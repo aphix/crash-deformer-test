@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { setGround } from "../world/ground.ts";
 import { blankPoint, Track } from "../world/track.ts";
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
+import city from "../world/tracks/city.json" with { type: "json" };
 import { frame, makeWorld, type World } from "../world/race-world.test-util.ts";
 import { phaseClock } from "../match/phase.ts";
 import { carLayout } from "../net/car-pose.ts";
@@ -18,12 +19,9 @@ import { assertSameNumbers } from "../vehicle/test-support.ts";
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
 const SEED = 5;
 /**
- * The seed of the tests that need the field's first clip to open on intact cars with its focus car driving (a clip that
- * leaves nothing of the race torn but what it restores, and a car moving through the slow-mo). Seed 5's first clip opens
- * on 12 wrecks of an earlier pile-up and its focus car stands still; this one (and 6) opens on none, the focus car
- * driving. Any change to the car sim moves a seed's whole race (seed 2 lost it when a pair's contact axis moved; with the walls
- * crushing a car as the range's slab does, a racer that rams one at speed is a wreck there, not bounced back on, and 2, 3, 4 and 7
- * lose it too), so the leftovers test asserts the precondition by name first.
+ * The seed of the frames test, which needs the field's first clip to open with its focus car driving (a car moving
+ * through the slow-mo). Any change to the car sim moves a seed's whole race, so the leftovers test no longer rides a seed:
+ * it scripts its own first crash.
  */
 const CLEAN_SEED = 8;
 
@@ -138,7 +136,17 @@ describe("highlight reel and the race's leftovers", () => {
   it("bad: a clip's setup empties the scene (the race's torn parts on the cars it hides included) and the reel ending empties what the clips left; no reel up clears nothing", async () => {
     const a = makeWorld();
     try {
-      race(a, FIELD, CLEAN_SEED);
+      // A deliberate first crash on intact cars (no seed's natural field guarantees one: slow bumps tear parts that no longer make a clip):
+      // cars 2-3 are put head-on at 2 × 20 m/s a second into the race, as the stunt test below does.
+      race(a, FIELD, SEED);
+      const track = new Track(city);
+      const pt = blankPoint();
+      const state = { acc: 0 };
+      for (let n = 0; a.race.time < 1 && n < 900; n++) frame(a, state);
+      track.pointAt(150, pt);
+      a.cars[2]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 20);
+      track.pointAt(158, pt);
+      a.cars[3]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
       const reel = await recordedReel(a);
       const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
       // Precondition of the seed, not the rule: the first clip itself restores no torn part, so what a setup leaves is the race's.
@@ -146,7 +154,7 @@ describe("highlight reel and the race's leftovers", () => {
       opening.stepBudgetMs = Infinity;
       opening.play(reel, 0);
       opening.frame(FLIGHT_S / 2);
-      assert.equal(torn(), 0, `seed ${CLEAN_SEED} lost its precondition: its first clip opens on ${torn()} torn parts of an earlier pile-up; pick a seed whose first clip opens on intact cars`);
+      assert.equal(torn(), 0, `the scripted head-on lost its precondition: its first clip opens on ${torn()} torn parts of an earlier pile-up`);
       opening.stop();
       for (const c of a.cars) c["detachPart"](c["parts"].find((p) => p.region)!, 12);
       assert.ok(torn() >= a.cars.length, `${torn()} torn parts over ${a.cars.length} cars`);

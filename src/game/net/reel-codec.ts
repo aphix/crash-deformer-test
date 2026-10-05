@@ -54,10 +54,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * slowest lap, not its best, so a car is no longer DNF'd mid-lap after a shortcut lap; 29: the derby opening caution
  * reads a nose's own speed toward a crossing rival, not the range rate alone, so it lifts for more early charges;
  * 30: a crashed car's reported spin counts the turn its masses made beyond L/I, the planted write-back's kept turn and
- * a driven wreck's steer, so keyframe spin changes).
+ * a driven wreck's steer, so keyframe spin changes; 31: a clip carries the count of cars its cluster hit (`hit`), and
+ * an impact counts only at 12.5 m/s closing).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 30;
+const REPLAY_VERSION = 31;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -74,7 +75,7 @@ const KNOCK_BYTES = 4 + 2;
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
-  let n = 1 + utf8(c.trackId) + 82 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  let n = 1 + utf8(c.trackId) + 83 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 12 + k.length;
   return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES;
@@ -86,6 +87,7 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.u16(c.impacts);
   w.u8(c.kills);
   w.u8(Math.min(255, c.ejects));
+  w.u8(c.hit);
   w.f32(c.peakKph);
   w.f64(c.t0);
   w.f64(c.firstImpact);
@@ -145,6 +147,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const impacts = r.u16();
   const kills = r.u8();
   const ejects = r.u8();
+  const hit = r.u8();
   const peakKph = r.fin32();
   const t0 = r.f64();
   const firstImpact = r.f64();
@@ -250,7 +253,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || (k > 0 && step < knocks[k - 1]!.step)) throw new RangeError("clip knock");
     knocks.push({ step, prop });
   }
-  return { trackId, score, impacts, kills, ejects, ejections, knocks, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

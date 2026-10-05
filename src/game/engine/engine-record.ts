@@ -10,11 +10,9 @@ import {
   INPUT_BYTES,
   MAX_KNOCKS,
   MEMORY,
-  PAIR_MIN,
   PRE_ROLL,
   countsAsImpact,
   TOP,
-  WALL_MIN,
   type CrashCluster,
   type ClipEjection,
   type ClipKnock,
@@ -275,7 +273,7 @@ export class CrashRecorder {
     const n = this.pre.count;
     if (!this.on || !first || a >= n || b >= n) return;
     const k = a * MAX_CARS + b;
-    const counts = countsAsImpact(this.time - this.pairAt[k]!, hit.impulse, PAIR_MIN);
+    const counts = countsAsImpact(this.time - this.pairAt[k]!, hit.impulse);
     this.pairAt[k] = this.time;
     // Traffic and police make a moment only against a racer (`begin`).
     if (!counts || (a >= this.racers && b >= this.racers)) return;
@@ -296,7 +294,7 @@ export class CrashRecorder {
   /** A wall or prop touched car `i`, closing at `closing` m/s at (x, z). */
   wallHit(i: number, closing: number, x: number, z: number): void {
     if (!this.on || i >= this.pre.count) return;
-    const counts = countsAsImpact(this.time - this.wallAt[i]!, closing, WALL_MIN);
+    const counts = countsAsImpact(this.time - this.wallAt[i]!, closing);
     this.wallAt[i] = this.time;
     if (!counts || i >= this.racers) return;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[i]!)].mass, Infinity);
@@ -564,6 +562,7 @@ export class CrashRecorder {
       impacts: c.impacts,
       kills: c.kills,
       ejects: c.ejects,
+      hit: c.hit,
       ejections,
       knocks,
       peakKph: c.peak * 3.6,

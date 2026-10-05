@@ -41,8 +41,8 @@ and cost a wreck's 6.2 KB solver state each. A wreck is 1559 words (6.2 KB) in t
 it moves (measured on the stunt clips: the clusters' fit state 1.2 KB of that, the masses 0.6, the arrays and scalars 0.4),
 and a car put on a spot is some 400 bytes.
 
-An impact is a car–car contact closing at `PAIR_MIN` (5 m/s) or more, or a wall/prop contact at `WALL_MIN` (5 m/s),
-whose pair had been apart for `REHIT_S` (0.35 s), so grinding never re-counts. Impacts join an open cluster that shares
+An impact is any contact (car–car, wall or prop) closing at `IMPACT_MIN` (12.5 m/s, 45 km/h) or more, whose pair had been
+apart for `REHIT_S` (0.35 s), so grinding never re-counts. 12.5 m/s is the speed at which a lone sedan head-on reaches `MIN_SCORE`: a slower bump could only join a cluster and lift its car count and score (owner 10-05: "multi car pileups are just slow bumps"). Measured on 192 races (city, oval with police, breaker-yard, dam-spine, seeds 1-48): the old 5 m/s floor kept 81 of 150 oval-police clips as 3+-car pile-ups, 34 of them (and 8 of 9 on the city) only through bumps under 12 m/s; 49 of 56 city "pile-up" titles had two cars hit (the title counted the bystanders in the shot). The title now counts the cars hit (`HighlightClip.hit`, ≥ 3 for "N-car pile-up"). Impacts join an open cluster that shares
 a car or lies within 30 m. A cluster closes after `QUIET_GAP` (1.5 s) with no impact, or when it spans `MAX_SPAN` (6 s).
 Its score is energy, plus points per extra car, per engine destroyed and for impact density, each impact weighed by its
 force: `impactWeight(closing)` = closing speed over 50 km/h (×1 at 50, ×2 at 100, ×0.4 at 20), so hard hits count for
@@ -91,7 +91,7 @@ the same path (`race-eject-reel.test.ts`); the live dummy and the replay's start
 they bounce off replayed cars (a free flight stayed within 0.9 m of the live one over 4 s, one that hit the oncoming car
 did not): the launch falls on another frame boundary (up to 1/60 s) and the replayed cars are cm to dm off the live ones.
 
-The replay marks the first hit by the recorder's own rule (`countsAsImpact`: at least `PAIR_MIN` / `WALL_MIN` hard after a
+The replay marks the first hit by the recorder's own rule (`countsAsImpact`: at least `IMPACT_MIN` hard after a
 `REHIT_S` quiet spell), so a brush 0.35 s before the recorded impact no longer times it early.
 
 ## Replay

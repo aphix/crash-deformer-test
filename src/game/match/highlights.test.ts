@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { countsAsImpact, HighlightLedger, impactEnergy, MAX_SPAN, MIN_SCORE, PAIR_MIN, QUIET_GAP, REHIT_S, TOP, WALL_MIN, type CrashCluster } from "./highlights.ts";
+import { countsAsImpact, HighlightLedger, IMPACT_MIN, impactEnergy, MAX_SPAN, MIN_SCORE, QUIET_GAP, REHIT_S, TOP, type CrashCluster } from "./highlights.ts";
 
 const SEDAN = 1400;
 const kph = (v: number): number => v / 3.6;
@@ -48,11 +48,12 @@ describe("highlight scoring", () => {
     assert.ok(wall.ranks(thrown.score));
   });
 
-  it("bad: an impact counts only after a REHIT_S quiet spell and from the class minimum (one rule for the recorder and the replay)", () => {
-    assert.equal(countsAsImpact(REHIT_S + 0.01, PAIR_MIN, PAIR_MIN), true);
-    assert.equal(countsAsImpact(REHIT_S - 0.01, 30, PAIR_MIN), false, "a contact 0.34 s after the last is grinding");
-    assert.equal(countsAsImpact(5, PAIR_MIN - 0.1, PAIR_MIN), false, "a soft touch");
-    assert.equal(countsAsImpact(Infinity, WALL_MIN, WALL_MIN), true, "the first ever contact");
+  it("bad: an impact counts only after a REHIT_S quiet spell and from IMPACT_MIN, car, wall or prop alike (one rule for the recorder and the replay)", () => {
+    assert.equal(countsAsImpact(REHIT_S + 0.01, IMPACT_MIN), true);
+    assert.equal(countsAsImpact(REHIT_S - 0.01, 30), false, "a contact 0.34 s after the last is grinding");
+    assert.equal(countsAsImpact(5, IMPACT_MIN - 0.1), false, "a soft touch");
+    assert.equal(countsAsImpact(5, 5), false, "the old 5 m/s floor: a slow bump is no impact");
+    assert.equal(countsAsImpact(Infinity, IMPACT_MIN), true, "the first ever contact");
   });
 
   it("bad: impacts inside the quiet gap must merge into one cluster; a later one, or one far away with other cars, must not", () => {
