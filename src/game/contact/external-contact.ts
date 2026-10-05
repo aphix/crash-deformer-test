@@ -149,10 +149,18 @@ export function bodyContact(car: DeformableCar, box: ContactBox, dt: number, cru
   shiftVelocities(car, -fx * ub, -fz * ub);
   // The slab's thin axis (`projectOutOfBox` x) is the striker's travel.
   let taken = d.projectOutOfBox(box.x, box.z, box.hz, box.hx, box.yaw - Math.PI / 2, !box.fixed);
-  if (d.faceContacts > 0) {
+  // A fixed solid narrower than the car (a palm between the bumpers) meets the crush hulls before any particle, and the slab's own
+  // rule (`BarrierSlab.resolve`) holds: hulls on the face are a contact all the same. The hit stays open (the quiet clock ran out while
+  // the hulls held the wreck off the palm, and the particles' arrival re-armed the hit: an 8 m/s tap read 0.016 m of block travel
+  // against the slab's 0), the force spends the stroke from the first touch (a rigid shove (`wallBounce`) takes a wreck's position off
+  // the face but none of its speed: a sedan at 55 m/s stood on its treadmill at the palm for 12 steps, then drove round it at
+  // 40 m/s), and the hulls crush the particles near their deepest point (`feedOverlap`) until the particles are on the face.
+  const hulled = box.fixed && overlap > 0.004 && closing > 0.2;
+  if (d.faceContacts > 0 || hulled) {
     bodyHit.touching = true;
     d.notifyContact();
     if (crush) {
+      if (d.faceContacts === 0) d.feedOverlap(_p, _n, overlap, closing, dt);
       const ebs = d.hitSpeedValue;
       const j = ((d.totalMass * ebs * ebs) / (2 * Math.max(0.05, d.hitStroke()))) * dt;
       taken += d.brakeInbound(fx, fz, j, 0);

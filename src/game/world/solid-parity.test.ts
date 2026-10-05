@@ -19,7 +19,8 @@ const LETHAL = 55;
 const SURVIVABLE = 8;
 
 /**
- * The solid's hit against the slab's. The driver is thrown out alike and the health is within `HEALTH_BAND`. Death is a threshold
+ * The solid's hit against the slab's. The driver is thrown out alike, the health is within `HEALTH_BAND` and the car comes off no
+ * faster (a pole the car drove round at 40 m/s read the same health). Death is a threshold
  * on that health, and the slab itself kills a default sedan by 0.004 m of block travel (0.454 against the 0.45 kill), so
  * `alive` has to agree only when one of them is clearly alive (health at or over `HEALTH_BAND`): two hits both within the
  * band of the kill line may fall either side of it.
@@ -31,6 +32,7 @@ function matches(label: string, solid: readonly Outcome[], slab: readonly Outcom
     const at = `${label}, hit ${k + 1}: ${JSON.stringify(o)} against the slab's ${JSON.stringify(ref)}`;
     assert.equal(o.ejected, ref.ejected, `driver: ${at}`);
     assert.ok(Math.abs(o.health - ref.health) <= HEALTH_BAND, `crush: ${at}`);
+    assert.ok(o.speed <= ref.speed + 1, `speed after the hit: ${at}`);
     if (Math.max(o.health, ref.health) >= HEALTH_BAND) assert.equal(o.alive, ref.alive, `drivetrain: ${at}`);
   });
 }
@@ -69,6 +71,14 @@ describe("every fixed solid hurts a car as the barrier does", () => {
   for (const target of ["oval", "stucco", "monument"] as const) {
     it(`a sedan sent back at ${target} twice at 30 m/s: the second hit is the barrier's too`, () => {
       matches(`sedan ${target} 30 x2`, strike(target, "sedan", 30, 2), strike("barrier", "sedan", 30, 2));
+    });
+  }
+  // A palm stands between a car's bumpers: its crush hulls reach the face before any particle does. Unless the hulls on the face count as
+  // the hit's contact, the quiet clock runs out, the hit re-arms at 0.3 s and the tap reads 0.016 m of block travel (the slab's 0).
+  for (const cls of ["sedan", "truck"] as const) {
+    it(`${cls}: a palm tap at ${SURVIVABLE} m/s leaves the block where it was, as the slab does`, () => {
+      const [tap] = strike("palm", cls, SURVIVABLE);
+      assert.ok(tap!.travel < 0.002 && tap!.health > 0.99 && !tap!.ejected, JSON.stringify(tap));
     });
   }
 });

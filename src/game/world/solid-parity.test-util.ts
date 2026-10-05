@@ -38,6 +38,8 @@ export type Outcome = {
   wheels: number;
   /** Whether the sim threw the driver out (this hit, or an earlier one's: a driver stays out). */
   ejected: boolean;
+  /** The car's speed (m/s) when the hit has played out: a solid that stops a car leaves none. */
+  speed: number;
 };
 
 /** A car class as a race car has it: its body, durability and the kill travel the default realism gives. */
@@ -182,7 +184,7 @@ export function strike(target: Target, cls: VehicleClassId, speed: number, hits 
       rig.aim(car, speed);
       for (let f = 0; f < SETTLE / FRAME; f++) rig.frame();
       const d = car.deform;
-      out.push({ alive: d.drivetrainAlive, health: d.drivetrainHealth, travel: d.engineTravel, wheels: d.wheelsOn, ejected: rig.ejections() > 0 });
+      out.push({ alive: d.drivetrainAlive, health: d.drivetrainHealth, travel: d.engineTravel, wheels: d.wheelsOn, ejected: rig.ejections() > 0, speed: car.velocity.length() });
     }
   } finally {
     rig.done();
