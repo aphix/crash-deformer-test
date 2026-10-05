@@ -22,10 +22,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * as the pedals' doubles, NaN where not recorded, instead of one rounding byte each; the pile-ups replay to the bit; 10:
  * the live sim changed under the same bytes: a car meets a solid or knock prop with its whole footprint, not six probes,
  * so a clip recorded against a prop replays another hit; 11: the live sim changed again: the course wall keeps a per-car
- * contact memory, so a car that arrives beyond a wall line from another road stays there, not thrown back across it).
+ * contact memory, so a car that arrives beyond a wall line from another road stays there, not thrown back across it;
+ * 12: no layout change, the live trajectories of cars stacked on each other moved: a car over another's roof is carried
+ * by it, not shoved off by the plan SAT, and a tyre on a car grips both ways, so an older clip is refused).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 11;
+const REPLAY_VERSION = 12;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

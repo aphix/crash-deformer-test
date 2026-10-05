@@ -279,6 +279,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
     ground.normalAt(px, pz, N[n]!, py);
     TYRE[n] = i < 4;
     OWN[n] = own;
+    if (own >= 0) surf.touch(own);
     UNDER[n] = i >= HULL.length && own < 0;
     FOLLOW[n] = own >= 0 ? surf.follow : 1;
     SLOT[n] = surf.slot(own, N[n]!, i >= BODY_FROM && i < HULL.length, q);
@@ -306,10 +307,12 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
       }
       if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
       push(v, w, q, r, nrm, jn);
-      // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane).
+      // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) on the
+      // world's ground, where the ground sim rolls it. On another car's top it grips both ways: a car in flight is unpowered
+      // with its wheels not turning under it, and a free-rolling tyre slid a car down the 8° of a pickup's bed at 0.38 m/s, for good.
       _vp.crossVectors(w, r).add(v);
       _vp.addScaledVector(nrm, -_vp.dot(nrm));
-      if (TYRE[c]) {
+      if (TYRE[c] && OWN[c]! < 0) {
         _tn.copy(_x).addScaledVector(nrm, -_x.dot(nrm)).normalize();
         const across = _vp.dot(_tn);
         _vp.copy(_tn).multiplyScalar(across);
