@@ -104,7 +104,8 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
       // The crush hulls reach past the masses held on the face (a hull is wider than the mass it sits round) and are pushed out as the slab
       // pushes them: while the car drives in as far as the crumple left allows (`0.4 · leftover`), at rest to the skin, so a wreck a
       // car pins against the solid is never left in it.
-      const room = into > WALL_TOUCH ? 0.4 * leftoverCrumple(car.deform.crumpleTravelCorner()) : WALL_SKIN;
+      const drive = Math.max(0, Math.min(1, (into - WALL_TOUCH) / (WALL_CRUSH - WALL_TOUCH)));
+      const room = WALL_SKIN + (0.4 * leftoverCrumple(car.deform.crumpleTravelCorner()) - WALL_SKIN) * drive;
       const sunk = faceOverlap(car, face, _p) - room;
       if (sunk > 0) shoveWreck(car, fx, fz, Math.min(sunk + 0.004, Math.max(pen, satPushCap(dt))));
       return;

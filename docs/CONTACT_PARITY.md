@@ -233,12 +233,29 @@ wreck whose footprint is `WALL_REACH` (1.2 m) in (rammed by another car), are pu
 A wreck's crush hulls are wider than the masses held on the face (the cabin hull spans the least crushed door on both sides, a nose
 hull is 0.34 m either side of 0.85 of its bumper), so a wreck a cop rams against a 0.6 m panel sat 0.2-0.3 m in it, or reached past
 its far face. The wall pushes the whole wreck (every mass and the group, one rigid shove: `separateAlong` leaves the crumple zone
-behind and stretches the nose) out until the hulls are on the face: to the slab's `0.4 · leftover crumple` while the car still drives
-into it (`into` over 0.2 m/s), to a 1.5 cm skin once it has stopped. Uncapped but by the contact's own push (`max(pen, satPushCap)`,
+behind and stretches the nose) out until the hulls are on the face: to the slab's `0.4 · leftover crumple` while the car drives
+into it hard (`into` over `WALL_CRUSH`), to a 1.5 cm skin once it has stopped (`into` under `WALL_TOUCH`), between them the allowance
+ramps with `into` (a step from 0.25 m to 1.5 cm shoved a wreck sliding along a wall 0.23 m in one step, past the course-wall test's
+bound). Uncapped but by the contact's own push (`max(pen, satPushCap)`,
 the ramps' `pen` is `PUSH_CAP`): a capped shove lost to a cop's three SAT passes (tail first at 12 m/s ended 0.15 m past the far face).
 The ramps' faces hold the masses within `CLIMB` of them: deeper a mass rides the wedge's slope, and a 2 m thick face threw a wreck
 that was climbing the ramp out through its high end (2.1 m in one slice, a 0.44 m jump in `D1`).
 
+Hulls on the face are a contact (the slab's own rule, `BarrierSlab.resolve`): a palm is narrower than the car, so its face meets
+the crush hulls before any mass, and the rigid shove holds the wreck off it. `bodyContact` then notifies the contact, feeds the
+hull's overlap (`feedOverlap`) and spends the hit's stroke (`brakeInbound`) while no mass is on the face. Measured on the per-step
+ledger (palm, sedan): the shove is exact (every mass and the group move by the same vector, mass-minus-group delta 1.8e-15; the
+group follows the cell within 1 mm and the block's car-frame z does not change across it), so the extra travel was not a frame or
+anchor read. Two real defects: (1) the hulls on the face did not count as contact, the quiet clock ran out, and the 8 m/s tap
+re-armed its hit at 0.3 s (`hitStroke` 0.276 -> 0.376, `rearmed`), which the block read takes from the stroke, not from the
+block's movement (0.016 m, slab 0); (2) the shove removes the wreck's position but no speed, and nothing braked or crushed the
+held-off front: a sedan at 55 m/s stood on the shove's treadmill at the palm for 12 steps (v 54.8 -> 47.8, block dragged back 0.05 m
+a step), then drove round the trunk at 40 m/s and rolled 50 m (0.589 m of travel against the slab's 0.454; with the shove off
+0.336 and 27 m/s). Now a centred hit stops dead (0 m/s, 0.15 m of the trunk's plane the deepest mass, none past it) with 0.485 m
+(truck 0.537; slab 0.454, 0.534); an offset one deflects (trunk 0.6 m off the axis: 26 m/s after, 0.8 m: 40 m/s, the corner of
+the nose slides past the 0.6 m trunk). The oval/stucco/wall rows' +0.02 m is not the shove (the same to the mm with it off; the
+slab's cabin clip off changes nothing either).
+
 `src/game/world/solid-parity.test.ts` holds every solid to the slab for the same armed car at 8 and 55 m/s and on a second
-hit: the driver thrown alike, health within 0.2, `alive` alike unless both are within 0.2 of the kill line (the slab kills a
-default sedan by 0.004 m of block travel). REPLAY_VERSION 14.
+hit: the driver thrown alike, health within 0.2, no more speed left after the hit than the slab's (+1 m/s), `alive` alike unless
+both are within 0.2 of the kill line (the slab kills a default sedan by 0.004 m of block travel). REPLAY_VERSION 20.

@@ -33,10 +33,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * more double), a live-trajectory change of every pile: pair pushes, sphere shifts and wall translations share it, and
  * the plant frees the wheels within 8 m/s of the body; 19: no layout change, the live sim changed: head-on tyres whose
  * hit stroke reaches the wheels, with stroke left, tear off their hubs instead of stopping the pair, so a fast head-on
- * crushes on and an older clip replays another hit).
+ * crushes on and an older clip replays another hit; 20: a fixed solid's face meeting only the crush hulls (a palm
+ * between the bumpers) is a contact as the slab's is (kept open, crushing and braking), and a wreck's hull allowance at a
+ * fixed solid ramps with its closing speed, a live-trajectory change).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 19;
+const REPLAY_VERSION = 20;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
