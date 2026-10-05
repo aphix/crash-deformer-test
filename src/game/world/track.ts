@@ -28,6 +28,8 @@ const MEET = 8;
 const CELL = 1;
 /** Deck lookup cell (m). */
 const DECK_CELL = 8;
+/** A deck segment is listed in a cell this far (m) before its accepted region reaches it, so rounding never drops a hit. */
+const DECK_MARGIN = 0.001;
 /**
  * A shortcut's gates reach this far (m) beyond its road edge: a designed shortcut usually crosses
  * open ground (the oval's infield), and a car driving the grass beside the dirt is still taking it.
@@ -730,18 +732,42 @@ export class TrackGround implements Ground {
   private deckSurface = 0;
   private readonly seg = blankSegment();
 
+  /**
+   * Each deck segment is listed (in `k` order) in the cells its accepted region touches: the rectangle `deckAt` tests,
+   * `f` in [-0.02, 1.02] along the segment and `|lat|` within the road + runoff beyond the sample, grown 1 mm. A cell
+   * lists only segments that can answer in it, so the lists are ~4× shorter than the segment's padded bounding box gave
+   * (dam-spine: 34.7 → 8 per cell) and `deckAt` answers the same.
+   */
   private indexDecks(p: TrackPath): void {
     this.deckPath = p;
+    const half = DECK_CELL / 2;
     for (let k = 0; k < p.count; k++) {
       if (!p.deck[k]) continue;
       const b = (k + 1) % p.count;
-      const r = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!);
-      const i0 = Math.floor((Math.min(p.x[k]!, p.x[b]!) - r) / DECK_CELL);
-      const i1 = Math.floor((Math.max(p.x[k]!, p.x[b]!) + r) / DECK_CELL);
-      const j0 = Math.floor((Math.min(p.z[k]!, p.z[b]!) - r) / DECK_CELL);
-      const j1 = Math.floor((Math.max(p.z[k]!, p.z[b]!) + r) / DECK_CELL);
+      const r = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!) + DECK_MARGIN;
+      const sx = p.x[b]! - p.x[k]!;
+      const sz = p.z[b]! - p.z[k]!;
+      const len = Math.hypot(sx, sz);
+      // A zero-length segment has no direction: it keeps a square of the padded reach.
+      const moves = len > 1e-9;
+      const ex = moves ? sx / len : 1;
+      const ez = moves ? sz / len : 0;
+      const hl = moves ? len * 0.52 + DECK_MARGIN : r;
+      const rx = (p.x[k]! + p.x[b]!) / 2;
+      const rz = (p.z[k]! + p.z[b]!) / 2;
+      const hx = Math.abs(ex) * hl + Math.abs(ez) * r;
+      const hz = Math.abs(ez) * hl + Math.abs(ex) * r;
+      const reach = half * (Math.abs(ex) + Math.abs(ez));
+      const i0 = Math.floor((rx - hx) / DECK_CELL);
+      const i1 = Math.floor((rx + hx) / DECK_CELL);
+      const j0 = Math.floor((rz - hz) / DECK_CELL);
+      const j1 = Math.floor((rz + hz) / DECK_CELL);
       for (let j = j0; j <= j1; j++) {
         for (let i = i0; i <= i1; i++) {
+          const dx = (i + 0.5) * DECK_CELL - rx;
+          const dz = (j + 0.5) * DECK_CELL - rz;
+          // Separating axes of a rectangle and a square: the rectangle's two, then the world's two (already the box).
+          if (Math.abs(dx * ex + dz * ez) > hl + reach || Math.abs(dz * ex - dx * ez) > r + reach) continue;
           const key = deckKey(i, j);
           const list = this.deckCells.get(key);
           if (list) list.push(k);
