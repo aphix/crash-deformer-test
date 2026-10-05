@@ -280,17 +280,14 @@ export abstract class DeformHit extends DeformRig {
     this.lastContact = this.elapsed;
     this.hitAt = this.elapsed;
     this.cornerLow = Infinity;
-    // Base = damage as the body frame sees it. A quiet wreck's group sits on its planted hubs, so
-    // `local` here carries the cell's offset from them (up to its 0.12 m cap). The contact solve that
-    // follows anchors the group on the cell, so a base taken raw pinned the cell 0.1 m off its own
-    // anchor: every clampLocal moved it there, the next followGroup moved the group after it, and
-    // derby wrecks crawled along the bowl rim at 30–90 m/s with no velocity behind it.
-    const cell = this.at.cell;
-    const cx = cell.local.x - cell.rest.x;
-    const cz = cell.local.z - cell.rest.z;
+    // Base = damage as `clampLocal` reads it: `local − rest` in the frame the next followGroup keeps. Both modes
+    // anchor on the held `local` (`measurePose`), so a quiet wreck's cell offset from its planted hubs (up to its
+    // 0.12 m cap) stays in the frame when the touch ends the plant. A base taken cell-relative left that offset
+    // in every mass's travel, and the first live clamp dragged the whole body back by it (0.1 m in one call,
+    // derby seed 19 car 6 at 80.22 s).
     for (const m of this.masses) {
-      m.baseX = m.local.x - m.rest.x - cx;
-      m.baseZ = m.local.z - m.rest.z - cz;
+      m.baseX = m.local.x - m.rest.x;
+      m.baseZ = m.local.z - m.rest.z;
       m.crushSet = 0;
     }
     return true;

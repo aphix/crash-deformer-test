@@ -516,7 +516,7 @@ describe("derby match, six AI cars", () => {
   // Target (Main): most matches end by physics elimination (5 of 6 dead) inside the 90 s stalemate.
   // At the race/fleet kill travel (0.45 m for a sedan at realism 0.25) physics alone reached 0/5: a sedan
   // needs Σ EBS² ≈ 600 m²/s² on its nose (≈ 20 rams at 40 km/h closing). A derby car's kill travel is
-  // DERBY_KILL_SCALE (0.7935) of it plus a DERBY_WRECK_ENERGY (400) wear share, so accumulated wrecking ends the match.
+  // DERBY_KILL_SCALE (0.7935) of it plus a DERBY_WRECK_ENERGY (250) wear share, so accumulated wrecking ends the match.
   // A match is chaotic: the 6th digit of one wreck's vertical speed moves a slice's width and the heat decoheres (the
   // old "≥ 4 of 5 on seeds 7/11/13/17/19" flipped between 3 and 5 wins under any such change). Seeds 1–20 measure
   // the rate: main 765d53e 14/20, the airborne lane 13/20 (70 %, 65 %). ≥ 10/20 clears that by 3 and a half-rate

@@ -880,6 +880,38 @@ describe("a wreck that has just stopped being touched [shape]", () => {
   });
 });
 
+forModes("a quiet wreck touched by a new hit", (spawn) => {
+  // A quiet wreck's frame sits on its hubs and its cell stands off its rest in it (here three wheels knocked off their
+  // axles: 0.11 m). The first hit stores each mass's damage base, and the touch ends the plant in the same call: a base
+  // taken cell-relative left the offset in every mass's travel, and the first live clamp dragged the whole body back by
+  // it (derby seed 19 car 6 at 80.22 s: 0.11 m in one dt = 0 call, a zip).
+  it("bad: the touch that re-arms a hit does not drag the body back by the cell's planted offset", () => {
+    const s = spawn(0, 0);
+    const settle = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        s.d.stepStructure(DT);
+        s.d.followGroup(s.group, s.vel, s.omega, DT);
+      }
+    };
+    settle(120);
+    for (const name of ["hubFL", "hubFR", "hubRL"]) {
+      const h = mass(s.d, name);
+      h.world.x -= 0.3;
+      h.world.z += 0.15;
+    }
+    settle(30);
+    const cell = mass(s.d, "cell");
+    assert.ok(s.d.quietTime() > 2, "not planted");
+    assert.ok(cell.local.distanceTo(cell.rest) > 0.05, `the cell stands ${cell.local.distanceTo(cell.rest).toFixed(3)} m off its rest: nothing to drag`);
+    const before = s.d.masses.map((m) => m.world.clone());
+    assert.equal(s.d.rearmHit(new THREE.Vector3(-0.95, 0.36, 0), new THREE.Vector3(1, 0, 0), 20, 6), true);
+    s.d.followGroup(s.group, s.vel, s.omega, 0);
+    s.d.masses.forEach((m, i) => {
+      if (!m.hub) assert.ok(m.world.distanceTo(before[i]!) < 0.03, `${m.name} jumped ${m.world.distanceTo(before[i]!).toFixed(3)} m at the touch`);
+    });
+  });
+});
+
 forModes("one corner can crush without the other", (spawn, mode) => {
   it("good: a right-front wall hit shortens bumperFR more than bumperFL", () => {
     const s = spawn(0.62, 16);

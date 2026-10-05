@@ -245,9 +245,14 @@ const KILL_CEILING = 0.63;
  * (seeds 1–5): ×0.79 / 400 wrecks 5/5, first deaths 14.1–36.9 s, every heat tail first; ×0.69 / 400 4/5 but
  * seed 1 nose-heavy (F55/R64); ×0.69 / 300 a death at 4.7 s; ×0.69 / 500 3/5. A derby is a wrecking
  * contest; a race or fleet car keeps the sourced tolerance and no wear limit.
+ * Retuned with the re-armed hit's damage base (`DeformHit.rearmHit`: read in the frame the clamp keeps, no longer
+ * relative to the cell's planted offset): the offset had counted up to 0.12 m of crush into every re-hit, and with
+ * it gone 5 of 40 six-car matches (seeds 1–40, 90 s) ended by elimination, against 33 of 40 on the base before.
+ * The scale stays (lowering it limps cars earlier and kills fewer: 0.7 → 0/20, 0.6 → 1/20), the wear share takes
+ * the lost lethality: 400 → 250 is 53 of 80 matches against the base's 56 of 80, 378 deaths in both.
  */
 const DERBY_KILL_SCALE = 0.7935;
-const DERBY_WRECK_ENERGY = 400;
+const DERBY_WRECK_ENERGY = 250;
 
 /** Engine-kill travel (m) for a class at `realism`, in a derby or anywhere else. */
 export function killTravel(id: VehicleClassId, realism: number, ctx: "derby" | "default"): number {
