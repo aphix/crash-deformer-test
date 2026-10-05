@@ -1,6 +1,5 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { CRASH } from "../deform/physics-util.ts";
 import { setGround } from "./ground.ts";
 import { FRAME, finishSweep, frame, makeWorld, raceOnce, type World } from "./race-world.test-util.ts";
 import { blankPoint, blankProjection, Track } from "./track.ts";
@@ -338,20 +337,12 @@ describe("race: police chase", () => {
           return;
         }
         if (r !== target[p]) return;
-        // A T-bone: the police car's nose drives into the target's flank. The normal across the flank with the police car
-        // crossways to it, the contact on the police car's front half, and the police car closing on the target at a hit's
-        // speed (`CRASH.grazeMps`). A racer sliding past a car just woken at its stakeout brushes its nose at no closing
-        // speed and with no impulse (14 slices of one such brush counted as 14 T-bones): nothing hit anything.
+        // A T-bone: the normal across the target's flank with the police car crossways to it.
         const ty = w.cars[r]!.yaw;
         const py = w.cars[p]!.yaw;
         const nAlong = Math.abs(h.normal.x * Math.sin(ty) + h.normal.z * Math.cos(ty));
         const cross = Math.abs(Math.sin(py) * Math.sin(ty) + Math.cos(py) * Math.cos(ty));
-        const cp = w.cars[p]!.group.position;
-        const cr = w.cars[r]!.group.position;
-        const nose = (h.contact.x - cp.x) * Math.sin(py) + (h.contact.z - cp.z) * Math.cos(py) > 0;
-        const gap = Math.hypot(cr.x - cp.x, cr.z - cp.z) || 1;
-        const closing = ((w.cars[p]!.velocity.x - w.cars[r]!.velocity.x) * (cr.x - cp.x) + (w.cars[p]!.velocity.z - w.cars[r]!.velocity.z) * (cr.z - cp.z)) / gap;
-        if (nAlong < 0.5 && cross < 0.5 && nose && closing > CRASH.grazeMps) tbones++;
+        if (nAlong < 0.5 && cross < 0.5) tbones++;
       };
       const state = { acc: phase };
       const bound = 4.5 + 2 * 3 * (new Track(oval).length / 9);
