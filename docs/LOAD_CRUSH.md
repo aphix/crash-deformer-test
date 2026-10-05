@@ -124,16 +124,3 @@ the column is read from the poses) and its roof's sink (mm, `ROOF_REST_Y` minus 
 both read off the sim's cars. The cars are the fleet's mixed bodies, not the test's sedans, and a car lands a frame after
 it is placed (`placeDrop` updates its matrix first: the load crush reads the car below's `matrixWorld`). Tall stacks of mixed
 bodies topple; the scene shows what the physics does.
-
-## The column holds (stack-physics, 10-04)
-
-The owner's drops (11 cars, 0.15 m, 1 s) fanned out from the fifth car. Causes measured and fixed in the shared car-on-car rule (research and numbers: `.extraResearch/perplexitty/2026-10-04-stacking-contact.md`):
-
-- **`shareHeight`** (contact/sat.ts): a car whose box bottom plus belly (`bellyY`: stock 0.13 m plus the class lift) is over the crown of the upright car under it (`roofHeight`: crown, class lift on, load crush off, along its up axis), less 0.11 m, is stacked on it: `CarSurfaces` carries it and the plan SAT does not push it. The 1.36 m box band alone shoved a stack apart 1.9 cm a slice once a roof sank past 0.11 m (three cars' weight is 0.12 m), for any coupe, and in every slice with no impulse.
-- **`restsOn`** is set by touching a top, pressed or not (`CarSurfaces.touch`).
-- **One-sided ground**: a car's ground is a car below it (origin height), never one above: two cars each standing on the other rose 1.5 m a frame.
-- **Lifted bodies**: others stand on the drawn roof (the class lift is on the top surface).
-- **Tyres** on another car's top grip both ways (a car in flight is unpowered; free rolling slid a car down 8° at 0.38 m/s).
-- **The scene**: `placeDrop` stands a car with its belly `drop` m over the crushed, lifted roof; `stands` (the panel's column) reads belly on roof, not a fixed rise.
-
-Measured (`scenes/stack-column.test.ts`, failing first on main d3a7e5d): 11 sedans, or the fleet's bodies without its monster truck, dropped 0.15 m a second stay on the axis (< 5 cm, < 3° lean, no car 10 cm off at any time; main 6.3 and 7.9 m) with the roof sink growing toward the bottom (449/449/435/402/369/326/281/238/197/164/0 mm for the fleet). Limit: the monster truck (soft tyre support, no torque on the carrier, see the research note) carrying four cars or more rolls and the column above it falls (`it.todo`).

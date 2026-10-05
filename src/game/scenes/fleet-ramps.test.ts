@@ -329,11 +329,8 @@ describe("fleet ramps", () => {
     assert.ok(stuck < 0.25, `stopped yet flying for ${stuck.toFixed(2)} s`);
   });
 
-  // The cell is vB 11, not 8: at 8 m/s the car on the ramp was passed over with 0.26 m between its roof and the other's tyres, and
-  // the strike this case guarded was the plan SAT's, from a height band that a pitched car's box stretched over a roof it did not
-  // touch (`shareHeight`: a car above another's roof is stacked on it, whatever its pitch). At 11 m/s they meet nose to roof, 1.58 m up.
   it("D1: a car struck mid-air by one still on its ramp keeps a ballistic height: no frame moves y off its speeds (`watch`)", (t) => {
-    const { w, cars } = pair(16, 11);
+    const { w, cars } = pair(16, 8);
     const [a] = cars;
     let struckAt = -1;
     let struckY = 0;

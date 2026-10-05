@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
-import { bellyY, roofHeight, UPRIGHT } from "../vehicle/car-surfaces.ts";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
 /** The slab's top (m): `makeJerseyBarrier`'s profile peak. A car whose every mass clears it flies over (a ramp jump). */
@@ -52,25 +51,15 @@ export function sliceSpeed(cars: readonly DeformableCar[]): number {
 /**
  * Bodies whose height bands overlap by less than this (m) are one on the other, not side by side: a car coming down on
  * another's roof (its belly 0.13 m up, the roof 1.3 m, bands 1.36 m tall) overlaps by 0.19 m when it touches, and the
- * plan SAT shoved it off before `CarSurfaces` carried it.
+ * plan SAT shoved it off before `CarSurfaces` carried it. Once it rests on it, `restsOn` keeps them apart.
  */
 const STACK_CLEAR = 0.3;
-/** The slack (m) under a roof's crown that `STACK_CLEAR` allows a belly on it (0.3 less the 0.19 a sedan's overlap is when it touches). */
-const ROOF_SLACK = 0.11;
 
 /**
  * Whether two cars' bodies share a height band: each body's box (`CAR_HALF` above its ground point, as tilted)
  * spans `y ± (|right.y|·hx + |up.y|·hy + |fwd.y|·hz)` about its middle, less `STACK_CLEAR`. Car-car contact tests the
  * plan only, so a car flying over another (2 m up, or 1.95 m in the owner's fleet trace) or on a deck above it met it
  * there. Reads each group's world matrix (fresh after `refreshBasis`/`syncPose`).
- *
- * A car whose box bottom (plus its belly's rise over it, `bellyY`) is over the roof crown of the upright car under it
- * (`roofHeight`: that car's class lift on, its crush depth off, along its own up axis) less `ROOF_SLACK` is stacked on
- * it: the surfaces carry it and the plan SAT must not shove it off, whatever the body styles' roof heights and belly
- * lifts (a coupe's roof is lower than the box's, a monster's belly 0.48 m higher), however far the load has crushed
- * the roof (the box's slack is 0.11 m of crush; three sedans' weight is 0.12 m), however the car under tilts, and
- * whether this slice's contact pressed (`restsOn` flickers at rest). A car pitched over the other's roof has its nose
- * below its box's bottom less that rise and still shares.
  */
 export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   if ((a.airborne && a.restsOn === b) || (b.airborne && b.restsOn === a)) return false;
@@ -78,16 +67,7 @@ export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   const eb = b.group.matrixWorld.elements;
   const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;
   const hb = Math.abs(eb[1]!) * CAR_HALF.x + Math.abs(eb[5]!) * CAR_HALF.y + Math.abs(eb[9]!) * CAR_HALF.z;
-  const ca = ea[13]! + ea[5]! * CAR_HALF.y;
-  const cb = eb[13]! + eb[5]! * CAR_HALF.y;
-  if (Math.abs(ca - cb) >= ha + hb - STACK_CLEAR) return false;
-  const aUnder = ca <= cb;
-  const under = aUnder ? a : b;
-  const over = aUnder ? b : a;
-  const eu = aUnder ? ea : eb;
-  const top = eu[13]! + eu[5]! * roofHeight(under);
-  const bottom = (aUnder ? cb - hb : ca - ha) + bellyY(over);
-  return !(eu[5]! > UPRIGHT && bottom >= top - ROOF_SLACK);
+  return Math.abs(ea[13]! + ea[5]! * CAR_HALF.y - eb[13]! - eb[5]! * CAR_HALF.y) < ha + hb - STACK_CLEAR;
 }
 
 export function satCarBarrier(
@@ -240,9 +220,7 @@ function satTwoHulls(a: DeformableCar, ha: Hull, b: DeformableCar, hb: Hull): bo
       _mtv.z = nz;
     }
   }
-  // Out along the axis, b → a, by the cars' centres, not the hulls': a corner hull pushed past its partner's midplane
-  // reads "out" the way that drives the whole cars deeper in, and the next pass picks the opposite pair (a hooked pair).
-  if ((a.group.position.x - b.group.position.x) * _mtv.x + (a.group.position.z - b.group.position.z) * _mtv.z < 0) _mtv.negate();
+  if ((_ha.x - _hb.x) * _mtv.x + (_ha.z - _hb.z) * _mtv.z < 0) _mtv.negate();
   _overlap[0] = minOverlap;
   return true;
 }
