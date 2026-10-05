@@ -59,10 +59,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * stopped mate the steer already clears, and a racer off the road corridor wakes no stakeout; 33: a wreck's car.angular
  * is L/I plus the driven steer only, the write-back's kept turn a readout, so keyframe spin changes; 34: a wreck's
  * tyres and scraping hubs resist its spin by Coulomb friction and the quiet collapse keeps spin until friction stops it;
- * 35: a wreck in flight lands on a fleet wedge's end only from within LIFT_OFF of its top, no longer popped onto it).
+ * 35: a wreck in flight lands on a fleet wedge's end only from within LIFT_OFF of its top, no longer popped onto it;
+ * 36: a hunter's drop-in keeps dropMin from the player up to the frame the cop shows).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 35;
+const REPLAY_VERSION = 36;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

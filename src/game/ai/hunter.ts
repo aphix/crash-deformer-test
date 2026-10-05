@@ -27,6 +27,12 @@ export const HUNT = {
   /** A cop drops in this far (m) from the player: at least, at most. */
   dropMin: 70,
   dropMax: 120,
+  /**
+   * Seconds a placed cop waits to show, the player driving on: the beat runs inside a physics step, the cop shows when the frame that step is
+   * in ends, and a frame runs at most 8 steps (`SimPacer`'s MAX_STEPS) of at most `physicsSlice` at the engine's slowest slice speed (8 m/s): 8 × 0.07 / 8 s.
+   * A spot keeps `dropMin` from the player's whole path over it.
+   */
+  lag: 0.07,
   /** Metres between the candidate drop-in spots along the roads, and the room a spot keeps from every car. */
   spacing: 6,
   clear: 12,
@@ -422,13 +428,15 @@ export class HunterBrain implements CopBrain {
   }
 
   /**
-   * A road spot `dropMin … dropMax` m from `tg`, clear of every car, that the camera cannot see (`world.hidden`), facing along the
-   * road toward the player: ahead of the player's travel first, anywhere round it if none is. Fills `at`.
+   * A road spot `dropMin … dropMax` m from `tg` (`dropMin` from every point of its path over the next `HUNT.lag` s, going straight on: the cop shows
+   * that much later), clear of every car, that the camera cannot see (`world.hidden`), facing along the road toward the player: ahead of the
+   * player's travel first, anywhere round it if none is. Fills `at`.
    */
   private dropSpot(tg: AiCar, cars: readonly AiCar[], world: HunterWorld): boolean {
     const n = this.spotX.length;
     const fx = Math.sin(tg.yaw);
     const fz = Math.cos(tg.yaw);
+    const v2 = tg.vx * tg.vx + tg.vz * tg.vz;
     const moving = Math.hypot(tg.vx, tg.vz) > 5;
     let tests = 0;
     for (let pass = moving ? 0 : 1; pass < 2; pass++) {
@@ -439,7 +447,9 @@ export class HunterBrain implements CopBrain {
         const dx = this.spotX[i]! - tg.x;
         const dz = this.spotZ[i]! - tg.z;
         const d = Math.hypot(dx, dz);
-        if (d < HUNT.dropMin || d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
+        if (d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
+        const t = v2 > 0 ? clamp((dx * tg.vx + dz * tg.vz) / v2, 0, HUNT.lag) : 0;
+        if (Math.hypot(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
         if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars)) continue;
         if (tests++ >= HUNT.tests) return false;
         if (!world.hidden(this.spotX[i]!, this.spotZ[i]!)) continue;

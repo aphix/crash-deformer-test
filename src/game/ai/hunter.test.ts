@@ -1,5 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { physicsSlice } from "../contact/sat.ts";
 import { idleDrive } from "../vehicle/car-drive.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { copsWanted, HUNT, HunterBrain } from "./hunter.ts";
@@ -14,7 +15,7 @@ const FAR = 4000;
 const BEAT = 0.25;
 
 /** The pack on a stub world: car 0 is the quarry on the start line; the units follow from 1; `hidden` and `down` are the test's to set. */
-function rig(opts: { hidden?: (x: number, z: number) => boolean; colliders?: PropCollider[] } = {}) {
+function rig(opts: { hidden?: (x: number, z: number) => boolean; colliders?: PropCollider[]; seed?: number } = {}) {
   const first = 1;
   const count = HUNT.units;
   const cars: AiCar[] = Array.from({ length: first + count }, (_, i) => ({ ...blankAiCar(i), x: i === 0 ? spec.start.x : FAR, z: i === 0 ? spec.start.z : FAR, yaw: spec.start.yaw }));
@@ -46,7 +47,7 @@ function rig(opts: { hidden?: (x: number, z: number) => boolean; colliders?: Pro
     down: (id) => down.has(id),
     sirens: () => {},
   };
-  const brain = new HunterBrain(track, opts.colliders ?? [], 1, first, count, 5);
+  const brain = new HunterBrain(track, opts.colliders ?? [], 1, first, count, opts.seed ?? 5);
   brain.launch(world);
   const run = (until: number, each?: (t: number) => void): void => {
     for (; now < until - 1e-9; now += BEAT) {
@@ -146,6 +147,30 @@ describe("HunterBrain: the pack", () => {
     assert.ok(drop, "no drop");
     const d = Math.hypot(drop.x, drop.z - 300);
     assert.ok((drop.z - 300) * -1 > d * 0.3, `dropped at z ${drop.z.toFixed(0)}, not ahead of a player heading -z from 300`);
+  });
+
+  it("keeps HUNT.dropMin from a player driving at the spot, at the frame the cop shows (16 and 30 m/s)", (t) => {
+    for (const v of [16, 30]) {
+      const near = approach(v);
+      const worst = near.length > 0 ? near.reduce((a, b) => (b.near < a.near ? b : a)) : null;
+      t.diagnostic(`${v} m/s: ${near.length} of ${SEEDS} seeds dropped in; nearest judged ${Math.min(...near.map((n) => n.judged)).toFixed(3)} m, nearest at the show ${worst?.near.toFixed(3)} m`);
+      assert.equal(near.length, SEEDS, `${v} m/s: ${SEEDS - near.length} seeds never dropped in`);
+      assert.ok(worst!.near >= HUNT.dropMin - 1e-6, `${v} m/s: seed ${worst!.seed} judged its spot ${worst!.judged.toFixed(3)} m off, and the player was ${worst!.near.toFixed(3)} m from it as the cop showed`);
+    }
+  });
+
+  it("control: judged where it is placed only (HUNT.lag 0), the same drives get a cop dropped in inside HUNT.dropMin", (t) => {
+    const lag = Reflect.get(HUNT, "lag");
+    Reflect.set(HUNT, "lag", 0);
+    try {
+      for (const v of [16, 30]) {
+        const near = approach(v);
+        t.diagnostic(`${v} m/s: ${near.filter((n) => n.near < HUNT.dropMin).length} of ${near.length} drop-ins inside the minimum at the show, nearest ${Math.min(...near.map((n) => n.near)).toFixed(3)} m`);
+        assert.ok(near.some((n) => n.near < HUNT.dropMin), `${v} m/s: no seed dropped a cop inside the minimum`);
+      }
+    } finally {
+      Reflect.set(HUNT, "lag", lag);
+    }
   });
 
   it("puts a wrecked cop away only after HUNT.wreckStore s and only once nobody can see it, then drops a replacement", () => {
@@ -308,3 +333,46 @@ describe("HunterBrain: driving", () => {
     assert.equal(past.brake, 0, "braked beside a lane that was clear");
   });
 });
+
+/** A frame's steps run at most 8 slices (`SimPacer`'s MAX_STEPS) of `physicsSlice` at the engine's slowest slice speed (8 m/s): the longest a placed cop waits to show while the player drives on. */
+const SHOW_LAG = 8 * physicsSlice(Infinity, 8);
+const SEEDS = 12;
+
+/** A spot of the main loop far from the formation where the road runs straight through the next two spots: its place, the road's heading, and the spacing of the spots. */
+function straightSpot(): { x: number; z: number; ux: number; uz: number; step: number } {
+  const p = track.path;
+  const gap = HUNT.spacing;
+  for (let k = 0; k + 2 * gap < p.count; k += gap) {
+    if (Math.hypot(p.x[k]! - spec.start.x, p.z[k]! - spec.start.z) < 250 || p.deck[k] || p.deck[k + gap] || p.deck[k + 2 * gap]) continue;
+    if (p.tx[k]! * p.tx[k + gap]! + p.tz[k]! * p.tz[k + gap]! < 0.9999 || p.tx[k]! * p.tx[k + 2 * gap]! + p.tz[k]! * p.tz[k + 2 * gap]! < 0.9999) continue;
+    return { x: p.x[k]!, z: p.z[k]!, ux: p.tx[k]!, uz: p.tz[k]!, step: Math.hypot(p.x[k + gap]! - p.x[k]!, p.z[k + gap]! - p.z[k]!) };
+  }
+  throw new Error("no straight stretch of road for the drop-in spots");
+}
+
+/**
+ * A player driving at `speed` m/s along a straight road toward the drop-in spot `dropMin + 0.2` m ahead, the camera seeing every spot but the
+ * ring just beyond `dropMin` that holds that spot and the next one. Per seed: the first drop-in's distance from the player where the hunter
+ * judged it, and the nearest the player came to it over the `SHOW_LAG` s that follow (the cop shows somewhere in them).
+ */
+function approach(speed: number): { seed: number; judged: number; near: number }[] {
+  const s = straightSpot();
+  const px = s.x - s.ux * (HUNT.dropMin + 0.2);
+  const pz = s.z - s.uz * (HUNT.dropMin + 0.2);
+  const ring = (x: number, z: number): boolean => {
+    const d = Math.hypot(x - px, z - pz);
+    return d >= HUNT.dropMin && d < HUNT.dropMin + 0.2 + s.step + 0.5;
+  };
+  const out: { seed: number; judged: number; near: number }[] = [];
+  for (let seed = 1; seed <= SEEDS; seed++) {
+    const r = rig({ seed, hidden: ring });
+    Object.assign(r.cars[0]!, { x: px, z: pz, yaw: Math.atan2(s.ux, s.uz), vx: s.ux * speed, vz: s.uz * speed });
+    r.run(HUNT.every + 20);
+    const drop = r.drops[spec.formation.length];
+    if (!drop) continue;
+    let near = Infinity;
+    for (let t = 0; t <= SHOW_LAG + 1e-9; t += 1 / 240) near = Math.min(near, Math.hypot(drop.x - (px + s.ux * speed * t), drop.z - (pz + s.uz * speed * t)));
+    out.push({ seed, judged: Math.hypot(drop.x - px, drop.z - pz), near });
+  }
+  return out;
+}
