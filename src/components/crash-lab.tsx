@@ -5,6 +5,7 @@ import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
 import { LiveRooms } from "@/components/live-rooms";
 import type { CrashEngine } from "@/game/engine/engine";
+import type { runBench } from "@/game/engine/engine-bench";
 import { HudStore } from "@/game/hud/hud-store";
 
 export function CrashLab() {
@@ -34,6 +35,8 @@ export function CrashLab() {
           engine.start();
           setBooted(true);
           engine.ready.finally(dismissBootLoader);
+          // `?bench=city`: the phone-timing page (engine-bench.ts), fetched only when asked for.
+          if (new URLSearchParams(window.location.search).get("bench") === "city") void (import("@/game/engine/engine-bench") as Promise<{ runBench: typeof runBench }>).then((m) => m.runBench(engine!));
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);

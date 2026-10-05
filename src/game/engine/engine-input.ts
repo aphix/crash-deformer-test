@@ -12,6 +12,7 @@ import { gameKey } from "../vehicle/drive-input.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { MouseLook } from "./mouse-look.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
+import type { BenchParts } from "./engine-bench.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 
 /**
@@ -39,6 +40,11 @@ export abstract class EngineInput extends EngineRigs {
       this.skipDraw = false;
       this.last = performance.now();
     }
+  }
+
+  /** The protected parts the `?bench=city` page times (`engine-bench.ts`). */
+  benchParts(): BenchParts {
+    return { renderer: this.renderer, cine: this.cine, race: this.race, seat: this.seat, live: () => this.live() };
   }
 
   /** The touch HUD's stick and buttons; merged into the pad on every poll, so every pad path takes them. */
