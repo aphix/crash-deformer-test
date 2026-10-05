@@ -20,6 +20,12 @@ const SEEDS = [1, 2, 3, 4, 5, 6, 7, 8];
 /** Race seconds recorded (the first lap's crashes), and the clips wanted from them. */
 const RACE_S = 75;
 const CLIPS = 5;
+/**
+ * A race with no clip by this race second gets a hit of its own: the player's car drives flat out straight ahead (the way
+ * `replay-fidelity.test.ts` scripts its attacker) into the first wall it meets. A seed whose AI field races a clean lap
+ * (every hit under `MIN_SCORE`) would leave nothing to replay: seed 14 of 1-64, and seed 7 once a trajectory changed.
+ */
+const SCRIPTED_AT = 12;
 /** Acceptance (docs/HIGHLIGHTS.md): the replay's first impact within 0.2 s and 1.5 m of the recorded one. */
 const TIME_TOL = 0.2;
 const POS_TOL = 1.5;
@@ -33,7 +39,14 @@ function record(w: World, seed: number): HighlightClip[] {
   r.command({ type: "start" });
   w.seat.mode = "follow";
   const state = { acc: 0 };
-  for (let n = 0; n * (1 / 60) < RACE_S && r.recorder.ledger.kept.length < CLIPS && r.phase !== "finished"; n++) frame(w, state);
+  for (let n = 0; n * (1 / 60) < RACE_S && r.recorder.ledger.kept.length < CLIPS && r.phase !== "finished"; n++) {
+    if (r.recorder.now >= SCRIPTED_AT && r.recorder.ledger.kept.length === 0 && w.seat.mode !== "drive") {
+      w.seat.mode = "drive";
+      w.seat.carIndex = 0;
+      w.seat.intent.gas = 1;
+    }
+    frame(w, state);
+  }
   r.recorder.end();
   const L = carLayout(w.cars[0]!);
   return r.recorder.ledger.kept.map((c) => {
@@ -78,7 +91,7 @@ describe("highlight replay", () => {
     w.race.enter();
     try {
       const clips = record(w, seed);
-      assert.ok(clips.length >= 1, `seed ${seed}: no clip in ${RACE_S} s of a ramming field: the recorder or the ledger saw no crash`);
+      assert.ok(clips.length >= 1, `seed ${seed}: no clip in ${RACE_S} s of a ramming field and a flat-out player: the recorder or the ledger saw no crash`);
       let worst = { dt: 0, dPos: 0 };
       const rows: string[] = [];
       for (const clip of clips) {
