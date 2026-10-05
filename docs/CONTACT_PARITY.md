@@ -190,3 +190,25 @@ the particle-level split under "Open" below.
   face overlap through `feedOverlap` in `bodyContact` was tried and moved the piston further from
   car-car (rails 29→32, wings 47→49 mm) and broke the piston wing grading, so it was dropped. The
   remaining per-particle gaps above (engine block, tank, rear axle, bumpers) come from this split.
+
+## Hooked pairs: the car-car contact axis (`satTwoHulls`)
+
+A pair's SAT axis is signed by the **cars' centres** (b → a), not by the centres of the hull pair that overlaps. A corner
+hull (half length 0.24 m) pushed past its partner's midplane read "out" the way that drives the whole cars deeper in, and
+the next SAT pass of the same slice picked another hull pair with the opposite sign and undid the push: a car's rear corner
+stayed inside the follower's nose for seconds (the owner's "hooked cops"; any class pair). Measured on b74c840:
+
+- Fresh sedans, 5616 grid poses (A ahead of B 1.6–4.6 m, ±1.9 m across, ±0.8 rad): 330 hull and 816 crush-hull axes pushed
+  the centres together; 0 after.
+- A's rear corner 1 m inside B's nose (0.6 m off axis), both flat out at 22 m/s: in contact 3.00 s of 3 s in 17 of 25 class
+  pairs (centres 3.2–3.4 m apart); 0.32–0.37 s in all 25 after (`contact/pair-hook.test.ts`).
+- Headless hook detector (contact run ≥ 1 s, tight hulls overlapping ≥ 0.25 m in ≥ 50 % of it, moving ≥ 3 m/s), 8 seeds:
+  police races on oval/rally/city/stunt 0.09 → 0.04 hooks per car-minute (mean 3.27 → 2.23 s, longest 33.8 → 6.4 s);
+  9-car derby 0.47 → 0.26; Survival HUNT cops 2 → 0. 85 % of the base race hooks had inverted solver passes
+  (the 33.8 s one flipped every other pass).
+- Left over, not a sign problem: pairs with both cars driving into each other at low speed (a pin), and derby/city piles
+  where `takePush`'s per-slice budget goes to whichever pair comes first (the deep pair gets `took 0.000` for hundreds of
+  slices). A deep-overlap budget bypass was tried (pair-contact.ts): derby 28 → 21 hooks but race 27 → 35, so it was not
+  kept; the budget rule belongs with the pair-solve lane.
+
+A clip saved before this rule replays its pairs' pushes the other way round: `REPLAY_VERSION` 11.
