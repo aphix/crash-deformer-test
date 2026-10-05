@@ -31,6 +31,8 @@ export abstract class DeformHit extends DeformRig {
   /** Defined by a later layer. */
   protected abstract crumpleWeight(m: MassNode): number;
   protected abstract frontTransfer(): number;
+  protected abstract hitStroke(): number;
+  abstract crumpleTravelCorner(): number;
 
   /**
    * A world slice of `dt` seconds begins. Its pair pushes, sphere shifts, structure step, re-fits and wall translations
@@ -566,5 +568,32 @@ export abstract class DeformHit extends DeformRig {
       m.vel.z += nz * dv;
       clampSpeed(m.vel);
     }
+  }
+
+  /** How far (m) the struck door has moved in from the cabin along this hit's inward axis (a hit on a flank). */
+  private doorCrush(): number {
+    const cell = this.at.cell;
+    const door = this.impactInward.x > 0 ? this.at.doorL : this.at.doorR;
+    return (door.local.x - cell.local.x - (door.rest.x - cell.rest.x)) * this.impactInward.x + (door.local.z - cell.local.z - (door.rest.z - cell.rest.z)) * this.impactInward.z;
+  }
+
+  /**
+   * Share of hitStroke the struck face has crushed so far (0 untouched, 1 spent): the nose or tail on an end hit, and on a
+   * side hit the struck door's travel inward from the cabin (the nose of a car hit on its flank is untouched by the hit).
+   */
+  strokeUsed(): number {
+    if (Math.abs(this.impactInward.x) > Math.abs(this.impactInward.z)) return this.doorCrush() / Math.max(1e-3, this.hitStroke());
+    const cell = this.at.cell;
+    const rest =
+      this.impactInward.z > 0
+        ? cell.rest.z - Math.max(this.at.bumperRL.rest.z, this.at.bumperRR.rest.z)
+        : Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - cell.rest.z;
+    return (rest - 0.36 - this.crumpleTravelCorner()) / Math.max(1e-3, this.hitStroke());
+  }
+
+  /** Crush travel (m) the struck face has left: the nose or tail's `crumpleTravelCorner` on an end hit, the door band less its crush on a flank. */
+  faceTravel(): number {
+    if (Math.abs(this.impactInward.x) > Math.abs(this.impactInward.z)) return Math.max(0, this.at.doorL.bands.max - this.doorCrush());
+    return this.crumpleTravelCorner();
   }
 }

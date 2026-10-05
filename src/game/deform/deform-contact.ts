@@ -160,28 +160,36 @@ export abstract class DeformContact extends DeformState {
     if (!massBox(massesA, _boxA).intersectsBox(massBox(massesB, _boxB))) return false;
     _shift.fill(0);
     let hit = false;
-    for (let i = 0; i < nA; i++) {
-      const a = massesA[i]!;
-      const ax = a.world.x;
-      const ay = a.world.y;
-      const az = a.world.z;
-      const ar = a.radius;
-      for (let j = 0; j < nB; j++) {
-        const b = massesB[j]!;
-        const dx = b.world.x - ax;
-        const dy = b.world.y - ay;
-        const dz = b.world.z - az;
-        const minD = ar + b.radius;
-        const d2 = dx * dx + dy * dy + dz * dz;
-        if (d2 >= minD * minD) continue;
-        if (!hit) {
-          this.holdTurn();
-          other.holdTurn();
-          hit = true;
+    // The pairs are solved one after another (each moves its masses before the next reads them), so their order is
+    // part of the answer. Taken i-major (every pair of car A's mass 0, then 1, ...) two identical cars in a mirror
+    // head-on did not crush alike: A's mass i met B's j before B's i met A's j, so the car first in the world's list
+    // took the other's hits ahead of its own (180 km/h: noses 0.800 / 0.779 m, engine blocks 0.481 / 0.498 m). The
+    // pairs go by their lower mass index first, (i, j) then (j, i): those two touch four different masses, so their
+    // order changes nothing, and a mirror pair is visited at the same place whichever car is `this`.
+    const n = Math.max(nA, nB);
+    for (let lo = 0; lo < n; lo++) {
+      for (let hi = lo; hi < n; hi++) {
+        for (let side = 0; side < (lo === hi ? 1 : 2); side++) {
+          const i = side === 0 ? lo : hi;
+          const j = side === 0 ? hi : lo;
+          if (i >= nA || j >= nB) continue;
+          const a = massesA[i]!;
+          const b = massesB[j]!;
+          const dx = b.world.x - a.world.x;
+          const dy = b.world.y - a.world.y;
+          const dz = b.world.z - a.world.z;
+          const minD = a.radius + b.radius;
+          const d2 = dx * dx + dy * dy + dz * dz;
+          if (d2 >= minD * minD) continue;
+          if (!hit) {
+            this.holdTurn();
+            other.holdTurn();
+            hit = true;
+          }
+          a.clipping = true;
+          b.clipping = true;
+          sphereHit(a, b, slice);
         }
-        a.clipping = true;
-        b.clipping = true;
-        sphereHit(a, b, slice);
       }
     }
     // The overlap push is positional: off the centroid it turned the car with no torque (derby seed 4
@@ -504,16 +512,6 @@ export abstract class DeformContact extends DeformState {
     else out[0] = stroke * (this.cageByPart.get("chassisRear")!.spec.maxCrush / this.cageByPart.get("chassisFront")!.spec.maxCrush);
   }
 
-  /** Share of hitStroke the struck end has crushed so far (0 untouched, 1 spent). */
-  strokeUsed(): number {
-    const cell = this.at.cell;
-    const rest =
-      this.impactInward.z > 0
-        ? cell.rest.z - Math.max(this.at.bumperRL.rest.z, this.at.bumperRR.rest.z)
-        : Math.min(this.at.bumperFL.rest.z, this.at.bumperFR.rest.z) - cell.rest.z;
-    return (rest - 0.36 - this.crumpleTravelCorner()) / Math.max(1e-3, this.hitStroke());
-  }
-
   /**
    * Crush force from a face moving at `refVn` along its outward normal
    * (nx, nz): impulse `j` (N·s) comes off the masses still moving into it, as
@@ -646,19 +644,17 @@ export abstract class DeformContact extends DeformState {
   }
 
   /**
-   * Push the passenger cell out of overlap. Crumple-zone masses stay on the
-   * contact plane so the leftover penetration becomes plastic crush — only as
-   * far as the push runs into the struck end (impactInward). Across it, e.g. a
-   * derby shove on the side of a car whose last hit was frontal, the lagging
-   * nose read as a turn of the engine→axle axis and clampLocal turned the whole
-   * wreck with it, with no angular momentum (zips 2 → 0 in derby seed 1, 120 s).
-   * Positions only: the uneven push changed Σ m r × v of a wreck whose nose and
-   * cabin move apart, and the next clamp kept it as spin (derby seed 4 c0: −2.5
-   * rad/s of L/I in 0.6 s of shoving), so the angular momentum is handed back.
-   * A push of nothing (the slice's `takePush` budget spent: 87 % of a derby-32's pushes) moves nothing and returns.
+   * Push the passenger cell out of overlap. Crumple-zone masses stay on the contact plane so the leftover penetration
+   * becomes plastic crush — only as far as the push runs into the struck end (impactInward). Across it, e.g. a derby
+   * shove on the side of a car whose last hit was frontal, the lagging nose read as a turn of the engine→axle axis and
+   * clampLocal turned the whole wreck with it, with no angular momentum (zips 2 → 0 in derby seed 1, 120 s). Positions
+   * only: the uneven push changed Σ m r × v of a wreck whose nose and cabin move apart, and the next clamp kept it as
+   * spin (derby seed 4 c0: −2.5 rad/s of L/I in 0.6 s of shoving), so the angular momentum is handed back. `dv` (m/s)
+   * is the speed the push trades (`pushApart`), added to the same masses by the same weights. A push of nothing (the
+   * slice's `takePush` budget spent: 87 % of a derby-32's pushes) moves nothing and returns.
    */
-  separateAlong(nx: number, ny: number, nz: number, amount: number): void {
-    if (!this.massActive || amount === 0) return;
+  separateAlong(nx: number, ny: number, nz: number, amount: number, dv = 0): void {
+    if (!this.massActive || (amount === 0 && dv === 0)) return;
     this.yawMomentum(1, false);
     const gc = Math.cos(this.prevYaw);
     const gs = Math.sin(this.prevYaw);
@@ -670,6 +666,8 @@ export abstract class DeformContact extends DeformState {
       m.world.x += nx * amount * keep;
       m.world.y += ny * amount * keep;
       m.world.z += nz * amount * keep;
+      m.vel.x += nx * dv * keep;
+      m.vel.z += nz * dv * keep;
     }
     this.yawMomentum(1, true);
   }

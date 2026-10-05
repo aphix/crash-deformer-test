@@ -9,6 +9,7 @@ import type { DeformMode } from "../deform/deform-rig.ts";
 import { mass, paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
+import { applyDrive } from "../vehicle/car-drive.ts";
 
 /**
  * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
@@ -193,7 +194,7 @@ function heading(car: DeformableCar): number {
 }
 
 /** Per-car metric accumulator (§3.1 definitions, all relative to the cell mass). */
-class Probe {
+export class Probe {
   private readonly dir = new THREE.Vector3();
   private readonly start = new THREE.Vector3();
   private v0 = 0;
@@ -387,7 +388,7 @@ class Probe {
   }
 }
 
-function run(w: CrashWorld, probes: Probe[], after: number): void {
+export function run(w: CrashWorld, probes: Probe[], after: number): void {
   const limit = 60 * 120;
   let sinceContact = 0;
   w.world.afterCar = (car, h) => {
@@ -412,6 +413,35 @@ export function makeWorld(cars: DeformableCar[], barrier: boolean, slomo: boolea
   };
   world.ejection = new EjectionWatch();
   return { cars, acc: 0, clock: phaseClock(), slomo, preContact, world, ejections: [], onEject: null };
+}
+
+/**
+ * `cars` hold full throttle (`applyDrive`, every slice) from the slice a car first crashes, for `seconds`: a driver who
+ * keeps the gas down through the hit. Returns the speed (m/s) the drive added to each car's masses along its heading,
+ * filled as the world runs.
+ */
+export function holdThrottle(w: CrashWorld, cars: DeformableCar[], seconds: number): number[] {
+  const added = cars.map(() => 0);
+  const inner = w.world.beforeSlice!;
+  let since = -1;
+  w.world.beforeSlice = (h) => {
+    if (since < 0 && w.cars.some((c) => c.crashed)) since = 0;
+    if (since >= 0 && since < seconds) {
+      since += h;
+      cars.forEach((c, i) => {
+        const fx = c.fwdFlat.x;
+        const fz = c.fwdFlat.z;
+        let before = 0;
+        let after = 0;
+        for (const m of c.deform.masses) if (m.dynamic) before += m.mass * (m.vel.x * fx + m.vel.z * fz);
+        applyDrive(c, { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false }, h);
+        for (const m of c.deform.masses) if (m.dynamic) after += m.mass * (m.vel.x * fx + m.vel.z * fz);
+        added[i]! += (after - before) / c.deform.totalMass;
+      });
+    }
+    return inner(h);
+  };
+  return added;
 }
 
 export type WallApproach = "front" | "rear" | "side";

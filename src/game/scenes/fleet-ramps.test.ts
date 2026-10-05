@@ -395,6 +395,27 @@ describe("fleet ramps", () => {
     assert.deepEqual(failures, []);
   });
 
+  // The 15/9/0.3 cell's last flight slice, as one wreck: a struck car falling at a wedge's high end with its front tyres a hair
+  // over the face and its tail over the gap, the wedge's top (1.15 m) at its middle 0.41 m over its origin. Two wheels down and
+  // upright counted as landed whatever the depth; the ground sim then set the frame on the face and lifted the masses with it:
+  // 0.38 m in one slice on a speed of −4.5 m/s. A middle that deep is in the wedge's end, not on its wheels: still flying.
+  it("D1: a wreck falling with its middle under a wedge's top is not landed onto it: no slice lifts it", (t) => {
+    const { ramps, w, car } = scene(false);
+    car.crashed = true;
+    car.airborne = true;
+    car.group.position.set(0, 0.7771, RAMP.start + 0.1918);
+    car.group.rotation.set(-0.062, 0, 0, "YXZ");
+    car.velocity.set(0, -4.505, -0.43);
+    car.angular.set(0.043, 0, 0);
+    car.refreshBasis();
+    const y0 = car.group.position.y;
+    const top = ramps.heightAt(car.group.position.x, car.group.position.z, y0);
+    stepWorld(w, 0.0079);
+    const rise = car.group.position.y - y0;
+    t.diagnostic(`wedge top ${top.toFixed(2)} m over a middle at ${y0.toFixed(2)} m; one slice: y ${y0.toFixed(4)} → ${car.group.position.y.toFixed(4)} (${rise >= 0 ? "+" : ""}${rise.toFixed(4)}), vy ${car.velocity.y.toFixed(2)}, flying ${car.airborne}, masses ${car.deform.massActive}`);
+    assert.ok(rise <= 0, `a wreck falling at ${car.velocity.y.toFixed(1)} m/s rose ${rise.toFixed(3)} m in one slice (landed ${!car.airborne})`);
+  });
+
   it("D2: a wreck sliding off a ramp's lip flies and lands, with no frame off its velocity", (t) => {
     const { ramps, w, car } = scene(false);
     car.spawnFacing(0, -14, 0, 15);

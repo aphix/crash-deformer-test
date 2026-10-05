@@ -45,10 +45,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * shape matching hands back the angular momentum it moves, and a slice's pushes, structure step and re-fits share one
  * budget, all live-trajectory changes; the sim scalars drop two doubles; 25: the police pack guard reads the soonest
  * mate ahead first and a parked mate as an obstacle, drops the boost only for a predicted hit, and same-beat stakeouts
- * don't stack, a live-trajectory change of every pursuit).
+ * don't stack, a live-trajectory change of every pursuit; 26: pair contact trades momentum (the COM-gap floor holds
+ * only once the struck face's crush is spent, as an inelastic exchange), mass pairs solve mirror-symmetrically, and a
+ * flying body lands only with its middle no deeper than its springs, all live-trajectory changes).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 25;
+const REPLAY_VERSION = 26;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -220,6 +220,7 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   const v = car.velocity;
   const w = car.angular;
   v.y -= G * dt;
+  const fall = Math.max(0, -v.y) * dt;
   const sp2 = v.lengthSq();
   if (!car.crashed && !car.airContact && sp2 > NOSE_V * NOSE_V) {
     // A driven car's nose follows its flight path (arcade): the path's own turn (gravity bends it) plus a pull that
@@ -353,11 +354,13 @@ export function stepAir(car: DeformableCar, dt: number): boolean {
   }
   car.airContact = n > 0;
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
-  // Back on the ground sim: two wheels down, the body within ~25° of the ground's slope under it and its middle
-  // within its wheels' `droop` of that ground (two wheels still on a ramp's lip under a body over the drop is not a landing).
+  // Back on the ground sim: two wheels down, the body within ~25° of the ground's slope and its middle within its wheels' `droop` over
+  // it (a lip under a body over the drop is no landing) and no deeper than `fromSide`'s depth, springs plus this slice's fall (D1: a wedge end, 0.38 m lift in one call).
+  const gap = pos.y - world.heightAt(pos.x, pos.z, pos.y);
   return (
     wheels >= 2 &&
-    pos.y - world.heightAt(pos.x, pos.z, pos.y) < droop(carClass(car)) &&
+    gap < droop(carClass(car)) &&
+    gap > -(stop + STAND_SLOP + fall) &&
     _r.set(0, 1, 0).applyQuaternion(q).dot(world.normalAt(_com.x, _com.z, _f, _com.y)) > UPRIGHT
   );
 }
