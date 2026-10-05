@@ -41,7 +41,7 @@ export const PLANT_QUIET = 0.2;
 /** Height (m) a planted hub's centre stands over the ground under it (`groundMasses`): its sphere's radius, 4 cm short of the tyre's. */
 export const HUB_FLOOR = 0.28;
 /** A hub this close (m) above its `HUB_FLOOR` still slides on the ground (dragGround). */
-const GROUND_SKIN = 0.08;
+export const GROUND_SKIN = 0.08;
 /** Half the span (m) the ground's slope under a drawn wheel is read over (`wheelLift`). */
 const SLOPE_SPAN = 0.1;
 /** Steepest gradient (34°, `measurePose`'s plane limit) a wheel is lifted for: a lip or wall under it is no slope. */

@@ -19,6 +19,7 @@ import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
 import { HUB_OVERRUN, type MassNode } from "./deform-rig.ts";
 import { FACE_TOP } from "./load-crush.ts";
 import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, WHEEL_DIAMETER } from "./deform-state.ts";
+import { resistYaw } from "./tyre-yaw.ts";
 import { tiltedRise } from "./hub-plane.ts";
 import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
 
@@ -568,33 +569,60 @@ export abstract class DeformSolve extends DeformContact {
     // One mass's step reads only that mass, so it runs as four loops: in one, the ground queries ran TurboFan
     // past its inlining budget, and every call left out boxed its doubles (~40 KB per race frame).
     this.sampleGround(this.floorPre, null);
+    // The slide's drag (damping, ground Coulomb on every mass) takes the wreck's translation and its inner motion; its turn is
+    // the tyres' (`tyreYaw`), so the spin the drag took off is handed back first: one yaw torque, not two stacked.
+    const driven = powered && this.drivetrainAlive;
+    const rigid = this.drivetrainAlive; // a car with its drivetrain turns by applyDrive's tyres, not the wreck's
+    if (!rigid) this.yawMomentum(3, false);
     this.moveMasses(dt, powered);
     this.sampleGround(this.floorPost, this.gripPost);
     this.floorsFresh = true;
-    this.groundMasses(dt, scuffed, powered && this.drivetrainAlive);
+    this.groundMasses(dt, scuffed, driven);
+    if (!rigid) {
+      this.yawMomentum(3, true);
+      if (!this.aloft) resistYaw(this.masses, this.floorPost, this.gripPost, dt);
+    }
     // The block's spacing is internal too: its position correction over a turning pair moved 680 of a flying wreck's 730 kg·m²/s.
     this.yawMomentum(2, false);
     this.holdEngineBlock();
     this.yawMomentum(2, true);
     if (!live && !this.bidirectional) {
+      // The body is rigid now: every mass takes the mean velocity, plus the spin it carries unless it is driven (the tyres, not this rule, stop a wreck's).
       let mx = 0,
         mz = 0,
+        cx = 0,
+        cz = 0,
         msum = 0;
       for (let mi = 0; mi < this.masses.length; mi++) {
         const m = this.masses[mi]!;
         if (!m.dynamic) continue;
         mx += m.vel.x * m.mass;
         mz += m.vel.z * m.mass;
+        cx += m.world.x * m.mass;
+        cz += m.world.z * m.mass;
         msum += m.mass;
       }
       if (msum > 1e-8) {
         mx /= msum;
         mz /= msum;
+        cx /= msum;
+        cz /= msum;
+        let l = 0,
+          inertia = 0;
         for (let mi = 0; mi < this.masses.length; mi++) {
           const m = this.masses[mi]!;
           if (!m.dynamic) continue;
-          m.vel.x = mx;
-          m.vel.z = mz;
+          const rx = m.world.x - cx;
+          const rz = m.world.z - cz;
+          l += m.mass * (rz * m.vel.x - rx * m.vel.z);
+          inertia += m.mass * (rx * rx + rz * rz);
+        }
+        const w = !rigid && inertia > 1e-9 ? l / inertia : 0;
+        for (let mi = 0; mi < this.masses.length; mi++) {
+          const m = this.masses[mi]!;
+          if (!m.dynamic) continue;
+          m.vel.x = mx + w * (m.world.z - cz);
+          m.vel.z = mz - w * (m.world.x - cx);
         }
       }
     }
@@ -602,6 +630,14 @@ export abstract class DeformSolve extends DeformContact {
       if (this.mode === "shape") this.foldCabin(dt);
       else this.nudgeLatticeRails(dt);
     }
+  }
+
+  /** The slide's ground drag past the slices (`bleedAfterSlide`) takes a wreck's translation and inner motion, never its turn: that is `resistYaw`'s. */
+  override dragGround(dt: number, amount: number): void {
+    if (this.drivetrainAlive) return super.dragGround(dt, amount);
+    this.yawMomentum(3, false);
+    super.dragGround(dt, amount);
+    this.yawMomentum(3, true);
   }
 
   /** A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad) under every dynamic mass on its own

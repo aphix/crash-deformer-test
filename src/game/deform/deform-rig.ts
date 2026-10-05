@@ -230,8 +230,8 @@ export abstract class DeformRig {
    *  on its ground, the ground that holds the body up, then the pitch and roll (rad) of the plane under its hubs, at any
    *  lean (the frame lies on it once levelled; `stepSuspension` tilts its rest offsets by it); 1 when planted on level ground). */
   protected readonly pose = new Float64Array(15);
-  /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's, [2] stepShapeMatch's. */
-  protected readonly spinHeld = new Float64Array(3);
+  /** `yawMomentum`'s held angular momentum: [0] clampLocal's, [1] separateAlong's, [2] stepShapeMatch's, [3] the slide drag's (`stepMassSlice`, `dragGround`). */
+  protected readonly spinHeld = new Float64Array(4);
   /** `measureStroke` output. */
   protected readonly strokeOut = new Float64Array(1);
   /** The current hit is a re-armed one (`rearmHit`), not the crash's first. */
