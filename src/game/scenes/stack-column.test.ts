@@ -133,10 +133,10 @@ describe("given the player picked a car type in the settings", () => {
     it(`when the 4-car stack has dropped every car and the pick is ${type.label}, then every car in the stack is a ${type.label}`, () => {
       const { cars, rig } = column({ cars: 4, drop: 0.02, gap: 1 }, { selected: type }, 1 + 3 + 1);
       assert.equal(rig.dropped, 4, "every car has dropped");
-      assert.deepEqual(
-        cars.map((c) => [c.style.id, carClass(c)]),
-        cars.map(() => [type.style, type.cls]),
-      );
+      cars.forEach((c, i) => {
+        assert.equal(c.style.id, type.style, `car ${i} body`);
+        assert.equal(carClass(c), type.cls, `car ${i} class`);
+      });
     });
   }
 });

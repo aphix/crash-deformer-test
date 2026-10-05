@@ -16,11 +16,21 @@ function rngFrom(seed: number): () => number {
 describe("given a player's car pick, hatchback", () => {
   const hatchback = { cls: "sedan", style: "hatchback" } as const;
   it("when a field outside the stack is built, then only slot 0 is the pick and the rest are the fleet's cycle", () => {
-    assert.deepEqual(slotType(0, hatchback, false), hatchback);
-    for (let i = 1; i < 12; i++) assert.deepEqual(slotType(i, hatchback, false), { cls: fleetClass(i), style: fleetStyle(i) });
+    const first = slotType(0, hatchback, false);
+    assert.equal(first.cls, hatchback.cls);
+    assert.equal(first.style, hatchback.style);
+    for (let i = 1; i < 12; i++) {
+      const slot = slotType(i, hatchback, false);
+      assert.equal(slot.cls, fleetClass(i), `slot ${i} class`);
+      assert.equal(slot.style, fleetStyle(i), `slot ${i} style`);
+    }
   });
   it("when the stack is built, then every slot is the pick", () => {
-    for (let i = 0; i < 20; i++) assert.deepEqual(slotType(i, hatchback, true), hatchback);
+    for (let i = 0; i < 20; i++) {
+      const slot = slotType(i, hatchback, true);
+      assert.equal(slot.cls, hatchback.cls, `slot ${i} class`);
+      assert.equal(slot.style, hatchback.style, `slot ${i} style`);
+    }
   });
 });
 
