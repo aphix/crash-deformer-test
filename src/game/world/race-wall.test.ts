@@ -155,7 +155,8 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
     }
   });
 
-  // A replay keyframe puts a car on its recorded spot (`ClipSim` -> `relocated`); a pose change under WALL_JUMP (4 m) alone forgets nothing.
+  // A replay keyframe puts a car on its recorded spot with the wall memory the record held (`ClipSim` -> `remember`): a car the
+  // live race had just placed holds none (`Infinity` x, no segment), and a pose change under WALL_JUMP (4 m) alone forgets nothing.
   it("a car put on a new spot by a keyframe 3.7 m from where it stood is judged afresh, not by the wall memory of the old spot", () => {
     const w = raceWorld("city", 0);
     try {
@@ -184,7 +185,7 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       // A keyframe puts it 3.7 m back, its footprint 0.13 m past the line (0.05 m at the flank, the rest the bend under the
       // front probes; under WALL_CONTACT): freshly placed, so it is in contact and the wall returns it that 0.13 m.
       put(limit - 0.9);
-      w.race.relocated(0);
+      w.race.remember(0, Float64Array.of(Infinity, 0, 0, -1), 0);
       w.race.courseHit(car, 0, 1 / 120);
       const pushed = limit - 0.9 - lateral();
       assert.ok(pushed > 0.1 && pushed < 0.2, `the placed car is pushed back ${pushed.toFixed(3)} m (expected about 0.13)`);

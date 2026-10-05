@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { FINE_PEDALS, INPUT_BYTES, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { FINE_PEDALS, INPUT_BYTES, MEMORY, simFingerprint, type ClipEjection, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -38,10 +38,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * fixed solid ramps with its closing speed, a live-trajectory change; 21: a re-armed hit's damage base is read in the
  * frame `clampLocal` keeps (`rearmHit`) and a derby car's wear share is 250, so a re-hit crushes and kills differently;
  * 22: derby drivers that pace in one pocket go bold, the first 8 s lift off high-closing rams, and lost wheels take
- * their steering, thrust, brakes and grip with them, all live-trajectory changes).
+ * their steering, thrust, brakes and grip with them, all live-trajectory changes; 23: a clip carries the world's step
+ * schedule (`shape`), each keyframe the course's wall memory and knocked props, a placed car takes a keyframe, and
+ * masses touching keep a car in the clip).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 22;
+const REPLAY_VERSION = 23;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -57,7 +59,7 @@ const EJECTION_BYTES = 4 + 2 + 22 * 4;
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
   let n = 1 + utf8(c.trackId) + 82 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
-  n += 4 + c.h.length * (4 + nc * INPUT_BYTES) + 8 + c.fine.length * 8 + 2;
+  n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 8 + c.fine.length * 8 + 2;
   for (const k of c.keys) n += 8 + k.length;
   return n + 1 + c.ejections.length * EJECTION_BYTES;
 }
@@ -94,6 +96,7 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.u32(c.h.length);
   // Each step's dt as the recorder's ring holds it (float32): whole microseconds moved a 2 x 20 m/s head-on's wreck 8 mm and its crush 10 mm.
   for (const h of c.h) w.f32(h);
+  for (const s of c.shape) w.u32(s);
   w.bytes.set(c.inputs, w.off);
   w.off += c.inputs.length;
   w.u32(c.fineFrom);
@@ -160,6 +163,12 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     h[s] = r.fin32();
     if (!(h[s]! > 0)) throw new RangeError("clip dt");
   }
+  // Each step's schedule (`World.shape`): 19 bits, the slice count − 1 and 2 bits of SAT passes per slice.
+  const shape = new Uint32Array(steps);
+  for (let s = 0; s < steps; s++) {
+    shape[s] = r.u32();
+    if (shape[s]! >>> 19 !== 0) throw new RangeError("clip step shape");
+  }
   const inputs = new Uint8Array(steps * nc * INPUT_BYTES);
   for (let i = 0; i < inputs.length; i++) inputs[i] = r.u8();
   const fineFrom = r.u32();
@@ -189,10 +198,18 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (kr.u8() !== MSG.snapshot) throw new RangeError("clip key type");
     kr.off = 0;
     readSnapshot(kr, check, L);
-    // Then per car its flight block (`FLIGHT` doubles) and solver state (`encodeKey`).
+    // Then the knocked props (a u16 byte count and the bytes), and per car its flight block, course memory and solver state (`encodeKey`).
+    const knockBytes = kr.u16();
+    kr.off += knockBytes;
     let j = 0;
-    for (; j < nc && kr.off + FLIGHT * 8 + 2 <= len; j++) {
+    for (; j < nc && kr.off + FLIGHT * 8 + MEMORY * 8 + 2 <= len; j++) {
       kr.off += FLIGHT * 8;
+      // The wall memory (`RaceField.remember`): where the car stood (x ±Infinity: no history), how far past a wall line (m), the road segment its projection hint is on (-1: none).
+      const wallX = kr.f64();
+      const wallZ = kr.f64();
+      const beyond = kr.f64();
+      const seg = kr.f64();
+      if (Number.isNaN(wallX) || !Number.isFinite(wallZ) || !(beyond >= 0 && beyond < Infinity) || !Number.isInteger(seg) || seg < -1) throw new RangeError("clip course memory");
       const n = kr.u16();
       kr.off += n * 8;
     }
@@ -209,7 +226,7 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || e.car >= nc || (k > 0 && step < ejections[k - 1]!.step)) throw new RangeError("clip ejection");
     ejections.push({ step, e });
   }
-  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, inputs, fineFrom, fine, keyStep, keys };
+  return { trackId, score, impacts, kills, ejects, ejections, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, fineFrom, fine, keyStep, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

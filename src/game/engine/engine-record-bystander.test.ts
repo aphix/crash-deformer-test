@@ -89,7 +89,7 @@ function record(): Recorded {
       applyDrive(car, input, H);
     });
     stepWorld(world, H);
-    rec.endStep(cars, H);
+    rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);
     trace.push(Float64Array.from(cars.flatMap((c) => [c.group.position.x, c.group.position.z])));
     t += H;

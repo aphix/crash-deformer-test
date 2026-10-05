@@ -593,7 +593,8 @@ describe("netplay session: the highlight reel", () => {
     // Doubles in [0, 1) with all 53 mantissa bits random.
     const pedals = (n: number): Float64Array => Float64Array.from({ length: n }, () => (next() * 2 ** 21 + (next() >>> 11)) / 2 ** 53);
     const steps = 8000;
-    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: pedals((steps - 100) * 2 * FINE_PEDALS) };
+    const shape = Uint32Array.from({ length: steps }, () => next() >>> 13);
+    const big = { ...clip, h: new Float32Array(steps).fill(1 / 240), shape, inputs: noise(steps * 2 * INPUT_BYTES), fineFrom: 100, fine: pedals((steps - 100) * 2 * FINE_PEDALS) };
     const clips = [big, { ...big, score: 9 }, { ...big, score: 8 }];
     const msg = await packReel({ seed: 5, clips }, s.clock() / 1000 + 3);
     assert.ok(msg.length > RELAY_MSG_MAX, `precondition: the reel is ${msg.length} bytes, over the cap`);

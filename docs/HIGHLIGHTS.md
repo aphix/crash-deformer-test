@@ -23,11 +23,13 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 ## Recording
 
 `CrashRecorder` runs on the host (or offline), never on a client. Per fixed step it writes every car's drive output
-(`INPUT_BYTES`, 4 per car) and the step's dt into a typed-array ring of `RING` (5120) steps, at least 17 s at a race's
+(`INPUT_BYTES`, 4 per car), the step's dt and the schedule the world ran it on (`World.shape`: slice count and SAT passes)
+into a typed-array ring of `RING` (5120) steps, at least 17 s at a race's
 240–300 steps/s. Every `KEY_EVERY` (1 s) it encodes a keyframe: the netplay snapshot of every car (`writeSnapshot`,
-with each wreck's deform and parts), then per car its flight block (`DeformableCar.flight`: `FLIGHT` doubles, the
-airborne and hull-contact flags, the whole spin, the takeoff spin, pitch, yaw, roll, velocity and position, the squeeze
-clocks, the drift state) and, for a wreck, its solver state (`simState`: every scalar such as the crash clocks, each
+with each wreck's deform and parts), the course's knocked props (a bit each), then per car its flight block
+(`DeformableCar.flight`: `FLIGHT` doubles, the airborne and hull-contact flags, the whole spin, the takeoff spin, pitch,
+yaw, roll, velocity and position, the squeeze clocks, the drift state), the course's memory of it (`MEMORY` doubles: where
+the wall contact last stood, how far past the line, the road segment the projection hint is on) and, for a wreck, its solver state (`simState`: every scalar such as the crash clocks, each
 sensor's compression, each mass's position, velocity and crush offsets, each beam's set, each shape cluster's plastic
 rest and fit state). A cluster's first impact encodes one more. A clip keeps the keyframes from its start to its first
 impact (`cutKeys`: fewer when its estimate passes `CLIP_BUDGET`), and stores each wreck's solver state XORed word by word
@@ -55,8 +57,9 @@ allocation, a few times a race. Steady state allocates nothing (`engine-record.t
 
 A clip also takes **bystanders**: every car within `BYSTANDER_R` (80 m) of its hit (the first impact, the cluster's mean
 point or one of its cars) at any keyframe of the clip or at its end, nearest first, each with the cars that touched it
-since the clip's start. Left out: a car that did not exist at the clip's first keyframe and one placed (`JUMP`) after
-the first impact, which the replay cannot place. 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
+since the clip's start (a touch is a SAT contact, a door, mirror or panel meeting, or masses overlapping). Left out: a car
+that did not exist at the clip's first keyframe and one placed (`DeformableCar.placements` moved: a keyframe is taken at
+the step, however near the spot) after the first impact, which the replay cannot place. 80 m covers the replay cameras' sight lines (`DUTCH.range` is 90 m): of
 the 46 cars a camera could see on five seeded races, 80 m holds 44 and 60 m holds 39. A clip grows by bystanders only to
 `CLIP_SHARE` (`REEL_BUDGET` / `TOP` × 3.3 ≈ 158 KiB estimated: a car's inputs plus its 6.2 KB solver state in each
 keyframe it is a wreck in). A bystander too big for what is left is skipped (a cheaper one further out may still fit),
@@ -122,12 +125,15 @@ What the clip lacked, in order of effect (each found by restoring the live state
 - **The car's pose, whole** (8). The flight block (`FLIGHT` 22 doubles) holds pitch, yaw, roll, velocity and position exactly (the wire rounds them to 1e-4 rad, 1 cm/s and a float32: a first impact 0.5 m/s off, two wedged wrecks 12 mm), the squeeze rule's clocks (`endAgo`, `endReach`, `endSqueeze`: a restored squeeze never ended without them) and the drift state; the wreck's `squash` and `buckle` are stored as doubles in the clip header.
 - **The pedals' last digits** (8), **whole** (9). A cruising car's speed follows its throttle at once, and 1/127 of throttle moved the cars 20-80 mm in the half second before the impact, so seeds 4 to 8 hit late or not at all. The clip keeps, per step and car (`fine`), the pedals as the three doubles the sim ran (`FINE_PEDALS`; NaN: not recorded) for the cars the impact involves, from the last keyframe before it to `FINE_S` (2 s) after it. Version 8 kept one rounding byte each, which left the pedal 1/30000 off; in a pile-up that is centimetres. Error-diffusion rounding of the 8-bit pedals was tried and measured worse.
 - **The solver state as doubles** (9). `simState` wrote each scalar as a float32 and a second float32 for what it rounded off, and every mass, beam, sensor and cluster number as a float32: a restored wreck was 1e-7 off the live one in its masses' velocities, and a derby pile-up turns that into decimetres once its third car arrives. The block is doubles now (`SIM_SCALAR_NUMBERS` 48, one double each). A keyframe restores a wreck bit for bit.
-- **The course's projection hint** (9). A keyframe that placed a car left `RaceDirector.seg` (the hinted search `courseHit` projects with) where the car had last stood, and a car put 27 m onto the record on a bend found a wall that was not there (engine-replay seed 5, a car 7 m off its record). `ReplayScene.placed` calls `RaceDirector.relocated`, which clears it as a live respawn does.
+- **The course's projection hint** (9). A keyframe that placed a car left `RaceDirector.seg` (the hinted search `courseHit` projects with) where the car had last stood, and a car put 27 m onto the record on a bend found a wall that was not there (engine-replay seed 5, a car 7 m off its record). The scene cleared it as a live respawn does (`RaceDirector.relocated`); the keyframe carries the live hint now (23, "The course's memory"), and `relocated` is gone.
 - **A first hit before the last correction** (9). A hit the drift made before a pre-impact keyframe (cars the record never put together, 0.25 s before the impact: engine-replay seed 6) is dropped when that keyframe corrects the cars; only a hit after the last correction counts as the replay's first impact.
 - **A float32 step** (8). The engine's fixed step is a float32 (`Math.fround(physicsSlice(...))`), which the recorder stores whole, so the replay runs the very step the live sim ran (a 6e-8 s difference became centimetres a second later). Whole microseconds (7: `u16`) had moved a head-on's wreck 8 mm.
 - **A replay's own contact history** (8). A keyframe puts the cars back on the record; the contacts they made on their own before it are not the record's, and `ClipSim` forgets them there. A pair the replay had wedged for a second, which the record never touched, never counted as the recorded first impact (seed 5, clips 2 and 4: no hit found, 0.000 m off).
 - **Part tearing in the fixed step** (8). Doors, mirrors and panels tore in `Car.updateDeform`, once per rendered frame, so their timing followed the player's frame cadence and a replay drawn at another rate than the live sim it re-ran diverged (the airborne stunt clips' three 26-33 mm pops in `engine-highlights.test.ts`). `Car.stepBreakage(dt)` runs the crush window and the breakage in the fixed step (`settleStep`); `Car.updateSkin()` is the per-frame mesh write only. `vehicle/render-cadence.test.ts`: the same head-on drawn at 60, 144 or 240 Hz, or never, tears the same parts at the same step (before: 144 Hz differs from 60 Hz at step 27).
 - **Sideswipes and race pair hits** (8). A car that only sideswiped through its doors or mirrors (`partContactPair`, `World.partTouch`) was no part of the clip, which left two wrecks 61 cm off at the first impact (seed 2, clip 4); it is counted as a toucher now. A race's car-car hits never reached the recorder in the real engine (`engine.ts` wired `World.pairHit` for the derby only): `RaceDirector.pairHit` is wired.
+- **The world's step schedule** (23). A step runs 1 to 8 slices and 1 to 3 SAT passes a slice, decided by every car in the world (`nearWall`, `nearContact`, any pair in a pass keeps the passes going): a replay of a few cars worked out another schedule. `World.shape` packs it (19 bits); the ring keeps it per step, `HighlightClip.shape` carries it, `ClipSim` hands it back as `World.plan`.
+- **The course's memory** (23). A race's walls and props remember between steps what the cars forgot at a keyframe: a car's wall contact history (`wallX`, `wallZ`, `wallBeyond`) and road projection hint (`seg`), and which props a car has knocked off their spots. Each keyframe holds both (`MEMORY` doubles a car, a bit a prop; `RaceField.remember`, `knockTo`), so a replay starts from the course the live race had, not from the one it left. A car put down anywhere, however near, takes a keyframe (`placements`; it was a move over 5 m).
+- **Masses touching** (23). A car left out of a clip pressing its masses on a wreck of it (`collideWith`, no SAT contact and no part meeting) pushed the wreck 1.4 m off by the impact (seed 25, clip 2): it is a toucher now.
 
 Keyframes are 1 s apart (`KEY_EVERY`; 0.5 s before: restoring the clusters' fit state cut a restored wreck's drift enough, and it halves a clip's bytes). A clip estimated over a third of a reel message (`CLIP_BUDGET`) first drops its intermediate keyframes, oldest first, down to its first, the last before the impact and the impact's own (`CrashRecorder.cutKeys`): the 15-wreck pile-up of city seed 5 was 262 KB deflated and fitted no reel, and is 170 KB now; the stunt course's three clips are 59, 73 and 99 KB (231 KB together, were 2 clips).
 
@@ -159,6 +165,14 @@ Why the solver state: the netplay wreck section is display state (clients never 
 alone had still masses and reset clocks. In `engine-replay.test.ts` (city, seed 5) one wreck caught mid-hit, its
 masses moving up to 31 m/s about their mean, shed 5.2 m/s in its first replayed step and reached the impact 2.8 m
 off the record. With the solver state the worst car is within the 1.5 m bound.
+
+Measured over city seeds 1-64 (a ramming field of 12; `engine-replay.test.ts` runs 1-8, `SEEDS=...` any others): with the
+cars an impact involves held to 0 m at its first impact, 13 of 64 seeds failed before the scene state was carried (an
+involved car up to 3.3 m off, one first impact 0.95 s late; seeds 5, 6, 8, 19, 25, 42, 45, 47, 52, 53, 54, 56, 64) and 64
+of 64 pass after (236 clips, 0 m). A keyframe grew by 32 B a car and a bit a prop, a clip by 3.5 % raw (mean 312 -> 323 KiB)
+and 2.2 % saved (mean 133.5k -> 136.4k chars; the schedule deflates to 0.011 of its bytes; clips past the 300k save cap
+17 -> 18 of 236, largest 409.1k -> 409.8k), a reel 2.2 % (mean 360.9 -> 368.7 KiB; 45 of 64 reels go in parts both ways).
+The recorder's steady-state allocation is 1.2 B a step before and after.
 
 ## The reel
 

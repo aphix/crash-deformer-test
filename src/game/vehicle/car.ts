@@ -74,6 +74,7 @@ export class DeformableCar extends CarParts {
 
   /** Upright at (x, z) facing `yaw`, moving at `speed` along `dir` (`forward` or `fwdFlat`, read after the basis refresh). */
   private placeAt(x: number, z: number, yaw: number, speed: number, dir: THREE.Vector3): void {
+    this.placements++;
     this.yaw = yaw;
     this.group.position.set(x, 0, z);
     this.group.rotation.set(0, yaw, 0, "YXZ");

@@ -131,7 +131,7 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
         applyDrive(car, input, h);
       });
       stepWorld(world, h);
-      rec.endStep(cars, h);
+      rec.endStep(cars, h, world.shape);
       settleStep(cars, h, false);
       acc -= h;
     }
@@ -179,7 +179,7 @@ export function recordRace(w: World, place: () => void, seconds: number, ai: num
   }
   const clip = rec.ledger.kept[0];
   if (!clip) throw new Error("the crash did not rank as a highlight");
-  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), placed: (slot) => r.relocated(slot), bounce: undefined };
+  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), restore: (slot, mem, at) => r.remember(slot, mem, at), knocks: (bits) => r.knockTo(bits), bounce: undefined };
   return { clip, cars: w.cars, scene, trace, s0: clipStart(clip, times), frameEnd };
 }
 

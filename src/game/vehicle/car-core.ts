@@ -282,6 +282,8 @@ export abstract class CarCore {
   roll = 0;
   pitch = 0;
   spawnSpeed = 0;
+  /** Times this car was put on a spot (`placeAt`: a respawn, a wake, a start): the recorder keys a step the count moved in. */
+  placements = 0;
   /**
    * Last slice's drive (applyDrive writes it). spin / lock / slide are 0–1 wheel slip for tyre FX:
    * launch wheelspin, brake lock-up, sideways slide; `drift` is the drift assist's own state. `-0`: doubles

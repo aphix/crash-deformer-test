@@ -29,7 +29,7 @@ export type World = {
   beforeSlice: ((h: number) => boolean) | null;
   /** Each SAT pair hit, before it is offered to `strongest`; `first` on the slice's first pass (cars in physical contact). */
   pairHit: ((a: number, b: number, hit: ContactHit, first: boolean) => void) | null;
-  /** A door, mirror or panel of one car met the other (`partContactPair`): they touched without a SAT hit. */
+  /** A door, mirror or panel of one car met the other (`partContactPair`), or a mass of one met a mass of the other (`collideWith`): they touched without a SAT hit. */
   partTouch: ((a: number, b: number) => void) | null;
   /** Ramp balls against one car: its hit, if any. */
   ballHit: ((car: DeformableCar) => ContactHit | null) | null;
@@ -46,6 +46,14 @@ export type World = {
   ejection: EjectionWatch | null;
   /** What a body in flight stands on besides the ground: the other cars' tops (and the roofs' load crush). */
   surfaces: CarSurfaces;
+  /**
+   * The step's schedule as the last `stepWorld` ran it (`STEP_SHAPE`): its slice count and each slice's SAT passes. Both
+   * follow every car in the world (any pair anywhere in a pass keeps the passes going), so a replay of a few cars cannot
+   * work them out: the recorder keeps them (`HighlightClip.shape`).
+   */
+  shape: number;
+  /** A recorded `shape` the next `stepWorld` runs to the letter (a highlight replay); −1: the cars decide, as live. */
+  plan: number;
 };
 
 export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
@@ -64,8 +72,16 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     collide: null,
     ejection,
     surfaces: new CarSurfaces(),
+    shape: 0,
+    plan: -1,
   };
 }
+
+/**
+ * A step's schedule packed in 19 bits: bits 0-2 its slice count − 1, then per slice (2 bits each, up to 8) the SAT passes
+ * it ran (0-3; a slice a hook stepped itself ran none).
+ */
+const STEP_SHAPE = 3;
 
 /**
  * One fixed step of the world (`dt` from `physicsSlice`), split into 1–3 slices: integrate or pose, mass pair
@@ -83,16 +99,21 @@ export function stepWorld(w: World, dt: number): void {
       }
     }
   }
-  let slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
-  // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
-  if (dt * CONTACT_HZ > slices + 1e-6) {
-    for (const car of cars) {
-      if (nearContact(car)) {
-        slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
-        break;
+  let slices: number;
+  if (w.plan >= 0) slices = (w.plan & 7) + 1;
+  else {
+    slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
+    // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
+    if (dt * CONTACT_HZ > slices + 1e-6) {
+      for (const car of cars) {
+        if (nearContact(car)) {
+          slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
+          break;
+        }
       }
     }
   }
+  let shape = slices - 1;
   const h = dt / slices;
   strongest.clear();
 
@@ -119,8 +140,8 @@ export function stepWorld(w: World, dt: number): void {
         const dz = ca.group.position.z - cb.group.position.z;
         // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
         if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
-        if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        if (partContactPair(ca, cb)) w.partTouch?.(a, b);
+        const masses = (ca.deform.massActive || cb.deform.massActive) && ca.deform.collideWith(cb.deform, h);
+        if (partContactPair(ca, cb) || masses) w.partTouch?.(a, b);
       }
     }
 
@@ -130,7 +151,10 @@ export function stepWorld(w: World, dt: number): void {
       if (car.velocity.lengthSq() > 1.4) satBusy = true;
       if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
     }
-    for (let k = 0; k < (satBusy && !wrecked ? 3 : 1); k++) {
+    const passes = w.plan >= 0 ? (w.plan >> (STEP_SHAPE + 2 * i)) & 3 : satBusy && !wrecked ? 3 : 1;
+    let ran = 0;
+    for (let k = 0; k < passes; k++) {
+      ran++;
       for (const car of cars) {
         if (car.deform.massActive) car.syncPose(0);
         else car.refreshBasis();
@@ -180,8 +204,9 @@ export function stepWorld(w: World, dt: number): void {
           if (barrier.resolve(car, false, false, h)) moved = true;
         }
       }
-      if (!moved) break;
+      if (!moved && w.plan < 0) break;
     }
+    shape |= ran << (STEP_SHAPE + 2 * i);
 
     for (const car of cars) {
       if (car.deform.massActive) car.deform.stepStructure(h);
@@ -193,6 +218,7 @@ export function stepWorld(w: World, dt: number): void {
     if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci, h);
   }
   w.ejection?.step(cars, dt);
+  w.shape = shape;
 }
 
 /**

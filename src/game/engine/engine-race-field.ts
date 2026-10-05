@@ -140,7 +140,15 @@ export abstract class RaceField {
   protected readonly dormant = new Uint8Array(MAX_CARS);
   protected bubbleAcc = 0;
   /** Crash highlights (docs/HIGHLIGHTS.md): records each race this browser simulates. */
-  readonly recorder = new CrashRecorder();
+  readonly recorder = new CrashRecorder({
+    recall: (i, out) => {
+      out[0] = this.wallX[i]!;
+      out[1] = this.wallZ[i]!;
+      out[2] = this.wallBeyond[i]!;
+      out[3] = this.seg[i]!;
+    },
+    knocks: () => this.knocked,
+  });
   /** A wall or solid prop hit car `i` closing at `closing` m/s at (x, z): the recorder, or a highlight replay while one runs. */
   onWallHit: (i: number, closing: number, x: number, z: number) => void = (i, closing, x, z) => this.recorder.wallHit(i, closing, x, z);
   private readonly observers: AiCar[] = [];
@@ -204,7 +212,7 @@ export abstract class RaceField {
   protected spectating = false;
   protected overFor = -1;
   protected readonly seg = new Int32Array(MAX_CARS).fill(-1);
-  /** Per car, the end of its last wall step: where it stood (`Infinity` x: no history, as after a placement: `relocated`) and how far past a wall line (`wall`). */
+  /** Per car, the end of its last wall step: where it stood (`Infinity` x: no history, as after a placement) and how far past a wall line (`wall`). A keyframe carries them (`CourseMemory`). */
   protected readonly wallX = new Float64Array(MAX_CARS).fill(Infinity);
   private readonly wallZ = new Float64Array(MAX_CARS);
   private readonly wallBeyond = new Float64Array(MAX_CARS);
@@ -353,6 +361,29 @@ export abstract class RaceField {
   resetProps(): void {
     this.knocked.fill(0);
     this.art?.reset();
+  }
+
+  /**
+   * Car `i`'s wall memory and road projection hint as a keyframe held them (`MEMORY` doubles at `at` in `mem`, the order
+   * `CourseMemory.recall` writes): what a highlight replay's car must carry on from its record, not forget.
+   */
+  remember(i: number, mem: Float64Array, at: number): void {
+    this.wallX[i] = mem[at]!;
+    this.wallZ[i] = mem[at + 1]!;
+    this.wallBeyond[i] = mem[at + 2]!;
+    this.seg[i] = mem[at + 3]!;
+  }
+
+  /**
+   * The props a keyframe held knocked (bit q of byte b: prop 8b + q): any not yet knocked here is now, toppled where it
+   * stood (its flight in the live race is not carried), so a replay's cars meet the props the live ones met.
+   */
+  knockTo(bits: Uint8Array): void {
+    for (let i = 0; i < this.knocked.length; i++) {
+      if (!((bits[i >> 3] ?? 0) & (1 << (i & 7))) || this.knocked[i]) continue;
+      this.knocked[i] = 1;
+      this.art?.knock(i, 0, 0, 0);
+    }
   }
 
   /** Whether car contact has knocked placed prop `i` off its spot (the ragdolls leave those out of their world). */

@@ -148,9 +148,9 @@ export abstract class DeformContact extends DeformState {
   abstract undoTurn(): void;
   protected abstract yawMomentum(slot: number, restore: boolean): void;
 
-  /** Sphere contact between two cars' masses for one physics slice of `dt` seconds. */
-  collideWith(other: StreamedDeformation, dt: number): void {
-    if (this.quietTime() > 0.22 && other.quietTime() > 0.22) return;
+  /** Sphere contact between two cars' masses for one physics slice of `dt` seconds; whether any mass of one met a mass of the other. */
+  collideWith(other: StreamedDeformation, dt: number): boolean {
+    if (this.quietTime() > 0.22 && other.quietTime() > 0.22) return false;
     const massesA = this.masses;
     const massesB = other.masses;
     const nA = massesA.length;
@@ -158,7 +158,7 @@ export abstract class DeformContact extends DeformState {
     const slice = dt / CONTACT_REF_SLICE;
     for (let i = 0; i < nA; i++) massesA[i]!.clipping = false;
     for (let j = 0; j < nB; j++) massesB[j]!.clipping = false;
-    if (!massBox(massesA, _boxA).intersectsBox(massBox(massesB, _boxB))) return;
+    if (!massBox(massesA, _boxA).intersectsBox(massBox(massesB, _boxB))) return false;
     _shift.fill(0);
     let hit = false;
     for (let i = 0; i < nA; i++) {
@@ -193,6 +193,7 @@ export abstract class DeformContact extends DeformState {
       this.push.debit(this.elapsed, _shift[0]! / this.totalMass, _shift[1]! / this.totalMass);
       other.push.debit(other.elapsed, _shift[2]! / other.totalMass, _shift[3]! / other.totalMass);
     }
+    return hit;
   }
 
   stepStructure(dt: number): void {

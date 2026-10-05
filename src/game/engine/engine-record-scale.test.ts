@@ -35,7 +35,7 @@ function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?:
     if (wall !== undefined && now && !touching) rec.wallHit(0, wall, BARRIER_HALF.x, 0);
     touching = now;
     for (const e of w.world.ejection?.take() ?? []) rec.eject(e);
-    rec.endStep(cars, H);
+    rec.endStep(cars, H, w.world.shape);
     settleStep(cars, H, false);
     for (const car of cars) car.updateSkin();
   }

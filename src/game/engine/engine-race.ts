@@ -487,17 +487,6 @@ export class RaceDirector extends RaceField {
     this.courseHit(car, i, h);
   }
 
-  /**
-   * Car `i` was put on another spot (a highlight replay's keyframe, as a live respawn does in `drain`): the course
-   * projection hint (`seg`) it kept is stale, and a hinted search from a spot 27 m back on a bend found a wall that
-   * wasn't there (a phantom hit, one car 7 m off the record). The wall's memory of where it stood (`wallX`) is stale too:
-   * a placement under `WALL_JUMP` would keep it, and a car put on the road would be judged by the old spot's contact.
-   */
-  relocated(i: number): void {
-    this.seg[i] = -1;
-    this.wallX[i] = Infinity;
-  }
-
   /** Car `i` against the course's walls and props over a slice of `h` s (a highlight replay runs it for put-away traffic too). */
   courseHit(car: DeformableCar, i: number, h: number): void {
     const tr = this.track;
@@ -509,8 +498,8 @@ export class RaceDirector extends RaceField {
     if (this.colliders.length > 0) this.props(car, i, h);
   }
 
-  /** End of a physics slice: rules step, deaths, respawns. */
-  step(dt: number): void {
+  /** End of a physics step of `dt` s, which the world ran on the schedule `shape` (`World.shape`): rules step, deaths, respawns. */
+  step(dt: number, shape: number): void {
     const s = this.session;
     if (!s || s.phase === "finished") return;
     const cars = this.host.live();
@@ -535,7 +524,7 @@ export class RaceDirector extends RaceField {
     // The units chasing (this slice's start positions; a parked or knocked-out unit never busts anyone).
     s.step(dt, this.poses, this.police?.chasers(this.snaps, this.cops));
     this.credit(s);
-    this.recorder.endStep(cars, dt);
+    this.recorder.endStep(cars, dt, shape);
     if (racing) this.stalls(s);
     this.drain();
     this.bubbleAcc += dt;

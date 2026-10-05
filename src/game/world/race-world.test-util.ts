@@ -135,7 +135,7 @@ function fixedStep(w: World, dt: number): void {
     w.ejections.push(e);
     w.race.recorder.eject(e);
   }
-  w.race.step(dt);
+  w.race.step(dt, w.step.shape);
 }
 
 /** One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time; `slice` sees each step's length before it runs. */

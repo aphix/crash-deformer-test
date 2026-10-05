@@ -46,7 +46,7 @@ function hostOf(w: World): ReelHost {
   return {
     carsOf: (clip) => clip.cars.map((c) => w.cars[c.slot]!),
     live: () => w.live(),
-    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), placed: (slot) => w.race.relocated(slot), bounce: undefined },
+    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined },
     resetProps: () => w.race.resetProps(),
     clear: () => {},
     sight: () => w.race.courseSight()!,

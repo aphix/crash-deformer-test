@@ -36,7 +36,17 @@ describe("highlight recorder", () => {
     cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 10));
     // A third are wrecks: every keyframe encodes their netplay wreck section.
     for (let i = 0; i < MAX_CARS; i += 3) cars[i]!.applyImpact(new THREE.Vector3(i * 6, 0.5, 2.2), new THREE.Vector3(0, 0, -1), 16, 12);
-    const rec = new CrashRecorder();
+    // With a course (the race's wall memory and props: every keyframe reads them too), not the flat field's.
+    const knocks = new Uint8Array(40);
+    const rec = new CrashRecorder({
+      recall: (i, out) => {
+        out[0] = i;
+        out[1] = 1;
+        out[2] = 0.5;
+        out[3] = -1;
+      },
+      knocks: () => knocks,
+    });
     rec.begin("oval", 0.35, false, MAX_CARS, () => "x", 1);
     // Grinding contact under the impact bar: the contact path runs, no cluster ever opens.
     const grind: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
@@ -44,7 +54,7 @@ describe("highlight recorder", () => {
       rec.startStep(cars);
       for (let i = 0; i + 1 < MAX_CARS; i += 2) rec.pairHit(i, i + 1, grind, true);
       rec.wallHit(5, 1, 0, 0);
-      rec.endStep(cars, H);
+      rec.endStep(cars, H, 0);
     };
     for (let s = 0; s < WARM; s++) step();
     // Read the heap once a recorded second (`memoryUsage` allocates its own result), positive deltas only.
@@ -112,7 +122,7 @@ function firstImpacts(racers: number): number[][] {
       applyDrive(car, input, H);
     });
     stepWorld(world, H);
-    rec.endStep(cars, H);
+    rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);
   }
   rec.end();

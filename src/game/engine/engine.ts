@@ -250,7 +250,7 @@ export class CrashEngine extends EngineShare {
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), placed: (slot) => this.race.relocated(slot), bounce: this.bounceWorld },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), bounce: this.bounceWorld },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
@@ -616,7 +616,7 @@ export class CrashEngine extends EngineShare {
       if (this.race.active) this.race.recorder.eject(e);
       this.net.sendEject(e);
     }
-    if (this.race.active) this.race.step(dt);
+    if (this.race.active) this.race.step(dt, w.shape);
 
     const { impulse, contact, normal } = w.strongest;
     if (!this.derbyMode && !this.race.active && !this.showStack && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {

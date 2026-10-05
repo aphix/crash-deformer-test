@@ -2,9 +2,14 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar, FLIGHT } from "../vehicle/car.ts";
 import { assertSameDigest, assertSameNumbers } from "../vehicle/test-support.ts";
-import { FINE_PEDALS, INPUT_BYTES, type HighlightClip } from "../match/highlights.ts";
+import { FINE_PEDALS, INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts";
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
+
+/** A keyframe's knocked props (bits), and each car's course memory (`MEMORY` doubles: wall x and z, how far past a wall line, the road segment). */
+const KNOCKS = [0b101, 0, 0b10000001];
+const MEMORY_A = [Infinity, 0, 0, -1];
+const MEMORY_B = [12.5, -7.25, 0.125, 392];
 
 /** Two cars, one a wreck (a crushed nose): a clip whose keyframes carry a wreck section. */
 export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
@@ -29,13 +34,16 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     });
     const sim = new Float64Array(a.deform.simSize());
     const fly = new Float64Array(FLIGHT);
-    const w = new Writer(snapshotMaxBytes(2, L) + 2 * (FLIGHT * 8 + 2 + sim.length * 8));
+    const w = new Writer(snapshotMaxBytes(2, L) + 2 + KNOCKS.length + 2 * (FLIGHT * 8 + MEMORY * 8 + 2 + sim.length * 8));
     writeSnapshot(w, { ...makeSnapshot(), time: k, count: 2, cars: frames }, L);
-    // As `CrashRecorder.encodeKey`: each car's flight block (doubles), then a wreck's solver state.
+    // As `CrashRecorder.encodeKey`: the knocked props' bits, then each car's flight block (doubles), course memory and a wreck's solver state.
+    w.u16(KNOCKS.length);
+    for (const v of KNOCKS) w.u8(v);
     for (const car of [a, b]) {
       car.flight(fly, 0, false);
       w.bytes.set(new Uint8Array(fly.buffer), w.off);
       w.off += FLIGHT * 8;
+      for (const m of car === a ? MEMORY_A : MEMORY_B) w.f64(m);
       const n = car.crashed ? sim.length : 0;
       if (n > 0) car.deform.simState(sim, false);
       w.u16(n);
@@ -89,6 +97,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { slot: 7, style: b.style.id, cls: "truck", name: "Bo" },
     ],
     h: new Float32Array(steps).fill(1 / 240),
+    shape: new Uint32Array(steps).map((_, i) => (i % 5 === 0 ? (0b100111 << 3) | 2 : 0b1 << 3)),
     inputs: new Uint8Array(steps * 2 * INPUT_BYTES).map((_, i) => (i * 37) & 255),
     fineFrom: 100,
     fine: new Float64Array((steps - 100) * 2 * FINE_PEDALS).map((_, i) => (i % 7 === 0 ? NaN : ((i * 11) % 256) / 511)),
@@ -110,6 +119,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
     for (const k of ["slot", "style", "cls", "name"] as const) assert.equal(c[k], want.cars[i]![k], `car ${i} ${k}`);
   });
   assertSameNumbers(got.h, want.h, "step dt");
+  assertSameNumbers(got.shape, want.shape, "step schedule");
   assertSameNumbers(got.inputs, want.inputs, "inputs");
   assert.equal(got.fineFrom, want.fineFrom, "fine from");
   assertSameDigest(got.fine, want.fine, "fine pedals (a NaN is a step the recorder kept none for)");

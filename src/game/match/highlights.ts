@@ -267,6 +267,11 @@ export class HighlightLedger<C extends { score: number }> {
 export const INPUT_BYTES = 4;
 /** Doubles per car per step of the clip's `fine` block: throttle, steer, brake, exactly as the sim ran them. */
 export const FINE_PEDALS = 3;
+/**
+ * Doubles of course memory per car in a keyframe: where the race's wall contact last stood (x, z), how far past a wall
+ * line it stood (m), and the road segment its projection hint is on (-1: none), as `RaceField` keeps them.
+ */
+export const MEMORY = 4;
 
 export type ReelCar = { slot: number; style: CarStyleId; cls: VehicleClassId; name: string };
 
@@ -313,6 +318,11 @@ export type HighlightClip = {
   cars: ReelCar[];
   /** Per step: dt (s), exactly as the recorder's ring (float32) and the live step had it. */
   h: Float32Array;
+  /**
+   * Per step: the schedule the live world ran it on (`World.shape`: slices and each slice's SAT passes). Every car in
+   * the world sets it, the ones outside the clip too (a pair hit anywhere keeps the passes going), so the replay runs it as recorded.
+   */
+  shape: Uint32Array;
   /** Per step × car: `INPUT_BYTES`. */
   inputs: Uint8Array;
   /**
@@ -328,7 +338,8 @@ export type HighlightClip = {
   keyStep: Uint32Array;
   /**
    * Per keyframe: the clip's cars as a netplay snapshot message (`net/codec.ts` `writeSnapshot`, `cars` order; a wreck
-   * carries its wreck section in keyframe 0), then each car's drift-assist state (`drive.drift`, q16).
+   * carries its wreck section in keyframe 0), then the course's knocked props (u16 byte count, a bit per prop), then per
+   * car its flight block, its course memory (`MEMORY` doubles) and its solver state (`CrashRecorder.encodeKey`).
    */
   keys: Uint8Array[];
 };

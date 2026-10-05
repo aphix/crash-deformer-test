@@ -671,7 +671,7 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     }
     for (const m of a.d.masses) m.vel.set(0, 0, 0);
     const pz = (d: StreamedDeformation) => d.masses.reduce((s, m) => s + m.vel.z * m.mass, 0);
-    a.d.collideWith(b.d, 1 / 240);
+    assert.ok(a.d.collideWith(b.d, 1 / 240), "overlapping masses are a contact the world reports as a touch (`World.partTouch`)");
     // 11 kg·m/s reaches it through the normals alone; Coulomb friction (μ 0.45) hands over ~147.
     assert.ok(pz(a.d) > 60, `the struck wreck took ${pz(a.d).toFixed(1)} kg·m/s of the 6 m/s slide`);
   });
