@@ -211,4 +211,4 @@ stayed inside the follower's nose for seconds (the owner's "hooked cops"; any cl
   slices). A deep-overlap budget bypass was tried (pair-contact.ts): derby 28 → 21 hooks but race 27 → 35, so it was not
   kept; the budget rule belongs with the pair-solve lane.
 
-A clip saved before this rule replays its pairs' pushes the other way round: `REPLAY_VERSION` 11.
+A clip saved before this rule replays its pairs' pushes the other way round: `REPLAY_VERSION` 13.
