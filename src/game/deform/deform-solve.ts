@@ -282,9 +282,9 @@ export abstract class DeformSolve extends DeformContact {
     undoNetTurn(this.masses, this.turnX, this.turnZ);
   }
 
-  /** Keep the turn a pinned write-back made, and turn the masses' relative velocities with it (turn-hold.ts). */
+  /** Keep the turn a pinned write-back made, and turn the masses' relative velocities with it (turn-hold.ts); `followGroup` reports it as spin. */
   protected carryTurn(): void {
-    turnVelocities(this.masses, this.turnX, this.turnZ);
+    turnVelocities(this.masses, this.turnX, this.turnZ, this.keptTurn);
   }
 
   /** The masses' angular momentum about their centroid into `spinHeld[slot]`, or with `restore`, back to it as a rigid turn (turn-hold.ts). */

@@ -100,4 +100,36 @@ describe("a planted wreck's write-back", () => {
     const off = Math.sqrt(err / norm);
     assert.ok(off < 0.1, `the velocities about the centroid are ${(off * 100).toFixed(0)} % off a turn of ${w.toFixed(2)} rad with the positions`);
   });
+
+  it("bad: the spin it reports includes the turn it kept: reported rad/s x dt = L/I x dt + the masses' net turn, within 25 % of that turn (it reported L/I alone, 0 for a wreck at rest, while the drawn heading turned)", () => {
+    const { d, group } = planted();
+    const axle = mass(d, "axleR").world;
+    for (const name of ["engineL", "engineR"]) {
+      const e = mass(d, name).world;
+      const dx = e.x - axle.x;
+      const dz = e.z - axle.z;
+      e.x = axle.x + dx * Math.cos(0.5) + dz * Math.sin(0.5);
+      e.z = axle.z - dx * Math.sin(0.5) + dz * Math.cos(0.5);
+    }
+    const ms = d.masses.map((q) => q.mass);
+    const p0 = d.masses.map((q): P => [q.world.x, q.world.z]);
+    const omega = new THREE.Vector3();
+    d.followGroup(group, new THREE.Vector3(), omega, DT);
+    const w = turnBetween(p0, d.masses.map((q): P => [q.world.x, q.world.z]), ms);
+    assert.ok(Math.abs(w) > 0.03, `the write-back turned the masses ${w.toFixed(3)} rad: the setup no longer turns them`);
+    const total = ms.reduce((t, x) => t + x, 0);
+    const cx = d.masses.reduce((t, q) => t + q.world.x * q.mass, 0) / total;
+    const cz = d.masses.reduce((t, q) => t + q.world.z * q.mass, 0) / total;
+    const vx = d.masses.reduce((t, q) => t + q.vel.x * q.mass, 0) / total;
+    const vz = d.masses.reduce((t, q) => t + q.vel.z * q.mass, 0) / total;
+    let l = 0;
+    let inertia = 0;
+    for (const q of d.masses) {
+      l += q.mass * ((q.world.z - cz) * (q.vel.x - vx) - (q.world.x - cx) * (q.vel.z - vz));
+      inertia += q.mass * ((q.world.x - cx) ** 2 + (q.world.z - cz) ** 2);
+    }
+    const reported = omega.y * DT;
+    const made = l / inertia * DT + w;
+    assert.ok(Math.abs(reported - made) < 0.25 * Math.abs(w), `reported ${reported.toFixed(4)} rad over the step, the masses made ${made.toFixed(4)} (L/I ${(l / inertia * DT).toFixed(4)} + turn ${w.toFixed(4)})`);
+  });
 });

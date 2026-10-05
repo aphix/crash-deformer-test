@@ -5,6 +5,8 @@ import { DeformableCar } from "./car.ts";
 import { applyDrive, idleDrive } from "./car-drive.ts";
 import { assignClass, CLASSES } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
+import { runWall } from "../contact/crash-scenarios.test-util.ts";
+import { newWorld, stepWorld } from "../engine/world-step.ts";
 
 /**
  * A wreck under power turns its masses as the driver steers (`applyDrive`'s `driveMasses`). Turning positions alone left
@@ -73,5 +75,31 @@ describe("steering a wreck under power", () => {
     for (let k = 0; k < 60; k++) applyDrive(c, { ...idleDrive(), throttle: 0.5, steer: 1 }, H);
     const after = momentum(c);
     assert.ok(Math.abs(after.l / before.l - 1) < 0.01, `L ${before.l.toFixed(0)} → ${after.l.toFixed(0)}`);
+  });
+});
+
+describe("a driven, dented car reports the turn it drives", () => {
+  it("bad: steered hard for 1 s after a wall hit, the heading it turned (c.yaw) is what it reported (angular.y read L/I, ~0, while it drove round at ~1 rad/s)", () => {
+    const c = new DeformableCar(paint(), new THREE.Scene(), null, CLASSES.sedan.style);
+    assignClass(c, "sedan");
+    runWall(30, 1, "front", { car: c, after: 0.3 });
+    assert.ok(c.crashed && c.deform.massActive && c.deform.drivetrainAlive, "fixture: the hit must leave a dented car that still drives");
+    const w = newWorld([c]);
+    let reported = 0;
+    let drawn = 0;
+    let prev = c.yaw;
+    for (let k = 0; k < 120; k++) {
+      applyDrive(c, { ...idleDrive(), throttle: 1, steer: 1 }, H);
+      stepWorld(w, H);
+      let dy = c.yaw - prev;
+      dy -= Math.round(dy / (2 * Math.PI)) * 2 * Math.PI;
+      prev = c.yaw;
+      if (k >= 60) {
+        drawn += dy;
+        reported += c.angular.y * H;
+      }
+    }
+    assert.ok(Math.abs(drawn) > 0.3, `fixture: drawn turn ${drawn.toFixed(2)} rad in 0.5 s: no turn to report`);
+    assert.ok(Math.abs(reported - drawn) < 0.15 * Math.abs(drawn), `reported ${reported.toFixed(3)} rad, drawn ${drawn.toFixed(3)} rad over 0.5 s`);
   });
 });

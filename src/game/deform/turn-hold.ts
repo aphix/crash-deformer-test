@@ -82,9 +82,10 @@ export function holdMomentum(masses: readonly Body[], held: Float64Array, slot: 
 
 /**
  * Turn every mass's velocity relative to the mean by the net turn a position-only pass kept since `holdPositions` (the
- * angle `undoNetTurn` takes back): the body's internal motion, its spin included, turns with its pose.
+ * angle `undoNetTurn` takes back): the body's internal motion, its spin included, turns with its pose. The turn (rad)
+ * is added to `kept[0]`: it is motion the masses made, so the wreck's reported spin counts it (`followGroup`).
  */
-export function turnVelocities(masses: readonly Body[], heldX: Float64Array, heldZ: Float64Array): void {
+export function turnVelocities(masses: readonly Body[], heldX: Float64Array, heldZ: Float64Array, kept: Float64Array): void {
   let mx = 0,
     mz = 0,
     mm = 0,
@@ -112,6 +113,7 @@ export function turnVelocities(masses: readonly Body[], heldX: Float64Array, hel
     turnI += m.mass * (rx * rx + rz * rz);
   }
   const w = turn / turnI;
+  kept[0] = kept[0]! + w;
   const c = Math.cos(w);
   const s = Math.sin(w);
   for (let i = 0; i < masses.length; i++) {

@@ -311,8 +311,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     return;
   }
 
-  // Crashed: the masses carry the pose and followGroup re-measures yaw and
-  // velocity from them, so writing angular.y alone never turned a wreck.
+  // Crashed: the masses carry the pose and followGroup re-measures yaw and velocity (writing angular.y alone never turned a wreck).
   // Yaw the body and push every mass: a cabin-only kick (kickCore) gets
   // averaged away by the unkicked crumple masses on a quiet wreck, and the
   // settle clamp then parks the car for good.
@@ -323,6 +322,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   _turn[2] = nvx - vx;
   _turn[3] = nvz - vz;
   driveMasses(car.deform.masses, _turn);
+  car.deform.driveTurn(yawRate);
   car.velocity.x = nvx;
   car.velocity.z = nvz;
   car.angular.y = yawRate;

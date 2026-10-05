@@ -29,6 +29,7 @@ const SHEET_MU = 0.45;
 const SPHERE_STEP = 0.06;
 /** Shortest sim time (s) a wreck's vertical-speed sample spans: just under the 1/240 s shortest slice (followGroup). */
 const VY_SPAN = 0.004;
+const DRIVE_TURN_HOLD = 1 / 30; // sim s a driven wreck's turn rate stays reported after `applyDrive` set it (followGroup)
 /** A mass this close (m) to a rigid face still counts as resting on it. */
 const FACE_SKIN = 0.02;
 
@@ -339,10 +340,11 @@ export abstract class DeformContact extends DeformState {
     } else if (dt === 0 || first) this.frameY += gy - y0;
     velocityOut.set(mx / mass, this.frameVy, mz / mass);
     clampSpeed(velocityOut, CRASH.maxMassMps);
-    // The spin the masses carry (angular momentum over inertia about their centroid), never the frame's own turn: a fit
-    // that jumps (a mass pushed, a re-measure) is no motion. Field writes, not set(): an out-of-line set() boxed all three per call.
+    // Spin: what the masses carry (L/I) plus the momentum-free turn they made (`carryTurn`, `driveTurn`), never the
+    // frame's own turn: a fit that jumps (a push, a re-measure) is no motion. Field writes: set() boxed all three.
     angularOut.x = Math.max(-2, Math.min(2, pitch * 0.4));
-    angularOut.y = _fit.spin();
+    angularOut.y = _fit.spin() + (dt > 0 ? this.keptTurn[0]! / dt : 0) + (this.drivetrainAlive && this.elapsed - this.keptTurn[2]! < DRIVE_TURN_HOLD ? this.keptTurn[1]! : 0);
+    if (dt > 0) this.keptTurn[0] = 0;
     angularOut.z = Math.max(-2, Math.min(2, roll * 0.4));
     this.prevYaw = yawSafe;
   }

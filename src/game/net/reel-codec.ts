@@ -52,10 +52,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * wreck or loose-part car's keyframe carries its parts, cage and sensor state, a clip lists props knocked by cars it
  * leaves out, and a straddled fleet-wedge wall seats an axle on its lower tyre; 28: a racer is waited for at 1.5x its
  * slowest lap, not its best, so a car is no longer DNF'd mid-lap after a shortcut lap; 29: the derby opening caution
- * reads a nose's own speed toward a crossing rival, not the range rate alone, so it lifts for more early charges).
+ * reads a nose's own speed toward a crossing rival, not the range rate alone, so it lifts for more early charges;
+ * 30: a crashed car's reported spin counts the turn its masses made beyond L/I, the planted write-back's kept turn and
+ * a driven wreck's steer, so keyframe spin changes).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 29;
+const REPLAY_VERSION = 30;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

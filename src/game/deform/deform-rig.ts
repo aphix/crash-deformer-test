@@ -264,6 +264,12 @@ export abstract class DeformRig {
     return Math.abs(corner.rest.z - hub.rest.z) - HUB_OVERRUN;
   }
 
+  /** A driven wreck's masses turned at `rate` rad/s this step (`applyDrive`): positions and velocities rotated together, so no spin of theirs shows it. */
+  driveTurn(rate: number): void {
+    this.keptTurn[1] = rate;
+    this.keptTurn[2] = this.elapsed;
+  }
+
   protected prevYaw = 0;
   /** Share (0–1) of the read pitch/roll the frame takes, and the sim time it was last eased at (followGroup). */
   protected lean = 1;
@@ -313,6 +319,11 @@ export abstract class DeformRig {
   /** World x/z of each mass at `holdTurn` (a position-only pass's net turn, undone by `undoTurn`). */
   protected turnX = new Float64Array(0);
   protected turnZ = new Float64Array(0);
+  /**
+   * [0]: the turn (rad) a planted wreck's write-back kept since `followGroup` last read over a span of time. [1], [2]: the
+   * yaw rate (rad/s) `applyDrive` last turned a driven wreck's masses at, and the sim time it did (`driveTurn`).
+   */
+  protected readonly keptTurn = new Float64Array(3);
   /** Cluster skin weights per vertex (≤ SKIN_K): count (0 = cage fallback), `clusterXf` offset, weight. */
   protected skinN = new Uint8Array(0);
   protected skinXf = new Int32Array(0);
@@ -487,6 +498,7 @@ export abstract class DeformRig {
     this.prevYaw = 0;
     this.lean = 1;
     this.leanAt = -Infinity;
+    this.keptTurn.fill(0);
     this.aloft = false;
     this.floorsFresh = false;
     this.frameY = 0;
