@@ -63,7 +63,7 @@ export interface Block {
 }
 
 /** What was switched on while the bench ran. */
-export interface BenchSettings {
+interface BenchSettings {
   fxTier: string;
   fxAuto: boolean;
   /** `describePost` of the tier the window mostly ran. */

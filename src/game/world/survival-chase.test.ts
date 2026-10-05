@@ -154,6 +154,8 @@ describe("given the Survival pack chasing a scripted player who never stops", ()
     }
   });
 
+  const FROZEN: CopTamper = (input) => Object.assign(input, { throttle: 0, steer: 0, brake: 1, ebrake: false, boost: false });
+
   describe("given the closed arena (Havana's plaza inside a square of its own stucco, 160 m across) with the formation held until race second 10, pooled over seeds 1 to 24", () => {
     /**
      * The closed arena (`survival-arena.test-util.ts`: Havana's plaza inside a square of its own stucco, 160 m across): the player runs
@@ -171,7 +173,6 @@ describe("given the Survival pack chasing a scripted player who never stops", ()
     const POOLED_SEEDS = 24;
     const ARENA_RELEASE = 10;
     const ARENA_GAP = 100;
-    const FROZEN: CopTamper = (input) => Object.assign(input, { throttle: 0, steer: 0, brake: 1, ebrake: false, boost: false });
     /** `ARENA_BAR`-style pool of `fleer`'s runs: how many ran, and why each that the pack did not end (as `only`, when given) was not. */
     const arena = (fleer: Fleer, bar: number, tamper?: CopTamper, only: string | null = null): { ran: number; bad: string[] } => {
       const bad: string[] = [];
