@@ -57,6 +57,8 @@ export class SimPacer {
   coarseSteps = 0;
   /** The slice floor is 1/120 s right now. */
   coarse = false;
+  /** The bench page's A/B: true holds the 1/120 s floor, false the 1/240 s, whatever the step costs; null (the engine's own) adapts. */
+  pin: boolean | null = null;
   /** Running means: wall ms of a step, and the 1/240 s steps a frame calls for (0 until the first). */
   private cost = 0;
   private need = 0;
@@ -76,7 +78,8 @@ export class SimPacer {
    */
   run(simDt: number, scale: number, vmax: number, deadline: number, step: (h: number) => void): void {
     const k = Math.min(1, Math.max(scale, MIN_SCALE));
-    if (this.adaptive) this.choose(simDt / k, simDt / (physicsSlice(Infinity, vmax, FINE_SLICE) * k));
+    if (this.pin !== null) this.coarse = this.pin;
+    else if (this.adaptive) this.choose(simDt / k, simDt / (physicsSlice(Infinity, vmax, FINE_SLICE) * k));
     // float32, as the highlight recorder stores it: a replay runs the live step.
     const h = Math.fround(physicsSlice(Infinity, vmax, this.coarse ? COARSE_SLICE : FINE_SLICE) * k);
     this.owed += simDt;

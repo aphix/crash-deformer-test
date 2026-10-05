@@ -241,10 +241,11 @@ describe("a body is drawn as it stands when the blend would smear it", () => {
  * A device on a virtual clock: each step costs `stepMs(t)` ms, each frame's draw `drawMs`, and a frame lands on the next vblank of an `hz`
  * display (what `.bench/phone-model.ts` runs on the real sim). The pacer's deadline is the engine's: `PACE_BUDGET_MS` from the frame's start.
  */
-function device(adaptive: boolean, stepMs: (t: number, n: number) => number, drawMs: number, hz: number, seconds: number, scale = 1) {
+function device(adaptive: boolean, stepMs: (t: number, n: number) => number, drawMs: number, hz: number, seconds: number, scale = 1, pin: boolean | null = null) {
   let t = 0;
   let n = 0;
   const pace = new SimPacer(adaptive, () => t);
+  pace.pin = pin;
   const period = 1000 / hz;
   let dt = period;
   let stepped = 0;
@@ -315,5 +316,18 @@ describe("the adaptive slice", () => {
     assert.ok(d.log.slice(-100).every((e) => e.h === Math.fround(coarse * 0.25)));
     const first = d.log.findIndex((e) => e.h !== d.log[0]!.h);
     assert.ok(d.log[first]!.at >= 950, `first change ${d.log[first]!.at} ms in`);
+  });
+
+  it("good: a pinned floor holds against the cost either way, and unpinned the pacer adapts again", () => {
+    // Heavy steps would drive the adaptive pacer coarse; pinned fine it stays fine (and loses sim time), and a cheap device pinned coarse stays coarse.
+    const heavyFine = device(true, () => 4.7, 9.4, 90, 8, 1, false);
+    assert.equal(heavyFine.pace.coarseSteps, 0);
+    assert.ok(heavyFine.log.every((e) => e.h === fine));
+    assert.ok(heavyFine.speed < 0.5, `pinned fine, ${heavyFine.speed}`);
+    const cheapCoarse = device(true, () => 0.5, 4, 90, 8, 1, true);
+    assert.ok(cheapCoarse.log.every((e) => e.h === coarse));
+    assert.ok(cheapCoarse.speed > 0.99, `pinned coarse, ${cheapCoarse.speed}`);
+    const free = device(true, () => 4.7, 9.4, 90, 8);
+    assert.ok(free.pace.coarseSteps > 0 && free.speed > heavyFine.speed + 0.2, "unpinned: the adaptive pacer is back");
   });
 });
