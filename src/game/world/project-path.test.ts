@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { blankProjection, projectPath, Track, WINDOW, type Projection, type TrackPath } from "./track.ts";
-import { TRACKS } from "./tracks/index.ts";
+import { OFF_MENU, TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
 import { mulberry32 } from "./placements.ts";
 
@@ -58,7 +58,7 @@ function scan(path: TrackPath, x: number, z: number, hint: number, out: Projecti
 const same = (a: Projection, b: Projection) =>
   Object.is(a.dist2, b.dist2) && a.k === b.k && Object.is(a.s, b.s) && Object.is(a.cx, b.cx) && Object.is(a.cz, b.cz) && Object.is(a.lateral, b.lateral);
 
-for (const json of TRACKS) {
+for (const json of [...TRACKS, ...OFF_MENU]) {
   const id = parseTrack(json).id;
   describe(`given the ${id} course, and the plain scans of a path (a window of samples round a hint, else the whole path) as the reference for projectPath (the nearest centreline point)`, () => {
     it("when random points near the road, off it and far away are projected, with and without a hint, then every path answers exactly as the plain scans do", () => {

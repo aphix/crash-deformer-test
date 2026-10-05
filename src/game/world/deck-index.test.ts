@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { Track, segmentAt, blankSegment } from "./track.ts";
-import { TRACKS } from "./tracks/index.ts";
+import { OFF_MENU, TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
 import { mulberry32 } from "./placements.ts";
 
@@ -31,7 +31,7 @@ function scanAll(track: Track, x: number, z: number, yMax: number): { best: numb
   return { best, surface };
 }
 
-for (const json of TRACKS) {
+for (const json of [...TRACKS, ...OFF_MENU]) {
   const track = new Track(json);
   const p = track.path;
   if (!p.deck.includes(1)) continue;
