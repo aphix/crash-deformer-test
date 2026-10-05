@@ -311,8 +311,9 @@ export abstract class DeformState extends DeformHit {
   protected crumpleWeight(m: MassNode): number {
     if (m.name === "cell" || m.name === "roof") return 0;
     if (m.hub) return 0;
-    if (m.bumper) return 1;
     const along = -(m.rest.x * this.impactInward.x + m.rest.z * this.impactInward.z);
+    // A bumper is the facing crumple zone only at the struck end: the far end's bumpers ride with the cabin.
+    if (m.bumper) return along > 0 ? 1 : 0;
     let w = THREE.MathUtils.clamp(along / 1.55, 0, 1);
     if (
       (m.name === "doorL" || m.name === "doorR") &&

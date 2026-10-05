@@ -615,6 +615,27 @@ forModes("rear / side impacts go the other way", (spawn) => {
     const dBump = Math.abs(mass(s.d, "bumperFL").vel.z - bump0);
     assert.ok(dBump > dDoor * 2, `doors ate the frontal impulse (door ${dDoor.toFixed(3)} bumper ${dBump.toFixed(3)})`);
   });
+
+  // A frontal hit's far end is the tail: its bumpers are not the facing crumple zone, so a push along the struck line
+  // (`separateAlong`, a pair's or a wall's shove) carries them with the cabin. Weighted as a second face they took
+  // 12 % of every push and pumped ~730 J of internal kinetic energy into a pinned wreck (derby wreck residue).
+  for (const [end, nz, far] of [
+    ["nose", -1, ["bumperRL", "bumperRR"]],
+    ["tail", 1, ["bumperFL", "bumperFR"]],
+  ] as const) {
+    it(`bad: a push along a ${end} hit moves the far end's bumpers with the cabin, as one rigid body`, () => {
+      const s = spawn(0, 14, new THREE.Vector3(0, 0, nz), new THREE.Vector3(0, 0.36, -nz * 2.06));
+      const cell = mass(s.d, "cell");
+      const cell0 = { z: cell.world.z, v: cell.vel.z };
+      const was = far.map((n) => ({ z: mass(s.d, n).world.z, v: mass(s.d, n).vel.z }));
+      s.d.separateAlong(0, 0, nz, 0.02, 2);
+      far.forEach((n, i) => {
+        const m = mass(s.d, n);
+        assert.ok(Math.abs(m.world.z - was[i]!.z - (cell.world.z - cell0.z)) < 1e-9, `${n} moved ${((m.world.z - was[i]!.z) * 1000).toFixed(2)} mm, cabin ${((cell.world.z - cell0.z) * 1000).toFixed(2)} mm`);
+        assert.ok(Math.abs(m.vel.z - was[i]!.v - (cell.vel.z - cell0.v)) < 1e-9, `${n} dv ${(m.vel.z - was[i]!.v).toFixed(3)} m/s, cabin ${(cell.vel.z - cell0.v).toFixed(3)} m/s`);
+      });
+    });
+  }
 });
 
 forModes("time / quiet / reset / arm", (spawn, mode) => {
