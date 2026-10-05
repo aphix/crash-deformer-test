@@ -1,7 +1,9 @@
 import { Obstacles } from "../ai/hunter.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import { holdLine, leaveSurvival, play, steerAt, survivalWorld, type Play } from "./survival-run.test-util.ts";
+import type { CopBrain } from "../ai/police.ts";
+import type { DriveInput } from "../vehicle/car-drive.ts";
+import { holdLine, leaveSurvival, liveCops, play, steerAt, survivalWorld, type Play } from "./survival-run.test-util.ts";
 import type { World } from "./race-world.test-util.ts";
 import { Track } from "./track.ts";
 import { HAVANA } from "./tracks/havana.ts";
@@ -13,11 +15,11 @@ import { HAVANA } from "./tracks/havana.ts";
  *   flee: holds the throttle and its heading and steers only to keep clear of solids (no lifting, no turning back): the owner's "holds W";
  *   ring: down the boulevard, then laps the D ring (the lawn island's road) at 22 m/s, steering at a point ahead on it;
  *   held: the set piece's driver: holds the boulevard line (x = −6 ± 1.5, looking 25–40 m ahead) flat out over the hill, then flees;
- *   shuttle: the hardest to catch: lifts for a wall it cannot stop before (`safe`) and turns back for the way it came, so it keeps running;
- *   orbit: the Driver 2 trick: down the boulevard, then circles the lawn round the hill at 14 m/s (the most the grass grips at that radius).
+ *   evade: for the closed arena (`survival-arena.test-util.ts`): runs straight away from the nearest cop, round solids and round cops, lifting for a wall it cannot stop before; it never stops.
  */
-export type Fleer = "straight" | "flee" | "ring" | "held" | "shuttle" | "orbit";
-export const FLEERS: readonly Fleer[] = ["straight", "flee", "ring", "held", "shuttle", "orbit"];
+export type Fleer = "straight" | "flee" | "ring" | "held" | "evade";
+/** The scripts of the open map; `evade` runs in the arena only. */
+export const FLEERS: readonly Fleer[] = ["straight", "flee", "ring", "held"];
 
 /** The player's pedals for one frame. */
 type Driver = (w: World) => void;
@@ -30,29 +32,43 @@ const safe = (run: number): number => Math.max(8, Math.sqrt(2 * BRAKE * Math.max
 const LOOK_TIME = 5;
 const LOOK_MIN = 60;
 const RING_SPEED = 22;
-/** The orbiting driver's circle round the hill (m): clear of the plateau's foot, inside the ring road. */
-const ORBIT_R = 42;
-/** A shuttling driver turns back when the way ahead is clear for less than this (m). */
-const TURN_BACK = 90;
 
-/** Holds the heading it has at the first call, bends to the nearest one with `LOOK` m clear (else the longest run). `shuttle`: turns back when less than `TURN_BACK` m are clear, and lifts for what is ahead. */
-function fleeing(obstacles: Obstacles, shuttle: boolean): Driver {
+/** Metres from (x, z) along heading `h` to the first cop within `HALF_LANE` m of the line (`len` when none): a cop is a car, not a thing to drive through. */
+const HALF_LANE = 3.5;
+function copRun(cops: readonly { x: number; z: number }[], x: number, z: number, h: number, len: number): number {
+  let run = len;
+  for (const p of cops) {
+    const dx = p.x - x;
+    const dz = p.z - z;
+    const along = dx * Math.sin(h) + dz * Math.cos(h);
+    if (along > 0 && along < run && Math.abs(dx * Math.cos(h) - dz * Math.sin(h)) < HALF_LANE) run = along;
+  }
+  return run;
+}
+
+/**
+ * Holds the heading it has at the first call, bends to the nearest one with `LOOK` m clear (else the longest run). `evade`: wants the heading
+ * straight away from the nearest cop, cops block a heading like a wall does, and it lifts for what is ahead (`safe`).
+ */
+function fleeing(obstacles: Obstacles, evade = false): Driver {
   let want: number | null = null;
-  let flipped = -Infinity;
   return (w) => {
     const car = w.cars[0]!;
     const c = car.group.position;
-    want ??= Math.atan2(car.fwdFlat.x, car.fwdFlat.z);
-    if (shuttle && w.race.time - flipped > 6 && obstacles.run(c.x, c.z, want, TURN_BACK) < TURN_BACK) {
-      want += Math.PI;
-      flipped = w.race.time;
+    const cops = evade ? liveCops(w).map((i) => w.cars[i]!.group.position) : [];
+    if (cops.length > 0) {
+      let nearest = cops[0]!;
+      for (const p of cops) if (Math.hypot(p.x - c.x, p.z - c.z) < Math.hypot(nearest.x - c.x, nearest.z - c.z)) nearest = p;
+      want = Math.atan2(c.x - nearest.x, c.z - nearest.z);
     }
+    want ??= Math.atan2(car.fwdFlat.x, car.fwdFlat.z);
     const look = Math.max(LOOK_MIN, car.velocity.length() * LOOK_TIME);
+    const clear = (h: number, len: number): number => Math.min(obstacles.run(c.x, c.z, h, len), copRun(cops, c.x, c.z, h, len));
     let h = want;
     let best = -1;
     for (let d = 0; d <= Math.PI / 2 + 1e-9 && best < look; d += 0.15) {
       for (const s of d === 0 ? [1] : [1, -1]) {
-        const run = obstacles.run(c.x, c.z, want + s * d, look);
+        const run = clear(want + s * d, look);
         if (run > best) {
           best = run;
           h = want + s * d;
@@ -60,15 +76,16 @@ function fleeing(obstacles: Obstacles, shuttle: boolean): Driver {
       }
     }
     // The cap follows what the car itself faces, not the heading it is bending to: it cannot turn 40° in a few metres at 38 m/s.
-    steerAt(w, c.x + Math.sin(h) * look, c.z + Math.cos(h) * look, shuttle ? safe(obstacles.run(c.x, c.z, Math.atan2(car.fwdFlat.x, car.fwdFlat.z), look)) : null);
+    steerAt(w, c.x + Math.sin(h) * look, c.z + Math.cos(h) * look, evade ? safe(clear(Math.atan2(car.fwdFlat.x, car.fwdFlat.z), look)) : null);
   };
 }
 
-export function drivers(kind: Fleer, seed: number): Driver {
-  const track = new Track(HAVANA);
+export function drivers(kind: Fleer, seed: number, course: unknown = HAVANA): Driver {
+  const track = new Track(course);
   const colliders = new Obstacles(propColliders(placeProps(track)));
-  const flee = fleeing(colliders, kind === "shuttle");
-  if (kind === "flee" || kind === "shuttle") return flee;
+  const flee = fleeing(colliders);
+  if (kind === "evade") return fleeing(colliders, true);
+  if (kind === "flee") return flee;
   if (kind === "straight") {
     const line = -6 + (hash01(seed, 1) - 0.5) * 3;
     const look = 25 + 15 * hash01(seed, 2);
@@ -86,14 +103,6 @@ export function drivers(kind: Fleer, seed: number): Driver {
     const line = -6 + (hash01(seed, 1) - 0.5) * 3;
     const look = 25 + 15 * hash01(seed, 2);
     return (w) => (w.cars[0]!.group.position.z > -100 ? holdLine(w, line, look, null) : flee(w));
-  }
-  if (kind === "orbit") {
-    return (w) => {
-      const c = w.cars[0]!.group.position;
-      if (c.z > 62) return holdLine(w, 0, 30, c.z > 150 ? null : 14);
-      const a = Math.atan2(c.x, c.z) + 0.5;
-      steerAt(w, Math.sin(a) * ORBIT_R, Math.cos(a) * ORBIT_R, 14);
-    };
   }
   const p = track.path;
   const step = track.length / p.count;
@@ -134,11 +143,36 @@ export type Chase = {
   played: Play;
 };
 
-/** One Survival run on Havana with `fleer` at the wheel, `seed` pinning the field's dice, for at most `seconds` of game time. */
-export function chase(fleer: Fleer, seed: number, seconds: number): Chase {
-  const w = survivalWorld(undefined, seed);
+/**
+ * A control: runs on each police unit's pedals (`DriveInput`) as its brain returns them, before `applyDrive` turns them into motion
+ * (frozen cops, a pack that never boosts). Not `car.drive`: that is only the record of the pedals the step already ran.
+ */
+export type CopTamper = (input: DriveInput) => void;
+
+/** One Survival run on `course` (Havana) with `fleer` at the wheel, `seed` pinning the field's dice, for at most `seconds` of game time. */
+export function chase(fleer: Fleer, seed: number, seconds: number, course?: unknown, tamper?: CopTamper): Chase {
+  const w = survivalWorld(course, seed);
   try {
-    const drive = drivers(fleer, seed);
+    if (tamper) {
+      const orig = w.race.drive.bind(w.race);
+      let tampered: unknown = null;
+      // The race's brain is a protected field of the engine class; a control has to reach it to change what the cops decide.
+      const race: { police: CopBrain | null } = w.race as unknown as { police: CopBrain | null };
+      w.race.drive = (dt: number): void => {
+        const brain = race.police;
+        if (brain && brain !== tampered) {
+          const think = brain.think.bind(brain);
+          brain.think = (self, snaps, h) => {
+            const input = think(self, snaps, h);
+            tamper(input);
+            return input;
+          };
+          tampered = brain;
+        }
+        orig(dt);
+      };
+    }
+    const drive = drivers(fleer, seed, course);
     let touches = 0;
     let lastTouch = -1;
     const reach = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };

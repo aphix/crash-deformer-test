@@ -134,11 +134,11 @@ Every hunter's drive ends with `guardMates` (`ai/pack-guard.ts`, the same last s
 | 5 minutes of scripted play with a chase camera: no drop-in in the camera's view (an independent visibility test; the test checks it can see a car ahead of the camera) | `world/survival.test.ts` |
 | `scene=survival` round trip, never with a room | `hud/share-url.test.ts` |
 | the map is closed: no gap in the solids (flood fill), no seam of the rim lets a car at 60 m/s through, a W-holder stays inside the rim | `world/survival-chase.test.ts` |
-| a fleeing player's run ends (straight, flee, ring, held, shuttle, orbit: busted or wrecked within 300 s; the three that avoid the walls end with a cop in contact) | `world/survival-chase.test.ts` |
+| a fleeing player's run ends (straight, flee, ring, held: busted or wrecked within 300 s; the ring ends with a cop in contact). In the closed arena: the pack ends at least 22 of 24 fleeing runs within 200 s with a cop touching; cops that never move end none; hunters that never steer miss the bar | `world/survival-chase.test.ts` |
 
 `world/survival-run.test-util.ts` is the harness: the director in survival mode, a scripted player (waypoints, hold, wedge recovery), the chase camera, and the numbers (`play`: drop-ins and their visibility, the nearest cop each second, stuck cops, ends).
 
-`world/survival-players.test-util.ts` is the scripted fleeing players, and `chase(fleer, seed, seconds)` is one run with its numbers (end, cause, cop contacts, the rectangle driven over).
+`world/survival-players.test-util.ts` is the scripted fleeing players, and `chase(fleer, seed, seconds, course?, tamper?)` is one run with its numbers (end, cause, cop contacts, the rectangle driven over); `tamper` changes the cops' pedals as their brain returns them (the controls).
 
 ## Numbers (headless, scripted players; not a human's play)
 
@@ -201,6 +201,21 @@ Closed (the rim), cops unchanged: **30 of 30 runs end**, 26 of 30 with a cop in 
 Median of all 30: 21 s. **The owner's target of a median of 1-4 minutes is not met by these players**, and a rule change would not meet it for the W-holders: the map is 710 m long, so a car at 40-50 m/s is at the far wall in 17 s, and a head-on hit at that speed totals the car (straight and flee end at the south rim). Only the shuttle, the best evader the harness has, lasts a minute. A human's play is not measured.
 
 Seeds pin the field's dice, which only the drop-ins use (the first one at 12 s); every run that ends before it is the same run (flee, shuttle).
+
+### Pursuit: does the pack end a fleeing player (the arena count, and the open map's never-ending runs; main 7dc2eba)
+
+The old pooled count (the shuttle and orbit scripts on Havana, seeds 1-24, "ended busted or wrecked within 300 s with a cop touching in the last 2 s") was vacuous: the harness's frozen-cops control scored shuttle 23 of 24 and orbit 24 of 24, the pack's own rates. That control zeroed `car.drive` after `applyDrive` had already moved the car, so it froze nothing (`car.drive` is only the record of the pedals; frozen and unfrozen runs came out digit for digit the same). A control has to act on the brain's `DriveInput`: `CopTamper` in `survival-players.test-util.ts`. The count now runs in a closed arena (`world/survival-arena.test-util.ts`, not a shipped course: Havana's plaza and ring, no boulevard, inside a 160 m square of its own stucco; the player starts on the ring's east straight with the formation behind it), against a player (`evade`) that runs straight away from the nearest cop, round solids and round cops, and never stops. Same pack, same bust and wreck rules.
+
+| 24 seeds, 300 s cap, main 7dc2eba | ended by the pack (busted or wrecked, a cop touching in the last 2 s) | time to the end (s) |
+|---|---|---|
+| the pack as it is | **24 of 24** (24 wrecked) | median 53, longest 167 |
+| cops frozen (brain's pedals zeroed) | **0 of 24** (7 runs end on the rim with no cop near, 17 run the full 300 s) | n/a |
+| hunters never steer | **3 of 24** (7 end, 4 with no cop near) | n/a |
+| hunters never boost | 24 of 24 | median 39, longest 95 |
+
+The test (`world/survival-chase.test.ts`) holds the pack to at least 22 of 24 within 200 s (two runs of slack), and asserts the frozen cops end none and the no-steer pack misses the bar. Boost is not what ends an arena run (the no-boost pack ends them as often, sooner), so it is not a control. Seeds only change the drop-ins (the first at 12 s), so many seeds repeat a trajectory; the count is the repo's pooled convention, not 24 independent trials.
+
+Open map, the old scripts on 7dc2eba, 24 seeds each (300 s cap, `.bench` probes): shuttle ends 23 of 24 (21 wrecked, 2 busted, 1 never) at 44.8-258.5 s; orbit ends 24 of 24, all wrecked at 14.7-18.0 s by the formation's first contact (one contact, the cop closing at 30-36 m/s on a player at 13 m/s), so it measures the opening, not a chase. The never-ending shuttle run (seed 18) is not a cop AI defect and not a stuck pack: a cop is within 20 m for 285 of 295 s, 56 touch episodes (218 contacts at least 0.5 s apart: 99 from in front, 62 from behind, 57 from the side), the pack at 14 cops. It is the bust rule against a player who keeps moving: the player is under 20 km/h with a cop within 20 m for 74 s in total, never for the 12 s hold (the longest stretch 11.6 s, ended by the player itself accelerating past 20 km/h at the end of a turn-back, not by a shove). The two busted shuttle runs had a longest stretch of 12.0 s. The wreck path does not fire on it either: no driver thrown out (a throw needs 6 m/s closing, head-on or from the side), drivetrain alive, never tipped (least up-vector 0.95 against the 0.35 flip limit). The shuttle's 21 wrecks: 20 a driver thrown out, 13 the engine dead (12 both). Whether a player who is rammed for minutes but keeps creeping past 20 km/h should be busted is a design question, not fixed here.
 
 ### Race police under the `props()` reach fix (main 2359116 against this lane; same script and table as above)
 
