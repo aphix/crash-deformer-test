@@ -30,7 +30,10 @@ function openingCaution(out: DriveInput, self: AiCar, others: readonly AiCar[], 
     const d = Math.hypot(dx, dz);
     if (d > OPEN_RANGE || d < 1e-3) continue;
     if ((fx * dx + fz * dz) / d < OPEN_CONE) continue;
-    const closing = -((o.vx - self.vx) * dx + (o.vz - self.vz) * dz) / d;
+    // Range rate alone is blind to a crossing rival (its centre line turns as the cars close, so a 3 m/s range rate meets
+    // at 7 m/s along the contact normal): take the nose's own relative speed too.
+    const noseClosing = (self.vx - o.vx) * fx + (self.vz - o.vz) * fz;
+    const closing = Math.max(-((o.vx - self.vx) * dx + (o.vz - self.vz) * dz) / d, noseClosing);
     if (closing <= OPEN_CLOSING) continue;
     out.throttle = 0;
     out.brake = OPEN_BRAKE;

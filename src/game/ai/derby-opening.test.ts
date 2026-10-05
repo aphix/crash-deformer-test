@@ -53,4 +53,16 @@ describe("derby opening caution", () => {
     const { out } = charge(2, 20, -18);
     assert.ok(out.brake === 0, JSON.stringify(out));
   });
+
+  it("bad: a rival crossing ahead at a low range rate still lifts a nose closing at 8 m/s along its heading", () => {
+    const brain = new DerbyBrain();
+    brain.setAggression(0, 1);
+    const self = aiCar(0, { vz: 8, rear: 0.9, damage: 0.3, idle: 1000 });
+    // 5 m off at 37 degrees: the range rate is 6.4 m/s (under the threshold) but the nose meets it at 8.
+    const all = [self, aiCar(1, { x: 3, z: 4, vz: 0 })];
+    brain.think(self, all, 2);
+    brain.meter[0] = 1;
+    const out = brain.think(self, all, 1 / 60);
+    assert.ok(out.throttle <= 0 && out.brake > 0.5 && !out.boost, JSON.stringify({ ...out }));
+  });
 });
