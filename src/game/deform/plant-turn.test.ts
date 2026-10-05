@@ -101,7 +101,7 @@ describe("a planted wreck's write-back", () => {
     assert.ok(off < 0.1, `the velocities about the centroid are ${(off * 100).toFixed(0)} % off a turn of ${w.toFixed(2)} rad with the positions`);
   });
 
-  it("bad: the spin it reports includes the turn it kept: reported rad/s x dt = L/I x dt + the masses' net turn, within 25 % of that turn (it reported L/I alone, 0 for a wreck at rest, while the drawn heading turned)", () => {
+  it("bad: car.angular carries the masses' L/I alone, the kept turn is a readout: the write-back's snap is not momentum for a fake fall or a flight to inherit", () => {
     const { d, group } = planted();
     const axle = mass(d, "axleR").world;
     for (const name of ["engineL", "engineR"]) {
@@ -128,8 +128,12 @@ describe("a planted wreck's write-back", () => {
       l += q.mass * ((q.world.z - cz) * (q.vel.x - vx) - (q.world.x - cx) * (q.vel.z - vz));
       inertia += q.mass * ((q.world.x - cx) ** 2 + (q.world.z - cz) ** 2);
     }
-    const reported = omega.y * DT;
-    const made = l / inertia * DT + w;
-    assert.ok(Math.abs(reported - made) < 0.25 * Math.abs(w), `reported ${reported.toFixed(4)} rad over the step, the masses made ${made.toFixed(4)} (L/I ${(l / inertia * DT).toFixed(4)} + turn ${w.toFixed(4)})`);
+    const spin = l / inertia;
+    // What the sim reads (`car.angular`: a fake fall seeded from a replay/netplay pose, a flight) is the momentum's spin alone: a
+    // 0.1 rad snap of this step's write-back is a position correction, and at 240 Hz it would read 24 rad/s of spin that is not there.
+    assert.ok(Math.abs(omega.y - spin) < 0.02 + 0.02 * Math.abs(spin), `angular.y ${omega.y.toFixed(3)} rad/s, the masses' L/I ${spin.toFixed(3)} (the kept turn ${(w / DT).toFixed(1)} rad/s leaked into it)`);
+    // What is shown (HUD, spin metrics): that spin plus the turn the write-back kept, as the drawn heading turned.
+    const shown = (omega.y + d.keptSpin) * DT;
+    assert.ok(Math.abs(shown - (spin * DT + w)) < 0.25 * Math.abs(w), `shown ${shown.toFixed(4)} rad over the step, the masses made ${(spin * DT + w).toFixed(4)}`);
   });
 });

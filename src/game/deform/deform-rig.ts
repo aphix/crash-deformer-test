@@ -270,6 +270,9 @@ export abstract class DeformRig {
     this.keptTurn[2] = this.elapsed;
   }
 
+  /** The turn rate (rad/s) the planted write-back kept over the last timed `followGroup`: a readout (a position correction, not momentum), never `car.angular`. */
+  get keptSpin(): number { return this.keptTurn[3]!; } // prettier-ignore
+
   protected prevYaw = 0;
   /** Share (0–1) of the read pitch/roll the frame takes, and the sim time it was last eased at (followGroup). */
   protected lean = 1;
@@ -319,11 +322,8 @@ export abstract class DeformRig {
   /** World x/z of each mass at `holdTurn` (a position-only pass's net turn, undone by `undoTurn`). */
   protected turnX = new Float64Array(0);
   protected turnZ = new Float64Array(0);
-  /**
-   * [0]: the turn (rad) a planted wreck's write-back kept since `followGroup` last read over a span of time. [1], [2]: the
-   * yaw rate (rad/s) `applyDrive` last turned a driven wreck's masses at, and the sim time it did (`driveTurn`).
-   */
-  protected readonly keptTurn = new Float64Array(3);
+  /** [0]: turn (rad) the planted write-back kept since the last timed `followGroup`; [1], [2]: `applyDrive`'s yaw rate and its sim time (`driveTurn`); [3]: [0] as a rate (`keptSpin`). */
+  protected readonly keptTurn = new Float64Array(4);
   /** Cluster skin weights per vertex (≤ SKIN_K): count (0 = cage fallback), `clusterXf` offset, weight. */
   protected skinN = new Uint8Array(0);
   protected skinXf = new Int32Array(0);
