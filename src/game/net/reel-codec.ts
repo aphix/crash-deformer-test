@@ -55,10 +55,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * reads a nose's own speed toward a crossing rival, not the range rate alone, so it lifts for more early charges;
  * 30: a crashed car's reported spin counts the turn its masses made beyond L/I, the planted write-back's kept turn and
  * a driven wreck's steer, so keyframe spin changes; 31: a clip carries the count of cars its cluster hit (`hit`), and
- * an impact counts only at 12.5 m/s closing).
+ * an impact counts only at 12.5 m/s closing; 32: the police pack guard reads a braking mate still rolling and leaves a
+ * stopped mate the steer already clears, and a racer off the road corridor wakes no stakeout).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 31;
+const REPLAY_VERSION = 32;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

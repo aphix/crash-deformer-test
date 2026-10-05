@@ -1,6 +1,7 @@
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
+import { classStats } from "../vehicle/vehicle-classes.ts";
 
 /** Seconds ahead a police car looks for a pack-mate on its path; the guard has the wheel from half of it on. */
 const HORIZON = 3;
@@ -11,6 +12,11 @@ const CLEAR = 4.6;
 const SOFT = 5.2;
 /** A mate that may pull out (just woken, not yet up to speed) is read as moving at least this fast (m/s) along its nose when slower: a stopped one may be pulling out (a woken stakeout is at 8 m/s within a second). */
 const MOVING = 8;
+/** Seconds a steer already on the wheel is read as held, to see whether it carries the car clear of a mate (a driver re-decides every frame; this is only how far ahead its present steer is believed). */
+const STEER_HOLD = 0.5;
+/** A mate slower than this (m/s) is stopped. */
+const STOPPED = 1;
+const SEDAN = classStats("sedan");
 
 /**
  * The one rule every police drive (lead-in, attack, open-ground hunt) ends with: do not drive into a pack-mate. Every unit
@@ -21,16 +27,22 @@ const MOVING = 8;
  * `HORIZON` s (relative motion; closest approach under `SOFT` m), a mate ahead of it before any other (one grazing alongside or
  * behind took the steer straight into the one ahead), is steered away from, to the side that mate passes on (a dead-centre
  * meeting turns both cars the same way, so they pass), the sooner and squarer the harder, and within `BRAKE_TIME` s of the hit,
- * when it is ahead, braked for, the boost dropped. A car that is not driving forward (stopped, reversing,
- * braking) is left alone. No allocation.
+ * when it is ahead, braked for, the boost dropped. A mate the steer already on the wheel (held `STEER_HOLD` s) takes the car clear of
+ * is not read. A car that is stopped or reversing is left alone; a braking one still rolling forward is not. No allocation.
  */
-export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, count: number, out: DriveInput, pullsOut: (unit: number) => boolean): void {
-  if (out.throttle <= 0) return;
+export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, count: number, out: DriveInput, pullsOut: (unit: number) => boolean, turn = SEDAN.turn, grip = SEDAN.grip): void {
   const fx = Math.sin(self.yaw);
   const fz = Math.cos(self.yaw);
+  // A car that is reversing, or stopped (parked, knocked out), is left alone; one that is braking while still rolling forward is not: a lifted
+  // throttle or a brake for the target (`attackTarget`) hits a mate as hard as a driven one, and bypassed it hit pack-mates at 11-19 m/s.
+  if (out.throttle < 0 || (out.throttle === 0 && self.vx * fx + self.vz * fz <= MOVING)) return;
   const speed = Math.hypot(self.vx, self.vz);
   const vx = speed < MOVING ? fx * MOVING : self.vx;
   const vz = speed < MOVING ? fz * MOVING : self.vz;
+  // The car's yaw rate under the steer the drive asked for, as `applyDrive` turns it (full lock at `turn`, less below 8 m/s; tyres cap it at 1.05 grip / v).
+  const v = Math.hypot(vx, vz);
+  const cap = (1.05 * grip) / v;
+  const omega = clamp(out.steer * turn * (0.35 + 0.65 * Math.min(1, v / 8)), -cap, cap);
   // The mate it reaches soonest steers it away; but one passing alongside or behind cannot be braked for, and read alone it hid the
   // mate dead ahead (the steer went away from the graze, straight into the one ahead), so a mate ahead is read first and the
   // soonest of all only when none is ahead.
@@ -58,7 +70,20 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
     const pz = rz + wz * tc;
     const gap = Math.hypot(px, pz);
     if (gap >= SOFT) continue;
-    const hard = clamp((SOFT - gap) / (SOFT - CLEAR), 0, 1);
+    let hard = clamp((SOFT - gap) / (SOFT - CLEAR), 0, 1);
+    // Against a mate that is stopped, the steer already on the wheel, held for `STEER_HOLD` s and then straight on, may take the car clear of it by
+    // the time it is there: then the guard has nothing to add (read on a straight line, it cancelled a steer that was bending the car back to its road,
+    // away from the stakeout parked beside it). Not against a mate that moves: it steers too, usually the same way (a pack aimed at one target), and
+    // both then read themselves clear of each other and met.
+    if (omega !== 0 && !phantom && Math.hypot(m.vx, m.vz) < STOPPED) {
+      const tau = Math.min(tc, STEER_HOLD);
+      const a = omega * tau;
+      const rest = v * (tc - tau);
+      const dn = (v / omega) * (1 - Math.cos(a)) + rest * Math.sin(a);
+      const df = (v / omega) * Math.sin(a) - v * tau + rest * (Math.cos(a) - 1);
+      hard = Math.min(hard, clamp((SOFT - Math.hypot(px * fx + pz * fz - df, px * fz - pz * fx - dn)) / (SOFT - CLEAR), 0, 1));
+    }
+    if (hard === 0) continue;
     const u = clamp(2 * (1 - tc / HORIZON), 0, 1) * hard;
     // Away from the side the mate passes on: positive when it passes where steer > 0 turns toward.
     const away = px * fz - pz * fx >= 0 ? -u : u;

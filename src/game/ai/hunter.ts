@@ -1,5 +1,5 @@
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
-import type { ClassStats } from "../vehicle/vehicle-classes.ts";
+import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
@@ -158,6 +158,7 @@ export class HunterBrain implements CopBrain {
   private readonly wedge: Backoff;
   /** Per car id: a class's full-lock yaw rate. */
   private readonly turn = new Float64Array(MAX_CARS).fill(1.5);
+  private readonly grip = new Float64Array(MAX_CARS).fill(classStats("sedan").grip);
   /** Candidate drop-in spots along every road: position and the road's direction. */
   private readonly spotX: number[] = [];
   private readonly spotZ: number[] = [];
@@ -203,6 +204,7 @@ export class HunterBrain implements CopBrain {
 
   setClass(id: number, s: ClassStats): void {
     this.turn[id] = s.turn;
+    this.grip[id] = s.grip;
   }
 
   /** Cops hunting now. */
@@ -238,7 +240,7 @@ export class HunterBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its hunt, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.hunt(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.pullsOut);
+    guardMates(self, cars, this.first, this.count, out, this.pullsOut, this.turn[self.id]!, this.grip[self.id]!);
     return out;
   }
 

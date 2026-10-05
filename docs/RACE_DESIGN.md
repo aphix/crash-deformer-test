@@ -302,7 +302,10 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   toward the road; the second car faces the oncoming racers.
 - Wake: each unit stays parked until a racer's road progress passes its own spot (by under 30 m, so
   a car arriving a patrol beat late still counts; or a knock) and then joins its pack's pursuit (the
-  first unit passed sets the target): no unit moves before someone has driven past it.
+  first unit passed sets the target): no unit moves before someone has driven past it. A racer outside the road's corridor
+  (run-off plus 8 m, `projectPath`'s own margin: across the field on a shortcut, or thrown off the road) passes nothing: its
+  nearest road point slides along the road as it drives. Stakeouts woke for such racers 86-116 m off the road (2-lap races,
+  seeds 1-8: Four-Count 11 of 198 wakes, oval 10 of 45, razor-shelf 4 of 142, breaker-yard 6 of 110, city 2 of 66); now 0 of 8 courses.
 - Lead-in (2 s): full throttle along the road toward where the target is heading (the centreline
   1 s of its speed ahead of it, at most 1 s of the unit's own speed and at least 20 m ahead of the
   unit), its aim blended in from its own heading over the first second; a unit facing back against
@@ -338,6 +341,18 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   reinforcements parked on one spot; seed 288: a lead-in into a parked mate), lane/spin-root c8674ad 1 of seeds 1-64 (seed 2),
   with the guard and parking fixes 0 of 320 (the boost rule above: 0 of 320 too; with the boost dropped on the brake only, seed 27
   was a pair), 0 T-bones of a target.
+  Two more rules. A car that is braking while still rolling forward (throttle 0 above 8 m/s along its nose: a lift, or the brake for
+  its target in `attackTarget`) is read like a driven one; only a stopped or reversing car is left alone. The guard returned on any
+  throttle ≤ 0, so a cop braking at 18 m/s into the pile round a stopped player was not steered or braked for (Survival arena,
+  the formation hitting each other at 11-19 m/s in every run). And a mate that is STOPPED (a parked stakeout) is not read when the
+  steer on the wheel, held `STEER_HOLD` = 0.5 s and then straight on (the car's own yaw rate: `turn`, 0.35-1 by speed, capped
+  1.05 grip / v), takes the car 5.2 m clear of it by the time it is there: read on a straight line the guard cancelled a cop's steer
+  back to its road at 50 m/s because the stakeout parked on the outside of the exit was "dead ahead", and the cop drove off the
+  road into the woken pair (Dam Spine seed 1, cops 9 and 10 at 125.5 s: cop 7 at 38 m/s). Not against a moving mate: it steers too,
+  usually the same way, and a credit against it made a pack aimed at one target ignore each other (32 Survival arena runs, release
+  8-12 s, `evade`: credit against every mate 159 contacts over 10 m/s rel in 1781 s, against a stopped mate 81 in 1239 s, main 184
+  in 1718 s; contacts of any speed 927, 416, 878). Lead-in pairs, 2-lap races, 4 AI, police on, seeds 1-12 on all 8 courses:
+  main 1 of 96 (dam-spine seed 1), here 0 of 96.
 - Packs build: 5 s sustained within 45 m calls one more car (parked 70 m ahead out of view, else
   coming up from 70 m behind already chasing), up to 5.
 - Stand-down: a target that finishes, dies or respawns (left alone 4 s) hands the pack to another

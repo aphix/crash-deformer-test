@@ -78,6 +78,34 @@ describe("police: a pack stands down while a unit of it is still parked", () => 
   });
 });
 
+describe("police: a stakeout wakes for a racer that passes it on the road", () => {
+  it("a racer across the field whose nearest road point is past the spot does not wake it (Four-Count: units woke for a racer 86-116 m off the road on its shortcut, which the road projection read as passing them)", () => {
+    const r = rig();
+    const spot = r.cars[2]!;
+    const s2 = track.project(spot.x, spot.z, -1, blankProjection()).s;
+    // A point `off` m to the side of the road 5 m past unit 2's spot (the side whose nearest road point is still that stretch).
+    const at = (off: number) => {
+      const p = track.pointAt(s2 + 5, pt);
+      for (const side of [1, -1]) {
+        const x = p.x + p.tz * side * off;
+        const z = p.z - p.tx * side * off;
+        const on = track.project(x, z, -1, blankProjection());
+        if (Math.abs(on.s - (s2 + 5)) < 10) return { x, z };
+      }
+      throw new Error("no side of the road keeps its nearest point there");
+    };
+    const racerAt = (off: number) => {
+      Object.assign(r.cars[0]!, at(off));
+      r.beat();
+      r.beat();
+      return r.police.chasers(r.cars, []).map((c) => c.id);
+    };
+    assert.deepEqual(racerAt(60), [1], "unit 2 woke for a racer 60 m off the road");
+    // Control: the same pass on the road itself wakes it.
+    assert.deepEqual(racerAt(0), [1, 2], "the rig's pass never wakes unit 2: the test proves nothing");
+  });
+});
+
 describe("police: the pack-mate guard", () => {
   /** Unit 1 at the origin doing 27 m/s along +z, steering 0.2; the mate by default dead ahead, 40 m on, facing it (a hit in 1.1 s). */
   const meet = (pullsOut: (unit: number) => boolean, mate = { x: 0, z: 40, yaw: Math.PI }) => {
@@ -108,6 +136,24 @@ describe("police: the pack-mate guard", () => {
     assert.ok(out.throttle < 1, "no braking for a parked car dead ahead in 1.5 s");
   });
 
+  it("steers round and brakes harder for a mate in its path while it is braking itself (a cop on a lifted throttle or a brake for its target was not read at all: it hit its pack-mates at 11-19 m/s)", () => {
+    const through = (throttle: number, brake: number, vz: number) => {
+      const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
+      Object.assign(cars[1]!, { x: 0, z: 0, vx: 0, vz, yaw: 0 });
+      Object.assign(cars[2]!, { x: 0, z: 14, vx: 0, vz: 0, yaw: Math.PI });
+      const out = { ...idleDrive(), throttle, brake, steer: 0.2 };
+      guardMates(cars[1]!, cars, 1, 2, out, () => false);
+      return out;
+    };
+    const braking = through(0, 0.5, 20);
+    assert.ok(braking.steer < 0.2 && braking.brake > 0.5, `a braking car at 20 m/s was left to hit a stopped mate 14 m ahead: steer ${braking.steer}, brake ${braking.brake}`);
+    // Controls: a stopped car and a reversing one are left alone, and the same car on the throttle is read.
+    const stopped = through(0, 1, 0);
+    assert.ok(stopped.steer === 0.2 && stopped.brake === 1, "a stopped car was steered or braked by the guard");
+    assert.equal(through(-1, 0, 20).steer, 0.2, "a reversing car was steered");
+    assert.ok(through(1, 0, 20).steer < 0.2, "the geometry never makes the guard act on a car on the throttle: the test proves nothing");
+  });
+
   it("brakes for a mate in its path even when another mate passing alongside would be reached sooner (the lead-in steered away from the one and drove into the other at 18 m/s)", () => {
     const cars: AiCar[] = [0, 1, 2, 3].map(blankAiCar);
     // Unit 1 doing 9 m/s along +z. Unit 2 overtaking 5 m to its left, a little behind, closest in 0.2 s at 5.0 m (a graze); unit 3 just woken, 6 m ahead and 3 m to its right, nose at it (a hit in 0.35 s).
@@ -134,6 +180,24 @@ describe("police: the pack-mate guard", () => {
     const graze = boosting(5);
     assert.ok(graze.throttle < 1, "the geometry never makes the guard act on the graze: the test proves nothing");
     assert.equal(graze.boost, true);
+  });
+
+  it("does not cancel a steer that is already carrying the car clear of a mate far ahead (Dam Spine seed 1: a cop at 50 m/s bending back to the road was held straight on by the stakeout parked beside it, left the road and drove into the pair)", () => {
+    const yaw = 0.2;
+    const v = 50;
+    // A parked mate `ahead` m along the car's line and 4.5 m off it, to the side a positive steer turns toward.
+    const through = (steer: number, ahead: number) => {
+      const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
+      Object.assign(cars[1]!, { x: 0, z: 0, vx: Math.sin(yaw) * v, vz: Math.cos(yaw) * v, yaw });
+      Object.assign(cars[2]!, { x: Math.sin(yaw) * ahead + Math.cos(yaw) * 4.5, z: Math.cos(yaw) * ahead - Math.sin(yaw) * 4.5, yaw: yaw + Math.PI });
+      const out = { ...idleDrive(), throttle: 1, steer };
+      guardMates(cars[1]!, cars, 1, 2, out, () => false);
+      return out;
+    };
+    assert.equal(through(1, 90).steer, 1, "the guard bent a full-lock steer that swings the car 30 m clear of the mate by the time it gets there");
+    // Controls: the same mate against a car holding straight on, and against the same steer with no room to use it, is steered round.
+    assert.ok(through(0, 90).steer < -0.5, "the geometry never makes the guard act on a car holding straight on: the test proves nothing");
+    assert.ok(through(1, 15).steer < 0.5, "the guard let a car steer into a mate 0.3 s ahead on the strength of a swing that cannot clear it in time");
   });
 
   it("a lead-in's steer is the drive's own while a pack-mate dead ahead is still parked: the mate is no phantom driver, a woken one is", () => {

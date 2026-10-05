@@ -1,6 +1,6 @@
 import { guardMates } from "./pack-guard.ts";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
-import type { ClassStats } from "../vehicle/vehicle-classes.ts";
+import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
@@ -44,6 +44,8 @@ const PARK_CLEAR = 10;
  */
 const PASSED = 30;
 const KNOCK = 2;
+/** Metres a racer may be past the road's run-off and still be on its corridor (`projectPath`'s own margin): beyond it the racer is not on this road. */
+const CORRIDOR = 8;
 /**
  * A woken unit leads in for `LEAD_IN` s: full throttle at the road the target is driving, `LEAD_AHEAD` s (at least
  * `LEAD_MIN` m) ahead of the unit but never past where the target will be in `LEAD_AHEAD` s, its aim blended from
@@ -342,6 +344,7 @@ export class PoliceBrain implements CopBrain {
   /** Per car id: projection hint, a class's full-lock yaw rate, race time a respawned racer is left alone until. */
   private readonly seg = new Int32Array(MAX_CARS).fill(-1);
   private readonly turn = new Float64Array(MAX_CARS).fill(1.5);
+  private readonly grip = new Float64Array(MAX_CARS).fill(classStats("sedan").grip);
   private readonly immune = new Float64Array(MAX_CARS);
   private readonly proj = blankProjection();
   private readonly pt = blankPoint();
@@ -377,6 +380,7 @@ export class PoliceBrain implements CopBrain {
     this.line.setClass(id, s);
     this.line.setAggression(id, 1);
     this.turn[id] = s.turn;
+    this.grip[id] = s.grip;
   }
 
   /** Racer `id` respawned at race time `time`: left alone for `IMMUNE` s. */
@@ -403,7 +407,7 @@ export class PoliceBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.drive(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.pullsOut);
+    guardMates(self, cars, this.first, this.count, out, this.pullsOut, this.turn[self.id]!, this.grip[self.id]!);
     return out;
   }
 
@@ -737,7 +741,10 @@ export class PoliceBrain implements CopBrain {
     return best;
   }
 
-  /** The racer most recently past unit `u`'s spot along the road, by under `PASSED` m (−1 none). */
+  /**
+   * The racer most recently past unit `u`'s spot along the road, by under `PASSED` m (−1 none). A racer outside the road's corridor (across
+   * the field on a shortcut) is not passing anything: its nearest road point slides along the road as it drives, past a spot it never came near.
+   */
   private passer(u: number, cars: readonly AiCar[], hunt: Uint8Array, time: number): number {
     const path = this.track.path;
     const L = this.track.length;
@@ -745,9 +752,11 @@ export class PoliceBrain implements CopBrain {
     let bestD = PASSED;
     for (let i = 0; i < this.line.racers; i++) {
       if (!this.huntable(i, hunt, time)) continue;
-      const s = projectPath(path, cars[i]!.x, cars[i]!.z, this.seg[i]!, this.proj).s;
-      this.seg[i] = this.proj.k;
-      const d = s - this.parkS[u]! - L * Math.round((s - this.parkS[u]!) / L);
+      const on = projectPath(path, cars[i]!.x, cars[i]!.z, this.seg[i]!, this.proj);
+      this.seg[i] = on.k;
+      const reach = path.half[on.k]! + Math.max(path.runL[on.k]!, path.runR[on.k]!) + CORRIDOR;
+      if (on.dist2 > reach * reach) continue;
+      const d = on.s - this.parkS[u]! - L * Math.round((on.s - this.parkS[u]!) / L);
       if (d >= 0 && d < bestD) {
         bestD = d;
         best = i;
