@@ -20,7 +20,7 @@ Sources: `.extraResearch/perplexity/40-derby-driver-techniques.md`, `41-derby-ru
 | No hits on the driver's door (disqualification in every rule book) | The driver's door is the steering-wheel side (local −x). Sideswipes skip a car whose door is the side we'd rub; reverse and nose aims go for the bumper corner on that side, clear of the door |
 | Head-ons are banned | The nose never takes a head-on: in a car's front cone it swings out to the flank |
 | Use the walls; don't get pinned | `boards`: bend onto the tangent before the wall, J-turn off it when nosed in; never back into the boards |
-| Sandbag early, let others soften each other up — inside the hit clock | Mood ≤ 0 with three or more rivals left: lay back (keep rolling, away from anyone within ~10 m) until half the hit clock is gone (`0.5 − 0.3·a` of it) |
+| Sandbag early, let others soften each other up — inside the hit clock | Mood ≤ 0 with three or more rivals left: lay back (keep rolling, away from anyone within ~10 m) until half the hit clock is gone (`0.5 − 0.3·a` of it). A sandbagger that stays inside one 9 m pocket for ~6 s is pacing, not clearing: the deadlock breaker (`bold`) makes it attack for up to ~6 s or until its hit lands |
 | Finish off smoking, weakened cars | Target cost subtracts 2·mood, which carries both cars' damage; a car past 75 % damage draws hunters at 0.3× the dogpile penalty |
 | Final cars fight | With two or fewer rivals left nobody lays back; circling without closing in (> 1.2 s) takes the hit on whatever end is there |
 
@@ -38,6 +38,14 @@ more rivals remain, until the hit clock is half gone; otherwise it attacks with 
 Low aggression also raises the dogpile penalty (`1.2 + 1.8·(1 − a)` per hunter). The derby default slider
 is `DEFAULT_DERBY_AGGRESSION = 1` (the whole spread, sandbaggers to brawlers; race defaults to 0.35).
 `DerbyMatch.begin(cars, { aggression, seed })` takes the slider; with no seed every match rolls anew.
+
+Deadlock breaker (`bold`): laying back is a potential field (repulsion from every other car, wrecks included, plus a
+pull off the boards) and goes to rest wherever the pushes cancel; there the `|aim| < 0.25` creep and the reverse gear
+trade places every ~0.7 s (owner capture of 2026-10-04: four low-aggression cars, no contact for 20 s, 19–26
+reversals each in 12.8 s; 98 % of the scoot windows measured headless were `layback`). A driver that wants to keep
+clear but stays inside `POCKET` (9 m) of one spot for `DWELL` (6 s) drops the caution and attacks for up to `BRAVE`
+(6 s) or until its aggressive hit lands; each time is scaled 0.5–1.5× by the driver's own hash and roll count
+(`hash01`, never `Math.random`: heats replay and netplay hosts agree). Aggression 0 still never attacks.
 
 Pace: the brain's forward throttle is a share of `DERBY_PACE` (18 m/s, the 65 km/h top it was tuned at);
 `DerbyMatch.think` scales it to the car's class top. At the 200 km/h tops unscaled, a cruise meant 45–55 m/s in
@@ -111,6 +119,16 @@ peak ≤ 5.2 rad/s; ≥ 5 of the 8 heats ending before the 300 s limit (a wreck 
 and 87.5 % after the airborne merge, all 48 disjoint 8-seed windows reach 5, false-fail 1.1 %); every heat ≥ 1 swing and
 sideswipe, and a J-turn share ≥ 0.7 × 0.214 (the stopped start's seeds 1–12 share). Moves count as manoeuvres: back in
 the same move within 1 s is the same one (a J-turn flips in and out of `jturn` slice by slice).
+
+Scoot (`derby-scoot.test-util.ts`): a live car whose forward speed, read every 0.5 s, changes sign six or more times
+past ±0.3 m/s in 10 s, ends within 12 m of where it began and was in no hit from 0.5 s before to 0.5 s after. Run on
+the owner's capture it flags 43 of its 50 contact-free car windows. The test judges the pooled share of late-heat
+(3–5 cars alive) car windows: main 26.0 % (seeds 1–72, 5145/19778; 8-seed windows 20.7–31.9 %), the breaker 3.0 %
+(299/9880; 1.3–5.2 %); the bar is 10 %. Ten cars, seeds 1–24, before → after: scoot 28.1 → 2.1 %, credited hits
+8.9 → 12.9 and aggressive hits 6.6 → 10.1 per car-minute, mean heat 206 → 130 s, endings wreck/count-out/time
+18/2/4 → 23/1/0, rear-first 53 → 53 %, J-turn share 0.26 → 0.24, free spins 0 → 0. Layback hysteresis (bands or a
+hold timer on the gear) was measured and not adopted: alone it left 7–13 % scoot and moved the rear share to
+0.36–0.42 and the J-turn share to 0.13–0.19 (bars 0.40 and 0.15).
 
 Stopped start vs the old 12 m/s tangent start (main 0b7fc2f), seeds 1–12, times from green: decided by wreck 12/12
 vs 10/12 (plus a count-out and a time win); first death median 32.6 s vs 26.8 s (earliest 10.4 vs 11.4); rear-first

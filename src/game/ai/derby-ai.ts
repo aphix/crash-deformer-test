@@ -2,6 +2,7 @@ import { chargeBoost, clearDrive, DRIVE, idleDrive, topUpBoost, type DriveInput 
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { mood } from "./ai-aggression.ts";
+import { DerbyPocket } from "./derby-pocket.ts";
 import { clamp, hash01 } from "../kernel/scalar.ts";
 
 export type AiCar = {
@@ -193,6 +194,8 @@ export class DerbyBrain {
   private readonly yawWas = new Float64Array(MAX_CARS);
   private readonly spin = new Float64Array(MAX_CARS);
   private readonly nearFor = new Float64Array(MAX_CARS);
+  /** Deadlock breaker (`DerbyPocket`): the sandbagger that paces in one pocket goes bold. */
+  private readonly pocket = new DerbyPocket();
   /** Boost meter per car, 0–1: the seat's (`BOOST`), earned by takedowns and kept by `driveBoost`. */
   readonly meter = new Float64Array(MAX_CARS);
 
@@ -226,6 +229,7 @@ export class DerbyBrain {
     this.yawWas.fill(Number.NaN);
     this.spin.fill(0);
     this.nearFor.fill(0);
+    this.pocket.reset();
     this.meter.fill(1);
   }
 
@@ -378,7 +382,9 @@ export class DerbyBrain {
     const m = mood(a, self.damage, tgt.damage);
     let rivals = 0;
     for (const o of others) if (o.alive && o.id !== i) rivals++;
-    if (a <= 0 || (m <= 0 && !due && rivals > 2)) {
+    const clear = m <= 0 && !due && rivals > 2;
+    const brave = a > 0 && this.pocket.bold(i, self.x, self.z, self.idle, clear, dt);
+    if (a <= 0 || (clear && !brave)) {
       this.layBack(self, others, p, speed);
       this.tactic[i] = T_LAYBACK;
       this.moveFor[i] = 0;
