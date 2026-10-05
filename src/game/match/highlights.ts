@@ -192,8 +192,8 @@ export class HighlightLedger<C extends { score: number }> {
     this.kept.length = 0;
   }
 
-  /** The open cluster an impact at (x, z) between `a` and `b` (−1: no car) joins, or null. */
-  private joins(t: number, a: number, b: number, x: number, z: number): CrashCluster | null {
+  /** The open cluster an impact at (x, z) between `a` and `b` (−1: no car) joins, or null: the one joinability rule (impact, kill, eject, and the recorder's guard on a bystander's death). */
+  joins(t: number, a: number, b: number, x: number, z: number): CrashCluster | null {
     const mask = (1 << a) | (b >= 0 ? 1 << b : 0);
     for (const c of this.open) {
       if (t - c.last > QUIET_GAP || t - c.first > MAX_SPAN) continue;

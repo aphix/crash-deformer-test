@@ -171,4 +171,27 @@ describe("highlight moments by who is involved", () => {
       setGround(null);
     }
   });
+
+  it("bad: a cop's death opens a clip only where an impact would join an open cluster: not between QUIET_GAP and POST_ROLL after the last", () => {
+    const scene = new THREE.Scene();
+    const cars = Array.from({ length: 3 }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
+    cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 0));
+    const run = (killAt: number): { open: number; kills: number } => {
+      cars[2]!.deform.drivetrainAlive = true;
+      const rec = new CrashRecorder();
+      rec.begin("oval", HANDLING.realism, false, 2, (i) => `c${i}`, 1);
+      const hit: ContactHit = { impulse: 20, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
+      for (let s = 0; s <= Math.round(killAt / H); s++) {
+        rec.startStep(cars);
+        if (s === 0) rec.pairHit(0, 2, hit, true);
+        if (s === Math.round(killAt / H)) cars[2]!.deform.drivetrainAlive = false;
+        rec.endStep(cars, H, 0);
+      }
+      return { open: rec.ledger.open.length, kills: rec.ledger.open.reduce((n, c) => n + c.kills, 0) };
+    };
+    // Control: 1 s after the racer's hit on the cop (inside QUIET_GAP) the cop's death joins the racer's cluster.
+    assert.deepEqual(run(1), { open: 1, kills: 1 }, "a kill inside QUIET_GAP joins the cluster");
+    // 2 s after: the cluster is still open (POST_ROLL) but an impact would not join it, so neither does the kill.
+    assert.deepEqual(run(2), { open: 1, kills: 0 }, "a kill past QUIET_GAP opened a cluster of its own: a clip starting on a non-crash");
+  });
 });

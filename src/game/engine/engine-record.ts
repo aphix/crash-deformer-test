@@ -286,9 +286,10 @@ export class CrashRecorder {
       this.fine[f + 2] = d.brake;
       this.draft[i] = 0;
       const alive = c.deform.drivetrainAlive ? 1 : 0;
-      // A traffic or police car's death counts only inside a cluster a racer's hit opened.
-      if (this.alive[i] && !alive && (i < this.racers || this.ledger.open.some((k) => (k.cars >>> i) & 1))) {
-        this.opened(this.ledger.kill(this.time, i, c.group.position.x, c.group.position.z));
+      // A traffic or police car's death counts only where an impact would join a cluster a racer's hit opened.
+      if (this.alive[i] && !alive) {
+        const { x, z } = c.group.position;
+        if (i < this.racers || this.ledger.joins(this.time, i, -1, x, z)) this.opened(this.ledger.kill(this.time, i, x, z));
       }
       this.alive[i] = alive;
     }
@@ -345,8 +346,9 @@ export class CrashRecorder {
     if (!this.on || !car) return;
     if (this.ejected.length >= MAX_EJECTED) this.ejected.shift();
     this.ejected.push({ step: this.step, e });
-    if (e.car >= this.racers && !this.ledger.open.some((k) => (k.cars >>> e.car) & 1)) return;
-    this.opened(this.ledger.eject(this.time, e.car, car.group.position.x, car.group.position.z));
+    const { x, z } = car.group.position;
+    if (e.car >= this.racers && !this.ledger.joins(this.time, e.car, -1, x, z)) return;
+    this.opened(this.ledger.eject(this.time, e.car, x, z));
   }
 
   /** A cluster's first impact: its correction keyframe follows at the next step's start (`startStep`). */
