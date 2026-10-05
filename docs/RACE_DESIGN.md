@@ -314,17 +314,29 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   head-on from 3 s off (the main source of takedowns: closing speeds up to 60–70 m/s). Wedged, it
   backs off for another run.
 - Pack guard (`ai/pack-guard.ts` `guardMates`, the last step of `PoliceBrain.think` and `HunterBrain.think`, so race police and
-  Survival's cops share it): of the pack-mates out on the road (a unit still parked at its stakeout, or stored, is not read: it
-  cannot pull out until a racer wakes it, and read as a car at 8 m/s it cancelled a lead-in's steering), the one a car reaches
-  soonest within 3 s (relative motion; a mate at a standstill is read as pulling out at 8 m/s along its nose, as the car itself
-  is) is steered away from, to the side it passes on, and
-  braked for within 1.5 s when ahead. A stakeout pair parks 12 m apart, one car facing each racer's travel and one against it,
+  Survival's cops share it): every pack-mate is read as it moves, except a driving one that is slow (just woken: `pullsOut`),
+  read as pulling out at 8 m/s along its nose, as the car itself is. A unit still parked at its stakeout, knocked out or stored
+  cannot pull out until a racer wakes it: read as a car at 8 m/s it cancelled a lead-in's steering, not read at all a lead-in drove
+  into one 12 m ahead at 16 m/s, so it is the stopped obstacle it is. The mate a car would reach soonest within 3 s (relative
+  motion), a mate ahead of it before any other, is steered away from, to the side it passes on, and braked for within 1.5 s when
+  ahead. The boost is dropped with a predicted hit (closest approach under 4.9 m) within that 1.5 s, however light the brake: it
+  multiplies the thrust of the throttle left, and a lead-in pair 9 m apart boosted into each other on a throttle lifted to 0.7
+  (race seed 27). It is kept for a graze at about 5 m, which a pack queued in rows has most frames: a boost dropped for any lift of
+  the throttle left Survival's pack slower than a shuttling player at 45 m/s, who ran off the map's far wall 40 m ahead of the
+  nearest cop (24 of 24 field seeds, identical; main 1 of 24 not ended by a contact, this rule 1 of 24, median end 42 s against 40 s).
+  Read soonest-of-all alone, a graze alongside or behind hid the mate ahead: the steer went away from the graze into the one ahead
+  (seed 2: a lead-in hit a stopped mate at 18 m/s), so a mate ahead is read first. A stakeout pair parks 12 m apart, one car facing
+  each racer's travel and one against it,
   and both used to wake at full throttle into a head-on. Measured (2-lap races, 4 AI + the AI-driven slot, police on, seeds
   1-12, oval / rally / city / stunt, a lead-in being the 2 s after a wake): lead-ins that touched a pack-mate 181 → 22 of
   398 → 395; two cops touching while both were in their lead-ins 76 → 2 (oval 23 → 0, closing 17-25 m/s); oval lead-ins
   that touched no pack-mate and ended converging on their racer 25 of 72 → 57 of 74. Over seeds 1-5 (the sweep above): cop
   contacts with racers 88595 → 94424 (physics steps in contact), takedowns 1 → 2, police knocked out 21 → 12, winner times
-  within 0.6 s per course. What remains is a car pulling out of its stakeout in front of a mate already past 30 m/s.
+  within 0.6 s per course. What remains is a car pulling out of its stakeout in front of a mate already past 30 m/s. Two cops
+  touching in their lead-ins, oval, 2 laps, field seeds 1-320 (the race-finish detector): main 3b26d05 2 (seed 193: two
+  reinforcements parked on one spot; seed 288: a lead-in into a parked mate), lane/spin-root c8674ad 1 of seeds 1-64 (seed 2),
+  with the guard and parking fixes 0 of 320 (the boost rule above: 0 of 320 too; with the boost dropped on the brake only, seed 27
+  was a pair), 0 T-bones of a target.
 - Packs build: 5 s sustained within 45 m calls one more car (parked 70 m ahead out of view, else
   coming up from 70 m behind already chasing), up to 5.
 - Stand-down: a target that finishes, dies or respawns (left alone 4 s) hands the pack to another

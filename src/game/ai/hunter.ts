@@ -147,8 +147,8 @@ export class HunterBrain implements CopBrain {
   private readonly obstacles: Obstacles;
   private readonly seed: number;
   private readonly out: DriveInput = idleDrive();
-  /** The pack-mate guard's view of a unit: out on the road, not waiting in storage (bound once: no allocation per call). */
-  private readonly onRoad = (u: number): boolean => this.state[u] !== STORED;
+  /** The pack-mate guard's view of a unit: driving, so a slow one may be pulling out (not waiting in storage; bound once: no allocation per call). */
+  private readonly pullsOut = (u: number): boolean => this.state[u] !== STORED;
   private readonly state: Uint8Array;
   private readonly since: Float64Array;
   private readonly lost: Float64Array;
@@ -238,7 +238,7 @@ export class HunterBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its hunt, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.hunt(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.onRoad);
+    guardMates(self, cars, this.first, this.count, out, this.pullsOut);
     return out;
   }
 

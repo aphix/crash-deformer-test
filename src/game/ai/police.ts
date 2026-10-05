@@ -322,8 +322,8 @@ export class PoliceBrain implements CopBrain {
   private readonly line: RaceBrain;
   private readonly seed: number;
   private readonly out: DriveInput = idleDrive();
-  /** The pack-mate guard's view of a unit: out on the road, not parked at a stakeout or stored (bound once: no allocation per call). */
-  private readonly onRoad = (u: number): boolean => this.state[u] !== "parked" && this.state[u] !== "stored";
+  /** The pack-mate guard's view of a unit: driving, so a slow one may be pulling out (not parked at a stakeout, knocked out or stored: those are stopped obstacles; bound once: no allocation per call). */
+  private readonly pullsOut = (u: number): boolean => this.state[u] === "pursuit";
   private readonly state: UnitState[] = [];
   /** Per unit: its pack (−1 none: stored, or giving up), its place in the pack, seconds in its state. */
   private readonly pack: Int16Array;
@@ -403,7 +403,7 @@ export class PoliceBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.drive(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.onRoad);
+    guardMates(self, cars, this.first, this.count, out, this.pullsOut);
     return out;
   }
 
@@ -564,9 +564,9 @@ export class PoliceBrain implements CopBrain {
         const side = this.roll() < 0.5 ? 1 : -1;
         if (u < 0) continue;
         // Parked ahead where nobody sees it; else it comes up from behind, already chasing.
-        if (this.spot(tg, REINF_AHEAD, side, 1, cars, world)) this.place(u, p, size, world);
+        if (this.spot(tg, REINF_AHEAD, side, 1, cars, world)) this.place(u, p, size, cars, world);
         else if (this.spot(tg, -REINF_AHEAD, side, 1, cars, world)) {
-          this.place(u, p, size, world);
+          this.place(u, p, size, cars, world);
           this.setState(u, "pursuit");
         }
       }
@@ -600,16 +600,18 @@ export class PoliceBrain implements CopBrain {
       const u = this.free();
       // The second car of a stakeout parks facing the oncoming racers: a head-on rammer.
       if (u < 0 || !this.spot(cars[r]!, ahead + k * PARK_SPACING, this.roll() < 0.5 ? 1 : -1, k === 1 ? -1 : 1, cars, world)) break;
-      this.place(u, p, k, world);
+      this.place(u, p, k, cars, world);
     }
     if (this.packLive[p]) this.stats.stakeouts++;
   }
 
-  /** Park unit `u` at the last `spot` as member `role` of pack `p`. */
-  private place(u: number, p: number, role: number, world: PoliceWorld): void {
+  /** Park unit `u` at the last `spot` as member `role` of pack `p`; `cars` takes its new place at once, so the next `spot` of this beat keeps clear of it. */
+  private place(u: number, p: number, role: number, cars: readonly AiCar[], world: PoliceWorld): void {
     const id = this.first + u;
     const s = this.spotAt;
     world.park(id, s.x, s.y, s.z, s.yaw);
+    cars[id]!.x = s.x;
+    cars[id]!.z = s.z;
     this.line.respawned(id);
     this.seg[id] = -1;
     this.pack[u] = p;
