@@ -1,7 +1,6 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import { ROOF_REST_Y } from "../vehicle/car-parts.ts";
-import { bodyTopY } from "../vehicle/car-mesh.ts";
-import type { BodyStyle } from "../vehicle/car-variants.ts";
+import { BELLY_Y, bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
 
 /**
  * The stack scene (docs/LOAD_CRUSH.md): cars dropped one at a time onto a base car, so the bottom roof crushes by the
@@ -30,22 +29,7 @@ export const STACK_RANGES = {
 
 /** Seconds from the scene's start to the first drop: the empty base car shows first. */
 const LEAD_S = 1;
-/** A car's belly over its origin (m): its roof's height less this is the room a car above it stands in (the test's 1.17 m for a 1.3 m roof). */
-const BELLY_Y = 0.13;
 const G = 9.81;
-
-const roofTops = new WeakMap<BodyStyle, number>();
-
-/** Highest point of a body style's roof along its centreline (m over the car's origin), the surface a car above stands on. */
-function roofTop(style: BodyStyle): number {
-  let top = roofTops.get(style);
-  if (top === undefined) {
-    top = 0;
-    for (let z = -2.2; z <= 2.2; z += 0.1) top = Math.max(top, bodyTopY(0, z, style) || 0);
-    roofTops.set(style, top);
-  }
-  return top;
-}
 
 /** The opening orbit shot for a finished stack of `n` cars (one car adds about 1.17 m): looking at the base car's roof, far enough back for the whole tower. */
 export function stackShot(n: number): { lookY: number; radius: number; pitch: number } {
@@ -78,14 +62,14 @@ export class StackRig {
   }
 }
 
-/** Stand car `k` (hidden or spent) upright over the roof of the stack below it (`cars[0..k-1]`), `drop` m clear, falling. */
+/** Stand car `k` (hidden or spent) upright over the crushed roof of the stack below it (`cars[0..k-1]`), its belly `drop` m clear, falling. */
 export function placeDrop(cars: readonly DeformableCar[], k: number, drop: number): void {
   let top = 0;
-  for (let i = 0; i < k; i++) top = Math.max(top, cars[i]!.group.position.y + roofTop(cars[i]!.style) - BELLY_Y);
+  for (let i = 0; i < k; i++) top = Math.max(top, cars[i]!.group.position.y + roofHeight(cars[i]!));
   const car = cars[k]!;
   car.group.visible = true;
   car.spawnFacing(0, 0, 0, 0);
-  car.group.position.y = top + drop;
+  car.group.position.y = top - bellyY(car) + drop;
   car.airborne = true;
   // The load crush reads the car below's matrixWorld in the next step; the renderer's update comes after it.
   car.group.updateMatrixWorld(true);
@@ -93,15 +77,15 @@ export function placeDrop(cars: readonly DeformableCar[], k: number, drop: numbe
 
 /** How far (m) a car may sit off the axis of the car under it and still stand on it. */
 const COLUMN_OFFSET = 0.6;
-/** Origin-to-origin height (m) of a car standing on the one under it: a crushed roof and a low body 0.9 m, a tall one with a clear drop 1.5 m. */
-const COLUMN_RISE = { min: 0.6, max: 1.5 } as const;
+/** How far (m) a car's belly may ride over the roof under it and still read as standing on it (a drop in flight carries nothing yet; one from higher reads null). */
+const COLUMN_CLEAR = 0.5;
 /** Face-up: the car's up axis within about 25 degrees of vertical (`matrixWorld` Y component). */
 const UPRIGHT = 0.9;
 
 /**
  * Per car in the stack (bottom first): the weight above it (kN) and its roof's sink (mm), read off the sim's cars. Load
  * counts the cars still standing in the column on the base car, each upright, within `COLUMN_OFFSET` of the car under
- * it and one car's height above it; a car off the column (toppled, fallen, still in the air) carries and reads null.
+ * it with its belly on that roof; a car off the column (toppled, fallen, still in the air) carries and reads null.
  * The load-crush step's own force is per slice and is not kept, so the column is read from the poses.
  */
 export function stackLoads(cars: readonly DeformableCar[], n: number): { loadKn: (number | null)[]; crushMm: number[] } {
@@ -121,10 +105,10 @@ export function stackLoads(cars: readonly DeformableCar[], n: number): { loadKn:
   return { loadKn, crushMm };
 }
 
-/** Whether `upper` stands on `lower`: upright, near its axis and one car's height over it. */
+/** Whether `upper` stands on `lower`: upright, near its axis and its belly on the roof (at most `SKIN` in it, `COLUMN_CLEAR` over it), whatever the two bodies' heights, lifts and crush. */
 function stands(lower: DeformableCar, upper: DeformableCar): boolean {
   const a = lower.group.position;
   const b = upper.group.position;
-  const rise = b.y - a.y;
-  return upper.group.matrixWorld.elements[5]! > UPRIGHT && Math.hypot(b.x - a.x, b.z - a.z) < COLUMN_OFFSET && rise > COLUMN_RISE.min && rise < COLUMN_RISE.max;
+  const over = b.y + bellyY(upper) - (a.y + roofHeight(lower));
+  return upper.group.matrixWorld.elements[5]! > UPRIGHT && Math.hypot(b.x - a.x, b.z - a.z) < COLUMN_OFFSET && over > -SKIN && over < COLUMN_CLEAR;
 }

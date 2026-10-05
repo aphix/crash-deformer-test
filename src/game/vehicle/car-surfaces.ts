@@ -4,6 +4,7 @@ import { activeGround, NO_FLOOR, type Ground } from "../world/ground.ts";
 import { bodyTopY } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength } from "../deform/load-crush.ts";
+import { CLASSES, carClass } from "./vehicle-classes.ts";
 
 /**
  * What a body in flight (`stepAir`) rests on: the world's ground and the other cars' tops, through the one `Ground`
@@ -17,10 +18,10 @@ import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength } from ".
  * of impulse; a contact asking for more yields, and its penetration becomes crush depth (`commit`).
  */
 
-/** A point this far (m) under another car's top counts as standing on it; deeper is inside the car (the plan SAT's). */
-const SKIN = 0.25;
+/** A point this far (m) under another car's top counts as standing on it; deeper is inside the car (the plan SAT's, `shareHeight`). */
+export const SKIN = 0.25;
 /** A car more than ~60° off vertical is not a surface to stand on. */
-const UPRIGHT = 0.5;
+export const UPRIGHT = 0.5;
 /** Plan radius (m) past which a car's top is out of reach: its half-diagonal. */
 const REACH = 2.5;
 /** A top point that follows its car's roof crush less than this is rigid (bonnet and boot ends carry, never yield). */
@@ -28,6 +29,31 @@ const YIELDS = 0.3;
 /** The top within this (m) of the middle across and 0.5 m of the crown along is one flat plate at the crown's height: the roof's crown is 3 cm across and 9 cm along, and a belly on a ridge rolls or pitches off. */
 const PLATE = 0.5;
 const CROWN_Z = -0.1;
+/** The keel's height (m) over a car's origin at the stock ride; the class's body lift (`bellyY`) is on top of it. */
+export const BELLY_Y = 0.13;
+
+/** How high (m) over `car`'s origin its belly rides: a car on another's roof sits its roof's crown less this over that car's origin. */
+export function bellyY(car: DeformableCar): number {
+  return BELLY_Y + CLASSES[carClass(car)].lift;
+}
+
+const CROWNS = new WeakMap<BodyStyle, number>();
+
+/** Highest point of a body style's roof along its centreline (m over the car's origin at the stock ride). */
+function roofCrown(style: BodyStyle): number {
+  let top = CROWNS.get(style);
+  if (top === undefined) {
+    top = 0;
+    for (let z = -2.2; z <= 2.2; z += 0.1) top = Math.max(top, bodyTopY(0, z, style) || 0);
+    CROWNS.set(style, top);
+  }
+  return top;
+}
+
+/** How high (m) over `car`'s origin its roof's crown stands now (class lift on, load crush off): the surface a car above stands on. */
+export function roofHeight(car: DeformableCar): number {
+  return roofCrown(car.style) + CLASSES[carClass(car)].lift - car.deform.crush[FACE_TOP]!;
+}
 
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -71,6 +97,7 @@ export class CarSurfaces implements Ground {
   private yielded = new Uint8Array(FACES);
   private grew = new Float64Array(FACES);
   private react = new Float64Array(1);
+  private touched = new Uint8Array(1);
 
   /** A car's slice starts: nothing of any face is spent, yielded or pressed yet. */
   begin(car: DeformableCar): void {
@@ -81,11 +108,13 @@ export class CarSurfaces implements Ground {
       this.yielded = new Uint8Array(n);
       this.grew = new Float64Array(n);
       this.react = new Float64Array(1 + this.cars.length);
+      this.touched = new Uint8Array(1 + this.cars.length);
     }
     this.left.fill(NaN);
     this.yielded.fill(0);
     this.grew.fill(0);
     this.react.fill(0);
+    this.touched.fill(0);
     this.owner = -1;
     this.near = this.nearTo(car);
   }
@@ -137,6 +166,11 @@ export class CarSurfaces implements Ground {
     this.react[own]! += j;
   }
 
+  /** The stepping car has a point in car `own`'s top this slice, pressing or not: a body at rest has slices with no impulse. */
+  touch(own: number): void {
+    this.touched[own] = 1;
+  }
+
   /** Contact penetration `pen` (m) at a point of slot `slot`, which `follow` of the face's depth reaches. */
   note(slot: number, pen: number, follow: number): void {
     this.grew[slot] = Math.max(this.grew[slot]!, pen / follow);
@@ -174,13 +208,20 @@ export class CarSurfaces implements Ground {
       }
       if (o.airborne) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
     }
+    if (self.restsOn === null) {
+      for (let i = 0; i < this.cars.length; i++) {
+        if (this.touched[i] !== 0) {
+          self.restsOn = this.cars[i]!;
+          break;
+        }
+      }
+    }
     self.yielding = any;
     return any;
   }
 
   /** How far the surface point `top` last answered follows its car's roof crush. */
   private topFollow = 0;
-
   /** The surface of car `o` at world plan (x, z) seen from height `y`: its world height or NO_FLOOR; sets `_n` and `topFollow`. */
   private top(o: DeformableCar, x: number, z: number, y: number): number {
     const e = o.group.matrixWorld.elements;
@@ -207,7 +248,7 @@ export class CarSurfaces implements Ground {
     const h0 = (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
     const depth = o.deform.crush[FACE_TOP]!;
     this.topFollow = faceFollow(FACE_TOP, 0, h0, 0);
-    _p.set(xl, h0 - depth * this.topFollow, zl).applyMatrix4(o.group.matrixWorld);
+    _p.set(xl, h0 - depth * this.topFollow + CLASSES[carClass(o)].lift, zl).applyMatrix4(o.group.matrixWorld);
     if (y < _p.y - SKIN) return NO_FLOOR;
     const gx = ((h10 - h00) * (1 - fz) + (h11 - h01) * fz) / GRID_STEP;
     const gz = ((h01 - h00) * (1 - fx) + (h11 - h10) * fx) / GRID_STEP;
@@ -215,13 +256,15 @@ export class CarSurfaces implements Ground {
     return _p.y;
   }
 
+  /** Only a car below the stepping car (by origin height) is its ground: two cars each standing on the other lifted one another up, 1.5 m a frame. */
   heightAt(x: number, z: number, y?: number): number {
     let best = activeGround().heightAt(x, z, y);
     this.owner = -1;
     if (y === undefined) return best;
+    const above = this.self!.group.position.y;
     for (let i = 0; i < this.cars.length; i++) {
       const o = this.cars[i]!;
-      if (o === this.self || o.falling || o.vaporized) continue;
+      if (o === this.self || o.falling || o.vaporized || o.group.position.y > above) continue;
       const h = this.top(o, x, z, y);
       if (h > best) {
         best = h;
