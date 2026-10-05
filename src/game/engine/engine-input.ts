@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { PISTON_DEFAULTS, PISTON_IDS } from "../scenes/piston-rig.ts";
 import { RAM_DEFAULTS } from "../scenes/door-rig.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
+import { SETTING_IDS, type SettingId } from "../hud/settings-changes.ts";
 import { armKill, carClass, CLASSES, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
@@ -264,12 +265,76 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
+  /** One setting back to its default (`INITIAL_HUD`) through the setter the HUD uses; every other setting stays as it is. */
+  resetSetting(id: SettingId): void {
+    const D = INITIAL_HUD;
+    switch (id) {
+      case "loop":
+        if (this.looping !== D.looping) this.toggleLoop();
+        break;
+      case "slomo":
+        if (this.autoSlomo !== D.autoSlomo) this.toggleSlomo();
+        break;
+      case "orbit":
+        if (this.autoRotate !== D.autoRotate) this.toggleOrbit();
+        break;
+      case "audio":
+        if (this.audioOn !== D.audioOn) this.toggleAudio();
+        break;
+      case "night":
+        this.setNight(D.night);
+        break;
+      case "wet":
+        this.setWet(D.wet);
+        break;
+      case "fx":
+        this.setFxAuto();
+        break;
+      case "cel":
+        this.setCelLook(D.celLook);
+        break;
+      case "ts":
+        this.setTimeScale(D.userTimeScale);
+        break;
+      case "car":
+        if (this.playerClass !== D.playerClass) this.setPlayerClass(D.playerClass);
+        break;
+      case "realism":
+        this.setRealism(D.realism);
+        break;
+      case "cars":
+        this.setCarCount(D.carCount);
+        break;
+      case "spawn":
+        this.setSpeedRange(D.speedMin, D.speedMax);
+        break;
+      case "stroke":
+        this.setSquash(D.squash);
+        break;
+      case "wrinkle":
+        this.setBuckle(D.buckle);
+        break;
+      case "fxd":
+        this.setFxDensity(D.fxDensity);
+        break;
+      case "deform":
+        if (this.deformMode !== D.deformMode) this.toggleDeformMode();
+        break;
+      case "rig":
+        if (this.showRig !== D.showRig) this.toggleRig();
+        break;
+      case "particles":
+        if (this.showParticles !== D.showParticles) this.toggleParticles();
+        break;
+      case "capture":
+        if (this.captureTrace) this.toggleCapture();
+        break;
+    }
+  }
+
   resetDefaults(): void {
     this.playing = INITIAL_HUD.playing;
-    this.looping = INITIAL_HUD.looping;
-    this.showRig = INITIAL_HUD.showRig;
-    this.showParticles = INITIAL_HUD.showParticles;
-    this.ragdolls.debug.set(this.showRig, this.showParticles);
+    for (const id of SETTING_IDS) this.resetSetting(id);
     this.showBarrier = INITIAL_HUD.showBarrier;
     this.showBalls = INITIAL_HUD.showBalls;
     this.showRamps = INITIAL_HUD.showRamps;
@@ -278,27 +343,8 @@ export abstract class EngineInput extends EngineRigs {
     this.doorRig.kph = RAM_DEFAULTS.kph;
     this.doorRig.kg = RAM_DEFAULTS.kg;
     this.doorRig.side = INITIAL_HUD.doors.side;
-    this.autoRotate = INITIAL_HUD.autoRotate;
-    this.autoSlomo = INITIAL_HUD.autoSlomo;
-    this.audioOn = INITIAL_HUD.audioOn;
-    this.deformMode = INITIAL_HUD.deformMode;
-    this.squash = INITIAL_HUD.squash;
-    this.buckle = INITIAL_HUD.buckle;
-    this.fxDensity = INITIAL_HUD.fxDensity;
-    this.speedMin = INITIAL_HUD.speedMin;
-    this.speedMax = INITIAL_HUD.speedMax;
-    this.captureTrace = false;
-    this.clock.userTimeScale = null;
-    this.clock.timeScale = 1;
-    this.clock.targetScale = 1;
     this.view.userFramed = false;
     this.setDerby(false);
-    this.setNight(INITIAL_HUD.night);
-    this.setWet(INITIAL_HUD.wet);
-    this.setRealism(INITIAL_HUD.realism);
-    this.autoFx.resume(this.cine.tier);
-    this.celLook = INITIAL_HUD.celLook;
-    if (this.playerClass !== INITIAL_HUD.playerClass) this.setPlayerClass(INITIAL_HUD.playerClass);
     this.ensureCars(INITIAL_HUD.carCount);
     this.tryUnlockAudio();
     this.randomizeAndReset();

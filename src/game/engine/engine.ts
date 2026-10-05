@@ -406,7 +406,7 @@ export class CrashEngine extends EngineShare {
         this.impactLight.intensity = Math.max(0, this.impactLightLife * 90);
       }
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
-      if (this.showBarrier) this.barrier.step(simDt);
+      if (this.barrierUp) this.barrier.step(simDt);
       const fxDt = Math.max(simDt, wallDt * 0.6);
       this.debris.update(fxDt, this.bounceWorld);
       this.sparks.update(fxDt, bounceGround);
@@ -415,7 +415,7 @@ export class CrashEngine extends EngineShare {
       const sandbox = !this.race.active && !this.derbyMode;
       // Who the drivers look like: the clip on screen's race, else this race's, this derby round's, or this run's scene seed.
       this.ragdolls.lookSeed = this.highlights.look ?? (this.race.active ? this.race.look : this.derbyMode ? this.derbyRound : this.sceneSeed);
-      this.ragdolls.update(simDt, cars, !this.net.client, sandbox, this.derbyMode ? this.derbyR : 0, this.showBarrier ? this.barrier.group : null);
+      this.ragdolls.update(simDt, cars, !this.net.client, sandbox, this.derbyMode ? this.derbyR : 0, this.barrierUp ? this.barrier.group : null);
       for (let i = 0; i < cars.length; i++) {
         const car = cars[i]!;
         if (reelDt !== null && !car.group.visible) continue;
@@ -552,7 +552,7 @@ export class CrashEngine extends EngineShare {
     if (!Number.isFinite(eta)) return;
     if (eta > Math.max(PRE_IMPACT_LEAD, wallDt + FIXED)) return;
     // A hit that will throw a driver plays at 1× until his exit is clear (`THROW_ONSET`).
-    if (throwComing(this.live(), this.showBarrier ? this.barrier : null)) {
+    if (throwComing(this.live(), this.barrierUp ? this.barrier : null)) {
       this.clock.slomoAt = THROW_ONSET;
       return;
     }
@@ -595,19 +595,19 @@ export class CrashEngine extends EngineShare {
     }
     const w = this.world;
     w.cars = cars;
-    w.barrier = this.showBarrier ? this.barrier : null;
+    w.barrier = this.barrierUp ? this.barrier : null;
     w.barrierHits = this.barrierHits;
     w.bounce = this.bounceWorld;
     w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : null;
     w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : null;
     w.partTouch = this.race.active ? this.race.partTouch : null;
-    w.ballHit = this.showBalls ? this.ballHit : null;
+    w.ballHit = this.ballsUp ? this.ballHit : null;
     // The corkscrew hides the lamp posts its run passes through.
     w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
-    // The ramps stay toggled (and hidden) through the rig scenes, like the slab and the balls: their faces must not
-    // stand in for the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
-    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.showRamps && !this.rigScene ? this.rampCollide : null;
+    // The rig scenes put the ramps away (`SCENE_PROPS`), like the slab and the balls: their faces must not stand in for
+    // the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
+    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.rampsUp ? this.rampCollide : null;
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
     stepWorld(w, dt);
     // A driver thrown out this step (`EjectionWatch`): his dummy flies, the race recorder and the netplay peers hear of it.
@@ -665,7 +665,7 @@ export class CrashEngine extends EngineShare {
         }
       }
     }
-    if (!contact && this.showBarrier) {
+    if (!contact && this.barrierUp) {
       const hi = this.barrierHits.findIndex(Boolean);
       const hitCar = hi >= 0 ? cars[hi] : null;
       if (hitCar) {

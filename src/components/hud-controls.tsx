@@ -3,6 +3,10 @@ import { useState } from "react";
 /** Number boxes and the time-scale field: 44 px tall on phones, 32 px from `sm`. */
 export const FIELD =
   "h-11 w-14 shrink-0 rounded-md bg-surface-2 px-1.5 text-right font-display text-xs tabular-nums text-fg shadow-[var(--shadow-border)] sm:h-8";
+/** A dot in the margin left of a label (or at the end of a chip): this setting differs from its default. Hidden from the page, the section's reset row names it. */
+export function ChangedDot({ on, className }: { on: boolean; className?: string }) {
+  return on ? <span aria-hidden className={className ?? "absolute -left-1.5 top-1/2 size-1.5 -translate-y-1/2 rounded-full bg-accent"} data-changed /> : null;
+}
 
 /**
  * Label, range slider, then either a read-out (`shown`, the rig panels' narrow rows) or a typed number field
@@ -18,6 +22,7 @@ export function RangeRow({
   step,
   onValue,
   disabled,
+  changed = false,
   ...end
 }: {
   label: string;
@@ -32,10 +37,15 @@ export function RangeRow({
   onValue: (v: number) => void;
   /** Greys the slider; the row stays in place. */
   disabled?: boolean;
+  /** Marks the row: the value differs from its default. */
+  changed?: boolean;
 } & ({ shown: string } | { digits: number })) {
   return (
     <label className="flex items-center gap-2" title={title}>
-      <span className={"shown" in end ? "hud-label w-10 shrink-0" : "hud-label w-12 shrink-0"}>{label}</span>
+      <span className={"shown" in end ? "hud-label relative w-10 shrink-0" : "hud-label relative w-12 shrink-0"}>
+        {label}
+        <ChangedDot on={changed} />
+      </span>
       <input
         type="range"
         min={min}

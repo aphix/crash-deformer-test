@@ -139,6 +139,21 @@ export function shareFragment(s: ShareState, client: boolean): string {
   return encodeShare(client ? { ...DEFAULTS, room: s.room, tx: s.tx } : s);
 }
 
+/**
+ * The fragment the address bar takes when state `s` publishes while the bar shows `bar` (no `#`). The URL records what
+ * the user set, never what a page load or a run rolled by itself: while the settings equal what the bar already
+ * describes it stays as it is (a page opened bare stays bare, a pasted partial `#` is not completed with the rest), and
+ * the seed alone follows only into a bar that carries one. A bar whose settings all went back to the defaults is empty.
+ */
+export function followShare(s: ShareState, client: boolean, bar: string): string {
+  const full = shareFragment(s, client);
+  if (full === bar) return bar;
+  const shown = decodeShare(bar);
+  const settings = shareFragment({ ...s, seed: null }, client);
+  if (settings === encodeShare({ ...shown, seed: null }) && shown.seed === null) return bar;
+  return settings === "" ? "" : full;
+}
+
 /** The link that joins `room` (over `tx`): the page URL `base` (no `#`) plus a fragment of the room alone. */
 export function roomLink(base: string, room: string, tx: ShareState["tx"]): string {
   return `${base}#${encodeShare({ ...DEFAULTS, room, tx })}`;

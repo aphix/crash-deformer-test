@@ -14,7 +14,7 @@ import { newWorld } from "./world-step.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
 import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
-import type { SceneId } from "../scenes/scene-id.ts";
+import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
 import { SceneFade } from "../present/scene-fade.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
@@ -85,9 +85,19 @@ export abstract class EngineCore {
   looping = true;
   showRig = false;
   showParticles = false;
+  /** The user's fleet props (HUD, hash). A scene never writes them; read the `…Up` getters for what is on screen. */
   showBarrier = false;
   showBalls = false;
   showRamps = false;
+  get barrierUp(): boolean {
+    return fleetProp(this.sceneId, "barrier", this.showBarrier);
+  }
+  get ballsUp(): boolean {
+    return fleetProp(this.sceneId, "balls", this.showBalls);
+  }
+  get rampsUp(): boolean {
+    return fleetProp(this.sceneId, "ramps", this.showRamps);
+  }
   /** The one scene in play; `derbyMode` and the three rig flags read it. The race director's `active` mirrors "race". */
   protected sceneId: SceneId = "fleet";
   /** The scene-switch transition (`engine-scenes.ts` drives it): the scene button reads its pending target for the HUD. */
@@ -365,13 +375,13 @@ export abstract class EngineCore {
 
   protected traceSetup(): TraceSetup {
     return {
-      barrier: this.showBarrier,
+      barrier: this.barrierUp,
       barrierYaw: this.barrier.yaw,
       squash: this.squash,
       buckle: this.buckle,
       fxDensity: this.fxDensity,
-      balls: this.showBalls,
-      ramps: this.showRamps,
+      balls: this.ballsUp,
+      ramps: this.rampsUp,
       compactor: this.showCompactor,
       compactFace: this.compactor.face,
       carCount: this.carCount,
@@ -472,7 +482,7 @@ export abstract class EngineCore {
       }
     }
 
-    return this.showBarrier ? this.barrier.contactEta(cars, eta) : eta;
+    return this.barrierUp ? this.barrier.contactEta(cars, eta) : eta;
   }
   /** The crash's hit: slow-mo, kick, flash and burst; `crashCam` overrides the sandbox's rule for the crash cam (the reel always wants it). */
   protected beginCinematic(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number, crashCam?: boolean): void {
@@ -517,11 +527,11 @@ export abstract class EngineCore {
     for (const pole of this.poles) {
       if (pole.intact && pole.group.visible) occ.push(occluder(pole.group.position.x, pole.group.position.z, 0, 0.45, 0.45, true, 0, 5.3));
     }
-    if (this.showBarrier) {
+    if (this.barrierUp) {
       const b = this.barrier.group.position;
       occ.push(occluder(b.x, b.z, this.barrier.yaw, BARRIER_HALF.x, BARRIER_HALF.z, false, 0, 0.9));
     }
-    if (this.showBalls) {
+    if (this.ballsUp) {
       for (const ball of this.balls) {
         const b = ball.mesh.position;
         if (ball.mesh.visible) occ.push(occluder(b.x, b.z, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius));

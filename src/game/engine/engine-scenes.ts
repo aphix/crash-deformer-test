@@ -133,11 +133,8 @@ export abstract class EngineScenes extends EngineHud {
    */
   protected applyScene(next: SceneId): void {
     if (this.net.client) return;
-    // The range is a one-car scene behind its own barrier: the sandbox's field and wall come back after it.
-    if (this.showRange) {
-      this.showBarrier = false;
-      this.ensureCars(this.sandboxCars);
-    }
+    // The range is a one-car scene: the sandbox's field comes back after it (its wall is the range's own, never the user's).
+    if (this.showRange) this.ensureCars(this.sandboxCars);
     // The stack runs its own car count and gives the sandbox's back.
     if (this.showStack) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
@@ -197,9 +194,6 @@ export abstract class EngineScenes extends EngineHud {
     this.arena.visible = on;
     for (const p of this.poles) p.group.visible = !on;
     if (on) {
-      this.showBarrier = false;
-      this.showBalls = false;
-      this.showRamps = false;
       this.barrier.group.visible = false;
       this.ramps.group.visible = false;
       if (this.clock.userTimeScale == null) {
@@ -243,9 +237,6 @@ export abstract class EngineScenes extends EngineHud {
     if (on === this.race.active) return;
     if (on) {
       if (this.derbyMode) this.setDerby(false);
-      this.showBarrier = false;
-      this.showBalls = false;
-      this.showRamps = false;
       this.sceneId = survival ? "survival" : "race";
       this.barrier.group.visible = false;
       this.ramps.group.visible = false;
@@ -336,12 +327,12 @@ export abstract class EngineScenes extends EngineHud {
     else if (this.showRange) this.spawnRange();
     else this.spawnFleet();
     this.barrierHits.fill(false);
-    this.barrier.group.visible = this.showBarrier;
+    this.barrier.group.visible = this.barrierUp;
     // With the ramps up the slab lies end-on to the lead car, so the jump runs along its line (owner's sketch).
-    if (this.showBarrier || this.showRamps) this.barrier.orient(this.carA.group.position, this.showRamps);
-    this.ramps.group.visible = this.showRamps;
-    this.ramps.place(this.barrier.yaw, this.showBarrier ? this.barrier : null);
-    scatterRampBalls(this.balls, this.showBalls, this.sceneRng(1));
+    if (this.barrierUp || this.rampsUp) this.barrier.orient(this.carA.group.position, this.rampsUp);
+    this.ramps.group.visible = this.rampsUp;
+    this.ramps.place(this.barrier.yaw, this.barrierUp ? this.barrier : null);
+    scatterRampBalls(this.balls, this.ballsUp, this.sceneRng(1));
     for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange;
     this.finishResetCommon();
   }
@@ -364,11 +355,8 @@ export abstract class EngineScenes extends EngineHud {
     }
   }
 
-  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin; the wall up, the balls and ramps away. */
+  /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin (the wall, balls and ramps are the scene's: `SCENE_PROPS`). */
   private spawnRange(): void {
-    this.showBarrier = true;
-    this.showBalls = false;
-    this.showRamps = false;
     const car = this.carA;
     car.group.visible = true;
     car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6);
@@ -778,7 +766,7 @@ export abstract class EngineScenes extends EngineHud {
       separateSphereFromAabb(pos, vel, r, 0, 1.02, z, hx, hy, hz);
       separateSphereFromAabb(pos, vel, r, 0, 1.02, -z, hx, hy, hz);
     }
-    if (this.showBarrier) this.barrier.bounce(pos, vel, r);
+    if (this.barrierUp) this.barrier.bounce(pos, vel, r);
   };
 
 }

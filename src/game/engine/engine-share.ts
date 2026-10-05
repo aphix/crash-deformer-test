@@ -1,4 +1,4 @@
-import { decodeShare, isShareableRoom, joinsRoom, shareFragment, type ShareState } from "../hud/share-url.ts";
+import { decodeShare, followShare, isShareableRoom, joinsRoom, type ShareState } from "../hud/share-url.ts";
 import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
 import { SEEDED_SCENES } from "../scenes/scene-id.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
@@ -14,8 +14,6 @@ import { EngineReel } from "./engine-reel.ts";
 export abstract class EngineShare extends EngineReel {
   /** Off until `attachShare` has read the page's `#`, so boot never overwrites it. */
   private shareOn = false;
-  /** The fragment last written (null: none yet), so an unchanged state costs no `replaceState`. */
-  private shareLast: string | null = null;
   /** True while `applyShare` runs: its setters publish half-applied states the URL must not show. */
   private sharing = false;
 
@@ -48,9 +46,10 @@ export abstract class EngineShare extends EngineReel {
       ts: this.clock.userTimeScale,
       deform: this.deformMode,
       car: this.playerClass,
-      barrier: this.showBarrier,
-      balls: this.showBalls,
-      ramps: this.showRamps,
+      // Fleet props of the fleet: another scene's own wall, balls and ramps are its state, not a setting (`SCENE_PROPS`).
+      barrier: sc === "fleet" && this.showBarrier,
+      balls: sc === "fleet" && this.showBalls,
+      ramps: sc === "fleet" && this.showRamps,
       pkph: p.speedKph,
       pkg: p.massKg,
       phard: p.hardness,
@@ -76,10 +75,10 @@ export abstract class EngineShare extends EngineReel {
   /** Called by every HUD publish: the page URL follows the state. A netplay client's scene is the host's, so its URL keeps the room alone. */
   protected syncShareUrl(): void {
     if (!this.shareOn || this.sharing) return;
-    const frag = shareFragment(this.shareState(), this.net.client);
-    if (frag === this.shareLast) return;
-    this.shareLast = frag;
-    const { pathname, search } = window.location;
+    const { pathname, search, hash } = window.location;
+    const bar = hash.replace(/^#/, "");
+    const frag = followShare(this.shareState(), this.net.client, bar);
+    if (frag === bar) return;
     // replaceState: no history entry, no reload (and the router's history.state stays).
     window.history.replaceState(window.history.state, "", pathname + search + (frag ? `#${frag}` : ""));
   }
@@ -168,8 +167,6 @@ export abstract class EngineShare extends EngineReel {
 
   /** The `#` was edited or pasted (our own `replaceState` fires no event). */
   private onShareHash = (): void => {
-    // The next publish writes the state's own `#` back, whatever was typed.
-    this.shareLast = null;
     this.arrive(decodeShare(window.location.hash), false);
   };
 }
