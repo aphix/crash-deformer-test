@@ -1,6 +1,6 @@
 import { Fragment, type RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
-import { BrickWall, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
+import { BrickWall, ChevronDown, ChevronUp, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
 import { DerbyBoard, DoorPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
@@ -11,7 +11,7 @@ import { RESET_GLOW, ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { FullscreenButton, MouseLookButton, TouchControls } from "@/components/touch-controls";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
-import { useHudIdle } from "@/components/use-hud-idle";
+import { useHudIdle, type HudMenu } from "@/components/use-hud-idle";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { useStoredString } from "@/components/use-stored-string";
 import { Button } from "@/components/ui/button";
@@ -149,15 +149,15 @@ export function Hud(props: HudProps) {
   // Phones start with the settings tucked away; wide screens show the (collapsed) sections.
   const [settings, setSettings] = useStoredString("crush.hud.settings", "hidden", "shown");
   const settingsShown = settings === "shown";
-  // Touch only: after a few seconds without a tap the HUD mutes (`data-idle`, the `idle:` variant). A tap anywhere, or a menu
-  // opening (an expanded settings section, a race menu), restores it; the thumb pad keeps driving without waking it.
+  // Touch only, with the bottom bar showing: the menu collapses to a short bar after a few seconds without a tap (`data-idle`, the `idle:`
+  // variant) or on the hide button, and expands on a click or slide up on that bar or when a menu opens. Never on a bare tap (use-hud-idle).
   const [sections] = useStoredString("crush.hud.sections", "", "");
   const menuOpen = (!focus && settingsShown && sections !== "") || state.race?.menu != null;
-  const idle = useHudIdle(touch && !menuOpen);
+  const menu = useHudIdle(touch && !focus, menuOpen);
   // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
   if (state.race?.solo != null) return <SoloExit title={state.race.solo} onCommand={raceCommand} />;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={idle || undefined}>
+    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
       {focus && state.race ? (
         <header className="hud-ink min-w-0 pb-12 font-display" style={{ gridArea: "title" }}>
           <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
@@ -232,7 +232,7 @@ export function Hud(props: HudProps) {
             </div>
           ) : null
         ) : (
-          <Dock {...props} raceCommand={raceCommand} settingsShown={settingsShown} onToggleSettings={() => setSettings(settingsShown ? "hidden" : "shown")} />
+          <Dock {...props} raceCommand={raceCommand} settingsShown={settingsShown} onShowSettings={(show) => setSettings(show ? "shown" : "hidden")} touch={touch} menu={menu} />
         )}
       </div>
 
@@ -366,8 +366,8 @@ function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
 const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 
 /** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the three fleet props, settings and key help. */
-function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onToggleSettings: () => void }) {
-  const { state, engine, raceCommand, settingsShown, onToggleSettings } = props;
+function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onShowSettings: (show: boolean) => void; touch: boolean; menu: HudMenu }) {
+  const { state, engine, raceCommand, settingsShown, onShowSettings, touch, menu } = props;
   const inPlay: Scene = state.race
     ? state.race.survival
       ? "survival"
@@ -403,7 +403,10 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
   // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
   const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.race !== null;
   return (
-    <div className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto">
+    <div
+      className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto idle:touch-none"
+      {...menu.barGestures}
+    >
       {state.race ? <RaceViewToggle race={state.race} onCommand={raceCommand} compact /> : null}
       <Button
         onClick={() => engine.current?.togglePlay()}
@@ -436,6 +439,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
             aria-label={aria}
             className={cn("h-10 px-1 text-xs sm:h-7 sm:px-2.5", tone, tone && "scene-chip", quiet && scene !== id && "font-normal text-muted", scene !== id && "idle:hidden")}
             onClick={() => {
+              if (menu.idle) return menu.expand();
               if (id === scene) return;
               if (id === "fleet") toggleScene[scene as Exclude<Scene, "fleet">]();
               else toggleScene[id]();
@@ -479,7 +483,11 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <TriangleRight />
       </Button>
       <Button
-        onClick={onToggleSettings}
+        // On the collapsed bar the settings button opens the settings (hidden while collapsed) rather than toggling them away.
+        onClick={() => {
+          menu.expand();
+          onShowSettings(menu.idle || !settingsShown);
+        }}
         variant={settingsShown ? "secondary" : "ghost"}
         className={cn(BAR_BUTTON, "ml-auto sm:ml-0")}
         aria-pressed={settingsShown}
@@ -491,6 +499,18 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
       <KeyHelp className="idle:hidden idle:data-[state=open]:inline-flex" glow={resetGlow(state)} />
       <MouseLookButton engine={engine} on={state.mouseLook} className={BAR_BUTTON} />
       <FullscreenButton className={BAR_BUTTON} />
+      {touch ? (
+        <Button
+          onClick={menu.idle ? menu.expand : menu.collapse}
+          variant="ghost"
+          className={BAR_BUTTON}
+          aria-expanded={!menu.idle}
+          aria-label={menu.idle ? "Show menu" : "Hide menu"}
+          title={menu.idle ? "Show the menu" : "Hide the menu, back to the open view"}
+        >
+          {menu.idle ? <ChevronUp /> : <ChevronDown />}
+        </Button>
+      ) : null}
     </div>
   );
 }

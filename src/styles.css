@@ -90,9 +90,9 @@
   width: var(--g);
 }
 
-/* Touch HUD at rest: `.hud-grid` carries `data-idle` once nothing in it has been tapped for a few seconds (use-hud-idle).
-   `idle:` classes calm what blocks the view (hide details, dim, shrink to a chip that wakes the HUD when tapped) and
-   outrank breakpoint utilities because the ancestor selector adds specificity. */
+/* Touch HUD collapsed: `.hud-grid` carries `data-idle` while the bottom bar is collapsed (use-hud-idle: after a few seconds without a tap, or the
+   hide button). `idle:` classes calm what blocks the view (hide details, dim, shrink the bar to its short form, which expands on a click or slide up,
+   never on a bare pointerdown) and outrank breakpoint utilities because the ancestor selector adds specificity. */
 @custom-variant idle (.hud-grid[data-idle] &);
 
 /* A phone on its side: too short for the full race standings and the thumb pad together. */

@@ -23,7 +23,7 @@ src/routes/index.tsx   "/" → Home
       │   ├ reset-prompt.tsx  ResetPrompt ← hud/reset-prompt.ts resetInput / resetPromptLabel: the pulsing "R to reset" pill at 2+ wheels off
       │   ├ hud-sections.tsx  HudSections   accordion: Playback · Driving · Cars & crash · Debug views (use-stored-string.ts: which sections stay open)
       │   ├ touch-controls.tsx  TouchControls (thumb pad, coarse pointer only, via use-coarse-pointer.ts) · FullscreenButton
-      │   ├ use-hud-idle.ts  useHudIdle: touch only, 5 s without a tap mutes the HUD (`data-idle`, the `idle:` variant); taps on `data-keep-idle` (the thumb pad) don't wake it
+      │   ├ use-hud-idle.ts  useHudIdle: touch only, collapses the HUD to its short bar (`data-idle`, the `idle:` variant) after 5 s without a tap (`game/hud/hud-collapse.ts`; taps on `data-keep-idle`, the thumb pad, don't count) or on the hide button; expands only on a click or slide up on the collapsed bar, never a bare pointerdown
       │   └ ui/button.tsx
       └ <div veil>  the scene switch's black (SceneFade), over the canvas and the HUD, no pointer events
 src/routes/api/rtc.ts  /api/rtc → src/lib/multiplayer/signaling.server.ts (signaling relay, the only server route the game uses)
