@@ -2,8 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { applyDrive } from "./car-drive.ts";
-import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
+import { applyDrive, type DriveInput } from "./car-drive.ts";
+import { assignClass, CLASSES, HANDLING, type VehicleClassId } from "./vehicle-classes.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { DT, paint } from "./test-support.ts";
 
@@ -74,13 +74,13 @@ describe("drawn wheel spin, driven and flying", () => {
     const rateAfter = (throttle: number, secs: number): number => {
       const car = makeCar("sedan");
       roll(car, 0, 10, 0.5);
-      const spun = car["wheelRate"];
+      const spun = car.wheelRate[0]!;
       car.group.position.y = 80;
       car.airborne = true;
       car.airThrottle = throttle;
       for (let i = 0; i < Math.round(secs / DT); i++) car.integrate(DT);
       assert.ok(car.airborne, "landed");
-      return car["wheelRate"] / spun;
+      return car.wheelRate[0]! / spun;
     };
     const coast = rateAfter(0, 0.5);
     assert.ok(coast > 0.6 && coast < 0.85, `0.5 s of drag left ${coast.toFixed(2)} of the rate`);
@@ -115,6 +115,62 @@ describe("drawn wheel spin, driven and flying", () => {
       for (let i = 0; i < 60; i++) car.netFrame(DT);
       const want = v / radius("sedan");
       assert.ok(Math.abs(car.wheels[0]!.rotation.x - want) < 0.02 * Math.abs(want), `${v} m/s: ${car.wheels[0]!.rotation.x.toFixed(3)} rad vs ${want.toFixed(3)}`);
+    }
+  });
+});
+
+/** Each wheel's drawn roll (m) and the ground its own contact point covered along the nose, over a driven run at the 240 Hz step. */
+function driveRun(cls: VehicleClassId, v0: number, secs: number, input: Partial<DriveInput>): { rolled: number[]; travel: number[]; car: DeformableCar } {
+  const h = 1 / 240;
+  const car = makeCar(cls);
+  car.velocity.set(0, 0, v0);
+  const R = radius(cls);
+  const at = (i: number) => car.group.localToWorld(car.wheels[i]!.position.clone());
+  const prev = [0, 1, 2, 3].map(at);
+  const spin = car.wheels.map((w) => w.rotation.x);
+  const rolled = [0, 0, 0, 0];
+  const travel = [0, 0, 0, 0];
+  for (let k = 0; k < Math.round(secs / h); k++) {
+    applyDrive(car, { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false, ...input }, h);
+    car.integrate(h);
+    for (let i = 0; i < 4; i++) {
+      rolled[i]! += (car.wheels[i]!.rotation.x - spin[i]!) * R;
+      spin[i] = car.wheels[i]!.rotation.x;
+      const p = at(i);
+      travel[i]! += p.clone().sub(prev[i]!).dot(car.forward);
+      prev[i] = p;
+    }
+  }
+  return { rolled, travel, car };
+}
+
+describe("drawn wheel spin, each wheel on its own ground speed", () => {
+  for (const cls of ["sedan", "muscle", "truck", "monster", "police"] as const) {
+    it(`good: ${cls} in a full-lock turn, every wheel rolls what its own contact point travels (inner slower than outer)`, () => {
+      const r = driveRun(cls, 20, 1.5, { throttle: 0.5, steer: 1 });
+      assert.ok(r.travel[0]! - r.travel[1]! > 2, `no inner/outer split in the travel: ${r.travel.map((t) => t.toFixed(1))}`);
+      for (let i = 0; i < 4; i++) {
+        assert.ok(Math.abs(r.rolled[i]! / r.travel[i]! - 1) < 0.015, `wheel ${i}: rolled ${r.rolled[i]!.toFixed(2)} m, its contact point went ${r.travel[i]!.toFixed(2)} m`);
+      }
+    });
+  }
+
+  it("good: the handbrake locks the rear wheels (they stop turning) while the front wheels keep rolling", () => {
+    const r = driveRun("sedan", 20, 0.5, { ebrake: true });
+    assert.ok(r.car.speed > 5, `stopped: ${r.car.speed.toFixed(1)} m/s`);
+    assert.ok(Math.abs(r.rolled[2]!) < 0.05 * r.travel[2]! && Math.abs(r.rolled[3]!) < 0.05 * r.travel[3]!, `rear rolled ${r.rolled[2]!.toFixed(2)}, ${r.rolled[3]!.toFixed(2)} of ${r.travel[2]!.toFixed(2)} m`);
+    assert.ok(Math.abs(r.rolled[0]! / r.travel[0]! - 1) < 0.02, `front rolled ${r.rolled[0]!.toFixed(2)} of ${r.travel[0]!.toFixed(2)} m`);
+  });
+
+  it("good: a hard brake that locks the tyres (the drive's own `lock`) slows the wheels' turning by that share", () => {
+    const was = HANDLING.realism;
+    HANDLING.realism = 1;
+    try {
+      const r = driveRun("sedan", 30, 0.3, { brake: 1 });
+      assert.ok(r.car.drive.lock > 0.5, `no lock-up: ${r.car.drive.lock.toFixed(2)}`);
+      for (let i = 0; i < 4; i++) assert.ok(r.rolled[i]! < 0.7 * r.travel[i]!, `wheel ${i} rolled ${r.rolled[i]!.toFixed(2)} of ${r.travel[i]!.toFixed(2)} m under a lock of ${r.car.drive.lock.toFixed(2)}`);
+    } finally {
+      HANDLING.realism = was;
     }
   });
 });

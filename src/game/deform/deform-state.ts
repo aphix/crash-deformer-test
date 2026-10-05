@@ -298,6 +298,11 @@ export abstract class DeformState extends DeformHit {
     return (this.at.hubFL.popped ? 0 : 1) + (this.at.hubFR.popped ? 0 : 1) + (this.at.hubRL.popped ? 0 : 1) + (this.at.hubRR.popped ? 0 : 1);
   }
 
+  /** Which wheels are still on their hubs, as bits: 1 front left, 2 front right, 4 rear left, 8 rear right (`vehicle/wheel-loss.ts`). */
+  get wheelsOnMask(): number {
+    return (this.at.hubFL.popped ? 0 : 1) | (this.at.hubFR.popped ? 0 : 2) | (this.at.hubRL.popped ? 0 : 4) | (this.at.hubRR.popped ? 0 : 8);
+  }
+
   private massByName(name: string): MassNode {
     return this.byName.get(name) ?? this.at.cell;
   }

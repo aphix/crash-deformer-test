@@ -5,6 +5,7 @@ import type { PadState } from "./gamepad.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 import { floorUnder, gripUnder, hypot2 } from "../deform/physics-util.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
+import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 
 /** Shared by derby AI and the player seat. */
 export type DriveInput = {
@@ -85,6 +86,8 @@ const _assistFor = new Float64Array([NaN]);
  * [8] speed, [9] want, [10] spin, [11] lock. Doubles in a typed array: passed or returned out of line they boxed.
  */
 const _pedal = new Float64Array(12);
+/** What the wheels still on leave of each control (`wheelLoss`'s layout; `applyDrive` fills it, `pedals` reads it). */
+const _loss = new Float64Array(LOSS_SIZE);
 
 /** No floor or no drivetrain: the pedals and tyre FX go idle (the drift state stays). */
 function idleDriveState(d: DeformableCar["drive"]): void {
@@ -108,16 +111,19 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
   const muR = io[4]!;
   const realism = HANDLING.realism;
   const dt = io[6]!;
-  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1) * io[5]!;
+  const driveShare = _loss[1]!;
+  const ebrake = input.ebrake && _loss[6]! > 0;
+  const top = throttle < 0 ? k.revSpeed : k.topSpeed * dmg.top * (boosting ? k.boostTop : 1) * io[5]! * Math.sqrt(driveShare);
   let speed = along;
   let want = 0;
   let spin = 0;
   let lock = 0;
-  if (input.ebrake || brake > 0) {
+  if (ebrake || brake > 0) {
     let s = Math.abs(speed);
-    if (input.ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
-    // Brake force is near constant: a linear stop, never weaker than lifting off.
-    if (brake > 0) s = Math.max(0, s - k.brake * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
+    if (ebrake) s *= Math.exp(-DRIVE.ebrakeDrag * dt);
+    // Brake force is near constant: a linear stop, never weaker than lifting off. Wheels off take their share of the
+    // brakes with them.
+    if (brake > 0) s = Math.max(0, s - k.brake * _loss[2]! * (0.55 + 0.45 * Math.min(muF, muR)) * Math.max(0.45, brake) * dt);
     speed = s < 0.4 ? 0 : Math.sign(speed) * s;
     // ABS hides most of the lock-up at the arcade end.
     if (brake > 0.7 && s > 3) lock = ((brake - 0.7) / 0.3) * ((1 - realism) * 0.45 + realism) * Math.min(1, s / 10);
@@ -135,13 +141,17 @@ function pedals(k: (typeof CLASSES)[keyof typeof CLASSES], dmg: Drivability, inp
       let g = 0;
       while (g < k.gears.length - 1 && v >= k.gears[g]![0] * k.topSpeed) g++;
       const gear = k.gears[g]!;
-      rate = (gear[1] + (gear[2] - gear[1]) * realism) * dmg.power * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
+      rate = (gear[1] + (gear[2] - gear[1]) * realism) * dmg.power * driveShare * (boosting ? k.boostAccel : 1) * (0.4 + 0.6 * muR);
       if (throttle > 0.5 && along > -0.5) {
         spin = Math.max(v < 7 ? (1 - v / 7) * throttle * (0.35 + 0.65 * k.torque) * (boosting ? 1 : 0.7) : 0, (1 - muR) * throttle * 0.6);
       }
     }
     if (speed < want) speed = Math.min(want, speed + rate * dt);
     else speed = Math.max(want, speed - rate * dt);
+  }
+  // A corner on the road with no wheel under it drags the body along.
+  if (_loss[5]! > 0) {
+    speed = Math.sign(speed) * Math.max(0, Math.abs(speed) - _loss[5]! * dt);
   }
   io[7] = top;
   io[8] = speed;
@@ -180,14 +190,15 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const dmg = carDrivability(car, realism, _dmg);
   // Math.max/min, not THREE's clamp and lerp (the same arithmetic): those spent TurboFan's inlining budget here and boxed doubles.
   const throttle = Math.max(-1, Math.min(1, input.throttle));
-  const steer = Math.max(-1, Math.min(1, input.steer));
+  wheelLoss(car.deform.wheelsOnMask, _loss);
+  const command = Math.max(-1, Math.min(1, input.steer));
+  const steer = command * _loss[0]!;
   const brake = Math.max(0, Math.min(1, input.brake));
   const boosting = !!input.boost && throttle > 0;
-  d.throttle = throttle;
-  d.steer = steer;
-  d.brake = brake;
+  const ebrake = input.ebrake && _loss[6]! > 0; // the handbrake locks the rear wheels: with none left it holds nothing
+  // The pedals as commanded (a replay re-applies them to the same wheels): what the wheels do with them is `wheelLoss`'s.
+  d.throttle = throttle; d.steer = command; d.brake = brake;
   d.ebrake = input.ebrake; d.boost = boosting; d.neutral = input.neutral === true;
-
   car.refreshBasis();
   const fx0 = car.fwdFlat.x;
   const fz0 = car.fwdFlat.z;
@@ -204,15 +215,15 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   _axle.x = px - fx0 * DRIVE.axle;
   _axle.z = pz - fz0 * DRIVE.axle;
   gripUnder(_axle, _ground, 2);
-  const muF = _ground[1]!;
-  const muR = _ground[2]!;
-
+  const muF = _ground[1]! * _loss[3]!; // an axle with its wheels off grips like a body on the road
+  const muR = _ground[2]! * _loss[4]!;
   // Pedals: speed along the nose.
   _pedal[0] = throttle;
   _pedal[1] = brake;
   _pedal[2] = along;
-  _pedal[3] = muF;
-  _pedal[4] = muR;
+  // The wheels still on bite the floor as ever (their share is `_loss`'s): only the sideways grip below sees a bare axle.
+  _pedal[3] = _ground[1]!;
+  _pedal[4] = _ground[2]!;
   _pedal[5] = topScale;
   _pedal[6] = dt;
   pedals(k, dmg, input, boosting, _pedal);
@@ -221,18 +232,17 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const want = _pedal[9]!;
   const spin = _pedal[10]!;
   const lock = _pedal[11]!;
-
   // Wheel: yaw rate, slide state, damage pull.
   const v = Math.abs(speed);
   const grip = k.grip * a.grip * 0.5 * (muF + muR);
   let yawRate =
-    steer * k.turn * (input.ebrake ? DRIVE.ebrakeTurn : 1) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
+    steer * k.turn * (ebrake ? DRIVE.ebrakeTurn : 1) * (0.35 + Math.min(1, v / 8) * 0.65) * (0.45 + 0.55 * muF);
   // Body angle to the velocity, + = nose left of the path.
   const beta = Math.atan2(-lat0, Math.max(1, Math.abs(along)));
   const dir = beta > 0.02 ? 1 : beta < -0.02 ? -1 : Math.sign(steer);
   let target = 0;
   if (along > DRIVE.slideSpeed) {
-    if (input.ebrake && Math.abs(steer) > 0.15) target = 1;
+    if (ebrake && Math.abs(steer) > 0.15) target = 1;
     // Boost dumps torque on the rear: tail-happy classes step out under it at full lock.
     else if (boosting && throttle > 0.7 && Math.abs(steer) > 0.6 && along > DRIVE.boostSlideSpeed) target = k.drift;
     // Held on the gas with lock either way short of a hard counter-steer.

@@ -114,13 +114,13 @@ describe("derby AI presses R by the player's rules", () => {
 });
 
 describe("derby AI boost by the player's rules", () => {
-  /** A brain whose driver 0 hunts car 1, `z` m dead ahead (`foe` overrides it), nose first (tail spent, full aggression), past the opening hold. */
+  /** A brain whose driver 0 hunts car 1, `z` m dead ahead (`foe` overrides it), nose first (tail spent, full aggression), past the opening hold and the 8 s opening caution. */
   function charging(z: number, me: Partial<AiCar> = {}, foe: Partial<AiCar> = {}): { brain: DerbyBrain; self: AiCar; all: AiCar[] } {
     const brain = new DerbyBrain();
     brain.setAggression(0, 1);
     const self = aiCar(0, { vz: 8, rear: 0.9, damage: 0.3, idle: 1000, ...me });
     const all = [self, aiCar(1, { z, vz: 0, ...foe })];
-    brain.think(self, all, 2);
+    brain.think(self, all, 9); // past the 8 s opening caution (`derby-opening.ts`), which would lift off a boosted charge
     brain.meter[0] = 1;
     return { brain, self, all };
   }
@@ -199,7 +199,7 @@ describe("derby AI boost by the player's rules", () => {
     const snaps = match.snapshots(2);
     Object.assign(snaps[0]!, aiCar(0, { vz: 8, rear: 0.9, damage: 0.3 }));
     Object.assign(snaps[1]!, aiCar(1, { z: 18, vz: 0 }));
-    match.think(snaps[0]!, snaps, 2);
+    match.think(snaps[0]!, snaps, 9); // past the 8 s opening caution
     match.brain.meter[0] = 1;
     const input = match.think(snaps[0]!, snaps, DT);
     assert.equal(input.boost, true);

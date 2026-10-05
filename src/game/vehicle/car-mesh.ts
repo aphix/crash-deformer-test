@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { CAR_STYLES, type BodyStyle, type ProfileStation, type YZ } from "./car-variants.ts";
-import { makePartsMaterial, makeWheelGeometry, treadNormalMap } from "./car-materials.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
   [-0.74, 0.32, 1.34],
@@ -753,45 +752,3 @@ export function makeDoorGeometry(sign: number, style: BodyStyle = SEDAN): THREE.
   geo.computeVertexNormals();
   return geo;
 }
-
-/**
- * Every car's wheels (tyre, rim, hub) as one instanced draw plus one shadow draw. Cars keep a
- * bare Group per wheel as the transform that spins, steers, rides the hub and pops; `sync` copies
- * those world matrices in once the scene's matrices are current for the frame.
- */
-export class WheelBatch {
-  readonly mesh: THREE.InstancedMesh;
-
-  constructor(capacity: number) {
-    // Its own copy of the parts material (and shadow depth material): on the material the plain part meshes use,
-    // three re-ran program selection (`getProgram`, an allocation) on every instanced ↔ plain switch, twice a frame.
-    const mat = makePartsMaterial();
-    mat.normalMap = treadNormalMap();
-    this.mesh = new THREE.InstancedMesh(makeWheelGeometry(), mat, capacity);
-    this.mesh.customDepthMaterial = new THREE.MeshDepthMaterial();
-    this.mesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
-    this.mesh.castShadow = true;
-    // Instances span the pad and move every frame; a stale bound would cull live wheels.
-    this.mesh.frustumCulled = false;
-    this.mesh.count = 0;
-  }
-
-  /** Pack the shown wheels of `cars` (world matrices must be current). */
-  sync(cars: readonly { readonly wheels: readonly THREE.Object3D[] }[]): void {
-    const max = this.mesh.instanceMatrix.count;
-    let n = 0;
-    for (const car of cars) {
-      for (const w of car.wheels) {
-        let shown = n < max;
-        for (let p: THREE.Object3D | null = w; p && shown; p = p.parent) shown = p.visible;
-        if (shown) this.mesh.setMatrixAt(n++, w.matrixWorld);
-      }
-    }
-    this.mesh.count = n;
-    const attr = this.mesh.instanceMatrix;
-    attr.clearUpdateRanges();
-    attr.addUpdateRange(0, n * 16);
-    attr.needsUpdate = true;
-  }
-}
-

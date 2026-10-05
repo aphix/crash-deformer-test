@@ -147,6 +147,32 @@ function withPrimer<T extends THREE.MeshStandardMaterial>(m: T): T {
   return m;
 }
 
+/** What a wheel's spokes and disc blend to at full smear: the alloy and the dark disc averaged, as a shutter would. */
+const SMEAR_TONE = new THREE.Color(0x6b6f76);
+
+/**
+ * The parts material for the wheel batch: the `blur` of each instance (0 sharp .. 1 smeared, `spokeSmear`) fades the
+ * vertices with `smear` weight toward one flat, half-metal tone, so a rim turning too fast to read as spokes reads as a
+ * soft disc instead of strobing slow or backwards. Wraps `capHighlights`' compile hook.
+ */
+export function makeWheelMaterial(): THREE.MeshStandardMaterial {
+  const m = makePartsMaterial();
+  const cap = m.onBeforeCompile;
+  m.onBeforeCompile = (shader, renderer) => {
+    cap.call(m, shader, renderer);
+    shader.vertexShader = shader.vertexShader
+      .replace("#include <common>", "#include <common>\nattribute float smear;\nattribute float blur;\nvarying float vSmear;")
+      .replace("#include <begin_vertex>", "#include <begin_vertex>\nvSmear = smear * blur;");
+    shader.fragmentShader = shader.fragmentShader
+      .replace("#include <common>", "#include <common>\nvarying float vSmear;")
+      .replace("#include <color_fragment>", `#include <color_fragment>\ndiffuseColor.rgb = mix(diffuseColor.rgb, vec3(${SMEAR_TONE.r}, ${SMEAR_TONE.g}, ${SMEAR_TONE.b}), vSmear);`)
+      .replace("#include <roughnessmap_fragment>", "#include <roughnessmap_fragment>\nroughnessFactor = mix(roughnessFactor, 0.5, vSmear);")
+      .replace("#include <metalnessmap_fragment>", "#include <metalnessmap_fragment>\nmetalnessFactor = mix(metalnessFactor, 0.6, vSmear);");
+  };
+  m.customProgramCacheKey = () => "car-wheel-smear";
+  return m;
+}
+
 export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
   const maps = typeof document === "undefined" ? { map: null, roughness: null } : makePaintMaps();
   return withPrimer(
@@ -204,7 +230,7 @@ const toneGrid = once((): THREE.DataTexture => {
  * collapse into a few draws that all reuse one program and one uniform upload. Never disposed. */
 const partsMaterial = once(makePartsMaterial);
 
-export function makePartsMaterial(): THREE.MeshStandardMaterial {
+function makePartsMaterial(): THREE.MeshStandardMaterial {
   const grid = toneGrid();
   const m = capHighlights(
     new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid }),
@@ -490,17 +516,23 @@ function flatPart(g: THREE.BufferGeometry, tone: readonly [number, number, numbe
 const RUBBER = [0x121214, 0.92, 0.05] as const;
 const ALLOY = [0xc9cdd4, 0.28, 0.92] as const;
 
+/** Give every vertex of `g` a `smear` weight: 1 on the spokes and the disc behind them, which `makeWheelMaterial` fades toward a blur. */
+function smeared(g: THREE.BufferGeometry, weight: number): THREE.BufferGeometry {
+  g.setAttribute("smear", new THREE.BufferAttribute(new Float32Array(g.getAttribute("position").count).fill(weight), 1));
+  return g;
+}
+
 /**
  * One wheel about the x axle, symmetric in x so the same instance serves both sides: a lathed tyre
  * (tread detail from `treadNormalMap`), a rim barrel, five spokes through the full rim width over a
- * dark centre disc, and the hub. ~680 triangles.
+ * dark centre disc, and the hub. ~680 triangles. The spokes and disc carry `smear` 1 (`spokeSmear`).
  */
 export function makeWheelGeometry(): THREE.BufferGeometry {
-  const parts = [latheX(TYRE_PROFILE, 24, TYRE_TREAD_V, TREAD_REPEATS, RUBBER), latheX(RIM_PROFILE, 16, null, 1, ALLOY)];
-  for (const side of [1, -1]) parts.push(flatPart(new THREE.CircleGeometry(0.19, 16).rotateY((side * Math.PI) / 2), [0x1c1d20, 0.7, 0.3]));
+  const parts = [latheX(TYRE_PROFILE, 24, TYRE_TREAD_V, TREAD_REPEATS, RUBBER), latheX(RIM_PROFILE, 16, null, 1, ALLOY)].map((g) => smeared(g, 0));
+  for (const side of [1, -1]) parts.push(smeared(flatPart(new THREE.CircleGeometry(0.19, 16).rotateY((side * Math.PI) / 2), [0x1c1d20, 0.7, 0.3]), 1));
   for (let k = 0; k < 5; k++) {
-    parts.push(flatPart(new THREE.BoxGeometry(0.17, 0.15, 0.042).translate(0, 0.115, 0).rotateX((k * 2 * Math.PI) / 5), ALLOY));
+    parts.push(smeared(flatPart(new THREE.BoxGeometry(0.17, 0.15, 0.042).translate(0, 0.115, 0).rotateX((k * 2 * Math.PI) / 5), ALLOY), 1));
   }
-  parts.push(flatPart(new THREE.CylinderGeometry(0.062, 0.062, 0.19, 10).rotateZ(Math.PI / 2), [0x8a909a, 0.35, 0.8]));
+  parts.push(smeared(flatPart(new THREE.CylinderGeometry(0.062, 0.062, 0.19, 10).rotateZ(Math.PI / 2), [0x8a909a, 0.35, 0.8]), 0));
   return mergeToned(parts, "wheel");
 }

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, DeformableCar } from "../vehicle/car.ts";
 import type { CarPaint } from "../vehicle/car-core.ts";
-import { WheelBatch } from "../vehicle/car-mesh.ts";
+import { WheelBatch } from "../vehicle/wheel-batch.ts";
 import { COMPACTOR, CompactorRig } from "../scenes/compactor.ts";
 import { StackRig } from "../scenes/stack-rig.ts";
 import { PistonRig } from "../scenes/piston-rig.ts";

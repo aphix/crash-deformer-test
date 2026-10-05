@@ -4,6 +4,7 @@ import { MAX_CARS } from "../scenes/fleet.ts";
 import { mood } from "./ai-aggression.ts";
 import { DerbyPocket } from "./derby-pocket.ts";
 import { clamp, hash01 } from "../kernel/scalar.ts";
+import { OpeningWatch } from "./derby-opening.ts";
 
 export type AiCar = {
   id: number;
@@ -198,6 +199,7 @@ export class DerbyBrain {
   private readonly pocket = new DerbyPocket();
   /** Boost meter per car, 0–1: the seat's (`BOOST`), earned by takedowns and kept by `driveBoost`. */
   readonly meter = new Float64Array(MAX_CARS);
+  private readonly caution = new OpeningWatch();
 
   constructor(radius = DERBY_RADIUS) {
     this.radius = radius;
@@ -230,6 +232,7 @@ export class DerbyBrain {
     this.spin.fill(0);
     this.nearFor.fill(0);
     this.pocket.reset();
+    this.caution.reset();
     this.meter.fill(1);
   }
 
@@ -269,6 +272,7 @@ export class DerbyBrain {
     const i = self.id;
     if (i < 0 || i >= MAX_CARS || dt <= 0) return out;
     this.driveBoost(self, others, out, dt);
+    this.caution.apply(out, self, others, this.age[i]!);
     if (Number.isNaN(this.yawWas[i]!)) this.yawWas[i] = self.yaw;
     const rate = wrapPi(self.yaw - this.yawWas[i]!) / dt;
     this.yawWas[i] = self.yaw;

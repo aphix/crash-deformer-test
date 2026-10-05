@@ -141,7 +141,7 @@ Measured by `scenes/fleet-ramps.test.ts` with the capped ground support (the sil
 
 **Camera ride.** `DriveCam` (the chase, far-chase and hood shots of `frameDrive`) rides a share of the followed car's drawn heave and pitch (`Suspension.heave`, `.pitch`): the eye drops and tips up under a squat or a landing, lifts and tips down under a dive; a chase eye behind the body's pivot sinks with nose-up, the hood cam ahead of it rises. Soft-bounded (`tanh`) under 4 cm and 0.6°, eased at 12/s, let go while the player holds a look offset. It costs 0.0004 ms a frame, so it is on at every FX tier but "off" (and off under reduced motion); the crash cam, reel, ragdoll ride-along, orbit and user-framed views never ride. `vehicle/car-load.test.ts` holds the launch/brake/turn/stopped signs and the camera bounds.
 
-**Drawn wheels turn with the signed ground speed over their own radius.** On the ground a tyre turns at (velocity . forward) / (`TYRE_R` x the class's wheel scale) rad/s: reversing turns it back, a sideways slide turns it not at all (only its component along the nose), a monster truck's big wheels turn slower than a sedan's at the same speed, and a crashed car with a dead drivetrain freewheels at the same v/r instead of stopping. In the air the wheels keep their last rate and lose 1/e of it every 1.5 s to bearing drag; a driven body's gas winds them up at 8 rad/s^2, reverse winds them back. A loose wheel is not turned by the car. Drawn only (`wheelSpin`/`wheelRate` are never read by the sim); `vehicle/wheel-spin.test.ts`.
+**Drawn wheels turn with the signed ground speed over their own radius, each on its own contact point.** On the ground a tyre turns at (velocity . forward − yaw rate × its sideways offset) / (`TYRE_R` x the class's wheel scale) rad/s: reversing turns it back, a sideways slide turns it not at all (only its component along the nose), in a turn the inner wheels turn slower than the outer (full lock at 20 m/s: the roll error against each wheel's own ground fell from ±4 % to 0), a monster truck's big wheels turn slower than a sedan's at the same speed, and a crashed car with a dead drivetrain freewheels at the same v/r instead of stopping. The drive's locks slow a wheel by their share: the handbrake stops the rear pair (it did turn at the body's rate: −17 % / +27 % against its own ground in a handbrake slide), a hard brake's `lock` all four. In the air the wheels keep their last rate and lose 1/e of it every 1.5 s to bearing drag; a driven body's gas winds them up at 8 rad/s^2, reverse winds them back. A loose wheel is not turned by the car. Drawn only (`wheelSpin`/`wheelRate` are never read by the sim); `vehicle/wheel-spin.test.ts`. **Wagon wheel:** the rate was already right; at 60 Hz a sedan's five-spoke rim turns 60° a frame at 20 m/s, past half its 72° period, so the spokes read slow or backwards (true 60°, seen −12°). The wheel batch smears the spokes and the disc behind them into a soft disc (`vehicle/wheel-blur.ts`, `blur` per instance) once a drawn frame turns the rim past 0.2 of a spoke period, full at 0.4; slow-mo and a 240 Hz display keep sharp spokes.
 
 **A wreck missing wheels lies on its body corners.** A crashed car's drawn body (the class-lift group, `Suspension`) eases down at 4/s (99 % in 1.2 s) onto the corners of the wheels it has lost: the smallest offsets (equal springs) that put each empty hub's corner at the underside's height there, then raised as far as any underside point (`UNDERSIDE`, read off the skinned wreck mesh: keel 3 cm at the nose rising to 16 cm at the tail, bumper and rocker corners) or the standing wheels' arches need. Measured on a sedan: the empty corner rests 1.0-1.8 cm over the ground with one wheel off, 1.1-2.4 cm with a front, rear or side pair off, and 3.3 / 5.9 cm (the body rocks on the two standing tyres) with a diagonal pair; a monster truck on two diagonal tyres stays 31 cm up on their arches. Drawn only (the physics frame, masses and hulls keep the level pose), so no digest moves. `vehicle/wheel-rest.test.ts` rests every class with a corner, a front, rear and side pair and a diagonal pair off for 5 s: the body mesh never more than 2 cm into the ground, within 3 cm of it (lifted classes: 3 cm + 12 % of the lift), still within 3 s.
 
@@ -172,9 +172,27 @@ From `deform.drivetrainHealth` (1 − block travel / kill travel), `deform.wheel
 | Healthy | never hit | none |
 | Dented | crashed, health > 0.6, all wheels | cosmetic only |
 | Damaged | health 0.25–0.6, or one wheel off | up to −12 % top speed, power −16 %, pulls ≤ 0.1 rad/s toward the struck side |
-| Limping | health < 0.25, or two wheels off | up to −26 % top speed (−12 % more per lost wheel), stronger pull, smoke |
+| Limping | health < 0.25, or two wheels off | up to −26 % top speed (health only: wheels are charged in the table below), stronger pull, smoke |
 | Dead | block travel past the kill travel, all four wheels off, or derby elimination | no drive |
 
 A car short of dead never drops below 60 % of its class top speed (`LIMP_FLOOR`).
+
+**Wheels off (`vehicle/wheel-loss.ts`, one rule for the player and every AI: they all go through `applyDrive`).** Every
+class drives all four wheels (the class table has no driveline). What the wheels still on leave of each control:
+steering is the front wheels' share (both gone: none, one gone: half the lock), thrust is wheels on / 4 and top speed its
+square root, brakes are the wheels on with the fronts taking 60 %, an axle with both wheels off keeps 35 % of its sideways
+grip (the body on the road), every lost wheel scrapes the body for 0.5 m/s², and the handbrake needs a rear wheel to lock.
+Sedan, full lock at 12 m/s, throttle 0.3, measured on `.bench/wheel-loss.ts` (before → after):
+
+| Wheels off | Yaw rate (°/s) | Speed after 3 s of full gas (m/s) | Stop from 20 m/s (m) | Top (m/s) |
+|---|---|---|---|---|
+| none | 88.8 → 88.8 | 28.5 → 28.5 | 7.1 → 7.1 | 55.6 → 55.6 |
+| front left | 88.8 → 36.5 | 26.9 → 23.8 | 7.1 → 9.9 | 51.1 → 48.1 |
+| rear left | 88.8 → 88.8 | 26.9 → 23.8 | 7.1 → 8.6 | 51.1 → 48.1 |
+| front pair | 88.8 → 0 | 25.3 → 16.5 | 7.1 → 16.3 | 46.7 → 39.3 |
+| rear pair | 88.8 → 88.8 | 25.3 → 16.5 | 7.1 → 11.1 | 46.7 → 39.3 |
+| left pair, or a diagonal | 88.8 → 36.5 | 25.3 → 16.5 | 7.1 → 13.2 | 46.7 → 39.3 |
+| three (rear right on) | 88.8 → 0 | 23.7 → 6.5 | 7.1 → 28.1 | 42.3 → 23.3 |
+
 A dented car under power drives on its tyres: the sliding-wreck ground drag (`groundMasses`, `bleedAfterSlide`) only
 slows a coasting or dead wreck. With it on a driven car, a dented sedan after a 20 km/h wall hit topped out at 14 km/h.

@@ -292,9 +292,10 @@ export abstract class CarCore {
   protected world: THREE.Scene;
   protected onGlass: GlassBurst | null;
   protected bodyMat: THREE.MeshPhysicalMaterial;
-  protected wheelSpin = 0;
-  /** The drawn wheels' rate about their axle (rad/s, forward positive): drawn only, the sim never reads it. */
-  protected wheelRate = -0;
+  /** Each drawn wheel's angle about its axle (rad), in `wheels` order. */
+  protected readonly wheelSpin = new Float64Array(4);
+  /** Each drawn wheel's rate about its axle (rad/s, forward positive): drawn only, the sim never reads it. */
+  readonly wheelRate = new Float64Array(4);
   /** Throttle (−1..1) of a driven body in the air, which winds its wheels up (`applyDrive` writes it; drive state idles there). */
   airThrottle = -0;
   protected glassPanes: GlassPane[] = [];
@@ -723,16 +724,26 @@ export abstract class CarCore {
   }
 
   /**
-   * Turn the drawn wheels one step (drawn only: the sim never reads them). On the ground (`rolling`) a tyre turns with
-   * the car's travel along its heading over the radius it is drawn at (the mesh's tread crown `TYRE_R` at the class's
-   * wheel scale): reversing turns it back, a sideways slide turns nothing. In the air the wheels keep their last rate
-   * and lose it to bearing drag, a driven body's throttle winding them up a little. A wheel off the car turns on its own.
+   * Turn the drawn wheels one step (drawn only: the sim never reads them). On the ground (`rolling`) each tyre turns with
+   * its own contact point's travel along the car's heading over the radius it is drawn at (the mesh's tread crown `TYRE_R`
+   * at the class's wheel scale): the body's speed less the yaw rate times the wheel's sideways offset, so in a turn the
+   * inner wheels turn slower than the outer. Reversing turns it back, a sideways slide turns nothing, and a wheel the
+   * drive locks (the handbrake on the rear pair, a hard brake's `lock` on all four) turns that much less. In the air the
+   * wheels keep their last rate and lose it to bearing drag, a driven body's throttle winding them up a little. A wheel
+   * off the car turns on its own.
    */
   protected spinWheels(dt: number, rolling: boolean): void {
-    if (rolling) this.wheelRate = this.velocity.dot(this.forward) / (TYRE_R * this.wheels[0]!.scale.x);
-    else this.wheelRate = this.wheelRate * Math.exp(-dt / AIR_SPIN_TAU) + this.airThrottle * AIR_SPIN_UP * dt;
-    this.wheelSpin += this.wheelRate * dt;
-    for (let i = 0; i < this.wheels.length; i++) if (!this.looseWheels[i]!.loose) this.wheels[i]!.rotation.x = this.wheelSpin;
+    const d = this.drive;
+    const inv = 1 / (TYRE_R * this.wheels[0]!.scale.x);
+    const along = this.velocity.dot(this.forward);
+    const decay = Math.exp(-dt / AIR_SPIN_TAU);
+    const wind = this.airThrottle * AIR_SPIN_UP * dt;
+    for (let i = 0; i < this.wheels.length; i++) {
+      if (rolling) this.wheelRate[i] = (along - this.angular.y * WHEEL_POS[i]![0]) * inv * (1 - (i >= 2 && d.ebrake ? 1 : d.lock));
+      else this.wheelRate[i] = this.wheelRate[i]! * decay + wind;
+      this.wheelSpin[i]! += this.wheelRate[i]! * dt;
+      if (!this.looseWheels[i]!.loose) this.wheels[i]!.rotation.x = this.wheelSpin[i]!;
+    }
   }
 
   worldToLocalPoint(world: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {

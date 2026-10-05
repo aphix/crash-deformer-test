@@ -36,10 +36,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * crushes on and an older clip replays another hit; 20: a fixed solid's face meeting only the crush hulls (a palm
  * between the bumpers) is a contact as the slab's is (kept open, crushing and braking), and a wreck's hull allowance at a
  * fixed solid ramps with its closing speed, a live-trajectory change; 21: a re-armed hit's damage base is read in the
- * frame `clampLocal` keeps (`rearmHit`) and a derby car's wear share is 250, so a re-hit crushes and kills differently).
+ * frame `clampLocal` keeps (`rearmHit`) and a derby car's wear share is 250, so a re-hit crushes and kills differently;
+ * 22: derby drivers that pace in one pocket go bold, the first 8 s lift off high-closing rams, and lost wheels take
+ * their steering, thrust, brakes and grip with them, all live-trajectory changes).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 21;
+const REPLAY_VERSION = 22;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

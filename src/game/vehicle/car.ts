@@ -108,8 +108,8 @@ export class DeformableCar extends CarParts {
     this.restoreRest(this.doorMeshL.geometry, this.doorLRest);
     this.restoreRest(this.doorMeshR.geometry, this.doorRRest);
     if (this.lightBar) this.restoreRest(this.lightBar.geometry, this.lightBarRest!);
-    this.wheelSpin = 0;
-    this.wheelRate = 0;
+    this.wheelSpin.fill(0);
+    this.wheelRate.fill(0);
     this.airThrottle = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       const w = this.wheels[i]!;

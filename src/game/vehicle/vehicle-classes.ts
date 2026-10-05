@@ -342,7 +342,8 @@ export function drivability(
   const lost = Math.max(0, 4 - wheelsOn);
   const hurt = THREE.MathUtils.clamp((DENT - health) / (DENT - LIMP), 0, 1);
   const limp = THREE.MathUtils.clamp((LIMP - health) / LIMP, 0, 1);
-  const loss = sev * (0.12 * hurt + 0.14 * limp + 0.12 * lost);
+  // Lost wheels cost top speed and thrust in `wheelLoss` (the wheels still on), not here.
+  const loss = sev * (0.12 * hurt + 0.14 * limp);
   out.top = Math.max(LIMP_FLOOR, 1 - loss);
   out.power = Math.max(LIMP_FLOOR - 0.1, 1 - loss * 1.3);
   out.pull = pullSide * sev * (0.1 * hurt + 0.12 * limp + 0.16 * Math.min(2, lost));
