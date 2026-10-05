@@ -43,7 +43,8 @@ tickInner(now)                               wallDt ≤ 0.1 s
  ├ simDt = wallDt × timeScale × cine.timeWarp (slow-mo ramp, hit-stop)
  ├ SimPacer.run: whole steps of h = physicsSlice(∞, sliceSpeed(cars)) × min(1, timeScale) while sim time is owed, the last one running past the
  │   frame's time by < h; ≤ 8 steps, 8 ms of steps (counted from the first step); what a stopped frame did not step is dropped (`lost`), never carried
- │   (sim-pace.ts). Per step PoseBlend.begin/end keep the cars' poses either side of it.
+ │   (sim-pace.ts). Per step PoseBlend.begin/end keep the cars' poses either side of it. Adaptive: the engine's pacer measures its steps' wall cost; while a frame's
+ │   1/240 s steps would not fit the 8 ms (PACE_BUDGET_MS) the slice floor is 1/120 s (`coarse`), chosen before the frame's first step and held ≥ 1 s; a device that keeps up never leaves 1/240 s.
  │   fixedStep(h):
  │     applyDrive (player seat, derby AI via DerbyBrain.think, net.drive for remote peers on the host; in a race, race.drive drives every car)
  │     stepWorld(world, h)  (world-step.ts; every headless harness calls it too) → 1–3 slices:

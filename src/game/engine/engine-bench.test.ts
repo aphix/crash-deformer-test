@@ -22,6 +22,7 @@ const RESULT: BenchResult = {
   msPerStep: 1.56,
   cutFrames: 40,
   lostSimS: 0.5,
+  coarsePct: 62.4,
   simSpeedPct: 98.3,
   calls: 420,
   triangles: 380_000,
@@ -39,7 +40,7 @@ test("describeBench: the card leads with fps and sim speed, and says when the GP
   const lines = describeBench(RESULT);
   assert.match(lines[0]!, /^CRUSH BENCH {2}city {2}22 cars/);
   assert.match(lines[1]!, /^90\.0 FPS {3}1% low 41\.7 {3}by thirds 90\.0 \/ 90\.0 \/ 89\.0$/);
-  assert.match(lines[2]!, /^SIM SPEED 98 %/);
+  assert.match(lines[2]!, /^SIM SPEED 98 % .*1\/120 s steps in 62 % of frames$/);
   assert.ok(lines.some((l) => /^GPU {7}no timer query/.test(l)));
   assert.ok(lines.some((l) => l.includes("2.7 steps/frame, 1.56 ms/step")));
   assert.ok(lines.some((l) => l.includes("1373x618 (ratio 1.5)")));

@@ -3,7 +3,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { PISTON_ORBIT_RATE, PistonBank } from "../present/engine-pistons.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { sliceSpeed } from "../contact/sat.ts";
-import { SimPacer } from "./sim-pace.ts";
+import { PACE_BUDGET_MS, SimPacer } from "./sim-pace.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
 import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase, THROW_ONSET } from "../match/phase.ts";
@@ -126,7 +126,7 @@ export class CrashEngine extends EngineShare {
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
   protected readonly highlights: ReelDirector;
   /** The sim's steps against the frames (`SimPacer`), and the cars drawn between the last two (`PoseBlend`). */
-  readonly pace = new SimPacer();
+  readonly pace = new SimPacer(true);
   private readonly blend = new PoseBlend();
   /** One sim step of the frame (`SimPacer.run`): the cars' poses either side of it kept for the blend. */
   private readonly slice = (h: number): void => {
@@ -388,7 +388,7 @@ export class CrashEngine extends EngineShare {
         if (!this.net.client) this.maybePreSlowmo(wallDt);
         easeTimeScale(this.clock, wallDt);
         simDt = wallDt * this.clock.timeScale * this.cine.timeWarp;
-        if (!this.net.client) this.pace.run(simDt, this.clock.timeScale * this.cine.timeWarp, sliceSpeed(cars), performance.now() + 8, this.slice);
+        if (!this.net.client) this.pace.run(simDt, this.clock.timeScale * this.cine.timeWarp, sliceSpeed(cars), performance.now() + PACE_BUDGET_MS, this.slice);
       }
       this.stepEdge();
       this.scheduleSkins(cars);

@@ -66,6 +66,8 @@ export interface BenchResult {
   /** Frames the pacer stopped early, and the sim seconds it gave up (never stepped). */
   cutFrames: number;
   lostSimS: number;
+  /** Share of the sampled frames the pacer ran at its coarse 1/120 s slice (`SimPacer` adaptive), %. */
+  coarsePct: number;
   /** Race-clock seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
   simSpeedPct: number;
   calls: number;
@@ -92,7 +94,7 @@ export function describeBench(r: BenchResult): string[] {
   return [
     `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames`,
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
-    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s`,
+    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames`,
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step`,
@@ -199,6 +201,7 @@ interface Samples {
   sim: Float64Array;
   draw: Float64Array;
   steps: Float64Array;
+  coarse: Float64Array;
   calls: Float64Array;
   tris: Float64Array;
 }
@@ -215,7 +218,7 @@ interface Window {
 async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window }> {
   const { renderer, race } = parts;
   const arr = (): Float64Array => new Float64Array(CAP);
-  const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), calls: arr(), tris: arr() };
+  const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), coarse: arr(), calls: arr(), tris: arr() };
   const pace = engine.pace;
   let prev = await nextFrame();
   let startedAt = 0;
@@ -252,6 +255,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, ui: { set(
     s.sim[i] = t.simMs;
     s.draw[i] = t.drawMs;
     s.steps[i] = pace.steps;
+    s.coarse[i] = pace.coarse ? 1 : 0;
     s.calls[i] = renderer.info.render.calls;
     s.tris[i] = renderer.info.render.triangles;
     ui.set(`CRUSH BENCH: measuring ${Math.round((now - startedAt) / 1000)} / ${BENCH.measureS} s`);
@@ -294,6 +298,7 @@ function summarize(parts: BenchParts, s: Samples, w: Window, gpu: number[], setu
     msPerStep: stepSum ? (simMs.mean * n) / stepSum : 0,
     cutFrames: w.cutFrames,
     lostSimS: w.lostSimS,
+    coarsePct: n ? (100 * stat(s.coarse, n).mean) : 0,
     simSpeedPct: w.wallS ? (100 * w.clockS) / w.wallS : 0,
     calls: stat(s.calls, n).p50,
     triangles: stat(s.tris, n).p50,

@@ -34,11 +34,11 @@ function hullCenter(car: DeformableCar, h: Hull, out: THREE.Vector3): void {
   );
 }
 
-/** Max displacement per physics slice so a 30 m/s car cannot skip a 0.76 m wall. */
-export function physicsSlice(dt: number, vmax: number): number {
+/** Max displacement per physics slice so a 30 m/s car cannot skip a 0.76 m wall; never shorter than `floor` (s, 1/240 unless the pacer is shedding load). */
+export function physicsSlice(dt: number, vmax: number, floor = 1 / 240): number {
   const maxMove = 0.07;
   const cap = maxMove / Math.max(vmax, 4);
-  return Math.min(dt, Math.max(1 / 240, cap));
+  return Math.min(dt, Math.max(floor, cap));
 }
 
 /** Fastest car this frame; `physicsSlice` sizes the sub-steps from it. A wreck's `speed` is the

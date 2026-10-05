@@ -5,7 +5,7 @@ import { DeformableCar } from "../vehicle/car.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { assertSameNumbers, paint } from "../vehicle/test-support.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
-import { SimPacer } from "./sim-pace.ts";
+import { PACE_BUDGET_MS, SimPacer } from "./sim-pace.ts";
 
 const V = 30;
 const SPIN = 1.2;
@@ -234,5 +234,86 @@ describe("a body is drawn as it stands when the blend would smear it", () => {
     assert.ok(Math.abs(car.group.position.x - 1) < 1e-12);
     // 3 and -3 rad are 2π − 6 ≈ 0.283 rad apart through π.
     assert.ok(Math.abs(Math.abs(car.group.rotation.y) - Math.PI) < 0.01, `heading ${car.group.rotation.y}`);
+  });
+});
+
+/**
+ * A device on a virtual clock: each step costs `stepMs(t)` ms, each frame's draw `drawMs`, and a frame lands on the next vblank of an `hz`
+ * display (what `.bench/phone-model.ts` runs on the real sim). The pacer's deadline is the engine's: `PACE_BUDGET_MS` from the frame's start.
+ */
+function device(adaptive: boolean, stepMs: (t: number, n: number) => number, drawMs: number, hz: number, seconds: number, scale = 1) {
+  let t = 0;
+  let n = 0;
+  const pace = new SimPacer(adaptive, () => t);
+  const period = 1000 / hz;
+  let dt = period;
+  let stepped = 0;
+  const log: { at: number; sim: number; h: number }[] = [];
+  while (t < seconds * 1000) {
+    const t0 = t;
+    pace.run((dt / 1000) * scale, scale, FAST, t + PACE_BUDGET_MS, (h) => {
+      t += stepMs(t, n++);
+      stepped += h;
+      log.push({ at: t, sim: stepped, h });
+    });
+    t += drawMs;
+    dt = Math.min(100, Math.max(period, Math.ceil((t - t0) / period - 1e-9) * period));
+    t = t0 + dt; // the next frame starts at the vblank
+  }
+  return { pace, log, speed: stepped / scale / (t / 1000) };
+}
+
+describe("the adaptive slice", () => {
+  const fine = Math.fround(1 / 240);
+  const coarse = Math.fround(1 / 120);
+
+  it("good: a device that keeps up steps at 1/240 s throughout, the very steps the fixed pacer takes", () => {
+    const on = device(true, () => 0.8, 4, 90, 8);
+    const off = device(false, () => 0.8, 4, 90, 8);
+    assert.equal(on.pace.coarseSteps, 0);
+    assert.ok(on.log.every((e) => e.h === fine));
+    assert.equal(on.log.length, off.log.length);
+    assert.ok(on.log.every((e, i) => e.h === off.log[i]!.h && e.at === off.log[i]!.at), "the same steps at the same times");
+  });
+
+  it("bad: a device that can't afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen) gets its sim speed back at 1/120 s", () => {
+    const off = device(false, () => 4.7, 9.4, 90, 20);
+    const on = device(true, () => 4.7, 9.4, 90, 20);
+    assert.ok(off.speed < 0.45, `the fixed pacer runs at ${off.speed}`);
+    assert.ok(on.speed > 0.7 && on.speed > 1.8 * off.speed, `adaptive ${on.speed} vs fixed ${off.speed}`);
+    assert.ok(on.log.slice(-200).every((e) => e.h === coarse), "settled at 1/120 s");
+    assert.ok(on.pace.coarseSteps > 0.8 * on.pace.total);
+  });
+
+  it("good: the mode is chosen before a frame's first step and held for a second, and it comes back when the load goes", () => {
+    // Heavy for 6 s, then light: 4.7 ms a step, then 0.6.
+    const d = device(true, (t) => (t < 6000 ? 4.7 : 0.6), 5, 90, 14);
+    let flips = 0;
+    let last = d.log[0]!;
+    let since = 0;
+    for (const e of d.log) {
+      if (e.h !== last.h) {
+        flips++;
+        assert.ok(e.at - since >= 950, `a mode lasted ${e.at - since} ms`);
+        since = e.at;
+      }
+      last = e;
+    }
+    assert.ok(flips >= 2, `${flips} mode changes`);
+    assert.equal(d.log[0]!.h, fine);
+    assert.ok(d.log.slice(-200).every((e) => e.h === fine), "back at 1/240 s once the load is gone");
+    assert.ok(d.log.some((e) => e.h === coarse));
+  });
+
+  it("good: one hitch (a 40 ms step, then a 100 ms frame) on a fast device changes nothing", () => {
+    const d = device(true, (_t, n) => (n === 700 ? 40 : 0.8), 4, 90, 10);
+    assert.equal(d.pace.coarseSteps, 0);
+  });
+
+  it("good: in slow motion the coarse step is the scaled one, and the dwell counts wall seconds", () => {
+    const d = device(true, () => 6, 4, 90, 12, 0.25);
+    assert.ok(d.log.slice(-100).every((e) => e.h === Math.fround(coarse * 0.25)));
+    const first = d.log.findIndex((e) => e.h !== d.log[0]!.h);
+    assert.ok(d.log[first]!.at >= 950, `first change ${d.log[first]!.at} ms in`);
   });
 });

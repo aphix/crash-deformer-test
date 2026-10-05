@@ -129,5 +129,28 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
     it("good: the same head-on beside an untouched bystander (the control: the marked clock was the whole difference)", () => run("derby bystander untouched", BYSTANDER));
   });
 
+  // The adaptive pacer (`SimPacer`) steps a slow device at 1/120 s; the recorder stores each step's dt, so its clips replay as exactly.
+  describe("in a derby on a device that steps at 1/120 s", () => {
+    const HEAD = Math.PI / 2;
+    const run = (name: string, spawns: Spawn[]): void => {
+      const rec = recordFlat(spawns, 8, true, [], 1 / 120);
+      const coarse = rec.clip.h.filter((h) => h > 1 / 120 - 1e-6).length;
+      assert.ok(coarse > rec.clip.h.length / 2, `${name}: ${coarse} of ${rec.clip.h.length} steps at 1/120 s (the rest are frame remainders)`);
+      check(name, rec, agreement(rec));
+    };
+    it("bad: a head-on at 2 x 20 m/s", () =>
+      run("coarse head-on", [
+        { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+        { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+      ]));
+    it("bad: a pile-up, two head-on, one behind, one across", () =>
+      run("coarse pile-up", [
+        { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+        { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+        { x: -12, z: 0.5, yaw: HEAD, speed: 20, throttle: 1 },
+        { x: 40, z: 60, yaw: Math.PI, speed: 20, throttle: 1 },
+      ]));
+  });
+
   it("report", (t) => t.diagnostic(rows.join("\n")));
 });

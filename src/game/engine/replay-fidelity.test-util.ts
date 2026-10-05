@@ -99,9 +99,10 @@ function dresser(derby: boolean): (car: DeformableCar) => void {
 
 /**
  * A crash on a flat field with no walls (the derby's rules: `derby` arms the wear kill), the recorder fed as the engine
- * does: frames of 1/60 s cut into `physicsSlice` steps, every car on its own pedals, the clip the best the ledger kept.
+ * does: frames of 1/60 s cut into `physicsSlice` steps (never shorter than `floor`: 1/120 s is the adaptive pacer's coarse
+ * slice), every car on its own pedals, the clip the best the ledger kept.
  */
-export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = []): Recording {
+export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = [], floor = 1 / 240): Recording {
   const scene = new THREE.Scene();
   const dress = dresser(derby);
   const cars = spawns.map((s, i) => {
@@ -127,7 +128,7 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
     const vmax = sliceSpeed(cars);
     acc = Math.min(0.05, acc + FRAME);
     for (let n = 0; acc > 1e-5 && n < 8; n++) {
-      const h = Math.fround(physicsSlice(acc, vmax)); // as the engine's step (`CrashEngine.tickInner`)
+      const h = Math.fround(physicsSlice(acc, vmax, floor)); // as the engine's step (`CrashEngine.tickInner`)
       const step = rec["step"];
       trace[step] = new Float64Array(cars.length * STATE);
       capture(cars, trace[step]!);
