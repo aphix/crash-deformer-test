@@ -143,6 +143,15 @@ const TIER: Record<PostTier, TierSpec> = {
 /** Length of the shared bloom chain: ½, ¼, ⅛, 1/16, 1/32 of the canvas. */
 const CHAIN = 5;
 
+/** What a tier runs, for the bench page's card: the passes of `PostFX.render` and the numbers from `TIER`. */
+export function describePost(tier: FxTier): string {
+  if (tier === "off" || tier === "minimal") return "none: the scene draws straight to the canvas (no HDR target, bloom, grade, vignette or grain)";
+  const s = TIER[tier];
+  const radial = s.radial ? ", radial blur" : "";
+  const grain = s.grain > 0 ? `, grain ${s.grain}` : "";
+  return `HDR half-float scene target, bloom (${s.mips} mips from 1/${2 ** (s.mip0 + 1)} res, threshold ${GRADE.threshold}, ${GRADE.bloom} strength), one composite pass: tone map, grade, vignette${radial}${grain}`;
+}
+
 /** Look shared by both post tiers (tuned against the studio env at exposure 1.45). `contrast` is the S-curve mix. */
 const GRADE = { bloom: 0.45, threshold: 1.6, scatter: 0.8, vignette: 0.55, saturation: 1.12, contrast: 0.22 };
 
