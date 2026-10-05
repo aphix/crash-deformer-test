@@ -24,6 +24,17 @@ export function fleetStyle(i: number): CarStyleId {
   return SLOT_STYLES[i % SLOT_STYLES.length]!;
 }
 
+/** A car's body and how it drives. */
+export type CarType = { cls: VehicleClassId; style: CarStyleId };
+
+/**
+ * What car slot `i` is built as: slot 0 is the player's pick, and in the Stack scene every car is, so the tower is one
+ * type; otherwise the fleet's cycle (`fleetClass`, `fleetStyle`).
+ */
+export function slotType(i: number, player: CarType, stack: boolean): CarType {
+  return i === 0 || stack ? player : { cls: fleetClass(i), style: fleetStyle(i) };
+}
+
 type FleetSlot = { x: number; z: number; speed: number };
 export type DerbySlot = { x: number; z: number; yaw: number };
 

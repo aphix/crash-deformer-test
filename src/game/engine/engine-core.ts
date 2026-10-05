@@ -13,11 +13,12 @@ import { beginImpact, holdForThrow, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
-import { MAX_CARS, fleetClass, fleetStyle } from "../scenes/fleet.ts";
+import { MAX_CARS, slotType, type CarType } from "../scenes/fleet.ts";
 import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
 import { SceneFade } from "../present/scene-fade.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
@@ -197,9 +198,10 @@ export abstract class EngineCore {
   /** Distance detail: per far car, the parts `cullFarDetail` took off the camera's layer. */
   protected readonly farDetail = new WeakMap<DeformableCar, THREE.Object3D[]>();
   protected squash = INITIAL_HUD.squash;
-  /** Slot 0's class and body: the HUD's pick for the player's car (`setPlayerClass`, `setDriver`). */
-  protected playerClass: VehicleClassId = fleetClass(0);
-  protected playerStyle: CarStyleId = fleetStyle(0);
+  /** Slot 0's car type: the HUD's pick for the player's car (`setPlayerCar`, `setDriver`); the Stack drops it in every slot. */
+  protected playerCar: DriverCar = DRIVER_CARS[0]!;
+  /** Whether the cars were last retyped for the Stack scene (`followSceneTypes`). */
+  private stackTyped = false;
   /** Race police chase: cars `policeFrom … policeFrom + policeCount − 1` are built as police (`setPolice`). */
   private policeFrom = 0;
   private policeCount = 0;
@@ -306,11 +308,13 @@ export abstract class EngineCore {
     if (this.seat.carIndex >= count) this.seat.clear();
   }
 
-  protected buildCar(
-    i: number,
-    cls: VehicleClassId = i === 0 ? this.playerClass : this.isPolice(i) ? "police" : fleetClass(i),
-    style: CarStyleId = i === 0 ? this.playerStyle : this.isPolice(i) ? "police" : fleetStyle(i),
-  ): DeformableCar {
+  /** What car slot `i` is now: a police cruiser inside the race's police range, else `slotType`. */
+  private slotCar(i: number): CarType {
+    return this.isPolice(i) ? { cls: "police", style: "police" } : slotType(i, this.playerCar, this.showStack);
+  }
+
+  protected buildCar(i: number, type: CarType = this.slotCar(i)): DeformableCar {
+    const { cls, style } = type;
     const base = FLEET_PAINT[i % FLEET_PAINT.length]!;
     const paint: CarPaint =
       i < FLEET_PAINT.length ? base : { ...base, name: `${base.name}-${Math.floor(i / FLEET_PAINT.length) + 1}` };
@@ -337,15 +341,42 @@ export abstract class EngineCore {
     this.policeFrom = from;
     this.policeCount = count;
     for (let i = 1; i < Math.min(this.cars.length, from + count); i++) {
-      const old = this.cars[i]!;
-      if ((old.style.id === "police") === this.isPolice(i)) continue;
-      this.scene.remove(old.group);
-      old.dispose();
-      const car = this.buildCar(i);
-      car.group.visible = old.group.visible;
-      this.dressCar(car);
-      this.cars[i] = car;
+      if ((this.cars[i]!.style.id === "police") !== this.isPolice(i)) this.rebuildCar(i);
     }
+  }
+
+  /** Car `i` rebuilt as what its slot is now (`slotCar`), keeping its visibility. */
+  protected rebuildCar(i: number): void {
+    const old = this.cars[i]!;
+    this.scene.remove(old.group);
+    old.dispose();
+    const car = this.buildCar(i);
+    car.group.visible = old.group.visible;
+    this.dressCar(car);
+    this.cars[i] = car;
+  }
+
+  /**
+   * The Stack puts the player's pick in every slot and every other scene the fleet's: when the scene changed between the two,
+   * every car whose body or class is not its slot's now is rebuilt (hidden ones too, so a later bigger field is already right).
+   */
+  protected followSceneTypes(): void {
+    if (this.showStack === this.stackTyped) return;
+    this.stackTyped = this.showStack;
+    this.retypeCars();
+  }
+
+  /** Rebuilds every car that is not what its slot is now; true when any was. */
+  protected retypeCars(): boolean {
+    let changed = false;
+    for (let i = 0; i < this.cars.length; i++) {
+      const car = this.cars[i]!;
+      const want = this.slotCar(i);
+      if (car.style.id === want.style && carClass(car) === want.cls) continue;
+      this.rebuildCar(i);
+      changed = true;
+    }
+    return changed;
   }
 
   /** Netplay client: car `i` takes the host's body style and class, rebuilt only when either differs. */
@@ -354,7 +385,7 @@ export abstract class EngineCore {
     if (!old || (old.style.id === style && carClass(old) === cls)) return;
     this.scene.remove(old.group);
     old.dispose();
-    const car = this.buildCar(i, cls, style);
+    const car = this.buildCar(i, { cls, style });
     car.group.visible = i < this.carCount;
     this.dressCar(car);
     this.cars[i] = car;
@@ -397,7 +428,7 @@ export abstract class EngineCore {
       autoSlomo: this.autoSlomo,
       userTimeScale: this.clock.userTimeScale,
       deformMode: this.deformMode,
-      playerClass: this.playerClass,
+      playerClass: this.playerCar.cls,
       viewW: this.renderer.domElement.width,
       viewH: this.renderer.domElement.height,
       pixelRatio: this.renderer.getPixelRatio(),

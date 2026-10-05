@@ -2,8 +2,8 @@ import type { FxTier } from "../present/engine-post.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import type { StackConfig } from "../scenes/stack-rig.ts";
 import { crushStroke } from "../kernel/physics-core.js";
-import { DEFAULT_REALISM, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import type { RaceHud, RaceView } from "../match/types.ts";
+import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
+import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { SpecView } from "../present/engine-camera.ts";
 
@@ -131,8 +131,8 @@ export type CrashHudState = {
   pad: string | null;
   /** Arcade (0) ↔ realistic (1) handling and damage. */
   realism: number;
-  /** The player's car class (slot 0). */
-  playerClass: VehicleClassId;
+  /** The player's car type (slot 0; every car in the Stack): a `DRIVER_CARS` id. */
+  playerCar: string;
   /** Mouse look (pointer lock) is on. */
   mouseLook: boolean;
 };
@@ -233,7 +233,7 @@ export const INITIAL_HUD: CrashHudState = {
   cam: null,
   pad: null,
   realism: DEFAULT_REALISM,
-  playerClass: "sedan",
+  playerCar: DRIVER_CARS[0]!.id,
   mouseLook: false,
 };
 

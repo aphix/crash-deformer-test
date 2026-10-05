@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { FLEET_MIN_SEP, MAX_CARS, layoutDerby, layoutFleet } from "./fleet.ts";
+import { FLEET_MIN_SEP, MAX_CARS, fleetClass, fleetStyle, layoutDerby, layoutFleet, slotType } from "./fleet.ts";
 import { scatterRampBalls, type RampBall } from "./engine-props.ts";
 import { mulberry32 } from "../world/placements.ts";
 
@@ -12,6 +12,17 @@ function rngFrom(seed: number): () => number {
     return s / 0x100000000;
   };
 }
+
+describe("given a player's car pick, hatchback", () => {
+  const hatchback = { cls: "sedan", style: "hatchback" } as const;
+  it("when a field outside the stack is built, then only slot 0 is the pick and the rest are the fleet's cycle", () => {
+    assert.deepEqual(slotType(0, hatchback, false), hatchback);
+    for (let i = 1; i < 12; i++) assert.deepEqual(slotType(i, hatchback, false), { cls: fleetClass(i), style: fleetStyle(i) });
+  });
+  it("when the stack is built, then every slot is the pick", () => {
+    for (let i = 0; i < 20; i++) assert.deepEqual(slotType(i, hatchback, true), hatchback);
+  });
+});
 
 const fixedSpeedCases = [
   { it: "when the speed range is 0 to 0, then all 6 cars spawn parked at speed 0", count: 6, minSpeed: 0, maxSpeed: 0, seed: 3, expectedSpeed: 0 },

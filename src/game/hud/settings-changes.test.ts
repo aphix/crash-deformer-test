@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { INITIAL_HUD, type CrashHudState } from "./hud-store.ts";
 import { changedSettings, isChanged, SETTING_IDS, SETTINGS, type SettingId } from "./settings-changes.ts";
+import { DRIVER_CARS } from "../match/types.ts";
 
 /** The menu after the user moved a Cinematic FX pick (Auto off) and the crumple stroke. */
 const touched: CrashHudState = { ...INITIAL_HUD, fxAuto: false, fxTier: "high", squash: 0.2 };
@@ -53,7 +54,7 @@ describe("given the settings menu, where each setting is a group of HUD fields w
       fxAuto: false,
       celLook: 0.4,
       userTimeScale: 0.5,
-      playerClass: "truck",
+      playerCar: "truck",
       realism: 0.9,
       carCount: 9,
       speedMin: 3,
@@ -83,4 +84,13 @@ describe("given the settings menu, where each setting is a group of HUD fields w
     assert.equal(isChanged(range, "cars"), false, "the range's one car is the scene's");
     assert.equal(isChanged({ ...INITIAL_HUD, carCount: 1 }, "cars"), true);
   });
+});
+
+describe("given the settings menu's Car pick", () => {
+  for (const car of DRIVER_CARS) {
+    const changed = car.id !== INITIAL_HUD.playerCar;
+    it(`when the ${car.label} is picked, then the Car setting reads as ${changed ? "changed" : "unchanged"}`, () => {
+      assert.equal(isChanged({ ...INITIAL_HUD, playerCar: car.id }, "car"), changed);
+    });
+  }
 });

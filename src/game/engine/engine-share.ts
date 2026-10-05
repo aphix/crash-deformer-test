@@ -45,7 +45,7 @@ export abstract class EngineShare extends EngineReel {
       slomo: this.autoSlomo,
       ts: this.clock.userTimeScale,
       deform: this.deformMode,
-      car: this.playerClass,
+      car: this.playerCar.id,
       // Fleet props of the fleet: another scene's own wall, balls and ramps are its state, not a setting (`SCENE_PROPS`).
       barrier: sc === "fleet" && this.showBarrier,
       balls: sc === "fleet" && this.showBalls,
@@ -113,7 +113,7 @@ export abstract class EngineShare extends EngineReel {
       if (differs("loop")) this.toggleLoop();
       if (differs("slomo")) this.toggleSlomo();
       if (differs("deform")) this.toggleDeformMode();
-      if (differs("car")) this.setPlayerClass(t.car);
+      if (differs("car")) this.setPlayerCar(t.car);
       if (differs("pkph", "pkg", "phard", "phold", "phop")) {
         this.setPistonConfig({ speedKph: t.pkph, massKg: t.pkg, hardness: t.phard, holdCar: t.phold, hopSeconds: t.phop });
       }

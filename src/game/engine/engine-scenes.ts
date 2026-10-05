@@ -145,6 +145,7 @@ export abstract class EngineScenes extends EngineHud {
     }
     if (next === "race" || next === "survival") this.setRace(true, next === "survival");
     else this.sceneId = next;
+    this.followSceneTypes();
     this.tryUnlockAudio();
     this.randomizeAndReset();
     // Frame only on entering: re-parks and loop hops keep the user's view and the orbit running. The camera

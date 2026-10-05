@@ -18,12 +18,13 @@ import {
 import type { HudProps } from "@/components/hud";
 import { ChangedDot, FIELD, NumberField, RangeRow } from "@/components/hud-controls";
 import type { CrashEngine } from "@/game/engine/engine";
-import { CLASSES, VEHICLE_CLASS_IDS } from "@/game/vehicle/vehicle-classes";
+import { DRIVER_CARS } from "@/game/match/types";
 import { Button } from "@/components/ui/button";
 import { FX_TIERS } from "@/game/present/engine-post";
 import { INITIAL_HUD, KNOB_RANGES, STROKE_RANGE_M, squashForStroke, strokeAt56 } from "@/game/hud/hud-store";
 import { changedSettings, fleetLaunched, isChanged, SETTINGS, type SectionId, type SettingId } from "@/game/hud/settings-changes";
 import { useStoredString } from "@/components/use-stored-string";
+import { useDriver } from "@/components/use-driver";
 import { cn } from "@/lib/utils";
 
 /** Option buttons inside a segmented track. Five-option tracks wrap at three per row: one row of five overflows the panel. */
@@ -412,8 +413,9 @@ function DebugSection({ state, engine }: HudProps) {
   );
 }
 
-/** Class of the player's car and the one arcade ↔ realistic axis (assists, grip, when damage kills). */
+/** The player's car type (every `DRIVER_CARS` entry) and the one arcade ↔ realistic axis (assists, grip, when damage kills). */
 function DrivingSection({ state, engine }: HudProps) {
+  const driver = useDriver();
   return (
     <>
       <div className="flex items-center gap-2">
@@ -421,16 +423,20 @@ function DrivingSection({ state, engine }: HudProps) {
           Car
           <ChangedDot on={isChanged(state, "car")} />
         </span>
-        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Your car's class">
-          {VEHICLE_CLASS_IDS.map((id) => (
+        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Your car type">
+          {DRIVER_CARS.map((c) => (
             <Button
-              key={id}
+              key={c.id}
               className={SEGMENT}
-              variant={state.playerClass === id ? "default" : "ghost"}
-              aria-pressed={state.playerClass === id}
-              onClick={() => engine.current?.setPlayerClass(id)}
+              variant={state.playerCar === c.id ? "default" : "ghost"}
+              aria-pressed={state.playerCar === c.id}
+              onClick={() => {
+                // The user's own pick is the saved one (`useDriver`, which the race setup reads too); the engine follows now, as a link or a reset does without saving.
+                driver.setCar(c.id);
+                engine.current?.setPlayerCar(c.id);
+              }}
             >
-              {CLASSES[id].label}
+              {c.label}
             </Button>
           ))}
         </div>

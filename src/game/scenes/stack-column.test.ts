@@ -3,14 +3,15 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { paint } from "../vehicle/test-support.ts";
+import { DRIVER_CARS } from "../match/types.ts";
 import { makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { fleetClass, fleetStyle } from "./fleet.ts";
-import { armKill, assignClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { fleetClass, fleetStyle, slotType, type CarType } from "./fleet.ts";
+import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { placeDrop, StackRig, stackLoads, type StackConfig } from "./stack-rig.ts";
 
 /** Which cars the column is made of: one sedan body, the fleet's slot order (police base) with or without its monster truck. */
-type Bodies = "sedans" | "fleet" | "fleet without the monster";
+type Bodies = "sedans" | "fleet" | "fleet without the monster" | { selected: CarType };
 
 /**
  * The Stack scene's column, headless: the cars `buildCar` + `dressCar` make, dropped one at a time through `StackRig` and
@@ -20,9 +21,10 @@ function column(config: StackConfig, bodies: Bodies, seconds: number, each?: (ca
   HANDLING.realism = 0.25;
   const scene = new THREE.Scene();
   const cars = Array.from({ length: config.cars }, (_, i) => {
+    const picked = typeof bodies === "object" ? slotType(i, bodies.selected, true) : undefined;
     const sedan = bodies === "sedans" || (bodies === "fleet without the monster" && i > 0 && fleetClass(i) === "monster");
-    const cls: VehicleClassId = sedan ? "sedan" : i === 0 ? "police" : fleetClass(i);
-    const style: CarStyleId | undefined = bodies === "sedans" ? undefined : sedan ? "sedan" : i === 0 ? "police" : fleetStyle(i);
+    const cls: VehicleClassId = picked ? picked.cls : sedan ? "sedan" : i === 0 ? "police" : fleetClass(i);
+    const style: CarStyleId | undefined = picked ? picked.style : bodies === "sedans" ? undefined : sedan ? "sedan" : i === 0 ? "police" : fleetStyle(i);
     const car = new DeformableCar(paint(), scene, undefined, style);
     assignClass(car, cls);
     car.deform.squash = 0.32;
@@ -124,4 +126,17 @@ describe("given the owner's drops (11 cars, 0.15 m, one a second) of the mixed f
   });
 
   it.todo("when the fleet's monster truck (slot 5; tyres on 0.9 m of spring, body 0.48 m up) carries four cars or more, then it rolls 5-30° on the support of its tyres, which has no spring to bring it level, and the column above it falls: 11 fleet cars, 0.15 m, 1 s");
+});
+
+describe("given the player picked a car type in the settings", () => {
+  for (const type of DRIVER_CARS) {
+    it(`when the 4-car stack has dropped every car and the pick is ${type.label}, then every car in the stack is a ${type.label}`, () => {
+      const { cars, rig } = column({ cars: 4, drop: 0.02, gap: 1 }, { selected: type }, 1 + 3 + 1);
+      assert.equal(rig.dropped, 4, "every car has dropped");
+      assert.deepEqual(
+        cars.map((c) => [c.style.id, carClass(c)]),
+        cars.map(() => [type.style, type.cls]),
+      );
+    });
+  }
 });

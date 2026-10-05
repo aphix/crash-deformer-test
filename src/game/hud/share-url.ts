@@ -6,12 +6,11 @@
  */
 
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
-import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
+import { DEFAULT_RACE_OPTIONS, DRIVER_CARS } from "../match/types.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
 import { STACK_DEFAULTS, STACK_RANGES } from "../scenes/stack-rig.ts";
-import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
 
 /** One URL value: its default, how to read it back (undefined = malformed) and how to write it. */
 type Field<T> = { def: T; parse(raw: string): T | undefined; fmt(v: T): string };
@@ -78,7 +77,7 @@ const FIELDS = {
   slomo: flag(D.autoSlomo),
   ts: orNull(num(R.timeScale.min, R.timeScale.max, 1)),
   deform: pick(["shape", "lattice"] as const, D.deformMode),
-  car: pick(VEHICLE_CLASS_IDS, D.playerClass),
+  car: pick(DRIVER_CARS.map((c) => c.id), D.playerCar),
   barrier: flag(D.showBarrier),
   balls: flag(D.showBalls),
   ramps: flag(D.showRamps),

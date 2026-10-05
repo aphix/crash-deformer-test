@@ -3,10 +3,9 @@ import { PISTON_DEFAULTS, PISTON_IDS } from "../scenes/piston-rig.ts";
 import { RAM_DEFAULTS } from "../scenes/door-rig.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
 import { SETTING_IDS, type SettingId } from "../hud/settings-changes.ts";
-import { armKill, carClass, CLASSES, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import type { CarStyleId } from "../vehicle/car-variants.ts";
+import { armKill, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { cleanName, DRIVER_CARS } from "../match/types.ts";
+import { cleanName, DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
@@ -179,11 +178,11 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** The player's car (slot 0) becomes `id`, rebuilt on that class's body; the field respawns and the camera follows it. */
-  setPlayerClass(id: VehicleClassId): void {
-    if (this.net.client) return;
-    if (!(id in CLASSES)) return;
-    this.setPlayerCar(id, CLASSES[id].style);
+  /** The player's car (slot 0; every car in the Stack) becomes the `DRIVER_CARS` entry `id`; the field respawns and the camera follows it. */
+  setPlayerCar(id: string): void {
+    const type = DRIVER_CARS.find((c) => c.id === id);
+    if (this.net.client || !type) return;
+    this.seatPlayerCar(type);
     this.randomizeAndReset();
     this.seat.focus(0);
     this.emitHud();
@@ -204,7 +203,7 @@ export abstract class EngineInput extends EngineRigs {
     const applies = driverCarApplies(this.driverCar, car, this.linkNamedCar);
     this.driverCar = car;
     const type = DRIVER_CARS.find((c) => c.id === car) ?? DRIVER_CARS[0]!;
-    if (this.net.client || !applies || !this.setPlayerCar(type.cls, type.style)) return;
+    if (this.net.client || !applies || !this.seatPlayerCar(type)) return;
     this.pinnedSeed = this.sceneSeed;
     try {
       this.randomizeAndReset();
@@ -214,16 +213,13 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Slot 0 becomes class `cls` on body `style`; true when that rebuilt the car. */
-  private setPlayerCar(cls: VehicleClassId, style: CarStyleId): boolean {
-    this.playerClass = cls;
-    this.playerStyle = style;
+  /** Slot 0 (in the Stack every slot) is rebuilt as `type`; true when that rebuilt a car. */
+  private seatPlayerCar(type: DriverCar): boolean {
+    this.playerCar = type;
+    if (this.showStack) return this.retypeCars();
     const old = this.cars[0];
-    if (!old || (carClass(old) === cls && old.style.id === style)) return false;
-    this.scene.remove(old.group);
-    old.dispose();
-    this.cars[0] = this.buildCar(0);
-    this.cars[0].group.visible = true;
+    if (!old || (carClass(old) === type.cls && old.style.id === type.style)) return false;
+    this.rebuildCar(0);
     return true;
   }
 
@@ -297,7 +293,7 @@ export abstract class EngineInput extends EngineRigs {
         this.setTimeScale(D.userTimeScale);
         break;
       case "car":
-        if (this.playerClass !== D.playerClass) this.setPlayerClass(D.playerClass);
+        if (this.playerCar.id !== D.playerCar) this.setPlayerCar(D.playerCar);
         break;
       case "realism":
         this.setRealism(D.realism);
@@ -346,6 +342,7 @@ export abstract class EngineInput extends EngineRigs {
     this.view.userFramed = false;
     this.setDerby(false);
     this.ensureCars(INITIAL_HUD.carCount);
+    this.followSceneTypes();
     this.tryUnlockAudio();
     this.randomizeAndReset();
     this.emitHud();

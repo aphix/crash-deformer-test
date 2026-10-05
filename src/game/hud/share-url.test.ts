@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { decodeShare, encodeShare, isShareableRoom, joinsRoom, roomLink, shareFragment, type ShareState } from "./share-url.ts";
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
+import { DRIVER_CARS } from "../match/types.ts";
 
 const DEFAULTS = decodeShare("");
 const json = (s: ShareState): string => JSON.stringify(s);
@@ -64,6 +65,17 @@ describe("given a share state with every kind of field set", () => {
     };
     assert.equal(json(decodeShare(`#${encodeShare(s)}`)), json({ ...s, squash: Math.round(s.squash * 1e4) / 1e4 }));
   });
+});
+
+describe("given the player's car type, any of the shared list's", () => {
+  for (const car of DRIVER_CARS) {
+    const written = car.id === INITIAL_HUD.playerCar ? "" : `car=${car.id}`;
+    it(`when the ${car.label} is picked, then the link writes ${written === "" ? "nothing, it being the default" : `"${written}"`} and reads back as the ${car.label}`, () => {
+      const s: ShareState = { ...DEFAULTS, car: car.id };
+      assert.equal(encodeShare(s), written);
+      assert.equal(decodeShare(`#${encodeShare(s)}`).car, car.id);
+    });
+  }
 });
 
 describe("given a link with malformed values and unknown keys", () => {

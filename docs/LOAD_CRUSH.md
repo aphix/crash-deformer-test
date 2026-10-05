@@ -121,9 +121,8 @@ on). The three sliders (cars 2–20, drop 0.02–2 m, gap 1–20 s) default to t
 car, the load (kN: the mass of the cars standing in the column above it, each upright, within 0.6 m of the car under it and one
 car's height over it; a car off the column reads "—" and carries none; the load-crush step's force is per slice and not kept, so
 the column is read from the poses) and its roof's sink (mm, `ROOF_REST_Y` minus the roof mass's height),
-both read off the sim's cars. The cars are the fleet's mixed bodies, not the test's sedans, and a car lands a frame after
-it is placed (`placeDrop` updates its matrix first: the load crush reads the car below's `matrixWorld`). Tall stacks of mixed
-bodies topple; the scene shows what the physics does.
+both read off the sim's cars. Every car is the car type picked in the settings (Driving, Car: any `DRIVER_CARS` entry, hatchback and wagon too; `slotType` in `scenes/fleet.ts`), not the fleet's mix; changing the pick, or entering or leaving the scene, rebuilds the cars (`followSceneTypes`). A car lands a frame after
+it is placed (`placeDrop` updates its matrix first: the load crush reads the car below's `matrixWorld`). Tall stacks of tall bodies (truck, monster) topple; the scene shows what the physics does.
 
 ## The column holds (stack-physics, 10-04)
 

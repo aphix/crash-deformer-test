@@ -30,7 +30,7 @@ export const SETTINGS = {
   fx: { section: "playback", label: "FX", defaults: { fxAuto: true } },
   cel: { section: "playback", label: "Cel look", defaults: { celLook: D.celLook } },
   ts: { section: "playback", label: "Time scale", defaults: { userTimeScale: D.userTimeScale } },
-  car: { section: "driving", label: "Car", defaults: { playerClass: D.playerClass } },
+  car: { section: "driving", label: "Car", defaults: { playerCar: D.playerCar } },
   realism: { section: "driving", label: "Realism", defaults: { realism: D.realism } },
   cars: { section: "tuning", label: "Cars", defaults: { carCount: D.carCount }, shown: fleetLaunched },
   spawn: { section: "tuning", label: "Spawn speed", defaults: { speedMin: D.speedMin, speedMax: D.speedMax }, shown: fleetLaunched },

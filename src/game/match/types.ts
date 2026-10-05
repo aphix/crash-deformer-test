@@ -35,6 +35,9 @@ export const DRIVER_CARS: readonly { id: string; label: string; cls: VehicleClas
   })),
 ];
 
+/** One car type of the setup menu. */
+export type DriverCar = (typeof DRIVER_CARS)[number];
+
 /** Who feeds a car's `DriveInput`: this browser's seat, a race brain, or (later) a network peer. */
 type SlotKind = "player" | "ai" | "remote";
 
