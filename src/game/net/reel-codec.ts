@@ -24,10 +24,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * so a clip recorded against a prop replays another hit; 11: the live sim changed again: the course wall keeps a per-car
  * contact memory, so a car that arrives beyond a wall line from another road stays there, not thrown back across it;
  * 12: no layout change, the live trajectories of cars stacked on each other moved: a car over another's roof is carried
- * by it, not shoved off by the plan SAT, and a tyre on a car grips both ways, so an older clip is refused).
+ * by it, not shoved off by the plan SAT, and a tyre on a car grips both ways; 13: the same for car-car contact: a pair's
+ * contact axis is signed by the cars' centres (`satTwoHulls`), so a clip saved under 12 replays its pairs' pushes the
+ * other way round, so an older clip is refused).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 12;
+const REPLAY_VERSION = 13;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
