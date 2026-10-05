@@ -99,6 +99,7 @@ export abstract class DeformSolve extends DeformContact {
     _clamp[3] = maxCrush;
     _clamp[4] = stroke;
     for (let i = 0; i < this.masses.length; i++) this.clampMass(this.masses[i]!, group, sideHit, pinned, squeeze, deep);
+    this.settleHubStand(pinned);
     // A3: each mount caps its own side of the block, but the block is one casting; hold its rest
     // spacing in the frame the masses were just clamped into (T-bone struck car: engine gap error
     // 0.0106 m on 943ae5c). A squeeze keeps its per-mass caps (a held press: engineL sprang 444 → 363 mm).

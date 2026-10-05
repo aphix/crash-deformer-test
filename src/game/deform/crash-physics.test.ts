@@ -775,6 +775,35 @@ forModes("hubs stay planted until they pop", (spawn, mode) => {
     assert.ok(Math.abs(h.local.z - h.rest.z) > 0.04, "deepCrush pinned the hub anyway");
   });
 
+  // A planted wreck's frame sits on the mean of its hubs, each held at its pin (`rest` + shove) in the car frame while its
+  // world position stands wherever the world left it. A hub knocked 0.3 m off its axle stood 0.22 m off its pin in the
+  // anchor's read; the hub then popping re-anchored the frame on the other three and jumped the whole wreck by the
+  // difference of the means (derby seeds 25/38/61: 0.10-0.20 m in one step; 0.075 m here).
+  it("bad: a planted wreck whose displaced hub pops keeps its frame and every mass still", () => {
+    const s = spawn(0, 0);
+    const settle = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        s.d.stepStructure(DT);
+        s.d.followGroup(s.group, s.vel, s.omega, DT);
+      }
+    };
+    settle(60);
+    assert.ok(s.d.quietTime() > 0.5, "not planted");
+    const fl = mass(s.d, "hubFL");
+    fl.world.x -= 0.3;
+    settle(30);
+    assert.equal(fl.popped, false);
+    const before = s.d.masses.map((m) => m.world.clone());
+    const frame = s.group.position.clone();
+    s.d.popHub(fl);
+    settle(1);
+    assert.equal(fl.popped, true);
+    assert.ok(s.group.position.distanceTo(frame) < 0.01, `frame jumped ${s.group.position.distanceTo(frame).toFixed(3)} m at the pop`);
+    s.d.masses.forEach((m, i) => {
+      if (m !== fl) assert.ok(m.world.distanceTo(before[i]!) < 0.01, `${m.name} jumped ${m.world.distanceTo(before[i]!).toFixed(3)} m at the pop`);
+    });
+  });
+
   it("bad: a squeezing slab face 0.1 m into a planted tyre's tread shoves the hub back, and the shove stays", () => {
     const s = spawn(0, 0);
     s.d.bidirectional = true;
@@ -820,6 +849,34 @@ forModes("hubs stay planted until they pop", (spawn, mode) => {
     assert.equal(s.d.deepCrush, false);
     s.d.frameCrush = true;
     assert.equal(s.d.deepCrush, true, "the squeeze was forgotten while the frame was held");
+  });
+});
+
+// Shape mode only (the game's default): the lattice's beams carry a wheel's speed into the body, which then moves for real.
+describe("a wreck that has just stopped being touched [shape]", () => {
+  // A wheel written back every call keeps a velocity of its own, and contact impulses went on piling onto it with no
+  // position to show for them (17–42 m/s against a body at 2 m/s at the plant of derby seed 65's pile). The plant freed
+  // the wheels at that speed and the frame, anchored on them, followed 0.08 m a step.
+  it("bad: the plant frees the wheels within 8 m/s of the body, so the frame cannot be carried off by their stale speed", () => {
+    const s = spawn(0, 0, undefined, undefined, "shape");
+    const step = () => {
+      s.d.stepStructure(DT);
+      s.d.followGroup(s.group, s.vel, s.omega, DT);
+    };
+    for (let i = 0; i < 6; i++) step();
+    assert.ok(s.d.quietTime() < 0.2, "already planted");
+    for (const m of s.d.masses) if (m.hub) m.vel.x = 30;
+    for (let i = 0; i < 12; i++) step();
+    assert.ok(s.d.quietTime() > 0.25, "never planted");
+    const cell = mass(s.d, "cell");
+    for (const m of s.d.masses) if (m.hub) assert.ok(m.vel.x - cell.vel.x <= 8 + 1e-9, `${m.name} freed at ${(m.vel.x - cell.vel.x).toFixed(2)} m/s off the body`);
+    let worst = 0;
+    for (let i = 0; i < 6; i++) {
+      const before = s.group.position.clone();
+      step();
+      worst = Math.max(worst, s.group.position.distanceTo(before));
+    }
+    assert.ok(worst < 8 * DT, `the frame followed the wheels ${worst.toFixed(3)} m in one 1/60 s step (8 m/s: ${(8 * DT).toFixed(3)})`);
   });
 });
 

@@ -8,10 +8,9 @@ import {
   closingKeScale,
   crushStroke,
   forceTransfer,
-  satPushCap,
   hypot2,
 } from "./physics-util.ts";
-import { DeformState, ENGINE_PACK_GAP, HUB_FLOOR, TYRE_R } from "./deform-state.ts";
+import { DeformState, ENGINE_PACK_GAP, HUB_FLOOR, PLANT_QUIET, TYRE_R } from "./deform-state.ts";
 import { HubPlane } from "./hub-plane.ts";
 import type { MassNode } from "./deform-rig.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
@@ -41,6 +40,8 @@ const _b = new THREE.Vector3();
 const _n = new THREE.Vector3();
 /** sphereHit's sliding (tangential) relative velocity. */
 const _t = new THREE.Vector3();
+/** `sphereHit`'s mass-weighted shift (mass × m, x then z) of the pair's `a` side, then its `b` side: what `collideWith` debits from each car's `PushBudget`. */
+const _shift = new Float64Array(4);
 /** followGroup's world→local: one invert per call, not one per mass (Object3D.worldToLocal). */
 const _toLocal = new THREE.Matrix4();
 /** Sim seconds the frame's tilt takes to level out on planting, or to come back on a new hit (followGroup):
@@ -97,12 +98,16 @@ function sphereHit(a: MassNode, b: MassNode, slice: number): void {
     a.world.x += _n.x * s;
     a.world.y += _n.y * s;
     a.world.z += _n.z * s;
+    _shift[0] += a.mass * _n.x * s;
+    _shift[1] += a.mass * _n.z * s;
   }
   if (b.dynamic) {
     const s = overlap * (imb / inv);
     b.world.x += _n.x * s;
     b.world.y += _n.y * s;
     b.world.z += _n.z * s;
+    _shift[2] += b.mass * _n.x * s;
+    _shift[3] += b.mass * _n.z * s;
   }
   const rel = b.vel.dot(_n) - a.vel.dot(_n);
   if (rel < 0) {
@@ -154,6 +159,7 @@ export abstract class DeformContact extends DeformState {
     for (let i = 0; i < nA; i++) massesA[i]!.clipping = false;
     for (let j = 0; j < nB; j++) massesB[j]!.clipping = false;
     if (!massBox(massesA, _boxA).intersectsBox(massBox(massesB, _boxB))) return;
+    _shift.fill(0);
     let hit = false;
     for (let i = 0; i < nA; i++) {
       const a = massesA[i]!;
@@ -184,6 +190,8 @@ export abstract class DeformContact extends DeformState {
     if (hit) {
       this.undoTurn();
       other.undoTurn();
+      this.push.debit(this.elapsed, _shift[0]! / this.totalMass, _shift[1]! / this.totalMass);
+      other.push.debit(other.elapsed, _shift[2]! / other.totalMass, _shift[3]! / other.totalMass);
     }
   }
 
@@ -195,7 +203,9 @@ export abstract class DeformContact extends DeformState {
       this.overlapFrame = false;
       this.contactAt = this.elapsed;
     }
+    const wasLive = this.quietTime() < PLANT_QUIET;
     this.elapsed += dt;
+    if (wasLive && !this.bidirectional && this.quietTime() >= PLANT_QUIET) this.seatHubs();
     const slices = Math.max(1, Math.min(4, Math.round(dt * 240)));
     const h = dt / slices;
     this.shapeRan = false;
@@ -286,6 +296,8 @@ export abstract class DeformContact extends DeformState {
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;
       m.local.copy(m.world).applyMatrix4(_toLocal);
+      this.hubStand[mi * 2] = m.local.x;
+      this.hubStand[mi * 2 + 1] = m.local.z;
       mx += m.vel.x * m.mass;
       mz += m.vel.z * m.mass;
       mass += m.mass;
@@ -395,7 +407,9 @@ export abstract class DeformContact extends DeformState {
     // Anchor: a planted wreck on its hubs, a live one on its cell — each at the world point where the
     // last clamp held it in the body (`local`), under the rotation the masses are about to be clamped
     // in. Anchoring on rest, or under a yaw-only frame, jumped the group (and every pinned hub) by the
-    // cell's up-to-cap offset or by tilt × height at each plant switch, inside one dt = 0 call.
+    // cell's up-to-cap offset or by tilt × height at each plant switch, inside one dt = 0 call. A hub's point is where it
+    // stood (`hubStand`), not its pin: a planted hub is never written back, so with the pins the anchor read each hub's
+    // standing offset (0.1–0.5 m) and the set changing when one popped re-anchored the wreck by their difference.
     let wx = cell.world.x,
       wy = cell.world.y,
       wz = cell.world.z,
@@ -414,8 +428,8 @@ export abstract class DeformContact extends DeformState {
         hx += m.world.x * m.mass;
         hy += m.world.y * m.mass;
         hz += m.world.z * m.mass;
-        hlx += m.local.x * m.mass;
-        hlz += m.local.z * m.mass;
+        hlx += this.hubStand[mi * 2]! * m.mass;
+        hlz += this.hubStand[mi * 2 + 1]! * m.mass;
         hubM += m.mass;
       }
       if (hubM > 1e-8) {
@@ -455,6 +469,7 @@ export abstract class DeformContact extends DeformState {
 
   /** Move the whole wreck, including planted hubs, so a bowl clip is not undone next frame. */
   translateMasses(dx: number, dz: number, dvx: number, dvz: number): void {
+    this.push.debit(this.elapsed, dx, dz);
     for (const m of this.masses) {
       m.world.x += dx;
       m.world.z += dz;
@@ -618,17 +633,12 @@ export abstract class DeformContact extends DeformState {
   }
 
   /**
-   * Hull push (m) this car may still take now, out of `amount`: one slice's pairs and SAT passes share
-   * one `satPushCap(dt)` — three passes each pushing a full cap moved a wedged wreck 0.11 m in 6 ms.
+   * Hull push (m) along the unit (nx, nz) this car may still take now, out of `amount` (`PushBudget`): one slice's
+   * pairs and SAT passes, mass-sphere shifts and wall translations share one cap. `touchSpeed` is the faster of
+   * the two touching cars.
    */
-  takePush(amount: number, dt: number): number {
-    if (this.pushAt !== this.elapsed) {
-      this.pushAt = this.elapsed;
-      this.pushUsed = 0;
-    }
-    const ok = Math.max(0, Math.min(amount, satPushCap(dt) - this.pushUsed));
-    this.pushUsed += ok;
-    return ok;
+  takePush(nx: number, nz: number, amount: number, dt: number, touchSpeed: number): number {
+    return this.push.take(this.elapsed, nx, nz, amount, dt, touchSpeed);
   }
 
   /**

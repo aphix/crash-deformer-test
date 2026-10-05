@@ -591,7 +591,7 @@ export class StreamedDeformation extends DeformSolve {
   /** The solver arrays and vectors outside the scalar fields, `masses`, `beams` and `clusters` that one step leaves for the next to read (built with the car: a recorder's steady state allocates nothing). */
   private readonly simTables = {
     vecs: [this.impactLocal, this.impactInward, this.bodyC, this.bodyRestC],
-    arrays: [this.endEbs2, this.floorPre, this.floorPost, this.gripPost, this.pose],
+    arrays: [this.endEbs2, this.floorPre, this.floorPost, this.gripPost, this.pose, this.hubStand],
   };
 
   private simBlocks(): { vecs: THREE.Vector3[]; arrays: Float64Array[] } {

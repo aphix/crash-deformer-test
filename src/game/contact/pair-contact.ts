@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { leftoverCrumple, cancelClosing, satPushCap, CRASH } from "../deform/physics-util.ts";
+import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { carCrushHulls, satCars } from "./sat.ts";
 import { bodyContact, faceOverlap, type ContactBox } from "./external-contact.ts";
 import { TYRE_HALF_W } from "../deform/deform-contact.ts";
@@ -118,11 +118,14 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
 }
 
 /**
- * A pair push, within a wreck's per-slice budget (`takePush`): the three SAT passes of one slice
- * each pushing a full `satPushCap` moved a wedged wreck 0.11 m in 6 ms (derby group pops).
+ * A pair push, within a wreck's per-slice budget (`takePush`): the three SAT passes of one slice each pushing a full
+ * `satPushCap` moved a wedged wreck 0.11 m in 6 ms (derby group pops), and one cap a slice, shared with the sphere
+ * shifts and wall translations, still put 0.04–0.05 m a step on a slow wedged wreck against a zip bound of 3·v·h +
+ * 0.05 m: the cap is a push-out speed that grows only with the speed of the cars touching.
  */
-function pushPair(car: DeformableCar, nx: number, nz: number, amount: number, dt: number): void {
-  pushCar(car, nx, 0, nz, car.deform.massActive ? car.deform.takePush(amount, dt) : amount);
+function pushPair(car: DeformableCar, other: DeformableCar, nx: number, nz: number, amount: number, dt: number): void {
+  const touchSpeed = Math.max(hypot2(car.velocity.x, car.velocity.z), hypot2(other.velocity.x, other.velocity.z));
+  pushCar(car, nx, 0, nz, car.deform.massActive ? car.deform.takePush(nx, nz, amount, dt, touchSpeed) : amount);
 }
 
 /** Centre-to-centre gap (m, about a car's width) that `closingCap` stops a pair's closing before. */
@@ -231,14 +234,14 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
     const push = Math.min(extra + 0.006, satPushCap(dt));
     const both = carA.deform.massActive && carB.deform.massActive;
     const aAmt = both ? push * 0.5 : carA.deform.massActive ? push * 0.62 : push * 0.38;
-    pushPair(carA, _n.x, _n.z, aAmt, dt);
-    pushPair(carB, -_n.x, -_n.z, push - aAmt, dt);
+    pushPair(carA, carB, _n.x, _n.z, aAmt, dt);
+    pushPair(carB, carA, -_n.x, -_n.z, push - aAmt, dt);
   } else if (crushHit) {
     const allowed = leftoverA * 0.45 + leftoverB * 0.45 + 0.08;
     const extra = Math.min(crushHit - allowed, 0.04);
     if (extra > 0.012) {
-      pushPair(carA, _cn.x, _cn.z, extra * 0.5, dt);
-      pushPair(carB, -_cn.x, -_cn.z, extra * 0.5, dt);
+      pushPair(carA, carB, _cn.x, _cn.z, extra * 0.5, dt);
+      pushPair(carB, carA, -_cn.x, -_cn.z, extra * 0.5, dt);
     }
   }
 
@@ -252,8 +255,8 @@ export function resolveCarPair(carA: DeformableCar, carB: DeformableCar, feed: b
       if (_w.lengthSq() > 1e-8) {
         _w.normalize();
         const extra = Math.min((minSep - dist) * 0.5, satPushCap(dt));
-        pushPair(carA, _w.x, _w.z, extra, dt);
-        pushPair(carB, -_w.x, -_w.z, extra, dt);
+        pushPair(carA, carB, _w.x, _w.z, extra, dt);
+        pushPair(carB, carA, -_w.x, -_w.z, extra, dt);
       }
     }
   }
@@ -426,8 +429,8 @@ function tyreStop(carA: DeformableCar, carB: DeformableCar, dt: number, normalOu
     carB.deform.brakeInbound(-n.x, -n.z, j, -(vB - (excess * mA) / (mA + mB)));
   }
   if (depth > 0) {
-    pushPair(carA, n.x, n.z, (depth * mB) / (mA + mB), dt);
-    pushPair(carB, -n.x, -n.z, (depth * mA) / (mA + mB), dt);
+    pushPair(carA, carB, n.x, n.z, (depth * mB) / (mA + mB), dt);
+    pushPair(carB, carA, -n.x, -n.z, (depth * mA) / (mA + mB), dt);
   }
   return true;
 }

@@ -37,7 +37,7 @@ export const POWER_HOLD = 0.1;
  */
 const PACK_QUIET = 0.35;
 /** Quiet time (s) past which a wreck is planted: its frame moves from the cell onto its hubs (`measurePose`) and its hubs stop being clamped (`clampLocal`). */
-const PLANT_QUIET = 0.2;
+export const PLANT_QUIET = 0.2;
 /** Height (m) a planted hub's centre stands over the ground under it (`groundMasses`): its sphere's radius, 4 cm short of the tyre's. */
 export const HUB_FLOOR = 0.28;
 /** A hub this close (m) above its `HUB_FLOOR` still slides on the ground (dragGround). */

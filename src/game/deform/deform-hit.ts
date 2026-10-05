@@ -4,6 +4,8 @@ import { resetCluster } from "./shape-match.ts";
 import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
 import { FACES, FACE_AXIS } from "./load-crush.ts";
 
+/** Most (m/s) a wheel freed by the plant may slide off the body's speed (`seatHubs`). */
+const HUB_SLIP = 8;
 /** A wreck takes a new hit only after this long (s) without contact: spikes inside one hit never re-arm. */
 const REARM_QUIET = 0.3;
 /** Smallest EBS (m/s, 10 km/h) that counts as a new hit on a wreck: the IIHS low-speed bumper test's
@@ -292,6 +294,36 @@ export abstract class DeformHit extends DeformRig {
       m.crushSet = 0;
     }
     return true;
+  }
+
+  /**
+   * The wheels go free at no more than `HUB_SLIP` m/s off the body when the plant starts. A hub written back every call
+   * keeps its own velocity, which went on taking contact impulses with no position to show for them: 17–42 m/s against
+   * a body at 2 m/s at the plant of a derby pile (seed 65), and the frame anchored on the hubs followed them 0.08 m a
+   * step. A hub within that of the body keeps its speed (the calibrated slide of a struck car).
+   */
+  protected seatHubs(): void {
+    let vx = 0;
+    let vz = 0;
+    let mass = 0;
+    for (const m of this.masses) {
+      if (!m.dynamic || m.hub) continue;
+      vx += m.vel.x * m.mass;
+      vz += m.vel.z * m.mass;
+      mass += m.mass;
+    }
+    if (mass <= 0) return;
+    vx /= mass;
+    vz /= mass;
+    for (const m of this.masses) {
+      if (!m.hub || m.popped || !m.dynamic) continue;
+      const sx = m.vel.x - vx;
+      const sz = m.vel.z - vz;
+      const slip = Math.hypot(sx, sz);
+      if (slip <= HUB_SLIP) continue;
+      m.vel.x = vx + (sx * HUB_SLIP) / slip;
+      m.vel.z = vz + (sz * HUB_SLIP) / slip;
+    }
   }
 
   /** End the current hit came in through: 0 front, 1 rear, 2 left (−x), 3 right (+x). */

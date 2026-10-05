@@ -13,6 +13,7 @@ import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import type { Hull } from "./hulls.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
 import { FACES, faceFollow } from "./load-crush.ts";
+import { PushBudget } from "./push-budget.ts";
 
 /**
  * Burnout-style streamed deformation.
@@ -22,8 +23,8 @@ import { FACES, faceFollow } from "./load-crush.ts";
  * the passenger cell is what SAT actually separates.
  */
 
-/** Numbers a `simState` block spends on the rig’s scalar fields (`simScalarsOut`: 48 fields, one double each). */
-export const SIM_SCALAR_NUMBERS = 48;
+/** Numbers a `simState` block spends on the rig’s scalar fields (`simScalarsOut`: 49 fields, one double each). */
+export const SIM_SCALAR_NUMBERS = 49;
 
 export type DeformMode = "shape" | "lattice";
 
@@ -218,6 +219,8 @@ export abstract class DeformRig {
   protected readonly gripPost = new Float64Array(MASS_SPECS.length);
   protected readonly massCornerW = new Float64Array(MASS_SPECS.length);
   protected massCornerX = NaN;
+  /** Per mass index, x/z (car frame) of where a hub stood at the last `followGroup`: a planted hub's world, not its pin in `local` (`settleHubStand`); `measurePose` plants the frame on it. */
+  protected readonly hubStand = new Float64Array(MASS_SPECS.length * 2);
   /** `floorPost` sampled since the masses last armed (`measurePose` reads the hubs' floors from it). */
   protected floorsFresh = false;
   /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub, 1 when every hub is
@@ -264,9 +267,8 @@ export abstract class DeformRig {
   protected frameY = 0;
   protected frameAt = 0;
   protected frameVy = 0;
-  /** Hull push (m) taken at sim time `pushAt` (takePush). */
-  protected pushUsed = 0;
-  protected pushAt = -1;
+  /** The slice's position corrections (pair pushes, mass-sphere shifts, wall translations): one net budget. */
+  protected readonly push = new PushBudget();
   protected overlapFrame = false;
   /** Sim time (elapsed) of the last fed contact: the solver stays in contact mode CONTACT_HOLD past it. */
   protected contactAt = -Infinity;
@@ -477,8 +479,7 @@ export abstract class DeformRig {
     this.frameY = 0;
     this.frameAt = 0;
     this.frameVy = 0;
-    this.pushUsed = 0;
-    this.pushAt = -1;
+    this.push.reset();
     this.overlapFrame = false;
     this.contactAt = -Infinity;
     this.shapeRan = false;
@@ -494,10 +495,25 @@ export abstract class DeformRig {
     this.loadDirty.fill(0);
     for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;
-    for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.pose, this.spinHeld, this.strokeOut, this.massCornerW]) b.fill(0);
+    for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.hubStand, this.pose, this.spinHeld, this.strokeOut, this.massCornerW]) b.fill(0);
     for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
     for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);
     this.goalView.fill(NaN);
+  }
+
+  /**
+   * After `clampLocal`: where each hub stands in the frame, for the planted anchor (`measurePose`). A planted hub is not
+   * written back, its `local` is its pin (`rest` + shove) and `hubStand` keeps the point `followGroup` read it at (its
+   * world, 0.1–0.5 m off the pin); any other hub stands at its clamped local.
+   */
+  protected settleHubStand(pinned: boolean): void {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
+      if (m.hub && !(pinned && !m.popped)) {
+        this.hubStand[mi * 2] = m.local.x;
+        this.hubStand[mi * 2 + 1] = m.local.z;
+      }
+    }
   }
 
   /**
@@ -686,8 +702,8 @@ export abstract class DeformRig {
     buf[o + 33] = this.frameY;
     buf[o + 34] = this.frameAt;
     buf[o + 35] = this.frameVy;
-    buf[o + 36] = this.pushUsed;
-    buf[o + 37] = this.pushAt;
+    buf[o + 36] = this.push.x;
+    buf[o + 37] = this.push.at;
     buf[o + 38] = this.overlapFrame ? 1 : 0;
     buf[o + 39] = this.contactAt;
     buf[o + 40] = this.shapeRan ? 1 : 0;
@@ -698,6 +714,7 @@ export abstract class DeformRig {
     buf[o + 45] = this.buckle;
     buf[o + 46] = this.netPopped;
     buf[o + 47] = this.netFlags;
+    buf[o + 48] = this.push.z;
     return o + SIM_SCALAR_NUMBERS;
   }
 
@@ -739,8 +756,8 @@ export abstract class DeformRig {
     this.frameY = buf[o + 33]!;
     this.frameAt = buf[o + 34]!;
     this.frameVy = buf[o + 35]!;
-    this.pushUsed = buf[o + 36]!;
-    this.pushAt = buf[o + 37]!;
+    this.push.x = buf[o + 36]!;
+    this.push.at = buf[o + 37]!;
     this.overlapFrame = buf[o + 38]! !== 0;
     this.contactAt = buf[o + 39]!;
     this.shapeRan = buf[o + 40]! !== 0;
@@ -751,6 +768,7 @@ export abstract class DeformRig {
     this.buckle = buf[o + 45]!;
     this.netPopped = buf[o + 46]!;
     this.netFlags = buf[o + 47]!;
+    this.push.z = buf[o + 48]!;
     return o + SIM_SCALAR_NUMBERS;
   }
 }
