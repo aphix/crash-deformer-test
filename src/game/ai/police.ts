@@ -322,6 +322,8 @@ export class PoliceBrain implements CopBrain {
   private readonly line: RaceBrain;
   private readonly seed: number;
   private readonly out: DriveInput = idleDrive();
+  /** The pack-mate guard's view of a unit: out on the road, not parked at a stakeout or stored (bound once: no allocation per call). */
+  private readonly onRoad = (u: number): boolean => this.state[u] !== "parked" && this.state[u] !== "stored";
   private readonly state: UnitState[] = [];
   /** Per unit: its pack (−1 none: stored, or giving up), its place in the pack, seconds in its state. */
   private readonly pack: Int16Array;
@@ -401,7 +403,7 @@ export class PoliceBrain implements CopBrain {
   /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
   think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.drive(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out);
+    guardMates(self, cars, this.first, this.count, out, this.onRoad);
     return out;
   }
 
@@ -534,7 +536,7 @@ export class PoliceBrain implements CopBrain {
       if (!this.huntable(t, hunt, time)) {
         const next = this.nearestTo(p, cars, hunt, time);
         if (next < 0) {
-          this.disband(p);
+          this.disband(p, cars, world);
           continue;
         }
         this.target[p] = next;
@@ -553,7 +555,7 @@ export class PoliceBrain implements CopBrain {
       this.sustain[p] = near < ENGAGE ? this.sustain[p]! + dt : 0;
       this.lost[p] = near > LOSE ? this.lost[p]! + dt : 0;
       if (this.lost[p]! > LOSE_TIME || this.age[p]! > PURSUIT_MAX) {
-        this.disband(p);
+        this.disband(p, cars, world);
         continue;
       }
       if (this.sustain[p]! >= REINFORCE_EVERY && size < PACK_MAX) {
@@ -672,15 +674,20 @@ export class PoliceBrain implements CopBrain {
     this.stats.pursuits++;
   }
 
-  /** Pack `p` gives up: its units drive off and are stored out of view. */
-  private disband(p: number): void {
+  /**
+   * Pack `p` gives up: its chasers drive off and are stored out of view. A unit still parked (no racer passed its
+   * spot, so it never woke) has nothing to give up: unseen, it is put away where it stands; in view, it drives off
+   * like the rest rather than vanish.
+   */
+  private disband(p: number, cars: readonly AiCar[], world: PoliceWorld): void {
     this.packLive[p] = 0;
     this.target[p] = -1;
     for (let u = 0; u < this.count; u++) {
       if (this.pack[u] !== p) continue;
       this.pack[u] = -1;
-      if (this.state[u] === "parked") this.setState(u, "pursuit");
-      else this.since[u] = 0;
+      if (this.state[u] !== "parked") this.since[u] = 0;
+      else if (world.seen(cars[this.first + u]!.x, cars[this.first + u]!.z)) this.setState(u, "pursuit");
+      else this.store(u, world);
     }
   }
 

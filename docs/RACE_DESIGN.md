@@ -314,8 +314,10 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   head-on from 3 s off (the main source of takedowns: closing speeds up to 60–70 m/s). Wedged, it
   backs off for another run.
 - Pack guard (`ai/pack-guard.ts` `guardMates`, the last step of `PoliceBrain.think` and `HunterBrain.think`, so race police and
-  Survival's cops share it): of the pack-mates, the one a car reaches soonest within 3 s (relative motion; a mate at a standstill
-  is read as pulling out at 8 m/s along its nose, as the car itself is) is steered away from, to the side it passes on, and
+  Survival's cops share it): of the pack-mates out on the road (a unit still parked at its stakeout, or stored, is not read: it
+  cannot pull out until a racer wakes it, and read as a car at 8 m/s it cancelled a lead-in's steering), the one a car reaches
+  soonest within 3 s (relative motion; a mate at a standstill is read as pulling out at 8 m/s along its nose, as the car itself
+  is) is steered away from, to the side it passes on, and
   braked for within 1.5 s when ahead. A stakeout pair parks 12 m apart, one car facing each racer's travel and one against it,
   and both used to wake at full throttle into a head-on. Measured (2-lap races, 4 AI + the AI-driven slot, police on, seeds
   1-12, oval / rally / city / stunt, a lead-in being the 2 s after a wake): lead-ins that touched a pack-mate 181 → 22 of
@@ -327,8 +329,9 @@ off builds none (police-off race digests equal main's: oval / rally / city / stu
   coming up from 70 m behind already chasing), up to 5.
 - Stand-down: a target that finishes, dies or respawns (left alone 4 s) hands the pack to another
   racer within 45 m, else the pack gives up, as it does after 160 m off for 4 s or 40 s of pursuit.
-  Given-up units drive off and are put away out of view (or after 20 s); a knocked-out unit (dead
-  drivetrain or upside down) after 6 s; a stakeout nobody came near after 45 s.
+  Given-up units drive off and are put away out of view (or after 20 s); a stakeout unit of the pack that no racer ever passed is
+  put away where it stands when nobody sees it (in view it drives off like the rest), so an unseen stakeout never pulls out onto
+  the road with no racer past it; a knocked-out unit (dead drivetrain or upside down) after 6 s; a stakeout nobody came near after 45 s.
 - Busted (`BUST`, `RaceSession`): a racing car (player, AI or netplay peer; the host decides) held under
   20 km/h within 20 m of a unit that is chasing (`PoliceBrain.chasers`: in pursuit with a pack; never a
   parked stakeout, a knocked-out wreck or a unit driving off) for more than 4 s in a row is out the way a
