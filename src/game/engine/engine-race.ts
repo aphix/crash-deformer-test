@@ -490,10 +490,12 @@ export class RaceDirector extends RaceField {
   /**
    * Car `i` was put on another spot (a highlight replay's keyframe, as a live respawn does in `drain`): the course
    * projection hint (`seg`) it kept is stale, and a hinted search from a spot 27 m back on a bend found a wall that
-   * wasn't there (a phantom hit, one car 7 m off the record).
+   * wasn't there (a phantom hit, one car 7 m off the record). The wall's memory of where it stood (`wallX`) is stale too:
+   * a placement under `WALL_JUMP` would keep it, and a car put on the road would be judged by the old spot's contact.
    */
   relocated(i: number): void {
     this.seg[i] = -1;
+    this.wallX[i] = Infinity;
   }
 
   /** Car `i` against the course's walls and props (a highlight replay runs it for put-away traffic too). */
