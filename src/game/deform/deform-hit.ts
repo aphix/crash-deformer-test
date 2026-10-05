@@ -339,9 +339,13 @@ export abstract class DeformHit extends DeformRig {
     }
   }
 
-  /** Mark that a collision is still happening so settle/cutDrive stay off. */
+  /**
+   * Mark that a collision is still happening so settle/cutDrive stay off. Only a car whose masses run has a clock to mark:
+   * `elapsed` stands still while they are idle, so a touch marked then (a wall, a prop or a ramp's flank, below a crash)
+   * read "just touched" for good, in `collideWith` and the parts' touch timing, and no keyframe carries it for a car that is no wreck.
+   */
   notifyContact(): void {
-    this.lastContact = this.elapsed;
+    if (this.massActive) this.lastContact = this.elapsed;
   }
 
   quietTime(): number {

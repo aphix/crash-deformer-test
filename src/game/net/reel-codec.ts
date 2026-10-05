@@ -60,10 +60,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * is L/I plus the driven steer only, the write-back's kept turn a readout, so keyframe spin changes; 34: a wreck's
  * tyres and scraping hubs resist its spin by Coulomb friction and the quiet collapse keeps spin until friction stops it;
  * 35: a wreck in flight lands on a fleet wedge's end only from within LIFT_OFF of its top, no longer popped onto it;
- * 36: a hunter's drop-in keeps dropMin from the player up to the frame the cop shows).
+ * 36: a hunter's drop-in keeps dropMin from the player up to the frame the cop shows; 37: a car whose masses are idle
+ * holds no contact clock, so a once-touched intact bystander stays quiet).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 36;
+const REPLAY_VERSION = 37;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

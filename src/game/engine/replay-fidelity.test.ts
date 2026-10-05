@@ -86,8 +86,8 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
 
   describe("in a derby (flat field, wear kill armed)", () => {
     const HEAD = Math.PI / 2;
-    const run = (name: string, spawns: Spawn[]): void => {
-      const rec = recordFlat(spawns, 8, true);
+    const run = (name: string, spawns: Spawn[], touched: readonly number[] = []): void => {
+      const rec = recordFlat(spawns, 8, true, touched);
       check(name, rec, agreement(rec));
     };
     /** The pile-up with its start x (or z) shifted by `s` m: two head-on, one behind, one across. */
@@ -115,6 +115,18 @@ describe("a clip replays the crash as the sim that recorded it ran it", () => {
       ]));
     it("bad: a pile-up, two head-on, one behind, one across", () => run("derby pile-up", pile(0)));
     for (const s of SHIFTS) it(`bad: the pile-up with its spawns ${s} m off holds the same bound`, () => run(`derby pile-up shifted ${s} m`, pile(s)));
+    // A bystander intact beside the head-on's wrecks, 1.9 m off their line (its hull touches theirs): a light touch from a wall or a prop
+    // before the recording marked its contact clock, and the clock of a car whose masses are idle stands still, so it read "just touched"
+    // for good and its masses met a settled wreck's in the live sim; the keyframe carries nothing of the clock for a car that is no wreck, so
+    // the replay's bystander was quiet and the wrecks' masses never met it (seed 30 of engine-replay.test.ts: 2.26 m off). Measured on 32bf18c:
+    // marked 0.17 mm / 1.7 cm/s / 7.6 mm off the live sim, unmarked exact.
+    const BYSTANDER: Spawn[] = [
+      { x: 0, z: 0, yaw: HEAD, speed: 20, throttle: 1 },
+      { x: 80, z: 0, yaw: -HEAD, speed: 20, throttle: 1 },
+      { x: 40, z: 1.9, yaw: HEAD, speed: 0, throttle: 0 },
+    ];
+    it("bad: a head-on beside a bystander whose contact clock a wall or prop touch marked before the clip", () => run("derby bystander touched", BYSTANDER, [2]));
+    it("good: the same head-on beside an untouched bystander (the control: the marked clock was the whole difference)", () => run("derby bystander untouched", BYSTANDER));
   });
 
   it("report", (t) => t.diagnostic(rows.join("\n")));

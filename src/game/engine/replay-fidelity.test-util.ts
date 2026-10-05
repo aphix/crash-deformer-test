@@ -101,7 +101,7 @@ function dresser(derby: boolean): (car: DeformableCar) => void {
  * A crash on a flat field with no walls (the derby's rules: `derby` arms the wear kill), the recorder fed as the engine
  * does: frames of 1/60 s cut into `physicsSlice` steps, every car on its own pedals, the clip the best the ledger kept.
  */
-export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean): Recording {
+export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boolean, touched: readonly number[] = []): Recording {
   const scene = new THREE.Scene();
   const dress = dresser(derby);
   const cars = spawns.map((s, i) => {
@@ -109,6 +109,8 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
     assignClass(car, fleetClass(i));
     dress(car);
     car.spawnFacing(s.x, s.z, s.yaw, s.speed);
+    // A light touch before the recording (a wall, a prop or a ramp's flank, below a crash) marks the car's contact clock: a keyframe carries that for no car that is no wreck.
+    if (touched.includes(i)) car.deform.notifyContact();
     return car;
   });
   const rec = new CrashRecorder();

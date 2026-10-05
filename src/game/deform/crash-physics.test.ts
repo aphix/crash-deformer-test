@@ -627,6 +627,19 @@ forModes("time / quiet / reset / arm", (spawn, mode) => {
     assert.equal(s.d.quietTime(), 0);
   });
 
+  // A car whose masses are idle has no contact window: `elapsed` stands still, so a touch marked then (a wall, a prop or a ramp's
+  // flank below a crash) read "just touched" for good, and no keyframe carries it for a car that is no wreck (engine-replay seed 30
+  // with the far-end bumper weight: the replay's bystander was quiet, the live one not, a wreck's masses met it live and not replayed).
+  it("bad: a touch on a car whose masses are idle leaves it as quiet as one never touched", () => {
+    const d = new StreamedDeformation(dummyGeom());
+    d.mode = mode;
+    const untouched = d.quietTime();
+    d.notifyContact();
+    assert.equal(d.massActive, false);
+    assert.equal(d.quietTime(), untouched, `an idle car touched reads ${d.quietTime()} s quiet, untouched ${untouched} s`);
+    assert.ok(d.quietTime() > 1, `an idle car is not in a contact window: ${d.quietTime()} s`);
+  });
+
   it("good: reset restores rest pose, drivetrain, and sensors", () => {
     const s = spawn(0);
     for (let i = 0; i < 12; i++) stepWall(s, DT, 0.12);
