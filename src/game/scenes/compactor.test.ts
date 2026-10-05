@@ -49,8 +49,8 @@ function intrusion(face: number): number {
   return Math.max(0, COMPACTOR.bumperZ - face);
 }
 
-describe("compactor constants", () => {
-  it("good: plates start past the bumper and pass the hubs on the way in", () => {
+describe("given the compactor press's plate positions along its run (distance of each plate from the car's centre)", () => {
+  it("when the start, wheel-well, hub-midpoint and maximum positions are compared with the bumper and hubs, then the plates start outside the bumper, reach past the hubs at the wheel wells, stop on the hub midpoint, and the maximum passes the hubs and the rails at 0.68", () => {
     assert.ok(COMPACTOR.startFace > COMPACTOR.bumperZ);
     assert.ok(COMPACTOR.wellFace > COMPACTOR.hubZ);
     assert.ok(COMPACTOR.midFace === COMPACTOR.hubZ);
@@ -58,16 +58,16 @@ describe("compactor constants", () => {
     assert.ok(COMPACTOR.maxFace < 0.68, "max face must pass the rails at 0.68");
   });
 
-  it("bad: startFace inside the bumper would teleport the nose on frame 1", () => {
+  it("when the start position is compared with the bumper, then the plates start more than 0.1 m outside the bumper, so the nose is not teleported on the first frame", () => {
     assert.ok(COMPACTOR.startFace - COMPACTOR.bumperZ > 0.1);
   });
 
-  it("edge: wellFace is the well lip, not the hub centre", () => {
+  it("when the wheel-well position is compared with the hub centre-line, then it is the wheel-well lip, between 0.1 m and 0.3 m outside the hub centre", () => {
     assert.ok(COMPACTOR.wellFace - COMPACTOR.hubZ >= 0.1);
     assert.ok(COMPACTOR.wellFace - COMPACTOR.hubZ < 0.3);
   });
 
-  it("close-but-wrong: stages are descending faces, not a single on/off crush", () => {
+  it("when the press stage is read at plate distances 2.22, 1.8, 1.42, 1.0 and 0.62, then it reports open, contact, wells, mid and max in turn, not a single on/off crush", () => {
     assert.equal(compactorStage(2.22), "open");
     assert.equal(compactorStage(1.8), "contact");
     assert.equal(compactorStage(1.42), "wells");
@@ -76,8 +76,8 @@ describe("compactor constants", () => {
   });
 });
 
-forModes("compactor until wheel wells", (mode) => {
-  it("good: nose and tail crush, cabin barely moves, no loft", () => {
+forModes("given a parked car in the compactor press (plates squeezing its nose and tail), early in the crush", (mode) => {
+  it("when the plates close to the wheel wells, then the nose and tail crush, the cabin and roof barely move and the car is not lofted", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     const nose = (travelOf(r.d, "bumperFL") + travelOf(r.d, "bumperFR")) * 0.5;
@@ -92,7 +92,7 @@ forModes("compactor until wheel wells", (mode) => {
     assert.ok(r.maxCellY < 1.15, `cell world.y ${r.maxCellY.toFixed(3)}`);
   });
 
-  it("good: both plates take real impulse (front-heavy sedan, not 50/50)", () => {
+  it("when the plates close to the wheel wells, then both plates push with real impulse (the rear less than the front on this front-heavy sedan) and the front impulse stays under 25000", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     assert.ok(r.frontJ > 80, `front plate dead ${r.frontJ}`);
@@ -104,13 +104,13 @@ forModes("compactor until wheel wells", (mode) => {
     assert.ok(r.frontJ < 25000, `front plate impulse exploded ${r.frontJ} [${mode}]`);
   });
 
-  it("bad: a one-sided inward would leave the rear bumper at rest", () => {
+  it("when the plates close to the wheel wells, then the rear bumper moves inward more than 0.12 m, so the rear plate crushes the car too", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     assert.ok(travelOf(r.d, "bumperRL") > 0.12, "rear ignored — far-side clamp still on");
   });
 
-  it("bad: first plate contact does not light-speed the car", () => {
+  it("when the plates have pushed 5 cm into the bumper, then the car is not flung: no point moves at 40 m/s, none leaves the 6 m by 3 m region around the press, and the car stays within 4 m of the origin", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.bumperZ - 0.05);
     for (const m of r.d.masses) {
@@ -123,7 +123,7 @@ forModes("compactor until wheel wells", (mode) => {
     assert.ok(r.group.position.length() < 4, `group ${r.group.position.toArray()}`);
   });
 
-  it("edge: plates sitting at startFace never touch the car", () => {
+  it("when the plates stay at the starting position, then they never touch the car: no contact, no bumper movement and no plate impulse", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.startFace);
     assert.equal(r.contacted, false);
@@ -131,7 +131,7 @@ forModes("compactor until wheel wells", (mode) => {
     assert.equal(r.frontJ, 0);
   });
 
-  it("close-but-wrong: at the well lip the hubs are nicked, not folded past the midpoint", () => {
+  it("when the plates reach the wheel wells, then the wheel hubs are only nicked: they move less than the bumper does and have not travelled past the midpoint of their crush", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     const hub = (travelOf(r.d, "hubFL") + travelOf(r.d, "hubFR")) * 0.5;
@@ -147,7 +147,7 @@ forModes("compactor until wheel wells", (mode) => {
   });
 
   // Planted hubs were pinned at rest, so the plates passed straight through the tyres (owner screenshot).
-  it("bad: the plates never sit inside a planted tyre — the hubs ride them back", () => {
+  it("when the plates are 0.1 m short of the hubs' midpoint, then no hub has popped and no tyre pokes more than 1 cm past the plate, as the hubs ride the plates back", () => {
     const r = pressRig(mode);
     const face = COMPACTOR.midFace + 0.1;
     r.runTo(face);
@@ -159,8 +159,8 @@ forModes("compactor until wheel wells", (mode) => {
   });
 });
 
-forModes("compactor max crush (past wheel midpoint)", (mode) => {
-  it("good: cage and rails yield once the plates pass the hubs", () => {
+forModes("given a parked car in the compactor press, as the plates go past the wheel hubs to the maximum crush", (mode) => {
+  it("when the plates close to the maximum, then the nose is accordioned, the cabin cage and rails yield, the roof gives and the crumple zone is mostly spent", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.maxFace);
     const cell = travelOf(r.d, "cell");
@@ -174,7 +174,7 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     assert.ok(leftoverCrumple(r.d.crumpleTravel()) < 0.55, "still a full crumple zone at max");
   });
 
-  it("good: still no pop — a max crush is a pancake, not a launch", () => {
+  it("when the plates close to the maximum, then the car is flattened like a pancake and not launched: it stays under 0.25 m off the ground and the hubs stay within a height band", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.maxFace);
     assert.ok(r.maxGroupY < 0.25, `group lofted to ${r.maxGroupY.toFixed(3)}`);
@@ -188,7 +188,7 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     );
   });
 
-  it("bad: max crush is not just the wells pose with a different label", () => {
+  it("when the plates close to the maximum rather than only to the wheel wells, then the cabin has crushed at least 1.4 times as far and the plates are over 0.5 m closer", () => {
     const wells = pressRig(mode);
     wells.runTo(COMPACTOR.wellFace);
     const max = pressRig(mode);
@@ -200,7 +200,7 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     assert.ok(max.face < wells.face - 0.5);
   });
 
-  it("edge: walls stay symmetric — |z| of the front bumper ≈ the rear's, in the world (the plates' frame)", () => {
+  it("when the plates close to the maximum, then the front and rear bumpers end the same distance from the car's middle, in the plates' frame, within a tolerance per deform mode", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.maxFace);
     const fl = r.d.masses.find((m) => m.name === "bumperFL")!;
@@ -212,7 +212,7 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     );
   });
 
-  it("close-but-wrong: leftover crumple uses remaining length, so max face must drop it below wells", () => {
+  it("when the plates close to the maximum rather than only to the wheel wells, then the crumple zone's remaining length drops by more than 0.08", () => {
     const wells = pressRig(mode);
     wells.runTo(COMPACTOR.wellFace);
     const max = pressRig(mode);
@@ -222,7 +222,7 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
     assert.ok(b < a - 0.08, `leftover wells ${a.toFixed(3)} max ${b.toFixed(3)}`);
   });
 
-  it("close-but-wrong: deepCrush only arms after the hub midpoint, not at the well lip", () => {
+  it("when the plates close to the wheel wells and then to the maximum, then the cage's deep-crush state is off at the wheel wells and on only at the maximum, not early", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     assert.equal(r.d.deepCrush, false, "deepCrush at wells — cage would pancake too early");
@@ -231,8 +231,8 @@ forModes("compactor max crush (past wheel midpoint)", (mode) => {
   });
 });
 
-forModes("compactor lattice and skin stay inside the plates", (mode) => {
-  it("good: until the wells, every mass and cage is inside the plates", () => {
+forModes("given a parked car in the compactor press, and where its inner frame and skin sit relative to the plates", (mode) => {
+  it("when the plates close to the wheel wells, then every structural point, cage and skin stays inside the plates, within an allowance per deform mode", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     const pad = mode === "shape" ? 0.9 : 0.08;
@@ -253,7 +253,7 @@ forModes("compactor lattice and skin stay inside the plates", (mode) => {
       assert.ok(skinZ <= COMPACTOR.wellFace + skinPad, `skin z ${skinZ.toFixed(3)}`);
   });
 
-  it("good: max crush keeps cages with the masses, not at rest bumper length", () => {
+  it("when the plates close to the maximum, then the structural points, cages and skin all follow the crush inward, and none stays at the rest-length bumper position (about 2.16 m)", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.maxFace);
     const cageZ = r.d.cageMaxAbsZ();
@@ -276,13 +276,13 @@ forModes("compactor lattice and skin stay inside the plates", (mode) => {
     if (Number.isFinite(cageZ)) assert.ok(cageZ < 2.2, "cages never left rest (~2.16)");
   });
 
-  it("bad: a 0.38m rest-relative skin cap would leave the bumper outside the wells", () => {
+  it("when a 0.38 m skin limit from rest is applied to the bumper's 2.16 m rest position, then the bumper would stay outside the wheel-well plates, so that limit is too tight to follow the crush", () => {
     const bumperRestZ = 2.16;
     const oldCap = 0.38;
     assert.ok(bumperRestZ - oldCap > COMPACTOR.wellFace, "regression: old skin clamp undoes FFD");
   });
 
-  it("good: until wells the cell has not yielded; past the hub it has", () => {
+  it("when the plates close to the wheel wells and then to the maximum, then the cabin has not yielded at the wheel wells and has yielded (over 0.16) at the maximum", () => {
     const wells = pressRig(mode);
     wells.runTo(COMPACTOR.wellFace);
     assert.ok(
@@ -297,7 +297,7 @@ forModes("compactor lattice and skin stay inside the plates", (mode) => {
     );
   });
 
-  it("close-but-wrong: wellFace + 0.04 still has an intact cage; midFace - 0.04 has started", () => {
+  it("when the plates stop 0.04 m short of the wheel wells and 0.04 m past the hub midpoint, then the cage is intact at the first (cabin under 0.14) and deep-crushing at the second", () => {
     const a = pressRig(mode);
     a.runTo(COMPACTOR.wellFace + 0.04);
     assert.equal(a.d.deepCrush, false);
@@ -308,8 +308,8 @@ forModes("compactor lattice and skin stay inside the plates", (mode) => {
   });
 });
 
-forModes("compactor stiffness (does not crush too much)", (mode) => {
-  it("good: at the well lip bumper travel matches plate intrusion, not a vanished nose", () => {
+forModes("given a parked car in the compactor press, and how far it crushes compared with how far the plates intrude", (mode) => {
+  it("when the plates close to the wheel wells, then bumper travel matches the plates' intrusion (not over it by more than the allowance, not under 35% of it) and neither bumper crawls inside its plate", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     const ate = intrusion(COMPACTOR.wellFace);
@@ -337,7 +337,7 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
     );
   });
 
-  it("good: until the wells the engine and cabin are still a car, not a pile", () => {
+  it("when the plates close to the wheel wells, then the engine and cabin are still a car, not a pile: the engine is not eaten, length and width hold, roof and doors hold, and over 0.45 of the crumple zone is left", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.wellFace);
     const box = massAABB(r.d);
@@ -361,7 +361,7 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
     assert.ok(leftoverCrumple(r.d.crumpleTravel()) > 0.45, "crumple zone already spent at the lip");
   });
 
-  it("good: at the 2.68m gap (hub midpoint) it is a shortened sedan, not wreckage", () => {
+  it("when the plates close to 2.68 m apart (the hubs' midpoint), then the car is a shortened sedan, not wreckage: length, width, height, roof and cabin all hold", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.midFace);
     const box = massAABB(r.d);
@@ -380,7 +380,7 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
     );
   });
 
-  it("bad: a bumper kiss is not a wreck", () => {
+  it("when the plates have pushed 4 cm into the bumper, then it is a kiss, not a wreck: the cabin and roof move under 0.08 m, the nose under 0.35 m and the car keeps over 3.5 m of length", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.bumperZ - 0.04);
     assert.ok(
@@ -394,7 +394,7 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
     assert.ok(box.length > 3.5, `kiss shortened the car to ${box.length.toFixed(3)}`);
   });
 
-  it("edge: plates parked at startFace leave rest length/width/height", () => {
+  it("when the plates stay at the starting position, then the car keeps its rest length (4.12 m) and width (1.56 m) within 0.08 m, and the bumper and cabin have not moved", () => {
     const r = pressRig(mode);
     r.runTo(COMPACTOR.startFace);
     const box = massAABB(r.d);
@@ -404,7 +404,7 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
     assert.ok(travelOf(r.d, "cell") === 0);
   });
 
-  it("close-but-wrong: bumper travel tracks intrusion, not a constant wreck amount", () => {
+  it("when the plates are 4 cm into the bumper, at the wheel wells and at the hubs' midpoint, then nose travel grows with the plates' intrusion and never exceeds it by more than the allowance, not a constant wreck amount", () => {
     const kiss = pressRig(mode);
     kiss.runTo(COMPACTOR.bumperZ - 0.04);
     const wells = pressRig(mode);
@@ -429,11 +429,11 @@ forModes("compactor stiffness (does not crush too much)", (mode) => {
   });
 });
 
-describe("a held press keeps its crush", () => {
+describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, pressed to the maximum", () => {
   // The squeeze pinned the group at the world origin and clamped each particle's local offset from
   // rest, which then also carried the cell's own deep-crush travel: a 2 s hold at max face sprang
   // bumpers 0.67–0.81 m back toward their rest distance from the cell.
-  it("bad: 2 s held at max face, no particle's distance change to the cell shrinks more than the 0.08 m springback", () => {
+  it("when the press is then held for 2 s at the maximum, then no particle's distance change to the cabin shrinks by more than the 0.08 m springback", () => {
     for (const squash of [0.32, 0.4]) {
       const car = makeCar("shape", squash);
       car.spawnFacing(0, 0, 0, 0);

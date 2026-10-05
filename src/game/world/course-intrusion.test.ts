@@ -95,14 +95,14 @@ function roadSteps(track: Track): string[] {
   return bad;
 }
 
-describe("course geometry", () => {
-  for (const json of TRACKS) {
-    const track = new Track(json);
-    it(`${track.id}: no placed building or prop reaches more than ${TOL} m onto the road or runoff`, () => {
+for (const json of TRACKS) {
+  const track = new Track(json);
+  describe(`given the ${track.id} course`, () => {
+    it(`when every placed building and prop is measured against the road and runoff, then none reaches more than ${TOL} m onto them`, () => {
       assert.deepEqual(courseIntrusions(track), []);
     });
-    it(`${track.id}: the ground across every road + runoff has no step over its bank + ${STEP_TOL} m per ${STEP_DX} m`, () => {
+    it(`when the ground is scanned across every road and its runoff, then no step rises or falls more than the road's own bank plus ${STEP_TOL} m per ${STEP_DX} m`, () => {
       assert.deepEqual(roadSteps(track), []);
     });
-  }
-});
+  });
+}

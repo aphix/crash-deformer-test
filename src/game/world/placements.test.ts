@@ -28,8 +28,8 @@ function onCorridor(track: Track, placed: Placed[]): string[] {
   return bad;
 }
 
-describe("placements", () => {
-  it("the same track places the same props and colliders every time", () => {
+describe("given the oval course", () => {
+  it("when the same track is placed twice, then it places the same props and colliders every time", () => {
     const a = placeProps(new Track(oval));
     const b = placeProps(new Track(structuredClone(oval)));
     assert.ok(a.length > oval.props.length);
@@ -37,7 +37,7 @@ describe("placements", () => {
     assertSameDigest(propColliders(a), propColliders(b), "colliders");
   });
 
-  it("oval: along and scatter props keep off every corridor, scatter stays in its band and clear of the start line", () => {
+  it("when its props are placed, then the along and scatter props keep off every corridor, and the scatter stays in its band and clear of the start line", () => {
     const t = new Track(oval);
     const placed = placeProps(t);
     assert.deepEqual(onCorridor(t, placed), []);
@@ -54,16 +54,19 @@ describe("placements", () => {
     }
     assert.equal(placed.filter((p) => p.prefab === "lamp").length, Math.round(t.length / 45));
   });
+});
 
-  it("along copies that would land on a shortcut's road are skipped", () => {
+describe("given the oval with a row of lamps along its left side", () => {
+  it("when the lamps are placed, then the copies that would land on a shortcut's road are skipped", () => {
     const t = new Track({ ...oval, along: [{ prefab: "lamp", every: 6, side: "left", offset: 1 }], scatter: [] });
     const placed = placeProps(t);
     const lamps = placed.filter((p) => p.prefab === "lamp");
     assert.ok(lamps.length > 0 && lamps.length < Math.round(t.length / 6), `${lamps.length} lamps`);
     assert.deepEqual(onCorridor(t, placed), []);
   });
+});
 
-  // The oval with a two-lane street across the infield, through both straights.
+describe("given the oval with a two-lane street across the infield", () => {
   const street = {
     ...oval,
     traffic: { routes: [{ id: "cross", path: [{ x: -110, z: 60 }, { x: 0, z: 62 }, { x: 110, z: 60 }], count: 0, lanes: [{ offset: -2, dir: 1 as const }] }] },
@@ -72,7 +75,7 @@ describe("placements", () => {
     scatter: [{ prefab: "tree" as const, count: 60, near: 4, far: 60, seed: 3 }],
   };
 
-  it("along a traffic route: copies line the street facing it, and none stands on any road", () => {
+  it("when buildings are placed along the traffic route, then the copies line the street facing it, and none stands on any road", () => {
     const t = new Track(street);
     const route = t.routes[0]!.path;
     const placed = placeProps(t);
@@ -89,8 +92,10 @@ describe("placements", () => {
     }
     for (const tr of placed.filter((p) => p.prefab === "tree")) assert.ok(gap(route, tr.x, tr.z) >= 4, "tree on the street");
   });
+});
 
-  it("no along copy stands beside a bridge span or inside a tunnel", () => {
+describe("given the oval with a bridge span, a tunnel and a row of lamps along both sides", () => {
+  it("when the lamps are placed, then none stands beside the bridge span or inside the tunnel", () => {
     const nodes = oval.nodes.map((n, i) => (i === 4 ? { ...n, deck: true } : i === 6 ? { ...n, deck: false } : i === 13 ? { ...n, tunnel: true } : i === 15 ? { ...n, tunnel: false } : n));
     const t = new Track({ ...oval, nodes, along: [{ prefab: "lamp", every: 5, side: "both", offset: 1.5 }], scatter: [] });
     const lamps = placeProps(t).filter((p) => p.prefab === "lamp");
@@ -104,8 +109,10 @@ describe("placements", () => {
     assert.equal(covered(t.path.tunnel), 0);
     assert.ok(lamps.length > 150, `${lamps.length} lamps`);
   });
+});
 
-  it("stunt: a prop on the start straight under the bridge stands on that road, one on the bridge stands on the deck", () => {
+describe("given the stunt course, with cones on the start straight under the bridge, on the bridge and beside it", () => {
+  it("when the props are placed, then the one under the bridge stands on that road and the one on the bridge stands on the deck", () => {
     const t = new Track({
       ...stunt,
       props: [
@@ -123,8 +130,10 @@ describe("placements", () => {
     assert.ok(Math.abs(onDeck!.y - 9) < 0.3, `on the bridge at y ${onDeck!.y}`);
     assert.equal(beside!.y, g.heightAt(60, -120, -1e9));
   });
+});
 
-  it("along props face the road: front (+X) points at the centreline on both sides", () => {
+describe("given the oval with billboards along both sides", () => {
+  it("when the billboards are placed, then each front (+X) points at the centreline", () => {
     const t = new Track({ ...oval, along: [{ prefab: "billboard", every: 30, side: "both", offset: 4 }], scatter: [] });
     const boards = placeProps(t).filter((p) => p.prefab === "billboard").slice(2);
     assert.ok(boards.length > 10);
@@ -136,8 +145,10 @@ describe("placements", () => {
       assert.ok(toRoad > 0.99, `billboard at (${b.x.toFixed(1)}, ${b.z.toFixed(1)}) faces ${toRoad.toFixed(2)} away`);
     }
   });
+});
 
-  it("colliders scale with the prop", () => {
+describe("given props of different scales and sizes (crates, a cone and a gantry)", () => {
+  it("when the colliders are built, then they scale with the prop", () => {
     const t = new Track({
       ...oval,
       props: [
@@ -162,8 +173,10 @@ describe("placements", () => {
     assert.equal(cone!.r, 0.56);
     assert.equal(cone!.mass, PREFABS.cone.mass * 8);
   });
+});
 
-  it("a box collider of a yawed prop covers its rotated footprint, and no more", () => {
+describe("given a yawed billboard prop", () => {
+  it("when its collider is built, then the box covers the prop's rotated footprint, and no more", () => {
     const t = new Track({
       ...oval,
       props: [{ prefab: "billboard", x: 3, z: -7, yaw: 0.6, size: [0.5, 5, 9] }],

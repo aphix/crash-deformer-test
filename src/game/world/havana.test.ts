@@ -7,17 +7,17 @@ import { square } from "./track.test-util.ts";
 import { HAVANA } from "./tracks/havana.ts";
 import { OFF_MENU, TRACKS } from "./tracks/index.ts";
 
-describe("havana (the Survival course)", () => {
+describe("given the Survival course Havana", () => {
   const track = new Track(HAVANA);
 
-  it("loads through the Track loader as a closed ring with checkpoints, and is not a race course", () => {
+  it("when it is loaded through the Track loader, then it is a closed ring with checkpoints and is not a race course (the race menu does not list it and the race loader resolves it by id)", () => {
     assert.equal(track.id, "havana");
     assert.ok(track.gates.length >= 3, `${track.gates.length} checkpoints`);
     assert.ok(!TRACKS.some((j) => new Track(j).id === "havana"), "the race menu must not list the survival course");
     assert.ok(OFF_MENU.includes(HAVANA), "the race loader resolves it by id");
   });
 
-  it("survival anchors: the start faces the hill at the far end of the approach, the cops queue tight behind it", () => {
+  it("when its Survival anchors are read, then the start faces the hill at the far end of the approach and the cops queue tight behind it", () => {
     const s = track.survival;
     assert.ok(s, "havana carries survival anchors");
     // Heading: forward = (sin yaw, cos yaw); the hill centre is the origin.
@@ -33,11 +33,13 @@ describe("havana (the Survival course)", () => {
     }
   });
 
-  it("a course without survival anchors has none", () => {
-    assert.equal(new Track(square()).survival, null);
+  describe("given the square course, which has no Survival anchors", () => {
+    it("when it is loaded, then its Survival anchors are null", () => {
+      assert.equal(new Track(square()).survival, null);
+    });
   });
 
-  describe("the layout the friend's spec and the owner's pictures ask for", () => {
+  describe("given Havana's layout, as the friend's spec and the owner's pictures ask for it", () => {
     const plateau = track.json.environment.plateaus[0]!;
     const ground = track.ground();
     const placed = placeProps(track);
@@ -46,7 +48,7 @@ describe("havana (the Survival course)", () => {
     /** Solid props (not palms) as circles: centre, radius, height. */
     const solids = colliders.filter((c) => c.prefab !== "palm").map((c) => ({ x: c.x, z: c.z, r: c.kind === "circle" ? c.r : Math.hypot(c.hx, c.hz), h: PREFABS[c.prefab].size[1] * placed[c.index]!.sy, prefab: c.prefab }));
 
-    it("the plateau and its face: a 4-6 m rise over 15-22 m, a 20-25 m launch face, a plaza about 25 x 35 m, the ring road 10-12 m wide", () => {
+    it("when the plateau and its face are measured, then it rises 4-6 m over 15-22 m with a 20-25 m launch face, a plaza about 25 x 35 m and a ring road 10-12 m wide, the plaza paved, the face grass and the island round it lawn", () => {
       assert.ok(plateau.height >= 4 && plateau.height <= 6, `rise ${plateau.height} m`);
       assert.ok(plateau.run[3] >= 15 && plateau.run[3] <= 22, `the near face runs ${plateau.run[3]} m`);
       assert.ok(2 * plateau.halfX >= 20 && 2 * plateau.halfX <= 25, `the face is ${2 * plateau.halfX} m wide`);
@@ -58,7 +60,7 @@ describe("havana (the Survival course)", () => {
       assert.equal(ground.surfaceAt(-30, -20), "grass", "the island round it is lawn");
     });
 
-    it("the approach: a 18-24 m boulevard at least 200 m long aimed at the hill, palms on its edges and a clear centre corridor, the monument in view from the start", () => {
+    it("when the approach is measured, then it is a 18-24 m boulevard at least 200 m long aimed at the hill, with palms on its edges, a clear centre corridor and the monument in view from the start", () => {
       const b = route("boulevard");
       assert.ok(2 * b.path.half[0]! >= 18 && 2 * b.path.half[0]! <= 24, `${2 * b.path.half[0]!} m wide`);
       assert.ok(b.path.length >= 200, `${b.path.length.toFixed(0)} m long`);
@@ -77,7 +79,7 @@ describe("havana (the Survival course)", () => {
       }
     });
 
-    it("the monument: a solid star-plan tower near the plaza's centre, with a clear driving strip on its left", () => {
+    it("when the monument is measured, then it is a solid star-plan tower near the plaza's centre, with a clear driving strip on its left", () => {
       const m = colliders.find((c) => c.prefab === "monument")!;
       assert.ok(m.kind === "circle" && m.r >= 5, "a solid circle of the tower's footprint");
       assert.ok(Math.hypot(m.x - plateau.x, m.z - plateau.z) < 8, "near the centre");
@@ -86,7 +88,7 @@ describe("havana (the Survival course)", () => {
       assert.ok(m.x - (m as { r: number }).r - (plateau.x - plateau.halfX) >= 8, "at least 8 m of plaza clear on its left");
     });
 
-    it("the escape alley: narrow, along the plaza's left edge, stucco walls (solid) and a dumpster (a collider) at a corner", () => {
+    it("when the escape alley is measured, then it is narrow and along the plaza's left edge, with stucco walls (solid) and a dumpster (a collider) at a corner", () => {
       const a = route("alley");
       assert.ok(2 * a.path.half[0]! <= 6.5, `${2 * a.path.half[0]!} m wide`);
       assert.ok(a.path.x[0]! < plateau.x - plateau.halfX && a.path.x[0]! > plateau.x - plateau.halfX - 30, "left of the plaza's edge");
@@ -98,14 +100,14 @@ describe("havana (the Survival course)", () => {
       for (const id of ["wall", "dumpster"] as const) assert.ok(PREFABS[id].body === "solid" && PREFABS[id].collider, `${id} is solid`);
     });
 
-    it("beyond the crest: the landing area is open, with room for several cops (no solid within 60 m of the line, 70-215 m past the plaza)", () => {
+    it("when the landing beyond the crest is checked, then the area is open with room for several cops (no solid within 60 m of the line, 70-215 m past the plaza), the paseo asphalt and the lawn beside it grass", () => {
       const inRoom = solids.filter((s) => Math.abs(s.x) < 60 && s.z < -66 && s.z > -215);
       assert.deepEqual(inRoom.map((s) => `${s.prefab} (${s.x.toFixed(0)}, ${s.z.toFixed(0)})`), []);
       assert.equal(ground.surfaceAt(0, -120), "asphalt", "the paseo");
       assert.equal(ground.surfaceAt(40, -120), "grass", "the lawn beside it");
     });
 
-    it("the start and the five cop slots stand on the boulevard's asphalt, clear of every prop", () => {
+    it("when the start and the five cop slots are checked, then they stand on the boulevard's asphalt, clear of every prop", () => {
       const s = track.survival!;
       for (const [i, a] of [s.start, ...s.formation].entries()) {
         assert.equal(ground.surfaceAt(a.x, a.z), "asphalt", `anchor ${i}`);

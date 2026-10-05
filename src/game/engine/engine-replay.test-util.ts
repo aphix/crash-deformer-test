@@ -33,8 +33,8 @@ const SCRIPTED_AT = 12;
 export function sweepSeeds(list: readonly number[]): void {
   const seeds = process.env.SEEDS ? process.env.SEEDS.split(",").map(Number) : list;
   const total = { clips: 0, steps: 0 };
-  describe(`highlight replay, seeds ${seeds[0]} to ${seeds[seeds.length - 1]}`, () => {
-    for (const seed of seeds) it(`bad: seed ${seed}: a recorded race crash replayed headless must match the live sim at every step, to the bit`, (t) => {
+  describe(`given highlight replays of the crashes in seeded races, seeds ${seeds[0]} to ${seeds[seeds.length - 1]}`, () => {
+    for (const seed of seeds) it(`when seed ${seed}'s race is recorded and each clip it kept is replayed headless, then every car matches the live sim at every step, to the bit`, (t) => {
       const w = makeWorld();
       w.race.enter();
       try {
@@ -71,7 +71,7 @@ export function sweepSeeds(list: readonly number[]): void {
         setGround(null);
       }
     });
-    it(`the sweep replayed at least a clip per seed`, () => {
+    it(`when all the seeds have been replayed, then they together produced at least one clip per seed and compared some steps`, () => {
       assert.ok(total.clips >= seeds.length && total.steps > 0, `${total.clips} clips and ${total.steps} steps over ${seeds.length} seeds`);
     });
   });

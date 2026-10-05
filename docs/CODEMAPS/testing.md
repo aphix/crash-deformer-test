@@ -73,6 +73,11 @@ Outside `src/game/`: `src/lib/multiplayer/rate-limit.test.ts` (signaling rate li
 - `npm run bench` → `scripts/bench-physics.mjs`: ns/op of the JS kernels. `scripts/bench-browser.mjs`: Playwright frame bench through `window.__crush` (usage in `README.md`).
 - `npm run check:programs -- --url <dev or preview url>` → `scripts/check-programs.mjs`: program warm-up guard in headless Chromium (about 3 min). Plays the sandbox (fleet crash with cracked glass, drive, night / wet, every FX tier, every scene, debug views) and a race on every course, and fails if any GPU program links after the boot warm-up or between a race's green light and its end. Needs a running server and a browser, so it is a script, not part of `test:app`. See `docs/PERF_HITCH.md`.
 
+## Test text
+Every test reads given / when / then in the behaviour a player or caller sees, not the implementation:
+- `describe("given <context>")` holds the shared context; a nested `describe("when <setup or input change>")`, or the `it`'s own `when <...>`, holds the change; the `it` text ends in `then <expected result>`. No `good:` / `bad:` / `control:` prefixes. Function and field names appear only when the unit under test is that function, glossed in words.
+- Tests with the same body that differ only in inputs and expected values run from one flat array of cases, `{ it: "when ..., then ...", ...inputs }`, and one shared loop (`for (const testCase of slopeCrashCases)`), e.g. `contact/slope.test.ts`; a case that needs a different setup or assertion stays its own `it`.
+
 ## `todo` convention
 Behaviour that is documented but not yet met stays in the suite as a todo, so the body still runs and reports but cannot fail the run:
 - `it.todo("name", fn)` (e.g. `crash-parts.test.ts`, `derby.test.ts`);

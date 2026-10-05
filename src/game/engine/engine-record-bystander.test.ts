@@ -114,13 +114,13 @@ function record(): Recorded {
   return { clip: readClip(new Reader().reset(w.done()), carLayout(cars[0]!)), cars, trace, dress };
 }
 
-describe("highlight recorder bystanders", () => {
+describe("given a flat-field head-on recorded as a highlight with 19 bystander cars around it (near, far, touching, respawned, wrecked, torn-mirror)", () => {
   let run: Recorded;
   before(() => {
     run = record();
   });
 
-  it("bad: cars near the hit (and a car one of them touched, and one respawned after it) are in the clip and replay as the sim ran them; far cars are not", (t) => {
+  it("when the clip is read back and replayed, then cars near the hit (and one a bystander touched, and one respawned after the hit) are in the clip and match the sim at every step, and a car 300 m away is not in it", (t) => {
     const { clip, cars, trace, dress } = run;
     const slots = clip.cars.map((c) => c.slot);
     t.diagnostic(`clip cars: ${slots.join(",")} (${(clipBytes(clip) / 1024).toFixed(0)} KB)`);
@@ -150,7 +150,7 @@ describe("highlight recorder bystanders", () => {
     assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
   });
 
-  it("bad: a clip at its byte share takes the nearer wrecks and drops the farther ones", (t) => {
+  it("when the clip's byte share is spent on the wrecks 50 to 74 m out, then it takes the nearer wrecks and drops the farther ones", (t) => {
     const taken = WRECKS.filter((i) => run.clip.cars.some((c) => c.slot === i));
     t.diagnostic(`wrecks taken: ${taken.join(",")} of ${WRECKS.join(",")} (${(clipBytes(run.clip) / 1024).toFixed(0)} KB)`);
     assert.ok(taken.length >= 1, "the nearest wreck (50 m) is in the clip");
@@ -158,7 +158,7 @@ describe("highlight recorder bystanders", () => {
     assert.ok(taken.every((slot, k) => slot === WRECKS[k]), "the wrecks taken are the nearest ones");
   });
 
-  it("bad: a car with a torn mirror and no crash comes back with its own hit frame, not the zeroed one of its net state", () => {
+  it("when the clip is restored, then a car with a torn mirror and no crash gets back its own hit direction, not the zeroed one of its network state", () => {
     const { clip, cars, dress } = run;
     assert.ok(clip.cars.some((c) => c.slot === MIRROR), "the mirror car (45 m from the hit) is in the clip");
     const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, bounce: undefined });
@@ -166,7 +166,7 @@ describe("highlight recorder bystanders", () => {
     assert.deepEqual(cars[MIRROR]!.deform.impactInward.toArray(), [0, 0, -1]);
   });
 
-  it("bad: a prop a car outside the clip knocked off its spot is in the clip's knocks and knocked again when the replay reaches that step; a clip car's own knock is not", () => {
+  it("when the clip is replayed, then a prop that a car outside the clip knocked off its spot is in the clip's knocks and is knocked again at that step, while a clip car's own knock is not", () => {
     const { clip, cars, dress } = run;
     const s0 = Math.round(clip.t0 / H);
     assert.ok(clip.cars.some((c) => c.slot === NEAR) && !clip.cars.some((c) => c.slot === FAR), "NEAR is in the clip and FAR is not");

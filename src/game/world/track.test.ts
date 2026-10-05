@@ -5,10 +5,10 @@ import { parseTrack } from "./track-schema.ts";
 import { square } from "./track.test-util.ts";
 import { TRACKS } from "./tracks/index.ts";
 
-describe("track", () => {
-  for (const json of TRACKS) {
-    const t = new Track(json);
-    it(`${t.id}: gates run forward round the loop and the grid sits behind the line on the road`, () => {
+for (const json of TRACKS) {
+  const t = new Track(json);
+  describe(`given the ${t.id} course`, () => {
+    it("when its gates and grid slots are read, then the gates run forward round the loop and the grid sits behind the line, on the road", () => {
       for (let i = 1; i < t.gates.length; i++) assert.ok(t.gates[i]!.s > t.gates[i - 1]!.s, `gate ${i} not after gate ${i - 1}`);
       const p = blankProjection();
       const slots = Array.from({ length: 16 }, (_, i) => t.gridSlot(i));
@@ -35,7 +35,7 @@ describe("track", () => {
         }
       }
     };
-    it(`${t.id}: a shortcut crosses the main wall line only where that wall is open on its side (a closed mouth wrecks every car that takes the cut)`, () => {
+    it("when every shortcut path is walked, then it crosses the main wall line only where that wall is open on its side (a closed mouth wrecks every car that takes the cut)", () => {
       const closed: string[] = [];
       let prev = { lat: 0, inside: false };
       walkShortcuts((id, i, _last, pr) => {
@@ -49,7 +49,7 @@ describe("track", () => {
     });
     // `progress` runs between the shortcut's gates (RACE_DESIGN: Checkpoints), so a mouth far past its `from` gate drops every car that takes it back that far in the order, and 8 s of such a drop at the start reads as a stall (a respawn request on a car doing 40 m/s).
     const GATE_SLACK = 100;
-    it(`${t.id}: every shortcut's mouth is within ${GATE_SLACK} m past its from gate and its exit within ${GATE_SLACK} m before its to gate`, () => {
+    it(`when every shortcut's mouth and exit are measured against its gates, then the mouth is within ${GATE_SLACK} m past its from gate and the exit within ${GATE_SLACK} m before its to gate`, () => {
       const far: string[] = [];
       let mouth = 0;
       walkShortcuts((id, i, last, pr) => {
@@ -63,17 +63,21 @@ describe("track", () => {
       });
       assert.deepEqual(far, []);
     });
-  }
+  });
+}
 
-  it("a gate only counts crossings in the race direction", () => {
+describe("given the square course's first gate", () => {
+  it("when cars cross it in each direction and outside its span, then only a crossing in the race direction counts", () => {
     const t = new Track(square());
     const g = t.gates[0]!;
     assert.ok(crossGate(g, 0, -1, 0, 1) > 0.4);
     assert.equal(crossGate(g, 0, 1, 0, -1), -1);
     assert.equal(crossGate(g, 30, -1, 30, 1), -1, "outside the gate's span");
   });
+});
 
-  it("rejects malformed layouts with the offending path", () => {
+describe("given a square course layout with a malformed checkpoint list, shortcut or road", () => {
+  it("when it is parsed, then each malformed layout is rejected with the offending path", () => {
     assert.throws(() => parseTrack(square({ checkpoints: [{ node: 1 }, { node: 2 }, { node: 4 }] })), /checkpoints\.0: checkpoint 0 must be node 0/);
     assert.throws(() => parseTrack(square({ checkpoints: [{ node: 0 }, { node: 4 }, { node: 2 }] })), /checkpoints\.2: checkpoints must run in driving order/);
     assert.throws(
@@ -82,8 +86,10 @@ describe("track", () => {
     );
     assert.throws(() => new Track(square({ road: { width: 30, runoff: [20, 20] } })), /inside its own corridor/);
   });
+});
 
-  it("ground: a flat course is the y = 0 plane; banking raises the right edge; grip follows the surface", () => {
+describe("given the square course's ground and the oval course's ground", () => {
+  it("when heights, normals and grip are read, then a flat course is the y = 0 plane, banking raises the right edge and grip follows the surface", () => {
     const flat = new Track(square()).ground();
     for (const [x, z] of [[0, 30], [5, 50], [60, 60], [-30, -30], [500, 500]] as const) assert.equal(flat.heightAt(x, z), 0);
     const n = flat.normalAt(0, 30, { x: 0, y: 0, z: 0 });
@@ -97,8 +103,10 @@ describe("track", () => {
     const oval = new Track(TRACKS[0]).ground();
     assert.equal(oval.frictionAt(0, -115), 0.72, "the oval's dirt service road");
   });
+});
 
-  it("a bridge deck and the road under it: each car sees its own level", () => {
+describe("given the stunt course, whose figure-of-eight crosses itself at the origin under a bridge deck", () => {
+  it("when the ground is read at the crossing at different levels, then each car sees its own level", () => {
     const stunt = new Track(TRACKS.find((j) => parseTrack(j).id === "stunt"));
     const g = stunt.ground();
     // The figure-of-eight crosses itself at the origin: the start straight under, the deck 9 m over.
@@ -110,7 +118,7 @@ describe("track", () => {
     assert.ok(g.heightAt(14, 14, 9.2) < 1, "beside the deck you fall to the ground");
   });
 
-  it("rejects a crossover without a deck, too little headroom, or a checkpoint over the other level", () => {
+  it("when a crossover has no deck, too little headroom, or a checkpoint over the other level, then each course is rejected", () => {
     const stunt = parseTrack(TRACKS.find((j) => parseTrack(j).id === "stunt"));
     const noDeck = { ...stunt, nodes: stunt.nodes.map((nd) => ({ ...nd, deck: false })) };
     assert.throws(() => new Track(noDeck), /crosses itself .* without a deck/);

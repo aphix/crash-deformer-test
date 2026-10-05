@@ -8,12 +8,12 @@ const touched: CrashHudState = { ...INITIAL_HUD, fxAuto: false, fxTier: "high", 
 /** What putting setting `id` back to its default does to the HUD state: its own fields go back, nothing else moves. */
 const reset = (s: CrashHudState, id: SettingId): CrashHudState => ({ ...s, ...SETTINGS[id].defaults });
 
-describe("settings changed from their defaults", () => {
-  it("good: the untouched menu has none changed", () => {
+describe("given the settings menu, where each setting is a group of HUD fields with its own defaults and its own reset", () => {
+  it("when the menu is untouched, then no setting reads as changed", () => {
     assert.deepEqual(changedSettings(INITIAL_HUD), []);
   });
 
-  it("good: a changed setting is marked and counted in its own section only", () => {
+  it("when a Cinematic FX pick and the crumple stroke are changed, then each changed setting is marked and counted in its own section only", () => {
     assert.deepEqual(changedSettings(touched), ["fx", "stroke"]);
     assert.deepEqual(changedSettings(touched, "playback"), ["fx"]);
     assert.deepEqual(changedSettings(touched, "tuning"), ["stroke"]);
@@ -21,7 +21,7 @@ describe("settings changed from their defaults", () => {
     assert.deepEqual(changedSettings(touched, "debug"), []);
   });
 
-  it("good: resetting one setting restores only that setting, the other stays changed", () => {
+  it("when the FX setting is reset on its own or the stroke setting is, then only that setting is restored and the other stays changed", () => {
     const afterFx = reset(touched, "fx");
     assert.deepEqual(changedSettings(afterFx), ["stroke"]);
     assert.equal(afterFx.squash, 0.2);
@@ -31,7 +31,7 @@ describe("settings changed from their defaults", () => {
     assert.equal(afterStroke.fxTier, "high");
   });
 
-  it("good: every setting resets on its own and no two settings share a field", () => {
+  it("when the fields each setting resets are listed, then every setting resets on its own and no two settings share a field", () => {
     const owner = new Map<string, SettingId>();
     for (const id of SETTING_IDS) {
       for (const k of Object.keys(SETTINGS[id].defaults)) {
@@ -41,7 +41,7 @@ describe("settings changed from their defaults", () => {
     }
   });
 
-  it("good: resetting each changed setting in turn leaves the menu as the defaults", () => {
+  it("when every setting is changed and then each is reset in turn, then each reads as unchanged right after its reset and the menu ends as the defaults", () => {
     const all: CrashHudState = {
       ...INITIAL_HUD,
       looping: !INITIAL_HUD.looping,
@@ -76,7 +76,7 @@ describe("settings changed from their defaults", () => {
     assert.deepEqual(changedSettings(s), []);
   });
 
-  it("good: a slider put back on its default is not changed, and a setting hidden in this scene is not counted", () => {
+  it("when a slider is a hair off its default or a scene's own value differs, then a slider within a hair of its default is not changed, a real change is, and the range's one car is the scene's and not counted", () => {
     assert.equal(isChanged({ ...INITIAL_HUD, squash: INITIAL_HUD.squash + 1e-6 }, "stroke"), false);
     assert.equal(isChanged({ ...INITIAL_HUD, squash: INITIAL_HUD.squash + 0.01 }, "stroke"), true);
     const range = { ...INITIAL_HUD, carCount: 1, range: { distance: null, landed: false } };

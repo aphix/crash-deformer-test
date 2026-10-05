@@ -20,8 +20,8 @@ function raceDigest(w: World, track: Track, seed: number): unknown {
   };
 }
 
-describe("race replay", () => {
-  it(`bad: ${RACES} races in a row on one field play out exactly as each on fresh cars (Retry / Next / a campaign reuse the cars)`, () => {
+describe(`given ${RACES} city races on one field, seeds 1 to ${RACES}, on cars that Retry, Next and a campaign reuse`, () => {
+  it(`when the ${RACES} races run in a row on one world, then each plays out exactly as the same race on fresh cars, in outcome, final poses and bodies`, () => {
     const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
     // One world at a time: the active ground is process-wide (`ground.ts`), and leaving a race restores the flat one.
     const chained = makeWorld();

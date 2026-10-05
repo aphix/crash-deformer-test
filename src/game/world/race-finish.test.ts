@@ -16,8 +16,8 @@ function runOut(w: World, bound: number): void {
 
 for (const course of COURSE_IDS) finishSweep(course);
 
-describe("race finish: city traffic", () => {
-  it("city at aggression 0.7, seed 1, on a fresh world: every car finishes (oncoming traffic once held the AI-driven player car nose to nose until it was DNF)", () => {
+describe("given a 2-lap city race at aggression 0.7 with field seed 1, on a fresh world", () => {
+  it("when the race is run out, then it closes and all 5 cars finish, the AI-driven player car included (oncoming traffic must not hold it nose to nose until it is DNF)", () => {
     const track = new Track(city);
     const w = makeWorld();
     w.race.enter();
@@ -33,8 +33,8 @@ describe("race finish: city traffic", () => {
   });
 });
 
-describe("race finish: one lap", () => {
-  it("a 1-lap oval race closes on laps with every car home on its single lap, placed and gapped by finish time", () => {
+describe("given a 1-lap oval race of 4 AI rivals and the AI-driven player slot, with field seed 1", () => {
+  it("when the race is run to its end, then it closes on laps with every car home on its single lap, placed and gapped by finish time", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -65,8 +65,8 @@ describe("race finish: one lap", () => {
   });
 });
 
-describe("race: spectator only", () => {
-  it("Watch races an all-AI field with no player row; the camera follows pole, cycling reaches every car, and the race closes", () => {
+describe("given a Watch race (spectator only) on the oval with 4 AI rivals and this browser's car racing as AI, field seed 1", () => {
+  it("when the viewer cycles through the cars and the race runs out, then there is no player row, the camera follows pole, cycling reaches every car, and the race closes with an all-AI result", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -98,8 +98,10 @@ describe("race: spectator only", () => {
       setGround(null);
     }
   });
+});
 
-  it("a Watch race starts on Auto driver + Auto camera; a driving race starts on neither; a hand pick still overrides", () => {
+describe("given an oval race of 2 AI rivals started first as a driving race and then as a Watch race", () => {
+  it("when a car is picked by hand and a new Watch race starts, then a Watch start sets the driver and the camera to Auto, a driving start leaves both off, a hand pick overrides Auto, and each new Watch start re-applies it", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -122,8 +124,10 @@ describe("race: spectator only", () => {
       setGround(null);
     }
   });
+});
 
-  it("Auto is one more entry in the driver list (cars, then Auto, then car 0); a car pick turns it off, watch -1 turns it on, and autoStep only ever lands on a car still racing", () => {
+describe("given a Watch race on the oval with 4 AI rivals, whose driver list is the cars, then Auto, then back to car 0", () => {
+  it("when the viewer cycles both ways and picks cars by hand or by the standings' Auto row, then Auto is one more entry (the car in view stays, named), a car pick turns it off, the Auto row turns it on, and Auto only switches to a car still racing, at most once a second", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -186,8 +190,10 @@ describe("race: spectator only", () => {
       setGround(null);
     }
   });
+});
 
-  it("with police and traffic on the course, Q/E cycling and Auto visit racers only", () => {
+describe("given a Watch race on the city course with police and traffic cars among the racers", () => {
+  it("when the viewer cycles with Q/E and Auto runs, then they visit racers only, never a police or traffic car", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -215,8 +221,10 @@ describe("race: spectator only", () => {
       setGround(null);
     }
   });
+});
 
-  it("a Watch campaign is the same all-AI field every round, scored into standings", () => {
+describe("given a Watch campaign with 3 AI rivals and this browser's car racing as AI", () => {
+  it("when the campaign starts, then it has no player row, a car under watch, and standings made of AI cars only", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -234,8 +242,8 @@ describe("race: spectator only", () => {
   });
 });
 
-describe("race: police chase", () => {
-  it("police on: stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycling never lands on them, police never race, the race closes", () => {
+describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on", () => {
+  it("when an oval race runs out, then stakeouts park with sirens off, wake into pursuits with sirens on, Watch cycling never lands on them, police never race or appear in the results, and the race closes", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -461,7 +469,7 @@ describe("race: police chase", () => {
   const DIVERGED_OF_SAMPLES = 1;
   const DIVERGED_OF_SEEDS = 2;
 
-  it("police wait until a racer passes their stakeout, then lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
+  it("when four differently seeded and phased oval races run, then police wait until a racer passes their stakeout and lead in behind it (heading converging, no side T-bone) before the pursuit attacks", () => {
     // Four samples: four fields (seeds: each rolls its rivals' aggression and the cops' beats), each started at its own
     // phase of one frame in 4 ms steps. Racers that never touch (the contact guard) no longer let one field's phases
     // fall apart into chaotic samples, so the samples differ by construction. The lead-ins a pack-mate rams (cop on cop,
@@ -489,7 +497,7 @@ describe("race: police chase", () => {
     assert.ok(pursuitHits >= 1, "the pursuit after the lead-in never touched a racer");
   });
 
-  it("two police cars never meet during their lead-ins (a stakeout pair woken together drove into each other at 17-25 m/s)", () => {
+  it("when twelve seeded oval races run, then no two police cars meet during their lead-ins (a stakeout pair woken together must not drive into each other)", () => {
     let wakes = 0;
     let converged = 0;
     let offRoad = 0;
@@ -510,7 +518,7 @@ describe("race: police chase", () => {
     assert.deepEqual(met, [], `lead-in pairs that touched (of ${wakes} lead-ins)`);
   });
 
-  it("lead-ins on the long fast courses: no two cops touch, and each cop that pulls away has a racer past its spot (Dam Spine seed 1: a cop at 50 m/s was held off its road by the stakeout beside it and drove into the woken pair; Four-Count seed 6: a woken cop held still by the guard for a second, a racer at 55 m/s 55 m on, read as pulling away with none past it)", () => {
+  it("when the long fast courses Dam Spine (seed 1) and Four-Count (seed 6) run, then no two cops touch during their lead-ins, and each cop that pulls away has a racer past its spot", () => {
     for (const [course, seed] of [["dam-spine", 1], ["four-count", 6]] as const) {
       const r = leadIns(0, seed, course);
       assert.ok(r.wakes >= 10, `${course} seed ${seed}: only ${r.wakes} wakes`);

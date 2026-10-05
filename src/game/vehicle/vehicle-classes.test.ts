@@ -155,8 +155,8 @@ function lapTime(id: VehicleClassId, loop: Loop): number {
   throw new Error(`${id} never finished two laps`);
 }
 
-describe("vehicle classes", () => {
-  it("good: every class laps the mixed loop within 5 % of the field's mean", (t) => {
+describe("given the mixed test loop (a 110 m by 60 m rounded rectangle with two hairpins and two sweepers), driven by a planner that knows only each class's published stats", () => {
+  it("when every vehicle class laps it, then each class's lap time is within 5 % of the field's mean", (t) => {
     const loop = mixedLoop();
     const times = VEHICLE_CLASS_IDS.map((id) => lapTime(id, loop));
     const mean = times.reduce((a, b) => a + b, 0) / times.length;
@@ -164,16 +164,20 @@ describe("vehicle classes", () => {
     t.diagnostic(`${loop.length.toFixed(0)} m loop: ${table}`);
     for (const lap of times) assert.ok(Math.abs(lap / mean - 1) <= 0.05, `laps: ${table} (mean ${mean.toFixed(2)})`);
   });
+});
 
-  it("good: classes differ where you'd expect — muscle fastest flat out, monster slowest to turn", () => {
+describe("given the published stats of the vehicle classes", () => {
+  it("when the classes are compared, then muscle is fastest flat out, the monster is slowest to turn, muscle slides more than the sedan and the truck is heavier than the sedan", () => {
     const tops = VEHICLE_CLASS_IDS.map((id) => CLASSES[id].topSpeed);
     assert.equal(Math.max(...tops), CLASSES.muscle.topSpeed);
     const turns = VEHICLE_CLASS_IDS.map((id) => CLASSES[id].turn);
     assert.equal(Math.min(...turns), CLASSES.monster.turn);
     assert.ok(CLASSES.muscle.drift > CLASSES.sedan.drift && CLASSES.truck.mass > CLASSES.sedan.mass);
   });
+});
 
-  it("good: a draft's top-speed scale lifts flat-out speed by that share only while it is passed, then the car settles back", () => {
+describe("given a sedan already at its class top speed under full throttle", () => {
+  it("when it passes through a draft (the slipstream behind another car) and then leaves it, then its top speed rises by the draft's top-speed scale only while it is in the draft and settles back to the class top speed after", () => {
     const car = classCar("sedan");
     const top = CLASSES.sedan.topSpeed;
     car.spawnFacing(0, 0, 0, 0);
@@ -193,12 +197,14 @@ describe("vehicle classes", () => {
     assert.ok(Math.abs(drafting - top * DRAFT.top) < 1e-6, `drafting: ${drafting.toFixed(3)} vs ${(top * DRAFT.top).toFixed(3)} m/s`);
     assert.ok(Math.abs(run(4, 1) - top) < 1e-6, "back to the class top once out of the draft");
   });
+});
 
+describe("given each vehicle class driven at full throttle from a standstill, with the realism slider at its arcade end and at its realistic end", () => {
   for (const id of VEHICLE_CLASS_IDS) {
     for (const end of ["arcade", "real"] as const) {
       const L = LAUNCH[id];
       const [zeroTo100, toTop] = L[end];
-      it(`good: ${id}, ${end} end — 0–100 km/h in ${zeroTo100} s, ${L.topKmh} km/h top after ${toTop} s (±5 %), the pull stepping down at ${L.gears - 1} shifts`, () => {
+      it(`when a ${id} is driven at the ${end} end, then it reaches 100 km/h in ${zeroTo100} s and ${L.topKmh} km/h top after ${toTop} s (±5 %), its pull steps down only at its ${L.gears - 1} gear shifts, and the gauge's gear changes at those same shifts`, () => {
       HANDLING.realism = end === "arcade" ? 0 : 1;
       const car = classCar(id);
       const input = { ...idleDrive(), throttle: 1 };
@@ -234,9 +240,11 @@ describe("vehicle classes", () => {
       });
     }
   }
+});
 
+describe("given each vehicle class driven under the chase camera", () => {
   for (const id of VEHICLE_CLASS_IDS) {
-    it(`good: ${id} — chase cam, W+A swings the nose LEFT on screen and W+D RIGHT`, () => {
+    it(`when W+A and then W+D are held, then the ${id}'s nose swings left on screen with W+A and right with W+D`, () => {
       for (const [key, sign] of [
         ["KeyA", -1],
         ["KeyD", 1],
@@ -266,8 +274,10 @@ describe("vehicle classes", () => {
       }
     });
   }
+});
 
-  it("good: the fake revs climb from the bucket's foot to the redline and drop at each shift, in step with the gauge gear", () => {
+describe("given the sedan's gear buckets (the speed ranges of each gear)", () => {
+  it("when its speed climbs from near standstill past the top of the last gear, then the gauge's engine revs climb within each gear to near the redline, drop once at each upshift in step with the gauge's gear, fall below 35 % at the foot of the next gear, and idle at 0.18 in reverse", () => {
     const k = CLASSES.sedan;
     const at = (v: number) => carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: v }, fwdFlat: { x: 0, z: 1 } });
     let drops = 0;
@@ -286,8 +296,10 @@ describe("vehicle classes", () => {
     assert.ok(at(k.gears[1]![0] * k.topSpeed + 0.01) < 0.35, "back at the foot of the next");
     assert.equal(carRpm({ style: { id: "sedan" }, velocity: { x: 0, z: -5 }, fwdFlat: { x: 0, z: 1 } }), 0.18, "idles in reverse");
   });
+});
 
-  it("good: monster truck — big wheels on the ground, body high, wider turning circle than a sedan", () => {
+describe("given the monster truck class", () => {
+  it("when it stands still and then drives with the steering locked at 12 m/s, then its wheels sit on the ground at their full radius, its body is lifted over 0.4 m, and it turns at under 90 % of a sedan's rate", () => {
     const monster = classCar("monster");
     monster.spawnFacing(0, 0, 0, 0);
     monster.group.updateMatrixWorld(true);
@@ -306,8 +318,10 @@ describe("vehicle classes", () => {
     };
     assert.ok(circle("monster") < circle("sedan") * 0.9, `monster yaw ${circle("monster")} vs sedan ${circle("sedan")}`);
   });
+});
 
-  it("good: a handbrake flick at speed kicks the tail out, keeps its pace, and the arcade assist catches it", () => {
+describe("given a sedan at 16 m/s with the realism slider at its arcade end", () => {
+  it("when it flicks the handbrake with full throttle and steering, holds the steering, then eases off, then the tail kicks out beyond 0.25 rad, the slide is held (over 0.5) above 11 m/s, and the arcade assist straightens it to under 0.06 rad of slip", () => {
     HANDLING.realism = 0;
     const car = classCar("sedan");
     car.spawnFacing(0, 0, 0, 16);
@@ -325,10 +339,10 @@ describe("vehicle classes", () => {
   });
 });
 
-describe("damage → drivability", () => {
+describe("given the drivability rules (how a car's health, crash state, wheels left and the realism slider limit its power and top speed)", () => {
   const out: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
 
-  it("good: stages go healthy → dented → damaged → limping → dead as health falls", () => {
+  it("when health falls from full to 0.9, 0.5 and 0.1 after a crash and then the car is dead, then the stage goes healthy, dented, damaged, limping, dead, and a lost wheel makes a 0.9-health car damaged, never merely dented", () => {
     const at = (alive: boolean, crashed: boolean, h: number, wheels = 4) => drivability(alive, crashed, h, wheels, 1, 1, out).stage;
     assert.deepEqual(
       [at(true, false, 1), at(true, true, 0.9), at(true, true, 0.5), at(true, true, 0.1), at(false, true, 0)],
@@ -337,7 +351,7 @@ describe("damage → drivability", () => {
     assert.equal(at(true, true, 0.9, 3), "damaged", "a lost wheel is never cosmetic");
   });
 
-  it(`good: anything short of dead keeps ≥ ${LIMP_FLOOR * 100} % of top speed, at every slider position`, () => {
+  it(`when health runs from 0 to 1 with 1 to 4 wheels left at realism 0, 0.5 and 1, then anything short of dead keeps at least ${LIMP_FLOOR * 100} % of top speed and some power`, () => {
     for (const realism of [0, 0.5, 1]) {
       for (let h = 0; h <= 1; h += 0.05) {
         for (let wheels = 1; wheels <= 4; wheels++) {
@@ -347,8 +361,10 @@ describe("damage → drivability", () => {
       }
     }
   });
+});
 
-  it("good: a limping car still reaches its floor speed under full throttle, pulling toward the struck side", () => {
+describe("given a crashed sedan whose engine is pushed in to 98 % of the depth that kills its drivetrain, at the realistic end of the realism slider", () => {
+  it("when it holds full throttle for 20 s, then it reaches at least its limp floor speed (60 % of top speed) but stays under 90 % of top speed, and it pulls toward the struck (left) side", () => {
     HANDLING.realism = 1;
     const car = classCar("sedan");
     car.spawnFacing(0, 0, 0, 0);
@@ -362,15 +378,19 @@ describe("damage → drivability", () => {
     assert.ok(v >= LIMP_FLOOR * CLASSES.sedan.topSpeed - 0.05 && v < CLASSES.sedan.topSpeed * 0.9, `limping at ${v.toFixed(2)} m/s`);
     assert.ok(car.angular.y > 0.05, `no pull toward the struck (left) side: yaw ${car.angular.y.toFixed(3)}`);
   });
+});
 
-  it("good: the slider's arcade end survives three 50 km/h wall hits", () => {
+describe("given a sedan set up for the arcade end of the realism slider", () => {
+  it("when it takes three 50 km/h head-on wall hits, then its drivetrain is still alive", () => {
     const car = makeCar();
     car.deform.killTravel = killTravel("sedan", 0, "default");
     for (let i = 0; i < 3; i++) runWall(50, 1, "front", { car });
     assert.equal(car.deform.drivetrainAlive, true, `dead after 3 hits, travel ${car.deform.engineTravel.toFixed(3)} m`);
   });
+});
 
-  it("good: the realistic end follows the sourced kill band — drives on after 35 km/h, dies at 64 km/h", () => {
+describe("given a sedan set up for the realistic end of the realism slider (sourced kill band)", () => {
+  it("when it hits a wall at 35 km/h and a fresh one at 64 km/h, then the kill travel is 0.15 m, the 35 km/h sedan drives on and the 64 km/h sedan's drivetrain dies", () => {
     assert.equal(killTravel("sedan", 1, "default"), 0.15);
     const slow = makeCar();
     slow.deform.killTravel = killTravel("sedan", 1, "default");
@@ -381,8 +401,10 @@ describe("damage → drivability", () => {
     runWall(64, 1, "front", { car: fast });
     assert.equal(fast.deform.drivetrainAlive, false, "64 km/h left it running");
   });
+});
 
-  it("good: tougher classes take more before they die, and the monster most, at both ends", () => {
+describe("given the engine kill travel of each class (how far the engine can be pushed in before the drivetrain dies)", () => {
+  it("when the classes are read at the arcade end and the realistic end, then sedan, muscle, truck and monster each take at least as much as the one before, and the monster more than the sedan", () => {
     for (const realism of [0, 1]) {
       const order = (["sedan", "muscle", "truck", "monster"] as const).map((id) => killTravel(id, realism, "default"));
       for (let i = 1; i < order.length; i++) assert.ok(order[i]! >= order[i - 1]!, `realism ${realism}: ${order.join(" ")}`);
@@ -390,7 +412,7 @@ describe("damage → drivability", () => {
     }
   });
 
-  it("good: an AI police unit takes 15–20 % more kill travel than the sedan it copies; the player's police car keeps the sedan's", () => {
+  it("when the police class is read against the sedan, then an AI police unit takes 15 to 20 % more at the default realism and more at both slider ends, while the player's police car counts as a sedan and an AI one as police", () => {
     const sedan = killTravel("sedan", DEFAULT_REALISM, "default");
     const police = killTravel("police", DEFAULT_REALISM, "default");
     assert.ok(police >= sedan * 1.15 && police <= sedan * 1.2, `police ${police.toFixed(3)} m vs sedan ${sedan.toFixed(3)} m`);
@@ -399,10 +421,12 @@ describe("damage → drivability", () => {
     assert.equal(killClass(cruiser(0)), "sedan", "the player's slot");
     assert.equal(killClass(cruiser(7)), "police", "an AI unit's slot");
   });
+});
 
+describe("given a sedan armed for a derby and one armed for a race or fleet, hit repeatedly from the side at 25 km/h", () => {
   // Repeated 25 km/h side hits barely move the block (0.05 m of 0.31 / 0.45): a derby sedan is worn out
   // after 11 (wear 360 + its travel share), a race or fleet sedan drives on after 30 (crash-realism-10).
-  it("good: a derby car is worn out by a dozen 25 km/h side hits that a race or fleet car drives away from", () => {
+  it("when each takes side hits one after another up to 30, then the derby sedan's drivetrain is worn out after 6 to 20 hits and the race or fleet sedan survives all 30", () => {
     const hitsToKill = (ctx: "derby" | "default") => {
       const car = makeCar();
       armKill(car.deform, "sedan", DEFAULT_REALISM, ctx);

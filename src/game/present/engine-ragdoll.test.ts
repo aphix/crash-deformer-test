@@ -65,8 +65,8 @@ function solidAt(car: DeformableCar, p: THREE.Vector3): string {
 
 type Dolls = { live: boolean; bodies: { translation(): THREE.Vector3Like; rotation(): THREE.QuaternionLike }[] }[];
 
-describe("a throw's slow-mo waits until the driver is out of the car", () => {
-  it("bad: a fleet head-on at 2×72 km/h plays the exit at 1× for THROW_ONSET, and in slow-mo no torso corner is ever inside a car's body", async () => {
+describe("given a hit that throws a driver out of his car, where the slow-mo waits until he is out", () => {
+  it("when a fleet head-on at 2×72 km/h plays out, then the exit plays at normal speed for the first 0.25 s after the hit, both drivers are thrown, and in slow-mo no corner of a torso is ever inside a car's body", async () => {
     const cars = headOn(20);
     const w = makeWorld(cars, false, true);
     w.onEject = (e) => ragdolls.launch(e, cars);
@@ -115,7 +115,7 @@ describe("a throw's slow-mo waits until the driver is out of the car", () => {
     assert.deepEqual(inside.slice(0, 4), [], "torso corners inside a car body in slow-mo");
   });
 
-  it("bad: a driver thrown while the slow-mo already runs gets THROW_ONSET at 1× before it comes back", () => {
+  it("when a driver is thrown while the slow-mo already runs, then the exit plays at normal speed for 0.25 s before the slow-mo comes back", () => {
     const c = phaseClock();
     beginImpact(c, true);
     for (let t = 0; t < 0.5; t += FRAME) stepPhase(c, FRAME);
@@ -131,8 +131,8 @@ describe("a throw's slow-mo waits until the driver is out of the car", () => {
   });
 });
 
-describe("a thrown dummy meets the other cars' crushed bodies from the first frame", () => {
-  it("bad: a dummy thrown low across another car's nose bounces off it, never inside its lower box, with no jump as the grace ends", async () => {
+describe("given a thrown dummy and the crushed bodies of the other cars", () => {
+  it("when a dummy is thrown low across another car's nose, then it bounces off the nose, is never inside the nose's lower box from the first frame, and does not jump more than 0.3 m as the 0.35 s grace period ends", async () => {
     const a = fleetCar();
     const b = fleetCar();
     a.spawnFacing(0, 0, 0, 0);
@@ -165,7 +165,7 @@ describe("a thrown dummy meets the other cars' crushed bodies from the first fra
   });
 });
 
-describe("the ride-along frames one dummy and those near it, never the whole field", () => {
+describe("given the ride-along camera (the camera that rides along with thrown dummies) framing one dummy and those near it, never the whole field", () => {
   /** Upright dummies dropped at (x, 1.2, z), sliding along +z at `vz`, then `frames` of riding. */
   async function ride(at: [number, number][], vz: number, frames: number, each: (camera: THREE.PerspectiveCamera, ragdolls: RagdollSystem) => void): Promise<void> {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
@@ -183,7 +183,7 @@ describe("the ride-along frames one dummy and those near it, never the whole fie
     ragdolls.dispose();
   }
 
-  it("bad: three dummies 40 m apart: the camera stays within the near-frame distance of its target", async () => {
+  it("when three dummies lie 40 m apart, then the camera stays within 15.5 m of its target, the near-frame distance, not pulled back to fit all three", async () => {
     let far = 0;
     await ride([[-40, 0], [0, 0], [40, 0]], 6, 240, (camera, ragdolls) => {
       // Between shots the camera is flying to the next one; the framing is judged where it has arrived.
@@ -193,7 +193,7 @@ describe("the ride-along frames one dummy and those near it, never the whole fie
     assert.ok(far > 4 && far < 15.5, `camera ${far.toFixed(1)} m from its target`);
   });
 
-  it("good: two dummies 3 m apart are both in frame", async () => {
+  it("when two dummies lie 3 m apart, then both stay in frame for more than 30 frames of riding", async () => {
     const out: string[] = [];
     let frames = 0;
     await ride([[0, 0], [3, 0]], 4, 60, (camera, ragdolls) => {
@@ -211,8 +211,8 @@ describe("the ride-along frames one dummy and those near it, never the whole fie
   });
 });
 
-describe("a police driver is thrown in uniform", () => {
-  it("good: a police car's head-on throws its driver in the navy shirt, the other car's in the civilian tee", async () => {
+describe("given a head-on crash where one car is a police car", () => {
+  it("when both drivers are thrown, then the police driver wears the navy uniform shirt and the other driver wears a civilian palette shirt that is not the cop navy", async () => {
     const cars = headOn(20, true);
     const scene = new THREE.Scene();
     const ragdolls = new RagdollSystem(scene, () => {}, () => {});
@@ -248,8 +248,8 @@ function carSight(cars: readonly DeformableCar[]): () => Sight {
   });
 }
 
-describe("the ride opens on the windshield, then follows the dummy without a jump", () => {
-  it("good: a head-on's first ride frame stands ahead of the thrown car on its forward axis, up and clear of both cars, looking back at it", async () => {
+describe("given the ride-along camera following a driver thrown in a head-on at 26 m/s", () => {
+  it("when the first ride frame is framed, then the camera stands 4-18 m ahead of the thrown car on its forward axis, at least 3 m up, outside every solid, looking back at the car", async () => {
     const cars = headOn(26);
     const threw: number[] = [];
     const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
@@ -277,7 +277,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     assert.ok(dir.dot(fwd) < -0.3, `looking back at the car: ${dir.dot(fwd).toFixed(2)}`);
   });
 
-  it("good: with no car ahead the windshield eye is low, past the dummy's slow-mo spot on the forward axis; a car ahead sends it up", async () => {
+  it("when no car is ahead of the thrown car, then the windshield-height eye sits 1.2-2 m up and 7-18 m ahead on the forward axis, and a car ahead sends it up to at least 3 m", async () => {
     const open = async (sightOf: (cars: DeformableCar[], car: DeformableCar) => () => Sight) => {
       const cars = headOn(26);
       const threw: number[] = [];
@@ -306,7 +306,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     assert.ok(blocked.up >= 3, `with the other car in the way: ${blocked.up.toFixed(2)} m up`);
   });
 
-  it("good: the low windshield eye needs 2 m of room (camUsable): a wall 1.7 m beside the spot sends the pick up, and the cut frame's eye is finite and outside every solid", async () => {
+  it("when a wall stands 1.7 m beside the low eye's spot, which needs 2 m of room, then the eye is at least 3 m up there (1.2-2 m up on open ground), and the cut frame's eye and aim are finite and outside every solid", async () => {
     /** The cut frame's eye; `spot` (the open pick): a wall along the throw beside it. */
     const open = async (spot: THREE.Vector3 | null) => {
       const cars = headOn(26);
@@ -343,7 +343,7 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
     assert.ok(beside.y >= 3, `a wall 1.7 m beside the spot: ${beside.y.toFixed(2)} m up`);
   });
 
-  it("bad: a dummy flying under the eye never whips the aim past MAX_TURN, and no shot change moves the camera more than a frame", async () => {
+  it("when a dummy flies under the eye through every shot change, then the shots go windshield, follow, trackside, no shot change moves the camera more than 0.1 m, and the aim never turns faster than 4 rad/s", async () => {
     const cars = headOn(26);
     const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), () => ragdolls.follow(), () => {});
     await ragdolls.preload();
@@ -388,8 +388,8 @@ describe("the ride opens on the windshield, then follows the dummy without a jum
   });
 });
 
-describe("the ride's end eases the camera into the engine's own view", () => {
-  it("bad: the first frame after the ride holds its last pose, no frame steps far, and the camera ends on the engine's view", async () => {
+describe("given a ride-along that ends as the dummies lie still, handing the camera to the engine's own view", () => {
+  it("when the first frame after the ride is framed, then it holds the ride's last pose, no frame steps far, and within 3 seconds the camera eases smoothly into the engine's view", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(FRAME, [], true, true, 0, null);
@@ -446,8 +446,8 @@ describe("the ride's end eases the camera into the engine's own view", () => {
   });
 });
 
-describe("the user's drag holds the ride-along, which then resumes from his view", () => {
-  it("good: held, the cut to the next dummy waits and the camera is untouched; released, the first frame eases from his view and the cut lands", async () => {
+describe("given the user's drag holding the ride-along camera, while the cut to the next dummy waits", () => {
+  it("when the user holds the camera and then releases it, then no cut happens while held and the camera is left untouched; once released, the cut lands and the first frame eases from the user's view and settles on the new dummy", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(FRAME, [], true, true, 0, null);

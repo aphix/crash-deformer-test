@@ -238,9 +238,9 @@ export function finishSweep(course: string): void {
   const runs = Number(process.env.RACE_FINISH_RUNS ?? 2);
   if (!Number.isInteger(runs) || runs < 1) throw new Error(`RACE_FINISH_RUNS must be a whole number ≥ 1, got "${process.env.RACE_FINISH_RUNS}"`);
   const sliders = full ? [DEFAULT_RACE_OPTIONS.aggression, 1] : [DEFAULT_RACE_OPTIONS.aggression];
-  describe("race finish through the real stack", () => {
+  describe(`given a ${RACE_LAPS}-lap race on the ${course} course, with 4 AI rivals and the AI-driven player slot, run through the real race stack`, () => {
     for (const slider of sliders) {
-      it(`${course}, aggression slider ${slider}: ≥ 4 of 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} seeded races`, (t) => {
+      it(`when the aggression slider is ${slider}, then at least 4 of the 5 AI cars finish ${RACE_LAPS} laps or retire, in each of ${runs} seeded races`, (t) => {
         const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));
         // Reference lap: the course at half the sedan's top speed (9 m/s), the basis of the AI course
         // test too. Bound: the grid and countdown, then the laps at 3 × the reference lap.

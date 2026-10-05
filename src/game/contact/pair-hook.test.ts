@@ -34,8 +34,8 @@ function touching(a: DeformableCar, b: DeformableCar, n: THREE.Vector3, p: THREE
   return satCars(a, b, n, p, carCrushHulls) !== null || satCars(a, b, n, p) !== null || tyreOverlap(a, b) > 0;
 }
 
-describe("hooked pairs", () => {
-  it("good: the contact axis never pushes a pair's centres together, whatever the pose", () => {
+describe("given two cars hooked together (the front car's rear corner inside the follower's nose, as a cop car hooks onto the car it chases)", () => {
+  it("when the pair's contact axis is read over a grid of overlapping poses, then it never pushes the two cars' centres together", () => {
     const a = build("sedan");
     const b = build("sedan");
     const n = new THREE.Vector3();
@@ -67,10 +67,10 @@ describe("hooked pairs", () => {
     assert.equal(together, 0, `${together} of ${hits} contact axes pushed the cars' centres together, first at ${first}`);
   });
 
-  describe("every class pair: the front car's rear corner 1 m inside the follower's nose, both flat out", () => {
+  describe("when every class pair drives flat out with the front car's rear corner 1 m inside the follower's nose", () => {
     for (const front of VEHICLE_CLASS_IDS) {
       for (const back of VEHICLE_CLASS_IDS) {
-        it(`${front} ahead of ${back}: the pair parts within a second`, () => {
+        it(`then a ${front} ahead of a ${back} is in contact for under 1 s of the first 3 s and ends more than 6 m clear`, () => {
           const a = build(front);
           const b = build(back);
           // B faces +z at the origin; A's rear-right corner (0.95 right, 2.2 behind its origin) sits 0.6 m right of B's axis,

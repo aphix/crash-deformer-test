@@ -34,8 +34,8 @@ function bustAfter(s: RaceSession, kph: number, copAt: number, limit: number): n
   return null;
 }
 
-describe("Survival's bust: the race's rule at the survival hold", () => {
-  it("busts after 12 s held under 20 km/h within 20 m of a cop, and not a step before", () => {
+describe("given one player car on the Havana track, busted when held under 20 km/h within 20 m of a cop for a hold time (12 s in survival, shorter in a race)", () => {
+  it("when the car is held under 20 km/h within 20 m of a cop, then it is busted after 12 s and not a step before, and a bust ends the one-car run with the car out", () => {
     assert.equal(SURVIVAL.bustTime, HOLD);
     const s = session(true);
     const at = bustAfter(s, 5, 10, 30);
@@ -45,7 +45,7 @@ describe("Survival's bust: the race's rule at the survival hold", () => {
     assert.equal(s.phase, "finished", "and the only car out ends the run");
   });
 
-  it("is the same code path as the race's: a race session busts at BUST.time, the survival hold is its own", () => {
+  it("when the same stopped-near-a-cop situation runs as an ordinary race instead of survival, then the car is busted at the race's own shorter hold and is a DNF", () => {
     assert.ok(SURVIVAL.bustTime > BUST.time, "the survival hold is the owner's 10-15 s, longer than the race's");
     const race = new RaceSession(track, [you], { laps: 3, noReset: false });
     const at = bustAfter(race, 5, 10, 40);
@@ -53,12 +53,12 @@ describe("Survival's bust: the race's rule at the survival hold", () => {
     assert.equal(race.cars[0]!.status, "dnf");
   });
 
-  it("does not bust a car farther than 20 m from every cop, or at 20 km/h and over", () => {
+  it("when the car is farther than 20 m from every cop, or moving at 20 km/h and over, then it is never busted", () => {
     assert.equal(bustAfter(session(true), 5, BUST.near + 1, 40), null, "busted with the cop out of range");
     assert.equal(bustAfter(session(true), BUST.kph + 1, 5, 40), null, "busted while moving");
   });
 
-  it("restarts the hold when the car moves off, and when the cops fall away", () => {
+  it("when the car moves off, or the cops fall away, partway through the hold, then the hold restarts from zero and the bust comes only after a full hold again", () => {
     const s = session(true);
     toGreen(s);
     const step = (kph: number, copAt: number, seconds: number): void => {
@@ -75,7 +75,7 @@ describe("Survival's bust: the race's rule at the survival hold", () => {
     assert.notEqual(s.cars[0]!.bustedAt, null);
   });
 
-  it("has no laps: driving the ring counts no gates and never finishes the run", () => {
+  it("when the car drives the ring four times at 80 km/h, then no gates count, the run never finishes and the car is never flagged wrong-way", () => {
     const s = session(true);
     toGreen(s);
     const p = track.path;
@@ -90,8 +90,8 @@ describe("Survival's bust: the race's rule at the survival hold", () => {
   });
 });
 
-describe("settleRun: the best time", () => {
-  it("the first run, a longer run and an equal run: only a longer one is a new best", () => {
+describe("given a survival run's recorded best time", () => {
+  it("when a first run, a longer run and an equal run settle against it, then only a longer run is a new best", () => {
     assert.deepEqual(settleRun(null, 12.5), { best: 12.5, isNew: true });
     assert.deepEqual(settleRun(12.5, 30), { best: 30, isNew: true });
     assert.deepEqual(settleRun(30, 12.5), { best: 30, isNew: false });

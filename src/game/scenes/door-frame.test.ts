@@ -43,10 +43,10 @@ function same(a: RamShot, b: RamShot, what: string): void {
   assert.equal(a.ramStopped, b.ramStopped, `${what}: ram stopped`);
 }
 
-describe("frame invariance: the ram moving and the car moving are one shot", () => {
+describe("given a ram and a parked car meeting at the same closing speed, once with the ram moving and once with the car moving (mirror, overOpen and shut: the door scenes; panelPush and panelPull: the ram pushes the quarter panel in or pulls it out)", () => {
   for (const side of [-1, 1] as const) {
     for (const s of SHOTS) {
-      it(`${s.scenario} ${side < 0 ? "L" : "R"} ${s.kph} km/h ${s.kg} kg (${s.note}): same outcome`, () => {
+      it(`when the ${s.scenario} shot (${s.note}) hits the ${side < 0 ? "L" : "R"} side at ${s.kph} km/h with ${s.kg} kg, then the moving car ends with the same parts off, latch, door, mirror fold, hinge load, panel dent and ram stop as the moving ram`, () => {
         const ram = fireRam(makeCar(), s.scenario, { kph: s.kph, kg: s.kg, side });
         const car = fireRam(makeCar(), s.scenario, { kph: s.kph, kg: s.kg, side, carMoves: true });
         same(ram, car, `${s.scenario}`);
@@ -54,7 +54,7 @@ describe("frame invariance: the ram moving and the car moving are one shot", () 
     }
   }
 
-  it("good: the table covers both travel directions, every sketch and a panel torn, smushed and opened", () => {
+  it("when the table of shots is read, then it covers every door scene and a panel torn off, smushed back and opened, in both travel directions", () => {
     const dirs = new Set(SHOTS.map((s) => s.scenario));
     assert.deepEqual([...dirs].sort(), ["mirror", "overOpen", "panelPull", "panelPush", "shut"]);
     const outcomes = SHOTS.map((s) => fireRam(makeCar(), s.scenario, { kph: s.kph, kg: s.kg, side: 1 }));
@@ -70,8 +70,8 @@ class Probe extends DeformableCar {
   }
 }
 
-describe("a panel smushed back stays dented", () => {
-  it("good: the crash's own hinge target does not raise a pushed-back panel again (a control that was not pushed does rise)", () => {
+describe("given a quarter panel smushed back by a 56 km/h rear crash into a wall", () => {
+  it("when the car steps 60 frames of its own hinge target, then the pushed-back panel stays at its dent instead of rising, while a panel that was not pushed does rise above 0.25", () => {
     const hit = (smush: boolean): number => {
       const car = new Probe(paint(), new THREE.Scene());
       car.deform.setMode("shape");
@@ -130,7 +130,7 @@ function strike(part: "door" | "panel", dir: 1 | -1, kph: number, kg: number, ca
   };
 }
 
-describe("frame invariance of the shared contact: a still box and a moving car, a moving box and a parked car", () => {
+describe("given a still box with the car driven at it, and the same box driven along a parked car", () => {
   type Strike = ReturnType<typeof strike>;
   const CASES: [string, "door" | "panel", 1 | -1, number, number, (r: Strike) => boolean][] = [
     ["door driven shut, light", "door", -1, 4, 300, (r) => r.off.length === 0 && r.latched],
@@ -143,7 +143,7 @@ describe("frame invariance of the shared contact: a still box and a moving car, 
     ["panel torn off from the front", "panel", -1, 4, 300, (r) => r.off.join() === "quarterR"],
   ];
   for (const [name, part, dir, kph, kg, meaningful] of CASES) {
-    it(`${name}: car moves = box moves`, () => {
+    it(`when the shot is "${name}", then the moving car ends with the same parts off, latch, door and panel as the moving box`, () => {
       const box = strike(part, dir, kph, kg, false);
       const car = strike(part, dir, kph, kg, true);
       assert.ok(meaningful(box), `the shot did not do what it is named for: ${JSON.stringify(box)}`);

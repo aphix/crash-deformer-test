@@ -13,13 +13,13 @@ const quad = (name: string, y: number, units: number): ScanLayer => ({
   units,
 });
 
-describe("ground layer overlap scan", () => {
-  it("depth step: 24 bits over 0.1 .. 900 m is 13 mm at the 150 m reference, under a millimetre at 30 m", () => {
+describe("given the scan for ground layers that z-fight (are drawn at the same depth)", () => {
+  it("when the depth resolution is read, then 24 bits over 0.1 to 900 m is 13 mm at the 150 m reference and under a millimetre at 30 m", () => {
     assert.ok(Math.abs(depthStep(RANGE) - 0.0134) < 0.0005);
     assert.ok(depthStep(30) < 0.001);
   });
 
-  it("finds two layers that share a plane and a depth offset, and a road over a road once their levels differ", () => {
+  it("when two layers share a plane and a depth offset (or one sits 3 cm over the other), then the whole shared square is found, and none is found once their levels give them different depth offsets", () => {
     const flat = scanOverlaps([quad("road.dirt", 0.015, 0), quad("road.asphalt", 0.015, 0)]);
     assert.equal(flat.length, 1);
     assert.ok(Math.abs(flat[0]!.area - 16) < 1e-6, "the whole 4 × 4 m square");
@@ -29,13 +29,13 @@ describe("ground layer overlap scan", () => {
     assert.deepEqual(stacked, []);
   });
 
-  it("flags a layer a level draws in front of while it lies clearly below another", () => {
+  it("when a layer that a level draws in front of lies clearly below another, then it is flagged", () => {
     // Dirt (a higher level) 20 cm under asphalt: asphalt must win by height, the level order says dirt.
     const inverted = scanOverlaps([quad("road.dirt", 0, levelOffset("dirt").polygonOffsetUnits), quad("road.asphalt", 0.2, levelOffset("asphalt").polygonOffsetUnits)]);
     assert.equal(inverted.length, 1);
   });
 
-  it("leaves every course's ground layers ordered: under 2 m² of its whole ground is ambiguous at 150 m (was 11 000)", () => {
+  it("when every course's ground layers are scanned at 150 m, then under 2 m² of its whole ground is ambiguous", () => {
     for (const raw of [...TRACKS, ...OFF_MENU]) {
       const track = new Track(raw);
       const overlaps = scanOverlaps(courseLayers(track), RANGE, 0.5);

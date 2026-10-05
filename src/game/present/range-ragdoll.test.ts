@@ -102,23 +102,23 @@ const runOf = (type: DriverCar, display: string, frames: () => () => number): Pr
   return runs.get(key)!;
 };
 
-describe("the range's thrown driver, every car type at the defaults", () => {
+describe("given the ejection range (the test course where one car crashes at 100 km/h into a barrier and throws its driver) at its defaults, for every car type, at 60 and 240 Hz steady and jittered with stalls", () => {
   for (const type of DRIVER_CARS) {
-    it(`bad: a ${type.label} at the range throws exactly one driver and one dummy`, async () => {
+    it(`when a ${type.label} crashes at the range, then exactly one driver is thrown and exactly one dummy comes out`, async () => {
       for (const [display, frames] of DISPLAYS) assert.deepEqual(threwOne(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
     });
 
-    it(`bad: a ${type.label} thrown at the range goes more forward than up or to a side, release, first step, apex and rest`, async () => {
+    it(`when a ${type.label} crashes at the range, then the dummy goes more forward than up or to a side at the release, the first step, the apex and the rest`, async () => {
       for (const [display, frames] of DISPLAYS) assert.deepEqual(astray(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
     });
 
-    it(`bad: a ${type.label} thrown at the range ends up still, on the terrain`, async () => {
+    it(`when a ${type.label} crashes at the range, then the dummy ends up lying still, on the terrain`, async () => {
       for (const [display, frames] of DISPLAYS) assert.deepEqual(unsettled(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
     });
   }
 });
 
-describe("the range's checks can fail", () => {
+describe("given a sedan thrown at the ejection range with one thing deliberately altered, so each of the range's checks is shown able to fail", () => {
   const sedan = DRIVER_CARS[0]!;
   const names = (bad: string[]) => [...new Set(bad.map((b) => b.split(":")[0]))];
   /** Every throw's launch velocity turned `deg` degrees about `axis` (its car's own speed stays in it). */
@@ -139,23 +139,23 @@ describe("the range's checks can fail", () => {
     }
   };
 
-  it("bad: control: a throw bent 60° up fails release, first step and apex, and one bent 80° up fails rest too", async () => {
+  it("when the throw is bent 60° up, then the forward-throw check reports the release, first step and apex, and when bent 80° up it reports the rest too", async () => {
     assert.deepEqual(names(astray(await rangeThrow(sedan, bent(toSide, 60)))), ["release", "first step", "apex"]);
     assert.deepEqual(names(astray(await rangeThrow(sedan, bent(toSide, 80)))), ["release", "first step", "apex", "rest"]);
   });
 
-  it("bad: control: a throw bent 60° to a side fails release, first step, apex and rest", async () => {
+  it("when the throw is bent 60° to a side, then the forward-throw check reports the release, first step, apex and rest", async () => {
     assert.deepEqual(names(astray(await rangeThrow(sedan, bent(vertical, 60)))), ["release", "first step", "apex", "rest"]);
   });
 
-  it("bad: control: a second dummy launched with the first is not one throw, and nobody thrown is not one either", async () => {
+  it("when a second dummy is launched with the first, or nobody is thrown at all, then the one-driver check reports the thrown count wrong", async () => {
     const run = await rangeThrow(sedan, { released: (sys, car, e) => sys.launch(e, [car]) });
     assert.equal(run.peakLive, 2);
     assert.deepEqual(names(threwOne(run)), ["thrown"]);
     assert.deepEqual(threwOne({ ...run, ejections: 0, peakLive: 0, frames: [], gone: null }).length, 3);
   });
 
-  it("bad: control: with the ground gone he falls through it and is never still", async () => {
+  it("when the ground is removed, then the dummy falls through it and the settled-on-terrain check reports that it never lies still and that a part is under the terrain", async () => {
     const run = await rangeThrow(sedan, {
       released: (sys) => {
         for (const c of sys["statics"]) sys["world"]!.removeCollider(c, false);
@@ -164,7 +164,7 @@ describe("the range's checks can fail", () => {
     assert.deepEqual(names(unsettled(run)), ["still", "ground"]);
   });
 
-  it("bad: control: lying on an invisible floor 10 cm up, still, he is floating, on something that is not the terrain", async () => {
+  it("when an invisible floor 10 cm up holds the dummy, then the settled-on-terrain check reports it floating above the ground and supported by something that is not the terrain", async () => {
     const run = await rangeThrow(sedan, {
       released: (sys) => {
         sys["world"]!.createCollider(sys["R"]!.ColliderDesc.cuboid(200, 0.05, 200).setTranslation(0, 0.05, 0));
@@ -174,7 +174,7 @@ describe("the range's checks can fail", () => {
     assert.ok(bad.includes("ground") && bad.includes("supported"), unsettled(run).join("; "));
   });
 
-  it("bad: control: on a frictionless floor with no damping he slides on and is never still", async () => {
+  it("when the floor is frictionless and the dummy has no damping, then it slides on and the settled-on-terrain check reports that it never lies still", async () => {
     const run = await rangeThrow(sedan, {
       released: slick,
       frame: (_sys, bodies) => {
@@ -187,12 +187,12 @@ describe("the range's checks can fail", () => {
     assert.deepEqual(names(unsettled(run)), ["still"]);
   });
 
-  it("bad: control: a torso that keeps turning at 1 rad/s is never still", async () => {
+  it("when the torso keeps turning at 1 rad/s, then the settled-on-terrain check reports that it never lies still", async () => {
     const run = await rangeThrow(sedan, { frame: (_sys, bodies) => bodies[0]!.setAngvel({ x: 0, y: 1, z: 0 }, true) });
     assert.deepEqual(names(unsettled(run)), ["still"]);
   });
 
-  it("bad: control: a sleeping dummy crept along 5 mm a frame reads zero speed to Rapier, yet is never still", async () => {
+  it("when a sleeping dummy is crept along 5 mm a frame, so Rapier (the physics engine) reads zero speed, then the settled-on-terrain check still reports that it never lies still", async () => {
     const run = await rangeThrow(sedan, {
       frame: (_sys, bodies) => {
         if (!bodies[0]!.isSleeping()) return;

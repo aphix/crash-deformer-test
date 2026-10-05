@@ -20,10 +20,10 @@ function guarded(self: AiCar, others: AiCar[], spare = new Uint8Array(32)): Driv
 /** The plan's three pedals as `guarded` hands them back. */
 const pedals = (out: DriveInput) => [out.throttle, out.brake, out.steer];
 
-describe("contact guard", () => {
+describe("given a driver planning full throttle straight on at 30 m/s, with the contact guard (the AI's last-moment collision avoidance) checking that plan", () => {
   const me = car(0, 0, 0, 30);
 
-  it("meets a car head-on within 1.5 s: with time to move sideways it steers clear, without it brakes; one it cannot reach in that time it leaves alone", () => {
+  it("when another car comes head-on at 30 m/s, then at 70 m it steers clear without braking, at 40 m it brakes instead, and at 300 m (out of the time it looks ahead) it leaves the plan alone", () => {
     const clear = guarded(me, [car(1, 0, 70, 30, -1)]);
     assert.ok(Math.abs(clear.steer) > 0.1 && clear.brake === 0, `70 m off: steer ${clear.steer.toFixed(2)}, brake ${clear.brake.toFixed(2)}`);
     const close = guarded(me, [car(1, 0, 40, 30, -1)]);
@@ -31,13 +31,13 @@ describe("contact guard", () => {
     assert.deepEqual(pedals(guarded(me, [car(1, 0, 300, 30, -1)])), [1, 0, 0], "300 m off, closing at 60 m/s: 90 m in the time looked ahead");
   });
 
-  it("meets a stopped car the zone's reach ahead of where it will be in about a second and a half: 47 m on at 30 m/s is met, 60 m on is not", () => {
+  it("when a stopped car is 47 m or 60 m dead ahead, then the guard steers away from the one at 47 m (the reach of its zone about 1.5 s ahead) and leaves the plan alone for the one at 60 m", () => {
     const met = guarded(me, [car(1, 0, 47, 0)]);
     assert.ok(met.steer !== 0, `47 m: steer ${met.steer}`);
     assert.deepEqual(pedals(guarded(me, [car(1, 0, 60, 0)])), [1, 0, 0], "60 m: out of the zone through the time ahead");
   });
 
-  it("a car out of reach changes nothing about the ones in reach", () => {
+  it("when cars far out of reach are added around a car it is about to meet, then the pedals and steering stay exactly what they were with that car alone", () => {
     const meets = car(1, 0.8, 40, 30, -1);
     const alone = guarded(me, [meets]);
     assert.ok(alone.brake > 0.5, `the car in reach is braked for: ${alone.brake.toFixed(2)}`);
@@ -45,7 +45,7 @@ describe("contact guard", () => {
     assertSameNumbers(pedals(withFar), pedals(alone), "pedals with cars out of reach about");
   });
 
-  it("spares the cars the driver means to hit", () => {
+  it("when the car coming head-on at 40 m is one the driver means to hit, then the guard leaves the plan alone", () => {
     const spare = new Uint8Array(32);
     spare[1] = 1;
     assert.deepEqual(pedals(guarded(me, [car(1, 0, 40, 30, -1)], spare)), [1, 0, 0]);

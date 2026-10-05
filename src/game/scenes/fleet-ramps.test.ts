@@ -225,14 +225,14 @@ function bodyReachX(car: DeformableCar): number {
   return x;
 }
 
-describe("fleet ramps", () => {
+describe("given a car driven end-on up a ramp, with a slab between the ramps", () => {
   afterEach(() => setGround(null));
 
   for (const [v, name, landZ] of [
     [14, "flies the slab end-on and lands on the flat past the far ramp", RAMP.start + RAMP.len],
     [11, "flies the slab end-on and lands on the far ramp's face", RAMP.start],
   ] as const) {
-    it(`${v} m/s up a ramp: ${name}; the nose follows the flight path, no tyre sinks or snaps on landing, all four end on the ground`, (t) => {
+    it(`when it drives up at ${v} m/s, then it ${name}, its nose follows the flight path, no tyre sinks or snaps on landing and all four wheels end on the ground`, (t) => {
       const r = jump(v);
       t.diagnostic(
         `air ${r.air.toFixed(2)} s, peak ${r.peak.toFixed(2)} m, nose off path ≤ ${r.noseOff.toFixed(1)}°, most turn in a frame ${r.turn.toFixed(1)}°, deepest tyre ${r.sink.toFixed(3)} m, end z ${r.endZ.toFixed(1)}, gaps ${r.gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${r.slabHit}`,
@@ -253,7 +253,7 @@ describe("fleet ramps", () => {
     });
   }
 
-  it("14 m/s jump, every class: the springs take the landing and stop swinging (all under 1 cm) within 2 s, the body's sill stays off the ground", (t) => {
+  it("when it jumps the slab at 14 m/s in every vehicle class, then the springs take the landing and stop swinging (all under 1 cm) within 2 s, and the body's sill stays off the ground", (t) => {
     const failures: string[] = [];
     const sill = new THREE.Vector3();
     for (const cls of VEHICLE_CLASS_IDS) {
@@ -289,8 +289,12 @@ describe("fleet ramps", () => {
     }
     assert.deepEqual(failures, []);
   });
+});
 
-  it("8 m/s without the slab: comes down across the far ramp's high end and rides its face down, not launched off the step", (t) => {
+describe("given the ramps with no slab between them", () => {
+  afterEach(() => setGround(null));
+
+  it("when a car is driven end-on at 8 m/s, then it comes down across the far ramp's high end and rides its face down, not launched off the step", (t) => {
     const { w, car } = scene(false);
     car.spawnFacing(0, -14, 0, 8);
     const p = car.group.position;
@@ -303,7 +307,7 @@ describe("fleet ramps", () => {
     assert.ok(peak < RAMP.top + 0.4 && p.y < 0.01, `peak ${peak.toFixed(2)} m, end y ${p.y.toFixed(2)} m`);
   });
 
-  it("a ramp's side is a wall: a car driven square into its high end stops at the face, never up or through it", (t) => {
+  it("when a car is driven square into a ramp's high end, then it stops at the face, never climbing up or through it", (t) => {
     const { ramps, w, car } = scene(false);
     // Square to the +z ramp's side 1 m from its high end (face 0.94 m up), from 6 m out on −x.
     const z = RAMP.start + 1;
@@ -323,8 +327,12 @@ describe("fleet ramps", () => {
     if (car.velocity.x > 0.1) failures.push(`still driving in at ${car.velocity.x.toFixed(2)} m/s`);
     assert.deepEqual(failures, []);
   });
+});
 
-  it("a car struck just before touchdown is a wreck on its masses: once it stops it is not flying (drive idled)", (t) => {
+describe("given a car driven at 14 m/s up the ramp and over the slab", () => {
+  afterEach(() => setGround(null));
+
+  it("when it is struck just before touchdown and then comes to a stop, then it is a wreck: once it has stopped it is not flying (its drive is idled)", (t) => {
     const { ramps, w, car } = scene(true);
     car.spawnFacing(0, -14, 0, 14);
     const p = car.group.position;
@@ -346,11 +354,15 @@ describe("fleet ramps", () => {
     assert.ok(hitAt > 0 && stopped > 1, `struck at ${hitAt.toFixed(2)} s, stopped ${stopped.toFixed(2)} s`);
     assert.ok(stuck < 0.25, `stopped yet flying for ${stuck.toFixed(2)} s`);
   });
+});
+
+describe("given two cars driving head-on at each other up the two ramps, with no slab between them", () => {
+  afterEach(() => setGround(null));
 
   // The cell is vB 11, not 8: at 8 m/s the car on the ramp was passed over with 0.26 m between its roof and the other's tyres, and
   // the strike this case guarded was the plan SAT's, from a height band that a pitched car's box stretched over a roof it did not
   // touch (`shareHeight`: a car above another's roof is stacked on it, whatever its pitch). At 11 m/s they meet nose to roof, 1.58 m up.
-  it("D1: a car struck mid-air by one still on its ramp keeps a ballistic height: no frame moves y off its speeds (`watch`)", (t) => {
+  it("when the car still on its ramp strikes the other mid-air, then the struck car keeps a ballistic height: no frame moves its height away from what its speeds say", (t) => {
     const { w, cars } = pair(16, 11);
     const [a] = cars;
     let struckAt = -1;
@@ -375,7 +387,7 @@ describe("fleet ramps", () => {
   // The case above passed on main for its own cell only: on the speeds and offsets around it, 23 of 75 cells flagged (a wreck
   // coming down beside another was lifted its whole depth into the other's flank, up to 0.45 m in one slice). The whole
   // neighbourhood is the test: a result that holds for one realisation of a chaotic pile-up and not its neighbours is a defect.
-  it("D1: and over the speeds and offsets around it (vA 15–17, vB 7–9 m/s, 0.3–0.5 m across: 75 cells)", (t) => {
+  it("when the speeds and offsets around that case are swept (first car 15–17 m/s, second 7–9 m/s, 0.3–0.5 m across: 75 combinations), then no frame of any of them moves a car's height away from its speeds", (t) => {
     const failures: string[] = [];
     let frames = 0;
     for (const vA of [15, 15.5, 16, 16.5, 17]) {
@@ -393,12 +405,16 @@ describe("fleet ramps", () => {
     t.diagnostic(`${failures.length} of 75 cells flagged, ${frames} frames`);
     assert.deepEqual(failures, []);
   });
+});
+
+describe("given the ramps with no slab between them, and a car that is or becomes a wreck on them", () => {
+  afterEach(() => setGround(null));
 
   // The 15/9/0.3 cell's last flight slice, as one wreck: a struck car falling at a wedge's high end with its front tyres a hair
   // over the face and its tail over the gap, the wedge's top (1.15 m) at its middle 0.41 m over its origin. Two wheels down and
   // upright counted as landed whatever the depth; the ground sim then set the frame on the face and lifted the masses with it:
   // 0.38 m in one slice on a speed of −4.5 m/s. A middle that deep is in the wedge's end, not on its wheels: still flying.
-  it("D1: a wreck falling with its middle under a wedge's top is not landed onto it: no slice lifts it", (t) => {
+  it("when it is falling at a ramp's high end with its middle under the ramp's top and one physics slice runs, then it does not rise: it is not landed onto the ramp", (t) => {
     const { ramps, w, car } = scene(false);
     car.crashed = true;
     car.airborne = true;
@@ -415,7 +431,7 @@ describe("fleet ramps", () => {
     assert.ok(rise <= 0, `a wreck falling at ${car.velocity.y.toFixed(1)} m/s rose ${rise.toFixed(3)} m in one slice (landed ${!car.airborne})`);
   });
 
-  it("D2: a wreck sliding off a ramp's lip flies and lands, with no frame off its velocity", (t) => {
+  it("when a car driven at 15 m/s up the ramp is struck so it slides off the lip, then it is wrecked, flies past the lip and lands, with no frame moving its height away from its speed", (t) => {
     const { ramps, w, car } = scene(false);
     car.spawnFacing(0, -14, 0, 15);
     const p = car.group.position;
@@ -437,7 +453,7 @@ describe("fleet ramps", () => {
     assert.deepEqual(flags.list, []);
   });
 
-  it("D2: a landed wreck at rest has no vertical speed and takes the flat ground's pitch", (t) => {
+  it("when that struck car has landed and come to rest, then it has no vertical speed and takes the flat ground's pitch and roll", (t) => {
     const { w, car } = scene(false);
     car.spawnFacing(0, -14, 0, 15);
     const p = car.group.position;
@@ -459,8 +475,12 @@ describe("fleet ramps", () => {
     assert.ok(stale < 0.05, `y still while vy ${stale.toFixed(3)} m/s`);
     assert.ok(Math.abs(pitch) < 0.03 && Math.abs(roll) < 0.03, `pitch ${pitch.toFixed(3)}, roll ${roll.toFixed(3)} rad on flat ground`);
   });
+});
 
-  it("D3: a car flying 2 m over another never touches it", (t) => {
+describe("given a parked car lying across the track, with another car flying 2 m over it", () => {
+  afterEach(() => setGround(null));
+
+  it("when the flying car passes over, then the two never touch: no contact is reported, the flying car gets past and neither car is crashed", (t) => {
     setGround(null);
     const three = new THREE.Scene();
     const low = new DeformableCar(paint(), three);
@@ -479,8 +499,12 @@ describe("fleet ramps", () => {
     assert.equal(hits, 0);
     assert.ok(!low.crashed && !high.crashed, "a car crashed");
   });
+});
 
-  it("a car driven at walking pace into a wedge's side, at any angle, any class, stops at the wall or climbs the low toe: it never rolls over", (t) => {
+describe("given a car driven at walking pace into a ramp's side", () => {
+  afterEach(() => setGround(null));
+
+  it("when it is driven at every vehicle class, at 30°, 45°, 60° and 90° off the run and at wall heights from 0.05 m to 0.9 m, then it stops at the wall or climbs the low toe and never rolls over", (t) => {
     const failures: string[] = [];
     const rows: string[] = [];
     for (const cls of VEHICLE_CLASS_IDS) {
@@ -496,7 +520,7 @@ describe("fleet ramps", () => {
     assert.deepEqual(failures, []);
   });
 
-  it("the same side approaches, given 12 s to run and the spawn a few mm either way, never roll over", (t) => {
+  it("when it is run for 12 s with the spawn a few mm either way, at 30° and 45° off the run and at wall heights from 0.05 m to 0.4 m, then it still never rolls over", (t) => {
     // The monster driven at the flank at 30° crept up it on one tyre, took off at the high end (z 3.4) and tipped onto the wall
     // (72° on main). That lands between 4.3 and 5.8 s, so the 6 s window above passed 7 of 21 throttle draws at wall 0.2 m and all 21 at 0.05 m by timing alone.
     const failures: string[] = [];

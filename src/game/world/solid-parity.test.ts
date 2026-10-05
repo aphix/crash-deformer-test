@@ -38,9 +38,9 @@ function matches(label: string, solid: readonly Outcome[], slab: readonly Outcom
 }
 
 /** What the slab does, from CRUSH_CALIBRATION.md's barrier table: the reference of the reference. */
-describe("the jersey barrier, the reference", () => {
+describe("given the jersey barrier (the range's slab, the reference every other fixed solid is held to)", () => {
   for (const cls of ["sedan", "truck", "monster"] as const) {
-    it(`${cls}: ${SURVIVABLE} m/s dents it and leaves the engine and the driver; ${LETHAL} m/s packs the block past the realistic kill and throws the driver`, () => {
+    it(`when a ${cls} hits it at ${SURVIVABLE} m/s and then at ${LETHAL} m/s, then the slow hit dents it and leaves the engine and driver alone, and the fast hit packs the crush block past the realistic kill and throws the driver`, () => {
       const [easy] = strike("barrier", cls, SURVIVABLE);
       assert.ok(easy!.alive && easy!.health > 0.95 && !easy!.ejected, JSON.stringify(easy));
       const [hard] = strike("barrier", cls, LETHAL);
@@ -49,7 +49,7 @@ describe("the jersey barrier, the reference", () => {
   }
 });
 
-describe("every fixed solid hurts a car as the barrier does", () => {
+describe("given a fixed solid (a course wall, a solid box prop, or a solid circle such as a monument or a palm) and the jersey barrier as the reference", () => {
   const CELLS: [Target, VehicleClassId[]][] = [
     // Course walls (`RaceField.wall`), solid box props (`props`): a rim block, a thin wall; a solid circle: a monument, a palm.
     ["oval", ["sedan", "truck", "monster"]],
@@ -59,26 +59,32 @@ describe("every fixed solid hurts a car as the barrier does", () => {
     ["monument", ["sedan", "truck"]],
     ["palm", ["sedan", "truck"]],
   ];
-  for (const [target, classes] of CELLS) {
-    for (const cls of classes) {
-      for (const speed of [SURVIVABLE, LETHAL]) {
-        it(`${cls} into ${target} at ${speed} m/s`, () => {
-          matches(`${cls} ${target} ${speed}`, strike(target, cls, speed), strike("barrier", cls, speed));
-        });
+  describe("when a car drives into it once", () => {
+    for (const [target, classes] of CELLS) {
+      for (const cls of classes) {
+        for (const speed of [SURVIVABLE, LETHAL]) {
+          it(`when a ${cls} drives into the ${target} at ${speed} m/s, then it throws the driver as the barrier does, crushes within ${HEALTH_BAND} of the barrier's drivetrain health, and the car comes off no faster`, () => {
+            matches(`${cls} ${target} ${speed}`, strike(target, cls, speed), strike("barrier", cls, speed));
+          });
+        }
       }
     }
-  }
-  for (const target of ["oval", "stucco", "monument"] as const) {
-    it(`a sedan sent back at ${target} twice at 30 m/s: the second hit is the barrier's too`, () => {
-      matches(`sedan ${target} 30 x2`, strike(target, "sedan", 30, 2), strike("barrier", "sedan", 30, 2));
-    });
-  }
+  });
+  describe("when a sedan is sent back at it for a second hit", () => {
+    for (const target of ["oval", "stucco", "monument"] as const) {
+      it(`when a sedan hits the ${target} twice at 30 m/s, then the second hit hurts the car as the barrier's second hit does`, () => {
+        matches(`sedan ${target} 30 x2`, strike(target, "sedan", 30, 2), strike("barrier", "sedan", 30, 2));
+      });
+    }
+  });
   // A palm stands between a car's bumpers: its crush hulls reach the face before any particle does. Unless the hulls on the face count as
   // the hit's contact, the quiet clock runs out, the hit re-arms at 0.3 s and the tap reads 0.016 m of block travel (the slab's 0).
-  for (const cls of ["sedan", "truck"] as const) {
-    it(`${cls}: a palm tap at ${SURVIVABLE} m/s leaves the block where it was, as the slab does`, () => {
-      const [tap] = strike("palm", cls, SURVIVABLE);
-      assert.ok(tap!.travel < 0.002 && tap!.health > 0.99 && !tap!.ejected, JSON.stringify(tap));
-    });
-  }
+  describe("when the solid is a palm standing between the car's bumpers", () => {
+    for (const cls of ["sedan", "truck"] as const) {
+      it(`when a ${cls} taps the palm at ${SURVIVABLE} m/s, then the crush block stays where it was, as the slab's does, and the car's health and driver are untouched`, () => {
+        const [tap] = strike("palm", cls, SURVIVABLE);
+        assert.ok(tap!.travel < 0.002 && tap!.health > 0.99 && !tap!.ejected, JSON.stringify(tap));
+      });
+    }
+  });
 });

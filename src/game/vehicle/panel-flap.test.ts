@@ -63,8 +63,8 @@ function run(car: Probe, frames: number, v: number | null = null): void {
   }
 }
 
-describe("a quarter panel stands off the body at most STAND_MAX", () => {
-  it("bad: at full hinge the free end of every style's quarter panel is within STAND_MAX (was 1.2 m)", () => {
+describe("given a car body of any style with a hinged quarter panel (a quarter panel stands off the body at most STAND_MAX, the longest stand-off a panel may take)", () => {
+  it("when the panel is at full hinge, then the free end of every style's quarter panel is within the longest stand-off", () => {
     for (const id of CAR_STYLE_IDS) {
       const body = makeChassisGeometry(CAR_STYLES[id]);
       const pos = body.getAttribute("position") as THREE.BufferAttribute;
@@ -85,7 +85,7 @@ describe("a quarter panel stands off the body at most STAND_MAX", () => {
     }
   });
 
-  it("good: the stand-off grows with the hinge value", () => {
+  it("when the hinge value grows from 0 to 1, then the sedan's quarter panel stands further off the body at each step", () => {
     const body = makeChassisGeometry(CAR_STYLES.sedan);
     const r = panelRegions(CAR_STYLES.sedan, body).find((q) => q.name === "quarterR")!;
     let last = -1;
@@ -97,8 +97,8 @@ describe("a quarter panel stands off the body at most STAND_MAX", () => {
   });
 });
 
-describe("a stretched panel is easy to break", () => {
-  it("good: a panel hinged past PANEL_FRAGILE_T comes off on a fresh contact, one hinged less takes it", () => {
+describe("given a stretched panel on a crashed car (a panel stretched past its fragile hinge is easy to break)", () => {
+  it("when a fresh contact touches a panel hinged past the fragile hinge value or one hinged 0.2 less, then the more hinged panel comes off and the other stays on", () => {
     for (const [t, off] of [
       [PANEL_FRAGILE_T + 0.1, true],
       [PANEL_FRAGILE_T - 0.2, false],
@@ -114,7 +114,7 @@ describe("a stretched panel is easy to break", () => {
     }
   });
 
-  it("good: a contact that goes on does not count as fresh, one that resumes after a pause does", () => {
+  it("when a contact goes on step after step and later one resumes after a pause, then the continuing contact does not tear the panel off and the resumed one does", () => {
     const car = crashed();
     const p = car.hang("quarterR", 0.7);
     // The crash's own contact: touching every step.
@@ -129,7 +129,7 @@ describe("a stretched panel is easy to break", () => {
     assert.ok(p.detached, "a touch after a pause left it on");
   });
 
-  it("good: a stretched panel scrapes off on the ground, a lightly hinged one does not", () => {
+  it("when the car sits 0.5 m below the ground, then a panel hinged to 0.7 scrapes off and one hinged to 0.3 does not", () => {
     for (const [t, off] of [
       [0.7, true],
       [0.3, false],
@@ -144,7 +144,7 @@ describe("a stretched panel is easy to break", () => {
     }
   });
 
-  it("good: a scrape is decided on the sim's state, never on the drawn skin (a replay draws at other times than the sim it re-ran)", () => {
+  it("when the drawn body skin is thrown far below or high above the car, then whether the panel scrapes off is still decided on the simulation's state, never on the drawn skin (a replay draws at other times than the simulation it re-ran)", () => {
     // The same car and hinge, the body's drawn vertices (the skin the shell is posed on) thrown far below the car or high above it:
     // the scrape is the sim's, so no change.
     for (const [y, drawn, off] of [
@@ -186,21 +186,21 @@ function cruise(name: string, t: number, v: number, secs: number): number | null
   return null;
 }
 
-describe("sustained speed wears hinged panels and bumpers off", () => {
-  it("good: a stretched quarter panel goes in a second or two at 40 m/s and holds at 10 m/s (was: never)", () => {
+describe("given a crashed car cruising with a hinged panel, sustained speed wears hinged panels and bumpers off", () => {
+  it("when a quarter panel hinged to 0.6 cruises at 40 m/s or at 10 m/s, then it goes in under 2 s at 40 m/s and holds for 12 s at 10 m/s", () => {
     const fast = cruise("quarterR", 0.6, 40, 12);
     assert.ok(fast !== null && fast < 2, `off at ${fast}`);
     assert.equal(cruise("quarterR", 0.6, 10, 12), null);
   });
 
-  it("good: a lightly hinged panel takes longer, a flat one never goes", () => {
+  it("when a lightly hinged quarter panel cruises at 40 m/s, then it takes longer to go than a stretched one, and a flat one never goes", () => {
     const light = cruise("quarterR", 0.3, 40, 12);
     const stretched = cruise("quarterR", 0.6, 40, 12)!;
     assert.ok(light !== null && light > stretched, `light ${light} vs stretched ${stretched}`);
     assert.equal(cruise("quarterR", 0, 40, 12), null);
   });
 
-  it("good: an arch flare and a hanging bumper wear off too; below the tear speed they stay", () => {
+  it("when an arch flare and a hanging bumper cruise at 40 m/s, then they wear off in under 3 s, and below the tear speed they stay", () => {
     for (const name of ["archFL", "bumperF"]) {
       const at = cruise(name, 0.6, 40, 12);
       assert.ok(at !== null && at < 3, `${name} off at ${at}`);
@@ -223,8 +223,8 @@ function flutter(name: string, t: number, v: number, frames = 90): number {
   return most;
 }
 
-describe("a hinged panel flaps with the car's speed", () => {
-  it("good: the flutter is 0 at rest and grows with speed (below the tear speed)", () => {
+describe("given a hinged panel on a crashed car, its flutter follows the car's speed", () => {
+  it("when the car goes from rest up to 21 m/s (below the tear speed), then the quarter panel's flutter is 0 at rest and grows with speed", () => {
     const at = [0, 8, 15, 21].map((v) => flutter("quarterR", 0.4, v));
     assert.equal(at[0], 0, "a parked car's panel moved");
     for (let i = 1; i < at.length; i++) assert.ok(at[i]! > at[i - 1]!, `flutter ${at.map((a) => a.toFixed(3)).join(" < ")}`);
@@ -232,7 +232,7 @@ describe("a hinged panel flaps with the car's speed", () => {
     assert.ok(at[3]! > 0.5 * flapAmp(21, 0.4) && at[3]! <= flapAmp(21, 0.4) + 1e-6, `${at[3]} against ${flapAmp(21, 0.4)}`);
   });
 
-  it("good: an arch flare turns about its top and a hanging bumper rolls more, with speed; neither moves at rest", () => {
+  it("when an arch flare and a hanging bumper are driven faster, then the flare turns about its top and the bumper rolls more, and neither moves at rest", () => {
     assert.equal(flutter("archFL", 0.4, 0), 0);
     assert.ok(flutter("archFL", 0.4, 20) > 0.02);
     const car = crashed();
@@ -254,7 +254,7 @@ describe("a hinged panel flaps with the car's speed", () => {
     assert.ok(roll(20) > 0.03, "a bumper at speed did not flap");
   });
 
-  it("good: the flutter is deterministic (the same run twice agrees) and never rebuilds the shell", () => {
+  it("when the same run is made twice, then the flutter agrees and never rebuilds the shell", () => {
     const trace = () => {
       const car = crashed();
       run(car, 120);
@@ -274,7 +274,7 @@ describe("a hinged panel flaps with the car's speed", () => {
     assertSameNumbers(trace(), trace(), "flutter trace");
   });
 
-  it("good: a quarter panel's flutter is about its tail: the tail end stays on the body", () => {
+  it("when a quarter panel flutters at 20 m/s, then it flutters about its tail and the tail end stays on the body", () => {
     const car = crashed();
     const p = car.hang("quarterR", 0.4);
     const r = p.region!;

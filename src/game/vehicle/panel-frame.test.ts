@@ -70,11 +70,11 @@ const CASES: readonly (readonly [VehicleClassId, number | null])[] = [
   ["monster", 2],
 ];
 
-describe("a hinged panel's shell rides the body it is cut from", () => {
+describe("given a wreck settled for 3 s (a sedan, truck or monster class, intact or minus a hub), a hinged panel's shell rides the body it is cut from", () => {
   for (const [cls, lost] of CASES) {
     const tag = `${cls}${lost === null ? "" : ` minus ${HUBS[lost]}`}`;
 
-    it(`good: ${tag}: the shell's hinge line stands on the body skin (4 mm proud), whatever the lift and sag`, () => {
+    it(`when the ${tag} wreck's panels are hinged to 0.5, then each shell's hinge line stands on the body skin (4 mm proud), whatever the lift and sag`, () => {
       const car = wreck(cls, lost);
       for (const name of PANEL_NAMES) {
         const p = car.hang(name, 0.5);
@@ -90,7 +90,7 @@ describe("a hinged panel's shell rides the body it is cut from", () => {
       }
     });
 
-    it(`good: ${tag}: a torn panel starts on its patch of body (0.14 m out, 0.08 m up), not at the stock ride`, () => {
+    it(`when the ${tag} wreck's panels are hinged and torn off, then each torn panel starts on its patch of body (0.14 m out, 0.08 m up), not at the stock ride`, () => {
       const car = wreck(cls, lost);
       for (const name of ["quarterR", "archFL"]) {
         const p = car.hang(name, 0.05);
@@ -107,8 +107,8 @@ describe("a hinged panel's shell rides the body it is cut from", () => {
 /** The vertex buffer's upload count: the shell is rebuilt (and re-uploaded) once per `needsUpdate`. */
 const uploads = (p: DetachPart) => ((p.object as THREE.Mesh).geometry.getAttribute("position") as THREE.BufferAttribute).version;
 
-describe("a panel shell is rebuilt when it changes, not every frame", () => {
-  it("good: a settled wreck's hinged shells are not rebuilt, and one whose hinge moves is", () => {
+describe("given a settled wreck's hinged panel shells, a shell is rebuilt when it changes, not every frame", () => {
+  it("when 30 more frames pass and then one shell's hinge moves, then the settled shells are not rebuilt and only the one whose hinge moved is", () => {
     const car = wreck("sedan", null);
     const open = ["quarterR", "archRL"].map((n) => car.hang(n, 0.5));
     for (let f = 0; f < 30; f++) {
@@ -128,7 +128,7 @@ describe("a panel shell is rebuilt when it changes, not every frame", () => {
     assert.equal(uploads(open[1]!), before[1], "the other shell was rebuilt");
   });
 
-  it("good: a shell torn past the two a car draws stops where it was hidden, the drawn ones lie down", () => {
+  it("when a third shell is torn past the two a car draws, then the oldest stays hidden where it was and the drawn ones lie down", () => {
     const car = new Probe(paint(), new THREE.Scene(), null, "sedan");
     car.deform.setMode("shape");
     const names = ["quarterL", "quarterR", "archFL"];

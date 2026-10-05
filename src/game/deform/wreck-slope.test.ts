@@ -45,16 +45,16 @@ const PLANE_SITE = (name: string, pitch: number, roll: number): Site => ({ name,
 function stuntSite(s: number): Site {
   const pt = blankPoint();
   pointOn(stunt.path, s, pt);
-  return { name: `stunt s ${s}`, ground: road, x: pt.x, z: pt.z, y: pt.y + 0.5, yaw: Math.atan2(pt.tx, pt.tz) };
+  return { name: `the stunt road at arc length ${s}`, ground: road, x: pt.x, z: pt.z, y: pt.y + 0.5, yaw: Math.atan2(pt.tx, pt.tz) };
 }
 
 const SITES: Site[] = [
-  PLANE_SITE("flat", 0, 0),
-  PLANE_SITE("+10°", 10, 0),
-  PLANE_SITE("−10°", -10, 0),
-  PLANE_SITE("−20°", -20, 0),
-  PLANE_SITE("bank 10°", 0, 10),
-  PLANE_SITE("−20° and bank 10°", -20, 10),
+  PLANE_SITE("flat ground", 0, 0),
+  PLANE_SITE("a +10° slope", 10, 0),
+  PLANE_SITE("a −10° slope", -10, 0),
+  PLANE_SITE("a −20° slope", -20, 0),
+  PLANE_SITE("a 10° bank", 0, 10),
+  PLANE_SITE("a −20° slope banked 10°", -20, 10),
   stuntSite(900),
   stuntSite(904),
   stuntSite(908),
@@ -80,12 +80,12 @@ const label = (f: Fit) =>
   `pitch ${f.pitch.toFixed(1)}° vs ground ${f.groundPitch.toFixed(1)}°, roll ${f.roll.toFixed(1)}° vs ${f.groundRoll.toFixed(1)}°, ` +
   `gaps ${f.gaps.map((g) => (g * 100).toFixed(1)).join("/")} cm, underside ${(f.pen * 100).toFixed(1)} cm in the ground at ${f.penAt}`;
 
-describe("a wreck at rest on a slope", () => {
+describe("given a car struck head-on while standing on flat ground, a slope, a bank or the stunt road, so that it becomes a wreck", () => {
   afterEach(() => setGround(null));
 
   for (const cls of CLASSES_UNDER_TEST) {
     for (const site of SITES) {
-      it(`good: ${cls} on ${site.name} sits on the ground under its hubs ${REST_S} s after the hit`, () => {
+      it(`when a ${cls} on ${site.name} is left to settle for ${REST_S} s after the hit, then it sits on the ground under its wheels (pitch and roll within 2° of the ground, tyres within 2 cm of it, underside no more than 1 cm in it)`, () => {
         const { car, step } = wreck(site, cls, 0);
         for (let n = 0; n < REST_S * 60; n++) step();
         const f = fit(car, site.ground);
@@ -105,11 +105,11 @@ describe("a wreck at rest on a slope", () => {
 const LEVEL_FRAME = 20;
 const SLIDE_MPS = 6;
 
-describe("a wreck sliding down a slope", () => {
+describe("given a sedan struck head-on while sliding at 6 m/s down a −20° slope or the stunt road at arc length 904", () => {
   afterEach(() => setGround(null));
 
   // On the unmodified code the level-out from the −20° frame clamp (12.6°) to 0 turned the body 3.4° in one frame.
-  it("good: from the level-out on, the drawn body turns less than 2° in a frame and the car moves no more than its speed allows", () => {
+  it("when it slides for 5 s, then from the moment the game levels the wreck to the ground (0.35 s after the hit) the drawn body turns less than 2° in a frame and the car moves no more than its speed allows", () => {
     for (const site of [PLANE_SITE("−20°", -20, 0), stuntSite(904)]) {
       const { car, step } = wreck(site, "sedan", SLIDE_MPS);
       let prev = fit(car, site.ground);

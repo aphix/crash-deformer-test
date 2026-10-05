@@ -7,8 +7,8 @@ import { REEL_PART, ReelParts, reelParts } from "./reel-wire.ts";
 /** A message of `n` bytes, none repeating the one before. */
 const message = (n: number): Uint8Array => Uint8Array.from({ length: n }, (_, i) => (i * 31 + (i >> 8)) & 255);
 
-describe("reel wire frames", () => {
-  it("bad: a message of any length must come back whole from its frames", () => {
+describe("given a highlight reel message split into fixed-size wire frames and gathered back by a receiver", () => {
+  it("when messages of 1, one under, exactly, one over, and several frames' worth of bytes are split and gathered, then each comes back whole and nothing completes before the last frame", () => {
     for (const n of [1, REEL_PART - 1, REEL_PART, REEL_PART + 1, 5 * REEL_PART + 17]) {
       const msg = message(n);
       const parts = reelParts(msg);
@@ -20,7 +20,7 @@ describe("reel wire frames", () => {
     }
   });
 
-  it("bad: a frame that does not belong must not complete or poison a reel", () => {
+  it("when frames arrive that do not belong (a last or middle frame with no start, a frame with no flags, or a fresh start mid-reel), then none completes a reel and a fresh start replaces the half-gathered one", () => {
     const msg = message(3 * REEL_PART);
     const parts = reelParts(msg);
     const gather = new ReelParts();
@@ -36,7 +36,7 @@ describe("reel wire frames", () => {
     assertSameNumbers(gather.take(op[1]!)!, other, "the restarted reel");
   });
 
-  it("bad: a hostile stream must not gather past the cap", () => {
+  it("when a hostile stream sends a first frame and over 200 middle frames with no end, then nothing completes and once past the cap what was gathered is dropped", () => {
     const gather = new ReelParts();
     const first = reelParts(message(REEL_PART))[0]!;
     first[1] = 1; // FIRST only: no end in sight

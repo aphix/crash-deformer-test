@@ -19,9 +19,9 @@ const FIELD = { trackId: "oval", laps: 3, aiCount: 11, noReset: false, aggressio
 const WAIT_S = 120;
 const SEEDS = [1, 2, 3];
 
-describe("a clip with a cop put on a spot in it replays the live crash", () => {
+describe("given the oval race with 11 AI and police on, where two racers are put head-on beside a cop that has just been placed on a stakeout spot", () => {
   for (const seed of SEEDS) {
-    it(`bad: seed ${seed}: a stakeout parked ahead of a head-on, the clip's cars all where the sim had them at every step`, (t) => {
+    it(`when seed ${seed}'s clip of that crash is replayed, then it holds the head-on racers and the cop, and every car is where the live sim had it at every step`, (t) => {
       const w = makeWorld();
       w.race.enter();
       const track = new Track(oval);

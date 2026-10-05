@@ -68,11 +68,11 @@ function fleetCrash(ground: Ground): number[] {
   return record(cars, 200);
 }
 
-describe("fleet disc edge", () => {
+describe("given the fleet course's disc-shaped ground (a round pad with a rim past which the ground ends)", () => {
   afterEach(() => setGround(null));
 
   for (const wreck of [false, true]) {
-    it(`a ${wreck ? "wreck sliding" : "car driven"} past the rim falls in one piece, turns fake ${FAKE_DEPTH} m down and vaporizes ${VAPOR_DEPTH} m down`, () => {
+    it(`when a ${wreck ? "wreck sliding" : "car driven"} goes past the rim at 16 m/s, then it falls in one piece, is swapped for a frozen fake at ${FAKE_DEPTH} m down and is vaporized (removed) at ${VAPOR_DEPTH} m down`, () => {
       setGround(DISC_GROUND);
       const car = launch(40, 16, wreck);
       const w = makeWorld([car], false, false);
@@ -118,7 +118,7 @@ describe("fleet disc edge", () => {
     });
   }
 
-  it("the fake keeps a wreck's linear and angular velocity", () => {
+  it("when a wreck moving at (3, −2, 5) m/s and spinning is swapped for the fake fall, then the fake keeps its linear and angular velocity, the spin to within 35 %", () => {
     const car = launch(0, 0, true);
     const v = new THREE.Vector3(3, -2, 5);
     const spin = new THREE.Vector3(0.4, -1.1, 0.7);
@@ -135,7 +135,7 @@ describe("fleet disc edge", () => {
     assert.ok(car.velocity.distanceTo(want) <= 0.35 * spin.length() * arm + 1e-9, `velocity ${car.velocity.toArray()} vs ${want.toArray()}`);
   });
 
-  it("a vaporized car is out of the sim: its group and masses stay put", () => {
+  it("when a vaporized car is stepped for 30 frames, then it is out of the sim: its group and masses stay put", () => {
     setGround(DISC_GROUND);
     const car = launch(60, 10, false);
     car.group.position.y = -25;
@@ -145,7 +145,7 @@ describe("fleet disc edge", () => {
     assertSameNumbers(record([car], 30).slice(-before.length), before, "vaporized car");
   });
 
-  it(`the edge rule: fake, vaporize, and only the driven car respawns ${RESPAWN_S} s later`, () => {
+  it(`when a car falls past the edge depths, then it is faked, then vaporized, and only the driven car respawns ${RESPAWN_S} s later while an AI car stays gone`, () => {
     assert.equal(edgeAction(-FAKE_DEPTH + 0.1, false, false, true, 0), null);
     assert.equal(edgeAction(-FAKE_DEPTH - 0.1, false, false, true, 0), "fake");
     assert.equal(edgeAction(-FAKE_DEPTH - 0.1, true, false, true, 0), null);
@@ -155,7 +155,7 @@ describe("fleet disc edge", () => {
     assert.equal(edgeAction(-VAPOR_DEPTH - 0.1, false, true, false, 60), null, "an AI car stays gone");
   });
 
-  it("the respawn is on the disc, facing the centre, clear of other cars", () => {
+  it("when a car respawns, then it is on the disc along the bearing it fell from, facing the centre, and clear of other cars", () => {
     const free = respawnSlot(60, 0, []);
     assert.ok(free.x > 30 && Math.abs(free.z) < 1e-9, "on the bearing it fell from");
     const parked = [{ x: free.x, z: free.z }];
@@ -168,7 +168,7 @@ describe("fleet disc edge", () => {
     assert.ok(Math.hypot(s.x - free.x, s.z - free.z) >= FLEET_MIN_SEP);
   });
 
-  it("inside the rim the disc is the flat pad: a fleet crash and a head-on replay exactly", () => {
+  it("when a fleet crash and a head-on pair are replayed on the disc and on the flat pad, then the two grounds give exactly the same results inside the rim", () => {
     assertSameNumbers(fleetCrash(DISC_GROUND), fleetCrash(FLAT_GROUND), "fleet crash");
     setGround(DISC_GROUND);
     const disc = runPair(48, 48, "head-on");

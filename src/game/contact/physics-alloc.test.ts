@@ -72,8 +72,8 @@ function pileUp(): { cars: DeformableCar[]; step: () => void } {
   return { cars, step };
 }
 
-describe("physics allocation", () => {
-  it("bad: a warmed 24-car pile-up allocates at most BOUND_KB per frame (boxed doubles, iterators and per-call arrays are the race GC pauses)", () => {
+describe("given a warmed 24-car derby pile-up with every car driving at the bowl centre", () => {
+  it(`when 300 frames are stepped, then physics allocates at most ${BOUND_KB} KB of heap per frame (boxed doubles, iterators and per-call arrays would show up as race GC pauses)`, () => {
     const { cars, step } = pileUp();
     for (let f = 0; f < WARM; f++) step();
     const crashed = cars.filter((c) => c.deform.massActive).length;

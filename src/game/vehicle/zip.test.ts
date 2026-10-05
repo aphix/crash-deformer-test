@@ -38,8 +38,8 @@ function place(car: DeformableCar, spec: (typeof SETUP.cars)[number]): void {
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
 }
 
-describe("captured two-car spawn must not zip at slomo handoff", () => {
-  it("bad: 10 s wall with built-in slomo must stay well under crash speed", () => {
+describe("given the captured two-car spawn (a 28 m/s Titanium sedan and a 5 m/s Petrol sedan closing on each other) with the game's built-in slow motion on", () => {
+  it("when the crash plays for 10 s of real time, then the cars collide and at 10 s the faster car is going under 55 % of the starting closing speed and the Petrol car is under 70 km/h, so neither speeds up wildly at the slow-motion handoff", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
@@ -72,8 +72,10 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       `petrol (green) wild accel ${(b.velocity.length() * 3.6).toFixed(0)} km/h`,
     );
   });
+});
 
-  it("bad: offset spawn with slomo off must not start a lateral slide at ~9s", () => {
+describe("given an offset two-car spawn (a 14 m/s and a 28 m/s sedan closing on each other) with slow motion off", () => {
+  it("when the crash plays for 10 s, then the cars collide and by 8.9 s the wreck has nearly stopped (under 4 m/s) and is not sliding sideways (under 3 m/s across its nose)", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
@@ -134,8 +136,10 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       `8.9s slide ${(speedAt89 * 3.6).toFixed(0)} km/h (lat ${(latAt89 * 3.6).toFixed(0)}) peakAfter6=${(peakAfter6 * 3.6).toFixed(0)} at6=${(speedAt6 * 3.6).toFixed(0)} crashedAt=${crashedAt.toFixed(2)}\n${samples.join("\n")}`,
     );
   });
+});
 
-  it("bad: offset 16 vs 20 m/s must not reverse-slide the wreck by 11s", () => {
+describe("given an offset two-car spawn (a 16 m/s and a 20 m/s sedan closing on each other)", () => {
+  it("when the crash plays for 11 s, then the cars collide and from 2 s on neither wreck drifts more than 2.5 m or moves backwards along its first heading faster than 1.2 m/s, so no wreck slides in reverse", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
@@ -198,8 +202,10 @@ describe("captured two-car spawn must not zip at slomo handoff", () => {
       `reverse slide driftA=${driftA.toFixed(2)} driftB=${driftB.toFixed(2)} alongA=${alongA.toFixed(2)} alongB=${alongB.toFixed(2)} crashedAt=${crashedAt.toFixed(2)}\n${samples.join("\n")}`,
     );
   });
+});
 
-  it("bad: titanium skin must freeze after the pulse (no 12–16s polar snap)", () => {
+describe("given an offset two-car spawn (a 9 m/s and a 16 m/s sedan closing on each other)", () => {
+  it("when the crash plays to 16 s, then the Titanium car has crashed, its body mesh is not re-skinned at all between 12 and 16 s and no vertex moves more than 2 mm in a frame then, so the skin freezes after the crush pulse with no sudden snap", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);

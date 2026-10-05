@@ -17,27 +17,27 @@ const view = (wheelsOff: number, canReset = true): RaceView => ({
   canReset,
 });
 
-describe("reset prompt", () => {
-  it("good: it names the control of the input in use", () => {
+describe("given a car view reporting how many wheels are off and whether the game would allow a reset", () => {
+  it("when the input in use is the keyboard, a pad or touch, then the reset prompt names that input's control: R, D-pad ↓, and Respawn in a race or Recover otherwise", () => {
     assert.equal(resetPromptLabel(view(2), "keyboard", true), "R");
     assert.equal(resetPromptLabel(view(2), "pad", true), "D-pad ↓");
     assert.equal(resetPromptLabel(view(2), "touch", true), "Respawn");
     assert.equal(resetPromptLabel(view(2), "touch", false), "Recover");
   });
 
-  it("boundary: one wheel off keeps it down, two bring it up, all four keep it up", () => {
+  it("when 0, 1, 2 and 4 wheels are off, then the prompt stays down with one wheel off or none, and comes up with two or all four", () => {
     assert.equal(resetPromptLabel(view(0), "keyboard", true), null);
     assert.equal(resetPromptLabel(view(1), "keyboard", true), null);
     assert.equal(resetPromptLabel(view(2), "keyboard", true), "R");
     assert.equal(resetPromptLabel(view(4), "keyboard", true), "R");
   });
 
-  it("bad: a reset the game would refuse never shows a prompt, whatever the wheels", () => {
+  it("when the game would refuse the reset, then the prompt never shows, whatever the wheels", () => {
     assert.equal(resetPromptLabel(view(4, false), "keyboard", true), null);
     assert.equal(resetPromptLabel(view(3, false), "touch", false), null);
   });
 
-  it("good: a connected pad wins; touch resets only while driving; the keyboard otherwise", () => {
+  it("when a pad is connected, only touch is in use, or neither, then a connected pad wins, touch resets only while driving, and the keyboard is used otherwise", () => {
     assert.equal(resetInput(true, true, true), "pad");
     assert.equal(resetInput(true, false, false), "pad");
     assert.equal(resetInput(false, true, true), "touch");
@@ -46,24 +46,24 @@ describe("reset prompt", () => {
     assert.equal(resetInput(false, false, true), "keyboard");
   });
 
-  it("boundary: needsReset is two or more wheels off and an allowed reset, nothing else", () => {
+  it("when 1, 2 and 4 wheels are off, and 4 are off but the game would refuse, then a reset is needed with two or more wheels off and an allowed reset, nothing else", () => {
     assert.equal(needsReset(view(1)), false);
     assert.equal(needsReset(view(2)), true);
     assert.equal(needsReset(view(4)), true);
     assert.equal(needsReset(view(4, false)), false);
   });
 
-  describe("reset control glow", () => {
+  describe("given the reset controls' glow, driven by the viewed car of the scene in play", () => {
     const none = { race: null, derbyView: null, fleetView: null };
     const race = (v: RaceView | null) => ({ ...none, race: { view: v } });
 
-    it("boundary: one wheel off no glow; two, three and four glow", () => {
+    it("when 0 to 4 wheels are off in a race, then the controls glow only with two, three or four off", () => {
       for (const [off, glows] of [[0, false], [1, false], [2, true], [3, true], [4, true]] as const) {
         assert.equal(resetGlow(race(view(off))), glows, `${off} off`);
       }
     });
 
-    it("bad: a reset the game would refuse never glows, whatever the wheels", () => {
+    it("when the game would refuse the reset, then the controls never glow in a race, a derby or the fleet, whatever the wheels", () => {
       for (const off of [2, 3, 4]) {
         assert.equal(resetGlow(race(view(off, false))), false, `race ${off} off`);
         assert.equal(resetGlow({ ...none, derbyView: view(off, false) }), false, `derby ${off} off`);
@@ -71,18 +71,18 @@ describe("reset prompt", () => {
       }
     });
 
-    it("good: it follows the view of the scene in play: race, derby, fleet", () => {
+    it("when two wheels are off in a race, a derby or the fleet, then the controls glow, following the view of the scene in play", () => {
       assert.equal(resetGlow(race(view(2))), true);
       assert.equal(resetGlow({ ...none, derbyView: view(2) }), true);
       assert.equal(resetGlow({ ...none, fleetView: view(2) }), true);
     });
 
-    it("bad: no driven or watched car, no glow", () => {
+    it("when there is no driven or watched car, then the controls do not glow", () => {
       assert.equal(resetGlow(none), false);
       assert.equal(resetGlow(race(null)), false);
     });
 
-    it("bad: a race's own view rules; a stale derby or fleet view never glows inside it", () => {
+    it("when a race has its own view, then a stale derby or fleet view never makes the controls glow inside it", () => {
       assert.equal(resetGlow({ race: { view: view(1) }, derbyView: view(4), fleetView: view(4) }), false);
       assert.equal(resetGlow({ race: { view: null }, derbyView: view(4), fleetView: view(4) }), false);
     });

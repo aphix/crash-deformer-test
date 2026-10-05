@@ -31,12 +31,12 @@ function scanAll(track: Track, x: number, z: number, yMax: number): { best: numb
   return { best, surface };
 }
 
-describe("deck index", () => {
-  for (const json of TRACKS) {
-    const track = new Track(json);
-    const p = track.path;
-    if (!p.deck.includes(1)) continue;
-    it(`${parseTrack(json).id}: the cell lists answer as a scan of every deck segment, over and around the deck`, () => {
+for (const json of TRACKS) {
+  const track = new Track(json);
+  const p = track.path;
+  if (!p.deck.includes(1)) continue;
+  describe(`given the ${parseTrack(json).id} course, whose deck segments are listed per 8 m cell`, () => {
+    it("when points over and around the deck are looked up, then the cell lists answer exactly as a scan of every deck segment does (height and deck surface)", () => {
       const ground = track.ground();
       const rand = mulberry32(7);
       const decks: number[] = [];
@@ -61,5 +61,5 @@ describe("deck index", () => {
       }
       assert.ok(hits > 4000, `the points land on the deck often enough to mean something (${hits})`);
     });
-  }
-});
+  });
+}

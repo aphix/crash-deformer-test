@@ -15,7 +15,7 @@ const BODY: readonly (readonly [number, number, number])[] = [
   [0, -0.9, 48],
 ];
 
-describe("BodyFit: the spin of a body from its masses' momentum", () => {
+describe("given a BodyFit (works out a body's spin rate from its parts' momentum) fed a body of nine parts", () => {
   /** The body moving as one rigid body (v = w (z, −x) about its centroid) at (vx, vz), plus `extra` rad/s for the one mass `who`. */
   function spinOf(w: number, vx: number, vz: number, who = -1, extra = 0): number {
     let m = 0;
@@ -37,11 +37,11 @@ describe("BodyFit: the spin of a body from its masses' momentum", () => {
     return fit.spin();
   }
 
-  it("good: a rigid turn reads its rate, with any velocity of the body or position of the reference", () => {
+  it("when the body turns rigidly at 2, -3.5 or 0.4 rad/s, with any body velocity and reference position, then the spin reads that rate to within 1e-9", () => {
     for (const [w, vx, vz] of [[2, 0, 0], [-3.5, 12, -4], [0.4, -30, 30]] as const) assert.ok(Math.abs(spinOf(w, vx, vz) - w) < 1e-9, `${w} rad/s at (${vx}, ${vz})`);
   });
 
-  it("good: translation alone is no spin, and a lone mass has none", () => {
+  it("when the body only translates, or a single part is given, then the spin is 0", () => {
     assert.ok(Math.abs(spinOf(0, 9, -2)) < 1e-9);
     const fit = new BodyFit();
     fit.reset();
@@ -49,7 +49,7 @@ describe("BodyFit: the spin of a body from its masses' momentum", () => {
     assert.equal(fit.spin(), 0);
   });
 
-  it("bad: one 9 kg corner running at 20 rad/s moves the body's spin by its share of the inertia, not by 20", () => {
+  it("when one 9 kg corner runs at 20 rad/s instead of 2, then the body's spin rises by only that corner's share of the inertia, by under 1.5 rad/s, not by 18", () => {
     const base = spinOf(2, 0, 0);
     const jelly = spinOf(2, 0, 0, 4, 18);
     assert.ok(jelly > base && jelly < base + 1.5, `${base.toFixed(2)} -> ${jelly.toFixed(2)} rad/s`);

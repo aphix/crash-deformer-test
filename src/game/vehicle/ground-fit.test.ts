@@ -166,14 +166,14 @@ function bankSites(): Site[] {
   });
 }
 
-describe("ground fit matrix: a braked car sits on the ground at every heading", () => {
+describe("given a braked car placed at every heading across a matrix of ground sites", () => {
   afterEach(() => setGround(null));
 
-  it("fleet ramps: faces, ends and straddling the side edges", (t) => report(t, rampSites(), KNOWN_RAMPS));
+  it("when the car sits on fleet ramp faces, ends and straddling the side edges, then it sits on the ground at every heading", (t) => report(t, rampSites(), KNOWN_RAMPS));
 
-  it("stunt CRUSH crest and descent: braked drops", (t) => report(t, crestSites()));
+  it("when the car brakes on the stunt course's CRUSH crest and descent, then it sits on the ground at every heading", (t) => report(t, crestSites()));
 
-  it("stunt CRUSH crest: a car that stopped there", (t) => {
+  it("when the car has stopped on the stunt course's CRUSH crest, then it sits on the ground at every heading", (t) => {
     const rolled: Site[] = [];
     for (const v of [6, 10, 14]) {
       for (const stop of [899, 902, 905, 908]) {
@@ -195,15 +195,15 @@ describe("ground fit matrix: a braked car sits on the ground at every heading", 
     report(t, [...stoppedSites(), ...rolled]);
   });
 
-  it("banked turns: stunt bowl, stunt nodes 14-15, rally hairpin, across the road's width and its shoulders", (t) => report(t, bankSites()));
+  it("when the car sits on banked turns (stunt bowl, stunt nodes 14-15, rally hairpin) across the road's width and its shoulders, then it sits on the ground at every heading", (t) => report(t, bankSites()));
 });
 
-describe("braking dive on a flat straight", () => {
+describe("given a car braking on a flat straight", () => {
   afterEach(() => setGround(null));
 
   // The drawn nose dips under braking (car-load's weight transfer, kept) toward a keel only 3.2 cm over the road: the drawn
   // body bottoms out on the road (`Suspension.bottomOut`) instead of the springs pressing it 3.5 cm in (sedan/muscle/police).
-  it("good: from 30 m/s every class dips its nose and keeps its drawn keel and bumpers out of the road", () => {
+  it("when it brakes from 30 m/s, then every class dips its nose and keeps its drawn keel and bumpers out of the road", () => {
     const oval = courses.find((c) => c.id === "oval")!;
     for (const cls of VEHICLE_CLASS_IDS) {
       const out = drive(oval, cls, 60, 180, () => 30, { lead: 35, brakeFrom: 100 });

@@ -98,8 +98,8 @@ function particlesAt(pts: [number, number, number][], mass = 1): ShapeParticle[]
   return pts.map(([x, y, z]) => ({ x, y, z, vx: 0, vy: 0, vz: 0, mass }));
 }
 
-describe("polar decomposition", () => {
-  it("good: a pure rotation returns R ≈ that rotation and S ≈ I", () => {
+describe("given the polar decomposition that splits a 3×3 transform A into a rotation R and a stretch S", () => {
+  it("when A is a pure 0.7 rad rotation about the vertical axis, then R is that rotation, S is the identity and R has determinant +1", () => {
     const A = rotY(0.7);
     const R = m3();
     const S = m3();
@@ -109,7 +109,7 @@ describe("polar decomposition", () => {
     assert.ok(Math.abs(m3Det(R) - 1) < 1e-4);
   });
 
-  it("good: stretch then rotate recovers the stretch magnitudes", () => {
+  it("when A is a stretch of 0.5 along x and 1.4 along z followed by a 0.4 rad rotation, then S recovers both stretches to within 0.04", () => {
     const S0 = m3Id();
     S0[0] = 0.5;
     S0[8] = 1.4;
@@ -122,7 +122,7 @@ describe("polar decomposition", () => {
     assert.ok(Math.abs(S[8]! - 1.4) < 0.04, `Szz ${S[8]}`);
   });
 
-  it("close-but-wrong: det(R) is +1, not a reflection", () => {
+  it("when A mirrors the x axis, then R still has a positive determinant, so it is a rotation and not a reflection", () => {
     const A = m3Id();
     A[0] = -1;
     const R = m3();
@@ -131,7 +131,7 @@ describe("polar decomposition", () => {
     assert.ok(m3Det(R) > 0.5, `det(R)=${m3Det(R)}`);
   });
 
-  it("bad: a 180° yaw is clamped, not applied as an inside-out mesh", () => {
+  it("when A is a 180° yaw, then R is clamped to under 1 rad and stays a true rotation, rather than applied as an inside-out mesh", () => {
     const A = rotY(Math.PI);
     const R = m3();
     const S = m3();
@@ -140,7 +140,7 @@ describe("polar decomposition", () => {
     assert.ok(m3Det(R) > 0.5);
   });
 
-  it("bad: a huge/NaN A must not emit a light-speed R or S", () => {
+  it("when A holds huge values or NaN, then R and S stay finite and small (below 5), and a NaN A yields the identity R and S", () => {
     const A = m3Id();
     A[0] = 1e8;
     A[8] = -4e7;
@@ -157,7 +157,7 @@ describe("polar decomposition", () => {
     assert.equal(S[0], 1);
   });
 
-  it("good: a stale warm start (0.5 rad off about another axis) still lands on the polar rotation", () => {
+  it("when the previous frame's rotation estimate is 0.5 rad off about another axis, then R and S still converge to the exact 0.6 rad rotation and the exact stretch", () => {
     const S0 = m3Id();
     S0[0] = 0.7;
     S0[4] = 1.2;
@@ -175,7 +175,7 @@ describe("polar decomposition", () => {
     for (let i = 0; i < 9; i++) assert.ok(Math.abs(S[i]! - S0[i]!) < 1e-6, `S[${i}]=${S[i]} vs ${S0[i]}`);
   });
 
-  it("bad: an over-limit turn is clamped on output, but the warm start keeps the real turn", () => {
+  it("when A turns 1.2 rad, then the output rotation is clamped to between 0.8 and 0.9 rad about the same axis, while the estimate kept for the next frame holds the full 1.2 rad", () => {
     const q = quatId();
     const R = m3();
     const S = m3();
@@ -187,7 +187,7 @@ describe("polar decomposition", () => {
     assert.ok(Math.abs(qAng - 1.2) < 1e-6, `warm start stored the clamped turn ${qAng}`);
   });
 
-  it("bad: a collapsed (zero) A holds the warm rotation instead of snapping or going NaN", () => {
+  it("when A collapses to all zeros while the previous rotation was 0.5 rad, then R and S stay finite and the rotation holds at 0.5 rad instead of snapping or going NaN", () => {
     const q = quatId();
     q[1] = Math.sin(0.25);
     q[3] = Math.cos(0.25);
@@ -199,8 +199,8 @@ describe("polar decomposition", () => {
   });
 });
 
-describe("shape matching goals", () => {
-  it("good: a rigid translate+rotate of all particles has near-zero goal error", () => {
+describe("given the shape-matching solver (it pulls a cluster of particles toward the best-fit pose of its rest shape)", () => {
+  it("when every particle is rotated and shifted rigidly, then the goal positions land on the particles with under 0.05 total error", () => {
     const rest: [number, number, number][] = [
       [1, 0, 0],
       [-1, 0, 0],
@@ -232,7 +232,7 @@ describe("shape matching goals", () => {
     assert.ok(err < 0.05, `rigid match error ${err}`);
   });
 
-  it("good: a Z squash produces S_zz < 1", () => {
+  it("when the particles are squashed to 0.4 in z, then the matched stretch along z is below 0.7", () => {
     const rest: [number, number, number][] = [
       [1, 0, 1],
       [-1, 0, 1],
@@ -248,15 +248,15 @@ describe("shape matching goals", () => {
     assert.ok(c.S[8]! < 0.7, `expected squash, Szz=${c.S[8]}`);
   });
 
-  it("bad: beta=0 is rigid (S ignored), beta=1 keeps the squash", () => {
+  it("when the squash setting rises from 0.2 to 0.9, then the share of the squash the shape keeps rises, the goal pull falls and the solver uses no more iterations", () => {
     assert.ok(deformBeta(0.2) < deformBeta(0.9));
     assert.ok(goalAlpha(0.2) > goalAlpha(0.9));
     assert.ok(stiffnessIters(0.2) >= stiffnessIters(0.9));
   });
 });
 
-describe("plasticity", () => {
-  it("good: a held squash yields so rest q shortens and does not fully spring back", () => {
+describe("given a cluster of particles that can yield plastically (keep a permanent dent)", () => {
+  it("when a squash to 0.35 is held for 12 steps, then the cluster yields permanently, so its rest shape shortens and does not fully spring back", () => {
     const rest: [number, number, number][] = [
       [1, 0, 1],
       [-1, 0, 1],
@@ -279,7 +279,7 @@ describe("plasticity", () => {
     assert.ok(qz < q0 * 0.95 || m3FrobeniusI(c.Sp) > 0.15, "plastic rest did not shorten");
   });
 
-  it("close-but-wrong: det(Sp) stays near 1 (volume not deleted)", () => {
+  it("when a squash to 0.3 is held for 8 steps, then the permanent deformation keeps the volume (its determinant stays between 0.25 and 2.8)", () => {
     const rest: [number, number, number][] = [
       [1, 0, 0],
       [-1, 0, 0],
@@ -300,7 +300,7 @@ describe("plasticity", () => {
     assert.ok(det > 0.25 && det < 2.8, `volume vanished det=${det}`);
   });
 
-  it("close-but-wrong: a turned, strained contact leaves the plastic rest at Sp·rest, the shape the skin composes", () => {
+  it("when a turned, strained contact is held, then the plastic rest shape equals the permanent deformation applied to the rest shape (the shape the skin is built from)", () => {
     const rest: [number, number, number][] = [
       [0.5, 0.3, 1],
       [-0.5, 0.3, 1],
@@ -345,8 +345,8 @@ describe("plasticity", () => {
   });
 });
 
-describe("normals", () => {
-  it("good: n_new = (T^{-1})^T n_old for a z squash of the skin fit", () => {
+describe("given a skin fit to a cluster whose particles are squashed to half in z", () => {
+  it("when a normal pointing along z is transformed, then it stays along z and is scaled to over 1.5 (the inverse-transpose rule: a 0.5 squash doubles it)", () => {
     const rest = [
       { x: 1, y: 0, z: 0 },
       { x: -1, y: 0, z: 0 },
@@ -371,8 +371,8 @@ describe("normals", () => {
   });
 });
 
-describe("local cell skin (Bugbear pipeline)", () => {
-  it("good: identity when local equals rest", () => {
+describe("given a skin fit to a cluster by the per-cell (local) skin fit", () => {
+  it("when the local shape equals the rest shape, then a skin point stays within 0.04 of where it started", () => {
     const rest = [
       { x: 1, y: 0, z: 0 },
       { x: -1, y: 0, z: 0 },
@@ -394,7 +394,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(Math.hypot(p.x - 0.4, p.y - 0.2, p.z - 0.3) < 0.04, `identity drifted to ${p.x},${p.y},${p.z}`);
   });
 
-  it("good: a z-squash of the particles shortens a rest vertex in z", () => {
+  it("when the particles are squashed to 0.6 in z, then a skin point at z=1 moves to between 0.4 and 0.85", () => {
     const rest = [
       { x: 1, y: 0, z: 1 },
       { x: -1, y: 0, z: 1 },
@@ -418,7 +418,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(z > 0.4, `skin collapsed z=${z}`);
   });
 
-  it("good: a plastic dent (Sp) reaches the skin, not just the particles", () => {
+  it("when the front face is held 0.45 in until it yields and is then released, then a skin vertex on the dented face moves at least 80% of the particles' permanent dent", () => {
     const rest: [number, number, number][] = [
       [0.6, 0.3, 1],
       [-0.6, 0.3, 1],
@@ -452,7 +452,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(1 - v.z >= 0.8 * dent, `skin vertex at the dented face moved ${(1 - v.z).toFixed(3)} m of the particles' ${dent.toFixed(3)}`);
   });
 
-  it("bad: a folded-over flat cluster holds its last turn instead of flipping", () => {
+  it("when a particle is shoved through the far edge so the flat cluster's triangle is mirrored, then the cluster holds its last rotation (under 0.05 rad) instead of flipping", () => {
     const P = particlesAt([
       [-0.3, 0, 1.2],
       [-0.5, 0, 0.7],
@@ -466,7 +466,7 @@ describe("local cell skin (Bugbear pipeline)", () => {
     assert.ok(m3RotationAngle(c.R) < 0.05, `folded triangle swung R by ${m3RotationAngle(c.R).toFixed(3)} rad`);
   });
 
-  it("bad: skin polar must not overwrite match R / Rprev (slomo two-state flicker)", () => {
+  it("when the skin is fitted to a squashed cluster, then the cluster's rotation and previous-frame rotation are left exactly as they were", () => {
     const rest = [
       [1, 0, 1],
       [-1, 0, 1],
@@ -496,13 +496,13 @@ describe("local cell skin (Bugbear pipeline)", () => {
   });
 });
 
-describe("StreamedDeformation shape mode", () => {
-  it("good: default mode is shape matching", () => {
+describe("given a car's crash deformation (StreamedDeformation, the object that dents a car's body)", () => {
+  it("when it is created, then it starts in shape-matching mode", () => {
     const d = new StreamedDeformation(new THREE.BoxGeometry(1.7, 1.3, 4.3, 2, 2, 4));
     assert.equal(d.mode, "shape");
   });
 
-  it("good: a frontal pulse still shortens the nose under shape matching", () => {
+  it("when a 16 m/s frontal pulse hits it in shape-matching mode, then the nose shortens by over 0.05, no vertex strays past radius 4.2 and the mesh nose stays within 0.55 of the nose mass", () => {
     const geom = new THREE.BoxGeometry(1.7, 1.3, 4.3, 3, 2, 6);
     const d = new StreamedDeformation(geom);
     d.mode = "shape";
@@ -535,13 +535,13 @@ describe("StreamedDeformation shape mode", () => {
     assert.ok(Math.abs(maxZ - fl.local.z) < 0.55, `mesh nose ${maxZ.toFixed(3)} drifted from particle ${fl.local.z.toFixed(3)}`);
   });
 
-  it("good: lattice mode still exists as a toggle", () => {
+  it("when the mode is switched to lattice, then it reports lattice mode, so lattice stays available as a toggle", () => {
     const d = new StreamedDeformation(new THREE.BoxGeometry(1.7, 1.3, 4.3, 2, 2, 4));
     d.setMode("lattice");
     assert.equal(d.mode, "lattice");
   });
 
-  it("good: every mass belongs to at least one overlapping cluster", () => {
+  it("when its shape clusters are listed, then there are at least 8 and every mass except the hub ones belongs to at least one", () => {
     const d = new StreamedDeformation(new THREE.BoxGeometry(1.7, 1.3, 4.3, 2, 2, 4));
     const snap = d.snapshot() as { clusters: { names: string[] }[] };
     const seen = new Set<string>();
@@ -553,7 +553,7 @@ describe("StreamedDeformation shape mode", () => {
     assert.ok(snap.clusters.length >= 8, `too few clusters ${snap.clusters.length}`);
   });
 
-  it("good: the cluster table is mirror-symmetric, duplicate-free and owned by real cages", () => {
+  it("when the shape cluster table is read, then it is mirror-symmetric, has no duplicate clusters and each cluster is owned by a real cage", () => {
     const key = (names: readonly string[]) => [...names].sort().join(",");
     const sets = SHAPE_CLUSTERS.map((c) => key(c.masses));
     assert.equal(new Set(sets).size, sets.length, "two clusters share a mass set");
@@ -563,7 +563,7 @@ describe("StreamedDeformation shape mode", () => {
     }
   });
 
-  it("good: mirrored ±0.62 m corner hits crush mirror-symmetrically", () => {
+  it("when mirrored corners at ±0.62 are each crushed by the same 24 contact steps, then the two sides end mirror-symmetric to within 0.02 in total", () => {
     const run = (x: number) => {
       const r = crashRig(new THREE.Vector3(x, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
       const corner = x > 0 ? "bumperFR" : "bumperFL";
@@ -580,7 +580,7 @@ describe("StreamedDeformation shape mode", () => {
     assert.ok(sum < 0.02, `left/right mirror error ${sum.toFixed(3)} m`);
   });
 
-  it("good: every rig cluster recovers a rigid 0.3 rad turn about each axis", () => {
+  it("when every shape cluster of the rig is rotated rigidly by 0.3 rad about each axis, then it recovers that rotation to within 0.02 rad", () => {
     const rest = MASS_SPECS.map((m) => ({ x: m.rest[0], y: m.rest[1], z: m.rest[2], vx: 0, vy: 0, vz: 0, mass: m.mass }));
     const index = new Map(MASS_SPECS.map((m, i) => [m.name, i]));
     for (const axis of [new THREE.Vector3(0, 1, 0), new THREE.Vector3(1, 0, 0), new THREE.Vector3(0, 0, 1)]) {
@@ -602,7 +602,7 @@ describe("StreamedDeformation shape mode", () => {
     }
   });
 
-  it("good: the same local frontal crush is heading-independent", () => {
+  it("when the same frontal crush is applied with the car heading 0, π/2 and −π/2 rad, then the nose ends within 0.03 of the same place whatever the heading", () => {
     const noseZ = (yaw: number) => {
       const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 16, yaw);
       r.d.squash = 0.5;
@@ -622,7 +622,7 @@ describe("StreamedDeformation shape mode", () => {
     assert.ok(Math.max(...z) - Math.min(...z) < 0.03, `bumperFL local z by heading ${z.map((v) => v.toFixed(3)).join(" / ")}`);
   });
 
-  it("good: a rigidly turned undamaged car is a fixed point of the structure step", () => {
+  it("when an undamaged car is turned 0.3 rad instead of 0 and its structure settles for 10 steps, then the distances between its masses differ by under 0.01", () => {
     const settle = (yaw: number) => {
       const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 0);
       const c = node(r.d, "cell").world.clone();
@@ -641,7 +641,7 @@ describe("StreamedDeformation shape mode", () => {
     assert.ok(worst < 0.01, `a 0.3 rad heading distorts the body by ${worst.toFixed(3)} m`);
   });
 
-  it("good: the same contact feed crushes the same however the structure step is sliced", () => {
+  it("when the same contact is fed with the structure step sliced into 1, 4 and 8 sub-steps, then the side rail's travel differs by at most 30% between slicings", () => {
     const H = 1 / 240;
     const railTravel = (sub: number) => {
       const r = crashRig(new THREE.Vector3(0, 0.36, 2.06), new THREE.Vector3(0, 0, -1), 14);
@@ -664,8 +664,8 @@ describe("StreamedDeformation shape mode", () => {
   });
 });
 
-describe("shape solver across hits, and the skin it drives", () => {
-  it("good: a later rear hit leaves an earlier front crush where it was", () => {
+describe("given a car crushed by a 50 km/h front wall hit", () => {
+  it("when a 30 km/h wall then hits its rear 2.5 s later, then the front structure moves under 0.05 and the nose crush keeps at least 80% of its depth", () => {
     const car = makeCar();
     const FRONT = ["bumperFL", "bumperFR", "engineL", "engineR", "wingFL", "wingFR", "railL", "railR"];
     const OTHER = [...FRONT, "cell", "roof", "doorL", "doorR"];
@@ -692,8 +692,10 @@ describe("shape solver across hits, and the skin it drives", () => {
     // The struck tail is 1.5 m away: the solver must not pull the dented front toward its old rest.
     assert.ok(worst < 0.05, `front structure moved ${worst.toFixed(3)} m during the rear hit (${which})`);
   });
+});
 
-  it("good: skin vertices that share a rest position stay welded through a side hit", () => {
+describe("given a car hit side-on by a 50 km/h wall", () => {
+  it("when the hit is over, then skin vertices that share a rest position stay welded together (no seam opens beyond 1 mm)", () => {
     const car = makeCar();
     const pos = car.body.geometry.getAttribute("position").array;
     const rest = Float32Array.from(pos);
@@ -711,8 +713,10 @@ describe("shape solver across hits, and the skin it drives", () => {
     for (const [a, b] of pairs) gap = Math.max(gap, Math.hypot(pos[a * 3]! - pos[b * 3]!, pos[a * 3 + 1]! - pos[b * 3 + 1]!, pos[a * 3 + 2]! - pos[b * 3 + 2]!));
     assert.ok(gap < 1e-3, `seam opened ${(gap * 1000).toFixed(2)} mm`);
   });
+});
 
-  it("good: the cabin-section skin stays with the cell in a 56 km/h wall hit", () => {
+describe("given a car hitting a wall at 56 km/h", () => {
+  it("when the hit is over, then the skin over the cabin section intrudes no more than 0.05", () => {
     const r = runWall(56);
     assert.ok(r.skinCabin <= 0.05, `cabin skin intrudes ${r.skinCabin.toFixed(3)} m`);
   });

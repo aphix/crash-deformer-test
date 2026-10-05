@@ -120,8 +120,8 @@ async function rangeThrow(frame: () => number): Promise<Run> {
   return run;
 }
 
-describe("the range throw does not depend on the display rate", () => {
-  it("bad: at 60 and 240 Hz he lands within 1 m of the same spot, inside FlatOut's 25–40 m", async () => {
+describe("given the ejection range (a sedan at 100 km/h into the jersey barrier, the driver thrown over it onto sand)", () => {
+  it("when the throw is run at 60 and 240 Hz display rates, then he lands within 1 m of the same spot, inside FlatOut's 25–40 m", async () => {
     const slow = await rangeThrow(() => 1 / 60);
     const fast = await rangeThrow(() => 1 / 240);
     assert.ok(slow.landing >= 25 && slow.landing <= 40, `60 Hz landing ${slow.landing.toFixed(1)} m`);
@@ -129,7 +129,7 @@ describe("the range throw does not depend on the display rate", () => {
     assert.ok(Math.abs(slow.landing - fast.landing) <= 1, `60 Hz ${slow.landing.toFixed(1)} m, 240 Hz ${fast.landing.toFixed(1)} m`);
   });
 
-  it("bad: one throw lands in the same place at 30–360 Hz, and with frames that vary 0.5–1.5×", async () => {
+  it("when one throw is run at 30–360 Hz and with frames that vary 0.5–1.5×, then it lands in the same place", async () => {
     const land = async (dtOf: () => number): Promise<number> => {
       const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
       await ragdolls.preload();
@@ -157,10 +157,10 @@ describe("the range throw does not depend on the display rate", () => {
   });
 });
 
-describe("a thrown dummy is soft and settles", () => {
+describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
   // 240 Hz is the owner's display: frames of 0.5–1.5× with an occasional 5× hitch (main: one such run landed 58 m out).
   for (const [hz, seed] of [[240, 3], [240, 4], [240, 16], [60, 3]] as const) {
-    it(`bad: at ${hz} Hz (frames of 0.5–1.5×, seed ${seed}), after his first ground contact energy never rises, he is at rest in 3 s, and no joint comes 3 cm apart`, async () => {
+    it(`when the range throw is run at ${hz} Hz (frames of 0.5–1.5×, seed ${seed}), then after his first ground contact energy never rises, he is at rest in 3 s, and no joint comes 3 cm apart`, async () => {
       const r = stream(seed);
       const run = await rangeThrow(() => (0.5 + r() + (r() < 0.02 ? 4 : 0)) / hz);
       // Kinetic plus gravitational energy: a part falling gains kinetic energy for free, so only the rest is counted. The
@@ -173,7 +173,7 @@ describe("a thrown dummy is soft and settles", () => {
     });
   }
 
-  it("bad: shedding a part's motion takes kinetic energy out of the pair and keeps their momentum, whatever the velocities", async () => {
+  it("when a part's motion is shed against another part at any velocities, then it takes kinetic energy out of the pair and keeps their momentum", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(1 / 60, [], true, true, 0, null);
@@ -197,7 +197,7 @@ describe("a thrown dummy is soft and settles", () => {
     ragdolls.dispose();
   });
 
-  it("good: a dummy that has gone to sleep is woken and shoved by a car driving into him", async () => {
+  it("when a car drives into a dummy that has gone to sleep, then he is woken and shoved by it", async () => {
     const car = makeCar("shape", 0.32, 0.45);
     launch(car, -30, 0, Math.PI / 2, 0, 0);
     const w = makeWorld([car], false, false);
@@ -220,7 +220,7 @@ describe("a thrown dummy is soft and settles", () => {
     assert.ok(x > 3, `the car pushed him ${x.toFixed(1)} m`);
   });
 
-  it("good: nothing is stepped while every dummy lies asleep and no car is near, and a car coming within reach steps the world again", async () => {
+  it("when every dummy lies asleep and no car is near, then nothing is stepped, and a car coming within reach steps the world again", async () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(1 / 60, [], true, true, 0, null);

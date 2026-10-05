@@ -61,8 +61,8 @@ const firstChange = (t: string[]): number => {
   return k < 0 ? STEPS : k;
 };
 
-forModes("a crash's parts do not depend on the render rate", (mode) => {
-  it("bad: the same head-on tears, breaks and cracks the same at every step drawn at 60, 144, 240 Hz or never", () => {
+forModes("given a 20 m/s head-on between two cars, simulated for 420 steps of 1/240 s", (mode) => {
+  it("when the crash is drawn at 60, 144 or 240 Hz or never drawn, then the same parts are torn off, lamps broken and glass cracked at every step, and at least one part does come off", () => {
     const never = crash(mode, 0);
     const changes = firstChange(never);
     assert.ok(changes < STEPS, `[${mode}] nothing tore, broke or cracked in ${STEPS} steps: the test would pass for any rate`);

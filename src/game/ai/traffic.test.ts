@@ -39,10 +39,10 @@ function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sampl
   setGround(null);
 }
 
-describe("traffic", () => {
+describe("given the city track's ambient traffic (cars that drive the lanes around the player)", () => {
   const brain = new TrafficBrain(track, 0);
 
-  it("fills the loop lanes, then every side street, each car in its lane facing its lane's way", () => {
+  it("when the traffic is first laid out, then it fills the loop lanes and then every side street, each car in its lane facing its lane's direction", () => {
     assert.equal(brain.count, 4 + 4 + 4);
     const p = blankProjection();
     brain.spawns().forEach((s, i) => {
@@ -56,7 +56,7 @@ describe("traffic", () => {
     assert.ok(brain.slots.some((s) => s.path !== track.path && s.dir < 0) && brain.slots.some((s) => s.path !== track.path && s.dir > 0));
   });
 
-  it("cross-street cars drive through the race loop's junctions", () => {
+  it("when twelve traffic cars drive 50 s from their start lanes, then they stay in their lanes at least 90% of the time and the cross-street cars drive through all four of the race loop's junctions", () => {
     const scene = new THREE.Scene();
     const fleet = cars(12, scene);
     brain.reset();
@@ -84,7 +84,7 @@ describe("traffic", () => {
     assert.equal(crossed.size, 4, `junctions crossed: ${[...crossed].join(" ")}`);
   });
 
-  it("stops behind a car stopped in its lane, then edges round it", () => {
+  it("when a car comes up on another stopped in its lane, then it stops behind it without touching, and after 8 more seconds has edged round it", () => {
     const scene = new THREE.Scene();
     const [mover, blocker] = cars(2, scene);
     const slot = brain.slotOf(0);
@@ -113,7 +113,7 @@ describe("traffic", () => {
     assert.ok(p.s > 240, `got past the blocker (s ${p.s.toFixed(1)})`);
   });
 
-  it("wakes a put-away car on its lane inside the observer ring, clear of cars, out of view", () => {
+  it("when a put-away traffic car is asked for a spot, then it wakes on its lane inside the observer's spawn ring, at least 14 m from other cars, and gets no spot where the player is looking", () => {
     brain.reset();
     const id = 6;
     const observer = { ...blankAiCar(0), x: 0, z: -30 };

@@ -10,8 +10,8 @@ import { placeDrop, StackRig, stackLoads } from "./stack-rig.ts";
  * The stack scene's drops at its defaults (`STACK_DEFAULTS`: the values of vehicle/stack-crush.test.ts), stepped as the
  * engine steps them (`stepStack`: `StackRig.step` then `placeDrop`), read as the HUD panel reads them (`stackLoads`).
  */
-describe("stack scene: cars dropped one at a time", () => {
-  it("bad: the bottom roof is not crushed more with each car dropped on it, or the top car's roof reads a load", () => {
+describe("given the stack scene dropping cars one at a time at its defaults", () => {
+  it("when four cars are dropped and the stack settles, then each extra car adds crush and load to the bottom roof and the top roof reads no load; a car moved off or tipped over the column reads no load and the cars under it lose its weight", () => {
     const rig = new StackRig();
     const cars = Array.from({ length: rig.config.cars }, () => new DeformableCar(paint(), new THREE.Scene()));
     cars.forEach((c, i) => c.spawnFacing(i === 0 ? 0 : 48 + i * 4, i === 0 ? 0 : 48, 0, 0));

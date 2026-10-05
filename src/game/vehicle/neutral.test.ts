@@ -24,12 +24,12 @@ function run(input: DriveInput, secs = SECS): { speed: number; car: DeformableCa
   return { speed: car.velocity.length(), car };
 }
 
-describe("a freewheeling (neutral) car", () => {
+describe("given a sedan doing 130 km/h on the flat, freewheeling in neutral (a thrown-out driver's car) versus lifting off the throttle", () => {
   const v0 = 130 * KPH;
   const lift = run(idleDrive());
   const free = run({ ...idleDrive(), neutral: true });
 
-  it("bad: at 130 km/h on the flat it sheds far less speed in 2.5 s than with the lift-off engine braking (decels reported)", (t) => {
+  it("when it runs 2.5 s with no pedals in neutral, then it sheds far less speed than with the lift-off engine braking (decelerations reported)", (t) => {
     const liftDecel = (v0 - lift.speed) / SECS;
     const freeDecel = (v0 - free.speed) / SECS;
     t.diagnostic(`130 km/h, ${SECS} s: lift-off ${liftDecel.toFixed(2)} m/s² (${(lift.speed / KPH).toFixed(0)} km/h left), neutral ${freeDecel.toFixed(2)} m/s² (${(free.speed / KPH).toFixed(0)} km/h left)`);
@@ -39,12 +39,12 @@ describe("a freewheeling (neutral) car", () => {
     assert.ok(free.speed > 0.9 * v0, `${(free.speed / KPH).toFixed(0)} km/h left of 130`);
   });
 
-  it("good: the car carries the flag (the recorder's input byte reads it) and an ordinary input does not", () => {
+  it("when the neutral flag is set, then the car carries it (the recorder's input byte reads it) and an ordinary input does not", () => {
     assert.equal(free.car.drive.neutral, true);
     assert.equal(lift.car.drive.neutral, false);
   });
 
-  it("good: ordinary driving is bit-identical with or without the field (neutral false or absent)", () => {
+  it("when the car drives with neutral false or absent from the input, then ordinary driving is bit-identical either way", () => {
     const a = run({ ...idleDrive(), throttle: 0.6, steer: 0.2 });
     const b = run({ ...idleDrive(), throttle: 0.6, steer: 0.2, neutral: false });
     assert.equal(a.speed, b.speed);
@@ -52,7 +52,7 @@ describe("a freewheeling (neutral) car", () => {
     assert.equal(a.car.group.position.z, b.car.group.position.z);
   });
 
-  it("bad: a held brake still brakes a freewheeling car (neutral is only the no-pedals case)", () => {
+  it("when a freewheeling car holds the brake, then it still brakes (neutral is only the no-pedals case)", () => {
     const braked = run({ ...idleDrive(), brake: 1, neutral: true }, 1);
     assert.ok(braked.speed < 0.6 * v0, `${(braked.speed / KPH).toFixed(0)} km/h after a second on the brake`);
   });

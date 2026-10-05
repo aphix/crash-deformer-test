@@ -110,10 +110,10 @@ function bankRun(track: Track, cls: VehicleClassId, lat: (half: number) => numbe
   return { low, high, at: where };
 }
 
-describe("wheels on banked road", () => {
+describe("given every course's banked road, where the ground meets the flat runoff beside it", () => {
   afterEach(() => setGround(null));
 
-  it("across a banked road's edges the ground keeps the crease where the bank's plane meets the flat runoff, to 1 cm, on every course", () => {
+  it("when the ground height is read from 1 m inside each road edge to 1 m outside, then it keeps the crease where the bank's tilted plane meets the flat runoff, to within 1 cm on every course", () => {
     const bad: string[] = [];
     for (const track of courses) {
       const path = track.path;
@@ -147,18 +147,24 @@ describe("wheels on banked road", () => {
     }
     assert.deepEqual(bad, []);
   });
+});
 
-  for (const cls of ["sedan", "monster"] as const) {
+for (const cls of ["sedan", "monster"] as const) {
+  describe(`given a ${cls} driving at 25 m/s through the stunt course's steepest bank`, () => {
+    afterEach(() => setGround(null));
+
     for (const [name, lat] of [
       ["the low edge", (h: number) => (h - 1) * LOW],
       ["the centre", () => 0],
       ["the high edge", (h: number) => -(h - 1) * LOW],
     ] as const) {
-      it(`${cls} through stunt's steepest bank on ${name}: every tyre within ${BOUND * 100} cm of the ground`, (t) => {
-        const r = bankRun(stunt, cls, lat);
-        t.diagnostic(`${cls} ${name}: tread clearance ${(r.low * 100).toFixed(1)}..${(r.high * 100).toFixed(1)} cm, worst ${r.at}`);
-        assert.ok(r.low >= -BOUND && r.high <= BOUND, `${cls} on ${name}: ${(r.low * 100).toFixed(1)}..${(r.high * 100).toFixed(1)} cm, worst ${r.at}`);
+      describe(`when it drives along ${name} of the road`, () => {
+        it(`then every tyre stays within ${BOUND * 100} cm of the ground`, (t) => {
+          const r = bankRun(stunt, cls, lat);
+          t.diagnostic(`${cls} ${name}: tread clearance ${(r.low * 100).toFixed(1)}..${(r.high * 100).toFixed(1)} cm, worst ${r.at}`);
+          assert.ok(r.low >= -BOUND && r.high <= BOUND, `${cls} on ${name}: ${(r.low * 100).toFixed(1)}..${(r.high * 100).toFixed(1)} cm, worst ${r.at}`);
+        });
       });
     }
-  }
-});
+  });
+}

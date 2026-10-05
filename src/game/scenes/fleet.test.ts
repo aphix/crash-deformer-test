@@ -13,8 +13,13 @@ function rngFrom(seed: number): () => number {
   };
 }
 
-describe("layoutFleet", () => {
-  it("good: 1–2 cars sit opposite and never overlap", () => {
+const fixedSpeedCases = [
+  { it: "when the speed range is 0 to 0, then all 6 cars spawn parked at speed 0", count: 6, minSpeed: 0, maxSpeed: 0, seed: 3, expectedSpeed: 0 },
+  { it: "when the speed range is 14 to 14, then all 5 cars spawn at exactly 14, not at a random speed between 0 and the maximum", count: 5, minSpeed: 14, maxSpeed: 14, seed: 9, expectedSpeed: 14 },
+] as const;
+
+describe("given a fleet of cars laid out around the arena (where each car spawns and how fast it moves)", () => {
+  it("when 1 car and then 2 cars are laid out, then the single car spawns away from the centre and the pair sit opposite each other, more than twice the minimum separation apart", () => {
     const one = layoutFleet(1, 10, 10, rngFrom(1));
     assert.equal(one.length, 1);
     assert.ok(Math.hypot(one[0]!.x, one[0]!.z) > 8);
@@ -25,7 +30,7 @@ describe("layoutFleet", () => {
     assert.ok(d > FLEET_MIN_SEP * 2, `head-on pair only ${d.toFixed(2)} m apart`);
   });
 
-  it("good: 8 cars keep min separation", () => {
+  it("when 8 cars are laid out, then every pair spawns at least the minimum separation apart (within 5 cm)", () => {
     const slots = layoutFleet(8, 0, 20, rngFrom(7));
     assert.equal(slots.length, 8);
     for (let i = 0; i < slots.length; i++) {
@@ -36,22 +41,21 @@ describe("layoutFleet", () => {
     }
   });
 
-  it("bad: min speed 0 is allowed and can actually spawn a parked car", () => {
-    const slots = layoutFleet(6, 0, 0, rngFrom(3));
-    assert.ok(slots.every((s) => s.speed === 0));
-  });
+  for (const testCase of fixedSpeedCases) {
+    it(testCase.it, () => {
+      const slots = layoutFleet(testCase.count, testCase.minSpeed, testCase.maxSpeed, rngFrom(testCase.seed));
+      assert.ok(slots.every((s) => s.speed === testCase.expectedSpeed));
+    });
+  }
 
-  it("close-but-wrong: min=max pins every car to that speed, not a 0–max roll", () => {
-    const slots = layoutFleet(5, 14, 14, rngFrom(9));
-    assert.ok(slots.every((s) => s.speed === 14));
-  });
-
-  it("good: count is clamped to MAX_CARS", () => {
+  it("when 99 cars and then 0 cars are asked for, then the fleet is capped at the maximum car count and never drops below 1 car", () => {
     assert.equal(layoutFleet(99, 1, 2, rngFrom(4)).length, MAX_CARS);
     assert.equal(layoutFleet(0, 1, 2, rngFrom(4)).length, 1);
   });
+});
 
-  it("good: the same seed lays out the same spawns, another seed other ones (every layout shape)", () => {
+describe("given a layout built from a seeded random source", () => {
+  it("when it is laid out twice with the same seed and once with the next seed, then the same seed gives the same spawns and the next seed gives different ones, for 1, 2, 3, 8 and the maximum number of cars", () => {
     const spawns = (n: number, seed: number): string => JSON.stringify(layoutFleet(n, 10, 32, mulberry32(seed)));
     for (const n of [1, 2, 3, 8, MAX_CARS]) {
       const first = spawns(n, 0x3fa2c1);
@@ -60,7 +64,7 @@ describe("layoutFleet", () => {
     }
   });
 
-  it("good: the derby's start bearing and the fleet's balls follow the seed the same way", () => {
+  it("when the derby's start bearing and the ramp balls are scattered twice with seed 7 and once with seed 8, then seed 7 repeats itself and seed 8 differs, for both", () => {
     const bowl = (seed: number): string => JSON.stringify(layoutDerby(6, 40, mulberry32(seed)));
     assert.equal(bowl(7), bowl(7));
     assert.notEqual(bowl(7), bowl(8));

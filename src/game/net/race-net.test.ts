@@ -30,8 +30,8 @@ function clientOf(host: World, self: number): World {
   return c;
 }
 
-describe("race netplay: seats and the replicated rules state", () => {
-  it("seats a network peer as remote on the host, and as this browser's player on its own client, each under its chosen name", (t) => {
+describe("given a host race on the oval with three AI cars, the host player Ann, and a network peer Zed seated on car 2", () => {
+  it("when a client adopts the host's rules state as car 2, then the host seats Zed as a remote car and the client seats him as its own player, each under the chosen names", (t) => {
     t.after(() => setGround(null));
     const host = hostRace(new Map([[2, "Zed"]]));
     const hud = host.race.hud();
@@ -63,7 +63,7 @@ describe("race netplay: seats and the replicated rules state", () => {
     client.race.exit();
   });
 
-  it("drives the remote seat from the peer's input, not the AI, and respawns it on the peer's request", (t) => {
+  it("when the peer sends throttle input after the race starts, then its car waits on the grid until then, the peer's input drives it rather than the AI, and its respawn request is honoured while the paused host's own is ignored", (t) => {
     t.after(() => setGround(null));
     const host = hostRace(new Map([[2, "Zed"]]));
     const state = { acc: 0 };
@@ -85,8 +85,10 @@ describe("race netplay: seats and the replicated rules state", () => {
     assert.equal(snap.cars.find((c) => c.id === 0)!.status, "racing", "the paused host's own request is ignored");
     host.race.exit();
   });
+});
 
-  it("lets a peer that joined mid-race spectate until the next race", (t) => {
+describe("given a host race with no network peers seated", () => {
+  it("when a peer joins mid-race as car 4 and adopts the host's state, then it spectates until the next race instead of driving", (t) => {
     t.after(() => setGround(null));
     const host = hostRace(new Map());
     const late = clientOf(host, 4);

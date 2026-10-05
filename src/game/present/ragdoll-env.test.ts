@@ -94,10 +94,10 @@ async function fireAt(prefab: PrefabId, solids: boolean): Promise<{ solid: Prop;
   return { solid, deepest, reach, along };
 }
 
-describe("a thrown dummy meets every solid prop a car meets", () => {
+describe("given a thrown dummy (the ejected driver's ragdoll) and the solid props a car also meets", () => {
   const kinds: PrefabId[] = ["building", "grandstand", "billboard", "lamp", "tree", "rock", "barrier-block", "hay-bale", "tyre-stack", "crate", "cone"];
   for (const prefab of kinds) {
-    it(`bad: a dummy fired at a ${prefab} stops on its face: no part inside it, none behind it`, async () => {
+    it(`when a dummy is fired at a ${prefab} at 15 m/s, then it stops on the prop's face: no part inside it and none behind it`, async () => {
       const { solid, deepest, reach, along } = await fireAt(prefab, true);
       assert.ok(reach > -solid.hx - 0.6, `the shot reached the face (${reach.toFixed(2)} vs ${(-solid.hx).toFixed(2)})`);
       assert.ok(deepest > -SOAK, `a part sank ${(-deepest).toFixed(2)} m into the ${prefab}`);
@@ -105,14 +105,14 @@ describe("a thrown dummy meets every solid prop a car meets", () => {
     });
   }
 
-  it("bad: control: with the course's solids left out the same shots end inside or behind the props", async () => {
+  it("when the course's solids are left out and the same shots are fired at props over 1.2 m tall, then the torso ends inside or behind the props", async () => {
     for (const prefab of kinds.filter((k) => PREFABS[k].size[1] > 1.2)) {
       const { solid, along } = await fireAt(prefab, false);
       assert.ok(along > -solid.hx, `${prefab}: with no solid the torso ended ${along.toFixed(2)} along, face at ${(-solid.hx).toFixed(2)}`);
     }
   });
 
-  it("good: a knocked prop is gone for the dummy, a standing one is not", async () => {
+  it("when a crate has been knocked over versus left standing and a dummy is fired at it, then the standing crate stops him and the knocked one lets him by", async () => {
     const track = new Track(parseTrack(square({ props: [{ prefab: "crate", x: -45, z: 30, yaw: 0, scale: 1 }] })));
     const ends: number[] = [];
     for (const knocked of [false, true]) {
@@ -128,12 +128,12 @@ describe("a thrown dummy meets every solid prop a car meets", () => {
   });
 });
 
-describe("a thrown dummy meets a tunnel's shell and a bridge's deck", () => {
+describe("given a thrown dummy and the stunt course's tunnel shell and bridge deck", () => {
   const track = stunt();
   const p = track.path;
   const ground = track.ground();
 
-  it("bad: in the tunnel he is held by its side wall and its roof", async () => {
+  it("when he is thrown at the tunnel's side walls and straight up, then the side wall and the roof hold him", async () => {
     const k = 1012;
     const left = new THREE.Vector3(p.tz[k]!, 0, -p.tx[k]!);
     const wall = p.half[k]! + p.runL[k]! + TUNNEL_GAP;
@@ -157,7 +157,7 @@ describe("a thrown dummy meets a tunnel's shell and a bridge's deck", () => {
     assert.ok(top < road + TUNNEL_SIDE + 3 + 0.25, `a part rose to ${(top - road).toFixed(2)} m over the road; the arch's apex is ${(TUNNEL_SIDE + 3).toFixed(1)}`);
   });
 
-  it("bad: under the bridge he is held by the deck's underside, and ends on the road under it; dropped on top he lies on the deck", async () => {
+  it("when he is thrown up under the bridge and dropped on top of it, then the deck's underside holds him and he ends on the road under it, and on top he lies on the deck", async () => {
     const roadY = ground.heightAt(0, 0, 1);
     const deckY = ground.heightAt(0, 0, 12);
     assert.ok(deckY - roadY > 8, "the crossing is a real bridge");
@@ -182,7 +182,7 @@ describe("a thrown dummy meets a tunnel's shell and a bridge's deck", () => {
     assert.ok(Math.abs(levelAt(p, 637, 0) - deckY) < 0.05);
   });
 
-  it("bad: the road under the bridge keeps its own walls (they stand on the road, not on the deck above)", async () => {
+  it("when he is fired at the wall of the road under the bridge, then the wall stands on the road, not on the deck above", async () => {
     let k = 0;
     for (let i = 0; i < p.count; i++) if (p.y[i]! < 1 && Math.hypot(p.x[i]!, p.z[i]!) < Math.hypot(p.x[k]!, p.z[k]!)) k = i;
     assert.ok(Math.hypot(p.x[k]!, p.z[k]!) < 3 && !p.deck[k], "the road crosses under the bridge near the origin");
@@ -197,8 +197,8 @@ describe("a thrown dummy meets a tunnel's shell and a bridge's deck", () => {
   });
 });
 
-describe("a thrown dummy lands on the fleet ramps and meets their faces", () => {
-  it("bad: dropped on a ramp he rests on its surface; fired at its side face he stays outside it", async () => {
+describe("given a thrown dummy and the fleet ramps", () => {
+  it("when he is dropped on a ramp and fired at its side face, then he rests on its surface and stays outside the side face", async () => {
     const ramps = new FleetRamps(new THREE.Scene());
     const yaw = 0.6;
     ramps.place(yaw, null);
@@ -230,8 +230,8 @@ describe("a thrown dummy lands on the fleet ramps and meets their faces", () => 
   });
 });
 
-describe("a thrown dummy meets the corkscrew's floor and walls and the sandbox's lamp posts", () => {
-  it("bad: dropped in the channel he lies on its floor; fired across it the wall holds him in", async () => {
+describe("given a thrown dummy and the corkscrew's channel and the sandbox's lamp posts", () => {
+  it("when he is dropped in the channel and fired across it, then he lies on its floor and the wall holds him in", async () => {
     const cork = new Corkscrew(new THREE.Scene());
     const z = CORKSCREW.mouthZ + 2;
     const floor = cork.heightAt(0, z, 3);
@@ -249,7 +249,7 @@ describe("a thrown dummy meets the corkscrew's floor and walls and the sandbox's
     assert.ok(far < CORKSCREW.halfW + 0.2, `a part got ${far.toFixed(2)} m from the centre; the walls stand ${CORKSCREW.halfW} m out`);
   });
 
-  it("bad: a standing lamp post stops a dummy, a broken or hidden one does not", async () => {
+  it("when a dummy is fired at a lamp post that is standing, broken or hidden, then the standing post stops him and a broken or hidden one does not", async () => {
     const ends: number[] = [];
     for (const state of ["standing", "broken", "hidden"]) {
       const sys = await system(null, null);
@@ -264,8 +264,8 @@ describe("a thrown dummy meets the corkscrew's floor and walls and the sandbox's
   });
 });
 
-describe("the ragdoll world keeps no stale solids", () => {
-  it("bad: after throws on a course, then on the corkscrew and the ramps, a reset leaves exactly the collider count it started with", async () => {
+describe("given the ragdoll world after throws on a course, the corkscrew and the ramps", () => {
+  it("when it is reset after each, then it leaves exactly the collider count it started with, and a course swap drops the old solids", async () => {
     const track = stunt();
     const sys = await system(track.ground(), track);
     const base = colliders(sys);

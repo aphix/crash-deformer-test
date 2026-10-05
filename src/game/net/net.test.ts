@@ -78,8 +78,8 @@ function looseParts(car: DeformableCar): number {
   return f.parts.flags.filter((x) => x & 1).length;
 }
 
-describe("netplay codec: scene clear count", () => {
-  it("bad: a snapshot carries the host's clear count beside its keyframe flag (0..127), and a count of 0 is what an older host sends", () => {
+describe("given a network snapshot carrying the host's scene clear count (0..127) beside its keyframe flag", () => {
+  it("when snapshots with clear counts 0, 1, 77 and 127 and mixed keyframe flags are written and read, then each count and flag comes back unchanged, a count of 0 being what an older host sends", () => {
     for (const [gen, keyframe] of [[0, false], [1, true], [77, false], [127, true]] as const) {
       const s = makeSnapshot();
       ensureFrames(s, 1, L);
@@ -96,8 +96,8 @@ describe("netplay codec: scene clear count", () => {
   });
 });
 
-describe("netplay codec", () => {
-  it("round-trips a snapshot within the quantization steps, and omits the wreck section when asked", () => {
+describe("given a two-car network snapshot with every field filled in", () => {
+  it("when it is written and read back, then everything matches within the quantization steps and the wreck section is left out when asked", () => {
     const s = makeSnapshot();
     ensureFrames(s, 2, L);
     s.seq = 70000;
@@ -189,8 +189,10 @@ describe("netplay codec", () => {
     // 17-byte header, 28-byte poses, a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
     assert.equal(w.off, 17 + 28 + (661 + 20 * 4 + 20 * 2) + 28);
   });
+});
 
-  it("clamps out-of-range values to the i16 range instead of wrapping", () => {
+describe("given the network writer's 16-bit fixed-point numbers", () => {
+  it("when values far outside the 16-bit range are written, then they clamp to its ends instead of wrapping", () => {
     const w = new Writer();
     w.q16(1e9, 1);
     w.q16(-1e9, 1);
@@ -198,8 +200,10 @@ describe("netplay codec", () => {
     assert.equal(r.q16(1), 32767);
     assert.equal(r.q16(1), -32767);
   });
+});
 
-  it("round-trips a drive input", () => {
+describe("given a drive input of throttle, steer, brake, handbrake and boost", () => {
+  it("when it is written and read back, then each value comes back within its quantization step", () => {
     const input = { throttle: -0.5, steer: 1, brake: 0.25, ebrake: true, boost: false };
     const w = new Writer();
     writeInput(w, input);
@@ -214,8 +218,8 @@ describe("netplay codec", () => {
   });
 });
 
-describe("netplay apply: a client car reproduces the host's final mesh and colliders", () => {
-  forModes("offset wall crash", (mode) => {
+describe("given a client car that applies the host car's state from the wire", () => {
+  forModes("when the host hits a wall at 64 km/h with 40% overlap and the client applies its state, then the client's skin, contact hulls, crush hulls, part states and graded engine damage match the host's", (mode) => {
     const host = makeCar(mode);
     // An arcade-end kill travel the client's default does not share: graded damage must come over the wire.
     host.deform.killTravel = 0.5;
@@ -246,7 +250,7 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     assert.ok(Math.abs(client.deform.drivetrainHealth - host.deform.drivetrainHealth) < 0.01, "graded damage matches");
   });
 
-  it("re-attaches a part torn off in an earlier crash when the host's next wreck has it on", () => {
+  it("when the host's next wreck has a part back on that an earlier crash tore off, then the client re-attaches it", () => {
     const host = makeCar();
     runWall(72, 1, "front", { car: host, after: 1.5 });
     const client = apply(makeCar(), wire(host));
@@ -263,7 +267,7 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     assert.ok(maxDiff(hv, client.body.geometry.getAttribute("position").array) < 0.002);
   });
 
-  it("carries a torn body panel and a hinged one: the client shows the same hole, shell and loose pose, and the next wreck clears them", () => {
+  it("when a body panel is torn off and another hinged loose, then the client shows the same hole, shell and loose pose, and the next wreck clears them", () => {
     type Row = { name: string; detached: boolean; hingeT: number; pos: { x: number; y: number; z: number } };
     const panels = (c: DeformableCar) => (c.snapshot().parts as Row[]).filter((p) => /^(quarter|arch)/.test(p.name));
     const primer = (c: DeformableCar) => (c.body.geometry.getAttribute("primer").array as Float32Array).reduce((a, b) => a + b, 0);
@@ -289,7 +293,7 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
     assert.equal(primer(client), 0);
   });
 
-  it("puts a torn-off wheel where the host's lies, and the client never throws one itself", () => {
+  it("when a wheel is torn off on the host, then the client's wheel lies where the host's does, the client never throws one itself, and the next wreck has all four wheels on", () => {
     const host = makeCar();
     runWall(40, 1, "front", { car: host, after: 0.5 });
     host.deform.popHub(host.deform.masses.find((m) => m.name === "hubFL")!);
@@ -314,7 +318,7 @@ describe("netplay apply: a client car reproduces the host's final mesh and colli
   });
 });
 
-describe("netplay derby state", () => {
+describe("given a derby match played on the host and sent to clients as derby state", () => {
   /** A match on the host after `steps` 1 s steps: car 1 scored on car 2, car 2's engine died, car 3 never moves. */
   function playedMatch(steps: number): DerbyMatch {
     const m = new DerbyMatch();
@@ -340,7 +344,7 @@ describe("netplay derby state", () => {
     return readDerby(new Reader().reset(w.done()));
   }
 
-  it("round-trips a running board: scores, hits, disables, alive, count-out clocks, seats", () => {
+  it("when a running match is sent over the wire, then scores, hits, disables, alive flags, count-out clocks and seats all come back", () => {
     const m = playedMatch(10);
     const s = netState(m, 70001, null);
     assert.equal(m.winnerId, null, "still running after 10 s");
@@ -361,7 +365,7 @@ describe("netplay derby state", () => {
     }
   });
 
-  it("round-trips a decided match (winner and how) and a lobby (no match, countdown)", () => {
+  it("when a decided match and a lobby are sent over the wire, then the winner and how he won come back, and the lobby comes back with its countdown and no match", () => {
     // Car 3 never moves: hitClock 20 s counts every idle car out, the last standing wins.
     const m = playedMatch(25);
     assert.notEqual(m.winnerId, null, "decided within 25 s");
@@ -383,7 +387,7 @@ describe("netplay derby state", () => {
   });
 });
 
-describe("netplay codec: values a host never sends are refused", () => {
+describe("given snapshots and derby boards of values a host never sends", () => {
   /** A 2-car snapshot written with `edit` applied, then read back. */
   function readBack(edit: (s: Snapshot) => void): () => void {
     const s = makeSnapshot();
@@ -402,11 +406,11 @@ describe("netplay codec: values a host never sends are refused", () => {
     return () => readSnapshot(new Reader().reset(w.done()), makeSnapshot(), L);
   }
 
-  it("accepts a well-formed snapshot", () => {
+  it("when a well-formed snapshot is read, then it is accepted", () => {
     readBack(() => {})();
   });
 
-  it("refuses an empty or oversized field, a non-finite clock, pose or loose-part position", () => {
+  it("when the snapshot has an empty or oversized field or a non-finite clock, pose or loose-part position, then reading refuses it as a RangeError", () => {
     assert.throws(readBack((s) => (s.count = 0)), RangeError);
     assert.throws(
       readBack((s) => {
@@ -420,7 +424,7 @@ describe("netplay codec: values a host never sends are refused", () => {
     assert.throws(readBack((s) => (s.cars[0]!.parts.pose[1] = Number.NaN)), RangeError);
   });
 
-  it("refuses a derby board larger than any field, a winner outside it, or a non-finite clock or bowl", () => {
+  it("when a derby board is larger than any field, names a winner outside it, or has a non-finite clock or bowl, then reading refuses it as a RangeError, and a well-formed board reads fine", () => {
     const base: DerbyNetState = { round: 1, active: true, time: 3, hold: 0, radius: 18, winnerId: null, winnerName: null, decided: null, lobby: null, seats: 0, board: [] };
     const row = (id: number) => ({ id, name: `Car ${id}`, score: 0, hits: 0, disables: 0, alive: true, out: false, clock: 60 });
     const read = (s: DerbyNetState) => () => {

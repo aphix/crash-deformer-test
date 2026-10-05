@@ -13,10 +13,10 @@ import { SPOKE_PERIOD, spokeSmear } from "./wheel-blur.ts";
 /** The turn the eye reads between two frames: `step` folded into the nearest spoke (rad, signed). */
 const seen = (step: number): number => step - SPOKE_PERIOD * Math.round(step / SPOKE_PERIOD);
 
-describe("spoke smear against the wagon-wheel effect", () => {
+describe("given a 5-spoke rim (it repeats every 72°, so a frame that turns it more than half of that shows the wrong motion), and the smear drawn over its spokes", () => {
   for (const cls of Object.keys(CLASSES) as VehicleClassId[]) {
     const radius = TYRE_R * CLASSES[cls].wheelScale;
-    it(`good: ${cls} at 60, 144 and 240 Hz, 0..60 m/s: the spokes are smeared exactly where they would read wrong`, () => {
+    it(`when a ${cls} wheel turns at 0 to 60 m/s drawn at 60, 144 and 240 Hz, then the spokes are fully smeared wherever they would read slow or backwards and not smeared where they read true`, () => {
       for (const hz of [60, 144, 240]) {
         for (let v = 0; v <= 60; v += 0.25) {
           const step = v / radius / hz;
@@ -28,7 +28,7 @@ describe("spoke smear against the wagon-wheel effect", () => {
     });
   }
 
-  it("good: the smear grows with the turn per frame and does not care which way the wheel turns", () => {
+  it("when the turn per frame grows from nothing to one spoke period in either direction, then the smear never shrinks as the turn grows and is the same whichever way the wheel turns", () => {
     let last = 0;
     for (let i = 0; i <= 100; i++) {
       const s = spokeSmear((i / 100) * SPOKE_PERIOD);
@@ -38,7 +38,7 @@ describe("spoke smear against the wagon-wheel effect", () => {
     }
   });
 
-  it("close-but-wrong: a sedan at 20 m/s is smeared at 60 Hz, sharp in 1/10 slow-mo and at 240 Hz", () => {
+  it("when a sedan wheel turns at 20 m/s, then the spokes are fully smeared at 60 Hz, not smeared at 60 Hz in 1/10 slow-mo, and almost sharp (under 0.05) at 240 Hz", () => {
     const step = (hz: number, scale: number) => (20 * scale) / TYRE_R / hz;
     assert.equal(spokeSmear(step(60, 1)), 1);
     assert.equal(spokeSmear(step(60, 0.1)), 0);

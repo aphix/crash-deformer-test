@@ -33,22 +33,22 @@ function roll(car: DeformableCar, vx: number, vz: number, secs: number): { angle
 const radius = (cls: VehicleClassId) => TYRE_R * CLASSES[cls].wheelScale;
 
 for (const cls of ["sedan", "monster"] as const) {
-  describe(`drawn wheel spin, ${cls}`, () => {
-    it("good: 10 m/s forward turns the wheel +10/r rad in 1 s, 3 m/s back turns it −3/r, on the class's own radius", () => {
+  describe(`given a ${cls} whose drawn wheels turn with the ground (the distance the car moves along its nose over the tyre's drawn radius)`, () => {
+    it("when it drives 10 m/s forward and 3 m/s back for 1 s, then the wheel turns +10/r rad forward and −3/r rad back (r is the class's own tyre radius)", () => {
       const fwd = roll(makeCar(cls), 0, 10, 1);
       assert.ok(Math.abs(fwd.angle - 10 / radius(cls)) < 0.02 * (10 / radius(cls)), `forward ${fwd.angle.toFixed(3)} rad vs ${(10 / radius(cls)).toFixed(3)}`);
       const rev = roll(makeCar(cls), 0, -3, 1);
       assert.ok(Math.abs(rev.angle + 3 / radius(cls)) < 0.02 * (3 / radius(cls)), `reverse ${rev.angle.toFixed(3)} rad vs ${(-3 / radius(cls)).toFixed(3)}`);
     });
 
-    it("close-but-wrong: the wheel's rolling distance is the distance the car moved, signed (not the speed's magnitude)", () => {
+    it("when it rolls at 10, −10, −3 and 25 m/s for 1 s, then the wheel's rolled distance is the distance the car moved, signed, within 2 %, not the speed's magnitude", () => {
       for (const v of [10, -10, -3, 25]) {
         const r = roll(makeCar(cls), 0, v, 1);
         assert.ok(Math.abs(r.angle * radius(cls) - r.along) < 0.02 * Math.abs(r.along), `${v} m/s: rolled ${(r.angle * radius(cls)).toFixed(3)} m, moved ${r.along.toFixed(3)} m`);
       }
     });
 
-    it("bad: a pure sideways slide turns nothing, and a 60° slide turns by its component along the nose", () => {
+    it("when it slides purely sideways and when it slides at 60° to its nose, then the sideways slide turns the wheel not at all and the 60° slide turns it by its 5 m component along the nose", () => {
       assert.equal(roll(makeCar(cls), 10, 0, 1).angle, 0);
       const slant = roll(makeCar(cls), 10 * Math.sin(Math.PI / 3), 10 * Math.cos(Math.PI / 3), 1);
       assert.ok(Math.abs(slant.angle * radius(cls) - 5) < 0.1, `rolled ${(slant.angle * radius(cls)).toFixed(3)} m of a 5 m component`);
@@ -56,8 +56,8 @@ for (const cls of ["sedan", "monster"] as const) {
   });
 }
 
-describe("drawn wheel spin, driven and flying", () => {
-  it("good: the real drive in reverse turns the wheels back, and they stay back once it rolls", () => {
+describe("given a sedan under the real drive with the throttle held in reverse", () => {
+  it("when it reverses for 3 s, then the wheels turn back and stay back once it rolls, rolling the distance it moved within 5 %", () => {
     const car = makeCar("sedan");
     const z0 = car.group.position.z;
     for (let i = 0; i < 180; i++) {
@@ -69,8 +69,10 @@ describe("drawn wheel spin, driven and flying", () => {
     assert.ok(car.wheels[0]!.rotation.x < 0, `wheels turned forward ${car.wheels[0]!.rotation.x.toFixed(2)} rad reversing`);
     assert.ok(Math.abs(car.wheels[0]!.rotation.x * TYRE_R - along) < 0.05 * Math.abs(along), `rolled ${(car.wheels[0]!.rotation.x * TYRE_R).toFixed(2)} m, moved ${along.toFixed(2)} m`);
   });
+});
 
-  it("good: in the air the wheels keep their rate and slow with bearing drag; the gas winds a driven body's up", () => {
+describe("given a sedan in the air whose wheels were spun up by driving at 10 m/s", () => {
+  it("when it coasts for 0.5 s, then its wheels keep 60 to 85 % of their rate (bearing drag) and are under 20 % after 3 s, while 0.5 s of gas winds them up above the coasting rate and reverse throttle slows them below it", () => {
     const rateAfter = (throttle: number, secs: number): number => {
       const car = makeCar("sedan");
       roll(car, 0, 10, 0.5);
@@ -88,16 +90,20 @@ describe("drawn wheel spin, driven and flying", () => {
     assert.ok(rateAfter(1, 0.5) > coast + 0.1, "throttle did not spin the wheels up");
     assert.ok(rateAfter(-1, 0.5) < coast - 0.1, "reverse throttle did not slow them");
   });
+});
 
-  it("bad: a wheel that has left the car is not turned by it", () => {
+describe("given a sedan with a wheel that has left the car", () => {
+  it("when the car rolls at 10 m/s for 0.5 s, then the loose wheel is not turned by it while a wheel still on the car turns", () => {
     const car = makeCar("sedan");
     car["looseWheels"][0]!.loose = true;
     roll(car, 0, 10, 0.5);
     assert.equal(car.wheels[0]!.rotation.x, 0);
     assert.ok(car.wheels[1]!.rotation.x > 1, "a wheel on the car stopped turning");
   });
+});
 
-  it("close-but-wrong: a crashed car with a dead drivetrain still freewheels at the ground's pace, forward and back", () => {
+describe("given a crashed sedan with a dead drivetrain", () => {
+  it("when it rolls at 10 m/s forward and at 4 m/s back, then its wheels still freewheel at the ground's pace, signed, within 3 % of the distance moved", () => {
     for (const v of [10, -4]) {
       const car = makeCar("sedan");
       car.crashed = true;
@@ -106,8 +112,10 @@ describe("drawn wheel spin, driven and flying", () => {
       assert.ok(Math.abs(r.angle * radius("sedan") - r.along) < 0.03 * Math.abs(r.along), `${v} m/s: rolled ${(r.angle * radius("sedan")).toFixed(3)} m, moved ${r.along.toFixed(3)} m`);
     }
   });
+});
 
-  it("good: a netplay client's frame turns the wheels the same way, signed, from the snapshot velocity", () => {
+describe("given a netplay client's sedan, whose velocity comes from a snapshot", () => {
+  it("when a frame run turns its wheels for 1 s at 10 m/s forward and at 3 m/s back, then they turn the same way as a driven car's, signed, within 2 % of the snapshot velocity's turn", () => {
     for (const v of [10, -3]) {
       const car = makeCar("sedan");
       car.velocity.set(0, 0, v);
@@ -144,9 +152,9 @@ function driveRun(cls: VehicleClassId, v0: number, secs: number, input: Partial<
   return { rolled, travel, car };
 }
 
-describe("drawn wheel spin, each wheel on its own ground speed", () => {
+describe("given each vehicle class driven at 20 m/s with half throttle and the steering at full lock", () => {
   for (const cls of ["sedan", "muscle", "truck", "monster", "police"] as const) {
-    it(`good: ${cls} in a full-lock turn, every wheel rolls what its own contact point travels (inner slower than outer)`, () => {
+    it(`when a ${cls} turns for 1.5 s, then every wheel rolls what its own contact point travels (within 1.5 %) and the two front wheels' paths differ by over 2 m, as the inner and outer wheel of a turn do`, () => {
       const r = driveRun(cls, 20, 1.5, { throttle: 0.5, steer: 1 });
       assert.ok(r.travel[0]! - r.travel[1]! > 2, `no inner/outer split in the travel: ${r.travel.map((t) => t.toFixed(1))}`);
       for (let i = 0; i < 4; i++) {
@@ -154,15 +162,19 @@ describe("drawn wheel spin, each wheel on its own ground speed", () => {
       }
     });
   }
+});
 
-  it("good: the handbrake locks the rear wheels (they stop turning) while the front wheels keep rolling", () => {
+describe("given a sedan driven at 20 m/s with the handbrake held", () => {
+  it("when it drives for 0.5 s, then it is still moving (over 5 m/s), the rear wheels stop turning (under 5 % of the distance their contact points travel) and the front wheels keep rolling (within 2 %)", () => {
     const r = driveRun("sedan", 20, 0.5, { ebrake: true });
     assert.ok(r.car.speed > 5, `stopped: ${r.car.speed.toFixed(1)} m/s`);
     assert.ok(Math.abs(r.rolled[2]!) < 0.05 * r.travel[2]! && Math.abs(r.rolled[3]!) < 0.05 * r.travel[3]!, `rear rolled ${r.rolled[2]!.toFixed(2)}, ${r.rolled[3]!.toFixed(2)} of ${r.travel[2]!.toFixed(2)} m`);
     assert.ok(Math.abs(r.rolled[0]! / r.travel[0]! - 1) < 0.02, `front rolled ${r.rolled[0]!.toFixed(2)} of ${r.travel[0]!.toFixed(2)} m`);
   });
+});
 
-  it("good: a hard brake that locks the tyres (the drive's own `lock`) slows the wheels' turning by that share", () => {
+describe("given a sedan driven at 30 m/s at the realistic end of the realism slider with a hard brake", () => {
+  it("when it brakes for 0.3 s so the tyres lock (the drive's lock share is over 0.5), then every wheel turns less than 70 % of the distance its contact point travels", () => {
     const was = HANDLING.realism;
     HANDLING.realism = 1;
     try {

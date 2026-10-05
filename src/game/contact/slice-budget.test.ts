@@ -75,11 +75,11 @@ function restoreAlongPush(car: DeformableCar): void {
   };
 }
 
-describe("a slice's corrections share one net translation (PushBudget)", () => {
+describe("given a slice whose contact corrections (pair pushes, structure step, re-fit, bowl clip) draw on one net-translation budget (PushBudget)", () => {
   // Derby seed 161 (main) and o6 (17491eb) zipped in one 6.9 ms slice: the pair pushes took the whole cap (44 mm), and
   // the structure step (12.2 mm), the re-fit (8.6 mm) and the bowl clip (14.9 mm) came after them, each debited to the
   // NEXT slice's budget, so the wreck's centroid moved 66 mm against a zip bound of 3·v·h + 5 cm = 61 mm.
-  it("bad: a planted wreck's pushes, structure step and re-fit of one slice move it no further than the cap, whatever the clip", () => {
+  it("when four slices each push, restore and clip a settled wreck, then its centroid moves no further than the pushes' cap allows, whatever the bowl's clip", () => {
     const wreck = plantedWreck();
     restoreAlongPush(wreck);
     const w = makeWorld([wreck], false, false).world;
@@ -118,7 +118,7 @@ describe("a slice's corrections share one net translation (PushBudget)", () => {
   // Seed 275 of 17491eb: one `followGroup` re-fit moved a live car's centroid 49 mm (49/47/37/32 over four steps) right
   // after a 26 mm correction. A live wreck's frame sits on its cell, so a sphere hit that shifts the cell leaves the
   // other masses behind it, and the clamp drags them after: the whole cloud moves again, on top of the shift.
-  it("bad: a live wreck's re-fit after a sphere shift adds no translation beyond what the shift and the cap leave", () => {
+  it("when a sphere hit shifts a live wreck and its masses are re-fitted, then the re-fit adds no translation beyond what the shift and the cap leave", () => {
     const wreck = plantedWreck();
     // The slice length the wreck's budget is in (the last world slice's).
     stepWorld(makeWorld([wreck], false, false).world, H);
@@ -141,7 +141,7 @@ describe("a slice's corrections share one net translation (PushBudget)", () => {
 
   // Derby seed 40 with the ceiling: the pushes took the whole cap (47.8 mm at 8.5 ms), so a structure drift AGAINST them
   // was refused as "nothing left" and the wreck stayed at 51.5 mm; against the net, it brings it in.
-  it("good: a drift against a full net translation is allowed, one along it is refused", () => {
+  it("when a drift settles against a full net translation then it is allowed, and when it goes along the net then it is refused", () => {
     const full = new PushBudget();
     assert.ok(Math.abs(full.settle(1, 0, 1, 1, H, TOUCH) - STEP_CEIL) < 1e-12, "a drift along nothing gets the ceiling");
     assert.equal(full.settle(1, 0, 1, 0.01, H, TOUCH), 0, "a drift along the full net was allowed");

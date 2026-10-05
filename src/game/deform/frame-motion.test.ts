@@ -58,8 +58,8 @@ function settled(): Wreck {
   return s;
 }
 
-describe("followGroup reports the masses' motion, not the frame's", () => {
-  it("good: a wreck whose masses turn rigidly at 2 rad/s reports 2 rad/s and the centroid's velocity", () => {
+describe("given a crashed car whose parts keep moving (the game reads its spin and velocity from the parts, not from its body frame)", () => {
+  it("when all its parts turn rigidly at 2 rad/s about their centre moving at (1.5, −0.5) m/s, then the reported spin is 2 rad/s and the reported velocity is the centre's", () => {
     const s = settled();
     spinRigid(s.d, 2, 1.5, -0.5);
     s.d.followGroup(s.group, s.vel, s.omega, DT);
@@ -67,7 +67,7 @@ describe("followGroup reports the masses' motion, not the frame's", () => {
     assert.ok(Math.abs(s.vel.x - 1.5) < 1e-6 && Math.abs(s.vel.z + 0.5) < 1e-6, `velocity ${s.vel.x.toFixed(3)}, ${s.vel.z.toFixed(3)}`);
   });
 
-  it("bad: engine and axle swung 0.35 rad in one step reports the masses' 2 rad/s, not the engine → axle axis' (7.9 rad/s on main)", () => {
+  it("when the engine pair is swung 0.35 rad about the rear axle in one step while the parts turn at 2 rad/s, then the reported spin stays within 0.5 rad/s of 2 rather than following the engine-to-axle line's faster turn", () => {
     const s = settled();
     spinRigid(s.d, 2, 0, 0);
     const axle = mass(s.d, "axleR").world;
@@ -89,7 +89,7 @@ describe("followGroup reports the masses' motion, not the frame's", () => {
     assert.ok(Math.abs(s.omega.y - 2) < 0.5, `spin ${s.omega.y.toFixed(2)} rad/s: the frame's turn is not the masses'`);
   });
 
-  it("bad: a pair push re-poses a tilted body in flight at dt = 0 (its frame drops 0.1 m), and the next timed read gives it a vertical speed (5.7 m/s down on main)", () => {
+  it("when a tilted car in flight has its body frame re-fitted to its parts with no time passing and the frame moves over 0.05 m, then the next timed read reports a vertical speed under 1 m/s", () => {
     const s = wreck({ pitch: 0.4, roll: 0.5, y: 1.5 });
     s.d.aloft = true;
     const y0 = s.group.position.y;
@@ -119,10 +119,10 @@ function momentum(d: StreamedDeformation): number {
   return d.masses.reduce((l, q) => l + q.mass * ((q.world.z - cz / m) * (q.vel.x - vx / m) - (q.world.x - cx / m) * (q.vel.z - vz / m)), 0);
 }
 
-describe("a wreck's own steps move no angular momentum", () => {
+describe("given a crashed car in flight, hit off-centre by a 14 m/s push so that it is spinning", () => {
   // Shape matching and the engine block's spacing correct positions only: over the masses' velocities each correction moved
   // Σ m r × v (derby seed 8: a car shoved against a wall went 0.9 → 7.5 rad/s, shape matching alone adding 6400 kg·m²/s in 1.2 s).
-  it("bad: an off-centre hit's wreck in flight keeps its angular momentum through its contact window (−44 % in 16 frames on main)", () => {
+  it("when 12 steps of contact are followed by 16 steps with no contact, then the car's own steps keep its angular momentum (no step moves over 1%, the total within 2%)", () => {
     const s = wreck({ pitch: 0, roll: 0, y: 1 }, { x: 0.62, speed: 14 });
     s.d.aloft = true;
     for (let f = 0; f < 12; f++) {
@@ -160,7 +160,12 @@ function plateau(walls: boolean): Ground {
   };
 }
 
-describe("followGroup does not lift a wreck out of a ground's wall", () => {
+const plateauLandingCases = [
+  { it: "when the same car is over a plateau with no walls, then its frame rises over 0.24 m, landing on it", walls: false, depth: 0.25, minFrameRise: 0.24 },
+  { it: "when its origin is 0.05 m under the top of a walled plateau (a settled car's sag), then its frame rises over 0.04 m, landing on it", walls: true, depth: 0.05, minFrameRise: 0.04 },
+] as const;
+
+describe("given a crashed car in flight beside a raised plateau (the high end of a ramp)", () => {
   // The frame is where the masses are, within the band over the ground under the wreck's anchor. Under a wedge's end that ground is a
   // wall to a body falling beside it: the frame stepped up onto the top (0.24-0.27 m in one call, fleet-ramps D1) and `clampLocal`
   // shoved the masses after it (0.18-0.29 m), with no speed to show for it. Here the setup gives 0.250 / 0.221 m on main.
@@ -177,18 +182,15 @@ describe("followGroup does not lift a wreck out of a ground's wall", () => {
     return { frame: s.group.position.y - y0, mass: Math.max(...s.d.masses.map((m, i) => m.world.y - before[i]!)) };
   }
 
-  it("bad: a wreck in flight whose origin is 0.25 m under a walled plateau's top stays on its masses: it does not land on it", () => {
+  it("when its origin is 0.25 m under the top of a walled plateau, then its frame and parts stay put (under 2 cm) instead of climbing onto the plateau", () => {
     const r = rise(true, 0.25);
     assert.ok(r.frame < 0.02 && r.mass < 0.02, `the frame rose ${r.frame.toFixed(3)} m and a mass ${r.mass.toFixed(3)} m onto a top 0.25 m above the wreck`);
   });
 
-  it("good: the same wreck over a ground with no walls lands on it: nothing else parts it", () => {
-    const r = rise(false, 0.25);
-    assert.ok(r.frame > 0.24, `the frame rose ${r.frame.toFixed(3)} m`);
-  });
-
-  it("good: a wreck in flight 0.05 m under a walled plateau's top (a settled cell's sag) lands on it", () => {
-    const r = rise(true, 0.05);
-    assert.ok(r.frame > 0.04, `the frame rose ${r.frame.toFixed(3)} m`);
-  });
+  for (const testCase of plateauLandingCases) {
+    it(testCase.it, () => {
+      const r = rise(testCase.walls, testCase.depth);
+      assert.ok(r.frame > testCase.minFrameRise, `the frame rose ${r.frame.toFixed(3)} m`);
+    });
+  }
 });

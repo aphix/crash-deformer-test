@@ -21,9 +21,9 @@ function sameCrush(x: CarState, y: CarState, what: string): void {
   assert.ok(Math.abs(x.cabinMm - y.cabinMm) <= Math.max(10, 0.15 * Math.max(x.cabinMm, y.cabinMm)), `${what}: cabin ${x.cabinMm} vs ${y.cabinMm} mm`);
 }
 
-describe("contact parity: a car on the Doors ram lane does what the ram does", () => {
+describe("given the Doors ram lane's three scenes (mirror: the striker grazes a shut door's mirror; overOpen: it drives an open door past its stop; shut: it drives an open door shut)", () => {
   for (const scenario of ["mirror", "overOpen", "shut"] as const) {
-    it(`${scenario}: a ${CAR_KG} kg car at 12 km/h vs the ${CAR_KG} kg ram`, () => {
+    it(`when a ${CAR_KG} kg car at 12 km/h runs the ${scenario} scene instead of the ${CAR_KG} kg ram, then the same parts come off and the door, latch, mirror fold, drivetrain and crush match the ram's`, () => {
       const car = carDoorPass(scenario, 12).a;
       // Same striker geometry: a ram head shaped like the car body on the same lane (the scene's
       // 0.5 m head on the C lane runs under the mirror, a car body does not).
@@ -34,8 +34,8 @@ describe("contact parity: a car on the Doors ram lane does what the ram does", (
   }
 });
 
-describe("contact parity: two cars into nose and tail vs the press at matched travel", () => {
-  it("20 km/h each: the press closed to the middle car's shortening", { todo: PENDING }, () => {
+describe("given two cars driving into the nose and tail of a middle car, and a press closed to the same shortening", () => {
+  it("when each car hits at 20 km/h, then the middle car's parts and crush match the press's", { todo: PENDING }, () => {
     const s = carSandwich(20);
     const press = pressUntil((p) => shortening(p.car!) * 1000 >= s.a.shortenMm).state;
     sameParts(s.a, press, "sandwich");
@@ -43,13 +43,13 @@ describe("contact parity: two cars into nose and tail vs the press at matched tr
   });
 });
 
-describe("contact parity: a piston vs a car of the same mass and speed", () => {
+describe("given a piston and a car of the same mass and speed striking a crushable face", () => {
   for (const kph of [20, 40]) {
     // A car's crushable nose takes its share of the closing (pair-contact EBS split): for equal
     // masses the struck car gets half the reduced-mass energy, the piston's hardness 0.5. Each at
     // main's squash 0.4 and the calibrated 0.32: at 0.32 the 40 km/h block sank 72 mm under a car's
     // nose vs 61 mm under the piston, a bounce frozen when the shorter car-car contact closed the solve.
-    it(`${kph} km/h, ${CAR_KG} kg, crushable face`, { todo: kph === 20 ? PENDING : undefined }, () => {
+    it(`when a ${CAR_KG} kg car and a ${CAR_KG} kg piston each hit at ${kph} km/h at crush softness 0.4 and 0.32, then the car's parts and crush match the piston's`, { todo: kph === 20 ? PENDING : undefined }, () => {
       for (const squash of [0.4, 0.32]) {
         const car = carFront(kph, squash).a;
         const piston = pistonFront(kph, CAR_KG, 0.5, squash);

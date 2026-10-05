@@ -6,8 +6,8 @@ import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
 const DEFAULTS = decodeShare("");
 const json = (s: ShareState): string => JSON.stringify(s);
 
-describe("share URL", () => {
-  it("good: the defaults encode to an empty fragment and an empty fragment decodes to the defaults", () => {
+describe("given the default share settings", () => {
+  it("when the defaults are encoded and an empty fragment is decoded, then the defaults write an empty fragment and an empty fragment reads back as the defaults", () => {
     assert.equal(encodeShare(DEFAULTS), "");
     assert.equal(DEFAULTS.scene, "fleet");
     assert.equal(DEFAULTS.cars, INITIAL_HUD.carCount);
@@ -16,14 +16,16 @@ describe("share URL", () => {
     assert.equal(DEFAULTS.fx, null);
   });
 
-  it("good: only what differs from the defaults is written, in a readable order", () => {
+  it("when cars, minimum speed, ramps and a seed differ from the defaults, then only those are written, in a readable order, and a value equal to its default is dropped even when set explicitly", () => {
     const s: ShareState = { ...DEFAULTS, cars: 5, smin: 12, ramps: true, seed: 0x3fa2c1 };
     assert.equal(encodeShare(s), "cars=5&smin=12&ramps=1&seed=3fa2c1");
     // A value equal to its default is dropped even when it was set explicitly.
     assert.equal(encodeShare({ ...DEFAULTS, cars: INITIAL_HUD.carCount, night: false }), "");
   });
+});
 
-  it("good: encode then decode returns the same state (every kind of field)", () => {
+describe("given a share state with every kind of field set", () => {
+  it("when it is encoded and decoded again, then it comes back as the same state", () => {
     const s: ShareState = {
       ...DEFAULTS,
       scene: "race",
@@ -62,13 +64,17 @@ describe("share URL", () => {
     };
     assert.equal(json(decodeShare(`#${encodeShare(s)}`)), json({ ...s, squash: Math.round(s.squash * 1e4) / 1e4 }));
   });
+});
 
-  it("bad: malformed values and unknown keys fall back to the defaults, never throw", () => {
+describe("given a link with malformed values and unknown keys", () => {
+  it("when it is decoded, then every field falls back to its default and nothing throws", () => {
     const d = decodeShare("#scene=nope&cars=abc&night=yes&seed=zz&fx=ultra&car=tank&dside=up&track=../x&foo=1&smin=&ts=1e3&%=%%&");
     assert.equal(json(d), json(DEFAULTS));
   });
+});
 
-  it("bad: out-of-range numbers clamp to the HUD's own ranges", () => {
+describe("given a link with out-of-range numbers", () => {
+  it("when it is decoded, then each number clamps to the HUD's own range for that setting", () => {
     const d = decodeShare("cars=999&smin=-5&smax=500&real=2&fxd=9&buckle=-1&ts=0&ai=0&laps=77&aggr=3&squash=9");
     assert.equal(d.cars, 32);
     assert.equal(d.smin, KNOB_RANGES.speed.min);
@@ -82,8 +88,10 @@ describe("share URL", () => {
     assert.equal(d.aggr, 1);
     assert.equal(d.squash, KNOB_RANGES.squash.max);
   });
+});
 
-  it("good: cel is Auto (null, never written) until a manual strength is set; it clamps and 0 is a real value", () => {
+describe("given the cel (cartoon shading) strength, which is Auto until a manual strength is set", () => {
+  it("when it is left Auto, set manually, or decoded from an out-of-range or unreadable value, then Auto is never written, a manual strength is written, 0 is a real value, and out-of-range values clamp", () => {
     assert.equal(DEFAULTS.cel, null);
     assert.equal(encodeShare({ ...DEFAULTS, cel: null }), "");
     assert.equal(encodeShare({ ...DEFAULTS, cel: 0.5 }), "cel=0.5");
@@ -92,8 +100,10 @@ describe("share URL", () => {
     assert.equal(decodeShare("cel=-1").cel, KNOB_RANGES.cel.min);
     assert.equal(decodeShare("cel=abc").cel, null);
   });
+});
 
-  it("good: a seed is written in hex, read in either case, holds 32 bits and no more", () => {
+describe("given a random seed in a share link", () => {
+  it("when it is written and read, then it is written in hex, read in either case, holds 32 bits and no more", () => {
     assert.equal(encodeShare({ ...DEFAULTS, seed: 0xab }), "seed=ab");
     assert.equal(decodeShare("seed=AB").seed, 0xab);
     assert.equal(decodeShare("seed=ffffffff").seed, 0xffffffff);
@@ -101,8 +111,8 @@ describe("share URL", () => {
   });
 });
 
-describe("share URL: the netplay room", () => {
-  it("good: a room round-trips, with its link, and is uppercased as the Room field does", () => {
+describe("given a share link that may carry a netplay room", () => {
+  it("when a room is written to a link and read back, then it round-trips with its transport and its link, is uppercased as the Room field does, and only an all-uppercase code counts as shareable", () => {
     assert.equal(encodeShare({ ...DEFAULTS, room: "K7M2QX9P" }), "room=K7M2QX9P");
     assert.equal(encodeShare({ ...DEFAULTS, room: "K7M2QX9P", tx: "bc" }), "room=K7M2QX9P&tx=bc");
     const s: ShareState = { ...DEFAULTS, room: "K7M2QX9P", tx: "bc", scene: "race", laps: 4, seed: 0xabc };
@@ -112,7 +122,7 @@ describe("share URL: the netplay room", () => {
     assert.equal(isShareableRoom("k7m2"), false, "written uppercase only");
   });
 
-  it("good: links made before rooms existed decode as before, with no room", () => {
+  it("when a link made before rooms existed is decoded, then it has no room and the same settings, and writes back to the same state", () => {
     const old = "#scene=race&track=figure8&laps=5&ai=11&night=1&seed=3fa2c1";
     const d = decodeShare(old);
     assert.equal(d.room, "");
@@ -124,14 +134,14 @@ describe("share URL: the netplay room", () => {
     assert.equal(json(decodeShare(encodeShare(d))), json(d), "and writes back to the same state");
   });
 
-  it("bad: a malformed room, and any public room's name, is no room (a crafted link cannot join a public match)", () => {
+  it("when the room is malformed or is a public room's name, then it is no room (a crafted link cannot join a public match), and an unknown transport falls back to the default", () => {
     for (const raw of ["", "a b", "ABCDEFGHJKLMN", "../x", "pub-x", "pub-race-v5-QWERTY", "<script>"]) {
       assert.equal(decodeShare(`room=${encodeURIComponent(raw)}`).room, "", JSON.stringify(raw));
     }
     assert.equal(decodeShare("tx=udp").tx, "rtc");
   });
 
-  it("good: scene=survival round-trips in the # when alone; a link that names a room never opens it (Survival is single player)", () => {
+  it("when scene=survival is written, then it round-trips in the # when alone, a link that names a room never opens it (Survival is single player), and the other scenes still pass through a room link", () => {
     const alone: ShareState = { ...DEFAULTS, scene: "survival" };
     assert.equal(encodeShare(alone), "scene=survival");
     assert.equal(decodeShare("#scene=survival").scene, "survival");
@@ -142,7 +152,7 @@ describe("share URL: the netplay room", () => {
     assert.equal(decodeShare("#room=K7M2QX9P&scene=range").scene, "range");
   });
 
-  it("good: a host's # carries its settings and room, a guest's only the room, and leaving drops it", () => {
+  it("when the # is written for a host, a guest and someone who left, then a host's carries its settings and room, a guest's only the room, and leaving drops the room", () => {
     const hosting: ShareState = { ...DEFAULTS, room: "ABCD2345", cars: 5 };
     assert.equal(shareFragment(hosting, false), "room=ABCD2345&cars=5");
     assert.equal(shareFragment(hosting, true), "room=ABCD2345", "a guest's scene is the host's");
@@ -150,13 +160,13 @@ describe("share URL: the netplay room", () => {
     assert.equal(shareFragment({ ...DEFAULTS, cars: 5, room: "" }, true), "", "a guest that left writes nothing");
   });
 
-  it("good: roomLink is the page URL plus the room alone", () => {
+  it("when a room link is built from a page URL, then it is the page URL plus the room alone, and the transport only when it is not the default", () => {
     assert.equal(roomLink("https://x.test/crush/", "ABCD2345", "rtc"), "https://x.test/crush/#room=ABCD2345");
     assert.equal(roomLink("https://x.test/", "ABCD2345", "bc"), "https://x.test/#room=ABCD2345&tx=bc");
     assert.equal(decodeShare(roomLink("https://x.test/", "ABCD2345", "bc").split("#")[1]!).room, "ABCD2345");
   });
 
-  it("good: a # joins only a room this browser is not already in, and one without a room joins nothing", () => {
+  it("when a # is checked against the room this browser is in, then it joins only a room this browser is not already in (another room, or the same code over another link), and one without a room joins nothing", () => {
     const off = { room: "", tx: "rtc" } as const;
     assert.equal(joinsRoom(decodeShare("room=ABCD2345"), off), true);
     assert.equal(joinsRoom(decodeShare("room=ABCD2345"), { room: "ABCD2345", tx: "rtc" }), false, "already there");
@@ -172,10 +182,10 @@ describe("share URL: the netplay room", () => {
  * `joinsRoom`). The app stores only preferences (driver name and car, HUD layout, saved highlights), so no previous-run
  * session state exists for a hash to lose against.
  */
-describe("share URL: what a page load starts as", () => {
+describe("given a page load, where the # alone decides what it starts as", () => {
   const off = { room: "", tx: "rtc" } as const;
 
-  it("hash with a room: joins it, with the hash's own settings", () => {
+  it("when the hash names a room, then it joins that room with the hash's own settings", () => {
     const t = decodeShare("#room=ABCD2345&night=1&scene=race");
     assert.equal(joinsRoom(t, off), true);
     assert.equal(t.room, "ABCD2345");
@@ -183,7 +193,7 @@ describe("share URL: what a page load starts as", () => {
     assert.equal(t.scene, "race");
   });
 
-  it("hash without a room: its settings, no room, no join", () => {
+  it("when the hash names no room, then it keeps its settings, has no room and does not join", () => {
     const t = decodeShare("#night=1&cars=5");
     assert.equal(joinsRoom(t, off), false);
     assert.equal(t.room, "");
@@ -191,7 +201,7 @@ describe("share URL: what a page load starts as", () => {
     assert.equal(t.cars, 5);
   });
 
-  it("no hash: the defaults, no room, no join", () => {
+  it("when there is no hash (empty or a bare #), then it is the defaults with no room and no join", () => {
     for (const none of ["", "#"]) {
       const t = decodeShare(none);
       assert.equal(json(t), json(DEFAULTS));

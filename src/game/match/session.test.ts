@@ -97,8 +97,8 @@ const count = (ev: RaceEvent[], type: RaceEvent["type"]) => ev.filter((e) => e.t
 const square = new Track(squareFile());
 const ovalTrack = new Track(oval);
 
-describe("race rules", () => {
-  it("countdown: off on the grid, red, yellow, then green and one go event at 0", () => {
+describe("given a one-lap race between two cars on the square track, before the start", () => {
+  it("when time runs from the grid through the countdown, then the start lights go off, red, yellow, then green at the right moments, the race goes from grid to countdown to racing, and one go event fires at 0", () => {
     assert.deepEqual([-5, -3.2, -2.9, -1.1, -0.9, -0.01, 0, 1.4, 1.6].map(startLights), [0, 0, 1, 1, 2, 2, 3, 3, 0]);
     const s = new RaceSession(square, field(2), { laps: 1, noReset: false });
     assert.equal(s.phase, "grid");
@@ -110,8 +110,10 @@ describe("race rules", () => {
     assert.equal(s.phase, "racing");
     assert.equal(count(ev, "go"), 1);
   });
+});
 
-  it("laps count only over the line with every checkpoint in order; the first car home wins", () => {
+describe("given a two-lap race between two cars on the square track", () => {
+  it("when both cars drive two laps over the line with every checkpoint in order, then laps count over the line (lap 1 timed from green, lap 2 line to line), the first car home wins by laps, and the results show its zero gap and the second car's positive gap and split", () => {
     const s = new RaceSession(square, field(2), { laps: 2, noReset: false });
     const ev = runTo(s, [fromGrid(square, 0, 20), fromGrid(square, 1, 18)], 120);
     const laps = ev.filter((e) => e.type === "lap");
@@ -130,8 +132,10 @@ describe("race rules", () => {
     assert.ok(res[1]!.gap! > 0 && Math.abs(res[1]!.time! - res[0]!.time! - res[1]!.gap!) < 1e-9);
     assert.ok(s.cars[1]!.split! > 0 && s.cars[0]!.split === 0, "split to the first car through the line");
   });
+});
 
-  it("a cut across the infield that skips a checkpoint earns nothing; the skipped gate stays next", () => {
+describe("given a one-lap race with one car on the square track", () => {
+  it("when the car cuts across the infield and skips a checkpoint, then no lap counts, the skipped checkpoint stays next and the HUD is told a checkpoint was skipped", () => {
     const s = new RaceSession(square, field(1), { laps: 1, noReset: false });
     const L = square.length;
     const pts = [...centreline(square, L - 6, L + square.gateS(1) + 4), { x: 60, z: 60 }, ...centreline(square, L - 30, L + 20)];
@@ -142,7 +146,7 @@ describe("race rules", () => {
     assert.equal(s.cars[0]!.missed, true, "the HUD is told a checkpoint was skipped");
   });
 
-  it("driving back and forth over the line never counts a lap", () => {
+  it("when the car drives back and forth over the line, then no lap ever counts and re-crossing the line just passed is not flagged as a skipped checkpoint", () => {
     const s = new RaceSession(square, field(1), { laps: 1, noReset: false });
     const L = square.length;
     const pts: Pt[] = [];
@@ -152,8 +156,10 @@ describe("race rules", () => {
     assert.equal(s.cars[0]!.next, 1);
     assert.equal(s.cars[0]!.missed, false, "re-crossing the line just passed is no skip");
   });
+});
 
-  it("the oval's service road counts after checkpoint 4 and is quicker; from the wrong sector it earns nothing", () => {
+describe("given a one-lap race with one car on the oval track, whose service road across the infield is a shortcut from checkpoint 4 to the line", () => {
+  it("when the car takes the service road after checkpoint 4, then the shortcut lap counts and is more than 2 s quicker than the full lap, and when it joins the road without having passed checkpoint 4, then it earns no lap and still owes checkpoint 4", () => {
     const sc = ovalTrack.shortcuts[0]!;
     assert.deepEqual([sc.from, sc.to], [4, 0]);
     const L = ovalTrack.length;
@@ -180,7 +186,7 @@ describe("race rules", () => {
     assert.equal(early.cars[0]!.next, 4, "still owes checkpoint 4");
   });
 
-  it("a shortcut still counts when the car cuts in past its mouth gate or misses its exit gate", () => {
+  it("when the car cuts in past the shortcut's mouth gate, or leaves it before its exit gate, then the shortcut lap still counts", () => {
     const sc = ovalTrack.shortcuts[0]!;
     const L = ovalTrack.length;
     const along = (from: number, to: number) =>
@@ -202,7 +208,7 @@ describe("race rules", () => {
     assert.equal(count(runTo(b, [polyline(early, 25)], 60), "lap"), 1, "left before the exit gate");
   });
 
-  it("the oval's open infield counts as the service road: beside the dirt, or straight across between the wall gaps", () => {
+  it("when the car crosses the open infield beside the dirt road, or straight across between the wall gaps, then the lap counts either way, the car finishes and no checkpoint is flagged skipped", () => {
     const sc = ovalTrack.shortcuts[0]!;
     const L = ovalTrack.length;
     const homeFrom = (x: number, z: number) => {
@@ -227,8 +233,10 @@ describe("race rules", () => {
       assert.equal(s.cars[0]!.missed, false, name);
     }
   });
+});
 
-  it("wrong way: flagged after holding against the track, cleared after turning round", () => {
+describe("given a three-lap race with one car on the square track, driven at 15 m/s and then turned round", () => {
+  it("when the car drives backwards, then it is not wrong-way for a moment but is flagged after holding against the track for the wrong-way delay, and is cleared after it turns round and drives forward", () => {
     const s = new RaceSession(square, field(1), { laps: 3, noReset: false });
     const go = fromGrid(square, 0, 15);
     runTo(s, [go], 6);
@@ -243,8 +251,10 @@ describe("race rules", () => {
     runTo(s, [(t) => along(square, sBack, 12)(t - t1)], t1 + 2);
     assert.equal(s.cars[0]!.wrongWay, false);
   });
+});
 
-  it("positions: progress order on the road, grid order on a dead heat", () => {
+describe("given races on the square track where cars are ranked mid-race", () => {
+  it("when a four-car race is 4 s in, then the order follows progress along the road, and two cars level on progress keep grid order", () => {
     const s = new RaceSession(square, field(4), { laps: 1, noReset: false });
     runTo(s, [fromGrid(square, 0, 12), fromGrid(square, 1, 12), fromGrid(square, 2, 16), fromGrid(square, 3, 10)], 4);
     assert.deepEqual(s.order(), [2, 0, 1, 3]);
@@ -254,8 +264,10 @@ describe("race rules", () => {
     assert.equal(tie.cars[1]!.progress, tie.cars[0]!.progress);
     assert.deepEqual(tie.order(), [0, 1]);
   });
+});
 
-  it("respawn: 3 s after a death, on the centreline near the wreck, facing the race, clear of other cars", () => {
+describe("given a three-lap race of two cars on the square track, where car 0 dies 4 s in and car 1 sits parked on the centreline beside the wreck", () => {
+  it("when the respawn delay (3 s) passes, then car 0 respawns on the road near the centre, near the wreck, facing the race direction and clear of the parked car", () => {
     const s = new RaceSession(square, field(2), { laps: 3, noReset: false });
     const L = square.length;
     const dieAt = 4;
@@ -282,8 +294,10 @@ describe("race rules", () => {
     assert.ok(Math.abs(p.s - (15 * dieAt - 6)) <= 2 * CLEARANCE + 1, `near the wreck (s ${p.s.toFixed(1)})`);
     assert.ok(Math.hypot(rs.x - park.x, rs.z - park.z) >= CLEARANCE, "clear of the parked car");
   });
+});
 
-  it("a respawn never lands past the next checkpoint, even when the wreck slid over it", () => {
+describe("given a three-lap race with one car on the square track, whose wreck slid past the next checkpoint before it stopped", () => {
+  it("when the car respawns, then it lands at least 2.9 m before that checkpoint, never past it, and the checkpoint is still next", () => {
     const s = new RaceSession(square, field(1), { laps: 3, noReset: false });
     const g1 = square.gateS(1);
     const go = along(square, square.length - 6, 15);
@@ -297,8 +311,10 @@ describe("race rules", () => {
     assert.ok(p.s <= g1 - 2.9, `respawned at s ${p.s.toFixed(1)}, gate at ${g1.toFixed(1)}`);
     assert.equal(s.cars[0]!.next, 1);
   });
+});
 
-  it("no-reset: a dead car is out for good; the last car running wins on survival", () => {
+describe("given a five-lap race of three cars on the square track with no resets", () => {
+  it("when two cars die one after the other, then both are out for good (no respawn, and a respawn request is refused), the last car running wins on survival and the race ends with it finished and the dead cars out", () => {
     const s = new RaceSession(square, field(3), { laps: 5, noReset: true });
     const killAt = (i: number, at: number): Driver => {
       const d = fromGrid(square, i, 14);
@@ -313,8 +329,10 @@ describe("race rules", () => {
     assert.equal(s.winBy, "survival");
     assert.deepEqual(s.results().map((r) => [r.id, r.status]), [[2, "finished"], [1, "out"], [0, "out"]]);
   });
+});
 
-  it("resets on: a death costs a pause, then the car races on and can still finish", () => {
+describe("given a one-lap race with one car on the square track, with resets on", () => {
+  it("when the car dies at 3 s, then it is respawned after a pause (never put out) and races on to finish, no sooner than a clean lap plus the respawn delay less 0.5 s", () => {
     const s = new RaceSession(square, field(1), { laps: 1, noReset: false });
     const go = fromGrid(square, 0, 18);
     let back: Driver | null = null;
@@ -337,8 +355,10 @@ describe("race rules", () => {
     assert.equal(s.cars[0]!.status, "finished");
     assert.ok(s.cars[0]!.finishTime! > square.length / 18 + RESPAWN_DELAY - 0.5);
   });
+});
 
-  it("snapshots are plain JSON and restore to an identical race", () => {
+describe("given a two-lap race of three cars on the square track", () => {
+  it("when the race is snapshotted at 9 s, passed through JSON text and restored, then the restored race matches the original at 9 s and, run on with the same drivers, again at the finish", () => {
     const drivers = [fromGrid(square, 0, 20), fromGrid(square, 1, 17), fromGrid(square, 2, 15)];
     const a = new RaceSession(square, field(3), { laps: 2, noReset: false });
     runTo(a, drivers, 9);
@@ -349,16 +369,20 @@ describe("race rules", () => {
     assert.equal(a.phase, "finished");
     assertSameDigest(b.snapshot(), a.snapshot(), "restored race at the finish");
   });
+});
 
-  it("end(): running cars are DNF and rank behind the finishers", () => {
+describe("given a one-lap race of two cars on the square track where one car has finished and the other still runs", () => {
+  it("when the race is ended, then the running car is DNF (did not finish) and ranks behind the finisher", () => {
     const s = new RaceSession(square, field(2), { laps: 1, noReset: false });
     runTo(s, [fromGrid(square, 0, 22), fromGrid(square, 1, 8)], 60, (x) => x.cars[0]!.status === "finished");
     s.end();
     assert.equal(s.phase, "finished");
     assert.deepEqual(s.results().map((r) => [r.id, r.status]), [[0, "finished"], [1, "dnf"]]);
   });
+});
 
-  it("after the winner every car finishes at its next line crossing, ranked by laps then time; one that never arrives is DNF at its deadline", () => {
+describe("given a two-lap race of four cars on the square track: a winner, a car a lap down at the flag, a full-distance car, and one parked after lap 1", () => {
+  it("when the winner finishes, then every other car finishes at its next line crossing, ranked by laps then time (a lapped finisher has no time gap), the parked car is DNF at its deadline, and the race closes the finish grace after the winner", () => {
     const L = square.length;
     const s = new RaceSession(square, field(4), { laps: 2, noReset: false });
     const toLine = (i: number) => {
@@ -381,8 +405,10 @@ describe("race rules", () => {
     const win = s.cars[0]!.finishTime!;
     assert.ok(Math.abs(s.time - (win + FINISH_GRACE)) <= DT + 1e-9, `closed at ${s.time.toFixed(2)} s, the winner + ${FINISH_GRACE} s is ${(win + FINISH_GRACE).toFixed(2)} s`);
   });
+});
 
-  it("a car on a long lap when the winner finishes gets LAP_SLACK × its own lap to reach the line, past the fixed grace", () => {
+describe("given a three-lap race of two cars on the square track, where the second car crosses the line 4 s before the winner finishes and then runs a long slow lap", () => {
+  it("when the winner finishes, then the slow car is allowed LAP_SLACK (a multiple of its own lap time) to reach the line, beyond the fixed finish grace, and is flagged finished at its next crossing after the grace", () => {
     const L = square.length;
     const dist = (i: number) => {
       const slot = square.gridSlot(i);
@@ -401,8 +427,10 @@ describe("race rules", () => {
     assert.equal(slow.lap, 2, "flagged at its next crossing");
     assert.ok(slow.finishTime! > s.cars[0]!.finishTime! + FINISH_GRACE, `crossed at ${slow.finishTime!.toFixed(1)} s, after the fixed grace`);
   });
+});
 
-  it("a car whose best lap was a shortcut's still gets LAP_SLACK × its slowest lap on the loop lap after it (the best lap is no pace for a loop)", () => {
+describe("given a three-lap race of two cars on the square track, where the second car's best lap was a shortcut and its loop laps are 1.7 times slower", () => {
+  it("when the winner finishes, then the second car is allowed LAP_SLACK (a multiple of its own lap time) times its slowest lap rather than its best, and still finishes, crossing after the fixed finish grace", () => {
     const L = square.length;
     const p1 = blankProjection();
     const slot = square.gridSlot(1);
@@ -429,8 +457,9 @@ describe("race rules", () => {
   });
 });
 
-describe("busted (BUST)", () => {
-  const GREEN = 2;
+const GREEN = 2;
+
+describe("given a three-lap race of two cars on the oval where a police car rides beside car 0 the whole race and a car stopped for 4 s within 20 m of a police car is busted", () => {
   /**
    * Car 0 on the oval: 30 m/s from green, then each `[seconds, km/h]` leg from `GREEN` s, then 30 m/s again;
    * a chasing police car rides `gap` m beside it the whole race. Car 1 races on. Stepped to `to` s.
@@ -468,7 +497,7 @@ describe("busted (BUST)", () => {
     return s;
   }
 
-  it("good: stopped 4.1 s within 20 m of a chasing police car is busted: DNF with the reason, the others race on", () => {
+  it("when car 0 is stopped for 4.1 s within 20 m of the chasing police car, then it is busted at 4 s, DNF (did not finish) with the bust shown in the results, while the other car keeps racing", () => {
     const s = bust([[4.1, 0]], 10, GREEN + 6);
     const c = s.cars[0]!;
     assert.equal(c.status, "dnf");
@@ -480,14 +509,14 @@ describe("busted (BUST)", () => {
     assert.equal(rows.find((r) => r.id === 1)!.busted, false);
   });
 
-  it("good: in a no-reset race a bust puts the car out, timed like an elimination", () => {
+  it("when the same bust happens in a no-reset race, then the car is out rather than DNF, timed like an elimination", () => {
     const s = bust([[4.1, 0]], 10, GREEN + 6, true);
     const c = s.cars[0]!;
     assert.equal(c.status, "out");
     assert.equal(c.outTime, c.bustedAt);
   });
 
-  it("bad: 3.9 s stopped, 21 m off, or 21 km/h is not busted", () => {
+  it("when the car is stopped 3.9 s, or stopped 8 s but 21 m from the police car, or at 21 km/h, then it is not busted and its stopped timer is back at 0 once it drives on", () => {
     const cases: [[number, number][], number, string][] = [
       [[[3.9, 0]], 10, "3.9 s"],
       [[[8, 0]], 21, "21 m"],
@@ -501,19 +530,23 @@ describe("busted (BUST)", () => {
     }
   });
 
-  it("bad: speeding up restarts the timer: 3 s stopped, 1 s at 30 km/h, 3 s stopped is not busted", () => {
+  it("when the car speeds up in between (3 s stopped, 1 s at 30 km/h, 3 s stopped), then the timer restarts and it is not busted", () => {
     const s = bust([[3, 0], [1, 30], [3, 0]], 10, GREEN + 7 - DT);
     assert.equal(s.cars[0]!.status, "racing");
     assert.ok(Math.abs(s.cars[0]!.stopped - 3) <= 2 * DT, `held ${s.cars[0]!.stopped.toFixed(2)} s since the restart`);
   });
+});
 
-  it("bad: no police car (police off) never busts anyone", () => {
+describe("given a three-lap race with one car on the oval and no police car (police off)", () => {
+  it("when the car sits still, then it is never busted", () => {
     const s = new RaceSession(ovalTrack, field(1), { laps: 3, noReset: false });
     runTo(s, [() => ({ x: 0, z: 0, vx: 0, vz: 0 })], GREEN + 10);
     assert.equal(s.cars[0]!.status, "racing");
   });
+});
 
-  it("bad: a racer stopped beside a PARKED stakeout for over 4 s is not busted; once that unit chases, it is", () => {
+describe("given a three-lap race with one car on the oval and a PARKED stakeout police unit beside its spot", () => {
+  it("when a racer stops beside the parked unit for over 4 s, then it is not busted, and once that unit wakes and chases it is", () => {
     const brain = new RaceBrain(ovalTrack, 1);
     const police = new PoliceBrain(ovalTrack, brain, 1, 2, 1);
     const cars = [0, 1, 2].map(blankAiCar);
@@ -564,7 +597,7 @@ describe("busted (BUST)", () => {
   });
 });
 
-describe("campaign", () => {
+describe("given a campaign of races across tracks (oval, rally, city)", () => {
   const row = (id: number, place: number, status: RaceResultRow["status"] = "finished"): RaceResultRow => ({
     id,
     name: `Car ${id}`,
@@ -578,7 +611,7 @@ describe("campaign", () => {
     busted: false,
   });
 
-  it("scores places, sorts standings, and grids each later round leader on pole", () => {
+  it("when three rounds are recorded, then points follow finishing place, standings sort by points with ties going to the better latest finish, each later round's grid puts the leader on pole, the campaign is done after its last track, recording more throws, and a snapshot restores identically", () => {
     const c = new Campaign(["oval", "rally", "city"], field(4));
     assert.deepEqual(c.grid(), [0, 1, 2, 3], "round 1: entry order");
     assert.equal(c.trackId, "oval");
@@ -598,7 +631,7 @@ describe("campaign", () => {
     assertSameDigest(restored.snapshot(), c.snapshot(), "restored campaign");
   });
 
-  it("places past 8th score nothing; a car missing from a round keeps a 0 place", () => {
+  it("when a round records nine of ten cars, then the car in 9th place scores nothing and the car missing from the round keeps a zero place", () => {
     const c = new Campaign(["oval"], field(10));
     c.record(Array.from({ length: 9 }, (_, i) => row(i, i + 1)));
     const st = c.standings();
@@ -607,7 +640,7 @@ describe("campaign", () => {
   });
 });
 
-describe("drafting", () => {
+describe("given a two-car race on the square track, where one car follows another", () => {
   /** Straight up +z from green at `v` m/s, `x` m across; the rule needs no road. */
   const straight =
     (x: number, z0: number, v: number): Driver =>
@@ -615,7 +648,7 @@ describe("drafting", () => {
   const leader = straight(0, 20, 30);
   const race = () => new RaceSession(square, field(2), { laps: 9, noReset: false });
 
-  it("a car held in a leader's trail earns one bonus per DRAFT.every s; the leader earns none", () => {
+  it("when a car is held in a leader's trail, then it earns one bonus per DRAFT.every (the drafting interval) seconds, none before the first interval, and the leader earns none", () => {
     const s = race();
     const follower = straight(0.5, 12, 30);
     runTo(s, [leader, follower], DRAFT.every - 0.1);
@@ -629,7 +662,7 @@ describe("drafting", () => {
     assert.equal(s.cars[0]!.draft, 0);
   });
 
-  it("none outside the trail: off its line, too far back, too close, under the speed floor, or a broken run", () => {
+  it("when the follower is 2.5 m off the leader's line, 20 m back, 1 m back, both at 12 m/s (under the speed floor) or on a broken run, then it earns no draft bonus and, the broken run aside, is never counted as drafting", () => {
     const cases: [string, Driver, Driver][] = [
       ["2.5 m off its line", leader, straight(2.5, 12, 30)],
       ["20 m back", leader, straight(0, 0, 30)],

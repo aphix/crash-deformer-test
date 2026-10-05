@@ -10,8 +10,8 @@ function hit(l: HighlightLedger<{ score: number }>, t: number, a: number, b: num
   return l.impact(t, a, b, v, impactEnergy(v, SEDAN, b < 0 ? Infinity : SEDAN), x, 0);
 }
 
-describe("highlight scoring", () => {
-  it("bad: a 4-car pile-up must outrank a single tap, and the tap must not make the reel", () => {
+describe("given a highlight ledger (the list of crash clusters scored for the highlight reel)", () => {
+  it("when a 4-car pile-up and a lone 20 km/h tap are scored, then the pile-up is one cluster that outranks the tap by more than 3 times and the tap does not make the reel", () => {
     const pile = new HighlightLedger();
     hit(pile, 10, 0, 1, kph(60));
     hit(pile, 10.3, 1, 2, kph(45));
@@ -25,7 +25,7 @@ describe("highlight scoring", () => {
     assert.ok(!tap.ranks(t.score), `a 20 km/h tap (${t.score.toFixed(2)}) must stay under MIN_SCORE ${MIN_SCORE}`);
   });
 
-  it("bad: an engine-destroying hit must outrank a wall scrape at the same speed", () => {
+  it("when an engine-destroying hit and a wall scrape happen at the same 50 km/h, then the engine-destroying hit scores more than 3 points above the scrape", () => {
     const kill = new HighlightLedger();
     hit(kill, 5, 0, 1, kph(50));
     kill.kill(5.05, 1, 0, 0);
@@ -34,7 +34,7 @@ describe("highlight scoring", () => {
     assert.ok(kill.open[0]!.score > scrape.open[0]!.score + 3, `kill ${kill.open[0]!.score.toFixed(1)} vs scrape ${scrape.open[0]!.score.toFixed(1)}`);
   });
 
-  it("bad: a driver thrown out is worth far more than a 100 km/h head-on, and a 20 km/h wall tap that throws one makes the reel alone", () => {
+  it("when a driver is thrown out in a 20 km/h wall tap, then the tap alone stays off the reel but the ejection scores far above a 100 km/h head-on, names the thrown car as the subject and makes the reel", () => {
     const head = new HighlightLedger();
     hit(head, 5, 0, 1, kph(100));
     const wall = new HighlightLedger();
@@ -48,7 +48,7 @@ describe("highlight scoring", () => {
     assert.ok(wall.ranks(thrown.score));
   });
 
-  it("bad: an impact counts only after a REHIT_S quiet spell and from IMPACT_MIN, car, wall or prop alike (one rule for the recorder and the replay)", () => {
+  it("when contacts come after different quiet spells and at different speeds, then a contact counts as an impact only after the quiet spell and from the minimum impact speed, whether car, wall or prop (one rule for the recorder and the replay)", () => {
     assert.equal(countsAsImpact(REHIT_S + 0.01, IMPACT_MIN), true);
     assert.equal(countsAsImpact(REHIT_S - 0.01, 30), false, "a contact 0.34 s after the last is grinding");
     assert.equal(countsAsImpact(5, IMPACT_MIN - 0.1), false, "a soft touch");
@@ -56,7 +56,7 @@ describe("highlight scoring", () => {
     assert.equal(countsAsImpact(Infinity, IMPACT_MIN), true, "the first ever contact");
   });
 
-  it("bad: impacts inside the quiet gap must merge into one cluster; a later one, or one far away with other cars, must not", () => {
+  it("when impacts land inside, outside and far from an open cluster, then those inside the quiet gap merge into one cluster while a later one, or a far one with other cars, opens its own, and a cluster stops growing past its maximum span", () => {
     const l = new HighlightLedger();
     const a = hit(l, 1, 0, 1, 10);
     assert.equal(hit(l, 1 + QUIET_GAP * 0.9, 1, 2, 10), a, "a shared car inside the gap joins");
@@ -71,7 +71,7 @@ describe("highlight scoring", () => {
     assert.notEqual(hit(long, MAX_SPAN + 1, 0, 1, 10), first, "past MAX_SPAN a cluster stops growing (the recorder's ring holds it)");
   });
 
-  it("bad: the ledger must keep only the TOP best clips, best first", () => {
+  it("when more clips are offered than the reel holds, then the ledger keeps only the best five, best first, and a clip below the fifth no longer ranks", () => {
     const l = new HighlightLedger<{ score: number }>();
     for (const score of [4, 9, 5, 12, 3.5, 7, 20, 6]) if (l.ranks(score)) l.keep({ score });
     assert.deepEqual(
@@ -82,7 +82,7 @@ describe("highlight scoring", () => {
     assert.ok(!l.ranks(5), "a clip below the fifth no longer ranks");
   });
 
-  it("bad: a cluster must be due only once its post-roll has passed, or at once when the race ends", () => {
+  it("when a cluster's last impact is 1 s old, 3.1 s old, or the race has ended, then it is due only once its post-roll has passed, or at once when the race ends", () => {
     const l = new HighlightLedger();
     hit(l, 10, 0, 1, 10);
     assert.equal(l.due(11), null);

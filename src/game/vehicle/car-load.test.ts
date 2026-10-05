@@ -71,16 +71,16 @@ function peak(s: Sample[], axis: "pitch" | "roll"): number {
   return s.reduce((m, x) => (Math.abs(x[axis]) > Math.abs(m) ? x[axis] : m), 0);
 }
 
-describe("load transfer: the drawn body squats, dives and leans", () => {
+describe("given a car driven on the road, whose drawn body squats, dives and leans with the load", () => {
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`good: ${cls} launches nose up, brakes nose down, within a few degrees`, () => {
+    it(`when a ${cls} launches from rest at full throttle and brakes hard from 25 m/s, then its body pitches nose up over 1° and nose down over 1°, each within ${PITCH_MAX[cls]}°`, () => {
       const launch = peak(drive(cls, 0, () => ({ throttle: 1 }), 3), "pitch");
       assert.ok(launch > 1 && launch <= PITCH_MAX[cls], `launch pitch ${launch.toFixed(2)}°`);
       const stop = peak(drive(cls, 25, () => ({ brake: 1 }), 3), "pitch");
       assert.ok(stop < -1 && stop >= -PITCH_MAX[cls], `braking pitch ${stop.toFixed(2)}°`);
     });
 
-    it(`good: ${cls} leans outward in a steady turn, mirrored each way, within ${ROLL_MAX}°`, () => {
+    it(`when a ${cls} holds a steady left turn and then a steady right turn, then its body leans outward by the same amount each way, by over 2° and within ${ROLL_MAX}°`, () => {
       // Steer +1 swings the nose left: the +x side is the inside and rises.
       const hold = (steer: number) => drive(cls, 20, (v) => ({ throttle: v < 20 ? 0.6 : 0.1, steer }), 4);
       const left = hold(1);
@@ -91,7 +91,7 @@ describe("load transfer: the drawn body squats, dives and leans", () => {
     });
   }
 
-  it("good: on a slope the body never pitches against the road: the load that would is gone, the load along it stays", () => {
+  it("when each class drives down a 5° descent at full throttle or brakes up a 5° climb, then its body never pitches 0.5° or more against the road, and driving up a climb or braking down a descent it still pitches with the road, over 0.8° and within its class limit", () => {
     // After the first 0.8 s: the spawn onto the slope kicks the springs (the pose turns to it).
     const settled = (s: Sample[]) => s.slice(Math.round(0.8 / FRAME));
     for (const cls of VEHICLE_CLASS_IDS) {
@@ -108,7 +108,7 @@ describe("load transfer: the drawn body squats, dives and leans", () => {
     }
   });
 
-  it("good: a stopped car is level, and one braked to a stop settles level", () => {
+  it("when each class sits still for 1 s, or a sedan brakes from 20 m/s to a stop, then the body is level at rest and level once stopped", () => {
     for (const cls of VEHICLE_CLASS_IDS) {
       const rest = drive(cls, 0, () => ({}), 1);
       assert.ok(Math.abs(peak(rest, "pitch")) + Math.abs(peak(rest, "roll")) < 0.01, `${cls} at rest`);
@@ -119,7 +119,7 @@ describe("load transfer: the drawn body squats, dives and leans", () => {
   });
 });
 
-describe("camera ride", () => {
+describe("given a chase camera that rides the car's drawn body, next to one that does not", () => {
   const H = 1 / 60;
   function rig(ride: boolean) {
     const cam = new THREE.PerspectiveCamera(56, 16 / 9, 0.1, 180);
@@ -148,7 +148,7 @@ describe("camera ride", () => {
     return { dy: b.cam.position.y - a.cam.position.y, tilt: a.cam.quaternion.angleTo(b.cam.quaternion) * DEG };
   }
 
-  it("good: a squat drops the eye and tips it up, a dive lifts and tips it down, a bump drops it; each under 4 cm and 0.6°", () => {
+  it("when the car's springs are pushed past their stops, then a squat drops the riding eye and tips it up, a dive lifts and tips it down, and a bump drops it, each by under 4 cm and 0.6°", () => {
     // Offsets well past the springs' stops (a sedan's are 6.5 cm): the bound holds for any input.
     const squat = against([0.2, 0.2, -0.2, -0.2], 2);
     assert.ok(squat.dy < -0.02 && squat.dy > -0.04, `squat drop ${(squat.dy * 100).toFixed(2)} cm`);
@@ -160,7 +160,7 @@ describe("camera ride", () => {
     assert.ok(bump.dy < -0.01 && bump.dy > -0.04 && bump.tilt < 0.01, `bump ${(bump.dy * 100).toFixed(2)} cm, ${bump.tilt.toFixed(3)}°`);
   });
 
-  it("good: a look offset the player holds is their own framing: the ride lets go of it", () => {
+  it("when the player holds a look offset while the springs squat, then the ride lets go of the camera and it matches the non-riding one to within 1 mm and 0.02°", () => {
     const held = against([0.2, 0.2, -0.2, -0.2], 0.7, [100, 0]);
     assert.ok(Math.abs(held.dy) < 0.001 && held.tilt < 0.02, `held look: ${(held.dy * 100).toFixed(3)} cm, ${held.tilt.toFixed(3)}°`);
   });

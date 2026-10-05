@@ -27,10 +27,10 @@ function sample(car = 1): Ejection {
 
 const arrays = (e: Ejection): unknown => ({ ...e, pos: e.pos.toArray(), local: e.local.toArray(), dir: e.dir.toArray(), quat: e.quat.toArray(), rel: e.rel.toArray(), carVel: e.carVel.toArray(), spin: e.spin.toArray() });
 
-describe("driverOut on the wire: the snapshot's flags byte", () => {
+describe("given a network snapshot whose per-car flags byte records whether the driver is out and by which door or pane", () => {
   const L: NetLayout = carLayout(makeCar());
 
-  it("bad: every pane code survives writeSnapshot -> readSnapshot beside the other flags, and a car at the wheel stays 0", () => {
+  it("when four cars with every pane code and mixed crashed and siren flags go through a snapshot write and read, then each pane code survives beside the other flags and a car at the wheel stays 0", () => {
     const s = makeSnapshot();
     ensureFrames(s, 4, L);
     s.count = 4;
@@ -48,7 +48,7 @@ describe("driverOut on the wire: the snapshot's flags byte", () => {
     assert.deepEqual(got.cars.slice(0, 4).map((c) => c.sirens), [false, false, false, true]);
   });
 
-  it("bad: a host car's flag reaches the frame (readCarPose) and a client car takes it from the drawn snapshot, then loses it at the reset", () => {
+  it("when a host car's driver leaves, then the host's frame carries it, a client car takes it from the drawn snapshot, and loses it again when the host puts him back", () => {
     const host = makeCar();
     host.driverOut = "doorL";
     const s: Snapshot = makeSnapshot();
@@ -68,8 +68,8 @@ describe("driverOut on the wire: the snapshot's flags byte", () => {
   });
 });
 
-describe("MSG.eject", () => {
-  it("bad: an event round-trips with its host clock, every number exact", () => {
+describe("given an eject message (the host telling clients a driver was thrown out)", () => {
+  it("when an event is written and read back with the host clock, then every number comes back exact", () => {
     const w = new Writer(256);
     writeEject(w, sample(), 12.625);
     const got = blankEjection();
@@ -79,7 +79,7 @@ describe("MSG.eject", () => {
     assert.equal(got.cop, true);
   });
 
-  it("bad: a car no field has, no pane and a non-finite number are refused as RangeErrors (a host never sends them)", () => {
+  it("when the car index is out of range, the pane code is invalid, or a number is not finite, then the read refuses each as a RangeError (a host never sends them)", () => {
     const bad = (mutate: (w: Writer) => void): void => {
       const w = new Writer(256);
       writeEject(w, sample(), 1);
@@ -93,7 +93,7 @@ describe("MSG.eject", () => {
   });
 });
 
-describe("EjectQueue: a client launches the host's dummy when its draw time reaches the host clock he left at", () => {
+describe("given a client's eject queue, which launches the host's thrown dummy when its draw time reaches the host clock the driver left at", () => {
   const msg = (e: Ejection, time: number): Reader => {
     const w = new Writer(256);
     writeEject(w, e, time);
@@ -101,7 +101,7 @@ describe("EjectQueue: a client launches the host's dummy when its draw time reac
   };
   const cars: DeformableCar[] = [makeCar(), makeCar(), makeCar()];
 
-  it("bad: nothing before its time, once at it, never again", () => {
+  it("when events arrive and draw time passes, then nothing launches before its time, one launch at it, and none again after", () => {
     const launched: Ejection[] = [];
     const game = { cars: () => cars, reelPlaying: () => false, launchEjection: (e: Ejection) => launched.push(e) };
     const q = new EjectQueue();
@@ -115,7 +115,7 @@ describe("EjectQueue: a client launches the host's dummy when its draw time reac
     assert.equal(launched.length, 1, "launched once");
   });
 
-  it("bad: a reel that plays owns the cars: the dummy is dropped, not launched late; so is a car this client lacks, and clear() forgets the queue", () => {
+  it("when a reel is playing, the car is missing here, or the queue is cleared, then the dummy is dropped rather than launched late", () => {
     const launched: Ejection[] = [];
     let reel = true;
     const game = { cars: () => cars, reelPlaying: () => reel, launchEjection: (e: Ejection) => launched.push(e) };
@@ -134,7 +134,7 @@ describe("EjectQueue: a client launches the host's dummy when its draw time reac
     assert.equal(launched.length, 0, "cleared");
   });
 
-  it("bad: events come out in clock order whatever the frame gap, and a flood is capped", () => {
+  it("when events arrive out of step with the frames and then a flood of 100 arrives, then they launch in clock order whatever the frame gap and the flood is capped", () => {
     const launched: number[] = [];
     const game = { cars: () => cars, reelPlaying: () => false, launchEjection: (e: Ejection) => launched.push(e.car) };
     const q = new EjectQueue();

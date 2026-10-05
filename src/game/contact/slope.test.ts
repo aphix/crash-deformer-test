@@ -41,28 +41,36 @@ function assertSlopeKeepsDents(kind: "head-on" | "t-bone", kph: number): void {
   }
 }
 
-describe("crashes on a side slope", () => {
-  afterEach(() => setGround(null));
-
-  it("bad: a 48 km/h head-on on a 6.8° side slope keeps the flat pad's dents, and no mass pops (3·v·h + 5 cm per slice)", () => {
-    assertSlopeKeepsDents("head-on", 48);
-  });
-
+const slopeCrashCases = [
+  { it: "when a 48 km/h head-on crashes on it, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "head-on", kph: 48 },
   // The struck car (facing uphill) used to level out at quiet 0.35 s to world level, not to the slope: the frame
   // turned 0.2 rad against masses resting on the ground, the cell shifted 0.058 m and the tail read 0.083 m of crush
   // (0.023 on the flat pad). It levels to the plane under its hubs now (RIG_ANALYSIS §6.14).
-  it("bad: a 50 km/h t-bone on a 6.8° side slope keeps the flat pad's dents, and no mass pops", () => {
-    assertSlopeKeepsDents("t-bone", 50);
-  });
-
+  { it: "when a 50 km/h T-bone crashes on it, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 50 },
   // ReplayFidelity2: the 50 km/h pass sat on a cliff. The slope's tightest dent margin against max(0.03 m, 15 %) at
   // 46 / 48 / 49 / 50 / 51 / 52 / 54 km/h was +0.0091 / +0.0064 / +0.0016 / +0.0006 / -0.0024 / -0.0387 / -0.0497 m
   // (the bullet's nose, 0.172 -> 0.202 m). Peak dents were the same on both grounds; the live car's suspension hung
   // world-vertical on the slope (the high-side hubs 0.16 m over the road, the low side on it) until it levelled out, so
   // at 52 km/h its cell sank 0.014 m (flat pad 0.106) and its nose sprang back 0.012 m (0.052). It hangs from the plane now.
-  for (let kph = 46; kph <= 56; kph++) {
-    it(`bad: sweep, a ${kph} km/h t-bone on a 6.8° side slope keeps the flat pad's dents, and no mass pops`, () => {
-      assertSlopeKeepsDents("t-bone", kph);
+  { it: "when the T-bone speed sweep reaches 46 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 46 },
+  { it: "when the T-bone speed sweep reaches 47 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 47 },
+  { it: "when the T-bone speed sweep reaches 48 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 48 },
+  { it: "when the T-bone speed sweep reaches 49 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 49 },
+  { it: "when the T-bone speed sweep reaches 50 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 50 },
+  { it: "when the T-bone speed sweep reaches 51 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 51 },
+  { it: "when the T-bone speed sweep reaches 52 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 52 },
+  { it: "when the T-bone speed sweep reaches 53 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 53 },
+  { it: "when the T-bone speed sweep reaches 54 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 54 },
+  { it: "when the T-bone speed sweep reaches 55 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 55 },
+  { it: "when the T-bone speed sweep reaches 56 km/h, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 56 },
+] as const;
+
+describe("given two cars crashing on a 6.8° side slope, and the same crash on the flat pad", () => {
+  afterEach(() => setGround(null));
+
+  for (const testCase of slopeCrashCases) {
+    it(testCase.it, () => {
+      assertSlopeKeepsDents(testCase.kind, testCase.kph);
     });
   }
 });

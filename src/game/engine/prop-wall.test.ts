@@ -71,9 +71,9 @@ function reach(car: DeformableCar): { past: number; inside: number } {
   return { past, inside };
 }
 
-describe("a solid prop pushes a car out on the side its centre is on", () => {
+describe("given a panel of the Havana alley wall (0.6 m thick) and a car with one corner 0.2 m past the panel's middle plane", () => {
   for (const cls of ["sedan", "truck"] as const) {
-    it(`${cls}: a tail corner 0.2 m past the panel's middle plane leaves by the face it came in at`, () => {
+    it(`when a ${cls}'s tail corner is 0.2 m past the middle plane, then it is pushed out by the face it came in at, with no corner past the far face and under 2 cm left in the slab`, () => {
       const w = alley();
       const car = makeCar(cls);
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
@@ -86,7 +86,7 @@ describe("a solid prop pushes a car out on the side its centre is on", () => {
       assert.ok(inside < 0.02, `${inside.toFixed(3)} m left in the slab`);
     });
 
-    it(`${cls}: a flank corner 0.2 m past the middle plane is pushed out the near face too`, () => {
+    it(`when a ${cls}'s flank corner is 0.2 m past the middle plane, then it is pushed out the near face too, with no corner past the far face`, () => {
       const w = alley();
       const car = makeCar(cls);
       const x0 = -40.45 + WALL_PROBES[1]![0];
@@ -144,7 +144,7 @@ function hit(cls: VehicleClassId, o: { dw: number; alpha: number; vdir: number; 
   return { car, past, inside: reach(car).inside, alive: car.deform.drivetrainAlive, drove: Math.hypot(car.group.position.x - hitEnd[0], car.group.position.z - hitEnd[1]) };
 }
 
-describe("a car swung into the alley wall with the handbrake and boost on", () => {
+describe("given the Havana alley wall and a car swung into it with the handbrake and boost on, in each of nine ways (at a seam between panels, and at a panel's middle)", () => {
   // Seam cases (dw 5: z = 17, the joint of two panels) are the ones that went through by up to 4 m before; the rest are the swing at a panel's middle.
   const CASES = [
     { dw: 5, alpha: 45 * D, vdir: -30 * D, speed: 24, steer: 1, ebrake: false },
@@ -159,7 +159,7 @@ describe("a car swung into the alley wall with the handbrake and boost on", () =
   ];
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pinned of [false, true]) {
-      it(`${cls}${pinned ? ", pinned by a cop ramming from behind" : ""}: no corner ends past the far face, and it is not left in the wall`, () => {
+      it(`when ${pinned ? `a ${cls} pinned by a cop ramming from behind` : `a ${cls}`} is swung in each of the nine ways, then no corner ends more than 2 cm past the far face, under 5 cm of it is left in the wall, and a car that survives alone drives out of the wall`, () => {
         for (const c of CASES) {
           const r = hit(cls, c, pinned);
           assert.ok(r.past < 0.02, `${JSON.stringify(c)}: ${r.past.toFixed(2)} m past the far face`);
@@ -172,7 +172,7 @@ describe("a car swung into the alley wall with the handbrake and boost on", () =
   }
 });
 
-describe("at a 120 Hz step (46 cm a step at 55 m/s, most of a panel's thickness)", () => {
+describe("given the Havana alley wall and a physics step of 1/120 s (46 cm a step at 55 m/s, most of a panel's thickness)", () => {
   const CASES = [
     { dw: 5, alpha: 45 * D, vdir: -30 * D, speed: 55, steer: 1, ebrake: false },
     { dw: 0, alpha: 60 * D, vdir: 0, speed: 55, steer: -1, ebrake: true },
@@ -180,7 +180,7 @@ describe("at a 120 Hz step (46 cm a step at 55 m/s, most of a panel's thickness)
   ];
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pinned of [false, true]) {
-      it(`${cls}${pinned ? ", pinned by a cop" : ""}: 55 m/s into the panels leaves no corner past the far face or in the slab`, () => {
+      it(`when ${pinned ? `a ${cls} pinned by a cop` : `a ${cls}`} drives into the panels at 55 m/s in each of three ways, then no corner ends more than 2 cm past the far face or more than 5 cm inside the slab`, () => {
         for (const c of CASES) {
           const r = hit(cls, c, pinned, 120);
           assert.ok(r.past < 0.02, `${JSON.stringify(c)}: ${r.past.toFixed(2)} m past the far face`);

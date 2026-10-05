@@ -17,8 +17,8 @@ function fields(d: object): unknown {
   return JSON.parse(JSON.stringify(d, plain));
 }
 
-describe("deform reset", () => {
-  it("bad: a car reset after a head-on crash has every deform field as built (hit clocks, pose, hulls, buffers, clusters)", () => {
+describe("given two cars that have crashed head-on at 20 m/s each for 90 frames, and a car that never crashed", () => {
+  it("when the crashed car is reset and the never-crashed one is reset too, then every deform field of the two is identical (hit clocks, pose, hulls, buffers, clusters)", () => {
     const scene = new THREE.Scene();
     const built = new DeformableCar(paint(), scene);
     const a = new DeformableCar(paint(), scene);

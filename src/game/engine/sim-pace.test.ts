@@ -56,10 +56,10 @@ function drawn(hz: number, jitter: number, blend: boolean, scale = 1): Drawn {
   return out;
 }
 
-describe("a car is drawn where its motion has it at the frame's time", () => {
+describe("given a car moving straight at 30 m/s while turning at 1.2 rad/s, drawn between its fixed sim steps by the pose blend", () => {
   for (const hz of [60, 144, 165, 240]) {
     for (const jitter of [0, 0.35]) {
-      it(`good: ${hz} Hz, frames ${jitter * 100}% uneven: within 1 µm and 1 µrad of the motion at the frame's time (undrawn: up to a step's travel off)`, () => {
+      it(`when frames come at ${hz} Hz, ${jitter * 100}% uneven, then the drawn car is within 1 µm and 1 µrad of where its motion puts it at the frame's time (undrawn it is up to a step's travel off)`, () => {
         const on = drawn(hz, jitter, true);
         const off = drawn(hz, jitter, false);
         assert.ok(on.worst < 1e-6, `blended: ${on.worst} m off`);
@@ -72,7 +72,7 @@ describe("a car is drawn where its motion has it at the frame's time", () => {
     }
   }
 
-  it("good: a frame that falls inside one step ran no step, and every frame at 240 Hz ran one", () => {
+  it("when frames come 1 ms apart (shorter than a step) or at 240 Hz, then most 1 ms frames run no step yet the car is still drawn on its motion, and every 240 Hz frame runs exactly one step", () => {
     const slow = drawn(1000, 0, true);
     assert.ok(slow.steps.filter((s) => s === 0).length > slow.steps.length / 2, "frames shorter than a step run none");
     assert.ok(slow.worst < 1e-6, `${slow.worst} m off`);
@@ -80,7 +80,7 @@ describe("a car is drawn where its motion has it at the frame's time", () => {
     assert.ok(same.every((s) => s === 1), `steps per frame ${[...new Set(same)]}`);
   });
 
-  it("good: in slow motion each step covers less sim time, so a frame still runs a step and the car still follows the frame's time", () => {
+  it("when the sim runs in slow motion at 60 or 240 Hz, then each step covers less sim time, so a frame still runs a step (after the first few) and the car is still drawn on its motion", () => {
     for (const hz of [60, 240]) {
       const slow = drawn(hz, 0, true, 0.032);
       assert.ok(slow.steps.slice(5).every((s) => s >= 1), `${hz} Hz: frames with no step ${slow.steps.filter((s) => s === 0).length}`);
@@ -89,7 +89,7 @@ describe("a car is drawn where its motion has it at the frame's time", () => {
   });
 });
 
-describe("a frame that cannot afford its steps never leaves a debt behind", () => {
+describe("given a frame that cannot afford all its steps (its time budget runs out)", () => {
   /** The pre-pacer loop: the frame's time added to `acc` (clamped to 0.05), drained in slices, a `break` on the frame's budget. */
   function oldLoop(frames: readonly { dt: number; over: boolean }[]): number[] {
     let acc = 0;
@@ -120,7 +120,7 @@ describe("a frame that cannot afford its steps never leaves a debt behind", () =
   const dt = 1 / 60;
   const frames = Array.from({ length: 30 }, (_, i) => ({ dt, over: i === 10 || i === 20 }));
 
-  it("bad: one late frame costs that frame's time alone: the next ones advance their own, where the old loop caught up in a burst", () => {
+  it("when one late frame misses its steps, then only that frame's time is lost and the next frames advance their own time, where the old catch-up loop ran a burst of extra steps", () => {
     const old = oldLoop(frames);
     assert.ok(Math.max(...old.slice(11, 15)) > 1.4 * dt, `the old loop's catch-up frame advanced only ${Math.max(...old.slice(11, 15))} s: no lurch to cure`);
     const { adv, lost } = paced(frames);
@@ -132,13 +132,13 @@ describe("a frame that cannot afford its steps never leaves a debt behind", () =
     assert.ok(Math.abs(lost - missed) < 2e-3, `lost ${lost} s, the two late frames ran ${missed} s short`);
   });
 
-  it("good: a sim that is behind in every frame runs slow by the same share each frame", () => {
+  it("when the sim is behind in every frame, then it runs slow by the same share in each frame", () => {
     const { adv } = paced(Array.from({ length: 20 }, () => ({ dt, over: true })));
     assert.ok(adv.every((a) => Math.abs(a - adv[0]!) < 1e-9), `advances ${[...new Set(adv)]}`);
   });
 });
 
-describe("the blend leaves the sim exactly as it was", () => {
+describe("given a head-on crash at 165 Hz frames, with or without the pose drawn between the steps", () => {
   /** A head-on crash at 165 Hz frames, drawn between the steps (or not): every car's state after every frame. */
   function crash(blend: boolean): { states: Float64Array[]; blended: number; freed: number } {
     const scene = new THREE.Scene();
@@ -185,7 +185,7 @@ describe("the blend leaves the sim exactly as it was", () => {
     return { states, blended, freed };
   }
 
-  it("bad: a crash that tears parts off, run drawn between its steps every frame, ends every frame in the bits of the same crash never drawn", () => {
+  it("when the crash that tears parts off is run with the pose drawn between its steps every frame, then every frame ends in exactly the same bits as the same crash never drawn", () => {
     const off = crash(false);
     const on = crash(true);
     assert.ok(on.blended > 100, `the blend moved a car in only ${on.blended} frame-cars: nothing was drawn between steps`);
@@ -194,7 +194,7 @@ describe("the blend leaves the sim exactly as it was", () => {
   });
 });
 
-describe("a body is drawn as it stands when the blend would smear it", () => {
+describe("given a car drawn between steps by the pose blend, where blending would smear it", () => {
   function two() {
     const car = new DeformableCar(paint(), new THREE.Scene());
     const pose = new PoseBlend();
@@ -202,7 +202,7 @@ describe("a body is drawn as it stands when the blend would smear it", () => {
     return { car, pose, cars };
   }
 
-  it("good: a car placed more than 5 m in one step is drawn where it landed", () => {
+  it("when the car was placed more than 5 m in one step, then it is drawn where it landed", () => {
     const { car, pose, cars } = two();
     pose.begin(cars);
     car.group.position.x += 100;
@@ -211,7 +211,7 @@ describe("a body is drawn as it stands when the blend would smear it", () => {
     assert.equal(car.group.position.x, 100);
   });
 
-  it("good: a car moved after the step (a respawn between frames) is drawn where it was put, and kept there", () => {
+  it("when the car is moved after the step (a respawn between frames), then it is drawn where it was put and kept there once the blend is undone", () => {
     const { car, pose, cars } = two();
     pose.begin(cars);
     car.group.position.x += 1;
@@ -223,7 +223,7 @@ describe("a body is drawn as it stands when the blend would smear it", () => {
     assert.equal(car.group.position.x, 3);
   });
 
-  it("good: halfway is halfway, the heading the short way round", () => {
+  it("when the car is drawn halfway between a heading of 3 rad and one of -3 rad, then it is halfway along its path and its heading is π, the short way round", () => {
     const { car, pose, cars } = two();
     car.group.rotation.set(0, 3, 0, "YXZ");
     pose.begin(cars);
@@ -264,11 +264,11 @@ function device(adaptive: boolean, stepMs: (t: number, n: number) => number, dra
   return { pace, log, speed: stepped / scale / (t / 1000) };
 }
 
-describe("the adaptive slice", () => {
+describe("given the adaptive pacer, which steps the sim at 1/120 s on a device that cannot keep up with 1/240 s steps", () => {
   const fine = Math.fround(1 / 240);
   const coarse = Math.fround(1 / 120);
 
-  it("good: a device that keeps up steps at 1/240 s throughout, the very steps the fixed pacer takes", () => {
+  it("when the device keeps up (0.8 ms a step, 4 ms of draw, a 90 Hz screen), then it steps at 1/240 s throughout, at the very times the fixed pacer steps", () => {
     const on = device(true, () => 0.8, 4, 90, 8);
     const off = device(false, () => 0.8, 4, 90, 8);
     assert.equal(on.pace.coarseSteps, 0);
@@ -277,7 +277,7 @@ describe("the adaptive slice", () => {
     assert.ok(on.log.every((e, i) => e.h === off.log[i]!.h && e.at === off.log[i]!.at), "the same steps at the same times");
   });
 
-  it("bad: a device that can't afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen) gets its sim speed back at 1/120 s", () => {
+  it("when the device cannot afford 1/240 s steps (4.7 ms each, 9.4 ms of draw, a 90 Hz screen), then the fixed pacer runs under 0.45 of real time while the adaptive one settles at 1/120 s and gets its sim speed back", () => {
     const off = device(false, () => 4.7, 9.4, 90, 20);
     const on = device(true, () => 4.7, 9.4, 90, 20);
     assert.ok(off.speed < 0.45, `the fixed pacer runs at ${off.speed}`);
@@ -286,7 +286,7 @@ describe("the adaptive slice", () => {
     assert.ok(on.pace.coarseSteps > 0.8 * on.pace.total);
   });
 
-  it("good: the mode is chosen before a frame's first step and held for a second, and it comes back when the load goes", () => {
+  it("when the load is heavy for 6 s and then light, then the step size is chosen before a frame's first step, each size is held for about a second, and it returns to 1/240 s once the load goes", () => {
     // Heavy for 6 s, then light: 4.7 ms a step, then 0.6.
     const d = device(true, (t) => (t < 6000 ? 4.7 : 0.6), 5, 90, 14);
     let flips = 0;
@@ -306,12 +306,12 @@ describe("the adaptive slice", () => {
     assert.ok(d.log.some((e) => e.h === coarse));
   });
 
-  it("good: one hitch (a 40 ms step, then a 100 ms frame) on a fast device changes nothing", () => {
+  it("when one hitch (a 40 ms step, then a 100 ms frame) hits a fast device, then it never leaves 1/240 s steps", () => {
     const d = device(true, (_t, n) => (n === 700 ? 40 : 0.8), 4, 90, 10);
     assert.equal(d.pace.coarseSteps, 0);
   });
 
-  it("good: in slow motion the coarse step is the scaled one, and the dwell counts wall seconds", () => {
+  it("when the load is heavy in slow motion at a quarter of real time, then the coarse step is the scaled 1/120 s step and the wait before the first change counts wall seconds", () => {
     const d = device(true, () => 6, 4, 90, 12, 0.25);
     assert.ok(d.log.slice(-100).every((e) => e.h === Math.fround(coarse * 0.25)));
     const first = d.log.findIndex((e) => e.h !== d.log[0]!.h);

@@ -20,23 +20,23 @@ function charge(age: number, foeVz = -20, z = 18): { brain: DerbyBrain; out: { t
   return { brain, out: { throttle: out.throttle, brake: out.brake, boost: out.boost } };
 }
 
-describe("derby opening caution", () => {
-  it("bad: in the opening a nose closing at 40 m/s on a rival 18 m ahead lifts and brakes, no boost", () => {
+describe("given a fully aggressive driver doing 20 m/s that has not yet landed a hit of its own", () => {
+  it("when a rival 18 m dead ahead closes at 40 m/s in the first 2 s of the heat, then the driver lifts off the throttle, brakes hard and does not boost", () => {
     const { out } = charge(2);
     assert.ok(out.throttle <= 0 && out.brake > 0.5 && !out.boost, JSON.stringify(out));
   });
 
-  it("good: the same charge after 8 s is untouched: it keeps the gas", () => {
+  it("when the same 40 m/s charge happens 9 s into the heat, then the driver keeps the gas and does not brake", () => {
     const { out } = charge(9);
     assert.ok(out.throttle > 0 && out.brake === 0, JSON.stringify(out));
   });
 
-  it("good: a slow closing speed in the opening is not lifted for (the derby still gets going)", () => {
+  it("when the rival 18 m ahead closes at only 2 m/s in the first 2 s of the heat, then the driver keeps the gas and does not brake", () => {
     const { out } = charge(2, 18);
     assert.ok(out.throttle > 0 && out.brake === 0, JSON.stringify(out));
   });
 
-  it("good: after the car's own first aggressive hit the caution is over", () => {
+  it("when the driver lands its first aggressive hit 2 s into the heat, then the opening caution is over and it keeps the gas against the same charge", () => {
     const brain = new DerbyBrain();
     brain.setAggression(0, 1);
     const self = aiCar(0, { vz: 20, rear: 0.9, damage: 0.3, idle: 30 });
@@ -49,12 +49,12 @@ describe("derby opening caution", () => {
     assert.ok(out.throttle > 0 && out.brake === 0, JSON.stringify({ ...out }));
   });
 
-  it("good: a rival behind the nose is not lifted for", () => {
+  it("when the only rival is 18 m behind the nose, then the driver does not brake", () => {
     const { out } = charge(2, 20, -18);
     assert.ok(out.brake === 0, JSON.stringify(out));
   });
 
-  it("bad: a rival crossing ahead at a low range rate still lifts a nose closing at 8 m/s along its heading", () => {
+  it("when a stationary rival 5 m away at 37 degrees off the nose is met at 8 m/s along the heading, then the driver still lifts, brakes hard and does not boost even though the range closes at only 6.4 m/s", () => {
     const brain = new DerbyBrain();
     brain.setAggression(0, 1);
     const self = aiCar(0, { vz: 8, rear: 0.9, damage: 0.3, idle: 1000 });

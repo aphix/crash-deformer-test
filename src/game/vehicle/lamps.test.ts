@@ -66,8 +66,8 @@ function spawned(mode: "lattice" | "shape"): DeformableCar {
   return car;
 }
 
-forModes("lamps live on the body and break per corner", (mode) => {
-  it("good: a front-left crush puts out the left headlamp alone", () => {
+forModes("given a car whose lamps live on the body and break per corner", (mode) => {
+  it("when the front-left corner is crushed, then the left headlamp alone goes out", () => {
     const car = spawned(mode);
     crushFrontLeft(car);
     const rows = lampRows(car);
@@ -78,7 +78,7 @@ forModes("lamps live on the body and break per corner", (mode) => {
     assert.deepEqual(batch.meshes.map((m) => m.count), [1, 1, 2, 0], "drawn as head lit / head broken / tail lit / tail broken");
   });
 
-  it("good: the crushed corner carries its lamp with the skin, and the lamp stays seated on it", () => {
+  it("when the front-left corner is crushed, then the crushed corner carries its lamp with the skin and the lamp stays seated on it", () => {
     const car = spawned(mode);
     const rest = lampLocal(car, HEAD_L);
     crushFrontLeft(car);
@@ -90,7 +90,7 @@ forModes("lamps live on the body and break per corner", (mode) => {
     }
   });
 
-  it("close-but-wrong: a deferred (LoD) skin re-seats the lamp when it is flushed, not before", () => {
+  it("when the crushed corner is on a deferred (level-of-detail) skin, then the lamp is re-seated when the skin is flushed, not before", () => {
     const car = spawned(mode);
     const rest = lampLocal(car, HEAD_L);
     crushFrontLeft(car, true);
@@ -102,8 +102,8 @@ forModes("lamps live on the body and break per corner", (mode) => {
   });
 });
 
-describe("a detached bumper leaves the lamps behind", () => {
-  it("bad: tearing the front bumper off with no corner crush keeps every lamp lit and on the body", () => {
+describe("given a car whose front bumper is torn off with no corner crush (a detached bumper leaves the lamps behind)", () => {
+  it("when the bumper comes away, then every lamp stays lit and on the body", () => {
     const car = new DeformableCar(paint(), new THREE.Scene());
     car.spawn(8, 12, 0);
     const before = [0, 1, 2, 3].map((i) => lampLocal(car, i));
@@ -121,10 +121,10 @@ describe("a detached bumper leaves the lamps behind", () => {
   });
 });
 
-describe("every body seats its own lamps", () => {
+describe("given every body style fitted with its own lamps", () => {
   const bodies: [CarStyleId, VehicleClassId][] = [...CAR_STYLE_IDS.map((s): [CarStyleId, VehicleClassId] => [s, STYLE_CLASS[s]]), ["pickup", "monster"]];
   for (const [style, cls] of bodies) {
-    it(`good: ${style} as ${cls} — each housing sits whole on its end panel, faces out, and lights from where it is drawn`, () => {
+    it(`when a ${style} body is given the ${cls} class, then each housing sits whole on its end panel, faces out, and lights from where it is drawn`, () => {
       const car = new DeformableCar(paint(), new THREE.Scene(), null, style);
       assignClass(car, cls);
       car.group.updateMatrixWorld(true);
@@ -169,7 +169,7 @@ describe("every body seats its own lamps", () => {
   }
 });
 
-describe("lamp light pool", () => {
+describe("given the lamp light pool with a followed car far ahead, a nearer car between and a nearest car behind the camera", () => {
   /** Followed car far ahead, a nearer car between, a nearest car behind the camera. */
   function rig(): { lights: LampLights; scene: THREE.Scene; camera: THREE.PerspectiveCamera; far: DeformableCar; near: DeformableCar; behind: DeformableCar } {
     const scene = new THREE.Scene();
@@ -202,7 +202,7 @@ describe("lamp light pool", () => {
     return false;
   };
 
-  it("good: the followed car's headlamps get spots first, then the nearest on-screen ones; every intact lamp glows", () => {
+  it("when the pool updates, then the followed car's headlamps get spots first, then the nearest on-screen ones, and every intact lamp glows", () => {
     const { lights, camera, far, near, behind } = rig();
     lights.update([far, near, behind], camera, far);
     const want = [far, far, near, near].slice(0, SPOT_POOL);
@@ -210,7 +210,7 @@ describe("lamp light pool", () => {
     assert.equal(lights.glow.geometry.drawRange.count, 12);
   });
 
-  it("bad: a broken lamp never gets a light or a glow; spare spots go dark, never away", () => {
+  it("when a lamp is broken, then it never gets a light or a glow, and spare spots go dark, never away", () => {
     const { lights, scene, camera, far, near } = rig();
     lights.update([far, near], camera, far);
     const count = lightCount(scene);
@@ -225,7 +225,7 @@ describe("lamp light pool", () => {
     assert.equal(lightCount(scene), count, "the pool added or hid a light");
   });
 
-  it("good: police sirens flash red then blue, each lit lens taking a pooled point in its colour; off, nothing", () => {
+  it("when a police car's sirens are on, then they flash red then blue, each lit lens taking a pooled point in its colour, and with sirens off nothing is lit", () => {
     const { lights, scene, camera, far } = rig();
     const cop = new DeformableCar(paint(), scene, null, "police");
     cop.spawnFacing(-3, 8, 0, 0);

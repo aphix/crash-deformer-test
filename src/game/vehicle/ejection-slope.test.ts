@@ -99,13 +99,13 @@ function crashedRun(trk: Track, cls: VehicleClassId, pace: number, hit: Hit, s0:
 /** The most the block may move over ground with nothing touching the car (m): the noise of the lattice settling. */
 const DRIFT = 0.005;
 
-describe("a car that was hit once and drives on is not killed, and its driver not thrown, by the ground", () => {
+describe("given a car that was hit once earlier and drives on, which the ground must not kill or throw its driver", () => {
   afterEach(() => setGround(null));
 
   const stunt = track("stunt");
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pace of [20, 30, 38]) {
-      it(`bad: ${cls}, hit on its flank, over the stunt CRUSH crest and down the kicker at ${pace} m/s: the engine block stays put, nobody is thrown`, (t) => {
+      it(`when a ${cls} hit on its flank drives over the stunt course's CRUSH crest and down the kicker at ${pace} m/s, then the engine block stays put and nobody is thrown`, (t) => {
         const r = crashedRun(stunt, cls, pace, "side", 860, 960);
         t.diagnostic(`${cls} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm, ended at s ${r.endS.toFixed(0)}`);
         assert.ok(r.endS > 950, `the run reached s ${r.endS.toFixed(0)}`);
@@ -123,7 +123,7 @@ describe("a car that was hit once and drives on is not killed, and its driver no
   // side or rear hit's block against the cabin and only while the frame sits on it (to PLANT_QUIET): the touch adds none.
   for (const cls of VEHICLE_CLASS_IDS) {
     for (const pace of [20, 30, 38]) {
-      it(`bad: ${cls}, hit on its flank, then touched all the way over the stunt CRUSH crest (s 885-902) at ${pace} m/s: the touch adds under 5 mm of block travel`, (t) => {
+      it(`when a ${cls} hit on its flank is touched all the way over the stunt course's CRUSH crest (s 885-902) at ${pace} m/s, then the touch adds under 5 mm of engine-block travel`, (t) => {
         const r = crashedRun(stunt, cls, pace, "side", 860, 960, [885, 902]);
         t.diagnostic(`${cls} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm`);
         assert.ok(r.endS > 950, `the run reached s ${r.endS.toFixed(0)}`);
@@ -135,7 +135,7 @@ describe("a car that was hit once and drives on is not killed, and its driver no
 
   for (const hit of ["rear", "front"] as const) {
     for (const cls of ["sedan", "truck"] as const) {
-      it(`bad: ${cls}, hit on its ${hit}, over the crest at 30 m/s: the engine block stays put, nobody is thrown`, () => {
+      it(`when a ${cls} hit on its ${hit} drives over the crest at 30 m/s, then the engine block stays put and nobody is thrown`, () => {
         const r = crashedRun(stunt, cls, 30, hit, 860, 960);
         assert.ok(r.end - r.settled <= DRIFT, `the block moved ${((r.end - r.settled) * 1000).toFixed(0)} mm with nothing touching the car`);
         assert.ok(r.alive, "the engine died");
@@ -147,7 +147,7 @@ describe("a car that was hit once and drives on is not killed, and its driver no
   // Every course's whole loop: the stunt bowl (banks to 15 deg) and crest, the oval's banks, the rally hairpin and its climbs.
   for (const course of TRACKS.map((j) => parseTrack(j).id).filter((id) => id !== "city")) {
     for (const pace of [25, 32]) {
-      it(`bad: ${course}, a damaged sedan round the whole loop at ${pace} m/s (banks, crests, climbs): the engine block stays put, nobody is thrown`, (t) => {
+      it(`when a damaged sedan drives the whole ${course} loop at ${pace} m/s (banks, crests, climbs), then the engine block stays put and nobody is thrown`, (t) => {
         const trk = track(course);
         const r = crashedRun(trk, "sedan", pace, "side", 60, trk.length - 30);
         t.diagnostic(`${course} ${pace} m/s: block travel ${(r.settled * 1000).toFixed(1)} -> ${(r.end * 1000).toFixed(1)} mm, ended at s ${r.endS.toFixed(0)} of ${trk.length.toFixed(0)}`);

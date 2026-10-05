@@ -40,8 +40,8 @@ function stepWall(s: ReturnType<typeof spawnOffset>, dt: number, contactX: numbe
   s.d.update(s.geom);
 }
 
-forModes("banana lattice / corner crush", (mode) => {
-  it("good: right-front wall tucks FR more in Z than FL, rear does not grow", () => {
+forModes("given a car driving at 14 m/s into a wall that meets one front corner", (mode) => {
+  it("when the wall hits the right-front corner, then the right-front bumper sits at least 8 cm further back than the left-front one and the rear bumper stays at least 1.95 m behind the middle (1.9 m in shape mode)", () => {
     const s = spawnOffset(0.62, 14, mode);
     for (let i = 0; i < 24; i++) stepWall(s, DT, mass(s.d, "bumperFR").world.x);
     const flz = mass(s.d, "bumperFL").local.z;
@@ -51,7 +51,7 @@ forModes("banana lattice / corner crush", (mode) => {
     assert.ok(rlz <= (mode === "shape" ? -1.9 : -1.95), `rear extruded to ${rlz.toFixed(3)}`);
   });
 
-  it("good: opposite corner stays wider in X (plan-view banana)", () => {
+  it("when the wall hits the right-front corner, then the two front bumper corners stay more than 0.7 m apart across the car, the far corner staying wide as the nose bends sideways", () => {
     const s = spawnOffset(0.62, 14, mode);
     for (let i = 0; i < 22; i++) stepWall(s, DT, mass(s.d, "bumperFR").world.x);
     const r = mass(s.d, "bumperFR").local.x;
@@ -59,7 +59,7 @@ forModes("banana lattice / corner crush", (mode) => {
     assert.ok(r > l + 0.7, `track collapsed: FL.x=${l.toFixed(3)} FR.x=${r.toFixed(3)}`);
   });
 
-  it("bad: a left hit must not invert the banana", () => {
+  it("when the wall hits the left-front corner, then the left-front bumper sits at least 6 cm further back than the right-front one, so the sideways bend is not mirrored the wrong way", () => {
     const s = spawnOffset(-0.62, 14, mode);
     for (let i = 0; i < 22; i++) stepWall(s, DT, mass(s.d, "bumperFL").world.x);
     const flz = mass(s.d, "bumperFL").local.z;
@@ -67,7 +67,7 @@ forModes("banana lattice / corner crush", (mode) => {
     assert.ok(flz < frz - 0.06, `inverted banana L=${flz.toFixed(3)} R=${frz.toFixed(3)}`);
   });
 
-  it("close-but-wrong: squash=0.7 crushes the hit corner more than squash=0.2", () => {
+  it("when the squash slider (how readily the body crushes) is 0.7 instead of 0.2 and the wall hits the right-front corner, then the hit corner is pushed back more than 1.15 times as far", () => {
     const lo = spawnOffset(0.62, 14, mode);
     lo.d.squash = 0.2;
     const hi = spawnOffset(0.62, 14, mode);
@@ -82,14 +82,14 @@ forModes("banana lattice / corner crush", (mode) => {
   });
 });
 
-forModes("CoG / followGroup", (mode) => {
-  it("good: after a frontal pulse the body stays on the road", () => {
+forModes("given a car driving at 14 m/s head-on into a wall", (mode) => {
+  it("when its nose is crushed by the first 20 frames of the hit, then the car body stays on the road, below 0.15 m high", () => {
     const s = spawnOffset(0, 14, mode);
     for (let i = 0; i < 20; i++) stepWall(s, DT, 0);
     assert.ok(s.group.position.y < 0.15, `lofted to y=${s.group.position.y}`);
   });
 
-  it("good: group XZ tracks the cell, not the crushed bumper", () => {
+  it("when its nose is crushed by the first 20 frames of the hit, then the car body's position follows the cabin block (within 0.35 m sideways and 0.45 m lengthwise), not the crushed bumper", () => {
     const s = spawnOffset(0, 14, mode);
     for (let i = 0; i < 20; i++) stepWall(s, DT, 0);
     const cell = mass(s.d, "cell");
@@ -97,7 +97,7 @@ forModes("CoG / followGroup", (mode) => {
     assert.ok(Math.abs(s.group.position.z - (cell.world.z - cell.rest.z)) < 0.45);
   });
 
-  it("close-but-wrong: leftover crumple drops as the nose shortens", () => {
+  it("when the nose shortens over 28 frames, then the front bumper has moved back at least 8 cm (2 cm in shape mode) or sits over 5 cm from its rest position, and the remaining-crumple fraction is at most 1", () => {
     const s = spawnOffset(0, 14, mode);
     const z0 = mass(s.d, "bumperFL").local.z;
     for (let i = 0; i < 28; i++) stepWall(s, DT, 0);
@@ -111,8 +111,8 @@ forModes("CoG / followGroup", (mode) => {
   });
 });
 
-describe("torsion / tension beams [lattice]", () => {
-  it("good: a stretched beam reports positive strain and stays alive", () => {
+describe("given a car in lattice deform mode (a lattice of beams joins its parts)", () => {
+  it("when the front bumper's two corners are each pulled 0.4 m outward, then the beam between them reports stretch (strain above 0.05) and is still intact", () => {
     const s = spawnOffset(0, 14, "lattice");
     const beam = s.d.snapshot() as { beams: { a: string; b: string; rest: number }[] };
     const spec = beam.beams.find((b) => b.a === "bumperFL" && b.b === "bumperFR");
@@ -128,7 +128,7 @@ describe("torsion / tension beams [lattice]", () => {
     assert.ok(b.strain > 0.05, `tension strain ${b.strain}`);
   });
 
-  it("good: a compressed front beam reports negative strain", () => {
+  it("when the nose is crushed head-on for 16 frames, then the beam from the left engine mount to the cabin reports compression (strain below -0.02)", () => {
     const s = spawnOffset(0, 14, "lattice");
     for (let i = 0; i < 16; i++) stepWall(s, DT, 0);
     const snap = s.d.snapshot() as { beams: { a: string; b: string; strain: number }[] };
@@ -136,7 +136,7 @@ describe("torsion / tension beams [lattice]", () => {
     assert.ok(b.strain < -0.02, `expected compression, got ${b.strain}`);
   });
 
-  it("bad: far-side bumper beam must not go plastic on a right-front hit", () => {
+  it("when the wall hits the right-front corner, then the rear bumper's cross beam keeps over 92 % of its rest length, so the far side is not squashed", () => {
     const s = spawnOffset(0.62, 14, "lattice");
     for (let i = 0; i < 16; i++) stepWall(s, DT, mass(s.d, "bumperFR").world.x);
     const snap = s.d.snapshot() as { beams: { a: string; b: string; plastic: number; rest: number }[] };
@@ -145,7 +145,7 @@ describe("torsion / tension beams [lattice]", () => {
   });
 });
 
-forModes("doors hinge then detach", (mode) => {
+forModes("given a car struck on its right side at 28 m/s, with the contact held for 45 frames", (mode) => {
   /** The engine's right-door hit (28 m/s closing) held for 45 frames; returns the parts by name. */
   const rightSideHit = (): Record<string, PartRow> => {
     const scene = new THREE.Scene();
@@ -169,19 +169,21 @@ forModes("doors hinge then detach", (mode) => {
     return Object.fromEntries(snap.parts.map((p) => [p.name, p]));
   };
 
-  it("good: a right-side hit opens the right door, not the left", () => {
+  it("when the hit settles, then the right door has opened (hinge past 0.15) and by at least 0.08 more than the left door", () => {
     const { doorR: r, doorL: l } = rightSideHit();
     assert.ok(r!.hingeT > 0.15, `right door never hinged (${r!.hingeT})`);
     assert.ok(r!.hingeT > l!.hingeT + 0.08, `doors tied together R=${r!.hingeT} L=${l!.hingeT}`);
   });
 
-  it("bad: the right-side hit folds or breaks the right mirror and leaves the left one alone (C3)", () => {
+  it("when the hit settles, then the right mirror has folded (hinge past 0.3) or broken off, and the left mirror is untouched, not detached and not hinged", () => {
     const { mirrorR: r, mirrorL: l } = rightSideHit();
     assert.ok(r!.detached || r!.hingeT > 0.3, `right mirror untouched (${r!.hingeT})`);
     assert.ok(!l!.detached && l!.hingeT === 0, `left mirror moved (${l!.hingeT}, detached ${l!.detached})`);
   });
+});
 
-  it("good: front bumper folds then can detach on a hard nose hit", () => {
+forModes("given a car hit on its nose at 40 m/s, with the contact held for 50 frames", (mode) => {
+  it("when the nose hit settles, then the front bumper has folded (hinge past 0.2) or detached", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -203,8 +205,10 @@ forModes("doors hinge then detach", (mode) => {
     const b = snap.parts.find((p) => p.name === "bumperF")!;
     assert.ok(b.hingeT > 0.2 || b.detached, `bumper never folded (${b.hingeT})`);
   });
+});
 
-  it("bad: detached parts are in world space (not still parented at rest local)", () => {
+forModes("given a car spawned far from the map's origin and hit on its nose at 50 m/s, with the contact held for 60 frames", (mode) => {
+  it("when parts detach, then some do and every loose part lies in world space near the car (within 30 m of it, above the ground), not at its rest position near the origin", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -234,8 +238,10 @@ forModes("doors hinge then detach", (mode) => {
       assert.ok(off < 30, `${p.name} lies ${off.toFixed(1)} m from its car`);
     }
   });
+});
 
-  it("bad: disposing a car frees its attached and loose parts' geometry and own materials (C14)", () => {
+forModes("given a car with one part detached", () => {
+  it("when the car is disposed of, then the geometry and own materials of its attached and loose parts are all freed", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.spawn(0, 0, 0);
@@ -253,8 +259,10 @@ forModes("doors hinge then detach", (mode) => {
     car.dispose();
     assert.equal(live.size, 0, `${live.size} part geometries/materials left undisposed`);
   });
+});
 
-  it("bad: a popped wheel leaves the car as its own body, lands on its tyre and slides to rest; four gone kill the car", () => {
+forModes("given a car whose wheel hubs all pop off after a 2 m/s nose knock", (mode) => {
+  it("when it runs for 5 s, then each wheel leaves the car as its own body, lands on its tyre at ground level and stops sliding, and the drivetrain is dead with no wheels left", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -276,8 +284,10 @@ forModes("doors hinge then detach", (mode) => {
       assert.ok(w.position.distanceTo(before[k]!) < 1e-3, `wheel ${k} still sliding after 5 s`);
     });
   });
+});
 
-  it("close-but-wrong: headlights are independent — a right-front crush must not kill the left lamp first", () => {
+forModes("given a car hit on its right-front corner at 22 m/s, with the contact held for 20 frames", (mode) => {
+  it("when the right-front corner is crushed, then the left headlight is not destroyed before the right one", () => {
     const scene = new THREE.Scene();
     const car = new DeformableCar(paint(), scene);
     car.deform.setMode(mode);
@@ -302,8 +312,8 @@ forModes("doors hinge then detach", (mode) => {
   });
 });
 
-describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () => {
-  it("bad: a 30 km/h side slide springs the struck door but keeps it on; frontal and offset 64 km/h walls latch both doors (C1)", () => {
+describe("given a car hitting a wall", () => {
+  it("when it slides sideways into it at 30 km/h, or hits it head-on at 64 km/h full-width or with a 40 % offset, then the 30 km/h slide springs the struck door (hinge past 0.15) without tearing it off, and neither 64 km/h hit tears a door off or opens one past 0.2", () => {
     const side = runWall(30, 1, "side");
     assert.ok(!side.detached.includes("doorL"), `30 km/h side slide tore the door off: ${side.detached.join(",")}`);
     assert.ok(side.hinge.doorL! > 0.15, `struck door never sprang (${side.hinge.doorL})`);
@@ -312,8 +322,10 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
       assert.ok(Math.max(r.hinge.doorL!, r.hinge.doorR!) <= 0.2, `${name} doors L=${r.hinge.doorL} R=${r.hinge.doorR}`);
     }
   });
+});
 
-  it("bad: a slow hit that folds the bumper hard leaves it on; a 56 km/h wall tears it off (C2)", () => {
+describe("given a car's front bumper, in shape deform mode", () => {
+  it("when the car takes a 25 km/h nose hit and, separately, hits a wall at 56 km/h, then the 25 km/h hit folds the bumper (hinge past 0.1) but leaves it on, and the 56 km/h wall tears it off", () => {
     const car = new DeformableCar(paint(), new THREE.Scene());
     car.deform.setMode("shape");
     car.spawn(8, 12, 16);
@@ -334,28 +346,36 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
     assert.ok(!bumper.detached && bumper.hingeT > 0.1, `25 km/h EBS: hingeT ${bumper.hingeT} detached ${bumper.detached}`);
     assert.ok(runWall(56).detached.includes("bumperF"), "56 km/h wall kept the bumper");
   });
+});
 
-  it("bad: a wheel leaves on a hard small-overlap hit only — not in a 2×56 km/h head-on or on a 50 km/h T-bone's struck car (C4)", () => {
+describe("given a wheel that leaves its car only on a hard small-overlap hit", () => {
+  it("when cars hit a wall at 64 km/h with a 40 % offset, head-on at 2×56 km/h, and as the struck car of a 50 km/h T-bone, then only the front-left wheel leaves in the offset wall hit, fewer than two leave each car of the head-on and none leaves the struck car", () => {
     assert.deepEqual(runWall(64, 0.4).hubsPopped, ["hubFL"], "64 km/h 40 % offset");
     for (const r of runPair(56, 56)) assert.ok(r.hubsPopped.length < 2, `2×56 head-on popped ${r.hubsPopped.join(",")}`);
     const [struck] = runPair(0, 50, "t-bone");
     assert.deepEqual(struck.hubsPopped, [], "T-bone struck car");
   });
+});
 
-  it("good: a corner crushed to within 0.12 m of its hub loses the wheel on any real hit, however wide: a 2×80 km/h head-on takes both front wheels off both cars, a full-width wall or 2×56 head-on takes none", () => {
+describe("given a corner crushed to within 0.12 m of its wheel hub", () => {
+  it("when cars hit head-on at 2×80 km/h, then both front wheels come off both cars, whereas a full-width wall at 56 or 64 km/h or a 2×56 km/h head-on takes none off", () => {
     for (const r of runPair(80, 80)) assert.deepEqual(r.hubsPopped, ["hubFL", "hubFR"], "2×80 head-on");
     for (const r of runPair(56, 56)) assert.deepEqual(r.hubsPopped, [], "2×56 head-on");
     for (const kph of [56, 64]) assert.deepEqual(runWall(kph).hubsPopped, [], `${kph} km/h full-width wall`);
   });
+});
 
-  it("bad: the engine block stays one 0.60 m casting through a corner wall and a T-bone (A3)", () => {
+describe("given an engine block made of a left and a right half, 0.60 m apart", () => {
+  it("when a car hits a wall at 56 km/h with a 40 % offset, and a car is T-boned at 50 km/h, then the halves stay within 1.2 cm of their 0.60 m spacing on the offset-hit car and on both T-bone cars", () => {
     const [struck, bullet] = runPair(0, 50, "t-bone");
     for (const [name, r] of [["offset56", runWall(56, 0.4)], ["struck", struck], ["bullet", bullet]] as const) {
       assert.ok(r.engineGapErr <= 0.012, `${name}: engineL–engineR off 0.60 by ${r.engineGapErr.toFixed(3)} m`);
     }
   });
+});
 
-  it("bad: glass breaks with its frame — a 35 km/h wall cracks the windscreen and spares the rear glass, a 56 km/h wall shatters it, a 50 km/h side hit bursts the struck door glass only", () => {
+describe("given a car's glass panes", () => {
+  it("when a car hits a wall at 35 km/h and at 56 km/h, and is hit from the side at 50 km/h, then the windscreen cracks at 35 and shatters at 56 with the rear glass intact, and the side hit shatters the left door glass but not the right", () => {
     const glassAfter = (kph: number, approach: "front" | "side") => {
       const car = makeCar();
       runWall(kph, 1, approach, { car });
@@ -370,8 +390,8 @@ describe("detach and wheel rules follow where the hit lands (C1–C4, A3)", () =
   });
 });
 
-describe("the tyres are a head-on's final stop", () => {
-  it("bad: in a 40/56/64 km/h head-on the two cars' tyres never pass more than 1 cm into each other, and no mass pops; at 100 the crushed corners lose their wheels but the tyres still stop it", () => {
+describe("given two cars driving head-on at each other, with the squash setting at 0.32", () => {
+  it("when each car drives at 40, 56, 64 or 100 km/h, then their tyres never overlap by more than 1 cm and no part jumps farther than 3·v·h + 5 cm in a physics step (v the speed, h the step); below 100 km/h no wheel pops off, and at 56 km/h the nose crushes 0.25–0.50 m", () => {
     for (const kph of [40, 56, 64, 100]) {
       for (const r of runPair(kph, kph, "head-on", { squash: 0.32 })) {
         assert.ok(r.tyreOverlap <= 0.01, `${kph} km/h head-on: tyres overlap ${r.tyreOverlap.toFixed(3)} m`);
@@ -384,7 +404,7 @@ describe("the tyres are a head-on's final stop", () => {
     }
   });
 
-  it("bad: a faster head-on never crushes the noses less: 100 → 200 km/h, each mean nose is within 5 % of or past the slower hit's (the tyres stopped a 150+ km/h pair at 0.48–0.57 m after 0.81 m at 130)", () => {
+  it("when each car's speed rises through 100, 115, 130, 150, 180 and 200 km/h, then each pair's mean nose crush is never more than 5 % below that of the slower pair before it", () => {
     let prev = 0;
     for (const kph of [100, 115, 130, 150, 180, 200]) {
       const [a, b] = runPair(kph, kph, "head-on", { squash: 0.32 });
@@ -395,8 +415,8 @@ describe("the tyres are a head-on's final stop", () => {
   });
 });
 
-describe("a stopped wreck levels out without popping", () => {
-  it("bad: no mass steps past 3·v·h + 5 cm in a slice through a 64 km/h full or 40 % wall hit or a 56 km/h side hit", () => {
+describe("given a car hitting a wall or being hit from the side, until the stopped wreck levels out", () => {
+  it("when a car hits at 64 km/h full-width, at 64 km/h with a 40 % offset, and at 56 km/h side-on, then no part jumps farther than 3·v·h + 5 cm in a physics step (v the speed, h the step)", () => {
     for (const [label, r] of [
       ["64 full", runWall(64)],
       ["64 offset", runWall(64, 0.4)],
@@ -432,12 +452,12 @@ function tbone(squash: number): { door: number; gap: number } {
   return { door, gap };
 }
 
-describe("a T-bone crushes the struck door in the impact, and the bullet stays on its side", () => {
+describe("given a 50 km/h T-bone, a car driving into the side of a stationary car", () => {
   // CRUSH_CALIBRATION tbone50 band (IIHS side 50 km/h): struck-door intrusion 0.12–0.28 m. Car-car
   // contact stopped the bullet's nose dead while the struck car got no momentum: door 0.01 m in the
   // impact; without the in-contact ground drag the bullet then drove through the struck car (its cell
   // 3.6–5 m past), and that pass-through was the 0.26 m "door" the calibration once recorded.
-  it("bad: at 50 km/h the struck door intrudes 0.12–0.28 m within 0.3 s and the bullet's cell never reaches the struck car's centreline", () => {
+  it("when the cars run with the squash setting at 0.32 and at 0.4, then within 0.3 s of contact the struck door is pushed in 0.12–0.28 m and the striking car's cabin never gets within 0.9 m of the struck car's cabin", () => {
     for (const squash of [0.32, 0.4]) {
       const { door, gap } = tbone(squash);
       assert.ok(door >= 0.12 && door <= 0.28, `squash ${squash}: door ${door.toFixed(3)} m in the impact`);
@@ -466,8 +486,8 @@ const SPIN_FLEET: [string, number, number, number, number][] = [
   ["Ink-2", -24.5784, 5.4783, 1.7901, 24.339],
 ];
 
-describe("a crushed wreck keeps its heading", () => {
-  it("bad: after the 16-car fleet pile-up no wreck keeps turning on the spot", () => {
+describe("given the recorded 16-car pile-up in which wrecks spun on the spot, in shape deform mode", () => {
+  it("when it runs for 6 s, then no wreck is still turning at the end: each turns less than 0.1 rad over the last 2 s", () => {
     const cars = SPIN_FLEET.map(([name, x, z, yaw, speed], i) => {
       const car = new DeformableCar({ body: 0xffffff, accent: 0x444444, name }, new THREE.Scene(), null, fleetStyle(i));
       car.deform.setMode("shape");
@@ -493,7 +513,7 @@ describe("a crushed wreck keeps its heading", () => {
     assert.ok(turn[worst]! < 0.1, `${SPIN_FLEET[worst]![0]} turned ${turn[worst]!.toFixed(2)} rad in the last 2 s, |ω| ${cars[worst]!.angular.y.toFixed(2)}`);
   });
 
-  it("bad: in the owner's 16-car pile-up (squash 0.4, buckle 0.45) no wreck turns faster than 5 rad/s over any 0.1 s", () => {
+  it("when the squash setting is 0.4 and the buckle setting 0.45, then no wreck turns faster than 5 rad/s over any 0.1 s of the first 2.5 s", () => {
     const cars = SPIN_FLEET.map(([name, x, z, yaw, speed], i) => {
       const car = new DeformableCar({ body: 0xffffff, accent: 0x444444, name }, new THREE.Scene(), null, fleetStyle(i));
       car.deform.setMode("shape");
@@ -563,10 +583,10 @@ function slideDecel(cars: DeformableCar[], secs: number): number {
   return (v0 - groupSpeed(cars)) / secs;
 }
 
-describe("wrecks slide to a stop on the ground, rubbing or not", () => {
+describe("given crashed wrecks sliding to a stop on the ground", () => {
   // Owner dump: a pair of wrecks grinding together slid at 0.44 g against 1.4–1.8 g alone: the mass
   // drag waited for the car-contact quiet timer, which the rubbing kept resetting.
-  it("bad: two crashed cars locked together decelerate at least as fast as one alone (±15%)", () => {
+  it("when two wrecks grind together, one's nose on the other's side, both sliding along, then they slow down at least as fast as one wreck alone, within 15 %", () => {
     const lone = slideDecel([slidingWreck(0, 10)], 1);
     // T-bone grind: the faster wreck's nose on the slower one's side, both sliding along +z.
     const pair = slideDecel([slidingWreck(-4, 11), slidingWreck(0, 9, Math.PI / 2)], 1);
@@ -574,8 +594,8 @@ describe("wrecks slide to a stop on the ground, rubbing or not", () => {
   });
 });
 
-describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
-  it("bad: glass shards leave a yawing car with the pane's own velocity (finite difference of integrate)", () => {
+describe("given a crashed car yawing at 2 rad/s, with a door glass pane hung off its centre", () => {
+  it("when the pane shatters, then the shard leaves with the pane's own velocity, to within 5 %, and the pane is moving faster than 0.5 m/s", () => {
     let shard: THREE.Vector3 | null = null;
     const car = new DeformableCar(paint(), new THREE.Scene(), (_o, v) => {
       shard = v.clone();
@@ -599,15 +619,19 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     assert.ok(Math.hypot(fd.x, fd.z) > 0.5, `pane barely moves (${fd.x.toFixed(2)},${fd.z.toFixed(2)})`);
     assert.ok(err < 0.05 * Math.hypot(fd.x, fd.z), `shard v=(${v.x.toFixed(2)},${v.z.toFixed(2)}) pane v=(${fd.x.toFixed(2)},${fd.z.toFixed(2)})`);
   });
+});
 
-  it("bad: physics slices follow a wreck's real velocity, not its stale drive speed (A10)", () => {
+describe("given a car with a drive speed of 0 m/s and a real velocity of (24, 0, -7) m/s", () => {
+  it("when the speed of the physics slice is read, then it is 25 m/s, the wreck's real speed, not its stale drive speed", () => {
     const car = new DeformableCar(paint(), new THREE.Scene());
     car.speed = 0;
     car.velocity.set(24, 0, -7);
     assert.equal(sliceSpeed([car]), 25);
   });
+});
 
-  it("bad: sliding debris loses the same speed per second at 60 Hz and 240 Hz (A15)", () => {
+describe("given a debris piece sliding along the ground at 6 m/s", () => {
+  it("when it slides for 0.5 s at 60 Hz and again at 240 Hz, then it ends within 5 % of the same distance both times, so it loses the same speed per second at either rate", () => {
     const slide = (hz: number) => {
       const debris = new DebrisSystem(new THREE.Scene(), 1);
       debris.burst(new THREE.Vector3(0, -0.05, 0), new THREE.Vector3(0, 0, -1), 1);
@@ -622,8 +646,10 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     const x240 = slide(240);
     assert.ok(Math.abs(x60 - x240) < 0.05 * x240, `0.5 s slide: ${x60.toFixed(3)} m at 60 Hz vs ${x240.toFixed(3)} m at 240 Hz`);
   });
+});
 
-  it("bad: a second burst adds pieces instead of teleporting or cutting the first (C16)", () => {
+describe("given a debris system with room for 16 pieces, after a burst of 10 pieces has flown for 0.1 s", () => {
+  it("when a second burst of 3 pieces is fired, then 13 pieces are live and the first burst's 10 pieces stay where they flew instead of being cut or teleported", () => {
     const debris = new DebrisSystem(new THREE.Scene(), 16);
     debris.burst(new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, 0, -1), 10);
     debris.update(0.1, bounceGround);
@@ -632,8 +658,10 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     assert.equal(items.length, 13, "live pieces after a 10 then a 3 burst");
     assert.equal(items.filter((p) => p.x > 2).length, 10, "the first burst's pieces stay where they flew");
   });
+});
 
-  it("bad: each debris piece keeps its own size and spin, and a spent piece stops drawing (A10)", () => {
+describe("given a debris system of 8 pieces whose first piece is nearly spent", () => {
+  it("when it runs for six 1/60 s steps, then the spent piece is no longer drawn (scale 0), the live pieces have differing scales, and pieces 1 and 2 have different rotations", () => {
     const debris = new DebrisSystem(new THREE.Scene(), 8);
     debris.burst(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 8);
     debris["life"][0] = 0.05;
@@ -651,8 +679,10 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     assert.ok(new Set(scales.slice(1).map((x) => x.toFixed(4))).size > 1, `every live piece has scale ${scales[1]}`);
     assert.ok(qs[1]!.angleTo(qs[2]!) > 0.01, "pieces 1 and 2 share one rotation");
   });
+});
 
-  it("bad: debris touching a car's leading flank is swept along with it, not left inside (A15)", () => {
+describe("given a car moving sideways at 8 m/s with debris touching its leading flank", () => {
+  it("when the flank sweeps the debris, then the debris leaves moving sideways faster than 8 m/s instead of being left inside the car", () => {
     const car = new DeformableCar(paint(), new THREE.Scene());
     car.spawnFacing(0, 0, 0, 0);
     car.velocity.set(8, 0, 0);
@@ -661,8 +691,10 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
     bounceOffCar(car, pos, vel, 0.03);
     assert.ok(vel.x > 8, `debris vx ${vel.x.toFixed(2)} after the 8 m/s flank swept it`);
   });
+});
 
-  it("bad: two wrecks scraping flank to flank trade sliding speed through Coulomb friction (A15)", () => {
+describe("given two overlapping wrecks in shape deform mode, one resting and one sliding at 6 m/s along z and 4 m/s toward it", () => {
+  it("when they scrape flank to flank, then they are reported in contact and the resting wreck takes over 60 kg·m/s of the slide through friction", () => {
     const a = spawnOffset(0, 0, "shape");
     const b = spawnOffset(0, 0, "shape");
     for (const m of b.d.masses) {
@@ -677,8 +709,8 @@ describe("rotation sense and frame-rate independence (A9, A10, A15)", () => {
   });
 });
 
-forModes("two-car first contact stays on the map", (mode) => {
-  it("bad: head-on overlap does not light-speed either car", () => {
+forModes("given two cars overlapping head-on, each driving into the other", (mode) => {
+  it("when they stay in contact for 20 frames, then neither car is thrown off the map (under 40 m from the origin), neither exceeds 60 m/s and none of their parts ends up NaN or past 60 m/s", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar(paint(), scene);
     const b = new DeformableCar(paint(), scene);
@@ -718,8 +750,8 @@ forModes("two-car first contact stays on the map", (mode) => {
   });
 });
 
-describe("particles stay in world space above the ground", () => {
-  it("good: snapshotPoints parks dead samples, live ones keep y>=0", () => {
+describe("given particle positions read through snapshotPoints (the reader of debris positions)", () => {
+  it("when one sample is dead and the other alive, then only the live one is reported, at a height of at least 0", () => {
     const pos = new Float32Array([1, 0.2, 2, 3, 250, 4]);
     const life = new Float32Array([0.4, 0]);
     const snap = snapshotPoints(pos, null, null, life, true);
@@ -727,7 +759,7 @@ describe("particles stay in world space above the ground", () => {
     assert.ok(snap.items[0]!.y >= 0);
   });
 
-  it("close-but-wrong: y=250 is treated as dead parking, not a live particle below the map", () => {
+  it("when a sample whose lifetime is still running sits at y = 250 (the height dead particles are parked at), then it is not reported as a live particle", () => {
     const pos = new Float32Array([0, 250, 0]);
     const life = new Float32Array([0.5]);
     const snap = snapshotPoints(pos, null, null, life, true);
@@ -735,28 +767,31 @@ describe("particles stay in world space above the ground", () => {
   });
 });
 
-describe("car-car crush scales with speed [shape]", () => {
+describe("given two cars driving head-on at each other, in shape deform mode", () => {
   const slow = runPair(28, 28);
   const fast = runPair(56, 56);
   const nose = (r: (typeof slow)[number]) => Math.max(r.noseMaxL, r.noseMaxR);
 
-  it("good: a 2×28 km/h head-on crushes each nose 0.15–0.40 m", () => {
-    for (const r of slow) assert.ok(nose(r) >= 0.15 && nose(r) <= 0.4, `nose ${nose(r).toFixed(3)}`);
-  });
+  const headOnNoseCrushCases = [
+    { it: "when each car drives at 28 km/h, then each nose crushes between 0.15 and 0.40 m", speed: "slow", min: 0.15, max: 0.4 },
+    { it: "when each car drives at 56 km/h, then each nose crushes between 0.35 and 0.70 m", speed: "fast", min: 0.35, max: 0.7 },
+  ] as const;
 
-  it("good: a 2×56 km/h head-on crushes each nose 0.35–0.70 m", () => {
-    for (const r of fast) assert.ok(nose(r) >= 0.35 && nose(r) <= 0.7, `nose ${nose(r).toFixed(3)}`);
-  });
+  for (const testCase of headOnNoseCrushCases) {
+    it(testCase.it, () => {
+      for (const r of { slow, fast }[testCase.speed]) assert.ok(nose(r) >= testCase.min && nose(r) <= testCase.max, `nose ${nose(r).toFixed(3)}`);
+    });
+  }
 
-  it("close-but-wrong: doubling the speed crushes more than 1.4× deeper", () => {
+  it("when the speed doubles from 28 to 56 km/h each, then each car's nose crushes more than 1.4 times deeper", () => {
     for (let i = 0; i < 2; i++) assert.ok(nose(fast[i]!) > 1.4 * nose(slow[i]!), `56=${nose(fast[i]!).toFixed(3)} 28=${nose(slow[i]!).toFixed(3)}`);
   });
 
-  it("good: a full-overlap head-on stays centred on both cars", () => {
+  it("when they hit at 28 km/h each with full overlap, then the impact point stays within 0.2 m of the centre line on both cars", () => {
     for (const r of slow) assert.ok(Math.abs(r.impactLocalX) < 0.2, `impactLocal.x=${r.impactLocalX.toFixed(3)}`);
   });
 
-  it("bad: slow motion crushes a 2×56 km/h head-on the same as full speed (±15 %)", () => {
+  it("when the 2×56 km/h head-on is run in slow motion, then each nose's shortening is within 15 % of the full-speed head-on's, on both cars", () => {
     const slomo = runPair(56, 56, "head-on", { slomo: true });
     for (let i = 0; i < 2; i++) {
       for (const k of ["noseShortL", "noseShortR"] as const) {
@@ -765,11 +800,13 @@ describe("car-car crush scales with speed [shape]", () => {
       }
     }
   });
+});
 
+describe("given a car hitting a wall at 64 km/h with a 40 % offset", () => {
   // The slab's cabin floor read the struck corner's current length: a corner springing back off the face moved
   // the floor out, its push stretched the nose further, and in slow motion (faster spring-back per sim second)
   // that ran away: R nose 0.330 → 0.255 in 7 ms of sim time (R 0.272 vs 0.330). `slabTravel` keeps the hit's low mark.
-  it("bad: slow motion crushes a 64 km/h 40 % offset like full speed (±15 %)", () => {
+  it("when the hit is run in slow motion, then each nose's shortening is within 15 % of the full-speed hit's", () => {
     const full = runWall(64, 0.4);
     const slow = runWall(64, 0.4, "front", { slomo: true });
     for (const k of ["noseShortL", "noseShortR"] as const) {
@@ -778,8 +815,8 @@ describe("car-car crush scales with speed [shape]", () => {
   });
 });
 
-describe("named panes (ragdoll ejection)", () => {
-  it("good: smashGlass breaks that pane alone, once, with a shard burst at the car; glassWorld finds each front pane on its side", () => {
+describe("given a car's glass panes, named for ragdoll ejection (a thrown-out driver)", () => {
+  it("when a door pane is smashed, then that pane alone breaks, once, with a shard burst at the car, and the windscreen and doors are found on their own sides of the car", () => {
     const bursts: THREE.Vector3[] = [];
     const car = new DeformableCar(paint(), new THREE.Scene(), (origin) => bursts.push(origin.clone()));
     car.spawn(4, 9, 0);

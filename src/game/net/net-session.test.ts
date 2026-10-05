@@ -273,8 +273,8 @@ function forgedSnapshot(cars: DeformableCar[], seq: number, edit: (s: codec.Snap
   return w.done();
 }
 
-describe("netplay session: a link to a room nobody hosts", () => {
-  it("tells the guest `no-host` after HOST_WAIT_MS of frames, and a host opening the room clears it", () => {
+describe("given a guest that joined a room nobody hosts", () => {
+  it("when its frames run for 4.5 s, then it shows no problem yet; at 5.5 s it reports the room has no host; and once a host opens the room the problem clears and the guest is seated in car 1", () => {
     const hub = new Hub();
     let now = 1000;
     const guestGame = fakeGame();
@@ -304,8 +304,8 @@ describe("netplay session: a link to a room nobody hosts", () => {
   });
 });
 
-describe("netplay session: a guest's seat survives the network", () => {
-  it("keeps a guest's car through a connection blip, and its input drives on", () => {
+describe("given a host and one guest seated in car 1", () => {
+  it("when the link drops for a moment and returns, then the guest keeps car 1 and its held throttle drives the car again", () => {
     const s = session();
     s.holdThrottle();
     s.hub.setCut(s.hostId(), s.clientId(), true);
@@ -316,7 +316,7 @@ describe("netplay session: a guest's seat survives the network", () => {
     assert.ok(s.hostSpeed() > 3, `the guest drives again after the blip (${s.hostSpeed().toFixed(2)} m/s)`);
   });
 
-  it("re-seats a guest whose car lapsed during a long outage once the link is back, its held pedal still driving", () => {
+  it("when the link stays down for a minute and then returns, then the host frees the car and the guest reports the host lost, and on the return the guest is seated again in its car with its held throttle driving, never dropping to spectating", () => {
     const s = session();
     s.holdThrottle();
     s.hub.setCut(s.hostId(), s.clientId(), true);
@@ -333,7 +333,7 @@ describe("netplay session: a guest's seat survives the network", () => {
     assert.ok(s.hostSpeed() > 3, `and the throttle held through the outage drives it (${s.hostSpeed().toFixed(2)} m/s)`);
   });
 
-  it("re-seats a guest whose car lapsed while it still heard the host, as soon as its input arrives", () => {
+  it("when the host stops hearing the guest for a minute while the guest still hears the host, then the host frees the car but the guest keeps car 1, and its next input seats it again and drives", () => {
     const s = session();
     s.hub.unlisted.add(s.clientId());
     s.step(5, { client: false });
@@ -348,7 +348,7 @@ describe("netplay session: a guest's seat survives the network", () => {
     assert.ok(s.hostSpeed() > 3, `and drives (${s.hostSpeed().toFixed(2)} m/s)`);
   });
 
-  it("re-seats the guest and follows the new host when the host restarts in the same room", () => {
+  it("when the host leaves and restarts in the same room, then the new host seats the guest in a car and the guest renders the new host's world", () => {
     const s = session();
     s.host.leave();
     const host2 = new NetPlay(s.hg, { connect: s.hub.connect, now: s.clock });
@@ -372,19 +372,21 @@ describe("netplay session: a guest's seat survives the network", () => {
     assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 7) < 0.01, "the guest renders the new host's world");
   });
 
-  it("frees every seat when the host leaves, so a solo race or derby has no ghost players", () => {
+  it("when the host leaves, then every seat is freed, so a solo race or derby has no ghost players", () => {
     const s = session();
     assert.deepEqual(s.hg.seats.at(-1), [[1, "Player 1"]]);
     s.host.leave();
     assert.deepEqual(s.hg.seats.at(-1), []);
   });
+});
 
-  it("seats the guest under the name its hello carried, cleaned (whitespace folded, control and bidi characters dropped) and capped at 16", () => {
+describe("given a host receiving a guest's hello", () => {
+  it("when the hello's name has extra whitespace, control or text-direction characters and is over 16 characters, then the guest is seated under that name cleaned of them and cut to 16 characters", () => {
     const s = session({ name: "  Zed\u202E\u0000 the\tquick brown fox jumps  " });
     assert.deepEqual(s.hg.seats.at(-1), [[1, "Zed the quick br"]]);
   });
 
-  it("seats a hello without a name (the field's older layout) as Player N", () => {
+  it("when the hello carries no name (the field's older layout), then the guest is seated as Player 1", () => {
     const hub = new Hub();
     const hg = fakeGame();
     const host = new NetPlay(hg, { connect: hub.connect, now: () => 0 });
@@ -396,8 +398,8 @@ describe("netplay session: a guest's seat survives the network", () => {
   });
 });
 
-describe("netplay session: a client listens to its host only", () => {
-  it("ignores assign and snapshots from another peer in the room", () => {
+describe("given a guest connected to its host, with other peers in the room", () => {
+  it("when another peer in the room sends assignments and snapshots, then the guest ignores them, stays in car 1 and still applies the host's snapshots", () => {
     const s = session();
     const rogue = s.hub.connect("bc", "R", "rogue", "client");
     rogue.send(new Uint8Array([codec.MSG.assign, 5, codec.NET_VERSION ?? 0]), s.clientId());
@@ -409,7 +411,7 @@ describe("netplay session: a client listens to its host only", () => {
     assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) < 0.01, "the host's snapshots still apply");
   });
 
-  it("keeps taking the host's snapshots after one it cannot decode", () => {
+  it("when the host sends a snapshot the guest cannot decode, then the guest keeps applying the host's following snapshots", () => {
     const s = session();
     s.hub.sendAs(s.hostId(), s.clientId(), new Uint8Array([codec.MSG.snapshot, 0, 0xe8, 0x03]));
     s.hub.flush();
@@ -418,7 +420,7 @@ describe("netplay session: a client listens to its host only", () => {
     assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) < 0.01, "a truncated snapshot does not block the next ones");
   });
 
-  it("refuses a snapshot with an unknown body or a non-finite pose", () => {
+  it("when a snapshot with an unknown body or a non-finite pose arrives, then the guest refuses it: no car is rebuilt on an unknown body and no NaN pose reaches a car", () => {
     const s = session();
     const bad = forgedSnapshot(s.hg.cars(), s.sent() + 1, (snap) => {
       snap.cars[0]!.style = 15;
@@ -438,7 +440,7 @@ describe("netplay session: a client listens to its host only", () => {
     );
   });
 
-  it("does not apply a race state with an out-of-range lap count", () => {
+  it("when a race state with an out-of-range lap count arrives, then it is not applied, while the same message with a sane lap count is", () => {
     const applied: number[] = [];
     const s = session({ raceApplied: applied });
     const snap = { trackId: "oval", laps: 1e9, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [] };
@@ -452,8 +454,10 @@ describe("netplay session: a client listens to its host only", () => {
     s.hub.flush();
     assert.deepEqual(applied, [3]);
   });
+});
 
-  it("is not seated by a host on another build, and the host does not seat a peer on another build", () => {
+describe("given a host and a peer running another build", () => {
+  it("when the peer says hello, then the host seats it in no car and tells it that it cannot join", () => {
     const hub = new Hub();
     const host = new NetPlay(fakeGame(), { connect: hub.connect, now: () => 0 });
     open.push(host);
@@ -471,8 +475,8 @@ describe("netplay session: a client listens to its host only", () => {
   });
 });
 
-describe("netplay session: stale input and hidden tabs", () => {
-  it("idles a guest's car on the host once its input stops arriving", () => {
+describe("given a host with one guest driving at full throttle", () => {
+  it("when the guest's input stops arriving, then its car on the host idles and coasts down", () => {
     const s = session();
     s.holdThrottle();
     s.step(30);
@@ -482,7 +486,7 @@ describe("netplay session: stale input and hidden tabs", () => {
     assert.ok(s.hostSpeed() < moving, `the car coasts down (${moving.toFixed(2)} → ${s.hostSpeed().toFixed(2)} m/s)`);
   });
 
-  it("idles a hidden guest's car at once", () => {
+  it("when the guest's tab is hidden, then its car on the host idles at once", () => {
     const s = session();
     s.holdThrottle();
     s.step(30);
@@ -492,8 +496,10 @@ describe("netplay session: stale input and hidden tabs", () => {
     s.step(3, { client: false });
     assert.ok(s.hostSpeed() < moving, `no full-throttle zombie (${moving.toFixed(2)} → ${s.hostSpeed().toFixed(2)} m/s)`);
   });
+});
 
-  it("keeps guests waiting for a host whose tab is hidden, and reports the host gone once it really is", () => {
+describe("given a guest connected to a host whose tab is hidden", () => {
+  it("when the host stays hidden and then really leaves, then the guest reports the host paused while it waits, and host lost once it is gone, keeping its car, camera and held pedal to seat again", () => {
     const s = session();
     s.step(30, { host: false });
     s.advance(4000);
@@ -511,11 +517,11 @@ describe("netplay session: stale input and hidden tabs", () => {
   });
 });
 
-describe("netplay session: a client clears what the host's scene change, loop or reset clears", () => {
+describe("given a client whose scene is cleared when the host's clear count changes (a scene change, loop or reset)", () => {
   const torn = (car: DeformableCar): number => car["parts"].filter((p) => p.detached).length;
   const tear = (car: DeformableCar): void => car["detachPart"](car["parts"].find((p) => p.region)!, 12);
 
-  it("bad: the host's clear count changing empties the client's scene once, and a steady count never does", () => {
+  it("when the host's clear count changes, then the client's scene is emptied once, and a steady count never empties it", () => {
     const s = session();
     s.step(10);
     assert.equal(s.cg.clears, 0, "joining a running scene clears nothing");
@@ -531,7 +537,7 @@ describe("netplay session: a client clears what the host's scene change, loop or
     assert.equal(s.cg.clears, 1, "the new count is not cleared again");
   });
 
-  it("bad: the clear lands before the new scene's own wreck, so a crash right after the host's clear survives on the client", () => {
+  it("when the host clears just before the new scene's own wreck, then a crash right after the host's clear survives on the client", () => {
     const s = session();
     s.step(10);
     s.hg.gen = 1;
@@ -544,7 +550,7 @@ describe("netplay session: a client clears what the host's scene change, loop or
     assert.equal(torn(s.cg.cars()[0]!), 1, "the new scene's torn part is drawn, not wiped by the clear");
   });
 
-  it("bad: the client does not clear while the results reel plays, and does once it ends if the host cleared meanwhile", () => {
+  it("when the results reel is playing, then the client does not clear, and does so once the reel ends if the host cleared meanwhile", () => {
     const s = session();
     s.step(10);
     s.cg.playing = true;
@@ -557,8 +563,8 @@ describe("netplay session: a client clears what the host's scene change, loop or
   });
 });
 
-describe("netplay session: the highlight reel", () => {
-  it("plays the host's reel at its start time moved onto the guest's clock, and draws no snapshots while one plays", { timeout: 5000 }, async () => {
+describe("given a guest whose host sends the highlight reel", () => {
+  it("when the host's reel arrives, then it plays at its start time moved onto the guest's clock, and no snapshots are drawn while it plays", { timeout: 5000 }, async () => {
     const s = session({ skewMs: 5000 });
     // Executor form: the tsconfig lib predates `Promise.withResolvers`.
     const played = new Promise<[Reel, number]>((resolve) => {
@@ -580,7 +586,7 @@ describe("netplay session: the highlight reel", () => {
     assert.ok(Math.abs(s.cg.cars()[0]!.group.position.x - 5) < 0.01, "snapshots draw again once it ends");
   });
 
-  it("bad: a reel over the relay's message cap reaches the guest with every clip", { timeout: 20000 }, async () => {
+  it("when a reel larger than the relay's message cap is sent, then it reaches the guest with every clip", { timeout: 20000 }, async () => {
     const s = session();
     const played = new Promise<Reel>((resolve) => {
       s.cg.playReel = (reel) => resolve(reel);
@@ -607,7 +613,7 @@ describe("netplay session: the highlight reel", () => {
   });
 });
 
-describe("netplay session: public matches", () => {
+describe("given public matches played over a stubbed relay on a virtual clock", () => {
   const realFetch = globalThis.fetch;
   afterEach(() => {
     globalThis.fetch = realFetch;
@@ -656,7 +662,7 @@ describe("netplay session: public matches", () => {
     return { hub, v, client, linked, dwell };
   };
 
-  it("hosts a fresh public room when the host of the one it joined leaves", async () => {
+  it("given a guest in a public room, when the host of that room leaves, then the stranded guest hosts a fresh public room of its own", async () => {
     const hub = new Hub();
     const v = virtual();
     const host = new NetPlay(fakeGame(), { connect: hub.connect, now: v.opts.now });
@@ -685,7 +691,7 @@ describe("netplay session: public matches", () => {
     assert.equal(st.finding, false);
   });
 
-  it("keeps a public guest in the open room through its own long frame stalls", async () => {
+  it("given a public guest in an open room, when its page loads with its engine running no frames for 9 s and again when it stalls 9 s mid-session, then it stays in the room as car 1 both times", async () => {
     const hub = new Hub();
     let now = 1000;
     const host = new NetPlay(fakeGame(), { connect: hub.connect, now: () => now });
@@ -713,7 +719,7 @@ describe("netplay session: public matches", () => {
     assert.deepEqual([client.status().role, client.status().room === dead, client.status().car], ["client", true, 1]);
   });
 
-  it("a weak device with nothing to join hosts a field of 4 after looking, and gives its AI count back on leaving", async () => {
+  it("given a weak device with nothing to join, when it presses Play online, then it looks, hosts a field of 4 (the player plus 3 AI cars), and gives its AI count back to the default on leaving", async () => {
     const v = virtual();
     const g = fakeGame([]);
     g.fit = false;
@@ -729,7 +735,7 @@ describe("netplay session: public matches", () => {
     assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount, "a solo race is back to its own field");
   });
 
-  it("a capable device with nothing to join hosts a full field at once", async () => {
+  it("given a device able to host with nothing to join, when it presses Play online, then it hosts a full field at once, within 5 s of the start", async () => {
     const v = virtual();
     const g = fakeGame([]);
     const np = new NetPlay(g, { connect: new Hub().connect, ...v.opts });
@@ -741,7 +747,7 @@ describe("netplay session: public matches", () => {
     assert.ok(v.t.now - 1000 < 5000, "no long search before hosting");
   });
 
-  it("leaving cancels a search: no room is joined or hosted afterwards", async () => {
+  it("given a Play online search in progress, when the player leaves, then no room is joined or hosted afterwards", async () => {
     const v = virtual();
     const np = new NetPlay(fakeGame(), { connect: new Hub().connect, ...v.opts });
     open.push(np);
@@ -757,7 +763,7 @@ describe("netplay session: public matches", () => {
     assert.deepEqual([np.status().role, np.status().finding], ["off", false]);
   });
 
-  it("a public host's relay tag follows its match: lobby, running, over, with the course; a guest sends none", () => {
+  it("given a public host, when its match goes through lobby, grid, countdown, racing and finished, then its relay tag reads lobby, running, running, running, over with the course, and a guest sends none", () => {
     const hub = new Hub();
     const g = fakeGame([]);
     const host = new NetPlay(g, { connect: hub.connect });
@@ -775,7 +781,7 @@ describe("netplay session: public matches", () => {
     assert.equal(hub.metas.get(guest.status().selfId)!(), "");
   });
 
-  it("a guest never goes back to a room it gave up on: two dead rooms, then it hosts", async () => {
+  it("given two public rooms whose hosts never answer, when a guest presses Play online, then it tries each once, never goes back to either, and then hosts", async () => {
     const [x, y] = ["AAAA", "BBBB"].map((c) => publicRoomName("race", c));
     const g = await guestOf([x!, y!]);
     for (let k = 0; k < 3; k++) await g.dwell();
@@ -784,7 +790,7 @@ describe("netplay session: public matches", () => {
     assert.match(g.linked[2]!, /^host pub-race-/);
   });
 
-  it("after 3 dead rooms in a row it hosts instead of trying a fourth", async () => {
+  it("given four public rooms whose hosts never answer, when a guest presses Play online, then after 3 dead rooms in a row it hosts instead of trying a fourth", async () => {
     const names = ["AAAA", "BBBB", "CCCC", "DDDD"].map((c) => publicRoomName("race", c));
     const g = await guestOf(names);
     for (let k = 0; k < 4; k++) await g.dwell();
@@ -793,7 +799,7 @@ describe("netplay session: public matches", () => {
     assert.match(g.linked[3]!, /^host pub-race-/);
   });
 
-  it("a room that answered and then lost its host does not count toward the dead rooms", async () => {
+  it("given four public rooms where the second host answers and then leaves, when a guest presses Play online, then that room does not count toward the dead rooms, so the guest tries all four before hosting", async () => {
     const names = ["AAAA", "BBBB", "CCCC", "DDDD"].map((c) => publicRoomName("race", c));
     const g = await guestOf(names);
     await g.dwell();
@@ -809,7 +815,7 @@ describe("netplay session: public matches", () => {
     assert.equal(g.linked.slice(0, 4).join(" | "), names.map((n) => `client ${n}`).join(" | "), "dead, answered, dead, dead: the answering room broke the streak");
   });
 
-  it("a player's own Play online forgets the rooms the last search gave up on", async () => {
+  it("given a guest whose last search gave up on two dead rooms, when the player leaves and presses Play online again, then the search starts over with the first room in the list", async () => {
     const [x, y] = ["AAAA", "BBBB"].map((c) => publicRoomName("race", c));
     const g = await guestOf([x!, y!]);
     await g.dwell();
@@ -819,7 +825,7 @@ describe("netplay session: public matches", () => {
     assert.equal(g.linked.at(-1), `client ${x}`, "first in the list again");
   });
 
-  it("a weak host gives its solo AI count back even when race mode closed before it left", async () => {
+  it("given a weak host, when race mode closes before it leaves, then its solo AI count is still given back and is the default once race mode is on again", async () => {
     const v = virtual();
     const g = fakeGame([]);
     g.fit = false;
@@ -834,7 +840,7 @@ describe("netplay session: public matches", () => {
     assert.equal(g.race()!.options.aiCount, DEFAULT_RACE_OPTIONS.aiCount);
   });
 
-  it("a public host's first relay poll already carries its match tag", async () => {
+  it("given a public host on the real WebRTC transport against a stubbed relay, when it makes its first relay poll, then that poll already carries the lobby tag", async () => {
     const polls: string[] = [];
     globalThis.fetch = async (input, init) => {
       if (init?.method !== "POST") polls.push(String(input));

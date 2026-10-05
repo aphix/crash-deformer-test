@@ -54,8 +54,8 @@ function momentum(d: Seat): number {
   return l;
 }
 
-describe("seating a wreck's wheels", () => {
-  it("bad: a wreck turning 8 rad/s keeps its angular momentum through the seat (its wheels ride 10.7 m/s off the centroid: cut to 8, the wheels' share of L went)", () => {
+describe("given a wrecked car about to come to rest, whose wheels are freed when they slip no more than 8 m/s off the body they ride", () => {
+  it("when the whole car spins at 8 rad/s so its wheels ride over 8.5 m/s off the centre, then seating the wheels keeps the car's angular momentum within 1%, since a wheel turning with the body is not slipping", () => {
     const d = wreck();
     spinRigid(d, 8);
     const hub = d.masses.find((q) => q.hub)!;
@@ -68,7 +68,7 @@ describe("seating a wreck's wheels", () => {
     assert.ok(Math.abs(l1 / l0 - 1) < 0.01, `L ${l0.toFixed(0)} → ${l1.toFixed(0)} kg·m²/s: a wheel turning with the body is not slipping`);
   });
 
-  it("bad: a wheel 20 m/s off the body's speed at the wheel is still cut back to the slip limit, spin or none", () => {
+  it("when a wheel moves 20 m/s off the speed of the body at that wheel, with the car spinning at 0 and at 8 rad/s, then seating the wheels cuts the slip back to the 8 m/s limit (7.5 to 8.5) either way", () => {
     for (const w of [0, 8]) {
       const d = wreck();
       spinRigid(d, w);

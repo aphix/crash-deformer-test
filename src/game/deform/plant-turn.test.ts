@@ -67,8 +67,8 @@ function turnBetween(a: P[], b: P[], ms: number[]): number {
   return Math.atan2(s, c);
 }
 
-describe("a planted wreck's write-back", () => {
-  it("bad: the turn it writes into the masses (engine block swung 1 rad) turns their velocities about the centroid with it (it left them where they were on main)", () => {
+describe("given a wreck that has sat still on its wheels for over 0.2 s, whose frame is then re-aligned to the engine-to-axle axis", () => {
+  it("when the re-alignment swings the engine block by 1 rad, then the parts' velocities about their centre turn along with the new positions, to within 10 %", () => {
     const { d, group } = planted();
     spin(d, 2);
     const axle = mass(d, "axleR").world;
@@ -101,7 +101,7 @@ describe("a planted wreck's write-back", () => {
     assert.ok(off < 0.1, `the velocities about the centroid are ${(off * 100).toFixed(0)} % off a turn of ${w.toFixed(2)} rad with the positions`);
   });
 
-  it("bad: car.angular carries the masses' L/I alone, the kept turn is a readout: the write-back's snap is not momentum for a fake fall or a flight to inherit", () => {
+  it("when the re-alignment swings the engine block by 0.5 rad, then the car's spin velocity carries only the parts' own momentum spin, not the re-alignment's snap, and the shown spin adds that kept turn to within 25 %", () => {
     const { d, group } = planted();
     const axle = mass(d, "axleR").world;
     for (const name of ["engineL", "engineR"]) {

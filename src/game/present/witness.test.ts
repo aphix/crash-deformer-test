@@ -13,8 +13,8 @@ function cam(): THREE.PerspectiveCamera {
 
 const at = (x: number, y: number, z: number) => new THREE.Vector3(x, y, z);
 
-describe("Witness: the camera cone every cosmetic skip asks", () => {
-  it("good: a sphere poking into the view at the frustum edge is witnessed, one clear of it by the margin is not", () => {
+describe("given a Witness (the camera view cone that decides whether a purely cosmetic effect is seen and needs playing, or is out of view and can be skipped)", () => {
+  it("when a 1 m ball is centred 0.5 m outside the view's edge, then it is witnessed because it still pokes in, and when it is far clear of the edge plus the margin, it is not", () => {
     const w = new Witness();
     w.aim(cam());
     // At z = -10 the right edge is 10·tan(25°)·16/9 = 8.29 m out: a 1 m ball centred 0.5 m outside still pokes in.
@@ -23,21 +23,21 @@ describe("Witness: the camera cone every cosmetic skip asks", () => {
     assert.equal(w.mayWitness(at(edge + 20, 0, -10), 1), false);
   });
 
-  it("good: far behind the camera is not witnessed; just behind the near plane, inside the margin, is", () => {
+  it("when a ball lies far behind the camera, then it is not witnessed, and when a ball lies just behind the near plane inside the margin, it is", () => {
     const w = new Witness();
     w.aim(cam());
     assert.equal(w.mayWitness(at(0, 0, 60), 2), false);
     assert.equal(w.mayWitness(at(0, 0, 0.5), 1), true);
   });
 
-  it("edge: past the far plane by more than radius plus margin is not witnessed", () => {
+  it("when a ball lies just inside the far plane, then it is witnessed, and when it lies past the far plane by more than its radius plus the margin, it is not", () => {
     const w = new Witness();
     w.aim(cam());
     assert.equal(w.mayWitness(at(0, 0, -199), 2), true);
     assert.equal(w.mayWitness(at(0, 0, -260), 2), false);
   });
 
-  it("edge: before the first aim, or switched off, everything is witnessed", () => {
+  it("when nothing has aimed it yet, or it is switched off, then everything is witnessed, and once aimed and switched on a far-off point is not", () => {
     const w = new Witness();
     assert.equal(w.mayWitness(at(0, 0, 500), 1), true);
     w.aim(cam());
@@ -46,7 +46,7 @@ describe("Witness: the camera cone every cosmetic skip asks", () => {
     assert.equal(w.mayWitness(at(0, 0, 500), 1), true);
   });
 
-  it("good: the cone follows the camera the last aim read", () => {
+  it("when the camera moves and the Witness is aimed at it again, then the view cone follows the camera it last read", () => {
     const w = new Witness();
     const c = cam();
     w.aim(c);
@@ -56,7 +56,7 @@ describe("Witness: the camera cone every cosmetic skip asks", () => {
     assert.equal(w.mayWitness(at(0, 0, 80), 2), true);
   });
 
-  it("good: `sees` counts what it refused and what it let through; with the gate off it lets all through", () => {
+  it("when points are asked through its counting check, then it counts what it refused and what it let through, and with the gate switched off it lets everything through", () => {
     const w = new Witness();
     w.aim(cam());
     assert.equal(w.sees(at(0, 0, -10), 4), true);
@@ -66,7 +66,7 @@ describe("Witness: the camera cone every cosmetic skip asks", () => {
     assert.equal(w.sees(at(0, 0, 80), 4), true);
   });
 
-  it("never misses: over random cameras and boxes, a box with a corner in the viewport is always witnessed", () => {
+  it("when 4000 random cameras and box poses are tried, then a box with any corner inside the viewport is always witnessed", () => {
     // mulberry32: the same 4000 trials every run.
     let s = 0x9e3779b9;
     const rnd = () => {

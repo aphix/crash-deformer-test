@@ -31,7 +31,7 @@ type Case = {
 const CASES: Case[] = [
   {
     scenario: "mirror",
-    level: "fold stop holds 0.8× break energy",
+    level: "carrying 0.8× the mirror's break energy, where its fold stop holds",
     kph: 4,
     kg: kgFor(0.8, 4),
     off: [],
@@ -40,11 +40,11 @@ const CASES: Case[] = [
       assert.ok(r.ramStopped, "the folded mirror's stop should have stopped the ram");
     },
   },
-  { scenario: "mirror", level: "1.25× break energy", kph: 4, kg: kgFor(1.25, 4), off: ["mirror"], check: () => {} },
-  { scenario: "mirror", level: "fast heavy ram", kph: 50, kg: 1500, off: ["mirror"], check: () => {} },
+  { scenario: "mirror", level: "carrying 1.25× the mirror's break energy", kph: 4, kg: kgFor(1.25, 4), off: ["mirror"], check: () => {} },
+  { scenario: "mirror", level: "as a fast heavy ram", kph: 50, kg: 1500, off: ["mirror"], check: () => {} },
   {
     scenario: "overOpen",
-    level: "below the hinge threshold",
+    level: "below the hinge tear threshold",
     kph: 5,
     kg: 120,
     off: [],
@@ -54,23 +54,23 @@ const CASES: Case[] = [
       assert.ok(r.ramStopped, "the strap should have stopped the ram");
     },
   },
-  { scenario: "overOpen", level: "above the hinge threshold", kph: 15, kg: 300, off: ["door", "mirror"], check: () => {} },
+  { scenario: "overOpen", level: "above the hinge tear threshold", kph: 15, kg: 300, off: ["door", "mirror"], check: () => {} },
   {
     scenario: "shut",
-    level: "low force re-closes",
+    level: "with low force, which re-closes the door",
     kph: 4,
     kg: 300,
     off: [],
     check: (r) => assert.ok(r.doorDeg < 0.01, `door left ${r.doorDeg}° open`),
   },
-  { scenario: "shut", level: "high force slams it off", kph: 40, kg: 300, off: ["door", "mirror"], check: () => {} },
+  { scenario: "shut", level: "with high force, which slams the door off", kph: 40, kg: 300, off: ["door", "mirror"], check: () => {} },
 ];
 
-describe("door rig: the ram knocks off only what the sketch says (A/B/C)", () => {
+describe("given a ram on a lane beside a parked car (mirror: A grazes the shut door's mirror; overOpen: B drives the open door past its stop; shut: C drives the open door shut)", () => {
   for (const side of [-1, 1] as const) {
     const suffix = side < 0 ? "L" : "R";
     for (const c of CASES) {
-      it(`${c.scenario} ${suffix}, ${c.level}: off [${c.off.join(", ")}], body still`, () => {
+      it(`when the ${c.scenario} ram hits the ${suffix} side ${c.level}, then the parts that come off are [${c.off.join(", ")}] and the body does not move more than 1 mm`, () => {
         const r = fireRam(makeCar(), c.scenario, { kph: c.kph, kg: c.kg, side });
         assertSameDigest([...r.detached].sort(), c.off.map((p) => p + suffix).sort(), `detached [${[...r.detached].sort()}]`);
         const doorOn = !c.off.includes("door");
@@ -83,7 +83,7 @@ describe("door rig: the ram knocks off only what the sketch says (A/B/C)", () =>
   }
 });
 
-describe("door hinge: stop, latch and slam overload", () => {
+describe("given a car's right door swung from half a radian open at a chosen opening rate", () => {
   /** Opening rate (rad/s) whose swing carries `share` × `energy` (J). */
   const omegaFor = (share: number, energy: number): number => Math.sqrt((2 * share * energy) / DOOR_INERTIA);
   const swing = (theta: number, omega: number) => {
@@ -94,7 +94,7 @@ describe("door hinge: stop, latch and slam overload", () => {
     return car;
   };
 
-  it("a door swung shut below the slam limit latches; past it the door tears off", () => {
+  it("when it is swung shut at 0.9× and then 1.1× the slam limit, then the first latches shut and the second tears the door off", () => {
     const soft = swing(0.5, -omegaFor(0.9, SLAM_TEAR_J));
     assert.ok(!soft.partOff("doorR") && soft.doorHinge(1).latched && soft.doorHinge(1).theta === 0);
     assert.ok(swing(0.5, -omegaFor(1.1, SLAM_TEAR_J)).partOff("doorR"), "1.1× slam energy kept the door on");
@@ -102,7 +102,7 @@ describe("door hinge: stop, latch and slam overload", () => {
 
   // The old 1.1× fling reached the stop with 220 J (measured), the limit itself, on viscous damping alone; the hinge's dry friction
   // (DOOR_DRY, 2 rad/s²) takes it to 217 J. 1.2× is as far above the limit as the old 1.1× was meant to be.
-  it("a door flung open onto its stop stays below the hinge limit and tears off past it", () => {
+  it("when it is flung open onto its stop at 0.9× and then 1.2× the hinge limit, then the first stays on at the stop and the second tears the door off together with its mirror", () => {
     const soft = swing(0.5, omegaFor(0.9, HINGE_TEAR_J));
     assert.ok(!soft.partOff("doorR"));
     assert.ok(Math.abs(soft.doorHinge(1).theta - DOOR_OPEN_MAX) < 0.05, `door at ${soft.doorHinge(1).theta * R2D}°`);
@@ -111,8 +111,8 @@ describe("door hinge: stop, latch and slam overload", () => {
   });
 });
 
-describe("crash-driven doors keep C1 with the hinge model", () => {
-  it("a 64 km/h frontal wall leaves both doors on and their hinges shut", () => {
+describe("given a car driven at 64 km/h head-on into a wall", () => {
+  it("when the crash settles, then both doors stay on and both hinges are shut, latched and unloaded", () => {
     const car = makeCar();
     const r = runWall(64, 1, "front", { car });
     assert.ok(!r.detached.some((p) => p.startsWith("door")), `detached ${r.detached.join(",")}`);

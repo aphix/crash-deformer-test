@@ -72,8 +72,8 @@ const wallHit = (speedKph: number, overlap = 1): CrashCluster | undefined => {
 
 const SWEEP = [50, 60, 70, 80, 90, 100, 110, 130];
 
-describe("highlight score scales with impact force (real sim)", () => {
-  it("bad: the score rises strictly with the closing speed, head-on and T-bone, from 50 km/h to 130 km/h", () => {
+describe("given the highlight recorder scoring crashes between real simulated sedans (or a sedan and the jersey slab)", () => {
+  it("when the closing speed rises from 50 km/h to 130 km/h, then the score rises strictly with it for head-ons and T-bones, and for offset wall hits at 50, 56 and 80 km/h", () => {
     for (const [name, crash] of [
       ["head-on", headOn],
       ["T-bone", tBone],
@@ -87,14 +87,14 @@ describe("highlight score scales with impact force (real sim)", () => {
     assert.ok(wall[0]! < wall[1]! && wall[1]! < wall[2]!, `offset wall 50/56/80 km/h: ${wall.map((x) => x.toFixed(1)).join(" ")}`);
   });
 
-  it("bad: a 100 km/h head-on scores 3.5–5× a 50 km/h one; the 50 km/h reference keeps its old score", () => {
+  it("when a 100 km/h head-on is scored against a 50 km/h one, then it scores 3.5 to 5 times as much, and the 50 km/h one keeps its score of 3.65", () => {
     const at50 = headOn(50).score;
     const at100 = headOn(100).score;
     assert.ok(Math.abs(at50 - 3.65) < 0.02, `the 50 km/h reference moved: ${at50.toFixed(2)} (was 3.65)`);
     assert.ok(at100 / at50 >= 3.5 && at100 / at50 <= 5, `100 km/h ${at100.toFixed(2)} vs 50 km/h ${at50.toFixed(2)}: ×${(at100 / at50).toFixed(2)}`);
   });
 
-  it("bad: a 20 or 40 km/h head-on is under IMPACT_MIN and opens no cluster at all; 50 km/h still makes the reel", () => {
+  it("when 20 and 40 km/h head-ons are recorded, then they fall under the minimum impact speed and open no cluster, while a 50 km/h head-on still scores enough for the highlight reel", () => {
     for (const kph of [20, 40]) {
       const [a, b] = [makeCar(), makeCar()] as const;
       placeHeadOn(a, b, kph / 3.6);
@@ -103,7 +103,7 @@ describe("highlight score scales with impact force (real sim)", () => {
     assert.ok(headOn(50).score >= MIN_SCORE, "a 50 km/h head-on still makes the reel");
   });
 
-  it("bad: a race of seven head-ons keeps the TOP 5 hardest, ordered by severity, and not the soft ones", () => {
+  it("when a race has seven head-ons from 20 to 100 km/h, then the five hardest are kept, best first, and the softest two are dropped", () => {
     const speeds = [20, 100, 45, 80, 60, 90, 70];
     const cars = speeds.flatMap(() => [makeCar(), makeCar()]);
     speeds.forEach((v, k) => placeHeadOn(cars[2 * k]!, cars[2 * k + 1]!, v / 3.6, k * 200));
@@ -120,7 +120,7 @@ describe("highlight score scales with impact force (real sim)", () => {
     });
   });
 
-  it("bad: the softest ejection (a 55 km/h wall hit) outranks the hardest hit that spares the engines (109 km/h head-on); a harder throw ranks higher", () => {
+  it("when the softest driver ejection (a 55 km/h wall hit) is scored against the hardest hit that spares both engines (a 109 km/h head-on), then the ejection scores more than 1.5 times as much, and an 80 km/h wall throw scores higher still", () => {
     const spared = headOn(109);
     assert.equal(spared.kills, 0, "109 km/h head-on must still spare both engines for this to be the hardest spared hit");
     const soft = wallHit(55)!;
@@ -141,22 +141,24 @@ const fourCars = (v: number, extra = 0): { clusters: CrashCluster[]; rec: CrashR
   return record(cars, false, 4);
 };
 
-describe("highlight floor: one closing speed for every impact (IMPACT_MIN)", () => {
-  it("bad: four cars bumping at 9 m/s (32 km/h) make no cluster, no clip and no pile-up", () => {
+describe("given four cars in two head-on pairs 20 m apart, and the minimum closing speed any impact must reach to count", () => {
+  it("when they bump at 9 m/s (32 km/h), then no cluster, no clip and no pile-up is made", () => {
     const { clusters, rec } = fourCars(9);
     assert.equal(clusters.length, 0, `${clusters.length} cluster(s) opened by 32 km/h bumps`);
     assert.equal(rec.ledger.kept.length, 0, "no clip");
   });
 
-  it("bad: a pile-up of four cars at 20 m/s (72 km/h) still makes a clip, titled a 4-car pile-up", () => {
+  it("when they hit at 20 m/s (72 km/h), then a clip is still made, titled a 4-car pile-up", () => {
     const { rec } = fourCars(20);
     const [clip] = rec.ledger.kept;
     assert.ok(clip, "the fast pile-up made no clip");
     assert.equal(clip.hit, 4, "four cars hit");
     assert.equal(clipTitle(clip), "4-car pile-up");
   });
+});
 
-  it("bad: a two-car smash with six idle cars in sight is a smash, not a pile-up: the title counts the cars hit, not the cars in the shot", () => {
+describe("given a two-car head-on at 72 km/h with six idle cars standing close enough to be in the clip's shot", () => {
+  it("when the crash is recorded, then the clip's title is a smash (it counts the two cars hit, not the idle cars in the shot) and the idle cars are bystanders", () => {
     const cars = Array.from({ length: 8 }, () => makeCar());
     placeHeadOn(cars[0]!, cars[1]!, 20);
     for (let k = 2; k < 8; k++) launch(cars[k]!, 40 + 8 * k, 40, Math.PI / 2, 0, 0);

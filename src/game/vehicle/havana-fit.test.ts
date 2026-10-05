@@ -29,21 +29,20 @@ function sites(group: readonly (readonly [name: string, x: number, z: number])[]
   }));
 }
 
-describe("havana ground fit matrix: a braked car sits on the ground at every heading", () => {
+const dropSiteCases = [
+  { it: "when it is dropped on the approach, the foot road and the lawn before the face, then it sits on the ground at every heading", places: [["approach (0, 300)", 0, 300], ["approach edge (10, 300)", 10, 300], ["approach kerb (14, 300)", 14, 300], ["foot road (0, 52)", 0, 52], ["foot lawn (0, 41)", 0, 41]] },
+  { it: "when it is dropped on the grass face (foot, low, mid, high, crest) and the top just past it, then it sits on the ground at every heading", places: [["face foot (0, 38)", 0, 38], ["face low (0, 33)", 0, 33], ["face mid (0, 27)", 0, 27], ["face high (0, 22)", 0, 22], ["crest (0, 18)", 0, 18], ["crest top (0, 14)", 0, 14], ["face edge (11, 27)", 11, 27]] },
+  { it: "when it is dropped on the plaza (the clear strip, the left edge and the slope under it, the corner, the far side), then it sits on the ground at every heading", places: [["plaza strip (-8, 0)", -8, 0], ["plaza left edge (-12, 0)", -12, 0], ["left slope (-20, 0)", -20, 0], ["left foot (-28, 0)", -28, 0], ["corner (-14, 19)", -14, 19], ["far crest (0, -18)", 0, -18], ["far slope (0, -29)", 0, -29], ["far foot (0, -40)", 0, -40]] },
+  { it: "when it is dropped in the alley (cobble beside the slope) and on its kerb, then it sits on the ground at every heading", places: [["alley kerb (-33.5, 0)", -33.5, 0], ["alley (-36.5, 0)", -36.5, 0], ["alley south (-36.5, -30)", -36.5, -30]] },
+  { it: "when it is dropped on the landing lawn and the paseo's edge, then it sits on the ground at every heading", places: [["landing lawn (0, -100)", 0, -100], ["landing lawn (30, -140)", 30, -140], ["paseo kerb (12, -100)", 12, -100], ["ring south (0, -57)", 0, -57]] },
+] as const;
+
+describe("given a braked car dropped at every compass heading on Havana's grass embankment, plaza, alley and landing lawn", () => {
   afterEach(() => setGround(null));
 
-  it("the approach, the foot road and the lawn before the face", (t) =>
-    report(t, sites([["approach (0, 300)", 0, 300], ["approach edge (10, 300)", 10, 300], ["approach kerb (14, 300)", 14, 300], ["foot road (0, 52)", 0, 52], ["foot lawn (0, 41)", 0, 41]])));
-
-  it("the grass face: foot, low, mid, high, crest, and the top just past it", (t) =>
-    report(t, sites([["face foot (0, 38)", 0, 38], ["face low (0, 33)", 0, 33], ["face mid (0, 27)", 0, 27], ["face high (0, 22)", 0, 22], ["crest (0, 18)", 0, 18], ["crest top (0, 14)", 0, 14], ["face edge (11, 27)", 11, 27]])));
-
-  it("the plaza: the clear strip, the left edge and the slope under it, the corner, the far side", (t) =>
-    report(t, sites([["plaza strip (-8, 0)", -8, 0], ["plaza left edge (-12, 0)", -12, 0], ["left slope (-20, 0)", -20, 0], ["left foot (-28, 0)", -28, 0], ["corner (-14, 19)", -14, 19], ["far crest (0, -18)", 0, -18], ["far slope (0, -29)", 0, -29], ["far foot (0, -40)", 0, -40]])));
-
-  it("the alley (cobble beside the slope) and its kerb", (t) => report(t, sites([["alley kerb (-33.5, 0)", -33.5, 0], ["alley (-36.5, 0)", -36.5, 0], ["alley south (-36.5, -30)", -36.5, -30]])));
-
-  it("the landing lawn and the paseo's edge", (t) => report(t, sites([["landing lawn (0, -100)", 0, -100], ["landing lawn (30, -140)", 30, -140], ["paseo kerb (12, -100)", 12, -100], ["ring south (0, -57)", 0, -57]])));
+  for (const testCase of dropSiteCases) {
+    it(testCase.it, (t) => report(t, sites(testCase.places)));
+  }
 });
 
 /** One drive-matrix row: where the run went and what the ground did to the car. */
@@ -69,11 +68,11 @@ function driveMatrix(): Row[] {
   return rows;
 }
 
-describe("havana drive matrix: every class up the face and over the crest", () => {
+describe("given every class driving up Havana's face and over the crest at 10, 20 and 30 m/s, from the start at full throttle, and 30° across it", () => {
   afterEach(() => setGround(null));
   const rows = driveMatrix();
 
-  it("prints the table: crest flight, landing, deepest hull and tyre in the ground", (t) => {
+  it("when the runs are tabulated, then the table prints the crest flight, the landing and the deepest hull and tyre in the ground", (t) => {
     const lines = ["| class | run | air s | apex m | rise m | takeoff z | landing x, z, surface, m/s | hull cm | grass tyre cm | thrown | killed | end speed | speed at the foot |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|"];
     for (const { cls, run, r } of rows) {
       const land = r.landing ? `${f(r.landing.x)}, ${f(r.landing.z)}, ${r.landing.surface}, ${f(r.landing.speed)}` : "-";
@@ -82,7 +81,7 @@ describe("havana drive matrix: every class up the face and over the crest", () =
     t.diagnostic(`\n${lines.join("\n")}`);
   });
 
-  it("nobody is thrown out, killed or moved but by his own speed, and a class that was given a run finishes it", () => {
+  it("when every class has driven its run, then nobody is thrown out, killed or moved but by his own speed, and a class that was given a run finishes it", () => {
     const bad: string[] = [];
     for (const { cls, run, stopZ, r } of rows) {
       if (r.ejections > 0) bad.push(`${cls} ${run}: driver thrown out`);
@@ -93,7 +92,7 @@ describe("havana drive matrix: every class up the face and over the crest", () =
     assert.deepEqual(bad, []);
   });
 
-  it("wheels are good on the grass: no tyre more than 2 cm in it, and no hull more than 2 cm in the ground, on any run", () => {
+  it("when every class has driven its run, then wheels are good on the grass: no tyre is more than 2 cm in it and no hull more than 2 cm in the ground, on any run", () => {
     const bad: string[] = [];
     for (const { cls, run, r } of rows) {
       if (r.grass > 0.02) bad.push(`${cls} ${run}: a tyre ${f(r.grass * 100)} cm in the grass`);
@@ -102,7 +101,7 @@ describe("havana drive matrix: every class up the face and over the crest", () =
     assert.deepEqual(bad, []);
   });
 
-  it("a crest that launches: on the ground at 10 and 20 m/s, in the air from 30 m/s up, and a full-throttle run clears the plaza and lands beyond the ring road", () => {
+  it("when every class has driven its run, then the crest launches nothing at 10 and 20 m/s, launches into the air from 30 m/s up, and a full-throttle run clears the plaza and lands beyond the ring road", () => {
     const bad: string[] = [];
     for (const { cls, run, r } of rows) {
       const speed = Number(/^(\d+) m\/s$/.exec(run)?.[1] ?? 99);
@@ -118,10 +117,10 @@ describe("havana drive matrix: every class up the face and over the crest", () =
   });
 });
 
-describe("havana crest landing, judged at every physics slice", () => {
+describe("given a car driving at 30 m/s up Havana's face and over the crest, with the landing judged at every physics slice", () => {
   afterEach(() => setGround(null));
 
-  it("the drawn hull is never more than 2 cm in the ground, on whichever slice of a frame the landing falls", () => {
+  it("when the lead-in is shifted in six 2 cm steps so the landing falls on a different slice of a frame, then the drawn hull is never more than 2 cm in the ground", () => {
     // A slice at 30 m/s is 12.5 cm of travel: six leads 2 cm apart shift where in a slice the nose meets the lawn. The nose bounces off the
     // landing and the hull's contact lapses for one slice (`airContact`); that slice must not drop the body its springs hold up.
     const bad: string[] = [];
@@ -135,16 +134,16 @@ describe("havana crest landing, judged at every physics slice", () => {
   });
 });
 
-describe("havana's approach and its set piece", () => {
+describe("given Havana's approach boulevard and its set piece", () => {
   afterEach(() => setGround(null));
   const rows = driveMatrix();
   const start = (cls: VehicleClassId) => rows.find((x) => x.cls === cls && x.run === "start, full throttle")!.r;
 
-  it("the boulevard is long enough that the default class (sedan) reaches 90 % of its top speed at the foot", () => {
+  it("when the default class (sedan) drives the start at full throttle, then the boulevard is long enough for it to reach 90 % of its top speed at the foot", () => {
     assert.ok(start("sedan").speedAt! >= 0.9 * CLASSES.sedan.topSpeed, `sedan ${f(start("sedan").speedAt!)} of ${f(CLASSES.sedan.topSpeed)} m/s`);
   });
 
-  it("a cop at the player's foot speed launches at the crest, lands on the lawn beyond the island and keeps going", (t) => {
+  it("when a cop arrives at the player's foot speed, then it launches at the crest, lands on the lawn beyond the island and keeps going", (t) => {
     const foot = start("sedan").speedAt!;
     const r = runLine(ground, "police", FOOT, { ...LIMITS, lead: 60, speed: foot, stopZ: -215, at: FOOT_ROAD });
     t.diagnostic(`police at ${f(foot)} m/s: ${f(r.air, 2)} s in the air, apex ${f(r.apex)} m over the ground (${f(r.rise)} m over the crest), landed at (${f(r.landing!.x)}, ${f(r.landing!.z)}) on ${r.landing!.surface} at ${f(r.landing!.speed)} m/s, ends at z ${f(r.end.z)} doing ${f(r.end.speed)} m/s`);

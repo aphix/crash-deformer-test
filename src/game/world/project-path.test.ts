@@ -58,10 +58,10 @@ function scan(path: TrackPath, x: number, z: number, hint: number, out: Projecti
 const same = (a: Projection, b: Projection) =>
   Object.is(a.dist2, b.dist2) && a.k === b.k && Object.is(a.s, b.s) && Object.is(a.cx, b.cx) && Object.is(a.cz, b.cz) && Object.is(a.lateral, b.lateral);
 
-describe("projectPath", () => {
-  for (const json of TRACKS) {
-    const id = parseTrack(json).id;
-    it(`${id}: every path answers as the plain scans do, near the road, off it, far away, with and without a hint`, () => {
+for (const json of TRACKS) {
+  const id = parseTrack(json).id;
+  describe(`given the ${id} course, and the plain scans of a path (a window of samples round a hint, else the whole path) as the reference for projectPath (the nearest centreline point)`, () => {
+    it("when random points near the road, off it and far away are projected, with and without a hint, then every path answers exactly as the plain scans do", () => {
       const track = new Track(json);
       const rand = mulberry32(21);
       const b = track.bounds;
@@ -100,9 +100,11 @@ describe("projectPath", () => {
       }
       assert.ok(queries >= 3000);
     });
-  }
+  });
+}
 
-  it("a point far outside the path's box takes the plain scan", () => {
+describe("given a point far outside the path's box, and the plain scan as the reference for projectPath (the nearest centreline point)", () => {
+  it("when it is projected without a hint, then the answer is the plain scan's", () => {
     const track = new Track(TRACKS[0]);
     const want = blankProjection();
     const got = blankProjection();

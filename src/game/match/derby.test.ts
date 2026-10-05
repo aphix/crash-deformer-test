@@ -14,8 +14,8 @@ import { CAGES } from "../kernel/rig-spec.ts";
 import { armKill, carClass, DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { aiCar, assertSameDigest, decide } from "../vehicle/test-support.ts";
 
-describe("derby AI", () => {
-  it("good: never head-on (banned in the rule books): even a brawler facing a flat nose swings wide or backs in", () => {
+describe("given a brawler (full aggression) driving at a target that comes straight at it with a flattened nose", () => {
+  it("when it decides its drive input, then it swings wide or backs in rather than charging nose first (head-on hits are banned in the rule books)", () => {
     const brain = new DerbyBrain();
     brain.setAggression(2, 1);
     const me = aiCar(2, { z: -8 });
@@ -23,8 +23,10 @@ describe("derby AI", () => {
     const input = decide(brain, me, [me, flat]);
     assert.ok(Math.abs(input.steer) > 0.3 || input.throttle < 0, `charged nose first: steer ${input.steer} throttle ${input.throttle}`);
   });
+});
 
-  it("good: the tail is the bumper: a target behind gets backed into; one ahead gets a handbrake J-turn first", () => {
+describe("given a derby car that fights with its tail as the bumper", () => {
+  it("when a target is behind it, then it backs into it, even with its own front wrecked; and when a target is ahead, then it first handbrake J-turns (a handbrake spin to bring its tail round)", () => {
     const parked = aiCar(0, { vz: 0 });
     const behind = aiCar(1, { z: -10 });
     const back = decide(new DerbyBrain(), parked, [parked, behind]);
@@ -38,15 +40,19 @@ describe("derby AI", () => {
     assert.equal(brain.tacticOf(0), "jturn");
     assert.ok(turn.ebrake && turn.throttle === 0 && Math.abs(turn.steer) > 0.5, `no J-turn: ${JSON.stringify(turn)}`);
   });
+});
 
-  it("good: near the wall we turn off it, not into the concrete", () => {
+describe("given a derby car 1.2 m from the arena wall with another car 4 m to its side", () => {
+  it("when it decides its drive input, then it turns or backs away from the wall instead of driving into the concrete", () => {
     const me = aiCar(3, { x: 0, z: DERBY_RADIUS - 1.2 });
     const foe = aiCar(1, { x: 4, z: 0 });
     const input = decide(new DerbyBrain(), me, [me, foe]);
     assert.ok(Math.abs(input.steer) > 0.5 || input.throttle < 0, `steer ${input.steer} throttle ${input.throttle}`);
   });
+});
 
-  it("good: leads a crossing target instead of aiming where it was", () => {
+describe("given a derby car backing tail first toward a target that faces it", () => {
+  it("when the target is crossing at 8 m/s instead of parked, then the car steers more than 0.3 further to meet where the target will be, instead of aiming where it was", () => {
     // Backing at it tail first: facing away, rolling backwards toward it.
     const me = aiCar(3, { z: -10, yaw: Math.PI, vz: 8 });
     // It faces us, so we back straight down its nose lane; crossing, it drags the aim sideways.
@@ -59,8 +65,10 @@ describe("derby AI", () => {
       `no lead: steer ${atCrossing.steer.toFixed(2)} vs parked ${atParked.steer.toFixed(2)}`,
     );
   });
+});
 
-  it("good: a cautious second hunter takes the other victim; at full aggression a wreck is fair game for both", () => {
+describe("given two parked victims, with hunters backing toward them tail first", () => {
+  it("when one lone hunter, two cautious hunters and two full-aggression hunters (facing a wrecked victim) choose, then the lone hunter takes the nearer victim, the cautious pair take one victim each, and the wreck draws both full-aggression hunters", () => {
     // Two parked victims; A is nearer both hunters, who are backing toward them tail first.
     const a = aiCar(4, { x: -2.2, vz: 0 });
     const b = aiCar(5, { x: 3.6, vz: 0 });
@@ -84,8 +92,10 @@ describe("derby AI", () => {
     decide(brutes, north, [south, north, a, wreck]);
     assert.deepEqual([brutes.huntersOf(4), brutes.huntersOf(5)], [0, 2], "the weakened car should draw both brutes");
   });
+});
 
-  it("good: throttle with no motion backs out, and a second wedge tries the other gear", () => {
+describe("given a derby car wedged 3 m from a foe that sits across its path", () => {
+  it("when its throttle is held with no motion, then it backs out, and when a second wedge follows it tries the other gear instead of the same blocked one", () => {
     const brain = new DerbyBrain();
     const me = aiCar(3, { z: -3, vz: 0 });
     const foe = aiCar(1, { z: 3, yaw: Math.PI / 2, vz: 0 });
@@ -105,8 +115,10 @@ describe("derby AI", () => {
     }
     assert.ok(escape * backed < 0, "kept trying the same blocked gear");
   });
+});
 
-  it("good: drivers differ by id but are the same driver every match", () => {
+describe("given derby drivers built from their ids in two matches", () => {
+  it("when the drivers are built, then driver 7 is the same driver both times, and across ten ids some flank each way and some launch at once while others hold back", () => {
     assertSameDigest(personality(7), personality(7), "driver 7 in two matches");
     const field = Array.from({ length: 10 }, (_, i) => personality(i));
     assert.ok(new Set(field.map((p) => p.side)).size === 2, "everyone flanks the same way");
@@ -114,8 +126,8 @@ describe("derby AI", () => {
   });
 });
 
-describe("derby scoring", () => {
-  it("good: buckle chatter and soft taps don't score — one point per hard hit per pair per gap", () => {
+describe("given a three-car derby match", () => {
+  it("when cars hit, then a hard hit scores one point per pair per gap: the same contact twice, a repeat inside the gap or a 3 m/s tap scores nothing, and a hit after the gap scores again", () => {
     const m = new DerbyMatch();
     m.begin(
       [
@@ -136,8 +148,10 @@ describe("derby scoring", () => {
     assert.equal(m.row(0)!.score, HIT_POINTS * 2);
     assert.equal(m.row(0)!.hits, 2);
   });
+});
 
-  it("good: a disable is a bonus on top of the last hit, last survivor wins regardless of points", () => {
+describe("given a two-car derby match where one car lands seven hits on the other", () => {
+  it("when the other car's engine dies, then the disable is a bonus on top of the hits and the last survivor wins regardless of points", () => {
     const m = new DerbyMatch();
     m.begin([
       { id: 0, name: "Titanium" },
@@ -157,8 +171,10 @@ describe("derby scoring", () => {
     assert.equal(m.winnerId, 1);
     assert.equal(m.winnerName, "Petrol");
   });
+});
 
-  it("good: a dead car with more points still loses to the survivor", () => {
+describe("given a two-car derby match where the car with more points is disabled", () => {
+  it("when the other car survives, then the survivor wins although the dead car has more points", () => {
     const m = new DerbyMatch();
     m.begin([
       { id: 0, name: "Oxide" },
@@ -177,15 +193,17 @@ describe("derby scoring", () => {
   });
 });
 
-describe("derby arena", () => {
-  it("good: outside the bowl is pushed back and loses outward speed", () => {
+describe("given a car outside the derby bowl wall", () => {
+  it("when it is clipped to the bowl, then it is pushed back inside and loses outward speed", () => {
     const hit = clipToDerbyBowl(0, DERBY_RADIUS + 2, 0, 12);
     assert.equal(hit.hit, true);
     assert.ok(Math.hypot(hit.x, hit.z) < DERBY_RADIUS - 1);
     assert.ok(hit.vz < 12);
   });
+});
 
-  it("good: wall slabs lie tangent to the ring, not radial", () => {
+describe("given the derby arena's wall slabs", () => {
+  it("when each slab's long axis is compared with the ring's radial direction, then every slab lies along the ring (tangent), not radial, sits on the ring's radius, and there are at least 16", () => {
     const arena = makeDerbyArena();
     const long = new THREE.Vector3();
     const radial = new THREE.Vector3();
@@ -212,8 +230,8 @@ describe("derby arena", () => {
   });
 });
 
-describe("derby layout", () => {
-  it("good: N cars sit on a ring inside the bowl, each facing its centre", () => {
+describe("given six derby cars laid out in the bowl", () => {
+  it("when their start slots are laid out, then all six sit on a ring inside the bowl, within the car limit, each facing its centre", () => {
     const slots = layoutDerby(6, DERBY_RADIUS, () => 0.5);
     assert.equal(slots.length, 6);
     assert.ok(slots.length <= MAX_CARS);
@@ -226,8 +244,8 @@ describe("derby layout", () => {
   });
 });
 
-describe("ai snapshot", () => {
-  it("good: a mint car reads 0, a dead drivetrain reads 1", () => {
+describe("given the AI's damage reading of a car", () => {
+  it("when a mint car and a car with a dead drivetrain are read, then the mint car reads near 0 and the dead drivetrain reads 1", () => {
     const c = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, new THREE.Scene());
     const s = snapshotAiCar(blankAiCar(0), 0, 0, 0, 0, 0, 0, true, c.deform.masses);
     assert.ok(s.front < 0.02 && s.rear < 0.02 && s.damage < 0.02, `mint read ${s.front}/${s.rear}/${s.damage}`);
@@ -235,8 +253,8 @@ describe("ai snapshot", () => {
   });
 });
 
-describe("drive input", () => {
-  it("good: idle is zeros", () => {
+describe("given the idle drive input", () => {
+  it("when it is read, then throttle is zero and neither handbrake nor boost is on", () => {
     const d = idleDrive();
     assert.equal(d.throttle, 0);
     assert.equal(d.ebrake, false);
@@ -247,8 +265,8 @@ describe("drive input", () => {
 /** 50 km/h rigid wall. Two cars at half that each see about half the delta-v. */
 const FRONT_DISABLE_MPS = 50 / 3.6;
 
-describe("derby durability and the default two-car stall", () => {
-  it("good: head-on, each at half of 50 km/h, both engines still run", () => {
+describe("given two cars, each at half the speed of a 50 km/h rigid-wall hit, driving head-on at each other in shape deform mode", () => {
+  it("when they crash for 1.6 s, then both engines still run", () => {
     const scene = new THREE.Scene();
     const half = FRONT_DISABLE_MPS * 0.5;
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
@@ -281,8 +299,10 @@ describe("derby durability and the default two-car stall", () => {
     assert.equal(a.deform.drivetrainAlive, true, `titanium died on a 25 km/h head-on travel=${travel(a).toFixed(3)}`);
     assert.equal(b.deform.drivetrainAlive, true, `petrol died on a 25 km/h head-on travel=${travel(b).toFixed(3)}`);
   });
+});
 
-  it("bad: default two-car derby must still be moving 5 s after the green light, not parked nose to nose", () => {
+describe("given a default two-car derby in shape deform mode", () => {
+  it("when the AI drives both cars for 5 s after the green light, then both engines still run, the cars are still moving and they met (closest approach under 6.5 m), not parked nose to nose", () => {
     const scene = new THREE.Scene();
     const a = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, scene);
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
@@ -489,14 +509,17 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
     return { hits, noseToNose, worstWedge, t, state, deaths, zips, pops };
 }
 
-describe("derby match, six AI cars", () => {
+describe("given derby matches between AI cars", () => {
   const owner = ownerDerby(15);
   const ownerReal = ownerDerby(15, REALISTIC);
-  it("good: 20 s of derby — cars keep hitting, mostly not nose to nose, and nobody sits wedged", () => {
-    const { hits, noseToNose, worstWedge } = sixCarDerby(20);
-    assert.ok(hits >= 20, `only ${hits} scored hits in 20 s`);
-    assert.ok(noseToNose / hits < 0.25, `${noseToNose}/${hits} hits were nose to nose`);
-    assert.ok(worstWedge < 3, `a car sat on the throttle without moving for ${worstWedge.toFixed(2)} s`);
+
+  describe("given six AI cars in the bowl at the arcade crush knobs", () => {
+    it("when 20 s of derby are played, then the cars keep hitting (at least 20 scored hits), under a quarter of the hits are nose to nose and nobody sits wedged on the throttle for 3 s", () => {
+      const { hits, noseToNose, worstWedge } = sixCarDerby(20);
+      assert.ok(hits >= 20, `only ${hits} scored hits in 20 s`);
+      assert.ok(noseToNose / hits < 0.25, `${noseToNose}/${hits} hits were nose to nose`);
+      assert.ok(worstWedge < 3, `a car sat on the throttle without moving for ${worstWedge.toFixed(2)} s`);
+    });
   });
 
   // Lane crash-realism-6 replaced the ≥ 3/4-seed elimination test at squash 0.4 with the sourced 0.15 m
@@ -505,12 +528,14 @@ describe("derby match, six AI cars", () => {
   const realRuns = [7, 11, 13, 17, 19].map((seed) => ({ seed, run: sixCarDerby(STALEMATE, seed, REALISTIC) }));
   const realRows = realRuns.map(({ seed, run }) => `seed ${seed}: deaths [${run.deaths.map((d) => d.toFixed(1)).join(",")}]`).join("; ");
 
-  // Main 7be2ad2: 3 deaths over the 5 seeds (seeds 7, 17, 19 none): rearmHit dropped every car-car hit
-  // under 6 m/s EBS (43 km/h closing), so most rams added nothing. Now ≥ 13, the first at 21.5 s.
-  it("bad: at the realistic defaults, accumulated wrecking kills ≥ 10 cars over 5 six-car matches, none before 8 s", () => {
-    const deaths = realRuns.flatMap(({ run }) => run.deaths);
-    assert.ok(deaths.length >= 10, `${deaths.length} deaths: ${realRows}`);
-    assert.ok(Math.min(...deaths) > 8, `a car died before accumulated wrecking could kill it — ${realRows}`);
+  describe("given five six-car matches (seeds 7, 11, 13, 17 and 19) at the realistic defaults", () => {
+    // Main 7be2ad2: 3 deaths over the 5 seeds (seeds 7, 17, 19 none): rearmHit dropped every car-car hit
+    // under 6 m/s EBS (43 km/h closing), so most rams added nothing. Now ≥ 13, the first at 21.5 s.
+    it("when the matches run to the stalemate, then accumulated wrecking kills at least 10 cars in all, none before 8 s", () => {
+      const deaths = realRuns.flatMap(({ run }) => run.deaths);
+      assert.ok(deaths.length >= 10, `${deaths.length} deaths: ${realRows}`);
+      assert.ok(Math.min(...deaths) > 8, `a car died before accumulated wrecking could kill it — ${realRows}`);
+    });
   });
 
   // Target (Main): most matches end by physics elimination (5 of 6 dead) inside the 90 s stalemate.
@@ -522,21 +547,25 @@ describe("derby match, six AI cars", () => {
   // the rate: main 765d53e 14/20, the airborne lane 13/20 (70 %, 65 %). ≥ 10/20 clears that by 3 and a half-rate
   // match (5/20, or none) fails: P(X ≥ 10) is under 3 % at 65 %.
   const rateRuns = Array.from({ length: 20 }, (_, i) => sixCarDerby(STALEMATE, i + 1, REALISTIC));
-  it("bad: at the realistic defaults ≥ 10 of 20 six-car matches end by elimination inside the 90 s stalemate", () => {
-    const wins = rateRuns.filter((run) => run.deaths.length >= 5 && run.deaths[4]! <= STALEMATE).length;
-    assert.ok(wins >= 10, `${wins}/20 elimination wins`);
+  describe("given twenty six-car matches (seeds 1 to 20) at the realistic defaults", () => {
+    it("when the matches run to the 90 s stalemate, then at least 10 of the 20 end by elimination (5 of 6 cars dead) inside it", () => {
+      const wins = rateRuns.filter((run) => run.deaths.length >= 5 && run.deaths[4]! <= STALEMATE).length;
+      assert.ok(wins >= 10, `${wins}/20 elimination wins`);
+    });
   });
 
-  it("bad: a re-armed wreck never outruns its own masses — owner's 9-car derby, 15 s, at squash 0.4/rear 0.45 and the realistic 0.32/0.38", () => {
-    assert.equal(owner.zips.length, 0, `0.4/0.45: ${owner.zips.length} zips: ${owner.zips.slice(0, 4).join("; ")}`);
-    assert.equal(ownerReal.zips.length, 0, `0.32/0.38: ${ownerReal.zips.length} zips: ${ownerReal.zips.slice(0, 4).join("; ")}`);
-  });
+  describe("given the owner's 9-car derby run for 15 s", () => {
+    it("when settled wrecks are hit again in the 9-car derby, at crush squash 0.4 and rear 0.45 and again at the realistic 0.32 and 0.38, then no wreck ever moves faster than its own parts allow (it never jumps)", () => {
+      assert.equal(owner.zips.length, 0, `0.4/0.45: ${owner.zips.length} zips: ${owner.zips.slice(0, 4).join("; ")}`);
+      assert.equal(ownerReal.zips.length, 0, `0.32/0.38: ${ownerReal.zips.length} zips: ${ownerReal.zips.slice(0, 4).join("; ")}`);
+    });
 
-  // Was 19 pops in 15 s (0.10–0.24 m): the first contact on a planted wreck re-anchored the group on
-  // the cell's rest inside one dt = 0 syncPose. Now 7 (≤ 0.07 m): the plant switch levels the frame
-  // at 0.35 s quiet in one call (tilt × lever), and one slice's satPushCap push (3.4 cm at 5 ms) on a
-  // slow wedged pair. Ramping the level-out took it to 0 but moved the tap and A3 bands (RIG_ANALYSIS §6.4).
-  it.todo("derby:pops — a crashed car's group never moves more than 3·v·h + 2 cm in a slice — owner's derby", () => {
-    assert.equal(owner.pops.length, 0, `${owner.pops.length} pops: ${owner.pops.slice(0, 4).join("; ")}`);
+    // Was 19 pops in 15 s (0.10–0.24 m): the first contact on a planted wreck re-anchored the group on
+    // the cell's rest inside one dt = 0 syncPose. Now 7 (≤ 0.07 m): the plant switch levels the frame
+    // at 0.35 s quiet in one call (tilt × lever), and one slice's satPushCap push (3.4 cm at 5 ms) on a
+    // slow wedged pair. Ramping the level-out took it to 0 but moved the tap and A3 bands (RIG_ANALYSIS §6.4).
+    it.todo("when a car crashes, then its body never moves more than 3 times its speed times the slice length plus 2 cm in one slice", () => {
+      assert.equal(owner.pops.length, 0, `${owner.pops.length} pops: ${owner.pops.slice(0, 4).join("; ")}`);
+    });
   });
 });

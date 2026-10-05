@@ -67,9 +67,9 @@ const fmt = (pushes: Push[]): string =>
     .map((p) => `t=${p.t.toFixed(1)} car ${p.car} moved ${p.moved.toFixed(3)} m (allowed ${p.allowed.toFixed(3)})`)
     .join("; ");
 
-describe("course wall: a push is a step of travel, never a teleport", () => {
+describe("given a city race of 5 cars (4 AI rivals and the AI-driven player slot) through the real stack, where the course wall must push a car by a step of travel and never teleport it", () => {
   // The city's wall pushed car 4 by 3.0 m at 23.6 s of this race (5 AI cars, seed 1), 17 more over 120 s.
-  it("city, 5 cars through the real stack for 40 s: no car is moved further than its step's travel explains", () => {
+  it("when the race runs for 40 s, then no car is moved further than its step's travel explains", () => {
     const w = raceWorld("city", 4);
     try {
       const pushes = overPushes(w, 40);
@@ -79,8 +79,10 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       setGround(null);
     }
   });
+});
 
-  it("a car driving the back alley to its exit at 29 m/s is not thrown across the loop's wall line", () => {
+describe("given a lone car in the city race, racing down the back alley to its exit at 29 m/s with the throttle held", () => {
+  it("when it reaches the exit, then it is not thrown across the loop's wall line: no wall push moves it further than its step's travel explains", () => {
     const w = raceWorld("city", 0);
     try {
       const car = w.cars[0]!;
@@ -100,9 +102,11 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       setGround(null);
     }
   });
+});
 
+describe("given a lone car in the city race driving at 20 m/s along the loop with its footprint 0.7 m past the wall line, in an open mouth 7 samples before a wall starts", () => {
   // Measured: 0.82 m at 28 m/s (city, 54 s) and 0.18 m (rally) where a wall starts under a car whose footprint is already past the line.
-  it("a wall that starts under a car drifting past the line in an open mouth moves it no more than its step", () => {
+  it("when the wall starts under it, then the wall moves it no more than its step's travel", () => {
     const w = raceWorld("city", 0);
     try {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
@@ -128,8 +132,10 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       setGround(null);
     }
   });
+});
 
-  it("a car shoved through the wall from the road side in one step is still returned to the road", () => {
+describe("given a lone car in the city race on a walled stretch of the loop, 2 m inside the wall line on the road side", () => {
+  it("when it is shoved 3.5 m toward the wall in one step (a car-car shove), then the wall returns it to the road, having left it alone before the shove", () => {
     const w = raceWorld("city", 0);
     try {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
@@ -154,10 +160,12 @@ describe("course wall: a push is a step of travel, never a teleport", () => {
       setGround(null);
     }
   });
+});
 
+describe("given a lone car in the city race on a walled stretch of the loop with no solid prop near, first on the road and then 2.8 m beyond the wall line", () => {
   // A replay keyframe puts a car on its recorded spot with the wall memory the record held (`ClipSim` -> `remember`): a car the
   // live race had just placed holds none (`Infinity` x, no segment), and a pose change under WALL_JUMP (4 m) alone forgets nothing.
-  it("a car put on a new spot by a keyframe 3.7 m from where it stood is judged afresh, not by the wall memory of the old spot", () => {
+  it("when a replay keyframe puts it beyond the wall line from the road side and another then puts it just past the line, then the first is not pushed (a car arriving beyond the line is outside it) and the second, placed with no wall memory, is pushed back about 0.13 m", () => {
     const w = raceWorld("city", 0);
     try {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));

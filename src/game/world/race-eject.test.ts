@@ -87,9 +87,9 @@ const WHO: Who[] = [
   { name: "an AI rival's car", id: RIVAL },
 ];
 
-describe("a driver thrown out of his car can't drive any more: the car coasts in neutral, then the race's wreck rule applies", () => {
+describe("given a 3-lap oval race of 3 AI rivals, 5 s in, with one car's driver thrown out of his car", () => {
   for (const who of WHO) {
-    it(`bad: ${who.name} in a Respawn race gets no pedals or wheel, coasts (not brakes), resets ${RESPAWN_DELAY} s later with its driver back, and drives again`, () => {
+    it(`when ${who.name} loses its driver in a Respawn race, then it gets no pedals or wheel, coasts (rather than brakes), is reset ${RESPAWN_DELAY} s later with its driver back, and drives again`, () => {
       const state = start(false);
       runTo(state, 5);
       const car = w.cars[who.id]!;
@@ -136,7 +136,7 @@ describe("a driver thrown out of his car can't drive any more: the car coasts in
       assert.ok(car.velocity.length() > 3, `moving again: ${car.velocity.length().toFixed(1)} m/s`);
     });
 
-    it(`bad: ${who.name} in a No-reset race gets no pedals, coasts, and is out of the race for good`, () => {
+    it(`when ${who.name} loses its driver in a No-reset race, then it gets no pedals, coasts, and is out of the race for good`, () => {
       const state = start(true);
       runTo(state, 5);
       const car = w.cars[who.id]!;
@@ -154,8 +154,8 @@ describe("a driver thrown out of his car can't drive any more: the car coasts in
   }
 });
 
-describe("a human who sits still is not reset by the rules (only the AI needs that)", () => {
-  it("bad: a netplay peer parked on the grid for 14 s keeps its car, as this browser's driver does", () => {
+describe("given a netplay peer's car parked on the grid of an oval race, as a human who sits still", () => {
+  it("when the race runs for 14 s, then the peer keeps its car and is not reset by the rules (only the AI is), as this browser's driver would not be", () => {
     w.race.setSeats(new Map([[RIVAL, "Peer"]]));
     try {
       const state = start(false);
@@ -205,8 +205,8 @@ function headOnRun(noReset: boolean): { out: number[]; reset: number[]; events: 
   return { out, reset, events: JSON.stringify(w.ejections.map((e) => [e.car, e.exit, ...e.pos.toArray(), ...ejectionVelocity(e, new THREE.Vector3()).toArray()])), status };
 }
 
-describe("a real head-on throws both drivers (player and AI alike) and the rule follows from the sim's ejection", () => {
-  it(`bad: at 2×20 m/s both drivers leave, both cars are reset ${RESPAWN_DELAY} s later in a Respawn race`, () => {
+describe("given the player's car and the first AI rival driving head-on at each other at 2×20 m/s (72 km/h each) on the oval's start straight, where both engines survive the crash", () => {
+  it(`when the race is a Respawn race, then both drivers leave, both cars are reset ${RESPAWN_DELAY} s later, and they race on`, () => {
     const o = headOnRun(false);
     assert.ok(o.out[0]! >= 0 && o.out[1]! >= 0, `both drivers leave: ${JSON.stringify(o.out)}`);
     for (const k of [0, 1]) {
@@ -216,7 +216,7 @@ describe("a real head-on throws both drivers (player and AI alike) and the rule 
     assert.deepEqual(o.status, ["racing", "racing"], "and they race on");
   });
 
-  it("bad: in a No-reset race both are out for good", () => {
+  it("when the race is a No-reset race, then both drivers leave and both cars are out of the race for good, never reset", () => {
     const o = headOnRun(true);
     assert.ok(o.out[0]! >= 0 && o.out[1]! >= 0);
     assert.deepEqual(o.reset, [-1, -1], "no reset");
@@ -234,7 +234,7 @@ describe("a real head-on throws both drivers (player and AI alike) and the rule 
     w.race.enter();
   };
 
-  it("bad: the same race twice throws the same drivers on the same frames with the same launch numbers, and resets on the same frames", () => {
+  it("when the same Respawn race is run twice on worlds of their own, then the same drivers are thrown on the same frames with the same launch numbers, and the cars are reset on the same frames", () => {
     fresh();
     const first = headOnRun(false);
     fresh();

@@ -33,8 +33,8 @@ function stage(refuse: "none" | "reject" | "error" = "none") {
   return { doc, canvas, calls, look, browserDrops, mouse };
 }
 
-describe("mouse look: the lock state rule behind pause-once", () => {
-  it("good: a granted lock turns the mode on and raw movement reaches the camera", async () => {
+describe("given mouse look (the pointer-lock camera control), where losing the lock by the browser's doing pauses the game once", () => {
+  it("when the browser grants the lock, then the mode turns on and raw mouse movement reaches the camera", async () => {
     const s = stage();
     s.look.request(s.canvas);
     await Promise.resolve();
@@ -43,7 +43,7 @@ describe("mouse look: the lock state rule behind pause-once", () => {
     assert.deepEqual(s.calls.moves, [[3, -2]]);
   });
 
-  it("good: the browser dropping the lock (Esc, tab hide, alt-tab) reports `lost` exactly once and turns the mode off", () => {
+  it("when the browser drops the lock (Esc, tab hide, alt-tab), then the lock-lost report fires exactly once, the mode turns off, and later movement and stray repeat events do nothing", () => {
     const s = stage();
     s.look.request(s.canvas);
     s.browserDrops();
@@ -55,7 +55,7 @@ describe("mouse look: the lock state rule behind pause-once", () => {
     assert.equal(s.calls.moves.length, 0, "movement after the drop does not look round");
   });
 
-  it("good: leaving on purpose (toggle, menu, scene change) is no `lost`, so it never pauses", () => {
+  it("when the player leaves on purpose (toggle, menu, scene change), then no lock-lost report fires, so the game never pauses, the mode is off and the lock is released", () => {
     const s = stage();
     s.look.request(s.canvas);
     s.look.exit();
@@ -64,7 +64,7 @@ describe("mouse look: the lock state rule behind pause-once", () => {
     assert.equal(s.doc.pointerLockElement, null);
   });
 
-  it("good: after an Esc exit the mode asks again and the next drop pauses again (one Esc, one `lost`)", () => {
+  it("when the player exits with Esc and the mode asks again and the lock is dropped again, then each drop gives its own lock-lost report (one Esc, one report)", () => {
     const s = stage();
     for (let i = 1; i <= 2; i++) {
       s.look.request(s.canvas);
@@ -73,7 +73,7 @@ describe("mouse look: the lock state rule behind pause-once", () => {
     }
   });
 
-  it("good: Chrome's cooldown refusal (rejected promise or pointerlockerror) leaves the mode off, no `lost`, no throw", async () => {
+  it("when Chrome refuses the lock after a recent exit (a rejected promise or a pointer-lock error), then the mode stays off with no lock-lost report and no throw, and asking again is allowed", async () => {
     for (const how of ["reject", "error"] as const) {
       const s = stage(how);
       s.look.request(s.canvas);
@@ -84,7 +84,7 @@ describe("mouse look: the lock state rule behind pause-once", () => {
     }
   });
 
-  it("bad: a second request while one is pending or held does nothing", () => {
+  it("when a second request is made while one is pending or held, then it does nothing, so one drop gives one lock-lost report", () => {
     const s = stage();
     s.look.request(s.canvas);
     s.look.request(s.canvas);

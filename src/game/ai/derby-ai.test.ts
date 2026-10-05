@@ -8,8 +8,8 @@ import { layoutDerby, type DerbySlot } from "../scenes/fleet.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { aiCar as car, decide } from "../vehicle/test-support.ts";
 
-describe("derby tactics", () => {
-  it("good: a nose beside our rear wheel gets a handbrake swing that whips the tail into it", () => {
+describe("given an AI derby driver and a rival car close beside or ahead of it", () => {
+  it("when a rival's nose sits 1.8 m to its left, level with its rear wheel and pointing at its side, then the driver handbrakes into a swing that whips its tail into that nose", () => {
     const brain = new DerbyBrain();
     const me = car(0, { vz: 9 });
     // Its nose (1.7 m ahead of it) sits 1.8 m left of us, level with our rear wheel, pointing at our side.
@@ -20,7 +20,7 @@ describe("derby tactics", () => {
     assert.ok(input.ebrake && input.throttle === 0 && input.steer < -0.5, JSON.stringify(input));
   });
 
-  it("good: a car coming alongside gets sideswiped — but never on its driver's door", () => {
+  it("when an oncoming car passes 2.6 m to its left, then the driver sideswipes it, steering right with the throttle on, but does not when the car shows its driver's door instead", () => {
     const brain = new DerbyBrain();
     const me = car(0, { vz: 9 });
     // Oncoming, 2.6 m to our left: we pass its passenger side.
@@ -35,7 +35,7 @@ describe("derby tactics", () => {
     assert.notEqual(doorBrain.tacticOf(0), "sideswipe");
   });
 
-  it("good: backing in from the driver's side aims further forward, at the bumper corner, clear of the door", () => {
+  it("when the driver backs toward a car parked broadside 16 m off, then it reverses and steers its tail toward that car's nose, turning harder when the car shows its driver's side so the tail aims at the bumper corner clear of the door", () => {
     // Tail toward a car parked broadside 16 m off; once its driver's side faces us, once its passenger side.
     const me = car(0, { z: -16, yaw: Math.PI, vz: 0 });
     const doorSide = decide(new DerbyBrain(), me, [me, car(1, { yaw: -Math.PI / 2, vz: 0 })]);
@@ -47,7 +47,7 @@ describe("derby tactics", () => {
   });
 });
 
-describe("derby aggression (the shared slider model)", () => {
+describe("given derby drivers on the shared aggression slider, a parked rival 8 m behind the driver's tail and two more across the bowl", () => {
   /** A parked car 8 m behind us (tail toward it), two more across the bowl. */
   function field(me: Partial<AiCar>, target: Partial<AiCar> = {}, rivalsAlive = true): AiCar[] {
     return [
@@ -65,29 +65,29 @@ describe("derby aggression (the shared slider model)", () => {
     return brain.tacticOf(0);
   }
 
-  it("good: aggression 0 keeps clear of every hit, even with the hit clock long gone", () => {
+  it("when aggression is 0 and the hit clock (time since its last aggressive hit) is long past, then it keeps clear of every hit", () => {
     assert.equal(tactic(0, { idle: 1000 }), "layback");
   });
 
-  it("good: 0.5 keeps clear of an equal car, hits a more wrecked one, and hits anyway when the clock runs low", () => {
+  it("when aggression is 0.5, then it keeps clear of an equal car, hits a more wrecked one, and hits anyway when its hit clock runs low", () => {
     assert.equal(tactic(0.5, {}), "layback");
     assert.notEqual(tactic(0.5, {}, { front: 0.6, damage: 0.6 }), "layback");
     assert.notEqual(tactic(0.5, { idle: DERBY_RULES.hitClock * 0.62 }), "layback");
   });
 
-  it("good: full aggression goes in whatever its own state", () => {
+  it("when aggression is full and the driver is itself badly damaged, then it still goes in for a hit", () => {
     assert.notEqual(tactic(1, { front: 0.8, damage: 0.8 }), "layback");
   });
 
-  it("good: with one rival left nobody waits for the others to soften it up", () => {
+  it("when only one rival is left alive at aggression 0.3, then the driver goes in for a hit instead of waiting for the others to soften it up", () => {
     assert.notEqual(tactic(0.3, {}, {}, false), "layback");
   });
 });
 
-describe("derby count-outs (rule books: an aggressive hit every 60 s, out after 60 s without moving)", () => {
+describe("given a derby whose rules count a car out after 60 s without an aggressive hit or 60 s without moving", () => {
   const names = [0, 1, 2, 3].map((id) => ({ id, name: `c${id}` }));
 
-  it("bad: no aggressive hit for the hit clock is out — a push doesn't reset it, a real hit does — and nobody hunts it after", () => {
+  it("when two cars land 5 m/s hits and two others never do (one only leans on a rival at 1 m/s), then just after 60 s the two that never hit are counted out, no winner is named, and a counted-out car stops driving and is nobody's target", () => {
     const m = new DerbyMatch();
     m.begin(names, { seed: 1 });
     const step = () => m.step(0.1, [0, 1, 2, 3].map((id) => ({ id, name: `c${id}`, alive: true, x: m.time * 3 + id * 10, z: 0 })));
@@ -108,7 +108,7 @@ describe("derby count-outs (rule books: an aggressive hit every 60 s, out after 
     assert.deepEqual([m.brain.huntersOf(1), m.brain.huntersOf(2), m.brain.huntersOf(3)], [0, 0, 1]);
   });
 
-  it("bad: a running car that hasn't got 2 m from where it stopped for the still clock is out", () => {
+  it("when one car rocks in place without getting 2 m from where it stopped while another drives about, then the rocking car is counted out when the still clock runs out and the driving car wins", () => {
     const m = new DerbyMatch();
     m.begin(names.slice(0, 2), { seed: 1, hitClock: Infinity });
     // Car 1 rocks in place (a wedge), car 0 drives about.
@@ -122,7 +122,7 @@ describe("derby count-outs (rule books: an aggressive hit every 60 s, out after 
     assert.equal(m.winnerId, 0);
   });
 
-  it("good: the time limit crowns the top score among the cars still running, marked as a points win", () => {
+  it("when the time limit arrives, then the top scorer among the cars still running is crowned and the win is marked as decided on points", () => {
     const m = new DerbyMatch();
     m.begin(names, { seed: 1, timeLimit: 10, hitClock: Infinity });
     m.noteHit(2, 0, 5, 0, 6);
@@ -147,8 +147,8 @@ function hullsOverlap(a: DerbySlot, b: DerbySlot): boolean {
   return true;
 }
 
-describe("derby bowl scales with the field", () => {
-  it("bad: no two spawn hulls overlap for 2…32 cars, every spawn is inside the bowl, and the bowl only grows", () => {
+describe("given derby fields of 2 to 32 cars laid out in a bowl sized to the field", () => {
+  it("when each field is laid out, then no two spawn hulls overlap, every spawn is inside the bowl, the bowl only grows with the field and stays the standard size up to 10 cars", () => {
     let prev = 0;
     for (let n = 2; n <= 32; n++) {
       const r = derbyRadius(n);
@@ -180,7 +180,7 @@ const REAR_SHARE = 0.4;
 /** Late-heat car windows that may scoot (set on the fix over seeds 1-72; see the scoot test). */
 const SCOOT_SHARE = 0.1;
 
-describe("derby, ten AI cars at the default slider", () => {
+describe("given ten AI cars at the default aggression, each played through the fixed seeds 1-8", () => {
   const runs = SEEDS.map((seed) => runField(10, seed));
   const rows = runs.map(
     (r) =>
@@ -191,24 +191,24 @@ describe("derby, ten AI cars at the default slider", () => {
       `scoot ${r.scoot.flagged}/${r.scoot.windows}`,
   );
 
-  it("bad: every heat crowns a winner by its time limit — last car standing, or top score at the limit", (t) => {
+  it("when every heat is played out, then each crowns a winner within its time limit, by last car standing or by top score at the limit", (t) => {
     for (const row of rows) t.diagnostic(row);
     for (const r of runs) assert.ok(r.winner != null && r.t <= heatLimit(10) + 0.1, rows.join("\n"));
   });
 
-  it("bad: the AI's own driving never spins a car (> 5 rad/s for 0.2 s) in the first 2 min, in any heat", () => {
+  it("when every heat is played out, then the AI's own driving never spins a car faster than 5 rad/s for 0.2 s in the first 2 minutes", () => {
     for (const r of runs) assert.deepEqual(r.freeSpins, [], `seed ${r.seed}`);
   });
 
   // A zip is a car teleporting centimetres in one step: a physics defect, never noise, so it is judged per seed.
   // Measured on main over seeds 1–8: none zips (seed 2's 5.8 cm zip at t=50.90 s went with the airborne lane).
   for (const r of runs) {
-    it(`bad: no car zips in the seed ${r.seed} heat`, () => assert.deepEqual(r.zips, [], `seed ${r.seed}`));
+    it(`when the seed ${r.seed} heat is played out, then no car teleports a few centimetres in one physics step`, () => assert.deepEqual(r.zips, [], `seed ${r.seed}`));
   }
 
   // Per seed the share runs 37–65 % (seed 1 F39/R39, seed 10 F58/R48); pooled over seeds 1–12 it is 55 %, R/F 1.6,
   // over seeds 1–8 56 %, R/F 1.9. With the AI never backing in (`chooseMode` always nose) the pool reads F554/R50/S125.
-  it(`bad: most AI hits land tail first — over ${REAR_SHARE * 100} % rear, and a fifth more than the nose hits (all heats pooled)`, () => {
+  it(`when the hits of all heats are pooled, then over ${REAR_SHARE * 100} % of AI hits land tail first and tail hits outnumber nose hits by more than a fifth`, () => {
     const sum = (k: "front" | "rear" | "side") => runs.reduce((a, r) => a + r.impacts[k], 0);
     const all = sum("front") + sum("rear") + sum("side");
     assert.ok(sum("rear") > REAR_SHARE * all && sum("rear") > 1.2 * sum("front"), `F${sum("front")}/R${sum("rear")}/S${sum("side")}\n${rows.join("\n")}`);
@@ -225,7 +225,7 @@ describe("derby, ten AI cars at the default slider", () => {
   // rates are 98.4 % and 99.7 %, and at those rates 7 of 8 false-fails 0.64 % and 0.02 % of the time (8 of 8: 11.8 % and
   // 2.1 %). All 48 disjoint 8-seed windows (24 per tree) reach 7 for swings (min 7) and for sideswipes (min 7, one window
   // on main). Do not tighten it back to every heat without re-measuring on that many seeds.
-  it("bad: ≥ 7 of 8 ten-car heats have a tail swing, and ≥ 7 of 8 a sideswipe", () => {
+  it("when every heat is played out, then at least 7 of 8 have a handbrake tail swing and at least 7 of 8 have a sideswipe", () => {
     const need = 0.875 * runs.length;
     assert.ok(runs.filter((r) => r.swings >= 1).length >= need, rows.join("\n"));
     assert.ok(runs.filter((r) => r.sideswipes >= 1).length >= need, rows.join("\n"));
@@ -238,7 +238,7 @@ describe("derby, ten AI cars at the default slider", () => {
   // At those tops the AI drove 45–55 m/s targets into the bowl and its J-turn share fell to 0.19 (24 of 128).
   // Stopped start (lane derby-start, seeds 1–12): 115 J-turns of 537 = 0.214, seeds 1–8 74 of 316 = 0.234; the floor
   // is 0.7 of the 12-seed share, so it holds on any seed set instead of the one that happens to clear 0.231.
-  it("good: J-turns keep their share of the moves", () => {
+  it("when the swings, J-turns and sideswipes of all heats are pooled, then J-turns keep at least 70 % of their measured 0.214 share of those manoeuvres", () => {
     let moves = 0;
     let jturns = 0;
     for (const r of runs) {
@@ -262,7 +262,7 @@ describe("derby, ten AI cars at the default slider", () => {
   // 1–8 were a lucky 8/8 before the airborne merge (6/8 after), and 8 of the 24 disjoint 8-seed windows of the
   // pre-airborne tree miss it too. All 48 windows (24 per tree) of 8 seeds reach 5 (min 5); at a true 87.5 % the
   // false-fail rate is 1.1 %. Do not tighten it back without re-measuring on that many seeds.
-  it("bad: ≥ 5 of 8 ten-car heats end before the 300 s limit (last car standing by a wreck or a count-out), and nobody dies in the first 8 s", () => {
+  it("when every heat is played out, then at least 5 of 8 end before the 300 s limit (last car standing by a wreck or a count-out) and nobody dies in the first 8 s", () => {
     const msg = runs.map((r) => `seed ${r.seed}: ${r.decided} at ${r.t} s, first death ${r.deaths[0] ?? "none"}`).join("; ");
     assert.ok(runs.filter((r) => r.decided === "wreck" || r.decided === "countout").length >= 0.625 * runs.length, msg);
     for (const r of runs) assert.ok((r.deaths[0] ?? Infinity) > 8, msg);
@@ -274,7 +274,7 @@ describe("derby, ten AI cars at the default slider", () => {
   // push moved, and a driver stops adding lock past 3.5 rad/s. Stopped start, seeds 1–12: per-seed peaks 4.33–5.41
   // (seed 5 5.41, seed 10 5.14), mean 4.73, seeds 1–8 mean 4.74. So the mean over the heats is bounded at 5.2 and
   // any one heat at 6.5, below the 6.0–9.1 of the blown-up contact model; no heat may spin in contact.
-  it("bad: car turn rate over 0.1 s in pair contact (first 2 min) stays under 5.2 rad/s on average, 6.5 at worst, and nobody spins there", () => {
+  it("when every heat is played out, then the turn rate over 0.1 s while cars are in contact (first 2 min) averages under 5.2 rad/s, never exceeds 6.5 rad/s in any heat, and no car spins", () => {
     for (const r of runs) {
       assert.deepEqual(r.contactSpins, [], `seed ${r.seed}`);
       assert.ok(r.contactPeak.rate <= 6.5, `seed ${r.seed}: contact peak ${r.contactPeak.note}`);
@@ -288,7 +288,7 @@ describe("derby, ten AI cars at the default slider", () => {
   // 3-5 cars alive. Measured over seeds 1-72 as nine disjoint 8-seed windows: main 20.7-31.9 % (pooled 26.0 %,
   // 5145/19778), the deadlock breaker 1.3-5.2 % (pooled 3.0 %, 299/9880). The bar is 10 %, twice the fix's worst
   // window and half main's best: do not tighten it to the pooled 3 % without re-measuring on that many seeds.
-  it("bad: cautious cars don't pace in place — under SCOOT_SHARE of late-heat car windows (3-5 cars alive) scoot", () => {
+  it(`when late-heat 10 s car windows with 3-5 cars alive are judged, then under ${SCOOT_SHARE * 100} % of them have a cautious car pacing back and forth in place`, () => {
     const windows = runs.reduce((a, r) => a + r.scoot.windows, 0);
     const flagged = runs.reduce((a, r) => a + r.scoot.flagged, 0);
     assert.ok(windows >= 400, `only ${windows} late-heat car windows: the bar below judges nothing\n${rows.join("\n")}`);

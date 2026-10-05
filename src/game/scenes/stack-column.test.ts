@@ -63,9 +63,9 @@ const OWNER_S = 1 + (OWNER.cars - 1) * OWNER.gap + 8;
 const DEFAULTS: StackConfig = { cars: 4, drop: 0.02, gap: 8 };
 const DEFAULTS_S = 1 + 3 * 8 + 4;
 
-describe("stack scene: the cars pile into a column", () => {
+describe("given the owner's drops (11 cars, 0.15 m, one a second), run for 8 s after the last", () => {
   for (const bodies of ["sedans", "fleet without the monster"] as const) {
-    it(`bad: the owner's drops (11 cars, 0.15 m, 1 s; ${bodies}) slide off each other and fan out along the ground (main: 9-11 of 11 cars 0.4-6 m off the axis)`, () => {
+    it(`when the column is made of ${bodies}, then no car leaves it by 0.1 m or more, it ends within 5 cm of its axis leaning under 3°, every car reads a load, and the roof sink never grows toward the top, from over 300 mm at the bottom to under 5 mm at the top`, () => {
       let worst = 0;
       const { cars, rig } = column(OWNER, bodies, OWNER_S, (cs) => {
         worst = Math.max(worst, spread(cs).off);
@@ -82,15 +82,17 @@ describe("stack scene: the cars pile into a column", () => {
       assert.ok(crushMm[0]! > 300, `the bottom roof sank only ${crushMm[0]!.toFixed(0)} mm under ten cars (${sink} mm)`);
     });
   }
+});
 
-  it("bad: the roof under a car is not crushed more than the roof above it: the scene's defaults, 4 sedans (0.02 m, 8 s)", () => {
+describe("given the stack scene's defaults (4 cars, 0.02 m, one every 8 s), run for 4 s after the last drop", () => {
+  it("when the column is made of sedans, then each roof is crushed more than the roof above it by over 20 mm, and the top roof under 2 mm", () => {
     const { cars, rig } = column(DEFAULTS, "sedans", DEFAULTS_S);
     const { crushMm } = stackLoads(cars, rig.dropped);
     assert.ok(crushMm[3]! < 2, `top ${crushMm[3]!.toFixed(1)} mm`);
     for (let i = 0; i < 3; i++) assert.ok(crushMm[i]! > crushMm[i + 1]! + 20, `bottom to top ${crushMm.map((m) => m.toFixed(0)).join("/")} mm`);
   });
 
-  it("bad: a car resting on a level roof slides: the defaults' fleet moves more than 5 mm in the 5 s after it settles", () => {
+  it("when the column is made of the fleet and left alone for 5 s after it settles, then no car moves 5 mm", () => {
     const { cars } = column(DEFAULTS, "fleet", DEFAULTS_S);
     const at = cars.map((c) => c.group.position.clone());
     const w = makeWorld(cars, false, false);
@@ -98,11 +100,13 @@ describe("stack scene: the cars pile into a column", () => {
     const moved = Math.max(...cars.map((c, i) => c.group.position.distanceTo(at[i]!)));
     assert.ok(moved < 0.005, `a car moved ${(moved * 1000).toFixed(1)} mm in 5 s at rest`);
   });
+});
 
+describe("given the owner's drops (11 cars, 0.15 m, one a second) of the mixed fleet", () => {
   // The owner's drops of the mixed fleet: after pair pushes a tilted wreck's frame moved 0.35 m in one re-measure and the next
   // timed read wrote −55 m/s into car.velocity.y (c9 −25 m/s against its masses' −4 on this run), which applyImpulse and
   // brakeInbound then used as real (the Stack HUD read CLOSING 125 mph).
-  it("bad: no car reports a vertical speed its masses do not have: the mixed fleet, 11 cars, 0.15 m, 1 s (c9 −25.2 m/s against −4.3 on main)", () => {
+  it("when the column runs for 12 s, then no car reports a vertical speed 4 m/s or more off the one its own masses have", () => {
     let worst = 0;
     let at = "";
     column(OWNER, "fleet", 12, (cs) => {
@@ -119,5 +123,5 @@ describe("stack scene: the cars pile into a column", () => {
     assert.ok(worst < 4, `a car reported ${worst.toFixed(1)} m/s off its masses (${at})`);
   });
 
-  it.todo("the fleet's monster truck (slot 5; tyres on 0.9 m of spring, body 0.48 m up) carrying four cars or more rolls 5-30° on the support of its tyres, which has no spring to bring it level, and the column above it falls: 11 fleet cars, 0.15 m, 1 s");
+  it.todo("when the fleet's monster truck (slot 5; tyres on 0.9 m of spring, body 0.48 m up) carries four cars or more, then it rolls 5-30° on the support of its tyres, which has no spring to bring it level, and the column above it falls: 11 fleet cars, 0.15 m, 1 s");
 });

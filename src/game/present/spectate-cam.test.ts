@@ -67,9 +67,9 @@ function eyeProblems(track: Track, placed: readonly Placed[], cols: readonly Pro
 const COURSES = TRACKS.map((j) => new Track(parseTrack(j)));
 const scene = new THREE.Scene();
 
-describe("trackside cinematic cam", () => {
+describe("given the trackside cinematic camera (a fixed eye beside the course that cuts to the followed car)", () => {
   for (const track of COURSES) {
-    it(`${track.id}: over a lap every pick stands clear of every solid and sees the car`, (t) => {
+    it(`when a lap is driven on ${track.id}, then every spot the camera picks stands clear of every solid and sees the car`, (t) => {
       const placed = placeProps(track);
       const cols = propColliders(placed);
       const sight = raceSight(track, placed);
@@ -109,7 +109,7 @@ describe("trackside cinematic cam", () => {
     });
   }
 
-  it("oval: holds a shot until shortly after the car passes the eye, then picks the next one ahead", () => {
+  it("when the oval is driven at 40 m/s, then the camera holds a shot until shortly after the car passes the eye, then picks the next spot ahead", () => {
     const track = COURSES.find((c) => c.id === "oval")!;
     const sight = raceSight(track, placeProps(track));
     const ground = track.ground();
@@ -171,7 +171,7 @@ describe("trackside cinematic cam", () => {
     }
   });
 
-  it("oval: a search sliced into 40-sample budgets lands on the spot the whole search picks", () => {
+  it("when the oval search is sliced into budgets of 40 samples, then it lands on the same spot as the whole search picks", () => {
     const track = COURSES.find((c) => c.id === "oval")!;
     const sight = raceSight(track, placeProps(track));
     const ground = track.ground();
@@ -203,8 +203,8 @@ describe("trackside cinematic cam", () => {
   });
 });
 
-describe("wheel-well dutch cam", () => {
-  it("keeps at least as many rivals in view over a race as any one fixed well", (t) => {
+describe("given the wheel-well dutch camera (an eye mounted in each wheel well, looking forward and back)", () => {
+  it("when a one-lap oval race with four rivals is watched, then it keeps at least as many rivals in view as any one fixed wheel well does", (t) => {
     const w = makeWorld();
     try {
       w.race.enter();
@@ -241,7 +241,7 @@ describe("wheel-well dutch cam", () => {
   });
 });
 
-describe("camera clearance", () => {
+describe("given a 12 × 14 × 12 m building, yawed 0.3 rad, on open flat ground", () => {
   // One 12 × 14 × 12 m building, yawed 0.3 rad, on open flat ground.
   const yaw = 0.3;
   const sight: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [occluder(0, 0, yaw, 6, 6, false, 0, 14)] };
@@ -251,7 +251,7 @@ describe("camera clearance", () => {
     return [(6 + d) * Math.cos(a) - slide * Math.sin(a), y, -(6 + d) * Math.sin(a) - slide * Math.cos(a)];
   };
 
-  it("clearSpot: false in the building, within 1.9 m of any face or roof, and at ground level; true in the open", () => {
+  it("when camera spots are tested around it, then a spot is rejected inside the building, within 1.9 m of any face or roof and at ground level, and accepted in the open", () => {
     assert.equal(clearSpot(sight, 0, 1.5, 0), false, "inside");
     for (let side = 0; side < 4; side++) {
       for (const slide of [0, 4]) {
@@ -265,7 +265,7 @@ describe("camera clearance", () => {
     assert.equal(clearSpot(sight, 40, 1.5, 0), true, "open air");
   });
 
-  it("camUsable: the building between eye and target blocks, and so does the car driving behind it within the horizon", () => {
+  it("when an eye and a target are tested for sight, then the building between them blocks, and so does the car driving behind it within the look-ahead time", () => {
     const eye = { x: -30, y: 1.5, z: 0 };
     const target = { x: 30, y: 0.7, z: -45 };
     const still = { x: 0, y: 0, z: 0 };
@@ -277,7 +277,7 @@ describe("camera clearance", () => {
     assert.equal(camUsable(sight, { x: 0, y: 1.5, z: 0 }, target, still, 0), false, "eye inside the building");
   });
 
-  it("camUsable: a lamp post on the sight line or within 2 m of the eye rejects it; one well beside both does not", () => {
+  it("when a lamp post stands near the eye or the sight line, then a post on the line or within 2 m of the eye rejects the view and one well beside both does not", () => {
     const eye = { x: -10, y: 1.5, z: 0 };
     const target = { x: 0, y: 0.7, z: 0 };
     const still = { x: 0, y: 0, z: 0 };
@@ -289,7 +289,7 @@ describe("camera clearance", () => {
     assert.equal(camUsable(post(-10, 3.2), eye, target, still, 0), true, "3.2 m beside the eye");
   });
 
-  it("SightLines: a check sliced one line at a time answers as the whole check does, and no slice runs past one line", () => {
+  it("when a sight check is run one line at a time, then it answers as the whole check does and no slice runs past one line", () => {
     const eye = { x: -30, y: 1.5, z: 0 };
     const still = { x: 0, y: 0, z: 0 };
     const north = { x: 0, y: 0, z: 25 };
@@ -314,8 +314,10 @@ describe("camera clearance", () => {
       if (c.vel === north && c.clear) assert.ok(slices >= 3, `${slices} slices for the ${c.horizon} s horizon`);
     }
   });
+});
 
-  it("aheadPoints: on a course the car is predicted along it, not on the straight of its velocity", () => {
+describe("given the oval course and a car driving across it", () => {
+  it("when the car's position is predicted ahead, then the samples follow the course, not the straight line of its velocity", () => {
     const track = COURSES.find((c) => c.id === "oval")!;
     const open = raceSight(track, placeProps(track));
     setGround(track.ground());
@@ -340,9 +342,9 @@ describe("camera clearance", () => {
   });
 });
 
-describe("Auto spectator cam", () => {
+describe("given the Auto spectator camera (the shot director that cuts between shot kinds while watching a race)", () => {
   for (const { id } of COURSES) {
-    it(`${id}: over a race every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
+    it(`when a race is watched on ${id}, then every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
       const track = COURSES.find((c) => c.id === id)!;
       const placed = placeProps(track);
       const cols = propColliders(placed);
@@ -387,7 +389,7 @@ describe("Auto spectator cam", () => {
     });
   }
 
-  it("bad: a cut onto another car poses the chase on it while its opener is searched, not the old shot's eye", () => {
+  it("when the camera cuts onto another car, then the chase shot is posed on it while its opener is searched, not at the old shot's eye", () => {
     const w = makeWorld();
     try {
       w.race.enter();
@@ -435,7 +437,7 @@ describe("Auto spectator cam", () => {
     }
   });
 
-  it("bad: the chase follows a low-passed heading, so a wreck's velocity swinging 4 deg a frame does not swing the eye, at 60 and 240 Hz", (t) => {
+  it("when a wreck's velocity swings 4° a frame at 60 and 240 Hz, then the chase eye follows a low-passed heading and does not swing", (t) => {
     // Every spot is solid: every shot poses as the chase.
     const solidAll: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: 1, occ: [] };
     const autoScene: AutoScene = { sight: () => solidAll, cut: (car) => car };

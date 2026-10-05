@@ -62,8 +62,8 @@ const nums = (v: unknown, n: number): number[] => {
   return v;
 };
 
-describe("trace camera", () => {
-  it("each sample carries the lens (pos, quat, unit dir, fov), the rig in charge and the followed car", () => {
+describe("given the trace recorder (the debug recording of a crash run) begun on two cars and an orbit camera following the second", () => {
+  it("when it takes its first sample, then the sample carries the camera's position, rotation, unit forward direction and field of view, the camera rig in charge and the followed car", () => {
     const { cars, camera, trace, clock } = rig();
     trace.begin(setup, cars, clock);
     const cam = trace.samples[0]!.camera as Record<string, unknown>;
@@ -79,7 +79,7 @@ describe("trace camera", () => {
     assert.ok(new THREE.Vector3(...dir).dot(toTarget) > 0.999);
   });
 
-  it("the setup and the trace both carry every HUD setting, and keep the existing fields", () => {
+  it("when the setup and the trace are written out, then both carry every HUD setting and keep the existing fields", () => {
     const { cars, trace, clock } = rig();
     trace.begin(setup, cars, clock);
     const want = { scene: "fleet", night: true, wet: false, realism: 0.35, fxTier: "high", loop: true, autoSlomo: true, timeScale: null, deformMode: "shape", playerClass: "sedan", pixelRatio: 1.5, dpr: 2, viewport: { w: 1280, h: 720 }, carCount: 2, speedMin: 0, speedMax: 32, squash: 1, buckle: 1, fxDensity: 0.7, ramps: true, barrier: true, balls: false };
@@ -89,7 +89,7 @@ describe("trace camera", () => {
     }
   });
 
-  it("the camera adds under 200 bytes a sample", () => {
+  it("when the first sample is written out, then the camera adds under 200 bytes to it", () => {
     const { cars, trace, clock } = rig();
     trace.begin(setup, cars, clock);
     assert.ok(JSON.stringify(trace.samples[0]!.camera).length < 200);

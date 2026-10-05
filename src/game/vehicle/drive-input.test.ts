@@ -55,8 +55,8 @@ function along(car: DeformableCar): number {
   return car.velocity.x * car.fwdFlat.x + car.velocity.z * car.fwdFlat.z;
 }
 
-describe("keyboard steering feel", () => {
-  it("good: A winds the wheel LEFT (+) over ~0.25 s; D and the arrows mirror / alias it", () => {
+describe("given a driver steering with the keyboard", () => {
+  it("when A is held at 5 m/s, then the wheel winds left to the lock for that speed over about 0.25 s; D winds it right the same way, the arrow keys do what A and D do, and A with D together keeps it centred", () => {
     const lock = 1 / (1 + (5 / FEEL.steerFade) ** 2);
     const early = shaped(["KeyA"], 5, 0.1).out.steer;
     assert.ok(early > 0.2 && early < lock * 0.6, `0.1 s in: ${early}`);
@@ -67,7 +67,7 @@ describe("keyboard steering feel", () => {
     assert.equal(shaped(["KeyA", "KeyD"], 5, 0.4).out.steer, 0);
   });
 
-  it("good: letting go re-centres faster than the wheel winds on", () => {
+  it("when the keys are released after A was held for 0.5 s at 5 m/s, then the wheel re-centres in under 0.2 s, faster than it wound on", () => {
     const { feel, intent } = shaped(["KeyA"], 5, 0.5);
     readIntent(new Set(), null, intent);
     const out = idleDrive();
@@ -79,7 +79,7 @@ describe("keyboard steering feel", () => {
     assert.ok(t < 0.2, `took ${t.toFixed(3)} s to centre`);
   });
 
-  it("good: lock fades with speed but never below the floor; the handbrake keeps full lock", () => {
+  it("when A is held for 0.5 s at 5, 18 and 40 m/s, then the lock fades with speed but never below the minimum, and the handbrake keeps full lock", () => {
     const slow = shaped(["KeyA"], 5, 0.5).out.steer;
     const fast = shaped(["KeyA"], 18, 0.5).out.steer;
     const flat = shaped(["KeyA"], 40, 0.5).out.steer;
@@ -88,7 +88,7 @@ describe("keyboard steering feel", () => {
     assert.equal(shaped(["KeyA", "Space"], 18, 0.5).out.steer, 1);
   });
 
-  it("good: no yaw at a standstill, and reverse steers like a real car (A backs the tail left: −yaw)", () => {
+  it("when A or D is held for 0.5 s, then there is no steering at a standstill and in reverse the wheel turns the opposite way, as in a real car (A backs the tail left)", () => {
     assert.equal(shaped(["KeyA"], 0, 0.5).out.steer, 0);
     assert.ok(shaped(["KeyA"], 1, 0.5).out.steer > 0);
     assert.ok(shaped(["KeyA"], -1, 0.5).out.steer < 0);
@@ -97,21 +97,21 @@ describe("keyboard steering feel", () => {
   });
 });
 
-describe("pedals: brake, reverse, handbrake", () => {
-  it("good: S brakes a forward-rolling car, and reverses once it is stopped", () => {
+describe("given a driver using the keyboard pedals (brake, reverse, handbrake)", () => {
+  it("when S is held at 10 m/s and again at 0.3 m/s, then it brakes the forward-rolling car and, once the car is stopped, reverses it", () => {
     const rolling = shaped(["KeyS"], 10, 0.3).out;
     assert.ok(rolling.brake > 0.99 && rolling.throttle === 0);
     const stopped = shaped(["KeyS"], 0.3, 0.3).out;
     assert.ok(stopped.throttle < -0.99 && stopped.brake === 0);
   });
 
-  it("good: W brakes a reversing car, and drives forward once it is stopped", () => {
+  it("when W is held at −4 m/s (reversing) and again at −0.3 m/s, then it brakes the reversing car and, once the car is stopped, drives it forward", () => {
     const backing = shaped(["KeyW"], -4, 0.3).out;
     assert.ok(backing.brake > 0.99 && backing.throttle === 0);
     assert.ok(shaped(["KeyW"], -0.3, 0.3).out.throttle > 0.99);
   });
 
-  it("good: Space is the handbrake: ebrake plus some service brake, never drive", () => {
+  it("when Space is held with W at 10 m/s, then the car gets the handbrake plus some service brake and no drive, and W alone does not apply the handbrake", () => {
     const out = shaped(["Space", "KeyW"], 10, 0.3).out;
     assert.equal(out.ebrake, true);
     assert.equal(out.throttle, 0);
@@ -119,7 +119,7 @@ describe("pedals: brake, reverse, handbrake", () => {
     assert.equal(shaped(["KeyW"], 10, 0.3).out.ebrake, false);
   });
 
-  it("good: holding S from 10 m/s stops the car, then backs it up without a release", () => {
+  it("when S is held from 10 m/s for 3 s, then the car stops after 0.3–0.7 s, never speeds up on the way, and backs up past 5 m/s without S being released", () => {
     const r = rigAt("third", 10);
     r.car.spawnFacing(0, 0, 0, 10);
     const speeds: number[] = [];
@@ -134,7 +134,7 @@ describe("pedals: brake, reverse, handbrake", () => {
     assert.ok(speeds.at(-1)! < -5, `ended at ${speeds.at(-1)}`);
   });
 
-  it("good: braking distance does not depend on the physics slice", () => {
+  it("when a 10 m/s car brakes fully in 1/30 s physics steps and again in 1/240 s steps, then it takes the same time to stop, to within one 1/30 s step", () => {
     const stopTime = (h: number) => {
       const car = new DeformableCar(PAINT, new THREE.Scene());
       car.spawnFacing(0, 0, 0, 10);
@@ -152,8 +152,8 @@ describe("pedals: brake, reverse, handbrake", () => {
   });
 });
 
-describe("driver seat", () => {
-  it("good: click follows, a pedal drives (W + Shift boosts), Esc steps back", () => {
+describe("given a DriverSeat (the player's control mode: watching the whole field, following one car, or driving it)", () => {
+  it("when a car is clicked, W with Shift is pressed and Esc is pressed twice, then the click follows it, the pedal drives it with full throttle and boost, and Esc steps back to following and then to the whole field", () => {
     const s = new DriverSeat();
     s.focus(1);
     assert.equal(s.mode, "follow");
@@ -171,7 +171,7 @@ describe("driver seat", () => {
     assert.equal(s.carIndex, -1);
   });
 
-  it("good: Esc while still holding W stays out of the seat until W is pressed again", () => {
+  it("when Esc is pressed while W is still held, then the seat stays out of driving until W is released and pressed again", () => {
     const s = new DriverSeat();
     s.focus(0);
     const w = new Set(["KeyW"]);
@@ -184,14 +184,14 @@ describe("driver seat", () => {
     assert.equal(s.mode, "drive");
   });
 
-  it("good: Space while watching is not a request to drive", () => {
+  it("when Space is pressed while only watching a car, then it is not a request to drive", () => {
     const s = new DriverSeat();
     s.focus(0);
     assert.equal(s.sample(new Set(["Space"]), null), false);
     assert.equal(s.mode, "follow");
   });
 
-  it("good: boost drains only while boosting under gas, and refills on a takedown", () => {
+  it("when Shift is held parked, then boost is not burnt; when Shift is held with W, then boost drains; and when a takedown adds boost, then it refills", () => {
     const s = new DriverSeat();
     s.focus(0);
     s.mode = "drive";
@@ -205,7 +205,7 @@ describe("driver seat", () => {
     assert.ok(s.boost > 0.7);
   });
 
-  it("good: LB/RB (Q/E) cycling wraps both ways and starts following from the whole field", () => {
+  it("when the cycle control (LB/RB or Q/E) is pressed from the whole field, forwards and backwards, then it starts following the first or last car and wraps both ways, and keeps driving mode", () => {
     const s = new DriverSeat();
     s.cycle(1, 3);
     assert.deepEqual([s.mode, s.carIndex], ["follow", 0]);
@@ -221,7 +221,7 @@ describe("driver seat", () => {
     assert.deepEqual([back.mode, back.carIndex], ["drive", 0]);
   });
 
-  it("good: views cycle chase → far chase → hood cam → chase", () => {
+  it("when the camera view is cycled three times, then it goes from chase to far chase to hood cam and back to chase", () => {
     const s = new DriverSeat();
     const seen = [s.view];
     for (let i = 0; i < 3; i++) {
@@ -232,9 +232,9 @@ describe("driver seat", () => {
   });
 });
 
-describe("drive camera: A/D is player-visible left/right in every view", () => {
+describe("given a driving camera, whose A and D keys must look like left and right to the player in every view", () => {
   for (const view of ["third", "far"] as const) {
-    it(`good: ${view} chase — W+A swings the nose LEFT on screen, W+D RIGHT`, () => {
+    it(`when W with A or D is held in the ${view} chase view, then W+A swings the nose left on screen and W+D swings it right`, () => {
       for (const [key, sign] of [
         ["KeyA", -1],
         ["KeyD", 1],
@@ -249,7 +249,7 @@ describe("drive camera: A/D is player-visible left/right in every view", () => {
     });
   }
 
-  it("good: hood cam — W+A turns the view LEFT (a point dead ahead slides right), W+D mirrors", () => {
+  it("when W with A or D is held in the hood cam, then W+A turns the view left, so a point dead ahead slides right on screen, and W+D mirrors it", () => {
     for (const [key, sign] of [
       ["KeyA", 1],
       ["KeyD", -1],
@@ -264,7 +264,7 @@ describe("drive camera: A/D is player-visible left/right in every view", () => {
     }
   });
 
-  it("good: reversing with A backs the tail LEFT on screen and the camera stays behind the car", () => {
+  it("when the car reverses with S and A held, then the tail backs left on screen and the camera stays behind the car", () => {
     const r = rigAt("third", -5);
     assert.ok(along(r.car) < -3);
     const before = screenX(r, 0, 0.6, -2.2) - screenX(r, 0, 0.6, 0);
@@ -278,8 +278,8 @@ describe("drive camera: A/D is player-visible left/right in every view", () => {
   });
 });
 
-describe("drive camera look and cuts", () => {
-  it("good: mouse look holds through the delay, then eases back behind the car without overshoot", () => {
+describe("given a driving camera that is being looked around and cut", () => {
+  it("when the mouse is dragged right, then the camera looks right and holds through the delay, then eases back behind the car without overshooting", () => {
     const r = rigAt("third", 8);
     r.rig.nudge(120, 0);
     const looked = r.rig.look;
@@ -295,7 +295,7 @@ describe("drive camera look and cuts", () => {
     assert.ok(max <= 1e-6, `overshot to ${max}`);
   });
 
-  it("good: right stick looks round absolutely (left = left) and snaps back on release", () => {
+  it("when the right stick is held left, then the camera looks left absolutely, and snaps back when it is released", () => {
     const r = rigAt("third", 8);
     hold(r, ["KeyW"], 0.6, -1, 0);
     assert.ok(r.rig.look > CHASE.stickYaw * 0.9, `stick left look ${r.rig.look}`);
@@ -303,7 +303,7 @@ describe("drive camera look and cuts", () => {
     assert.ok(Math.abs(r.rig.look) < 0.05, `after release ${r.rig.look}`);
   });
 
-  it("good: a respawn across the map cuts to the new spot instead of swooping", () => {
+  it("when the car respawns across the map, then the camera cuts to the new spot, under 9 m from the car, instead of swooping", () => {
     const r = rigAt("third", 8);
     r.car.spawnFacing(40, 40, 1, 0);
     hold(r, [], H);
@@ -312,16 +312,16 @@ describe("drive camera look and cuts", () => {
   });
 });
 
-describe("which keydowns the game takes", () => {
+describe("given a keydown event the game must decide whether to take", () => {
   const key = (target: object | null, mods: { defaultPrevented?: boolean; ctrlKey?: boolean; metaKey?: boolean; altKey?: boolean; shiftKey?: boolean } = {}) =>
     gameKey({ defaultPrevented: false, ctrlKey: false, metaKey: false, altKey: false, ...mods, target: target as EventTarget | null });
 
-  it("good: a keydown an overlay already consumed (Esc closing a popover) is not the game's", () => {
+  it("when an overlay has already consumed the keydown (Esc closing a popover), then it is not the game's", () => {
     assert.equal(key(null, { defaultPrevented: true }), false);
     assert.equal(key(null), true);
   });
 
-  it("good: Ctrl, Cmd and Alt chords stay the browser's (Ctrl+R reloads, Ctrl+C copies); Shift is boost and stays ours", () => {
+  it("when Ctrl, Cmd or Alt is held, then the key stays the browser's (Ctrl+R reloads, Ctrl+C copies), while Shift is boost and stays the game's", () => {
     assert.equal(key(null, { ctrlKey: true }), false);
     assert.equal(key(null, { metaKey: true }), false);
     assert.equal(key(null, { altKey: true }), false);
@@ -329,7 +329,7 @@ describe("which keydowns the game takes", () => {
     assert.equal(key({ tagName: "CANVAS" }), true);
   });
 
-  it("good: text, select and contentEditable controls keep their keys; a focused range slider still drives", () => {
+  it("when the key goes to a text, number, select or contentEditable control, then it keeps the key, while a focused range slider or button still drives", () => {
     assert.equal(key({ tagName: "TEXTAREA" }), false);
     assert.equal(key({ tagName: "INPUT", type: "text" }), false);
     assert.equal(key({ tagName: "INPUT", type: "number" }), false);

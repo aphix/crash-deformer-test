@@ -24,9 +24,9 @@ const label = (hit: Hit, a: VehicleClassId, b: VehicleClassId, mps: number): str
 /** Health may only fall as the speed rises: a faster hit leaves at most this much more (a tolerance for the sim's own jitter). */
 const HEALTH_JITTER = 0.02;
 
-describe("ejection and engine damage across every class pair and hit", () => {
+describe("given every striker and struck class pair (police and muscle left out) in a head-on, a T-bone and a rear-end hit, at the HUD's default crush settings", () => {
   for (const hit of HITS) {
-    it(`bad: a survivable ${hit} (${SURVIVABLE[hit]} m/s) throws nobody and leaves both engines near whole, for every class pair`, () => {
+    it(`when a ${hit} hits at the survivable ${SURVIVABLE[hit]} m/s, then nobody is thrown and both engines stay near whole, for every class pair`, () => {
       for (const [a, b] of PAIRS) {
         const [striker, struck] = collide(hit, a, b, SURVIVABLE[hit]);
         for (const [who, o] of [["striker", striker], ["struck", struck]] as const) {
@@ -37,7 +37,7 @@ describe("ejection and engine damage across every class pair and hit", () => {
       }
     });
 
-    it(`bad: a lethal ${hit} (${LETHAL[hit]} m/s) kills ${hit === "head-on" ? "and throws both drivers" : "and throws the striker's driver, and spares the struck car's engine and driver"}, for every class pair`, () => {
+    it(`when a ${hit} hits at the lethal ${LETHAL[hit]} m/s, then it kills ${hit === "head-on" ? "and throws both drivers" : "and throws the striker's driver, and spares the struck car's engine and driver"}, for every class pair`, () => {
       for (const [a, b] of PAIRS) {
         const [striker, struck] = collide(hit, a, b, LETHAL[hit]);
         const where = label(hit, a, b, LETHAL[hit]);
@@ -53,7 +53,7 @@ describe("ejection and engine damage across every class pair and hit", () => {
       }
     });
 
-    it(`bad: a faster ${hit} never leaves a striker or a head-on car healthier, nor un-throws a driver, for every class pair`, () => {
+    it(`when a ${hit} is made faster, then it never leaves a striker or a head-on car healthier, nor un-throws a driver, for every class pair`, () => {
       const speeds = hit === "head-on" ? [15, 20, 25, 30, 40, 55] : [30, 35, 40, 45, 55];
       for (const [a, b] of PAIRS) {
         let prev: [Outcome, Outcome] | null = null;

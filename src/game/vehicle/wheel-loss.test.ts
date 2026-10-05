@@ -44,9 +44,9 @@ function swing(lost: readonly number[], cls: VehicleClassId, input: Partial<Driv
   return c.yaw - yaw0;
 }
 
-describe("a car missing wheels", () => {
+describe("given a car missing wheels (their hubs popped off)", () => {
   for (const cls of CLASS_IDS) {
-    it(`bad: ${cls} with both front wheels gone cannot steer: full lock either way turns it ~0 (intact: well over 1 rad/s)`, () => {
+    it(`when a ${cls} has both front wheels gone and is steered full lock either way, then it turns about 0 (under 0.02 rad in 1 s) where the intact car turns over 1 rad, and with a rear wheel gone as well it still does not steer`, () => {
       const intact = swing([], cls, { steer: 1 });
       assert.ok(intact > 1, `intact ${intact.toFixed(2)} rad`);
       for (const steer of [1, -1]) {
@@ -56,7 +56,7 @@ describe("a car missing wheels", () => {
       assert.ok(Math.abs(swing([0, 1, 2], cls, { steer: 1 })) < 0.02, "front pair and a rear wheel gone still steered");
     });
 
-    it(`good: ${cls} with one front wheel gone steers on a reduced lock, and a car with only its rear wheels gone steers as ever`, () => {
+    it(`when a ${cls} loses one front wheel, then it steers on a reduced lock (15 to 75 % of the intact turn), and with both rear wheels gone it steers as ever (over 80 %)`, () => {
       const intact = swing([], cls, { steer: 1 });
       const one = swing([0], cls, { steer: 1 });
       assert.ok(one > 0.15 * intact && one < 0.75 * intact, `one front: ${one.toFixed(2)} rad vs intact ${intact.toFixed(2)}`);
@@ -65,7 +65,7 @@ describe("a car missing wheels", () => {
     });
   }
 
-  it("bad: the derby AI's own steering does nothing either, with its front wheels gone", () => {
+  it("when the derby AI steers hard toward a rival ahead and to one side, then a car with both front wheels gone does not turn on that steering (under 0.01 rad in 0.5 s) while the intact car does (over 0.3 rad)", () => {
     // A rival ahead and to one side: the brain steers hard toward it.
     const me = aiCar(0, { vz: 12 });
     const foe = aiCar(1, { x: 9, z: 16, yaw: Math.PI, vz: -8 });
@@ -81,7 +81,7 @@ describe("a car missing wheels", () => {
     assert.ok(turned([0, 1]) < 0.01, `front pair gone: turned ${turned([0, 1]).toFixed(3)} rad`);
   });
 
-  it("bad: the race AI's steering, its rival-contact guard's too, does nothing with its front wheels gone", () => {
+  it("when the race AI, 4 m off the line with its nose 0.5 rad off the road and a rival close alongside, steers hard back to the line, then a car with both front wheels gone does not turn on that steering (under 0.01 rad in 0.5 s) while the intact car does (over 0.2 rad)", () => {
     // Four metres off the line, nose 0.5 rad off the road, a rival close alongside: the brain steers hard back to the line.
     const oval = new Track(TRACKS[0]);
     const p = oval.pointAt(40, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
@@ -105,7 +105,7 @@ describe("a car missing wheels", () => {
     assert.ok(turned([0, 1]) < 0.01, `front pair gone: turned ${turned([0, 1]).toFixed(3)} rad`);
   });
 
-  it("good: thrust comes from the wheels still on: every wheel lost costs speed after 3 s of full throttle", () => {
+  it("when full throttle is held for 3 s with none, one, two and three wheels lost, then every wheel lost costs more than 1 m/s of speed, and with three gone the car can still move", () => {
     const at3 = (lost: number[]) => {
       const c = car(lost);
       run(c, 3, { throttle: 1 });
@@ -116,7 +116,7 @@ describe("a car missing wheels", () => {
     assert.ok(speeds[3]! > 1, "three wheels gone and the car cannot move at all");
   });
 
-  it("good: brakes are the wheels still on: a stop from 20 m/s lengthens with each axle's wheels lost", () => {
+  it("when a sedan brakes for 10 s from 20 m/s with none, one front, both front and both rear wheels lost, then each loss lengthens the stop by over 0.5 m and losing the front pair costs more than losing the rear pair", () => {
     const stop = (lost: number[]) => {
       const c = car(lost, "sedan", 20);
       run(c, 10, { brake: 1 });
@@ -130,7 +130,7 @@ describe("a car missing wheels", () => {
     assert.ok(front > rear, "the front brakes carry more than the rear: losing them must cost more");
   });
 
-  it("good: a corner with no wheel scrapes the body along: a freewheeling car loses speed faster the fewer wheels it has", () => {
+  it("when a sedan coasts in neutral for 2 s from 20 m/s with its front-left and rear-left wheels gone, then it loses over 1.5 m/s more speed than the intact car, because the body scrapes along where a wheel is missing", () => {
     const lose = (lost: number[]) => {
       const c = car(lost, "sedan", 20);
       run(c, 2, { neutral: true });
@@ -140,7 +140,7 @@ describe("a car missing wheels", () => {
     assert.ok(two > none + 1.5, `2 s of coasting from 20 m/s: intact -${none.toFixed(2)}, two wheels gone -${two.toFixed(2)} m/s`);
   });
 
-  it("bad: the handbrake holds nothing with both rear wheels gone: no slide, and the car does what it does with the lever down", () => {
+  it("when a sedan flicks the handbrake while steering at 20 m/s, then with both rear wheels gone it does not slide (drift under 0.05) and drives as with the lever down, where the intact car slides (drift over 0.5)", () => {
     const flick = (lost: number[], ebrake: boolean) => {
       const c = car(lost, "sedan", 20);
       run(c, 0.6, { steer: 1, ebrake });
@@ -154,13 +154,13 @@ describe("a car missing wheels", () => {
     assert.ok(Math.abs(bare.speed - down.speed) < 0.01 && Math.abs(bare.yaw - down.yaw) < 1e-6, `lever up ${bare.speed.toFixed(2)} m/s ${bare.yaw.toFixed(3)} rad vs down ${down.speed.toFixed(2)} m/s ${down.yaw.toFixed(3)} rad`);
   });
 
-  it("close-but-wrong: a bare front axle still lets the car roll on: under throttle it holds its pace, never stuck on the spot", () => {
+  it("when a sedan with both front wheels gone holds 0.6 throttle at full lock for 1 s from 15 m/s, then it holds its pace above 12 m/s and is not stuck on the spot", () => {
     const c = car([0, 1], "sedan", 15);
     run(c, 1, { throttle: 0.6, steer: 1 });
     assert.ok(c.speed > 12, `a bare front axle held the car to ${c.speed.toFixed(1)} m/s`);
   });
 
-  it("good: every wheel on leaves every control whole; the mask names the wheels in FL FR RL RR order", () => {
+  it("when wheels are lost, then the wheels-on mask names the wheels in front-left, front-right, rear-left, rear-right order, every wheel on leaves every control whole, and a rear pair alone gives no steering and half the drive", () => {
     assert.equal(car([]).deform.wheelsOnMask, 15);
     assert.equal(car([0, 3]).deform.wheelsOnMask, 6);
     const out = wheelLoss(15, new Float64Array(LOSS_SIZE));

@@ -33,8 +33,8 @@ function rig(mode: "drive" | "global" = "drive") {
   return { canvas, camera, view, look };
 }
 
-describe("a drag orbits the ride-along around the dummy", () => {
-  it("good: even in the driver's seat, and it does not count as framing the shot (the next throw still rides)", () => {
+describe("given the ride-along camera following a thrown driver's dummy", () => {
+  it("when the player drags in the driver's seat, then the eye orbits the dummy, and the drag does not count as framing the shot, so the next throw still rides", () => {
     const { canvas, camera, view, look } = rig("drive");
     view.frameRide(look);
     pointer(canvas, "pointerdown", 100, 100);
@@ -47,7 +47,7 @@ describe("a drag orbits the ride-along around the dummy", () => {
     assert.ok(Math.abs(Math.atan2(off.x, off.z) - Math.atan2(4, 6)) > 0.01, "the eye turned about the dummy");
   });
 
-  it("bad: a drag far past the limits stops at the orbit's pitch range, above the ground, however far it goes", () => {
+  it("when a drag goes far past the limits in the global view, then the eye stops at the orbit's pitch range, above the ground, however far the drag goes", () => {
     const { canvas, camera, view, look } = rig("global");
     view.frameRide(look);
     pointer(canvas, "pointerdown", 100, 100);
@@ -64,8 +64,8 @@ describe("a drag orbits the ride-along around the dummy", () => {
   });
 });
 
-describe("the ride's automatic cuts wait for the drag and RIDE_PAUSE after it", () => {
-  it("good: held while a drag is under way and for RIDE_PAUSE s after, then released; a tap holds nothing; a new ride starts free", () => {
+describe("given the ride-along's automatic cuts and a drag on its camera", () => {
+  it("when the player drags, taps and starts a new ride, then cuts are held during the drag and for the ride pause after it, a tap holds nothing, and a new ride starts free", () => {
     const { canvas, view, look } = rig("global");
     const held = (on = true): boolean => view.rideHeld(on, DT);
     view.frameRide(look);
@@ -92,7 +92,7 @@ describe("the ride's automatic cuts wait for the drag and RIDE_PAUSE after it", 
   });
 });
 
-describe("the orbit keeps clear of lamp posts", () => {
+describe("given the orbit camera around a ring of lamp posts", () => {
   /** An orbit round (3, 0.7, 0) on `posts`, its eye lowered to 1.8 m (level with the posts' lower half) by a held stick. */
   function lowOrbit(posts: readonly { intact: boolean; group: { visible: boolean; position: THREE.Vector3 } }[]) {
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
@@ -108,7 +108,7 @@ describe("the orbit keeps clear of lamp posts", () => {
     return { camera, view };
   }
 
-  it("good: round a whole turn the eye stays 3 m from every post of the 16 m ring, in steps within twice the plain orbit's", () => {
+  it("when the orbit goes a whole turn at a low eye height, then the eye stays 3 m from every post of the 16 m ring, in steps within twice the plain orbit's", () => {
     const ring = Array.from({ length: 6 }, (_, i) => ({ intact: true, group: { visible: true, position: new THREE.Vector3(Math.sin((i / 6) * Math.PI * 2) * 16, 0, Math.cos((i / 6) * Math.PI * 2) * 16) } }));
     const spin = 0.32;
     const turn = (posts: typeof ring): { near: number; step: number } => {
@@ -132,7 +132,7 @@ describe("the orbit keeps clear of lamp posts", () => {
     assert.ok(pushed.step <= 2 * plain.step, `step ${pushed.step.toFixed(3)} m a frame against ${plain.step.toFixed(3)} m plain`);
   });
 
-  it("good: only a standing, visible post pushes the eye", () => {
+  it("when a post stands 1.5 m beside the resting eye, then only a standing, visible post pushes the eye: a hidden or knocked-over one does not", () => {
     const post = { intact: true, group: { visible: true, position: new THREE.Vector3() } };
     const { camera, view } = lowOrbit([]);
     const settle = (): void => {
@@ -157,8 +157,8 @@ describe("the orbit keeps clear of lamp posts", () => {
   });
 });
 
-describe("the chase eye's pull-in past a wall", () => {
-  it("bad: an eye drifting into a wall's clearance is pulled in smoothly, not by whole metres, at 60 and 240 Hz", (t) => {
+describe("given the chase eye drifting toward a wall along the course", () => {
+  it("when the eye drifts into the wall's clearance at 60 and 240 Hz, then it is pulled in smoothly, not by whole metres", (t) => {
     // A wall along z with its face at x = 3. The car drives along z, drifting toward it, nose turned off it: the chase eye sits on the wall's side.
     const wall: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [occluder(53, 0, 0, 50, 2000, false, 0, 30)] };
     const car = new DeformableCar({ body: 0x808080, accent: 0x404040, name: "car" }, new THREE.Scene());
@@ -203,7 +203,7 @@ describe("the chase eye's pull-in past a wall", () => {
   });
 });
 
-describe("taking a car up from another shot", () => {
+describe("given a spectator camera taking a car up from another shot", () => {
   const enter = (carZ: number): { first: number; moved: number } => {
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     camera.position.set(4, 2, 6);
@@ -219,12 +219,12 @@ describe("taking a car up from another shot", () => {
     return { first: camera.position.distanceTo(car.group.position), moved: camera.position.distanceTo(from) };
   };
 
-  it("good: a shot within blendRange blends in (the eye has hardly moved on the first frame)", () => {
+  it("when the previous shot is within the blend range of the car, then the eye blends in and has hardly moved on the first frame", () => {
     const r = enter(CHASE.blendRange - 10);
     assert.ok(r.moved < 2, `the eye moved ${r.moved.toFixed(2)} m on the first frame`);
   });
 
-  it("good: a shot farther off than blendRange cuts to the chase shot (no swoop across the map after a scene change)", () => {
+  it("when the previous shot is farther off than the blend range, then the camera cuts to the chase shot, with no swoop across the map after a scene change", () => {
     const r = enter(426);
     assert.ok(r.first < 15, `the eye is ${r.first.toFixed(1)} m from the car on the first frame`);
   });

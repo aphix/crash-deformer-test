@@ -54,12 +54,12 @@ function carOn(c: PropCollider, low: number, pitch = 0): DeformableCar {
 
 afterEach(() => setGround(null));
 
-describe("props are height-aware", () => {
+describe("given a prop on a course, solid (palm, wall, dumpster) or knockable (crate, cone), and a car reaching it", () => {
   const SOLIDS: [string, PrefabId][] = [["havana", "palm"], ["havana", "wall"], ["havana", "dumpster"]];
   const KNOCKS: [string, PrefabId][] = [["city", "crate"], ["city", "cone"]];
 
   for (const [id, prefab] of [...SOLIDS, ...KNOCKS]) {
-    describe(`${id} ${prefab} (${PREFABS[prefab].body})`, () => {
+    describe(`given a ${prefab} (${PREFABS[prefab].body}) on the ${id} course and a sedan at 8 m/s with its front-right corner aimed at the prop's middle`, () => {
       const hit = (low: number, pitch = 0) => {
         const k = course(id);
         const c = pick(k.colliders, prefab);
@@ -69,21 +69,21 @@ describe("props are height-aware", () => {
         return { k, c, car, v, touched: k.hits.length > 0 || k.w.race.propKnocked(c.index) };
       };
 
-      it("a car 0.5 m above the top passes over it untouched", () => {
+      it("when its lowest point is 0.5 m above the prop's top, then it passes over untouched, with no push and no lost speed", () => {
         const { car, v, touched } = hit(0.5);
         assert.equal(touched, false, "no contact");
         assertSameNumbers(car.velocity.toArray(), v.toArray(), "no push, no lost speed");
       });
 
-      it("a car whose lowest point is 0.2 m under the top still hits it", () => {
+      it("when its lowest point is 0.2 m under the prop's top, then it still hits the prop", () => {
         assert.equal(hit(-0.2).touched, true);
       });
 
-      it("a car on the ground (its lowest point at the prop's foot) hits it, as it always did", () => {
+      it("when it is on the ground (its lowest point at the prop's foot), then it hits the prop", () => {
         assert.equal(hit(-PREFABS[prefab].size[1]).touched, true);
       });
 
-      it("the rotated hull counts, not the group origin: nose down, the origin 0.4 m over the top and the front underside corner 0.14 m under hits; level at that origin height it passes", () => {
+      it("when it is nose down 15° with its centre more than 0.4 m over the top but its front underside corner 0.14 m under, then it hits the prop, while a level car at that centre height passes", () => {
         const tilted = hit(-0.14, 15 * (Math.PI / 180));
         const origin = tilted.car.group.position.y - tilted.k.top(tilted.c);
         assert.ok(origin > 0.4, `the origin is ${origin.toFixed(2)} m over the prop's top`);
@@ -93,18 +93,20 @@ describe("props are height-aware", () => {
     });
   }
 
-  it("the lowest point of a level car is its ground point, of a nose-down car its front underside corner", () => {
-    const car = makeCar("sedan");
-    car.spawnFacing(0, 0, 0, 0);
-    car.group.position.y = 3;
-    car.refreshBasis();
-    assert.ok(Math.abs(lowestY(car) - 3) < 1e-9);
-    car.group.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.3);
-    assert.ok(Math.abs(lowestY(car) - (3 + 0.68 * Math.cos(0.3) - (0.68 * Math.cos(0.3) + 2.22 * Math.sin(0.3)))) < 1e-9);
+  describe("given a sedan with its centre 3 m above flat ground", () => {
+    it("when it is level, then its lowest point is its ground point, and when it is nose down 0.3 rad, then its lowest point is its front underside corner", () => {
+      const car = makeCar("sedan");
+      car.spawnFacing(0, 0, 0, 0);
+      car.group.position.y = 3;
+      car.refreshBasis();
+      assert.ok(Math.abs(lowestY(car) - 3) < 1e-9);
+      car.group.quaternion.setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.3);
+      assert.ok(Math.abs(lowestY(car) - (3 + 0.68 * Math.cos(0.3) - (0.68 * Math.cos(0.3) + 2.22 * Math.sin(0.3)))) < 1e-9);
+    });
   });
 });
 
-describe("a car flying over a prop on the Havana course", () => {
+describe("given a sedan flying a ballistic arc at 12 m/s over a wall or palm on the Havana course", () => {
   const SPEED = 12;
   const TC = 0.6;
   /** The lowest point's planned height over the prop's top (m) at its middle, before the nose follows the path (up to 1 m of it is lost to the tail). */
@@ -134,7 +136,7 @@ describe("a car flying over a prop on the Havana course", () => {
   };
 
   for (const prefab of ["wall", "palm"] as const) {
-    it(`${prefab}: a car whose lowest point crosses over it takes no hit and flies on; one 3.5 m lower does hit`, () => {
+    it(`when its lowest point is planned to cross 2.5 m over the ${prefab}, then it takes no hit and flies on past it, while the same launch 3.5 m lower does hit`, () => {
       const over = fly(prefab, 2.5);
       assert.ok(over.clearest > 0.3, `the arc crosses ${over.clearest.toFixed(2)} m over the top, so the scenario is a clear pass`);
       assert.equal(over.hits, 0, "no contact in mid-air");

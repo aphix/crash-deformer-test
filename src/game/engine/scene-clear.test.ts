@@ -72,12 +72,13 @@ function rig(): Rig {
 
 const alive = (life: Float32Array): number => life.filter((l) => l > 0).length;
 
-/** Each system: how to put live objects in it, and how many it still holds. */
-type Row = { seed(r: Rig): Promise<void> | void; left(r: Rig): number };
+/** Each system: what it holds in plain words, how to put live objects in it, and how many it still holds. */
+type Row = { label: string; seed(r: Rig): Promise<void> | void; left(r: Rig): number };
 
 const ROWS: Record<keyof Transients, Row> = {
   // Loose wheels, torn panel shells and parts live in the scene root, not under the car: every car, hidden ones too.
   cars: {
+    label: "loose wheels, torn panels and detached parts of every car, hidden ones too",
     seed: (r) => {
       for (const c of r.cars) {
         c["detachPart"](c["parts"].find((p) => p.region)!, 12);
@@ -89,6 +90,7 @@ const ROWS: Record<keyof Transients, Row> = {
     left: (r) => r.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length + c["looseWheels"].filter((w) => w.loose).length, 0),
   },
   poles: {
+    label: "knocked-over lamp poles",
     seed: (r) =>
       r.poles.forEach((p) => {
         p.intact = false;
@@ -98,12 +100,13 @@ const ROWS: Record<keyof Transients, Row> = {
       }),
     left: (r) => r.poles.filter((p) => !p.intact || p.kicked.size > 0 || p.group.rotation.x !== 0).length,
   },
-  debris: { seed: (r) => r.debris.burst(V, UP, 40), left: (r) => alive(r.debris["life"]) },
-  sparks: { seed: (r) => r.sparks.poof(V, UP, 40), left: (r) => alive(r.sparks["life"]) },
-  glassDots: { seed: (r) => r.glassDots.burst(V, UP, 40), left: (r) => alive(r.glassDots["life"]) },
-  smoke: { seed: (r) => r.smoke.plume(V, UP, 40), left: (r) => alive(r.smoke["life"]) },
+  debris: { label: "crash debris", seed: (r) => r.debris.burst(V, UP, 40), left: (r) => alive(r.debris["life"]) },
+  sparks: { label: "sparks", seed: (r) => r.sparks.poof(V, UP, 40), left: (r) => alive(r.sparks["life"]) },
+  glassDots: { label: "glass chips", seed: (r) => r.glassDots.burst(V, UP, 40), left: (r) => alive(r.glassDots["life"]) },
+  smoke: { label: "tyre smoke plumes", seed: (r) => r.smoke.plume(V, UP, 40), left: (r) => alive(r.smoke["life"]) },
   // A head-on's two thrown drivers: the dummies out, and their Rapier bodies enabled.
   ragdolls: {
+    label: "the two drivers thrown from a head-on",
     seed: async (r) => {
       const a = makeCar();
       const b = makeCar();
@@ -127,6 +130,7 @@ const ROWS: Record<keyof Transients, Row> = {
     },
   },
   rangeRun: {
+    label: "range scene's launch-distance run (its measured distance and landed flag)",
     seed: (r) => {
       r.rangeRun.distance = 31;
       r.rangeRun.landed = true;
@@ -135,6 +139,7 @@ const ROWS: Record<keyof Transients, Row> = {
   },
   // Tyre marks and the thin tyre smoke; the skid map is flagged for wiping by `clear`.
   cine: {
+    label: "tyre marks and thin tyre smoke",
     seed: (r) => {
       r.marks["needsClear"] = false;
       r.tyreSmoke.plume(V, UP, 20);
@@ -143,9 +148,9 @@ const ROWS: Record<keyof Transients, Row> = {
   },
 };
 
-describe("a scene reset leaves nothing of the last scene behind", () => {
+describe("given a scene holding leftovers of the last scene (wrecked parts, effects, thrown drivers, tyre marks)", () => {
   for (const [name, row] of Object.entries(ROWS)) {
-    it(`bad: seeded ${name} is empty after the reset`, async () => {
+    it(`when the scene holds only ${row.label} and is reset, then none of it is left`, async () => {
       const r = rig();
       await row.seed(r);
       assert.ok(row.left(r) > 0, `${name} was seeded`);
@@ -155,7 +160,7 @@ describe("a scene reset leaves nothing of the last scene behind", () => {
     });
   }
 
-  it("bad: every system seeded at once: nothing left in any, and the scene root is back at its baseline child count", async () => {
+  it("when every system is seeded at once and the scene is reset, then nothing is left in any of them and the scene root is back at its baseline child count", async () => {
     const r = rig();
     for (const row of Object.values(ROWS)) await row.seed(r);
     assert.ok(r.scene.children.length > r.base, "loose parts hang in the scene root");

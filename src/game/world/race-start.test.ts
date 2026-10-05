@@ -50,27 +50,27 @@ function startWrecks(course: string, seed: number, aiCount: number, slider: numb
   }
 }
 
-describe("race start: clean racing wrecks nobody", () => {
+describe("given races started from the grid with every slot AI-driven, clean racing", () => {
   const slider = DEFAULT_RACE_OPTIONS.aggression;
   for (const seed of [1, 2, 3, 4, 5, 6, 7, 8]) {
-    it(`stunt (Crossover Canyon), 5 rivals at the default slider, seed ${seed}: no car wrecks in the first ${WATCH} s of racing`, () => {
+    it(`when 5 rivals race the stunt course (Crossover Canyon) at the default aggression slider with field seed ${seed}, then no car wrecks in the first ${WATCH} s of racing`, () => {
       assert.deepEqual(startWrecks("stunt", seed, 5, slider), []);
     });
   }
   for (const course of COURSE_IDS.filter((id) => id !== "city")) {
     for (const seed of [1, 2, 3, 4]) {
-      it(`${course}, a full 8-car grid at the default slider, seed ${seed}: no car wrecks in the first ${WATCH} s of racing`, () => {
+      it(`when a full 8-car grid races the ${course} course at the default aggression slider with field seed ${seed}, then no car wrecks in the first ${WATCH} s of racing`, () => {
         assert.deepEqual(startWrecks(course, seed, 7, slider), []);
       });
     }
   }
-  it("city, a clean field (slider 0): the oncoming street traffic round the first corner wrecks nobody", () => {
+  it("when 5 rivals race the city course with the aggression slider at 0 (a clean field), then the oncoming street traffic round the first corner wrecks nobody", () => {
     assert.deepEqual(startWrecks("city", 1, 5, 0), []);
   });
 });
 
-describe("race start: real fights still wreck", () => {
-  it("stunt with every rival at the ramming slider: some car is wrecked in the first seconds, over 8 seeds", () => {
+describe("given races of 5 rivals on the stunt course with the aggression slider at the ramming maximum, every slot AI-driven", () => {
+  it("when 8 field seeds race their first seconds, then some car is wrecked in the first seconds, with at least 8 wrecks over the 8 seeds", () => {
     let wrecks = 0;
     for (let seed = 1; seed <= 8; seed++) wrecks += startWrecks("stunt", seed, 5, 1).length;
     assert.ok(wrecks >= 8, `${wrecks} wrecks over 8 seeds`);

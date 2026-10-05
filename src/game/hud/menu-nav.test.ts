@@ -20,8 +20,8 @@ const SETUP = [
   rect(180, 182, 160, 44),
 ];
 
-describe("navTarget", () => {
-  it("moves to the neighbour in the pressed direction", () => {
+describe("given the setup menu's items (three course cards, a full-width stepper, then two buttons of different heights) and a direction pressed on a gamepad or keyboard", () => {
+  it("when a direction is pressed, then the highlight moves to the neighbour in that direction", () => {
     assert.equal(navTarget(SETUP, CARD0, "right"), CARD1);
     assert.equal(navTarget(SETUP, CARD1, "left"), CARD0);
     assert.equal(navTarget(SETUP, CARD2, "down"), STEPPER);
@@ -30,14 +30,14 @@ describe("navTarget", () => {
     assert.equal(navTarget(SETUP, BACK, "up"), STEPPER);
   });
 
-  it("prefers the item most in line when several lie that way", () => {
+  it("when several items lie that way, then the highlight moves to the one most in line (straight below but far beats diagonal and near)", () => {
     assert.equal(navTarget(SETUP, STEPPER, "up"), CARD1);
     // Straight below but far beats diagonal and near.
     const rects = [rect(0, 0, 100, 40), rect(0, 150, 100, 40), rect(200, 60, 100, 40)];
     assert.equal(navTarget(rects, 0, "down"), 1);
   });
 
-  it("only considers items wholly past the source's leading edge", () => {
+  it("when a neighbour is not wholly past the source's leading edge, then it is not considered: a taller neighbour in the same row is not below, and right never drops to the wide row below", () => {
     assert.equal(navTarget(SETUP, START, "down"), START, "a taller neighbour in the same row is not below");
     assert.equal(navTarget(SETUP, BACK, "down"), BACK);
     assert.equal(navTarget(SETUP, CARD0, "right"), CARD1, "right never drops to the wide row below");
@@ -46,7 +46,7 @@ describe("navTarget", () => {
     assert.equal(navTarget(wide, 0, "down"), 1);
   });
 
-  it("stays put at an edge instead of wrapping", () => {
+  it("when there is no item in the pressed direction, then the highlight stays put at an edge instead of wrapping", () => {
     assert.equal(navTarget(SETUP, CARD2, "right"), CARD2);
     assert.equal(navTarget(SETUP, CARD0, "left"), CARD0);
     assert.equal(navTarget(SETUP, CARD1, "up"), CARD1);
@@ -54,8 +54,8 @@ describe("navTarget", () => {
   });
 });
 
-describe("stickDir", () => {
-  it("takes the dominant axis past the threshold", () => {
+describe("given a stick pushed to a position", () => {
+  it("when it is pushed past the threshold along its dominant axis, then that direction is chosen, and a small equal push on both axes gives none", () => {
     assert.equal(stickDir(0.6, 0.2), "right");
     assert.equal(stickDir(-0.6, 0.2), "left");
     assert.equal(stickDir(0.1, -0.7), "up");
@@ -64,8 +64,8 @@ describe("stickDir", () => {
   });
 });
 
-describe("NavRepeat", () => {
-  it("fires on press, after the delay, then at the repeat rate, and restarts on release", () => {
+describe("given a direction held on a menu (auto-repeat of the highlight move)", () => {
+  it("when it is held, then it fires on press, again after the repeat delay, then at the repeat rate, restarts after release, and fires at once for a new direction", () => {
     const r = new NavRepeat();
     assert.equal(r.step(null, 0), false);
     assert.equal(r.step("down", 10), true);

@@ -29,8 +29,8 @@ async function worstOfThrows(): Promise<Pose> {
   return all;
 }
 
-describe("a thrown dummy's joints keep to anatomy", () => {
-  it("bad: over 60 throws, the range wall and a head-on the neck swings at most 65° + 5° and turns at most 70° + 5°, the head box sinks at most 2 cm into the chest, and no elbow or knee bends backward past 10°", async () => {
+describe("given a thrown crash-test dummy whose joints must keep to human anatomy", () => {
+  it("when it is thrown 60 times on flat ground, against the range wall and in a head-on, then the neck swings at most 65° + 5° and turns at most 70° + 5°, the head box sinks at most 2 cm into the chest, and no elbow or knee bends backward past 10°", async () => {
     const w = await worstOfThrows();
     const report = POSE_KEYS.map((k) => `${k} ${w[k].toFixed(3)}`).join(", ");
     assert.ok(w.swing <= SWING + SLACK, `neck swing ${w.swing.toFixed(1)}°: ${report}`);
@@ -44,7 +44,7 @@ describe("a thrown dummy's joints keep to anatomy", () => {
     ["face first, tumbling forward", 135, 6],
     ["head first, straight down", 180, 0],
   ] as const) {
-    it(`bad: a dummy dropped ${name} at 10 m/s keeps his head out of his chest through the fall, the landing and the rest`, async () => {
+    it(`when a dummy is dropped ${name} at 10 m/s, then its head stays out of its chest through the fall, the landing and the rest, and its neck stays within the swing limit`, async () => {
       const sys = await flatSystem();
       // Turned `tilt` degrees about x (90 lies him face down, 180 stands him on his head), thrown straight down, spinning forward at `spin` rad/s.
       const q = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), (tilt * Math.PI) / 180);

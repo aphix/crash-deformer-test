@@ -21,8 +21,8 @@ function watching(t = 0, cuts = -1): AutoWatch {
 
 const NONE: Wreck[] = [];
 
-describe("auto watch: leaving an idle car", () => {
-  it("bad: an idle car is left for a predicted contact once held 4 s, why `contact`; at 3.9 s it is not", () => {
+describe("given the Auto spectator view is following a car with nothing going on (an idle car), while other cars could be of more interest", () => {
+  it("when another pair of cars is 1 s from a head-on contact, then the view leaves the idle car for that contact once it has watched 4 s (logged with the reason `contact`), and at 3.9 s it stays", () => {
     // 14 m apart at 7 m/s each: contact in 1 s (not under crashTtc), closing 14 m/s.
     const field = [car(0), ...headOn(1, 2, 14, 7)];
     const early = watching(0.1);
@@ -34,14 +34,14 @@ describe("auto watch: leaving an idle car", () => {
     assert.deepEqual(w.log, [{ t: 4, from: 0, to: 1, why: "contact" }]);
   });
 
-  it("bad: no cut, no switch: between cuts of a camera that cuts, an idle car is kept (the crash exception aside)", () => {
+  it("when the camera is between cuts, then the idle car is kept, and the next camera cut moves the view to the car about to make contact (the imminent-crash exception aside)", () => {
     const field = [car(0), ...headOn(1, 2, 14, 7)];
     const w = watching(0, 0);
     assert.equal(w.step(10, field, NONE, 0, false), 0);
     assert.equal(w.step(10.25, field, NONE, 1, true), 1, "the next cut takes it");
   });
 
-  it("each signal names itself: wreck, bust, battle, jolt", () => {
+  it("when the view leaves the car because of a wreck, a police bust, a close battle or a sudden slowdown, then the logged reason names it: wreck, bust, battle or jolt", () => {
     const why = (field: Cand[], wrecks: Wreck[] = NONE): string => {
       const w = watching(0);
       w.step(0, field, wrecks, -1, true);
@@ -60,7 +60,7 @@ describe("auto watch: leaving an idle car", () => {
     assert.equal(w.log[0]!.why, "jolt");
   });
 
-  it("bad: a wreck that went quiet, a lone tap and a jump are not worth leaving a car for", () => {
+  it("when a wreck has gone quiet, a lone 20 km/h tap happens, or a car is only airborne, then none is worth leaving the car for", () => {
     const w = watching(0);
     const field = [car(0), car(1, { air: true }), car(2)];
     assert.equal(w.step(5, field, [{ cars: 1 << 2, age: 1.6, score: 20 }], -1, true), 0, "ledger cluster past QUIET_GAP");
@@ -68,7 +68,7 @@ describe("auto watch: leaving an idle car", () => {
     assert.equal(w.step(7, field, NONE, -1, true), 0, "air alone");
   });
 
-  it("good: a car in a contact, or that just overtook, is not left; once the overtake is 3 s old it is", () => {
+  it("when the watched car is in a contact, or has just overtaken, then the view stays on it, and only leaves once the overtake is 3 s old", () => {
     const hot = car(3, { stopped: 3 });
     // Car 0 itself in a head-on with car 4, closing 12, 1.2 s out: interest well over idle.
     const [a, b] = headOn(0, 4, 14.4, 6);
@@ -87,8 +87,8 @@ describe("auto watch: leaving an idle car", () => {
   });
 });
 
-describe("auto watch: the floor", () => {
-  it("bad: a stream of interesting cars never moves the view more than once per 4 s", () => {
+describe("given the Auto spectator view is following a car while other cars keep becoming interesting", () => {
+  it("when every other car is held beside a police car for 60 s, then the view switches at least 10 times but never moves more than once per 4 s", () => {
     // Every car but the watched one is held beside a police car (bust interest); the watched one never is.
     const w = watching(0);
     for (let t = 0; t < 60; t += 0.25) {
@@ -99,7 +99,7 @@ describe("auto watch: the floor", () => {
     for (let k = 1; k < w.log.length; k++) assert.ok(w.log[k]!.t - w.log[k - 1]!.t >= WATCH.floor, `switch ${k} came ${w.log[k]!.t - w.log[k - 1]!.t} s after the one before`);
   });
 
-  it("the log keeps the last 32 switches", () => {
+  it("when 400 s of constant switching pass, then the switch log keeps only the last 32 switches", () => {
     const w = watching(0);
     for (let t = 0; t < 400; t += 0.25) {
       const field = [0, 1].map((i) => car(i, { stopped: i === w.current ? 0 : 3 }));
@@ -110,8 +110,8 @@ describe("auto watch: the floor", () => {
   });
 });
 
-describe("auto watch: validity", () => {
-  it("bad: a car that is not racing (finished, out, dnf, respawning, police) is never switched to, however interesting", () => {
+describe("given the Auto spectator view in a field where some cars are no longer racing", () => {
+  it("when cars that are not racing (finished, out, did not finish, respawning or police) are the most interesting, then the view is never switched to them, and rotation skips them too", () => {
     const w = watching(0);
     const field = [car(0), car(1, { racing: false, stopped: 4, air: true }), car(2, { racing: false, x: 14, z: 0, vx: -7 }), car(3, { racing: false, x: 0, z: 0, vx: 7 })];
     for (let t = 0; t < 60; t += 0.25) w.step(t, field, [{ cars: 1 << 1, age: 0, score: 20 }], 3 * t, true);
@@ -124,7 +124,7 @@ describe("auto watch: validity", () => {
     assert.equal(r.step(5, f2, NONE, 3, true), 2);
   });
 
-  it("bad: a watched car that finishes is left for the best racing car after 1 s, not 4, and not on a cut", () => {
+  it("when the watched car finishes, then the view leaves it for the best racing car after 1 s, not 4 s, and without waiting for a camera cut", () => {
     const w = watching(0);
     const field = [car(0, { racing: false }), car(1), car(2, { stopped: 3 })];
     assert.equal(w.step(0.75, field, NONE, 0, false), 0, "under the 1 s floor");
@@ -132,21 +132,23 @@ describe("auto watch: validity", () => {
     assert.deepEqual(w.log, [{ t: 1, from: 0, to: 2, why: "invalid" }]);
   });
 
-  it("bad: with nothing racing the view stays", () => {
+  it("when no car is racing, then the view stays where it is", () => {
     const w = watching(0);
     assert.equal(w.step(10, [car(0, { racing: false }), car(1, { racing: false })], NONE, 0, true), 0);
   });
+});
 
-  it("starts on the leader when it has no car yet", () => {
+describe("given the Auto spectator view has no car to follow yet", () => {
+  it("when it first steps over a field of three cars, then it starts on the leader", () => {
     const w = new AutoWatch();
     assert.equal(w.step(0, [car(0, { place: 3 }), car(1, { place: 1 }), car(2, { place: 2 })], NONE, -1, true), 1);
   });
 });
 
-describe("auto watch: rotation", () => {
+describe("given the Auto spectator view is rotating between four plain cars", () => {
   const field = [car(0), car(1), car(2), car(3)];
 
-  it("bad: after 3 camera shots on a car the view moves to the next by place, wrapping; not before, not between cuts, not before 4 s", () => {
+  it("when the camera has shot the watched car 3 times, then the view moves to the next car by place, wrapping from last to the leader, but not after 2 shots, between cuts, or before 4 s", () => {
     const w = watching(0, 10);
     assert.equal(w.step(6, field, NONE, 12, true), 0, "2 shots");
     assert.equal(w.step(6, field, NONE, 13, false), 0, "3 shots but no cut now");
@@ -162,20 +164,20 @@ describe("auto watch: rotation", () => {
     assert.equal(last.step(9, field, NONE, 3, true), 0);
   });
 
-  it("bad: a camera that makes no cuts (-1) rotates on the clock, 3 shots of 7 s", () => {
+  it("when the camera makes no cuts, then the view rotates on the clock, after 3 shots of 7 s (21 s)", () => {
     const w = watching(0);
     assert.equal(w.step(20.75, field, NONE, -1, true), 0);
     assert.equal(w.step(21, field, NONE, -1, true), 1);
     assert.equal(w.log[0]!.why, "rotate");
   });
 
-  it("the best-interest car beats the next by place when something is going on", () => {
+  it("when something is going on at another car (held beside a police car), then rotation picks it over the next car by place", () => {
     const w = watching(0, 0);
     const f = [car(0), car(1), car(2, { stopped: 1.2 }), car(3)];
     assert.equal(w.step(6, f, NONE, 3, true), 2);
   });
 
-  it("bad: a hot car (mid-crash) is not rotated away from, a car in a plain contact is", () => {
+  it("when the watched car is mid-crash, then rotation never moves away from it, but when it is in a plain contact, rotation moves to the other car of that contact", () => {
     const wreck = [{ cars: 1 << 0, age: 0.2, score: 8 }];
     const w = watching(0, 0);
     for (let t = 0; t < 60; t += 0.25) assert.equal(w.step(t, field, wreck, Math.floor(t), true), 0, `at ${t}`);
@@ -188,11 +190,11 @@ describe("auto watch: rotation", () => {
   });
 });
 
-describe("auto watch: the imminent big crash", () => {
+describe("given the Auto spectator view is following a car while two other cars, 16 m apart at 10 m/s each, are 0.8 s from a head-on crash", () => {
   // 16 m apart at 10 m/s each: contact in 0.8 s, closing 20 m/s (72 km/h).
   const crash = [car(0), ...headOn(1, 2, 16, 10)];
 
-  it("bad: switches to it at 2 s on a car, even between cuts, and not before", () => {
+  it("when the watched car has been held 2 s, then the view switches to the crash even between cuts and not before, and stays on it once there", () => {
     const w = watching(0, 0);
     assert.equal(w.step(1.75, crash, NONE, 0, false), 0, "under the 2 s anti ping-pong floor");
     assert.equal(w.step(2, crash, NONE, 0, false), 1);
@@ -201,7 +203,7 @@ describe("auto watch: the imminent big crash", () => {
     assert.equal(w.step(10, crash, NONE, 0, false), 1);
   });
 
-  it("bad: a slow tap (closing 10 m/s) or a miss does not, between cuts", () => {
+  it("when the pair closes at only 10 m/s, or the two cars miss each other, then the view does not leave between cuts", () => {
     const tap = [car(0), ...headOn(1, 2, 8, 5)];
     const miss = [car(0), car(1, { x: 0, z: 1000, vx: 10 }), car(2, { x: 16, z: 1010, vx: -10 })];
     for (const field of [tap, miss]) {
@@ -210,7 +212,7 @@ describe("auto watch: the imminent big crash", () => {
     }
   });
 
-  it("bad: a crash the watched car is in is not left", () => {
+  it("when the watched car is itself in the crash, then the view is not left and no switch is logged", () => {
     const w = new AutoWatch();
     w.follow(1, 0, 0);
     assert.equal(w.step(5, crash, NONE, 0, false), 1);
@@ -218,8 +220,8 @@ describe("auto watch: the imminent big crash", () => {
   });
 });
 
-describe("auto watch: deterministic", () => {
-  it("the same inputs give the same switches", () => {
+describe("given the Auto spectator view run twice over the same pseudo-random 8-car field for 120 s", () => {
+  it("when both runs are compared, then the same inputs give the same switches, and the scenario does switch", () => {
     const run = (): string => {
       const w = watching(0, 0);
       let s = 12345;

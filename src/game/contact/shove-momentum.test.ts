@@ -54,12 +54,12 @@ function shoveFlank(seconds: number): { step: number; speed: number }[] {
   return frames;
 }
 
-describe("a car driven into a resting car's flank (pair shove)", () => {
+describe("given a car driven at 8 m/s into a resting car's flank", () => {
   // Derby ten cars, 40 s, main ef6611a: 791 car-frames where a car moved over 0.06 m in one 1/60 s frame at a reported speed
   // under 1 m/s (the larger of this frame's and the last's), 0.14 m the longest step, every one of them shoved by a car
   // driven into it. The pair solver pushed the flank out by position, up to 4–8 m/s, and none of it became the car's
   // velocity: this scene held the resting car at 4.4 m/s of travel for 2 s at a reported 0.06 m/s.
-  it("bad: no frame moves it over 0.06 m while its reported speed is under 1 m/s", () => {
+  it("when the shove plays out for 2.5 s, then no frame moves the struck car over 0.06 m while its reported speed is under 1 m/s", () => {
     const frames = shoveFlank(2.5);
     assert.ok(frames.length > 100, `the resting car did not become a wreck (${frames.length} frames)`);
     const zips = frames.filter((fr, i) => fr.step > 0.06 && Math.max(fr.speed, frames[i - 1]?.speed ?? 0) < 1);
@@ -70,7 +70,7 @@ describe("a car driven into a resting car's flank (pair shove)", () => {
   // against the flank), so the reported speed is what the masses do. Measured here: reported 0.50 m/s against 4.5 m/s of
   // travel on ef6611a and with the hit and crush-hull trade alone (11 %), 5.5 against 7.0 m/s (79 %) with the COM-gap floor
   // traded as well: the rest is the wheels' re-fit (`clampLocal`) and a frame's average step against its end speed.
-  it("bad: its reported speed is most of its masses' travel over the shove", () => {
+  it("when the shove plays out for 2.5 s, then the struck car's reported speed (after its first second) is at least 70 % of the speed its masses travel at", () => {
     const frames = shoveFlank(2.5).slice(60);
     const travel = frames.reduce((s, fr) => s + fr.step, 0) / (frames.length * FRAME);
     const reported = frames.reduce((s, fr) => s + fr.speed, 0) / frames.length;

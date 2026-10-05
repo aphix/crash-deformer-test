@@ -41,10 +41,10 @@ const popHub = (cars: DeformableCar[], frame: number): void => {
 };
 
 const SCENARIOS: Scenario[] = [
-  { label: "a 10-car fleet pile-up (shape skin, wrinkle)", derby: false, cars: 10, frames: 240, covers: ["skins", "wrinkled"] },
+  { label: "a 10-car fleet pile-up with the shape-matching skin and wrinkling", derby: false, cars: 10, frames: 240, covers: ["skins", "wrinkled"] },
   { label: "a 10-car derby", derby: true, cars: 10, frames: 300, covers: ["skins", "wrinkled"] },
   {
-    label: "cars in lattice mode",
+    label: "6 cars of which two are in lattice mode",
     derby: false,
     cars: 6,
     frames: 200,
@@ -54,7 +54,7 @@ const SCENARIOS: Scenario[] = [
     covers: ["skins", "lattice"],
   },
   {
-    label: "a deep-crush bidirectional car (compactor rules)",
+    label: "6 cars of which one is a deep-crush car that dents in both directions",
     derby: true,
     cars: 6,
     frames: 200,
@@ -66,7 +66,7 @@ const SCENARIOS: Scenario[] = [
     },
     covers: ["skins", "deep"],
   },
-  { label: "popped hubs (wheel-arch paint)", derby: false, cars: 6, frames: 200, setup: popHub, covers: ["skins", "hubs"] },
+  { label: "6 cars of which three lose a front-left wheel hub at frame 60", derby: false, cars: 6, frames: 200, setup: popHub, covers: ["skins", "hubs"] },
 ];
 
 const FNV = 16777619;
@@ -156,7 +156,7 @@ function playOnKernel(s: Scenario, mutate?: (d: SkinDynamic) => void): { leg: Le
   }
 }
 
-describe("WASM skin and normals", () => {
+describe("given the WASM skin kernel (the compiled skin and normals maths), loaded after the JS skin has played each scenario", () => {
   const js = new Map<Scenario, Leg>();
   before(async () => {
     assert.equal(skinKernel(), null, "the JS legs run before the kernel loads");
@@ -166,7 +166,7 @@ describe("WASM skin and normals", () => {
   });
 
   for (const s of SCENARIOS) {
-    it(`good: ${s.label} leaves the JS skin's bits, frame by frame`, () => {
+    it(`when it plays ${s.label}, then every frame's skin and normals are bit-for-bit the JS skin's`, () => {
       const ref = js.get(s)!;
       for (const key of s.covers) assert.ok(ref.seen[key] > 0, `the scenario never skinned with ${key}`);
       const { leg, runs } = playOnKernel(s);
@@ -177,7 +177,7 @@ describe("WASM skin and normals", () => {
     });
   }
 
-  it("bad: dropping one parameter (shape mode) changes the digests, so the comparison can fail", () => {
+  it("when the kernel is told to drop one parameter (the deformation mode), then at least one frame's digest differs from the JS skin's, so the comparison can fail", () => {
     const s = SCENARIOS[0]!;
     const { leg } = playOnKernel(s, (d) => {
       d.params[8] = 0;

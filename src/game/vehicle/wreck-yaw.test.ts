@@ -66,10 +66,10 @@ function tyreTorque(car: DeformableCar, m: number, cx: number, cz: number): numb
   return tau;
 }
 
-describe("a spinning wreck's tyres resist its yaw", () => {
+describe("given the wreck of a 64 km/h, 40 % overlap wall hit (a popped front hub scraping, three tyres on) with its drivetrain dead and its masses set spinning", () => {
   // The 64 km/h 40 % wall wreck: a popped front hub scraping, three tyres on. Spin set at quiet 0, as a hit leaves it.
   for (const w0 of [2, 4, 6, 9, 12]) {
-    it(`bad: ${w0} rad/s: L halves in ${"0.5 L0/τ"} (±30 %) and is gone by 0.95 L0/τ (×0.5 to ×1.6) of the Coulomb model`, () => {
+    it(`when it is spun at ${w0} rad/s, then its angular momentum halves within ±30 % of 0.5 L0/τ and is gone within ×0.5 to ×1.6 of 0.95 L0/τ, as the tyres' Coulomb friction model gives (L0 is the starting momentum, τ the tyres' friction torque)`, () => {
       const car = makeCar();
       runWall(64, 0.4, "front", { car, after: 2.5 });
       car.deform.drivetrainAlive = false;
@@ -94,7 +94,7 @@ describe("a spinning wreck's tyres resist its yaw", () => {
     });
   }
 
-  it("bad: the quiet rule does not zero a spin: a wreck spun at 9 rad/s still turns at 0.45 s (quiet past 0.35 s), with more than a fifth of its momentum", () => {
+  it("when it is spun at 9 rad/s and 0.45 s pass (past the 0.35 s after the last hit when every mass would be set to the mean velocity), then it still turns, with more than a fifth of its momentum", () => {
     const car = makeCar();
     runWall(64, 0.4, "front", { car, after: 2.5 });
     car.deform.drivetrainAlive = false;
@@ -124,14 +124,14 @@ function slope(pitchDeg: number): Ground {
   };
 }
 
-describe("a spun wreck comes to rest", () => {
+describe("given a sedan wreck, spun at 6 rad/s after a hit, on flat ground and on a 6.8° slope", () => {
   afterEach(() => setGround(null));
 
   for (const [name, ground] of [
     ["flat ground", slope(0)],
     ["a 6.8° slope", slope(6.8)],
   ] as const) {
-    it(`good: spun at 6 rad/s on ${name}, no spin and no creep 5 s on (L < 1 %, under 1 cm in the last second)`, () => {
+    it(`when it is spun on ${name}, then 5 s on it has no spin (under 1 % of its angular momentum) and no creep (under 1 cm in the last second)`, () => {
       setGround(ground);
       const car = probeCar("sedan");
       car.spawnFacing(0, 0, Math.PI / 2, 0);

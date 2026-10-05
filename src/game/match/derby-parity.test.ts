@@ -35,8 +35,8 @@ function atRealism<T>(realism: number, fn: () => T): T {
   }
 }
 
-describe("derby AI presses R by the player's rules", () => {
-  it("good: a flipped car that still runs is righted on the very slice the player's self-right fires", () => {
+describe("given a derby AI car flipped onto its roof, which turns itself back over by the same rules as the player's self-right key R", () => {
+  it("when the car's engine still runs, then the AI turns it back onto its wheels on the very slice the player's own self-right would fire", () => {
     const car = parked(true);
     assert.equal(mayRecoverFlipped(car), true);
     const wait = selfRightDelay();
@@ -52,7 +52,7 @@ describe("derby AI presses R by the player's rules", () => {
     assert.equal(ai, player, "the AI's R and the player's self-right fire on the same slice");
   });
 
-  it("bad: a dead drivetrain is never righted, nor an upright car, nor one still sliding (the player's mayRecover)", () => {
+  it("when the car's drivetrain is dead, or the car is upright, or it is still sliding, then the AI never turns it over (the player's rules for recovering a flipped car)", () => {
     const wait = selfRightDelay();
     const dead = parked(true, true);
     assert.equal(mayRecoverFlipped(dead), false);
@@ -65,7 +65,7 @@ describe("derby AI presses R by the player's rules", () => {
     assert.equal(firstYes(() => match.recoverDue(2, sliding, DT), wait * 3), null, "a car still sliding pressed R");
   });
 
-  it("good: each car runs its own clock", () => {
+  it("when a second car flips while the first is 0.3 s short of its wait, then the first is turned over within about 0.3 s of that and the second only after its own full wait", () => {
     const wait = selfRightDelay();
     const match = new DerbyMatch();
     const a = parked(true);
@@ -83,7 +83,7 @@ describe("derby AI presses R by the player's rules", () => {
     assert.ok(firedB >= lead + firedA - 3, `car 1 pressed R after ${firedB} slices, on car 0's clock`);
   });
 
-  it("good: rolling back onto its wheels restarts the clock", () => {
+  it("when the car rolls back onto its wheels for a moment and flips again just before the wait would end, then the wait starts over from the second flip", () => {
     const wait = selfRightDelay();
     const match = new DerbyMatch();
     const car = parked(true);
@@ -97,7 +97,7 @@ describe("derby AI presses R by the player's rules", () => {
     assert.ok(again !== null && again * DT >= wait - DT, `pressed R ${again} slices after flipping again`);
   });
 
-  it("good: at the realistic end the player must press R, the AI still does after the slider's slowest delay", () => {
+  it("when the handling slider is at its realistic end, then the player must turn the car over by hand while the AI still does after the slider's slowest delay", () => {
     atRealism(1, () => {
       assert.equal(selfRightDelay(), Infinity);
       assert.equal(aiRecoverDelay(), SELF_RIGHT_SLOWEST);
@@ -113,7 +113,7 @@ describe("derby AI presses R by the player's rules", () => {
   });
 });
 
-describe("derby AI boost by the player's rules", () => {
+describe("given a derby AI car hunting a target by the player's boost rules", () => {
   /** A brain whose driver 0 hunts car 1, `z` m dead ahead (`foe` overrides it), nose first (tail spent, full aggression), past the opening hold and the 8 s opening caution. */
   function charging(z: number, me: Partial<AiCar> = {}, foe: Partial<AiCar> = {}): { brain: DerbyBrain; self: AiCar; all: AiCar[] } {
     const brain = new DerbyBrain();
@@ -125,7 +125,7 @@ describe("derby AI boost by the player's rules", () => {
     return { brain, self, all };
   }
 
-  it("good: a charge at a target ahead within 25 m boosts and drains the meter at the seat's rate", () => {
+  it("when it charges a target ahead within 25 m, then it boosts and its boost meter drains at the same rate as the player's seat", () => {
     const { brain, self, all } = charging(18);
     assert.equal(brain.tacticOf(0), "nose");
     const out = brain.think(self, all, 0.4);
@@ -138,7 +138,7 @@ describe("derby AI boost by the player's rules", () => {
     assert.equal(brain.meter[0], seat.boost, "the AI's meter drains like the seat's");
   });
 
-  it("good: no boost with the target behind, past 25 m, inside the last 8 m, facing us, off to the side, or the meter empty", () => {
+  it("when the target is just inside 25 m, just outside 25 m, just outside or inside the last 8 m, or behind, head-on, off the nose, with an empty meter or tail first, then it boosts only at a target ahead within 25 m and outside the last 8 m, nose first", () => {
     const cases: readonly (readonly [string, number, boolean])[] = [
       ["inside 25 m", 24, true],
       ["outside 25 m", 26, false],
@@ -165,7 +165,7 @@ describe("derby AI boost by the player's rules", () => {
     assert.equal(tail.brain.think(tail.self, tail.all, DT).boost, false, `tail first (${tail.brain.tacticOf(0)}) boosted`);
   });
 
-  it("good: the meter refills at the seat's rate when not boosting, never past full", () => {
+  it("when it is not boosting, then the meter refills at the player's seat rate and never goes past full", () => {
     const { brain, self, all } = charging(-18);
     brain.meter[0] = 0.2;
     brain.think(self, all, 0.9);
@@ -174,7 +174,7 @@ describe("derby AI boost by the player's rules", () => {
     assert.equal(brain.meter[0], 1);
   });
 
-  it("good: a takedown tops the AI's meter up by the seat's BOOST.takedown, capped at full", () => {
+  it("when a takedown is scored, then the attacker's meter is topped up by the player's takedown bonus, capped at full, and the victim earns nothing", () => {
     const match = new DerbyMatch();
     match.begin([{ id: 0, name: "a" }, { id: 1, name: "b" }], { start: 0, seed: 1 });
     assert.equal(match.brain.meter[0], 1, "a match starts with a full meter");
@@ -192,7 +192,7 @@ describe("derby AI boost by the player's rules", () => {
     assert.ok(Math.abs(seat.boost - 0.7) < 1e-12, "the seat takes the same bonus");
   });
 
-  it("good: the boost reaches applyDrive through DerbyMatch.think, still under the arena pace", () => {
+  it("when the derby match thinks for a boosting car, then the boost reaches the drive input while the throttle stays a share of the arena pace", () => {
     const match = new DerbyMatch();
     match.begin([{ id: 0, name: "a" }, { id: 1, name: "b" }], { start: 0, seed: 1 });
     match.brain.setAggression(0, 1);

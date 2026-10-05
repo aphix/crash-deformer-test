@@ -23,14 +23,14 @@ function settle(f: SceneFade<string>, calm: boolean): number {
   return frames;
 }
 
-describe("SceneFade", () => {
-  it("idles at zero and never switches without a request", () => {
+describe("given a scene fade (the dip to black with a cel-shaded pulse the screen takes while switching between scenes)", () => {
+  it("when no switch is requested, then it stays at zero and never switches", () => {
     const f = new SceneFade<string>();
     for (let i = 0; i < 10; i++) assert.equal(f.frame(DT, false), null);
     assert.equal(f.cel + f.black, 0);
   });
 
-  it("ramps cel to 1 before black, switches once at black, then fades both down to 0", () => {
+  it("when a switch is requested, then the cel-shaded pulse reaches 1 before black, the scene switches once at full black, and both then fade down to 0", () => {
     const f = new SceneFade<string>();
     f.request("race");
     let sawCelBeforeBlack = false;
@@ -50,14 +50,14 @@ describe("SceneFade", () => {
     assert.equal(f.cel + f.black, 0);
   });
 
-  it("takes 0.6-0.9 s end to end", () => {
+  it("when a switch is requested and the fade plays out, then it takes 0.6-0.9 s from request to clear screen", () => {
     const f = new SceneFade<string>();
     f.request("race");
     const total = toSwitch(f, false).frames + settle(f, false);
     assert.ok(total * DT >= 0.6 && total * DT <= 0.9, `${total * DT}`);
   });
 
-  it("starts the in-fade from cel 1 and black 1", () => {
+  it("when the scene has just switched, then the fade-in starts from full pulse and full black, and after the hold black falls while the pulse falls slower", () => {
     const f = new SceneFade<string>();
     f.request("race");
     toSwitch(f, false);
@@ -68,7 +68,7 @@ describe("SceneFade", () => {
     assert.ok(f.black < 1 && f.cel < 1 && f.cel > f.black);
   });
 
-  it("a second request before black retargets to the last scene, with one switch", () => {
+  it("when a second switch is requested before the screen is black, then the fade retargets to the last scene requested, with one switch", () => {
     const f = new SceneFade<string>();
     f.request("race");
     for (let i = 0; i < 6; i++) f.frame(DT, false);
@@ -80,7 +80,7 @@ describe("SceneFade", () => {
     assert.equal(again, 0);
   });
 
-  it("a request while fading back in runs out again from where the values stand and switches once more", () => {
+  it("when a switch is requested while the screen is fading back in, then it fades out again from where the black and pulse stand and switches once more", () => {
     const f = new SceneFade<string>();
     f.request("race");
     toSwitch(f, false);
@@ -93,7 +93,7 @@ describe("SceneFade", () => {
     assert.equal(toSwitch(f, false).target, "range");
   });
 
-  it("reduced motion: black only, never a cel value, still one switch", () => {
+  it("when a switch is requested with reduced motion, then the screen goes black only, the cel-shaded pulse never rises, and the scene still switches once", () => {
     const f = new SceneFade<string>();
     f.request("race");
     let maxCel = 0;
@@ -107,7 +107,7 @@ describe("SceneFade", () => {
     assert.equal(f.black, 0);
   });
 
-  it("holds black while the warm-up runs, for at least `hold` after it ends, and gives up after waitMax", () => {
+  it("when the new scene is still warming up after the switch, then the screen stays black while it runs, stays black for the minimum hold time after it ends, and gives up waiting after the maximum wait", () => {
     const f = new SceneFade<string>();
     f.request("race");
     toSwitch(f, false);
@@ -124,7 +124,7 @@ describe("SceneFade", () => {
     assert.ok(g.black < 1);
   });
 
-  it("one long frame (the 0.1 s dt cap) still lands on black before switching", () => {
+  it("when a single long frame (the 0.1 s frame-time cap) arrives, then the screen still lands on black before the scene switches", () => {
     const f = new SceneFade<string>();
     f.request("race");
     for (let i = 0; i < 3; i++) assert.equal(f.frame(0.1, false), null);
@@ -133,7 +133,7 @@ describe("SceneFade", () => {
     assert.equal(f.black, 1);
   });
 
-  it("holds the new scene's sim from the switch frame through the warm-up wait, and releases it when the fade-in starts", () => {
+  it("when the scene switches, with or without reduced motion, then the new scene's simulation is held from the switch frame through the warm-up wait and released when the fade-in starts", () => {
     for (const calm of [false, true]) {
       const f = new SceneFade<string>();
       assert.equal(f.holding, false);
@@ -162,7 +162,7 @@ describe("SceneFade", () => {
     }
   });
 
-  it("a pick during the hold ends it: the sim runs again under the out ramp", () => {
+  it("when another switch is requested during the simulation hold, then the hold ends and the simulation runs again under the fade-out", () => {
     const f = new SceneFade<string>();
     f.request("race");
     toSwitch(f, false);
@@ -172,7 +172,7 @@ describe("SceneFade", () => {
   });
 });
 
-describe("celStrength (the cel value the composite pass gets)", () => {
+describe("given the cel-shading strength the screen gets (the look setting combined with the fade's pulse) over one scene switch", () => {
   /** Per-frame strengths over one full scene switch plus the idle frames after it. */
   function run(look: number | null, calm = false): number[] {
     const f = new SceneFade<string>();
@@ -185,14 +185,14 @@ describe("celStrength (the cel value the composite pass gets)", () => {
     return out;
   }
 
-  it("Auto: zero outside a pulse, the pulse itself (up to 1) during one", () => {
+  it("when the look is Auto (no setting), then the strength is zero outside a pulse and the pulse itself, up to 1, during one", () => {
     const s = run(null);
     assert.equal(s[0], 0);
     assert.equal(s[s.length - 1], 0);
     assert.equal(Math.max(...s), 1);
   });
 
-  it("manual: held at the slider outside a pulse, and the pulse still peaks at 1 over it", () => {
+  it("when the look is set to 50% by hand, then the strength holds at 50% outside a pulse, peaks at 1 during one, and never dips under 50% while the pulse ramps down", () => {
     const s = run(0.5);
     assert.equal(s[0], 0.5);
     assert.equal(s[s.length - 1], 0.5);
@@ -200,12 +200,12 @@ describe("celStrength (the cel value the composite pass gets)", () => {
     assert.ok(Math.min(...s) >= 0.5, "never dips under the slider while the pulse ramps down");
   });
 
-  it("manual 100% is flat 1; manual 0% plays exactly the Auto pulse", () => {
+  it("when the look is set by hand to 100%, then the strength is a flat 1, and when it is set to 0%, then it plays exactly the Auto pulse", () => {
     assert.ok(run(1).every((v) => v === 1));
     assertSameNumbers(run(0), run(null), "manual 0% vs Auto");
   });
 
-  it("reduced motion: the pulse stays 0 (calm fade), so Auto stays 0 and a manual look is its steady value", () => {
+  it("when the fade runs with reduced motion, then the pulse stays 0, so Auto stays 0 and a hand-set 30% look stays at 30% throughout", () => {
     assert.ok(run(null, true).every((v) => v === 0));
     assert.ok(run(0.3, true).every((v) => v === 0.3));
   });

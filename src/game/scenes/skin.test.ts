@@ -259,8 +259,8 @@ function crushedCar(mode: DeformMode): { car: DeformableCar; d: Internals } {
   return { car, d };
 }
 
-forModes("typed-array skinner matches the reference skinner on a crushed car", (mode) => {
-  it("good: body skin, cage corners and panels within 1e-5 m", () => {
+forModes("given a car crushed by a 64 km/h full-width wall hit with its front-left hub popped", (mode) => {
+  it("when the production skinner and the slow reference skinner kept in this file both skin it, then body skin, cage corners and the bonnet and boot panels agree within 1e-5 m", () => {
     const { car, d } = crushedCar(mode);
     assert.ok(d.wrinkleAmp * Math.min(1, d.elapsed * 6) > 0.02, "the wrinkle pass must run");
     if (mode === "shape") {
@@ -293,9 +293,9 @@ forModes("typed-array skinner matches the reference skinner on a crushed car", (
 
 const TAP: PistonShot = { speedKph: 3, massKg: 1500, hardness: 1, holdCar: false };
 
-describe("a 3 km/h piston tap leaves the skin where the particles are", () => {
+describe("given a car tapped at 3 km/h by a piston", () => {
   for (const id of PISTON_IDS) {
-    it(`bad: ${id} tap must not fold the wheel-arch skin onto the hub (plan travel ≤ 0.03 m)`, () => {
+    it(`when the ${id} piston taps it, then the wheel-arch skin near the hub moves no more than 0.03 m in plan, instead of folding onto the hub`, () => {
       const car = makeCar("shape");
       firePiston(car, id, TAP);
       const d = car.deform as unknown as Internals;
@@ -312,7 +312,7 @@ describe("a 3 km/h piston tap leaves the skin where the particles are", () => {
   }
 });
 
-describe("a 40 km/h piston shot: the paint rides the particles it struck (A5)", () => {
+describe("given a car shot at 40 km/h by a piston, measured against a 3 km/h tap", () => {
   const shots = new Map<string, PistonLocality & { particle: number }>();
   const measure = (id: (typeof PISTON_IDS)[number]) => {
     if (!shots.has(id)) {
@@ -326,20 +326,20 @@ describe("a 40 km/h piston shot: the paint rides the particles it struck (A5)", 
   for (const id of PISTON_IDS) {
     // Cluster-only skin: corners 37%, front 44% of the particles' dent; a strain-whole anchor put
     // the door paint 8% past the door.
-    it(`bad: ${id} paint dent is within 25% of the struck particles' and not 5% deeper`, () => {
+    it(`when the ${id} piston shoots it, then the paint dent is at least 75% and at most 105% of the dent of the particles it struck`, () => {
       const { dent, particle } = measure(id);
       assert.ok(dent >= 0.75 * particle && dent <= 1.05 * particle, `paint ${dent.toFixed(3)} m vs particles ${particle.toFixed(3)} m`);
     });
     // Cluster-only skin: a rear-corner shot moved far paint 0.228 m where the far particles moved 0.140 m.
-    it(`bad: ${id} far paint moves no more than 4 cm past the far particles`, () => {
+    it(`when the ${id} piston shoots it, then the paint far from the hit moves no more than 4 cm past the particles far from it`, () => {
       const { farSkin, farParticle } = measure(id);
       assert.ok(farSkin <= farParticle + 0.04, `far paint ${farSkin.toFixed(3)} m vs far particles ${farParticle.toFixed(3)} m`);
     });
   }
 });
 
-forModes("an undeformed rig skins to the rest mesh", (mode) => {
-  it("bad: no skin vertex may leave its rest position (≤ 1 mm) when nothing has deformed (wheel arch, tail past the last cage)", () => {
+forModes("given a car that has not deformed", (mode) => {
+  it("when it is skinned, then no skin vertex leaves its rest position by more than 1 mm, wheel arch and the tail past the last cage included", () => {
     const car = makeCar(mode);
     const d = car.deform as unknown as Internals;
     d.bakeLocalSkin();

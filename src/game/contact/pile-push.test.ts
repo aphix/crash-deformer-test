@@ -44,11 +44,11 @@ function wedged(depth: number): { wreck: DeformableCar; world: CrashWorld } {
   return { wreck, world: makeWorld([wreck, across(-1.2), across(1.2)], false, false) };
 }
 
-describe("a wedged wreck's net translation (PushBudget)", () => {
+describe("given a settled wreck with two plain cars wedged 1.4 m into its flank", () => {
   // Zip: a live mass centroid moving more than 3·v·h + 5 cm in a step (the derby bar, derby-ai.test.ts). The pair
   // solver's pushes shared one satPushCap a slice, 0.09 m at this slice, and the wreck went 0.079 m in a step and
   // 0.062 the next, against the 0.05 m the bound gives a wreck at rest.
-  it("bad: two cars 1.4 m into a settled wreck's flank move it no more than the zip bound in any step", () => {
+  it("when four 1/60 s steps run, then its centre never moves more than 3 × its speed × the step + 5 cm in a step", () => {
     const { wreck, world } = wedged(1.4);
     for (let s = 0; s < 4; s++) {
       const before = centroid(wreck);
@@ -62,16 +62,16 @@ describe("a wedged wreck's net translation (PushBudget)", () => {
   });
 });
 
-describe("PushBudget: one net translation a slice", () => {
+describe("given a PushBudget (the cap on the net translation contact pushes may move a car in one slice)", () => {
   const cap = PUSH_SPEED * H;
 
-  it("good: pushes the same way share one cap, whoever pushes", () => {
+  it("when three 3 cm pushes go the same way, then the first gets 3 cm, the second only what is left of the cap and the third nothing", () => {
     const b = new PushBudget();
     const got = [0.03, 0.03, 0.03].map((a) => b.take(1, 1, 0, a, H, 0));
     assert.ok(Math.abs(got[0]! - 0.03) < 1e-12 && Math.abs(got[1]! - (cap - 0.03)) < 1e-12 && got[2] === 0, JSON.stringify(got));
   });
 
-  it("good: the two sides of a squeeze each get their room, and the net stays inside the cap", () => {
+  it("when a 3 cm push is followed by a 3 cm push back the other way, then both are granted, the net translation is zero and a push across the cancelled squeeze gets the whole cap", () => {
     const b = new PushBudget();
     assert.ok(Math.abs(b.take(1, 1, 0, 0.03, H, 0) - 0.03) < 1e-12);
     assert.ok(Math.abs(b.take(1, -1, 0, 0.03, H, 0) - 0.03) < 1e-12, "the push back the other way was refused");
@@ -79,19 +79,19 @@ describe("PushBudget: one net translation a slice", () => {
     assert.ok(Math.abs(b.take(1, 0, 1, 0.2, H, 0) - cap) < 1e-12, "a push across a cancelled squeeze gets the whole cap");
   });
 
-  it("bad: a wall translation or a sphere shift debited first leaves that much less to push", () => {
+  it("when a wall translation or sphere shift of 2 cm is debited first, then a following push gets the cap less 2 cm and nothing once the corrections fill the cap", () => {
     const b = new PushBudget();
     b.debit(1, 0.02, 0);
     assert.ok(Math.abs(b.take(1, 1, 0, 0.05, H, 0) - (cap - 0.02)) < 1e-12);
     assert.equal(b.take(1, 1, 0, 0.05, H, 0), 0, "nothing is left once the corrections fill the cap");
   });
 
-  it("close-but-wrong: a fast partner lifts the cap to satPushCap, so a 20 m/s hit separates as before", () => {
+  it("when the partner moves at 20 m/s, then the cap is lifted to the fast-hit push cap, so a 20 m/s hit separates as before", () => {
     const b = new PushBudget();
     assert.ok(Math.abs(b.take(1, 1, 0, 0.2, H, 20) - satPushCap(H)) < 1e-12);
   });
 
-  it("good: the next slice starts empty", () => {
+  it("when the next slice starts, then the budget is empty again and a push gets the whole cap", () => {
     const b = new PushBudget();
     b.take(1, 1, 0, 1, H, 0);
     assert.ok(Math.abs(b.take(1 + H, 1, 0, 1, H, 0) - cap) < 1e-12);

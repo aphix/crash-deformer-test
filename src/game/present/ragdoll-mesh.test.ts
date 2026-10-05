@@ -33,21 +33,21 @@ function drawn(look: DriverLook, cop: boolean): { color: THREE.Color; size: THRE
 }
 const has = (rows: { color: THREE.Color }[], hex: number) => rows.some((r) => r.color.getHex() === new THREE.Color(hex).getHex());
 
-describe("a dummy's look", () => {
-  it("good: a civilian wears his tee and his hair, nothing of the default", () => {
+describe("given the crash-test dummies drawn for thrown drivers", () => {
+  it("when a civilian man is dressed, then he wears his own shirt and hair colours and nothing of the default charcoal shirt", () => {
     const rows = drawn(MAN, false);
     assert.ok(has(rows, MAN.shirt) && has(rows, MAN.hair));
     assert.ok(!has(rows, 0x2b2d32), "the old charcoal tee is gone");
   });
 
-  it("good: a cop keeps the navy uniform whatever the draw; only his hair varies", () => {
+  it("when a cop is dressed, then he keeps the navy uniform whatever the random look; only his hair colour varies, and no civilian shirt appears", () => {
     const rows = drawn(MAN, true);
     assert.ok(rows.some((r) => r.color.getHex() === NAVY.getHex()), "navy shirt");
     assert.ok(!has(rows, MAN.shirt), "no civilian tee on a cop");
     assert.ok(has(rows, MAN.hair), "the hair under the cap is the driver's");
   });
 
-  it("good: a woman reads differently from a man: narrower shoulders, long hair down her back, her own tee and hair", () => {
+  it("when a woman is dressed against a man, then she has narrower shoulders, long hair reaching further down her back, her own shirt and hair colours and a different set of pieces", () => {
     const man = drawn(MAN, false);
     const woman = drawn(WOMAN, false);
     assert.ok(has(woman, WOMAN.shirt) && has(woman, WOMAN.hair));
@@ -61,7 +61,7 @@ describe("a dummy's look", () => {
     assert.notEqual(man.length, woman.length, "a different set of pieces");
   });
 
-  it("good: a field of 8 differs in what is drawn, and a slot keeps its look when dressed again", () => {
+  it("when a field of 8 drivers is dressed, then at least 6 of them look different, and dressing the same drivers again leaves every slot's colours unchanged", () => {
     const mesh = new DummyMesh(8);
     const per = mesh.instanceColor!.array.length / 8;
     const cols = (s: number) => Array.from(mesh.instanceColor!.array.slice(s * per, (s + 1) * per)).join();

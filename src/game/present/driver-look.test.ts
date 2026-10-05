@@ -3,8 +3,8 @@ import assert from "node:assert/strict";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 import { driverLook, HAIRS, SHIRTS, WOMAN_RATE } from "./driver-look.ts";
 
-describe("driver look", () => {
-  it("good: the same (seed, slot) is the same driver, and a different race seed changes the field", () => {
+describe("given the generated look of each driver (shirt, hair and whether a woman) for a race seed and grid slot", () => {
+  it("when the same seed and slot are asked twice, then it is the same driver, and a different race seed changes the field", () => {
     for (let slot = 0; slot < 8; slot++) assertSameDigest(driverLook(77, slot), driverLook(77, slot), `slot ${slot}`);
     let differ = 0;
     for (let slot = 0; slot < 32; slot++) {
@@ -15,7 +15,7 @@ describe("driver look", () => {
     assert.ok(differ >= 28, `${differ} of 32 slots look different in the next race`);
   });
 
-  it("good: a field of 8 has variety (4+ tees, 3+ hairs) at every one of 200 seeds' median", () => {
+  it("when 200 seeds each make a field of 8, then at the median seed the field has at least 5 distinct tees and 4 distinct hairs", () => {
     const shirts: number[] = [];
     const hairs: number[] = [];
     for (let seed = 0; seed < 200; seed++) {
@@ -29,7 +29,7 @@ describe("driver look", () => {
     assert.ok(hairs[100]! >= 4, `median distinct hairs ${hairs[100]}`);
   });
 
-  it("good: 10k (seed, slot) pairs make 10% ± 1 women, and every tee and hair of the palettes turns up", () => {
+  it("when 10 000 seed and slot pairs are generated, then 10% ± 1 are women and every tee and hair of the palettes turns up", () => {
     let women = 0;
     const tees = new Set<number>();
     const manes = new Set<number>();
@@ -44,7 +44,7 @@ describe("driver look", () => {
     assert.equal(manes.size, new Set(HAIRS).size);
   });
 
-  it("good: a woman's tee and hair are drawn from the same palettes as a man's", () => {
+  it("when women are picked out of 2000 seeds, then a woman's tee and hair are drawn from the same palettes as a man's", () => {
     let women = 0;
     for (let i = 0; i < 2000; i++) {
       const l = driverLook(i, 3);

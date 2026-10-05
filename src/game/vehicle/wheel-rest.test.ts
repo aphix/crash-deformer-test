@@ -63,9 +63,9 @@ function rest(cls: VehicleClassId, lost: readonly number[], secs = 5): Rest {
   };
 }
 
-describe("a car missing wheels rests on the body where they were", () => {
+describe("given a parked car of each vehicle class, hit once so it is a wreck, with some of its wheels popped off", () => {
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`good: ${cls} with a corner, a pair or a diagonal off lies on the ground without sinking into it or hovering over it`, () => {
+    it(`when a ${cls} loses one corner, a front, rear or side pair, or a diagonal pair of wheels and settles for 5 s, then it is still, its body lies on the ground without sinking into it or hovering over it, and no empty corner hovers`, () => {
       for (const lost of SETS) {
         const r = rest(cls, lost);
         // A lifted body is held up on its standing tyres' arches before its underside reaches the ground, most of all on
@@ -82,28 +82,34 @@ describe("a car missing wheels rests on the body where they were", () => {
       }
     });
   }
+});
 
-  it("good: the body is down on its corners within 3 s of the wheel going (it eases down, it does not drop at once)", () => {
+describe("given a sedan with its front-left and rear-right wheels popped off", () => {
+  it("when 3 s pass after the wheels go, then the body is down on its corners and still (under 1 mm of movement in the third second), having eased down rather than dropped at once", () => {
     const r = rest("sedan", [0, 3], 3);
     assert.ok(r.drift < 0.001, `still moving ${(r.drift * 1000).toFixed(2)} mm in the third second`);
     const early = rest("sedan", [0, 3], 0.1);
     assert.ok(early.low > r.low + 0.01, `after 0.1 s the body is already ${(early.low * 100).toFixed(1)} cm over the ground (at rest ${(r.low * 100).toFixed(1)} cm)`);
   });
+});
 
-  it("bad: four wheels on keep the stock ride (no sag where nothing is missing)", () => {
+describe("given a sedan with all four wheels on", () => {
+  it("when it settles for 5 s after one hit, then it keeps the stock ride (its belly 0.032 m off the ground within 4 mm), with no sag where nothing is missing", () => {
     const r = rest("sedan", []);
     assert.ok(Math.abs(r.low - 0.032) < 0.004, `belly ${r.low.toFixed(3)} m`);
   });
 });
 
-describe("sag offsets", () => {
-  it("good: all four wheels on sags nothing", () => {
+describe("given all four wheels on, for the suspension's sag offsets (how far each body corner drops or lifts for the wheels that are missing)", () => {
+  it("when the sag offsets are computed, then every corner's offset is zero, so nothing sags where nothing is missing", () => {
     const o = new Float64Array(4).fill(7);
     sagOffsets(0, 0.065, 0, o);
     assert.deepEqual([...o], [0, 0, 0, 0]);
   });
+});
 
-  it("close-but-wrong: a missing front corner drops that corner of the body and lifts the one across, in every class lift", () => {
+describe("given a missing front-left wheel at each class lift (0, 0.08 and 0.48 m)", () => {
+  it("when the sag offsets are computed, then the front-left corner of the body drops by over 3 cm and the diagonal corner sits above it", () => {
     for (const lift of [0, 0.08, 0.48]) {
       const o = new Float64Array(4);
       sagOffsets(lift, 0.065 + lift, 1, o);
@@ -112,8 +118,10 @@ describe("sag offsets", () => {
       assert.ok(o[3]! > o[0]!, `lift ${lift}: diagonal corner ${o[3]!.toFixed(3)} not above ${o[0]!.toFixed(3)}`);
     }
   });
+});
 
-  it("good: a wreck that loses a second wheel settles on the new set's corners, not the first set's", () => {
+describe("given a wreck's suspension that loses its front-left wheel and then its front-right wheel as well", () => {
+  it("when it settles for 600 steps after each loss, then its corner offsets match the sag of the new set of missing wheels (within 1e-4 m), not the first set's", () => {
     const s = new Suspension();
     const g = new THREE.Group();
     g.updateMatrixWorld(true);

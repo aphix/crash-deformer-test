@@ -16,10 +16,10 @@ function headOn(kph: number, bFirst: boolean): [CrashResult, CrashResult] {
   return [pa.finish(), pb.finish()];
 }
 
-describe("two identical cars in a mirror-symmetric head-on crush alike", () => {
+describe("given two identical cars in a mirror-symmetric head-on", () => {
   // 180 km/h: A's noses came out 0.939 m against B's 0.835 m (engine 0.481 against 0.498 m) while the world stepped A first;
   // at 100–150 km/h the pair was symmetric to 0.01 m.
-  it("bad: the two cars' noses (0.01 m), engine blocks (5 mm) and popped hubs agree at 100–200 km/h, whichever is first in the world's car list", () => {
+  it("when the crash runs at 100 to 200 km/h with either car first in the world's car list, then the two cars' noses (within 0.01 m), engine blocks (within 5 mm) and popped hubs agree", () => {
     for (const kph of [100, 130, 150, 165, 180, 190, 200]) {
       for (const bFirst of [false, true]) {
         const [a, b] = headOn(kph, bFirst);

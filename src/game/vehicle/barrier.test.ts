@@ -26,8 +26,8 @@ function noseGap(car: DeformableCar): number {
 // Each runs at main's squash 0.4 and the calibrated 0.32 (lane/calib-defaults).
 const SQUASHES = [0.4, 0.32];
 
-describe("crumple absorbs while it has stroke, then passes the load on [shape]", () => {
-  it("good: the block stays on its mounts until the nose has packed against it (20–43 km/h)", () => {
+describe("given a car driving front-first into a rigid wall in shape deform mode, at either crumple-zone setting (0.4, or the calibrated 0.32)", () => {
+  it("when it hits at 20, 25, 30, 35, 40 or 43 km/h, then the engine block stays on its mounts for as long as the nose has not packed against it", () => {
     for (const squash of SQUASHES) {
       for (const kph of [20, 25, 30, 35, 40, 43]) {
         const car = makeCar("shape", squash);
@@ -40,7 +40,7 @@ describe("crumple absorbs while it has stroke, then passes the load on [shape]",
   // Fixture: the slowest hit that packs the nose at both squashes (52 km/h; 50 left 0.547 m at 0.32). A
   // wreck resting on the slab used to sit 0.47 m nose-to-block after the second hit: the face pushed the
   // bumpers back after the clamp's pack rule, so the packed nose crushed past its packed length.
-  it("bad: a nose packed by a 52 km/h hit takes nothing of the next 35 km/h hit; the block does", () => {
+  it("when a 52 km/h hit has packed the nose and a 35 km/h hit follows, then the packed nose takes nothing more of the second hit and the engine block takes it instead", () => {
     for (const squash of SQUASHES) {
       const car = makeCar("shape", squash);
       runWall(52, 1, "front", { car });
@@ -56,7 +56,7 @@ describe("crumple absorbs while it has stroke, then passes the load on [shape]",
   // Basis: rearmHit adds each hit's EBS² to the struck end (a linear spring's energy), so n hits at v
   // carry one hit's energy at v·√n: two 35s ≈ 49.5 km/h, under the 52–54 km/h single-hit kill, three
   // ≈ 60.6 km/h, past it. Was hit 4 at squash 0.32 and hit 2 at 0.4 (geometric re-hit peaks).
-  it("bad: repeated 35 km/h wall hits keep moving the block back and kill it on the third, at either squash", () => {
+  it("when it takes 35 km/h wall hits one after another, then the engine block keeps moving back with every hit and the engine is killed on the third, at either setting", () => {
     for (const squash of SQUASHES) {
       const car = makeCar("shape", squash);
       const travel: number[] = [];
@@ -72,7 +72,7 @@ describe("crumple absorbs while it has stroke, then passes the load on [shape]",
     }
   });
 
-  it("good: one hit at two 35s' energy (49.5 km/h) leaves the block alive and one at three's (60.6 km/h) kills it, at either squash", () => {
+  it("when one hit carries the energy of two 35 km/h hits (49.5 km/h) or of three (60.6 km/h), then the first leaves the engine running and the second kills it, at either setting", () => {
     for (const squash of SQUASHES) {
       const alive = (kph: number) => {
         const car = makeCar("shape", squash);
@@ -112,22 +112,22 @@ function runFor(car: DeformableCar, simSec: number, frameDt: number): void {
   }
 }
 
-describe("jersey barrier full-speed vs slomo", () => {
-  it("good: a 22 m/s full-speed hit does not tunnel through the slab", () => {
-    const car = spawnAtBarrier(0, 22, "shape");
-    runFor(car, 0.55, 1 / 60);
-    assert.ok(car.group.position.x > 0.45, `tunneled to x=${car.group.position.x.toFixed(3)}`);
-    assert.equal(car.crashed, true);
-  });
+const slabStopCases = [
+  { it: "when it hits at 22 m/s at full speed in shape deform mode, then it does not tunnel through the slab", frameDt: 1 / 60, tunnelledMessage: "tunneled" },
+  { it: "when the same 22 m/s hit runs in slow motion (tiny frame steps), then it also stops on the slab and is flagged crashed", frameDt: 1 / 240, tunnelledMessage: "slomo tunneled" },
+] as const;
 
-  it("good: slomo (tiny wall frames) also stops on the slab", () => {
-    const car = spawnAtBarrier(0, 22, "shape");
-    runFor(car, 0.55, 1 / 240);
-    assert.ok(car.group.position.x > 0.45, `slomo tunneled to x=${car.group.position.x.toFixed(3)}`);
-    assert.equal(car.crashed, true);
-  });
+describe("given a car driving into the face of a jersey barrier (a thin concrete slab across its path)", () => {
+  for (const testCase of slabStopCases) {
+    it(testCase.it, () => {
+      const car = spawnAtBarrier(0, 22, "shape");
+      runFor(car, 0.55, testCase.frameDt);
+      assert.ok(car.group.position.x > 0.45, `${testCase.tunnelledMessage} to x=${car.group.position.x.toFixed(3)}`);
+      assert.equal(car.crashed, true);
+    });
+  }
 
-  it("close-but-wrong: full-speed and slomo leave the nose on the same side of the wall", () => {
+  it("when the same 22 m/s hit runs at full speed and in slow motion, then both leave the nose on the same side of the slab and the crushed noses differ by under 0.55 m", () => {
     const fast = spawnAtBarrier(0, 22, "shape");
     const slow = spawnAtBarrier(0, 22, "shape");
     runFor(fast, 0.5, 1 / 60);
@@ -140,7 +140,7 @@ describe("jersey barrier full-speed vs slomo", () => {
     assert.ok(dz < 0.55, `slomo/full crush diverged Δz=${dz.toFixed(3)}`);
   });
 
-  it("good: an offset +Z hit crushes the corner that is actually on the slab", () => {
+  it("when it hits at 20 m/s with the car 1.88 m off the slab's middle, then the front-left corner on the slab crushes more than the front-right corner hanging off its end, and the contact is on the car's left side", () => {
     const car = spawnAtBarrier(1.88, 20, "shape");
     runFor(car, 0.5, 1 / 60);
     const fl = mass(car.deform, "bumperFL").local.z;
@@ -154,7 +154,7 @@ describe("jersey barrier full-speed vs slomo", () => {
     assert.ok(hit.x < -0.2, `contact sat on the centerline x=${hit.x.toFixed(2)}`);
   });
 
-  it("bad: lattice full-speed must not pass through either", () => {
+  it("when a car in lattice deform mode hits at 22 m/s at full speed, then it does not tunnel through the slab either", () => {
     const car = spawnAtBarrier(0, 22, "lattice");
     runFor(car, 0.55, 1 / 60);
     assert.ok(car.group.position.x > 0.4, `lattice tunneled x=${car.group.position.x.toFixed(3)}`);
@@ -189,8 +189,8 @@ function noseThrough(struck: DeformableCar, bullet: DeformableCar): number {
   return deepest;
 }
 
-describe("no pass-through up to the top driven speed", () => {
-  it(`good: a ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h hit stops on the slab, shape and lattice`, () => {
+describe("given the top speed any driven car can reach (every class's top speed × its boost top × a race draft's top)", () => {
+  it(`when a car hits the jersey slab at ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h in shape or in lattice deform mode, then it stops on the slab instead of tunnelling through`, () => {
     for (const mode of ["shape", "lattice"] as const) {
       const car = spawnAtBarrier(0, DRIVEN_TOP, mode);
       runFor(car, 0.55, 1 / 60);
@@ -199,7 +199,7 @@ describe("no pass-through up to the top driven speed", () => {
   });
 
   for (const kind of ["head-on", "t-bone"] as const) {
-    it(`good: a ${kind} at 54–80 m/s and ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h${kind === "head-on" ? " each" : " into a parked car"} never carries one car through the other, whatever slice the contact lands in`, () => {
+    it(`when ${kind === "head-on" ? "two cars drive head-on at each other" : "a car drives broadside into a parked one"} at 54–80 m/s and at ${(DRIVEN_TOP * 3.6).toFixed(0)} km/h, then neither is carried through the other, whatever phase of the physics step the contact starts in`, () => {
       for (const v of [54, 57, 60, 65, 70, 75, 80, DRIVEN_TOP]) {
         // Along X: a heads +X from the left (head-on) or sits broadside at the origin (t-bone); b heads −X from the
         // right. b's start steps through one 1/240 s slice of its travel in 8 so contact lands at every phase.
@@ -235,20 +235,21 @@ describe("no pass-through up to the top driven speed", () => {
 const FRONT_DISABLE_MPS = 50 / 3.6;
 const REAR_DISABLE_MPS = 80 / 3.6;
 
-describe("engine disable speeds", () => {
-  it("good: frontal wall under 50 km/h leaves the car driveable", () => {
-    const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * 0.7, "shape");
-    runFor(car, 1.3, 1 / 60);
-    assert.equal(car.deform.drivetrainAlive, true, "35 km/h wall should not kill the block");
-  });
+const engineDisableFrontCases = [
+  { it: "when it hits front-first at 35 km/h, under the 50 km/h limit, then the engine block survives and the car stays driveable", speedFactor: 0.7, simSec: 1.3, expectedAlive: true, message: "35 km/h wall should not kill the block" },
+  { it: "when it hits front-first at 62 km/h, over the 50 km/h limit, then the engine is killed", speedFactor: 1.25, simSec: 1.5, expectedAlive: false, message: "62 km/h wall should kill the block" },
+] as const;
 
-  it("good: frontal wall over 50 km/h kills the engine", () => {
-    const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * 1.25, "shape");
-    runFor(car, 1.5, 1 / 60);
-    assert.equal(car.deform.drivetrainAlive, false, "62 km/h wall should kill the block");
-  });
+describe("given a car hitting a rigid wall in shape deform mode, which kills the engine above about 50 km/h front-first and about 80 km/h back-first", () => {
+  for (const testCase of engineDisableFrontCases) {
+    it(testCase.it, () => {
+      const car = spawnAtBarrier(0, FRONT_DISABLE_MPS * testCase.speedFactor, "shape");
+      runFor(car, testCase.simSec, 1 / 60);
+      assert.equal(car.deform.drivetrainAlive, testCase.expectedAlive, testCase.message);
+    });
+  }
 
-  it("good: backing into the wall well under 80 km/h does not kill the block", () => {
+  it("when it backs into the wall at 40 km/h, well under the 80 km/h limit, then the engine block survives and the car stays driveable", () => {
     const speed = REAR_DISABLE_MPS * 0.5;
     const car = spawnAtBarrier(0, speed, "shape");
     car.yaw = Math.PI / 2;
@@ -262,43 +263,43 @@ describe("engine disable speeds", () => {
 });
 
 /** NCAP/IIHS full-frontal sedan [09]: 0.35–0.55 m dynamic, 0.25–0.45 m permanent, 90–140 ms. */
-describe("rigid wall crush matches a sedan", () => {
+describe("given a sedan hitting a rigid wall (NCAP/IIHS full-frontal sedan targets)", () => {
   const wall56 = runWall(56);
 
-  it("good: a 56 km/h square wall leaves 0.25–0.50 m of permanent nose crush on both corners", () => {
+  it("when it hits square-on at 56 km/h, then both front corners are left with 0.25–0.50 m of permanent crush", () => {
     for (const short of [wall56.noseShortL, wall56.noseShortR]) {
       assert.ok(short >= 0.25 && short <= 0.5, `nose L=${wall56.noseShortL.toFixed(3)} R=${wall56.noseShortR.toFixed(3)}`);
     }
   });
 
-  it("good: no control particle centre ends up past the slab face", () => {
+  it("when it hits square-on at 56 km/h, then no point of the car's crush model ends up more than 5 cm past the wall's face", () => {
     assert.ok(wall56.maxCentrePastFace <= 0.05, `mass centre ${wall56.maxCentrePastFace.toFixed(3)} m past the face`);
   });
 
-  it("good: the car travels 0.35–0.60 m after contact and the pulse lasts 60–150 ms", () => {
+  it("when it hits square-on at 56 km/h, then the car travels 0.35–0.60 m after contact and the impact pulse lasts 60–150 ms", () => {
     assert.ok(wall56.comTravel >= 0.35 && wall56.comTravel <= 0.6, `COM travel ${wall56.comTravel.toFixed(3)}`);
     assert.ok(wall56.pulseMs >= 60 && wall56.pulseMs <= 150, `pulse ${wall56.pulseMs.toFixed(0)} ms`);
   });
 
-  it("good: a square hit stays centred — FL and FR shorten within 25 % of each other", () => {
+  it("when it hits square-on at 56 km/h, then it stays centred: the front-left and front-right corners shorten to within 25 % of each other", () => {
     const lo = Math.min(wall56.noseShortL, wall56.noseShortR);
     const hi = Math.max(wall56.noseShortL, wall56.noseShortR);
     assert.ok(lo >= hi * 0.75, `FL=${wall56.noseShortL.toFixed(3)} FR=${wall56.noseShortR.toFixed(3)}`);
   });
 
-  it("close-but-wrong: crush travel grows with speed (35 < 56 < 80 km/h)", () => {
+  it("when it hits at 35, 56 and 80 km/h, then the distance the car travels after contact grows with speed", () => {
     const t35 = runWall(35).comTravel;
     const t80 = runWall(80).comTravel;
     assert.ok(t35 < wall56.comTravel && wall56.comTravel < t80, `35=${t35.toFixed(3)} 56=${wall56.comTravel.toFixed(3)} 80=${t80.toFixed(3)}`);
   });
 
-  it("bad: reversing into the wall at 50 km/h crushes the tail, not the nose", () => {
+  it("when it reverses into the wall at 50 km/h, then the tail crushes by at least 0.15 m and the nose by at most 3 cm", () => {
     const r = runWall(50, 1, "rear");
     assert.ok(r.tailShort >= 0.15, `tail ${r.tailShort.toFixed(3)}`);
     assert.ok(Math.max(r.noseShortL, r.noseShortR) <= 0.03, `nose L=${r.noseShortL.toFixed(3)} R=${r.noseShortR.toFixed(3)}`);
   });
 
-  it("good: the tail is softer with a shorter stroke — 0.6–1.0× the 50 km/h nose, cell intact", () => {
+  it("when it reverses into the wall at 50 km/h, then the tail crushes 0.6–1.0× as far as the nose does in a 50 km/h front hit, and the cabin moves in by under 6 cm", () => {
     const front = runWall(50);
     const rear = runWall(50, 1, "rear");
     const nose = Math.max(front.noseShortL, front.noseShortR);
@@ -306,7 +307,7 @@ describe("rigid wall crush matches a sedan", () => {
     assert.ok(rear.cabinIntrusion < 0.06, `cabin intrusion ${rear.cabinIntrusion.toFixed(3)}`);
   });
 
-  it("good: a 50 km/h side slide dents the door 0.12–0.28 m and leaves both ends", () => {
+  it("when it slides sideways into the wall at 50 km/h, then the door dents 0.12–0.28 m, the nose and tail each crush under 10 cm and the cabin shifts under 12 cm", () => {
     const s = runWall(50, 1, "side");
     assert.ok(s.doorMaxL >= 0.12 && s.doorMaxL <= 0.28, `doorL ${s.doorMaxL.toFixed(3)}`);
     assert.ok(Math.max(s.noseShortL, s.noseShortR) < 0.1 && s.tailShort < 0.1, `nose L=${s.noseShortL.toFixed(3)} R=${s.noseShortR.toFixed(3)} tail=${s.tailShort.toFixed(3)}`);

@@ -61,8 +61,8 @@ function rig(opts: { hidden?: (x: number, z: number) => boolean; colliders?: Pro
   return { brain, cars, down, drops, stored, asked, world, run, now: () => now };
 }
 
-describe("copsWanted: the escalation schedule", () => {
-  it("starts at the formation, one more every HUNT.every s, and stops at the cap", () => {
+describe("given the Survival schedule of how many cops are wanted as the heat goes on, with a starting formation of cops", () => {
+  it("when the wanted count is read at different times, then it starts at the formation size, grows by one every 12 s, stops at the cap of 12 and adds nothing before the green", () => {
     const n = spec.formation.length;
     assert.equal(copsWanted(0, n), n);
     assert.equal(copsWanted(HUNT.every - 0.01, n), n);
@@ -73,8 +73,8 @@ describe("copsWanted: the escalation schedule", () => {
   });
 });
 
-describe("HunterBrain: the pack", () => {
-  it("launches the formation on its slots, held until the green", () => {
+describe("given the Survival hunter pack (the cops that chase the player) on a stub world, the player on the start line and the cops in their start formation", () => {
+  it("when the heat is set up before the green, then the cops launch onto their formation slots with nothing dropped in yet and are held on the brake", () => {
     const r = rig();
     assert.equal(r.brain.hunting, spec.formation.length);
     const slots = r.drops.slice(0, spec.formation.length);
@@ -86,7 +86,7 @@ describe("HunterBrain: the pack", () => {
     assert.deepEqual([out.throttle, out.brake], [0, 1], "held on the brake until the green");
   });
 
-  it("drops in one more cop every HUNT.every s up to the cap, and never past it", () => {
+  it("when 300 s pass with the cops driving to the player and waiting beside it, then one more cop drops in every 12 s up to the cap and never past it, and halfway through each interval the pack has what the schedule wants", () => {
     const r = rig();
     const n = spec.formation.length;
     const mid = new Set([6, 18, 30, 42, 66, 90, 294]);
@@ -107,7 +107,7 @@ describe("HunterBrain: the pack", () => {
     assert.equal(r.brain.stats.drops, HUNT.cap - n);
   });
 
-  it("drops only where the camera cannot see: nothing arrives while every spot is visible, and each drop sat on a hidden spot", () => {
+  it("when the camera sees every spot, then no cop drops in, and when only the far end of the road is hidden, then every drop lands on a hidden spot", () => {
     const blind = rig({ hidden: () => false });
     blind.run(120);
     assert.equal(blind.brain.stats.drops, 0, "dropped in view");
@@ -120,7 +120,7 @@ describe("HunterBrain: the pack", () => {
     for (const d of r.drops.slice(spec.formation.length)) assert.ok(d.z > 300, `a cop dropped in at z ${d.z.toFixed(0)}, which the camera sees`);
   });
 
-  it("drops in on a road, 70-120 m from the player, clear of every car, facing the way along the road that points at the player", () => {
+  it("when cops drop in over 80 s, then each lands on a road, 70-120 m from the player and 12 m clear of every car, facing along the road toward the player", () => {
     const r = rig();
     r.run(80);
     const proj = blankProjection();
@@ -138,7 +138,7 @@ describe("HunterBrain: the pack", () => {
     }
   });
 
-  it("drops in ahead of a moving player first", () => {
+  it("when the player drives at 30 m/s and the next cop drops in, then it lands ahead of the player's direction of travel", () => {
     const r = rig();
     // The player drives at 30 m/s toward the hill: ahead is -z.
     Object.assign(r.cars[0]!, { z: 300, vx: 0, vz: -30, yaw: Math.PI });
@@ -149,7 +149,7 @@ describe("HunterBrain: the pack", () => {
     assert.ok((drop.z - 300) * -1 > d * 0.3, `dropped at z ${drop.z.toFixed(0)}, not ahead of a player heading -z from 300`);
   });
 
-  it("keeps HUNT.dropMin from a player driving at the spot, at the frame the cop shows (16 and 30 m/s)", (t) => {
+  it("when the player drives straight at a drop-in spot at 16 or 30 m/s, then every seed drops a cop in and at the frame it shows it is still at least 70 m from the player", (t) => {
     for (const v of [16, 30]) {
       const near = approach(v);
       const worst = near.length > 0 ? near.reduce((a, b) => (b.near < a.near ? b : a)) : null;
@@ -159,7 +159,7 @@ describe("HunterBrain: the pack", () => {
     }
   });
 
-  it("control: judged where it is placed only (HUNT.lag 0), the same drives get a cop dropped in inside HUNT.dropMin", (t) => {
+  it("when drop-in spots are judged only where the cop is placed, with no allowance for the player driving on, then at 16 and 30 m/s some cop shows closer than 70 m to the player", (t) => {
     const lag = Reflect.get(HUNT, "lag");
     Reflect.set(HUNT, "lag", 0);
     try {
@@ -173,7 +173,7 @@ describe("HunterBrain: the pack", () => {
     }
   });
 
-  it("puts a wrecked cop away only after HUNT.wreckStore s and only once nobody can see it, then drops a replacement", () => {
+  it("when a cop is wrecked, then it is put away only after 6 s and only once nobody can see it, and a replacement drops in so the pack is back to what the schedule wants", () => {
     let visible = true;
     const r = rig({ hidden: () => !visible });
     // Let the pack grow to a sixth cop first: the drop needs a hidden spot too.
@@ -202,7 +202,7 @@ describe("HunterBrain: the pack", () => {
     assert.equal(q.stored.filter((s) => s.id === 3).length, 1);
   });
 
-  it("puts away a cop lost far from the player out of sight, never one that is far but seen, and drops in another", () => {
+  it("when a cop is lost far from the player, then it is put away after 5 s out of sight and never while seen, and another cop drops in to take its place", () => {
     let visible = false;
     const r = rig({ hidden: () => !visible });
     r.cars[3]!.x = 0;
@@ -227,7 +227,7 @@ describe("HunterBrain: the pack", () => {
   });
 });
 
-describe("HunterBrain: driving", () => {
+describe("given one cop at the origin facing +z, driven by the hunter brain, with its target ahead", () => {
   /** One cop at the origin facing +z, its quarry `dist` m ahead, optionally behind a wall of `hx` × `hz` m at `z = wallZ`. */
   function drive(dist: number, wall?: { hx: number; hz: number; z: number }) {
     const colliders: PropCollider[] = wall
@@ -242,7 +242,7 @@ describe("HunterBrain: driving", () => {
     return { r, cop, tg, out: () => r.brain.think(cop, r.cars, 1 / 60) };
   }
 
-  it("is held on the brake until the green and drives once it comes", () => {
+  it("when the heat is before the green and then the green comes, then the cop is held on the brake until the green and drives once it comes", () => {
     const r = rig();
     Object.assign(r.cars[1]!, { x: 0, z: 0, yaw: 0, vx: 0, vz: 10 });
     Object.assign(r.cars[0]!, { x: 0, z: 100 });
@@ -252,7 +252,7 @@ describe("HunterBrain: driving", () => {
     assert.deepEqual([out.brake, out.throttle], [0, 1]);
   });
 
-  it("chases a far target flat out, boosted, steering straight at it in the open", () => {
+  it("when the target is 100 m ahead in the open, then the cop chases at full throttle with a catch-up boost, steering straight at it", () => {
     const d = drive(100);
     const o = d.out();
     assert.equal(o.throttle, 1);
@@ -260,7 +260,7 @@ describe("HunterBrain: driving", () => {
     assert.ok(Math.abs(o.steer) < 0.05, `steer ${o.steer}`);
   });
 
-  it("bends round a solid that stands between it and the target, and steers straight without it", () => {
+  it("when a solid wall stands between it and the target, then the cop bends round the wall and keeps to the side it chose on the next call, and without the wall it steers straight", () => {
     const wall = { hx: 15, hz: 7, z: 20 };
     const free = drive(100).out().steer;
     const walled = drive(100, wall);
@@ -271,7 +271,7 @@ describe("HunterBrain: driving", () => {
     assert.equal(Math.sign(walled.out().steer), Math.sign(o.steer));
   });
 
-  it(`inside ATTACK (${ATTACK} m) it drives the police's own attack geometry`, () => {
+  it(`when the target is inside the ${ATTACK} m attack range, then the cop drives exactly as the police's own attack driving does`, () => {
     const d = drive(ATTACK - 10);
     const got = { ...d.out() };
     const want = idleDrive();
@@ -283,7 +283,7 @@ describe("HunterBrain: driving", () => {
     assert.equal(got.steer, want.steer);
   });
 
-  it("backs off when wedged, as the police do", () => {
+  it("when it holds the throttle with no motion for longer than the wedge window, then it backs off, as the police do", () => {
     const d = drive(100);
     // Throttle held, no motion, for longer than the wedge window.
     Object.assign(d.cop, { vx: 0, vz: 0 });
@@ -292,7 +292,7 @@ describe("HunterBrain: driving", () => {
     assert.ok(reversed, "never backed off");
   });
 
-  it("backs off a cop at full throttle that goes nowhere while its velocity still reads over the wedge gate (pushing a wall corner: the Havana wedge, 10 s)", () => {
+  it("when it holds full throttle against a wall corner for 3 s with its measured speed stuck at 1.5 m/s while it barely moves, then it still backs off", () => {
     const d = drive(100);
     let reversed = false;
     // The contact takes the displacement back each step, so the velocity the brain reads stays at 1.5 m/s: the car moves 0.3 m in 3 s.
@@ -303,7 +303,7 @@ describe("HunterBrain: driving", () => {
     assert.ok(reversed, "a car pushing a wall for 3 s without moving never backed off");
   });
 
-  it("holds its row behind a target too fast to PIT instead of closing up on it, and PITs a slow one the same way round", () => {
+  it("when it sits 4 m behind and 2.6 m beside a target at the target's own speed, then at 30 m/s it holds its row instead of closing up and at 10 m/s it presses on with its PIT (the nudge that spins the target out)", () => {
     // The cop 4 m behind the target and 2.6 m to one side, at the target's own speed: inside the first row (6 m).
     const fast = drive(4);
     Object.assign(fast.tg, { x: 0, z: 4, vx: 0, vz: 30 });
@@ -318,7 +318,7 @@ describe("HunterBrain: driving", () => {
     assert.equal(pit.throttle, 1, "did not press its PIT on a slow target");
   });
 
-  it("goes straight on, braking only if it is in the target's path, when it closes faster than it can brake", () => {
+  it("when it closes at 20 m/s on a stopped target 13 m ahead, then it brakes fully without steering if the target is in its lane, and drives past without steering or braking one lane over", () => {
     // A stopped target 13 m ahead, the cop at 20 m/s: 20² > 16 × 13.
     const inLine = drive(13);
     Object.assign(inLine.cop, { x: 0, z: 0, vx: 0, vz: 20 });

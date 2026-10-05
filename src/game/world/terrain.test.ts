@@ -11,8 +11,8 @@ import { square } from "./track.test-util.ts";
 
 const HILL: Plateau = { x: 60, z: 60, halfX: 10, halfZ: 15, height: 3, run: [8, 8, 10, 10], round: 3, top: "concrete" };
 
-describe("plateau height", () => {
-  it("is the flat top on the top, zero beyond the feet, and one rising plane in between on each side", () => {
+describe("given a plateau (a raised platform with a sharp-crested flat top and planar sides)", () => {
+  it("when its height is read across the top, beyond the feet and on a side, then the top is flat, the ground beyond the feet is zero, and each side is one rising plane at height over run", () => {
     // The flat top ends 3 m (the rounding) inside the nominal edges: |dx| ≤ 7, |dz| ≤ 12.
     for (const [dx, dz] of [[0, 0], [6.9, 11.9], [-6.9, -11.9], [0, 11.9], [-6.9, 0]] as const) assert.equal(plateauHeight(HILL, HILL.x + dx, HILL.z + dz), 3, `top at (${dx}, ${dz})`);
     for (const [dx, dz] of [[10 + 8 + 3.1, 0], [0, 15 + 10 + 3.1], [-(10 + 8 + 3.1), 0], [0, -(15 + 10 + 3.1)], [40, 40]] as const) assert.equal(plateauHeight(HILL, HILL.x + dx, HILL.z + dz), 0, `ground at (${dx}, ${dz})`);
@@ -22,7 +22,7 @@ describe("plateau height", () => {
     assert.ok(Math.abs(h(20) - 1.5) < 1e-9, "its middle is half the height");
   });
 
-  it("has no step above a kerb: along any line it never climbs faster than height / run, and the crest and foot are bends, not corners", () => {
+  it("when the height is walked along lines across it, then it never climbs faster than height over run and the crest and foot are bends, not corners", () => {
     let steepest = 0;
     let kink = 0;
     for (const [ax, az, bx, bz] of [[30, 60, 90, 60], [60, 25, 60, 95], [35, 30, 85, 90], [85, 30, 35, 90]] as const) {
@@ -48,17 +48,17 @@ describe("plateau height", () => {
     assert.ok(kink < 0.02, `a corner: the grade jumps ${kink.toFixed(4)} between 10 cm steps`);
   });
 
-  it("with no rounding the crest is a corner: the grade jumps by the whole slope across 10 cm", () => {
+  it("when the crest has no rounding, then the grade jumps by the whole slope across 10 cm, where a rounded crest changes grade a little at a time", () => {
     const grade = (p: Plateau, dz: number) => (plateauHeight(p, HILL.x, HILL.z + dz + 0.05) - plateauHeight(p, HILL.x, HILL.z + dz - 0.05)) / 0.1;
     assert.ok(Math.abs(grade({ ...HILL, round: 0 }, 15.1) - grade({ ...HILL, round: 0 }, 14.9) + 0.3) < 1e-9, "flat, then 0.3 m per metre down");
     assert.ok(Math.abs(grade(HILL, 15.1) - grade(HILL, 14.9)) < 0.02, "the rounded crest changes grade a little at a time");
   });
 });
 
-describe("a plateau on a course", () => {
+describe("given a course (the square course) with a plateau and a lawn painted over concrete terrain", () => {
   const plain = square({ environment: { terrain: "concrete", plateaus: [HILL], paint: [{ surface: "grass", poly: [[30, 30], [90, 30], [90, 90], [30, 90]] }] } });
 
-  it("raises the ground: the top at its height in concrete, grass on the sides it falls by, the road untouched", () => {
+  it("when the ground is read there, then the plateau top is raised in concrete, its sides are grass falling at the planned grade, and the road is untouched", () => {
     const g = new Track(plain).ground();
     assert.equal(g.heightAt(60, 60), 3);
     assert.equal(g.surfaceAt(60, 60), "concrete");
@@ -71,7 +71,7 @@ describe("a plateau on a course", () => {
     assert.ok(Math.abs(Math.atan2(Math.hypot(n.x, n.z), n.y) - Math.atan(0.3)) < 0.02, `the slope's normal is tilted ${JSON.stringify(n)}`);
   });
 
-  it("paints bare terrain only: the polygon's lawn on concrete, never a road or what lies outside", () => {
+  it("when the lawn polygon is painted, then it covers bare terrain only, never a road or what lies outside it", () => {
     const g = new Track(plain).ground();
     assert.equal(g.surfaceAt(40, 50), "grass");
     assert.equal(g.surfaceAt(20, 50), "concrete", "outside the polygon the terrain stays");
@@ -81,7 +81,7 @@ describe("a plateau on a course", () => {
     assert.equal(road.surfaceAt(-10, 30), "grass");
   });
 
-  it("refuses a plateau that reaches a road, or past the baked ground", () => {
+  it("when a plateau is placed reaching a road or past the baked ground, then the course is refused with the reason", () => {
     assert.throws(() => new Track(square({ environment: { plateaus: [{ ...HILL, x: 400, z: 60 }] } })).ground(), /reaches past the baked ground/);
     assert.throws(() => new Track(square({ environment: { plateaus: [{ ...HILL, x: 12, z: 60 }] } })), /a road reaches the plateau/);
     // A street along z through the plateau's middle, sampled every metre as a path is.

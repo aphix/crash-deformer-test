@@ -38,11 +38,11 @@ function worst(run: Sample[], from: number, to: number) {
   return { gap, pen, pitch, framePitch, airFrames };
 }
 
-describe("stunt CRUSH crest and descent", () => {
+describe("given the stunt course's CRUSH crest (the hill under the CRUSH billboards) and the kicker and descent beyond it", () => {
   afterEach(() => setGround(null));
 
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`${cls} rolling over the crest and down the kicker and the descent (4 and 8 m/s): the body takes the road's slope, the hull stays out of it, all four tyres within 2 cm`, (t) => {
+    it(`when a ${cls} rolls over the crest and down the kicker and the descent at 4 and at 8 m/s, then the body takes the road's slope, the hull stays out of the road and all four tyres stay within 2 cm of it`, (t) => {
       const failures: string[] = [];
       for (const v of [4, 8]) {
         const w = worst(drive(track, cls, 890, 945, () => v, { lead: 40 }), 890, 945);
@@ -58,7 +58,7 @@ describe("stunt CRUSH crest and descent", () => {
   }
 
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`${cls} at 30 m/s: leaves the road at the crest for about a second and lands on its wheels, the hull clear all the way`, (t) => {
+    it(`when a ${cls} drives over the crest at 30 m/s, then it leaves the road for about a second and lands on its wheels, with the hull clear of the road all the way`, (t) => {
       const run = drive(track, cls, 885, 1010, () => 30, { lead: 40 });
       let air = 0;
       let landed = -1;
@@ -80,7 +80,7 @@ describe("stunt CRUSH crest and descent", () => {
   }
 
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`${cls} at 38 m/s: the first grounded frame after the flight is already on the road's slope, tyres within 2 cm, no underside in it`, (t) => {
+    it(`when a ${cls} drives over the crest at 38 m/s, then the first grounded frame after the flight is already on the road's slope, with the tyres within 2 cm and no underside in the road`, (t) => {
       const run = drive(track, cls, 880, 1010, () => 38, { lead: 40 });
       const first = run.findIndex((r, i) => i > 0 && run[i - 1]!.airborne && !r.airborne);
       assert.ok(first > 0, "never landed");
@@ -93,7 +93,7 @@ describe("stunt CRUSH crest and descent", () => {
     });
   }
 
-  it("leaves the road from 12–14 m/s (43–50 km/h) by class and never at 6 m/s: the crest gives airtime from a moderate pace", () => {
+  it("when every class drives over the crest at 6 m/s and at 16 m/s, then none leaves the road at 6 m/s and all do at 16 m/s: the crest gives airtime from a moderate pace", () => {
     const flies = (cls: VehicleClassId, v: number) => drive(track, cls, 885, 975, () => v, { lead: 45 }).some((r) => r.airborne);
     for (const cls of VEHICLE_CLASS_IDS) {
       assert.ok(!flies(cls, 6), `${cls} flew at 6 m/s`);

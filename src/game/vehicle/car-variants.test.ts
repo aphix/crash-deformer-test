@@ -74,11 +74,11 @@ function roofSkinDrift(style: BodyStyle): number {
   return drift;
 }
 
-describe("body styles share one platform", () => {
+describe("given every body style, compared with the sedan that the shared platform is built on", () => {
   const sedan = chassisBox(CAR_STYLES.sedan);
 
   for (const id of CAR_STYLE_IDS) {
-    it(`good: ${id} keeps the sedan's wheels, width and length (±0.12 m)`, () => {
+    it(`when a ${id} is built, then it keeps the sedan's wheel positions, and its length to within 0.12 m and its width to within 3 cm`, () => {
       cars[id].wheels.forEach((w, i) => assertSameNumbers(w.position.toArray(), WHEEL_POS[i]!, `${id} wheel ${i}`));
       const b = chassisBox(CAR_STYLES[id]);
       const len = b.max.z - b.min.z;
@@ -86,41 +86,41 @@ describe("body styles share one platform", () => {
       assert.ok(Math.abs(b.max.x - sedan.max.x) < 0.03 && Math.abs(b.min.x - sedan.min.x) < 0.03, `${id} width ${b.min.x}..${b.max.x}`);
     });
 
-    it(`good: ${id} keeps the sedan's collision hulls and mass rig`, () => {
+    it(`when a ${id} is built, then it keeps the sedan's collision hulls and its mass rig (the masses and where each sits at rest)`, () => {
       assertSameDigest(cars[id].deform.liveHulls(), cars.sedan.deform.liveHulls(), `${id} hulls`);
       const rig = (c: DeformableCar) => c.deform.masses.map((m) => [m.name, m.mass, ...m.rest.toArray()]);
       assertSameDigest(rig(cars[id]), rig(cars.sedan), `${id} mass rig`);
     });
   }
 
-  it("good: a 10-car field shows every fleet style, slot 0 stays the sedan, police never spawn on their own", () => {
+  it("when a 10-car field is generated, then every fleet style appears, slot 0 is the sedan and police never spawn on their own", () => {
     const field = Array.from({ length: 10 }, (_, i) => fleetStyle(i));
     assert.equal(field[0], "sedan");
     assertSameDigest([...new Set(field)].sort(), [...FLEET_STYLE_IDS].sort(), "styles in a 10-car field");
   });
 });
 
-describe("each style reads as its own silhouette", () => {
-  it("good: sedan is three-box — roof over the cabin, trunk deck behind the glass", () => {
+describe("given each body style's silhouette, measured as the highest visible surface along the car's length", () => {
+  it("when the sedan is measured, then it is three-box: the roof stands over the cabin and the trunk deck sits below 0.9 m behind the glass", () => {
     assert.ok(topAt("sedan", -0.2) > 1.25);
     assert.ok(topAt("sedan", -1.5) < 0.9, `sedan trunk ${topAt("sedan", -1.5)}`);
   });
 
-  it("good: wagon roof runs past the sedan's toward the tail", () => {
+  it("when the wagon's roof is measured 1.2 m and 1.5 m behind the centre, then it runs on past the sedan's toward the tail, above 1.2 m at both", () => {
     for (const z of [-1.2, -1.5]) assert.ok(topAt("wagon", z) > 1.2, `wagon roof at z=${z} is ${topAt("wagon", z)}`);
   });
 
-  it("good: hatchback roof outruns the sedan's but its tail drops below the wagon's", () => {
+  it("when the hatchback is measured, then its roof outruns the sedan's but its tail drops at least 0.2 m below the wagon's", () => {
     assert.ok(topAt("hatchback", -1.2) > 1.2, `hatch roof ${topAt("hatchback", -1.2)}`);
     assert.ok(topAt("sedan", -1.2) < 1.05, `sedan glass at z=-1.2 is ${topAt("sedan", -1.2)}`);
     assert.ok(topAt("hatchback", -1.75) < topAt("wagon", -1.75) - 0.2, "hatch tail is as tall as the wagon's");
   });
 
-  it("good: coupe roof sits lower than the sedan's", () => {
+  it("when the coupe is measured, then its roof sits at least 6 cm lower than the sedan's", () => {
     assert.ok(topAt("coupe", -0.2) < topAt("sedan", -0.2) - 0.06, `coupe ${topAt("coupe", -0.2)} sedan ${topAt("sedan", -0.2)}`);
   });
 
-  it("good: pickup has a cab roof and an open bed below every other style's deck", () => {
+  it("when the pickup is measured, then it has a cab roof and an open bed floor below 0.6 m, lower than every other style's deck", () => {
     assert.ok(topAt("pickup", -0.2) > 1.25);
     for (const z of [-1.1, -1.7]) {
       assert.ok(topAt("pickup", z) < 0.6, `pickup bed floor at z=${z} is ${topAt("pickup", z)}`);
@@ -129,11 +129,11 @@ describe("each style reads as its own silhouette", () => {
   });
 });
 
-describe("rig cages wrap every style", () => {
+describe("given every body style's rig cage (the soft-body frame that wraps the car)", () => {
   for (const id of CAR_STYLE_IDS) {
     const style = CAR_STYLES[id];
 
-    it(`good: ${id} boot, glass and any light bar sit inside their cages (no clamp at rest)`, () => {
+    it(`when a ${id} is at rest, then its boot, glass and any light bar sit inside their cages with no clamping`, () => {
       const d = new StreamedDeformation(makeChassisGeometry(style), style.rig);
       const [oy, oz] = style.boot.origin;
       assert.ok(panelClamp(d, makeTrunkGeometry(style), "boot", new THREE.Vector3(0, oy, oz)) < 1e-4, `${id} boot`);
@@ -145,12 +145,12 @@ describe("rig cages wrap every style", () => {
       }
     });
 
-    it(`good: ${id} roof and pillars stay put through an at-rest skin pass`, () => {
+    it(`when a ${id} gets an at-rest skin pass, then its roof and pillars stay put, drifting under 0.1 m`, () => {
       const drift = roofSkinDrift(style);
       assert.ok(drift < 0.1, `${id} roof-level skin drift ${drift.toFixed(3)} m`);
     });
 
-    it(`edge: ${id} rear hit crushes the tail without exploding the skin`, () => {
+    it(`when a ${id} is hit from behind, then the tail crushes in by more than 5 cm without the skin exploding or any vertex going NaN`, () => {
       const c = new DeformableCar(PAINT, new THREE.Scene(), null, id);
       const d = c.deform;
       const geo = c.body.geometry;
@@ -195,8 +195,8 @@ function sedanThroughWall(kph: number): string[] {
   return runWall(kph, 1, "front", { car }).detached;
 }
 
-describe("police cruiser", () => {
-  it("good: black body, white doors whatever the fleet paint, and a light bar on top of the sedan roof", () => {
+describe("given the police cruiser", () => {
+  it("when its paint and light bar are inspected, then the body is black, the doors are white whatever the fleet paint, and a light bar stands on top of the sedan's roof", () => {
     const c = cars.police;
     assert.equal((c.body.material as THREE.MeshStandardMaterial).color.getHex(), new THREE.Color(CAR_STYLES.police.livery!.body).getHex());
     const paints = new Set<number>();
@@ -209,7 +209,7 @@ describe("police cruiser", () => {
     assert.ok(topAt("police", z) > topAt("sedan", z) + 0.1, `bar top ${topAt("police", z)} vs sedan roof ${topAt("sedan", z)}`);
   });
 
-  it("good: the light bar stands on its feet: every sole corner within 1.2 cm of the roof under it (the crown seat sank them 2.3 cm)", () => {
+  it("when the light bar's sole corners are measured against the roof under them, then the bar stands on its feet, every corner within 1.2 cm of the roof", () => {
     const c = cars.police;
     c.group.updateMatrixWorld(true);
     const bar = c.group.getObjectByName("lightBar")!;
@@ -225,7 +225,7 @@ describe("police cruiser", () => {
     }
   });
 
-  it("good: a 56 km/h wall keeps the bar on, bent with the roof; every other part fares as the sedan's", () => {
+  it("when it hits a wall square-on at 56 km/h, then the light bar stays on, bent with the roof, and every other part fares as it does on a sedan", () => {
     const { detached, bar } = copThroughWall(56);
     assertSameDigest(detached, sedanThroughWall(56), "parts off at 56 km/h");
     const rest = makeLightBar().getAttribute("position").array;
@@ -235,7 +235,7 @@ describe("police cruiser", () => {
     assert.ok(moved > 0.005 && moved < 0.3, `bar skin moved ${moved.toFixed(3)} m with the roof`);
   });
 
-  it("edge: a 64 km/h wall throws the bar clear of the car, its sirens dark; the rest tears as the sedan's", () => {
+  it("when it hits a wall square-on at 64 km/h, then the light bar is thrown clear onto the ground with its sirens dark, and the rest tears as it does on a sedan", () => {
     const { car, detached, bar } = copThroughWall(64);
     assert.ok(detached.includes("lightBar"), `parts off: ${detached}`);
     assertSameDigest(detached.filter((n) => n !== "lightBar"), sedanThroughWall(64), "other parts off at 64 km/h");

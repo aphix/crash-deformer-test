@@ -59,8 +59,8 @@ function momentum(c: DeformableCar): { l: number; px: number; pz: number } {
   return { l, px, pz };
 }
 
-describe("steering a wreck under power", () => {
-  it("bad: a spinning wreck steered for 0.5 s keeps its angular momentum (turning positions alone lost 29 % of it, 2824 → 2018)", () => {
+describe("given a sedan wreck under power, its masses live at 8 m/s and all turning rigidly about their centroid", () => {
+  it("when it spins at 3 rad/s and is steered with half throttle for 0.5 s, then it keeps its angular momentum within 1 %, with a real spin to keep (over 1000)", () => {
     const c = spinning(3);
     const before = momentum(c);
     for (let k = 0; k < 60; k++) applyDrive(c, { ...idleDrive(), throttle: 0.5, steer: 1 }, H);
@@ -69,7 +69,7 @@ describe("steering a wreck under power", () => {
     assert.ok(Math.abs(after.l / before.l - 1) < 0.01, `L ${before.l.toFixed(0)} → ${after.l.toFixed(0)} kg·m²/s over 0.5 s of steering`);
   });
 
-  it("bad: the same with the wreck spinning the other way round (L −2824 → −2018 on turned positions alone)", () => {
+  it("when it spins the other way round at −3 rad/s and is steered with half throttle for 0.5 s, then it keeps its angular momentum within 1 %", () => {
     const c = spinning(-3);
     const before = momentum(c);
     for (let k = 0; k < 60; k++) applyDrive(c, { ...idleDrive(), throttle: 0.5, steer: 1 }, H);
@@ -78,8 +78,8 @@ describe("steering a wreck under power", () => {
   });
 });
 
-describe("a driven, dented car reports the turn it drives", () => {
-  it("bad: steered hard for 1 s after a wall hit, the heading it turned (c.yaw) is what it reported (angular.y read L/I, ~0, while it drove round at ~1 rad/s)", () => {
+describe("given a sedan that a 30 km/h front wall hit left dented but still drivable", () => {
+  it("when it is steered hard at full throttle for 1 s, then the turn it reports over the last 0.5 s matches the heading change it drew within 15 %, and it did turn over 0.3 rad", () => {
     const c = new DeformableCar(paint(), new THREE.Scene(), null, CLASSES.sedan.style);
     assignClass(c, "sedan");
     runWall(30, 1, "front", { car: c, after: 0.3 });

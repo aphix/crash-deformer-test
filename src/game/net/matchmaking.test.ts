@@ -83,8 +83,8 @@ function harness(lists: (call: number, clock: Clock) => readonly LobbyRoom[] | n
   return { clock, log, deps, calls: () => calls };
 }
 
-describe("matchmaking: which listed rooms are open", () => {
-  it("drops other kinds, other builds, full rooms and the room being left", () => {
+describe("given the room list a relay returns to a player looking for a race room", () => {
+  it("when the list holds rooms of another kind, another build, full rooms and the room being left, then all of them are dropped", () => {
     const list: LobbyRoom[] = [
       room("A", 2),
       room("B", 2, "lobby.oval", "derby"),
@@ -96,7 +96,7 @@ describe("matchmaking: which listed rooms are open", () => {
     assert.deepEqual(openRooms(list, "race", [publicRoomName("race", "F")]).map((r) => codeOf(r.room)), ["A"]);
   });
 
-  it("ranks a match that has not started before a running one, then the most addresses, then the first name", () => {
+  it("when the open rooms differ in stage and size, then a match not yet started ranks before a running one, then the most addresses, then the first name", () => {
     const list = [room("A", 7, "running.oval"), room("B", 2), room("C", 5, "over.rally"), room("D", 5), room("E", 3, "")];
     assert.deepEqual(
       openRooms(list, "race").map((r) => r.room.slice(-1)),
@@ -104,7 +104,7 @@ describe("matchmaking: which listed rooms are open", () => {
     );
   });
 
-  it("ranks by distinct addresses: a room one address padded with idle peers does not outrank a real 3-address room", () => {
+  it("when a room is padded with idle peers from one address, then it does not outrank a real 3-address room", () => {
     const list = [room("AAAAPAD", 7, "lobby.oval", "race", 1), room("ZZREAL", 3), room("MMLONE", 1)];
     assert.deepEqual(
       openRooms(list, "race").map((r) => codeOf(r.room)),
@@ -112,28 +112,30 @@ describe("matchmaking: which listed rooms are open", () => {
     );
   });
 
-  it("reads the stage and course from the host's tag; a relay without tags lists rooms unstaged", () => {
+  it("when rooms carry the host's stage and course tag, then the stage and course are read from it, and a relay without tags lists rooms unstaged", () => {
     assert.deepEqual(
       openRooms([room("A", 1, "over.rally"), room("B", 1, ""), room("C", 1, "bogus.x")], "race").map((r) => [r.stage, r.course]),
       [["over", "rally"], [null, ""], [null, "x"]],
     );
   });
+});
 
-  it("names rooms by kind and build, and tags are lowercase and relay-safe", () => {
+describe("given a room's kind, build and course name", () => {
+  it("when the room name and its tag are made, then the name carries kind and build, and tags are lowercase, relay-safe and length-capped", () => {
     assert.equal(publicRoomName("derby", "AB12"), `pub-derby-v${NET_VERSION}-AB12`);
     assert.equal(publicMeta("lobby", "Harbour Streets!"), "lobby.harbourstreets");
     assert.match(publicMeta("running", "x".repeat(60)), /^running\.x{24}$/);
   });
 });
 
-describe("matchmaking: Play online decides", () => {
-  it("joins the best open room at once, without hosting", async () => {
+describe("given a device able to host a full field pressing Play online", () => {
+  it("when open rooms exist, then it joins the best one at once without hosting", async () => {
     const h = harness(() => [room("A", 1), room("B", 3, "running.oval"), room("C", 2)]);
     await findMatch("race", true, h.deps);
     assert.deepEqual(h.log, [{ at: 0, what: "join C" }]);
   });
 
-  it("skips a room of another build and a full one, and hosts when nothing else is open", async () => {
+  it("when the only rooms are one of another build and a full one, then it skips both and hosts", async () => {
     const h = harness(() => [{ room: `pub-race-v${NET_VERSION + 1}-A`, players: 3, addrs: 3, meta: "lobby.oval" }, room("B", 8)]);
     const done = findMatch("race", true, h.deps);
     await h.clock.drain();
@@ -141,7 +143,7 @@ describe("matchmaking: Play online decides", () => {
     assert.equal(h.log[0]!.what, "host");
   });
 
-  it("a capable device hosts after a pause under BACKOFF_MS and one more look, not before", async () => {
+  it("when no room is open, then it hosts after a random pause of up to 0.6 s and one more look at the list, not before", async () => {
     const h = harness(() => [], { random: () => 0.5 });
     const done = findMatch("race", true, h.deps);
     await h.clock.drain();
@@ -151,15 +153,17 @@ describe("matchmaking: Play online decides", () => {
     assert.equal(h.calls() >= 2, true, "it looked again before creating");
   });
 
-  it("a capable device joins a room that appeared during its pause instead of hosting", async () => {
+  it("when a room appears during its pause, then it joins that room instead of hosting", async () => {
     const h = harness((call) => (call === 0 ? [] : [room("A", 1)]));
     const done = findMatch("race", true, h.deps);
     await h.clock.drain();
     await done;
     assert.deepEqual(h.log, [{ at: 0, what: "join A" }]);
   });
+});
 
-  it("a weak device keeps looking, polling every SEARCH_POLL_MS, and hosts a smaller field after WEAK_WAIT_MS", async () => {
+describe("given a weak device pressing Play online", () => {
+  it("when no room is open, then it polls the room list every 2.5 s and hosts a smaller field at the first poll at or past 12 s", async () => {
     const h = harness(() => [], { random: () => 0 });
     const done = findMatch("race", false, h.deps);
     await h.clock.drain();
@@ -170,7 +174,7 @@ describe("matchmaking: Play online decides", () => {
     assert.ok(hosted.at >= 10_000 && hosted.at <= 15_000, `hosts between 10 and 15 s (${hosted.at} ms)`);
   });
 
-  it("a weak device's patience is jittered up to WEAK_JITTER_MS, so the 10–15 s window holds at both ends", async () => {
+  it("when the random jitter is at its lowest and at its highest, then it hosts no sooner than 12 s and before 12 s plus 3 s of jitter plus one 2.5 s poll step", async () => {
     for (const r of [0, 0.999]) {
       const h = harness(() => [], { random: () => r });
       const done = findMatch("race", false, h.deps);
@@ -181,7 +185,7 @@ describe("matchmaking: Play online decides", () => {
     }
   });
 
-  it("a weak device joins a room that shows up mid-search", async () => {
+  it("when a room shows up mid-search, then it joins it at the first poll that sees it, the fourth look at 7.5 s", async () => {
     const h = harness((call) => (call < 3 ? [] : [room("A", 1)]));
     const done = findMatch("race", false, h.deps);
     await h.clock.drain();
@@ -189,8 +193,10 @@ describe("matchmaking: Play online decides", () => {
     assert.deepEqual(h.log.map((l) => l.what), ["join A"]);
     assert.equal(h.log[0]!.at, 3 * SEARCH_POLL_MS);
   });
+});
 
-  it("an unreachable relay hosts at once, weak or not: there is nothing to wait for", async () => {
+describe("given an unreachable relay", () => {
+  it("when a device able to host and a weak device each press Play online, then each hosts at once, with nothing to wait for", async () => {
     for (const fit of [true, false]) {
       const h = harness(() => null);
       const done = findMatch("race", fit, h.deps);
@@ -201,24 +207,30 @@ describe("matchmaking: Play online decides", () => {
       assert.equal(h.log[0]!.at, 0);
     }
   });
+});
 
-  it("a search cancelled while a list is in flight joins and hosts nothing", async () => {
+describe("given a search cancelled while a room list is in flight", () => {
+  it("when the list arrives with an open room, then nothing is joined and nothing is hosted", async () => {
     const h = harness(() => [room("A", 1)]);
     const deps: MatchDeps = { ...h.deps, live: () => false };
     await findMatch("race", true, deps);
     await h.clock.drain();
     assert.deepEqual(h.log, []);
   });
+});
 
-  it("a room named in `skip` (the host that just died) is never joined", async () => {
+describe("given the caller asks to skip the room whose host just died", () => {
+  it("when that room is the only one listed, then it is never joined and the searcher hosts instead", async () => {
     const h = harness(() => [room("A", 4)]);
     const done = findMatch("race", true, h.deps, [publicRoomName("race", "A")]);
     await h.clock.drain();
     await done;
     assert.equal(h.log[0]!.what, "host");
   });
+});
 
-  it("a lone host leaves its room for one with another address in it, never for one address's padding", async () => {
+describe("given a lone host already running its own room", () => {
+  it("when a later room list offers a room padded by one address's idle peers or one with another real address in it, then it leaves for the real one and never for the padding", async () => {
     for (const [other, joins] of [[room("PAD", 7, "lobby.oval", "race", 1), false], [room("REAL", 3), true]] as const) {
       const h = harness((call) => (call < 2 ? [] : [other]));
       const done = findMatch("race", true, h.deps);
@@ -229,7 +241,7 @@ describe("matchmaking: Play online decides", () => {
   });
 });
 
-describe("matchmaking: searchers who click together end in one room", () => {
+describe("given searchers pressing Play online together, with simulated relay delays and seeded randomness", () => {
   /** A guest whose room's host is gone starts another search after this (ms): net-play.ts `HOST_WAIT_MS`. */
   const HOST_WAIT_MS = 5000;
   const WIRE = { list: 120, register: 250, join: 250 };
@@ -298,7 +310,7 @@ describe("matchmaking: searchers who click together end in one room", () => {
     return { rooms: [...rooms.values()].map((r) => r.players), restarts };
   }
 
-  it("two capable players pressing at the same instant: one room of two, over 300 seeds, never a restart", async () => {
+  it("when two players able to host press at the same instant, then over 300 seeds they always end in one room of two and never need a restart", async () => {
     const bad: number[] = [];
     for (let seed = 1; seed <= 300; seed++) {
       const r = await crowd(seed, [0, 0], [true, true]);
@@ -307,7 +319,7 @@ describe("matchmaking: searchers who click together end in one room", () => {
     assert.deepEqual(bad, [], "seeds that ended in two rooms or needed a restart");
   });
 
-  it("five players pressing within 300 ms, capable and weak mixed: no player is left alone, and 97 % of 200 seeds end in one room", async () => {
+  it("when five players, some able to host and some weak, press within 300 ms, then over 200 seeds no player is left alone, nobody's host leaves under them, and at least 97% of seeds end in one room", async () => {
     // Two rooms made in the same quarter second each get a joiner before their hosts compare notes: both are live
     // rooms with players, so the rule leaves them (moving a host with guests would strand the guests).
     const loners: number[] = [];
@@ -325,13 +337,13 @@ describe("matchmaking: searchers who click together end in one room", () => {
     assert.ok(split.length <= 6, `${split.length} of 200 seeds ended in two rooms (${split})`);
   });
 
-  it("a player pressing 2 s after another's room is up joins it (no second room)", async () => {
+  it("when a player presses 2 s after another's room is up, then it joins that room instead of making a second one", async () => {
     const r = await crowd(5, [0, 2000], [true, true]);
     assert.deepEqual(r.rooms, [2]);
   });
 });
 
-describe("matchmaking: the live-rooms indicator's polling", () => {
+describe("given the live-rooms indicator polling the relay for open rooms", () => {
   /** A fake timer set for the poller: `advance` runs what falls due, in order, letting each fetch settle. */
   function pollerHarness(results: (call: number) => LobbyRoom[] | null, visible = () => true) {
     let now = 0;
@@ -371,7 +383,7 @@ describe("matchmaking: the live-rooms indicator's polling", () => {
     return { poller, advance, fetchedAt, shown, timers: () => timers.size };
   }
 
-  it("fetches at once, then every POLL_COLLAPSED_MS while collapsed", async () => {
+  it("when it starts collapsed, then it fetches at once and every 10 s after", async () => {
     const h = pollerHarness(() => []);
     h.poller.start();
     await h.advance(35_000);
@@ -379,7 +391,7 @@ describe("matchmaking: the live-rooms indicator's polling", () => {
     h.poller.stop();
   });
 
-  it("opening the list refreshes at once and then polls every POLL_EXPANDED_MS; closing returns to the slow rate", async () => {
+  it("when its list is opened and later closed, then it refreshes at once and polls every 4 s while open, and returns to the 10 s rate once closed", async () => {
     const h = pollerHarness(() => []);
     h.poller.start();
     await h.advance(1000);
@@ -392,7 +404,7 @@ describe("matchmaking: the live-rooms indicator's polling", () => {
     h.poller.stop();
   });
 
-  it("a failed poll (offline, rate limited) doubles the wait up to POLL_MAX_MS and a success resets it", async () => {
+  it("when polls fail because the player is offline or rate limited, then the wait doubles up to 60 s and one success returns it to the 10 s rate", async () => {
     const h = pollerHarness((call) => (call < 5 ? null : []));
     h.poller.start();
     await h.advance(400_000);
@@ -402,7 +414,7 @@ describe("matchmaking: the live-rooms indicator's polling", () => {
     h.poller.stop();
   });
 
-  it("asks nothing while the tab is hidden, and nothing after stop", async () => {
+  it("when the tab is hidden and later shown and then the poller is stopped, then nothing is asked while hidden, one poll runs once shown, nothing runs after stop and no timers remain", async () => {
     let shown = false;
     const h = pollerHarness(() => [], () => shown);
     h.poller.start();

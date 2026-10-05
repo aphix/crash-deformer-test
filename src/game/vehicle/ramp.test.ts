@@ -91,12 +91,12 @@ function settle(deg: number, yaw: number): Settled {
   return { gaps, pitchErr, rollErr, tiltErr, pitch, roll, slide };
 }
 
-describe("ramp: a braked car dropped on a wedge settles onto the face", () => {
+describe("given a car with brake and handbrake held, dropped 0.5 m onto the middle of a wedge-shaped ramp", () => {
   afterEach(() => setGround(null));
 
   for (const deg of [10, 20, 30]) {
     for (const [name, yaw] of Object.entries(HEADINGS)) {
-      it(`${deg}° facing ${name}: 4 tyres within 2 cm of the face, pitch/roll within 1.5° of the slope${deg < 30 ? ", slide ≤ 0.5 m" : ""}`, (t) => {
+      it(`when the wedge slopes ${deg}° and the car faces ${name}, then it settles with all 4 tyres within 2 cm of the face and pitch and roll within 1.5° of the slope${deg < 30 ? ", having slid no more than 0.5 m" : ""}`, (t) => {
         const r = settle(deg, yaw);
         t.diagnostic(
           `${deg}° ${name}: gaps ${r.gaps.map((v) => v.toFixed(3)).join("/")} m, pitch ${r.pitch.toFixed(2)}° (err ${r.pitchErr.toFixed(2)}), roll ${r.roll.toFixed(2)}° (err ${r.rollErr.toFixed(2)}), tilt ${r.tiltErr.toFixed(2)}°, slide ${r.slide.toFixed(3)} m`,

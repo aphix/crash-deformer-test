@@ -51,8 +51,7 @@ The crash rules from `docs/RIG_ANALYSIS.md` §6.1 still run in `syncAttachedPart
 
 The pose is shared (`posePart`). A door shows `max(hingeT·1.45, θ)`, so the crash value jams the
 door open on top of the free swing. A mirror adds its fold on top of the crash fold. A wall crash
-never touches the hinge state. The test "a 64 km/h frontal wall leaves both doors on and their
-hinges shut" checks this, and the existing `crash-parts` door tests are unchanged and pass.
+never touches the hinge state. The test `door-rig.test.ts` "given a car driven at 64 km/h head-on into a wall, when the crash settles, then both doors stay on and both hinges are shut, latched and unloaded" checks this, and the existing `crash-parts` door tests are unchanged and pass.
 
 ### Mirror
 

@@ -23,7 +23,7 @@ function simState(cars: readonly DeformableCar[]): number[] {
   ]);
 }
 
-describe("thrown drivers are cosmetic: the cars move the same, and only the sandbox asks for the ride-along slow-mo", () => {
+describe("given thrown drivers (dummies that are cosmetic: the cars move the same with or without them)", () => {
   const crashes = [
     { label: "a 2×56 km/h head-on that kills both engines", pair: () => {
       const [a, b] = [makeCar(), makeCar()];
@@ -35,7 +35,7 @@ describe("thrown drivers are cosmetic: the cars move the same, and only the sand
   ];
   for (const { label, pair } of crashes) {
     for (const sandbox of [true, false]) {
-      it(`${sandbox ? "good: the sandbox" : "bad: a race or a derby"} after ${label}, both drivers thrown`, async () => {
+      it(`when ${sandbox ? "the sandbox" : "a race or a derby"} runs ${label} and both drivers are thrown, then both dummies fly, the cars move as they do without dummies, and ${sandbox ? "the ride-along slow-mo is asked for both drivers" : "no ride-along slow-mo is asked"}`, async () => {
         const cars = pair();
         const plain = pair();
         const scene = new THREE.Scene();
@@ -59,7 +59,7 @@ describe("thrown drivers are cosmetic: the cars move the same, and only the sand
   }
 });
 
-describe("a throw launched before Rapier has loaded", () => {
+describe("given a head-on crash between two fleet cars whose physics engine for the dummies loads late", () => {
   /** The fleet head-on with Rapier loading `late` frames in (the hit lands about 0.2 s in): dummies out at the end. */
   async function thrownAfterLoad(late: number): Promise<boolean> {
     const cars = headOn(20);
@@ -77,17 +77,17 @@ describe("a throw launched before Rapier has loaded", () => {
     return out;
   }
 
-  it("good: still throws the driver when Rapier is in 0.5 s later", async () => {
+  it("when the physics engine loads 0.5 s into the run, then the driver is still thrown", async () => {
     assert.equal(await thrownAfterLoad(42), true);
   });
 
-  it("bad: is dropped when Rapier comes more than a second after the hit", async () => {
+  it("when the physics engine loads more than a second after the hit, then the throw is dropped and no dummy flies", async () => {
     assert.equal(await thrownAfterLoad(120), false);
   });
 });
 
-describe("a thrown dummy hits other cars", () => {
-  it("bad: in a fleet head-on each driver flies into the other car and never ends up inside its cabin", async () => {
+describe("given a fleet head-on crash that throws both drivers", () => {
+  it("when the dummies fly for 2 s, then each driver flies into the other car and never ends up inside its cabin", async () => {
     const cars = headOn(20);
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();

@@ -34,10 +34,10 @@ const positions = (m: THREE.Object3D) => ((m as THREE.Mesh).geometry.getAttribut
 const worst = (r: CrashResult, kind: "quarter" | "arch") => Math.max(...PANEL_NAMES.filter((n) => n.startsWith(kind)).map((n) => r.hinge[n]!));
 const torn = (r: CrashResult, kind: "quarter" | "arch") => r.detached.filter((n) => n.startsWith(kind));
 
-describe("body panels: cut from each body's own skin", () => {
+describe("given every car body style, whose panels are cut from each body's own skin", () => {
   const bodies = CAR_STYLE_IDS.map((id) => ({ id, body: makeChassisGeometry(CAR_STYLES[id]) }));
 
-  it("good: every body has all six panels and no triangle belongs to two of them", () => {
+  it("when each body's panels are cut, then every body has all six panels and no triangle belongs to two of them", () => {
     for (const { id, body } of bodies) {
       const cuts = panelRegions(CAR_STYLES[id], body);
       assert.equal(cuts.map((r) => r.name).join(), PANEL_NAMES.join());
@@ -53,7 +53,7 @@ describe("body panels: cut from each body's own skin", () => {
     }
   });
 
-  it("good: the quarter panel starts at each body's own rear door seam or behind its door, not at one shared place", () => {
+  it("when the sedan, coupe and pickup quarter panels are cut, then each starts at its body's own rear door seam or behind its door, not at one shared place", () => {
     const front = (id: string) => {
       const { body } = bodies.find((b) => b.id === id)!;
       const r = panelRegions(CAR_STYLES[id as keyof typeof CAR_STYLES], body).find((q) => q.name === "quarterR")!;
@@ -64,7 +64,7 @@ describe("body panels: cut from each body's own skin", () => {
     assert.ok(front("coupe") > -0.15 && front("pickup") > -0.15, `two-door quarters start at z=${front("coupe")} / ${front("pickup")}, behind the door`);
   });
 
-  it("good: a flat shell lies on the skin (4 mm proud, its sheet 2 cm behind); a bent quarter panel peels at its leading edge and holds at the tail", () => {
+  it("when the sedan's quarter panel is shelled flat and then bent, then the flat shell lies on the skin (4 mm proud, its sheet 2 cm behind) and the bent panel peels at its leading edge and holds at the tail", () => {
     const { body } = bodies[0]!;
     const r = panelRegions(CAR_STYLES.sedan, body).find((q) => q.name === "quarterR")!;
     const shell = makeShell(r, body);
@@ -90,15 +90,15 @@ describe("body panels: cut from each body's own skin", () => {
     assert.ok(held < 0.02, `the hinge end moved ${held} m`);
   });
 
-  it("good: a car nobody has crashed carries no panel mesh: attached panels are body, with no draw of their own", () => {
+  it("when a police car nobody has crashed is checked, then it carries no panel mesh: attached panels are body, with no draw of their own", () => {
     const car = probe("police");
     for (const p of car.allParts.filter((q) => q.region)) assert.ok(!p.open && p.object.parent === null, `${p.name} is in the scene`);
     assert.ok(!car.body.geometry.getAttribute("primer").array.some((v) => v !== 0), "the body is primer before any panel hinged");
   });
 });
 
-describe("body panels hinge, then tear, on the standard crashes", () => {
-  it("good: a 30 % offset rear wall bends a quarter panel at 56 km/h and tears it at 80", () => {
+describe("given the standard crashes into a wall, body panels hinge, then tear", () => {
+  it("when a car hits a rear wall 30 % offset at 56 km/h and then at 80, then a quarter panel bends at 56 and tears at 80", () => {
     const soft = runWall(56, 0.3, "rear");
     assert.ok(worst(soft, "quarter") > 0.2 && worst(soft, "quarter") < 0.8, `56 km/h hinge ${worst(soft, "quarter")}`);
     assert.deepEqual(torn(soft, "quarter"), []);
@@ -106,14 +106,14 @@ describe("body panels hinge, then tear, on the standard crashes", () => {
     assert.equal(torn(hard, "quarter").length, 1, `80 km/h tore ${torn(hard, "quarter")}`);
   });
 
-  it("good: a 30 % offset front wall flaps an arch flare at 40 km/h and tears it from 56", () => {
+  it("when a car hits a front wall 30 % offset at 40 km/h and then at 56, then an arch flare flaps at 40 and tears at 56", () => {
     const soft = runWall(40, 0.3, "front");
     assert.ok(worst(soft, "arch") > 0.5, `40 km/h arch hinge ${worst(soft, "arch")}`);
     assert.deepEqual(torn(soft, "arch"), []);
     assert.equal(torn(runWall(56, 0.3, "front"), "arch").length, 1);
   });
 
-  it("good: an off-centre 24 km/h nose hit leaves the front bumper hanging from its far corner, still on", () => {
+  it("when a car hits a wall off-centre with its nose at 24 km/h, then the front bumper hangs from its far corner, still on", () => {
     const car = probe();
     runWall(24, 0.3, "front", { car });
     const bumper = car.part("bumperF");
@@ -121,14 +121,14 @@ describe("body panels hinge, then tear, on the standard crashes", () => {
     assert.ok(Math.abs(bumper.object.rotation.z) > 0.05, `bumper rolled ${bumper.object.rotation.z} rad`);
   });
 
-  it("bad: a 24 km/h wall hit leaves every panel flat and the shell out of the scene", () => {
+  it("when a car hits a wall at 24 km/h, then every panel stays flat and no shell is in the scene", () => {
     const car = probe();
     const r = runWall(24, 1, "front", { car });
     for (const n of PANEL_NAMES) assert.equal(r.hinge[n], 0, `${n} hinged at 24 km/h`);
     assert.ok(car.allParts.every((p) => !p.region || !p.open));
   });
 
-  it("good: a 56 km/h wall tilts the police light bar on one mount before it shears off at 64", () => {
+  it("when a police car hits a wall at 56 km/h, then its light bar tilts on one mount and does not shear off (it shears off at 64)", () => {
     const car = probe("police");
     const r = runWall(56, 1, "front", { car });
     assert.ok(!r.detached.includes("lightBar"));
@@ -137,8 +137,8 @@ describe("body panels hinge, then tear, on the standard crashes", () => {
   });
 });
 
-describe("torn panels", () => {
-  it("good: a torn quarter panel and arch settle flat on the road, and a car shows at most two torn shells", () => {
+describe("given a car whose quarter panels and arch flares are torn off", () => {
+  it("when the car steps on, then a torn quarter panel and arch settle flat on the road, a car shows at most two torn shells, and a reset brings every shell back and the body to paint", () => {
     const car = probe();
     for (const n of ["quarterL", "quarterR", "archFL", "archFR"]) car.tear(n, 20);
     for (let i = 0; i < 240; i++) car.step(DT);
@@ -155,7 +155,7 @@ describe("torn panels", () => {
   });
 });
 
-describe("dents on torn parts", () => {
+describe("given a parked car that tears its hood and right quarter panel off and drops them on the road (dents on torn parts)", () => {
   /** A parked car tears its hood and right quarter panel off, then drops them on the road: 240 fixed steps. */
   function dropped(): Probe {
     const car = probe();
@@ -166,7 +166,7 @@ describe("dents on torn parts", () => {
   }
   const fresh = positions(probe().hoodMesh);
 
-  it("good: a torn hood and panel dent where they land, by centimetres, and a second run dents them to the same vertex", () => {
+  it("when the parts land, then they dent where they land, by centimetres, and a second run dents them to the same vertex", () => {
     const a = dropped();
     const hood = a.part("hood");
     assert.ok(hood.dent.count > 0 && a.part("quarterR").dent.count > 0, "no bounce dented them");
@@ -178,14 +178,14 @@ describe("dents on torn parts", () => {
     assertSameNumbers(positions(b.part("quarterR").object), positions(a.part("quarterR").object), "quarter panel vertices");
   });
 
-  it("good: a reset puts the skin back", () => {
+  it("when the car is reset, then the skin is put back", () => {
     const car = dropped();
     car.resetVisual();
     assertSameNumbers(positions(car.part("hood").object), fresh, "reset hood");
     assert.equal(car.part("hood").dent.count, 0);
   });
 
-  it("bad: a soft touch does not dent, and a part takes no more than its share", () => {
+  it("when a soft touch lands and then many hard ones, then the soft touch does not dent and a part takes no more than its share of dents", () => {
     const d = newDentState();
     const o = new THREE.Object3D();
     recordDent(d, o, new THREE.Vector3(0, 1, 0));

@@ -20,9 +20,9 @@ function centroid(c: DeformableCar): [number, number] {
   return [x / m, z / m];
 }
 
-describe("the COM-gap floor moves a struck car by its velocity", () => {
+describe("given a coasting 53 km/h T-bone (a bullet car's nose driven into a resting car's right door)", () => {
   // The calibration's 53 km/h t-bone, coasting: the bullet drives its nose into the resting car's right door.
-  it("bad: the struck car reports most of the speed its masses travel at: its centroid's travel over the crash is its reported speed's integral", () => {
+  it("when the crash plays out, then the speed the struck car reports, integrated over the crash, covers at least 70 % of the distance its masses really travel", () => {
     const struck = makeCar();
     const bullet = makeCar();
     launch(struck, 0, 0, 0, 0, 0);
@@ -49,7 +49,7 @@ describe("the COM-gap floor moves a struck car by its velocity", () => {
   });
 });
 
-describe("a held throttle is the engine's impulse and no more", () => {
+describe("given two 30 km/h cars driving head-on at each other", () => {
   /** Two 30 km/h cars head-on, both holding the throttle for `pulse` s from first contact. */
   function headOn(pulse: number): { nose: number; engine: number; added: number[] } {
     const a = makeCar();
@@ -65,7 +65,7 @@ describe("a held throttle is the engine's impulse and no more", () => {
     return { nose: (r.noseShortL + r.noseShortR) / 2, engine: r.engineTravel, added };
   }
 
-  it("bad: holding the throttle through the 0.12 s pulse adds no more than the first gear's thrust over it, and crushes the noses as a coast does", () => {
+  it("when both hold the throttle through the 0.12 s engine pulse, then the drive adds no more than first gear's thrust over that time, and the noses crush as they do when coasting", () => {
     const coast = headOn(0);
     const held = headOn(0.12);
     const thrust = CLASSES.sedan.gears[0]![1];
@@ -84,11 +84,11 @@ function tBone(): { struck: DeformableCar; bullet: DeformableCar; w: CrashWorld 
   return { struck, bullet, w: makeWorld([struck, bullet], false, false) };
 }
 
-describe("the COM-gap floor holds a pair once the crush along the contact is spent", () => {
+describe("given the coasting 53 km/h T-bone, where the two cars should only be held to a common speed once the crush along the contact is spent", () => {
   // The floor stood at 2.15 m + 0.28 m of each car's FRONTAL leftover crumple. A car hit on its flank counted its untouched
   // nose, so the floor fired 30 ms into the coasting t-bone at 2.64 m against 2.69 m with the door at 48 % of its stroke:
   // the rigid exchange then rang the crush (a driven bullet's nose ended at 0.06 m against 0.20 m coasting).
-  it("bad: the struck car's masses take the pair's speed only once its door has crushed its stroke (strokeUsed reads the door on a flank)", () => {
+  it("when the struck car's masses first take the pair's speed, then its door has already used at least 80 % of its crush stroke", () => {
     const { struck, w } = tBone();
     const inner = w.world.beforeSlice!;
     let used = -1;
@@ -121,7 +121,7 @@ describe("the COM-gap floor holds a pair once the crush along the contact is spe
     return { bulletNose: (b.noseShortL + b.noseShortR) / 2, struckNose: a.noseShortR, door: a.doorMaxR, engine: a.engineTravel };
   }
 
-  it("bad: a bullet driven through the t-bone crushes its nose, the struck door and the engine block as a coast does (the 0.12 s pulse, and full throttle)", () => {
+  it("when the bullet holds the throttle for the 0.12 s pulse or at full throttle, then its nose, the struck door and the struck engine block crush as they do when coasting, and for the pulse so does the struck nose", () => {
     const coast = dents(0);
     for (const hold of [0.12, Infinity]) {
       const held = dents(hold);

@@ -37,23 +37,23 @@ function compare(geo: THREE.BufferGeometry): number {
   return maxAngle(fast, want);
 }
 
-describe("fast vertex normals", () => {
+describe("given computeNormalsFast (vertex normals computed faster than the stock method, to the same result)", () => {
   for (const id of ["sedan", "pickup"] as const) {
-    it(`good: crushed ${id} body matches computeVertexNormals`, () => {
+    it(`when a ${id} body is crushed by dent-like noise, then its normals match THREE's computeVertexNormals to within 1e-6 rad`, () => {
       const geo = makeChassisGeometry(CAR_STYLES[id]);
       crumple(geo, 0.04);
       assert.ok(compare(geo) < 1e-6);
     });
   }
 
-  it("good: a skinned panel matches after a second pass over stale normals", () => {
+  it("when a skinned hood panel with stale normals is crumpled and its normals are computed again, then they match computeVertexNormals to within 1e-6 rad", () => {
     const geo = makeHoodGeometry();
     computeNormalsFast(geo);
     crumple(geo, 0.02);
     assert.ok(compare(geo) < 1e-6);
   });
 
-  it("edge: non-indexed soup with collapsed triangles matches, zero normals included", () => {
+  it("when a non-indexed box with a collapsed triangle is crumpled, then its normals match computeVertexNormals to within 1e-6 rad and the collapsed triangle's zero normals stay zero in both", () => {
     const geo = new THREE.BoxGeometry(1, 0.5, 2, 3, 2, 4).toNonIndexed();
     crumple(geo, 0.05);
     const a = geo.getAttribute("position").array as Float32Array;

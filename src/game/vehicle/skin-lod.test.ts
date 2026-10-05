@@ -54,8 +54,8 @@ function crashFront(c: DeformableCar, defer: boolean, frames: number): void {
   }
 }
 
-describe("deform LoD: deferred skin is owed, never lost", () => {
-  it("good: an off-screen crash leaves the mesh at rest, then the catch-up writes the full dent", () => {
+describe("given a car whose dents are drawn late while it is off-screen (deferred skin), against an always-drawn twin hit the same way", () => {
+  it("when both take a 14 m/s nose hit and the deferred one is then caught up, then it stays at rest while off-screen, and afterwards its dents, glass and mesh match the twin's", () => {
     const ref = new DeformableCar(PAINT, new THREE.Scene());
     const lod = new DeformableCar(PAINT, new THREE.Scene());
     const rest = [bodyPositions(lod).slice()];
@@ -72,7 +72,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6, "catch-up pose differs from the always-skinned car");
   });
 
-  it("good: lifting the gate mid-crush settles the owed skin on the next deform update", () => {
+  it("when the deferral is lifted in the middle of the crush, then the next skin update settles what was owed and the car matches its always-drawn twin", () => {
     const ref = new DeformableCar(PAINT, new THREE.Scene());
     const lod = new DeformableCar(PAINT, new THREE.Scene());
     crashFront(ref, false, CONTACT);
@@ -85,7 +85,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6);
   });
 
-  it("good: a crush window that closes while deferred freezes the same final pose, nothing left owed", () => {
+  it("when the crush window closes while the drawing is still deferred, then nothing is left owed and the car freezes the same final dents and glass as its twin", () => {
     const ref = new DeformableCar(PAINT, new THREE.Scene());
     const lod = new DeformableCar(PAINT, new THREE.Scene());
     crashFront(ref, false, SETTLED);
@@ -95,7 +95,7 @@ describe("deform LoD: deferred skin is owed, never lost", () => {
     assert.ok(maxDiff(meshPositions(lod), meshPositions(ref)) < 1e-6, "deferred car froze a different dent");
   });
 
-  it("edge: a visual reset clears an owed skin so the rebuilt car is not re-dented", () => {
+  it("when the car is visually reset with drawing still owed, then nothing is left owed and the rebuilt car is not dented again", () => {
     const lod = new DeformableCar(PAINT, new THREE.Scene());
     const rest = [bodyPositions(lod).slice()];
     crashFront(lod, true, CONTACT);

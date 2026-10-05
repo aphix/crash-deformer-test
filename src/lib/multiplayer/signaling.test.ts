@@ -48,13 +48,13 @@ function tab(sql: Sql, room: string, id: string, name = "client", ip = `10.0.${l
   return self;
 }
 
-describe("signaling relay", () => {
+describe("given the signaling relay running on a freshly migrated database, with each browser tab polling it from its own address", () => {
   let sql: Sql;
   before(async () => {
     sql = await relayDb();
   });
 
-  it("lets only a peer's own tab read its inbox, signal as it or remove it", async () => {
+  it("when another tab claims a peer's id, then reading its inbox, signalling as it and removing it are refused with 403, and the peer's own tab still gets its signals and peers and can remove itself", async () => {
     const host = tab(sql, "AUTH1", "aaaa0001", "host");
     const guest = tab(sql, "AUTH1", "bbbb0002");
     assert.equal((await host.poll()).status, 200);
@@ -77,7 +77,7 @@ describe("signaling relay", () => {
     assert.deepEqual((await guest.poll()).body.peers?.map((p) => p.id), ["bbbb0002"]);
   });
 
-  it("keeps the role tag a peer registered with, and one host per room", async () => {
+  it("when a joined guest later polls with the host role tag, then it stays registered as a client, and another tab claiming host is refused with 409 host taken", async () => {
     const host = tab(sql, "ROLE1", "aaaa0001", "host");
     const guest = tab(sql, "ROLE1", "bbbb0002");
     await host.poll();
@@ -92,7 +92,7 @@ describe("signaling relay", () => {
     assert.deepEqual([second.status, second.body.error], [409, "host taken"]);
   });
 
-  it("keeps seated members seated when fake ids rush the room at once", async () => {
+  it("when as many fake peer ids as a room holds poll it at once, then only the places the two members left are taken and both members stay seated in a full room", async () => {
     const host = tab(sql, "RUSH1", "f00d0001", "host");
     const guest = tab(sql, "RUSH1", "f00d0002");
     await host.poll();
@@ -108,7 +108,7 @@ describe("signaling relay", () => {
     assert.equal(statuses.filter((s) => s === 200).length, ROOM_MAX - 2);
   });
 
-  it("keeps one member's backlog from filling another member's inbox", async () => {
+  it("when one member has already queued 400 signals in the host's inbox, then its next offer to the host is refused with 429 while another member's offer to the host is accepted", async () => {
     const host = tab(sql, "FLOOD1", "aaaa0001", "host");
     const flooder = tab(sql, "FLOOD1", "bbbb0002");
     const late = tab(sql, "FLOOD1", "cccc0003");
@@ -122,7 +122,7 @@ describe("signaling relay", () => {
     assert.equal((await late.offer(host.id)).status, 200);
   });
 
-  it("ranks a public room of real players above one address's padded rooms, and caps the rooms it hosts", async () => {
+  it("when attackers on one subscriber's address pad two public rooms and a room of real players is listed, then the real room is listed first and a third public room from that address is refused with 429", async () => {
     // Every attacker tab has its own address, all in one subscriber's IPv6 /64.
     let n = 0;
     const attacker = (room: string, id: string, name?: string) => tab(sql, room, id, name, `2001:db8:0:1::${(++n).toString(16)}`);
@@ -145,7 +145,7 @@ describe("signaling relay", () => {
     assert.deepEqual([third.status, third.body.error], [429, "too many public rooms"]);
   });
 
-  it("keeps offering a public room through its host's stall between polls, and drops it once the host is gone", async () => {
+  it("when one public room's host stalls for 9 s between polls and another's has been silent for 20 s, then the stalled host's room is still listed and the silent host's room is dropped", async () => {
     // Measured in a browser: a host's first course warm-up held its polls back 5.6–8.6 s.
     await tab(sql, "pub-derby-STALL1", "stallhost", "host").poll();
     await tab(sql, "pub-derby-GONE1", "gonehost", "host").poll();
@@ -160,7 +160,7 @@ describe("signaling relay", () => {
     assert.deepEqual(listed.rooms.map((r) => r.room), ["pub-derby-STALL1"]);
   });
 
-  it("lists a public room with its host's match tag: set at joining, replaced by the next poll, kept by one without a tag, never taken from a guest, refused when malformed", async () => {
+  it("when public rooms are listed, then each shows its host's match tag: set at joining, replaced by the next poll, kept by a poll without a tag, never taken from a guest, and a malformed tag is refused", async () => {
     const host = tab(sql, "pub-race-META01", "metahost", "host");
     host.meta = "lobby.oval";
     await host.poll();
@@ -187,8 +187,10 @@ describe("signaling relay", () => {
     bad.meta = "x".repeat(33);
     assert.equal((await bad.poll()).status, 400);
   });
+});
 
-  it("migrates a store the pre-token relay wrote", async () => {
+describe("given a relay database holding a full room written before peer tokens existed", () => {
+  it("when the database is migrated, then a new host can join that room and sees only itself", async () => {
     const legacy = await relayDb(async (pg) => {
       for (let k = 0; k <= ROOM_MAX; k++) {
         await pg.query(`INSERT INTO webrtc_peers (room, peer_id, name) VALUES ('OLD1', $1, 'host')`, [`old${k}`]);

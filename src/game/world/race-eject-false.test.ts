@@ -61,7 +61,7 @@ function unexplained(w: World, go: () => void): string[] {
     .map((e) => `car ${e.car} at ${e.t.toFixed(1)} s: ${e.what} with no hit in the last ${RECENT} s`);
 }
 
-describe("race: nobody is killed or thrown out by the ground", () => {
+describe("given a race on the ground of a course (slopes, crests, banked turns), with every contact on every car logged", () => {
   afterEach(() => setGround(null));
 
   /** Six cars (the AI-driven player slot and five rivals) at the default aggression, 3 laps. */
@@ -88,7 +88,7 @@ describe("race: nobody is killed or thrown out by the ground", () => {
 
   for (const course of COURSE_IDS.filter((id) => id !== "city")) {
     for (const seed of course === "stunt" ? [1, 2, 3, 4] : [1, 2]) {
-      it(`${course}, AI only, 6 cars, 3 laps, seed ${seed}: every kill and throw follows a hit`, () => {
+      it(`when 6 AI-driven cars race 3 laps of ${course} with field seed ${seed}, then every engine kill and driver throw follows a hit of at least ${MIN_HIT} m/s on that car in the previous ${RECENT} s`, () => {
         assert.deepEqual(aiRace(course, seed), []);
       });
     }
@@ -108,13 +108,14 @@ describe("race: nobody is killed or thrown out by the ground", () => {
     }
   }
 
-  it("bad: stunt, the player on the apron line (a wall hit, then the CRUSH crest) for 2 laps: every kill and throw follows a hit", () => {
-    assert.deepEqual(playerLap("stunt", { lat: 10.5 }, 2), []);
-  });
-  it("bad: rally, the player on the apron line (climbs and the hairpin's bank) for 1 lap: every kill and throw follows a hit", () => {
-    assert.deepEqual(playerLap("rally", { lat: 10.5 }, 1), []);
-  });
-  it("bad: rally, the player on the inside line for 2 laps: every kill and throw follows a hit", () => {
-    assert.deepEqual(playerLap("rally", { lat: -4 }, 2), []);
-  });
+  const playerLineCases = [
+    { it: "when the scripted player drives the stunt course's apron line for 2 laps (a wall hit, then the CRUSH crest), then every engine kill and driver throw follows a hit", course: "stunt", line: { lat: 10.5 }, laps: 2 },
+    { it: "when the scripted player drives the rally course's apron line for 1 lap (the climbs and the hairpin's bank), then every engine kill and driver throw follows a hit", course: "rally", line: { lat: 10.5 }, laps: 1 },
+    { it: "when the scripted player drives the rally course's inside line for 2 laps, then every engine kill and driver throw follows a hit", course: "rally", line: { lat: -4 }, laps: 2 },
+  ] as const;
+  for (const testCase of playerLineCases) {
+    it(testCase.it, () => {
+      assert.deepEqual(playerLap(testCase.course, testCase.line, testCase.laps), []);
+    });
+  }
 });

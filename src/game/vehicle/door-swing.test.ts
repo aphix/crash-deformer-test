@@ -39,15 +39,15 @@ function open(deg: number, side: -1 | 1 = 1, yaw = 0, v0 = 0): DeformableCar {
 
 const deg = (car: DeformableCar, side: -1 | 1 = 1): number => car.doorHinge(side).theta / D2R;
 
-describe("the door pendulum's drive", () => {
-  it("good: braking opens a door of either side, accelerating shuts it", () => {
+describe("given swingAccel (the swing push the car's own acceleration puts on an unlatched door's hinge)", () => {
+  it("when the car brakes at 6 m/s² or accelerates at 6 m/s², then braking pushes a door on either side open and accelerating pushes it shut", () => {
     for (const sx of [-1, 1]) {
       assert.ok(swingAccel(sx, 0.5, 0, -6, 0, 0) > 0, `side ${sx} braking`);
       assert.ok(swingAccel(sx, 0.5, 0, 6, 0, 0) < 0, `side ${sx} accelerating`);
     }
   });
 
-  it("good: the outside of a turn opens its door, the inside shuts it; one law, mirrored", () => {
+  it("when the car turns, then the door on the outside of the turn is pushed open and the one on the inside shut, by one law mirrored left to right", () => {
     // A turn toward +x pushes the frame's contents toward −x: the −x (left) door opens, the +x one shuts.
     assert.ok(swingAccel(-1, 0.6, 8, 0, 0, 0) > 0 && swingAccel(1, 0.6, 8, 0, 0, 0) < 0);
     for (const [ax, az, w, al] of [
@@ -56,13 +56,13 @@ describe("the door pendulum's drive", () => {
     ] as const) assert.ok(Math.abs(swingAccel(-1, 0.7, -ax, az, w, -al) - swingAccel(1, 0.7, ax, az, w, al)) < 1e-9, "mirror");
   });
 
-  it("good: a shut door is not moved by braking (the force is along its slab)", () => {
+  it("when a car brakes at 9 m/s² with a door shut, then the shut door gets no swing push, because the force is along its slab", () => {
     assert.equal(swingAccel(1, 0, 0, -9, 0, 0), 0);
   });
 });
 
-describe("an open door swings with the car", () => {
-  it("good: braking swings it forward: 30° opens past 50° in 0.4 s (it was fixed at 30° for ever)", () => {
+describe("given an unlatched open door that swings with the car's acceleration", () => {
+  it("when the car brakes at 6 m/s² for 0.4 s, then a door opened to 30° on either side swings forward past 50° and stays unlatched", () => {
     for (const side of [-1, 1] as const) {
       const car = open(30, side);
       push(car, 0, -6, 0.4);
@@ -71,7 +71,7 @@ describe("an open door swings with the car", () => {
     }
   });
 
-  it("good: accelerating swings it back and latches it; the door stays on", () => {
+  it("when the car accelerates at 6 m/s² for 0.7 s, then a door opened to 30° on either side swings back and latches shut, and stays on the car", () => {
     for (const side of [-1, 1] as const) {
       const car = open(30, side);
       push(car, 0, 6, 0.7);
@@ -81,7 +81,7 @@ describe("an open door swings with the car", () => {
     }
   });
 
-  it("good: a push too soft to shut it leaves it open, a gentle one does not move it at all", () => {
+  it("when 6 m/s² pushes a 60° door shut for only 0.1 s, then it stays open between 20° and 55°; a push lasting 1 s latches it; and a gentle 1 m/s² push does not move a 30° door at all", () => {
     const brief = open(60);
     push(brief, 0, 6, 0.1);
     push(brief, 0, 0, 3);
@@ -95,7 +95,7 @@ describe("an open door swings with the car", () => {
     assert.ok(Math.abs(deg(gentle) - 30) < 1e-6, "1 m/s² moved a door the hinge friction holds");
   });
 
-  it("good: in a turn the outside door swings open and the inside door slams shut and latches", () => {
+  it("when the car turns with 8 m/s² of sideways acceleration for 0.5 s, then the outside door swings open past 60° and the inside door slams shut and latches", () => {
     const out = open(40, -1);
     push(out, 8, 0, 0.5);
     assert.ok(deg(out, -1) > 60, `outside door at ${deg(out, -1).toFixed(1)}°`);
@@ -104,7 +104,7 @@ describe("an open door swings with the car", () => {
     assert.ok(inside.doorHinge(1).latched && !inside.partOff("doorR"), "the inside door should latch");
   });
 
-  it("good: only the car-frame acceleration counts: turned any way, or carried at 30 m/s, the swing is the same", () => {
+  it("when the car faces any heading or is carried at 30 m/s, then the door swings exactly as it does on a car at rest facing forward, because only the acceleration in the car's own frame counts", () => {
     const at = (yaw: number, v0: number) => {
       const car = open(35, 1, yaw, v0);
       const trace: number[] = [];
@@ -126,7 +126,7 @@ describe("an open door swings with the car", () => {
     }
   });
 
-  it("good: a crash's spike saturates: a 15 m/s jolt in one step does not tear the door", () => {
+  it("when a crash's 15 m/s jolt lands in a single step, then the door does not tear off and opens no further than its stop", () => {
     const car = open(30);
     car.velocity.z -= 15;
     for (let k = 0; k < 60; k++) car.swingDoors(H);
@@ -134,7 +134,7 @@ describe("an open door swings with the car", () => {
     assert.ok(deg(car) <= DOOR_OPEN_MAX / D2R + 1e-9);
   });
 
-  it("good: the car's swing shuts through the Doors ram's rule: past SLAM_TEAR_J the door leaves, below it latches", () => {
+  it("when the open door swings shut at 15 rad/s then at 17.5 rad/s, then it latches at 15 and tears off at 17.5, as the Doors ram's slam rule says (past the slam-tear energy limit the door leaves)", () => {
     // The rule is `closeDoor`, door-rig.test.ts "slam overload" pins its energies; here the car's own swing reaches it.
     for (const [omega, off] of [
       [-15, false],
@@ -149,7 +149,7 @@ describe("an open door swings with the car", () => {
   });
 });
 
-describe("driven for real", () => {
+describe("given a car driven for real in shape deform mode with its right door open", () => {
   const IDLE: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
   function drive(v0: number, deg0: number, input: Partial<DriveInput>, seconds: number): DeformableCar {
     const car = new DeformableCar(paint(), new THREE.Scene());
@@ -173,18 +173,18 @@ describe("driven for real", () => {
     return car;
   }
 
-  it("good: full braking from 25 m/s throws a 30° door onto its stop, which it holds", () => {
+  it("when it brakes fully from 25 m/s with the door at 30°, then the door is thrown onto its stop and holds there without tearing off", () => {
     const car = drive(25, 30, { brake: 1 }, 3);
     assert.ok(Math.abs(deg(car) - DOOR_OPEN_MAX / D2R) < 0.5, `${deg(car)}°`);
     assert.ok(!car.partOff("doorR"));
   });
 
-  it("good: a launch swings a 60° door shut", () => {
+  it("when it launches from 3 m/s at full throttle with the door at 60°, then the door swings shut, latches and stays on", () => {
     const car = drive(3, 60, { throttle: 1 }, 3);
     assert.ok(car.doorHinge(1).latched && !car.partOff("doorR"), `${deg(car)}°`);
   });
 
-  it("good: a turn shuts the door on its inside", () => {
+  it("when it drives at 15 m/s through a turn that puts the open door on the inside, then the door shuts and latches", () => {
     const car = drive(15, 40, { throttle: 0.6, steer: 1 }, 3);
     assert.ok(car.doorHinge(1).latched, `${deg(car)}°`);
   });
@@ -196,8 +196,8 @@ class Probe extends DeformableCar {
   }
 }
 
-describe("a door a side hit has sprung swings with the car", () => {
-  it("good: a 40 km/h side wall leaves the struck door unlatched, at least as far open as its crash jam", () => {
+describe("given a car whose door a side hit has sprung open", () => {
+  it("when it hits a wall side-on at 40 km/h in shape deform mode, then exactly one door is left unlatched and hangs open at least as far as its crash jam (how far the crash bent it open)", () => {
     const car = new Probe(paint(), new THREE.Scene());
     car.deform.setMode("shape");
     runWall(40, 1, "side", { car });

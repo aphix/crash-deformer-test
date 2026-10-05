@@ -46,8 +46,8 @@ function untilBurst(r: RagdollSystem): number {
   throw new Error("the purse never burst");
 }
 
-describe("a woman driver's purse", () => {
-  it("good: a civilian woman's throw sends 1 purse at 0.85× her speed on her heading, then 4-7 things at 0.85× the purse's, inside the spread", async () => {
+describe("given a thrown crash-test dummy driver who may carry a handbag (a woman civilian) that bursts open into small items", () => {
+  it("when a civilian woman is thrown, then 1 handbag leaves at 0.85× her speed on her heading and, at the burst, 4-7 items fly at 0.85× the handbag's speed inside the spread cone", async () => {
     const r = await system(seedWhere(true));
     throwOut(r);
     assert.ok(purses(r).active(0));
@@ -72,7 +72,7 @@ describe("a woman driver's purse", () => {
     r.dispose();
   });
 
-  it("good: a man's throw and a policewoman's throw spawn no purse and no things", async () => {
+  it("when a man is thrown, or a policewoman is thrown, then no handbag and no items appear", async () => {
     const man = await system(seedWhere(false));
     throwOut(man);
     for (let n = 0; n < 60; n++) man.update(STEP, [], true, true, 0, null);
@@ -87,7 +87,7 @@ describe("a woman driver's purse", () => {
     cop.dispose();
   });
 
-  it("good: the purse and its things land on the ground, go on the way she went, and come to rest", async () => {
+  it("when a civilian woman is thrown and 8 seconds pass, then the handbag and its items land on the ground, travel the way she went and come to rest", async () => {
     const r = await system(seedWhere(true));
     throwOut(r);
     let low = Infinity;
@@ -106,7 +106,7 @@ describe("a woman driver's purse", () => {
     r.dispose();
   });
 
-  it("good: the same throw replays the same purse and things, from hashes (Math.random is never called)", async () => {
+  it("when the same throw is run twice with Math.random forbidden, then the handbag and items end up in exactly the same places", async () => {
     const seed = seedWhere(true);
     const real = Math.random;
     const poses: number[][] = [];
@@ -129,7 +129,7 @@ describe("a woman driver's purse", () => {
     assertSameNumbers(poses[0]!, poses[1]!, "the replayed throw");
   });
 
-  it("good: the purse and things are cleared with their dummy, a reset and a dispose", async () => {
+  it("when the dummy is removed, the game is reset, or the system is disposed, then the handbag and its items are cleared with it", async () => {
     const r = await system(seedWhere(true));
     throwOut(r);
     untilBurst(r);
@@ -148,7 +148,7 @@ describe("a woman driver's purse", () => {
     assert.equal(scene.parent, null, "dispose takes the props mesh out of the scene");
   });
 
-  it("good: a driver keeps his look through a reset and a re-throw, and a new race changes it", async () => {
+  it("when a driver is thrown again after a reset, then he keeps the same look, and when the next race changes the look seed, the look changes", async () => {
     const r = await system(7);
     const colors = () => Float32Array.from(r["mesh"].instanceColor!.array);
     throwOut(r, 3);
@@ -163,7 +163,7 @@ describe("a woman driver's purse", () => {
     r.dispose();
   });
 
-  it("bad: in the ejection range (100 km/h into the barrier, sand) the purse comes to rest beside her, not 30 m on, and every body stays under the spin cap", async () => {
+  it("when a civilian woman is thrown from a 100 km/h crash into the barrier on sand at the ejection range, then she lands 20-40 m on, the handbag rests within 8 m of her instead of 30 m on, and no body spins faster than the spin cap", async () => {
     const car = makeCar("shape", 0.32, 0.45);
     armKill(car.deform, "sedan", DEFAULT_REALISM, "default");
     launch(car, -RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6, 0);

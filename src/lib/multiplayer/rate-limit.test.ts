@@ -8,8 +8,8 @@ function request(l: RateLimiter, ip: string, peer: string, _room: string, now: n
   return l.ip(ip, now) && l.peer(ip, peer, now);
 }
 
-describe("signaling rate limits", () => {
-  it("lets a full room of friends behind one NAT finish their mesh handshake", () => {
+describe("given the signaling relay's rate limits (a per-address bucket and a per-peer-id bucket; a room spends none)", () => {
+  it("when a full room of friends behind one NAT sends 60 requests per peer within 2 s of handshaking, then no request is refused", () => {
     const l = new RateLimiter();
     // Worse than the measured 8-page smoke (~30 requests per peer over 7 s): 60 per peer inside 2 s.
     let refused = 0;
@@ -19,7 +19,7 @@ describe("signaling rate limits", () => {
     assert.equal(refused, 0);
   });
 
-  it("holds one peer id that floods to one peer's burst, then its refill rate", () => {
+  it("when one peer id floods 1000 requests at once, then it gets one peer's burst, and 1000 requests a second later get only its refill rate", () => {
     const l = new RateLimiter();
     let ok = 0;
     for (let k = 0; k < 1000; k++) if (request(l, "a", "same", "R", 0)) ok++;
@@ -29,14 +29,14 @@ describe("signaling rate limits", () => {
     assert.equal(ok, LIMITS.peer.rate);
   });
 
-  it("holds an address that rotates peer ids to a full room's worth", () => {
+  it("when one address rotates through 5000 peer ids and rooms at once, then it gets no more than a full room's worth of requests (the address burst)", () => {
     const l = new RateLimiter();
     let ok = 0;
     for (let k = 0; k < 5000; k++) if (request(l, "a", `p${k}`, `R${k}`, 0)) ok++;
     assert.equal(ok, LIMITS.ip.burst);
   });
 
-  it("keeps an exhausted address or peer id from costing anyone else", () => {
+  it("when one address is exhausted and another address exhausts a peer id, then a third address using that same peer id, and its room listing, are still admitted", () => {
     const l = new RateLimiter();
     for (let k = 0; k < 5000; k++) request(l, "a", `p${k}`, `R${k}`, 0);
     for (let k = 0; k < 1000; k++) request(l, "b", "victim", "S", 0);
@@ -45,7 +45,7 @@ describe("signaling rate limits", () => {
     assert.ok(l.list("c", 0));
   });
 
-  it("admits a new address and peer however many keys flooders mint", () => {
+  it("when three addresses send at their full rate for 70 s with a fresh peer and room per request, then a new address and peer are still admitted", () => {
     // ReviewA's probe: three addresses at their full rate, a fresh peer and room per request, 70 s.
     const l = new RateLimiter();
     const tick = 1000 / LIMITS.ip.rate;
@@ -56,7 +56,7 @@ describe("signaling rate limits", () => {
     assert.ok(request(l, "victim", "fresh", "pub-race-X", now - tick));
   });
 
-  it("keeps an outsider rotating peer ids from spending a room's members' budget", () => {
+  it("when an outsider rotates through 5000 peer ids for a public room, then every member of that room behind another address is still admitted", () => {
     const l = new RateLimiter();
     for (let k = 0; k < 5000; k++) request(l, "outsider", `p${k}`, "pub-race-R", 0);
     for (let p = 0; p < ROOM_MAX; p++) assert.ok(request(l, "nat", `peer${p}`, "pub-race-R", 0), `peer${p}`);

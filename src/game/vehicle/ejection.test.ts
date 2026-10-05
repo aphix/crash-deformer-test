@@ -23,8 +23,8 @@ function throws(cars: DeformableCar[], barrier = false): [number, ExitPane, numb
     .sort((a, b) => a[0] - b[0]);
 }
 
-describe("a disabling head-on or side hit throws the driver out (sim state), nothing else does", () => {
-  it("bad: a 2×56 km/h head-on kills both engines and throws both drivers through the windshield at their pre-hit speed", () => {
+describe("given two cars crashing, where only a disabling head-on or side hit throws a driver out", () => {
+  it("when two cars drive head-on at 56 km/h each, then both engines die and both drivers are thrown out through the windshield at their pre-hit speed", () => {
     const a = makeCar();
     const b = makeCar();
     launch(a, -5, 0, Math.PI / 2, 56 / 3.6, 0);
@@ -37,7 +37,7 @@ describe("a disabling head-on or side hit throws the driver out (sim state), not
     assert.equal(b.driverOut, "windshield");
   });
 
-  it("bad: a T-bone that finishes a worn wreck throws its driver out of the struck (right) side's window; the bullet keeps its own", () => {
+  it("when a T-bone finishes a worn-out car, then its driver is thrown out of the struck right-hand side's window and the striking car's driver stays in", () => {
     const struck = worn(makeCar());
     const bullet = makeCar();
     launch(struck, 0, 0, 0, 0, 0);
@@ -48,7 +48,7 @@ describe("a disabling head-on or side hit throws the driver out (sim state), not
     assert.equal(bullet.driverOut, null, "the bullet's driver stays in");
   });
 
-  it("bad: a 2×28 km/h head-on that leaves both engines running throws nobody", () => {
+  it("when two cars drive head-on at 28 km/h each and both engines keep running, then nobody is thrown out", () => {
     const a = makeCar();
     const b = makeCar();
     launch(a, -5, 0, Math.PI / 2, 28 / 3.6, 0);
@@ -59,14 +59,14 @@ describe("a disabling head-on or side hit throws the driver out (sim state), not
     assert.equal(a.driverOut, null);
   });
 
-  it("bad: a fleet head-on at 2×72 km/h (the HUD's 0–32 m/s launch range) throws both drivers, though at the default realism neither car dies", () => {
+  it("when a fleet car meets another head-on at 72 km/h each (the HUD's 0–32 m/s launch range) at the default realism, then neither car dies yet both drivers are thrown out", () => {
     const [a, b] = headOn(20);
     const out = throws([a, b]);
     assert.ok(a.deform.drivetrainAlive && b.deform.drivetrainAlive, "the default realism leaves both engines running");
     assert.deepEqual(out.map(([i, exit]) => [i, exit]), [[0, "windshield"], [1, "windshield"]]);
   });
 
-  it("bad: an 80 km/h scrape down the barrier's flank that finishes a worn wreck throws nobody", () => {
+  it("when an 80 km/h scrape down the barrier's flank finishes a worn-out car, then nobody is thrown out", () => {
     const car = worn(fleetCar());
     // Angled 12° into the barrier's +x face, the left flank 0.3 m off it: the front-left corner meets it near z = 0.
     const v = 80 / 3.6;
@@ -80,7 +80,7 @@ describe("a disabling head-on or side hit throws the driver out (sim state), not
     assert.equal(car.driverOut, null);
   });
 
-  it("bad: a 50 km/h rear hit that finishes a worn wreck throws nobody", () => {
+  it("when a 50 km/h rear hit finishes a worn-out car, then nobody is thrown out", () => {
     const car = worn(makeCar());
     launch(car, BARRIER_HALF.x + 6.2, 0, Math.PI / 2, -50 / 3.6, 0);
     const out = throws([car], true);
@@ -90,7 +90,7 @@ describe("a disabling head-on or side hit throws the driver out (sim state), not
   });
 });
 
-describe("the ejection event is the throw: everything a dummy needs to be launched again", () => {
+describe("given a throw (the ejection event: everything a dummy needs to be launched again)", () => {
   /** The 2×56 km/h head-on, each throw checked against the car as the sim had it that very step. */
   function observed(): { seen: Ejection[]; checked: number } {
     const a = makeCar();
@@ -119,7 +119,7 @@ describe("the ejection event is the throw: everything a dummy needs to be launch
     return { seen, checked };
   }
 
-  it("bad: each event's local and world exit agree in the car's frame, its direction is unit and its numbers are f32-exact", () => {
+  it("when two cars crash head-on at 56 km/h each, then each throw's car-local and world exit agree in the car's frame, its direction is a unit vector and its numbers are exact in 32-bit floats", () => {
     const { seen, checked } = observed();
     assert.equal(checked, 2);
     for (const e of seen) {
@@ -128,12 +128,12 @@ describe("the ejection event is the throw: everything a dummy needs to be launch
     }
   });
 
-  it("bad: the same crash twice gives the very same events (the decision is deterministic sim state)", () => {
+  it("when the same crash is run twice, then it gives the very same throws, since the decision is deterministic simulation state", () => {
     const run = (): string => JSON.stringify(observed().seen);
     assert.equal(run(), run());
   });
 
-  it("bad: a car whose driver is already out is not thrown again by a later hit, but the other car's driver is", () => {
+  it("when a later hit lands on a car whose driver is already out, then that driver is not thrown again but the other car's driver is", () => {
     const a = makeCar();
     const b = makeCar();
     launch(a, -5, 0, Math.PI / 2, 56 / 3.6, 0);
@@ -144,7 +144,7 @@ describe("the ejection event is the throw: everything a dummy needs to be launch
     assert.deepEqual(w.ejections.map((e) => e.car), [1]);
   });
 
-  it("good: putting the car back (a respawn) puts the driver back in", () => {
+  it("when the car is put back (a respawn), then its driver is back in", () => {
     const a = fleetCar();
     a.driverOut = "doorL";
     a.spawnFacing(0, 0, 0, 0);
@@ -152,7 +152,7 @@ describe("the ejection event is the throw: everything a dummy needs to be launch
   });
 });
 
-describe("a throw needs a hit behind the kill", () => {
+describe("given a fleet sedan driving at 30 m/s on open road, struck once on its flank and then losing its drivetrain (a throw needs a hit behind the kill)", () => {
   /**
    * A fleet sedan at 30 m/s on open road, struck once on its flank (7 m/s closing), then `gap` s without a new hit, driven on
    * at 30 m/s (its masses held to it for the last 0.5 s: a racing car, not a wreck sliding to a stop), then its drivetrain
@@ -175,23 +175,23 @@ describe("a throw needs a hit behind the kill", () => {
     return w.ejections;
   }
 
-  it("bad: a drivetrain that dies 0.1 s after a flank hit throws the driver out of the struck side", () => {
+  it("when the drivetrain dies 0.1 s after the flank hit, then the driver is thrown out of the struck side", () => {
     assert.deepEqual(killedAfter(0.1).map((e) => e.exit), ["doorL"]);
   });
 
-  it("bad: a drivetrain that dies 1.5 s, or 20 s, after the last contact (a damaged car over a crest, a last wheel gone) throws nobody, at 30 m/s", () => {
+  it("when the drivetrain dies 1.5 s or 20 s after the last contact (a damaged car over a crest, a last wheel gone), then nobody is thrown out", () => {
     assert.deepEqual(killedAfter(1.5), []);
     assert.deepEqual(killedAfter(20), []);
   });
 
-  it("bad: a graze that touches a car hit 5 s before, the very step its drivetrain dies (a block already at the edge, a crest under it), throws nobody", () => {
+  it("when a graze touches the car hit 5 s before, on the very step its drivetrain dies (a block already at the edge, a crest under it), then nobody is thrown out", () => {
     assert.deepEqual(killedAfter(5, true), []);
   });
 });
 
-describe("the ejection range: a straight head-on throws the driver forward", () => {
+describe("given the ejection range: a straight head-on into the barrier, at yaw 0° and ±3° with offsets up to ±1.2 m", () => {
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`bad: a ${cls} at ${RANGE.kph} km/h straight into the barrier (yaw 0, ±3°, offsets to ±1.2 m): out of the windshield, along the run-up, never a side pane`, () => {
+    it(`when a ${cls} drives at ${RANGE.kph} km/h straight into the barrier, then the driver is thrown out of the windshield along the run-up and never out of a side pane`, () => {
       const lateral = Math.tan((8 * Math.PI) / 180);
       for (const yawDeg of [0, 3, -3]) {
         for (const z of [0, 0.6, -0.6, 1.2, -1.2]) {

@@ -61,8 +61,8 @@ function drop(kind: keyof typeof ORIENT, h: number, hz = 60): DeformableCar {
   return c;
 }
 
-describe("load crush: a stack of cars", () => {
-  it("bad: each roof is crushed more than the roof above it, the top car's not at all, and the stack stands still", () => {
+describe("given a stack of cars dropped one on the next on the flat pad, each roof yielding under the weight above it", () => {
+  it("when a stack of four settles, then each roof is crushed more than the one above it, the top car's roof not at all, the bottom roof 0.12 to 0.26 m, and the stack then stands still for 5 s", () => {
     const { cars, w } = stack(4);
     const sink = cars.map(roofSink);
     for (let i = 1; i < 4; i++) assert.ok(sink[i - 1]! > sink[i]! + 0.02, `car ${i - 1} (${sink[i - 1]!.toFixed(3)} m) is not under a clearly worse roof than car ${i} (${sink[i]!.toFixed(3)} m)`);
@@ -77,13 +77,13 @@ describe("load crush: a stack of cars", () => {
     });
   });
 
-  it("close-but-wrong: the bottom roof is crushed by the weight above it, not just by the car on it", () => {
+  it("when the stack has two, three and four cars, then the bottom roof is crushed more with each car added, so it takes the weight above it and not just the car on it", () => {
     const bottom = [2, 3, 4].map((n) => roofSink(stack(n).cars[0]!));
     assert.ok(bottom[0]! > 0.02, `one car on a roof crushed it ${bottom[0]!.toFixed(3)} m`);
     assert.ok(bottom[1]! > bottom[0]! + 0.02 && bottom[2]! > bottom[1]! + 0.02, `bottom roof under 1, 2, 3 cars: ${bottom.map((b) => b.toFixed(3)).join(", ")} m`);
   });
 
-  it("bad: the crush is the same at 60, 144 and 240 Hz", () => {
+  it("when a stack of four settles while simulated at 60, 144 and 240 Hz, then every roof is crushed the same amount at all three rates", () => {
     const sinks = [60, 144, 240].map((hz) => stack(4, hz).cars.map(roofSink));
     for (let i = 0; i < 3; i++) {
       const v = sinks.map((s) => s[i]!);
@@ -91,7 +91,7 @@ describe("load crush: a stack of cars", () => {
     }
   });
 
-  it("bad: a stack restored from a clip keyframe shows the roof crush it had live, carries on from it, and its crushed cars are wrecks", () => {
+  it("when a settled stack of four is restored from a clip keyframe into fresh cars, then the roofs show the crush they had live, carry on from it for 3 s, and the crushed cars are wrecks", () => {
     const { cars: live, w } = stack(4);
     assert.ok(live.slice(0, 3).every((c) => c.crashed), "a load-crushed car is not a wreck (it would not ride the replay's and netplay's wreck sections)");
     // The keyframe: pose, flight and solver state of each car (`engine-record` writes the same three), into fresh cars.
@@ -120,15 +120,15 @@ describe("load crush: a stack of cars", () => {
   });
 });
 
-describe("load crush: a car dropped on a face", () => {
-  it("bad: dropped upside-down, the roof crushes at 0.5 m, more from higher, and no further than packed", () => {
+describe("given a car dropped onto one of its faces on the flat pad", () => {
+  it("when it is dropped upside-down from 0.5, 1 and 2 m, then the roof crushes at 0.5 m, crushes more from higher, and no further than its packed depth", () => {
     const sink = [0.5, 1, 2].map((h) => roofSink(drop("roof", h)));
     assert.ok(sink[0]! > 0.1, `0.5 m onto the roof crushed it ${sink[0]!.toFixed(3)} m`);
     assert.ok(sink[1]! > sink[0]! + 0.03 && sink[2]! > sink[1]! + 0.03, `roof crush from 0.5 / 1 / 2 m: ${sink.map((s) => s.toFixed(3)).join(" / ")} m`);
     assert.ok(sink[2]! <= faceMax(FACE_TOP) + 0.001, `the roof crushed ${sink[2]!.toFixed(3)} m past its packed depth ${faceMax(FACE_TOP)} m`);
   });
 
-  it("bad: dropped on the nose, tail or a flank, that face crushes and the opposite one does not", () => {
+  it("when it is dropped from 1 m on its nose, tail, left flank, right flank or a corner, then the struck face crushes and the opposite face does not", () => {
     const nose = drop("nose", 1).deform.crush;
     assert.ok(nose[FACE_NOSE]! > 0.02 && nose[FACE_TAIL] === 0, `nose drop: nose ${nose[FACE_NOSE]!.toFixed(3)} m, tail ${nose[FACE_TAIL]!.toFixed(3)} m`);
     const tail = drop("tail", 1).deform.crush;
@@ -141,7 +141,7 @@ describe("load crush: a car dropped on a face", () => {
     assert.ok(corner[FACE_NOSE]! + corner[FACE_LEFT]! + corner[FACE_RIGHT]! > 0.02 && corner[FACE_TAIL] === 0, `corner drop (nose, left): ${Array.from(corner, (x) => x.toFixed(3)).join(" / ")} m`);
   });
 
-  it("bad: a face crushes more from a higher drop", () => {
+  it("when it is dropped on its nose and on its left flank from 0.5, 1 and 2 m, then the struck face crushes more from each higher drop", () => {
     for (const kind of ["nose", "left"] as const) {
       const face = kind === "nose" ? FACE_NOSE : FACE_LEFT;
       const d = [0.5, 1, 2].map((h) => drop(kind, h).deform.crush[face]!);
@@ -150,8 +150,8 @@ describe("load crush: a car dropped on a face", () => {
   });
 });
 
-describe("load crush: the roof's strength law", () => {
-  it("bad: carries 3 car weights at 127 mm (FMVSS 216) and settles under 1, 2 and 3 car weights at 31, 81 and 122 mm", () => {
+describe("given the roof's strength law (the load a roof carries at each crush depth, in car weights)", () => {
+  it("when the strength is read at 127 mm and at the depths where 1, 2 and 3 car weights settle, then it carries 3 car weights at 127 mm (the FMVSS 216 roof test), 1, 2 and 3 settle at 31, 81 and 122 mm, and it is unbounded at its packed depth", () => {
     assert.ok(faceStrength(FACE_TOP, 0.127) >= 3 && faceStrength(FACE_TOP, 0.127) < 3.5, `strength at 127 mm: ${faceStrength(FACE_TOP, 0.127).toFixed(2)} W`);
     for (const [w, d] of [[1, 0.031], [2, 0.081], [3, 0.122]] as const) assert.ok(Math.abs(faceStrength(FACE_TOP, d) - w) < 0.03, `${w} W settles at ${d} m, strength there ${faceStrength(FACE_TOP, d).toFixed(3)} W`);
     assert.equal(faceStrength(FACE_TOP, faceMax(FACE_TOP)), Infinity);

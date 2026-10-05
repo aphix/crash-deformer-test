@@ -6,8 +6,8 @@ import { carLayout } from "./car-pose.ts";
 import { decodeSaved, encodeSaved, packReel, unpackReel } from "./reel-codec.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
 
-describe("highlight codec", () => {
-  it("bad: a reel must come back from MSG.reel byte for byte, with its seed and start time", async () => {
+describe("given a recorded highlight clip and the codec that sends and saves it", () => {
+  it("when a reel of two clips is packed into a reel message and unpacked, then it comes back byte for byte with its seed and start time", async () => {
     const { clip, car } = makeClip();
     const msg = await packReel({ seed: 0xdeadbeef, clips: [clip, clip] }, 1234.5);
     const got = await unpackReel(msg, carLayout(car));
@@ -17,14 +17,14 @@ describe("highlight codec", () => {
     sameClip(got.reel.clips[1]!, clip);
   });
 
-  it("bad: a saved clip must decode to the same clip", async () => {
+  it("when a saved clip is encoded and decoded, then it decodes to the same clip", async () => {
     const { clip, car } = makeClip();
     const got = await decodeSaved(await encodeSaved(clip), carLayout(car));
     assert.notEqual(typeof got, "string", `decoded as ${String(got)}`);
     sameClip(got as HighlightClip, clip);
   });
 
-  it("bad: a clip saved by another build must be refused as 'version', a damaged one as 'corrupt'", async () => {
+  it("when a saved clip is decoded after a version byte is changed or the data damaged, then another build's clip is refused as 'version' and a damaged, truncated or non-base64 one as 'corrupt'", async () => {
     const { clip, car } = makeClip();
     const L = carLayout(car);
     const bytes = Uint8Array.from(atob(await encodeSaved(clip)), (c) => c.charCodeAt(0));

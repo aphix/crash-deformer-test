@@ -14,21 +14,21 @@ function pad(axes: number[], down: number[] = [], lt = 0, rt = 0): PadSource {
   return { connected: true, axes, buttons };
 }
 
-describe("gamepad sticks and triggers", () => {
-  it("good: a resting stick inside the radial deadzone reads exactly zero in any direction", () => {
+describe("given a gamepad's sticks and triggers", () => {
+  it("when a stick rests inside the radial deadzone, then it reads exactly zero in any direction", () => {
     assert.equal(stickScale(0.1, 0), 0);
     assert.equal(stickScale(0.1, -0.1), 0);
     assert.equal(stickScale(0, PAD_DEAD.stick * 0.99), 0);
     assert.ok(stickScale(0.12, 0.12) > 0, "a diagonal past the radius must register");
   });
 
-  it("good: full throw reaches 1 and a diagonal corner never exceeds 1", () => {
+  it("when a stick is pushed to full throw, then it reaches 1 and a diagonal corner never exceeds 1", () => {
     assert.ok(Math.abs(1 * stickScale(1, 0) - 1) < 1e-9);
     const s = stickScale(1, 1);
     assert.ok(Math.hypot(s, s) <= 1 + 1e-9, `corner magnitude ${Math.hypot(s, s)}`);
   });
 
-  it("good: the curve is gentler than linear mid-throw and continuous at the deadzone edge", () => {
+  it("when a stick moves through its range, then the curve is gentler than linear mid-throw and continuous at the deadzone edge", () => {
     const mid = PAD_DEAD.stick + (1 - PAD_DEAD.stick) * 0.5;
     assert.ok(mid * stickScale(mid, 0) < 0.5, "mid-throw should steer less than half lock");
     const edge = PAD_DEAD.stick + 1e-3;
@@ -41,15 +41,15 @@ describe("gamepad sticks and triggers", () => {
     }
   });
 
-  it("good: triggers ignore resting noise and reach 1 at full pull", () => {
+  it("when a trigger is pulled, then it ignores resting noise and reaches 1 at full pull", () => {
     assert.equal(triggerValue(PAD_DEAD.trigger * 0.9), 0);
     assert.equal(triggerValue(1), 1);
     assert.ok(triggerValue(0.5) > 0.4 && triggerValue(0.5) < 0.5);
   });
 });
 
-describe("gamepad poll", () => {
-  it("good: a button reports `pressed` only on the poll it went down", () => {
+describe("given a gamepad being polled", () => {
+  it("when a button goes down, then it reports pressed only on the poll it went down", () => {
     const s = blankPad();
     const bit = 1 << PAD_BUTTON.north;
     readPad(pad([0, 0, 0, 0], [PAD_BUTTON.north]), s);
@@ -62,7 +62,7 @@ describe("gamepad poll", () => {
     assert.equal(s.pressed & bit, bit, "a second press registers");
   });
 
-  it("good: an unplugged pad zeroes every axis and button", () => {
+  it("when the pad is unplugged, then every axis and button reads zero", () => {
     const s = blankPad();
     readPad(pad([-1, 0, 1, 0], [PAD_BUTTON.south], 1, 1), s);
     assert.ok(s.connected && s.lx < -0.9 && s.rt === 1);
@@ -72,7 +72,7 @@ describe("gamepad poll", () => {
     assert.equal(s.lx, 0);
   });
 
-  it("good: Xbox and PlayStation pads get their own label", () => {
+  it("when an Xbox pad or a PlayStation pad is named, then each gets its own label", () => {
     assert.equal(padLabel("Xbox Wireless Controller (STANDARD GAMEPAD Vendor: 045e Product: 0b13)"), "Xbox controller");
     assert.equal(padLabel("DualSense Wireless Controller (STANDARD GAMEPAD Vendor: 054c Product: 0ce6)"), "PlayStation controller");
     assert.equal(padLabel("054c-0ce6-DualSense Wireless Controller"), "PlayStation controller");
@@ -80,8 +80,8 @@ describe("gamepad poll", () => {
   });
 });
 
-describe("pad → drive", () => {
-  it("good: RT plus left stick LEFT gives gas and a LEFT yaw (+steer) rolling forward", () => {
+describe("given a gamepad driving a car", () => {
+  it("when the right trigger is held with the left stick pushed left, then the car gets gas and a left yaw (positive steer) rolling forward, and a right push steers the other way", () => {
     const s = blankPad();
     readPad(pad([-1, 0, 0, 0], [], 0, 1), s);
     const intent = readIntent(new Set(), s, blankIntent());
@@ -98,7 +98,7 @@ describe("pad → drive", () => {
     assert.ok(out.steer < -0.5, `stick right steer ${out.steer}`);
   });
 
-  it("good: LT is analog brake, then reverse once stopped", () => {
+  it("when the left trigger is pulled, then it is an analog brake and, once stopped, reverse", () => {
     const s = blankPad();
     readPad(pad([0, 0, 0, 0], [], 0.6, 0), s);
     const intent = readIntent(new Set(), s, blankIntent());
@@ -110,7 +110,7 @@ describe("pad → drive", () => {
     assert.ok(out.throttle < 0 && out.brake === 0);
   });
 
-  it("good: keyboard and pad coexist — per axis the larger magnitude wins", () => {
+  it("when keyboard and pad inputs are used together, then per axis the larger magnitude wins", () => {
     const s = blankPad();
     readPad(pad([-0.4, 0, 0, 0], [], 0.4, 0), s);
     const i = readIntent(new Set(["KeyD", "KeyW"]), s, blankIntent());
@@ -123,7 +123,7 @@ describe("pad → drive", () => {
     assert.ok(i.wheel > 0.99 && i.analogWheel);
   });
 
-  it("good: A (Cross) is the handbrake and X (Square) the boost, alongside Space and Shift", () => {
+  it("when A (Cross) and X (Square) are pressed, then they act as the handbrake and the boost, alongside Space and Shift", () => {
     const s = blankPad();
     readPad(pad([0, 0, 0, 0], [PAD_BUTTON.south, PAD_BUTTON.west]), s);
     const i = readIntent(new Set(), s, blankIntent());
@@ -135,7 +135,7 @@ describe("pad → drive", () => {
     assert.ok(i.handbrake && i.boost);
   });
 
-  it("good: the touch stick up-left is gas and a LEFT wheel with no pad plugged in; a sub-frame tap still presses once", () => {
+  it("when the touch stick is held up-left with no pad plugged in, then it is gas and a left wheel, and a sub-frame tap still presses once", () => {
     const s = blankPad();
     const t = { x: -0.7, y: -0.7, held: 0, tapped: 0 };
     readPad(null, s);

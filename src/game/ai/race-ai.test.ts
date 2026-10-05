@@ -93,10 +93,10 @@ function race(track: Track, n: number, aggression: number, laps: number, limit: 
 
 const at = (id: number, x: number, z: number, vz: number): AiCar => ({ ...blankAiCar(id), x, z, vz });
 
-describe("race AI", () => {
+describe("given 8 clean AI cars (aggression 0) on the grid of every course", () => {
   for (const json of TRACKS) {
     const track = new Track(json);
-    it(`${track.id}: 8 clean AI cars finish 3 laps on the road within the time bound`, () => {
+    it(`when they race 3 laps on ${track.id}, then all 8 finish, they stay on the road at least 95% of the time, and the winner finishes within the time bound`, () => {
       // Half the drive model's top speed on average, plus the countdown and grid.
       const limit = (3 * track.length) / (DRIVE.maxFwd / 2) + 10;
       const { session, onRoad, samples } = race(track, 8, 0, 3, limit);
@@ -108,22 +108,24 @@ describe("race AI", () => {
       assert.ok(winner.finishTime! < limit);
     });
   }
+});
 
-  const oval = new Track(TRACKS[0]);
-  const s0 = 40;
-  const lane = (brain: RaceBrain, self: AiCar, others: AiCar[], steps: number) => {
-    let steer = 0;
-    for (let k = 0; k < steps; k++) steer = brain.think(self, others, { next: 1, lap: 0 }, DT).steer;
-    return steer;
-  };
-  const pt = oval.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
-  /** A car on `track`'s centre line `s` m along, `off` m to the left of it (+), doing `v` m/s along the road. */
-  const onRoad = (track: Track, id: number, s: number, off: number, v: number): AiCar => {
-    const p = track.pointAt(s, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
-    return { ...blankAiCar(id), x: p.x + off * p.tz, z: p.z - off * p.tx, yaw: Math.atan2(p.tx, p.tz), vx: p.tx * v, vz: p.tz * v };
-  };
+const oval = new Track(TRACKS[0]);
+const s0 = 40;
+const lane = (brain: RaceBrain, self: AiCar, others: AiCar[], steps: number) => {
+  let steer = 0;
+  for (let k = 0; k < steps; k++) steer = brain.think(self, others, { next: 1, lap: 0 }, DT).steer;
+  return steer;
+};
+const pt = oval.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+/** A car on `track`'s centre line `s` m along, `off` m to the left of it (+), doing `v` m/s along the road. */
+const onRoad = (track: Track, id: number, s: number, off: number, v: number): AiCar => {
+  const p = track.pointAt(s, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
+  return { ...blankAiCar(id), x: p.x + off * p.tz, z: p.z - off * p.tx, yaw: Math.atan2(p.tx, p.tz), vx: p.tx * v, vz: p.tz * v };
+};
 
-  it("passes a slower car ahead on its line; an aggressive driver rams it instead", () => {
+describe("given AI drivers at about 17 m/s on the oval course's back straight, with another car close by", () => {
+  it("when a slower car is ahead on its line near the left edge, so the only pass is to the right, then a clean driver pulls right to pass while an aggressive one stays on the slow car's line, keeping the throttle in to ram it", () => {
     // Back straight runs +Z at x = −55: left of travel is +X. Both near the left edge, so the only pass is to the right.
     const me = at(0, pt.x + 6, pt.z, 17);
     const slow = at(1, pt.x + 6, pt.z + 9, 8);
@@ -138,7 +140,7 @@ describe("race AI", () => {
     assert.ok(charge.throttle > 0 && charge.brake === 0, "and keeps the throttle in");
   });
 
-  it("an aggressive driver closes the door on a faster car coming through; a clean one gives it room", () => {
+  it("when a faster car comes through just behind on its left, then an aggressive driver steers left into its path to close the door and a clean one moves away to give it room", () => {
     const me = at(0, pt.x, pt.z, 12);
     const fast = at(1, pt.x + 3, pt.z - 5, 18);
     const clean = new RaceBrain(oval, 2);
@@ -150,7 +152,7 @@ describe("race AI", () => {
     assert.ok(yields < -0.02, `clean moves away from it, steer ${yields.toFixed(3)}`);
   });
 
-  it("at middling aggression a driver goes for a rival only when it is safe (closing at a nudge's speed); at full it goes for anyone", () => {
+  it("when a rival ahead is closed on at a ram's speed (9 m/s) or a nudge's (1 m/s), then a middling driver passes the rammable car, wrecked or not, and pushes the nudge-speed one unless it is itself the more wrecked car, while a full-aggression driver rams regardless of its own state", () => {
     const me = at(0, pt.x + 6, pt.z, 17);
     const mid = () => {
       const b = new RaceBrain(oval, 2);
@@ -170,7 +172,7 @@ describe("race AI", () => {
     assert.ok(Math.abs(lane(brute, hurtMe, [hurtMe, slow], 40)) < 0.06, "full aggression rams regardless of its own state");
   });
 
-  it("door to door, a middling driver shoves only a safe rival (not into the wall, not at a ram's closing speed, not over a crest); a clean one never, a full one always", () => {
+  it("when a rival is abreast 2.6 m to its left, then a clean driver steers away, a full-aggression driver always shoves, and a middling one shoves only a safe rival: not one 1.5 m off the wall, not at a ram's closing speed, not over the stunt course's crest", () => {
     const stunt = new Track(TRACKS.find((j) => parseTrack(j).id === "stunt"));
     // `me` abreast of a rival 2.6 m to its left (+) on `track` at `s`, doing `my` and `its` m/s, the rival `lean` m left of the road's middle: the steer after a second.
     // A middling driver's shove swings over gently (0.5 m/s: the two close at a nudge), so its steer stays about level where a clean driver's goes away.
@@ -193,7 +195,7 @@ describe("race AI", () => {
     assert.ok(abreast(1, stunt, 899.5, 1.3, 20, 20) > 0.1, "and a full driver shoves there regardless");
   });
 
-  it("a clean driver keeps a gap behind a rival at its own pace; a hungry one boosts to catch it", () => {
+  it("when a rival 6 m ahead drives at the driver's own 17 m/s pace, then a clean driver brakes to keep a gap without boosting, and a hungry one boosts to catch it", () => {
     const me = at(0, pt.x, pt.z, 17);
     const rival = at(1, pt.x, pt.z + 6, 17);
     const clean = new RaceBrain(oval, 2).think(me, [me, rival], { next: 1, lap: 0 }, DT);
@@ -204,7 +206,7 @@ describe("race AI", () => {
     assert.ok(hunt.boost && hunt.throttle > 0, `hungry boosts into it: throttle ${hunt.throttle.toFixed(2)}, boost ${hunt.boost}`);
   });
 
-  it("door to door, a hungry driver steers into the rival and a clean one away; neither fights at a crawl", () => {
+  it("when a rival is 2.6 m to its left at 15 m/s, then a hungry driver steers left into it and a clean one steers away, and at a 2 m/s crawl a hungry driver steers the same as if it were alone", () => {
     // Left of travel is +X on this straight: the rival sits on our left.
     const me = at(0, pt.x, pt.z, 15);
     const rival = at(1, pt.x + 2.6, pt.z + 0.5, 15);
@@ -226,15 +228,17 @@ describe("race AI", () => {
     assert.ok(Math.abs(withRival - alone) < 0.01, `at a crawl it drives its line as if alone (two hungry cars wedged each other on a wall): ${withRival.toFixed(3)} vs ${alone.toFixed(3)}`);
   });
 
-  it("closing on a parked car it slows to a crawl and steers round it, never stopping behind it", () => {
+  it("when a driver crawling at 2 m/s comes up on a parked car 5.5 m ahead, then it keeps rolling without braking and steers round it", () => {
     const me = at(0, pt.x, pt.z, 2);
     const parked = at(1, pt.x, pt.z + 5.5, 0);
     const out = new RaceBrain(oval, 2).think(me, [me, parked], { next: 1, lap: 0 }, DT);
     assert.ok(out.throttle > 0 && out.brake === 0, `keeps rolling: throttle ${out.throttle.toFixed(2)}, brake ${out.brake.toFixed(2)}`);
     assert.ok(Math.abs(lane(new RaceBrain(oval, 2), me, [me, parked], 40)) > 0.05, "and steers round it");
   });
+});
 
-  it("the field's aggression slider is a maximum: every rival rolls its own value under it", () => {
+describe("given the field's aggression slider (the most aggressive any rival may be)", () => {
+  it("when 15 rivals roll their own values under a slider of 0.6, then each is between 0 and 0.6 with a real spread, the same seed gives the same field, a new race rolls again, a slider of 0 gives all 0, and the mood to hit is negative at aggression 0 and positive at full aggression", () => {
     const rolls = Array.from({ length: 15 }, (_, id) => fieldAggression(0.6, 4, id + 1));
     assert.ok(rolls.every((a) => a >= 0 && a <= 0.6));
     assert.ok(Math.max(...rolls) - Math.min(...rolls) > 0.3, "a spread, not one value");
@@ -244,8 +248,10 @@ describe("race AI", () => {
     assert.ok(Array.from({ length: 15 }, (_, id) => fieldAggression(0, 4, id)).every((a) => a === 0));
     assert.ok(mood(0, 0, 1) < 0 && mood(1, 1, 0) > 0);
   });
+});
 
-  it("boosts on a clear straight, no more than the player's boost meter allows", () => {
+describe("given an AI driver at 17 m/s alone on a clear straight with a full boost meter", () => {
+  it("when it drives for 10 s, then it boosts in bursts no longer than a full meter and in total no more than a full meter plus what the meter refills over the run", () => {
     const me = at(0, pt.x, pt.z, 17);
     const brain = new RaceBrain(oval, 1);
     const T = 10;
@@ -264,8 +270,10 @@ describe("race AI", () => {
     const budget = BOOST.full + (T * BOOST.full) / BOOST.recharge;
     assert.ok(boosted <= budget + DT, `boosted ${boosted.toFixed(2)} s of ${T} s, budget ${budget.toFixed(2)} s`);
   });
+});
 
-  it("follows a slower car when the road is too narrow to pass", () => {
+describe("given a road only 6 m wide with a driver at 15 m/s coming up on a 6 m/s car 7 m ahead", () => {
+  it("when the driver reaches it, then it brakes with the throttle off and follows instead of passing", () => {
     const narrow = new Track({ ...(TRACKS[0] as object), road: { width: 6, runoff: [3, 3], surface: "asphalt", runoffSurface: "concrete" } });
     const p = narrow.pointAt(s0, { x: 0, y: 0, z: 0, tx: 0, tz: 1, half: 0 });
     const me = at(0, p.x, p.z, 15);

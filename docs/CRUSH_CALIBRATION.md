@@ -244,7 +244,7 @@ On `fe381c3` (CrashRealism6's crumple ordering merged) the same check reads **0.
 
 ### 5.1 Piston-corner far-door intrusion: a noisy step function
 
-Test: `piston-rig.test.ts` "frontLeft/frontRight: cabin intrusion stays under 0.06 m (struck door excepted)". A
+Test: `piston-rig.test.ts` "when the frontLeft piston fires, then cabin intrusion stays under 0.06 m, except at the struck door" (and the same for frontRight). A
 1500 kg, 40 km/h rigid piston at the front corner moves the **far** door:
 
 | squash | 0.20 | 0.25 | 0.30 | 0.32 | 0.34 | 0.36 | 0.38 | 0.40 | 0.42 | 0.45 |
@@ -257,7 +257,7 @@ and the far door closes on the cell, the same mechanism as the existing `left:ca
 
 ### 5.2 Corner paint under-reads the particle dent at low squash
 
-Test: `skin.test.ts` "frontLeft/frontRight paint dent is within 25 % of the struck particles' and not 5 % deeper"
+Test: `skin.test.ts` "when the frontLeft piston shoots it, then the paint dent is at least 75% and at most 105% of the dent of the particles it struck" (and the same for frontRight)
 (ratio ≥ 0.75):
 
 | squash | 0.20 | 0.25 | 0.30 | 0.32 | 0.34 | 0.36 | 0.38 | 0.40 | 0.42 |

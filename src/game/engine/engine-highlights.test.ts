@@ -25,8 +25,8 @@ const SEED = 5;
  */
 const CLEAN_SEED = 8;
 
-describe("highlight reel timeline", () => {
-  it("bad: the reel must play a clip at 1× up to the hit, hold the phase.ts slow-mo over it, then catch up to the end", () => {
+describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
+  it("when the clip plays, then it runs at normal speed up to the hit, holds the slow-motion over the hit, then catches up to the clip's last step", () => {
     const tl = clipTimeline(4, 10);
     // Slow-mo starts `PRE_IMPACT_LEAD` (0.07 s) before the recorded impact.
     assert.ok(Math.abs(tl.impact - 3.93) <= 1 / 120 + 1e-9, `slow-mo began at wall ${tl.impact.toFixed(3)} s, not at 3.93`);
@@ -75,8 +75,8 @@ async function recordedReel(w: World, clips = 1): Promise<Reel> {
   return (await unpackReel(msg, carLayout(w.cars[0]!))).reel;
 }
 
-describe("highlight reel on two peers", () => {
-  it("bad: two peers playing one reel at different frame rates must frame the same shot at the same moment", async () => {
+describe("given two peers each playing the same recorded highlight reel on their own cars", () => {
+  it("when one peer draws at 60 Hz and the other at 45 Hz, then at every shared moment both frame the same shot, the camera and focus car really move, and a solo view's first frame does not play the hit early", async () => {
     const a = makeWorld();
     const b = makeWorld();
     try {
@@ -132,8 +132,8 @@ describe("highlight reel on two peers", () => {
   });
 });
 
-describe("highlight reel and the race's leftovers", () => {
-  it("bad: a clip's setup empties the scene (the race's torn parts on the cars it hides included) and the reel ending empties what the clips left; no reel up clears nothing", async () => {
+describe("given a city race whose first crash is two cars put head-on a second in, and torn parts left on every car", () => {
+  it("when a highlight reel plays and ends, then each clip's setup empties the scene (torn parts on hidden cars included), the reel ending empties what the clips left, and stopping with no reel up clears nothing", async () => {
     const a = makeWorld();
     try {
       // A deliberate first crash on intact cars (no seed's natural field guarantees one: slow bumps tear parts that no longer make a clip):
@@ -213,8 +213,8 @@ function assertDrawingKeepsReplay(w: World, clip: Reel["clips"][number], hz: num
   assertSameNumbers(stateOf(cars), drawn, `${hz} Hz: the replay's final state with a drawn frame inside every step`);
 }
 
-describe("highlight reel frames", () => {
-  it("bad: a car moving through the slow-mo is drawn moving on every frame at 60 and 240 Hz, and drawing never changes the replay", async () => {
+describe("given a recorded highlight clip from a seeded city race that opens with its focus car driving", () => {
+  it("when it plays at 60 and at 240 Hz, then the car moving through the slow-motion is drawn moving on every frame, and drawing frames never changes the replay", async () => {
     const a = makeWorld();
     try {
       race(a, FIELD, CLEAN_SEED);
@@ -249,8 +249,10 @@ describe("highlight reel frames", () => {
       setGround(null);
     }
   });
+});
 
-  it("bad: drawing never changes the replay of an airborne clip (the stunt course's jumps) at 60 and 240 Hz", async () => {
+describe("given the stunt course with three head-on pairs wrecked on purpose a second into a two-lap race", () => {
+  it("when each clip is replayed at 60 and 240 Hz, then drawing frames never changes the replay, even of airborne clips over the jumps", async () => {
     const a = makeWorld();
     try {
       // Two laps: the field no longer wrecks itself at the start, so one lap records fewer than 3 clips. And the race AI steers clear

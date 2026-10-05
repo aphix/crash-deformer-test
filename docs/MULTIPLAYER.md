@@ -387,7 +387,7 @@ Derby multiplayer runs through the same controller-slot path as race (agreed wit
   was compared with A's taken 0.4 s before or after (B renders up to ~0.3 s behind); per car the
   score, alive, out and the standings order agreed in 93/93 samples over the 197 s match. Both pages
   report the same winner (car 4, decided at the time limit). B held W and weaved; its car moved up
-  to 11 m from its spawn on the host. Unit test: `net.test.ts` "netplay derby state" round-trips a
+  to 11 m from its spawn on the host. Unit test: `net.test.ts` "given a derby match played on the host and sent to clients as derby state" round-trips a
   running board, a decided match and a lobby through the codec.
 
 ## State APIs

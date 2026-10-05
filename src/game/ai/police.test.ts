@@ -56,8 +56,8 @@ function rig() {
   return { police, cars, hunt, stored, view, beat, world };
 }
 
-describe("police: a pack stands down while a unit of it is still parked", () => {
-  it("the parked unit nobody sees is put away at once: it never pulls out onto the road with no racer past its spot", () => {
+describe("given a racer with a stakeout of two cops parked ahead of it, the first just woken by the racer passing and the second still parked", () => {
+  it("when the racer stops racing and no chaser is near another racer so the pack stands down, then the parked cop nobody sees is put away at once and never pulls out onto the road", () => {
     const r = rig();
     // Its quarry stops racing and no chaser is near another racer: the pack stands down.
     r.hunt[0] = 0;
@@ -66,7 +66,7 @@ describe("police: a pack stands down while a unit of it is still parked", () => 
     assert.equal(r.police.think(r.cars[2]!, r.cars, BEAT).throttle, 0, "unit 2 still drives");
   });
 
-  it("the parked unit the camera sees drives off like a chaser giving up, and is put away once nobody sees it go", () => {
+  it("when the racer stops racing while the camera sees the parked cop, then it is not put away in view and is put away once nobody sees it", () => {
     const r = rig();
     r.hunt[0] = 0;
     r.view.seen = true;
@@ -78,8 +78,8 @@ describe("police: a pack stands down while a unit of it is still parked", () => 
   });
 });
 
-describe("police: a stakeout wakes for a racer that passes it on the road", () => {
-  it("a racer across the field whose nearest road point is past the spot does not wake it (Four-Count: units woke for a racer 86-116 m off the road on its shortcut, which the road projection read as passing them)", () => {
+describe("given a stakeout of two cops parked ahead of a racer on the road", () => {
+  it("when a racer 60 m off the road across the field has its nearest road point past the second cop's spot, then only the first cop wakes, and when the racer passes on the road itself, then both wake", () => {
     const r = rig();
     const spot = r.cars[2]!;
     const s2 = track.project(spot.x, spot.z, -1, blankProjection()).s;
@@ -106,7 +106,7 @@ describe("police: a stakeout wakes for a racer that passes it on the road", () =
   });
 });
 
-describe("police: the pack-mate guard", () => {
+describe("given a pack-mate guard (the check that keeps a cop from driving into a cop of its own pack) on a cop driving 27 m/s along +z, steering 0.2 and at full throttle", () => {
   /** Unit 1 at the origin doing 27 m/s along +z, steering 0.2; the mate by default dead ahead, 40 m on, facing it (a hit in 1.1 s). */
   const meet = (pullsOut: (unit: number) => boolean, mate = { x: 0, z: 40, yaw: Math.PI }) => {
     const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
@@ -117,26 +117,26 @@ describe("police: the pack-mate guard", () => {
     return out;
   };
 
-  it("steers away from a mate that is driving at it, even one that has only just woken (stopped, but it pulls out)", () => {
+  it("when a mate 40 m dead ahead is facing it and has only just woken (stopped, but it pulls out), then the cop steers away and cuts its throttle for the head-on hit about 1.1 s away", () => {
     const out = meet(() => true);
     assert.ok(out.steer < 0.2, `steer ${out.steer} not bent away from the mate`);
     assert.ok(out.throttle < 1, "no braking for a head-on in 1.1 s");
   });
 
-  it("reads a mate that cannot pull out (parked at its stakeout, stored, knocked out) as stopped, not as a phantom car at 8 m/s: one beside the path is left alone", () => {
+  it("when a mate beside the path with its nose across it cannot pull out (parked at its stakeout, stored, knocked out), then it is read as stopped and the steer is left alone, but the same mate pulling out is steered away from", () => {
     // 8 m to the left, nose across the path: pulling out at 8 m/s it would be hit in 1.1 s; parked it is 8 m off.
     const mate = { x: -8, z: 30, yaw: Math.PI / 2 };
     assert.equal(meet(() => false, mate).steer, 0.2);
     assert.notEqual(meet(() => true, mate).steer, 0.2, "the geometry never makes a pulling-out mate a threat: the test proves nothing");
   });
 
-  it("steers round and brakes for a parked mate on the path (a lead-in drove into one 12 m ahead at 16 m/s: it was not read at all)", () => {
+  it("when a parked mate stands 40 m ahead on the path, then the cop steers round it and cuts its throttle", () => {
     const out = meet(() => false);
     assert.ok(out.steer < 0.2, `steer ${out.steer} not bent away from the parked mate`);
     assert.ok(out.throttle < 1, "no braking for a parked car dead ahead in 1.5 s");
   });
 
-  it("steers round and brakes harder for a mate in its path while it is braking itself (a cop on a lifted throttle or a brake for its target was not read at all: it hit its pack-mates at 11-19 m/s)", () => {
+  it("when a mate stands 14 m ahead in its path and the cop is itself braking at 20 m/s, then it steers round and brakes harder, but a stopped cop and a reversing one are left alone and the same cop on the throttle is steered round", () => {
     const through = (throttle: number, brake: number, vz: number) => {
       const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
       Object.assign(cars[1]!, { x: 0, z: 0, vx: 0, vz, yaw: 0 });
@@ -154,7 +154,7 @@ describe("police: the pack-mate guard", () => {
     assert.ok(through(1, 0, 20).steer < 0.2, "the geometry never makes the guard act on a car on the throttle: the test proves nothing");
   });
 
-  it("brakes for a mate in its path even when another mate passing alongside would be reached sooner (the lead-in steered away from the one and drove into the other at 18 m/s)", () => {
+  it("when a mate passing alongside would be reached sooner (a graze 0.2 s away) and a just-woken mate is 6 m ahead with its nose at the cop (a hit 0.35 s away), then the cop still brakes for the one it would hit", () => {
     const cars: AiCar[] = [0, 1, 2, 3].map(blankAiCar);
     // Unit 1 doing 9 m/s along +z. Unit 2 overtaking 5 m to its left, a little behind, closest in 0.2 s at 5.0 m (a graze); unit 3 just woken, 6 m ahead and 3 m to its right, nose at it (a hit in 0.35 s).
     Object.assign(cars[1]!, { x: 0, z: 0, vx: 0, vz: 9, yaw: 0 });
@@ -165,7 +165,7 @@ describe("police: the pack-mate guard", () => {
     assert.ok(out.brake > 0.5, `brake ${out.brake}: the mate 0.35 s ahead was not braked for`);
   });
 
-  it("lets go of the boost for a predicted hit, not for a graze (a boosting lead-in pair kept pulling into each other on a lifted throttle; a pack queued in rows lost its boost for every mate passing a few metres off)", () => {
+  it("when a pulling-out mate is dead ahead, then the cop lifts off the throttle without braking and drops its boost, but for a mate passing 5 m off (a graze) it lifts off the throttle and keeps its boost", () => {
     const boosting = (x: number) => {
       const cars: AiCar[] = [0, 1, 2].map(blankAiCar);
       Object.assign(cars[1]!, { x: 0, z: 0, vx: 0, vz: 27, yaw: 0 });
@@ -182,7 +182,7 @@ describe("police: the pack-mate guard", () => {
     assert.equal(graze.boost, true);
   });
 
-  it("does not cancel a steer that is already carrying the car clear of a mate far ahead (Dam Spine seed 1: a cop at 50 m/s bending back to the road was held straight on by the stakeout parked beside it, left the road and drove into the pair)", () => {
+  it("when the cop at 50 m/s is steering full lock that swings it 30 m clear of a parked mate far ahead, then the guard does not cancel that steer, but it steers round a mate when the cop holds straight on or when a mate 15 m ahead leaves no room to swing clear in time", () => {
     const yaw = 0.2;
     const v = 50;
     // A parked mate `ahead` m along the car's line and 4.5 m off it, to the side a positive steer turns toward.
@@ -200,7 +200,7 @@ describe("police: the pack-mate guard", () => {
     assert.ok(through(1, 15).steer < 0.5, "the guard let a car steer into a mate 0.3 s ahead on the strength of a swing that cannot clear it in time");
   });
 
-  it("a lead-in's steer is the drive's own while a pack-mate dead ahead is still parked: the mate is no phantom driver, a woken one is", () => {
+  it("when a pack-mate dead ahead is still parked, then the cop's steer is exactly what it is with no mate there, and once that mate is knocked into motion and wakes the guard changes the steer", () => {
     const r = rig();
     const me = r.cars[1]!;
     const ahead = { x: me.x + Math.sin(me.yaw) * 40, z: me.z + Math.cos(me.yaw) * 40, yaw: me.yaw + Math.PI };
@@ -217,8 +217,8 @@ describe("police: the pack-mate guard", () => {
   });
 });
 
-describe("police: reinforcements", () => {
-  it("two packs that call a reinforcement in the same beat park them apart: the beat's own parkings are in the clearance check (they stacked on one spot, then drove off into each other)", () => {
+describe("given two packs of cops, each with a parked stakeout, and a racer passing both in one beat", () => {
+  it("when both packs call a reinforcement in the same beat, then they park more than 10 m apart", () => {
     let doubled = 0;
     for (let seed = 1; seed <= 12; seed++) {
       const cars: AiCar[] = Array.from({ length: 7 }, (_, i) => blankAiCar(i));

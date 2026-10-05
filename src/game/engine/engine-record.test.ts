@@ -29,8 +29,8 @@ const MEASURE = 1200;
  */
 const BOUND_B = 16;
 
-describe("highlight recorder", () => {
-  it(`bad: recording a ${MAX_CARS}-car race with wrecks, contacts and once-a-second keyframes must not allocate per step`, () => {
+describe(`given the highlight recorder fed a ${MAX_CARS}-car race with a third of the cars wrecked, grinding contacts and a keyframe every second`, () => {
+  it("when it records minutes of steady racing with no crash opening, then it allocates no more than 16 bytes per recorded step", () => {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: MAX_CARS }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
     cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 10));
@@ -129,8 +129,8 @@ function firstImpacts(racers: number): number[][] {
   return rec.ledger.kept.map((c) => [c.cars[c.firstA]!.slot, ...(c.firstB >= 0 ? [c.cars[c.firstB]!.slot] : [])]);
 }
 
-describe("highlight moments by who is involved", () => {
-  it("bad: traffic and police make a moment only against a racer; a racer's T-bone on traffic still does", () => {
+describe("given a ten-car flat field where traffic and police cars crash among themselves and into a wall, and one racer T-bones a traffic car", () => {
+  it("when only the first two cars count as racers, then the T-bone is the only highlight moment, though with every car a racer the cop pair, traffic pair, cop-on-traffic and wall hits are moments too", () => {
     // Control: with every car a racer the same field records the cop pair, the traffic pair, a cop on traffic and a wall hit.
     const every = firstImpacts(MAX_CARS);
     assert.ok(every.some((c) => c.includes(7) && c.includes(8)), `the cop pair is no moment even with every car a racer: ${JSON.stringify(every)}`);
@@ -141,8 +141,10 @@ describe("highlight moments by who is involved", () => {
     assert.equal(field.length, 1, `the racer's T-bone alone is a moment: ${JSON.stringify(field)}`);
     assert.ok(field[0]![0] === TBONE[0] && field[0]![1] === TBONE[1], `the one moment is the T-bone: ${JSON.stringify(field)}`);
   });
+});
 
-  it("bad: a seeded city race with traffic and police records only moments with a racer in their first impact, and keeps a racer's hit on a cop or traffic car", () => {
+describe("given a seeded 100 s city race with 8 AI, traffic and police, watched in follow mode", () => {
+  it("when its highlight clips are listed, then at least 3 exist, every one has a racer in its first impact, and at least one is a racer hitting a cop or traffic car", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -171,8 +173,10 @@ describe("highlight moments by who is involved", () => {
       setGround(null);
     }
   });
+});
 
-  it("bad: a cop's death opens a clip only where an impact would join an open cluster: not between QUIET_GAP and POST_ROLL after the last", () => {
+describe("given a racer that hits a cop, and the cop being destroyed later", () => {
+  it("when it dies 1 s after the hit, then the death joins the racer's highlight, and when it dies 2 s after (past the 1.5 s quiet gap), then it joins nothing and opens no highlight of its own", () => {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: 3 }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
     cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 0));

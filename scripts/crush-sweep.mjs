@@ -100,7 +100,7 @@ const SCENARIOS = {
     key: ["tail", (rs) => rs[0].tailShort],
     targets: [
       ["tail permanent m", (rs) => rs[0].tailShort, [0.15, 0.4], 2],
-      // barrier.test.ts: the tail is softer with a shorter stroke, 0.6–1.0× the 50 km/h nose (worse corner).
+      // barrier.test.ts "when it reverses into the wall at 50 km/h, then the tail crushes 0.6–1.0× as far as the nose does in a 50 km/h front hit": the tail is softer with a shorter stroke (worse corner).
       ["tail / wall50 nose", (rs, done) => (done.wall50 ? rs[0].tailShort / Math.max(1e-3, noseMax(done.wall50[0])) : null), [0.6, 1], 2],
       ["nose m", (rs) => noseMax(rs[0]), [null, 0.03], 1],
       ["cabin m", (rs) => rs[0].cabinIntrusion, [null, 0.06], 1],

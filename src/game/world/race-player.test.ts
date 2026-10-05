@@ -27,7 +27,7 @@ const LINES: Record<string, PlayerLine> = {
   "straight across the infield": { lat: 0, detour: { fromS, pts: [[44, -55], [0, -62], [-44, -55]] } },
 };
 
-describe("the player's car is scored like the AI's", () => {
+describe(`given a ${LAPS}-lap race on the oval with the player's car driven through the real seat and three AI rivals`, () => {
   let w: World;
   before(() => {
     w = makeWorld();
@@ -38,7 +38,7 @@ describe("the player's car is scored like the AI's", () => {
     setGround(null);
   });
   for (const [name, line] of Object.entries(LINES)) {
-    it(`oval, ${LAPS} laps, the player on ${name}: home on full distance, HUD lap and place = the rules'`, (t) => {
+    it(`when the player's line is ${name}, then he is home on the full distance, and the HUD's lap and place match the rules' count`, (t) => {
       const o = playerRace(w, track, line, LAPS, 3, 220);
       t.diagnostic(`${name}: you ${o.you.status} P${o.you.place} ${o.you.time?.toFixed(1) ?? "-"} s, ${o.you.laps} laps; AI ${o.ai.map((a) => `${a.status}/${a.laps}`).join(" ")}`);
       assert.equal(o.you.status, "finished", `you ${o.you.status} on ${o.you.laps} laps`);

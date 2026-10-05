@@ -105,17 +105,17 @@ function launch(v: number): Run {
  * keeps the roll-and-a-half band 540° ± 80° and the 2-roll wheels landing (710° at 29 m/s) out of it.
  */
 const BANDS = [
-  { v: 6, name: "too slow to climb: rolls back out of the mouth, no air", air: false, roll: [0, 0], rest: "wheels" },
-  { v: 14, name: "air, half a roll: lands on its roof", air: true, roll: [130, 230], rest: "roof" },
-  { v: 22, name: "air, a full roll: lands back on its wheels", air: true, roll: [310, 410], rest: "wheels" },
-  { v: 27, name: "air, a roll and a half: lands on its roof", air: true, roll: [490, 620], rest: "roof" },
+  { v: 6, name: "it is too slow to climb, so it rolls back out of the mouth without leaving the ground", air: false, roll: [0, 0], rest: "wheels" },
+  { v: 14, name: "it flies, rolls half a turn and lands on its roof", air: true, roll: [130, 230], rest: "roof" },
+  { v: 22, name: "it flies, rolls a full turn and lands back on its wheels", air: true, roll: [310, 410], rest: "wheels" },
+  { v: 27, name: "it flies, rolls a turn and a half and lands on its roof", air: true, roll: [490, 620], rest: "roof" },
 ] as const;
 
-describe("corkscrew: launch speed decides air, the roll and how the car lands (the general car sim)", () => {
+describe("given the corkscrew ramp as the ground, and a driverless car launched at it from 6 m short of its mouth until the car comes to rest", () => {
   afterEach(() => setGround(null));
 
   for (const b of BANDS) {
-    it(`${b.v} m/s: ${b.name}; never more than the suspension's stop into the ground after takeoff`, (t) => {
+    it(`when it is launched at ${b.v} m/s, then ${b.name}, and after takeoff it never goes deeper into the ground than the suspension's stop`, (t) => {
       const r = launch(b.v);
       t.diagnostic(`${b.v} m/s: air ${r.air.toFixed(2)} s, touchdown roll ${r.landRoll.toFixed(0)}°, up.y ${r.upY.toFixed(2)} (${r.rest}), deepest ${r.dip.toFixed(3)} m`);
       const failures: string[] = [];

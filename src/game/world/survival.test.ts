@@ -59,11 +59,11 @@ function sit(w: World, state: { acc: number }, seconds: number): void {
   }
 }
 
-describe("survival run", () => {
+describe("given a Survival run on the Havana course (the player against a pack of cops), with an in-memory best-time store", () => {
   beforeEach(() => useStorage(memoryStorage()));
   afterEach(() => Reflect.deleteProperty(globalThis, "localStorage"));
 
-  it("starts on the course: the player on its start, the formation behind it, the rest of the pack away, held until the green", () => {
+  it("when the world is built, then the player stands on the course's start, the formation behind it and the rest of the pack away, and everyone is held still until the green", () => {
     const w = survivalWorld();
     try {
       const p = w.cars[0]!.group.position;
@@ -99,7 +99,7 @@ describe("survival run", () => {
     }
   });
 
-  it("ends a run held still beside the cops, and a bust never comes before the survival hold (12 s)", () => {
+  it("when the player sits still beside the cops, then the run ends, and a bust never comes before the 12 s survival hold", () => {
     assert.equal(SURVIVAL.bustTime, 12);
     const w = survivalWorld(WALLED);
     try {
@@ -134,7 +134,7 @@ describe("survival run", () => {
     }
   });
 
-  it("ends the run when the car is wrecked (driver thrown out), with the time, the cause and a results card after the banner", () => {
+  it("when the car is wrecked (the driver thrown out), then the run ends with the time, the cause and a results card shown after the banner", () => {
     const w = survivalWorld();
     try {
       const state = { acc: 0 };
@@ -162,7 +162,7 @@ describe("survival run", () => {
     }
   });
 
-  it("keeps the best time per course: a new best is stored and flagged, a worse run leaves it, a blocked store still ends the run", () => {
+  it("when runs end one after another, then a new best is stored and flagged, a worse run leaves the best alone, and a blocked store still ends the run", () => {
     const w = survivalWorld();
     try {
       const state = { acc: 0 };
@@ -207,7 +207,7 @@ describe("survival run", () => {
     }
   });
 
-  it("Retry starts a fresh run (formation back, clock at the grid, scene cleared); Quit leaves the scene", () => {
+  it("when the player picks Retry after a finished run, then a fresh run starts (formation back, clock at the grid, scene cleared), and Quit leaves the scene", () => {
     const w = survivalWorld();
     try {
       const state = { acc: 0 };
@@ -235,7 +235,7 @@ describe("survival run", () => {
     }
   });
 
-  it("escalates while the player lasts: the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
+  it("when the player lasts through the schedule steps, then the HUD's pack count follows the schedule (the cap and the long run are the hunter unit test's)", () => {
     const w = survivalWorld();
     try {
       const pts = ringTour();
@@ -257,8 +257,8 @@ describe("survival run", () => {
   });
 });
 
-describe("survival: cops dropped in are never seen to appear", () => {
-  it("the camera's own test can see a car in front of it (the check below is not blind)", () => {
+describe("given Survival's cops dropped in during a run", () => {
+  it("when a car sits in front of the chase camera, then the camera's own visibility check sees it, so the check below is not blind", () => {
     const w = survivalWorld();
     try {
       const state = { acc: 0 };
@@ -276,7 +276,7 @@ describe("survival: cops dropped in are never seen to appear", () => {
     }
   });
 
-  it("over 5 minutes of scripted play, no cop appears in the camera's view", (t) => {
+  it("when 5 minutes of scripted play run, then no dropped-in cop ever appears in the camera's view, and none lands closer than the minimum drop distance", (t) => {
     const w = survivalWorld();
     try {
       useStorage(memoryStorage());

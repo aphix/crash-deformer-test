@@ -105,8 +105,8 @@ async function replay(clip: HighlightClip, frameEnds: readonly number[]): Promis
   return trails;
 }
 
-describe("a driver thrown out is a highlight, and its replay throws him again", () => {
-  it(`bad: a race with one head-on puts the ejection in the reel (top ${TOP}), as its best clip, scored well above a hard hit, titled for it`, async () => {
+describe("given an oval race of 3 AI rivals in which two cars meet head-on at 20 m/s each a second in (both engines survive it)", () => {
+  it(`when the race runs on and its highlights are cut, then the ejection is in the reel (top ${TOP}) as its best clip, scored well above a hard hit and titled for it`, async () => {
     const { clips, events } = await live();
     assert.ok(events.length >= 2, `${events.length} drivers thrown`);
     assert.ok(clips.length > 0 && clips.length <= TOP, `${clips.length} clips`);
@@ -118,7 +118,7 @@ describe("a driver thrown out is a highlight, and its replay throws him again", 
     assert.ok(best.ejections.every((x) => best.cars[x.e.car]!.slot <= 1), "and they are the head-on's cars");
   });
 
-  it("bad: the same clip played twice throws the same dummies along the very same paths, from the very launch numbers of the live throw", async (t) => {
+  it("when the best ejection clip is replayed twice, then both replays throw the same dummies along the very same paths, from the very launch numbers of the live throw", async (t) => {
     const { clips, trails: liveTrails, frameEnds } = await live();
     const clip = clips.find((c) => c.ejections.length > 0)!;
     const first = await replay(clip, frameEnds);

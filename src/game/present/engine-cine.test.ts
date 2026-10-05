@@ -29,10 +29,10 @@ function crashSeen(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32
   return reach.reduce((k, r) => k + (r > 0 ? 1 : 0), 0);
 }
 
-describe("crash cam on a course", () => {
+describe("given the crash camera choosing eyes for cars hit against the walls of each course", () => {
   for (const json of TRACKS) {
     const track = new Track(parseTrack(json));
-    it(`${track.id}: a hit sliding along a wall gets crash-cam eyes with room that all see it`, (t) => {
+    it(`when a car slides along the wall at every wall spot of the ${track.id} course, then at most 22% of spots on stunt (8% elsewhere) leave a cut with no usable eye, and at most 0.2% of eyes lose their room or sight of the hit during their cut`, (t) => {
       const sight = raceSight(track, placeProps(track));
       const path = track.path;
       const ground = track.ground();
@@ -86,7 +86,7 @@ describe("crash cam on a course", () => {
       // a sliver of a post beside the car between two checked times (stunt: 1 of 730) is all that is left.
       assert.ok(lost.length <= eyes * 0.002, `${track.id}: ${lost.length}/${eyes} crash-cam eyes lose their room or sight during their cut: ${lost.slice(0, 5).join(", ")}`);
     });
-    it(`${track.id}: a crash-cam eye reads the same whichever spot was asked before it`, () => {
+    it(`when the ${track.id} course's eyes are checked after four different earlier unrelated queries, then each eye's usability is the same whichever spot was asked before it`, () => {
       // `solid` projects each point onto the road from the last one's segment: where a course crosses itself (stunt: 1 of 544 eyes
       // on main) a far-off previous query left the hint on the other road, and the wall beside the eye went unseen.
       const sight = raceSight(track, placeProps(track));
@@ -121,7 +121,7 @@ describe("crash cam on a course", () => {
       }
       assert.deepEqual(differ, [], `${track.id}: eyes whose answer depends on the previous query`);
     });
-    it(`${track.id}: a pick spread over frames (5 camUsable calls a run) chooses what the whole pick does`, () => {
+    it(`when the ${track.id} course's pick is spread over frames at 5 usability checks a call, then it chooses the same cut reach and axis as the whole pick, and its longest run fits in the lead-in before the first cut at 1000 calls a second`, () => {
       // The crash cam's pick runs a few calls a frame over its lead-in: at 240 Hz one frame must not take the whole of it.
       const sight = raceSight(track, placeProps(track));
       const path = track.path;
@@ -165,8 +165,8 @@ describe("crash cam on a course", () => {
   }
 });
 
-describe("held crash cam", () => {
-  it("bad: a reel's crash cam keeps one cut through hits that shove the car about, and a wall across its sight moves it once", () => {
+describe("given a reel's crash camera in an open field where every cut has its full eye", () => {
+  it("when three hits shove the car about, then the camera keeps its first cut (the crane), a wall across its sight line moves it once to the long lens, it holds the long lens once the way is clear again, and with no eye on any cut it falls back to the reel's own camera", () => {
     const open: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [] };
     const at = new THREE.Vector3(0, 0.55, 0);
     const n = new THREE.Vector3(1, 0, 0);

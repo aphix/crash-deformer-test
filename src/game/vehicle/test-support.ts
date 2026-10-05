@@ -13,7 +13,7 @@ export const DT = 1 / 60;
 export const MODES: DeformMode[] = ["lattice", "shape"];
 
 export function forModes(title: string, fn: (mode: DeformMode) => void): void {
-  for (const mode of MODES) describe(`${title} [${mode}]`, () => fn(mode));
+  for (const mode of MODES) describe(`${title}, in ${mode} deform mode`, () => fn(mode));
 }
 
 /** Low-poly sedan-sized box standing in for the body mesh. */

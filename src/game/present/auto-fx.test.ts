@@ -33,41 +33,41 @@ function onHigh(): AutoFx {
   return fx;
 }
 
-describe("auto FX tier", () => {
-  it("load check: a hardware desktop holding 60 fps goes high 2.5 s after ready (1.5 s settle, 1 s sample) and stays", () => {
+describe("given the automatic graphics-effects tier policy (it steps the effects tier up or down from the measured frame rate)", () => {
+  it("when a hardware desktop holds 60 fps, then it goes to high 2.5 s after ready (1.5 s settle, 1 s sample) and stays there", () => {
     assert.deepEqual(run(new AutoFx(true, true), 3, jitter60), [[2.5, "high"]]);
     assert.deepEqual(run(onHigh(), 120, jitter60), []);
   });
 
-  it("load check: a software GPU or a minimal tier under 57 fps stays minimal", () => {
+  it("when the GPU is software or the frame rate stays under 57 fps, then the tier stays minimal", () => {
     assert.deepEqual(run(new AutoFx(false, true), 10, steady(144)), []);
     assert.deepEqual(run(new AutoFx(true, true), 10, steady(55)), []);
   });
 
-  it("a sustained 49 fps steps high → low → minimal, 3.5 s each (settle plus two slow windows), never below", () => {
+  it("when the frame rate sustains 49 fps from high, then it steps high to low to minimal, 3.5 s each (settle plus two slow windows), never below", () => {
     const fx = onHigh();
     assert.deepEqual(run(fx, 60, steady(49)), [[3.5, "low"], [7.0, "minimal"]]);
   });
 
-  it("a 45 fps vsync cadence (two on-time frames, one double) drops though most frames are 16.7 ms", () => {
+  it("when frames come in a 45 fps vsync cadence (two on-time frames, one double), then it drops although most frames are 16.7 ms", () => {
     const fx = onHigh();
     const cadence = (i: number): number => (i % 3 === 2 ? 2000 / 60 : 1000 / 60);
     assert.deepEqual(run(fx, 4, cadence), [[3.5, "low"]]);
   });
 
-  it("one hitch, however long, ends only one slow window and never drops", () => {
+  it("when a single hitch of 100, 400 or 2000 ms interrupts 60 fps frames, then it ends only one slow window and never drops", () => {
     for (const hitch of [100, 400, 2000]) {
       const fx = onHigh();
       assert.deepEqual(run(fx, 30, (i) => (i === 300 ? hitch : jitter60(i))), [], `${hitch} ms hitch`);
     }
   });
 
-  it("is judged against 60 fps, not the refresh: 52 fps holds, 48 fps drops", () => {
+  it("when the frame rate is 52 fps and then 48 fps, then it is judged against 60 fps, not the screen's refresh rate: 52 fps holds and 48 fps drops", () => {
     assert.deepEqual(run(onHigh(), 30, steady(52)), []);
     assert.deepEqual(run(onHigh(), 30, steady(48)), [[3.5, "low"], [7.0, "minimal"]]);
   });
 
-  it("a race starts on minimal and lifts to the tier that held 3 s after green plus the 1 s window, then is monitored", () => {
+  it("when a race starts, then it starts on minimal and lifts to the tier that held 3 s after green plus the 1 s window, then is monitored again", () => {
     const fx = onHigh();
     const m = race();
     // Grid and countdown 4.5 s, green + 3 s = 7.5 s, window to 8.5 s.
@@ -77,36 +77,36 @@ describe("auto FX tier", () => {
     assert.deepEqual(run(fx, 4, steady(40), m), [[3, "low"]]);
   });
 
-  it("a race under 57 fps at green + 3 s stays minimal to its end, which returns to the ceiling", () => {
+  it("when a race runs under 57 fps at green + 3 s, then it stays minimal to the race's end, which returns it to the ceiling", () => {
     const fx = onHigh();
     const m = race();
     assert.deepEqual(run(fx, 30, steady(45), m), [[0, "minimal"]]);
     assert.deepEqual(run(fx, 1, jitter60), [[0, "high"]]);
   });
 
-  it("a race on a box whose ceiling is low lifts to low, not high", () => {
+  it("when a race starts on a machine whose ceiling is low, then it lifts to low, not high", () => {
     const fx = onHigh();
     assert.deepEqual(run(fx, 4, steady(49)), [[3.5, "low"]]);
     assert.deepEqual(run(fx, 12, jitter60, race()), [[0, "minimal"], [8.5, "low"]]);
   });
 
-  it("a derby, whose clock may start closer to green, is probed 3 s after green the same way", () => {
+  it("when a derby starts with its clock closer to green, then it is probed 3 s after green the same way", () => {
     const fx = onHigh();
     const m = { t: -1.5 };
     assert.deepEqual(run(fx, 10, jitter60, m), [[0, "minimal"], [5.5, "high"]]);
   });
 
-  it("a match that starts during the load check keeps minimal; the check lifts it 3 s after green", () => {
+  it("when a match starts during the load check, then it keeps minimal and the check lifts it 3 s after green", () => {
     const fx = new AutoFx(true, true);
     assert.deepEqual(run(fx, 1, jitter60), []);
     assert.deepEqual(run(fx, 12, jitter60, race()), [[8.5, "high"]]);
   });
 
-  it("a software-GPU box stays minimal through a race", () => {
+  it("when a software-GPU machine runs a race, then it stays minimal through the race", () => {
     assert.deepEqual(run(new AutoFx(false, true), 12, steady(144), race()), []);
   });
 
-  it("a manual pick turns auto off: no match drop or lift, no slowdown drop, until resumed", () => {
+  it("when the player picks a tier by hand, then auto turns off: no match drop or lift and no slowdown drop until it is resumed", () => {
     const fx = onHigh();
     fx.auto = false;
     assert.deepEqual(run(fx, 12, jitter60, race()), []);
@@ -116,8 +116,8 @@ describe("auto FX tier", () => {
   });
 });
 
-describe("canHost (fit to host a public match)", () => {
-  it("a hardware desktop is fit before its load check and after it holds high, and when it falls to low", () => {
+describe("given the check for being fit to host a public match", () => {
+  it("when the machine is a hardware desktop before its load check, after it holds high, or after it falls to low, then it is fit", () => {
     assert.equal(new AutoFx(true, true).canHost(), true);
     const fx = onHigh();
     assert.equal(fx.canHost(), true);
@@ -125,7 +125,7 @@ describe("canHost (fit to host a public match)", () => {
     assert.equal(fx.canHost(), true, "low is still fit (3.5 s in)");
   });
 
-  it("a phone or software GPU, a desktop under 57 fps at its load check, and one that fell to minimal are not", () => {
+  it("when the machine is a phone or software GPU, a desktop under 57 fps at its load check, or one that fell to minimal, then it is not fit", () => {
     assert.equal(new AutoFx(false, true).canHost(), false);
     const slow = new AutoFx(true, true);
     run(slow, 10, steady(55));
@@ -136,12 +136,12 @@ describe("canHost (fit to host a public match)", () => {
   });
 });
 
-describe("hardwareDesktop", () => {
+describe("given the check for a hardware desktop (a fine pointer and a hardware GPU)", () => {
   const nvidia = "ANGLE (NVIDIA, NVIDIA GeForce RTX 3070 Direct3D11 vs_5_0 ps_5_0, D3D11)";
-  it("a fine pointer with a hardware GPU is a hardware desktop", () => {
+  it("when the pointer is fine and the GPU is hardware, then it is a hardware desktop", () => {
     assert.equal(hardwareDesktop(nvidia, true), true);
   });
-  it("software rasterizers, coarse pointers and unknown renderers are not", () => {
+  it("when the renderer is a software rasterizer or unknown, or the pointer is coarse, then it is not a hardware desktop", () => {
     assert.equal(hardwareDesktop("ANGLE (Google, Vulkan 1.3.0 (SwiftShader Device (Subzero)), SwiftShader driver)", true), false);
     assert.equal(hardwareDesktop("llvmpipe (LLVM 15.0.7, 256 bits)", true), false);
     assert.equal(hardwareDesktop("ANGLE (Microsoft, Microsoft Basic Render Driver Direct3D11 vs_5_0 ps_5_0, D3D11)", true), false);
