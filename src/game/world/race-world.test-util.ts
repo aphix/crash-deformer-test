@@ -24,6 +24,9 @@ import { DEFAULT_RACE_OPTIONS, type CarRecord, type RaceResultRow, type RaceSnap
  * frame at a time. Not a test file itself.
  */
 
+/** Every course on the race menu, in menu order: what a per-course sweep iterates, so a new course is in it. */
+export const COURSE_IDS: readonly string[] = TRACKS.map((j) => parseTrack(j).id);
+
 export const FRAME = 1 / 60;
 export type World = {
   cars: DeformableCar[];

@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
 import { classifyContact, contactRace, type Role, type Sample } from "./race-contact.test-util.ts";
-import { makeWorld } from "./race-world.test-util.ts";
+import { COURSE_IDS, makeWorld } from "./race-world.test-util.ts";
 import { parseTrack } from "./track-schema.ts";
 import { Track } from "./track.ts";
 import { TRACKS } from "./tracks/index.ts";
@@ -109,7 +109,7 @@ describe("contact classifier: hand-checked contacts", () => {
 
 /** Each rival rolls its aggression in [0, slider]: at 0 every field is the same, so the seed does not vary the race, the course and the field size do. */
 describe("race AI contact: aggression 0 starts no hits", () => {
-  for (const course of ["oval", "rally", "city", "stunt"]) {
+  for (const course of COURSE_IDS) {
     for (const aiCount of [4, 7]) {
       it(`${course}, ${aiCount} AI rivals: no racer drives into another car`, (t) => {
         const track = new Track(TRACKS.find((j) => parseTrack(j).id === course));

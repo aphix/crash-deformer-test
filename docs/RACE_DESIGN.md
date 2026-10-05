@@ -114,7 +114,8 @@ the rate; `wrongWay` on at 0.7 s, off at 0.
 First car home wins (`winBy = laps`). Then the chequered flag: every other car finishes the next time
 it crosses the line, classified by laps completed, then time (a lapped finisher shows "+1 lap", no time
 gap). A car that hasn't reached the line by its deadline is `dnf` and keeps its laps: the deadline is
-the winner + 30 s (`FINISH_GRACE`), or its current lap's start + 1.5 × its own best lap (`LAP_SLACK`;
+the winner + 30 s (`FINISH_GRACE`), or its current lap's start + 1.5 × its own slowest lap (`LAP_SLACK`; the best lap
+would be a shortcut's lap on a course whose cut saves a third of the lap, razor-shelf: 38 s round it, 65 s on the loop;
 the winner's average lap when it has none), whichever is later. So every running car gets to finish
 the lap it is on at its own pace, and a stopped car can't hold the race open past that. The race
 closes when no car is still running. No-reset: the last car running wins at once (`survival`).
@@ -195,7 +196,7 @@ interleaved, headless oval and city at the default slider: 8 cars 0.07 / 0.13 �
 0.61 / 1.0 on the same bench (run under load).
 
 ## Campaign
-`CAMPAIGN = ["oval", "rally", "city", "stunt"]`. Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
+`CAMPAIGN = ["oval", "rally", "city", "stunt", "four-count", "dam-spine", "razor-shelf", "breaker-yard"]` (8 rounds). Points 10, 8, 6, 5, 4, 3, 2, 1 for places 1–8.
 Standings: points, wins, the better place in the latest round, entry order. Round 1's grid is the
 entry order (player last); later grids are the standings, leader on pole. Results → Standings
 (records the round) → Next round. Retry re-runs a round without scoring it.
@@ -472,6 +473,10 @@ the sandbox's own.
 | `rally` | Ridge Rally | ≈ 860 m | climbs to 6.5 m, banked hairpin (6–8°), gravel / dirt, rocks, woods | ridge grass track (1 → 3); creek ford, sand (4 → 7) |
 | `city` | Harbour Streets | ≈ 690 m | street grid: four open junctions crossed by two two-way side streets (8 cars) plus 4 loop-lane cars, 90° corners, cobbled old town, concrete harbour front | back alley through a block (4 → 6) |
 | `stunt` | Crossover Canyon | ≈ 1140 m | figure of eight over its own 9 m deck, banked wall-ride bowl (8–18°), kicker jump down the canyon side, tunnel through a ridge, sand terrain | quarry cut across the bowl, gravel (2 → 4) |
+| `four-count` | Four-Count | ≈ 4080 m | bowl, city, canyon and woods in one lap: 14–20 m wide, banked 2–12°, asphalt / concrete / dirt, climbs to 5.4 m | skip the blocks, asphalt (0 → 2); cliff shelf beside the valley, gravel (2 → 4) |
+| `dam-spine` | Dam Spine | ≈ 4530 m | the dam crest at 4–22 m with a bridge deck, banked to 8°, asphalt / concrete | spillway off the south face, gravel (0 → 3) |
+| `razor-shelf` | Razor Shelf | ≈ 2930 m | the cliff road: a shelf at 2–14 m, banked to 8°, gravel / asphalt / dirt | inside cut off the shelf past the mesa, dirt (0 → 3) |
+| `breaker-yard` | Breaker Yard | ≈ 2270 m | the plant loop on concrete with a storm-drain culvert (tunnel) as the long way, 17 placed props | upper deck and yard cut, both concrete (1 → 3), both die on the drain gate |
 
 ## Track JSON
 One file per course in `src/game/world/tracks/`, registered in `tracks/index.ts`. `parseTrack` (zod)

@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
-import { FRAME, finishSweep, frame, makeWorld, raceOnce, type World } from "./race-world.test-util.ts";
+import { COURSE_IDS, FRAME, finishSweep, frame, makeWorld, raceOnce, type World } from "./race-world.test-util.ts";
 import { blankPoint, blankProjection, Track } from "./track.ts";
 import city from "./tracks/city.json" with { type: "json" };
 import oval from "./tracks/oval.json" with { type: "json" };
@@ -12,7 +12,7 @@ function runOut(w: World, bound: number): void {
   for (let n = 0; w.race.phase !== "finished" && n * FRAME < bound; n++) frame(w, state);
 }
 
-for (const course of ["oval", "rally", "city", "stunt"]) finishSweep(course);
+for (const course of COURSE_IDS) finishSweep(course);
 
 describe("race finish: city traffic", () => {
   it("city at aggression 0.7, seed 1, on a fresh world: every car finishes (oncoming traffic once held the AI-driven player car nose to nose until it was DNF)", () => {

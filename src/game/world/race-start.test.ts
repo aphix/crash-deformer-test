@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
-import { FRAME, frame, makeWorld } from "./race-world.test-util.ts";
+import { COURSE_IDS, FRAME, frame, makeWorld } from "./race-world.test-util.ts";
 import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
 
 /**
@@ -57,7 +57,7 @@ describe("race start: clean racing wrecks nobody", () => {
       assert.deepEqual(startWrecks("stunt", seed, 5, slider), []);
     });
   }
-  for (const course of ["stunt", "oval", "rally"]) {
+  for (const course of COURSE_IDS.filter((id) => id !== "city")) {
     for (const seed of [1, 2, 3, 4]) {
       it(`${course}, a full 8-car grid at the default slider, seed ${seed}: no car wrecks in the first ${WATCH} s of racing`, () => {
         assert.deepEqual(startWrecks(course, seed, 7, slider), []);

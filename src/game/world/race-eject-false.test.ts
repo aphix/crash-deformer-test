@@ -2,7 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type * as THREE from "three";
 import { setGround } from "./ground.ts";
-import { FRAME, frame, makeWorld, playerRace, type PlayerLine, type World } from "./race-world.test-util.ts";
+import { COURSE_IDS, FRAME, frame, makeWorld, playerRace, type PlayerLine, type World } from "./race-world.test-util.ts";
 import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { TRACKS } from "./tracks/index.ts";
@@ -86,8 +86,8 @@ describe("race: nobody is killed or thrown out by the ground", () => {
     }
   }
 
-  for (const [course, seeds] of [["stunt", [1, 2, 3, 4]], ["oval", [1, 2]], ["rally", [1, 2]]] as const) {
-    for (const seed of seeds) {
+  for (const course of COURSE_IDS.filter((id) => id !== "city")) {
+    for (const seed of course === "stunt" ? [1, 2, 3, 4] : [1, 2]) {
       it(`${course}, AI only, 6 cars, 3 laps, seed ${seed}: every kill and throw follows a hit`, () => {
         assert.deepEqual(aiRace(course, seed), []);
       });

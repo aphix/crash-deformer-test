@@ -341,7 +341,7 @@ describe("camera clearance", () => {
 });
 
 describe("Auto spectator cam", () => {
-  for (const id of ["oval", "city", "stunt"]) {
+  for (const { id } of COURSES) {
     it(`${id}: over a race every trackside or high cut stands clear and sees the car, and the cuts mix shot kinds`, (t) => {
       const track = COURSES.find((c) => c.id === id)!;
       const placed = placeProps(track);

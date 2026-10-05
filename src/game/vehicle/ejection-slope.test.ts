@@ -145,7 +145,7 @@ describe("a car that was hit once and drives on is not killed, and its driver no
   }
 
   // Every course's whole loop: the stunt bowl (banks to 15 deg) and crest, the oval's banks, the rally hairpin and its climbs.
-  for (const course of ["stunt", "oval", "rally"]) {
+  for (const course of TRACKS.map((j) => parseTrack(j).id).filter((id) => id !== "city")) {
     for (const pace of [25, 32]) {
       it(`bad: ${course}, a damaged sedan round the whole loop at ${pace} m/s (banks, crests, climbs): the engine block stays put, nobody is thrown`, (t) => {
         const trk = track(course);

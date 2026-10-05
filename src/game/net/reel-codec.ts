@@ -50,10 +50,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * flying body lands only with its middle no deeper than its springs, all live-trajectory changes; 27: pedals run on
  * the grid a clip stores (throttle/steer 1/127, brake 1/255), a clip keeps keyframe 0 plus one per placement, every
  * wreck or loose-part car's keyframe carries its parts, cage and sensor state, a clip lists props knocked by cars it
- * leaves out, and a straddled fleet-wedge wall seats an axle on its lower tyre).
+ * leaves out, and a straddled fleet-wedge wall seats an axle on its lower tyre; 28: a racer is waited for at 1.5x its
+ * slowest lap, not its best, so a car is no longer DNF'd mid-lap after a shortcut lap).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 27;
+const REPLAY_VERSION = 28;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

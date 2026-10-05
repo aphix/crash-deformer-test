@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { Track, blankProjection, crossGate } from "./track.ts";
+import { Track, blankProjection, crossGate, type Projection } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { square } from "./track.test-util.ts";
 import { TRACKS } from "./tracks/index.ts";
@@ -21,6 +21,47 @@ describe("track", () => {
         assert.ok(Math.sin(g.yaw) * tx + Math.cos(g.yaw) * tz > 0.99, `slot ${i} not facing the race direction`);
         for (let j = 0; j < i; j++) assert.ok(Math.hypot(g.x - slots[j]!.x, g.z - slots[j]!.z) > 4.5, `slots ${j} and ${i} overlap`);
       });
+    });
+
+    /** Each sample of every shortcut path with its projection on the main loop; the hint follows the path (two levels can share an (x, z)). */
+    const walkShortcuts = (each: (id: string, i: number, last: boolean, pr: Projection) => void): void => {
+      const pr = blankProjection();
+      for (const sc of t.shortcuts) {
+        let hint = -1;
+        for (let i = 0; i < sc.path.count; i++) {
+          t.project(sc.path.x[i]!, sc.path.z[i]!, hint, pr);
+          hint = pr.k;
+          each(sc.id, i, i === sc.path.count - 1, pr);
+        }
+      }
+    };
+    it(`${t.id}: a shortcut crosses the main wall line only where that wall is open on its side (a closed mouth wrecks every car that takes the cut)`, () => {
+      const closed: string[] = [];
+      let prev = { lat: 0, inside: false };
+      walkShortcuts((id, i, _last, pr) => {
+        const inside = Math.abs(pr.lateral) < t.path.half[pr.k]! + (pr.lateral > 0 ? t.path.runL[pr.k]! : t.path.runR[pr.k]!);
+        if (i > 0 && Math.sign(prev.lat) === Math.sign(pr.lateral) && prev.inside !== inside && (pr.lateral > 0 ? t.path.wallL[pr.k] : t.path.wallR[pr.k])) {
+          closed.push(`${id} sample ${i}: closed ${pr.lateral > 0 ? "left" : "right"} wall at main s ${pr.s.toFixed(0)}`);
+        }
+        prev = { lat: pr.lateral, inside };
+      });
+      assert.deepEqual(closed, []);
+    });
+    // `progress` runs between the shortcut's gates (RACE_DESIGN: Checkpoints), so a mouth far past its `from` gate drops every car that takes it back that far in the order, and 8 s of such a drop at the start reads as a stall (a respawn request on a car doing 40 m/s).
+    const GATE_SLACK = 100;
+    it(`${t.id}: every shortcut's mouth is within ${GATE_SLACK} m past its from gate and its exit within ${GATE_SLACK} m before its to gate`, () => {
+      const far: string[] = [];
+      let mouth = 0;
+      walkShortcuts((id, i, last, pr) => {
+        if (i === 0) mouth = pr.s;
+        if (!last) return;
+        const sc = t.shortcuts.find((c) => c.id === id)!;
+        const into = (((mouth - t.gates[sc.from]!.s) % t.length) + t.length) % t.length;
+        const out = ((((sc.to === 0 ? t.length : t.gates[sc.to]!.s) - pr.s) % t.length) + t.length) % t.length;
+        if (into > GATE_SLACK) far.push(`${id}: mouth ${into.toFixed(0)} m past gate ${sc.from}`);
+        if (out > GATE_SLACK) far.push(`${id}: exit ${out.toFixed(0)} m before gate ${sc.to}`);
+      });
+      assert.deepEqual(far, []);
     });
   }
 

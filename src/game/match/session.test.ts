@@ -401,6 +401,32 @@ describe("race rules", () => {
     assert.equal(slow.lap, 2, "flagged at its next crossing");
     assert.ok(slow.finishTime! > s.cars[0]!.finishTime! + FINISH_GRACE, `crossed at ${slow.finishTime!.toFixed(1)} s, after the fixed grace`);
   });
+
+  it("a car whose best lap was a shortcut's still gets LAP_SLACK × its slowest lap on the loop lap after it (the best lap is no pace for a loop)", () => {
+    const L = square.length;
+    const p1 = blankProjection();
+    const slot = square.gridSlot(1);
+    square.project(slot.x, slot.z, -1, p1);
+    const dist1 = L - p1.s;
+    const slot0 = square.gridSlot(0);
+    const p0 = blankProjection();
+    square.project(slot0.x, slot0.z, -1, p0);
+    // The winner's speed puts car 1's third crossing 40 s after the winner's (past FINISH_GRACE): lap 1 at the winner's speed (a lap round a shortcut), then 1.7× slower loop laps.
+    const vW = (1.4 * L + dist1 - (L - p0.s)) / 40;
+    const tA = (dist1 + L) / vW;
+    const cut: Driver = (t) => {
+      const tt = Math.max(0, t);
+      const fast = tt <= tA;
+      const q = square.pointAt(p1.s + (fast ? vW * tt : vW * tA + (vW / 1.7) * (tt - tA)), _pt);
+      const v = fast ? vW : vW / 1.7;
+      return { x: q.x + q.tz * p1.lateral, z: q.z - q.tx * p1.lateral, vx: q.tx * v, vz: q.tz * v };
+    };
+    const s = new RaceSession(square, field(2), { laps: 3, noReset: false });
+    runTo(s, [fromGrid(square, 0, vW), cut], 600);
+    const lagged = s.cars[1]!;
+    assert.equal(lagged.status, "finished", `the car whose lap 1 was fast is ${lagged.status} on ${lagged.lap} laps`);
+    assert.ok(lagged.finishTime! > s.cars[0]!.finishTime! + FINISH_GRACE, `crossed at ${lagged.finishTime!.toFixed(1)} s, after the fixed grace`);
+  });
 });
 
 describe("busted (BUST)", () => {

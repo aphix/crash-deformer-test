@@ -645,9 +645,10 @@ export class RaceSession {
     if (running === 0) this.close();
   }
 
-  /** When a car still running after the winner is home stops being waited for (see `LAP_SLACK`). */
+  /** When a car still running after the winner is home stops being waited for (see `LAP_SLACK`). The pace is its slowest lap so far: its best may be a shortcut's lap, which the loop lap after it cannot match (razor-shelf: 38 s round the cut, 65 s on the loop). */
   private deadline(c: CarRecord, winTime: number): number {
-    const pace = c.bestLap ?? winTime / this.laps;
+    let pace = c.lapTimes.length > 0 ? 0 : winTime / this.laps;
+    for (const lap of c.lapTimes) if (lap > pace) pace = lap;
     return Math.max(winTime + FINISH_GRACE, c.lapStart + LAP_SLACK * pace);
   }
 
