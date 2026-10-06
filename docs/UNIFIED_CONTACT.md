@@ -234,3 +234,22 @@ Track, ramps, corkscrew, props, a car's roof and a crushed body all answer the s
 ### 10.4 What Stage 1 deletes and what it leaves
 
 Deleted in this lane: `car-support.ts` whole (`support`, `axleGround`, `AXLE_STEP`, `settle`, `landPose`, `tilt`'s chord branch), `car.ts takeOff/land` and the grounded pose branch, `stepAir`'s `fromSide`, `hullClear`, `UPRIGHT`, `FLAT_GROUND`/`DISC_GROUND` identity tests, `physics-util floorUnder/gripUnder`, `FleetRamps` per-asker kerbs (`CLIMB`/`MOUNT`/`SKIN` as heights; the walls' push stays until Stage 2, by normal), `Corkscrew` invisible pad, `CarSurfaces` statefulness, `LIFT_OFF`, the stored `airborne`/`airContact` bits. Left (named, Stage 2+): `WALL_PROBES`, prop footprint SAT, `JerseyBarrier.clears`, `wallBounce`, SAT crush hulls.
+
+### 10.5 The query, with the tyre's footprint (Main's check, UC1Wheels)
+
+`pointContact(x, z, y, out)` is the one-point probe (the `heightAt`/`normalAt`/`frictionAt`/`surfaceAt` names are one-line wrappers of it). The wheel does not use it alone. Signature, in `world/surfaces.ts`, plain function over the store's typed arrays (no `this`, no allocation; `out` a preallocated `Float64Array(WHEEL_HIT)`):
+
+`wheelContact(hub: Float64Array /*x,y,z*/, axes: Float64Array /*body rotation, 9*/, scale: number /*wheel scale*/, out: Float64Array): void`
+
+It sweeps the tyre's footprint: the 7 `TREAD` points (crown arc ±0.5 rad, both shoulders) plus the ±45° arc points, each a `pointContact` asked at its own height (a face a kerb above a point is a wall, not floor, as every other query), and answers `out = [rise, nx, ny, nz, grip, surface, owner, argmax]`: `rise` = the greatest height any footprint point must lift to clear the surface under it (the tread gap is `-rise`), the normal, grip, surface id and owner (-1 the world, else a car's index) at the point that sets it. A wheel riding up a lip therefore rises continuously as its arc meets the edge, not when its hub crosses it (ParkedTodos G5's 14 cells: one ground point per tyre at an edge or corner). Hull points (underside, bumper, roof corners) ask `pointContact` the same way, each at its own height.
+
+**Derived `airborne`** = no tyre within `droop + TOUCH` of a surface AND no hull point in contact. A body resting on its belly with free wheels (a car on another's roof) is not airborne: it has contact friction and no drive (its wheels are free: no belly traction).
+
+**The constraint set** replaces the modes: tyres within reach give pose constraints (three or more fix height, pitch and roll to the rest plane through their contact points: the pose-following that keeps no-creep and the bank bar); fewer leave the free degrees of freedom to the rigid solve (`stepAir`'s impulse code, kept) driven by the same wheel and hull contacts; none is flight.
+
+### 10.6 Measured in this lane (main 5ad7839)
+
+- E1 as written (`scenes/ramp-crossing.test.ts`, 32 cells x 8/12/20 m/s): 60 of 64 cells at 12 and 20 m/s red, e.g. th 15, e 0.4, 12 m/s: yaw 3.27 deg, shove 19.7 cm, dv 0.511, plane 4.97 deg, 58 slices flagged airborne with a tyre within 3 cm.
+- E2 as the doc wrote it cannot hold. A settled aligned sedan stack leaves the top car's tread bottoms 0.327-0.364 (car 1), 0.344-0.385 (car 2), 0.364-0.410 m (car 3) over the plate of the car below (belly on the roof crown 1.306 = tread plane 1.175 + 0.131; hood 0.737, trunk 0.788). Sequential drops to 18 cars (the stack scene's own build): packed spacing 0.763 m, top car 0.409/0.364 m over the car below. A pre-crushed lower roof (crush[TOP] 0.40, 0.45): tyres 0.23-0.25 m over the plate. Wheels are never within reach of a car below, with the plate or without.
+- Drawn against physics (owner's stuck-stack shot): with the lower roof crushed 0.40 the drawn top car's tyres sit 7.5 / 13.6 cm INSIDE the drawn lower car's mesh top (hood 0.795, trunk 0.734) while the physics plate there is 0.556 / 0.540: `CarSurfaces` lowers hood and trunk by `crush[TOP] x faceFollow` (~0.48 x 0.40) and the drawn skin does not move them. The owner's trace (18 cars, muscle) has the top car 0.722 m above the car below with that car's roof mass sunk 0.40 m. That is a drawn-vs-physics mismatch for Stage 3 (cage from the drawn skin): with the drawn hood and trunk as the surface the tyres would touch.
+- E2 as built: a monster on a sedan (belly lift 0.48 puts the tyres on the hood and trunk) and a belly-resting sedan that is not airborne and not driven.
