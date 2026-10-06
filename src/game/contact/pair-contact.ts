@@ -81,9 +81,6 @@ export const WALL_PROBES: readonly (readonly [number, number])[] = [
  * steps of `SimPacer`'s 1/120 s floor, so no step carries it from clear of the face to inside it (0.46 m a step at 55 m/s).
  */
 export const HIT_AHEAD = 1 / 60;
-/** Cars farther apart than this (m, centre to centre) are not asked about: a car's length plus 3 m, a step or two of a 200 m/s closing. */
-const PAIR_NEAR = 8;
-
 /**
  * A car `gap` m from a face (a fixed solid's or another car's; negative: in it) and closing on it at `closing` m/s is about to
  * land a hard hit (`WALL_CRUSH`) when the face is within `HIT_AHEAD` s of travel: whether the crush then kills the engine no longer
@@ -93,21 +90,21 @@ export function markApproach(car: DeformableCar, gap: number, closing: number): 
   if (closing > WALL_CRUSH && gap < closing * HIT_AHEAD) car.nearHit = true;
 }
 
-/** `markApproach` for every pair of cars on one level: each one's gap to the other's nose or flank and their closing speed along the line of centres. The course marks the solids (`RaceField`). */
-export function markApproaches(cars: readonly DeformableCar[]): void {
-  for (let a = 0; a < cars.length; a++) {
-    const ca = cars[a]!;
-    for (let b = a + 1; b < cars.length; b++) {
-      const cb = cars[b]!;
-      const dx = cb.group.position.x - ca.group.position.x;
-      const dz = cb.group.position.z - ca.group.position.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > PAIR_NEAR * PAIR_NEAR || d2 === 0 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
-      const d = Math.sqrt(d2);
-      const closing = ((ca.velocity.x - cb.velocity.x) * dx + (ca.velocity.z - cb.velocity.z) * dz) / d;
-      markApproach(ca, d - 2 * WALL_HALF_L, closing);
-      markApproach(cb, d - 2 * WALL_HALF_L, closing);
-    }
+/** `markApproach` for each near pair (`pairs[0..count)` as index pairs, stepWorld's `collectNear` list, 7 m: more than a
+ *  1/60 s look-ahead of any closing speed a car reaches) on one level: each one's gap to the other's nose or flank and their
+ *  closing speed along the line of centres. The course marks the solids (`RaceField`). */
+export function markApproaches(cars: readonly DeformableCar[], pairs: Int32Array, count: number): void {
+  for (let k = 0; k < count; k += 2) {
+    const ca = cars[pairs[k]!]!;
+    const cb = cars[pairs[k + 1]!]!;
+    const dx = cb.group.position.x - ca.group.position.x;
+    const dz = cb.group.position.z - ca.group.position.z;
+    const d2 = dx * dx + dz * dz;
+    if (d2 === 0 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
+    const d = Math.sqrt(d2);
+    const closing = ((ca.velocity.x - cb.velocity.x) * dx + (ca.velocity.z - cb.velocity.z) * dz) / d;
+    markApproach(ca, d - 2 * WALL_HALF_L, closing);
+    markApproach(cb, d - 2 * WALL_HALF_L, closing);
   }
 }
 

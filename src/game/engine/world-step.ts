@@ -87,11 +87,12 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
 const STEP_SHAPE = 3;
 
 /**
- * Car pairs within this squared plan distance (m^2) at a slice's start are the ones its contact passes visit: a pair resolves
- * only inside `resolveCarPair`'s 5.2 m (27 m^2 here), and a slice moves a car by its step's travel and the capped pushes, so the
- * margin (7 m) is more than a slice can close.
+ * Car pairs within this squared plan distance (m^2) at a step's or slice's start are the ones its contact passes visit and
+ * `markApproaches` looks ahead from: a pair resolves only inside `resolveCarPair`'s 5.2 m (27 m^2 here), a slice moves a car
+ * by its step's travel and the capped pushes, and the approach look-ahead wants a car length plus 3 m (a step or two of a
+ * 200 m/s closing), so 8 m covers both.
  */
-const NEAR_PAIR2 = 49;
+const NEAR_PAIR2 = 64;
 /** Pairs the slice visits, as car index pairs (a, b), a < b, in the order a plain double loop would reach them.
  *  A module scratch like the file's other per-step temporaries; `collectNear` grows it when a field outgrows it. */
 const near = { pairs: new Int32Array(2 * 496) };
@@ -138,7 +139,10 @@ export function stepWorld(w: World, dt: number): void {
   else {
     slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
     // A step is solved at the rate a car in it asks for (`contactHz`): a body in flight touching something. A hit about to land (the pairs are marked here, the solids by the course's collide pass of the step before) is solved in slices no longer than the pacer's fine floor takes (`fine`).
-    if (w.fine > 0) markApproaches(cars);
+    if (w.fine > 0) {
+      const count = collectNear(cars);
+      markApproaches(cars, near.pairs, count);
+    }
     let hz = 0;
     let hit = false;
     for (let i = 0; i < n; i++) {
