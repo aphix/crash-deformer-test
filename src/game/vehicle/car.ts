@@ -49,6 +49,8 @@ export class DeformableCar extends CarParts {
   yielding = false;
   /** While airborne: some hull point is on the ground this slice. */
   airContact = false;
+  /** A hard hit is about to land: this car is closing on a fixed solid (the course's collide pass) or on another car (`markApproaches`), within a step or two of travel of it, or driving into it. Not state: derived again every step, read by `stepWorld` to cut the step. */
+  nearHit = false;
   /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
   private readonly groundSpin = new THREE.Vector3();
   /** The slice (s) `stepAir` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */

@@ -6,6 +6,7 @@ import { newWorld, settleStep, stepWorld, type World as StepWorld } from "../eng
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
+import { SimPacer } from "../engine/sim-pace.ts";
 import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
 import { armKill, assignClass, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import { describe, it } from "node:test";
@@ -141,19 +142,30 @@ function fixedStep(w: World, dt: number): void {
   w.race.step(dt, w.step.shape);
 }
 
-/** One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time; `slice` sees each step's length before it runs. */
-export function frame(w: World, state: { acc: number }, slice?: (h: number) => void): void {
+/**
+ * One rendered frame of `CrashEngine.tickInner` (physics part) at 1× time; `slice` sees each step's length before it runs. With `pace`
+ * the frame is stepped as the engine does (`SimPacer`: whole slices of its floor, `pace.pin` holding the 1/240 s or the 1/120 s one);
+ * without it the frame's time is cut into `physicsSlice`s that end exactly on it.
+ */
+export function frame(w: World, state: { acc: number }, slice?: (h: number) => void, pace?: SimPacer): void {
   const cars = w.live();
   const vmax = sliceSpeed(cars);
-  state.acc = Math.min(0.05, state.acc + FRAME);
-  let steps = 0;
-  while (state.acc > 1e-5 && steps < 8) {
-    const h = Math.fround(physicsSlice(state.acc, vmax)); // as the engine's step (`CrashEngine.tickInner`)
+  const step = (h: number): void => {
     slice?.(h);
+    if (pace) w.step.fine = pace.fine;
     fixedStep(w, h);
-    state.acc -= h;
     settleStep(cars, h, false);
-    steps++;
+  };
+  if (pace) pace.run(FRAME, 1, vmax, Infinity, step);
+  else {
+    state.acc = Math.min(0.05, state.acc + FRAME);
+    let steps = 0;
+    while (state.acc > 1e-5 && steps < 8) {
+      const h = Math.fround(physicsSlice(state.acc, vmax)); // as the engine's step (`CrashEngine.tickInner`)
+      step(h);
+      state.acc -= h;
+      steps++;
+    }
   }
   for (const car of cars) car.updateSkin();
   w.race.frame(FRAME);

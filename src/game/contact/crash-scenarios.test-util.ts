@@ -10,6 +10,7 @@ import { mass, paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
+import type { SimPacer } from "../engine/sim-pace.ts";
 
 /**
  * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
@@ -158,15 +159,17 @@ class HeldBarrier extends JerseyBarrier {
   }
 }
 
-/** One rendered frame of `CrashEngine.tickInner`: the physics part and the phase clock (sandbox impact rule). */
-export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
+/**
+ * One rendered frame of `CrashEngine.tickInner`: the physics part and the phase clock (sandbox impact rule). With `pace` the
+ * frame is stepped as the engine does (`SimPacer`: whole slices of its floor); without it the frame's time is cut into
+ * `physicsSlice`s that end exactly on it.
+ */
+export function tickWorld(w: CrashWorld, wallDt = FRAME, pace?: SimPacer): void {
   easeTimeScale(w.clock, wallDt);
   const simDt = wallDt * w.clock.timeScale;
   const vmax = sliceSpeed(w.cars);
-  w.acc = Math.min(0.05, w.acc + simDt);
-  let steps = 0;
-  while (w.acc > 1e-5 && steps < 8) {
-    const h = physicsSlice(w.acc, vmax);
+  const step = (h: number): void => {
+    if (pace) w.world.fine = pace.fine;
     stepWorld(w.world, h);
     for (const e of w.world.ejection?.take() ?? []) {
       w.ejections.push(e);
@@ -174,13 +177,22 @@ export function tickWorld(w: CrashWorld, wallDt = FRAME): void {
     }
     const hit = w.world.strongest;
     if (w.clock.phase === "approach" && hit.contact && hit.impulse > 0.4) beginImpact(w.clock, w.slomo);
-    w.acc -= h;
     for (const car of w.cars) {
       if (car.deform.massActive && !car.deform.drivetrainAlive) car.deform.cutDrive(h);
       if (w.clock.wallSinceImpact > 0.2 && car.crashed) bleedAfterSlide(car, h);
       car.stepBreakage(h);
     }
-    steps++;
+  };
+  if (pace) pace.run(simDt, w.clock.timeScale, vmax, Infinity, step);
+  else {
+    w.acc = Math.min(0.05, w.acc + simDt);
+    let steps = 0;
+    while (w.acc > 1e-5 && steps < 8) {
+      const h = physicsSlice(w.acc, vmax);
+      step(h);
+      w.acc -= h;
+      steps++;
+    }
   }
   for (const car of w.cars) car.updateSkin();
   stepPhase(w.clock, wallDt);

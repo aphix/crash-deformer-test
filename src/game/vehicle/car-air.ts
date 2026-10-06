@@ -179,18 +179,19 @@ export function hullClear(car: DeformableCar): boolean {
   return true;
 }
 
-/** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
-export const CONTACT_HZ = 480;
+/** A body in flight's contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
+const CONTACT_HZ = 480;
 
 /**
- * Whether `car`, a body in flight, touched something last slice (`airContact`: a landing, a face yielding, a stack it
- * stands on): the world solves such a step at `CONTACT_HZ`. Free flight and a body frozen at rest on its contact (exactly
- * zero speed) cost a normal slice, as does every car with no flight: a derby's wrecks never pay for it.
+ * The rate (Hz) at which `stepWorld` splits a step on `car`'s account, 0 for its own slice: a body in flight that touched
+ * something last slice (`airContact`: a landing, a face yielding, a stack it stands on) is solved at `CONTACT_HZ`. Free flight
+ * and a body frozen at rest on its contact (exactly zero speed) cost a normal slice, as does every car with no flight: a
+ * derby's wrecks never pay for it.
  */
-export function nearContact(car: DeformableCar): boolean {
-  if (!car.airborne || car.deform.massActive) return false;
-  if (car.airContact && car.velocity.lengthSq() === 0 && car.angular.lengthSq() === 0) return false;
-  return car.airContact || car.yielding || car.restsOn !== null;
+export function contactHz(car: DeformableCar): number {
+  if (!car.airborne || car.deform.massActive) return 0;
+  if (car.airContact && car.velocity.lengthSq() === 0 && car.angular.lengthSq() === 0) return 0;
+  return car.airContact || car.yielding || car.restsOn !== null ? CONTACT_HZ : 0;
 }
 
 /**

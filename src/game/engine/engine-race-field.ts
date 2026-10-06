@@ -4,7 +4,7 @@ import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
-import { impulseCar, wallBounce, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { HIT_AHEAD, impulseCar, markApproach, wallBounce, WALL_CRUSH, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
 import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { footprintOverlap, type Overlap } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
@@ -695,6 +695,8 @@ export abstract class RaceField {
     const rz = car.rightFlat.z;
     const fx = car.fwdFlat.x;
     const fz = car.fwdFlat.z;
+    // Speed toward the wall on the left of travel (right: its negative).
+    const vl = car.velocity.x * tz - car.velocity.z * tx;
     let pen = 0;
     let beyond = 0;
     let side = 0;
@@ -709,7 +711,9 @@ export abstract class RaceField {
       const limit = p.half[k]! + (left ? p.runL[k]! : p.runR[k]!);
       const over = Math.abs(lat) - limit;
       beyond = Math.max(beyond, over);
-      if (!(left ? p.wallL[k] : p.wallR[k]) || over <= pen) continue;
+      const walled = left ? p.wallL[k] : p.wallR[k];
+      if (walled) markApproach(car, -over, left ? vl : -vl);
+      if (!walled || over <= pen) continue;
       pen = over;
       side = left ? 1 : -1;
       cx = pos.x + wx;
@@ -751,12 +755,20 @@ export abstract class RaceField {
     const pos = car.group.position;
     const v = car.velocity;
     const low = lowestY(car);
+    // How far past a prop's reach a hard-driving car is still asked about (`markApproach`).
+    const ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? Math.hypot(v.x, v.z) * HIT_AHEAD : 0;
     for (const col of this.colliders) {
       if (this.knocked[col.index] || low >= col.top) continue;
       const reach = col.r + WALL_HALF_L + 0.3;
       const dx = pos.x - col.x;
       const dz = pos.z - col.z;
-      if (dx * dx + dz * dz > reach * reach) continue;
+      const d2 = dx * dx + dz * dz;
+      if (d2 > (reach + ahead) * (reach + ahead)) continue;
+      if (ahead > 0 && col.body === "solid" && d2 > 0) {
+        const d = Math.sqrt(d2);
+        markApproach(car, d - col.r - WALL_HALF_L, -(v.x * dx + v.z * dz) / d);
+      }
+      if (d2 > reach * reach) continue;
       // The car's footprint against the collider; the normal points out of it.
       if (!footprintOverlap(car, col, _o)) continue;
       const { pen, nx, nz, cx, cz, face } = _o;

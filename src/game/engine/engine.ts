@@ -578,6 +578,7 @@ export class CrashEngine extends EngineShare {
     // the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
     w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.rampsUp ? this.rampCollide : null;
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
+    w.fine = this.pace.fine;
     stepWorld(w, dt);
     // A driver thrown out this step (`EjectionWatch`): his dummy flies, the race recorder and the netplay peers hear of it.
     for (const e of this.ejection.take()) {

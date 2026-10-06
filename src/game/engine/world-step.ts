@@ -3,11 +3,11 @@ import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
 import type { WorldBounce } from "../vehicle/car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
 import { partContactPair } from "../contact/external-contact.ts";
-import { resolveCarPair } from "../contact/pair-contact.ts";
+import { markApproaches, resolveCarPair } from "../contact/pair-contact.ts";
 import { shareHeight } from "../contact/sat.ts";
 import { leftoverCrumple } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
-import { CONTACT_HZ, nearContact } from "../vehicle/car-air.ts";
+import { contactHz } from "../vehicle/car-air.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 
 /**
@@ -54,6 +54,8 @@ export type World = {
   shape: number;
   /** A recorded `shape` the next `stepWorld` runs to the letter (a highlight replay); −1: the cars decide, as live. */
   plan: number;
+  /** The slice (s) the pacer's 1/240 s floor takes now (`SimPacer.fine`), which a step with a hit about to land is cut to; 0 where no pacer steps the world (a harness, a replay: the recorded `shape` decides there). */
+  fine: number;
 };
 
 export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
@@ -74,6 +76,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     surfaces: new CarSurfaces(),
     shape: 0,
     plan: -1,
+    fine: 0,
   };
 }
 
@@ -134,16 +137,20 @@ export function stepWorld(w: World, dt: number): void {
   if (w.plan >= 0) slices = (w.plan & 7) + 1;
   else {
     slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
-    // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
-    if (dt * CONTACT_HZ > slices + 1e-6) {
-      for (let i = 0; i < n; i++) {
-        if (nearContact(cars[i]!)) {
-          slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
-          break;
-        }
-      }
+    // A step is solved at the rate a car in it asks for (`contactHz`): a body in flight touching something. A hit about to land (the pairs are marked here, the solids by the course's collide pass of the step before) is solved in slices no longer than the pacer's fine floor takes (`fine`).
+    if (w.fine > 0) markApproaches(cars);
+    let hz = 0;
+    let hit = false;
+    for (let i = 0; i < n; i++) {
+      const car = cars[i]!;
+      hz = Math.max(hz, contactHz(car));
+      hit = hit || car.nearHit;
     }
+    if (dt * hz > slices + 1e-6) slices = Math.min(8, Math.ceil(dt * hz - 1e-6));
+    if (hit && w.fine > 0) slices = Math.max(slices, Math.min(8, Math.ceil(dt / w.fine - 1e-6)));
   }
+  // Read once: this step's collide passes mark the next.
+  for (let i = 0; i < n; i++) cars[i]!.nearHit = false;
   let shape = slices - 1;
   const h = dt / slices;
   strongest.clear();

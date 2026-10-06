@@ -84,7 +84,7 @@ the flanks vary 6 %.
 - A stack at rest: 0.07 ms per physics slice for four cars (three in flight), 0.29 ms per 60 Hz frame (4 slices) and 0.07
   ms at 240 Hz. `CarSurfaces.top` reads a 0.1 m height grid per body style (built once), not the loft.
 - A step runs at 480 Hz (`stepWorld`: up to 8 slices) only while a body in flight touched something last slice
-  (`nearContact`: `airContact`, a yielding face, standing on a car); free flight, a body frozen at rest, and every car
+  (`contactHz`: `airContact`, a yielding face, standing on a car); free flight, a body frozen at rest, and every car
   with no flight cost what they cost before. No allocation in `stepAir`, `CarSurfaces` or `bakeLoadCrush`.
 - Step cost per 1/60 s frame, headless (`.bench/step-cost.ts`, median of 3 runs interleaved with the base, ms), main
   e37d8cd -> this lane:
