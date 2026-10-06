@@ -20,34 +20,18 @@ const SEDAN = ["sedan"] as const;
 const SEDAN_MONSTER = ["sedan", "monster"] as const;
 
 /**
- * Cells still breaking a bound: a budget that only goes down (main 4677c4b had 272 ramp and 113 bank cells; 7ec7db6 105 and 4; main 5ad7839
- * 14 of 336 ramp cells and 0 of 1078 bank cells). The judge departs from its first form in three ways, measured on 7ec7db6 (336 ramp
- * cells of the 2166):
- * - Ramp drops run 6 s, not 3: a car dropped across an edge is still sliding or rolling at 3 s (60 of the 336 cells above 5 cm/s,
- *   49 at 6 s; one slides 0.86 m between 3 s and 6 s), so a pose read at 3 s is a frame of a motion. 6 s changed the verdict of
- *   4 cells (109 → 105 failing).
+ * No cell may break a bound (docs/UNIFIED_CONTACT.md Stage 1 closes the ramp cells: a car perched across a wedge's edge or corner,
+ * one ground point per tyre). The judge departs from its first form in three ways, measured on 7ec7db6 (336 ramp cells of the 2166):
+ * - Ramp drops run 6 s, not 3: a car dropped across an edge is still sliding or rolling at 3 s, so a pose read at 3 s is a frame of
+ *   a motion. 6 s changed the verdict of 4 cells.
  * - A car rolled past 60° rests on its side or roof, where no tyre, pose or slide bound applies (its tyres are metres up). Its whole
  *   hull (underside, bumpers, beltline and roof corners, as the drawn body carries them) must still be out of the ground and of the
- *   walls. It skipped 0 of the 2166 cells on 7ec7db6; with the ramps' wall and ground one rule, 15 ramp cells roll (a car dropped
- *   half on a 0.6–1.1 m ledge falls off it onto its side or roof, where it used to sink into the wedge upright) and 0 elsewhere.
- * - A tyre tilted θ off the ground it stands on rests on its lower tread shoulder, while the sim holds the tread's centre on the
- *   ground: the drawn shoulder digs in by `shoulder · sin θ` (≤ 5 cm sedan, 8.9 cm monster at 30°). That is the one-point tyre's
- *   error, bounded by the tyre's own width, and a tyre that sinks further than it plus 2 cm still fails; it was the verdict of 64
- *   ramp cells on 7ec7db6 (169 → 105 failing; the bank, crest and stopped groups did not change).
+ *   walls.
+ * - A tyre tilted θ off the ground it stands on rests on its lower tread shoulder: the drawn shoulder digs in by `shoulder · sin θ`
+ *   (≤ 5 cm sedan, 8.9 cm monster at 30°), bounded by the tyre's own width; a tyre that sinks further than it plus 2 cm still fails.
  * A face the car lies on yields by its crush (`Fit.crush`); its stock-face hull probes read that much too deep, so pen and overlap
  * allow it.
- * The 14 ramp cells, seven families each mirrored over ±z (sunk 6, float 5, slide 4, pen 5, overlap 5) on 5ad7839, are all a car perched across a wedge's edge or corner:
- * - Plateau, 45°/315° (4): the tail hangs over the 1.2 m back wall and the rear-left tread's centre is on the side wall's plane (hub x
- *   1.50 m), so the sim, which holds one point per tyre and one more at each of ±45°/±90° of its arc, has the tyre on the floor while
- *   its inner shoulder (the judge probes ±0.104 m) is 29 cm into the corner; the other rear tyre hangs 103 cm (that tilt is 4°).
- * - Rear lip, monster on the edge 135° (1): a tyre 22 cm in and the car tilted 35°; sedan on the edge 180° (1): a hull corner 8.5 cm into
- *   the face edge, a tyre 14 cm in and another 51 cm up (tilt 26°).
- * - Hull point 4.1 cm into a face's side edge (4 cells: mid-face 0.4 m in at 0° and 0.4 m out at 45°, each mirrored; they rolled onto their
- *   side, 68° hull): a belly or roof corner within the 0.2 m `SKIN` that lets a body point mount the face, so it is not pushed out of a wall
- *   it is that near the top of.
- * - Low end 135°/225° (4): slides of 0.62–0.75 m against 0.5 m down the 15° face from 0.08 m high; nothing in the ground.
  */
-const KNOWN_RAMPS = 14;
 
 // (a) The fleet's jump ramps, exactly as fleet-ramps.test.ts `scene()` builds them (no slab).
 const ramps = new FleetRamps(new THREE.Scene());
@@ -167,7 +151,7 @@ function bankSites(): Site[] {
 describe("given a braked car placed at every heading across a matrix of ground sites", () => {
   afterEach(() => setGround(null));
 
-  it("when the car sits on fleet ramp faces, ends and straddling the side edges, then it sits on the ground at every heading", (t) => report(t, rampSites(), KNOWN_RAMPS));
+  it("when the car sits on fleet ramp faces, ends and straddling the side edges, then it sits on the ground at every heading", (t) => report(t, rampSites()));
 
   it("when the car brakes on the stunt course's CRUSH crest and descent, then it sits on the ground at every heading", (t) => report(t, crestSites()));
 
