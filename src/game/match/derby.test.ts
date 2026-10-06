@@ -561,10 +561,8 @@ describe("given derby matches between AI cars", () => {
     });
 
     // Was 19 pops in 15 s (0.10–0.24 m): the first contact on a planted wreck re-anchored the group on
-    // the cell's rest inside one dt = 0 syncPose. Now 7 (≤ 0.07 m): the plant switch levels the frame
-    // at 0.35 s quiet in one call (tilt × lever), and one slice's satPushCap push (3.4 cm at 5 ms) on a
-    // slow wedged pair. Ramping the level-out took it to 0 but moved the tap and A3 bands (RIG_ANALYSIS §6.4).
-    it.todo("when a car crashes, then its body never moves more than 3 times its speed times the slice length plus 2 cm in one slice", () => {
+    // the cell's rest inside one dt = 0 syncPose.
+    it("when a car crashes, then its body never moves more than 3 times its speed times the slice length plus 2 cm in one slice", () => {
       assert.equal(owner.pops.length, 0, `${owner.pops.length} pops: ${owner.pops.slice(0, 4).join("; ")}`);
     });
   });
