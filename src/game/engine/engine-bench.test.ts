@@ -108,7 +108,10 @@ describe("given the bench result of a phone running the city course (describeBen
     const masked = describeBench({ ...RESULT, device: { ...RESULT.device, gpu: "ANGLE (NVIDIA GeForce GTX 980), or similar", gpuMasked: true } });
     assert.ok(masked.some((l) => l.includes("GTX 980") && l.includes("[masked by the browser: not the real GPU]")));
     const timed = describeBench({ ...RESULT, gpuMs: S(3) });
-    assert.ok(timed.some((l) => /^GPU {7}p50 3\.0 {2}p95 6\.0/.test(l)));
+    assert.ok(timed.some((l) => /^GPU {7}p50 3\.0 {2}p95 6\.0/.test(l) && !l.includes("wait on the display")), "frames of 11 ms: a 6 ms p95 is work");
+    // The owner's 165 Hz desktop card: frame p50 6.1 ms, GPU p50 1.5 ms and p95 5.96 ms: one refresh long, so a wait.
+    const waiting = describeBench({ ...RESULT, frameMs: S(6.1), gpuMs: { mean: 2.9, p50: 1.5, p95: 5.96, p99: 6.2, max: 10.6 } });
+    assert.ok(waiting.some((l) => /^GPU {7}p50 1\.5 {2}p95 6\.0 {2}p99 6\.2 {2}max 10\.6 ms {3}p95 is one frame long: a wait on the display, p50 is the work$/.test(l)));
     assert.ok(lines.length <= 30, "the card scrolls on a 412 px tall phone screen at 11 px type");
   });
 });

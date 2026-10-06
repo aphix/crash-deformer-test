@@ -214,6 +214,8 @@ export function perSecond(intervals: ArrayLike<number>, n = intervals.length): n
 
 const f1 = (v: number): string => v.toFixed(1);
 const row = (label: string, s: Stat): string => `${label.padEnd(10)}p50 ${f1(s.p50)}  p95 ${f1(s.p95)}  p99 ${f1(s.p99)}  max ${f1(s.max)} ms`;
+/** The GPU timer spans the draw, so a wait inside it (the display's back buffer, another process) counts: a p95 within 15 % of a frame's length is that wait, and p50 is the work. */
+const waited = (gpu: Stat, frame: Stat): boolean => gpu.p95 >= 0.85 * frame.p50 && gpu.p95 <= 1.15 * frame.p50;
 const gpuOf = (b: Block): string => (b.gpuMs === null ? "gpu n/a" : `gpu ${f1(b.gpuMs)}`);
 const arm = (label: string, b: Block): string => `${label} ${f1(b.fps)} fps, sim ${Math.round(b.simSpeedPct)} %, ${Math.round(b.simMsPerSimS)} ms/sim-s, cpu ${f1(b.cpuMs)}, draw ${f1(b.drawMs)}, ${gpuOf(b)}`;
 
@@ -232,7 +234,7 @@ export function describeBench(r: BenchResult): string[] {
     row("CPU", r.cpuMs),
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second`,
     row("  draw", r.renderMs),
-    r.gpuMs ? row("GPU", r.gpuMs) : "GPU       no timer query on this device",
+    r.gpuMs ? row("GPU", r.gpuMs) + (waited(r.gpuMs, r.frameMs) ? "   p95 is one frame long: a wait on the display, p50 is the work" : "") : "GPU       no timer query on this device",
     `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
     `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
