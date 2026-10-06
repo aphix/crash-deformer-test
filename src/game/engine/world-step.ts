@@ -84,16 +84,46 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
 const STEP_SHAPE = 3;
 
 /**
+ * Car pairs within this squared plan distance (m^2) at a slice's start are the ones its contact passes visit: a pair resolves
+ * only inside `resolveCarPair`'s 5.2 m (27 m^2 here), and a slice moves a car by its step's travel and the capped pushes, so the
+ * margin (7 m) is more than a slice can close.
+ */
+const NEAR_PAIR2 = 49;
+/** Pairs the slice visits, as car index pairs (a, b), a < b, in the order a plain double loop would reach them. */
+let nearPairs = new Int32Array(2 * 496);
+
+/** Fills `nearPairs` with the pairs of `cars` within `NEAR_PAIR2` of each other in plan; the count of ints written. */
+function collectNear(cars: readonly DeformableCar[]): number {
+  const n = cars.length;
+  if (n * (n - 1) > nearPairs.length) nearPairs = new Int32Array(n * (n - 1));
+  const out = nearPairs;
+  let k = 0;
+  for (let a = 0; a < n; a++) {
+    const pa = cars[a]!.group.position;
+    for (let b = a + 1; b < n; b++) {
+      const pb = cars[b]!.group.position;
+      const dx = pa.x - pb.x;
+      const dz = pa.z - pb.z;
+      if (dx * dx + dz * dz > NEAR_PAIR2) continue;
+      out[k++] = a;
+      out[k++] = b;
+    }
+  }
+  return k;
+}
+
+/**
  * One fixed step of the world (`dt` from `physicsSlice`), split into 1–3 slices: integrate or pose, mass pair
  * contact and part contact, up to three SAT passes (slab, car pairs, balls, poles), then the structure step,
- * slab clip and `afterContacts` per car.
+ * slab clip and `afterContacts` per car. The pair loops visit the slice's near pairs only (`collectNear`).
  */
 export function stepWorld(w: World, dt: number): void {
   const { cars, barrier, strongest } = w;
+  const n = cars.length;
   let nearWall = false;
   if (barrier) {
-    for (const car of cars) {
-      if (car.group.position.lengthSq() < 160) {
+    for (let i = 0; i < n; i++) {
+      if (cars[i]!.group.position.lengthSq() < 160) {
         nearWall = true;
         break;
       }
@@ -105,8 +135,8 @@ export function stepWorld(w: World, dt: number): void {
     slices = nearWall && dt > 0.006 ? 3 : dt > 0.012 ? 2 : 1;
     // A body in flight whose face is yielding to its load, or that stands on another car, is solved at CONTACT_HZ whatever the frame rate.
     if (dt * CONTACT_HZ > slices + 1e-6) {
-      for (const car of cars) {
-        if (nearContact(car)) {
+      for (let i = 0; i < n; i++) {
+        if (nearContact(cars[i]!)) {
           slices = Math.min(8, Math.ceil(dt * CONTACT_HZ - 1e-6));
           break;
         }
@@ -120,7 +150,8 @@ export function stepWorld(w: World, dt: number): void {
   for (let i = 0; i < slices; i++) {
     if (w.beforeSlice?.(h)) continue;
     w.surfaces.cars = cars;
-    for (const car of cars) {
+    for (let ci = 0; ci < n; ci++) {
+      const car = cars[ci]!;
       car.deform.beginSlice(h);
       car.surfaces = w.surfaces;
       // A wreck its masses hand to flight here (`syncPose`) flies this slice: handed over before the masses took it,
@@ -132,39 +163,43 @@ export function stepWorld(w: World, dt: number): void {
       else car.refreshBasis();
     }
 
-    for (let a = 0; a < cars.length; a++) {
-      for (let b = a + 1; b < cars.length; b++) {
-        const ca = cars[a]!;
-        const cb = cars[b]!;
-        if (barrier && barrier.blocksPair(ca, cb)) continue;
-        const dx = ca.group.position.x - cb.group.position.x;
-        const dz = ca.group.position.z - cb.group.position.z;
-        // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
-        if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
-        const masses = (ca.deform.massActive || cb.deform.massActive) && ca.deform.collideWith(cb.deform, h);
-        if (partContactPair(ca, cb) || masses) w.partTouch?.(a, b);
-      }
+    const pairs = collectNear(cars);
+    const near = nearPairs;
+    for (let k = 0; k < pairs; k += 2) {
+      const a = near[k]!;
+      const b = near[k + 1]!;
+      const ca = cars[a]!;
+      const cb = cars[b]!;
+      if (barrier && barrier.blocksPair(ca, cb)) continue;
+      const dx = ca.group.position.x - cb.group.position.x;
+      const dz = ca.group.position.z - cb.group.position.z;
+      // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
+      if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
+      const masses = (ca.deform.massActive || cb.deform.massActive) && ca.deform.collideWith(cb.deform, h);
+      if (partContactPair(ca, cb) || masses) w.partTouch?.(a, b);
     }
 
     let satBusy = false;
     let wrecked = true;
-    for (const car of cars) {
+    for (let ci = 0; ci < n; ci++) {
+      const car = cars[ci]!;
       if (car.velocity.lengthSq() > 1.4) satBusy = true;
       if (!car.crashed || leftoverCrumple(car.deform.crumpleTravelCorner()) >= 0.2) wrecked = false;
     }
     const passes = w.plan >= 0 ? (w.plan >> (STEP_SHAPE + 2 * i)) & 3 : satBusy && !wrecked ? 3 : 1;
     let ran = 0;
-    for (let k = 0; k < passes; k++) {
+    for (let pass = 0; pass < passes; pass++) {
       ran++;
-      for (const car of cars) {
+      for (let ci = 0; ci < n; ci++) {
+        const car = cars[ci]!;
         if (car.deform.massActive) car.syncPose(0);
         else car.refreshBasis();
       }
 
-      const feed = k === 0;
+      const feed = pass === 0;
       let moved = false;
       if (barrier) {
-        for (let ci = 0; ci < cars.length; ci++) {
+        for (let ci = 0; ci < n; ci++) {
           const hit = barrier.resolve(cars[ci]!, true, feed, h);
           if (hit) {
             w.barrierHits[ci] = true;
@@ -174,22 +209,22 @@ export function stepWorld(w: World, dt: number): void {
         }
       }
 
-      for (let a = 0; a < cars.length; a++) {
-        for (let b = a + 1; b < cars.length; b++) {
-          if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
-          if (!shareHeight(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
-          const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
-          if (pair) {
-            moved = true;
-            w.pairHit?.(a, b, pair, feed);
-            strongest.offer(pair);
-          }
+      for (let k = 0; k < pairs; k += 2) {
+        const a = near[k]!;
+        const b = near[k + 1]!;
+        if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
+        if (!shareHeight(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
+        const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
+        if (pair) {
+          moved = true;
+          w.pairHit?.(a, b, pair, feed);
+          strongest.offer(pair);
         }
       }
 
       if (w.ballHit) {
-        for (const car of cars) {
-          const ballHit = w.ballHit(car);
+        for (let ci = 0; ci < n; ci++) {
+          const ballHit = w.ballHit(cars[ci]!);
           if (ballHit) {
             moved = true;
             strongest.offer(ballHit);
@@ -197,27 +232,28 @@ export function stepWorld(w: World, dt: number): void {
         }
       }
       if (w.poleHit) {
-        for (const car of cars) if (w.poleHit(car)) moved = true;
+        for (let ci = 0; ci < n; ci++) if (w.poleHit(cars[ci]!)) moved = true;
       }
 
       if (barrier) {
-        for (const car of cars) {
-          if (barrier.resolve(car, false, false, h)) moved = true;
+        for (let ci = 0; ci < n; ci++) {
+          if (barrier.resolve(cars[ci]!, false, false, h)) moved = true;
         }
       }
       if (!moved && w.plan < 0) break;
     }
     shape |= ran << (STEP_SHAPE + 2 * i);
 
-    for (const car of cars) {
+    for (let ci = 0; ci < n; ci++) {
+      const car = cars[ci]!;
       if (car.deform.massActive) car.deform.stepStructure(h);
       if (car.deform.massActive) car.syncPose(h);
       if (barrier) barrier.clip(car);
       car.afterContacts(h, w.bounce);
       w.afterCar?.(car, h);
     }
-    if (w.collide) for (let ci = 0; ci < cars.length; ci++) w.collide(cars[ci]!, ci, h);
-    for (const car of cars) car.deform.endSlice();
+    if (w.collide) for (let ci = 0; ci < n; ci++) w.collide(cars[ci]!, ci, h);
+    for (let ci = 0; ci < n; ci++) cars[ci]!.deform.endSlice();
   }
   w.ejection?.step(cars, dt);
   w.shape = shape;

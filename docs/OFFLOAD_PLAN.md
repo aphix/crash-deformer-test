@@ -266,6 +266,8 @@ Same code, other holds: derby-32 `B` over main is 0.78 / 0.70 of the frame in th
 | `tyreStop` | 2.58 | 1.25 | 1.50 | 0.68 |
 | `frontTransfer` / `nodePacked` | 2.58 / 1.84 | 0.91 / 0.62 | 1.90 / 1.31 | 0.89 / 0.58 |
 
+**Landed after PairSolve: the slice's pair loops visit near pairs only (lane CoursePerf).** `stepWorld` gathers the car pairs within 7 m in plan once per slice (`collectNear`, a cheap distance test over all pairs into a preallocated Int32Array, in the order the double loop reached them) and the slice-start mass-contact loop and every SAT pass walk that list; before, every pass ran `barrier.blocksPair`, `shareHeight` and `resolveCarPair`'s own 5.2 m test on all n(n-1)/2 pairs. A pair beyond 7 m cannot close to 5.2 m inside a slice (the step's travel and the capped pushes are centimetres), so the result is exact: digests of 16 cars / 64.5 s on all 8 courses equal main's (oval 5ddde8b9, rally facf6447, city 434ec229, stunt bd687005, four-count 2a284669, dam-spine b31b9d46, razor-shelf ea8096ca, breaker-yard a47e44ad). The loops of `stepWorld` are indexed (no `for…of`). CPU profile of the headless city race (32 cars, 6 police, 50 sim-s), ms per 60 Hz frame: `shareHeight` 0.167 → 0.014, `resolveCarPair` self 0.098 → 0.017, `stepWorld` incl 3.76 → 3.19 (-15 %); the loop's own test grows as n², about 2 ns a pair (a few µs a slice at 100 cars).
+
 ## 7. How this relates to Rapier
 - **Separate modules and instances.** The skin kernel is its own 11 KB module with its own memory, and runs on the main thread:
   - It must not share Rapier's instance. Rapier is wasm-bindgen output (1.57 MB, 0.59 MB gzip) with its own allocator, and linking our kernel into it means rebuilding Rapier.
