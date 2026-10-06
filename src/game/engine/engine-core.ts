@@ -17,7 +17,7 @@ import { MAX_CARS, slotType, type CarType } from "../scenes/fleet.ts";
 import { fleetProp, type SceneId } from "../scenes/scene-id.ts";
 import { SceneFade } from "../present/scene-fade.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
-import { armKill, assignClass, carClass, HANDLING, killClass, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { armKill, assignClass, carClass, HANDLING, killClass, STYLE_CLASS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
@@ -308,9 +308,18 @@ export abstract class EngineCore {
     if (this.seat.carIndex >= count) this.seat.clear();
   }
 
-  /** What car slot `i` is now: a police cruiser inside the race's police range, else `slotType`. */
+  /** The bench's one body for every non-police car (`?bench=strip&same=`). Not a setting: the HUD, the hash and storage never see it. */
+  private oneBody: CarType | null = null;
+
+  /** Every non-police car wears `style` (null: the fleet's mix again), rebuilt at once where it differs. */
+  useOneBody(style: CarStyleId | null): void {
+    this.oneBody = style ? { cls: STYLE_CLASS[style], style } : null;
+    this.retypeCars();
+  }
+
+  /** What car slot `i` is now: a police cruiser inside the race's police range, else the bench's one body, else `slotType`. */
   private slotCar(i: number): CarType {
-    return this.isPolice(i) ? { cls: "police", style: "police" } : slotType(i, this.playerCar, this.showStack);
+    return this.isPolice(i) ? { cls: "police", style: "police" } : (this.oneBody ?? slotType(i, this.playerCar, this.showStack));
   }
 
   protected buildCar(i: number, type: CarType = this.slotCar(i)): DeformableCar {

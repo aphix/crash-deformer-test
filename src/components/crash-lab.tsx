@@ -35,8 +35,8 @@ export function CrashLab() {
           engine.start();
           setBooted(true);
           engine.ready.finally(dismissBootLoader);
-          // `?bench=city`: the phone-timing page (engine-bench.ts), fetched only when asked for.
-          if (new URLSearchParams(window.location.search).get("bench") === "city") void (import("@/game/engine/engine-bench") as Promise<{ runBench: typeof runBench }>).then((m) => m.runBench(engine!, hudStore.get));
+          // `?bench=city` / `?bench=strip&…`: the phone-timing pages (engine-bench.ts), fetched only when asked for.
+          if (new URLSearchParams(window.location.search).has("bench")) void (import("@/game/engine/engine-bench") as Promise<{ runBench: typeof runBench }>).then((m) => m.runBench(engine!, hudStore.get, window.location.search));
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);

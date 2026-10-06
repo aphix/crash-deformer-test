@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BENCH_RACE } from "../engine/engine-bench.ts";
+import { BENCH_RACE } from "../engine/engine-bench-plan.ts";
 import { decodeShare } from "../hud/share-url.ts";
 import { DEFAULT_RACE_OPTIONS, type RaceOptions } from "../match/types.ts";
 import { setGround } from "./ground.ts";

@@ -254,6 +254,13 @@ export abstract class RaceField {
     });
   }
 
+  /** A bench-only course (`?bench=strip`): found by its id like the off-menu ones, listed nowhere, replaced by the next call. */
+  loadBenchCourse(json: unknown): void {
+    this.benchJson = json;
+    this.tracks.delete(parseTrack(json).id);
+  }
+  private benchJson: unknown = null;
+
   /** The loaded course's solids for the spectator cams' sight lines (built once per course); null off a race. */
   courseSight(): Sight | null {
     return this.track ? raceSight(this.track, this.placed) : null;
@@ -419,7 +426,7 @@ export abstract class RaceField {
     this.unload();
     let tr = this.tracks.get(trackId);
     if (!tr) {
-      const json = [...TRACKS, this.survivalJson, ...OFF_MENU].find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
+      const json = [...TRACKS, this.survivalJson, ...OFF_MENU, ...(this.benchJson ? [this.benchJson] : [])].find((j) => parseTrack(j).id === trackId) ?? TRACKS[0]!;
       tr = new Track(json);
       this.tracks.set(trackId, tr);
     }

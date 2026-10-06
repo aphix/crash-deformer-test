@@ -4,13 +4,13 @@ import type { Cinematics } from "../present/engine-cine.ts";
 import { describePost, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import type { CarStyleId } from "../vehicle/car-variants.ts";
+import { benchPlan, leaderAhead, stripLines, type BenchPlan, type StripResult } from "./engine-bench-plan.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 
-/** The one bench: city, 16 racers, police, the player's car on autopilot (the camera follows it), seed 1. */
-const BENCH = { course: "city", aiCount: 15, seed: 1, warmS: 20, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, settleFrames: 10 } as const;
-/** The bench's race: its own course, field and rules as a program over the player's options, which it never touches. */
-export const BENCH_RACE: RaceCommand = { type: "program", options: { trackId: BENCH.course, laps: 9, aiCount: BENCH.aiCount, police: true, aggression: 1, spectate: false, noReset: false } };
+/** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
+const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, settleFrames: 10 } as const;
 /** Samples kept: far above any display rate, so the window always fits. */
 const CAP = BENCH.measureS * 400;
 
@@ -21,7 +21,7 @@ export interface BenchParts {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   sun: THREE.DirectionalLight;
-  race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats">;
+  race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats" | "loadBenchCourse">;
   seat: DriverSeat;
   live(): readonly DeformableCar[];
 }
@@ -40,6 +40,8 @@ interface BenchEngine {
   setFxTier(tier: FxTier): void;
   setFxAuto(): void;
   benchParts(): BenchParts;
+  /** Every non-police car wears `style` (null: the fleet's mix). */
+  useOneBody(style: CarStyleId | null): void;
 }
 
 interface Stat {
@@ -87,14 +89,14 @@ interface BenchSettings {
   squash: number;
   buckle: number;
   deformMode: string;
-  depth: { bits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean };
+  depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean };
 }
 
 export interface BenchResult {
   course: string;
   /** Cars in play (racers, traffic, police), and what the police did: stakeouts parked, pursuits begun, the largest pack. */
   cars: number;
-  cops: { stakeouts: number; pursuits: number; maxPack: number };
+  cops: { stakeouts: number; pursuits: number; maxPack: number } | null;
   /** Cars that were wrecks (`crashed`): mean over the window's frames, and at its end. */
   crashed: { mean: number; end: number };
   frames: number;
@@ -126,6 +128,8 @@ export interface BenchResult {
   coarsePct: number;
   /** Race-clock seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
   simSpeedPct: number;
+  /** The strip bench's settings and how far up the straight the lead racer got (null: the city bench). */
+  strip: StripResult | null;
   calls: number;
   triangles: number;
   /** Share of the window's frames at each FX tier, % (the auto tier moves). */
@@ -207,6 +211,7 @@ export function describeBench(r: BenchResult): string[] {
   const tiers = Object.entries(r.tierPct).sort((a, b) => b[1] - a[1]).map(([t, p]) => `${t} ${Math.round(p)} %`).join(", ");
   return [
     `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames  (${d.browser})`,
+    ...(r.strip ? stripLines(r.strip) : []),
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
     `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
@@ -215,11 +220,11 @@ export function describeBench(r: BenchResult): string[] {
     row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second`,
     row("  draw", r.renderMs),
     r.gpuMs ? row("GPU", r.gpuMs) : "GPU       no timer query on this device",
-    `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}`,
+    `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
-    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
+    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}`,
     `                  ${arm("1/120 s", r.abPace.coarse)}`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
@@ -426,13 +431,13 @@ interface Window {
   clockS: number;
 }
 
-/** The grid and the warm-up: frames with no samples until `warmS` of race clock has run. */
-async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<void> {
+/** The grid and the warm-up: frames with no samples until `plan.warmS` of race clock has run. */
+async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, plan: BenchPlan): Promise<void> {
   const { renderer, race } = parts;
   for (;;) {
     await frame(engine, renderer, t, beat);
-    if (race.phase === "racing" && race.time >= BENCH.warmS) return;
-    ui.set(`CRUSH BENCH: ${race.phase === "racing" ? `warming ${Math.round(race.time)} / ${BENCH.warmS} s` : "grid"}`);
+    if (race.phase === "racing" && race.time >= plan.warmS) return;
+    ui.set(`CRUSH BENCH: ${race.phase === "racing" ? `warming ${Math.round(race.time)} / ${plan.warmS} s` : "grid"}`);
   }
 }
 
@@ -557,6 +562,7 @@ function depthOf(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera)
   const frag = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
   return {
     bits: gl.getParameter(gl.DEPTH_BITS) as number,
+    subpixelBits: gl.getParameter(gl.SUBPIXEL_BITS) as number,
     contextDepth: gl.getContextAttributes()?.depth === true,
     fragmentHighFloat: frag ? { precision: frag.precision, rangeMin: frag.rangeMin, rangeMax: frag.rangeMax } : null,
     near: camera.near,
@@ -595,7 +601,7 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
   };
 }
 
-function summarize(parts: BenchParts, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "settings" | "abPace" | "abFx" | "device"> {
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "settings" | "abPace" | "abFx" | "device"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -613,9 +619,9 @@ function summarize(parts: BenchParts, s: Samples, w: Window, gpu: number[], setu
     simSum += s.sim[i]!;
   }
   return {
-    course: BENCH.course,
+    course: plan.id,
     cars: parts.live().length,
-    cops: { ...race.policeStats! },
+    cops: race.policeStats ? { ...race.policeStats } : null,
     crashed: { mean: stat(s.wrecks, n).mean, end: wrecks(parts) },
     frames: n,
     wallS: w.wallS,
@@ -674,16 +680,18 @@ function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> },
 }
 
 /**
- * `?bench=city`: the real game on the real clock for a fixed run, then a card of what it cost. The engine's own loop is
- * stopped and each rAF hands the engine its measured wall time through `advance` (the same `tickInner` the loop runs,
- * the pacer's real 8 ms deadline included), so a frame is timed, not simulated. Sequence: the race is set up, runs its
- * grid and `warmS` of race clock (the police park from a third of a lap on), then `measureS` wall seconds are sampled with
- * the game's own settings (auto FX tier, adaptive pacer). Then, on the same race, the pacer is pinned to 1/240 s and to
- * 1/120 s in alternating blocks, and the FX tier to minimal, low and high in alternating blocks, each arm scored the same
- * way. Afterwards the settings go back to automatic, the loop restarts and the race plays on under the card.
- * `hud` reads the HUD's state (every setting the player can change).
+ * `?bench=city` or `?bench=strip&…` (`benchPlan`): the real game on the real clock for a fixed run, then a card of what it
+ * cost. The engine's own loop is stopped and each rAF hands the engine its measured wall time through `advance` (the same
+ * `tickInner` the loop runs, the pacer's real 8 ms deadline included), so a frame is timed, not simulated. Sequence: the
+ * race is set up, runs its grid and `warmS` of race clock, then `measureS` wall seconds are sampled with the game's own
+ * settings (auto FX tier, adaptive pacer). Then, on the same race, the pacer is pinned to 1/240 s and to 1/120 s in
+ * alternating blocks, and the FX tier to minimal, low and high in alternating blocks, each arm scored the same way.
+ * Afterwards the settings go back to automatic, the loop restarts and the race plays on under the card. `hud` reads the
+ * HUD's state (every setting the player can change); `search` is the page's query string. Null: no such bench.
  */
-export async function runBench(engine: BenchEngine, hud: () => object): Promise<BenchResult> {
+export async function runBench(engine: BenchEngine, hud: () => object, search: string): Promise<BenchResult | null> {
+  const plan = benchPlan(search);
+  if (!plan) return null;
   const ui = overlay();
   ui.set("CRUSH BENCH: loading…");
   const timerStepMs = timerStep();
@@ -693,8 +701,11 @@ export async function runBench(engine: BenchEngine, hud: () => object): Promise<
   engine.fadeScenes = false;
   engine.followUrl = false;
   engine.toggleRace();
+  // The strip is built now, handed to the race field as an off-menu course, and every non-police car wears the one body asked for.
+  if (plan.course) parts.race.loadBenchCourse(plan.course);
+  engine.useOneBody(plan.body);
   const t0 = performance.now();
-  engine.raceCommand(BENCH_RACE);
+  engine.raceCommand(plan.race);
   const t1 = performance.now();
   parts.race.reseed(BENCH.seed);
   engine.raceCommand({ type: "start" });
@@ -703,8 +714,9 @@ export async function runBench(engine: BenchEngine, hud: () => object): Promise<
 
   const t = tap(engine.pace, parts);
   const beat: Beat = { prev: await nextFrame() };
-  await lead(engine, parts, t, beat, ui);
+  await lead(engine, parts, t, beat, ui, plan);
   const { s, w } = await sample(engine, parts, t, beat, ui);
+  const leaderWindowM = leaderAhead(parts, plan);
   const top = [...s.tiers].sort((a, b) => b[1] - a[1])[0]?.[0] ?? parts.cine.tier;
   const settings = settingsOf(parts, hud() as Record<string, unknown>, top);
 
@@ -720,7 +732,8 @@ export async function runBench(engine: BenchEngine, hud: () => object): Promise<
   const abFx = blocksOf(fx, gpu);
   const device = await deviceOf(parts, timerStepMs);
   const result: BenchResult = {
-    ...summarize(parts, s, w, gpu.filter((g) => g.block === 0).map((g) => g.ms), setupMs),
+    ...summarize(parts, plan, s, w, gpu.filter((g) => g.block === 0).map((g) => g.ms), setupMs),
+    strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM: leaderAhead(parts, plan) } : null,
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },
     abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]! },

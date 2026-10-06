@@ -42,7 +42,7 @@ export abstract class EngineInput extends EngineRigs {
     }
   }
 
-  /** The protected parts the `?bench=city` page times (`engine-bench.ts`). */
+  /** The protected parts the `?bench=` pages time (`engine-bench.ts`). */
   benchParts(): BenchParts {
     return { renderer: this.renderer, cine: this.cine, scene: this.scene, camera: this.camera, sun: this.sun, race: this.race, seat: this.seat, live: () => this.live() };
   }
