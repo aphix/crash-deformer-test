@@ -86,6 +86,7 @@ export class FleetRamps extends Ground {
     super();
     this.addPlane(0, -DISC_RADIUS, DISC_RADIUS, -DISC_RADIUS, DISC_RADIUS, STEP_UP, DISC_RADIUS);
     this.slabTop = this.addPlane(BARRIER_TOP, -BARRIER_HALF.x, BARRIER_HALF.x, -BARRIER_HALF.z, BARRIER_HALF.z, CLIMB);
+    this.setSolid(this.slabTop, false);
     for (let k = 0; k < 2; k++) {
       for (let s = 0; s < STRIPS.length; s++) {
         const [v0, w, reach] = STRIPS[s]!;

@@ -311,9 +311,9 @@ export class ClipSim {
   }
 
   /**
-   * Undo `present`: every car back on the sim's own pose, exactly. A grounded car's Euler angles are what the sim
-   * reads; an airborne or falling one's quaternion is (the Euler is derived from it), and quaternion -> Euler -> quaternion
-   * is not exact: write the quaternion, then the Euler only if the car's own differs.
+   * Undo `present`: every car back on the sim's own pose, exactly. A car on its wheels (`stepPlane`) has its Euler angles read by
+   * the sim; a rigid (`stepFree`) or falling one's quaternion is (the Euler is derived from it), and quaternion -> Euler ->
+   * quaternion is not exact: write the quaternion, then the Euler only if the car's own differs.
    */
   private restore(): void {
     if (!this.presented) return;

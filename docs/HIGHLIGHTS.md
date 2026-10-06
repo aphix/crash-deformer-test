@@ -27,8 +27,9 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 into a typed-array ring of `RING` (5120) steps, at least 17 s at a race's
 240–300 steps/s. Every `KEY_EVERY` (1 s) it encodes a keyframe: the netplay snapshot of every car (`writeSnapshot`,
 with each wreck's deform and parts), the course's knocked props (a bit each), then per car its flight block
-(`DeformableCar.flight`: `FLIGHT` doubles, the airborne and hull-contact flags, the whole spin, the takeoff spin, pitch,
-yaw, roll, velocity and position, the squeeze clocks, the drift state), the course's memory of it (`MEMORY` doubles: where
+(`DeformableCar.flight`: `FLIGHT` (21) doubles, the whole spin, the takeoff spin, pitch, yaw, roll, velocity and position,
+the squeeze clocks, the drift state and the pose-following step's support height; what the body touches is read off the pose
+again, `readContact`), the course's memory of it (`MEMORY` doubles: where
 the wall contact last stood, how far past the line, the road segment the projection hint is on) and, for a wreck, its
 solver state (`simState`: every scalar such as the crash clocks, each sensor's compression, each mass's position, velocity
 and crush offsets, each beam's set, each shape cluster's plastic rest and fit state) with its parts' state (`partState`:
@@ -126,9 +127,10 @@ crash it recorded. What it takes, each found by the replay straying from the liv
   had left swinging came back at rest, a panel's hinge value rounded, the door-motion sample re-read. A door slows the next
   striker by what it holds (`partContactPair`), so two wrecks one second after a pile-up hit differently (1e-11 m at the
   first contact of a four-car pile-up, 11 m two seconds later). `CarParts.partState` carries them.
-- **The car's pose, whole** (8). The flight block (`FLIGHT` 22 doubles) holds pitch, yaw, roll, velocity and position exactly
-  (the wire rounds them to 1e-4 rad, 1 cm/s and a float32), the squeeze rule's clocks (`endAgo`, `endReach`, `endSqueeze`) and
-  the drift state; the wreck's `squash` and `buckle` are stored as doubles in the clip header.
+- **The car's pose, whole** (8). The flight block (`FLIGHT` 21 doubles) holds pitch, yaw, roll, velocity and position exactly
+  (the wire rounds them to 1e-4 rad, 1 cm/s and a float32), the squeeze rule's clocks (`endAgo`, `endReach`, `endSqueeze`), the
+  drift state and the support height; no stored airborne or hull-contact bit: `readContact` derives `airborne`, `rigid`,
+  `wheelsDown` and `restsOn` from the restored pose and the surfaces under it. The wreck's `squash` and `buckle` are stored as doubles in the clip header.
 - **The solver state as doubles** (9). `simState` writes each scalar, and every mass, beam, sensor and cluster number, as a
   double: a restored wreck is bit for bit the live one. It includes the hit vectors (`impactLocal`, `impactInward`), the body
   frame, the ground samples, the shape clusters' fit state (`Rprev`, `rotQ`, warm start) and the clocks (`elapsed`,
@@ -162,7 +164,7 @@ where the last frame had it, and a car-mounted camera saw 420–470 m/s² (60 Hz
 difference (p99). `advanceTo` therefore runs the step `until` falls in, and `ClipSim.present(until)` draws every car
 between the pose before that step and the one it left (a car the step put on a spot, more than `TELEPORT` away, stays
 where it landed). The sim's own state is never the drawn one: `advanceTo` puts the
-exact state back first, the quaternion as well as the Euler angles (an airborne or falling car's quaternion is the sim's
+exact state back first, the quaternion as well as the Euler angles (a rigid-flight or falling car's quaternion is the sim's
 own, and quaternion to Euler to quaternion is not exact: stunt clips ended 1.1e-12 off at 60 Hz and 2.6e-13 at 240
 before; `engine-highlights.test.ts`: a replay with a drawn frame inside every step ends on the same state as one
 without, on the city's ramming clip and on every stunt clip). The chase shot read the wreck's own velocity, which swings 4°

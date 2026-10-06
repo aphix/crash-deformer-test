@@ -300,7 +300,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
     // Vertical speed is the world's (ramps, jumps): drive only steers the ground-plane velocity.
     car.velocity.set(nvx, car.velocity.y, nvz);
     car.speed = hypot2(nvx, nvz);
-    car.angular.set(0, yawRate, 0);
+    car.angular.y = yawRate;
     return;
   }
 

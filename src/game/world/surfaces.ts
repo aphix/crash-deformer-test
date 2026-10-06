@@ -34,23 +34,23 @@ export const HIT_SIZE = 12;
 const NONE = -Infinity;
 
 /** A patch's kind. */
-const GRID = 0;
-const DECK = 1;
+export const GRID = 0;
+export const DECK = 1;
 
 /** Patch parameters, `P_STRIDE` numbers each. A grid reads its frame, a deck its road segment. */
-const P_STRIDE = 25;
-const P_OX = 0;
-const P_OY = 1;
-const P_OZ = 2;
+export const P_STRIDE = 25;
+export const P_OX = 0;
+export const P_OY = 1;
+export const P_OZ = 2;
 /** The frame's axes in world (local x, local y = up, local z: three numbers each). */
-const P_AX = 3;
-const P_BX = 6;
-const P_CX = 9;
+export const P_AX = 3;
+export const P_BX = 6;
+export const P_CX = 9;
 /** Grid origin in the frame (u along x, v along z) and the cell size along each (m). */
-const P_U0 = 12;
-const P_V0 = 13;
-const P_STEP = 14;
-const P_STEPV = 23;
+export const P_U0 = 12;
+export const P_V0 = 13;
+export const P_STEP = 14;
+export const P_STEPV = 23;
 /** The surface counts as under a point only when it is at most this far (m) above it. */
 const P_REACH = 15;
 /** Lowered by this (m) times the point's `aux`, along the frame's up (a roof's crush). */
@@ -58,7 +58,7 @@ const P_DROP = 16;
 /** Grip multiplier of the patch. */
 const P_GRIP = 17;
 /** > 0: the patch is the disc of this radius² around its origin in plan. */
-const P_RAD2 = 18;
+export const P_RAD2 = 18;
 /** The patch's world box (plan). Rewritten with a moving patch; an empty box (min > max) disables it. */
 const P_MINX = 19;
 const P_MAXX = 20;
@@ -78,10 +78,10 @@ const D_RUNR = 11;
 const D_TAN = 12;
 
 /** Patch integers, `Q_STRIDE` each. */
-const Q_STRIDE = 7;
-const Q_KIND = 0;
-const Q_NU = 1;
-const Q_NV = 2;
+export const Q_STRIDE = 8;
+export const Q_KIND = 0;
+export const Q_NU = 1;
+export const Q_NV = 2;
 /** Surface index (`SURFACE_IDS`) of the patch; −1: per node (`surfs`). A deck's road surface. */
 const Q_SURF = 3;
 /** A deck's run-off surface; a grid's surface past its nodes (the hills of a track's field); −1: it answers nothing past its nodes. */
@@ -90,6 +90,8 @@ const Q_SURF2 = 4;
 const Q_OWNER = 5;
 /** 1: the patch answers over the whole plan, not only over its box. */
 const Q_UNB = 6;
+/** 1: a body that collides by shape (the ragdoll's world) meets this patch; 0: height queries only (a moving slab, a floor baked into a mesh). */
+export const Q_SOLID = 7;
 
 /** A patch's slots grow by this many at a time. */
 const GROW = 8;
@@ -176,6 +178,8 @@ export class Surface {
   cnx = 0;
   cnz = 0;
   sealed = false;
+  /** Static triangle-mesh solids the scene has that are not height fields (the corkscrew's channel walls): world-space vertices and indices. */
+  readonly meshes: { vertices: Float32Array; indices: Uint32Array }[] = [];
 
   /** A new patch of `kind`; returns its index. */
   private addPatch(kind: number): number {
@@ -196,6 +200,7 @@ export class Surface {
     this.q[qo + Q_SURF] = ASPHALT;
     this.q[qo + Q_SURF2] = -1;
     this.q[qo + Q_OWNER] = -1;
+    this.q[qo + Q_SOLID] = 1;
     this.p[o + P_REACH] = Infinity;
     this.p[o + P_GRIP] = 1;
     this.nodes[i] = EMPTY32;
@@ -207,6 +212,11 @@ export class Surface {
     this.hills[i] = EMPTY64;
     this.sealed = false;
     return i;
+  }
+
+  /** Whether a body that collides by shape (the ragdoll's world) meets patch `i`; false: it answers height queries only. */
+  setSolid(i: number, solid: boolean): void {
+    this.q[i * Q_STRIDE + Q_SOLID] = solid ? 1 : 0;
   }
 
   /** A bilinear grid patch; returns its index. */

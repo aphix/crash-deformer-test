@@ -1,4 +1,5 @@
 import type { DeformableCar } from "../vehicle/car.ts";
+import { readContact } from "../vehicle/car-air.ts";
 import { ROOF_REST_Y } from "../vehicle/car-parts.ts";
 import { BELLY_Y, bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
 
@@ -70,7 +71,7 @@ export function placeDrop(cars: readonly DeformableCar[], k: number, drop: numbe
   car.group.visible = true;
   car.spawnFacing(0, 0, 0, 0);
   car.group.position.y = top - bellyY(car) + drop;
-  car.airborne = true;
+  readContact(car);
   // The load crush reads the car below's matrixWorld in the next step; the renderer's update comes after it.
   car.group.updateMatrixWorld(true);
 }

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { activeGround } from "../world/ground.ts";
-import type { SurfaceId } from "../world/catalog.ts";
+import { C_GRIP, C_H, C_OWNER, C_SURF, HIT_SIZE, pointContact } from "../world/surfaces.ts";
+import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 
 /**
  * Tyre marks on the GPU. Every slipping wheel stamps one short quad per frame into ONE ground-aligned render
@@ -13,7 +13,7 @@ import type { SurfaceId } from "../world/catalog.ts";
  * B torn turf (grass).
  */
 
-/** Surface id → mark channel (0 rubber, 1 rut, 2 turf); the rest leave rubber. Read from `activeGround()`. */
+/** Surface id → mark channel (0 rubber, 1 rut, 2 turf); the rest leave rubber. Read from the surface under the tyre (`pointContact`). */
 const CHANNEL: Partial<Record<SurfaceId, number>> = { dirt: 1, gravel: 1, sand: 1, grass: 2 };
 
 /** Sandbox mark rect: the 48 m ground disc. */
@@ -113,6 +113,7 @@ type WheelFx = {
 };
 
 const _q = new THREE.Vector3();
+const _hit = new Float64Array(HIT_SIZE);
 const _clear = new THREE.Color();
 
 export class SkidMarks {
@@ -228,7 +229,6 @@ export class SkidMarks {
    */
   update(cars: readonly DeformableCar[], simDt: number): void {
     const w = this.wheels;
-    const ground = activeGround();
     this.quads = 0;
     if (simDt <= 1e-5) return;
     const n = Math.min(cars.length, this.cap / 4);
@@ -262,8 +262,12 @@ export class SkidMarks {
         const vx = hadPrev ? (x - w.px[s]!) / simDt : 0;
         const vz = hadPrev ? (z - w.pz[s]!) / simDt : 0;
         const jump = vx * vx + vz * vz > 80 * 80;
-        const grounded = _q.y - ground.heightAt(x, z) < WHEEL_R + 0.14;
-        const grip = ground.frictionAt(x, z);
+        // Where the tyre's bottom stands on the store's surfaces, asked as the sim asks it (a wheel over a deck sees the deck, one on
+        // another car's roof is not on the mark map's floor), whatever moves the car: its drive, a wreck's masses, a netplay pose.
+        pointContact(x, z, _q.y - WHEEL_R, car.slot, _hit);
+        const gap = _q.y - WHEEL_R - _hit[C_H]!;
+        const grounded = gap < 0.14 && _hit[C_OWNER]! < 0;
+        const grip = _hit[C_GRIP]!;
         const rear = k >= 2;
         let slip = 0;
         let scrape = 0;
@@ -275,13 +279,13 @@ export class SkidMarks {
             rear ? bodySlide : bodySlide * 0.5,
           );
           slip = Math.max(slide, lock, rear ? spin : 0);
-        } else if (hadPrev && !jump && popped && _q.y - ground.heightAt(x, z) < WHEEL_R * 0.75 && vx * vx + vz * vz > 2) {
+        } else if (hadPrev && !jump && popped && gap < -WHEEL_R * 0.25 && vx * vx + vz * vz > 2) {
           scrape = 1;
           slip = 0.9;
         }
         w.slip[s] = slip;
         w.scrape[s] = scrape;
-        const ch = scrape ? 1 : (CHANNEL[ground.surfaceAt(x, z)] ?? 0);
+        const ch = scrape ? 1 : (CHANNEL[SURFACE_IDS[_hit[C_SURF]!]!] ?? 0);
         w.channel[s] = ch;
         if (slip > 0.04 && this.rt) this.queue(w.px[s]!, w.pz[s]!, x, z, scrape ? GROOVE_W : TYRE_W, ch, Math.min(1, slip * 0.9));
         if (slip > 0.04) any = true;

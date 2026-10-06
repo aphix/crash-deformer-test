@@ -1,9 +1,8 @@
 import * as THREE from "three";
 import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d";
 import type { Rapier } from "../kernel/rapier.ts";
-import { Corkscrew, corkscrewMesh } from "../scenes/corkscrew.ts";
-import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
-import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/ground.ts";
+import { activeGround } from "../world/ground.ts";
+import { GRID, P_AX, P_BX, P_CX, P_OX, P_OY, P_OZ, P_RAD2, P_STEP, P_STEPV, P_STRIDE, P_U0, P_V0, Q_KIND, Q_NU, Q_NV, Q_SOLID, Q_STRIDE, type Surface } from "../world/surfaces.ts";
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
 
@@ -11,8 +10,8 @@ import type { Solid } from "./ragdoll-solids.ts";
 type Course = { track: Track | null; solids: readonly Solid[]; knocked: (prop: number) => boolean };
 /** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
 export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
-/** Corkscrew channel triangle spacing (m) along the run: the floor's twist is held to a few cm per strip. */
-const CORK_STEP = 0.25;
+/** Half-thickness (m) of a flat solid's slab, and how far under its lowest node a tilted patch's prism reaches. */
+const SLAB = 0.5;
 /** Sandbox lamp post height (m): the cinematic eye's occluder for it. */
 const POLE_H = 5.3;
 
@@ -35,42 +34,87 @@ const SAND = 3;
 const _q = new THREE.Quaternion();
 const _r = new THREE.Vector3();
 
+/** A one-cell grid patch (a plane, a ramp's face): its four nodes are all there is to it. */
+function oneCell(s: Surface, k: number): boolean {
+  const qo = k * Q_STRIDE;
+  return s.q[qo + Q_KIND] === GRID && s.q[qo + Q_NU] === 2 && s.q[qo + Q_NV] === 2;
+}
+
 /**
- * The ground under a throw at (`cx`, `cz`), `y` high: the flat pad, the fleet disc (with the jump ramps' wedges), the
- * corkscrew's pad and channel, or a course heightfield patch, and the solids on it: the derby bowl's wall when `bowlR` > 0,
- * the sandbox's standing `poles`, and on a `course` the road walls, props, tunnels and decks near it. `sand`: the
- * range's pad. `groups`: the collision groups of every collider built.
+ * The solid of one-cell patch `k` of `s`: a level one is a slab 0.5 m thick under its top (a cuboid, at most `FLAT_HALF` out
+ * from its middle: the pad; a cylinder where the patch is round: the fleet disc), a tilted one the prism from its face down to
+ * 0.5 m under its lowest node (a ramp's wedge). `sand`: the range's pad (a slab's floor, whose friction wins over the dummy's
+ * slide).
+ */
+function cellSolid(R: Rapier, s: Surface, k: number, sand: boolean): ColliderDesc | null {
+  const P = s.p;
+  const o = k * P_STRIDE;
+  const hs = s.nodes[k]!;
+  const ox = P[o + P_OX]!;
+  const oy = P[o + P_OY]!;
+  const oz = P[o + P_OZ]!;
+  const [ax, ay, az] = [P[o + P_AX]!, P[o + P_AX + 1]!, P[o + P_AX + 2]!];
+  const [bx, by, bz] = [P[o + P_BX]!, P[o + P_BX + 1]!, P[o + P_BX + 2]!];
+  const [cx, cy, cz] = [P[o + P_CX]!, P[o + P_CX + 1]!, P[o + P_CX + 2]!];
+  const u0 = P[o + P_U0]!;
+  const v0 = P[o + P_V0]!;
+  const du = P[o + P_STEP]!;
+  const dv = P[o + P_STEPV]!;
+  const level = by === 1 && ay === 0 && cy === 0 && hs[1] === hs[0] && hs[2] === hs[0] && hs[3] === hs[0];
+  if (level) {
+    const top = oy + hs[0]!;
+    const r2 = P[o + P_RAD2]!;
+    if (r2 > 0) return R.ColliderDesc.cylinder(SLAB, Math.sqrt(r2)).setTranslation(ox, top - SLAB, oz).setFriction(0.9);
+    const um = u0 + du / 2;
+    const vm = v0 + dv / 2;
+    _q.setFromAxisAngle(_r.set(0, 1, 0), Math.atan2(-az, ax));
+    return R.ColliderDesc.cuboid(Math.min(Math.abs(du) / 2, FLAT_HALF), SLAB, Math.min(Math.abs(dv) / 2, FLAT_HALF))
+      .setTranslation(ox + ax * um + cx * vm, top - SLAB, oz + az * um + cz * vm)
+      .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w })
+      .setFrictionCombineRule(sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average)
+      .setFriction(sand ? SAND : 0.9);
+  }
+  const pts: number[] = [];
+  let low = Infinity;
+  for (let j = 0; j < 2; j++) {
+    for (let i = 0; i < 2; i++) {
+      const u = u0 + i * du;
+      const v = v0 + j * dv;
+      const h = hs[j * 2 + i]!;
+      const y = oy + ay * u + by * h + cy * v;
+      low = Math.min(low, y);
+      pts.push(ox + ax * u + bx * h + cx * v, y, oz + az * u + bz * h + cz * v);
+    }
+  }
+  for (let m = 0; m < 4; m++) pts.push(pts[m * 3]!, low - SLAB, pts[m * 3 + 2]!);
+  return R.ColliderDesc.convexHull(new Float32Array(pts))?.setFriction(0.9) ?? null;
+}
+
+/**
+ * The ground under a throw at (`cx`, `cz`), `y` high: the active surface's own solids (`cellSolid` for its one-cell patches,
+ * its `meshes`) and, where it has terrain (a multi-cell patch or a road deck), one heightfield patch of it around the throw;
+ * then the solids on it: the derby bowl's wall when `bowlR` > 0, the sandbox's standing `poles`, and on a `course` the road
+ * walls, props, tunnels and decks near it. `sand`: the range's pad. `groups`: the collision groups of every collider built.
  */
 export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number): Collider[] {
   const ground = activeGround();
   const into: Collider[] = [];
-  const add = (desc: ColliderDesc, friction = 0.9) => into.push(world.createCollider(desc.setFriction(friction).setCollisionGroups(groups)));
+  const place = (desc: ColliderDesc) => into.push(world.createCollider(desc.setCollisionGroups(groups)));
+  const add = (desc: ColliderDesc, friction = 0.9) => place(desc.setFriction(friction));
   const size = PATCH_N * PATCH_CELL;
-  if (ground === FLAT_GROUND || ground instanceof Corkscrew) {
-    const rule = sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average;
-    add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0).setFrictionCombineRule(rule), sand ? SAND : 0.9);
-    if (ground instanceof Corkscrew) {
-      const mesh = corkscrewMesh(CORK_STEP);
-      add(R.ColliderDesc.trimesh(mesh.vertices, mesh.indices));
+  let terrain = false;
+  for (let k = 0; k < ground.count; k++) {
+    if (ground.q[k * Q_STRIDE + Q_SOLID] === 0) continue;
+    if (!oneCell(ground, k)) {
+      terrain = true;
+      continue;
     }
-  } else if (ground === DISC_GROUND || ground instanceof FleetRamps) {
-    add(R.ColliderDesc.cylinder(0.5, DISC_RADIUS).setTranslation(0, -0.5, 0));
-    if (ground instanceof FleetRamps) {
-      // The two wedges (`FleetRamps`): high end against the slab, side and back faces are walls a heightfield could not give.
-      const yaw = ground.group.rotation.y;
-      const c = Math.cos(yaw);
-      const s = Math.sin(yaw);
-      for (const side of [1, -1]) {
-        const pts: number[] = [];
-        for (const [u, h] of [[RAMP.start, 0], [RAMP.start, RAMP.top], [RAMP.start + RAMP.len, 0]] as const) {
-          for (const v of [-RAMP.halfW, RAMP.halfW]) pts.push(v * c + side * u * s, h, -v * s + side * u * c);
-        }
-        const hull = R.ColliderDesc.convexHull(new Float32Array(pts));
-        if (hull) add(hull);
-      }
-    }
-  } else if (course?.track !== null) {
-    // A course's heightfield; a scene's own solids (the Lab's bench and floor, `setSolids`) carry its ground, edges sharp.
+    const desc = cellSolid(R, ground, k, sand);
+    if (desc) place(desc);
+  }
+  for (const m of ground.meshes) add(R.ColliderDesc.trimesh(m.vertices, m.indices));
+  // A course's heightfield; a scene's own solids (the Lab's bench and floor, `setSolids`) carry its ground, edges sharp.
+  if (terrain && course?.track !== null) {
     const n = PATCH_N;
     const heights = new Float32Array((n + 1) * (n + 1));
     for (let ix = 0; ix <= n; ix++) {

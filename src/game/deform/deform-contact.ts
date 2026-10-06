@@ -464,7 +464,7 @@ export abstract class DeformContact extends DeformState {
     p[7] = lz;
     // The ground under the anchor (a course's hill or bridge deck; 0 on the flat pad; past the fleet disc's rim
     // none: the group follows the anchor down), and what holds the body up: that ground, or the hubs' mean ground
-    // where that is higher, as a driven car stands on its axle chord. A wreck whose middle is over a gap or a
+    // where that is higher, as a driven car stands on the plane through its wheels' contacts (`stepPlane`). A wreck whose middle is over a gap or a
     // drop while its wheels are still on the deck (a stunt course's edge, a ramp's lip) stands there, not on the
     // ground below (it was clamped onto that ground, 1.2 m down in one call).
     const under = activeGround().heightAt(wx, wz, wy);

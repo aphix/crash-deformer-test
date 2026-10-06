@@ -470,7 +470,7 @@ export abstract class DeformHit extends DeformRig {
   }
 
   /**
-   * Masses just armed on a body whose flight (`stepAir`) already moved it `h` of the slice under way: back along their
+   * Masses just armed on a body whose flight (`stepFree`) already moved it `h` of the slice under way: back along their
    * velocities by that, which `stepStructure` then retakes (taken twice, a wreck touching another in flight fell at
    * twice its speed). `h` is 0 between slices.
    */

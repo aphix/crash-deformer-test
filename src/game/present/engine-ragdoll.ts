@@ -1085,7 +1085,7 @@ export class RagdollSystem {
     this.solids = solids;
   }
 
-  /** The ground under a throw (`groundColliders`): built once for the pad, the disc or the corkscrew, per dummy on a course or a scene's solids. */
+  /** The ground under a throw (`groundColliders`): the active surface's solids (pad, disc and ramps, corkscrew) built once, its terrain's heightfield patch per dummy on a course or a scene's solids. */
   private buildPatch(d: Doll, cx: number, cz: number, y: number): void {
     const c = this.course;
     const onCourse = c !== null && activeGround() === c.ground;

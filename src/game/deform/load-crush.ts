@@ -2,7 +2,7 @@
  * Load crush: a car's faces yield under sustained load, not only under impact impulse. Each face of the body box
  * (roof, nose, tail, left, right) has a strength law, the force it carries at a crush depth `d`:
  * `W · (y0 + k·d + q·d²)` in car weights `W = m·g`. A rigid contact on a face (the ground, another car's roof) can push
- * no harder than that; the shortfall is the body sinking into the face, and the depth it reaches stays (`stepAir`
+ * no harder than that; the shortfall is the body sinking into the face, and the depth it reaches stays (`stepFree`
  * caps the contact impulse at `faceStrength` and turns the penetration it lets through into depth). A car resting on its
  * roof, a stack of cars on the roof under it, a nose or a flank landing all run the one rule. At rest the depth is
  * where the law gives the load: `d = (L − y0) / k` for L car weights.

@@ -149,6 +149,8 @@ export function corkscrewMesh(step: number): { vertices: Float32Array; indices: 
 const FLOOR_STEP = 0.05;
 /** The grid reaches this far (m) past the floor's edge and ends along the run: the analytic floor continued, so no cell straddles its boundary. */
 const FLOOR_MARGIN = 0.1;
+/** Section spacing (m) of the channel mesh the ragdoll's world collides with. */
+const MESH_STEP = 0.25;
 
 export class Corkscrew extends Ground {
   readonly group = new THREE.Group();
@@ -180,7 +182,8 @@ export class Corkscrew extends Ground {
       }
     }
     this.addPlane(0, -1e7, 1e7, -1e7, 1e7, Infinity);
-    this.addGrid({ nu, nv, step: FLOOR_STEP, stepV: FLOOR_STEP, u0: 0, v0: 0, heights, ox: x0, oy: 0, oz: z0, reach: STEP_UP });
+    this.setSolid(this.addGrid({ nu, nv, step: FLOOR_STEP, stepV: FLOOR_STEP, u0: 0, v0: 0, heights, ox: x0, oy: 0, oz: z0, reach: STEP_UP }), false);
+    this.meshes.push(corkscrewMesh(MESH_STEP));
   }
 
   /**

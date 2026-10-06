@@ -287,9 +287,6 @@ export class DeformableCar extends CarParts {
     this.rigid = false;
     this.support = NaN;
     this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
-    this.yaw = this.group.rotation.y;
-    this.pitch = this.group.rotation.x;
-    this.roll = this.group.rotation.z;
     this.angular.set(0, this.angular.y, 0);
     this.speed = hypot2(this.velocity.x, this.velocity.z);
     if (this.crashed) {
@@ -382,7 +379,12 @@ export class DeformableCar extends CarParts {
     if (this.rigid) {
       this.spinWheels(dt, false);
       this.flewDt = dt;
-      if (stepFree(this, dt)) this.land();
+      const landed = stepFree(this, dt);
+      // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
+      this.yaw = this.group.rotation.y;
+      this.pitch = this.group.rotation.x;
+      this.roll = this.group.rotation.z;
+      if (landed) this.land();
       this.refreshBasis();
       this.ride(dt);
       if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
