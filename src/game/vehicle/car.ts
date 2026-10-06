@@ -271,12 +271,16 @@ export class DeformableCar extends CarParts {
     buf[o + 20] = this.support;
   }
 
-  /** Fewer than three wheels stand on the world: the body flies (`stepFree`) from its centre of mass, turning as the ground last turned it. */
+  /**
+   * Fewer than three wheels stand on the world: the body flies (`stepFree`) from its centre of mass, turning as the ground last turned
+   * it. A driven car keeps its velocity (the tilt's turn is no push on the car: a lip's 1.5 rad/s over the 0.55 m to its centre was a
+   * 0.8 m/s sideways kick); a wreck's spin is its own, and carries its centre.
+   */
   private takeOff(): void {
     this.rigid = true;
     this.support = NaN;
-    if (!this.crashed) this.angular.add(this.groundSpin);
-    this.velocity.add(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+    if (this.crashed) this.velocity.add(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+    else this.angular.add(this.groundSpin);
   }
 
   /**
@@ -286,7 +290,7 @@ export class DeformableCar extends CarParts {
   private land(): void {
     this.rigid = false;
     this.support = NaN;
-    this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+    if (this.crashed) this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
     this.angular.set(0, this.angular.y, 0);
     this.speed = hypot2(this.velocity.x, this.velocity.z);
     if (this.crashed) {

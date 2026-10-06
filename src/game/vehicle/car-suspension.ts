@@ -240,18 +240,19 @@ export class Suspension {
       const w = wheels[i]!;
       let s = this.seat[i]! * Math.exp(-UNSEAT * dt);
       if (!air && uy > 0.5) {
-        // The lift (along the body's up) that puts the tread on the surface: the wheel's footprint rise (`wheelContact`, the
-        // hub on its rest ride on the physics pose) over the body's up. The hub's height picks the surface's layer.
-        const need = hit[i * HIT_SIZE + C_H]! / uy;
+        // The lift that puts the tread on the surface: the wheel's footprint rise (`wheelContact`, the hub on its rest ride on the
+        // physics pose). The hub's height picks the surface's layer.
+        const need = hit[i * HIT_SIZE + C_H]!;
         const o = this.offset[i]!;
-        s = Math.max(o - 2 * stop, need);
+        s = Math.max(-stop, need);
         if (s > o + stop) {
           this.offset[i] = s - stop;
           this.rate[i] = Math.max(this.rate[i]!, 0);
           lifted = true;
         }
       }
-      w.position.y = WHEEL_POS[i]![1] + s;
+      // Along the world's vertical (the body's up leans a rolled wheel's hub sideways: over a ramp's edge it stood on the wrong side of it).
+      w.position.set(WHEEL_POS[i]![0] + s * e[1]!, WHEEL_POS[i]![1] + s * uy, WHEEL_POS[i]![2] + s * e[9]!);
       this.seat[i] = s;
     }
     return lifted;

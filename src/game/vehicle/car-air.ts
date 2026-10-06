@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, HIT_SIZE, pointContact, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, HIT_SIZE, MU_TYRE, pointContact, wheelContact } from "../world/surfaces.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -74,7 +74,6 @@ const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
 const MU_BODY = 0.6;
-export const MU_TYRE = 0.9;
 /** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
  *  (g / speed) is a tumble's, not a jump's, and the body turns freely. */
 const NOSE_K = 6;
@@ -92,6 +91,10 @@ const _r = new THREE.Vector3();
 const _com = new THREE.Vector3();
 const _axis = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
+const _eul = new THREE.Euler();
+const UP = new THREE.Vector3(0, 1, 0);
+/** A driven car's Euler yaw drifts by up to this (rad) in a rigid turn before it is a tumble (a flip is no heading). */
+const YAW_HOLD = 0.5;
 const _qi = new THREE.Quaternion();
 const _q0 = new THREE.Quaternion();
 const _f = new THREE.Vector3();
@@ -218,7 +221,8 @@ export function wheelsAt(car: DeformableCar, within: number): number {
     wheelContact(_hub, _e, sc, car.slot, _hit);
     const o = i * HIT_SIZE;
     for (let k = 0; k < HIT_SIZE; k++) hit[o + k] = _hit[k]!;
-    if (-_hit[C_H]! <= within) mask |= 1 << i;
+    // The tread within reach of what is under it, or pressed into a wall beside the floor under the hub (it stands on that floor).
+    if (-_hit[C_TOUCH]! <= within && _hit[C_H]! > NO_FLOOR) mask |= 1 << i;
   }
   return mask;
 }
@@ -481,6 +485,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   _com.copy(_r.set(0, COM_Y, 0).applyQuaternion(q)).add(pos).addScaledVector(v, dt);
   const spin = w.length();
   if (spin > 1e-9) q.premultiply(_dq.setFromAxisAngle(_axis.copy(w).divideScalar(spin), spin * dt));
+  if (!car.crashed) {
+    // A driven car's heading is its steering's alone: a roll about a pitched body's horizontal axis swings its nose sideways (a lip's
+    // 23° of roll under 14° of pitch read as 4° of yaw), so the Euler yaw goes back to the car's own.
+    let drift = _eul.setFromQuaternion(q, "YXZ").y - car.yaw;
+    drift -= 2 * Math.PI * Math.round(drift / (2 * Math.PI));
+    if (Math.abs(drift) < YAW_HOLD) q.premultiply(_dq.setFromAxisAngle(UP, -drift));
+  }
   _qi.copy(q).invert();
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   const y0 = pos.y;

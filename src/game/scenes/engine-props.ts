@@ -2,19 +2,24 @@ import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { Hull } from "../deform/hulls.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "../deform/physics-util.ts";
-import { TYRE_R } from "../deform/deform-state.ts";
+import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
 import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier, satCarBarrier } from "../contact/sat.ts";
 import { impulseCar, pushCar } from "../contact/pair-contact.ts";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
+/** A body with no wheel contact to read (in flight, a wreck on its masses) clears the slab with its origin this high (m). */
+const FLIGHT_CLEAR = BARRIER_TOP - 0.3;
+
 /**
- * The slab meets a car until its axles are over the slab's top: a tyre whose hub is higher than a kerb rides onto it and the body
- * above passes over (up a fleet ramp beside the slab's end, on its top, jumping it). The hub's height is the origin's (the tyre
- * plane) plus the tyre's radius at the class's wheel scale; a car on the ground never has its axles that high.
+ * The slab meets a car until it is over it: a driven car clears while a wheel that is down stands higher than the slab's top (up a
+ * fleet ramp beside the slab's end, on its top: that wheel's contact point, `wheelHit`), a body with no wheel contact to read by its
+ * origin's height. A car on the ground never clears.
  */
-function axlesOverSlab(car: DeformableCar): boolean {
-  return car.group.position.y + TYRE_R * car.wheels[0]!.scale.x > BARRIER_TOP;
+function overSlab(car: DeformableCar): boolean {
+  if (car.airborne || car.deform.massActive) return car.group.position.y > FLIGHT_CLEAR;
+  for (let i = 0; i < 4; i++) if (((car.wheelsDown >> i) & 1) !== 0 && car.wheelHit[i * HIT_SIZE + C_PY]! > BARRIER_TOP) return true;
+  return false;
 }
 
 export type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
@@ -128,7 +133,7 @@ export class JerseyBarrier {
 
   /** Mass-level slab contact, then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
-    if (axlesOverSlab(car)) return;
+    if (overSlab(car)) return;
     this.hold(car);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
   }
@@ -178,7 +183,7 @@ export class JerseyBarrier {
   }
 
   resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
-    if (axlesOverSlab(car)) return null;
+    if (overSlab(car)) return null;
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
     this.hold(car);

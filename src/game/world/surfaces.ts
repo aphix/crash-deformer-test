@@ -28,7 +28,18 @@ export const C_AUX = 8;
 export const C_PX = 9;
 export const C_PY = 10;
 export const C_PZ = 11;
-export const HIT_SIZE = 12;
+/** `wheelContact` only: the greatest lift any of the tread (the footprint and both shoulders) needs: a tyre pressed to a wall is down on it. */
+export const C_TOUCH = 12;
+export const HIT_SIZE = 13;
+
+/** Friction of a tyre across what it stands on and climbs. */
+export const MU_TYRE = 0.9;
+/**
+ * The step a tyre mounts by grip alone, as a share of its radius: a step of height s puts the contact normal at the tyre's edge
+ * asin(1 - s/r) over the horizontal, and the tyre climbs while that is steeper than the friction angle atan(1/mu): s <= r (1 - 1/sqrt(1 + mu^2)),
+ * 0.26 r (a sedan's 0.32 m tyre mounts 8 cm, a monster's 0.54 m tyre 14 cm).
+ */
+export const MOUNT = 1 - 1 / Math.sqrt(1 + MU_TYRE ** 2);
 
 /** No surface under the point: `pointContact` answers this height. */
 const NONE = -Infinity;
@@ -748,32 +759,33 @@ export function contactIn(s: Surface, x: number, z: number, y: number, out: Floa
   report(out);
 }
 
-// The tyre's footprint (wheel frame: axle x, then the rolling plane's y and z; at wheel scale 1): the crown's arc ±0.5 rad, both
-// shoulders, and the tyre's arc at ±45° (a round tyre meets a lip with its arc, not only its lowest point).
-const FOOT = 9;
-const FX = new Float64Array(FOOT);
+// The tyre's footprint (the vertical plane through the hub along its heading; at wheel scale 1: y down, z ahead): the crown's arc
+// ±0.5 rad and the tyre's arc at ±45° (a round tyre meets a lip with its arc, not only its lowest point). A tyre is a circle,
+// so the arc is measured from the world's vertical whatever the body's pitch, and every point is over the hub's own plan
+// position: a tyre's rounded shoulders carry nothing and a rolled body does not slide its contact sideways, so a wheel whose hub
+// is off a surface's edge stands on what is under it.
+const FOOT = 7;
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
 const TYRE = 0.32;
+/** A tyre's shoulder (wheel frame at scale 1: along the axle and down the rim): where the tread's edge meets the ground. */
+const SHOULDER_X = 0.104;
+const SHOULDER_Y = -0.298;
 for (let k = 0; k < 5; k++) {
   const a = (k - 2) * 0.25;
   FY[k] = -TYRE * Math.cos(a);
   FZ[k] = TYRE * Math.sin(a);
 }
-FX[5] = 0.104;
-FY[5] = -0.298;
-FX[6] = -0.104;
-FY[6] = -0.298;
-FY[7] = -TYRE * Math.SQRT1_2;
-FZ[7] = -TYRE * Math.SQRT1_2;
-FY[8] = -TYRE * Math.SQRT1_2;
-FZ[8] = TYRE * Math.SQRT1_2;
+FY[5] = -TYRE * Math.SQRT1_2;
+FZ[5] = -TYRE * Math.SQRT1_2;
+FY[6] = -TYRE * Math.SQRT1_2;
+FZ[6] = TYRE * Math.SQRT1_2;
 
 const _w = new Float64Array(HIT_SIZE);
 
 /**
  * A wheel's contact with the surfaces: its tread's footprint swept over the store, each point asked at its own height. `hub` is
- * the hub's world position (x, y, z), `axes` the body's rotation (world x, y, z axes, 9 numbers), `scale` the wheel's size.
+ * the hub's world position (x, y, z), `axes` the body's rotation (world x, y, z axes, 9 numbers: the nose's are the heading), `scale` the wheel's size.
  * `out` = [rise, nx, ny, nz, grip, surface, owner, footprint index, aux, footprint point x, y, z]: `rise` the greatest height any
  * footprint point must lift to clear the surface under it (the tread gap is `-rise`; `-Infinity` with nothing under the wheel), the
  * rest as `pointContact`'s at the point that sets it (the hub itself with nothing under the wheel), so a wheel riding up a lip
@@ -792,14 +804,29 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   out[C_PX] = hub[0]!;
   out[C_PY] = hub[1]!;
   out[C_PZ] = hub[2]!;
+  // The heading in plan (the body's nose; straight up or down: toward +z).
+  const hl = Math.hypot(axes[6]!, axes[8]!);
+  const fx = hl > 1e-6 ? axes[6]! / hl : 0;
+  const fz = hl > 1e-6 ? axes[8]! / hl : 1;
+  // A tyre stands on what is under its hub; the arcs add what it can mount from there (a step of at most `MOUNT` of its radius over
+  // that floor): a face higher than that is a wall, not a floor the arc has lifted itself onto (the wedge's flank a tyre's arc overhangs).
+  // Every point asks from the tyre's bottom (`TYRE` under the hub).
+  const stands = hub[1]! - TYRE * scale;
+  pointContact(hub[0]!, hub[2]!, stands, skip, _w);
+  const mounts = (_w[C_H]! > NONE ? _w[C_H]! : stands) + MOUNT * TYRE * scale;
+  // The tread as a whole is what the tyre touches: every arc point and both shoulders, each asked from the hub's height as a tread point of
+  // the drawn tyre is (a face a kerb above it is the ground it sits in). A tyre pressed to a wall or hung on a lip's edge is down on the floor
+  // under its hub: it counts when any of its tread is in or on a surface, whatever its hub stands on (`C_TOUCH`).
+  let touch = NONE;
   for (let k = 0; k < FOOT; k++) {
-    const lx = FX[k]! * scale;
-    const ly = FY[k]! * scale;
     const lz = FZ[k]! * scale;
-    const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
-    const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
-    const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
-    pointContact(px, pz, py, skip, _w);
+    const px = hub[0]! + fx * lz;
+    const py = hub[1]! + FY[k]! * scale;
+    const pz = hub[2]! + fz * lz;
+    pointContact(px, pz, hub[1]!, skip, _w);
+    touch = Math.max(touch, _w[C_H]! - py);
+    pointContact(px, pz, stands, skip, _w);
+    if (_w[C_H]! > mounts) continue;
     const r = _w[C_H]! - py;
     if (!(r > rise)) continue;
     rise = r;
@@ -816,4 +843,13 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     out[C_PZ] = pz;
   }
   out[C_H] = rise;
+  for (let k = 0; k < 2; k++) {
+    const side = (2 * k - 1) * SHOULDER_X * scale;
+    const px = hub[0]! + axes[0]! * side + axes[3]! * SHOULDER_Y * scale;
+    const py = hub[1]! + axes[1]! * side + axes[4]! * SHOULDER_Y * scale;
+    const pz = hub[2]! + axes[2]! * side + axes[5]! * SHOULDER_Y * scale;
+    pointContact(px, pz, hub[1]!, skip, _w);
+    touch = Math.max(touch, _w[C_H]! - py);
+  }
+  out[C_TOUCH] = touch;
 }

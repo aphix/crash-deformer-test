@@ -1,9 +1,10 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { HULL, MU_TYRE } from "../vehicle/car-air.ts";
+import { HULL } from "../vehicle/car-air.ts";
 import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { DISC_RADIUS, Ground, STEP_UP } from "../world/ground.ts";
+import { MOUNT } from "../world/surfaces.ts";
 import { wallBounce } from "../contact/pair-contact.ts";
 import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
@@ -25,14 +26,11 @@ export const RAMP = { start: BARRIER_HALF.z + 0.04, len: 4.6, halfW: 1.5, top: 1
  * chord reaches half a wheelbase up the run, 1.34 m x the 0.26 slope = 0.35 m), not the step a tyre mounts (`MOUNT`).
  */
 const CLIMB = 0.35;
-/** Most a face pushes a car out per slice (m): a corner that came down deep in a wedge slides out, never teleports. */
-const PUSH_CAP = 0.05;
-/**
- * The step a tyre mounts, as a share of its radius, by grip alone. A step of height s puts the contact normal at the tyre's edge
- * asin(1 - s/r) over the horizontal, and the tyre climbs while that is steeper than the friction angle atan(1/mu): s <= r (1 - 1/sqrt(1 + mu^2)),
- * 0.26 r at the tyre's mu (a sedan's 0.32 m tyre mounts 8 cm, a monster's 0.54 m tyre 14 cm). `CLIMB` (0.35 m) was above a sedan's whole radius.
- */
-const MOUNT = 1 - 1 / Math.sqrt(1 + MU_TYRE ** 2);
+/** Fastest a face pushes a car out (m/s): a corner that came down deep in a wedge slides out, never teleports (a step's push stays under 1 cm). */
+const PUSH_SPEED = 1;
+/** A pushed point ends this far (m) outside the wall, so the push leaves nothing on its plane. */
+const PUSH_SKIN = 0.002;
+/** The tallest step any class's tyre mounts (m): what the ground asks of a body it cannot tell the class of (`MOUNT`: by grip alone, 0.26 r). `CLIMB` (0.35 m) was above a sedan's whole radius. */
 /** The tallest step any class's tyre mounts (m): what the ground asks of a body it cannot tell the class of. */
 const MOUNT_MAX = MOUNT * TYRE_R * Math.max(...Object.values(CLASSES).map((c) => c.wheelScale));
 /**
@@ -40,9 +38,9 @@ const MOUNT_MAX = MOUNT * TYRE_R * Math.max(...Object.values(CLASSES).map((c) =>
  * on both sides of the wall's plane the ground then agrees with the wall's push, so a car pressed to the wall is not flipped
  * every slice between the face's pose (the plane's side where the face is within `CLIMB`) and the floor's. Twice the push per slice.
  */
-const WALL_SKIN = 2 * PUSH_CAP;
-/** Half the tread's width (m) at wheel scale 1: the shoulder the tyre's plan rectangle ends at (`TREAD` in car-suspension). */
-const TREAD_HALF = 0.104;
+const WALL_SKIN = 0.02;
+/** Half the tread's flat (m) at wheel scale 1: the plan rectangle a tyre meets a wall with; its rounded shoulders (the other 5 cm of the 10.4 cm half tread) give. */
+const TREAD_HALF = 0.054;
 const SIGNS = [-1, 1] as const;
 const SLOPE = RAMP.top / RAMP.len;
 /**
@@ -168,7 +166,7 @@ export class FleetRamps extends Ground {
     _n.set(nx, 0, nz);
     // The face holds the masses within `CLIMB` of it: deeper, a mass is riding the wedge's slope (over the footprint of the flank and the end),
     // not in its wall. A 2 m thick face threw a wreck climbing the ramp out through the end it was climbing to (D1: 2.1 m in one slice).
-    wallBounce(car, solidFace(_face, nx, nz, this.mx, this.mz, this.mx, this.mz, this.hw, CLIMB), nx, nz, Math.min(this.pen, PUSH_CAP), dt);
+    wallBounce(car, solidFace(_face, nx, nz, this.mx, this.mz, this.mx, this.mz, this.hw, CLIMB), nx, nz, Math.min(this.pen + PUSH_SKIN, PUSH_SPEED * dt), dt);
     car.deform.notifyContact();
     return { impulse: Math.max(closing, 0.5), contact: _c.clone(), normal: _n.clone() };
   }
