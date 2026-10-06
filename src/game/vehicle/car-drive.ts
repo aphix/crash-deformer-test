@@ -2,8 +2,8 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
-import { NO_FLOOR } from "../world/ground.ts";
-import { floorUnder, gripUnder, hypot2 } from "../deform/physics-util.ts";
+import { hypot2 } from "../deform/physics-util.ts";
+import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
 
@@ -74,9 +74,8 @@ export function clearDrive(out: DriveInput): DriveInput {
 
 const _assist: Assists = { grip: 1, slipCap: 0, catchRate: 0, scrub: 0, selfRight: 0 };
 const _dmg: Drivability = { stage: "healthy", power: 1, top: 1, pull: 0 };
-/** applyDrive's ground: [0] the floor under the car, [1] front and [2] rear axle grip (`floorUnder`). */
-const _ground = new Float64Array(3);
-const _axle = new THREE.Vector3();
+/** applyDrive's grip under the front [0] and rear [1] axle's wheels (`DeformableCar.wheelHit`). */
+const _grip = new Float64Array(2);
 /** driveMasses' turn (cos, sin) and Δv (x, z): passed as doubles, all four were boxed per call. */
 const _turn = new Float64Array(4);
 /** [0]: the realism `_assist` was last filled for (NaN: never). */
@@ -181,16 +180,14 @@ function pedal(v: number, lo: number, steps: number): number {
 export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, topScale = 1): void {
   if (dt <= 0) return;
   const d = car.drive;
-  const p = car.group.position;
   // The pedals the sim runs: clamped and on the grid a clip stores them on, so a replay of the recording runs the very same numbers.
   const throttle = pedal(input.throttle, -1, THROTTLE_STEPS);
   const command = pedal(input.steer, -1, THROTTLE_STEPS);
   const brake = pedal(input.brake, 0, BRAKE_STEPS);
-  // Off the fleet disc's rim or in the air (no wheel down): the car keeps its ballistic velocity and spin.
+  // No wheel within its springs' reach of a surface (flight, a belly on a roof): the car keeps its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
-  if (alive) floorUnder(p, _ground, 0);
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)
-  if (!alive || _ground[0] === NO_FLOOR || car.airborne) return idleDriveState(d);
+  if (!alive || car.wheelsDown === 0) return idleDriveState(d);
   const k = CLASSES[carClass(car)];
   const realism = HANDLING.realism;
   // assists() reads only realism, so it reruns when that changes: called out of line, it boxed realism per step.
@@ -214,24 +211,20 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const vz = car.velocity.z;
   const along = vx * fx0 + vz * fz0;
   const lat0 = vx * fz0 - vz * fx0;
-  const px = car.group.position.x;
-  const pz = car.group.position.z;
-  _axle.y = car.group.position.y;
-  _axle.x = px + fx0 * DRIVE.axle;
-  _axle.z = pz + fz0 * DRIVE.axle;
-  gripUnder(_axle, _ground, 1);
-  _axle.x = px - fx0 * DRIVE.axle;
-  _axle.z = pz - fz0 * DRIVE.axle;
-  gripUnder(_axle, _ground, 2);
-  const muF = _ground[1]! * _loss[3]!; // an axle with its wheels off grips like a body on the road
-  const muR = _ground[2]! * _loss[4]!;
+  // Each wheel bites with the grip of what it stands on (none where it hangs past its springs): an axle's is the mean of its two.
+  const hit = car.wheelHit;
+  const down = car.wheelsDown;
+  _grip[0] = ((down & 1) !== 0 ? hit[C_GRIP]! : 0) / 2 + ((down & 2) !== 0 ? hit[HIT_SIZE + C_GRIP]! : 0) / 2;
+  _grip[1] = ((down & 4) !== 0 ? hit[2 * HIT_SIZE + C_GRIP]! : 0) / 2 + ((down & 8) !== 0 ? hit[3 * HIT_SIZE + C_GRIP]! : 0) / 2;
+  const muF = _grip[0]! * _loss[3]!; // an axle with its wheels off grips like a body on the road
+  const muR = _grip[1]! * _loss[4]!;
   // Pedals: speed along the nose.
   _pedal[0] = throttle;
   _pedal[1] = brake;
   _pedal[2] = along;
   // The wheels still on bite the floor as ever (their share is `_loss`'s): only the sideways grip below sees a bare axle.
-  _pedal[3] = _ground[1]!;
-  _pedal[4] = _ground[2]!;
+  _pedal[3] = _grip[0]!;
+  _pedal[4] = _grip[1]!;
   _pedal[5] = topScale;
   _pedal[6] = dt;
   pedals(k, dmg, input, boosting, _pedal);

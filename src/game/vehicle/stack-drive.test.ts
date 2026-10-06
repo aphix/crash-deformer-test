@@ -6,7 +6,7 @@ import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { assignClass } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
-import { FLAT_GROUND, setGround } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 
 /**
  * E2 of docs/UNIFIED_CONTACT.md (7.2), as measured on main 5ad7839 (section 10): a settled sedan stack leaves the top car's
@@ -16,6 +16,14 @@ import { FLAT_GROUND, setGround } from "../world/ground.ts";
  */
 const FRAME = 1 / 60;
 const FULL: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
+
+/** A flat asphalt platform at height `y`, under everything. */
+class Platform extends Ground {
+  constructor(y: number) {
+    super();
+    this.addPlane(y, -1e4, 1e4, -1e4, 1e4, Infinity);
+  }
+}
 
 function car(cls: "sedan" | "monster", y: number, airborne: boolean): DeformableCar {
   const c = new DeformableCar(paint(), new THREE.Scene());
@@ -54,7 +62,7 @@ describe("given a monster truck resting with its belly on a sedan's roof and its
     settle(stack, 5);
     const y = truck.group.position.y;
     const top = driveOff(stack, truck);
-    setGround({ ...FLAT_GROUND, heightAt: () => y });
+    setGround(new Platform(y));
     const flat = car("monster", y, false);
     const platform = makeWorld([flat], false, false);
     settle(platform, 5);

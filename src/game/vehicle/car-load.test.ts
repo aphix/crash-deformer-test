@@ -8,7 +8,7 @@ import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { DriveCam } from "../present/engine-camera.ts";
-import { setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
@@ -21,20 +21,13 @@ const ROLL_MAX = 6.5;
 type Sample = { pitch: number; roll: number; speed: number };
 
 /** A plane falling `deg` toward +z (the way the car faces): a descent for `deg` > 0, a climb for < 0. */
-function slope(deg: number): Ground {
-  const s = Math.tan(deg / DEG);
-  const n = Math.hypot(1, s);
-  return {
-    heightAt: (_x, z) => -s * z,
-    normalAt: (_x, _z, out) => {
-      out.x = 0;
-      out.y = 1 / n;
-      out.z = s / n;
-      return out;
-    },
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+class Slope extends Ground {
+  constructor(deg: number) {
+    super();
+    const e = 1e4;
+    const s = Math.tan(deg / DEG);
+    this.addGrid({ nu: 2, nv: 2, step: 2 * e, stepV: 2 * e, u0: -e, v0: -e, heights: new Float32Array([s * e, s * e, -s * e, -s * e]), ox: 0, oy: 0, oz: 0, reach: Infinity });
+  }
 }
 
 /**
@@ -42,7 +35,7 @@ function slope(deg: number): Ground {
  * (negative: a climb); the drawn body's pitch (+ nose up) and roll (+ the +x side up) each frame.
  */
 function drive(cls: VehicleClassId, v0: number, input: (speed: number) => Partial<DriveInput>, seconds: number, grade = 0): Sample[] {
-  setGround(grade ? slope(grade) : null);
+  setGround(grade ? new Slope(grade) : null);
   const car = new DeformableCar(paint(), new THREE.Scene());
   assignClass(car, cls);
   const w = newWorld([car], null);

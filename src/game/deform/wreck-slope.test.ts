@@ -2,7 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DEG, FRAME, fit, frame, makeCar, worldOf, type Fit } from "../vehicle/ground-probe.test-util.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import { setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 import { Track, blankPoint, pointOn } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 
@@ -19,28 +19,22 @@ const PEN_M = 0.01;
 const REST_S = 3;
 
 /** The plane `heightAt` = x·tan(pitch) + z·tan(roll) (degrees); a car facing +x sees `pitch` as its slope. */
-function plane(pitchDeg: number, rollDeg: number): Ground {
-  const tp = Math.tan(pitchDeg / DEG);
-  const tr = Math.tan(rollDeg / DEG);
-  const n = Math.hypot(tp, tr, 1);
-  return {
-    heightAt: (x, z) => x * tp + z * tr,
-    normalAt: (_x, _z, out) => {
-      out.x = -tp / n;
-      out.y = 1 / n;
-      out.z = -tr / n;
-      return out;
-    },
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+class Plane extends Ground {
+  constructor(pitchDeg: number, rollDeg: number) {
+    super();
+    const tp = Math.tan(pitchDeg / DEG);
+    const tr = Math.tan(rollDeg / DEG);
+    const e = 1e4;
+    const h = (u: number, v: number) => u * tp + v * tr;
+    this.addGrid({ nu: 2, nv: 2, step: 2 * e, stepV: 2 * e, u0: -e, v0: -e, heights: new Float32Array([h(-e, -e), h(e, -e), h(-e, e), h(e, e)]), ox: 0, oy: 0, oz: 0, reach: Infinity });
+  }
 }
 
 const stunt = TRACKS.map((j) => new Track(j)).find((t) => t.id === "stunt")!;
 const road = stunt.ground();
 
 type Site = { name: string; ground: Ground; x: number; z: number; y: number; yaw: number };
-const PLANE_SITE = (name: string, pitch: number, roll: number): Site => ({ name, ground: plane(pitch, roll), x: 0, z: 0, y: 0, yaw: Math.PI / 2 });
+const PLANE_SITE = (name: string, pitch: number, roll: number): Site => ({ name, ground: new Plane(pitch, roll), x: 0, z: 0, y: 0, yaw: Math.PI / 2 });
 /** The stunt road at arc length `s`, the car pointing down the track (the CRUSH billboard's crest is s ≈ 899, the kicker s ≈ 908). */
 function stuntSite(s: number): Site {
   const pt = blankPoint();

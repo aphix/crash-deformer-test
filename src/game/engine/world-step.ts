@@ -9,6 +9,7 @@ import { leftoverCrumple } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
 import { contactHz } from "../vehicle/car-air.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
+import { armTops } from "../world/surfaces.ts";
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -126,6 +127,7 @@ function collectNear(cars: readonly DeformableCar[]): number {
  * slab clip and `afterContacts` per car. The pair loops visit the slice's near pairs only (`collectNear`).
  */
 export function stepWorld(w: World, dt: number): void {
+  armTops(w.surfaces);
   const { cars, barrier, strongest } = w;
   const n = cars.length;
   let nearWall = false;
@@ -170,13 +172,17 @@ export function stepWorld(w: World, dt: number): void {
       const car = cars[ci]!;
       car.deform.beginSlice(h);
       car.surfaces = w.surfaces;
+      car.slot = ci;
       // A wreck its masses hand to flight here (`syncPose`) flies this slice: handed over before the masses took it,
       // and left at that, it lost the slice's motion.
       if (car.deform.massActive) car.syncPose(h);
-      if (car.deform.massActive) continue;
-      car.integrate(h);
-      if (car.deform.massActive) car.syncPose(h);
-      else car.refreshBasis();
+      if (!car.deform.massActive) {
+        car.integrate(h);
+        if (car.deform.massActive) car.syncPose(h);
+        else car.refreshBasis();
+      }
+      // The cars stepped after this one see its roof where it is now.
+      w.surfaces.sync(ci, car);
     }
 
     const pairs = collectNear(cars);
@@ -273,6 +279,7 @@ export function stepWorld(w: World, dt: number): void {
   }
   w.ejection?.step(cars, dt);
   w.shape = shape;
+  armTops(null);
 }
 
 /**

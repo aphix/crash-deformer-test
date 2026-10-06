@@ -4,7 +4,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
-import { setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "./test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
@@ -21,22 +21,15 @@ const SETTLE_S = 3;
 const BRAKE: DriveInput = { throttle: 0, steer: 0, brake: 1, ebrake: true, boost: false };
 const DEG = Math.PI / 180;
 
-function wedge(deg: number): Ground {
-  const t = Math.tan(deg * DEG);
-  const s = Math.sin(deg * DEG);
-  const c = Math.cos(deg * DEG);
-  return {
-    heightAt: (x) => Math.max(0, Math.min(RUN * t, (x - FOOT) * t)),
-    normalAt: (x, _z, out) => {
-      const face = x > FOOT && x < FOOT + RUN;
-      out.x = face ? -s : 0;
-      out.y = face ? c : 1;
-      out.z = 0;
-      return out;
-    },
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+/** Flat road below `FOOT`, the face up `RUN` m of x, a flat top past it. */
+class Wedge extends Ground {
+  constructor(deg: number) {
+    super();
+    const top = RUN * Math.tan(deg * DEG);
+    this.addPlane(0, -1e4, FOOT, -1e4, 1e4, Infinity);
+    this.addFace(FOOT, -1e4, 0, RUN, 2e4, 0, top, 0, top, Infinity);
+    this.addPlane(top, FOOT + RUN, 1e4, -1e4, 1e4, Infinity);
+  }
 }
 
 /** Yaw (forward = (sin yaw, 0, cos yaw)) for each heading, seen from the foot of the ramp looking up it (+X). */
@@ -50,7 +43,7 @@ function faceElevation(deg: number, dx: number): number {
 }
 
 function settle(deg: number, yaw: number): Settled {
-  const g = wedge(deg);
+  const g = new Wedge(deg);
   setGround(g);
   const car = new DeformableCar(paint(), new THREE.Scene());
   car.spawnFacing(0, 0, yaw, 0);

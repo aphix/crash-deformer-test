@@ -1,17 +1,18 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
-import { activeGround, NO_FLOOR, type Ground } from "../world/ground.ts";
+import { Surface } from "../world/surfaces.ts";
 import { bodyTopY } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 import { FACES, FACE_AXIS, FACE_TOP, faceFollow, faceMax, faceStrength } from "../deform/load-crush.ts";
 import { CLASSES, carClass } from "./vehicle-classes.ts";
 
 /**
- * What a body in flight (`stepAir`) rests on: the world's ground and the other cars' tops, through the one `Ground`
- * door, and the load crush of the face it presses (`load-crush.ts`). A hull point sees another car's top (`bodyTopY`
- * sunk by that car's crush depth) as it sees a road, so a car landed on a roof stands on it, and the roof under it
- * yields to its weight by the face's strength law. A car carried this way presses back: `press` hands its reaction to
- * the car under it, so a stack's lowest roof carries every car above it.
+ * What a body in flight (`stepAir`) rests on besides the world's ground: the other cars' tops, as the dynamic part of the
+ * one surface store (`world/surfaces.ts`), and the load crush of the face it presses (`load-crush.ts`). Car `i`'s roof is
+ * patch `i` of this surface (a plate over its body, `sync`ed from its pose each slice), seen by a hull point or a wheel as it
+ * sees a road, so a car landed on a roof stands on it, and the roof under it yields to its weight by the face's strength law.
+ * A car carried this way presses back: `press` hands its reaction to the car under it, so a stack's lowest roof carries every
+ * car above it.
  *
  * A face is a budget slot: a car's own faces (the ground it hits, by contact normal: roof, nose, tail, flanks) are
  * slots `0..FACES-1`, and car `i`'s top is slot `FACES·(1+i)`. Per slice a slot may pass `strength × weight × g × dt`
@@ -55,8 +56,6 @@ export function roofHeight(car: DeformableCar): number {
   return roofCrown(car.style) + CLASSES[carClass(car)].lift - car.deform.crush[FACE_TOP]!;
 }
 
-const _p = new THREE.Vector3();
-const _n = new THREE.Vector3();
 const _t = new THREE.Vector3();
 const _qi = new THREE.Quaternion();
 
@@ -83,54 +82,77 @@ function topGrid(style: BodyStyle): Float32Array {
   return g;
 }
 
-export class CarSurfaces implements Ground {
-  /** Whether any other car's top is within reach of the stepping car's plan: the belly meets nothing else. */
-  near = false;
-  /** The world's cars (replaced per step by `stepWorld`). */
+/** Each style's per-node follow of the roof's crush (`faceFollow` at the plate's height; NaN where the plate is), built once. */
+const FOLLOWS = new WeakMap<BodyStyle, Float32Array>();
+
+function topFollow(style: BodyStyle): Float32Array {
+  let a = FOLLOWS.get(style);
+  if (!a) {
+    const g = topGrid(style);
+    a = new Float32Array(g.length);
+    for (let k = 0; k < g.length; k++) a[k] = faceFollow(FACE_TOP, 0, g[k]!, 0);
+    FOLLOWS.set(style, a);
+  }
+  return a;
+}
+
+/** The plate's highest node (m): what a tilted slot's box grows by. */
+function plateMax(g: Float32Array): number {
+  let m = 0;
+  for (let k = 0; k < g.length; k++) if (Math.abs(g[k]!) > m) m = Math.abs(g[k]!);
+  return m;
+}
+
+/** A slot's plate before its first sync: no body. */
+const NO_PLATE = new Float32Array(4).fill(NaN);
+/** A slot's frame axes (the car's matrixWorld columns), scratch of `sync`. */
+const _axes = new Float64Array(9);
+
+export class CarSurfaces extends Surface {
+  /** The world's cars (replaced per step by `stepWorld`); car `i`'s roof is patch `i`. */
   cars: readonly DeformableCar[] = [];
   /** The car being stepped: its own top is never its ground. */
   private self: DeformableCar | null = null;
-  /** Index of the car whose top answered the last `heightAt`, -1 for the world's ground, and how far that point follows its roof's crush. */
-  owner = -1;
-  follow = 0;
+  /** The style each slot's plate data is for. */
+  private styles: (BodyStyle | undefined)[] = [];
   private left = new Float64Array(FACES);
   private yielded = new Uint8Array(FACES);
   private grew = new Float64Array(FACES);
   private react = new Float64Array(1);
   private touched = new Uint8Array(1);
 
-  /** A car's slice starts: nothing of any face is spent, yielded or pressed yet. */
+  /** A car's slice starts: nothing of any face is spent, yielded or pressed yet, and a query is asked of the roofs within reach of its plan. */
   begin(car: DeformableCar): void {
     this.self = car;
-    const n = FACES * (1 + this.cars.length);
+    const m = this.cars.length;
+    const n = FACES * (1 + m);
     if (this.left.length < n) {
       this.left = new Float64Array(n);
       this.yielded = new Uint8Array(n);
       this.grew = new Float64Array(n);
-      this.react = new Float64Array(1 + this.cars.length);
-      this.touched = new Uint8Array(1 + this.cars.length);
+      this.react = new Float64Array(1 + m);
+      this.touched = new Uint8Array(1 + m);
     }
     this.left.fill(NaN);
     this.yielded.fill(0);
     this.grew.fill(0);
     this.react.fill(0);
     this.touched.fill(0);
-    this.owner = -1;
-    this.near = this.nearTo(car);
-  }
-
-  /** Whether another car's plan is within reach of `car`'s: it may meet that car's top (the belly's queries, the contact sub-steps). */
-  nearTo(car: DeformableCar): boolean {
+    if (this.always.length < m) this.always = new Int32Array(m);
+    // Another car's top may meet this car's points while the two plans are within 2·REACH (a hull point sits up to REACH from its car's origin).
     const p = car.group.position;
-    for (const o of this.cars) {
-      if (o !== car && Math.abs(o.group.position.x - p.x) < 2 * REACH && Math.abs(o.group.position.z - p.z) < 2 * REACH) return true;
+    let k = 0;
+    for (let i = 0; i < m && i < this.count; i++) {
+      const o = this.cars[i]!;
+      if (i === car.slot || o.falling || o.vaporized) continue;
+      if (Math.abs(o.group.position.x - p.x) < 2 * REACH && Math.abs(o.group.position.z - p.z) < 2 * REACH) this.always[k++] = i;
     }
-    return false;
+    this.nAlways = k;
   }
 
-  /** The face slot a contact presses: car `own`'s top (a point that follows its crush), else the stepping car's face under normal `nrm` (body points only; -1: rigid). */
-  slot(own: number, nrm: THREE.Vector3, body: boolean, q: THREE.Quaternion): number {
-    if (own >= 0) return this.follow >= YIELDS && !this.cars[own]!.deform.massActive ? FACES * (1 + own) + FACE_TOP : -1;
+  /** The face slot a contact presses: car `own`'s top where the point (hit factor `follow`) follows its crush, else the stepping car's face under normal `nrm` (body points only; -1: rigid). */
+  slot(own: number, nrm: THREE.Vector3, body: boolean, q: THREE.Quaternion, follow: number): number {
+    if (own >= 0) return follow >= YIELDS && !this.cars[own]!.deform.massActive ? FACES * (1 + own) + FACE_TOP : -1;
     if (!body) return -1;
     _t.copy(nrm).applyQuaternion(_qi.copy(q).invert());
     let best = -1;
@@ -220,75 +242,33 @@ export class CarSurfaces implements Ground {
     return any;
   }
 
-  /** How far the surface point `top` last answered follows its car's roof crush. */
-  private topFollow = 0;
-  /** The surface of car `o` at world plan (x, z) seen from height `y`: its world height or NO_FLOOR; sets `_n` and `topFollow`. */
-  private top(o: DeformableCar, x: number, z: number, y: number): number {
-    const e = o.group.matrixWorld.elements;
-    if (e[5]! < UPRIGHT || Math.abs(x - e[12]!) > REACH || Math.abs(z - e[14]!) > REACH) return NO_FLOOR;
-    const dx = x - e[12]!;
-    const dy = y - e[13]!;
-    const dz = z - e[14]!;
-    const xl = e[0]! * dx + e[1]! * dy + e[2]! * dz;
-    const zl = e[8]! * dx + e[9]! * dy + e[10]! * dz;
-    const grid = topGrid(o.style);
-    const u = (xl + GRID_X) / GRID_STEP;
-    const v = (zl + GRID_Z) / GRID_STEP;
-    const i = Math.floor(u);
-    const j = Math.floor(v);
-    if (i < 0 || j < 0 || i >= GRID_NX - 1 || j >= GRID_NZ - 1) return NO_FLOOR;
-    const k = j * GRID_NX + i;
-    const h00 = grid[k]!;
-    const h10 = grid[k + 1]!;
-    const h01 = grid[k + GRID_NX]!;
-    const h11 = grid[k + GRID_NX + 1]!;
-    if (Number.isNaN(h00 + h10 + h01 + h11)) return NO_FLOOR;
-    const fx = u - i;
-    const fz = v - j;
-    const h0 = (h00 * (1 - fx) + h10 * fx) * (1 - fz) + (h01 * (1 - fx) + h11 * fx) * fz;
-    const depth = o.deform.crush[FACE_TOP]!;
-    this.topFollow = faceFollow(FACE_TOP, 0, h0, 0);
-    _p.set(xl, h0 - depth * this.topFollow + CLASSES[carClass(o)].lift, zl).applyMatrix4(o.group.matrixWorld);
-    if (y < _p.y - SKIN) return NO_FLOOR;
-    const gx = ((h10 - h00) * (1 - fz) + (h11 - h01) * fz) / GRID_STEP;
-    const gz = ((h01 - h00) * (1 - fx) + (h11 - h10) * fx) / GRID_STEP;
-    _n.set(-gx, 1, -gz).normalize().transformDirection(o.group.matrixWorld);
-    return _p.y;
-  }
-
-  /** Only a car below the stepping car (by origin height) is its ground: two cars each standing on the other lifted one another up, 1.5 m a frame. */
-  heightAt(x: number, z: number, y?: number): number {
-    let best = activeGround().heightAt(x, z, y);
-    this.owner = -1;
-    if (y === undefined) return best;
-    const above = this.self!.group.position.y;
-    for (let i = 0; i < this.cars.length; i++) {
-      const o = this.cars[i]!;
-      if (o === this.self || o.falling || o.vaporized || o.group.position.y > above) continue;
-      const h = this.top(o, x, z, y);
-      if (h > best) {
-        best = h;
-        this.owner = i;
-        this.follow = this.topFollow;
-      }
+  /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): a plate at the roof's crown, lifted by the class, sinking by the crush along its follow. */
+  sync(i: number, car: DeformableCar): void {
+    for (let k = this.count; k <= i; k++) {
+      this.addGrid({ nu: 2, nv: 2, step: 1, stepV: 1, u0: 0, v0: 0, heights: NO_PLATE, ox: 0, oy: 0, oz: 0, reach: SKIN, hmax: 0 });
+      this.own(k, k);
+      this.disable(k);
     }
-    return best;
-  }
-
-  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y?: number): T {
-    if (this.owner < 0 || y === undefined) return activeGround().normalAt(x, z, out, y);
-    this.top(this.cars[this.owner]!, x, z, y);
-    out.x = _n.x;
-    out.y = _n.y;
-    out.z = _n.z;
-    return out;
-  }
-
-  frictionAt(x: number, z: number, y?: number): number {
-    return activeGround().frictionAt(x, z, y);
-  }
-
-  surfaceAt(x: number, z: number, y?: number) {
-    return activeGround().surfaceAt(x, z, y);
+    if (this.styles[i] !== car.style) {
+      const heights = topGrid(car.style);
+      this.setGridData(i, GRID_NX, GRID_NZ, GRID_STEP, GRID_STEP, -GRID_X, -GRID_Z, heights, topFollow(car.style), plateMax(heights));
+      this.styles[i] = car.style;
+    }
+    const e = car.group.matrixWorld.elements;
+    const lift = CLASSES[carClass(car)].lift;
+    _axes[0] = e[0]!;
+    _axes[1] = e[1]!;
+    _axes[2] = e[2]!;
+    _axes[3] = e[4]!;
+    _axes[4] = e[5]!;
+    _axes[5] = e[6]!;
+    _axes[6] = e[8]!;
+    _axes[7] = e[9]!;
+    _axes[8] = e[10]!;
+    this.setDrop(i, car.deform.crush[FACE_TOP]!);
+    // The frame is current even for a car that is no surface: the owner rule compares frame heights.
+    this.setFrame(i, e[12]! + lift * e[4]!, e[13]! + lift * e[5]!, e[14]! + lift * e[6]!, _axes);
+    if (car.falling || car.vaporized || e[5]! < UPRIGHT) this.disable(i);
+    else this.clipBox(i, e[12]!, e[14]!, REACH);
   }
 }

@@ -122,7 +122,7 @@ describe("given a car driving at 30 m/s up Havana's face and over the crest, wit
 
   it("when the lead-in is shifted in six 2 cm steps so the landing falls on a different slice of a frame, then the drawn hull is never more than 2 cm in the ground", () => {
     // A slice at 30 m/s is 12.5 cm of travel: six leads 2 cm apart shift where in a slice the nose meets the lawn. The nose bounces off the
-    // landing and the hull's contact lapses for one slice (`airContact`); that slice must not drop the body its springs hold up.
+    // landing and the hull's contact lapses for one slice (`airborne`); that slice must not drop the body its springs hold up.
     const bad: string[] = [];
     for (const cls of VEHICLE_CLASS_IDS) {
       for (let k = 0; k < 6; k++) {

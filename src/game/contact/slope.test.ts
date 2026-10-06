@@ -1,22 +1,18 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { runPair } from "./crash-scenarios.test-util.ts";
-import { setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 
 /** A side slope across the cars' travel (+X): the ground rises 0.12 m per metre of +Z (6.8°), 0 on the line they drive. */
 const SLOPE = 0.12;
-const SIDE_SLOPE: Ground = {
-  heightAt: (_x, z) => z * SLOPE,
-  normalAt: (_x, _z, out) => {
-    const len = Math.hypot(SLOPE, 1);
-    out.x = 0;
-    out.y = 1 / len;
-    out.z = -SLOPE / len;
-    return out;
-  },
-  frictionAt: () => 1,
-  surfaceAt: () => "asphalt",
-};
+class SideSlope extends Ground {
+  constructor() {
+    super();
+    const e = 1e4;
+    this.addGrid({ nu: 2, nv: 2, step: 2 * e, stepV: 2 * e, u0: -e, v0: -e, heights: new Float32Array([-e * SLOPE, -e * SLOPE, e * SLOPE, e * SLOPE]), ox: 0, oy: 0, oz: 0, reach: Infinity });
+  }
+}
+const SIDE_SLOPE = new SideSlope();
 
 const DENTS = ["noseShortL", "noseShortR", "tailShort", "doorMaxL", "doorMaxR"] as const;
 

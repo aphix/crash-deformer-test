@@ -270,8 +270,8 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
       // 4 s: 2.2 s past touchdown, before the car rolls off the disc's rim.
       run(w, 4, () => {
         time += FRAME;
-        if (car.airborne && !car.airContact) flew = true;
-        if (flew && touch < 0 && (car.airContact || !car.airborne)) touch = time;
+        if (car.airborne) flew = true;
+        if (flew && touch < 0 && !car.airborne) touch = time;
         if (touch < 0) return;
         const o = car.suspension.offset;
         peak = Math.min(peak, ...o);

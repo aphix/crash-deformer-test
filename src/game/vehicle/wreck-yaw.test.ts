@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { CRASH } from "../deform/physics-util.ts";
 import { DEG, FRAME, frame, makeCar as probeCar, worldOf } from "./ground-probe.test-util.ts";
 import { makeCar, makeWorld, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
-import { setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 import type { DeformableCar } from "./car.ts";
 
 /**
@@ -108,28 +108,21 @@ describe("given the wreck of a 64 km/h, 40 % overlap wall hit (a popped front hu
 });
 
 /** The plane `heightAt` = x·tan(pitch) (degrees), as wreck-slope.test.ts builds it. */
-function slope(pitchDeg: number): Ground {
-  const tp = Math.tan(pitchDeg / DEG);
-  const n = Math.hypot(tp, 1);
-  return {
-    heightAt: (x) => x * tp,
-    normalAt: (_x, _z, out) => {
-      out.x = -tp / n;
-      out.y = 1 / n;
-      out.z = 0;
-      return out;
-    },
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+class Slope extends Ground {
+  constructor(pitchDeg: number) {
+    super();
+    const tp = Math.tan(pitchDeg / DEG);
+    const e = 1e4;
+    this.addGrid({ nu: 2, nv: 2, step: 2 * e, stepV: 2 * e, u0: -e, v0: -e, heights: new Float32Array([-e * tp, e * tp, -e * tp, e * tp]), ox: 0, oy: 0, oz: 0, reach: Infinity });
+  }
 }
 
 describe("given a sedan wreck, spun at 6 rad/s after a hit, on flat ground and on a 6.8° slope", () => {
   afterEach(() => setGround(null));
 
   for (const [name, ground] of [
-    ["flat ground", slope(0)],
-    ["a 6.8° slope", slope(6.8)],
+    ["flat ground", new Slope(0)],
+    ["a 6.8° slope", new Slope(6.8)],
   ] as const) {
     it(`when it is spun on ${name}, then 5 s on it has no spin (under 1 % of its angular momentum) and no creep (under 1 cm in the last second)`, () => {
       setGround(ground);

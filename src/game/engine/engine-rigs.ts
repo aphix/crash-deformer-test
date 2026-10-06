@@ -125,7 +125,7 @@ export abstract class EngineRigs extends EngineScenes {
       this.corkFlight = "air";
       // The roll reads in slow motion (the door ram's rule); the landing's impact phase hands time back.
       if (this.autoSlomo && this.clock.userTimeScale == null) this.clock.targetScale = 0.35;
-    } else if (this.corkFlight === "air" && (car.airContact || !car.airborne)) {
+    } else if (this.corkFlight === "air" && !car.airborne) {
       this.corkFlight = "down";
       this.beginCinematic(car.group.position.clone(), _bn.set(0, 1, 0), car.velocity.length());
     } else if (this.corkFlight === "ground" && this.clock.phase === "approach" && car.velocity.z < 0 && car.group.position.z < CORKSCREW.mouthZ) {

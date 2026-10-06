@@ -73,7 +73,7 @@ const ROOF_SLACK = 0.11;
  * below its box's bottom less that rise and still shares.
  */
 export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
-  if ((a.airborne && a.restsOn === b) || (b.airborne && b.restsOn === a)) return false;
+  if (a.restsOn === b || b.restsOn === a) return false;
   const ea = a.group.matrixWorld.elements;
   const eb = b.group.matrixWorld.elements;
   const ha = Math.abs(ea[1]!) * CAR_HALF.x + Math.abs(ea[5]!) * CAR_HALF.y + Math.abs(ea[9]!) * CAR_HALF.z;

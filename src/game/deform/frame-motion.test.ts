@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { StreamedDeformation } from "./streamed-deform.ts";
 import { DT, dummyGeom, mass } from "../vehicle/test-support.ts";
-import { FLAT_GROUND, setGround, type Ground } from "../world/ground.ts";
+import { Ground, setGround } from "../world/ground.ts";
 
 /**
  * What `followGroup` reports for a wreck (its `velocity` and `angular`) is what its masses do. It fits a frame to them
@@ -150,14 +150,13 @@ describe("given a crashed car in flight, hit off-centre by a 14 m/s push so that
 /** A plateau `TOP` m up under every body point within `KERB` of it, the road (0) under the rest: a wedge's high end (`FleetRamps.heightAt`). */
 const TOP = 1.2;
 const KERB = 0.35;
-function plateau(walls: boolean): Ground {
-  return {
-    walls,
-    heightAt: (_x, _z, y) => (y === undefined || TOP - y <= KERB ? TOP : 0),
-    normalAt: FLAT_GROUND.normalAt,
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+class Plateau extends Ground {
+  constructor(walls: boolean) {
+    super();
+    this.walls = walls;
+    this.addPlane(0, -1e4, 1e4, -1e4, 1e4, Infinity);
+    this.addPlane(TOP, -1e4, 1e4, -1e4, 1e4, KERB);
+  }
 }
 
 const plateauLandingCases = [
@@ -173,7 +172,7 @@ describe("given a crashed car in flight beside a raised plateau (the high end of
 
   /** A wreck in flight with its origin `depth` m under the plateau's top, middle over it: how far the frame and the highest-moved mass rose in its first read. */
   function rise(walls: boolean, depth: number): { frame: number; mass: number } {
-    setGround(plateau(walls));
+    setGround(new Plateau(walls));
     const s = wreck({ pitch: 0, roll: 0, y: TOP - depth });
     s.d.aloft = true;
     const y0 = s.group.position.y;

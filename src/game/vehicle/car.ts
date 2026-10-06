@@ -2,12 +2,12 @@ import * as THREE from "three";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
- import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR } from "../world/ground.ts";
+import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
-import { COM_Y, hullClear, stepAir, SUPPORT } from "./car-air.ts";
+import { COM_Y, pressing, readContact, stepFree, stepPlane } from "./car-air.ts";
 import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
-import { AXLE, axleGround, landPose, settle, support, tilt, type Support } from "./car-support.ts";
+import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 import type { CarSurfaces } from "./car-surfaces.ts";
@@ -21,38 +21,41 @@ const _n = new THREE.Vector3();
 const _v = new THREE.Vector3();
 const _in = new THREE.Vector3();
 const _zero = new THREE.Vector3();
-const _gn = new THREE.Vector3();
-const _gnBack = new THREE.Vector3();
-const _rest = { y: 0 };
 const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
-const _sup: Support = { y: 0, grade: NaN };
 /** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
-export const FLIGHT = 22;
-export const FLIGHT_POSE = 8;
+export const FLIGHT = 21;
+export const FLIGHT_POSE = 6;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
-const _q0 = new THREE.Quaternion();
 
 export class DeformableCar extends CarParts {
-  /** No wheel on the ground: a rigid body in flight or tumbling (`stepAir`); drive and grip are off. */
+  /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight). Drive and grip follow the wheels (`wheelsDown`), not this. */
   airborne = false;
-  /** The world's other-car tops this body can stand on in flight (`stepWorld` sets it; null: the world's ground alone). */
+  /** How the body is moved: the rigid contact solve (`stepFree`: `velocity` is its centre of mass's) or the pose-following step (`stepPlane`: the origin's). Read off the pose when a keyframe is restored. */
+  rigid = false;
+  /** The world's other-car tops this body can stand on (`stepWorld` sets it; null: the world's ground alone). */
   surfaces: CarSurfaces | null = null;
-  /** While airborne: the car whose top carries this one (`CarSurfaces.commit`), whose plan the SAT must not shove it off. */
+  /** This car's slot in the world's `cars` (`stepWorld` sets it; -1 in no world): its own roof is not under it. */
+  slot = -1;
+  /** The car whose top carries this one (`CarSurfaces.commit`), whose plan the SAT must not shove it off. */
   restsOn: DeformableCar | null = null;
-  /** While airborne: a face of this body (or of the car under it) is yielding to its load this slice (`CarSurfaces.commit`). */
+  /** A face of this body (or of the car under it) is yielding to its load this slice (`CarSurfaces.commit`). */
   yielding = false;
-  /** While airborne: some hull point is on the ground this slice. */
-  airContact = false;
   /** A hard hit is about to land: this car is closing on a fixed solid (the course's collide pass) or on another car (`markApproaches`), within a step or two of travel of it, or driving into it. Not state: derived again every step, read by `stepWorld` to cut the step. */
   nearHit = false;
+  /** Each wheel's last contact (`wheelContact`, `HIT_SIZE` doubles per wheel, `WHEEL_POS` order): the lift it needs, normal, grip, surface and owner. */
+  readonly wheelHit = new Float64Array(4 * HIT_SIZE);
+  /** The wheels within their springs' reach of a surface, bit i: wheel i (`WHEEL_POS` order). Drive and traction follow them. */
+  wheelsDown = 15;
+  /** The pose-following step's support height (m) under the origin last slice; NaN when none. */
+  support = NaN;
   /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
-  private readonly groundSpin = new THREE.Vector3();
-  /** The slice (s) `stepAir` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */
+  readonly groundSpin = new THREE.Vector3();
+  /** The slice (s) `stepFree` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */
   private flewDt = 0;
   /** The body's springs over its wheels (drawn only: the physics frame stays on the ground pose). */
   readonly suspension = new Suspension();
@@ -84,7 +87,7 @@ export class DeformableCar extends CarParts {
     this.speed = speed;
     this.spawnSpeed = speed;
     this.crashed = false;
-    this.airborne = false;
+    this.resetContact();
     if (this.classBody) this.classBody.position.y -= this.hullLift;
     this.hullLift = 0;
     this.suspension.reset();
@@ -173,13 +176,13 @@ export class DeformableCar extends CarParts {
    * The first hit starts the crash; on a wreck a fresh, hard enough contact re-arms a new hit (`rearmHit`).
    */
   applyImpact(worldPoint: THREE.Vector3, worldInward: THREE.Vector3, impulse: number, ebs: number): void {
-    const inFlight = this.airborne;
+    const inFlight = this.rigid;
     if (inFlight) {
-      // A body in flight (`stepAir`) takes the hit on its masses: its centre's velocity carried to the group's
+      // A rigid body in flight (`stepFree`) takes the hit on its masses: its centre's velocity carried to the group's
       // origin, as `land` does, and a wreck's masses keep their dents. Its masses fly it on (`syncPose`) and
-      // hand it back to `stepAir` once their contact window closes; left airborne, nothing ever landed it and
+      // hand it back to `stepFree` once their contact window closes; left rigid, nothing ever landed it and
       // its drive stayed idled (8 s, stopped, on the stunt course).
-      this.airborne = false;
+      this.rigid = false;
       this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
       if (this.crashed) {
         this.deform.armMasses(this.group, this.velocity, this.angular);
@@ -220,11 +223,12 @@ export class DeformableCar extends CarParts {
     this.roll = this.group.rotation.z;
     this.pitch = this.group.rotation.x;
     // A wreck whose middle is off the ground (`aloft`) and whose hull is clear of it flies as a rigid body
-    // (`stepAir`) once its contact window closes, fitted to its masses' motion; until then its masses fly it (a hit
+    // (`stepFree`) once its contact window closes, fitted to its masses' motion; until then its masses fly it (a hit
     // in flight still crumples, a wreck over a lip pivots on its last wheels and one coming down lands on them).
-    if (dt > 0 && this.deform.aloft && !this.deform.live() && hullClear(this)) {
+    if (dt > 0 && this.deform.aloft && !this.deform.live() && !pressing(this)) {
       fitMasses(this, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion).add(this.group.position), this.angular);
       this.deform.massActive = false;
+      this.rigid = true;
       this.airborne = true;
     }
     this.refreshBasis();
@@ -232,69 +236,83 @@ export class DeformableCar extends CarParts {
 
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
-   * or with `write` from it: airborne and a hull point on the ground, the spins, the pose, velocity and position whole (the
-   * wire rounds them: a first impact 0.5 m/s off), the squeeze clocks and the drift state. A float32 here moved wrecks.
+   * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
+   * off), the squeeze clocks, the drift state and the last support height. What the body touches is read off the pose again.
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
-      this.airborne = buf[o] !== 0;
-      this.airContact = buf[o + 1] !== 0;
-      this.angular.fromArray(buf, o + 2);
-      this.groundSpin.fromArray(buf, o + 5);
+      this.angular.fromArray(buf, o);
+      this.groundSpin.fromArray(buf, o + 3);
       this.pitch = buf[o + FLIGHT_POSE]!;
       this.yaw = buf[o + FLIGHT_POSE + 1]!;
       this.roll = buf[o + FLIGHT_POSE + 2]!;
       this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
       this.velocity.fromArray(buf, o + FLIGHT_POSE + 3);
       this.group.position.fromArray(buf, o + FLIGHT_POSE + 6);
-      this.endAgo.set(buf.subarray(o + 17, o + 19));
-      this.endReach = buf[o + 19]!;
-      this.endSqueeze = buf[o + 20] !== 0;
-      this.drive.drift = buf[o + 21]!;
+      this.endAgo.set(buf.subarray(o + 15, o + 17));
+      this.endReach = buf[o + 17]!;
+      this.endSqueeze = buf[o + 18] !== 0;
+      this.drive.drift = buf[o + 19]!;
+      this.support = buf[o + 20]!;
+      readContact(this);
       return;
     }
-    buf[o] = this.airborne ? 1 : 0;
-    buf[o + 1] = this.airContact ? 1 : 0;
-    this.angular.toArray(buf, o + 2);
-    this.groundSpin.toArray(buf, o + 5);
+    this.angular.toArray(buf, o);
+    this.groundSpin.toArray(buf, o + 3);
     buf[o + FLIGHT_POSE] = this.pitch;
     buf[o + FLIGHT_POSE + 1] = this.yaw;
     buf[o + FLIGHT_POSE + 2] = this.roll;
     this.velocity.toArray(buf, o + FLIGHT_POSE + 3);
     this.group.position.toArray(buf, o + FLIGHT_POSE + 6);
-    buf.set(this.endAgo, o + 17);
-    buf[o + 19] = this.endReach;
-    buf[o + 20] = this.endSqueeze ? 1 : 0;
-    buf[o + 21] = this.drive.drift;
+    buf.set(this.endAgo, o + 15);
+    buf[o + 17] = this.endReach;
+    buf[o + 18] = this.endSqueeze ? 1 : 0;
+    buf[o + 19] = this.drive.drift;
+    buf[o + 20] = this.support;
   }
 
-  /** No wheel holds the body: it flies (`stepAir`) from its centre of mass, turning as the ground last turned it. */
+  /** Fewer than three wheels stand on the world: the body flies (`stepFree`) from its centre of mass, turning as the ground last turned it. */
   private takeOff(): void {
-    this.airborne = true;
+    this.rigid = true;
+    this.support = NaN;
     if (!this.crashed) this.angular.add(this.groundSpin);
     this.velocity.add(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
   }
 
   /**
-   * Back on its wheels, upright (`stepAir`): the ground sim takes the body where and as it is, within its wheels'
-   * `droop` of the ground under its middle. Its next slice lays a driven body on its support (the axle chord across
-   * a ramp's tail) as it falls the rest of the way: set down on the middle's ground and slope here, it moved 8 cm in
-   * one slice and levelled its rear tyres 4.7 cm into a ramp's tail. A wreck goes back to its masses.
+   * Back on its wheels (`stepFree`: three on the world): the pose-following step takes the body where and as it is and
+   * lays it on the rest plane of its wheels' contacts next slice. A wreck goes back to its masses.
    */
   private land(): void {
-    this.airborne = false;
+    this.rigid = false;
+    this.support = NaN;
     this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
     this.yaw = this.group.rotation.y;
-    if (!this.crashed) landPose(activeGround(), this.group);
     this.pitch = this.group.rotation.x;
     this.roll = this.group.rotation.z;
     this.angular.set(0, this.angular.y, 0);
     this.speed = hypot2(this.velocity.x, this.velocity.z);
     if (this.crashed) {
       this.deform.armMasses(this.group, this.velocity, this.angular);
-      // Landing, not aloft: marked aloft its masses handed it straight back to `stepAir` before they took the slice,
+      // Landing, not aloft: marked aloft its masses handed it straight back to `stepFree` before they took the slice,
       // and a stunt-course wreck hovered on its tyres (vy −5 m/s, its height still) for seconds.
       this.deform.unstep(this.flewDt);
+    }
+  }
+
+  /** On the road at a spawn: its four wheels stand on it, and none of the last slice's contact state applies. */
+  private resetContact(): void {
+    this.rigid = false;
+    this.airborne = false;
+    this.support = NaN;
+    this.wheelsDown = 15;
+    this.restsOn = null;
+    this.yielding = false;
+    this.wheelHit.fill(0);
+    for (let i = 0; i < 4; i++) {
+      this.wheelHit[i * HIT_SIZE + C_NY] = 1;
+      this.wheelHit[i * HIT_SIZE + C_GRIP] = 1;
+      this.wheelHit[i * HIT_SIZE + C_OWNER] = -1;
     }
   }
 
@@ -359,130 +377,27 @@ export class DeformableCar extends CarParts {
       this.stepLooseParts(dt);
       return;
     }
-    if (this.airborne) {
+    // A wreck handed back to the body (`syncPose`) is a rigid box from here; so is any car with fewer than three wheels on the world.
+    if (this.crashed && !this.rigid) this.takeOff();
+    if (this.rigid) {
       this.spinWheels(dt, false);
       this.flewDt = dt;
-      if (stepAir(this, dt)) this.land();
+      if (stepFree(this, dt)) this.land();
       this.refreshBasis();
       this.ride(dt);
       if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
       this.stepLooseParts(dt);
       return;
     }
-    if (!this.crashed) {
-      this.velocity.y -= 9.6 * dt;
-      this.group.position.addScaledVector(this.velocity, dt);
-      this.spinWheels(dt, true);
-      this.deform.bindKinematic(this.group, this.velocity, this.angular);
-    } else {
-      this.velocity.y -= 9.6 * dt;
-      this.velocity.x *= Math.pow(0.28, dt);
-      this.velocity.z *= Math.pow(0.28, dt);
-      this.angular.multiplyScalar(Math.pow(0.45, dt));
-      this.group.position.addScaledVector(this.velocity, dt);
-      this.yaw += this.angular.y * dt;
-      this.roll = THREE.MathUtils.damp(this.roll, this.angular.z * 0.15, 4, dt);
-      this.pitch = THREE.MathUtils.damp(this.pitch, this.angular.x * 0.12, 4, dt);
-      this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
-      this.spinWheels(dt, true);
-    }
-    const ground = activeGround();
-    const pos = this.group.position;
-    if (ground === FLAT_GROUND || ground === DISC_GROUND) {
-      // The flat pad; the fleet's disc only inside its rim (y hint: where the car was before this step).
-      if (pos.y < 0 && ground.heightAt(pos.x, pos.z, pos.y - this.velocity.y * dt) !== NO_FLOOR) {
-        pos.y = 0;
-        if (this.velocity.y < 0) this.velocity.y = 0;
-      }
-    } else {
-      // A course's ground: ride it while it holds the car up; where it falls away faster than gravity
-      // can follow (a ramp lip, a crest at speed) the car flies, and lands back on whatever is below.
-      const y0 = pos.y - this.velocity.y * dt;
-      support(ground, pos.x, pos.z, y0, this.yaw, !this.crashed, _sup);
-      let { y: gy, grade } = _sup;
-      const ax = Math.sin(this.yaw) * AXLE;
-      const az = Math.cos(this.yaw) * AXLE;
-      const cls = carClass(this);
-      const reach = droop(cls);
-      if (pos.y > gy + reach) this.takeOff();
-      else {
-        // The wheels are on the ground (or reach it, within their `droop`, over a crest): the body takes its slope.
-        const n = ground.normalAt(pos.x, pos.z, _gn, gy);
-        // Unless a crawling or resting body has a tyre hanging beside its partner or the hull under the ground across its
-        // middle (a ramp's side edge between the wheels): then it rests on the feature (`settle`).
-        const chord = !Number.isNaN(grade);
-        const speed = hypot2(this.velocity.x, this.velocity.z);
-        const rested = settle(ground, pos.x, pos.z, y0, this.yaw, this.pitch, this.roll, CLASSES[cls].lift, speed, gy, grade, n, _rest);
-        if (rested) [gy, grade] = [_rest.y, NaN];
-        if (pos.y <= gy) {
-          // The support a slice back along the travel (the centre's ground, or the axle chord's, settled as it is) and
-          // its own climb rate. Across a step between the two samples (steeper than 45°: onto a fleet ramp past its side
-          // or end, a kerb) that rate was a launch (24 m/s for a 0.2 m kerb in one slice), so there the face's.
-          const bx = pos.x - this.velocity.x * dt;
-          const bz = pos.z - this.velocity.z * dt;
-          let was: number;
-          let wasGrade = NaN;
-          if (chord) {
-            const hF = axleGround(ground, bx + ax, bz + az, y0, this.yaw);
-            const hR = axleGround(ground, bx - ax, bz - az, y0, this.yaw);
-            was = (hF + hR) / 2;
-            wasGrade = (hF - hR) / (2 * AXLE);
-          } else was = ground.heightAt(bx, bz, y0);
-          if (settle(ground, bx, bz, y0, this.yaw, this.pitch, this.roll, CLASSES[cls].lift, speed, was, wasGrade, ground.normalAt(bx, bz, _gnBack, was), _rest)) was = _rest.y;
-          const face = Number.isNaN(grade)
-            ? -(n.x * this.velocity.x + n.z * this.velocity.z) / n.y
-            : grade * (this.velocity.x * Math.sin(this.yaw) + this.velocity.z * Math.cos(this.yaw));
-          const step = Math.abs(gy - was) > hypot2(this.velocity.x, this.velocity.z) * dt;
-          const climb = step ? face : (gy - was) / dt;
-          // The ground only pushes up, by at most `SUPPORT`: the body climbs with its support and, where the slice
-          // started in its springs, rises out of them no faster than gravity stops it at the top (no hop), as far as
-          // that push allows; past it the body sinks into them, down to their stop (their full travel, its tyres'
-          // give included). Set onto its support in one slice, a ramp's foot, a dip's floor or a landing kicked the
-          // body up at 20–36 g within one frame.
-          const sunk = was - y0;
-          const want = sunk > 0 ? climb + Math.sqrt(2 * G * sunk) : climb;
-          if (sunk <= 0 && want - this.velocity.y <= SUPPORT * dt) {
-            pos.y = gy;
-            this.velocity.y = climb;
-          } else {
-            const push = Math.min(Math.max(0, want - this.velocity.y), SUPPORT * dt);
-            this.velocity.y += push;
-            pos.y += push * dt;
-          }
-          if (pos.y < gy - 2 * reach && this.velocity.y < climb) {
-            // On the stop the body sinks no further: it moves with its support (on a step, at the face's rate) and
-            // the push brings it back out. Set back onto the stop, a body in past it (a landing on a ramp's high end)
-            // was launched off it.
-            this.velocity.y = climb;
-            pos.y = y0 + climb * dt;
-          }
-          // Gravity along the ground (none on the level): it slows a car uphill and speeds it downhill.
-          this.velocity.x += G * n.y * n.x * dt;
-          this.velocity.z += G * n.y * n.z * dt;
-        }
-        if (!this.crashed) {
-          _q0.copy(this.group.quaternion).invert();
-          this.alignToGround(n, grade);
-          // The tilt's turn over this slice (world rad/s): what the body carries into the air at a takeoff. Not a rest
-          // pose's: a car set down on a kerb takes 7° in one slice there, 14 rad/s no body turns at.
-          _q0.premultiply(this.group.quaternion);
-          const k = rested ? 0 : (_q0.w < 0 ? -2 : 2) / dt;
-          this.groundSpin.set(_q0.x * k, _q0.y * k, _q0.z * k);
-        }
-      }
-    }
+    this.velocity.y -= G * dt;
+    this.group.position.addScaledVector(this.velocity, dt);
+    this.spinWheels(dt, true);
+    this.deform.bindKinematic(this.group, this.velocity, this.angular);
+    // Three wheels on the world: the pose is the rest plane through their contacts. Fewer: the body flies from its centre of mass.
+    if (!stepPlane(this, dt)) this.takeOff();
     this.refreshBasis();
     this.ride(dt);
     this.stepLooseParts(dt);
-  }
-
-  /**
-   * Pitch and roll a driven car onto the ground plane (unit normal `n`) under it (yaw kept); on its axle chord
-   * (`grade` its rise per metre ahead, else NaN) the chord sets the pitch.
-   */
-  private alignToGround(n: THREE.Vector3, grade: number): void {
-    tilt(n, grade, this.yaw, this);
-    this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
   }
 
   /**
@@ -692,10 +607,10 @@ export class DeformableCar extends CarParts {
    */
   private ride(dt: number): void {
     const cls = carClass(this);
-    const air = this.airborne && (!this.airContact || this.group.matrixWorld.elements[5]! < 0.5);
+    const air = this.airborne || this.group.matrixWorld.elements[5]! < 0.5;
     let gone = 0;
     for (let i = 0; i < 4; i++) if (this.looseWheels[i]!.loose) gone |= 1 << i;
-    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, gone, dt);
+    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, gone, this.wheelHit, dt);
     if (this.crashed) this.seatBody(CLASSES[cls].lift, dt);
   }
 

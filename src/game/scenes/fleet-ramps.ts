@@ -4,7 +4,7 @@ import { HULL, MU_TYRE } from "../vehicle/car-air.ts";
 import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { DISC_RADIUS, Ground, STEP_UP } from "../world/ground.ts";
-import { wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
+import { wallBounce } from "../contact/pair-contact.ts";
 import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import type { ContactHit, JerseyBarrier } from "./engine-props.ts";
@@ -41,13 +41,6 @@ const MOUNT_MAX = MOUNT * TYRE_R * Math.max(...Object.values(CLASSES).map((c) =>
  * every slice between the face's pose (the plane's side where the face is within `CLIMB`) and the floor's. Twice the push per slice.
  */
 const WALL_SKIN = 2 * PUSH_CAP;
-/**
- * How far (m) under a face a body point (hull, belly) may be and still stand on it, before the wall takes it: a body does not climb
- * a kerb the way a tyre does, but it lags a face it is climbing onto (its springs, its support plane), and its low front
- * (the keel is 3 cm over the tyre plane 0.66 m ahead of the front axle) reaches a face before the tyre does. Swept 0.02 / 0.05 / 0.1 /
- * 0.2 on the drop matrix: ramp cells failing 35 / 34 / 33 / 26, the deepest belly-in-ramp rest 28 / 33 / 12 / 14 cm.
- */
-const SKIN = 0.2;
 /** Half the tread's width (m) at wheel scale 1: the shoulder the tyre's plan rectangle ends at (`TREAD` in car-suspension). */
 const TREAD_HALF = 0.104;
 const SIGNS = [-1, 1] as const;
@@ -145,30 +138,12 @@ export class FleetRamps extends Ground {
   }
 
   /**
-   * The one rule for ground and wall. A point `a` m in from a wedge's high end and `side` m in from its side wall, at
-   * height `y` (any when omitted), stands on the face while the face is at most `kerb` above it plus `reach` times how far it
-   * already is inside the nearest wall (the way out upward is then shorter than the way out sideways); deeper under the face than
-   * that the wall is nearer, and the way out is sideways (`contact`). Returns the face's height, 0 where the point is off the
-   * footprint or in the wall. (`heightAt` once stopped at `CLIMB` alone, so a tyre between that and the wall probes stood on
-   * the floor inside the wedge.)
-   */
-  private onFace(a: number, side: number, y?: number, kerb = CLIMB, reach = 1): number {
-    if (a < 0 || a > RAMP.len || side < 0) return 0;
-    const h = RAMP.top - a * SLOPE;
-    if (y === undefined) return h;
-    // Beside a side wall: the floor, to a body the face above is a wall to.
-    if (side < WALL_SKIN && h - y > MOUNT_MAX) return 0;
-    return h - y <= kerb + reach * Math.min(a, side) ? h : 0;
-  }
-
-  /**
-   * The wedges' side and back faces against `car`, through the rule `onFace` gives the ground: a point of the car
+   * The wedges' side and back faces against `car`, through the one rule the ground gives (`heightAt`): a point of the car
    * that is inside a wedge and not on its face is in the wall, and the deepest such point pushes the car out
    * sideways or back toward the slab through the race walls' `wallBounce`: a light touch pushes out, a hard hit
-   * crushes as the range's slab does (the face is a solid). The points are the body's footprint
-   * (`WALL_PROBES` at its floor), each tyre's plan rectangle (four corners at its bottom), and the hull as the
-   * physics reads it (bumper, beltline and roof corners, the underside): a tyre or a belly that cannot climb the
-   * face is stopped by the wall like the footprint, so no part of a car rests inside a wedge, whatever its pose.
+   * crushes as the range's slab does (the face is a solid). The points are each tyre's plan rectangle (four corners at its
+   * bottom) and the hull as the physics reads it (bumper, beltline and roof corners, the underside): a tyre or a belly
+   * that cannot climb the face is stopped by the wall, so no part of a car rests inside a wedge, whatever its pose.
    * `dt` is the slice's time (s). Returns the hit for the step's strongest contact.
    */
   contact(car: DeformableCar, dt: number): ContactHit | null {
@@ -177,16 +152,15 @@ export class FleetRamps extends Ground {
     // A car's farthest point is 2.5 m from its origin (a rolled one's roof 1.4 m up): past that of the wedges' footprint, nothing of it can touch them.
     if (Math.abs(pos.x * this.ax + pos.z * this.az) > RAMP.start + RAMP.len + 2.5 || Math.abs(pos.x * this.az - pos.z * this.ax) > RAMP.halfW + 2.5) return null;
     this.pen = 0;
-    for (const [ox, oz] of WALL_PROBES) this.probe(car, ox, 0, oz, CLIMB, 1);
     for (const wheel of car.wheels) {
       const { x, z } = wheel.position;
       const r = TYRE_R * wheel.scale.x;
       const hw = TREAD_HALF * wheel.scale.x;
-      for (const sx of SIGNS) for (const sz of SIGNS) this.probe(car, x + sx * hw, 0, z + sz * r, MOUNT * r, 1);
+      for (const sx of SIGNS) for (const sz of SIGNS) this.probe(car, x + sx * hw, 0, z + sz * r);
     }
-    for (let i = 4; i < HULL.length; i++) this.probe(car, HULL[i]![0], HULL[i]![1], HULL[i]![2], SKIN, 0);
+    for (let i = 4; i < HULL.length; i++) this.probe(car, HULL[i]![0], HULL[i]![1], HULL[i]![2]);
     const lift = CLASSES[carClass(car)].lift;
-    for (const [x, z, h] of UNDERSIDE) this.probe(car, x, h + lift, z, SKIN, 0);
+    for (const [x, z, h] of UNDERSIDE) this.probe(car, x, h + lift, z);
     if (this.pen <= 0) return null;
     const { nx, nz } = this;
     const closing = Math.max(0, -(car.velocity.x * nx + car.velocity.z * nz));
@@ -199,12 +173,11 @@ export class FleetRamps extends Ground {
   }
 
   /**
-   * One car-local point against the wedges: if it is in a wall (inside a wedge, not on its face) and deeper than `contact`'s
-   * deepest so far, it becomes the push. `kerb` and `reach` are the point's `onFace` rule: the body's footprint climbs `CLIMB` plus
-   * the depth it is in (`reach` 1), a tyre only the step it mounts (`MOUNT` of its radius, plus the depth), a body point (hull, belly)
-   * `SKIN` and no depth bias.
+   * One car-local point against the wedges: if it is inside a wedge's footprint and not standing on its face (the one rule
+   * `heightAt` answers: the face within its strip's reach above the point) it is in the wall; the deepest such point so far
+   * becomes `contact`'s push.
    */
-  private probe(car: DeformableCar, x: number, y: number, z: number, kerb: number, reach: number): void {
+  private probe(car: DeformableCar, x: number, y: number, z: number): void {
     _p.set(x, y, z).applyQuaternion(car.group.quaternion).add(car.group.position);
     const u = _p.x * this.ax + _p.z * this.az;
     const v = _p.x * this.az - _p.z * this.ax;
@@ -212,7 +185,7 @@ export class FleetRamps extends Ground {
     const back = Math.abs(u) - RAMP.start;
     if (side < 0 || back < 0 || back > RAMP.len) return;
     const over = Math.min(side, back);
-    if (over <= this.pen || this.onFace(back, side, _p.y, kerb, reach) > 0) return;
+    if (over <= this.pen || this.heightAt(_p.x, _p.z, _p.y) > 0) return;
     this.pen = over;
     _c.set(_p.x, _p.y + 0.4, _p.z);
     // The wall's face: a side's plane `RAMP.halfW` off the slab's axis along the wedge, or the back's against the slab's end across it.
