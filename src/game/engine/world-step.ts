@@ -89,14 +89,15 @@ const STEP_SHAPE = 3;
  * margin (7 m) is more than a slice can close.
  */
 const NEAR_PAIR2 = 49;
-/** Pairs the slice visits, as car index pairs (a, b), a < b, in the order a plain double loop would reach them. */
-let nearPairs = new Int32Array(2 * 496);
+/** Pairs the slice visits, as car index pairs (a, b), a < b, in the order a plain double loop would reach them.
+ *  A module scratch like the file's other per-step temporaries; `collectNear` grows it when a field outgrows it. */
+const near = { pairs: new Int32Array(2 * 496) };
 
-/** Fills `nearPairs` with the pairs of `cars` within `NEAR_PAIR2` of each other in plan; the count of ints written. */
+/** Fills `near.pairs` with the pairs of `cars` within `NEAR_PAIR2` of each other in plan; the count of ints written. */
 function collectNear(cars: readonly DeformableCar[]): number {
   const n = cars.length;
-  if (n * (n - 1) > nearPairs.length) nearPairs = new Int32Array(n * (n - 1));
-  const out = nearPairs;
+  if (n * (n - 1) > near.pairs.length) near.pairs = new Int32Array(n * (n - 1));
+  const out = near.pairs;
   let k = 0;
   for (let a = 0; a < n; a++) {
     const pa = cars[a]!.group.position;
@@ -164,10 +165,10 @@ export function stepWorld(w: World, dt: number): void {
     }
 
     const pairs = collectNear(cars);
-    const near = nearPairs;
+    const nearList = near.pairs;
     for (let k = 0; k < pairs; k += 2) {
-      const a = near[k]!;
-      const b = near[k + 1]!;
+      const a = nearList[k]!;
+      const b = nearList[k + 1]!;
       const ca = cars[a]!;
       const cb = cars[b]!;
       if (barrier && barrier.blocksPair(ca, cb)) continue;
@@ -210,8 +211,8 @@ export function stepWorld(w: World, dt: number): void {
       }
 
       for (let k = 0; k < pairs; k += 2) {
-        const a = near[k]!;
-        const b = near[k + 1]!;
+        const a = nearList[k]!;
+        const b = nearList[k + 1]!;
         if (barrier && barrier.blocksPair(cars[a]!, cars[b]!)) continue;
         if (!shareHeight(cars[a]!, cars[b]!) || cars[a]!.falling || cars[b]!.falling) continue;
         const pair = resolveCarPair(cars[a]!, cars[b]!, feed, h);
