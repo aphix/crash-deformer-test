@@ -1,10 +1,10 @@
 import * as THREE from "three";
-import { STEP_UP, type Ground } from "./ground.ts";
+import { Ground, STEP_UP } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
 import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
-import { bilinear, RoadCrease } from "./road-crease.ts";
+import { RoadCrease } from "./road-crease.ts";
 import { nearestOnPath } from "./path-grid.ts";
 
 /**
@@ -579,7 +579,7 @@ export class Track {
 type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; gap: Float32Array; under: Float32Array };
 
 /** Heightfield + surface grid baked from a track: road plane (banked), shoulders, eased back to the base terrain. */
-export class TrackGround implements Ground {
+export class TrackGround extends Ground {
   readonly minX: number;
   readonly minZ: number;
   readonly nx: number;
@@ -592,6 +592,7 @@ export class TrackGround implements Ground {
   private readonly terrain: number;
 
   constructor(track: Track) {
+    super();
     const env = track.json.environment;
     this.hills = env.hills;
     this.terrain = SURFACE_IDS.indexOf(env.terrain);
@@ -613,7 +614,41 @@ export class TrackGround implements Ground {
     for (const p of track.paths()) if (p !== track.path) this.stampPath(p, stamp, true);
     paintGrid(env.paint, this.surf, this.terrain, this.minX, this.minZ, this.nx, CELL);
     raisePlateaus(env.plateaus, this.heights, this.surf, this.minX, this.minZ, this.nx, CELL);
-    this.indexDecks(track.path);
+    this.register(track);
+  }
+
+  /**
+   * The baked field as one unbounded patch (the base terrain's hills past its grid, the road's crease kept where all four
+   * corners have a lateral) and each bridge-deck segment of the main loop as a crease patch; the store's index is built once.
+   */
+  private register(track: Track): void {
+    const hills = new Float64Array(this.hills.length * 4);
+    for (let i = 0; i < this.hills.length; i++) hills.set([this.hills[i]!.x, this.hills[i]!.z, this.hills[i]!.height, this.hills[i]!.radius], i * 4);
+    this.addGrid({
+      nu: this.nx,
+      nv: this.nz,
+      step: CELL,
+      stepV: CELL,
+      u0: 0,
+      v0: 0,
+      heights: this.heights,
+      ox: this.minX,
+      oy: 0,
+      oz: this.minZ,
+      reach: Infinity,
+      surface: -1,
+      surfs: this.surf,
+      crease: [this.crease.centre, this.crease.lat, this.crease.drop],
+      outside: { surface: this.terrain, hills },
+      unbounded: true,
+    });
+    const p = track.path;
+    for (let k = 0; k < p.count; k++) {
+      if (!p.deck[k]) continue;
+      const b = (k + 1) % p.count;
+      this.addDeck(p.x[k]!, p.y[k]!, p.z[k]!, p.x[b]!, p.y[b]!, p.z[b]!, p.half[k]!, p.runL[k]!, p.runR[k]!, p.bank[k]!, p.surface[k]!, p.runSurface[k]!, STEP_UP);
+    }
+    this.seal();
   }
 
   /** Base terrain: gaussian hills over y = 0. */
@@ -696,129 +731,4 @@ export class TrackGround implements Ground {
     }
   }
 
-  /** Bilinear heightfield (no decks); on the main road + runoff its crease kept (`RoadCrease`). */
-  private fieldAt(x: number, z: number): number {
-    const u = (x - this.minX) / CELL;
-    const v = (z - this.minZ) / CELL;
-    if (u < 0 || v < 0 || u >= this.nx - 1 || v >= this.nz - 1) return this.base(x, z);
-    const i = u | 0;
-    const j = v | 0;
-    const c = j * this.nx + i;
-    const r = this.crease.at(c, this.nx, u - i, v - j);
-    return r === r ? r : bilinear(this.heights, c, this.nx, u - i, v - j);
-  }
-
-  heightAt(x: number, z: number, y = Infinity): number {
-    const h = this.fieldAt(x, z);
-    if (this.deckCells.size === 0) return h;
-    const d = this.deckAt(x, z, y + STEP_UP);
-    return d > h ? d : h;
-  }
-
-  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y = Infinity): T {
-    const e = CELL * 0.5;
-    const dx = this.heightAt(x + e, z, y) - this.heightAt(x - e, z, y);
-    const dz = this.heightAt(x, z + e, y) - this.heightAt(x, z - e, y);
-    const nx = -dx;
-    const ny = 2 * e;
-    const nz = -dz;
-    const len = Math.hypot(nx, ny, nz);
-    out.x = nx / len;
-    out.y = ny / len;
-    out.z = nz / len;
-    return out;
-  }
-
-  /** Index into `SURFACE_IDS` at (x, z) for a body at height `y` (a deck's surface when it is on one). */
-  surfaceIndex(x: number, z: number, y = Infinity): number {
-    if (this.deckCells.size > 0) {
-      const d = this.deckAt(x, z, y + STEP_UP);
-      if (d > -Infinity && d >= this.fieldAt(x, z)) return this.deckSurface;
-    }
-    const i = Math.round((x - this.minX) / CELL);
-    const j = Math.round((z - this.minZ) / CELL);
-    if (i < 0 || j < 0 || i >= this.nx || j >= this.nz) return this.terrain;
-    return this.surf[j * this.nx + i]!;
-  }
-
-  frictionAt(x: number, z: number, y = Infinity): number {
-    return SURFACES[SURFACE_IDS[this.surfaceIndex(x, z, y)]!].grip;
-  }
-
-  surfaceAt(x: number, z: number, y = Infinity): SurfaceId {
-    return SURFACE_IDS[this.surfaceIndex(x, z, y)]!;
-  }
-
-  /** Deck segments by 8 m cell. */
-  private readonly deckCells = new Map<number, number[]>();
-  private deckPath: TrackPath | null = null;
-  /** Surface index of the last deck `deckAt` found. */
-  private deckSurface = 0;
-  private readonly seg = blankSegment();
-
-  /**
-   * Each deck segment is listed (in `k` order) in the cells its accepted region touches: the rectangle `deckAt` tests,
-   * `f` in [-0.02, 1.02] along the segment and `|lat|` within the road + runoff beyond the sample, grown 1 mm. A cell
-   * lists only segments that can answer in it, so the lists are ~4× shorter than the segment's padded bounding box gave
-   * (dam-spine: 34.7 → 8 per cell) and `deckAt` answers the same.
-   */
-  private indexDecks(p: TrackPath): void {
-    this.deckPath = p;
-    const half = DECK_CELL / 2;
-    for (let k = 0; k < p.count; k++) {
-      if (!p.deck[k]) continue;
-      const b = (k + 1) % p.count;
-      const r = p.half[k]! + Math.max(p.runL[k]!, p.runR[k]!) + DECK_MARGIN;
-      const sx = p.x[b]! - p.x[k]!;
-      const sz = p.z[b]! - p.z[k]!;
-      const len = Math.hypot(sx, sz);
-      // A zero-length segment has no direction: it keeps a square of the padded reach.
-      const moves = len > 1e-9;
-      const ex = moves ? sx / len : 1;
-      const ez = moves ? sz / len : 0;
-      const hl = moves ? len * 0.52 + DECK_MARGIN : r;
-      const rx = (p.x[k]! + p.x[b]!) / 2;
-      const rz = (p.z[k]! + p.z[b]!) / 2;
-      const hx = Math.abs(ex) * hl + Math.abs(ez) * r;
-      const hz = Math.abs(ez) * hl + Math.abs(ex) * r;
-      const reach = half * (Math.abs(ex) + Math.abs(ez));
-      const i0 = Math.floor((rx - hx) / DECK_CELL);
-      const i1 = Math.floor((rx + hx) / DECK_CELL);
-      const j0 = Math.floor((rz - hz) / DECK_CELL);
-      const j1 = Math.floor((rz + hz) / DECK_CELL);
-      for (let j = j0; j <= j1; j++) {
-        for (let i = i0; i <= i1; i++) {
-          const dx = (i + 0.5) * DECK_CELL - rx;
-          const dz = (j + 0.5) * DECK_CELL - rz;
-          // Separating axes of a rectangle and a square: the rectangle's two, then the world's two (already the box).
-          if (Math.abs(dx * ex + dz * ez) > hl + reach || Math.abs(dz * ex - dx * ez) > r + reach) continue;
-          const key = deckKey(i, j);
-          const list = this.deckCells.get(key);
-          if (list) list.push(k);
-          else this.deckCells.set(key, [k]);
-        }
-      }
-    }
-  }
-
-  /** Highest deck surface at (x, z) no higher than `yMax`, −∞ when none. */
-  private deckAt(x: number, z: number, yMax: number): number {
-    const list = this.deckCells.get(deckKey(Math.floor(x / DECK_CELL), Math.floor(z / DECK_CELL)));
-    const p = this.deckPath;
-    if (!list || !p) return -Infinity;
-    let best = -Infinity;
-    for (const k of list) {
-      const { b, ex, ez, len2, f } = segmentAt(p, k, x, z, this.seg);
-      if (f < -0.02 || f > 1.02) continue;
-      const lat = ((x - p.x[k]! - ex * f) * ez - (z - p.z[k]! - ez * f) * ex) / Math.sqrt(len2);
-      const half = p.half[k]!;
-      const run = lat > 0 ? p.runL[k]! : p.runR[k]!;
-      if (Math.abs(lat) > half + run) continue;
-      const yc = p.y[k]! + (p.y[b]! - p.y[k]!) * f - Math.max(-half, Math.min(half, lat)) * Math.tan(p.bank[k]!);
-      if (yc > yMax || yc <= best) continue;
-      best = yc;
-      this.deckSurface = Math.abs(lat) <= half ? p.surface[k]! : p.runSurface[k]!;
-    }
-    return best;
-  }
 }

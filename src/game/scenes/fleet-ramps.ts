@@ -3,7 +3,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { HULL, MU_TYRE } from "../vehicle/car-air.ts";
 import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
-import { DISC_GROUND, FLAT_GROUND, NO_FLOOR, type Ground } from "../world/ground.ts";
+import { DISC_RADIUS, Ground, STEP_UP } from "../world/ground.ts";
 import { wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
 import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
@@ -52,17 +52,26 @@ const SKIN = 0.2;
 const TREAD_HALF = 0.104;
 const SIGNS = [-1, 1] as const;
 const SLOPE = RAMP.top / RAMP.len;
-const NORM = 1 / Math.hypot(1, SLOPE);
+/**
+ * A wedge's face across its width, as one patch per strip: v0 (m across from the wedge's axis), width, and how far (m) the face may be above
+ * a point and still be under it. Beside a side wall (within `WALL_SKIN` of it) the face above `MOUNT_MAX` is a wall to a tyre, not floor;
+ * elsewhere a body climbs the face while it is at most `CLIMB` above it.
+ */
+const STRIPS: readonly (readonly [number, number, number])[] = [
+  [-RAMP.halfW, WALL_SKIN, MOUNT_MAX],
+  [-RAMP.halfW + WALL_SKIN, 2 * RAMP.halfW - 2 * WALL_SKIN, CLIMB],
+  [RAMP.halfW - WALL_SKIN, WALL_SKIN, MOUNT_MAX],
+];
 
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _face = makeBox();
 
-export class FleetRamps implements Ground {
+export class FleetRamps extends Ground {
   readonly group = new THREE.Group();
   /** Its wedges' sides and ends are walls `contact` parts a body from. */
-  readonly walls = true;
+  override readonly walls = true;
   /** Unit slab axis (plan), from the slab's yaw. */
   private ax = 0;
   private az = 1;
@@ -76,8 +85,20 @@ export class FleetRamps implements Ground {
   private mx = 0;
   private mz = 0;
   private hw = 0;
+  /** The slab top's patch, and the wedges' face patches: `STRIPS.length` per wedge (`place` turns them with the slab's yaw). */
+  private readonly slabTop: number;
+  private readonly faces: number[] = [];
 
   constructor(scene: THREE.Scene) {
+    super();
+    this.addPlane(0, -DISC_RADIUS, DISC_RADIUS, -DISC_RADIUS, DISC_RADIUS, STEP_UP, DISC_RADIUS);
+    this.slabTop = this.addPlane(BARRIER_TOP, -BARRIER_HALF.x, BARRIER_HALF.x, -BARRIER_HALF.z, BARRIER_HALF.z, CLIMB);
+    for (let k = 0; k < 2; k++) {
+      for (let s = 0; s < STRIPS.length; s++) {
+        const [v0, w, reach] = STRIPS[s]!;
+        this.faces[k * STRIPS.length + s] = this.addGrid({ nu: 2, nv: 2, step: RAMP.len, stepV: w, u0: 0, v0, heights: new Float32Array([RAMP.top, 0, RAMP.top, 0]), ox: 0, oy: 0, oz: 0, reach });
+      }
+    }
     const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(RAMP.len, 0), new THREE.Vector2(0, RAMP.top)]);
     const geo = new THREE.ExtrudeGeometry(shape, { depth: RAMP.halfW * 2, bevelEnabled: false });
     geo.translate(0, 0, -RAMP.halfW);
@@ -93,6 +114,7 @@ export class FleetRamps implements Ground {
     }
     this.group.visible = false;
     scene.add(this.group);
+    this.place(0, null);
   }
 
   /** Line the wedges up on the slab's long axis (`JerseyBarrier.orient`'s yaw); `slab` while it is in the scene. */
@@ -101,6 +123,25 @@ export class FleetRamps implements Ground {
     this.az = Math.cos(yaw);
     this.group.rotation.y = yaw;
     this.slab = slab;
+    // Each wedge's frame: u runs from its high end (against the slab's end) out along the slab's axis, v across it.
+    for (let k = 0; k < 2; k++) {
+      const side = k === 0 ? 1 : -1;
+      const dx = side * this.ax;
+      const dz = side * this.az;
+      for (let s = 0; s < STRIPS.length; s++) this.setFrame(this.faces[k * STRIPS.length + s]!, dx * RAMP.start, 0, dz * RAMP.start, [dx, 0, dz, 0, 1, 0, -dz, 0, dx]);
+    }
+    this.refreshSlab();
+  }
+
+  /** The slab's top, as wide as the slab is now (it crumples) and turned as it is, or nothing while it is out of the scene. */
+  private refreshSlab(): void {
+    const s = this.slab;
+    if (!s) {
+      this.disable(this.slabTop);
+      return;
+    }
+    this.setFrame(this.slabTop, s.group.position.x, 0, s.group.position.z, [this.az, 0, -this.ax, 0, 1, 0, this.ax, 0, this.az]);
+    this.setRect(this.slabTop, -s.hx(), -BARRIER_HALF.z, 2 * s.hx(), 2 * BARRIER_HALF.z);
   }
 
   /**
@@ -120,39 +161,6 @@ export class FleetRamps implements Ground {
     return h - y <= kerb + reach * Math.min(a, side) ? h : 0;
   }
 
-  private face(x: number, z: number, y?: number): number {
-    return this.onFace(Math.abs(x * this.ax + z * this.az) - RAMP.start, RAMP.halfW - Math.abs(x * this.az - z * this.ax), y);
-  }
-
-  heightAt(x: number, z: number, y?: number): number {
-    if (DISC_GROUND.heightAt(x, z, y) === NO_FLOOR) return NO_FLOOR;
-    const s = this.slab;
-    if (s) {
-      // Slab frame from the shared yaw: across = (cos, −sin), along = (sin, cos).
-      const dx = x - s.group.position.x;
-      const dz = z - s.group.position.z;
-      if (Math.abs(dx * this.az - dz * this.ax) < s.hx() && Math.abs(dx * this.ax + dz * this.az) < BARRIER_HALF.z) return y === undefined || BARRIER_TOP <= y + CLIMB ? BARRIER_TOP : 0;
-    }
-    return this.face(x, z, y);
-  }
-
-  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y?: number): T {
-    if (this.face(x, z, y) <= 0) return FLAT_GROUND.normalAt(x, z, out);
-    const s = (x * this.ax + z * this.az >= 0 ? SLOPE : -SLOPE) * NORM;
-    out.x = this.ax * s;
-    out.y = NORM;
-    out.z = this.az * s;
-    return out;
-  }
-
-  frictionAt(x: number, z: number, y?: number): number {
-    return DISC_GROUND.frictionAt(x, z, y);
-  }
-
-  surfaceAt(): "asphalt" {
-    return "asphalt";
-  }
-
   /**
    * The wedges' side and back faces against `car`, through the rule `onFace` gives the ground: a point of the car
    * that is inside a wedge and not on its face is in the wall, and the deepest such point pushes the car out
@@ -164,6 +172,7 @@ export class FleetRamps implements Ground {
    * `dt` is the slice's time (s). Returns the hit for the step's strongest contact.
    */
   contact(car: DeformableCar, dt: number): ContactHit | null {
+    this.refreshSlab();
     const pos = car.group.position;
     // A car's farthest point is 2.5 m from its origin (a rolled one's roof 1.4 m up): past that of the wedges' footprint, nothing of it can touch them.
     if (Math.abs(pos.x * this.ax + pos.z * this.az) > RAMP.start + RAMP.len + 2.5 || Math.abs(pos.x * this.az - pos.z * this.ax) > RAMP.halfW + 2.5) return null;

@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
-import { FLAT_GROUND, STEP_UP, type Ground } from "../world/ground.ts";
+import { Ground, STEP_UP } from "../world/ground.ts";
 
 /**
  * The corkscrew scene's channel (owner's Hot Wheels sketch): a floor between two walls that rises along +z from a
@@ -100,7 +100,7 @@ const _su = new Float64Array(2);
  * `_su`, its frame in `_b`/`_n`/`_t` and its centreline point in `_c`. True when that point is on the floor. A few
  * Newton steps on `s`: z = centre(s).z + u·b.z, with u = x / b.x (the bank stays under 90°).
  */
-function onFloor(x: number, z: number): boolean {
+function onFloor(x: number, z: number, margin = 0): boolean {
   let s = z - CORKSCREW.mouthZ;
   for (let k = 0; k < 4; k++) {
     frame(s, _b, _n, _t);
@@ -111,7 +111,7 @@ function onFloor(x: number, z: number): boolean {
   centre(s, _c);
   _su[0] = s;
   _su[1] = x / _b.x;
-  return s >= 0 && s <= CORKSCREW.len && Math.abs(_su[1]) <= CORKSCREW.halfW;
+  return s >= -margin && s <= CORKSCREW.len + margin && Math.abs(_su[1]!) <= CORKSCREW.halfW + margin;
 }
 
 /**
@@ -145,36 +145,42 @@ export function corkscrewMesh(step: number): { vertices: Float32Array; indices: 
   return { vertices, indices };
 }
 
-export class Corkscrew implements Ground {
+/** The floor's plan grid (m): fine enough that the bilinear height is within a millimetre of the analytic floor (its bank twists at ≤ 0.16 rad/m). */
+const FLOOR_STEP = 0.05;
+/** The grid reaches this far (m) past the floor's edge and ends along the run: the analytic floor continued, so no cell straddles its boundary. */
+const FLOOR_MARGIN = 0.1;
+
+export class Corkscrew extends Ground {
   readonly group = new THREE.Group();
 
   constructor(scene: THREE.Scene) {
+    super();
     this.build();
+    this.bake();
     this.group.visible = false;
     scene.add(this.group);
   }
 
-  /** The floor where it is under a body (at most `STEP_UP` above it), else the pad. */
-  heightAt(x: number, z: number, y?: number): number {
-    if (!onFloor(x, z)) return 0;
-    const h = _c.y + _su[1]! * _b.y;
-    return y === undefined || h <= y + STEP_UP ? h : 0;
-  }
-
-  normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y?: number): T {
-    if (!onFloor(x, z) || (y !== undefined && _c.y + _su[1]! * _b.y > y + STEP_UP)) return FLAT_GROUND.normalAt(x, z, out);
-    out.x = _n.x;
-    out.y = _n.y;
-    out.z = _n.z;
-    return out;
-  }
-
-  frictionAt(): number {
-    return 1;
-  }
-
-  surfaceAt(): "asphalt" {
-    return "asphalt";
+  /**
+   * The ground: the flat pad everywhere (y = 0) and the floor's plan grid over it, answering where it is under a body (at most
+   * `STEP_UP` above it). Nodes off the floor are NaN: a cell with one answers nothing and the pad holds.
+   */
+  private bake(): void {
+    const x0 = -CORKSCREW.halfW - FLOOR_MARGIN - FLOOR_STEP;
+    const z0 = CORKSCREW.mouthZ - FLOOR_MARGIN - FLOOR_STEP;
+    const nu = Math.ceil((2 * (CORKSCREW.halfW + FLOOR_MARGIN + FLOOR_STEP)) / FLOOR_STEP) + 1;
+    const nv = Math.ceil((CORKSCREW.len + 2 * FLOOR_MARGIN + 2 * FLOOR_STEP) / FLOOR_STEP) + 1;
+    const heights = new Float32Array(nu * nv).fill(NaN);
+    for (let j = 0; j < nv; j++) {
+      for (let i = 0; i < nu; i++) {
+        const x = x0 + i * FLOOR_STEP;
+        const z = z0 + j * FLOOR_STEP;
+        if (!onFloor(x, z, FLOOR_MARGIN)) continue;
+        heights[j * nu + i] = _c.y + _su[1]! * _b.y;
+      }
+    }
+    this.addPlane(0, -1e7, 1e7, -1e7, 1e7, Infinity);
+    this.addGrid({ nu, nv, step: FLOOR_STEP, stepV: FLOOR_STEP, u0: 0, v0: 0, heights, ox: x0, oy: 0, oz: z0, reach: STEP_UP });
   }
 
   /**

@@ -1,0 +1,739 @@
+import { SURFACE_IDS, SURFACES } from "./catalog.ts";
+
+/**
+ * The one store of solid surfaces (docs/UNIFIED_CONTACT.md, Stage 1): everything a body can stand on answers one question,
+ * "at this point, where is the surface, which way does it face, how grippy is it, and whose is it".
+ *
+ * A `Surface` is the base class every surface extends. It holds no query: a subclass supplies plain data, patches in typed
+ * arrays, and a scene activates it (`setGround`). A patch is a bilinear node grid in its own frame (a plane is one cell; the
+ * track's field, a ramp face, the corkscrew's floor and a car's roof plate are the same thing; a roof's frame is the car's)
+ * or a bridge deck segment in the road's crease form. The static part is registered once per scene with its spatial index;
+ * the dynamic part (`CarTops`) is a fixed set of slots whose frame and world box are rewritten in place every slice.
+ *
+ * `pointContact` and `wheelContact` are the two queries: pure functions over the typed arrays, no `this`, no allocation.
+ */
+
+/** `pointContact` / `wheelContact` output slots. */
+export const C_H = 0;
+export const C_NX = 1;
+export const C_NY = 2;
+export const C_NZ = 3;
+export const C_GRIP = 4;
+export const C_SURF = 5;
+export const C_OWNER = 6;
+export const C_ARG = 7;
+export const HIT_SIZE = 8;
+
+/** No surface under the point: `pointContact` answers this height. */
+const NONE = -Infinity;
+
+/** A patch's kind. */
+const GRID = 0;
+const DECK = 1;
+
+/** Patch parameters, `P_STRIDE` numbers each. A grid reads its frame, a deck its road segment. */
+const P_STRIDE = 25;
+const P_OX = 0;
+const P_OY = 1;
+const P_OZ = 2;
+/** The frame's axes in world (local x, local y = up, local z: three numbers each). */
+const P_AX = 3;
+const P_BX = 6;
+const P_CX = 9;
+/** Grid origin in the frame (u along x, v along z) and the cell size along each (m). */
+const P_U0 = 12;
+const P_V0 = 13;
+const P_STEP = 14;
+const P_STEPV = 23;
+/** The surface counts as under a point only when it is at most this far (m) above it. */
+const P_REACH = 15;
+/** Lowered by this (m) along the frame's up (a roof's crush). */
+const P_DROP = 16;
+/** Grip multiplier of the patch. */
+const P_GRIP = 17;
+/** > 0: the patch is the disc of this radius² around its origin in plan. */
+const P_RAD2 = 18;
+/** The patch's world box (plan). Rewritten with a moving patch; an empty box (min > max) disables it. */
+const P_MINX = 19;
+const P_MAXX = 20;
+const P_MINZ = 21;
+const P_MAXZ = 22;
+/** Highest node (frame y, m) of a grid: how far a tilted frame's plan box grows. */
+const P_HMAX = 24;
+/** Deck: segment start (x, y, z), its plan vector (ex, ez), rise to the end, |e|², |e|, half width, run each side, tan(bank). */
+const D_EX = 3;
+const D_EZ = 5;
+const D_DY = 6;
+const D_LEN2 = 7;
+const D_LEN = 8;
+const D_HALF = 9;
+const D_RUNL = 10;
+const D_RUNR = 11;
+const D_TAN = 12;
+
+/** Patch integers, `Q_STRIDE` each. */
+const Q_STRIDE = 7;
+const Q_KIND = 0;
+const Q_NU = 1;
+const Q_NV = 2;
+/** Surface index (`SURFACE_IDS`) of the patch; −1: per node (`surfs`). A deck's road surface. */
+const Q_SURF = 3;
+/** A deck's run-off surface; a grid's surface past its nodes (the hills of a track's field); −1: it answers nothing past its nodes. */
+const Q_SURF2 = 4;
+/** −1 the world's; else the slot (car index) that owns the patch. */
+const Q_OWNER = 5;
+/** 1: the patch answers over the whole plan, not only over its box. */
+const Q_UNB = 6;
+
+/** A patch's slots grow by this many at a time. */
+const GROW = 8;
+/** Static patches past this many get a cell index; fewer are all tested every query. */
+const INDEX_FROM = 8;
+/** Cell (m) of the static index. */
+const CELL = 8;
+/** A patch wider than this many cells is tested by every query instead of listed per cell. */
+const WIDE = 64;
+/** Half the plan (m) an unbounded patch's box spans. */
+const WORLD = 1e9;
+
+const EMPTY32 = new Float32Array(0);
+const EMPTY64 = new Float64Array(0);
+const EMPTY8 = new Uint8Array(0);
+
+const GRIPS = new Float64Array(SURFACE_IDS.length);
+for (let i = 0; i < SURFACE_IDS.length; i++) GRIPS[i] = SURFACES[SURFACE_IDS[i]!].grip;
+
+/** The surface index of asphalt. */
+const ASPHALT = 0;
+
+/** A grid patch's data. `heights` are the nodes' frame y (row-major, `nu` wide); the frame's origin is at world (ox, oy, oz). */
+export type GridSpec = {
+  nu: number;
+  nv: number;
+  /** Node spacing along the frame's x (`step`) and z (`stepV`). */
+  step: number;
+  stepV: number;
+  /** The first node's frame x and z. */
+  u0: number;
+  v0: number;
+  heights: Float32Array;
+  ox: number;
+  oy: number;
+  oz: number;
+  /** The frame's x, y and z axes in world, three numbers each (a plan-aligned frame when omitted). */
+  axes?: ArrayLike<number>;
+  /** The surface counts as under a point at most this far (m) above it. */
+  reach: number;
+  /** Surface index of the whole patch, or −1 with per-node ids in `surfs`. */
+  surface?: number;
+  surfs?: Uint8Array;
+  /** The road's crease (`centre`, lateral over half width, half width × tan(bank)): the height where all four corners have a lateral. */
+  crease?: readonly [Float32Array, Float32Array, Float32Array];
+  /** Past the grid: the surface index there and the gaussian hills (x, z, height, radius each) of the base terrain. */
+  outside?: { surface: number; hills: Float64Array };
+  /** Grip multiplier (1). */
+  grip?: number;
+  /** > 0: only the disc of this radius about the frame origin. */
+  radius?: number;
+  /** Lowered by this (m): a roof's crush. */
+  drop?: number;
+  /** Answers over the whole plan (the track's terrain: hills past its baked grid), not only over its grid's box. */
+  unbounded?: boolean;
+};
+
+export class Surface {
+  /** True where this surface's sides and ends are walls its scene's own contact parts a body from (the fleet ramps). */
+  walls = false;
+  count = 0;
+  p = new Float64Array(0);
+  q = new Int32Array(0);
+  /** Per patch: node heights, crease arrays, per-node surface ids, hills past the grid. */
+  nodes: Float32Array[] = [];
+  centre: Float32Array[] = [];
+  lat: Float32Array[] = [];
+  drop: Float32Array[] = [];
+  surfs: Uint8Array[] = [];
+  hills: Float64Array[] = [];
+  /** The cell index (built by `seal`, read by the query): per cell the patches listed, and the patches every query tests. */
+  cellStart = new Int32Array(0);
+  cellList = new Int32Array(0);
+  always = new Int32Array(0);
+  cx0 = 0;
+  cz0 = 0;
+  cnx = 0;
+  cnz = 0;
+  sealed = false;
+
+  /** A new patch of `kind`; returns its index. */
+  private addPatch(kind: number): number {
+    const i = this.count++;
+    if ((i + 1) * P_STRIDE > this.p.length) {
+      const cap = i + GROW;
+      const p = new Float64Array(cap * P_STRIDE);
+      p.set(this.p);
+      this.p = p;
+      const q = new Int32Array(cap * Q_STRIDE);
+      q.set(this.q);
+      this.q = q;
+    }
+    const o = i * P_STRIDE;
+    const qo = i * Q_STRIDE;
+    this.p.fill(0, o, o + P_STRIDE);
+    this.q[qo + Q_KIND] = kind;
+    this.q[qo + Q_SURF] = ASPHALT;
+    this.q[qo + Q_SURF2] = -1;
+    this.q[qo + Q_OWNER] = -1;
+    this.p[o + P_REACH] = Infinity;
+    this.p[o + P_GRIP] = 1;
+    this.nodes[i] = EMPTY32;
+    this.centre[i] = EMPTY32;
+    this.lat[i] = EMPTY32;
+    this.drop[i] = EMPTY32;
+    this.surfs[i] = EMPTY8;
+    this.hills[i] = EMPTY64;
+    this.sealed = false;
+    return i;
+  }
+
+  /** A bilinear grid patch; returns its index. */
+  addGrid(g: GridSpec): number {
+    const i = this.addPatch(GRID);
+    const o = i * P_STRIDE;
+    const qo = i * Q_STRIDE;
+    this.q[qo + Q_NU] = g.nu;
+    this.q[qo + Q_NV] = g.nv;
+    this.q[qo + Q_SURF] = g.surface ?? ASPHALT;
+    this.nodes[i] = g.heights;
+    this.p[o + P_U0] = g.u0;
+    this.p[o + P_V0] = g.v0;
+    this.p[o + P_STEP] = g.step;
+    this.p[o + P_STEPV] = g.stepV;
+    this.p[o + P_REACH] = g.reach;
+    this.p[o + P_GRIP] = g.grip ?? 1;
+    this.p[o + P_DROP] = g.drop ?? 0;
+    this.p[o + P_RAD2] = g.radius === undefined ? 0 : g.radius * g.radius;
+    let hext = 0;
+    for (let k = 0; k < g.heights.length; k++) hext = Math.max(hext, Math.abs(g.heights[k]!));
+    this.p[o + P_HMAX] = hext + Math.abs(g.drop ?? 0);
+    this.q[qo + Q_UNB] = g.unbounded ? 1 : 0;
+    if (g.surfs) this.surfs[i] = g.surfs;
+    if (g.crease) {
+      this.centre[i] = g.crease[0];
+      this.lat[i] = g.crease[1];
+      this.drop[i] = g.crease[2];
+    }
+    if (g.outside) {
+      this.q[qo + Q_SURF2] = g.outside.surface;
+      this.hills[i] = g.outside.hills;
+    }
+    this.setFrame(i, g.ox, g.oy, g.oz, g.axes ?? YAW0);
+    return i;
+  }
+
+  /** A flat patch at height `h` over the plan rectangle [x0, x1] × [z0, z1], or the disc of `radius` about its middle when > 0. */
+  addPlane(h: number, x0: number, x1: number, z0: number, z1: number, reach: number, radius = 0): number {
+    const ox = (x0 + x1) / 2;
+    const oz = (z0 + z1) / 2;
+    return this.addGrid({ nu: 2, nv: 2, step: x1 - x0, stepV: z1 - z0, u0: x0 - ox, v0: z0 - oz, heights: new Float32Array([h, h, h, h]), ox, oy: 0, oz, axes: YAW0, reach, radius: radius > 0 ? radius : undefined });
+  }
+
+  /**
+   * A rectangle `w` × `d` m, its corner at plan (ox, oz) and turned `yaw` about world y (u along (cos, −sin), v along (sin, cos)),
+   * with the heights `h00` at (0, 0), `h10` at (w, 0), `h01` at (0, d) and `h11`: one cell, planar when h11 = h10 + h01 − h00.
+   */
+  addFace(ox: number, oz: number, yaw: number, w: number, d: number, h00: number, h10: number, h01: number, h11: number, reach: number): number {
+    const i = this.addGrid({ nu: 2, nv: 2, step: w, stepV: d, u0: 0, v0: 0, heights: new Float32Array([h00, h10, h01, h11]), ox, oy: 0, oz, axes: YAW0, reach });
+    this.setYaw(i, ox, oz, yaw);
+    return i;
+  }
+
+  /** Face patch `i` (same data) turned `yaw` about its corner at (ox, oz). */
+  setYaw(i: number, ox: number, oz: number, yaw: number): void {
+    const c = Math.cos(yaw);
+    const s = Math.sin(yaw);
+    this.setFrame(i, ox, 0, oz, [c, 0, -s, 0, 1, 0, s, 0, c]);
+  }
+
+  /** A bridge deck segment (the road's crease form over one path segment); see `deckAt`. */
+  addDeck(x0: number, y0: number, z0: number, x1: number, y1: number, z1: number, half: number, runL: number, runR: number, bank: number, surface: number, runSurface: number, reach: number): number {
+    const i = this.addPatch(DECK);
+    const o = i * P_STRIDE;
+    const qo = i * Q_STRIDE;
+    const P = this.p;
+    const ex = x1 - x0;
+    const ez = z1 - z0;
+    const len2 = ex * ex + ez * ez || 1e-12;
+    const len = Math.sqrt(len2);
+    P[o + P_OX] = x0;
+    P[o + P_OY] = y0;
+    P[o + P_OZ] = z0;
+    P[o + D_EX] = ex;
+    P[o + D_EZ] = ez;
+    P[o + D_DY] = y1 - y0;
+    P[o + D_LEN2] = len2;
+    P[o + D_LEN] = len;
+    P[o + D_HALF] = half;
+    P[o + D_RUNL] = runL;
+    P[o + D_RUNR] = runR;
+    P[o + D_TAN] = Math.tan(bank);
+    P[o + P_REACH] = reach;
+    this.q[qo + Q_SURF] = surface;
+    this.q[qo + Q_SURF2] = runSurface;
+    // The accepted region: f in [-0.02, 1.02] along the segment and |lat| within the road + run beyond it, boxed with a millimetre to spare.
+    const r = half + Math.max(runL, runR) + 0.001;
+    const mx = x0 + ex / 2;
+    const mz = z0 + ez / 2;
+    // A zero-length segment has no direction: it keeps a square of the padded reach.
+    const moves = len > 1e-5;
+    const bx = moves ? Math.abs(ex) * 0.52 + (Math.abs(ez) / len) * r : r;
+    const bz = moves ? Math.abs(ez) * 0.52 + (Math.abs(ex) / len) * r : r;
+    P[o + P_MINX] = mx - bx;
+    P[o + P_MAXX] = mx + bx;
+    P[o + P_MINZ] = mz - bz;
+    P[o + P_MAXZ] = mz + bz;
+    return i;
+  }
+
+  /** Set grid patch `i`'s frame (origin and the x, y, z axes) and its world box. A moving patch (a roof, a placed ramp) is rewritten in place. */
+  setFrame(i: number, ox: number, oy: number, oz: number, axes: ArrayLike<number>): void {
+    const o = i * P_STRIDE;
+    const qo = i * Q_STRIDE;
+    const P = this.p;
+    P[o + P_OX] = ox;
+    P[o + P_OY] = oy;
+    P[o + P_OZ] = oz;
+    for (let k = 0; k < 9; k++) P[o + P_AX + k] = axes[k]!;
+    const u0 = P[o + P_U0]!;
+    const v0 = P[o + P_V0]!;
+    const u1 = u0 + (this.q[qo + Q_NU]! - 1) * P[o + P_STEP]!;
+    const v1 = v0 + (this.q[qo + Q_NV]! - 1) * P[o + P_STEPV]!;
+    const hmax = Math.max(0, P[o + P_HMAX]!);
+    // The box over the patch's corners (the frame's x and z axes; the roof's height term grows it by the frame's tilt).
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minZ = Infinity;
+    let maxZ = -Infinity;
+    for (let a = 0; a < 2; a++) {
+      for (let b = 0; b < 2; b++) {
+        const u = a === 0 ? u0 : u1;
+        const v = b === 0 ? v0 : v1;
+        minX = Math.min(minX, ox + P[o + P_AX]! * u + P[o + P_CX]! * v);
+        maxX = Math.max(maxX, ox + P[o + P_AX]! * u + P[o + P_CX]! * v);
+        minZ = Math.min(minZ, oz + P[o + P_AX + 2]! * u + P[o + P_CX + 2]! * v);
+        maxZ = Math.max(maxZ, oz + P[o + P_AX + 2]! * u + P[o + P_CX + 2]! * v);
+      }
+    }
+    const tx = Math.abs(P[o + P_BX]!) * hmax;
+    const tz = Math.abs(P[o + P_BX + 2]!) * hmax;
+    const unb = this.q[qo + Q_UNB] === 1;
+    P[o + P_MINX] = unb ? -WORLD : minX - tx;
+    P[o + P_MAXX] = unb ? WORLD : maxX + tx;
+    P[o + P_MINZ] = unb ? -WORLD : minZ - tz;
+    P[o + P_MAXZ] = unb ? WORLD : maxZ + tz;
+  }
+
+  /** Re-size the one-cell grid patch `i` to the rectangle [u0, u0 + w] × [v0, v0 + d] in its frame, boxed again (a slab top that crumples). */
+  setRect(i: number, u0: number, v0: number, w: number, d: number): void {
+    const o = i * P_STRIDE;
+    this.p[o + P_U0] = u0;
+    this.p[o + P_V0] = v0;
+    this.p[o + P_STEP] = w;
+    this.p[o + P_STEPV] = d;
+    this.setFrame(i, this.p[o + P_OX]!, this.p[o + P_OY]!, this.p[o + P_OZ]!, this.p.subarray(o + P_AX, o + P_AX + 9));
+  }
+
+  /** Empty patch `i`'s box: it answers nothing until its frame is set again. */
+  disable(i: number): void {
+    const o = i * P_STRIDE;
+    this.p[o + P_MINX] = Infinity;
+    this.p[o + P_MAXX] = -Infinity;
+    this.p[o + P_MINZ] = Infinity;
+    this.p[o + P_MAXZ] = -Infinity;
+  }
+
+  /** Patch `i` is `owner`'s (a car's slot): its own queries skip it. */
+  own(i: number, owner: number): void {
+    this.q[i * Q_STRIDE + Q_OWNER] = owner;
+  }
+
+  /** Patch `i`'s crush drop (m). */
+  setDrop(i: number, drop: number): void {
+    this.p[i * P_STRIDE + P_DROP] = drop;
+  }
+
+  /** Build the spatial index over the patches' boxes (a scene's static surfaces: once, at registration). Few patches are all tested. */
+  seal(): void {
+    this.sealed = true;
+    const P = this.p;
+    if (this.count <= INDEX_FROM) {
+      this.always = Int32Array.from({ length: this.count }, (_, i) => i);
+      this.cellStart = new Int32Array(0);
+      this.cellList = new Int32Array(0);
+      return;
+    }
+    const wide: number[] = [];
+    const local: number[] = [];
+    let minX = Infinity;
+    let minZ = Infinity;
+    let maxX = -Infinity;
+    let maxZ = -Infinity;
+    for (let i = 0; i < this.count; i++) {
+      const o = i * P_STRIDE;
+      if (P[o + P_MAXX]! - P[o + P_MINX]! > WIDE * CELL || P[o + P_MAXZ]! - P[o + P_MINZ]! > WIDE * CELL) {
+        wide.push(i);
+        continue;
+      }
+      local.push(i);
+      minX = Math.min(minX, P[o + P_MINX]!);
+      maxX = Math.max(maxX, P[o + P_MAXX]!);
+      minZ = Math.min(minZ, P[o + P_MINZ]!);
+      maxZ = Math.max(maxZ, P[o + P_MAXZ]!);
+    }
+    this.always = Int32Array.from(wide);
+    if (local.length === 0) return;
+    this.cx0 = Math.floor(minX / CELL);
+    this.cz0 = Math.floor(minZ / CELL);
+    this.cnx = Math.floor(maxX / CELL) - this.cx0 + 1;
+    this.cnz = Math.floor(maxZ / CELL) - this.cz0 + 1;
+    const cells = this.cnx * this.cnz;
+    // Count, then fill: cell c's patches are cellList[cellStart[c] .. cellStart[c + 1]).
+    const start = new Int32Array(cells + 1);
+    for (const i of local) this.eachCell(i, (c) => start[c + 1]!++);
+    for (let c = 0; c < cells; c++) start[c + 1]! += start[c]!;
+    const fill = start.slice(0, cells);
+    const list = new Int32Array(start[cells]!);
+    for (const i of local) this.eachCell(i, (c) => (list[fill[c]!++] = i));
+    this.cellStart = start;
+    this.cellList = list;
+  }
+
+  private eachCell(i: number, fn: (c: number) => void): void {
+    const o = i * P_STRIDE;
+    const P = this.p;
+    const i0 = Math.floor(P[o + P_MINX]! / CELL) - this.cx0;
+    const i1 = Math.floor(P[o + P_MAXX]! / CELL) - this.cx0;
+    const j0 = Math.floor(P[o + P_MINZ]! / CELL) - this.cz0;
+    const j1 = Math.floor(P[o + P_MAXZ]! / CELL) - this.cz0;
+    for (let j = j0; j <= j1; j++) for (let k = i0; k <= i1; k++) fn(j * this.cnx + k);
+  }
+}
+
+const YAW0 = [1, 0, 0, 0, 1, 0, 0, 0, 1] as const;
+
+/** The static surface in force (a scene's ground) and the cars' tops while a step runs. */
+let statics: Surface | null = null;
+let tops: Surface | null = null;
+
+/** Make `s` the scene's static surface (`null`: none). Sealed on first use. */
+export function activate(s: Surface | null): void {
+  if (s !== null && !s.sealed) s.seal();
+  statics = s;
+}
+
+/** Arm (or, with `null`, disarm) the dynamic tops: the other cars' roofs a body steps on while a world step runs. */
+export function armTops(t: Surface | null): void {
+  tops = t;
+}
+
+/** Whether the scene's static surface has walls its own contact parts a body from. */
+export function groundWalls(): boolean {
+  return statics !== null && statics.walls;
+}
+
+// The best candidate so far (scratch of `offer`).
+let _best = NONE;
+let _surf: Surface | null = null;
+let _patch = -1;
+let _g0 = 0;
+let _g1 = 0;
+let _node = -1;
+let _owner = -1;
+// The candidate being evaluated.
+let _cg0 = 0;
+let _cg1 = 0;
+let _cn = -1;
+// One cell's bilinear partials (per cell unit), set by `bil`.
+let _pu = 0;
+let _pv = 0;
+
+function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): number {
+  const h00 = f[c]!;
+  const h10 = f[c + 1]!;
+  const h01 = f[c + nu]!;
+  const h11 = f[c + nu + 1]!;
+  const a = h00 + (h10 - h00) * fu;
+  const b = h01 + (h11 - h01) * fu;
+  _pu = (1 - fv) * (h10 - h00) + fv * (h11 - h01);
+  _pv = b - a;
+  return a + (b - a) * fv;
+}
+
+/** The base terrain past a grid: its gaussian hills' height at (x, z), the gradient into `_cg0`/`_cg1` (world plan). */
+function hillsAt(h: Float64Array, x: number, z: number): number {
+  let sum = 0;
+  let gx = 0;
+  let gz = 0;
+  for (let k = 0; k < h.length; k += 4) {
+    const dx = x - h[k]!;
+    const dz = z - h[k + 1]!;
+    const r2 = h[k + 3]! * h[k + 3]!;
+    const e = h[k + 2]! * Math.exp(-(dx * dx + dz * dz) / r2);
+    sum += e;
+    gx += (-2 * dx * e) / r2;
+    gz += (-2 * dz * e) / r2;
+  }
+  _cg0 = gx;
+  _cg1 = gz;
+  return sum;
+}
+
+/**
+ * Grid patch `i` at (x, z), asked from height `y`: the surface's world height, NaN where it has none. Sets `_cg0`/`_cg1` (the
+ * surface's partials along the frame's x and z; in world plan past the grid) and `_cn` (the nearest node, −1 past the grid).
+ */
+function gridAt(s: Surface, i: number, x: number, z: number, y: number): number {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  const dx = x - P[o + P_OX]!;
+  const dz = z - P[o + P_OZ]!;
+  const rad2 = P[o + P_RAD2]!;
+  if (rad2 > 0 && dx * dx + dz * dz > rad2) return NaN;
+  // The frame's coordinates of the point: its height counts only to a tilted frame (a roof); a plan-aligned one ignores it.
+  const dy = y > -1e9 && y < 1e9 ? y - P[o + P_OY]! : 0;
+  const lu = P[o + P_AX]! * dx + P[o + P_AX + 1]! * dy + P[o + P_AX + 2]! * dz;
+  const lv = P[o + P_CX]! * dx + P[o + P_CX + 1]! * dy + P[o + P_CX + 2]! * dz;
+  const step = P[o + P_STEP]!;
+  const stepV = P[o + P_STEPV]!;
+  const fu = (lu - P[o + P_U0]!) / step;
+  const fv = (lv - P[o + P_V0]!) / stepV;
+  const qo = i * Q_STRIDE;
+  const nu = s.q[qo + Q_NU]!;
+  const nv = s.q[qo + Q_NV]!;
+  if (fu < 0 || fv < 0 || fu >= nu - 1 || fv >= nv - 1) {
+    if (s.q[qo + Q_SURF2]! < 0) return NaN;
+    _cn = -1;
+    return P[o + P_OY]! + hillsAt(s.hills[i]!, x, z);
+  }
+  const ci = Math.floor(fu);
+  const cj = Math.floor(fv);
+  const c = cj * nu + ci;
+  const tu = fu - ci;
+  const tv = fv - cj;
+  let h: number;
+  const lat = s.lat[i]!;
+  if (lat.length > 0 && lat[c]! === lat[c]! && lat[c + 1]! === lat[c + 1]! && lat[c + nu]! === lat[c + nu]! && lat[c + nu + 1]! === lat[c + nu + 1]!) {
+    // The road's crease: centre height less the (clamped) lateral share of the drop, so the bank's edge stays sharp.
+    const l = bil(lat, c, nu, tu, tv);
+    const lu1 = _pu;
+    const lv1 = _pv;
+    const centre = bil(s.centre[i]!, c, nu, tu, tv);
+    const cu = _pu;
+    const cv = _pv;
+    const drop = bil(s.drop[i]!, c, nu, tu, tv);
+    const du = _pu;
+    const dv = _pv;
+    const k = Math.max(-1, Math.min(1, l));
+    const inside = l > -1 && l < 1;
+    h = centre - k * drop;
+    _cg0 = (cu - k * du - (inside ? lu1 * drop : 0)) / step;
+    _cg1 = (cv - k * dv - (inside ? lv1 * drop : 0)) / stepV;
+  } else {
+    h = bil(s.nodes[i]!, c, nu, tu, tv);
+    _cg0 = _pu / step;
+    _cg1 = _pv / stepV;
+  }
+  _cn = Math.round(fv) * nu + Math.round(fu);
+  h -= P[o + P_DROP]!;
+  // The surface point's world height: the frame's origin plus its local x, y and z along the axes' y components.
+  return P[o + P_OY]! + P[o + P_AX + 1]! * lu + P[o + P_BX + 1]! * h + P[o + P_CX + 1]! * lv;
+}
+
+/** A bridge deck segment at (x, z): its height, NaN off it. Sets `_cg0`/`_cg1` (the height's world-plan partials) and `_cn` (0 the road, 1 its run). */
+function deckAt(s: Surface, i: number, x: number, z: number): number {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  const ex = P[o + D_EX]!;
+  const ez = P[o + D_EZ]!;
+  const len2 = P[o + D_LEN2]!;
+  const len = P[o + D_LEN]!;
+  const x0 = P[o + P_OX]!;
+  const z0 = P[o + P_OZ]!;
+  const f = ((x - x0) * ex + (z - z0) * ez) / len2;
+  if (f < -0.02 || f > 1.02) return NaN;
+  const lat = ((x - x0) * ez - (z - z0) * ex) / len;
+  const half = P[o + D_HALF]!;
+  const run = lat > 0 ? P[o + D_RUNR]! : P[o + D_RUNL]!;
+  if (Math.abs(lat) > half + run) return NaN;
+  const tan = P[o + D_TAN]!;
+  const inside = Math.abs(lat) < half;
+  _cg0 = (P[o + D_DY]! * ex) / len2 - (inside ? (tan * ez) / len : 0);
+  _cg1 = (P[o + D_DY]! * ez) / len2 + (inside ? (tan * ex) / len : 0);
+  _cn = Math.abs(lat) <= half ? 0 : 1;
+  return P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
+}
+
+/** Test patch `i` of `s` for the point; a candidate that reaches and is the highest so far becomes the best. */
+function offer(s: Surface, i: number, x: number, z: number, y: number, skip: number): void {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  if (x < P[o + P_MINX]! || x > P[o + P_MAXX]! || z < P[o + P_MINZ]! || z > P[o + P_MAXZ]!) return;
+  const qo = i * Q_STRIDE;
+  const owner = s.q[qo + Q_OWNER]!;
+  // A car's own roof is not under it, nor is the roof of a car whose origin is higher (two cars standing on each other lifted one another 1.5 m a frame).
+  if (owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && P[o + P_OY]! > P[skip * P_STRIDE + P_OY]!))) return;
+  const h = s.q[qo + Q_KIND] === DECK ? deckAt(s, i, x, z) : gridAt(s, i, x, z, y);
+  // NaN (no surface) fails the first test; an unlimited reach under an asker at -Infinity is NaN and passes the second.
+  if (h !== h || h > y + P[o + P_REACH]! || h < _best) return;
+  _best = h;
+  _surf = s;
+  _patch = i;
+  _g0 = _cg0;
+  _g1 = _cg1;
+  _node = _cn;
+  _owner = owner;
+}
+
+/** The highest surface at the point over `s`'s patches, into the best-candidate scratch. */
+function find(s: Surface, x: number, z: number, y: number, skip: number): void {
+  const always = s.always;
+  for (let k = 0; k < always.length; k++) offer(s, always[k]!, x, z, y, skip);
+  if (s.cellList.length === 0) return;
+  const ci = Math.floor(x / CELL) - s.cx0;
+  const cj = Math.floor(z / CELL) - s.cz0;
+  if (ci < 0 || cj < 0 || ci >= s.cnx || cj >= s.cnz) return;
+  const c = cj * s.cnx + ci;
+  for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, x, z, y, skip);
+}
+
+/**
+ * `out` = [height, nx, ny, nz, grip, surface index, owner (−1 the world's, else a car's slot), patch] of the best candidate;
+ * height `-Infinity` and grip 0 where there is none.
+ */
+function report(out: Float64Array): void {
+  const w = _surf as Surface | null;
+  if (w === null) {
+    out[C_H] = NONE;
+    out[C_NX] = 0;
+    out[C_NY] = 1;
+    out[C_NZ] = 0;
+    out[C_GRIP] = 0;
+    out[C_SURF] = ASPHALT;
+    out[C_OWNER] = -1;
+    out[C_ARG] = -1;
+    return;
+  }
+  const P = w.p;
+  const o = _patch * P_STRIDE;
+  const qo = _patch * Q_STRIDE;
+  const deck = w.q[qo + Q_KIND] === DECK;
+  out[C_H] = _best;
+  if (deck || _node < 0) {
+    // Partials in world plan.
+    const len = Math.hypot(_g0, 1, _g1);
+    out[C_NX] = -_g0 / len;
+    out[C_NY] = 1 / len;
+    out[C_NZ] = -_g1 / len;
+  } else {
+    // Partials along the frame's x and z: the normal is (−gx, 1, −gz) in the frame, turned into world.
+    const nx = -_g0 * P[o + P_AX]! + P[o + P_BX]! - _g1 * P[o + P_CX]!;
+    const ny = -_g0 * P[o + P_AX + 1]! + P[o + P_BX + 1]! - _g1 * P[o + P_CX + 1]!;
+    const nz = -_g0 * P[o + P_AX + 2]! + P[o + P_BX + 2]! - _g1 * P[o + P_CX + 2]!;
+    const len = Math.hypot(nx, ny, nz);
+    out[C_NX] = nx / len;
+    out[C_NY] = ny / len;
+    out[C_NZ] = nz / len;
+  }
+  let surf = w.q[qo + Q_SURF]!;
+  if (deck) {
+    if (_node !== 0) surf = w.q[qo + Q_SURF2]!;
+  } else if (surf < 0) surf = _node >= 0 ? w.surfs[_patch]![_node]! : w.q[qo + Q_SURF2]!;
+  else if (_node < 0) surf = w.q[qo + Q_SURF2]!;
+  out[C_SURF] = surf;
+  out[C_GRIP] = P[o + P_GRIP]! * GRIPS[surf]!;
+  out[C_OWNER] = _owner;
+  out[C_ARG] = _patch;
+}
+
+/**
+ * The surface at plan (x, z) under a body asking from height `y` (`Infinity`: the top surface): the highest one of the scene's
+ * static surface and the armed car tops that is at most its patch's reach above `y`, into `out` (see `report`). `skip` is the
+ * slot the body is itself (its own roof is not under it, nor is a roof of a car higher than it), −1 none.
+ */
+export function pointContact(x: number, z: number, y: number, skip: number, out: Float64Array): void {
+  _best = NONE;
+  _surf = null;
+  if (statics !== null) find(statics, x, z, y, skip);
+  const t = tops;
+  if (t !== null) for (let i = 0; i < t.count; i++) offer(t, i, x, z, y, skip);
+  report(out);
+}
+
+/** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
+export function contactIn(s: Surface, x: number, z: number, y: number, out: Float64Array): void {
+  _best = NONE;
+  _surf = null;
+  if (!s.sealed) s.seal();
+  find(s, x, z, y, -1);
+  report(out);
+}
+
+// The tyre's footprint (wheel frame: axle x, then the rolling plane's y and z; at wheel scale 1): the crown's arc ±0.5 rad, both
+// shoulders, and the tyre's arc at ±45° (a round tyre meets a lip with its arc, not only its lowest point).
+const FOOT = 9;
+const FX = new Float64Array(FOOT);
+const FY = new Float64Array(FOOT);
+const FZ = new Float64Array(FOOT);
+const TYRE = 0.32;
+for (let k = 0; k < 5; k++) {
+  const a = (k - 2) * 0.25;
+  FY[k] = -TYRE * Math.cos(a);
+  FZ[k] = TYRE * Math.sin(a);
+}
+FX[5] = 0.104;
+FY[5] = -0.298;
+FX[6] = -0.104;
+FY[6] = -0.298;
+FY[7] = -TYRE * Math.SQRT1_2;
+FZ[7] = -TYRE * Math.SQRT1_2;
+FY[8] = -TYRE * Math.SQRT1_2;
+FZ[8] = TYRE * Math.SQRT1_2;
+
+const _w = new Float64Array(HIT_SIZE);
+
+/**
+ * A wheel's contact with the surfaces: its tread's footprint swept over the store, each point asked at its own height. `hub` is
+ * the hub's world position (x, y, z), `axes` the body's rotation (world x, y, z axes, 9 numbers), `scale` the wheel's size.
+ * `out` = [rise, nx, ny, nz, grip, surface, owner, footprint point]: `rise` the greatest height any footprint point must lift to
+ * clear the surface under it (the tread gap is `-rise`; `-Infinity` with nothing under the wheel), the rest as `pointContact`'s
+ * at the point that sets it, so a wheel riding up a lip rises continuously as its arc meets the edge.
+ */
+export function wheelContact(hub: Float64Array, axes: Float64Array, scale: number, skip: number, out: Float64Array): void {
+  let rise = NONE;
+  out[C_NX] = 0;
+  out[C_NY] = 1;
+  out[C_NZ] = 0;
+  out[C_GRIP] = 0;
+  out[C_SURF] = ASPHALT;
+  out[C_OWNER] = -1;
+  out[C_ARG] = -1;
+  for (let k = 0; k < FOOT; k++) {
+    const lx = FX[k]! * scale;
+    const ly = FY[k]! * scale;
+    const lz = FZ[k]! * scale;
+    const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
+    const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
+    const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
+    pointContact(px, pz, py, skip, _w);
+    const r = _w[C_H]! - py;
+    if (!(r > rise)) continue;
+    rise = r;
+    out[C_NX] = _w[C_NX]!;
+    out[C_NY] = _w[C_NY]!;
+    out[C_NZ] = _w[C_NZ]!;
+    out[C_GRIP] = _w[C_GRIP]!;
+    out[C_SURF] = _w[C_SURF]!;
+    out[C_OWNER] = _w[C_OWNER]!;
+    out[C_ARG] = k;
+  }
+  out[C_H] = rise;
+}
