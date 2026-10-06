@@ -9,6 +9,8 @@ import {
   makeSnapshot,
   MSG,
   NET_VERSION,
+  INPUT_HOLD,
+  INPUT_RESPAWN,
   readInput,
   Reader,
   readRace,
@@ -140,8 +142,8 @@ export class NetPlay {
   private lobbyLeft: number | null = null;
   /** Host: seconds the finished public race has been showing its results. */
   private finishedFor = 0;
-  /** Client: R was pressed; rides on the next input packet. */
-  private respawnWanted = false;
+  /** Client: R was tapped or held (`INPUT_RESPAWN`, `INPUT_HOLD`); rides on the next input packet. */
+  private resetWanted = 0;
   /** Client: `performance.now()` of the host's last race message (race mode follows the host's). */
   private raceAt = 0;
   /** Client: `performance.now()` of the host's last derby message (0: not in derby mode). */
@@ -251,7 +253,12 @@ export class NetPlay {
 
   /** Client: ask the host to put this peer's car back on the track (race R / D-pad down). */
   requestRespawn(): void {
-    this.respawnWanted = true;
+    this.resetWanted |= INPUT_RESPAWN;
+  }
+
+  /** Client: ask the host to put this peer's car back on the track now with its damage kept (race R held). */
+  requestHoldReset(): void {
+    this.resetWanted |= INPUT_HOLD;
   }
 
   /** The player leaves, or the page closes: the session is over, so its dead rooms are forgotten. */
@@ -433,13 +440,14 @@ export class NetPlay {
       const now = this.now();
       this.heardAt.set(from, now);
       const input = (this.inputs[car] ??= idleDrive());
-      const respawn = readInput(this.r, input);
+      const ask = readInput(this.r, input);
       this.hasInput[car] = true;
       this.inputAt[car] = now;
       const race = this.game.race();
       if (race) {
         race.setRemoteInput(car, input);
-        if (respawn) race.requestRespawn(car);
+        if ((ask & INPUT_RESPAWN) !== 0) race.requestRespawn(car);
+        if ((ask & INPUT_HOLD) !== 0) race.holdReset(car);
       }
     }
   }
@@ -781,8 +789,8 @@ export class NetPlay {
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = 0;
     this.w.off = 0;
-    writeInput(this.w, input, this.respawnWanted);
-    this.respawnWanted = false;
+    writeInput(this.w, input, this.resetWanted);
+    this.resetWanted = 0;
     t.send(this.w.done(), this.hostId);
   }
 }

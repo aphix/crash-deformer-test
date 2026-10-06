@@ -131,6 +131,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
         },
         setRemoteInput(_car: number, _input: DriveInput): void {},
         requestRespawn(_id?: number): void {},
+        holdReset(_id?: number): void {},
         snapshot: (): RaceSnapshot | null => null,
         applySnapshot(snap: RaceSnapshot, _self: number): void {
           raceApplied.push(snap.laps);

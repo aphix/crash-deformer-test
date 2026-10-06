@@ -419,9 +419,23 @@ export class RaceDirector extends RaceField {
 
   /** R / D-pad down (this browser), or a netplay peer's request for its car `id` (host). */
   requestRespawn(id = this.self): void {
-    if (!this.session) return;
-    if (id === this.self && (this.menu != null || this.spectating)) return;
-    this.session.requestRespawn(id);
+    if (this.mayAsk(id)) this.session!.requestRespawn(id);
+  }
+
+  /** There is a race, and this browser's own ask meets no menu and no spectating seat (a netplay peer's is the rules' to refuse). */
+  private mayAsk(id: number): boolean {
+    return this.session !== null && !(id === this.self && (this.menu != null || this.spectating));
+  }
+
+  /** How far the hold of this browser's reset control is, 0–1 (`ResetHold.fill`): the input layer writes it each frame, the HUD's fill reads it. */
+  holdFill = 0;
+
+  /**
+   * The reset control held (this browser), or a netplay peer's hold for its car `id` (host): back on the road at once, damage kept (`RaceSession.holdReset`).
+   * It works in a no-reset race and refuses where a tap does (a menu is up, spectating) and in Survival.
+   */
+  holdReset(id = this.self): void {
+    if (this.mayAsk(id)) this.session!.holdReset(id);
   }
 
   /** Start of a physics slice: every car's input from its controller slot. */
@@ -637,6 +651,7 @@ export class RaceDirector extends RaceField {
       const total = s.laps * s.track.length;
       const done = c === undefined ? 0 : c.status === "finished" ? 1 : clamp(c.progress / total, 0, 1);
       const cops = c !== undefined ? (this.police?.copsOn(id) ?? 0) : 0;
+      const asking = c !== undefined && this.mine(id) && !this.spectating && this.menu === null && s.phase === "racing" && c.status === "racing";
       view = {
         id,
         racer: c
@@ -656,8 +671,10 @@ export class RaceDirector extends RaceField {
         // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
         boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
         chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
-        // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing).
-        canReset: c !== undefined && this.mine(id) && !this.spectating && this.menu === null && s.phase === "racing" && !s.noReset && c.status === "racing",
+        // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing); holding it acts wherever `holdReset` does: a no-reset race too, not Survival.
+        canReset: asking && !s.noReset,
+        canHold: asking && !s.endless,
+        resetHold: this.holdFill,
       };
     }
     const winner = s && s.winnerId != null ? s.cars[this.rowOf[s.winnerId]!]!.name : null;

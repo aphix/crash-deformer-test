@@ -26,6 +26,8 @@ import { HAVANA } from "../world/tracks/havana.ts";
 import { carClass, classStats, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { DEFAULT_RACE_OPTIONS, type CarPose, type Entrant, type RaceMenu, type RaceOptions, type SurvivalHud } from "../match/types.ts";
 import { CrashRecorder } from "./engine-record.ts";
+import { makeCarFrame, type CarFrame } from "../net/codec.ts";
+import { carLayout } from "../net/car-pose.ts";
 import type { HighlightClip } from "../match/highlights.ts";
 
 /** What the director needs from `CrashEngine`. */
@@ -474,7 +476,8 @@ export abstract class RaceField {
         if (!car) continue;
         // Back on the layer it was racing on (decks): the path height where it went down.
         const k = this.track!.project(e.x, e.z, this.seg[e.id]!, this.proj).k;
-        this.place(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
+        if (e.keep) this.placeKeeping(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
+        else this.place(car, e.x, e.z, e.yaw, this.track!.path.y[k]!);
         this.brain?.respawned(e.id);
         this.police?.respawned?.(e.id, s.time);
         this.seg[e.id] = -1;
@@ -605,6 +608,29 @@ export abstract class RaceField {
     car.spawnFacing(x, z, yaw, 0);
     car.group.position.y = this.track ? this.track.ground().heightAt(x, z, y + 0.5) : 0;
     this.host.dress(car);
+  }
+
+  /** The scratch a held reset captures a car's damage into (`placeKeeping`): one layout for every car. */
+  private keepFrame: CarFrame | null = null;
+
+  /**
+   * Put a car at (x, z) facing `yaw` at rest with its damage as it is: the dents and the packed engine block, the parts torn off, the
+   * lost wheels, the broken lamps and glass, the engine's travel (`DeformableCar.writeNetState` takes them as a netplay client takes
+   * the host's, over a fresh car). The wreck state that is not damage (velocity, the solver's contacts) starts again.
+   */
+  private placeKeeping(car: DeformableCar, x: number, z: number, yaw: number, y: number): void {
+    const f = (this.keepFrame ??= makeCarFrame(carLayout(car)));
+    car.deform.readNetState(f.deform);
+    car.readPartNetState(f.parts);
+    const { crashed } = car;
+    const { squash, buckle, mode } = car.deform;
+    this.place(car, x, z, yaw, y);
+    car.crashed = crashed;
+    car.writeNetState(f.deform, f.parts);
+    // The net state carries no crumple settings: the car's own again.
+    car.deform.squash = squash;
+    car.deform.buckle = buckle;
+    car.deform.setMode(mode);
   }
 
   /** This browser's driver has car `i` (its own car, in drive mode, not spectating); otherwise the race AI or a peer does. */

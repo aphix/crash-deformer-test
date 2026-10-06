@@ -35,8 +35,9 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  12: a reel clip carries per-key car masks and a knocks list (no fine block), and a keyframe's car section carries its
  parts state, cage corners and sensor positions.
  13: a reel clip carries the count of cars its cluster hit (`hit`, a byte after `ejects`).
+ 14: `MSG.input` flags gain bit 8 (hold reset) and a race snapshot's car record carries its safe reset spot (`safe`).
  */
-export const NET_VERSION = 13;
+export const NET_VERSION = 14;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -465,13 +466,17 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
   }
 }
 
-/** Client → host: this peer's shaped drive input, and whether it asks for a race respawn (5 bytes). */
-export function writeInput(w: Writer, input: DriveInput, respawn = false): void {
+/** What a client's input packet asks of the host's race rules besides driving: a tap's respawn, a hold's reset with the damage kept. */
+export const INPUT_RESPAWN = 1;
+export const INPUT_HOLD = 2;
+
+/** Client → host: this peer's shaped drive input, and what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`) (5 bytes). */
+export function writeInput(w: Writer, input: DriveInput, ask = 0): void {
   w.u8(MSG.input);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.throttle)) * 127) & 0xff);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.steer)) * 127) & 0xff);
   w.u8(Math.round(Math.max(0, Math.min(1, input.brake)) * 255));
-  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | (respawn ? 4 : 0));
+  w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | ((ask & INPUT_RESPAWN) !== 0 ? 4 : 0) | ((ask & INPUT_HOLD) !== 0 ? 8 : 0));
 }
 
 /** A thrown driver as `launch` made him: car, pane and driver, then 22 f32 (position, car-local position, direction, orientation, relative and car velocity, spin). */
@@ -523,8 +528,8 @@ export function readEject(r: Reader, e: Ejection): number {
   return time;
 }
 
-/** Reads a client's input into `out`; returns its respawn request. */
-export function readInput(r: Reader, out: DriveInput): boolean {
+/** Reads a client's input into `out`; returns what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`). */
+export function readInput(r: Reader, out: DriveInput): number {
   r.u8();
   out.throttle = ((r.u8() << 24) >> 24) / 127;
   out.steer = ((r.u8() << 24) >> 24) / 127;
@@ -532,7 +537,7 @@ export function readInput(r: Reader, out: DriveInput): boolean {
   const bits = r.u8();
   out.ebrake = (bits & 1) !== 0;
   out.boost = (bits & 2) !== 0;
-  return (bits & 4) !== 0;
+  return ((bits & 4) !== 0 ? INPUT_RESPAWN : 0) | ((bits & 8) !== 0 ? INPUT_HOLD : 0);
 }
 
 /**

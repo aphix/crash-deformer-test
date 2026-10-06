@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import { Track, blankPoint, blankProjection, pointOn } from "../world/track.ts";
 import { BUST, CLEARANCE, COUNTDOWN, DRAFT, FINISH_GRACE, GRID_TIME, RESPAWN_DELAY, RaceSession, WRONG_WAY_ON, startLights } from "./session.ts";
 import { Campaign, CAMPAIGN_POINTS } from "./campaign.ts";
-import type { CarPose, Entrant, RaceEvent, RaceResultRow } from "./types.ts";
+import type { CarPose, RaceEvent, RaceResultRow } from "./types.ts";
+import { DT, along, centreline, field, fromGrid, polyline, runTo, samples, shortcutLine, type Driver, type Pt } from "./session-drive.test-util.ts";
 import { square as squareFile } from "../world/track.test-util.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 import oval from "../world/tracks/oval.json" with { type: "json" };
@@ -11,86 +12,7 @@ import { PoliceBrain, type PoliceWorld } from "../ai/police.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 
-const DT = 1 / 60;
-
-function field(n: number): Entrant[] {
-  return Array.from({ length: n }, (_, i) => ({ id: i, name: `Car ${i}`, kind: i === 0 ? "player" : "ai", aggression: 0 }));
-}
-
-type Pose = { x: number; z: number; vx: number; vz: number; alive?: boolean };
-/** Where a car is at race time `t` (end of the step). */
-type Driver = (t: number) => Pose;
-type Pt = { x: number; z: number };
-
 const _pt = blankPoint();
-
-/** Along the centreline (offset `lat`, + = left) from arc length `s0` at `v` m/s once the lights are green. */
-function along(track: Track, s0: number, v: number, lat = 0): Driver {
-  return (t) => {
-    const p = track.pointAt(s0 + v * Math.max(0, t), _pt);
-    return { x: p.x + p.tz * lat, z: p.z - p.tx * lat, vx: p.tx * v, vz: p.tz * v };
-  };
-}
-
-/** Start from grid slot `i` (behind the line). */
-function fromGrid(track: Track, i: number, v: number): Driver {
-  const slot = track.gridSlot(i);
-  const p = blankProjection();
-  track.project(slot.x, slot.z, -1, p);
-  return along(track, p.s, v, p.lateral);
-}
-
-/** Constant speed along a polyline from green; parked at its end. */
-function polyline(pts: Pt[], v: number): Driver {
-  const cum = [0];
-  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1]! + Math.hypot(pts[i]!.x - pts[i - 1]!.x, pts[i]!.z - pts[i - 1]!.z));
-  return (t) => {
-    const d = Math.min(cum[cum.length - 1]!, v * Math.max(0, t));
-    let k = 1;
-    while (k < cum.length - 1 && cum[k]! < d) k++;
-    const a = pts[k - 1]!;
-    const b = pts[k]!;
-    const seg = cum[k]! - cum[k - 1]! || 1;
-    const f = (d - cum[k - 1]!) / seg;
-    return { x: a.x + (b.x - a.x) * f, z: a.z + (b.z - a.z) * f, vx: ((b.x - a.x) / seg) * v, vz: ((b.z - a.z) / seg) * v };
-  };
-}
-
-function samples(at: (s: number) => Pt, from: number, to: number, step = 2): Pt[] {
-  const out: Pt[] = [];
-  for (let s = from; s <= to; s += step) out.push(at(s));
-  return out;
-}
-
-function centreline(track: Track, from: number, to: number, step = 2): Pt[] {
-  return samples((s) => {
-    const p = track.pointAt(s, _pt);
-    return { x: p.x, z: p.z };
-  }, from, to, step);
-}
-
-/** Step until race time `to` (or the race ends / `until` holds); returns every event. */
-function runTo(s: RaceSession, drivers: Driver[], to: number, until?: (s: RaceSession) => boolean): RaceEvent[] {
-  const poses: CarPose[] = drivers.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
-  const events: RaceEvent[] = [];
-  while (s.time < to - 1e-9 && s.phase !== "finished") {
-    const t = s.time + DT;
-    drivers.forEach((d, i) => {
-      const p = d(t);
-      const pose = poses[i]!;
-      pose.x = p.x;
-      pose.z = p.z;
-      pose.vx = p.vx;
-      pose.vz = p.vz;
-      pose.yaw = Math.atan2(p.vx, p.vz);
-      pose.alive = p.alive ?? true;
-    });
-    s.step(DT, poses);
-    events.push(...s.events());
-    if (until?.(s)) break;
-  }
-  return events;
-}
 
 const count = (ev: RaceEvent[], type: RaceEvent["type"]) => ev.filter((e) => e.type === type).length;
 
@@ -163,10 +85,7 @@ describe("given a one-lap race with one car on the oval track, whose service roa
     const sc = ovalTrack.shortcuts[0]!;
     assert.deepEqual([sc.from, sc.to], [4, 0]);
     const L = ovalTrack.length;
-    const road = samples((s) => {
-      const p = pointOn(sc.path, s, _pt);
-      return { x: p.x, z: p.z };
-    }, 0, sc.path.length, 1);
+    const road = shortcutLine(sc.path, 0, sc.path.length, 1);
     const g = sc.gates[0]!;
     const mouth = { x: (g.ax + g.bx) / 2 - g.nx * 6, z: (g.az + g.bz) / 2 - g.nz * 6 };
     const exit = blankProjection();
@@ -189,21 +108,16 @@ describe("given a one-lap race with one car on the oval track, whose service roa
   it("when the car cuts in past the shortcut's mouth gate, or leaves it before its exit gate, then the shortcut lap still counts", () => {
     const sc = ovalTrack.shortcuts[0]!;
     const L = ovalTrack.length;
-    const along = (from: number, to: number) =>
-      samples((s) => {
-        const p = pointOn(sc.path, s, _pt);
-        return { x: p.x, z: p.z };
-      }, from, to, 1);
     const exit = blankProjection();
     ovalTrack.project(sc.path.x[sc.path.count - 1]!, sc.path.z[sc.path.count - 1]!, -1, exit);
     const approach = centreline(ovalTrack, L - 6, L + ovalTrack.gateS(4) + 10);
     const home = centreline(ovalTrack, L + exit.s + 6, 2 * L + 10);
     // Straight onto the service road between its first two gates.
-    const cutIn = [...approach, ...along((sc.gates[0]!.s + sc.gates[1]!.s) / 2, sc.path.length), ...home];
+    const cutIn = [...approach, ...shortcutLine(sc.path, (sc.gates[0]!.s + sc.gates[1]!.s) / 2, sc.path.length, 1), ...home];
     const a = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
     assert.equal(count(runTo(a, [polyline(cutIn, 25)], 60), "lap"), 1, "cut in past the mouth");
     // Off the service road before its last gate, straight back onto the main road.
-    const early = [...approach, ...along(0, sc.gates[sc.gates.length - 2]!.s + 3), ...home];
+    const early = [...approach, ...shortcutLine(sc.path, 0, sc.gates[sc.gates.length - 2]!.s + 3, 1), ...home];
     const b = new RaceSession(ovalTrack, field(1), { laps: 1, noReset: false });
     assert.equal(count(runTo(b, [polyline(early, 25)], 60), "lap"), 1, "left before the exit gate");
   });

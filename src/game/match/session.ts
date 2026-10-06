@@ -1,5 +1,5 @@
 import { clamp } from "../kernel/scalar.ts";
-import { blankPoint, blankProjection, crossGate, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
+import { OPEN_REACH, blankPoint, blankProjection, crossGate, inCorridor, pointOn, projectPath, type Projection, type Track, type TrackPath } from "../world/track.ts";
 import type {
   CarPose,
   CarRecord,
@@ -18,7 +18,7 @@ export const COUNTDOWN = 3;
 /** Pause before a dead car is dropped back on the track. */
 export const RESPAWN_DELAY = 3;
 /** Pause for a respawn the driver asked for (stuck, flipped). */
-const RESPAWN_REQUEST_DELAY = 1.5;
+export const RESPAWN_REQUEST_DELAY = 1.5;
 /** A respawn spot keeps this far (m) from every other car. */
 export const CLEARANCE = 6;
 /**
@@ -30,12 +30,13 @@ export const FINISH_GRACE = 30;
 const LAP_SLACK = 1.5;
 /** Seconds against the track before the wrong-way flag goes up. */
 export const WRONG_WAY_ON = 0.7;
-const WRONG_DOT = -0.3;
+/** Heading (cosine to the road's tangent) below which a car goes against the road: more against it than across it (135°), as a car crossing the road into a shortcut that leaves it at 90° or more, weaving, is not. */
+const WRONG_DOT = -Math.SQRT1_2;
 const WRONG_SPEED = 1.5;
 /** A move longer than this in one step is a teleport (respawn, host reset): no gate credit. */
 const TELEPORT = 25;
 /** A respawn lands at least this far short of the next gate. */
-const GATE_MARGIN = 3;
+export const GATE_MARGIN = 3;
 const RESPAWN_TRIES = 12;
 /**
  * Drafting: a racing car `near`–`far` m straight behind another racing car (along its travel), within `half` m of
@@ -90,6 +91,7 @@ function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
     z,
     wrongFor: 0,
     seg: -1,
+    safe: null,
     draft: 0,
     drafts: 0,
     stopped: 0,
@@ -123,7 +125,11 @@ export class RaceSession {
   private readonly queue: RaceEvent[] = [];
   private readonly finishers: number[] = [];
   private readonly proj = blankProjection();
+  /** Scratch projection for the gate rules (`onRoad`, `reroute`, the shortcut leave test); `proj` stays the measure's. */
+  private readonly back = blankProjection();
   private readonly pt = blankPoint();
+  /** `stretch`'s result (a field, not a returned object: it runs per car per step). */
+  private readonly span = { lo: 0, hi: 0, u: 0, at: NaN };
 
   /** `entrants` in grid order (index 0 on pole). */
   constructor(track: Track, entrants: readonly Entrant[], opts: { laps: number; noReset: boolean; survival?: { bustTime: number } }) {
@@ -351,7 +357,11 @@ export class RaceSession {
    * Gate credit for the move (x0, z0) → (c.x, c.z) over [t0, t0 + dt]. A designed shortcut counts
    * from any of its gates but the last, through any later one: a car that drives its own line
    * across the shortcut's ground (skipping a gate of it) still took the shortcut. Main checkpoints
-   * stay strict; crossing a later one with a checkpoint still owed sets `missed`.
+   * stay strict; crossing a later one with a checkpoint still owed sets `missed`. Which road the car is
+   * on follows where it crosses: a shortcut's gate counts as entering it only off the main road (the gates
+   * at a mouth lie across the road the shortcut leaves), a main gate counts as back on it only on the
+   * main road (a shortcut that runs beside the road lies within a gate's reach), and where several
+   * shortcuts leave one checkpoint the car is on the one whose road is nearest.
    */
   private gates(i: number, x0: number, z0: number, t0: number, dt: number): void {
     const c = this.cars[i]!;
@@ -359,12 +369,14 @@ export class RaceSession {
     const n = tr.gates.length;
     for (let guard = 0; guard < 4 && c.status === "racing"; guard++) {
       if (c.route >= 0) {
+        this.reroute(c, x0, z0);
         const sc = tr.shortcuts[c.route]!;
         const last = sc.gates.length - 1;
         let hit = -1;
         for (let g = last; g >= c.routeNext && hit < 0; g--) if (crossGate(sc.gates[g]!, x0, z0, c.x, c.z) >= 0) hit = g;
         if (hit >= 0) {
           c.routeNext = hit + 1;
+          c.safe = null;
           if (c.routeNext > last) this.leaveRoute(c, sc.to);
           continue;
         }
@@ -379,10 +391,15 @@ export class RaceSession {
         }
         // Back on the main road past `from`: the shortcut is abandoned.
         const g = crossGate(tr.gates[c.next]!, x0, z0, c.x, c.z);
-        if (g < 0) return;
+        if (g < 0 || !tr.onRoad(x0 + (c.x - x0) * g, z0 + (c.z - z0) * g, this.back)) return;
         this.leaveRoute(c, c.next);
         this.pass(i, c.next, t0 + g * dt);
         continue;
+      }
+      // A shortcut gate crossed off the main road comes first: a shortcut that runs through the reach of a main gate is not the main road.
+      if (c.armed) {
+        this.reroute(c, x0, z0);
+        if (c.route >= 0) continue;
       }
       const f = crossGate(tr.gates[c.next]!, x0, z0, c.x, c.z);
       if (f >= 0) {
@@ -390,21 +407,6 @@ export class RaceSession {
         continue;
       }
       if (!c.armed) return;
-      let entered = false;
-      for (let k = 0; k < tr.shortcuts.length && !entered; k++) {
-        const sc = tr.shortcuts[k]!;
-        if ((sc.from + 1) % n !== c.next) continue;
-        // Anywhere onto the shortcut short of its exit gate.
-        for (let g = 0; g < sc.gates.length - 1; g++) {
-          if (crossGate(sc.gates[g]!, x0, z0, c.x, c.z) < 0) continue;
-          c.route = k;
-          c.routeNext = g + 1;
-          c.seg = -1;
-          entered = true;
-          break;
-        }
-      }
-      if (entered) continue;
       // A gate ahead of the owed one (not the one just passed, crossed again after a spin).
       for (let g = 0; g < n && !c.missed; g++) {
         if (g !== c.next && g !== (c.next + n - 1) % n && crossGate(tr.gates[g]!, x0, z0, c.x, c.z) >= 0) c.missed = true;
@@ -418,11 +420,47 @@ export class RaceSession {
     c.routeNext = 0;
     c.next = next;
     c.seg = -1;
+    c.safe = null;
+  }
+
+  /**
+   * Onto a shortcut the car is not on yet, or onto a sibling one (another shortcut from the same checkpoint): of the shortcuts
+   * with a gate (but the exit) crossed this move off the main road, the car takes the one whose road is nearest, and a car
+   * already on one only moves to a nearer.
+   */
+  private reroute(c: CarRecord, x0: number, z0: number): void {
+    const tr = this.track;
+    const n = tr.gates.length;
+    let best = -1;
+    let bestGate = 0;
+    let bestD = Infinity;
+    for (let k = 0; k < tr.shortcuts.length; k++) {
+      const sc = tr.shortcuts[k]!;
+      if (k === c.route || (sc.from + 1) % n !== c.next) continue;
+      for (let g = 0; g < sc.gates.length - 1; g++) {
+        const t = crossGate(sc.gates[g]!, x0, z0, c.x, c.z);
+        if (t < 0 || tr.onRoad(x0 + (c.x - x0) * t, z0 + (c.z - z0) * t, this.back)) continue;
+        const d = projectPath(sc.path, c.x, c.z, -1, this.back).dist2;
+        if (d < bestD) {
+          best = k;
+          bestGate = g;
+          bestD = d;
+        }
+        break;
+      }
+    }
+    if (best < 0) return;
+    if (c.route >= 0 && projectPath(tr.shortcuts[c.route]!.path, c.x, c.z, c.seg, this.back).dist2 <= bestD) return;
+    c.route = best;
+    c.routeNext = bestGate + 1;
+    c.seg = -1;
+    c.safe = null;
   }
 
   private pass(i: number, gate: number, t: number): void {
     const c = this.cars[i]!;
     c.missed = false;
+    c.safe = null;
     const n = this.track.gates.length;
     if (gate !== 0) {
       c.next = (gate + 1) % n;
@@ -458,6 +496,31 @@ export class RaceSession {
     c.split = t - this.firstAt[key]!;
   }
 
+  /**
+   * Fills `span` for car `c` on the path it is on (`p` its projection onto it, `road` whether it is on that road): the stretch of the path
+   * that lies between the last checkpoint it hit (`lo`) and the first it owes (`hi`: the main loop's checkpoints, or the shortcut's gates),
+   * `u` its arc length on it (the main loop's wrapped to within half a lap of the stretch), and `at` that arc length when the car stands on
+   * the road inside the stretch, NaN when it does not. `measure` records `at` as the car's safe spot, `spot` puts a reset there.
+   */
+  private stretch(c: CarRecord, p: Projection, road: boolean): void {
+    const tr = this.track;
+    const sp = this.span;
+    sp.u = p.s;
+    if (c.route >= 0) {
+      const gates = tr.shortcuts[c.route]!.gates;
+      sp.lo = gates[c.routeNext - 1]!.s;
+      sp.hi = gates[c.routeNext]!.s;
+    } else {
+      const L = tr.length;
+      const n = tr.gates.length;
+      sp.lo = tr.gateS((c.next - 1 + n) % n);
+      sp.hi = c.next === 0 ? L : tr.gateS(c.next);
+      if (sp.u < sp.lo - L * 0.5) sp.u += L;
+      else if (sp.u > sp.hi + L * 0.5) sp.u -= L;
+    }
+    sp.at = road && sp.u >= sp.lo && sp.u <= sp.hi ? sp.u : NaN;
+  }
+
   /** Projection, ranking distance and the wrong-way timer (velocity, dt = 0 to skip the timer). */
   private measure(i: number, vx: number, vz: number, dt: number): void {
     const c = this.cars[i]!;
@@ -466,26 +529,34 @@ export class RaceSession {
     const p = this.proj;
     let path: TrackPath;
     let s: number;
+    let road: boolean;
     if (c.route >= 0) {
       const sc = tr.shortcuts[c.route]!;
       path = sc.path;
       projectPath(path, c.x, c.z, c.seg, p);
+      // A car that is beyond the shortcut's gates (so no longer on it) and on the main road is back on the main road: a car
+      // that crossed a gate at a mouth while driving past, and one that left the shortcut for the road, owes the main gate it owed.
+      if (p.dist2 > (path.half[p.k]! + OPEN_REACH) ** 2 && tr.onRoad(c.x, c.z, this.back)) {
+        this.leaveRoute(c, c.next);
+        this.measure(i, vx, vz, dt);
+        return;
+      }
       const a = tr.gateS(sc.from);
       const b = sc.to === 0 ? L : tr.gateS(sc.to);
       s = a + clamp(p.s / path.length, 0, 1) * (b - a);
+      road = inCorridor(path, p);
+      this.stretch(c, p, road);
+      if (!Number.isNaN(this.span.at)) c.safe = this.span.at;
     } else {
       path = tr.path;
       projectPath(path, c.x, c.z, c.seg, p);
+      road = inCorridor(path, p);
       if (!c.armed) {
         s = clamp(p.s < L * 0.5 ? p.s : p.s - L, -L * 0.5, 0);
       } else {
-        const n = tr.gates.length;
-        const lo = tr.gateS((c.next - 1 + n) % n);
-        const hi = c.next === 0 ? L : tr.gateS(c.next);
-        let u = p.s;
-        if (u < lo - L * 0.5) u += L;
-        else if (u > hi + L * 0.5) u -= L;
-        s = clamp(u, lo, hi);
+        this.stretch(c, p, road);
+        s = clamp(this.span.u, this.span.lo, this.span.hi);
+        if (!Number.isNaN(this.span.at)) c.safe = this.span.at;
       }
     }
     c.seg = p.k;
@@ -493,7 +564,8 @@ export class RaceSession {
     if (dt <= 0) return;
     const speed = Math.hypot(vx, vz);
     const k = p.k;
-    const along = speed > WRONG_SPEED ? (vx * path.tx[k]! + vz * path.tz[k]!) / speed : 0;
+    // Heading against the road means nothing off it (a car leaving through a mouth, a spin in the field): only on the road, its runoff and its wall.
+    const along = speed > WRONG_SPEED && road ? (vx * path.tx[k]! + vz * path.tz[k]!) / speed : 0;
     if (along < WRONG_DOT) c.wrongFor += dt;
     else c.wrongFor = Math.max(0, c.wrongFor - 2 * dt);
     if (c.wrongFor >= WRONG_WAY_ON) c.wrongWay = true;
@@ -516,34 +588,59 @@ export class RaceSession {
     this.queue.push({ type: "died", id: c.id, respawnAt: c.respawnAt });
   }
 
-  /** Drop the car back on the centreline at its progress, short of its next gate, clear of the others. */
+  /** Drop the car back on the road: where it was last on it between the last checkpoint it hit and the first it still owes (`spot`), clear of the others. */
   private respawn(i: number): void {
+    const c = this.cars[i]!;
+    const spot = this.spot(i);
+    c.status = "racing";
+    c.respawnAt = null;
+    c.x = spot.x;
+    c.z = spot.z;
+    c.wrongFor = 0;
+    c.wrongWay = false;
+    this.queue.push({ type: "respawn", id: c.id, x: spot.x, z: spot.z, yaw: spot.yaw, keep: false });
+  }
+
+  /**
+   * The driver holds reset: back on the road at once, the car as it is (the host keeps its damage). Allowed in a no-reset race,
+   * where the car is still racing (an engine that runs, a driver in the car; a dead one is out, and a thrown-out driver or a dead
+   * engine in a respawn race is put back, repaired, by the 3 s reset); refused in an endless run (there is no road to go back
+   * to), when the race is not on, and for a car that is respawning, out or finished.
+   */
+  holdReset(id: number): boolean {
+    const i = this.cars.findIndex((c) => c.id === id);
+    const c = this.cars[i];
+    if (!c || this.endless || this.phase !== "racing" || c.status !== "racing") return false;
+    const spot = this.spot(i);
+    c.x = spot.x;
+    c.z = spot.z;
+    c.seg = -1;
+    c.wrongFor = 0;
+    c.wrongWay = false;
+    this.queue.push({ type: "respawn", id: c.id, x: spot.x, z: spot.z, yaw: spot.yaw, keep: true });
+    return true;
+  }
+
+  /**
+   * Where car `i` goes back to, on the centreline of the path it is on, `GATE_MARGIN` short of the checkpoint it owes at most and never
+   * behind the last one it hit: the car's own spot if that is on the road between the two, else the last such spot it passed
+   * (`CarRecord.safe`), else the checkpoint it last hit. A car that drove round a checkpoint, or crashed in the field, goes back where
+   * it left the road before that checkpoint, not to the nearest road in the field and not past it. Clear of the other cars.
+   */
+  private spot(i: number): { x: number; z: number; yaw: number } {
     const c = this.cars[i]!;
     const tr = this.track;
     const L = tr.length;
     const p = this.proj;
-    let path: TrackPath;
+    const path = c.route >= 0 ? tr.shortcuts[c.route]!.path : tr.path;
+    projectPath(path, c.x, c.z, c.seg, p);
     let s: number;
-    if (c.route >= 0) {
-      const sc = tr.shortcuts[c.route]!;
-      path = sc.path;
-      projectPath(path, c.x, c.z, c.seg, p);
-      const lo = sc.gates[c.routeNext - 1]!.s;
-      s = clamp(p.s, lo, Math.max(lo, sc.gates[c.routeNext]!.s - GATE_MARGIN));
+    if (c.route < 0 && !c.armed) {
+      s = clamp(p.s < L * 0.5 ? p.s + L : p.s, L * 0.5, L - GATE_MARGIN);
     } else {
-      path = tr.path;
-      projectPath(path, c.x, c.z, c.seg, p);
-      if (!c.armed) {
-        s = clamp(p.s < L * 0.5 ? p.s + L : p.s, L * 0.5, L - GATE_MARGIN);
-      } else {
-        const n = tr.gates.length;
-        const lo = tr.gateS((c.next - 1 + n) % n);
-        const hi = c.next === 0 ? L : tr.gateS(c.next);
-        let u = p.s;
-        if (u < lo - L * 0.5) u += L;
-        else if (u > hi + L * 0.5) u -= L;
-        s = clamp(u, lo, Math.max(lo, hi - GATE_MARGIN));
-      }
+      this.stretch(c, p, inCorridor(path, p));
+      const sp = this.span;
+      s = clamp(Number.isNaN(sp.at) ? (c.safe ?? sp.lo) : sp.at, sp.lo, Math.max(sp.lo, sp.hi - GATE_MARGIN));
     }
     const pt = this.pt;
     let x = 0;
@@ -556,13 +653,7 @@ export class RaceSession {
       z = pt.z - pt.tx * lat;
       if (this.clear(i, x, z)) break;
     }
-    c.status = "racing";
-    c.respawnAt = null;
-    c.x = x;
-    c.z = z;
-    c.wrongFor = 0;
-    c.wrongWay = false;
-    this.queue.push({ type: "respawn", id: c.id, x, z, yaw: Math.atan2(pt.tx, pt.tz) });
+    return { x, z, yaw: Math.atan2(pt.tx, pt.tz) };
   }
 
   private clear(i: number, x: number, z: number): boolean {

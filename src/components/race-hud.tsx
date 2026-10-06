@@ -28,7 +28,7 @@ import { ReelList, SavedList } from "@/components/race-reel";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { SurvivalResults } from "@/components/survival-hud";
-import type { ResetInput } from "@/game/hud/reset-prompt";
+import { missedCheckpointText, type ResetInput } from "@/game/hud/reset-prompt";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { cn } from "@/lib/utils";
@@ -218,7 +218,22 @@ export function RaceOverlay({
           role="alert"
         >
           <TriangleAlert className="size-5" />
-          Missed checkpoint
+          {missedCheckpointText(race.view, reset)}
+        </div>
+      ) : null}
+      {race.view?.resetHold ? (
+        <div
+          className="flex w-72 flex-col gap-2 rounded-xl bg-surface px-4 py-2 shadow-lg ring-2 ring-signal-amber"
+          role="progressbar"
+          aria-label="Hold to reset"
+          aria-valuemin={0}
+          aria-valuemax={1}
+          aria-valuenow={race.view.resetHold}
+        >
+          <p className="font-display text-xl font-semibold uppercase leading-none tracking-widest text-fg sm:text-2xl">Hold to reset</p>
+          <div className="h-3 overflow-hidden rounded-full bg-fg/25">
+            <div className="h-full origin-left bg-signal-amber" style={{ transform: `scaleX(${race.view.resetHold})` }} />
+          </div>
         </div>
       ) : null}
       {you?.respawnIn != null ? (

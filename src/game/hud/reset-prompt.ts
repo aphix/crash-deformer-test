@@ -41,3 +41,24 @@ export function resetGlow(s: { race: Pick<RaceHud, "view"> | null; derbyView: Ra
   const view = s.race ? s.race.view : (s.derbyView ?? s.fleetView);
   return view !== null && needsReset(view);
 }
+
+/**
+ * What the player does to go back on the road keeping the damage, named for `input` ("hold R", "hold D-pad ↓", "hold Respawn": the thumb pad's
+ * button); null where no control is on screen. A hold works in a no-reset race too.
+ */
+export function holdResetLabel(input: ResetInput | null): string | null {
+  if (input === "keyboard") return "hold R";
+  if (input === "pad") return "hold D-pad ↓";
+  if (input === "touch") return "hold Respawn";
+  return null;
+}
+
+/**
+ * The missed-checkpoint banner's text: the checkpoints are invisible, so it says what to do, not just that one was missed: hold the reset
+ * control and the car goes back to where it last was on the road before the first checkpoint it owes. Without a hold (the view's
+ * `canHold` is off, or no control is on screen) it only says one was missed.
+ */
+export function missedCheckpointText(view: Pick<RaceView, "canHold"> | null, input: ResetInput | null): string {
+  const hold = view?.canHold ? holdResetLabel(input) : null;
+  return hold === null ? "Missed checkpoint" : `Missed checkpoint: ${hold} to go back`;
+}

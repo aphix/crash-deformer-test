@@ -32,10 +32,16 @@ const DECK_CELL = 8;
 /** A deck segment is listed in a cell this far (m) before its accepted region reaches it, so rounding never drops a hit. */
 const DECK_MARGIN = 0.001;
 /**
- * A shortcut's gates reach this far (m) beyond its road edge: a designed shortcut usually crosses
- * open ground (the oval's infield), and a car driving the grass beside the dirt is still taking it.
+ * A gate reaches this far (m) past its road and runoff: `WALL_REACH` where a wall stands, `OPEN_REACH` on a side with no wall
+ * (a shortcut's road, an opening in the main wall at a mouth). A car fishtailing or knocked 5-10 m off the road where there is no
+ * wall still crosses the gate, and a designed shortcut usually crosses open ground (the oval's infield) where a car on the grass
+ * beside the dirt is still taking it. The checkpoints are invisible: a car that wandered round the end of one would never know
+ * how far back to go.
  */
-const SHORTCUT_REACH = 8;
+const WALL_REACH = 1.5;
+export const OPEN_REACH = 12;
+/** A gate counts a wall as open on a side when the wall is down anywhere within this many samples (m) of it: a car leaving through an opening is outside the wall at the gate. */
+const OPEN_SPAN = 12;
 
 function deckKey(i: number, j: number): number {
   return (i + 4096) * 8192 + (j + 4096);
@@ -278,14 +284,31 @@ export function crossGate(g: Gate, x0: number, z0: number, x1: number, z1: numbe
   return t >= 0 && t <= 1 && u >= 0 && u <= 1 ? t : -1;
 }
 
-function gateAt(path: TrackPath, s: number, reach: number): Gate {
+/** Whether `wall` is down on any of the samples within `OPEN_SPAN` of `k`. */
+function openNear(path: TrackPath, wall: Uint8Array, k: number): boolean {
+  for (let d = -OPEN_SPAN; d <= OPEN_SPAN; d++) {
+    const i = path.closed ? (k + d + path.count) % path.count : Math.max(0, Math.min(path.count - 1, k + d));
+    if (wall[i] === 0) return true;
+  }
+  return false;
+}
+
+function gateAt(path: TrackPath, s: number): Gate {
   const pt = pointOn(path, s, blankPoint());
   const k = sampleIndex(path, s);
   const lx = pt.tz;
   const lz = -pt.tx;
-  const left = pt.half + path.runL[k]! + reach;
-  const right = pt.half + path.runR[k]! + reach;
+  const left = pt.half + path.runL[k]! + (openNear(path, path.wallL, k) ? OPEN_REACH : WALL_REACH);
+  const right = pt.half + path.runR[k]! + (openNear(path, path.wallR, k) ? OPEN_REACH : WALL_REACH);
   return { ax: pt.x + lx * left, az: pt.z + lz * left, bx: pt.x - lx * right, bz: pt.z - lz * right, nx: pt.tx, nz: pt.tz, s };
+}
+
+/**
+ * Whether the projection `p` onto `path` lies on its road: the width, the runoff and the wall's thickness (the part of a gate that
+ * is road, as against the stretch it reaches past an opening for a car that left through it).
+ */
+export function inCorridor(path: TrackPath, p: Projection): boolean {
+  return Math.abs(p.lateral) <= path.half[p.k]! + (p.lateral > 0 ? path.runL[p.k]! : path.runR[p.k]!) + WALL_REACH;
 }
 
 function sampleIndex(path: TrackPath, s: number): number {
@@ -429,7 +452,7 @@ export class Track {
       }
     }
     this.nodeS = this.json.nodes.map((_, i) => (i === 0 ? 0 : sAtParam(path, param, i)));
-    this.gates = this.json.checkpoints.map((c) => gateAt(path, c.node === 0 && c.t === 0 ? 0 : sAtParam(path, param, c.node + c.t), 1.5));
+    this.gates = this.json.checkpoints.map((c) => gateAt(path, c.node === 0 && c.t === 0 ? 0 : sAtParam(path, param, c.node + c.t)));
     this.shortcuts = this.json.shortcuts.map((sc) => {
       // The mouths sit on the main road's surface: authored at centreline height, a mouth on a bank's low inside
       // edge stamped a lip up to 1.7 m high across the main road (stunt's quarry-cut).
@@ -437,7 +460,7 @@ export class Track {
       const pts = sc.path.map((q, i) => (i === 0 || i === last ? { x: q.x, z: q.z, y: roadHeight(path, q.x, q.z) } : q));
       const sub = sidePath(pts, sc.width, sc.surface, false);
       const n = sc.path.length;
-      const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i), SHORTCUT_REACH));
+      const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i)));
       return { id: sc.id, from: sc.from, to: sc.to, path: sub.path, gates };
     });
     this.routes = (this.json.traffic?.routes ?? []).map((r) => ({
@@ -518,6 +541,11 @@ export class Track {
 
   project(x: number, z: number, hint: number, out: Projection): Projection {
     return projectPath(this.path, x, z, hint, out);
+  }
+
+  /** Whether (x, z) is on the main road (`inCorridor`): the nearest point of the whole loop, so it takes no hint; `out` is scratch. */
+  onRoad(x: number, z: number, out: Projection): boolean {
+    return inCorridor(this.path, projectPath(this.path, x, z, -1, out));
   }
 
   /** Arc length of main checkpoint `i`. */

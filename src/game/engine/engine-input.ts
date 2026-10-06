@@ -12,6 +12,7 @@ import { gameKey } from "../vehicle/drive-input.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { MouseLook } from "./mouse-look.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
+import { ResetHold } from "../hud/reset-hold.ts";
 import type { BenchParts } from "./engine-bench.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 
@@ -491,7 +492,8 @@ export abstract class EngineInput extends EngineRigs {
         this.raceCommand({ type: "pause" });
         return true;
       case "KeyR":
-        this.requestRespawn();
+        // Acts on the release of a tap or the end of a hold (`stepReset`); the edge covers a press shorter than a frame.
+        this.resetKeyed = true;
         return true;
       case "KeyQ":
       case "KeyE":
@@ -520,16 +522,25 @@ export abstract class EngineInput extends EngineRigs {
     this.keys.clear();
   };
 
+  /** The reset control (R, D-pad ↓, the thumb pad's button) from press to release: a tap resets as it did, a hold puts the car back with its damage kept. */
+  private readonly resetHold = new ResetHold();
+  /** R went down since the last poll (a press shorter than a frame still counts). */
+  private resetKeyed = false;
+
   /** Once per frame: keys + pad → seat intent and the rear-view hold; pad button presses → seat / scene actions. */
-  protected pollInput(): void {
+  protected pollInput(wallDt: number): void {
     const pad = this.pad.poll();
     // A menu or a scene switch ends mouse look cleanly (the pointer comes back).
     if (this.mouseLook.on && (this.race.menuOpen || this.sceneFade.pending !== null || this.sceneId !== this.lookScene)) this.mouseLook.exit();
     // Held, not toggled: Backquote, R3 or the touch button looks back until released.
     this.view.rear = !this.race.menuOpen && (this.keys.has("Backquote") || (pad.held & (1 << PAD_BUTTON.r3)) !== 0);
     // Polled every frame so button edges stay fresh; a race menu reads the pad itself through the HUD.
-    if (this.race.menuOpen) return;
+    if (this.race.menuOpen) {
+      this.stepReset(false, false, wallDt);
+      return;
+    }
     if (this.seat.sample(this.keys, pad)) this.emitHud();
+    this.stepReset(this.race.active, (pad.held & (1 << PAD_BUTTON.down)) !== 0, wallDt, (pad.pressed & (1 << PAD_BUTTON.down)) !== 0);
     const hit = pad.pressed;
     if (hit === 0) return;
     if (this.race.active) {
@@ -546,6 +557,25 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
+  /**
+   * A race's reset control, once per frame: R, the pad's D-pad ↓ and the thumb pad's button are one control. A tap resets as it
+   * did (repaired, after its pause) on the release; a hold (`RESET_HOLD`) puts the car back at once, damage kept, whatever the
+   * race's reset rule (no-reset races too). The prompt's tap (`edge` with no hold) is a tap.
+   */
+  private stepReset(race: boolean, padDown: boolean, wallDt: number, edge = false): void {
+    const keyed = this.resetKeyed;
+    this.resetKeyed = false;
+    if (!race) {
+      this.resetHold.cancel();
+    } else {
+      const act = this.resetHold.step(this.keys.has("KeyR") || keyed || padDown, wallDt);
+      if (act === "tap") this.requestRespawn();
+      else if (act === "hold") this.requestHoldReset();
+      else if (edge && !padDown) this.requestRespawn();
+    }
+    this.race.holdFill = this.resetHold.fill;
+  }
+
   /** Pad buttons during a race (no menu up): Start / Back pause, LB/RB spectate, Y view, D-pad ↓ respawn. */
   private racePad(hit: number): void {
     const press = (b: number) => (hit & (1 << b)) !== 0;
@@ -554,7 +584,6 @@ export abstract class EngineInput extends EngineRigs {
     if (press(PAD_BUTTON.lb)) this.race.cycle(-1);
     if (press(PAD_BUTTON.rb)) this.race.cycle(1);
     if (press(PAD_BUTTON.north)) this.cycleCamera();
-    if (press(PAD_BUTTON.down)) this.requestRespawn();
     this.emitHud();
   }
 

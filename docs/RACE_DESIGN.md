@@ -67,15 +67,18 @@ projection hint, and `draft` / `drafts` (seconds drafting, bonuses earned; see D
   are ignored, so cutting across the infield gains nothing and line farming never counts. Crossing a
   main gate ahead of the owed one (not the one just passed) sets `missed` until the owed gate is
   crossed; the HUD shows **Missed checkpoint**, so a skipped gate never costs a lap silently.
-- Designed shortcut `{from, to, path}` (a gate per path point, reaching 8 m beyond its road edge,
-  `SHORTCUT_REACH`): a car whose next gate is `from+1` starts it through any of its gates but the
+- Designed shortcut `{from, to, path}` (a gate per path point, reaching `OPEN_REACH` = 12 m beyond its road edge): a car whose next gate is `from+1` starts it through any of its gates but the
   last; after that any later gate of it counts (a car on its own line across the shortcut's ground
   skips some); the exit gate sets `next = to`; a car that crossed all but the exit and then crosses
   main gate `to` also completes it. Crossing main gate `from+1` instead abandons it. A shortcut skips
   ≥ 1 checkpoint and may not skip the line. (The oval's service road runs through the open infield:
   before this rule a car on the grass beside it, or straight across, lost the whole lap.)
+- Gate reach: a gate crosses road + runoff and then 1.5 m (`WALL_REACH`) where a wall stands, 12 m (`OPEN_REACH`) on a side with no wall within 12 m of it (a
+  shortcut's road has none), so a car swung 10 m off an open road still crosses it. Route attribution follows where a car crosses: a shortcut's gate enters
+  it only **off the main road** (`Track.onRoad`; the gates at a mouth lie across the road the shortcut leaves), a main gate leaves a shortcut only **on** the main
+  road (a shortcut that runs beside the road lies within a gate's reach), a car beyond the shortcut's gates and on the main road is back on it, and where several
+  shortcuts leave one checkpoint (breaker-yard) the car is on the nearest.
 - Ranking distance `progress = lap·L + s'`, `s'` clamped between the last passed gate and `next`
-  (along the route on a shortcut). `split`: seconds behind the first car through the same gate on
   the same lap.
 
 ## Positions
@@ -83,19 +86,32 @@ Finished cars by finish time; then racing / respawning / dnf by `progress`; then
 out first. Ties fall to grid order.
 
 ## Wrong way
-With speed > 1.5 m/s, `c = v̂ · tangent`; while `c < −0.3` a timer grows, otherwise it decays at twice
-the rate; `wrongWay` on at 0.7 s, off at 0.
+With speed > 1.5 m/s on the road (inside its width, runoff and wall: `inCorridor`), `c = v̂ · tangent`; while `c < −1/√2` (more against the road than
+across it, 135°) a timer grows, otherwise it decays at twice the rate; `wrongWay` on at 0.7 s, off at 0. Off the road it means nothing (a car leaving
+through a shortcut's mouth at 90° or more, weaving, or spinning in the field is not going the wrong way). The checkpoints are invisible, so
+`tests: checkpoint-sweep.test.ts` drives a scripted car round every line of every course (the main loop and each shortcut, 2 laps, 23 swings: 5 and 10 m
+offsets, weaves, knocks at corners, kicks every 23-90 m, up to 10 m past the road's edge where there is no wall) and demands no `missed`, no
+`wrongWay` and the laps done. On main it failed 75 of 437 runs (all four new courses); now 0.
 
 ## Death, respawn, elimination
 - Dead for the rules: drivetrain dead, upside down for 2.5 s, or still for 8 s while the race AI drives it (not while a
   human has it: this browser's driver or a netplay peer, who can press R).
-- Player reset: R / D-pad ↓, 1.5 s. AI reset: a car the race AI drives (a rival, or the player's car
+- Player reset: R / D-pad ↓ / the thumb pad's button, a **tap** (released inside 0.8 s, `RESET_HOLD`) takes 1.5 s and puts a repaired car back. A **hold**
+  (0.8 s, a fill shows under the banners; `ResetHold`) puts the car back **at once with its damage kept** (dents, parts and wheels off, lamps, glass: the
+  host captures its net state and writes it over the fresh placement, `placeKeeping`), at rest and upright. A hold works in a no-reset race too (the car is
+  racing, so its engine runs and its driver is in: a dead engine or a thrown-out driver is already `respawning` / `out`, and the 3 s reset repairs it), and
+  is refused in Survival (no road to go back to), while spectating, in a menu, and for a car that is respawning, out or finished. A netplay client's hold rides
+  the input packet's flags byte (bit 8) to the host. AI reset: a car the race AI drives (a rival, or the player's car
   while its seat isn't driving) that gains < 25 m of track in 8 s (wedged on a wall, shoving a stopped
-  car, two wrecks hooked together) takes the same reset.
-- Default: `respawning` for 3 s, then back on the centreline (or the shortcut being driven) at the
-  wreck's clamped progress, never past `next` (≥ 3 m short), facing the tangent, ≥ 6 m from every car
-  (centre, ±½ half-width, then 6 m further back, up to 12 tries), on the layer it was racing on
-  (deck or road below), fully repaired.
+  car, two wrecks hooked together) takes the same tap reset.
+- Where a reset puts the car (`RaceSession.spot`): on the centreline of the path it is on (the main loop, or the shortcut), at the car's own
+  spot if that is on the road between the last checkpoint it hit and the first it still owes (`c.next`; on a shortcut its next gate), else at the last such spot it
+  was on (`CarRecord.safe`, recorded each step; cleared at every checkpoint, shortcut gate and route change), else at the checkpoint it last hit.
+  Never past the owed checkpoint (3 m short, `GATE_MARGIN`), never behind the last hit, clear of every car. A car that drove round a checkpoint or crashed
+  in the field goes back where it left the road before that checkpoint; one that missed nothing goes where it stopped, as before. The missed banner says what to
+  do: "Missed checkpoint: hold R to go back" (D-pad ↓, Respawn on touch).
+- Default: `respawning` for 3 s, then back on the road (`spot`: on the centreline, ≥ 6 m from every car (centre, ±½ half-width, then 6 m further back, up to 12 tries),
+  on the layer it was racing on (deck or road below), fully repaired.
 - No-reset: a death is final (`out`); resets are refused. The player gets the dead menu.
 - **Driver thrown out** (`DeformableCar.driverOut`, set by the sim's `EjectionWatch`, `vehicle/ejection.ts`, once per
   fixed step at the end of `stepWorld`: a disabling or realistic-end-kill hit, head-on or from the side, closing ≥ 6 m/s,

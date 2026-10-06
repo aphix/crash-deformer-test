@@ -17,6 +17,7 @@ export type NetRace = Pick<
   | "phase"
   | "setRemoteInput"
   | "requestRespawn"
+  | "holdReset"
   | "snapshot"
   | "applySnapshot"
   | "showLobby"

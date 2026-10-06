@@ -228,10 +228,16 @@ export abstract class EngineScenes extends EngineHud {
   /** Stop the results reel or a solo view now, giving the cars back as they were. */
   protected abstract stopReel(): void;
 
-  /** R / D-pad down: back on the track (a netplay client asks the host). */
+  /** R / D-pad down tapped: back on the track (a netplay client asks the host). */
   protected requestRespawn(): void {
     if (this.net.client) this.net.requestRespawn();
     else this.race.requestRespawn();
+  }
+
+  /** R / D-pad down held: back on the track at once with the damage kept (a netplay client asks the host). */
+  protected requestHoldReset(): void {
+    if (this.net.client) this.net.requestHoldReset();
+    else this.race.holdReset();
   }
 
   protected setRace(on: boolean, survival = false): void {

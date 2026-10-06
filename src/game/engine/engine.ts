@@ -363,7 +363,7 @@ export class CrashEngine extends EngineShare {
       const inst = 1 / wallDt;
       this.fps = this.fps > 1 ? this.fps * 0.85 + inst * 0.15 : inst;
     }
-    this.pollInput();
+    this.pollInput(wallDt);
     if (this.warming) return;
     this.stepSceneFade(wallDt);
     this.fxFrame(wallDt);

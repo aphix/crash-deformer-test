@@ -125,6 +125,12 @@ export type CarRecord = {
   wrongFor: number;
   /** Projection hint: last nearest sample on the path being driven (−1 = none). */
   seg: number;
+  /**
+   * Arc length (m), along the path the car is on (the main loop, or the shortcut), of the last spot it was on that road between the last
+   * checkpoint it hit and the first it still owes; null when it has not been on it since that checkpoint. A reset puts the car back
+   * here (null: at the checkpoint it hit). Older hosts send none (undefined reads as null).
+   */
+  safe: number | null;
   /** Unbroken seconds drafting another racer (`DRAFT`; 0 when not), and the boost bonuses drafting has earned. */
   draft: number;
   drafts: number;
@@ -138,7 +144,7 @@ export type RaceEvent =
   | { type: "go" }
   | { type: "lap"; id: number; lap: number; time: number }
   | { type: "died"; id: number; respawnAt: number }
-  | { type: "respawn"; id: number; x: number; z: number; yaw: number }
+  | { type: "respawn"; id: number; x: number; z: number; yaw: number; keep: boolean }
   | { type: "out"; id: number }
   | { type: "finish"; id: number; place: number; time: number }
   | { type: "over"; winnerId: number | null };
@@ -310,6 +316,10 @@ export type RaceView = {
   chase: { cops: number; hold: number; left: number } | null;
   /** The reset key (R, D-pad ↓, the thumb pad's button) would act on this car right now: the HUD's reset prompt shows only then. */
   canReset: boolean;
+  /** Holding the reset control would put this car back on the road with its damage kept (`RaceSession.holdReset`): it works in a no-reset race too. The missed-checkpoint banner says to hold only then. Absent: no. */
+  canHold?: boolean;
+  /** How far the hold of the reset control is, 0–1 (`ResetHold.fill`), while it is down and has not acted: the HUD's fill. Absent: 0. */
+  resetHold?: number;
 };
 
 /** Why a Survival run ended: the police held the car slow (`BUST`), it was wrecked (`judge`), or the player ended it. */
