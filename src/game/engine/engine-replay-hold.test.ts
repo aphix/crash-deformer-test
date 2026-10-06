@@ -31,7 +31,7 @@ describe("given a race on the oval where the player's car is driven flat out int
           seed,
           before: () => {
             const now = w.race.recorder.now;
-            if (!placed && w.race.hud().phase === "racing" && w.race.session!.time >= 1) {
+            if (!placed && w.race.hud().phase === "racing" && w.race.time >= 1) {
               placed = true;
               const put = (slot: number, d: number, turn: number, speed: number): void => {
                 track.pointAt(d, pt);

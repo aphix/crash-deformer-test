@@ -13,7 +13,7 @@ const L = square.length;
 const g1 = square.gateS(1);
 const g2 = square.gateS(2);
 
-const respawnOf = (ev: RaceEvent[]) => ev.find((e): e is Extract<RaceEvent, { type: "respawn" }> => e.type === "respawn");
+const respawnOf = (ev: readonly RaceEvent[]) => ev.find((e): e is Extract<RaceEvent, { type: "respawn" }> => e.type === "respawn");
 
 /** The drive of a car that leaves the square's road at 170 m, crosses the infield to the road at 330 m and carries on through checkpoint 3 (374 m) to 390 m, and the race time it gets there. */
 function crossedInfield(): { pts: Pt[]; tDie: number } {
