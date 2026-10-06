@@ -340,13 +340,17 @@ for (const [f, p] of parsed) {
 }
 check("C10", "module-level mutable bindings", c10);
 
+// Size caps (C8) are listed but never fail the ratchet: the owner treats splitting files as clean-up paperwork after
+// the lanes settle (10-05), not a merge blocker.
+const REPORT_ONLY = new Set(["C8"]);
 let total = 0;
 let over = 0;
 for (const [id, title, items] of results) {
   total += items.length;
   const cap = CAPS?.[id] ?? 0;
-  if (CAPS && items.length > cap) over++;
-  const note = !CAPS || items.length === cap ? "" : items.length > cap ? `  ABOVE cap ${cap}` : `  below cap ${cap}: lower it in scripts/boundary-caps.json`;
+  const reportOnly = REPORT_ONLY.has(id);
+  if (CAPS && !reportOnly && items.length > cap) over++;
+  const note = reportOnly ? "  report only" : !CAPS || items.length === cap ? "" : items.length > cap ? `  ABOVE cap ${cap}` : `  below cap ${cap}: lower it in scripts/boundary-caps.json`;
   console.log(`${id} ${String(items.length).padStart(4)}  ${title}${note}`);
   if (LIST) for (const it of items) console.log(`       ${it}`);
 }
