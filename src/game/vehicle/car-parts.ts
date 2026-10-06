@@ -91,7 +91,7 @@ const TOUCH_NOW = 0.03;
 
 /** The hinge value above which a part counts as folding (hung open, crushed, flapping), by hinge kind. */
 function foldAt(p: DetachPart): number {
-  if (p.hinge === "two-point") return p.name.startsWith("bumper") ? 0.04 : 0.08;
+  if (p.hinge === "two-point") return p.bumper ? 0.04 : 0.08;
   if (p.hinge === "cowl" || p.hinge === "tail") return 0.06;
   if (p.hinge === "door") return 0.08;
   if (p.hinge === "bar") return 0.05;
@@ -123,7 +123,9 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     this.advanceFlap(dt);
     const ix = this.deform.impactInward.x;
     const iz = this.deform.impactInward.z;
-    for (const p of this.parts) {
+    const parts = this.parts;
+    for (let pi = 0; pi < parts.length; pi++) {
+      const p = parts[pi]!;
       if (p.detached) continue;
       const left = this.deform.sensorCompression(p.attachL);
       const right = this.deform.sensorCompression(p.attachR);
@@ -132,7 +134,7 @@ export abstract class CarParts extends CarCore implements PartStateCar {
       const onHit = this.partOnHit(p);
 
       let target = 0;
-      if (p.name.startsWith("mirror")) {
+      if (p.mirror) {
         // C3: the mirror folds with the door skin under it (sensors 6/7 and 4/5), on its own side only.
         if (onHit) target = THREE.MathUtils.clamp((Math.max(left, right) - 0.04) / 0.3, 0, 1);
       } else if (p.hinge === "door") {
@@ -168,7 +170,8 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     this.partsDirty = false;
     // A car reset since the step that set the flag has its parts back at rest: nothing to pose.
     if (!this.crashed) return;
-    for (const p of this.parts) if (!p.detached) this.posePart(p);
+    const parts = this.parts;
+    for (let pi = 0; pi < parts.length; pi++) if (!parts[pi]!.detached) this.posePart(parts[pi]!);
   }
 
   /** Rest pose plus the hinge value `hingeT` (crash) and, on doors and mirrors, the free swing. */
@@ -180,7 +183,7 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     p.object.scale.set(1, 1, 1);
 
     if (p.hinge === "two-point") {
-      if (p.name.startsWith("bumper")) {
+      if (p.bumper) {
         const fl = this.deform.massLocal(p.name === "bumperF" ? "bumperFL" : "bumperRL");
         const fr = this.deform.massLocal(p.name === "bumperF" ? "bumperFR" : "bumperRR");
         p.object.position.set((fl.x + fr.x) * 0.5, (fl.y + fr.y) * 0.5, (fl.z + fr.z) * 0.5);
@@ -406,7 +409,11 @@ export abstract class CarParts extends CarCore implements PartStateCar {
   /** Netplay client, every frame: the flap clock turns with the car's speed and hinged panels and bumpers are re-posed with it. */
   flutterParts(dt: number): void {
     this.advanceFlap(dt);
-    for (const p of this.parts) if (p.folding && !p.detached && (p.region || p.name.startsWith("bumper"))) this.posePart(p);
+    const parts = this.parts;
+    for (let pi = 0; pi < parts.length; pi++) {
+      const p = parts[pi]!;
+      if (p.folding && !p.detached && (p.region || p.bumper)) this.posePart(p);
+    }
   }
 
   /** The quarter panel on `side` (−1 left, +1 right), on the car or not. */
@@ -512,22 +519,24 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     const quiet = this.deform.quietTime();
     const touched = quiet < TOUCH_NOW && this.quietPrev > TOUCH_GAP;
     this.quietPrev = quiet;
-    for (const p of this.parts) {
+    const parts = this.parts;
+    for (let pi = 0; pi < parts.length; pi++) {
+      const p = parts[pi]!;
       if (p.detached) continue;
       if (p.hinge === "bar") {
         const sink = ROOF_REST_Y - this.deform.massLocal("roof").y;
         if (sink > BAR_TEAR_SINK || (ebs >= BAR_TEAR_MPS && this.deform.crushElapsed > 0.05)) this.detachPart(p, impulse);
         continue;
       }
-      if ((p.region || p.name.startsWith("bumper")) && this.wornOff(p, dt, touched)) {
+      if ((p.region || p.bumper) && this.wornOff(p, dt, touched)) {
         this.detachPart(p, impulse);
         continue;
       }
       if (this.deform.bidirectional && p.hinge !== "door" && p.hinge !== "two-point") continue;
       if (!this.partOnHit(p)) continue;
       let should = false;
-      if (p.name.startsWith("mirror")) should = p.hingeT > 0.5;
-      else if (p.name.startsWith("bumper")) should = p.hingeT > 0.7 && ebs >= BUMPER_TEAR_MPS;
+      if (p.mirror) should = p.hingeT > 0.5;
+      else if (p.bumper) should = p.hingeT > 0.7 && ebs >= BUMPER_TEAR_MPS;
       else if (p.hinge === "cowl" || p.hinge === "tail") should = p.hingeT > 0.78;
       else if (p.hinge === "door") should = p.hingeT > 0.58 && (this.deform.bidirectional || ebs >= DOOR_TEAR_MPS);
       else if (p.region) should = p.hingeT > PANEL_TEAR && ebs >= PANEL_TEAR_MPS;

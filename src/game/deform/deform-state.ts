@@ -15,6 +15,7 @@ import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 import { DeformHit } from "./deform-hit.ts";
 import type { Beam, MassNode } from "./deform-rig.ts";
+import { CageStrain, maxCompression, sensorsByPart } from "./cage-measure.ts";
 
 /** Packed bumper-to-block-centre length (m): bumper beam and radiator crushed flat ahead of a
  *  0.36 m block. Nose crush past the 0.84 m rest gap minus this shoves the engine back. */
@@ -656,26 +657,19 @@ export abstract class DeformState extends DeformHit {
     return this.elapsed;
   }
 
+  /** The sensors that read each cage, by cage name (built on first use). */
+  private sensorsOfPart: Record<string, Int32Array> | null = null;
+  private readonly strain = new CageStrain();
+
   partCompression(name: BodyPartName): number {
-    let max = 0;
-    for (let si = 0; si < this.sensors.length; si++) {
-      const s = this.sensors[si]!;
-      if (this.cages[s.partIndex]?.spec.name === name && s.compression > max) max = s.compression;
-    }
-    return max;
+    this.sensorsOfPart ??= sensorsByPart(this.cages, this.sensors);
+    return maxCompression(this.sensors, this.sensorsOfPart[name]);
   }
 
-  /** A cage's frame strain (m): the largest change of any corner-to-corner distance from rest. Rigid motion reads 0. */
+  /** A cage's frame strain (m): the largest change of any corner-to-corner distance from rest. Rigid motion reads 0 (`CageStrain`). */
   cageStrain(name: BodyPartName): number {
     const cage = this.cageByPart.get(name);
-    if (!cage) return 0;
-    const c = cage.corners;
-    const r = cage.restCorners;
-    let max = 0;
-    for (let a = 0; a < 8; a++) {
-      for (let b = a + 1; b < 8; b++) max = Math.max(max, Math.abs(c[a]!.distanceTo(c[b]!) - r[a]!.distanceTo(r[b]!)));
-    }
-    return max;
+    return cage ? this.strain.measure(cage) : 0;
   }
 
   sensorCompression(index: number): number {

@@ -192,6 +192,7 @@ export interface Lamp {
 
 export interface DetachPart {
   name: string;
+  mirror: boolean; bumper: boolean; // from `name`, set once: the per-step loops branch on them
   object: THREE.Object3D;
   restPos: THREE.Vector3;
   restQuat: THREE.Quaternion;
@@ -537,7 +538,7 @@ export abstract class CarCore {
       swing: DoorHinge | null = null,
     ): DetachPart => {
       const p: DetachPart = {
-        name,
+        name, mirror: name.startsWith("mirror"), bumper: name.startsWith("bumper"),
         object,
         restPos: object.position.clone(),
         restQuat: object.quaternion.clone(),
