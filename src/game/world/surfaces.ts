@@ -824,7 +824,8 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     const py = hub[1]! + FY[k]! * scale;
     const pz = hub[2]! + fz * lz;
     pointContact(px, pz, hub[1]!, skip, _w);
-    touch = Math.max(touch, _w[C_H]! - py);
+    // A face the tyre cannot mount (a wall) is touched, not stood on.
+    if (_w[C_H]! > mounts) touch = Math.max(touch, _w[C_H]! - py);
     pointContact(px, pz, stands, skip, _w);
     if (_w[C_H]! > mounts) continue;
     const r = _w[C_H]! - py;
@@ -849,7 +850,7 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     const py = hub[1]! + axes[1]! * side + axes[4]! * SHOULDER_Y * scale;
     const pz = hub[2]! + axes[2]! * side + axes[5]! * SHOULDER_Y * scale;
     pointContact(px, pz, hub[1]!, skip, _w);
-    touch = Math.max(touch, _w[C_H]! - py);
+    if (_w[C_H]! > mounts) touch = Math.max(touch, _w[C_H]! - py);
   }
-  out[C_TOUCH] = touch;
+  out[C_TOUCH] = Math.max(touch, rise);
 }
