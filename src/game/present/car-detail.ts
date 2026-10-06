@@ -17,7 +17,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
  * followed car, a replay's focus) is never cut, and a narrower lens counts a car nearer by the ratio of its half-angle's tangent to
  * the 50 degree lens's, so a zoom on a far car sees it whole. `DETAIL_LEVELS` is the ladder `DetailGovernor` walks.
  */
-export interface DetailLevel {
+interface DetailLevel {
   /** Distance (m) beyond which the small parts go. */
   readonly mid: number;
   /** Distance (m) beyond which only the body is drawn. */

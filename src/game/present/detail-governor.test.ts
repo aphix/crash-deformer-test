@@ -33,7 +33,8 @@ describe("given a match that runs under 57 fps on a phone's rung", () => {
   test("when it stays slow, then it steps one rung nearer every 3.5 s (1.5 s settle plus two slow windows) down to the last rung and no further", () => {
     const moves = run(new DetailGovernor(2), 30, steady(45));
     assert.equal(moves.length, 2);
-    assert.deepEqual(rungs(moves), [3, LAST]);
+    assert.equal(moves[0]![1], 3, "first step to rung 3");
+    assert.equal(moves[1]![1], LAST, "second step to the last rung");
     assert.ok(Math.abs(moves[0]![0] - 3.5) < 0.2, `first step at ${moves[0]![0]} s`);
     assert.ok(Math.abs(moves[1]![0] - 7) < 0.3, `second step at ${moves[1]![0]} s`);
   });
