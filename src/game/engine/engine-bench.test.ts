@@ -32,6 +32,7 @@ const RESULT: BenchResult = {
   calls: 420,
   triangles: 380_000,
   tierPct: { high: 97, minimal: 3 },
+  detailPct: { "50 m": 80, "40 m": 20 },
   setupMs: { options: 800, start: 140 },
   settings: {
     fxTier: "high",
@@ -55,6 +56,7 @@ const RESULT: BenchResult = {
   },
   abPace: { fine: B(41, 3), coarse: B(58, 3) },
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
+  abDetail: { off: B(44, null), "75 m": B(49, null), "50 m": B(56, null), "30 m": B(59, null) },
   device: { browser: "Chrome 150", userAgent: "UA", gpu: "Mali-G715", gpuMasked: false, cores: 9, memoryGB: 8, screen: "412x915", dpr: 2.625, canvas: "1373x618", timerStepMs: 0.1 },
 };
 
@@ -100,11 +102,13 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), subpixel 8 bits, fragment highp not supported, camera near 0.1 far 180, log depth on"));
     assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps")) && lines.some((l) => l.includes("1/120 s 58.0 fps")));
     assert.ok(lines.some((l) => l.includes("minimal 60.0 fps") && l.includes("gpu 1.1")) && lines.some((l) => l.includes("high 48.0 fps") && l.includes("gpu n/a")));
+    assert.ok(lines.some((l) => l === "detail: only the body drawn beyond 50 m for 80 %, 40 m for 20 % of the window"));
+    assert.ok(lines.some((l) => l.startsWith("A/B detail pinned: no cuts 44.0 fps")) && lines.some((l) => l.includes("body beyond 30 m 59.0 fps")));
     assert.ok(!lines.some((l) => l.includes("masked")));
     const masked = describeBench({ ...RESULT, device: { ...RESULT.device, gpu: "ANGLE (NVIDIA GeForce GTX 980), or similar", gpuMasked: true } });
     assert.ok(masked.some((l) => l.includes("GTX 980") && l.includes("[masked by the browser: not the real GPU]")));
     const timed = describeBench({ ...RESULT, gpuMs: S(3) });
     assert.ok(timed.some((l) => /^GPU {7}p50 3\.0 {2}p95 6\.0/.test(l)));
-    assert.ok(lines.length <= 26, "fits a 412 px tall phone screen at 11 px type, scrolling");
+    assert.ok(lines.length <= 30, "the card scrolls on a 412 px tall phone screen at 11 px type");
   });
 });

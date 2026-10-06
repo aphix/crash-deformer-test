@@ -1,5 +1,7 @@
 import type * as THREE from "three";
 import type { RaceCommand } from "../match/types.ts";
+import { DETAIL_LEVELS, type CarDetail } from "../present/car-detail.ts";
+import type { DetailGovernor } from "../present/detail-governor.ts";
 import type { Cinematics } from "../present/engine-cine.ts";
 import { describePost, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
@@ -10,7 +12,11 @@ import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
-const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, settleFrames: 10 } as const;
+const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, settleFrames: 10 } as const;
+/** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
+const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ key: "off", level: null }, { key: "75 m", level: 0 }, { key: "50 m", level: 2 }, { key: "30 m", level: 4 }];
+/** The key a rung's share of the window is kept under. */
+const rungKey = (level: number): string => `${DETAIL_LEVELS[level]?.far ?? "?"} m`;
 /** Samples kept: far above any display rate, so the window always fits. */
 const CAP = BENCH.measureS * 400;
 
@@ -24,6 +30,9 @@ export interface BenchParts {
   race: Pick<RaceDirector, "phase" | "time" | "reseed" | "policeStats" | "loadBenchCourse">;
   seat: DriverSeat;
   live(): readonly DeformableCar[];
+  /** The distance detail (`present/car-detail.ts`) and the rung its governor holds: the bench pins rungs for its A/B and puts the governor's back. */
+  detail: Pick<CarDetail, "level" | "setLevel" | "setDistances">;
+  governor: Pick<DetailGovernor, "level">;
 }
 
 /** What `runBench` drives: the real engine, by its public face. */
@@ -134,11 +143,15 @@ export interface BenchResult {
   triangles: number;
   /** Share of the window's frames at each FX tier, % (the auto tier moves). */
   tierPct: Record<string, number>;
+  /** Share of the window's frames at each distance-detail rung, % (keyed by the distance beyond which only the body is drawn; the governor moves it). */
+  detailPct: Record<string, number>;
   setupMs: { options: number; start: number };
   settings: BenchSettings;
   /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high. */
   abPace: { fine: Block; coarse: Block };
   abFx: { minimal: Block; low: Block; high: Block };
+  /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
+  abDetail: Record<string, Block>;
   device: {
     browser: string;
     userAgent: string;
@@ -222,6 +235,7 @@ export function describeBench(r: BenchResult): string[] {
     r.gpuMs ? row("GPU", r.gpuMs) : "GPU       no timer query on this device",
     `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
     `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
+    `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
     `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
@@ -230,6 +244,7 @@ export function describeBench(r: BenchResult): string[] {
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,
+    ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
     `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
     `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,
     `${d.cores} cores${d.memoryGB ? `, ${d.memoryGB} GB` : ""}  screen ${d.screen} @${d.dpr}  canvas ${d.canvas}  timer step ${f1(d.timerStepMs)} ms`,
@@ -421,6 +436,7 @@ interface Samples {
   calls: Float64Array;
   tris: Float64Array;
   tiers: Map<string, number>;
+  levels: Map<string, number>;
 }
 
 /** The window: what the pacer lost and the race clock covered while it ran. */
@@ -445,7 +461,7 @@ async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, 
 async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window }> {
   const { renderer, race, cine } = parts;
   const arr = (): Float64Array => new Float64Array(CAP);
-  const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), coarse: arr(), wrecks: arr(), calls: arr(), tris: arr(), tiers: new Map() };
+  const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), coarse: arr(), wrecks: arr(), calls: arr(), tris: arr(), tiers: new Map(), levels: new Map() };
   const pace = engine.pace;
   const lost0 = pace.lost;
   const cut0 = pace.cut;
@@ -467,6 +483,8 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
     s.calls[i] = renderer.info.render.calls;
     s.tris[i] = renderer.info.render.triangles;
     s.tiers.set(cine.tier, (s.tiers.get(cine.tier) ?? 0) + 1);
+    const rung = rungKey(parts.detail.level);
+    s.levels.set(rung, (s.levels.get(rung) ?? 0) + 1);
     ui.set(`CRUSH BENCH: measuring ${Math.round(wall)} / ${BENCH.measureS} s`);
   }
   t.timing = false;
@@ -601,7 +619,7 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
   };
 }
 
-function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "settings" | "abPace" | "abFx" | "device"> {
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "settings" | "abPace" | "abFx" | "abDetail" | "device"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -644,6 +662,7 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     calls: stat(s.calls, n).p50,
     triangles: stat(s.tris, n).p50,
     tierPct: Object.fromEntries([...s.tiers].map(([tier, count]) => [tier, (100 * count) / Math.max(1, n)])),
+    detailPct: Object.fromEntries([...s.levels].map(([rung, count]) => [rung, (100 * count) / Math.max(1, n)])),
     setupMs,
   };
 }
@@ -724,6 +743,9 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   engine.setFxTier(top as FxTier);
   const pace = await alternate(engine, parts, t, beat, ui, "pacer", [{ key: "fine", set: () => void (engine.pace.pin = false) }, { key: "coarse", set: () => void (engine.pace.pin = true) }], BENCH.paceCycles);
   engine.pace.pin = null;
+  // The detail arms run at the window's tier too (the governor is off with the tier pinned), then the governor's rung is put back.
+  const detail = await alternate(engine, parts, t, beat, ui, "detail", DETAIL_ARMS.map((a) => ({ key: a.key, set: () => (a.level === null ? parts.detail.setDistances(Infinity, Infinity) : parts.detail.setLevel(a.level)) })), BENCH.detailCycles);
+  parts.detail.setLevel(parts.governor.level);
   const fx = await alternate(engine, parts, t, beat, ui, "fx", (["minimal", "low", "high"] as const).map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
   engine.setFxAuto();
 
@@ -737,6 +759,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },
     abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]! },
+    abDetail: blocksOf(detail, gpu),
     device,
   };
   const details = (): string => JSON.stringify({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result }, null, 1);

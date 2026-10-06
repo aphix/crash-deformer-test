@@ -21,10 +21,12 @@ import { armKill, assignClass, carClass, HANDLING, killClass, STYLE_CLASS, type 
 import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
+import { CarDetail } from "../present/car-detail.ts";
 import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround } from "../world/ground.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
+import type { DetailGovernor } from "../present/detail-governor.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
 import { FX_REACH, Witness } from "../present/witness.ts";
 import type { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -166,6 +168,8 @@ export abstract class EngineCore {
   protected cine!: Cinematics;
   /** The automatic FX tier (`present/auto-fx.ts`); `fxFrame` applies it. */
   protected autoFx!: AutoFx;
+  /** The distance detail's rung (`present/detail-governor.ts`), chosen by how the match runs; `fxFrame` applies it to `detail` while the tier is automatic. */
+  protected detailGov!: DetailGovernor;
   protected impactLightLife = 0;
   protected envMap: THREE.Texture | null = null;
   protected debris!: DebrisSystem;
@@ -195,8 +199,8 @@ export abstract class EngineCore {
   protected lodFrame = 0;
   /** Per car index: skin stride from the last LoD pass (0 = off-screen). */
   protected lodStride: number[] = [];
-  /** Distance detail: per far car, the parts `cullFarDetail` took off the camera's layer. */
-  protected readonly farDetail = new WeakMap<DeformableCar, THREE.Object3D[]>();
+  /** Distance detail for every car (`present/car-detail.ts`); `CrashEngine` runs it once a frame before the draw. */
+  protected readonly detail = new CarDetail();
   protected squash = INITIAL_HUD.squash;
   /** Slot 0's car type: the HUD's pick for the player's car (`setPlayerCar`, `setDriver`); the Stack drops it in every slot. */
   protected playerCar: DriverCar = DRIVER_CARS[0]!;

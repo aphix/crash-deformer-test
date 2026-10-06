@@ -14,6 +14,8 @@ import { makeJerseyBarrier, makePoolTexture } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
+import { PHONE_LEVEL } from "../present/car-detail.ts";
+import { DetailGovernor } from "../present/detail-governor.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -42,15 +44,6 @@ const LOD_RADIUS = 3.5;
 const LOD_SMALL_PX = 40;
 const LOD_TINY_PX = 20;
 const _lodCenter = new THREE.Vector3();
-/**
- * Distance detail: beyond `DETAIL_NEAR` m from the camera a car (never the followed one) drops its small parts
- * that cast no shadow (trims, grille, mirrors, door linings: 12 of its 20 draws) and its 4 lamps from the lamp
- * batch. They are a few pixels there; body, panels, glass, interior and wheels stay. Back within `DETAIL_BACK`
- * they return (hysteresis).
- */
-const DETAIL_NEAR = 35;
-const DETAIL_BACK = 32;
-
 const _v = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
@@ -207,7 +200,11 @@ export class CrashEngine extends EngineShare {
     this.cine.setTier(fxParam ?? INITIAL_HUD.fxTier);
     const gl = this.renderer.getContext();
     const gpu = gl.getExtension("WEBGL_debug_renderer_info");
-    this.autoFx = new AutoFx(hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches), fxParam === undefined);
+    const desktop = hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches);
+    this.autoFx = new AutoFx(desktop, fxParam === undefined);
+    // A phone starts on the nearer rung (a ~20 px car loses nothing the eye can use); the governor walks either way from the first match.
+    this.detailGov = new DetailGovernor(desktop ? 0 : PHONE_LEVEL);
+    this.detail.setLevel(this.detailGov.level);
     this.audio = new CrashAudio();
     this.trace = new TraceRecorder({
       barrier: this.barrier,
@@ -366,7 +363,7 @@ export class CrashEngine extends EngineShare {
     this.pollInput(wallDt);
     if (this.warming) return;
     this.stepSceneFade(wallDt);
-    this.fxFrame(wallDt);
+    this.fxFrame(wallDt, this.pace.lost);
     // The new scene's sim waits behind the transition's black (a slow first-use warm-up would play its opening unseen).
     // Local presentation only: a netplay session or the results replay owns time, so they never wait.
     const held = this.sceneFade.holding && this.net.role === "off" && !this.highlights.playing;
@@ -453,7 +450,7 @@ export class CrashEngine extends EngineShare {
     if (focus) this.race.followSun(focus);
     this.updateCamera(wallDt);
     this.flushVisibleSkins();
-    this.cullFarDetail();
+    this.detail.update(this.cars, this.camera, this.followedCar(), this.highlights.playing ? this.highlights.focus() : null);
     this.lampLights.update(this.live(), this.camera, this.followedCar());
     if (this.stage.night) this.stage.syncPools(this.poles);
     if (!this.skipDraw) this.cine.render(this.scene, this.camera, wallDt);
@@ -510,34 +507,6 @@ export class CrashEngine extends EngineShare {
     const halfHeightPx = (this.renderer.domElement.height / this.renderer.getPixelRatio()) * 0.5;
     const px = (LOD_RADIUS / (d * Math.tan(THREE.MathUtils.degToRad(this.camera.fov * 0.5)))) * halfHeightPx;
     return px >= LOD_SMALL_PX ? 1 : px >= LOD_TINY_PX ? 2 : 4;
-  }
-
-  /**
-   * Distance detail (`DETAIL_NEAR`): a far car's small non-shadow-casting parts leave the camera's layer 0, so
-   * `visible` stays the car's own (broken lamps, loose parts); they rejoin when it comes back within `DETAIL_BACK`.
-   */
-  private cullFarDetail(): void {
-    _v.setFromMatrixPosition(this.camera.matrixWorld);
-    const followed = this.followedCar();
-    for (const car of this.cars) {
-      const off = this.farDetail.get(car);
-      const far = car !== followed && car.group.position.distanceToSquared(_v) > (off ? DETAIL_BACK : DETAIL_NEAR) ** 2;
-      if (far === (off !== undefined)) continue;
-      if (off) {
-        for (const o of off) o.layers.enable(0);
-        this.farDetail.delete(car);
-        continue;
-      }
-      const parts: THREE.Object3D[] = [];
-      car.group.traverse((o) => {
-        const m = o as THREE.Mesh;
-        // A lamp seat is drawn by the lamp batch, which skips a seat off layer 0. A hinged panel's shell stays: the body under it is primer.
-        if (o.name !== "lamp" && (!m.isMesh || (m as THREE.InstancedMesh).isInstancedMesh || m.castShadow || m.name === "interior" || m.name === "panel")) return;
-        m.layers.disable(0);
-        parts.push(m);
-      });
-      this.farDetail.set(car, parts);
-    }
   }
 
   private maybePreSlowmo(wallDt: number): void {

@@ -98,6 +98,11 @@ function foldAt(p: DetachPart): number {
   return p.region ? PANEL_OPEN : Infinity;
 }
 
+/** Back on the camera's layer 0 (`traverse` callback, one function for every tear). */
+function showOnCamera(o: THREE.Object3D): void {
+  o.layers.enable(0);
+}
+
 /**
  * Detachable parts: attached-part posing, door hinges and mirrors, glass following, breakage and detaching,
  * loose parts and wheels, and their netplay state.
@@ -591,6 +596,8 @@ export abstract class CarParts extends CarCore implements PartStateCar {
     }
     this.group.remove(p.object);
     this.world.add(p.object);
+    // Loose, the part is the world's, not the car's: the distance detail's cuts (`CarDetail`) took its meshes off the camera while it was on the car.
+    p.object.traverse(showOnCamera);
     if (p.region) this.trackShell(p);
     p.object.position.copy(wpos);
     p.object.quaternion.copy(wquat);

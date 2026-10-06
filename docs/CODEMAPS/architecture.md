@@ -62,7 +62,7 @@ tickInner(now)                               wallDt ≤ 0.1 s
  ├ PoseBlend.present(cars, pace.alpha)       every car (group, torn parts, popped wheels) drawn at the frame's time between its poses either side of the last step; restore() after the draw puts the sim's own poses back bit for bit (present/pose-blend.ts)
  ├ race.frame(wallDt)
  ├ updateCamera(wallDt)                      cine.direct crash cam first, else chase / orbit / ride / spectator cams
- ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · cullFarDetail · lampLights.update · stage.syncPools (night)
+ ├ flushVisibleSkins() (aims `witness` at the final camera, catches owed skins up) · `detail.update` (`CarDetail`) · lampLights.update · stage.syncPools (night)
  ├ cine.render(scene, camera)                tier off: renderer.render; low / high: HDR post chain (with the scene fade's cel pass)
  └ emitHud()  every 0.05–0.12 s
 ```

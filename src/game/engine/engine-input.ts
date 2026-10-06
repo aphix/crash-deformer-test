@@ -14,6 +14,7 @@ import { MouseLook } from "./mouse-look.ts";
 import { PAD_BUTTON, type TouchPad } from "../vehicle/gamepad.ts";
 import { ResetHold } from "../hud/reset-hold.ts";
 import type { BenchParts } from "./engine-bench.ts";
+import { DETAIL_LEVELS } from "../present/car-detail.ts";
 import { EngineRigs } from "./engine-rigs.ts";
 
 /**
@@ -45,7 +46,7 @@ export abstract class EngineInput extends EngineRigs {
 
   /** The protected parts the `?bench=` pages time (`engine-bench.ts`). */
   benchParts(): BenchParts {
-    return { renderer: this.renderer, cine: this.cine, scene: this.scene, camera: this.camera, sun: this.sun, race: this.race, seat: this.seat, live: () => this.live() };
+    return { renderer: this.renderer, cine: this.cine, scene: this.scene, camera: this.camera, sun: this.sun, race: this.race, seat: this.seat, live: () => this.live(), detail: this.detail, governor: this.detailGov };
   }
 
   /** The touch HUD's stick and buttons; merged into the pad on every poll, so every pad path takes them. */
@@ -121,10 +122,26 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier otherwise. */
-  protected fxFrame(wallDt: number): void {
+  /** The pacer's `lost` at the last frame: what a frame gave up is the difference. */
+  private lostSeen = 0;
+
+  /**
+   * Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier
+   * otherwise; and while the tier is automatic, a running match walks the distance detail's rung (`DetailGovernor`) by the frame
+   * rate and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
+   */
+  protected fxFrame(wallDt: number, lostSimS: number): void {
     const p = this.race.phase;
     const matchTime = p === "grid" || p === "countdown" || p === "racing" ? this.race.time : this.derbyMode && this.derby.active && this.derby.winnerId === null ? this.derby.time : null;
+    const lost = lostSimS - this.lostSeen;
+    this.lostSeen = lostSimS;
+    if (this.autoFx.auto) {
+      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, matchTime !== null && matchTime >= 0);
+      if (level !== null) {
+        console.info(`Crush Stream detail auto: ${DETAIL_LEVELS[level]!.far} m`);
+        this.detail.setLevel(level);
+      }
+    }
     const tier = this.autoFx.frame(wallDt * 1000, matchTime);
     if (tier === null) return;
     console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps)`);
