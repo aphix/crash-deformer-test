@@ -1,7 +1,7 @@
 import { Obstacles } from "../ai/hunter.ts";
 import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
 import { placeProps, propColliders } from "./placements.ts";
-import type { CopBrain } from "../ai/police.ts";
+import type { CopBrain } from "../ai/cop-brain.ts";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { holdLine, leaveSurvival, liveCops, play, steerAt, survivalWorld, type Play } from "./survival-run.test-util.ts";
 import type { World } from "./race-world.test-util.ts";

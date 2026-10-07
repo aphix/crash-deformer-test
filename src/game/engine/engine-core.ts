@@ -76,8 +76,8 @@ const FLEET_PAINT: CarPaint[] = [
 
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
- * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineScenes` → `EngineRigs` →
- * `EngineInput` → `CrashEngine` (one class split by context; `CrashEngine` is the only one anything else constructs).
+ * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineDerby` → `EngineScenes` →
+ * `EngineRigs` → `EngineInput` → `CrashEngine` (one class split by context; `CrashEngine` is the only one anything else constructs).
  */
 export abstract class EngineCore {
   /** Defined by `CrashEngine` (its host callbacks reach every layer). */

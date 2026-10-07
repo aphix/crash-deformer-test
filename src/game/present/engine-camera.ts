@@ -6,6 +6,7 @@ import { DISC_RADIUS } from "../world/ground.ts";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
+import { Spring, Spring3 } from "./spring.ts";
 
 /**
  * A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic ("cine"),
@@ -32,7 +33,6 @@ const POST_TOP = 5.3;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
-const _t = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 /** `watchFall`: the eye stands this far (m) inside the fleet disc's rim, at shoulder height (m) over the disc. */
 const FALL_EYE_IN = 1.5;
@@ -52,45 +52,6 @@ export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): TH
     n++;
   }
   return n === 0 ? out : out.multiplyScalar(1 / n);
-}
-
-/** Critically damped spring, exact for any dt: no overshoot, ~98% settled after 6/omega s. */
-class Spring {
-  x = 0;
-  v = 0;
-
-  step(target: number, omega: number, dt: number): number {
-    const e = this.x - target;
-    const t = (this.v + omega * e) * dt;
-    const k = Math.exp(-omega * dt);
-    this.v = (this.v - omega * t) * k;
-    this.x = target + (e + t) * k;
-    return this.x;
-  }
-
-  snap(x: number): void {
-    this.x = x;
-    this.v = 0;
-  }
-}
-
-/** Vector critically damped spring; `v` is relative to whatever frame the caller carries `x` in. */
-class Spring3 {
-  readonly x = new THREE.Vector3();
-  readonly v = new THREE.Vector3();
-
-  step(target: THREE.Vector3, omega: number, dt: number): void {
-    const k = Math.exp(-omega * dt);
-    _e.subVectors(this.x, target);
-    _t.copy(this.v).addScaledVector(_e, omega).multiplyScalar(dt);
-    this.v.addScaledVector(_t, -omega).multiplyScalar(k);
-    this.x.copy(target).addScaledVector(_e.add(_t), k);
-  }
-
-  snap(x: THREE.Vector3): void {
-    this.x.copy(x);
-    this.v.set(0, 0, 0);
-  }
 }
 
 export const CHASE = {

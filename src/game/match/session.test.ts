@@ -8,7 +8,8 @@ import { DT, along, centreline, field, fromGrid, polyline, runTo, samples, short
 import { square as squareFile } from "../world/track.test-util.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 import oval from "../world/tracks/oval.json" with { type: "json" };
-import { PoliceBrain, type PoliceWorld } from "../ai/police.ts";
+import { PoliceBrain } from "../ai/police.ts";
+import type { PoliceWorld } from "../ai/cop-brain.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 

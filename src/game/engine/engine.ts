@@ -62,6 +62,24 @@ const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
 if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
 if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
 
+/** The page's renderer: sRGB out, ACES at the game's exposure, PCF shadows, MSAA only at device pixel ratio 1. */
+function makeRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: (window.devicePixelRatio || 1) <= 1,
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setClearColor(0x12141a, 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.45;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  return renderer;
+}
+
 export class CrashEngine extends EngineShare {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
@@ -146,19 +164,7 @@ export class CrashEngine extends EngineShare {
     this.lab.load("cards");
     this.lab.fx = this.hitFx;
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: (window.devicePixelRatio || 1) <= 1,
-      alpha: false,
-      powerPreference: "high-performance",
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-    this.renderer.setClearColor(0x12141a, 1);
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.45;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer = makeRenderer(canvas);
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 180);
     this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.clock.reduceMotion, (x, y) =>

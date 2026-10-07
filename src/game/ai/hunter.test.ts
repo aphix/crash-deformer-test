@@ -4,7 +4,7 @@ import { physicsSlice } from "../contact/sat.ts";
 import { idleDrive } from "../vehicle/car-drive.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { copsWanted, HUNT, HunterBrain } from "./hunter.ts";
-import { ATTACK, attackTarget, type HunterWorld } from "./police.ts";
+import { ATTACK, attackTarget, type HunterWorld } from "./cop-brain.ts";
 import type { PropCollider } from "../world/placements.ts";
 import { blankProjection, projectPath, Track } from "../world/track.ts";
 import { HAVANA } from "../world/tracks/havana.ts";

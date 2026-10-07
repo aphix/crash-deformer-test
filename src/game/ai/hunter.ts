@@ -4,7 +4,7 @@ import { clamp, wrapPi } from "../kernel/scalar.ts";
 import type { PropCollider } from "../world/placements.ts";
 import type { SurvivalSpec } from "../world/track-schema.ts";
 import type { Track } from "../world/track.ts";
-import { ATTACK, attackTarget, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type HunterWorld } from "./police.ts";
+import { ATTACK, attackTarget, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type HunterWorld } from "./cop-brain.ts";
 
 /** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
 export const HUNT = {

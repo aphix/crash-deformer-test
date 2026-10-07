@@ -155,8 +155,8 @@ scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker
 ## 9. Code map
 
 **Engine.** `CrashEngine` is one class in layers, each extending the one before: `engine-core` (state, car roster, shared
-queries) → `engine-warm` (shader warm-up, skin kernel) → `engine-hud` (`emitHud`) → `engine-scenes` (scene picker, fade,
-reset, derby) → `engine-rigs` (press, pistons, doors) → `engine-input` (keys, pad, HUD commands, `advance`) → `engine-reel`
+queries) → `engine-warm` (shader warm-up, skin kernel) → `engine-hud` (`emitHud`) → `engine-derby` (derby on / off, its netplay
+mirror) → `engine-scenes` (scene picker, fade, reset, derby step) → `engine-rigs` (press, pistons, doors) → `engine-input` (keys, pad, HUD commands, `advance`) → `engine-reel`
 (crash highlights) → `engine-share` (the `#` URL) → `engine.ts`. `window.__crush` is the live engine (benches and probes).
 A race runs through `RaceDirector` (`engine-race.ts`) over `RaceField` (`engine-race-field.ts`).
 

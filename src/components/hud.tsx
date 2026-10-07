@@ -371,32 +371,24 @@ function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
 
 const BAR_BUTTON = "h-11 min-w-11 px-2.5 text-xs sm:h-8 sm:min-w-8";
 
+/** The scene in play: Fleet is "none of the others". */
+function sceneInPlay(state: CrashHudState): Scene {
+  if (state.race) return state.race.survival ? "survival" : "race";
+  if (state.derby) return "derby";
+  if (state.showCompactor) return "press";
+  if (state.showPistons) return "pistons";
+  if (state.showDoors) return "doors";
+  if (state.range) return "range";
+  if (state.showCorkscrew) return "corkscrew";
+  if (state.stack) return "stack";
+  return state.lab ? "lab" : "fleet";
+}
+
 /** Always-visible bar (full view): race view toggle in a race, play, reset, scene, the three fleet props, settings and key help. */
 function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; settingsShown: boolean; onShowSettings: (show: boolean) => void; touch: boolean; menu: HudMenu }) {
   const { state, engine, raceCommand, settingsShown, onShowSettings, touch, menu } = props;
-  const inPlay: Scene = state.race
-    ? state.race.survival
-      ? "survival"
-      : "race"
-    : state.derby
-      ? "derby"
-      : state.showCompactor
-        ? "press"
-        : state.showPistons
-          ? "pistons"
-          : state.showDoors
-            ? "doors"
-            : state.range
-              ? "range"
-              : state.showCorkscrew
-                ? "corkscrew"
-                : state.stack
-                  ? "stack"
-                  : state.lab
-                    ? "lab"
-                    : "fleet";
   // A pick in its fade lights its target at once, so a second click (Fleet included) retargets it.
-  const scene: Scene = state.pendingScene ?? inPlay;
+  const scene: Scene = state.pendingScene ?? sceneInPlay(state);
   const toggleScene = {
     derby: () => engine.current?.toggleDerby(),
     race: () => engine.current?.toggleRace(),

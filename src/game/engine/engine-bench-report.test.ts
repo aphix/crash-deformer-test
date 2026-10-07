@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench.ts";
+import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench-report.ts";
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
 const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS });

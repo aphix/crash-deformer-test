@@ -16,12 +16,11 @@ import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
 import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
-import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { celStrength } from "../present/scene-fade.ts";
-import { EngineHud } from "./engine-hud.ts";
+import { EngineDerby } from "./engine-derby.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
 const _v = new THREE.Vector3();
@@ -47,10 +46,10 @@ const LAB_FOV = 60;
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
 
 /**
- * Scenes: switching between the fleet, the rigs, the derby and the race, resetting and spawning the field, the
- * derby's netplay mirror and the fleet disc's edge.
+ * Scenes: switching between the fleet, the rigs, the derby and the race, resetting and spawning the field and the
+ * fleet disc's edge.
  */
-export abstract class EngineScenes extends EngineHud {
+export abstract class EngineScenes extends EngineDerby {
   /** The corkscrew's car this run: not yet flown, in the air, or down again (`EngineRigs.watchCorkscrew`). */
   protected corkFlight: "ground" | "air" | "down" = "ground";
 
@@ -280,24 +279,6 @@ export abstract class EngineScenes extends EngineHud {
     this.setScene("derby");
   }
 
-  protected setDerby(on: boolean): void {
-    if (on) this.sceneId = "derby";
-    else if (this.sceneId === "derby") this.sceneId = "fleet";
-    this.arena.visible = on;
-    for (const p of this.poles) p.group.visible = !on;
-    if (on) {
-      this.barrier.group.visible = false;
-      this.ramps.group.visible = false;
-      if (this.clock.userTimeScale == null) {
-        this.clock.timeScale = 1;
-        this.clock.targetScale = 1;
-      }
-    } else {
-      this.derby.end();
-      this.winnerSpot.off();
-    }
-  }
-
   /** Race scene on / off (scene picker, X). */
   toggleRace(): void {
     this.setScene("race");
@@ -516,96 +497,6 @@ export abstract class EngineScenes extends EngineHud {
     this.parkExtras();
     this.arena.visible = true;
     for (const p of this.poles) p.group.visible = false;
-  }
-
-  /** Netplay host: this derby as clients render it (null outside derby mode). */
-  protected derbyNetState(): DerbyNetState | null {
-    if (!this.derbyMode) return null;
-    const d = this.derby;
-    let seats = 0;
-    for (const i of this.derbySeated) seats |= 1 << i;
-    return {
-      round: this.derbyRound,
-      active: d.active,
-      time: d.time,
-      hold: d.hold,
-      radius: this.derbyR,
-      winnerId: d.winnerId,
-      winnerName: d.winnerName,
-      decided: d.decided,
-      lobby: null,
-      seats,
-      board: d.board,
-    };
-  }
-
-  /**
-   * Netplay client: the host's derby as car `self` (null: leave derby mode). The board, clock and result
-   * are shown as they are, never stepped. A new match drives this peer's car if the host seated it;
-   * otherwise (joined mid-match, or a lobby) it watches the field until the next one.
-   */
-  protected applyNetDerby(s: DerbyNetState | null, self: number): void {
-    if (!s) {
-      if (this.derbyMode) {
-        this.setDerby(false);
-        this.randomizeAndReset();
-      }
-      this.emitHud();
-      return;
-    }
-    if (!this.derbyMode) {
-      if (this.race.active) this.setRace(false);
-      this.setDerby(true);
-      this.emitHud();
-    }
-    if (s.radius !== this.derbyR) {
-      this.derbyR = s.radius;
-      this.arena.scale.set(s.radius / DERBY_RADIUS, 1, s.radius / DERBY_RADIUS);
-    }
-    const seated = self >= 0 && ((s.seats >>> self) & 1) === 1;
-    for (const r of s.board) {
-      if (r.id === self && seated) r.name = "You";
-      else if (r.id === 0) r.name = "Host";
-    }
-    const d = this.derby;
-    d.active = s.active;
-    d.time = s.time;
-    d.hold = s.hold;
-    d.decided = s.decided;
-    d.board = s.board;
-    d.winnerId = s.winnerId;
-    d.winnerName = s.winnerId == null ? null : (s.board.find((r) => r.id === s.winnerId)?.name ?? s.winnerName);
-    if (s.round === this.derbyRound) return;
-    this.derbyRound = s.round;
-    if (seated) {
-      this.seat.focus(self);
-      this.seat.mode = "drive";
-      this.seat.boost = 1;
-      return;
-    }
-    const watch = s.board.find((r) => r.alive && r.id !== self);
-    if (watch) this.seat.focus(watch.id);
-    else this.seat.clear();
-  }
-
-  /** Netplay host's public derby: the lobby (a `field`-car field parked, no match), or a fresh match seating every peer. */
-  protected netDerbyMatch(start: boolean, field: number): void {
-    if (this.race.active) this.setRace(false);
-    if (!this.derbyMode) this.setDerby(true);
-    if (this.carCount < field) this.ensureCars(field);
-    this.randomizeAndReset();
-    if (start) {
-      this.seat.focus(0);
-      this.seat.mode = "drive";
-      this.seat.boost = 1;
-    } else {
-      this.derby.end();
-      for (const car of this.live()) {
-        car.velocity.set(0, 0, 0);
-        car.speed = 0;
-      }
-    }
-    this.emitHud();
   }
 
   /** One car parked at the origin facing +Z, everything else put away. */
