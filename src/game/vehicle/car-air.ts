@@ -92,6 +92,8 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
 });
 /** A body at rest lifts out of its belly's depth in the ground by at most this (m) a slice: a body that has stopped on its belly can't pump energy, it only settles on it. */
 export const REST_LIFT = 0.02;
+/** A body held by its tyre springs alone stands this far (m) above their static balance before it is falling, not at rest. */
+const REST_HANG = 0.002;
 /** A wheel this close (m) to the ground counts as down. */
 export const TOUCH = 0.03;
 /** How far (m) a wheel's tread may be off a surface for a spawn's first slice to lay the body on it (`DeformableCar.laying`): a bank's low side. */
@@ -715,6 +717,22 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
 }
 
 /**
+ * How far (m) the tyres in their springs (`SOFT`, the first `tyres` contacts) are pressed past where their springs, each pushing its
+ * quarter of the weight at the rest ride plus `stiff` per metre, carry exactly the body's weight: the lift that puts a body frozen
+ * at rest back on its rest ride (the slice's gravity drop is the whole of it). Negative while the body stands above it.
+ */
+function sprungSag(tyres: number, stiff: number): number {
+  let held = 0;
+  let pressed = 0;
+  for (let c = 0; c < tyres; c++) {
+    if (!SOFT[c]) continue;
+    held++;
+    pressed += PRESS[c]!;
+  }
+  return held === 0 ? 0 : (pressed + ((held - 4) * G) / (4 * stiff)) / held;
+}
+
+/**
  * One slice of a rigid body's flight for `car` (`velocity` is its centre of mass's, `angular` its world spin): the four
  * wheels' footprints (`wheelContact`) and the hull's points meet the surfaces under them through impulses. Returns true
  * when it is back on its wheels: three of them on the world's ground (the caller hands it to the pose-following step).
@@ -892,7 +910,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   for (let c = 0; c < tyres; c++) {
     if (!SOFT[c]) continue;
     pointVel(c, v, w, _vp);
-    const rate = N[c]!.y > 0 ? -_vp.dot(N[c]!) / N[c]!.y : 0;
+    const rate = N[c]!.y > 0 ? -_vp.dot(N[c]!) / N[c]!.y - 0.5 * G * dt : 0;
     ASK[c] = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
   }
   for (let c = 0; c < tyres; c++) {
@@ -1069,10 +1087,12 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // row, its centre 7 cm past it and its front row 25 mm off the windscreen, and the column built on it fell.
   let up = 0;
   for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
-  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n)) {
+  const stands = n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n);
+  const sag = stands ? sprungSag(tyres, stiff) : 0;
+  if (stands && (n > tyres || sag > -REST_HANG)) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
-    _com.y += Math.min(under, REST_LIFT);
+    _com.y += Math.min(Math.max(under, sag), REST_LIFT);
   }
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   // What the body touches now: each wheel's tread gap moved by the lift. No wheel within its springs' reach and no hull point
