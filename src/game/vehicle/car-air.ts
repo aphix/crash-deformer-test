@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, HIT_SIZE, MU_TYRE, patchOf, pointContact, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, wheelContact } from "../world/surfaces.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -115,6 +115,19 @@ const REST_W = 0.3;
 const REST_UP = 0.97;
 /** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
 const CONTACT_HZ = 480;
+/** How far (m) past its own approach a body point may be in a face and still have come down onto it (`fromSide`). */
+const STAND_SLOP = 0.005;
+
+/**
+ * Whether a body point `sink` m in a face (along the face's normal), moving at `vn` m/s along that normal (closing < 0), reached
+ * it from the side in a slice of `dt` s: deeper than its own approach explains, it crossed the face's wall (a wedge's end or
+ * flank), it did not come down onto the face. Over a ground with walls, `stepFree` takes no contact from such a hull point and
+ * the wall (`FleetRamps.contact`) parts it: lifted out by its depth, a front bumper crossing a wedge's end 0.117 m under its top
+ * raised the body 0.113 m in one slice (fleet-ramps D1).
+ */
+export function fromSide(sink: number, vn: number, dt: number): boolean {
+  return sink > STAND_SLOP + Math.max(0, -vn) * dt;
+}
 
 const _r = new THREE.Vector3();
 const _com = new THREE.Vector3();
@@ -624,6 +637,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const within = spring + TOUCH;
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
+  const walls = groundWalls();
   // A driven car with a wheel on a surface, the world's ground or another car's top alike, travels as its drive takes it, as on its
   // wheels (`stepPlane`): the faces lift and turn it but neither push it along nor drag it (no friction on the world: the drive grips).
   // A rear tyre meeting a ramp's toe at 30° with the front in the air turned its travel 2-3° through the face's slope and the tyre's
@@ -692,6 +706,11 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     if (gy === NO_FLOOR) continue;
     const pen = gy - py;
     if (pen <= 0) continue;
+    // Over a ground with walls a hull point deeper in the world's face than its own approach came from the side: the wall parts it.
+    if (walls && i < HULL.length && HIT[C_OWNER]! < 0) {
+      _vp.crossVectors(w, r).add(v);
+      if (fromSide(pen * HIT[C_NY]!, _vp.x * HIT[C_NX]! + _vp.y * HIT[C_NY]! + _vp.z * HIT[C_NZ]!, dt)) continue;
+    }
     bodyContact(surf, n, HIT, pen, i < HULL.length, q, v, w);
     n++;
   }

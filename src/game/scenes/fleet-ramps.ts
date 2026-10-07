@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { HULL } from "../vehicle/car-air.ts";
+import { COM_Y, fromSide, HULL } from "../vehicle/car-air.ts";
 import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import { DISC_RADIUS, Ground, STEP_UP } from "../world/ground.ts";
@@ -57,6 +57,9 @@ const STRIPS: readonly (readonly [number, number, number])[] = [
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _p = new THREE.Vector3();
+const _r = new THREE.Vector3();
+const _v = new THREE.Vector3();
+const _up = new THREE.Vector3();
 const _face = makeBox();
 
 export class FleetRamps extends Ground {
@@ -155,11 +158,11 @@ export class FleetRamps extends Ground {
       const { x, z } = wheel.position;
       const r = TYRE_R * wheel.scale.x;
       const hw = TREAD_HALF * wheel.scale.x;
-      for (const sx of SIGNS) for (const sz of SIGNS) this.probe(car, x + sx * hw, 0, z + sz * r);
+      for (const sx of SIGNS) for (const sz of SIGNS) this.probe(car, x + sx * hw, 0, z + sz * r, false, dt);
     }
-    for (let i = 4; i < HULL.length; i++) this.probe(car, HULL[i]![0], HULL[i]![1], HULL[i]![2]);
+    for (let i = 4; i < HULL.length; i++) this.probe(car, HULL[i]![0], HULL[i]![1], HULL[i]![2], car.rigid, dt);
     const lift = CLASSES[carClass(car)].lift;
-    for (const [x, z, h] of UNDERSIDE) this.probe(car, x, h + lift, z);
+    for (const [x, z, h] of UNDERSIDE) this.probe(car, x, h + lift, z, false, dt);
     if (this.pen <= 0) return null;
     const { nx, nz } = this;
     const closing = Math.max(0, -(car.velocity.x * nx + car.velocity.z * nz));
@@ -174,17 +177,28 @@ export class FleetRamps extends Ground {
   /**
    * One car-local point against the wedges: if it is inside a wedge's footprint and not standing on its face (the one rule
    * `heightAt` answers: the face within its strip's reach above the point) it is in the wall; the deepest such point so far
-   * becomes `contact`'s push.
+   * becomes `contact`'s push. A rigid body's (`stepFree`) hull point (`hull`) is in the wall too while it is deeper in the face
+   * than its own approach this slice (`dt` s) explains (`fromSide`, by which `stepFree` takes no contact from it).
    */
-  private probe(car: DeformableCar, x: number, y: number, z: number): void {
-    _p.set(x, y, z).applyQuaternion(car.group.quaternion).add(car.group.position);
+  private probe(car: DeformableCar, x: number, y: number, z: number, hull: boolean, dt: number): void {
+    const q = car.group.quaternion;
+    _p.set(x, y, z).applyQuaternion(q).add(car.group.position);
     const u = _p.x * this.ax + _p.z * this.az;
     const v = _p.x * this.az - _p.z * this.ax;
     const side = RAMP.halfW - Math.abs(v);
     const back = Math.abs(u) - RAMP.start;
     if (side < 0 || back < 0 || back > RAMP.len) return;
     const over = Math.min(side, back);
-    if (over <= this.pen || this.heightAt(_p.x, _p.z, _p.y) > 0) return;
+    if (over <= this.pen) return;
+    const h = this.heightAt(_p.x, _p.z, _p.y);
+    if (h > 0) {
+      if (!hull) return;
+      this.normalAt(_p.x, _p.z, _up, _p.y);
+      // The point's velocity: the rigid body's centre's (`velocity`) and its spin about it.
+      _r.subVectors(_p, car.group.position).sub(_v.set(0, COM_Y, 0).applyQuaternion(q));
+      _v.crossVectors(car.angular, _r).add(car.velocity);
+      if (!fromSide((h - _p.y) * _up.y, _v.dot(_up), dt)) return;
+    }
     this.pen = over;
     _c.set(_p.x, _p.y + 0.4, _p.z);
     // The wall's face: a side's plane `RAMP.halfW` off the slab's axis along the wedge, or the back's against the slab's end across it.
