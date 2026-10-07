@@ -207,7 +207,7 @@ export class CarSurfaces extends Surface {
     return j;
   }
 
-  /** The impulse `jn·ny` (per unit mass) the stepping car pressed on car `own` through the contact. */
+  /** The impulse `jn·ny` (per unit mass) the stepping car pressed on car `own` through the contact: the car pressed hardest carries it (`restsOn`). */
   press(own: number, j: number): void {
     this.react[own]! += j;
   }
@@ -226,7 +226,7 @@ export class CarSurfaces extends Surface {
     return this.yielded[slot] !== 0;
   }
 
-  /** The slice ends: yielding slots sink by their deepest contact, and the cars carried take the weight pressed on them. Returns whether any slot yielded. */
+  /** The slice ends: yielding slots sink by their deepest contact, and the car pressed hardest (else any touched) carries the stepping car. Returns whether any slot yielded. */
   commit(): boolean {
     const self = this.self!;
     let any = false;
@@ -252,9 +252,6 @@ export class CarSurfaces extends Surface {
         top = j;
         self.restsOn = o;
       }
-      // The car under takes the push where its own contacts move it (the rigid step): one on another's roof is on its wheels, not in
-      // the air, and skipping it there dropped every load but its rider's from a stack's bottom roof (0.024 m under 1, 2 or 3 cars).
-      if (o.rigid) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
     }
     if (self.restsOn === null) {
       for (let i = 0; i < this.cars.length; i++) {

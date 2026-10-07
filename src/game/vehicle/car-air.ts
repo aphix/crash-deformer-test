@@ -186,6 +186,13 @@ const SUMF = new Float64Array(CONTACTS);
 const CLOSE = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the belly resting on the world's ground (it only resists, see `stepFree`). */
 const UNDER = Array.from({ length: CONTACTS }, () => false);
+/**
+ * Per contact: the car whose top it is on when that car is in the rigid step (null: the world's ground, or a car its wheels or its
+ * masses hold, which stays put), that car's arm to the point from its centre of mass, and the stepping car's mass over its.
+ */
+const HELD = Array.from({ length: CONTACTS }, (): DeformableCar | null => null);
+const ARM = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
+const RATIO = new Float64Array(CONTACTS);
 /** Per belly point (`POINTS` index) this slice: its world position, its rise (surface height less its own) and its patch (`patchOf`). */
 const BX = new Float64Array(POINTS.length);
 const BY = new Float64Array(POINTS.length);
@@ -198,7 +205,7 @@ const _s = new THREE.Vector3();
 const HIT = new Float64Array(HIT_SIZE);
 
 /** Contact `n`, a body point at `R[n]` from the centre `pen` m under the surface in `hit` (`pointContact`): `hull` a crushable hull point, else the belly. */
-function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: number, hull: boolean, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3): void {
+function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: number, hull: boolean, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, mass: number): void {
   const own = hit[C_OWNER]!;
   N[n]!.set(hit[C_NX]!, hit[C_NY]!, hit[C_NZ]!);
   TYRE[n] = false;
@@ -209,23 +216,71 @@ function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: numbe
   SLOT[n] = surf.slot(own, N[n]!, hull, q, FOLLOW[n]!);
   SOFT[n] = false;
   SINK[n] = pen * N[n]!.y;
-  CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
+  carrier(surf, n, own, mass);
+  CLOSE[n] = pointVel(n, v, w, _vp).dot(N[n]!) < 0;
 }
 
-/** World inverse inertia (body orientation `q`, its inverse in `_qi`) applied to `x` in place. */
-function invInertia(x: THREE.Vector3, q: THREE.Quaternion): THREE.Vector3 {
-  return x.applyQuaternion(_qi).multiply(INV_I).applyQuaternion(q);
+/** Contact `n` (its arm `R[n]` set) on car `own`'s top (-1: the world's ground): the car that takes its reaction (`HELD`), for a stepping car of `mass`. */
+function carrier(surf: CarSurfaces, n: number, own: number, mass: number): void {
+  const o = own >= 0 ? surf.cars[own]! : null;
+  if (o === null || !o.rigid) {
+    HELD[n] = null;
+    return;
+  }
+  HELD[n] = o;
+  RATIO[n] = mass / o.deform.totalMass;
+  ARM[n]!.copy(_com).add(R[n]!).sub(o.group.position).sub(_r.set(0, COM_Y, 0).applyQuaternion(o.group.quaternion));
+}
+
+/** World inverse inertia (body orientation `q`, its inverse `qi`) applied to `x` in place. */
+function invInertia(x: THREE.Vector3, q: THREE.Quaternion, qi: THREE.Quaternion): THREE.Vector3 {
+  return x.applyQuaternion(qi).multiply(INV_I).applyQuaternion(q);
 }
 
 /** Impulse `j` along unit `dir` at `r` (from the centre of mass) on unit mass `v`, `w`. */
 function push(v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion, r: THREE.Vector3, dir: THREE.Vector3, j: number): void {
   v.addScaledVector(dir, j);
-  w.addScaledVector(invInertia(_rn.crossVectors(r, dir), q), j);
+  w.addScaledVector(invInertia(_rn.crossVectors(r, dir), q, _qi), j);
 }
 
-/** Unit-mass impulse per m/s of point speed along unit `dir` at `r`: 1 / (1 + dir · (I⁻¹(r × dir) × r)). */
-function reach(r: THREE.Vector3, dir: THREE.Vector3, q: THREE.Quaternion): number {
-  return 1 / (1 + _k.crossVectors(invInertia(_rn.crossVectors(r, dir), q), r).dot(dir));
+const _ov = new THREE.Vector3();
+const _qo = new THREE.Quaternion();
+/** Contact `c`'s point velocity on the stepping body (`v`, `w`) against its surface, into `out`: the top of a car in the rigid step moves with that car. */
+function pointVel(c: number, v: THREE.Vector3, w: THREE.Vector3, out: THREE.Vector3): THREE.Vector3 {
+  out.crossVectors(w, R[c]!).add(v);
+  const o = HELD[c];
+  if (o !== null) out.sub(_ov.crossVectors(o.angular, ARM[c]!).add(o.velocity));
+  return out;
+}
+
+/**
+ * Impulse `j` along unit `dir` at contact `c` on the stepping body (unit mass `v`, `w`, orientation `q`), and its reaction at the same
+ * point on the car under it (`HELD`), centre and spin both. Taken at that car's centre alone, a load off the middle of its roof never
+ * turned it, and a car turning back under a still rider lifted it 48 mm in 0.1 s (329 J) on 54 J of its own spin.
+ */
+function give(c: number, v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion, dir: THREE.Vector3, j: number): void {
+  push(v, w, q, R[c]!, dir, j);
+  const o = HELD[c];
+  if (o === null) return;
+  const oq = o.group.quaternion;
+  const k = -j * RATIO[c]!;
+  o.velocity.addScaledVector(dir, k);
+  o.angular.addScaledVector(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), k);
+}
+
+/**
+ * Unit-mass impulse per m/s of contact `c`'s closing speed along unit `dir`: 1 / (1 + dir · (I⁻¹(r × dir) × r)) for the stepping body,
+ * the car under it (`HELD`) taking its share. Stopping the rider alone against a car of its own weight handed that car the whole
+ * closing speed: an elastic pair, and a stack whose cars never came to rest.
+ */
+function reach(c: number, dir: THREE.Vector3, q: THREE.Quaternion): number {
+  let k = 1 + _k.crossVectors(invInertia(_rn.crossVectors(R[c]!, dir), q, _qi), R[c]!).dot(dir);
+  const o = HELD[c];
+  if (o !== null) {
+    const oq = o.group.quaternion;
+    k += RATIO[c]! * (1 + _k.crossVectors(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), ARM[c]!).dot(dir));
+  }
+  return 1 / k;
 }
 
 /**
@@ -693,6 +748,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   _qi.copy(q).invert();
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   const y0 = pos.y;
+  const mass = car.deform.totalMass;
 
   const surf = beginContacts(car);
   const cls = carClass(car);
@@ -750,7 +806,8 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     SOFT[n] = sink < 0;
     SINK[n] = sink;
     PRESS[n] = pen;
-    CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
+    carrier(surf, n, own, mass);
+    CLOSE[n] = pointVel(n, v, w, _vp).dot(N[n]!) < 0;
     n++;
   }
   const tyres = n;
@@ -777,7 +834,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       _vp.crossVectors(w, r).add(v);
       if (fromSide(pen * HIT[C_NY]!, _vp.x * HIT[C_NX]! + _vp.y * HIT[C_NY]! + _vp.z * HIT[C_NZ]!, dt)) continue;
     }
-    bodyContact(surf, n, HIT, pen, i < HULL.length, q, v, w);
+    bodyContact(surf, n, HIT, pen, i < HULL.length, q, v, w, mass);
     n++;
   }
   // Between two belly points on different patches the belly meets that edge where it crosses (`edgeCross`, the tyres' rule): a car
@@ -794,7 +851,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, 0, 0, 0, 0, NaN, car.slot, BPATCH[a]!);
     if (!(pen > 0)) continue;
     R[n]!.set(EDGE_HIT[C_PX]! - _com.x, EDGE_HIT[C_PY]! - _com.y, EDGE_HIT[C_PZ]! - _com.z);
-    bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w);
+    bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w, mass);
     n++;
   }
 
@@ -803,7 +860,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // it off the column.
   for (let c = 0; c < tyres; c++) {
     if (!SOFT[c]) continue;
-    _vp.crossVectors(w, R[c]!).add(v);
+    pointVel(c, v, w, _vp);
     const rate = N[c]!.y > 0 ? -_vp.dot(N[c]!) / N[c]!.y : 0;
     ASK[c] = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
   }
@@ -839,7 +896,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
-      const r = R[c]!;
       const nrm = N[c]!;
       let jn: number;
       if (SOFT[c]) {
@@ -851,20 +907,20 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         if (pass > 0) continue;
         jn = ASK[c]!;
         if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
-        push(v, w, q, r, UP, jn);
+        give(c, v, w, q, UP, jn);
       } else {
-        const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
+        const vn = pointVel(c, v, w, _vp).dot(nrm);
         if (vn >= 0) continue;
         const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
-        jn = -(1 + e) * vn * reach(r, nrm, q);
+        jn = -(1 + e) * vn * reach(c, nrm, q);
         ACC[c] = ACC[c]! + jn;
-        push(v, w, q, r, nrm, jn);
+        give(c, v, w, q, nrm, jn);
       }
       if (rolling && OWN[c]! < 0) continue;
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) where it
       // rolls: on the world's ground and under power. A car in flight on another car's top is unpowered with its wheels not
       // turning under it, and a free-rolling tyre slid a car down the 8° of a pickup's bed at 0.38 m/s, for good: it grips both ways.
-      _vp.crossVectors(w, r).add(v);
+      pointVel(c, v, w, _vp);
       _vp.addScaledVector(nrm, -_vp.dot(nrm));
       if (TYRE[c] && (OWN[c]! < 0 || powered)) {
         _tn.copy(_x).addScaledVector(nrm, -_x.dot(nrm)).normalize();
@@ -874,7 +930,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       const slide = _vp.length();
       if (slide < 1e-6) continue;
       _tn.copy(_vp).divideScalar(-slide);
-      push(v, w, q, r, _tn, Math.min((TYRE[c] ? MU_TYRE : MU_BODY) * jn, slide * reach(r, _tn, q)));
+      give(c, v, w, q, _tn, Math.min((TYRE[c] ? MU_TYRE : MU_BODY) * jn, slide * reach(c, _tn, q)));
     }
     for (let c = 0; c < n; c++) if (FIRST[c] === c) SUMF[c] = 0;
     for (let c = 0; c < n; c++) if (FIRST[c]! >= 0) SUMF[FIRST[c]!] = SUMF[FIRST[c]!]! + ACC[c]!;
@@ -884,7 +940,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       if (f === c) DEMAND[c] = Math.max(DEMAND[c]!, SUMF[c]!);
       if (SUMF[f]! <= ROOM[f]!) continue;
       const cut = ACC[c]! * (1 - ROOM[f]! / SUMF[f]!);
-      push(v, w, q, R[c]!, N[c]!, -cut);
+      give(c, v, w, q, N[c]!, -cut);
       ACC[c] = ACC[c]! - cut;
     }
   }
