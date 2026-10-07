@@ -102,10 +102,12 @@ const BOUNCE_V = 1.5;
 const MU_BODY = 0.6;
 /** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
  *  (g / speed) is a tumble's, not a jump's, and the body turns freely. `NOSE_V` is also the speed from which a driven car keeps its
- *  travel through the world's faces (`stepFree`). */
+ *  travel through the world's faces (`stepFree`) and is launched by a ramp's face (`stepPlane`). */
 const NOSE_K = 6;
 const SPIN_TAU = 0.05;
 const NOSE_V = 6;
+/** Least rise (m per m of travel) of a face that launches a car riding off it on one axle (`launching`): a ramp, not a level edge. */
+const LAUNCH_RISE = 0.02;
 /** Below these speeds (m/s, rad/s) a body on three or more hull points is at rest (on two it can still tip), on ground
  *  whose mean up-normal is over `REST_UP` (cos 14°). */
 const REST_V = 0.15;
@@ -403,7 +405,8 @@ function bumped(mask: number): number {
  * comes to rest on what its tread meets, so a tyre on a lip or rolling off an edge holds its corner of the body as high as its hub
  * stands, not as high as the point it touches. Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that
  * holds the body up alone with two others (the lowest plane through three feet that leaves the fourth within its stop): a car on a
- * kerb's corner rests on three.
+ * kerb's corner rests on three. One axle's two wheels (a launch, `stepPlane`) give the plane through their two feet at the slope
+ * along the heading of the surface under them.
  */
 function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number): boolean {
   const p = car.group.position;
@@ -420,14 +423,11 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
   }
   if (mask === 3 || mask === 12) {
     const i = mask === 3 ? 0 : 2;
-    const j = i + 1;
-    const oi = i * HIT_SIZE;
-    const oj = j * HIT_SIZE;
-    const nx = hit[oi + C_NX]! + hit[oj + C_NX]!;
-    const ny = hit[oi + C_NY]! + hit[oj + C_NY]!;
-    const nz = hit[oi + C_NZ]! + hit[oj + C_NZ]!;
-    const a = -(nx * sy + nz * cy) / ny;
-    const b = (_hh[i]! - a * _u[i]! - (_hh[j]! - a * _u[j]!)) / (_wd[i]! - _wd[j]!);
+    const o = i * HIT_SIZE;
+    const nx = hit[o + C_NX]! + hit[o + HIT_SIZE + C_NX]!;
+    const nz = hit[o + C_NZ]! + hit[o + HIT_SIZE + C_NZ]!;
+    const a = -(nx * sy + nz * cy) / (hit[o + C_NY]! + hit[o + HIT_SIZE + C_NY]!);
+    const b = (_hh[i]! - a * _u[i]! - _hh[i + 1]! + a * _u[i + 1]!) / (_wd[i]! - _wd[i + 1]!);
     _pl[0] = _hh[i]! - a * _u[i]! - b * _wd[i]!;
     _pl[1] = a;
     _pl[2] = b;
@@ -448,10 +448,25 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
 }
 
 /**
+ * Whether the plane through one axle's feet (`restPlane`) launches `car`, facing (`sy`, `cy`): it rises along the car's travel by at
+ * least `LAUNCH_RISE` (a ramp's face, not a level edge the car rolls off) and the surface under the car's origin is within `reach` of it
+ * (the face goes on under its middle).
+ */
+function launching(car: DeformableCar, sy: number, cy: number, reach: number): boolean {
+  const v = car.velocity;
+  const along = v.x * sy + v.z * cy;
+  if (!(_pl[1]! * along > LAUNCH_RISE * Math.abs(along))) return false;
+  const p = car.group.position;
+  pointContact(p.x, p.z, _pl[0]!, car.slot, HIT);
+  return HIT[C_H]! >= _pl[0]! - reach;
+}
+
+/**
  * One slice of a driven car whose wheels stand on the world: its pose is the rest plane through their contacts (yaw kept),
  * its height follows that plane's height under its origin, climbing at the rate the plane rises along its travel and sinking
  * into its springs where the plane rose faster than the ground's push (`SUPPORT`) can follow. Returns false when fewer than
- * three wheels stand on the world: the caller hands it to the rigid step.
+ * three wheels stand on the world, unless one axle is launching the car off a ramp's face (`launching`): the caller hands it to the
+ * rigid step.
  */
 export function stepPlane(car: DeformableCar, dt: number): boolean {
   beginContacts(car);
@@ -472,8 +487,11 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   for (let pass = 0; pass < PASSES; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
     const ww = worldWheels(car, mask);
-    const axle = !!process.env.AXLE && ww === 2 && (mask === 3 || mask === 12) && v.lengthSq() > NOSE_V * NOSE_V;
-    if ((ww < 3 && !axle) || !restPlane(car, mask, yaw, spring) || (axle && process.env.AXLE === "2" && (pointContact(pos.x, pos.z, _pl[0]!, car.slot, HIT), !(HIT[C_H]! >= _pl[0]! - spring - TOUCH)))) {
+    // A jump's launch (arcade, as the nose follows the path in flight): above `NOSE_V` a car whose front wheels have left a ramp's lip
+    // rides its rear axle up the face, as on its wheels, until its middle is past the lip. Left to the rigid step, the rear axle carried
+    // its share alone: the front half fell at G/2 and the springs pitched the nose down (11 m/s: off the lip at 1.3 m/s up, not 2.7).
+    const axle = ww === 2 && (mask === 3 || mask === 12) && v.lengthSq() > NOSE_V * NOSE_V;
+    if ((ww < 3 && !axle) || !restPlane(car, mask, yaw, spring) || (axle && !launching(car, sy, cy, spring + TOUCH))) {
       // The body takes off from the pose this read was taken on: a tyre on a face's corner that the first pass's plane rolls off it
       // has no rest on that corner, and handed back the pose it had, the corner (risen under it meanwhile) sank the drawn tyre 6-13 cm.
       car.wheelsDown = mask;
@@ -695,7 +713,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     n++;
   }
 
-  if ("__dbg" in globalThis && globalThis.__dbg) for (let c = 0; c < n; c++) console.log(`  c${c} tyre ${+TYRE[c]!} soft ${+SOFT[c]!} own ${OWN[c]} press ${PRESS[c]!.toFixed(3)} sink ${SINK[c]!.toFixed(3)} ny ${N[c]!.y.toFixed(2)} close ${+CLOSE[c]!} local ${_r.copy(R[c]!).applyQuaternion(_qi).toArray().map((x) => x.toFixed(2))} v ${v.y.toFixed(2)} w ${w.x.toFixed(2)}`);
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const r = R[c]!;
