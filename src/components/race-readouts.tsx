@@ -110,7 +110,7 @@ export function Gauge({ view, corner, spectated = false }: { view: RaceView; cor
   const boost = view.boost;
   return (
     <>
-      <div className={cn("absolute bottom-4 right-4 hidden phone-landscape:bottom-2 phone-landscape:right-2 phone-landscape:block", corner && "md:block")}>
+      <div className={cn("absolute bottom-4 right-4 hidden phone-landscape:bottom-3 phone-landscape:right-2 phone-landscape:block", corner && "md:block")}>
         <DriveCluster view={view} boostable={!spectated} />
       </div>
       <div className={cn("flex flex-col items-end gap-1 phone-landscape:hidden", corner && "md:hidden")}>

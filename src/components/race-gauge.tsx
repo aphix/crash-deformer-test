@@ -113,7 +113,7 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
 /** The bottle as a button, on a touch screen only: holding it holds the thumb pad's Boost button (`usePadHold`), padded out to a finger's size around the small bottle. */
 function BoostHold({ children }: { children: ReactNode }) {
   return (
-    <button type="button" tabIndex={-1} aria-label="Nitrous bottle (hold to boost)" className="pointer-events-none -m-4 block touch-none select-none p-4 phone-landscape:pointer-events-auto" {...usePadHold(useEngine(), PAD_BUTTON.west)}>
+    <button type="button" tabIndex={-1} aria-label="Nitrous bottle (hold to boost)" className="pointer-events-none -mx-4.5 -mb-2 -mt-6 block touch-none select-none px-4.5 pb-2 pt-6 phone-landscape:pointer-events-auto" {...usePadHold(useEngine(), PAD_BUTTON.west)}>
       {children}
     </button>
   );
@@ -169,7 +169,7 @@ export function DriveCluster({ view, boostable }: { view: RaceView; boostable: b
       >
         <Wrench className="size-3/5" />
       </div>
-      <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)]">
+      <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)] phone-landscape:left-[66%] phone-landscape:top-[76%]">
         {boostable && view.boost !== null ? (
           <BoostHold>
             <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
