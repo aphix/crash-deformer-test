@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { sessionText } from "./session-text.ts";
-import type { NetStatus } from "../net/net-ports.ts";
+import type { NetStatus } from "./net-ports.ts";
 
 const guestInPrivateRoom: NetStatus = {
   role: "client",

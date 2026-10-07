@@ -1,5 +1,5 @@
 import { ROOM_MAX } from "../../lib/multiplayer/rooms.ts";
-import type { NetStatus } from "../net/net-ports.ts";
+import type { NetStatus } from "./net-ports.ts";
 
 /** A client's session problem as the online entry words it (net-play.ts `NetStatus.problem`). */
 const PROBLEM = {

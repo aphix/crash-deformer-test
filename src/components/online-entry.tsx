@@ -7,7 +7,7 @@ import { useLiveRooms, useNetStatus } from "@/components/use-live-rooms";
 import type { CrashEngine } from "@/game/engine/engine";
 import { leaveFollowUp } from "@/game/hud/online-leave";
 import { netDeepLink } from "@/game/hud/share-url";
-import { sessionText } from "@/game/hud/session-text";
+import { sessionText } from "@/game/net/session-text";
 import type { RaceHud } from "@/game/match/types";
 import type { OpenRoom } from "@/game/net/matchmaking";
 import { NET_TX, type NetTx } from "@/game/net/net-ports";
