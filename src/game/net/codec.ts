@@ -71,6 +71,9 @@ export const Q = {
   quat: 1 / Q_PER.quat,
 } as const;
 
+/** Numbers in a car's deform `impact` block (`DeformNetState.impact`): the hit, the wrinkle, buckle, squash and the roof's imprint. */
+const IMPACT = 12;
+
 /** Per-car array sizes, from `StreamedDeformation.netSizes()` and `DeformableCar.partNetSizes()`. */
 export interface NetLayout {
   masses: number;
@@ -156,7 +159,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
       skinPos: new Float32Array(L.masses * 3),
       skinXf: new Float32Array(L.clusters * 9),
       sensor: new Float32Array(L.sensors),
-      impact: new Float32Array(9),
+      impact: new Float32Array(IMPACT),
       popped: 0,
       skinPopped: 0,
       flags: 0,
@@ -326,7 +329,7 @@ export function writeWreck(w: Writer, f: CarFrame, L: NetLayout): void {
   w.q16s(d.skinPos, L.masses * 3, Q_PER.pos);
   w.q16s(d.skinXf, L.clusters * 9, Q_PER.xf);
   w.q16s(d.sensor, L.sensors, Q_PER.fine);
-  w.q16s(d.impact, 9, Q_PER.fine);
+  w.q16s(d.impact, IMPACT, Q_PER.fine);
   w.u32(d.popped);
   w.u32(d.skinPopped);
   w.u8(d.flags);
@@ -360,7 +363,7 @@ function readWreck(r: Reader, f: CarFrame, L: NetLayout): void {
   r.q16s(d.skinPos, L.masses * 3, Q.pos);
   r.q16s(d.skinXf, L.clusters * 9, Q.xf);
   r.q16s(d.sensor, L.sensors, Q.fine);
-  r.q16s(d.impact, 9, Q.fine);
+  r.q16s(d.impact, IMPACT, Q.fine);
   d.popped = r.u32();
   d.skinPopped = r.u32();
   d.flags = r.u8();

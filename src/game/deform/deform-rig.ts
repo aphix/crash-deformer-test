@@ -374,7 +374,7 @@ export abstract class DeformRig {
   /** Netplay: skin inputs as of the last bake (`bakeLocalSkin`), read by `readNetState`. Kept apart
    *  because the post-contact shape-rest rebase resets every cluster's `skinM` under a frozen skin. */
   protected netSkinXf = new Float64Array(0);
-  protected readonly netImpact = new Float64Array(9);
+  protected readonly netImpact = Float64Array.of(0, 0, 0, 0, 0, 0, 0, 0, 0, IMPRINT_NONE, 0, 0);
   protected netPopped = 0;
   protected netFlags = 0;
   /**
@@ -554,6 +554,7 @@ export abstract class DeformRig {
     for (const b of [this.endEbs2, this.cageCo, this.floorPre, this.floorPost, this.gripPost, this.hubStand, this.pose, this.spinHeld, this.strokeOut, this.massCornerW]) b.fill(0);
     for (const b of [this.goalX, this.goalY, this.goalZ, this.goalW, this.startX, this.startZ, this.turnX, this.turnZ, this.impulseW]) b.fill(0);
     for (const b of [this.massPos, this.clusterXf, this.netSkinXf, this.netImpact]) b.fill(0);
+    this.netImpact[9] = IMPRINT_NONE;
     this.goalView.fill(NaN);
   }
 

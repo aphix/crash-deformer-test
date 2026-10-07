@@ -133,7 +133,7 @@ export interface DeformNetState {
   readonly skinXf: Float32Array;
   /** sensors: compression (m). */
   readonly sensor: Float32Array;
-  /** 9: impactLocal xyz, impactInward xyz, wrinkle amplitude (ramp applied), buckle, squash. */
+  /** 12: impactLocal xyz, impactInward xyz, wrinkle amplitude (ramp applied), buckle, squash; the roof's imprint as drawn (height, rise along x, along z). */
   readonly impact: Float32Array;
   /** Bit i: masses[i] popped now (hubs are 16–19); wheels follow these. */
   popped: number;
@@ -472,11 +472,15 @@ export class StreamedDeformation extends DeformSolve {
     const extraCap = 0.03 + b * 0.08;
     const cap = shape ? 1.35 : 2.2;
     const roofClamp = !this.deepCrush && this.roofHolds();
+    // The roof's imprint (`DeformRig.imprint`) as drawn: no skin point stands over it, as no point of the top other cars stand on does.
+    const cutY = this.netImpact[9]!;
+    const cutX = this.netImpact[10]!;
+    const cutZ = this.netImpact[11]!;
     const kernel = skinKernel();
     const nor = geometry.getAttribute("normal") as THREE.BufferAttribute | undefined;
     if (kernel && geometry.index && nor && nor.count === attr.count && nor.array instanceof Float32Array) {
       // The kernel's loop is this one below, with `computeNormalsFast`: same bits out (skin-kernel.test.ts).
-      const d = (this.kernelIn ??= { X, co, pos, hubs: new Float64Array(this.masses.length * 5), params: new Float64Array(9) });
+      const d = (this.kernelIn ??= { X, co, pos, hubs: new Float64Array(this.masses.length * 5), params: new Float64Array(12) });
       const p = d.params;
       p[0] = wrinkles ? 1 : 0;
       p[1] = ampK;
@@ -487,6 +491,9 @@ export class StreamedDeformation extends DeformSolve {
       p[6] = iy;
       p[7] = iz;
       p[8] = shape ? 1 : 0;
+      p[9] = cutY;
+      p[10] = cutX;
+      p[11] = cutZ;
       this.fillKernelHubs(d.hubs);
       kernel.run((this.kernelSet ??= this.placeKernelTables(kernel, geometry.index.array, d)), d, arr, nor.array);
       attr.needsUpdate = true;
@@ -572,6 +579,8 @@ export class StreamedDeformation extends DeformSolve {
         pz = rz + tz * t;
       }
       if (roofClamp && ry > 1.05) py = THREE.MathUtils.clamp(py, ry - 0.1, ry + 0.08);
+      const cut = cutY + cutX * px + cutZ * pz;
+      if (py > cut) py = cut;
       const h = this.skinHub[i]!;
       if (h >= 0) {
         // Wheel arch: plant the paint at its rest offset from the hub (the hub's rest while the wheel
@@ -692,6 +701,10 @@ export class StreamedDeformation extends DeformSolve {
     this.wrinkleAmp = im[6]!;
     this.buckle = im[7]!;
     this.squash = im[8]!;
+    // The skin cuts the roof to the host's imprint as the host drew it.
+    this.netImpact[9] = im[9]!;
+    this.netImpact[10] = im[10]!;
+    this.netImpact[11] = im[11]!;
     // Saturates the wrinkle and lattice ramps: the host's value already carries its ramp.
     this.elapsed = Math.max(this.elapsed, 1);
     let maxC = 0;

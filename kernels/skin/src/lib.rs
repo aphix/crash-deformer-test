@@ -11,7 +11,7 @@ unsafe fn f(p: *const f64, i: usize) -> f64 {
 }
 
 // ---- skin: the vertex loop of StreamedDeformation.skin -------------------------------------------------------
-// params: [wrinkles(0/1), ampK, extraCap, cap, roofClamp(0/1), ix, iy, iz, shape(0/1)]
+// params: [wrinkles(0/1), ampK, extraCap, cap, roofClamp(0/1), ix, iy, iz, shape(0/1), cutY, cutX, cutZ (the roof's imprint plane)]
 // hubs: 5 per mass [popped(0/1), local.x, rest.x, local.z, rest.z] (the JS adds them in its own order)
 #[no_mangle]
 pub unsafe extern "C" fn skin_shape(
@@ -42,6 +42,7 @@ pub unsafe extern "C" fn skin_shape(
     let roof_clamp = f(params, 4) != 0.0;
     let (ix, iy, iz) = (f(params, 5), f(params, 6), f(params, 7));
     let shape = f(params, 8) != 0.0;
+    let (cut_y, cut_x, cut_z) = (f(params, 9), f(params, 10), f(params, 11));
     let mut r = 0usize;
     for i in 0..nverts {
         let rx = *rest.add(r) as f64;
@@ -132,6 +133,11 @@ pub unsafe extern "C" fn skin_shape(
             let lo = ry - 0.1;
             let hi = ry + 0.08;
             py = if py < lo { lo } else if py > hi { hi } else { py };
+        }
+        // The roof's imprint: no skin point stands over it.
+        let cut = cut_y + cut_x * px + cut_z * pz;
+        if py > cut {
+            py = cut;
         }
         let h = *skin_hub.add(i);
         if h >= 0 {
