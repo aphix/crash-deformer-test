@@ -763,30 +763,29 @@ export function contactIn(s: Surface, x: number, z: number, y: number, out: Floa
 // round tyre meets a lip with its arc, not only its lowest point), and the crown's two edges and both shoulders where the tread meets
 // the ground at its bottom (a rolled tyre stands on its low edge: `TYRE_PROFILE`, car-materials.ts). The whole tyre turns with the body,
 // so a rolled or pitched car's tread meets the ground where the drawn tyre does.
-const FOOT = 11;
+const ARC = [0, 0.25, -0.25, 0.5, -0.5, 0.785, -0.785];
+const SIDE = [0, 0.2, -0.2, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.0, -1.0, 1.2, -1.2, 1.4, -1.4, 1.5708, -1.5708];
+const FOOT = ARC.length + 2 + 2 * SIDE.length;
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
 const TYRE = 0.32;
-for (let k = 0; k < 5; k++) {
-  const a = (k - 2) * 0.25;
-  FY[k] = -TYRE * Math.cos(a);
-  FZ[k] = TYRE * Math.sin(a);
+for (let k = 0; k < ARC.length; k++) {
+  FY[k] = -TYRE * Math.cos(ARC[k]!);
+  FZ[k] = TYRE * Math.sin(ARC[k]!);
 }
-const EDGES: readonly (readonly [number, number])[] = [
-  [0.082, 0.314],
-  [-0.082, 0.314],
-  [0.104, 0.298],
-  [-0.104, 0.298],
-];
-for (let k = 0; k < EDGES.length; k++) {
-  FX[5 + k] = EDGES[k]![0];
-  FY[5 + k] = -EDGES[k]![1];
+FX[ARC.length] = 0.082;
+FY[ARC.length] = -0.314;
+FX[ARC.length + 1] = -0.082;
+FY[ARC.length + 1] = -0.314;
+for (let k = 0; k < SIDE.length; k++) {
+  for (let s = 0; s < 2; s++) {
+    const i = ARC.length + 2 + 2 * k + s;
+    FX[i] = s === 0 ? 0.104 : -0.104;
+    FY[i] = -0.298 * Math.cos(SIDE[k]!);
+    FZ[i] = 0.298 * Math.sin(SIDE[k]!);
+  }
 }
-FY[9] = -TYRE * Math.SQRT1_2;
-FZ[9] = -TYRE * Math.SQRT1_2;
-FY[10] = -TYRE * Math.SQRT1_2;
-FZ[10] = TYRE * Math.SQRT1_2;
 
 const _w = new Float64Array(HIT_SIZE);
 

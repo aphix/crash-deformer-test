@@ -510,7 +510,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const within = spring + TOUCH;
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
-  wheelsAt(car, within);
+  const rolling = !car.crashed && worldWheels(car, wheelsAt(car, within)) > 0;
+  const vx0 = v.x;
+  const vz0 = v.z;
   const hit = car.wheelHit;
   const cr = car.deform.crush;
   const crushed = cr[0] !== 0 || cr[1] !== 0 || cr[2] !== 0 || cr[3] !== 0 || cr[4] !== 0;
@@ -591,6 +593,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       }
       if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
       push(v, w, q, r, nrm, jn);
+      if (rolling && OWN[c]! < 0) continue;
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) where it
       // rolls: on the world's ground and under power. A car in flight on another car's top is unpowered with its wheels not
       // turning under it, and a free-rolling tyre slid a car down the 8° of a pickup's bed at 0.38 m/s, for good: it grips both ways.
@@ -621,6 +624,12 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       deep = SINK[c]!;
       _lift.copy(N[c]!).multiplyScalar(deep);
     }
+  }
+  if (rolling) {
+    v.x = vx0;
+    v.z = vz0;
+    _lift.x = 0;
+    _lift.z = 0;
   }
   _com.add(_lift);
   const yielded = surf.commit();
