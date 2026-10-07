@@ -7,6 +7,7 @@ import { droop, sagOffsets, Suspension } from "./car-suspension.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { assertSameNumbers, DT, paint } from "./test-support.ts";
+import { HIT_SIZE } from "../world/surfaces.ts";
 
 /**
  * A wreck missing wheels rests on the body corners where they were (and on the wheels it still has), as the drawn
@@ -125,8 +126,9 @@ describe("given a wreck's suspension that loses its front-left wheel and then it
     const s = new Suspension();
     const g = new THREE.Group();
     g.updateMatrixWorld(true);
+    const hit = new Float64Array(4 * HIT_SIZE);
     for (const gone of [1, 3]) {
-      for (let i = 0; i < 600; i++) s.step(g, [], "sedan", 0, false, false, gone, DT);
+      for (let i = 0; i < 600; i++) s.step(g, [], "sedan", 0, false, false, gone, hit, DT);
       const want = new Float64Array(4);
       sagOffsets(0, droop("sedan"), gone, want);
       assertSameNumbers(s.offset, want, `wheels gone ${gone}`, 1e-4);
