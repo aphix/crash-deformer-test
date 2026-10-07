@@ -506,18 +506,22 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   if (!car.crashed && car.airborne && sp2 > NOSE_V * NOSE_V) {
     // A driven car's nose follows its flight path (arcade): the path's own turn (gravity bends it) plus a pull that
     // closes the angle between them, while that angle is under 30° (sin 0.5); further off, the body tumbles
-    // freely. The roll about the nose stays free.
+    // freely. The roll about the nose stays free. The spin eases onto that turn over `SPIN_TAU`: set at once, it stepped
+    // 0.33 rad/s as the last tyre left its reach over the disc's rim (the origin's height popped 0.0031 m/frame²).
     _f.set(0, 0, 1).applyQuaternion(q);
     _b.crossVectors(_f, v).divideScalar(Math.sqrt(sp2));
     const off = _b.length();
     if (off < 0.5) {
       _a.crossVectors(v, GRAV).divideScalar(sp2);
       if (off > 1e-9) _a.addScaledVector(_b, (NOSE_K * Math.asin(off)) / off);
-      const roll = w.dot(_f);
-      w.copy(_a).addScaledVector(_f, roll - _a.dot(_f));
+      _a.addScaledVector(_f, w.dot(_f) - _a.dot(_f));
+      w.lerp(_a, 1 - Math.exp(-dt / SPIN_TAU));
     }
   }
+  // The centre moves at the slice's mean velocity under gravity, so its fall over a frame does not depend on how many slices cut it:
+  // stepped at the end velocity, the 480 Hz contact slices dropped it 0.17 mm a frame less than the plain ones, a pop where they switch.
   _com.copy(_r.set(0, COM_Y, 0).applyQuaternion(q)).add(pos).addScaledVector(v, dt);
+  _com.y += 0.5 * G * dt * dt;
   const spin = w.length();
   if (spin > 1e-9) q.premultiply(_dq.setFromAxisAngle(_axis.copy(w).divideScalar(spin), spin * dt));
   if (!car.crashed) {

@@ -367,8 +367,10 @@ export class DeformableCar extends CarParts {
   integrate(dt: number): void {
     if (this.vaporized) return;
     if (this.falling) {
-      this.velocity.y -= 9.6 * dt;
+      // At the slice's mean velocity under gravity, as the rigid step moves its centre (`stepFree`): no pop at the swap.
+      this.velocity.y -= G * dt;
       this.group.position.addScaledVector(this.velocity, dt);
+      this.group.position.y += 0.5 * G * dt * dt;
       const spin = this.fallSpin.length();
       if (spin > 1e-6) this.group.quaternion.premultiply(_qSpin.setFromAxisAngle(_n.copy(this.fallSpin).multiplyScalar(1 / spin), spin * dt));
       this.stepLooseParts(dt);
