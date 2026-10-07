@@ -664,7 +664,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       b = SEGS[s]!;
     }
     if (BRISE[a] === NO_FLOOR) continue;
-    const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, NaN, car.slot, BPATCH[a]!);
+    const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, 0, 0, 0, 0, NaN, car.slot, BPATCH[a]!);
     if (!(pen > 0) || (EDGE_HIT[C_OWNER]! < 0 && car.crashed)) continue;
     R[n]!.set(EDGE_HIT[C_PX]! - _com.x, EDGE_HIT[C_PY]! - _com.y, EDGE_HIT[C_PZ]! - _com.z);
     bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w);
