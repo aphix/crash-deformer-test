@@ -2,8 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DRIVER_CARS } from "../match/types.ts";
+import { RangeRun } from "../scenes/range.ts";
 import { ejectionVelocity } from "../vehicle/ejection.ts";
-import { apexOf, type Carry, type Control, deepest, displayFrames, type DriverCar, inCar, lowest, rangeThrow, type RangeThrow, restOf, travel } from "./range-run.test-util.ts";
+import { apexOf, type Carry, type Control, deepest, displayFrames, type DriverCar, inCar, lowest, rangeThrow, type RangeThrow, restOf, speeds, STILL, travel } from "./range-run.test-util.ts";
 
 /**
  * The ejection range (scenes/range.ts) at its defaults (its own spawn, 100 km/h, the HUD's squash, buckle, mode and
@@ -24,8 +25,7 @@ const DISPLAYS: [string, () => () => number][] = [
  * Sim seconds after the release by which he must lie still (`STILL`, for the rest of his 10 s life, `LIFE`): measured
  * 1.8–3.0 s over 294 runs (7 car types × 14 seeds × 60, 144 and 240 Hz, jittered with stalls), but 3 of the 98 at
  * 240 Hz took 3.1 s (hatchback and wagon alike) and 4.4 s: he lands on his feet, and under the settle damping (10 /s)
- * topples as slowly as in honey. The range runs again 1 s (`LANDED_STILL`) plus 3 wall s (`SHOW_LANDING`) after his
- * torso lies still.
+ * topples as slowly as in honey. The range runs again 3 wall s (`SHOW_LANDING`) after he settles on the ground.
  */
 const REST_BY = 6;
 /** The most his lowest body may be off the terrain while he lies still (m): he sags up to 1.8 cm into the sand under his weight (measured). */
@@ -114,6 +114,50 @@ describe("given the ejection range (the test course where one car crashes at 100
 
     it(`when a ${type.label} crashes at the range, then the dummy ends up lying still, on the terrain`, async () => {
       for (const [display, frames] of DISPLAYS) assert.deepEqual(unsettled(await runOf(type, display, frames)), [], `${type.id} at ${display}`);
+    });
+  }
+});
+
+/**
+ * The range's readout (`RangeRun`) fed every engine frame as the engine feeds it, against the thrown dummy's own
+ * bodies: the first frame every part of him is still (`STILL`'s speeds) with his lowest body on the terrain
+ * (`GROUND_TOL`) is when he lies at rest on the ground. Before the fix the readout waited for his torso to lie still
+ * 1 s, so it read FLYING over him lying motionless: 1.0 s for the monster truck's driver (the owner's shot).
+ */
+function readoutAtRest(type: DriverCar, frames: () => number): Promise<string[]> {
+  const range = new RangeRun();
+  const landed: boolean[] = [];
+  const shown: (number | null)[] = [];
+  const torso = new THREE.Vector3();
+  return rangeThrow(type, {
+    frame: (sys) => {
+      range.step(sys.latest(torso) >= 0, sys.latestSettled, torso.x, 1 / 60);
+      landed[landed.length] = range.landed;
+      shown[shown.length] = range.distance;
+    },
+  }, frames).then((run) => {
+    const rest = run.frames.findIndex((f) => speeds(f).v < STILL.v && speeds(f).w < STILL.w && Math.abs(lowest(f)) <= GROUND_TOL);
+    const at = landed.indexOf(true);
+    if (rest < 0) return ["rest: he never lies at rest on the ground"];
+    if (at < 0) return [`readout: FLYING to the end, he lies at rest from ${run.frames[rest]!.age.toFixed(2)} s`];
+    const bad: string[] = [];
+    const lag = run.frames[at]!.age - run.frames[rest]!.age;
+    if (lag > LANDED_LAG) bad.push(`readout: FLYING ${lag.toFixed(2)} s after he lies at rest on the ground`);
+    const final = run.frames.at(-1)!.p[0]!;
+    const last = shown.at(-1) ?? null;
+    if (last === null || Math.abs(last - final) > LANDED_TOL) bad.push(`distance: ${last?.toFixed(2)} m shown at the end, he lies at ${final.toFixed(2)} m`);
+    return bad;
+  });
+}
+/** Sim seconds the readout may still say FLYING after he lies at rest on the ground (a glance; the ragdoll settles a torso still for 0.25 s). */
+const LANDED_LAG = 0.25;
+/** How far (m) the readout's last distance may be from where his torso lies. */
+const LANDED_TOL = 0.05;
+
+describe("given the ejection range at its defaults, for every car type, at 60 and 240 Hz steady and jittered with stalls, with the readout counting the throw", () => {
+  for (const type of DRIVER_CARS) {
+    it(`when the ${type.label}'s thrown driver comes to rest on the ground, then the readout says LANDED at once, at the distance where he lies`, async () => {
+      for (const [display, frames] of DISPLAYS) assert.deepEqual(await readoutAtRest(type, frames()), [], `${type.id} at ${display}`);
     });
   }
 });

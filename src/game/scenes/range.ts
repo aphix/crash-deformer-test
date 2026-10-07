@@ -15,14 +15,12 @@ export const RANGE = {
   signs: 10,
 } as const;
 
-/** Sim seconds the dummy lies still before his distance counts as the landing. */
-const LANDED_STILL = 1;
 /** Wall seconds the landing stays on screen before a looping range runs again. */
 const SHOW_LANDING = 3;
 
 /** One range run's throw: the distance so far, the landing, and when to run again. */
 export class RangeRun {
-  /** Metres past the wall: live while the driver flies and slides, final once `landed`; null before the throw. */
+  /** Metres past the wall to his torso while he is out (a settled dummy can still topple onto his back); null before the throw. */
   distance: number | null = null;
   landed = false;
   private shown = 0;
@@ -34,13 +32,13 @@ export class RangeRun {
   }
 
   /**
-   * One frame: `still` is how long (sim s) the thrown driver has lain still, -1 while none is out; `x` his torso's
-   * x. True once the landing has been shown long enough for the next run.
+   * One frame: `out` while the thrown driver is out, `settled` once he lies settled on the ground (`RagdollSystem`'s
+   * own landing), `x` his torso's x. True once the landing has been shown long enough for the next run.
    */
-  step(still: number, x: number, wallDt: number): boolean {
-    if (still < 0) return false;
-    if (!this.landed) this.distance = x;
-    if (still >= LANDED_STILL) this.landed = true;
+  step(out: boolean, settled: boolean, x: number, wallDt: number): boolean {
+    if (!out) return false;
+    this.distance = x;
+    if (settled) this.landed = true;
     if (this.landed) this.shown += wallDt;
     return this.shown > SHOW_LANDING;
   }

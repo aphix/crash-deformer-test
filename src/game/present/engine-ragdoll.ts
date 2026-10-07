@@ -542,6 +542,12 @@ export class RagdollSystem {
     return d.still;
   }
 
+  /** The latest throw lies settled on the ground (`calm`): he has landed. */
+  get latestSettled(): boolean {
+    const d = this.dolls[this.lastSlot];
+    return d !== undefined && d.live && d.settled;
+  }
+
   /**
    * Place `camera` on the dummies being followed (`RideCam`'s shots): "none" when none is (the engine's own camera
    * runs), "held" when the user's orbit has the camera (`held`; the dummies are still tracked, no cut to another

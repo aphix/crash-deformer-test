@@ -257,7 +257,7 @@ function drift(f: Frame, g: Frame): { x: number; r: number } {
 }
 
 /** The fastest part's linear (m/s) and angular (rad/s) speed at frame `f`. */
-function speeds(f: Frame): { v: number; w: number } {
+export function speeds(f: Frame): { v: number; w: number } {
   let v = 0;
   let w = 0;
   for (let k = 0; k < PARTS.length; k++) {

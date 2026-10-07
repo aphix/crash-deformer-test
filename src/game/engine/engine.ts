@@ -663,7 +663,7 @@ export class CrashEngine extends EngineShare {
     // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the
     // fleet's, after any ride-along with thrown drivers.
     const still = this.showRange ? this.ragdolls.latest(_v) : -1;
-    const shown = this.showRange && this.rangeRun.step(still, _v.x, wallDt);
+    const shown = this.showRange && this.rangeRun.step(still >= 0, this.ragdolls.latestSettled, _v.x, wallDt);
     if (this.looping && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
   }
 
