@@ -763,7 +763,9 @@ export function contactIn(s: Surface, x: number, z: number, y: number, out: Floa
 // (`TYRE_PROFILE`, car-materials.ts: the crown, its two edges and both shoulders), each over its lower half in `STEPS` arcs a side. A
 // tyre rolling off a face's edge rests on the edge with whichever ring and arc still reach it, up to its hub's height, so its hub comes
 // down that arc as the drawn tyre does. The whole tyre turns with the body, so a rolled or pitched car's tread meets the ground where
-// the drawn tyre does.
+// the drawn tyre does. The first `BASE` points (every ring's bottom and the crown's arc to 45°) are the whole footprint where no
+// patch ends within the tyre's reach (`edgeIn`): over one patch's surface the rings' arcs add nothing (11 points against 85 is
+// 10-40 % of a 32-car derby's frame, measured).
 const RINGS: readonly (readonly [number, number])[] = [
   [0, 0.32],
   [0.082, 0.314],
@@ -773,17 +775,77 @@ const RINGS: readonly (readonly [number, number])[] = [
 ];
 const STEPS = 8;
 const FOOT = RINGS.length * (2 * STEPS + 1);
+const BASE = RINGS.length + 6;
+/** The crown's arcs (in steps either side) that the base footprint carries. */
+const CROWN = [1, 2, 4];
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
-for (let k = -STEPS; k <= STEPS; k++) {
+let _at = 0;
+function arc(ring: number, k: number): void {
   const a = (k / STEPS) * (Math.PI / 2);
-  for (let s = 0; s < RINGS.length; s++) {
-    const i = (k + STEPS) * RINGS.length + s;
-    FX[i] = RINGS[s]![0];
-    FY[i] = -RINGS[s]![1] * Math.cos(a);
-    FZ[i] = RINGS[s]![1] * Math.sin(a);
+  FX[_at] = RINGS[ring]![0];
+  FY[_at] = -RINGS[ring]![1] * Math.cos(a);
+  FZ[_at] = RINGS[ring]![1] * Math.sin(a);
+  _at++;
+}
+for (let s = 0; s < RINGS.length; s++) arc(s, 0);
+for (let c = 0; c < CROWN.length; c++) {
+  arc(0, CROWN[c]!);
+  arc(0, -CROWN[c]!);
+}
+for (let k = -STEPS; k <= STEPS; k++) {
+  for (let s = 0; s < RINGS.length; s++) if (k !== 0 && (s !== 0 || !CROWN.includes(Math.abs(k)))) arc(s, k);
+}
+/** How far (m at wheel scale 1, plan) a footprint point reaches from its hub, with a margin for the body's tilt. */
+const FOOT_REACH = 0.4;
+
+/** Whether patch `i` of `s` ends within `r` (m, plan) of (x, z) asked from height `y` (`skip`: the asking car's slot, as `offer`). */
+function endsNear(s: Surface, i: number, x: number, z: number, y: number, r: number, skip: number): boolean {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) return false;
+  const qo = i * Q_STRIDE;
+  const owner = s.q[qo + Q_OWNER]!;
+  // A car's top ends inside its grid (the plate is NaN past the body's plan).
+  if (owner >= 0) return owner !== skip;
+  const dx = x - P[o + P_OX]!;
+  const dz = z - P[o + P_OZ]!;
+  if (s.q[qo + Q_KIND] === DECK) {
+    const len = P[o + D_LEN]!;
+    const along = (dx * P[o + D_EX]! + dz * P[o + D_EZ]!) / len;
+    const lat = (dx * P[o + D_EZ]! - dz * P[o + D_EX]!) / len;
+    const side = P[o + D_HALF]! + (lat > 0 ? P[o + D_RUNR]! : P[o + D_RUNL]!);
+    return along < r || along > len - r || Math.abs(Math.abs(lat) - side) < r;
   }
+  const rad2 = P[o + P_RAD2]!;
+  if (rad2 > 0) return Math.abs(Math.sqrt(dx * dx + dz * dz) - Math.sqrt(rad2)) < r;
+  const dy = y > -1e9 && y < 1e9 ? y - P[o + P_OY]! : 0;
+  const lu = P[o + P_AX]! * dx + P[o + P_AX + 1]! * dy + P[o + P_AX + 2]! * dz;
+  const lv = P[o + P_CX]! * dx + P[o + P_CX + 1]! * dy + P[o + P_CX + 2]! * dz;
+  const u0 = P[o + P_U0]!;
+  const v0 = P[o + P_V0]!;
+  const u1 = u0 + (s.q[qo + Q_NU]! - 1) * P[o + P_STEP]!;
+  const v1 = v0 + (s.q[qo + Q_NV]! - 1) * P[o + P_STEPV]!;
+  if (lu < u0 - r || lu > u1 + r || lv < v0 - r || lv > v1 + r) return false;
+  return lu < u0 + r || lu > u1 - r || lv < v0 + r || lv > v1 - r;
+}
+
+/** Whether any patch of `s` ends within `r` (m, plan) of (x, z): every cell `r` reaches, and the patches every query tests. */
+function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: number): boolean {
+  for (let k = 0; k < s.nAlways; k++) if (endsNear(s, s.always[k]!, x, z, y, r, skip)) return true;
+  if (s.cellList.length === 0) return false;
+  const i0 = Math.max(0, Math.floor((x - r) / CELL) - s.cx0);
+  const i1 = Math.min(s.cnx - 1, Math.floor((x + r) / CELL) - s.cx0);
+  const j0 = Math.max(0, Math.floor((z - r) / CELL) - s.cz0);
+  const j1 = Math.min(s.cnz - 1, Math.floor((z + r) / CELL) - s.cz0);
+  for (let cj = j0; cj <= j1; cj++) {
+    for (let ci = i0; ci <= i1; ci++) {
+      const c = cj * s.cnx + ci;
+      for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) if (endsNear(s, s.cellList[k]!, x, z, y, r, skip)) return true;
+    }
+  }
+  return false;
 }
 
 const _w = new Float64Array(HIT_SIZE);
@@ -812,8 +874,13 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   out[C_PY] = hub[1]!;
   out[C_PZ] = hub[2]!;
   // Every footprint point asks from the hub's height, as a tread point of the drawn tyre does: a face lower than the hub is the ground
-  // the tyre sits in, a taller one is a wall.
-  for (let k = 0; k < FOOT; k++) {
+  // the tyre sits in, a taller one is a wall. The rings' arcs only where a patch ends within the tyre's reach.
+  const r = FOOT_REACH * scale;
+  const x = hub[0]!;
+  const z = hub[2]!;
+  const y = hub[1]!;
+  const n = (statics !== null && edgeIn(statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
+  for (let k = 0; k < n; k++) {
     const lx = FX[k]! * scale;
     const ly = FY[k]! * scale;
     const lz = FZ[k]! * scale;
