@@ -19,6 +19,8 @@ const DWELL = 1;
 /** A step's cost and a frame's demand join their running means at this weight, a sample counting for at most this many means: a hitch (a GC pause, a long frame) moves a mean a little, a slow device all the way. */
 const MEAN_WEIGHT = 0.1;
 const MEAN_CAP = 2;
+/** A clock that reads in ticks this long (ms) or longer cannot time a step (privacy-hardened Firefox and Tor round to 16.7 ms). */
+const BLIND_TICK_MS = 4;
 
 /**
  * The sim's clock against the frames'. Each frame's sim time (`simDt`) is stepped in whole slices of the same size, the
@@ -39,6 +41,10 @@ const MEAN_CAP = 2;
  * floor of the slice goes to 1/120 s: half the steps per sim second, the same sim speed on a device twice as slow. It comes back
  * when the fine steps would fit with room. The mode is chosen once per frame, before its first step, and held for `DWELL` sim
  * seconds; the cost is measured on the pacer's own steps, so a device that keeps up never leaves 1/240 s.
+ *
+ * A clock that reads in ticks of `BLIND_TICK_MS` or longer (two reads around a step came back equal, and no two reads ever differed
+ * by less) times no step: the adaptive floor holds 1/120 s and a frame is bounded by `MAX_STEPS` alone, never by the deadline, which
+ * such a clock passes on a tick rather than on the frame's spending.
  */
 export class SimPacer {
   /** Sim seconds still to step: at most `EPS` after a frame, below `-lastStep` when the frame ran dry. */
@@ -65,6 +71,10 @@ export class SimPacer {
   private cost = 0;
   private need = 0;
   private dwell = 0;
+  /** The shortest gap two of the pacer's clock reads have shown (ms), whether two ever read the same, and so whether the clock is too coarse to time a step. */
+  private tick = Infinity;
+  private repeats = false;
+  private blind = false;
   private readonly adaptive: boolean;
   private readonly now: () => number;
 
@@ -76,11 +86,12 @@ export class SimPacer {
 
   /**
    * One frame: `simDt` sim seconds (the frame's wall time at the time scale `scale`) in steps of `vmax`'s slice, each handed
-   * to `step`. `deadline` (a `now()` ms) ends the loop once two steps have run.
+   * to `step`. `deadline` (a `now()` ms) ends the loop once two steps have run, on a clock fine enough to time a step.
    */
   run(simDt: number, scale: number, vmax: number, deadline: number, step: (h: number) => void): void {
     const k = Math.min(1, Math.max(scale, MIN_SCALE));
     if (this.pin !== null) this.coarse = this.pin;
+    else if (this.adaptive && this.blind) this.coarse = true;
     else if (this.adaptive) this.choose(simDt / k, simDt / (physicsSlice(Infinity, vmax, FINE_SLICE) * k));
     // float32, as the highlight recorder stores it: a replay runs the live step.
     this.fine = Math.fround(physicsSlice(Infinity, vmax, FINE_SLICE) * k);
@@ -94,9 +105,13 @@ export class SimPacer {
       this.owed -= h;
       steps++;
       const t1 = this.now();
-      this.cost = smooth(this.cost, t1 - t);
+      const gap = t1 - t;
+      if (gap === 0) this.repeats = true;
+      else if (gap < this.tick) this.tick = gap;
+      this.blind = this.repeats && this.tick >= BLIND_TICK_MS;
+      this.cost = smooth(this.cost, gap);
       t = t1;
-      if (steps >= 2 && this.owed > EPS && t1 > deadline) break;
+      if (steps >= 2 && this.owed > EPS && t1 > deadline && !this.blind) break;
     }
     this.steps = steps;
     this.total += steps;

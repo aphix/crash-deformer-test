@@ -240,11 +240,13 @@ describe("given a car drawn between steps by the pose blend, where blending woul
 /**
  * A device on a virtual clock: each step costs `stepMs(t)` ms, each frame's draw `drawMs`, and a frame lands on the next vblank of an `hz`
  * display (what `.bench/phone-model.ts` runs on the real sim). The pacer's deadline is the engine's: `PACE_BUDGET_MS` from the frame's start.
+ * `tickMs` > 0 rounds every clock reading down to whole ticks of that size, as a privacy-hardened browser's `performance.now()` does.
  */
-function device(adaptive: boolean, stepMs: (t: number, n: number) => number, drawMs: number, hz: number, seconds: number, scale = 1, pin: boolean | null = null) {
+function device(adaptive: boolean, stepMs: (t: number, n: number) => number, drawMs: number, hz: number, seconds: number, scale = 1, pin: boolean | null = null, tickMs = 0) {
   let t = 0;
   let n = 0;
-  const pace = new SimPacer(adaptive, () => t);
+  const clock = () => (tickMs > 0 ? Math.floor(t / tickMs) * tickMs : t);
+  const pace = new SimPacer(adaptive, clock);
   pace.pin = pin;
   const period = 1000 / hz;
   let dt = period;
@@ -252,7 +254,7 @@ function device(adaptive: boolean, stepMs: (t: number, n: number) => number, dra
   const log: { at: number; sim: number; h: number }[] = [];
   while (t < seconds * 1000) {
     const t0 = t;
-    pace.run((dt / 1000) * scale, scale, FAST, t + PACE_BUDGET_MS, (h) => {
+    pace.run((dt / 1000) * scale, scale, FAST, clock() + PACE_BUDGET_MS, (h) => {
       t += stepMs(t, n++);
       stepped += h;
       log.push({ at: t, sim: stepped, h });
@@ -330,4 +332,37 @@ describe("given the adaptive pacer, which steps the sim at 1/120 s on a device t
     const free = device(true, () => 4.7, 9.4, 90, 8);
     assert.ok(free.pace.coarseSteps > 0 && free.speed > heavyFine.speed + 0.2, "unpinned: the adaptive pacer is back");
   });
+});
+
+describe("given the engine's pacer in a browser whose clock reads only in coarse ticks (privacy-hardened Firefox, Tor), so a step cannot be timed", () => {
+  const coarse = Math.fround(1 / 120);
+  const coarseClockCases = [
+    { it: "when the clock ticks every 16.7 ms and a step costs 1 ms, then the sim keeps real time in 1/120 s steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 1 },
+    { it: "when the clock ticks every 16.7 ms and a step costs 3 ms, then the sim keeps real time in 1/120 s steps and no frame is cut short", tickMs: 1000 / 60, stepMs: 3 },
+    { it: "when the clock ticks every 4 ms and a step costs 1 ms, then the sim keeps real time in 1/120 s steps and no frame is cut short", tickMs: 4, stepMs: 1 },
+    { it: "when the clock ticks every 4 ms and a step costs 3 ms, then the sim keeps real time in 1/120 s steps and no frame is cut short", tickMs: 4, stepMs: 3 },
+  ] as const;
+  for (const testCase of coarseClockCases) {
+    it(`${testCase.it} (4 ms of draw, a 90 Hz screen)`, () => {
+      const d = device(true, () => testCase.stepMs, 4, 90, 8, 1, null, testCase.tickMs);
+      assert.ok(d.speed > 0.99, `sim speed ${d.speed}`);
+      assert.equal(d.pace.cut, 0, `${d.pace.cut} frames cut short`);
+      assert.ok(d.log.slice(-200).every((e) => e.h === coarse), "settled at 1/120 s");
+    });
+  }
+
+  const fineClockCases = [
+    { it: "when the clock ticks every 0.1 ms and a step costs 0.05 ms, then it steps exactly as on an exact clock", stepMs: 0.05, drawMs: 4 },
+    { it: "when the clock ticks every 0.1 ms and a step costs 0.8 ms, then it steps exactly as on an exact clock", stepMs: 0.8, drawMs: 4 },
+    { it: "when the clock ticks every 0.1 ms and a step costs 4.7 ms with 9.4 ms of draw, then it steps exactly as on an exact clock", stepMs: 4.7, drawMs: 9.4 },
+  ] as const;
+  for (const testCase of fineClockCases) {
+    it(`${testCase.it} (a 90 Hz screen)`, () => {
+      const exact = device(true, () => testCase.stepMs, testCase.drawMs, 90, 8);
+      const ticked = device(true, () => testCase.stepMs, testCase.drawMs, 90, 8, 1, null, 0.1);
+      assert.equal(ticked.log.length, exact.log.length);
+      assert.ok(ticked.log.every((e, i) => e.h === exact.log[i]!.h && e.at === exact.log[i]!.at), "the same steps at the same times");
+      assert.equal(ticked.pace.cut, exact.pace.cut);
+    });
+  }
 });
