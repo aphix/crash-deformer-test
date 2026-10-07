@@ -446,6 +446,11 @@ export abstract class DeformHit extends DeformRig {
     this.lastPower = this.elapsed;
   }
 
+  /** The masses carry a crash (armed by a hit or a landing wreck, not bound kinematic since): a wreck flying off them goes back to them; a body crushed only by a load (`bakeLoadCrush`) never had them. */
+  get armed(): boolean {
+    return this.at.cell.dynamic;
+  }
+
   /**
    * Masses on without starting the crash cinematic (speed-bump hop, a wreck landing or struck in flight): each
    * where the group carries its `local` (a wreck's dents kept; `bindKinematic` keeps a driven car's at rest),

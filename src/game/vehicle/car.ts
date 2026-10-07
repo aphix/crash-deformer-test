@@ -411,7 +411,9 @@ export class DeformableCar extends CarParts {
       this.yaw = this.group.rotation.y;
       this.pitch = this.group.rotation.x;
       this.roll = this.group.rotation.z;
-      if (landed) {
+      // A wreck's masses take it back where it lands; a body crushed only by a load has none to go back to and rests on its contacts
+      // here: handed to masses, the bottom car of a stack stopped taking its roof's load (a wreck takes no load crush), 0.024 m under 1, 2 or 3 cars.
+      if (landed && (!this.crashed || this.deform.armed)) {
         this.land();
         // A driven car is laid on its wheels' rest plane in the slice it lands: left on the rigid body's tilt for that slice, its tyres sat
         // in their springs 2-2.5° off the plane through the three they touched.
