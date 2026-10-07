@@ -9,7 +9,7 @@ import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
-import { browserName, describeBench, DETAIL_ARMS, perSecond, stat, type BenchResult, type BenchSettings, type Block } from "./engine-bench-report.ts";
+import { browserName, describeBench, DETAIL_ARMS, perSecond, stat, type BenchResult, type BenchSettings, type Block, type PageEvent } from "./engine-bench-report.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
@@ -354,6 +354,44 @@ interface Window {
   thrown: number;
 }
 
+/** Page-state entries a run keeps (`watchPage`): far above the handful of tab switches a run sees; later changes are dropped. */
+const PAGE_CAP = 64;
+const PAGE_VISIBLE = 1;
+const PAGE_FOCUSED = 2;
+const PAGE_FULLSCREEN = 4;
+/** The page events that change what `watchPage` records: shown/hidden and fullscreen on the document, focus on the window. */
+const PAGE_DOC_EVENTS = ["visibilitychange", "fullscreenchange"] as const;
+const PAGE_WIN_EVENTS = ["focus", "blur"] as const;
+
+/**
+ * The page's state (shown, focused, fullscreen) from now until `stop`: one entry now and one at every change (`BenchResult.pageEvents`).
+ * Listeners, not per-frame reads: a hidden page draws no frames, so only its events see it go and come back. The listener writes into
+ * preallocated arrays (nothing allocates while the bench measures); `stop` builds the entries once the run is over.
+ */
+function watchPage(): { stop(): PageEvent[] } {
+  const t0 = performance.now();
+  const atS = new Float64Array(PAGE_CAP);
+  const flags = new Uint8Array(PAGE_CAP);
+  let n = 0;
+  const note = (): void => {
+    if (n === PAGE_CAP) return;
+    atS[n] = (performance.now() - t0) / 1000;
+    flags[n++] = (document.visibilityState === "visible" ? PAGE_VISIBLE : 0) | (document.hasFocus() ? PAGE_FOCUSED : 0) | (document.fullscreenElement !== null ? PAGE_FULLSCREEN : 0);
+  };
+  note();
+  for (const e of PAGE_DOC_EVENTS) document.addEventListener(e, note);
+  for (const e of PAGE_WIN_EVENTS) window.addEventListener(e, note);
+  return {
+    stop: () => {
+      for (const e of PAGE_DOC_EVENTS) document.removeEventListener(e, note);
+      for (const e of PAGE_WIN_EVENTS) window.removeEventListener(e, note);
+      const events: PageEvent[] = new Array(n);
+      for (let i = 0; i < n; i++) events[i] = { atS: atS[i]!, visible: (flags[i]! & PAGE_VISIBLE) !== 0, focused: (flags[i]! & PAGE_FOCUSED) !== 0, fullscreen: (flags[i]! & PAGE_FULLSCREEN) !== 0 };
+      return events;
+    },
+  };
+}
+
 /** The grid and the warm-up: frames with no samples until `plan.warmS` has run, of race clock from the green or of the Lab's sim. */
 async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, plan: BenchPlan): Promise<void> {
   const { renderer, race } = parts;
@@ -546,7 +584,7 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
   };
 }
 
-function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device"> {
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device" | "pageEvents"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -677,6 +715,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const t = tap(engine.pace, parts);
   const beat: Beat = { prev: await nextFrame(), lab: plan.lab ? { plan: plan.lab, origin: 0, first: 0, segment: -1, preset: null, thrown: false, throws: 0 } : null };
   await lead(engine, parts, t, beat, ui, plan);
+  const page = watchPage();
   const { s, w } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
   const top = [...s.tiers].sort((a, b) => b[1] - a[1])[0]?.[0] ?? parts.cine.tier;
@@ -695,11 +734,13 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   if (plan.lab) engine.setTimeScale(null);
 
   const gpu = await t.finish();
+  const pageEvents = page.stop();
   const abPace = blocksOf(pace, gpu);
   const abFx = blocksOf(fx, gpu);
   const device = await deviceOf(parts, timerStepMs);
   const result: BenchResult = {
     ...summarize(parts, plan, s, w, gpu.filter((g) => g.block === 0).map((g) => g.ms), setupMs),
+    pageEvents,
     strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM: leaderAhead(parts, plan) } : null,
     labThrown: plan.lab ? w.thrown : null,
     settings,

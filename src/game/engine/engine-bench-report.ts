@@ -58,6 +58,14 @@ export interface BenchSettings {
   depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
 }
 
+/** The page's state at `atS` (`BenchResult.pageEvents`). */
+export interface PageEvent {
+  atS: number;
+  visible: boolean;
+  focused: boolean;
+  fullscreen: boolean;
+}
+
 export interface BenchResult {
   course: string;
   /** The commit the page was built from ("dev": built without git). */
@@ -110,6 +118,12 @@ export interface BenchResult {
   /** Share of the window's frames at each distance-detail rung, % (keyed by the distance beyond which only the body is drawn; the governor moves it). */
   detailPct: Record<string, number>;
   setupMs: { options: number; start: number };
+  /**
+   * The page's state over the run, one entry at the window's start and one at every change after it (`atS`: seconds since the window
+   * began; past `wallS` the A/B arms run): shown on screen (not a background tab), the window focused, fullscreen. A hidden or
+   * unfocused page is throttled by the browser, so frames in those spans are not the device's speed.
+   */
+  pageEvents: PageEvent[];
   settings: BenchSettings;
   /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high (and ultra when the page asked: `&ultra=1`). */
   abPace: { fine: Block; coarse: Block };
