@@ -8,7 +8,7 @@ import { frame, makeWorld } from "./race-world.test-util.ts";
 const RUN_S = 40;
 
 describe("given an oval race with police on, whose player car the race AI drives while the seat only follows (a bench, a watched race)", () => {
-  it("when the player's car, a rival and a police car are each viewed, then the two racers show their driver's boost meter and the police car shows none", () => {
+  it("when the player's car, a rival and a police car are each viewed, then the two racers show their driver's boost meter and the police car a full bottle (police boost with no meter)", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -28,7 +28,7 @@ describe("given an oval race with police on, whose player car the race AI drives
         const m = meterOf(id);
         assert.ok(m !== null && m >= 0 && m <= 1, `car ${id} (${w.race.racers[id]!.kind}) shows meter ${m}`);
       }
-      assert.equal(meterOf(racers), null, "a police car has no nitrous");
+      assert.equal(meterOf(racers), 1, "a police unit's bottle is full");
     } finally {
       w.race.exit();
       setGround(null);

@@ -320,7 +320,7 @@ export class Reader {
 /** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part and wheel loose. */
 export function snapshotMaxBytes(n: number, L: NetLayout): number {
   const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + 18 + 13 + L.parts * 27 + 4 + L.wheels * 20;
-  return 17 + n * (28 + wreck);
+  return 17 + n * (29 + wreck);
 }
 
 /** A car's doubles staged for `f32s`/`q16s` (see `Writer.q16s`). */

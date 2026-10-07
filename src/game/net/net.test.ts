@@ -14,6 +14,7 @@ import {
   readInput,
   Reader,
   readSnapshot,
+  snapshotMaxBytes,
   writeDerby,
   writeInput,
   writeSnapshot,
@@ -110,7 +111,7 @@ describe("given a two-car network snapshot with every field filled in", () => {
     for (let c = 0; c < 2; c++) {
       const f = s.cars[c]!;
       // Car 0 a falling fake, car 1 vaporized with its sirens on: each flag must come back on its own car only.
-      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c });
+      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c, meter: c === 0 ? 0.4 : -1 });
       const d = f.deform;
       for (let i = 0; i < d.local.length; i++) d.local[i] = Math.sin(i * 1.7) * 2.2;
       for (let i = 0; i < d.skinPos.length; i++) d.skinPos[i] = Math.cos(i * 0.9) * 2.1;
@@ -159,6 +160,8 @@ describe("given a two-car network snapshot with every field filled in", () => {
       assert.equal(b.falling, c === 0);
       assert.equal(b.vaporized, c === 1);
       assert.equal(b.sirens, c === 1);
+      if (c === 0) assert.ok(Math.abs(b.meter - 0.4) <= 0.5 / 254, `meter ${b.meter}`);
+      else assert.equal(b.meter, -1, "a car with no nitrous reads back as none");
     }
     const a = s.cars[0]!;
     const b = got.cars[0]!;
@@ -188,6 +191,23 @@ describe("given a two-car network snapshot with every field filled in", () => {
     }
     // 17-byte header, 29-byte poses (body, meter, pose), a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
     assert.equal(w.off, 17 + 29 + (661 + 20 * 4 + 20 * 2) + 29);
+  });
+});
+
+describe("given two cars wrecked as far as a snapshot can carry: every part and wheel loose", () => {
+  it("when they are written, then the snapshot is exactly the most bytes snapshotMaxBytes allows (the recorder sizes its fixed buffers from it)", () => {
+    const s = makeSnapshot();
+    ensureFrames(s, 2, L);
+    s.count = 2;
+    for (let c = 0; c < 2; c++) {
+      const f = s.cars[c]!;
+      Object.assign(f, { crashed: true, wreck: true, meter: 0.5 });
+      f.parts.flags.fill(1);
+      f.parts.wheelLoose = (1 << L.wheels) - 1;
+    }
+    const w = new Writer();
+    writeSnapshot(w, s, L);
+    assert.equal(w.off, snapshotMaxBytes(2, L));
   });
 });
 
