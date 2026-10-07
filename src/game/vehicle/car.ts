@@ -32,6 +32,13 @@ export const FLIGHT_POSE = 6;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
+/** Each wheel's contact standing on level road, as built and at a spawn (`resetContact`): no lift, the normal up, full grip, the world's. */
+const STANDING = new Float64Array(4 * HIT_SIZE);
+for (let i = 0; i < 4; i++) {
+  STANDING[i * HIT_SIZE + C_NY] = 1;
+  STANDING[i * HIT_SIZE + C_GRIP] = 1;
+  STANDING[i * HIT_SIZE + C_OWNER] = -1;
+}
 
 export class DeformableCar extends CarParts {
   /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight); a body on its masses is in the air while they are (`aloft`). Drive and grip follow the wheels (`wheelsDown`), not this. */
@@ -49,7 +56,7 @@ export class DeformableCar extends CarParts {
   /** A hard hit is about to land: this car is closing on a fixed solid (the course's collide pass) or on another car (`markApproaches`), within a step or two of travel of it, or driving into it. Not state: derived again every step, read by `stepWorld` to cut the step. */
   nearHit = false;
   /** Each wheel's last contact (`wheelContact`, `HIT_SIZE` doubles per wheel, `WHEEL_POS` order): the lift it needs, normal, grip, surface and owner. */
-  readonly wheelHit = new Float64Array(4 * HIT_SIZE);
+  readonly wheelHit = STANDING.slice();
   /** The wheels within their springs' reach of a surface, bit i: wheel i (`WHEEL_POS` order). Drive and traction follow them. */
   wheelsDown = 15;
   /** Set at a spawn: the first slice lays the body on what its wheels reach within `LAY_REACH`, not only within their springs' travel (a spawn puts it level at the road's height, and a bank takes two wheels' ground far off that). */
@@ -316,12 +323,7 @@ export class DeformableCar extends CarParts {
     this.laying = true;
     this.restsOn = null;
     this.yielding = false;
-    this.wheelHit.fill(0);
-    for (let i = 0; i < 4; i++) {
-      this.wheelHit[i * HIT_SIZE + C_NY] = 1;
-      this.wheelHit[i * HIT_SIZE + C_GRIP] = 1;
-      this.wheelHit[i * HIT_SIZE + C_OWNER] = -1;
-    }
+    this.wheelHit.set(STANDING);
   }
 
   afterContacts(dt: number, bounce?: WorldBounce): void {
