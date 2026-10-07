@@ -661,9 +661,13 @@ export class DeformableCar extends CarParts {
 export function beginFakeFall(car: DeformableCar, spin?: THREE.Vector3): void {
   const d = car.deform;
   if (spin) car.fallSpin.copy(spin);
-  // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion.
+  // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion, or in the rigid step's
+  // (`velocity` there is its centre of mass's: the origin, `COM_Y` under it, moves by the spin too).
   else if (d.massActive) fitMasses(car, car.group.position, car.fallSpin);
-  else car.fallSpin.copy(car.angular);
+  else {
+    car.fallSpin.copy(car.angular);
+    if (car.rigid) car.velocity.sub(_v.crossVectors(car.angular, _p.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion)));
+  }
   d.massActive = false;
   car.falling = true;
 }
