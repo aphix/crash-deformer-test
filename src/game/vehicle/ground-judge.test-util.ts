@@ -6,7 +6,7 @@ import type { VehicleClassId } from "./vehicle-classes.ts";
 /**
  * The ground-fit drop matrix's judge, shared by every course's matrix (ground-fit.test.ts: ramps, stunt, rally; havana-fit.test.ts):
  * a car dropped 0.5 m onto each site at every heading, brake and handbrake held, must sit ON the ground, whatever the ground is: no
- * tyre sunk in it or hanging above it unless the hull is resting on it, no underside in it or in a wall, and on a smooth slope or
+ * tyre sunk in it, some tyre or the hull resting on it (not hanging over it), no underside in it or in a wall, and on a smooth slope or
  * bank the body as tilted as the ground under its hubs. Everything is read through `Ground.heightAt` (ground-probe.test-util.ts
  * `fit`). A new site is one line in a table; each group prints its whole matrix (`t.diagnostic`, a markdown table) and fails with a
  * one-line summary of the failing cells.
@@ -14,10 +14,10 @@ import type { VehicleClassId } from "./vehicle-classes.ts";
 
 /** A site's bounds. `edge` sites (a car across a ramp's side, over its back wall) have no smooth ground to follow. */
 type Bounds = {
-  /** Tyre clearance within ±this (m) of the ground: further below is sunk, further above floats. */
+  /** Tyre clearance within ±this (m) of the ground: further below is sunk; within it the tyre rests on the ground. */
   gap: number;
-  /** The hull is resting when some underside point is within this (m) of the ground: it is one of a floating car's three
-   *  supports (a tyre may hang while the others and the belly hold the body). */
+  /** The hull rests on the ground when some underside point is within this (m) of it. A car at rest with no tyre and no hull point
+   *  resting floats; one resting on its hull alone (high-centred across an edge, its tyres hanging) is held by it. */
   hull: number;
   /** Deepest underside point in the ground (m). */
   pen: number;
@@ -72,10 +72,9 @@ export function judge(kind: Kind, r: Cell): string[] {
   // A tyre turned `tilt` off the ground it stands on (a car across an edge) digs its outer tread shoulder `shoulder · sin(tilt)` in.
   const gap = b.gap + r.shoulder * Math.sin(r.tilt / DEG);
   if (r.gaps.some((g) => g < -gap)) flags.push("sunk");
-  // A tyre may hang (a twist or an edge beyond its springs' travel, the owner's "front non-ramp wheel lifted") when the
-  // car rests on three other supports: its other tyres on the ground and its belly on the feature.
-  const held = r.gaps.filter((g) => Math.abs(g) <= gap).length + (r.hull <= b.hull ? 1 : 0);
-  if (r.gaps.some((g) => g > gap) && held < 3) flags.push("float");
+  // At rest, the body is held by whatever rests on the ground: a tyre, or the hull (a belly across an edge with the tyres hanging, a
+  // keel on the floor). Nothing resting is a float.
+  if (!r.gaps.some((g) => Math.abs(g) <= gap) && !(r.hull <= b.hull)) flags.push("float");
   if (r.warp <= b.warp) {
     if (r.tilt > b.pose + r.spread) flags.push("tilt");
     if (planar(b, r) && Math.abs(r.pitch - r.groundPitch) > b.pose) flags.push("pitch");
