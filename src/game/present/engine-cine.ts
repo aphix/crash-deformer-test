@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { DRIVE } from "../vehicle/car-drive.ts";
@@ -175,7 +176,7 @@ export class CrashPick {
     const r = REACH[this.ri]!;
     if (this.i === 0) {
       crashEye(_eye, from + span / 2, this.at, this.axis, 1, r);
-      if (r < 1 && Math.hypot(_eye.x - this.at.x, _eye.z - this.at.z) < REACH_MIN) return this.nextCut();
+      if (r < 1 && hypot2(_eye.x - this.at.x, _eye.z - this.at.z) < REACH_MIN) return this.nextCut();
     }
     crashEye(_eye, from + (span * this.i) / (CUT_SAMPLES - 1), this.at, this.axis, 1, r);
     if (!camUsable(s, _eye, this.at, STILL, 0)) {
@@ -506,7 +507,7 @@ export class Cinematics {
     const n = Math.min(cars.length, this.pvx.length);
     for (let i = 0; i < n; i++) {
       const v = cars[i]!.velocity;
-      const dv = Math.hypot(v.x - this.pvx[i]!, v.z - this.pvz[i]!);
+      const dv = hypot2(v.x - this.pvx[i]!, v.z - this.pvz[i]!);
       this.pvx[i] = v.x;
       this.pvz[i] = v.z;
       this.hitCool[i] = Math.max(0, this.hitCool[i]! - wallDt);

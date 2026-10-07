@@ -1,7 +1,9 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
 import { guardContact } from "./contact-guard.ts";
-import { DERBY_RULES, personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
+import { DERBY_RULES, STUCK_SPEED, type AiCar } from "./derby-ai.ts";
+import { personality, type Personality } from "./personality.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "../world/track.ts";
@@ -254,7 +256,7 @@ export class RaceBrain {
     const i = self.id;
     if (i < 0 || i >= MAX_CARS || !self.alive) return out;
     const p = this.traits[i]!;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
 
     if (this.recover[i]! > 0) {
       this.recover[i]! -= dt;
@@ -311,7 +313,7 @@ export class RaceBrain {
     // L3: pursue a point on the line.
     const ld = clamp(5 + 0.5 * speed, 7, LOOK);
     // Short of a shortcut's mouth: head for the mouth itself so the car goes through its gate.
-    const toMouth = route >= 0 ? Math.hypot(self.x - path.x[0]!, self.z - path.z[0]!) : 0;
+    const toMouth = route >= 0 ? hypot2(self.x - path.x[0]!, self.z - path.z[0]!) : 0;
     const early = route >= 0 && proj.s < 0.5 && toMouth > 4;
     // Onto a shortcut, until a look-ahead into it: the turn still to make onto its heading, from the
     // car's heading and (short of the mouth, `lead` m on) from the run in to the mouth. On the loop:
@@ -325,7 +327,7 @@ export class RaceBrain {
     const tx = pt.x + pt.tz * lane;
     const tz = pt.z - pt.tx * lane;
     const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
-    const reach = early ? Math.max(4, Math.hypot(tx - self.x, tz - self.z)) : ld;
+    const reach = early ? Math.max(4, hypot2(tx - self.x, tz - self.z)) : ld;
     const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
@@ -410,7 +412,10 @@ export class RaceBrain {
 
   /** A racer already on shortcut `k` within `MOUTH_GAP` m of `self`: the narrow mouth takes one car at a time, the next stays on the loop. */
   private crowded(k: number, self: AiCar, others: readonly AiCar[]): boolean {
-    for (const o of others) if (o.id !== self.id && o.id < this.racers && Math.hypot(o.x - self.x, o.z - self.z) < MOUTH_GAP) return true;
+    for (let n = 0; n < others.length; n++) {
+      const o = others[n]!;
+      if (o.id !== self.id && o.id < this.racers && hypot2(o.x - self.x, o.z - self.z) < MOUTH_GAP) return true;
+    }
     return false;
   }
 
@@ -491,7 +496,7 @@ export class RaceBrain {
    */
   private safeShove(s: number, half: number, oLat: number, side: number, ahead: number, along: number, oAlong: number): boolean {
     // The rival may be shoving too, so the sideways closing counts twice.
-    if (Math.hypot(along - oAlong, 2 * SHOVE_LAT) >= SHOVE_SPEED) return false;
+    if (hypot2(along - oAlong, 2 * SHOVE_LAT) >= SHOVE_SPEED) return false;
     if (half - (side >= 0 ? oLat : -oLat) < WALL_ROOM) return false;
     return crestSpeed(this.track.path, s + ahead) > Math.max(along, oAlong);
   }
@@ -532,7 +537,8 @@ export class RaceBrain {
     let preyAhead = Infinity;
     let preySide = 0;
     let preyFight = 0;
-    for (const o of others) {
+    for (let n = 0; n < others.length; n++) {
+      const o = others[n]!;
       if (o.id === i || !o.alive) continue;
       const dx = o.x - self.x;
       const dz = o.z - self.z;

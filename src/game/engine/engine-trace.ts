@@ -180,7 +180,7 @@ export class TraceRecorder {
     this.samples = [];
     this.ballHits = [];
     this.snapshotInitial(setup, cars);
-    this.push(setup, cars, clock);
+    this.sample(setup, cars, clock);
   }
 
   clear(): void {
@@ -197,7 +197,7 @@ export class TraceRecorder {
     return true;
   }
 
-  push(setup: TraceSetup, cars: readonly DeformableCar[], clock: TraceClock): void {
+  sample(setup: TraceSetup, cars: readonly DeformableCar[], clock: TraceClock): void {
     if (this.samples.length >= MAX_SAMPLES) return;
     const { barrier, balls, sparks, smoke, debris } = this.scene;
     this.samples.push({

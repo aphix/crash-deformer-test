@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -170,7 +171,7 @@ export class PoliceBrain extends CopBrain {
     const u = self.id - this.first;
     if (u < 0 || u >= this.count || !self.alive || this.state[u] !== "pursuit") return out;
     out.brake = 0;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     if (this.wedge.backing(u, dt, out)) return out;
     const p = this.pack[u]!;
     const t = p >= 0 ? this.target[p]! : -1;
@@ -185,7 +186,7 @@ export class PoliceBrain extends CopBrain {
     const tg = cars[t]!;
     const dx = tg.x - self.x;
     const dz = tg.z - self.z;
-    const dist = Math.hypot(dx, dz);
+    const dist = hypot2(dx, dz);
     const path = this.track.path;
     const sS = projectPath(path, self.x, self.z, this.seg[self.id]!, this.proj).s;
     this.seg[self.id] = this.proj.k;
@@ -193,7 +194,7 @@ export class PoliceBrain extends CopBrain {
     this.seg[t] = this.proj.k;
     if (this.leadIn[u]! > 0) {
       this.leadIn[u]! -= dt;
-      this.lead(u, self, sS, sT + Math.hypot(tg.vx, tg.vz) * LEAD_AHEAD, speed, out);
+      this.lead(u, self, sS, sT + hypot2(tg.vx, tg.vz) * LEAD_AHEAD, speed, out);
       return out;
     }
     const L = this.track.length;
@@ -202,7 +203,7 @@ export class PoliceBrain extends CopBrain {
     // pull-out from `ATTACK` m never reached the line in time: the racer swept past and only clipped its
     // nose); one facing it rams it head-on from `RAM_TIME` s off.
     const headOn = arc < -WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
-    const reach = arc < 0 ? Math.max(ATTACK, Math.hypot(tg.vx, tg.vz) * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
+    const reach = arc < 0 ? Math.max(ATTACK, hypot2(tg.vx, tg.vz) * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
     // The road between the two is no longer than the straight line: the same stretch (not across a crossover or under a bridge).
     if (dist > reach || Math.abs(arc) > dist * 1.3 + 6) {
       out.steer = line.steer;

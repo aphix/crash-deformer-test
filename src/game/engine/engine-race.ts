@@ -383,7 +383,7 @@ export class RaceDirector extends RaceWatch {
     const brain = this.brain;
     const ground = this.track?.ground();
     if (!s || !brain || !ground) {
-      for (const car of cars) applyDrive(car, this.hold, dt);
+      for (let i = 0; i < cars.length; i++) applyDrive(cars[i]!, this.hold, dt);
       return;
     }
     this.recorder.startStep(cars);
@@ -503,7 +503,8 @@ export class RaceDirector extends RaceWatch {
 
   /** Drafting bonuses the rules awarded since the last look: onto our seat's meter, or the race AI's (a peer's own client credits its seat). */
   private credit(s: RaceSession): void {
-    for (const c of s.cars) {
+    for (let k = 0; k < s.cars.length; k++) {
+      const c = s.cars[k]!;
       const n = c.drafts - this.drafted[c.id]!;
       this.drafted[c.id] = c.drafts;
       // Not `n <= 0`: an older host's snapshot has no `drafts` (NaN).

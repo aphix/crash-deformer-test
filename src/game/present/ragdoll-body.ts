@@ -1,3 +1,4 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { RigidBody } from "@dimforge/rapier3d";
 
@@ -97,7 +98,7 @@ export function limit(bodies: readonly RigidBody[]): void {
   for (let j = 0; j < JOINTS.length; j++) {
     const a = 3 * JOINTS[j]![0];
     const b = 3 * JOINTS[j]![1];
-    const spin = Math.hypot(SPIN[a]! - SPIN[b]!, SPIN[a + 1]! - SPIN[b + 1]!, SPIN[a + 2]! - SPIN[b + 2]!);
+    const spin = hypot3(SPIN[a]! - SPIN[b]!, SPIN[a + 1]! - SPIN[b + 1]!, SPIN[a + 2]! - SPIN[b + 2]!);
     if (spin <= JOINT_SPIN) continue;
     shed(bodies[JOINTS[j]![0]]!, bodies[JOINTS[j]![1]]!, 0, 1 - JOINT_SPIN / spin);
     readSpin(bodies, JOINTS[j]![0]);

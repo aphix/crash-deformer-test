@@ -1,3 +1,4 @@
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
 import { disable, type Rapier } from "../kernel/rapier.ts";
@@ -176,7 +177,7 @@ export class Purses {
     this.rand[s] = rand;
     const side = rand() < 0.5 ? -1 : 1;
     const color = PURSE_COLORS[Math.floor(rand() * PURSE_COLORS.length)]!;
-    const run = Math.hypot(v.x, v.z) || 1;
+    const run = hypot2(v.x, v.z) || 1;
     const body = this.bodies[s]![0]!;
     body.setEnabled(true);
     body.setTranslation({ x: p.x + (v.z / run) * side * SIDE, y: p.y + LIFT, z: p.z - (v.x / run) * side * SIDE }, false);
@@ -212,7 +213,7 @@ export class Purses {
         if (!(this.on[s]! & (1 << b))) continue;
         const body = this.bodies[s]![b]!;
         const w = body.angvel();
-        const spin = Math.hypot(w.x, w.y, w.z);
+        const spin = hypot3(w.x, w.y, w.z);
         if (spin > SPIN_MAX) body.setAngvel({ x: (w.x * SPIN_MAX) / spin, y: (w.y * SPIN_MAX) / spin, z: (w.z * SPIN_MAX) / spin }, false);
         this.ground(s, b, body);
       }
@@ -299,7 +300,7 @@ export class Purses {
     const purse = this.bodies[s]![0]!;
     const at = purse.translation();
     const u = purse.linvel();
-    const speed = Math.hypot(u.x, u.y, u.z);
+    const speed = hypot3(u.x, u.y, u.z);
     const n = ITEMS_MIN + Math.floor(rand() * (ITEMS_MAX - ITEMS_MIN + 1));
     const first = Math.floor(rand() * ITEMS_MAX);
     for (let k = 0; k < n; k++) {

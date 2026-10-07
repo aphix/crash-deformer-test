@@ -47,22 +47,32 @@ const HOT = {
   "src/game/engine/engine.ts": ["tickInner", "fixedStep", "scheduleSkins", "flushVisibleSkins", "updateCamera"],
   "src/game/engine/engine-scenes.ts": ["stepDerby"],
   "src/game/engine/world-step.ts": ["stepWorld"],
+  "src/game/engine/engine-race.ts": ["drive", "step", "credit", "collide", "courseHit"],
+  "src/game/engine/engine-race-field.ts": ["wall", "wallMemo", "drain"],
   "src/game/vehicle/car.ts": ["syncPose", "stepBreakage", "updateSkin"],
   "src/game/vehicle/car-core.ts": ["hulls", "crushHulls"],
-  "src/game/deform/streamed-deform.ts": ["pullSensorsFromMasses", "bakeLocalSkin", "solveCages"],
+  "src/game/vehicle/car-parts.ts": ["syncAttachedParts", "advanceFlap", "poseParts", "followGlass", "glassLeft", "evaluateBreakage", "stepLooseParts", "freeObjects"],
+  "src/game/vehicle/loose-step.ts": ["stepLoose"],
+  "src/game/deform/streamed-deform.ts": ["pullSensorsFromMasses", "bakeLocalSkin", "solveCages", "capCageCorners", "fitCagesToMasses"],
   "src/game/deform/deform-state.ts": ["stepCrush", "update", "flushSkin", "liveHulls", "liveCrushHulls"],
   "src/game/deform/deform-contact.ts": ["stepStructure", "collideWith"],
   "src/game/deform/deform-solve.ts": ["stepMassSlice", "stepShapeMatch", "stepBeams", "stepSuspension"],
   "src/game/contact/sat.ts": ["physicsSlice", "sliceSpeed", "satCars", "satTwoHulls", "satCarBarrier", "clipCarToBarrier"],
   "src/game/contact/pair-contact.ts": ["resolveCarPair", "impulseCar", "pushCar"],
+  "src/game/contact/prop-contact.ts": ["propContact", "footprintOverlap", "lowestY"],
+  "src/game/contact/external-contact.ts": ["partContactPair", "partContact", "faceOverlap", "shiftVelocities"],
   "src/game/vehicle/car-drive.ts": ["applyDrive", "input"],
   "src/game/vehicle/drive-input.ts": ["readIntent", "shapeDrive"],
-  "src/game/match/derby.ts": ["step"],
+  "src/game/match/derby.ts": ["step", "think", "consumeBoosts", "snapshotAiCar", "leader"],
+  "src/game/match/session.ts": ["stepCar", "measure", "stretch", "drafting", "busting", "deadline"],
   "src/game/ai/derby-ai.ts": ["think"],
-  "src/game/ai/race-ai.ts": ["think"],
+  "src/game/ai/race-ai.ts": ["think", "plan", "line", "crowded"],
+  "src/game/ai/contact-guard.ts": ["guardContact"],
+  "src/game/ai/traffic.ts": ["think"],
   "src/game/ai/police.ts": ["drive"],
   "src/game/ai/cop-brain.ts": ["think", "attackTarget", "pursuitSteer"],
   "src/game/ai/hunter.ts": ["drive", "update"],
+  "src/game/present/pose-blend.ts": ["end", "present", "restore"],
 };
 const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact", "scenes", "ai"]);
 const MAX_FILE_LINES = 800;
@@ -234,7 +244,9 @@ for (const [f, p] of parsed) {
 }
 check("C5", "exports with no production importer", c5);
 
-// C6: per-frame entry points allocate nothing (new X, .clone(), array or object literals).
+// C6: per-frame entry points allocate nothing and stay on V8's fast path: no new X, .clone(), array or object literals,
+// closures, spreads, .push/.unshift (preallocate and write by index), for..of/for..in (indexed loops), try/catch, JSON, or
+// Math.hypot (TurboFan never inlines it, so every call boxes its arguments: kernel/physics-core.js hypot2/hypot3 instead).
 const c6 = [];
 for (const [f, names] of Object.entries(HOT)) {
   const p = parsed.get(f);
@@ -246,10 +258,19 @@ for (const [f, names] of Object.entries(HOT)) {
     if (hot) {
       const at = () => `${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${hot}`;
       if (ts.isNewExpression(n)) c6.push(`${at()} new ${n.expression.getText()}`);
-      else if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.name.text === "clone") c6.push(`${at()} .clone()`);
-      else if (ts.isArrayLiteralExpression(n)) c6.push(`${at()} array literal`);
+      else if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression)) {
+        const m = n.expression.name.text;
+        const of = ts.isIdentifier(n.expression.expression) ? n.expression.expression.text : "";
+        if (m === "clone") c6.push(`${at()} .clone()`);
+        else if (m === "push" || m === "unshift") c6.push(`${at()} .${m}()`);
+        else if (of === "JSON") c6.push(`${at()} JSON.${m}`);
+        else if (of === "Math" && m === "hypot") c6.push(`${at()} Math.hypot`);
+      } else if (ts.isArrayLiteralExpression(n)) c6.push(`${at()} array literal`);
       else if (ts.isObjectLiteralExpression(n)) c6.push(`${at()} object literal`);
       else if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) c6.push(`${at()} closure`);
+      else if (ts.isSpreadElement(n) || ts.isSpreadAssignment(n)) c6.push(`${at()} spread`);
+      else if (ts.isForOfStatement(n) || ts.isForInStatement(n)) c6.push(`${at()} ${ts.isForOfStatement(n) ? "for..of" : "for..in"}`);
+      else if (ts.isTryStatement(n)) c6.push(`${at()} try/catch`);
     }
     ts.forEachChild(n, (c) => visit(c, hot));
   };

@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -54,7 +55,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   const nose = self.yaw;
   const sx = self.vx;
   const sz = self.vz;
-  const speed = Math.hypot(sx, sz);
+  const speed = hypot2(sx, sz);
   // Under a nudge's speed it cannot start a hit, and a crawl is the plan's business (a creeping pair brawled on a wall).
   if (speed <= DERBY_RULES.hitSpeed) return;
   const heading = Math.atan2(sx, sz);
@@ -71,9 +72,9 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   for (let k = 0; k < count; k++) {
     const o = cars[k]!;
     if (o.id === self.id || !o.alive || spare[o.id] === 1) continue;
-    const ospeed = Math.hypot(o.vx, o.vz);
+    const ospeed = hypot2(o.vx, o.vz);
     // Out of reach: the two centres are further apart than the zone and the most they can close in `HORIZON` s.
-    const gap = Math.hypot(o.x - self.x, o.z - self.z) - (speed + ospeed) * last;
+    const gap = hypot2(o.x - self.x, o.z - self.z) - (speed + ospeed) * last;
     if (gap >= LON) continue;
     if (!arc) {
       arc = true;
@@ -121,7 +122,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
           tc = 0;
           cn = n0;
           cl = l0;
-          cw = Math.hypot(ox * ospeed - VX[0]!, oz * ospeed - VZ[0]!);
+          cw = hypot2(ox * ospeed - VX[0]!, oz * ospeed - VZ[0]!);
         }
         break;
       }
@@ -131,7 +132,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
         tc = t;
         cn = pn;
         cl = pl;
-        cw = Math.hypot(ox * ov - VX[i]!, oz * ov - VZ[i]!);
+        cw = hypot2(ox * ov - VX[i]!, oz * ov - VZ[i]!);
         break;
       }
       // Moving apart from outside the zone: nothing further out is a contact.

@@ -1,3 +1,4 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 
@@ -109,13 +110,13 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
     const rest = d.rest![k]!;
     const off = m === object ? _zero : m.position;
     for (let i = 0; i < a.length; i += 3) {
-      const r = Math.hypot(a[i]! + off.x - cx, a[i + 1]! + off.y - cy, a[i + 2]! + off.z - cz);
+      const r = hypot3(a[i]! + off.x - cx, a[i + 1]! + off.y - cy, a[i + 2]! + off.z - cz);
       if (r >= DENT_REACH) continue;
       const push = depth * (1 - r / DENT_REACH) ** 2;
       let x = a[i]! + nx * push;
       let y = a[i + 1]! + ny * push;
       let z = a[i + 2]! + nz * push;
-      const moved = Math.hypot(x - rest[i]!, y - rest[i + 1]!, z - rest[i + 2]!);
+      const moved = hypot3(x - rest[i]!, y - rest[i + 1]!, z - rest[i + 2]!);
       if (moved > DENT_CAP) {
         const k2 = DENT_CAP / moved;
         x = rest[i]! + (x - rest[i]!) * k2;

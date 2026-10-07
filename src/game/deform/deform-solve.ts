@@ -295,7 +295,8 @@ export abstract class DeformSolve extends DeformContact {
   }
 
   private stepBeams(dt: number): void {
-    for (const beam of this.beams) {
+    for (let i = 0; i < this.beams.length; i++) {
+      const beam = this.beams[i]!;
       if (!beam.alive) continue;
       const a = this.masses[beam.a]!;
       const b = this.masses[beam.b]!;

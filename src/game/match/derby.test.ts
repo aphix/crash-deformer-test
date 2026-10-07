@@ -1,7 +1,8 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DerbyBrain, blankAiCar, personality } from "../ai/derby-ai.ts";
+import { DerbyBrain, blankAiCar } from "../ai/derby-ai.ts";
+import { personality } from "../ai/personality.ts";
 import { DerbyMatch, HIT_POINTS, DISABLE_POINTS, SCORE_GAP, STALEMATE, snapshotAiCar } from "./derby.ts";
 import { clipDerbyCar, clipToDerbyBowl, DERBY_RADIUS, derbyRadius, makeDerbyArena } from "../scenes/derby-arena.ts";
 import { idleDrive, applyDrive } from "../vehicle/car-drive.ts";

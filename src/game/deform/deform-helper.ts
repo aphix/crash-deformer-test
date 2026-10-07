@@ -1,3 +1,4 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { m3FrobeniusI, type ShapeCluster } from "./shape-match.ts";
 import type { DeformMode } from "./deform-rig.ts";
@@ -91,13 +92,16 @@ export class DeformRigHelper {
 
   update(): void {
     if (!this.group.visible) return;
-    for (const layer of this.layers) layer.update();
+    for (let k = 0; k < this.layers.length; k++) this.layers[k]!.update();
     this.syncMode();
   }
 
   syncMode(): void {
     const mode = this.view.mode();
-    for (const layer of this.layers) if (layer.onlyIn) layer.object.visible = layer.onlyIn === mode;
+    for (let k = 0; k < this.layers.length; k++) {
+      const layer = this.layers[k]!;
+      if (layer.onlyIn) layer.object.visible = layer.onlyIn === mode;
+    }
   }
 
   dispose(): void {
@@ -210,10 +214,12 @@ class CageLayer extends LineLayer {
     const posAttr = attr(this.object, "position");
     const pos = posAttr.array as Float32Array;
     let o = 0;
-    for (const cage of this.view.cages) {
-      for (const [a, b] of CAGE_EDGES) {
-        const pa = cage.corners[a]!;
-        const pb = cage.corners[b]!;
+    const cages = this.view.cages;
+    for (let ci = 0; ci < cages.length; ci++) {
+      const cage = cages[ci]!;
+      for (let k = 0; k < CAGE_EDGES.length; k++) {
+        const pa = cage.corners[CAGE_EDGES[k]![0]]!;
+        const pb = cage.corners[CAGE_EDGES[k]![1]]!;
         pos[o++] = pa.x;
         pos[o++] = pa.y;
         pos[o++] = pa.z;
@@ -240,7 +246,9 @@ class BeamLayer extends LineLayer {
     const masses = this.view.masses;
     let o = 0;
     let c = 0;
-    for (const beam of this.view.beams) {
+    const beams = this.view.beams;
+    for (let k = 0; k < beams.length; k++) {
+      const beam = beams[k]!;
       const a = masses[beam.a]!;
       const b = masses[beam.b]!;
       pos[o++] = a.local.x;
@@ -252,7 +260,7 @@ class BeamLayer extends LineLayer {
       _n.copy(b.local).sub(a.local);
       const along = _n.x * beam.restDir.x + _n.y * beam.restDir.y + _n.z * beam.restDir.z;
       const strain = (along - beam.rest) / Math.max(beam.rest, 1e-4);
-      const shear = Math.hypot(_n.x - beam.restDir.x * along, _n.y - beam.restDir.y * along, _n.z - beam.restDir.z * along) / Math.max(beam.rest, 1e-4);
+      const shear = hypot3(_n.x - beam.restDir.x * along, _n.y - beam.restDir.y * along, _n.z - beam.restDir.z * along) / Math.max(beam.rest, 1e-4);
       let r = 0.9,
         g = 0.9,
         bl = 0.88;
@@ -303,7 +311,9 @@ class ClusterLayer extends LineLayer {
     const masses = this.view.masses;
     let o = 0;
     let c = 0;
-    for (const cl of this.view.clusters) {
+    const clusters = this.view.clusters;
+    for (let ci = 0; ci < clusters.length; ci++) {
+      const cl = clusters[ci]!;
       const pe = m3FrobeniusI(cl.Sp);
       const r = 0.35 + Math.min(1, pe) * 0.6;
       const g = 0.75 - Math.min(1, pe) * 0.45;
@@ -312,8 +322,8 @@ class ClusterLayer extends LineLayer {
         cy = 0,
         cz = 0,
         w = 0;
-      for (const pi of cl.idx) {
-        const m = masses[pi]!;
+      for (let k = 0; k < cl.idx.length; k++) {
+        const m = masses[cl.idx[k]!]!;
         cx += m.local.x * m.mass;
         cy += m.local.y * m.mass;
         cz += m.local.z * m.mass;
@@ -323,8 +333,8 @@ class ClusterLayer extends LineLayer {
       cx /= w;
       cy /= w;
       cz /= w;
-      for (const pi of cl.idx) {
-        const m = masses[pi]!;
+      for (let k = 0; k < cl.idx.length; k++) {
+        const m = masses[cl.idx[k]!]!;
         pos[o++] = m.local.x;
         pos[o++] = m.local.y;
         pos[o++] = m.local.z;
@@ -553,7 +563,7 @@ export class DeformParticleHelper {
       const x = p.local.x,
         y = p.local.y,
         z = p.local.z;
-      const travel = Math.hypot(x - p.rest.x, y - p.rest.y, z - p.rest.z);
+      const travel = hypot3(x - p.rest.x, y - p.rest.y, z - p.rest.z);
       const sleeping = p.sleeping === true;
       if (!sleeping && travel > worst) worst = travel;
       let r: number, g: number, b: number;
@@ -592,7 +602,7 @@ export class DeformParticleHelper {
         dx = e[0]! * gx + e[4]! * gy + e[8]! * gz + e[12]! - x;
         dy = e[1]! * gx + e[5]! * gy + e[9]! * gz + e[13]! - y;
         dz = e[2]! * gx + e[6]! * gy + e[10]! * gz + e[14]! - z;
-        const k = THREE.MathUtils.clamp(PULL_DRAW_MAX / Math.max(Math.hypot(dx, dy, dz), 1e-6), 1, PULL_GAIN);
+        const k = THREE.MathUtils.clamp(PULL_DRAW_MAX / Math.max(hypot3(dx, dy, dz), 1e-6), 1, PULL_GAIN);
         dx *= k;
         dy *= k;
         dz *= k;

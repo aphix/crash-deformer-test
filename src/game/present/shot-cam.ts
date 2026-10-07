@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CINE, CLEAR_COST, CineCam, DUTCH, DutchCam, EyePull, SightLines, sightLine, solid, type Sight } from "./spectate-cam.ts";
@@ -46,13 +47,13 @@ const _d = new THREE.Vector3();
  * heading of both chase rigs: the reel's (`ClipSim.heading`, per sim step) and the Auto cam's (`AutoCam`, per frame).
  */
 export function foldHeading(heading: THREE.Vector2, car: Pick<DeformableCar, "velocity" | "fwdFlat">, h: number): void {
-  const speed = Math.hypot(car.velocity.x, car.velocity.z);
+  const speed = hypot2(car.velocity.x, car.velocity.z);
   const dx = speed > 2 ? car.velocity.x / speed : car.fwdFlat.x;
   const dz = speed > 2 ? car.velocity.z / speed : car.fwdFlat.z;
   const k = heading.lengthSq() < 1e-9 ? 1 : 1 - Math.exp(-h / HEADING_TAU);
   const hx = heading.x + (dx - heading.x) * k;
   const hz = heading.y + (dz - heading.y) * k;
-  const len = Math.hypot(hx, hz);
+  const len = hypot2(hx, hz);
   if (len > 1e-6) heading.set(hx / len, hz / len);
   else heading.set(dx, dz);
 }

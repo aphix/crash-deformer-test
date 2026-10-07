@@ -1,3 +1,4 @@
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { Collider, ColliderDesc, RigidBody, World } from "@dimforge/rapier3d";
 import type { Rapier } from "../kernel/rapier.ts";
@@ -290,7 +291,7 @@ export class PropBodies {
       const m = Math.max(p.sx, p.sz);
       this.half[i] = (h * p.sy) / 2;
       // Its own shape (`shapes`) lies inside its size box widened to its larger plan scale.
-      this.reach[i] = Math.hypot(w * m, h * p.sy, d * m) / 2;
+      this.reach[i] = hypot3(w * m, h * p.sy, d * m) / 2;
     }
   }
 
@@ -362,12 +363,12 @@ export class PropBodies {
       const vx = (c[o]! - p[o]!) / step;
       const vy = (c[o + 1]! - p[o + 1]!) / step;
       const vz = (c[o + 2]! - p[o + 2]!) / step;
-      this.speed[i] = Math.hypot(vx, vy, vz);
+      this.speed[i] = hypot3(vx, vy, vz);
       // Its turn over the step: twice the vector part of conj(prev)·cur (the acos of their dot is float32 noise near 1).
       const ex = p[o + 6]! * c[o + 3]! - c[o + 6]! * p[o + 3]! - (p[o + 4]! * c[o + 5]! - p[o + 5]! * c[o + 4]!);
       const ey = p[o + 6]! * c[o + 4]! - c[o + 6]! * p[o + 4]! - (p[o + 5]! * c[o + 3]! - p[o + 3]! * c[o + 5]!);
       const ez = p[o + 6]! * c[o + 5]! - c[o + 6]! * p[o + 5]! - (p[o + 3]! * c[o + 4]! - p[o + 4]! * c[o + 3]!);
-      const spin = (2 * Math.hypot(ex, ey, ez)) / step;
+      const spin = (2 * hypot3(ex, ey, ez)) / step;
       this.sweep[i] = this.speed[i]! + spin * this.reach[i]!;
       this.still[i] = this.speed[i]! < REST_SPEED && spin < REST_SPIN ? this.still[i]! + dt : 0;
       this.cover(i, c[o]!, c[o + 1]!, c[o + 2]!, vx, vz);
@@ -597,10 +598,10 @@ export class PropBodies {
     this.drawn[i] = 0;
     this.settled[i] = 0;
     this.still[i] = 0;
-    this.speed[i] = Math.hypot(vx, vy, vz);
+    this.speed[i] = hypot3(vx, vy, vz);
     // A knock is rare: its spin is read back from Rapier once (the getter allocates).
     const w = body.angvel();
-    this.sweep[i] = this.speed[i]! + Math.hypot(w.x, w.y, w.z) * this.reach[i]!;
+    this.sweep[i] = this.speed[i]! + hypot3(w.x, w.y, w.z) * this.reach[i]!;
     this.regroup(i, this.by[i]!);
     const o = i * 7;
     this.cover(i, this.cur[o]!, this.cur[o + 1]!, this.cur[o + 2]!, vx, vz);
@@ -618,7 +619,7 @@ export class PropBodies {
    * back turn, so the prop flies no higher than the lift throws it.
    */
   private spin(body: RigidBody, i: number, vx: number, vy: number, vz: number): number {
-    const speed = Math.hypot(vx, vz);
+    const speed = hypot2(vx, vz);
     if (speed < 1e-6) return 1;
     const h = 2 * this.half[i]!;
     const at = (Math.min(Math.max(this.bumperLo, 0), h) + Math.min(Math.max(this.bumperHi, 0), h)) / 2;
@@ -680,7 +681,7 @@ export class PropBodies {
       this.patchOf[i] = k;
       return;
     }
-    const speed = Math.hypot(vx, vz);
+    const speed = hypot2(vx, vz);
     const cx = x + (speed > 0.5 ? (vx / speed) * PATCH_AHEAD : 0);
     const cz = z + (speed > 0.5 ? (vz / speed) * PATCH_AHEAD : 0);
     this.patches[free] = this.patch(cx, cz, y, PATCH_HALF);

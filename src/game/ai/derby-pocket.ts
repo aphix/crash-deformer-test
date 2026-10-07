@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { hash01 } from "../kernel/scalar.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 
@@ -41,7 +42,7 @@ export class DerbyPocket {
       if (idle >= this.braveIdle[i]!) return true;
       this.braveFor[i] = 0;
     }
-    if (!clear || !(Math.hypot(x - this.x[i]!, z - this.z[i]!) <= POCKET)) {
+    if (!clear || !(hypot2(x - this.x[i]!, z - this.z[i]!) <= POCKET)) {
       this.x[i] = x;
       this.z[i] = z;
       this.dwell[i] = 0;

@@ -405,7 +405,8 @@ export class CrashEngine extends EngineShare {
       this.scheduleSkins(cars);
       // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
       if (reelDt !== null || !this.net.client) {
-        for (const car of cars) {
+        for (let i = 0; i < cars.length; i++) {
+          const car = cars[i]!;
           if (reelDt !== null || this.showStack ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
         }
       }
@@ -449,11 +450,14 @@ export class CrashEngine extends EngineShare {
           }
         }
       }
-      if (this.trace.due(wallDt, this.captureTrace)) this.trace.push(this.traceSetup(), cars, this.traceClock());
+      if (this.trace.due(wallDt, this.captureTrace)) this.trace.sample(this.traceSetup(), cars, this.traceClock());
       this.stepDerby(simDt);
       this.seat.step(simDt);
       this.cine.update(wallDt, simDt, cars, this.followedCar(), this.seat.mode === "drive", this.fxDensity);
-      if (this.derbyMode) for (const id of this.derby.consumeBoosts()) this.takedownBoost(id);
+      if (this.derbyMode) {
+        const boosts = this.derby.consumeBoosts();
+        for (let k = 0; k < boosts.length; k++) this.takedownBoost(boosts[k]!);
+      }
     }
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
@@ -583,7 +587,9 @@ export class CrashEngine extends EngineShare {
     w.fine = this.pace.fine;
     stepWorld(w, dt);
     // A driver thrown out this step (`EjectionWatch`): his dummy flies, the race recorder and the netplay peers hear of it.
-    for (const e of this.ejection.take()) {
+    const ejected = this.ejection.take();
+    for (let k = 0; k < ejected.length; k++) {
+      const e = ejected[k]!;
       this.ragdolls.launch(e, cars);
       if (this.race.active) this.race.recorder.eject(e);
       this.net.sendEject(e);
@@ -754,9 +760,11 @@ export class CrashEngine extends EngineShare {
       if (champ) look.set(champ.group.position.x, 0.7, champ.group.position.z);
     } else if (this.derbyMode) {
       const alive = this.aliveBuf;
-      alive.length = 0;
-      for (const c of this.live()) if (c.deform.drivetrainAlive) alive.push(c);
-      centroid(_v, alive.length ? alive : this.live());
+      const live = this.live();
+      let n = 0;
+      for (let i = 0; i < live.length; i++) if (live[i]!.deform.drivetrainAlive) alive[n++] = live[i]!;
+      alive.length = n;
+      centroid(_v, n ? alive : live);
       look.set(_v.x, 0.7, _v.z);
     } else if (this.showLab) {
       // A phone turned on its side (or back) gets that shape's shot, unless the user framed one.

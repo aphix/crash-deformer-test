@@ -100,7 +100,9 @@ export function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Ve
   const zr = Math.abs(az.x * rx + az.z * rz);
   let best = -Infinity;
   let lat = 0;
-  for (const h of car.crushHulls()) {
+  const hulls = car.crushHulls();
+  for (let q = 0; q < hulls.length; q++) {
+    const h = hulls[q]!;
     const cx = p.x + ax.x * h.cx + az.x * h.cz - box.x;
     const cz = p.z + ax.z * h.cx + az.z * h.cz - box.z;
     const along = cx * fx + cz * fz;
@@ -118,7 +120,9 @@ export function faceOverlap(car: DeformableCar, box: ContactBox, point: THREE.Ve
 }
 
 function shiftVelocities(car: DeformableCar, dx: number, dz: number): void {
-  for (const m of car.deform.masses) {
+  const masses = car.deform.masses;
+  for (let q = 0; q < masses.length; q++) {
+    const m = masses[q]!;
     if (!m.dynamic) continue;
     m.vel.x += dx;
     m.vel.z += dz;
@@ -398,7 +402,8 @@ export function partContact(car: DeformableCar, box: ContactBox): typeof partHit
   lane.kg = box.kg;
   const u0 = Math.abs(uz);
   lane.u = u0;
-  for (const side of SIDES) {
+  for (let q = 0; q < SIDES.length; q++) {
+    const side = SIDES[q]!;
     if (side * lx + ex <= 0) continue;
     lane.inner = side * lx - ex;
     // Past the open door's trailing edge and the mirror cap: nothing to meet. Reaching inside the

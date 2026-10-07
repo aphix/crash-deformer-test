@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { wrapPi } from "../kernel/scalar.ts";
@@ -183,7 +184,7 @@ export class RideCam {
 
   /** Turn `dir` toward the dummies' travel (kept while they are slow), at most `HEADING_RATE`; `snap`: at once. */
   private turn(f: Framing, dt: number, snap: boolean): void {
-    if (Math.hypot(f.vx, f.vz) <= 0.5 * f.n) return;
+    if (hypot2(f.vx, f.vz) <= 0.5 * f.n) return;
     const d = wrapPi(Math.atan2(f.vx, f.vz) - this.heading);
     const max = HEADING_RATE * dt;
     this.heading += snap ? d : THREE.MathUtils.clamp(d, -max, max);
@@ -313,7 +314,7 @@ export class RideCam {
     const s = f.sight();
     const at = this.exitAt;
     const fwd = this.exitFwd;
-    const own: Sight = { ...s, occ: s.occ.filter((o) => Math.hypot(o.x - at.x, o.z - at.z) > 1) };
+    const own: Sight = { ...s, occ: s.occ.filter((o) => hypot2(o.x - at.x, o.z - at.z) > 1) };
     _vel.set(f.vx / f.n, 0, f.vz / f.n);
     for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, fwd.x, fwd.z, this.reach, up, true)) return;
     for (const [along, across] of GLASS_DIRS) {

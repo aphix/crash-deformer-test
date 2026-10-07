@@ -1,3 +1,4 @@
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
@@ -236,7 +237,7 @@ function gather(s: Sight, ax: number, az: number, bx: number, bz: number, pad: n
   const z0 = Math.min(az, bz);
   const z1 = Math.max(az, bz);
   for (const o of s.occ) {
-    const r = (o.circle ? o.hx : Math.hypot(o.hx, o.hz)) + pad;
+    const r = (o.circle ? o.hx : hypot2(o.hx, o.hz)) + pad;
     if (o.x + r > x0 && o.x - r < x1 && o.z + r > z0 && o.z - r < z1) _near.push(o);
   }
   return _near;
@@ -253,7 +254,7 @@ export function sightLine(s: Sight, ax: number, ay: number, az: number, bx: numb
   const dx = bx - ax;
   const dy = by - ay;
   const dz = bz - az;
-  const len = Math.hypot(dx, dy, dz);
+  const len = hypot3(dx, dy, dz);
   const step = Math.max(CINE.step, len / LINE_SAMPLES);
   const pad = step / 2;
   const occ = gather(s, ax, az, bx, bz, pad);
@@ -313,7 +314,7 @@ type Vec3 = { x: number; y: number; z: number };
  * dropped. Returns the samples kept.
  */
 export function aheadPoints(s: Sight, tx: number, ty: number, tz: number, vx: number, vz: number, horizon: number, out: Float64Array, hint = -1): number {
-  const speed = Math.hypot(vx, vz);
+  const speed = hypot2(vx, vz);
   const steps = speed * horizon < 1 ? 0 : Math.min(CLEAR.most, Math.max(1, Math.ceil(horizon / CLEAR.every)));
   const path = s.path;
   let s0 = 0;
@@ -408,7 +409,7 @@ export class SightLines {
       const x = this.points[k]!;
       const y = this.points[k + 1]!;
       const z = this.points[k + 2]!;
-      if (this.spent > 0 && this.spent + lineSamples(Math.hypot(x - e.x, y - e.y, z - e.z)) > budget) return "more";
+      if (this.spent > 0 && this.spent + lineSamples(hypot3(x - e.x, y - e.y, z - e.z)) > budget) return "more";
       this.i++;
       const r = sightLine(this.s!, e.x, e.y, e.z, x, y, z);
       this.spent += Math.abs(r);
@@ -532,7 +533,7 @@ export class CineCam {
     const seq = this.picks;
     const p = car.group.position;
     const v = car.velocity;
-    const speed = Math.hypot(v.x, v.z);
+    const speed = hypot2(v.x, v.z);
     let tx = car.fwdFlat.x;
     let tz = car.fwdFlat.z;
     if (speed > 1.5) {

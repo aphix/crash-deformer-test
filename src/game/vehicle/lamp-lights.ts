@@ -200,7 +200,8 @@ export class LampLights {
     const gp = this.glowPos.array as Float32Array;
     const gc = this.glowCol.array as Float32Array;
     let n = 0;
-    for (const car of cars) {
+    for (let ci = 0; ci < cars.length; ci++) {
+      const car = cars[ci]!;
       if (!car.group.visible) continue;
       car.flashSirens(now);
       for (let i = 0; i < car.lampCount; i++) {

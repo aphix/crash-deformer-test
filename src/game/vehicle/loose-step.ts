@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { applyGroundFriction, CRASH } from "../deform/physics-util.ts";
+import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { DENT_MIN_DV, recordDent, type DentState } from "./loose-dent.ts";
 import type { LooseBody, WorldBounce } from "./car-core.ts";
@@ -41,8 +41,8 @@ export function stepLoose(p: LooseBody, dt: number, floor: number, bounce?: Worl
   if (grounded && q.y <= floor + GROUND_BAND) {
     // Sliding on asphalt: Coulomb friction per second, and the spin dies with the slide. The
     // band keeps the millimetre hops of the bounce in contact at any frame rate.
-    const slide = Math.hypot(p.velocity.x, p.velocity.z);
+    const slide = hypot2(p.velocity.x, p.velocity.z);
     applyGroundFriction(p.velocity, dt, CRASH.muSlide, true);
-    p.angular.multiplyScalar(slide > 1e-5 ? Math.hypot(p.velocity.x, p.velocity.z) / slide : 0);
+    p.angular.multiplyScalar(slide > 1e-5 ? hypot2(p.velocity.x, p.velocity.z) / slide : 0);
   }
 }

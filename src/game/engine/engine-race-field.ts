@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { idleDrive, type DriveInput, type DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
@@ -470,7 +471,9 @@ export abstract class RaceField {
     const s = this.session;
     if (!s) return;
     const cars = this.host.live();
-    for (const e of s.events()) {
+    const events = s.events();
+    for (let n = 0; n < events.length; n++) {
+      const e = events[n]!;
       if (e.type === "respawn") {
         const car = cars[e.id];
         if (!car) continue;
@@ -532,7 +535,7 @@ export abstract class RaceField {
       }
       const p = car.group.position;
       let near = Infinity;
-      for (const o of observers) near = Math.min(near, Math.hypot(o.x - p.x, o.z - p.z));
+      for (let q = 0; q < observers.length; q++) near = Math.min(near, hypot2(observers[q]!.x - p.x, observers[q]!.z - p.z));
       if (near > DORMANT || this.deadFor[i]! > TRAFFIC_DEAD || traffic.atEnd(i, p.x, p.z)) this.putAway(i, car);
     }
   }
@@ -707,7 +710,9 @@ export abstract class RaceField {
     let side = 0;
     let cx = 0;
     let cz = 0;
-    for (const [ox, oz] of WALL_PROBES) {
+    for (let q = 0; q < WALL_PROBES.length; q++) {
+      const ox = WALL_PROBES[q]![0];
+      const oz = WALL_PROBES[q]![1];
       const wx = rx * ox + fx * oz;
       const wz = rz * ox + fz * oz;
       // Left of travel = (tz, −tx).
@@ -724,7 +729,7 @@ export abstract class RaceField {
       cx = pos.x + wx;
       cz = pos.z + wz;
     }
-    if (Math.hypot(pos.x - this.wallX[i]!, pos.z - this.wallZ[i]!) > WALL_JUMP) this.wallBeyond[i] = beyond > WALL_CONTACT ? Infinity : 0;
+    if (hypot2(pos.x - this.wallX[i]!, pos.z - this.wallZ[i]!) > WALL_JUMP) this.wallBeyond[i] = beyond > WALL_CONTACT ? Infinity : 0;
     const held = this.wallBeyond[i]!;
     const push = pen - held;
     if (held > WALL_CONTACT || push <= 0) {

@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp, wrapPi } from "../kernel/scalar.ts";
@@ -233,12 +234,12 @@ export class HunterBrain extends CopBrain {
     if (u < 0 || u >= this.count || !self.alive || this.state[u] !== HUNTING || !this.go || this.target < 0) return out;
     out.brake = 0;
     if (this.wedge.backing(u, dt, out)) return out;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     const tg = cars[this.target]!;
     const dx = tg.x - self.x;
     const dz = tg.z - self.z;
-    const dist = Math.hypot(dx, dz);
-    const tv = Math.hypot(tg.vx, tg.vz);
+    const dist = hypot2(dx, dz);
+    const tv = hypot2(tg.vx, tg.vz);
     // How far the unit stands ahead of its target along the target's travel (+), and whether it faces it from there.
     const along = -(dx * Math.sin(tg.yaw) + dz * Math.cos(tg.yaw));
     const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
@@ -358,7 +359,7 @@ export class HunterBrain extends CopBrain {
         continue;
       }
       // Lost: far from the player and nobody to see it go.
-      const far = tg !== null && Math.hypot(car.x - tg.x, car.z - tg.z) > HUNT.far;
+      const far = tg !== null && hypot2(car.x - tg.x, car.z - tg.z) > HUNT.far;
       this.lost[u] = far && world.hidden(car.x, car.z) ? this.lost[u]! + dt : 0;
       if (this.lost[u]! > HUNT.farTime) {
         this.store(u, world);

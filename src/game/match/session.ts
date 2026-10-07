@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { OPEN_REACH, blankPoint, blankProjection, crossGate, inCorridor, pointOn, projectPath, type Projection, type Track, type TrackPath } from "../world/track.ts";
 import type {
@@ -221,7 +222,7 @@ export class RaceSession {
       let trail = false;
       for (let j = 0; j < this.cars.length && !trail && c.status === "racing" && p.alive; j++) {
         const q = poses[j]!;
-        const v = Math.hypot(q.vx, q.vz);
+        const v = hypot2(q.vx, q.vz);
         if (j === i || !q.alive || this.cars[j]!.status !== "racing" || v < DRAFT.speed) continue;
         const fx = q.vx / v;
         const fz = q.vz / v;
@@ -245,8 +246,8 @@ export class RaceSession {
       const c = this.cars[i]!;
       const p = poses[i]!;
       let near = false;
-      for (let k = 0; k < cops.length && !near; k++) near = Math.hypot(cops[k]!.x - p.x, cops[k]!.z - p.z) <= BUST.near;
-      if (c.status !== "racing" || !near || Math.hypot(p.vx, p.vz) * 3.6 >= BUST.kph) {
+      for (let k = 0; k < cops.length && !near; k++) near = hypot2(cops[k]!.x - p.x, cops[k]!.z - p.z) <= BUST.near;
+      if (c.status !== "racing" || !near || hypot2(p.vx, p.vz) * 3.6 >= BUST.kph) {
         c.stopped = 0;
         continue;
       }
@@ -562,7 +563,7 @@ export class RaceSession {
     c.seg = p.k;
     c.progress = c.lap * L + s;
     if (dt <= 0) return;
-    const speed = Math.hypot(vx, vz);
+    const speed = hypot2(vx, vz);
     const k = p.k;
     // Heading against the road means nothing off it (a car leaving through a mouth, a spin in the field): only on the road, its runoff and its wall.
     const along = speed > WRONG_SPEED && road ? (vx * path.tx[k]! + vz * path.tz[k]!) / speed : 0;
@@ -697,8 +698,8 @@ export class RaceSession {
   /** Finish events, the winner, the last-alive rule and the close. */
   private settle(): void {
     if (this.finishers.length > 0) {
-      for (const i of this.finishers) {
-        const c = this.cars[i]!;
+      for (let k = 0; k < this.finishers.length; k++) {
+        const c = this.cars[this.finishers[k]!]!;
         this.queue.push({ type: "finish", id: c.id, place: c.place, time: c.finishTime! });
       }
       if (this.winnerId == null) {
@@ -708,7 +709,7 @@ export class RaceSession {
       }
     }
     let winTime = Number.NaN;
-    if (this.winBy === "laps") for (const c of this.cars) if (c.id === this.winnerId) winTime = c.finishTime!;
+    if (this.winBy === "laps") for (let k = 0; k < this.cars.length; k++) if (this.cars[k]!.id === this.winnerId) winTime = this.cars[k]!.finishTime!;
     let running = 0;
     let last = -1;
     for (let i = 0; i < this.cars.length; i++) {
@@ -739,7 +740,7 @@ export class RaceSession {
   /** When a car still running after the winner is home stops being waited for (see `LAP_SLACK`). The pace is its slowest lap so far: its best may be a shortcut's lap, which the loop lap after it cannot match (razor-shelf: 38 s round the cut, 65 s on the loop). */
   private deadline(c: CarRecord, winTime: number): number {
     let pace = c.lapTimes.length > 0 ? 0 : winTime / this.laps;
-    for (const lap of c.lapTimes) if (lap > pace) pace = lap;
+    for (let k = 0; k < c.lapTimes.length; k++) if (c.lapTimes[k]! > pace) pace = c.lapTimes[k]!;
     return Math.max(winTime + FINISH_GRACE, c.lapStart + LAP_SLACK * pace);
   }
 

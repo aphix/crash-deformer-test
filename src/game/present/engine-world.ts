@@ -281,7 +281,8 @@ export class WorldStage {
   /** A knocked-over pole's light pool goes out with it. */
   syncPools(poles: readonly { group: THREE.Group; intact: boolean }[]): void {
     if (!this.night) return;
-    for (const p of poles) {
+    for (let k = 0; k < poles.length; k++) {
+      const p = poles[k]!;
       const pool = p.group.getObjectByName("pool");
       if (pool) pool.visible = p.intact;
     }

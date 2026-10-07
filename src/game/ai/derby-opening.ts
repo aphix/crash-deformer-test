@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -27,7 +28,7 @@ function openingCaution(out: DriveInput, self: AiCar, others: readonly AiCar[], 
     if (o.id === self.id || !o.alive) continue;
     const dx = o.x - self.x;
     const dz = o.z - self.z;
-    const d = Math.hypot(dx, dz);
+    const d = hypot2(dx, dz);
     if (d > OPEN_RANGE || d < 1e-3) continue;
     if ((fx * dx + fz * dz) / d < OPEN_CONE) continue;
     // Range rate alone is blind to a crossing rival (its centre line turns as the cars close, so a 3 m/s range rate meets

@@ -57,7 +57,11 @@ function write(o: THREE.Object3D, a: Float64Array, i: number, order: THREE.Euler
 
 /** One car's bodies (its group first, then the parts and wheels it has put in the world) and their poses around the last step. */
 class CarBlend {
+  /** The car's group, then its free objects (`DeformableCar.freeObjects`): `count` of them live. */
   readonly bodies: THREE.Object3D[] = [];
+  count = 0;
+  /** The group `present` drew, which `restore` puts back. */
+  private group: THREE.Object3D | null = null;
   private orders: THREE.EulerOrder[] = [];
   /** Before the last step, after it, and the sim's own while a blended pose is on show. */
   from = new Float64Array(N);
@@ -70,10 +74,9 @@ class CarBlend {
   drawn = false;
 
   begin(car: DeformableCar): void {
-    this.bodies.length = 0;
-    this.bodies.push(car.group);
-    car.freeObjects(this.bodies);
-    const n = this.bodies.length;
+    this.bodies[0] = car.group;
+    const n = car.freeObjects(this.bodies, 1);
+    this.count = n;
     if (this.from.length < n * N) {
       this.from = new Float64Array(n * N);
       this.to = new Float64Array(n * N);
@@ -85,13 +88,14 @@ class CarBlend {
   }
 
   end(): void {
-    for (let i = 0; i < this.bodies.length; i++) read(this.bodies[i]!, this.to, i);
+    for (let i = 0; i < this.count; i++) read(this.bodies[i]!, this.to, i);
     this.stepped = true;
   }
 
   present(group: THREE.Object3D, alpha: number): void {
     const { bodies, from, to, kept } = this;
-    for (let i = 0; i < bodies.length; i++) {
+    this.group = group;
+    for (let i = 0; i < this.count; i++) {
       const o = bodies[i]!;
       const k = i * N;
       read(o, kept, i);
@@ -112,9 +116,9 @@ class CarBlend {
     this.drawn = true;
   }
 
-  restore(group: THREE.Object3D): void {
-    for (let i = 0; i < this.bodies.length; i++) if (this.skip[i] === 0) write(this.bodies[i]!, this.kept, i, this.orders[i]!);
-    group.updateWorldMatrix(false, false);
+  restore(): void {
+    for (let i = 0; i < this.count; i++) if (this.skip[i] === 0) write(this.bodies[i]!, this.kept, i, this.orders[i]!);
+    this.group!.updateWorldMatrix(false, false);
     this.drawn = false;
   }
 }
@@ -130,10 +134,13 @@ class CarBlend {
  */
 export class PoseBlend {
   private readonly cars = new WeakMap<DeformableCar, CarBlend>();
-  private readonly shown: [DeformableCar, CarBlend][] = [];
+  /** The blends `present` drew this frame (`shownCount` of them), for `restore`. */
+  private readonly shown: CarBlend[] = [];
+  private shownCount = 0;
 
   begin(cars: readonly DeformableCar[]): void {
-    for (const car of cars) {
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
       let c = this.cars.get(car);
       if (!c) this.cars.set(car, (c = new CarBlend()));
       c.begin(car);
@@ -141,22 +148,23 @@ export class PoseBlend {
   }
 
   end(cars: readonly DeformableCar[]): void {
-    for (const car of cars) this.cars.get(car)?.end();
+    for (let i = 0; i < cars.length; i++) this.cars.get(cars[i]!)?.end();
   }
 
   present(cars: readonly DeformableCar[], alpha: number): void {
     if (!(alpha < 1)) return;
     const a = Math.max(0, alpha);
-    for (const car of cars) {
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
       const c = this.cars.get(car);
       if (!c?.stepped || !car.group.visible) continue;
       c.present(car.group, a);
-      this.shown.push([car, c]);
+      this.shown[this.shownCount++] = c;
     }
   }
 
   restore(): void {
-    for (const [car, c] of this.shown) c.restore(car.group);
-    this.shown.length = 0;
+    for (let i = 0; i < this.shownCount; i++) this.shown[i]!.restore();
+    this.shownCount = 0;
   }
 }

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { applyGroundFriction, round4, snapshotPoints } from "../deform/physics-util.ts";
+import { applyGroundFriction, hypot3, round4, snapshotPoints } from "../deform/physics-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { activeGround } from "../world/ground.ts";
 
@@ -41,7 +41,9 @@ export function bounceOffCar(car: DeformableCar, pos: THREE.Vector3, vel: THREE.
   _ha.copy(pos);
   car.group.worldToLocal(_ha);
   if (_ha.y < 0.02 - r || _ha.y > 1.45 + r) return;
-  for (const h of car.hulls()) {
+  const hulls = car.hulls();
+  for (let k = 0; k < hulls.length; k++) {
+    const h = hulls[k]!;
     const dx = _ha.x - h.cx;
     const dz = _ha.z - h.cz;
     const ox = h.hx + r - Math.abs(dx);
@@ -446,7 +448,7 @@ export class SparkSystem extends DotPoints {
       const ox = (Math.random() - 0.5) * 2;
       const oy = Math.random();
       const oz = (Math.random() - 0.5) * 2;
-      const mag = Math.hypot(ox, oy, oz) || 1;
+      const mag = hypot3(ox, oy, oz) || 1;
       this.pos[k * 3] = origin.x + (Math.random() - 0.5) * 0.22;
       this.pos[k * 3 + 1] = Math.max(0.08, origin.y) + Math.random() * 0.12;
       this.pos[k * 3 + 2] = origin.z + (Math.random() - 0.5) * 0.22;

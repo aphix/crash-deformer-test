@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type * as THREE from "three";
 
 /** The reel's far-overhead flight between clips (docs/HIGHLIGHTS.md). */
@@ -21,7 +22,7 @@ export function overheadPose(camera: THREE.PerspectiveCamera, ax: number, az: nu
   const s = t * t * (3 - 2 * t);
   const dx = bx - ax;
   const dz = bz - az;
-  const d = Math.hypot(dx, dz);
+  const d = hypot2(dx, dz);
   const x = ax + dx * s;
   const z = az + dz * s;
   const y = OVERHEAD.height + Math.sin(Math.PI * t) * Math.min(OVERHEAD.climbMax, d * OVERHEAD.climb);

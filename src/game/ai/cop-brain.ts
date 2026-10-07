@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { guardMates } from "./pack-guard.ts";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
@@ -135,7 +136,7 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
   const along = rx * tfx + rz * tfz;
   const side = rx * tlx + rz * tlz;
   const sideSign = side >= 0 ? 1 : -1;
-  const tv = Math.hypot(tg.vx, tg.vz);
+  const tv = hypot2(tg.vx, tg.vz);
   let lead = clamp(dist / Math.max(4, speed), 0, 0.5);
   let fwd: number;
   let lat: number;
@@ -187,7 +188,7 @@ export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number,
   const az = tg.z + tg.vz * lead + tfz * fwd + tlz * lat;
   if (queue) want = tv + clamp(-(TAIL + ROW * row) - along, -tv, 8);
   const alpha = wrapPi(Math.atan2(ax - self.x, az - self.z) - self.yaw);
-  out.steer = straight ? 0 : pursuitSteer(alpha, Math.hypot(ax - self.x, az - self.z), speed, turn);
+  out.steer = straight ? 0 : pursuitSteer(alpha, hypot2(ax - self.x, az - self.z), speed, turn);
   if (brakeCheck) {
     out.brake = 1;
     return;
