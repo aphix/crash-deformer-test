@@ -277,8 +277,8 @@ export abstract class DeformContact extends DeformState {
     this.aloft = false;
     let lift = 0;
     if (floor !== NO_FLOOR) {
-      // The band's top over what holds the body up (`pose[11]`); its bottom stays the ground under the anchor, so
-      // a hub on a higher edge (a ramp's side) never lifts the frame.
+      // The band's top over what holds the body up (`pose[11]`); its bottom (`pose[8]`) is never above the ground under the
+      // anchor, so a hub on a higher edge (a ramp's side) never lifts the frame.
       const band = pose[11]! + (pose[9]! - floor > 0.5 ? 0.12 : 0.08);
       this.aloft = (gy > band || (was && activeGround().walls === true && floor - gy > LIFT_OFF + Math.max(0, -this.frameVy) * dt)) && (was || (gy > band + LIFT_OFF && pose[10] === 0 && band < this.frameY - LIFT_OFF));
       if (!this.aloft) gy = Math.max(floor, Math.min(band, gy));
@@ -306,6 +306,7 @@ export abstract class DeformContact extends DeformState {
     group.position.set(wx - _a.x, gy, wz - _a.z);
     group.updateWorldMatrix(false, false);
     _toLocal.copy(group.matrixWorld).invert();
+    this.takeAxes(group);
 
     let mx = 0,
       mz = 0,
@@ -466,9 +467,13 @@ export abstract class DeformContact extends DeformState {
     // none: the group follows the anchor down), and what holds the body up: that ground, or the hubs' mean ground
     // where that is higher, as a driven car stands on the plane through its wheels' contacts (`stepPlane`). A wreck whose middle is over a gap or a
     // drop while its wheels are still on the deck (a stunt course's edge, a ramp's lip) stands there, not on the
-    // ground below (it was clamped onto that ground, 1.2 m down in one call).
+    // ground below (it was clamped onto that ground, 1.2 m down in one call). The band's bottom is that ground, or the plane
+    // through what its tyres stand on (`sampleGround`) under the anchor where that is lower: straddling a wedge's high end on its
+    // front tyres and its rear ones on the edge, a wreck's origin sits under the face below its middle, as a driven car's does on
+    // its wheels' plane, and the ground under the anchor lifted the frame 0.077 m in the slice the masses took it from the rigid step.
     const under = activeGround().heightAt(wx, wz, wy);
-    p[8] = under;
+    const wheels = plane.height + plane.gx * (wx - cell.world.x) + plane.gz * (wz - cell.world.z);
+    p[8] = wheels < under ? wheels : under;
     p[9] = minHub;
     p[10] = held;
     p[11] = under === NO_FLOOR || hubs === 0 ? under : Math.max(under, hubFloor / hubs);

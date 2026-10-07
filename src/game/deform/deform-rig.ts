@@ -59,6 +59,8 @@ const RES_K = 4;
 export const RES_SLOTS = 5;
 /** IDW softening (m²) of the parent weights, 1/(d² + RES_SOFT). */
 const RES_SOFT = 0.04;
+/** A level frame's world axes (x, y, z), `frameAxes` before the first `followGroup`. */
+const IDENTITY_AXES = [1, 0, 0, 0, 1, 0, 0, 0, 1];
 
 export interface Cage {
   spec: CageSpec;
@@ -216,7 +218,7 @@ export abstract class DeformRig {
   /** `liveHulls` / `liveCrushHulls` output, rewritten by each call (a SAT pass allocated 10 hulls per car). */
   protected readonly hullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
   protected readonly crushHullBuf: Hull[] = Array.from({ length: 5 }, () => ({ cx: 0, cz: 0, hx: 0, hz: 0 }));
-  /** Ground under each dynamic mass before (`floorPre`) and after (`floorPost`, `gripPost`) its move (`sampleGround`). */
+  /** Ground under each dynamic mass before (`floorPre`) and after (`floorPost`, `gripPost`) its move (`sampleGround`); an attached hub's is what its tyre stands on. */
   protected readonly floorPre = new Float64Array(MASS_SPECS.length);
   protected readonly floorPost = new Float64Array(MASS_SPECS.length);
   protected readonly gripPost = new Float64Array(MASS_SPECS.length);
@@ -226,6 +228,10 @@ export abstract class DeformRig {
   protected readonly hubStand = new Float64Array(MASS_SPECS.length * 2);
   /** `floorPost` sampled since the masses last armed (`measurePose` reads the hubs' floors from it). */
   protected floorsFresh = false;
+  /** The frame's world x, y and z axes at the last `followGroup` (what an attached hub's tyre is turned by, `sampleGround`). */
+  protected readonly frameAxes = new Float64Array(IDENTITY_AXES);
+  /** The car's slot in the world step (`DeformableCar.slot`, -1 in none): its own roof is not under its tyres. */
+  slot = -1;
   /** `measurePose` output (pitch, yaw, roll, anchor world x/y/z and body x/z, floor, lowest hub, 1 when every hub is
    *  on its ground, the ground that holds the body up, then the pitch and roll (rad) of the plane under its hubs, at any
    *  lean (the frame lies on it once levelled; `stepSuspension` tilts its rest offsets by it); 1 when planted on level ground). */
@@ -268,6 +274,21 @@ export abstract class DeformRig {
   driveTurn(rate: number): void {
     this.keptTurn[1] = rate;
     this.keptTurn[2] = this.elapsed;
+  }
+
+  /** `frameAxes` from `group`'s world matrix (current: the caller updated it). */
+  protected takeAxes(group: THREE.Object3D): void {
+    const e = group.matrixWorld.elements;
+    const ax = this.frameAxes;
+    ax[0] = e[0]!;
+    ax[1] = e[1]!;
+    ax[2] = e[2]!;
+    ax[3] = e[4]!;
+    ax[4] = e[5]!;
+    ax[5] = e[6]!;
+    ax[6] = e[8]!;
+    ax[7] = e[9]!;
+    ax[8] = e[10]!;
   }
 
   /** The turn rate (rad/s) the planted write-back kept over the last timed `followGroup`: a readout (a position correction, not momentum), never `car.angular`. */
@@ -501,6 +522,7 @@ export abstract class DeformRig {
     this.keptTurn.fill(0);
     this.aloft = false;
     this.floorsFresh = false;
+    this.frameAxes.set(IDENTITY_AXES);
     this.frameY = 0;
     this.frameAt = 0;
     this.frameVy = 0;

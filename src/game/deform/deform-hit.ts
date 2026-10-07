@@ -32,6 +32,7 @@ export abstract class DeformHit extends DeformRig {
   protected abstract crumpleWeight(m: MassNode): number;
   protected abstract frontTransfer(): number;
   protected abstract hitStroke(): number;
+  protected abstract sampleGround(floor: Float64Array, grip: Float64Array | null): void;
   abstract crumpleTravelCorner(): number;
 
   /**
@@ -448,7 +449,10 @@ export abstract class DeformHit extends DeformRig {
   /**
    * Masses on without starting the crash cinematic (speed-bump hop, a wreck landing or struck in flight): each
    * where the group carries its `local` (a wreck's dents kept; `bindKinematic` keeps a driven car's at rest),
-   * moving with the group's rigid motion (origin velocity `worldVel`, spin `worldOmega`).
+   * moving with the group's rigid motion (origin velocity `worldVel`, spin `worldOmega`). An attached hub stands on
+   * its rest ride, where the body handing it over had its wheel (`wheelsAt`): a wreck's hubs kept the droop they flew
+   * off with (7 cm), so landing on its tyres in the rigid step put them 7 cm deeper than its tyres, and the hub floor
+   * lifted the frame by it in the slice the masses took it.
    */
   armMasses(group: THREE.Object3D, worldVel: THREE.Vector3, worldOmega: THREE.Vector3): void {
     if (this.massActive) return;
@@ -456,6 +460,7 @@ export abstract class DeformHit extends DeformRig {
     group.updateWorldMatrix(false, false);
     const o = group.position;
     for (const m of this.masses) {
+      if (m.hub && !m.popped) m.local.y = m.rest.y;
       m.world.copy(m.local).applyMatrix4(group.matrixWorld);
       m.vel.copy(worldVel).add(_r.subVectors(m.world, o).crossVectors(worldOmega, _r));
       m.dynamic = true;
@@ -463,7 +468,11 @@ export abstract class DeformHit extends DeformRig {
     this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
     this.leanAt = -Infinity;
     this.aloft = false;
-    this.floorsFresh = false;
+    // The first read lays the frame on the ground under its wheels: read with none (as the step after did), a quiet wreck
+    // landing on a slope took the world's level for a slice, 0.07 m up, and its masses were pulled after it.
+    this.takeAxes(group);
+    this.sampleGround(this.floorPost, this.gripPost);
+    this.floorsFresh = true;
     this.frameY = group.position.y;
     this.frameAt = this.elapsed;
     this.frameVy = worldVel.y;

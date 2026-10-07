@@ -12,6 +12,10 @@ export class HubPlane {
   /** Pitch and roll (rad) of the fitted plane in the car's heading (`fit`). */
   pitch = 0;
   roll = 0;
+  /** The plane's height (m) at the cell (`add`'s origin) and its rise (m per m) along world x and z; height NaN where the hubs fix no plane. */
+  height = NaN;
+  gx = 0;
+  gz = 0;
   private n = 0;
   private base = 0;
   private sx = 0;
@@ -50,6 +54,7 @@ export class HubPlane {
   fit(yaw: number, grounded: number): void {
     this.pitch = 0;
     this.roll = 0;
+    this.height = NaN;
     const n = this.n;
     if (n < 3) return;
     const mx = this.sx / n;
@@ -64,6 +69,9 @@ export class HubPlane {
     if (spread <= SPREAD) return;
     const gx = (dxf * dzz - dzf * dxz) / spread;
     const gz = (dzf * dxx - dxf * dxz) / spread;
+    this.height = this.base + mf - gx * mx - gz * mz;
+    this.gx = gx;
+    this.gz = gz;
     const cy = Math.cos(yaw);
     const sy = Math.sin(yaw);
     const along = gx * sy + gz * cy;

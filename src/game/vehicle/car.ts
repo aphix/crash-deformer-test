@@ -220,6 +220,7 @@ export class DeformableCar extends CarParts {
   }
 
   syncPose(dt: number): void {
+    this.deform.slot = this.slot;
     this.deform.followGroup(this.group, this.velocity, this.angular, dt);
     this.yaw = this.group.rotation.y;
     this.roll = this.group.rotation.z;

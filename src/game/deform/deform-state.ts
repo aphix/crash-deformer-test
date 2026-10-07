@@ -184,17 +184,17 @@ export abstract class DeformState extends DeformHit {
 
   /** Sliding-wreck XZ drag (same Coulomb as the tyres) on every mass, while the wreck is on the ground. */
   dragGround(dt: number, amount: number): void {
-    if (!this.massActive || amount <= 0) return;
-    // Airborne (no hub within GROUND_SKIN of its HUB_FLOOR over the ground): nothing to slide on.
-    const ground = activeGround();
+    if (!this.massActive || amount <= 0 || !this.floorsFresh) return;
+    // Airborne (no hub within GROUND_SKIN of its HUB_FLOOR over what its tyre stands on, `sampleGround`): nothing to slide on.
     let low = Infinity;
     let grip = 1;
-    for (const m of this.masses) {
+    for (let i = 0; i < this.masses.length; i++) {
+      const m = this.masses[i]!;
       if (!m.hub || !m.dynamic) continue;
-      const lift = m.world.y - ground.heightAt(m.world.x, m.world.z, m.world.y);
+      const lift = m.world.y - this.floorPost[i]!;
       if (lift >= low) continue;
       low = lift;
-      grip = ground.frictionAt(m.world.x, m.world.z, m.world.y);
+      grip = this.gripPost[i]!;
     }
     if (low > HUB_FLOOR + GROUND_SKIN) return;
     const mu = CRASH.muSlide * (0.35 + amount * 1.25) * grip;

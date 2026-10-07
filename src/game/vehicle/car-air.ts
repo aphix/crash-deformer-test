@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, wheelContact } from "../world/surfaces.ts";
-import { TYRE_R } from "../deform/deform-state.ts";
+import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { droop, SPRINGS, UNDERSIDE } from "./car-suspension.ts";
@@ -680,8 +680,10 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     FOLLOW[n] = own >= 0 ? hit[o + C_AUX]! : 1;
     if (own >= 0) surf.touch(own);
     SLOT[n] = surf.slot(own, N[n]!, false, q, FOLLOW[n]!);
-    // How far past what holds it the point is: a tyre's springs and their full travel.
-    const sink = pen * N[n]!.y - stop;
+    // How far past what holds it the point is: a tyre's springs and their full travel; a wreck's tyre no deeper than its masses
+    // hold it (`HUB_FLOOR` under its hub): sunk to the springs' stop, a wreck's front tyres sat 0.13 m in a wedge's face when it
+    // landed, and its masses lifted them out by the difference in the slice they took it.
+    const sink = pen * N[n]!.y - (car.crashed ? Math.min(stop, TYRE_R * car.wheels[i]!.scale.x - HUB_FLOOR) : stop);
     SOFT[n] = sink < 0;
     SINK[n] = sink;
     PRESS[n] = pen;
