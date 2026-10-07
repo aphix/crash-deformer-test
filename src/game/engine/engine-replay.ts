@@ -380,7 +380,7 @@ export class ClipSim {
     // What it touches is read again with its wreck state back (`pose` read it as an intact car): a wreck on its masses touches
     // what its hubs' last slice left, and a crashed one off them is moved by the rigid step.
     car.restoreContact();
-    if (f.falling) beginFakeFall(car, car.angular);
+    if (f.falling) beginFakeFall(car, true);
   }
 
   /** Keyframe `k` corrects car `j`'s drift: an intact car that is intact in the record takes the pose, any other is respawned as recorded. */

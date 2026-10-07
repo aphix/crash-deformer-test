@@ -265,12 +265,10 @@ export abstract class CarCore {
   speed = 0;
   crashed = false;
   /**
-   * Off the fleet disc and 2 m down (`CrashEngine.stepEdge`): a frozen copy of the car as it was (mesh, parts,
-   * lamps) dropping ballistically at `velocity` with the constant spin `fallSpin`; no physics, contacts or skin.
+   * Off the fleet disc and 2 m down (`CrashEngine.stepEdge`): a frozen copy of the car as it was (mesh, parts, lamps) dropping on
+   * the rigid step's flight, `velocity` and `angular`; no contacts with other cars, deform or skin.
    */
   falling = false;
-  /** World angular velocity (rad/s) of the fake fall. */
-  readonly fallSpin = new THREE.Vector3();
   /** Fell 20 m below the fleet disc and burst into smoke (`CrashEngine.setVaporized`): hidden and out of the sim until respawned. */
   vaporized = false;
   /**

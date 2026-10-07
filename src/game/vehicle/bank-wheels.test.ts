@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
+import { layOnGround } from "./car-air.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -68,6 +69,7 @@ function bankRun(track: Track, cls: VehicleClassId, lat: (half: number) => numbe
   const [x0, z0] = at(sMax - 50);
   car.spawnFacing(x0, z0, Math.atan2(pt.tx, pt.tz), 25);
   car.group.position.y = ground.heightAt(x0, z0, pt.y + 0.5);
+  layOnGround(car);
   const w = newWorld([car]);
   const proj = blankProjection();
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };

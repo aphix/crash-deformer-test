@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
 import { DeformableCar } from "./car.ts";
 import { UNDERSIDE } from "./car-suspension.ts";
-import { HULL } from "./car-air.ts";
+import { HULL, layOnGround } from "./car-air.ts";
 import { assignClass, CLASSES, type VehicleClassId } from "./vehicle-classes.ts";
 import { paint } from "./test-support.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
@@ -363,6 +363,7 @@ export function drive(
   const [x0, z0] = at(start);
   car.spawnFacing(x0, z0, Math.atan2(pt.tx, pt.tz), pace(start));
   car.group.position.y = ground.heightAt(x0, z0, pt.y + 0.5);
+  layOnGround(car);
   const w = worldOf(car);
   const st = { acc: 0 };
   const proj = blankProjection();

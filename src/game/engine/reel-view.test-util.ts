@@ -2,6 +2,7 @@ import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { frame, FRAME, type World } from "../world/race-world.test-util.ts";
 import { blankPoint, type Track } from "../world/track.ts";
+import { layOnGround } from "../vehicle/car-air.ts";
 import { clipTitle, ownThrow, type HighlightClip } from "../match/highlights.ts";
 import { phaseClock } from "../match/phase.ts";
 import type { ViewBox } from "../match/types.ts";
@@ -247,6 +248,7 @@ const pt = blankPoint();
 function put(track: Track, car: World["cars"][number], x: number, z: number, yaw: number, speed: number): void {
   car.spawnFacing(x, z, yaw, speed);
   car.group.position.y = track.ground().heightAt(x, z, pt.y + 0.5);
+  layOnGround(car);
 }
 
 /** A staged jump's car runs at the crest from this far (m) short of it: too short for its driver to brake for it. */

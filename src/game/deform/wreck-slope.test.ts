@@ -1,6 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { DEG, FRAME, fit, frame, makeCar, worldOf, type Fit } from "../vehicle/ground-probe.test-util.ts";
+import { layOnGround } from "../vehicle/car-air.ts";
 import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { Ground, setGround } from "../world/ground.ts";
 import { Track, blankPoint, pointOn } from "../world/track.ts";
@@ -62,6 +63,7 @@ function wreck(site: Site, cls: VehicleClassId, v: number) {
   const car = makeCar(cls);
   car.spawnFacing(site.x, site.z, site.yaw, v);
   car.group.position.y = site.ground.heightAt(site.x, site.z, site.y);
+  layOnGround(car);
   const w = worldOf(car);
   const st = { acc: 0 };
   for (let n = 0; n < 30; n++) frame(w, null, st);

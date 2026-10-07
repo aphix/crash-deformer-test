@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { idleDrive, type DriveInput, type DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { layOnGround } from "../vehicle/car-air.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
@@ -611,6 +612,7 @@ export abstract class RaceField {
   private place(car: DeformableCar, x: number, z: number, yaw: number, y: number): void {
     car.spawnFacing(x, z, yaw, 0);
     car.group.position.y = this.track ? this.track.ground().heightAt(x, z, y + 0.5) : 0;
+    if (this.track) layOnGround(car);
     this.host.dress(car);
   }
 

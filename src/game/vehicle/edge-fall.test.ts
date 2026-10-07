@@ -2,6 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { beginFakeFall, type DeformableCar } from "./car.ts";
+import { COM_Y } from "./car-air.ts";
 import { makeCar, makeWorld, runPair, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { edgeAction, FAKE_DEPTH, FLEET_MIN_SEP, layoutFleet, respawnSlot, RESPAWN_S, VAPOR_DEPTH } from "../scenes/fleet.ts";
 import { DISC_GROUND, DISC_RADIUS, FLAT_GROUND, setGround, type Ground } from "../world/ground.ts";
@@ -118,20 +119,21 @@ describe("given the fleet course's disc-shaped ground (a round pad with a rim pa
     });
   }
 
-  it("when a wreck moving at (3, −2, 5) m/s and spinning is swapped for the fake fall, then the fake keeps its linear and angular velocity, the spin to within 35 %", () => {
+  it("when a wreck moving at (3, −2, 5) m/s and spinning is swapped for the fake fall, then the fake flies on at its centre's linear velocity and its angular velocity, the spin to within 35 %", () => {
     const car = launch(0, 0, true);
     const v = new THREE.Vector3(3, -2, 5);
     const spin = new THREE.Vector3(0.4, -1.1, 0.7);
     const c = new THREE.Vector3();
     for (const m of car.deform.masses) c.addScaledVector(m.world, m.mass / car.deform.masses.reduce((s, n) => s + n.mass, 0));
     for (const m of car.deform.masses) m.vel.copy(v).add(new THREE.Vector3().subVectors(m.world, c).cross(spin).negate());
-    // The group's origin moves with the body: v + spin × (origin − centre).
-    const want = v.clone().add(car.group.position.clone().sub(c).cross(spin).negate());
-    const arm = car.group.position.distanceTo(c);
+    const com = new THREE.Vector3(0, COM_Y, 0).applyQuaternion(car.group.quaternion).add(car.group.position);
+    // The rigid step's centre moves with the body: v + spin × (centre − masses' mean).
+    const want = v.clone().add(com.clone().sub(c).cross(spin).negate());
+    const arm = com.distanceTo(c);
     beginFakeFall(car);
     assert.ok(car.falling && !car.deform.massActive);
     // A least-squares fit of a non-spherical body recovers the spin approximately, never exactly.
-    assert.ok(car.fallSpin.distanceTo(spin) < 0.35 * spin.length(), `spin ${car.fallSpin.toArray()} vs ${spin.toArray()}`);
+    assert.ok(car.angular.distanceTo(spin) < 0.35 * spin.length(), `spin ${car.angular.toArray()} vs ${spin.toArray()}`);
     assert.ok(car.velocity.distanceTo(want) <= 0.35 * spin.length() * arm + 1e-9, `velocity ${car.velocity.toArray()} vs ${want.toArray()}`);
   });
 

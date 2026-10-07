@@ -16,7 +16,6 @@ import type { CarSurfaces } from "./car-surfaces.ts";
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
 
-const _qSpin = new THREE.Quaternion();
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
 const _v = new THREE.Vector3();
@@ -43,9 +42,9 @@ for (let i = 0; i < 4; i++) {
 export class DeformableCar extends CarParts {
   /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight); a body on its masses is in the air while they are (`aloft`). Drive and grip follow the wheels (`wheelsDown`), not this. */
   airborne = false;
-  /** Moved by the rigid contact solve (`stepFree`), not by its crush masses or the fake fall: derived, never stored. `velocity` is then its centre of mass's. */
+  /** Moved by the rigid contact solve (`stepFree`), not by its crush masses: derived, never stored. `velocity` is then its centre of mass's. */
   get rigid(): boolean {
-    return !this.deform.massActive && !this.falling;
+    return !this.deform.massActive;
   }
   /** The world's other-car tops this body can stand on (`stepWorld` sets it; null: the world's ground alone). */
   surfaces: CarSurfaces | null = null;
@@ -110,7 +109,6 @@ export class DeformableCar extends CarParts {
     this.vaporized = false;
     this.falling = false;
     this.driverOut = null;
-    this.fallSpin.set(0, 0, 0);
     this.group.scale.setScalar(1);
     this.deform.reset();
     // Before the rest restores below: a dent's saved copy may be a crumpled skin the rest restore then overwrites.
@@ -352,16 +350,6 @@ export class DeformableCar extends CarParts {
 
   integrate(dt: number): void {
     if (this.vaporized) return;
-    if (this.falling) {
-      // At the slice's mean velocity under gravity, as the rigid step moves its centre (`stepFree`): no pop at the swap.
-      this.velocity.y -= G * dt;
-      this.group.position.addScaledVector(this.velocity, dt);
-      this.group.position.y += 0.5 * G * dt * dt;
-      const spin = this.fallSpin.length();
-      if (spin > 1e-6) this.group.quaternion.premultiply(_qSpin.setFromAxisAngle(_n.copy(this.fallSpin).multiplyScalar(1 / spin), spin * dt));
-      this.stepLooseParts(dt);
-      return;
-    }
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
@@ -369,9 +357,13 @@ export class DeformableCar extends CarParts {
       this.stepLooseParts(dt);
       return;
     }
-    this.spinWheels(dt, !this.airborne);
+    if (!this.falling) this.spinWheels(dt, !this.airborne);
     this.flewDt = dt;
     const landed = stepFree(this, dt);
+    if (this.falling) {
+      this.stepLooseParts(dt);
+      return;
+    }
     // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
     this.yaw = this.group.rotation.y;
     this.pitch = this.group.rotation.x;
@@ -630,20 +622,13 @@ export class DeformableCar extends CarParts {
 }
 
 /**
- * Start the fake fall. Host: the rigid motion that best fits the masses (`fitMasses`), or the kinematic car's
- * own; the soft body then stops (`massActive` off; its state is left as it is). Netplay client: pass the host's
- * `spin` after setting the pose and `velocity`.
+ * Start the fake fall: the soft body stops (`massActive` off; its state is left as it is) and the car flies on as the rigid step
+ * flies every body, off the world's ground. Host: a wreck takes the rigid motion that best fits its masses (`fitMasses`), a rigid
+ * car keeps its own. `keepMotion`: a replay or netplay client has set the pose, `velocity` and `angular` already.
  */
-export function beginFakeFall(car: DeformableCar, spin?: THREE.Vector3): void {
+export function beginFakeFall(car: DeformableCar, keepMotion = false): void {
   const d = car.deform;
-  if (spin) car.fallSpin.copy(spin);
-  // The fake turns about the group's origin: carry that point's velocity in the fitted rigid motion, or in the rigid step's
-  // (`velocity` there is its centre of mass's: the origin, `COM_Y` under it, moves by the spin too).
-  else if (d.massActive) fitMasses(car, car.group.position, car.fallSpin);
-  else {
-    car.fallSpin.copy(car.angular);
-    if (car.rigid) car.velocity.sub(_v.crossVectors(car.angular, _p.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion)));
-  }
+  if (d.massActive && !keepMotion) fitMasses(car, _p.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion).add(car.group.position), car.angular);
   d.massActive = false;
   car.falling = true;
 }

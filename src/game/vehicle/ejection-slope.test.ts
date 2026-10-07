@@ -6,6 +6,7 @@ import { blankPoint, blankProjection, pointOn, Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import type { DriveInput } from "./car-drive.ts";
+import { layOnGround } from "./car-air.ts";
 import type { ExitPane } from "./car-core.ts";
 import { EjectionWatch } from "./ejection.ts";
 import { armKill, DEFAULT_REALISM, killClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
@@ -60,6 +61,7 @@ function crashedRun(trk: Track, cls: VehicleClassId, pace: number, hit: Hit, s0:
   const [x0, z0] = at(s0 - 60);
   car.spawnFacing(x0, z0, Math.atan2(pt.tx, pt.tz), pace);
   car.group.position.y = ground.heightAt(x0, z0, pt.y + 0.5);
+  layOnGround(car);
   const w = worldOf(car);
   const watch = new EjectionWatch();
   w.ejection = watch;

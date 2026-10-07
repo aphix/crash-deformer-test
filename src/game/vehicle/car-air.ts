@@ -513,7 +513,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   _com.y += 0.5 * G * dt * dt;
   const spin = w.length();
   if (spin > 1e-9) q.premultiply(_dq.setFromAxisAngle(_axis.copy(w).divideScalar(spin), spin * dt));
-  if (!car.crashed) {
+  if (!car.crashed && !car.falling) {
     // A driven car's heading is its steering's alone: a roll about a pitched body's horizontal axis swings its nose sideways (a lip's
     // 23° of roll under 14° of pitch read as 4° of yaw), so the Euler yaw goes back to the car's own.
     let drift = _eul.setFromQuaternion(q, "YXZ").y - car.yaw;
