@@ -283,9 +283,10 @@ error, an unobserved rejection.
 ### The census that exists today (closed)
 
 Out of scope (generated or template code this repo doesn't edit): `src/routeTree.gen.ts` (TanStack Router output) and
-the pre-wired `src/lib/**` helpers. In our own code: `as unknown as` casts in a few game files and in tests reaching
-private fields are legacy debt, not a sanctioned pattern. Touching a file that carries one: remove it while you are
-there, or report why the structural fix is a separate change.
+the pre-wired template helpers in `src/lib/` (`auth/`, `app-data/`, `og/`, `db.ts`, `preview-*`, `env.server.ts`,
+`error-component.tsx`). In our own code, including `src/lib/multiplayer/`: `as unknown as` casts in a few game files
+and in tests reaching private fields are legacy debt, not a sanctioned pattern. Touching a file that carries one:
+remove it while you are there, or report why the structural fix is a separate change.
 
 ---
 
@@ -356,16 +357,19 @@ produces, not for how it runs. A literal duplicated across call sites is the sam
   methods, no deep equality at runtime. Pass data through preallocated, reused out-arrays or typed arrays written and
   read by index with named index constants (the caller passes the buffer in and reads it out), never keyed objects.
   Boundaries rule C6 enforces the HOT list.
-- **V8 pitfalls in hot code** (measured in this repo; confirm a suspect with `node --trace-opt --trace-deopt` and the
-  sampling heap profiler, including collected objects):
-  - `Math.hypot` is never inlined by TurboFan, so its arguments box into heap numbers on every call. Use the kernel's
-    `hypot2` / `hypot3`, which also give every browser the same bits.
-  - Doubles passed to or returned from a call TurboFan didn't inline are boxed. A function past the inlining budget
-    (roughly 900 bytes of bytecode) stops being inlined; keep hot helpers small.
-  - `try/catch`: old V8 (Crankshaft) refused to optimize any function containing one. TurboFan can, but the catch path
-    still costs and blocks some optimizations, so keep it out of hot functions entirely and wrap the call from outside.
-  - Changing an object's shape (adding or deleting properties after construction, mixing ints and doubles in one
-    field) turns monomorphic call sites megamorphic; build objects with all their fields up front.
+- **V8 pitfalls in hot code** (confirm a suspect with `node --trace-opt --trace-deopt` and the sampling heap profiler,
+  including collected objects):
+  - Measured in this repo: `Math.hypot` is never inlined by TurboFan, so its arguments box into heap numbers on every
+    call. Use the kernel's `hypot2` / `hypot3`, which also give every browser the same bits.
+  - Measured in this repo: doubles passed to or returned from a call TurboFan didn't inline are boxed. A function past
+    the inlining budget (roughly 900 bytes of bytecode) stops being inlined; keep hot helpers small.
+  - General V8 knowledge, not measured here: `try/catch` — old V8 (Crankshaft) refused to optimize any function
+    containing one; TurboFan can, but the catch path still costs, so keep it out of hot functions entirely and wrap the
+    call from outside.
+  - General V8 knowledge, not measured here: adding or deleting properties after construction gives objects different
+    shapes, and a call site that sees many shapes goes megamorphic; mixing ints and doubles in one field changes that
+    field's representation and causes deopts. Build objects with all their fields up front, with consistent number
+    kinds.
 - **Determinism and correctness, not old bits.** The same build and inputs give the same result (replay equals live,
   netplay stays consistent), and a change must make the result more correct. A fix that changes trajectories is fine
   with a replay version bump; never bend a correct fix to keep an old digest.
