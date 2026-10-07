@@ -283,6 +283,20 @@ function reach(c: number, dir: THREE.Vector3, q: THREE.Quaternion): number {
   return 1 / k;
 }
 
+const ANG = new Float64Array(CONTACTS);
+/** Whether the first `n` contacts (`R`, from the centre of mass) surround the centre in plan: no gap of half a turn between their bearings. */
+function surrounds(n: number): boolean {
+  for (let c = 0; c < n; c++) {
+    const a = Math.atan2(R[c]!.z, R[c]!.x);
+    let k = c;
+    for (; k > 0 && ANG[k - 1]! > a; k--) ANG[k] = ANG[k - 1]!;
+    ANG[k] = a;
+  }
+  let gap = ANG[0]! + 2 * Math.PI - ANG[n - 1]!;
+  for (let c = 1; c < n; c++) gap = Math.max(gap, ANG[c]! - ANG[c - 1]!);
+  return gap < Math.PI;
+}
+
 /**
  * Body point `i` of `POINTS` turned by the body's orientation `q`, from a point `dy` above the group's origin (car-local y).
  * The belly rides the class's body `lift` (the drawn body is what bottoms out; the bumper, beltline and roof hulls stay
@@ -981,15 +995,16 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   _com.add(_lift);
   const yielded = surf.commit();
-  // At rest: slow on three or more points whose surface is near level. Past ~14° a body there only creeps (a tyre grips
-  // across its tread alone, gravity adds 0.04 m/s a slice, under `REST_V`), so freezing it held a car level on a slope,
-  // tail on the road and the nose over the drop, for good (the stunt kicker's face): it keeps simulating until it
-  // rolls onto its tyres or its friction holds it. A tyre in its springs on another car's top, unpowered, pushes straight up and grips
-  // both ways (it does not creep), so it counts as level: read by its face, a roof's 58° shoulder under a coupe's rear tyres kept the
-  // coupe on a wagon from ever coming to rest.
+  // At rest: slow on three or more points whose surface is near level and which stand around its centre of mass. Past ~14° a body there
+  // only creeps (a tyre grips across its tread alone, gravity adds 0.04 m/s a slice, under `REST_V`), so freezing it held a car level on
+  // a slope, tail on the road and the nose over the drop, for good (the stunt kicker's face): it keeps simulating until it rolls onto
+  // its tyres or its friction holds it. A tyre in its springs on another car's top, unpowered, pushes straight up and grips both ways (it
+  // does not creep), so it counts as level: read by its face, a roof's 58° shoulder under a coupe's rear tyres kept the coupe on a wagon
+  // from ever coming to rest. Three points in a row are no stand: a sedan on another's roof froze 10° nose-down on its belly's middle
+  // row, its centre 7 cm past it and its front row 25 mm off the windscreen, and the column built on it fell.
   let up = 0;
   for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
-  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
+  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n)) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
     _com.y += Math.min(under, REST_LIFT);
