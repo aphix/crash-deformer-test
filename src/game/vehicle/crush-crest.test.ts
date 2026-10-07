@@ -6,6 +6,7 @@ import { TRACKS } from "../world/tracks/index.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-classes.ts";
 import { drive, type Sample } from "./ground-probe.test-util.ts";
+import { BOUNDS } from "./ground-judge.test-util.ts";
 
 /**
  * The stunt course's CRUSH crest (owner's report: a car on the hill under the CRUSH billboards, wheels flat and the
@@ -17,6 +18,12 @@ const FRAME = 1 / 60;
 
 /** Most the drawn body's pitch may stray (deg) from the road's slope under its axles, where the springs lag the dip at s ≈ 908. */
 const PITCH_LAG: Record<VehicleClassId, number> = { sedan: 2, muscle: 2, police: 2, truck: 3.6, monster: 5.5 };
+/** The drop matrix's bounds (ground-fit): a tyre sunk past `gap`, an underside past `pen`, a body off its ground's slope past `pose`. */
+const PLAIN = BOUNDS.plain;
+/** Most the body may turn in one frame (deg): fleet-ramps' snap bar for a jump. */
+const SNAP = 6;
+/** Seconds after touchdown by which the body is on the road's slope: the rotation from first contact onto all four tyres. */
+const SETTLE_S = 0.1;
 
 function worst(run: Sample[], from: number, to: number) {
   let gap = 0;
@@ -79,17 +86,31 @@ describe("given the stunt course's CRUSH crest (the hill under the CRUSH billboa
     });
   }
 
+  // From the first frame a tyre reaches the road after the flight (the touchdown the body is seen to make; a stored flight flag used to
+  // hide the frames it rotates onto the road in): no snap, nothing sunk past the drop matrix's slop, and on the road's slope by 0.1 s.
+  // A snap is looked for from half a second before that frame too: a touch the body bounces off ends its frame in the air.
   for (const cls of VEHICLE_CLASS_IDS) {
-    it(`when a ${cls} drives over the crest at 38 m/s, then the first grounded frame after the flight is already on the road's slope, with the tyres within 2 cm and no underside in the road`, (t) => {
+    it(`when a ${cls} drives over the crest at 38 m/s, then around its first tyre touching down its body never turns more than ${SNAP}° in a frame, from that touch no tyre sinks more than ${PLAIN.gap * 100} cm and no underside more than ${PLAIN.pen * 100} cm into the road, and by ${SETTLE_S} s after it the body is on the road's slope within ${PLAIN.pose}° with the tyres within ${PLAIN.gap * 100} cm`, (t) => {
       const run = drive(track, cls, 880, 1010, () => 38, { lead: 40 });
       const first = run.findIndex((r, i) => i > 0 && run[i - 1]!.airborne && !r.airborne);
       assert.ok(first > 0, "never landed");
-      const w = worst(run.slice(first, first + 30), 0, Infinity);
-      t.diagnostic(`${cls}: landed at s ${run[first]!.s.toFixed(0)}; the next 0.5 s: tyre gap ${(w.gap * 100).toFixed(1)} cm, underside in the road ${(w.pen * 100).toFixed(1)} cm, frame pitch ${w.framePitch.toFixed(2)}° off the slope`);
-      // Before: the monster's rear tyres 9.5 cm up, its frame 13.8° nose-down off the slope, for the touchdown frame.
-      assert.ok(w.gap <= 0.02, `a tyre ${(w.gap * 100).toFixed(1)} cm off the road after touchdown`);
-      assert.ok(w.pen <= 0.01, `underside ${(w.pen * 100).toFixed(1)} cm into the road after touchdown`);
-      assert.ok(w.framePitch <= 1.5, `frame ${w.framePitch.toFixed(2)}° off the slope after touchdown`);
+      let turn = 0;
+      let sunk = 0;
+      let pen = 0;
+      for (let i = Math.max(1, first - 30); i < first + 30 && i < run.length; i++) {
+        const r = run[i]!;
+        turn = Math.max(turn, Math.abs(r.framePitch - run[i - 1]!.framePitch), Math.abs(r.frameRoll - run[i - 1]!.frameRoll));
+        if (i < first) continue;
+        sunk = Math.max(sunk, ...r.gaps.map((g) => -g));
+        pen = Math.max(pen, r.pen);
+      }
+      const settle = Math.round(SETTLE_S / FRAME);
+      const w = worst(run.slice(first + settle, first + 30), 0, Infinity);
+      t.diagnostic(`${cls}: touched down at s ${run[first]!.s.toFixed(0)}; the next 0.5 s: most turn in a frame ${turn.toFixed(2)}°, deepest tyre ${(sunk * 100).toFixed(1)} cm, underside ${(pen * 100).toFixed(1)} cm; from ${SETTLE_S} s: tyre gap ${(w.gap * 100).toFixed(1)} cm, frame ${w.framePitch.toFixed(2)}° off the slope`);
+      assert.ok(turn <= SNAP, `the body turned ${turn.toFixed(2)}° in one frame after touchdown`);
+      assert.ok(sunk <= PLAIN.gap, `a tyre ${(sunk * 100).toFixed(1)} cm into the road after touchdown`);
+      assert.ok(pen <= PLAIN.pen, `underside ${(pen * 100).toFixed(1)} cm into the road after touchdown`);
+      assert.ok(w.airFrames === 0 && w.gap <= PLAIN.gap && w.framePitch <= PLAIN.pose, `${SETTLE_S} s after touchdown: ${w.airFrames} frames off the road, a tyre ${(w.gap * 100).toFixed(1)} cm off it, the frame ${w.framePitch.toFixed(2)}° off the slope`);
     });
   }
 
