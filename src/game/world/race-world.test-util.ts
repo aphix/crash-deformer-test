@@ -120,6 +120,7 @@ export function makeWorld(survivalCourse?: unknown): World {
     watchCam: () => {
       w.watchCams++;
     },
+    heardMeter: () => null,
   }, survivalCourse);
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();

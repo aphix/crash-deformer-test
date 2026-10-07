@@ -14,6 +14,7 @@ import {
   readInput,
   Reader,
   readSnapshot,
+  snapshotMaxBytes,
   writeDerby,
   writeInput,
   writeSnapshot,
@@ -110,7 +111,7 @@ describe("given a two-car network snapshot with every field filled in", () => {
     for (let c = 0; c < 2; c++) {
       const f = s.cars[c]!;
       // Car 0 a falling fake, car 1 vaporized with its sirens on: each flag must come back on its own car only.
-      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c });
+      Object.assign(f, { x: 12.345 + c, y: 0.0123, z: -40.5, yaw: 3.1, pitch: -0.12, roll: 0.4, vx: 17.3, vy: -1.2, vz: -0.07, wy: 2.345, crashed: true, wreck: c === 0, falling: c === 0, vaporized: c === 1, sirens: c === 1, style: 4 + c, cls: 3 - c, meter: c === 0 ? 0.4 : -1 });
       const d = f.deform;
       for (let i = 0; i < d.local.length; i++) d.local[i] = Math.sin(i * 1.7) * 2.2;
       for (let i = 0; i < d.skinPos.length; i++) d.skinPos[i] = Math.cos(i * 0.9) * 2.1;
@@ -159,6 +160,8 @@ describe("given a two-car network snapshot with every field filled in", () => {
       assert.equal(b.falling, c === 0);
       assert.equal(b.vaporized, c === 1);
       assert.equal(b.sirens, c === 1);
+      if (c === 0) assert.ok(Math.abs(b.meter - 0.4) <= 0.5 / 254, `meter ${b.meter}`);
+      else assert.equal(b.meter, -1, "a car with no nitrous reads back as none");
     }
     const a = s.cars[0]!;
     const b = got.cars[0]!;
@@ -186,8 +189,25 @@ describe("given a two-car network snapshot with every field filled in", () => {
       for (let k = 0; k < 3; k++) assert.equal(b.parts.pose[i * 7 + k], Math.fround(a.parts.pose[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.pose[i * 7 + k]! - a.parts.pose[i * 7 + k]!) <= Q.quat);
     }
-    // 17-byte header, 28-byte poses, a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
-    assert.equal(w.off, 17 + 28 + (661 + 20 * 4 + 20 * 2) + 28);
+    // 17-byte header, 29-byte poses (body, meter, pose), a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
+    assert.equal(w.off, 17 + 29 + (661 + 20 * 4 + 20 * 2) + 29);
+  });
+});
+
+describe("given two cars wrecked as far as a snapshot can carry: every part and wheel loose", () => {
+  it("when they are written, then the snapshot is exactly the most bytes snapshotMaxBytes allows (the recorder sizes its fixed buffers from it)", () => {
+    const s = makeSnapshot();
+    ensureFrames(s, 2, L);
+    s.count = 2;
+    for (let c = 0; c < 2; c++) {
+      const f = s.cars[c]!;
+      Object.assign(f, { crashed: true, wreck: true, meter: 0.5 });
+      f.parts.flags.fill(1);
+      f.parts.wheelLoose = (1 << L.wheels) - 1;
+    }
+    const w = new Writer();
+    writeSnapshot(w, s, L);
+    assert.equal(w.off, snapshotMaxBytes(2, L));
   });
 });
 
@@ -202,19 +222,20 @@ describe("given the network writer's 16-bit fixed-point numbers", () => {
   });
 });
 
-describe("given a drive input of throttle, steer, brake, handbrake and boost", () => {
-  it("when it is written and read back, then each value comes back within its quantization step", () => {
+describe("given a drive input of throttle, steer, brake, handbrake and boost, sent with the peer's boost meter", () => {
+  it("when it is written and read back, then each value and the meter come back within their quantization step", () => {
     const input = { throttle: -0.5, steer: 1, brake: 0.25, ebrake: true, boost: false };
     const w = new Writer();
-    writeInput(w, input);
-    assert.equal(w.off, 5);
+    writeInput(w, input, 0, 0.6);
     const out = idleDrive();
-    readInput(new Reader().reset(w.done()), out);
+    const meter = new Float64Array(1);
+    readInput(new Reader().reset(w.done()), out, meter);
     assert.ok(Math.abs(out.throttle - input.throttle) < 1 / 127);
     assert.equal(out.steer, 1);
     assert.ok(Math.abs(out.brake - 0.25) < 1 / 255);
     assert.equal(out.ebrake, true);
     assert.equal(out.boost, false);
+    assert.ok(Math.abs(meter[0]! - 0.6) < 1 / 254, `meter ${meter[0]}`);
   });
 });
 

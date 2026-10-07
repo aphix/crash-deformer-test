@@ -80,6 +80,8 @@ export interface NetGame {
   reelPlaying(): boolean;
   /** Client: the host's thrown driver (`MSG.eject`) flies as a dummy, launched from the host's own numbers. */
   launchEjection(e: Ejection): void;
+  /** Host: car `i`'s boost meter as its driver keeps it (0-1), null for a car with no nitrous; each snapshot carries it. */
+  meterOf(i: number): number | null;
   readonly seat: DriverSeat;
 }
 
