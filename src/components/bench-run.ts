@@ -4,13 +4,15 @@
  */
 import type { CrashEngine } from "@/game/engine/engine";
 import type { runBench } from "@/game/engine/engine-bench";
-import { advance, isStepPage, loopSettings, parseRun, startRun, stepHref, stepOf, type BenchPrefs, type BenchRun } from "@/game/engine/bench-loop";
+import { advance, isStepPage, loopSettings, parseReceipts, parseRun, startRun, stepHref, stepOf, withReceipt, type BenchPrefs, type BenchReceiptEntry, type BenchRun } from "@/game/engine/bench-loop";
 import { BENCH_QUERY } from "@/game/engine/constants";
 import { fetchDeployedSha, newerBuild, reloadTarget } from "@/lib/deploy/update-check";
 import { KIND } from "@/lib/submissions/kinds";
 import { sendSubmission } from "@/lib/submissions/status";
 
 const RUN_KEY = "crush.bench.run";
+/** The loop's posted receipts (`withReceipt`), kept from its start until the next loop starts. */
+const RECEIPTS_KEY = "crush.bench.receipts";
 /** The three tick boxes' storage keys (`useStoredString`: "1" ticked, "0" not). */
 export const PREF_KEYS = { keep: "crush.bench.keep", auto: "crush.bench.auto", ultra: "crush.bench.ultra" } as const;
 
@@ -34,7 +36,7 @@ function write(key: string, value: string | null): void {
   }
 }
 
-export function readPrefs(): BenchPrefs {
+function readPrefs(): BenchPrefs {
   return { keep: read(PREF_KEYS.keep) === "1", auto: read(PREF_KEYS.auto) === "1", ultra: read(PREF_KEYS.ultra) === "1" };
 }
 
@@ -42,11 +44,16 @@ export function readRun(): BenchRun | null {
   return parseRun(read(RUN_KEY));
 }
 
+export function readReceipts(): BenchReceiptEntry[] {
+  return parseReceipts(read(RECEIPTS_KEY));
+}
+
 /** The Benchmark entry: a new loop from its first step. */
 export function startBenchLoop(): void {
-  const run = startRun(crypto.randomUUID().replaceAll("-", "").slice(0, 8));
+  const run = startRun(crypto.randomUUID().replaceAll("-", "").slice(0, 8), readPrefs().ultra);
   write(RUN_KEY, JSON.stringify(run));
-  location.assign(stepHref(location.href, stepOf(run, readPrefs()), run));
+  write(RECEIPTS_KEY, null);
+  location.assign(stepHref(location.href, stepOf(run), run));
 }
 
 /** Stop the loop and leave the bench page for the plain game. */
@@ -63,7 +70,7 @@ async function finishStep(run: BenchRun, prefs: BenchPrefs): Promise<void> {
   const next = advance(run, prefs);
   write(RUN_KEY, next === null ? null : JSON.stringify(next));
   if (next === null) return;
-  const href = stepHref(location.href, stepOf(next, prefs), next);
+  const href = stepHref(location.href, stepOf(next), next);
   const deployed = prefs.auto ? newerBuild(__BUILD_SHA__, await fetchDeployedSha()) : null;
   const to = (deployed !== null ? reloadTarget(href, deployed) : null) ?? href;
   await new Promise<void>((resolve) => window.setTimeout(resolve, PAUSE_MS));
@@ -72,22 +79,25 @@ async function finishStep(run: BenchRun, prefs: BenchPrefs): Promise<void> {
 
 /**
  * A `?bench=` page: run the bench and post its card (the card has a Submit button too). When the page is a step of the stored loop
- * (it names the run's session), its post carries the loop's session, cycle count and step, and the loop moves on afterwards.
+ * (it names the run's session), its post carries the loop's session, cycle count and step, its receipt joins the loop's kept
+ * receipts (the loop bar lists them), and the loop moves on afterwards.
  */
 export async function runBenchPage(engine: CrashEngine, hud: () => object): Promise<void> {
-  const prefs = readPrefs();
   const stored = readRun();
   const run = isStepPage(location.search, stored) ? stored : null;
   // Dynamic on purpose: the bench's code is its own chunk, fetched only by a page that asks for a bench (as before the loop).
   const bench: { runBench: typeof runBench } = await import("@/game/engine/engine-bench");
   const result = await bench.runBench(engine, hud, location.search, {
     auto: run !== null,
-    submit: (payload) =>
-      sendSubmission(KIND.bench, async () => {
+    submit: async (payload) => {
+      const sent = await sendSubmission(KIND.bench, async () => {
         const { scene, settings } = engine.submitContext();
-        const loop = run === null ? {} : loopSettings(run, stepOf(run, prefs));
+        const loop = run === null ? {} : loopSettings(run, stepOf(run));
         return { context: { scene, settings: { ...settings, bench: new URLSearchParams(location.search).get(BENCH_QUERY), ...loop } }, payload };
-      }),
+      });
+      if (run !== null && "id" in sent) write(RECEIPTS_KEY, JSON.stringify(withReceipt(readReceipts(), { loop: run.loop, step: stepOf(run).id, id: sent.id })));
+      return sent;
+    },
   });
   if (run === null) return;
   // A page that asks for no bench the game knows is a broken loop: stop it rather than cycle on it forever.
