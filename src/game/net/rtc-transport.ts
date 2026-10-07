@@ -18,7 +18,7 @@ export class RtcTransport extends NetTransport {
     void this.room.join();
   }
 
-  /** The relay's refusal ("room full", "host taken", …) while it lasts; the Net panel shows it. */
+  /** The relay's refusal ("room full", "host taken", …) while it lasts; the online entry shows it. */
   override get error(): string | null {
     return this.room.error;
   }

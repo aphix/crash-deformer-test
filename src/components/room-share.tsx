@@ -13,9 +13,9 @@ const CONTROL = "h-11 sm:h-8";
  * The room this browser hosts or has joined, as something to read out and pass on: the code big, a one-tap Copy link
  * (the page URL with `#room=CODE`: opening it joins) and, where the browser has it (phones), the system Share sheet.
  * A browser that refuses the clipboard (plain http, a locked-down frame) gets the link in a selected box instead.
- * A guest whose room has no host (`problem: "no-host"`) can host it. `onOpen` makes the code a button (the collapsed panel's chip).
+ * A guest whose room has no host (`problem: "no-host"`) can host it.
  */
-export function RoomShare({ engine, status, onOpen }: { engine: RefObject<CrashEngine | null>; status: NetStatus; onOpen?: () => void }) {
+export function RoomShare({ engine, status }: { engine: RefObject<CrashEngine | null>; status: NetStatus }) {
   const [copy, setCopy] = useState<"idle" | "copied" | "manual">("idle");
   const [canShare, setCanShare] = useState(false);
   const box = useRef<HTMLInputElement>(null);
@@ -48,15 +48,9 @@ export function RoomShare({ engine, status, onOpen }: { engine: RefObject<CrashE
   return (
     <div className="space-y-1.5">
       <div className="flex flex-wrap items-center gap-1.5">
-        {onOpen ? (
-          <button type="button" className={cn(codeClass, "rounded-md px-1", CONTROL)} onClick={onOpen} aria-label={`Room ${label}: open the multiplayer panel`}>
-            {label}
-          </button>
-        ) : (
-          <p className={codeClass} aria-label="Room code">
-            {label}
-          </p>
-        )}
+        <p className={codeClass} aria-label="Room code">
+          {label}
+        </p>
         <Button variant="secondary" className={cn(CONTROL, "shrink-0 gap-1.5 px-3 text-xs")} onClick={write} aria-label="Copy room link" aria-live="polite">
           {copy === "copied" ? <Check /> : <Copy />}
           {copy === "copied" ? "Copied" : "Copy link"}

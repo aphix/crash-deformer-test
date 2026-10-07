@@ -88,7 +88,7 @@ export type NetRole = "off" | "host" | "client";
 export const NET_TX = { bc: "bc", rtc: "rtc" } as const;
 export type NetTx = (typeof NET_TX)[keyof typeof NET_TX];
 
-/** `NetPlay.status()`: what the Net panel and the live-rooms chip show. */
+/** `NetPlay.status()`: what the online entry's chip and panel show. */
 export interface NetStatus {
   role: NetRole;
   /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */

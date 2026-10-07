@@ -39,7 +39,7 @@ export function useLiveRooms(active: boolean, expanded: boolean): OpenRoom[] | n
   return useMemo(() => (list ? openRooms(list, "race") : list), [list]);
 }
 
-/** This browser's netplay session, re-read twice a second (the Net panel's cadence). */
+/** This browser's netplay session, re-read twice a second. */
 export function useNetStatus(engine: RefObject<CrashEngine | null>): NetStatus | null {
   const [status, setStatus] = useState<NetStatus | null>(null);
   useEffect(() => {
