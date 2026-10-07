@@ -781,12 +781,16 @@ const CROWN = [1, 2, STEPS / 2];
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
+/** Arcs per ring, and the footprint index of ring s's arc k at `s * ARCS + k + STEPS`. */
+const ARCS = 2 * STEPS + 1;
+const KOF = new Int16Array(FOOT);
 let _at = 0;
 function arc(ring: number, k: number): void {
   const a = (k / STEPS) * (Math.PI / 2);
   FX[_at] = RINGS[ring]![0];
   FY[_at] = -RINGS[ring]![1] * Math.cos(a);
   FZ[_at] = RINGS[ring]![1] * Math.sin(a);
+  KOF[ring * ARCS + k + STEPS] = _at;
   _at++;
 }
 for (let s = 0; s < RINGS.length; s++) arc(s, 0);
@@ -849,6 +853,45 @@ function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: nu
 }
 
 const _w = new Float64Array(HIT_SIZE);
+/** Per footprint point of the last `wheelContact`: its rise, and the patch that sets it (owner · 1e6 + patch). */
+const _rise = new Float64Array(FOOT);
+const _pid = new Float64Array(FOOT);
+/** The patch that set the last `tread` point. */
+let _pidLast = 0;
+/** Halvings of the arc between a ring's highest point and a neighbour on another patch: 7.5° / 32, the tread within 1.3 mm of the edge. */
+const REFINE = 5;
+/** The most (m at wheel scale 1) an arc's step can move a ring's height: a ring this far under the highest point cannot set the rise. */
+const ARC_RISE = (RINGS[0]![1] * (Math.PI / 2)) / STEPS;
+
+/**
+ * One tread point (wheel frame `fx`, `fy`, `fz` at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the
+ * hub's height: returns its rise and writes it into `out` as the wheel's (footprint index `k`) when it is the highest yet.
+ */
+function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: number, c: number, s: number, fx: number, fy: number, fz: number, k: number, out: Float64Array): number {
+  const lx = fx * scale;
+  const ly = (fy * c + fz * s) * scale;
+  const lz = (fz * c - fy * s) * scale;
+  const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
+  const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
+  const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
+  pointContact(px, pz, hub[1]!, skip, _w);
+  _pidLast = _w[C_OWNER]! * 1e6 + _w[C_ARG]!;
+  const r = _w[C_H]! - py;
+  if (!(r > out[C_H]!)) return r;
+  out[C_H] = r;
+  out[C_NX] = _w[C_NX]!;
+  out[C_NY] = _w[C_NY]!;
+  out[C_NZ] = _w[C_NZ]!;
+  out[C_GRIP] = _w[C_GRIP]!;
+  out[C_SURF] = _w[C_SURF]!;
+  out[C_OWNER] = _w[C_OWNER]!;
+  out[C_ARG] = k;
+  out[C_AUX] = _w[C_AUX]!;
+  out[C_PX] = px;
+  out[C_PY] = py;
+  out[C_PZ] = pz;
+  return r;
+}
 
 /**
  * A wheel's contact with the surfaces: its tread's footprint swept over the store. `hub` is the hub's world position (x, y, z),
@@ -861,7 +904,6 @@ const _w = new Float64Array(HIT_SIZE);
  * the tread, how far that is in it.
  */
 export function wheelContact(hub: Float64Array, axes: Float64Array, scale: number, skip: number, out: Float64Array): void {
-  let rise = NONE;
   out[C_NX] = 0;
   out[C_NY] = 1;
   out[C_NZ] = 0;
@@ -880,29 +922,57 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const z = hub[2]!;
   const y = hub[1]!;
   const n = (statics !== null && edgeIn(statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
-  for (let k = 0; k < n; k++) {
-    const lx = FX[k]! * scale;
-    const ly = FY[k]! * scale;
-    const lz = FZ[k]! * scale;
-    const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
-    const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
-    const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
-    pointContact(px, pz, hub[1]!, skip, _w);
-    const r = _w[C_H]! - py;
-    if (!(r > rise)) continue;
-    rise = r;
-    out[C_NX] = _w[C_NX]!;
-    out[C_NY] = _w[C_NY]!;
-    out[C_NZ] = _w[C_NZ]!;
-    out[C_GRIP] = _w[C_GRIP]!;
-    out[C_SURF] = _w[C_SURF]!;
-    out[C_OWNER] = _w[C_OWNER]!;
-    out[C_ARG] = k;
-    out[C_AUX] = _w[C_AUX]!;
-    out[C_PX] = px;
-    out[C_PY] = py;
-    out[C_PZ] = pz;
+  // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
+  // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
+  pointContact(x, z, y, skip, _w);
+  let c = 1;
+  let s = 0;
+  if (_w[C_H]! !== NONE) {
+    const ny = _w[C_NX]! * axes[3]! + _w[C_NY]! * axes[4]! + _w[C_NZ]! * axes[5]!;
+    const nz = _w[C_NX]! * axes[6]! + _w[C_NY]! * axes[7]! + _w[C_NZ]! * axes[8]!;
+    const len = Math.hypot(ny, nz);
+    if (len > 1e-9) {
+      c = ny / len;
+      s = -nz / len;
+    }
   }
-  out[C_H] = rise;
-  out[C_TOUCH] = rise;
+  out[C_H] = NONE;
+  for (let k = 0; k < n; k++) {
+    _rise[k] = tread(hub, axes, scale, skip, c, s, FX[k]!, FY[k]!, FZ[k]!, k, out);
+    _pid[k] = _pidLast;
+  }
+  // Near an edge a ring's highest point is where it crosses onto the patch that holds it, between two arcs: the arc is halved toward
+  // the neighbour on another patch (a front tyre leaving the wedge's side read 1.6 cm lower at its nearest arc than the drawn tyre's tread).
+  if (n === FOOT) {
+    const best = out[C_H]! - ARC_RISE * scale;
+    for (let ring = 0; ring < RINGS.length; ring++) {
+      let jb = 0;
+      let rb = NONE;
+      for (let j = -STEPS; j <= STEPS; j++) {
+        const rj = _rise[KOF[ring * ARCS + j + STEPS]!]!;
+        if (rj > rb) {
+          rb = rj;
+          jb = j;
+        }
+      }
+      if (!(rb > best)) continue;
+      const kb = KOF[ring * ARCS + jb + STEPS]!;
+      const fx = RINGS[ring]![0];
+      const rr = RINGS[ring]![1];
+      for (let side = -1; side <= 1; side += 2) {
+        const jn = jb + side;
+        if (jn < -STEPS || jn > STEPS || _pid[KOF[ring * ARCS + jn + STEPS]!] === _pid[kb]) continue;
+        let a0 = jb;
+        let a1 = jn;
+        for (let h = 0; h < REFINE; h++) {
+          const am = (a0 + a1) / 2;
+          const a = (am / STEPS) * (Math.PI / 2);
+          tread(hub, axes, scale, skip, c, s, fx, -rr * Math.cos(a), rr * Math.sin(a), kb, out);
+          if (_pidLast === _pid[kb]) a0 = am;
+          else a1 = am;
+        }
+      }
+    }
+  }
+  out[C_TOUCH] = out[C_H]!;
 }

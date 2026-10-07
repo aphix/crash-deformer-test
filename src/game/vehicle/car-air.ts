@@ -655,7 +655,11 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       _lift.copy(N[c]!).multiplyScalar(deep);
     }
   }
-  if (rolling) {
+  // So does one whose body strikes the world's faces (a point closing on its surface): a rocker meeting the wedge's corner as the car
+  // drove off its side took 0.7-0.8 m/s and 1.4-1.6° of heading in one slice. A belly resting or sliding on a face keeps its friction.
+  let struck = false;
+  for (let c = 0; c < n; c++) if (OWN[c]! < 0 && CLOSE[c]) struck = true;
+  if (rolling || (!car.crashed && struck)) {
     v.x = vx0;
     v.z = vz0;
     _lift.x = 0;
