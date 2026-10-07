@@ -6,7 +6,7 @@ import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
-import { COM_Y, pressing, readContact, stepFree, stepPlane } from "./car-air.ts";
+import { COM_Y, pressing, readContact, stepFree, stepPlane, wreckContact } from "./car-air.ts";
 import { Suspension, UNDERSIDE } from "./car-suspension.ts";
 import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
@@ -233,9 +233,9 @@ export class DeformableCar extends CarParts {
     this.yaw = this.group.rotation.y;
     this.roll = this.group.rotation.z;
     this.pitch = this.group.rotation.x;
-    // On its masses a body is in the air while they are (`aloft`): struck in flight it kept the flag the hit found and, landed and
-    // stopped, still read as flying with its drive idled.
-    this.airborne = this.deform.aloft;
+    // On its masses a body touches what its hubs do and is in the air while they are (`wreckContact`): struck in flight it kept
+    // the flag the hit found and, landed and stopped, still read as flying with its drive idled.
+    wreckContact(this);
     // A wreck whose middle is off the ground (`aloft`) and whose hull is clear of it flies as a rigid body
     // (`stepFree`) once its contact window closes, fitted to its masses' motion; until then its masses fly it (a hit
     // in flight still crumples, a wreck over a lip pivots on its last wheels and one coming down lands on them).

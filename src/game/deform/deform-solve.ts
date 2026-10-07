@@ -19,7 +19,7 @@ import {
 import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
 import { HUB_OVERRUN, type MassNode } from "./deform-rig.ts";
 import { FACE_TOP } from "./load-crush.ts";
-import { ENGINE_PACK_GAP, HUB_FLOOR, POWER_HOLD, TYRE_R, WHEEL_DIAMETER } from "./deform-state.ts";
+import { ENGINE_PACK_GAP, GROUND_SKIN, HUB_FLOOR, POWER_HOLD, TYRE_R, WHEEL_DIAMETER } from "./deform-state.ts";
 import { resistYaw } from "./tyre-yaw.ts";
 import { tiltedRise } from "./hub-plane.ts";
 import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
@@ -671,6 +671,29 @@ export abstract class DeformSolve extends DeformContact {
       floor[i] = h;
       if (grip && h !== NO_FLOOR) grip[i] = ground.frictionAt(w.x, w.z, w.y);
     }
+  }
+
+  /**
+   * The wheels' contact on a wreck's masses: each one's is its hub's (`sampleGround`'s last read under its tyre, the
+   * `floorPost` and `gripPost` a keyframe restores). Into `hit` (`HIT_SIZE` doubles per wheel, `WHEEL_POS` order) the rise
+   * its tyre needs where its hub now stands (`NO_FLOOR` popped or over nothing) and the grip under it; returns the wheels
+   * whose hub is on its ground, bit i: within `GROUND_SKIN` of its `HUB_FLOOR`, as `dragGround` slides it.
+   */
+  hubContact(hit: Float64Array): number {
+    let mask = 0;
+    for (let i = 0; i < 4; i++) {
+      const m = i === 0 ? this.at.hubFL : i === 1 ? this.at.hubFR : i === 2 ? this.at.hubRL : this.at.hubRR;
+      const f = this.floorsFresh ? this.floorPost[m.index]! : NO_FLOOR;
+      const o = i * HIT_SIZE;
+      if (m.popped || f === NO_FLOOR) {
+        hit[o + C_H] = NO_FLOOR;
+        continue;
+      }
+      hit[o + C_H] = f + TYRE_R - m.world.y;
+      hit[o + C_GRIP] = this.gripPost[m.index]!;
+      if (m.world.y - f <= HUB_FLOOR + GROUND_SKIN) mask |= 1 << i;
+    }
+    return mask;
   }
 
   /** Gravity, damping, the speed clamp and the move of every dynamic mass (`stepMassSlice`). */

@@ -328,15 +328,29 @@ export function contactHz(car: DeformableCar): number {
   return touching || car.yielding || car.restsOn !== null ? CONTACT_HZ : 0;
 }
 
-/** What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which step moves it and which wheels reach. */
+/** A wreck on its masses touches what its hubs do (`hubContact`: wheel i down while its hub is on its ground) and is in the air while they are (`aloft`). */
+export function wreckContact(car: DeformableCar): void {
+  car.wheelsDown = car.deform.hubContact(car.wheelHit);
+  car.airborne = car.deform.aloft;
+}
+
+/**
+ * What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which step moves it and
+ * which wheels reach. A wreck on its masses is moved by them, and touches what their last slice left (`wreckContact`).
+ */
 export function readContact(car: DeformableCar): void {
+  car.restsOn = null;
+  car.yielding = false;
+  if (car.deform.massActive) {
+    car.rigid = false;
+    wreckContact(car);
+    return;
+  }
   beginContacts(car);
   const mask = wheelsAt(car, droop(carClass(car)) + TOUCH);
   car.wheelsDown = mask;
   car.rigid = car.crashed || worldWheels(car, mask) < 3;
   car.airborne = mask === 0;
-  car.restsOn = null;
-  car.yielding = false;
 }
 
 const _u = new Float64Array(4);

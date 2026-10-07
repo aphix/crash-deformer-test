@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { beginFakeFall, FLIGHT, FLIGHT_POSE, type DeformableCar } from "../vehicle/car.ts";
+import { readContact } from "../vehicle/car-air.ts";
 import { PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
@@ -377,6 +378,9 @@ export class ClipSim {
     car.deform.squash = this.clip.squash;
     car.deform.buckle = this.clip.buckle;
     car.deform.setMode(this.clip.deformMode);
+    // What it touches is read again with its wreck state back (`pose` read it as an intact car): a wreck on its masses touches
+    // what its hubs' last slice left, and a crashed one off them is moved by the rigid step.
+    readContact(car);
     if (f.falling) beginFakeFall(car, car.angular);
   }
 
