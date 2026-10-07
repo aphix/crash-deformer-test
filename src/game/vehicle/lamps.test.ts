@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "./car.ts";
-import { LampBatch, LampLights, SPOT_POOL } from "./lamp-lights.ts";
+import { FULL_POOL, LampBatch, LampLights, type LampPool, PHONE_POOL } from "./lamp-lights.ts";
 import { LAMP_HOUSING } from "./car-materials.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "./car-variants.ts";
 import { assignClass, STYLE_CLASS, type VehicleClassId } from "./vehicle-classes.ts";
@@ -171,7 +171,7 @@ describe("given every body style fitted with its own lamps", () => {
 
 describe("given the lamp light pool with a followed car far ahead, a nearer car between and a nearest car behind the camera", () => {
   /** Followed car far ahead, a nearer car between, a nearest car behind the camera. */
-  function rig(): { lights: LampLights; scene: THREE.Scene; camera: THREE.PerspectiveCamera; far: DeformableCar; near: DeformableCar; behind: DeformableCar } {
+  function rig(pool: LampPool = FULL_POOL): { lights: LampLights; scene: THREE.Scene; camera: THREE.PerspectiveCamera; far: DeformableCar; near: DeformableCar; behind: DeformableCar } {
     const scene = new THREE.Scene();
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 200);
     camera.position.set(0, 3, -10);
@@ -182,7 +182,7 @@ describe("given the lamp light pool with a followed car far ahead, a nearer car 
     far.spawnFacing(0, 30, 0, 0);
     near.spawnFacing(3, 4, 0, 0);
     behind.spawnFacing(0, -16, 0, 0);
-    return { lights: new LampLights(scene, 12), scene, camera, far, near, behind };
+    return { lights: new LampLights(scene, 12, pool), scene, camera, far, near, behind };
   }
 
   const lightCount = (scene: THREE.Scene): number => {
@@ -205,7 +205,7 @@ describe("given the lamp light pool with a followed car far ahead, a nearer car 
   it("when the pool updates, then the followed car's headlamps get spots first, then the nearest on-screen ones, and every intact lamp glows", () => {
     const { lights, camera, far, near, behind } = rig();
     lights.update([far, near, behind], camera, far);
-    const want = [far, far, near, near].slice(0, SPOT_POOL);
+    const want = [far, far, near, near].slice(0, FULL_POOL.spots);
     for (const [k, car] of want.entries()) assert.ok(spotOn(lights.spots[k]!, car), `spot ${k} is not on the expected car`);
     assert.equal(lights.glow.geometry.drawRange.count, 12);
   });
@@ -219,7 +219,7 @@ describe("given the lamp light pool with a followed car far ahead, a nearer car 
     priv.breakLamp(priv.lamps[HEAD_R]);
     lights.update([far, near], camera, far);
     assert.ok(lights.spots.every((s) => !spotOn(s, far)), "a broken headlamp kept its spot");
-    assert.equal(lights.spots.filter((s) => spotOn(s, near)).length, Math.min(2, SPOT_POOL));
+    assert.equal(lights.spots.filter((s) => spotOn(s, near)).length, Math.min(2, FULL_POOL.spots));
     assert.ok(lights.spots.slice(2).every((s) => s.intensity === 0), "an unassigned spot stayed lit");
     assert.equal(lights.glow.geometry.drawRange.count, 6);
     assert.equal(lightCount(scene), count, "the pool added or hid a light");
@@ -251,5 +251,17 @@ describe("given the lamp light pool with a followed car far ahead, a nearer car 
     lights.update([far, cop], camera, far, 0.1);
     assert.equal(sirenPoints().length, 0, "sirens stayed lit after setSirens(false)");
     assert.equal(new DeformableCar(paint(), scene).lampCount, 4, "a car without a light bar grew siren slots");
+  });
+
+  it("when the pool is the phone's, then it holds 2 spots and 2 points, the followed car's two headlamps take both spots, and every intact lamp still glows", () => {
+    const { lights, scene, camera, far, near, behind } = rig(PHONE_POOL);
+    lights.update([far, near, behind], camera, far);
+    assert.equal(lights.spots.length, 2);
+    assert.equal(lights.points.length, 2);
+    assert.ok(lights.spots.every((s) => spotOn(s, far)), "a spot is not on the followed car");
+    assert.equal(lights.glow.geometry.drawRange.count, 12);
+    let pooled = 0;
+    scene.traverse((o) => void ((o instanceof THREE.SpotLight || o instanceof THREE.PointLight) && pooled++));
+    assert.equal(pooled, 4, "the scene holds more pooled lights than the phone's");
   });
 });

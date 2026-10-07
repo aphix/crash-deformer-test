@@ -27,7 +27,7 @@ import { FleetRamps } from "../scenes/fleet-ramps.ts";
 import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
 import { snapshotAiCar } from "../match/derby.ts";
-import { LampLights } from "../vehicle/lamp-lights.ts";
+import { FULL_POOL, LampLights, PHONE_POOL } from "../vehicle/lamp-lights.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
 import { makeDerbyArena, WinnerSpot } from "../scenes/derby-arena.ts";
 import { NetPlay } from "../net/net-play.ts";
@@ -224,8 +224,9 @@ export class CrashEngine extends EngineShare {
     });
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
-    // Four body lamps per car plus at most one lit siren (police flash red, then blue).
-    this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
+    // Four body lamps per car plus at most one lit siren (police flash red, then blue). A phone's pool is smaller, fixed here
+    // before the programs link: a light-count change relinks every lit shader.
+    this.lampLights = new LampLights(this.scene, MAX_CARS * 5, desktop ? FULL_POOL : PHONE_POOL);
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,
