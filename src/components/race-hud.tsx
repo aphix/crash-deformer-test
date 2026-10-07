@@ -540,6 +540,12 @@ function SetupMenu({ race, pad, onCommand, onSurvival }: { race: RaceHud; pad: b
 
 const RESULT_STATUS: Record<CarStatus, string> = { racing: "Racing", respawning: "Racing", finished: "", out: "Out", dnf: "DNF" };
 
+/**
+ * The results and standings buttons: stacked on phones, one row from `sm` with even shares, but never narrower than a button's
+ * label (`min-w-fit`), so a long course name takes the room it needs and the rest share what is left.
+ */
+const NAV_ROW = "mt-3 flex flex-col gap-1.5 sm:flex-row sm:*:min-w-fit sm:*:flex-1";
+
 function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
   const rows = race.results ?? [];
   const campaign = race.mode === "campaign";
@@ -588,7 +594,7 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
         </tbody>
       </table>
       {/* The reel's side sheet is narrow: the long "next" label takes its own row. */}
-      <div className={cn("mt-3 grid gap-1.5", race.reel ? "grid-cols-2" : "sm:auto-cols-fr sm:grid-flow-col")}>
+      <div className={race.reel ? "mt-3 grid grid-cols-2 gap-1.5" : NAV_ROW}>
         {campaign ? (
           <NavButton className={race.reel ? "col-span-2" : undefined} onClick={() => onCommand({ type: "next" })}>
             <Trophy />
@@ -640,11 +646,13 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           </div>
         </div>
       ) : null}
+      {/* Names never truncate: on a narrow phone the round columns give way to their content instead (measured whole at 320 px with a
+          16-character name beside eight round columns). */}
       <table className="w-full font-display text-sm tabular-nums">
         <thead>
           <tr className="hud-label text-left">
             <th className={cn(th, "w-8")}>#</th>
-            <th className={th}>Driver</th>
+            <th className={cn(th, "pr-2")}>Driver</th>
             {Array.from({ length: rounds }, (_, i) => (
               <th key={i} className={cn(th, "w-8 text-center")} title={c?.tracks[i]}>
                 R{i + 1}
@@ -658,7 +666,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           {rows.map((r, i) => (
             <tr key={r.id} className={cn("border-t border-border", r.kind === "player" ? "bg-surface-2 font-semibold text-fg" : "text-fg")}>
               <td className="py-1 pl-1 text-muted">{i + 1}</td>
-              <td className="max-w-0 truncate py-1 pr-2">{r.name}</td>
+              <td className="whitespace-nowrap py-1 pr-2">{r.name}</td>
               {Array.from({ length: rounds }, (_, k) => (
                 <td key={k} className="py-1 text-center text-muted">
                   {k < r.places.length ? (r.places[k] === 0 ? "–" : r.places[k]) : ""}
@@ -670,7 +678,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           ))}
         </tbody>
       </table>
-      <div className="mt-3 grid gap-1.5 sm:auto-cols-fr sm:grid-flow-col">
+      <div className={NAV_ROW}>
         {race.nextCourse !== null ? (
           <NavButton onClick={() => onCommand({ type: "next" })}>
             <ChevronRight />

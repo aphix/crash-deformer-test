@@ -76,14 +76,15 @@ export function LiveRooms({ engine, race }: { engine: RefObject<CrashEngine | nu
     else if (role === "host") e.raceCommand({ type: "quit" });
   };
   // The setup card is a centred sheet (full-screen on phones, `max-w-2xl` wide): the pill sits in its empty top-right corner, inside the card,
-  // never straddling its edge. Otherwise it hangs under the title.
+  // never straddling its edge, so it layers over the menu (`MenuShell` is z-30). Otherwise it hangs under the title, under any open menu: over
+  // a phone on its side it would cover the Results or Championship card's header.
   const setup = race.menu === "setup";
-  const spot = setup ? "inset-x-3 top-5 mx-auto max-w-2xl pr-2 sm:inset-x-6 sm:top-8" : cn("max-w-[calc(100vw-1rem)] left-2 sm:left-4", race.fullUi ? "top-14 sm:top-[6.5rem]" : "top-8 sm:top-11");
+  const spot = setup ? "z-40 inset-x-3 top-5 mx-auto max-w-2xl pr-2 sm:inset-x-6 sm:top-8" : cn("z-20 max-w-[calc(100vw-1rem)] left-2 sm:left-4", race.fullUi ? "top-14 sm:top-[6.5rem]" : "top-8 sm:top-11");
   const live = rooms?.length ?? 0;
 
   if (online) {
     return (
-      <div className={cn("pointer-events-none absolute z-30 flex", spot)}>
+      <div className={cn("pointer-events-none absolute flex", spot)}>
         <div className={cn("hud-panel pointer-events-auto flex max-w-[calc(100vw-1rem)] items-center gap-1 py-1 pl-3 pr-1", setup && "ml-auto")}>
           <span className="size-2 shrink-0 rounded-full bg-signal-green" aria-hidden />
           <p className="min-w-0 truncate font-display text-xs tabular-nums sm:text-sm" aria-hidden>
@@ -102,7 +103,7 @@ export function LiveRooms({ engine, race }: { engine: RefObject<CrashEngine | nu
   }
 
   return (
-    <div className={cn("pointer-events-none absolute z-30 flex flex-col gap-1", setup ? "items-end" : "items-start", spot)}>
+    <div className={cn("pointer-events-none absolute flex flex-col gap-1", setup ? "items-end" : "items-start", spot)}>
       <div className="pointer-events-auto flex items-center gap-1">
         {driving ? null : (
           <Button size="sm" className={cn(TAP, "gap-1.5 px-3")} onMouseDown={keepFocus} onClick={() => act((e) => void e.net.publicMatch("race"))} aria-label="Play online: join the best open race, or host one">
