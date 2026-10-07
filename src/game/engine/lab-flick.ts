@@ -4,6 +4,9 @@ import { FREE, WALL, type Lab } from "./engine-lab.ts";
 
 /** The screen box the pointer's client coordinates are read in (the canvas's `getBoundingClientRect`). */
 type Rect = { readonly left: number; readonly top: number; readonly width: number; readonly height: number };
+/** A pointer sample: client px and its time (ms); a `pointermove` is one, plus the moves the browser held back into it. */
+type Pointer = { readonly clientX: number; readonly clientY: number; readonly timeStamp: number };
+type PointerMove = Pointer & { getCoalescedEvents?(): readonly Pointer[] };
 
 /** The flick's feel: what a press picks, how the release speed maps to a launch, what is a tap, and what a swipe snaps to. */
 const FLICK = {
@@ -21,8 +24,8 @@ const FLICK = {
   /** A swipe aims at the item (or the board) whose middle lies within this angle (rad) of its line on screen. */
   snap: (10 * Math.PI) / 180,
 };
-/** Pointer samples kept for the release speed (a 120 Hz screen gives 12 in the window: the oldest kept is close enough). */
-const SAMPLES = 10;
+/** Pointer samples kept for the release speed: a 1000 Hz mouse's coalesced moves still fill the window. */
+const SAMPLES = 128;
 /** Dots along the predicted arc. */
 const DOTS = 24;
 /** The cue's colour from a soft flick to a full one. */
@@ -133,11 +136,16 @@ export class LabFlick {
     return true;
   }
 
-  /** The picked car's swipe moves: the cue follows. */
-  move(x: number, y: number, t: number): void {
+  /**
+   * The picked car's swipe moves (a `pointermove`): the cue follows. Each move the browser coalesced into it is a sample: after
+   * a long frame they all arrive in one event at the last's place, and without them the window would hold no travel.
+   */
+  move(e: PointerMove): void {
     if (this.thing < 0) return;
-    this.sample(x, y, t);
-    const speed = this.aim(x, y, t);
+    const held = e.getCoalescedEvents?.();
+    if (held && held.length > 0) for (let i = 0; i < held.length; i++) this.sample(held[i]!.clientX, held[i]!.clientY, held[i]!.timeStamp);
+    else this.sample(e.clientX, e.clientY, e.timeStamp);
+    const speed = this.aim(e.clientX, e.clientY, e.timeStamp);
     if (speed === 0) {
       this.group.visible = false;
       return;

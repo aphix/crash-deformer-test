@@ -350,9 +350,10 @@ export class ChaseCamera {
   private pinchDist = 0;
   /**
    * A scene that takes presses from the drag (the Lab's flick): `down` (client px, `t` ms) claims a press or leaves it to the
-   * camera; a claimed press's moves and its release (`cancel`: the system took the pointer) go to it, never the orbit or a pick.
+   * camera; a claimed press's moves (the `pointermove` itself, with the moves coalesced into it) and its release (`cancel`: the
+   * system took the pointer) go to it, never the orbit or a pick.
    */
-  take: { down(x: number, y: number, t: number): boolean; move(x: number, y: number, t: number): void; up(x: number, y: number, t: number, cancel: boolean): void } | null = null;
+  take: { down(x: number, y: number, t: number): boolean; move(e: PointerEvent): void; up(x: number, y: number, t: number, cancel: boolean): void } | null = null;
   private taking = false;
 
   readonly camera: THREE.PerspectiveCamera;
@@ -739,7 +740,7 @@ export class ChaseCamera {
     }
     if (e.pointerId !== this.dragId) return;
     if (this.taking) {
-      this.take?.move(e.clientX, e.clientY, e.timeStamp);
+      this.take?.move(e);
       return;
     }
     const dx = e.clientX - this.lastX;

@@ -36,7 +36,7 @@ function phone(): { r: LabRig; flick: LabFlick; flicks: Flick[]; px: (v: THREE.V
 /** A swipe from (x0, y0) to (x1, y1) over `ms` in 8 ms steps (a 120 Hz screen), released there; false when the press was not taken. */
 function swipe(flick: LabFlick, [x0, y0]: [number, number], [x1, y1]: [number, number], ms: number): boolean {
   if (!flick.down(x0, y0, 0)) return false;
-  for (let t = 8; t < ms; t += 8) flick.move(x0 + ((x1 - x0) * t) / ms, y0 + ((y1 - y0) * t) / ms, t);
+  for (let t = 8; t < ms; t += 8) flick.move({ clientX: x0 + ((x1 - x0) * t) / ms, clientY: y0 + ((y1 - y0) * t) / ms, timeStamp: t });
   flick.up(x1, y1, ms, false);
   return true;
 }
@@ -100,6 +100,27 @@ describe("given the house of cards on a phone held upright, the thrower nearest 
     });
   }
 
+  it("when a swipe's moves of its last 112 ms reach the page together in one late event, then it leaves as fast as when they came one by one", () => {
+    const { r, flick, flicks, px } = phone();
+    const [x0, y0] = px(r.lab.centre(0, new THREE.Vector3()));
+    const [x1, y1] = px(r.lab.centre(3, new THREE.Vector3()));
+    const ms = 240;
+    const at = (t: number) => ({ clientX: x0 + ((x1 - x0) * t) / ms, clientY: y0 + ((y1 - y0) * t) / ms, timeStamp: t });
+    // Moves every 8 ms to 232 ms, and the release 8 ms later where the last move left the finger (as a pointerup reports it).
+    const last = at(ms - 8);
+    flick.down(x0, y0, 0);
+    for (let t = 8; t < ms; t += 8) flick.move(at(t));
+    flick.up(last.clientX, last.clientY, ms, false);
+    flick.down(x0, y0, 0);
+    for (let t = 8; t < ms - 112; t += 8) flick.move(at(t));
+    // The browser held the rest back (a long frame): one pointermove at the last of them carries them all.
+    const held = Array.from({ length: 14 }, (_, i) => at(ms - 112 + 8 * i));
+    flick.move({ ...last, getCoalescedEvents: () => held });
+    flick.up(last.clientX, last.clientY, ms, false);
+    assert.equal(flicks.length, 2);
+    assert.equal(flicks[1]!.speed, flicks[0]!.speed, `one by one ${flicks[0]!.speed.toFixed(1)} m/s, held back ${flicks[1]!.speed.toFixed(1)} m/s`);
+  });
+
   it("when a finger only taps the thrower, then nothing is flicked", () => {
     const { r, flick, flicks, px } = phone();
     const [x, y] = px(r.lab.centre(0, new THREE.Vector3()));
@@ -118,7 +139,7 @@ describe("given the house of cards on a phone held upright, the thrower nearest 
     const [x0, y0] = px(r.lab.centre(0, new THREE.Vector3()));
     const [x1, y1] = px(r.lab.centre(3, new THREE.Vector3()));
     flick.down(x0, y0, 0);
-    flick.move((x0 + x1) / 2, (y0 + y1) / 2, 60);
+    flick.move({ clientX: (x0 + x1) / 2, clientY: (y0 + y1) / 2, timeStamp: 60 });
     flick.up(x1, y1, 120, true);
     assert.equal(flicks.length, 0);
   });
