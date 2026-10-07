@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, ridgeCross, wheelContact } from "../world/surfaces.ts";
 import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -146,6 +146,7 @@ const _axis = new THREE.Vector3();
 const _dq = new THREE.Quaternion();
 const _eul = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
+const _up = new THREE.Vector3();
 /** A driven car's Euler yaw drifts by up to this (rad) in a rigid turn before it is a tumble (a flip is no heading). */
 const YAW_HOLD = 0.5;
 const _qi = new THREE.Quaternion();
@@ -853,17 +854,30 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   // Between two belly points on different patches the belly meets that edge where it crosses (`edgeCross`, the tyres' rule): a car
   // dropped level across a ramp's crest balanced on the row in front of it, the crest 17 cm inside the belly half a metre behind.
+  // Over one car's top (one patch) it rests on the top's ridge between them where that stands above both (`ridgeCross`), pressed along
+  // the belly's own normal, not the windscreen's: a sedan on another's roof, its middle row on the roof and its front row past the roof's
+  // front edge, tipped 10° nose-down onto the windscreen with its centre still 25 cm behind that edge.
+  _up.set(0, 1, 0).applyQuaternion(q);
   for (let s = 0; s < SEGS.length; s += 2) {
     let a = SEGS[s]!;
     let b = SEGS[s + 1]!;
-    if (BPATCH[a] === BPATCH[b]) continue;
-    if (BRISE[b]! > BRISE[a]!) {
-      a = b;
-      b = SEGS[s]!;
+    let pen: number;
+    if (BPATCH[a] === BPATCH[b]) {
+      if (!(BPATCH[a]! >= 0)) continue;
+      pen = ridgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, car.slot, BPATCH[a]!);
+      if (!(pen > 0 && pen > BRISE[a]! && pen > BRISE[b]!)) continue;
+      EDGE_HIT[C_NX] = _up.x;
+      EDGE_HIT[C_NY] = _up.y;
+      EDGE_HIT[C_NZ] = _up.z;
+    } else {
+      if (BRISE[b]! > BRISE[a]!) {
+        a = b;
+        b = SEGS[s]!;
+      }
+      if (BRISE[a] === NO_FLOOR) continue;
+      pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, 0, 0, 0, 0, NaN, car.slot, BPATCH[a]!);
+      if (!(pen > 0)) continue;
     }
-    if (BRISE[a] === NO_FLOOR) continue;
-    const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, 0, 0, 0, 0, NaN, car.slot, BPATCH[a]!);
-    if (!(pen > 0)) continue;
     R[n]!.set(EDGE_HIT[C_PX]! - _com.x, EDGE_HIT[C_PY]! - _com.y, EDGE_HIT[C_PZ]! - _com.z);
     bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w, mass);
     n++;

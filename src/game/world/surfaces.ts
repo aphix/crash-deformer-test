@@ -921,6 +921,62 @@ export function edgeCross(ax: number, ay: number, az: number, bx: number, by: nu
   return best;
 }
 
+/** The step (m) `ridgeCross` reads a segment at, and the span it narrows its highest reading down to. */
+const RIDGE_STEP = 0.05;
+const RIDGE_TOL = 0.002;
+let ridgeBest = NONE;
+
+/** `ridgeCross`'s reading at `t` along A + t·D: the rise on patch `id` (NONE off it), kept in `EDGE_HIT` when the highest yet. */
+function ridgeAt(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, t: number, skip: number, id: number): number {
+  const px = ax + dx * t;
+  const py = ay + dy * t;
+  const pz = az + dz * t;
+  pointContact(px, pz, py, skip, _x);
+  if (patchOf(_x) !== id) return NONE;
+  const r = _x[C_H]! - py;
+  if (r > ridgeBest) {
+    ridgeBest = r;
+    EDGE_HIT.set(_x);
+    EDGE_HIT[C_PX] = px;
+    EDGE_HIT[C_PY] = py;
+    EDGE_HIT[C_PZ] = pz;
+  }
+  return r;
+}
+
+/**
+ * Where a body's surface between two of its sample points A and B, both over patch `id`, meets that patch's highest point under it:
+ * a car's top is one patch, and its roof's front edge is a ridge in it that a car lying across it rests on between its belly's rows.
+ * The segment A→B (world) is read every `RIDGE_STEP` and the highest reading narrowed to `RIDGE_TOL`. Returns the greatest rise found
+ * on `id` strictly between A and B, `-Infinity` if none; that point's contact is in `EDGE_HIT`.
+ */
+export function ridgeCross(ax: number, ay: number, az: number, bx: number, by: number, bz: number, skip: number, id: number): number {
+  const dx = bx - ax;
+  const dy = by - ay;
+  const dz = bz - az;
+  const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
+  const m = Math.ceil(len / RIDGE_STEP);
+  ridgeBest = NONE;
+  let at = -1;
+  let top = NONE;
+  for (let k = 1; k < m; k++) {
+    const r = ridgeAt(ax, ay, az, dx, dy, dz, k / m, skip, id);
+    if (!(r > top)) continue;
+    top = r;
+    at = k;
+  }
+  if (at < 0) return NONE;
+  let t0 = (at - 1) / m;
+  let t1 = (at + 1) / m;
+  while ((t1 - t0) * len > RIDGE_TOL) {
+    const ta = t0 + (t1 - t0) / 3;
+    const tb = t1 - (t1 - t0) / 3;
+    if (ridgeAt(ax, ay, az, dx, dy, dz, ta, skip, id) < ridgeAt(ax, ay, az, dx, dy, dz, tb, skip, id)) t0 = ta;
+    else t1 = tb;
+  }
+  return ridgeBest;
+}
+
 /** `hit` (a `pointContact` with its point in `C_PX`..`C_PZ`) as the wheel's contact in `out`: rise `r`, footprint index `k`. */
 function take(out: Float64Array, hit: Float64Array, r: number, k: number): void {
   out[C_H] = r;
