@@ -1,4 +1,4 @@
-import { useId } from "react";
+import { useId, useRef } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -28,6 +28,7 @@ import { ReelList, SavedList } from "@/components/race-reel";
 import { ResetPrompt } from "@/components/reset-prompt";
 import { StartLights } from "@/components/start-lights";
 import { SurvivalResults } from "@/components/survival-hud";
+import { useReelCover } from "@/components/use-reel-cover";
 import { missedCheckpointText, type ResetInput } from "@/game/hud/reset-prompt";
 import type { CarStatus, RaceCommand, RaceHud, RaceHudRow, RaceOptions } from "@/game/match/types";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
@@ -45,13 +46,19 @@ const STATUS_ICON: Partial<Record<CarStatus, { Icon: typeof Flag; label: string 
   dnf: { Icon: Ban, label: "Did not finish" },
 };
 
-/** Live order, panel-free. A name click follows that car (spectating or finished). Phones show P1, you, and the cars around you (around the watched car while spectating). */
+/**
+ * Live order, panel-free. A name click follows that car (spectating or finished). Phones show P1, you, and the cars around
+ * you (around the watched car while spectating). Over the results reel its box goes to the engine (`useReelCover`).
+ */
 export function RaceStandings({ race, onCommand }: { race: RaceHud; onCommand: Send }) {
-  if (race.phase === null || race.standings.length === 0) return null;
+  const ref = useRef<HTMLOListElement>(null);
+  const shown = race.phase !== null && race.standings.length > 0;
+  useReelCover(ref, "standings", shown && race.reel ? onCommand : null);
+  if (!shown) return null;
   const watched = race.standings.find((r) => r.watched)?.place;
   const focusPlace = (race.spectating !== null ? watched : race.you?.place) ?? watched ?? 1;
   return (
-    <ol aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48 idle:opacity-60">
+    <ol ref={ref} aria-label="Standings" className="pointer-events-auto max-h-full w-44 space-y-px overflow-y-auto sm:w-48 idle:opacity-60">
       {race.spectating !== null ? (
         <li>
           <AutoRow on={race.auto} onWatch={() => onCommand({ type: "watch", id: -1 })} />

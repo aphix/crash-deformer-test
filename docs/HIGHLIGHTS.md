@@ -248,10 +248,11 @@ hand-back). The sandbox crash cam still cuts three times. A hit inside the windo
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.
 
-The results sheet covers part of the view (a right-hand panel on a desktop or a phone in landscape, a bottom sheet in
-portrait). The sheet sends its box on the page as `reelCover`; while the reel plays, `coverLens` fits the camera to the
-largest strip of the canvas beside the sheet as if that strip were the screen (its aspect, the projection centre at its
-middle; the rest of the canvas shows what lies past it), so every rig's centred subject plays in the free part.
+The results sheet (a right-hand panel on a desktop or a phone in landscape, a bottom sheet in portrait) and the standings
+list (top left) stay open over the reel. Each sends its box on the page as `reelCover` (`useReelCover`); while the reel
+plays, `coverLens` takes the strip of the canvas clear of every open panel with the most room for a subject kept 10 % of
+the view from every edge, and frames that room as a bare canvas's inner 80 % (the rest of the canvas shows what lies past
+it), so every rig's centred subject plays in the free part, clear of the panels as of the canvas's edges.
 
 ### FX tier
 

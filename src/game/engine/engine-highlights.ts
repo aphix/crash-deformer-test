@@ -116,37 +116,56 @@ function shotsFor(clip: HighlightClip, tl: Timeline, rand: () => number): Shot[]
   return shots;
 }
 
+/** A framed subject keeps this share of the view's width (height) from a panel's edge, as from the view's own edges. */
+const COVER_MARGIN = 0.1;
+
 /**
- * `camera`'s lens over the canvas box `view` with the results sheet's box `cover` over part of it (null: none). The lens
- * frames the largest strip of the canvas beside the sheet as if that strip were the screen (its aspect, the projection
- * centre at its middle) and the rest of the canvas shows what lies past the strip's edges: the reel's cameras centre
- * their subject, so it plays in the part of the view the sheet leaves free.
+ * `camera`'s lens over the canvas box `view` with the boxes `covers` of the panels open over it. Of the strips of the
+ * canvas clear of every panel whose edges are the canvas's and the panels', it takes the one with the most room for a
+ * subject kept `COVER_MARGIN` from every edge (then the largest), and frames that room as a bare canvas's inner
+ * `1 - 2 * COVER_MARGIN`: the screen is the room grown about its middle (its aspect, the projection centre there) and the
+ * rest of the canvas shows what lies past the screen's edges. The reel's cameras keep their subject inside that inner share
+ * of their screen, so it plays in the part of the view the panels leave free, clear of them as of the canvas's edges.
  */
-export function coverLens(camera: THREE.PerspectiveCamera, view: ViewBox, cover: ViewBox | null): void {
+export function coverLens(camera: THREE.PerspectiveCamera, view: ViewBox, covers: readonly ViewBox[]): void {
   const w = Math.max(1, view.right - view.left);
   const h = Math.max(1, view.bottom - view.top);
-  let x = 0;
-  let y = 0;
-  let fw = w;
-  let fh = h;
-  if (cover) {
-    const clamp = THREE.MathUtils.clamp;
-    const l = clamp(cover.left - view.left, 0, w);
-    const r = clamp(cover.right - view.left, 0, w);
-    const t = clamp(cover.top - view.top, 0, h);
-    const b = clamp(cover.bottom - view.top, 0, h);
-    // The strips left of, right of, above and below the sheet: the largest is the frame.
-    const best = Math.max(l * h, (w - r) * h, t * w, (h - b) * w);
-    if (r > l && b > t && best > 0) {
-      if (best === l * h) fw = l;
-      else if (best === (w - r) * h) [x, fw] = [r, w - r];
-      else if (best === t * w) fh = t;
-      else [y, fh] = [b, h - b];
+  const clamp = THREE.MathUtils.clamp;
+  const boxes = covers
+    .map((c) => ({ l: clamp(c.left - view.left, 0, w), r: clamp(c.right - view.left, 0, w), t: clamp(c.top - view.top, 0, h), b: clamp(c.bottom - view.top, 0, h) }))
+    .filter((c) => c.r > c.l && c.b > c.t);
+  const xs = [0, w, ...boxes.flatMap((c) => [c.l, c.r])];
+  const ys = [0, h, ...boxes.flatMap((c) => [c.t, c.b])];
+  const mx = COVER_MARGIN * w;
+  const my = COVER_MARGIN * h;
+  let room = -1;
+  let area = -1;
+  let [x, y, fw, fh] = [0, 0, w, h];
+  for (const x0 of xs) {
+    for (const x1 of xs) {
+      if (x1 <= x0) continue;
+      for (const y0 of ys) {
+        for (const y1 of ys) {
+          if (y1 <= y0 || boxes.some((c) => c.l < x1 && c.r > x0 && c.t < y1 && c.b > y0)) continue;
+          const r = Math.max(0, x1 - x0 - 2 * mx) * Math.max(0, y1 - y0 - 2 * my);
+          const a = (x1 - x0) * (y1 - y0);
+          if (r < room || (r === room && a <= area)) continue;
+          [room, area, x, y, fw, fh] = [r, a, x0, y0, x1 - x0, y1 - y0];
+        }
+      }
     }
   }
-  camera.aspect = fw / fh;
-  if (fw < w || fh < h) camera.setViewOffset(fw, fh, -x, -y, w, h);
-  else camera.clearViewOffset();
+  if (fw >= w && fh >= h) {
+    camera.aspect = w / h;
+    camera.clearViewOffset();
+    return;
+  }
+  // The room (a strip too thin for one: the strip itself), grown about the strip's middle.
+  const grow = 1 / (1 - 2 * COVER_MARGIN);
+  const sw = fw > 2 * mx ? (fw - 2 * mx) * grow : fw;
+  const sh = fh > 2 * my ? (fh - 2 * my) * grow : fh;
+  camera.aspect = sw / sh;
+  camera.setViewOffset(sw, sh, sw / 2 - (x + fw / 2), sh / 2 - (y + fh / 2), w, h);
 }
 
 /** What the reel needs from the engine. */

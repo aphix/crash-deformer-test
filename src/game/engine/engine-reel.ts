@@ -4,7 +4,7 @@ import { carLayout } from "../net/car-pose.ts";
 import { decodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
 import { reelParts } from "../net/reel-wire.ts";
 import type { HighlightClip } from "../match/highlights.ts";
-import type { RaceCommand, RaceHud, SavedHud, ViewBox } from "../match/types.ts";
+import type { RaceCommand, RaceHud, ReelCoverId, SavedHud, ViewBox } from "../match/types.ts";
 import { RESULTS_DELAY } from "./engine-race.ts";
 import { coverLens, type ReelDirector } from "./engine-highlights.ts";
 import { deleteSaved, listSaved, loadSaved, saveClip } from "./highlight-store.ts";
@@ -18,9 +18,9 @@ export abstract class EngineReel extends EngineInput {
   protected reelFov: number | null = null;
   /** `listSaved()`, re-read after a save or a delete. */
   private savedList: SavedHud[] | null = null;
-  /** The results sheet's box on the page (`reelCover`), null: none. */
-  private cover: ViewBox | null = null;
-  /** The reel drew last frame (`reelFrame`): the lens frames the part of the view the sheet leaves free. */
+  /** Each panel's box on the page (`reelCover`), null: not open. */
+  private readonly covers: Record<ReelCoverId, ViewBox | null> = { sheet: null, standings: null };
+  /** The reel drew last frame (`reelFrame`): the lens frames the part of the view the panels leave free. */
   private reelOn = false;
 
   /** Race over (host or offline) `since` wall s ago: the reel from the results' first moment. Every peer, this one too, replays the decoded bytes. */
@@ -51,7 +51,7 @@ export abstract class EngineReel extends EngineInput {
         r.back();
         return true;
       case "reelCover":
-        this.cover = cmd.cover;
+        this.covers[cmd.id] = cmd.cover;
         this.fitLens();
         return true;
       case "reelSave": {
@@ -126,7 +126,8 @@ export abstract class EngineReel extends EngineInput {
   }
 
   protected fitLens(): void {
-    coverLens(this.camera, this.canvas.getBoundingClientRect(), this.reelOn ? this.cover : null);
+    const open = this.reelOn ? Object.values(this.covers).filter((c) => c !== null) : [];
+    coverLens(this.camera, this.canvas.getBoundingClientRect(), open);
   }
 
   protected reelHud(): Pick<RaceHud, "reel" | "solo" | "saved"> {

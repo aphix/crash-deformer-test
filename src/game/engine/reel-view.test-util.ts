@@ -25,11 +25,11 @@ export const VIEW = {
   share: 1 / 16,
 };
 
-/** The page the reel plays on (CSS px) and the results sheet over part of it (null: none). */
-export type Screen = { view: ViewBox; sheet: ViewBox | null };
+/** The page the reel plays on (CSS px) and the panels open over it (the results sheet, the standings list). */
+export type Screen = { view: ViewBox; covers: readonly ViewBox[] };
 
 /** The browser probe's desktop page, nothing over it. */
-const DESKTOP: Screen = { view: { left: 0, top: 0, right: 1280, bottom: 720 }, sheet: null };
+const DESKTOP: Screen = { view: { left: 0, top: 0, right: 1280, bottom: 720 }, covers: [] };
 
 /** The scene's lens (deg), as `ChaseCamera.lens`. */
 const LENS = 55;
@@ -55,7 +55,7 @@ export type MomentView = {
   front: boolean;
   /** No wall, building or hill of the course stands on the line from the eye to the point (`sightLine` over the static solids). */
   clear: boolean;
-  /** The point lies under the results sheet, or within the frame's margin of it. */
+  /** The point lies under a panel, or within the frame's margin of one. */
   covered: boolean;
   /** The share of the frame's height a `VIEW.subject` m subject at the point spans. */
   share: number;
@@ -96,22 +96,22 @@ export function holdAfter(tl: ScaleCurve, at: number): number {
 
 const _ndc = new THREE.Vector3();
 
-/** The moment at `p` as `cam` frames it on `screen`, judged by `VIEW` against the course's static solids `s` (no cars) and the screen's sheet. */
+/** The moment at `p` as `cam` frames it on `screen`, judged by `VIEW` against the course's static solids `s` (no cars) and the screen's panels. */
 export function judge(cam: THREE.PerspectiveCamera, s: Sight, p: THREE.Vector3, screen: Screen): Pick<MomentView, "ndcX" | "ndcY" | "front" | "clear" | "covered" | "share" | "seen"> {
   cam.updateMatrixWorld();
   _ndc.copy(p).project(cam);
   const front = _ndc.z > -1 && _ndc.z < 1;
   const e = cam.position;
   const clear = sightLine(s, e.x, e.y, e.z, p.x, p.y, p.z) >= 0;
-  const { view, sheet } = screen;
+  const { view, covers } = screen;
   const w = view.right - view.left;
   const h = view.bottom - view.top;
-  // The point on the page, and the frame's margin around the sheet (as at the frame's edges).
+  // The point on the page, and the frame's margin around each panel (as at the frame's edges).
   const x = view.left + ((_ndc.x + 1) / 2) * w;
   const y = view.top + ((1 - _ndc.y) / 2) * h;
   const mx = ((1 - VIEW.margin) / 2) * w;
   const my = ((1 - VIEW.margin) / 2) * h;
-  const covered = sheet !== null && x > sheet.left - mx && x < sheet.right + mx && y > sheet.top - my && y < sheet.bottom + my;
+  const covered = covers.some((c) => x > c.left - mx && x < c.right + mx && y > c.top - my && y < c.bottom + my);
   const share = VIEW.subject / (2 * e.distanceTo(p) * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
   const seen = front && Math.abs(_ndc.x) <= VIEW.margin && Math.abs(_ndc.y) <= VIEW.margin && clear && !covered && share >= VIEW.share;
   return { ndcX: _ndc.x, ndcY: _ndc.y, front, clear, covered, share, seen };
@@ -173,7 +173,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
   const reel = new ReelDirector(host);
   reel.stepBudgetMs = Infinity;
   const camera = new THREE.PerspectiveCamera(LENS, 1, 0.1, 900);
-  coverLens(camera, screen.view, screen.sheet);
+  coverLens(camera, screen.view, screen.covers);
   const probe = camera.clone();
   const out: MomentView[] = [];
   const s = course();

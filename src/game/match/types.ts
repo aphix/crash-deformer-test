@@ -246,8 +246,14 @@ export type RaceCommand =
   /** Setup menu: replay saved highlight `key` alone, or delete it. */
   | { type: "savedPlay"; key: string }
   | { type: "savedDelete"; key: string }
-  /** The results sheet's box on the page while the reel plays behind it (null: gone): the reel frames its shots in the part of the view the sheet leaves free (this browser only). */
-  | { type: "reelCover"; cover: ViewBox | null };
+  /**
+   * Panel `id`'s box on the page while the reel plays behind it (null: gone): the reel frames its shots in the part of the
+   * view every open panel leaves free (this browser only).
+   */
+  | { type: "reelCover"; id: ReelCoverId; cover: ViewBox | null };
+
+/** The panels that stay open over the results reel: the results sheet and the standings list. */
+export type ReelCoverId = "sheet" | "standings";
 
 /** A box on the page in CSS px, as a `DOMRect`'s edges. */
 export type ViewBox = { left: number; top: number; right: number; bottom: number };
