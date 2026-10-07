@@ -1,5 +1,5 @@
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
-import { STEP_UP, type Ground } from "../world/ground.ts";
+import { Ground, STEP_UP } from "../world/ground.ts";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { CAR_HALF } from "../vehicle/car.ts";
 import type { CarType } from "./fleet.ts";
@@ -99,43 +99,22 @@ export function labSurfaces(layout: LabLayout): LabSurface[] {
 }
 
 /**
- * The Lab's ground (`Ground`): the bench top at 0 inside its edges, the floor `FLOOR` past them, and the brackets and
+ * The Lab's ground (`Ground`): the bench top at 0 inside its edges, the floor `FLOOR` under everything, and the brackets and
  * shelves over both. Like a bridge deck, a surface counts for a body only when it is at most `STEP_UP` above it, so a car
- * on the bench under a shelf sees the bench. Grip as dry asphalt everywhere (`FLAT_GROUND`'s).
+ * on the bench under a shelf sees the bench. Grip as dry asphalt everywhere (`FLAT_GROUND`'s). Heights only: the Lab's own
+ * solids (the ragdoll's bench and floor, `setSolids`) carry it for a body that collides by shape.
  */
-export function labGround(surfaces: readonly LabSurface[]): Ground {
-  const n = surfaces.length;
-  const box = new Float64Array(n * 5);
-  for (let i = 0; i < n; i++) {
-    const s = surfaces[i]!;
-    box[i * 5] = s.x0;
-    box[i * 5 + 1] = s.x1;
-    box[i * 5 + 2] = s.z0;
-    box[i * 5 + 3] = s.z1;
-    box[i * 5 + 4] = s.top;
+class LabGround extends Ground {
+  constructor(surfaces: readonly LabSurface[]) {
+    super();
+    this.setSolid(this.addPlane(FLOOR, -1e7, 1e7, -1e7, 1e7, Infinity), false);
+    this.setSolid(this.addPlane(0, -BENCH.halfW, BENCH.halfW, BOARD.z, BENCH.front, STEP_UP), false);
+    for (const s of surfaces) this.setSolid(this.addPlane(s.top, s.x0, s.x1, s.z0, s.z1, STEP_UP), false);
   }
-  const heightAt = (x: number, z: number, y?: number): number => {
-    const reach = y === undefined ? Infinity : y + STEP_UP;
-    let best = x >= -BENCH.halfW && x <= BENCH.halfW && z >= BOARD.z && z <= BENCH.front && reach >= 0 ? 0 : FLOOR;
-    for (let i = 0; i < n; i++) {
-      const o = i * 5;
-      const top = box[o + 4]!;
-      if (top <= best || top > reach || x < box[o]! || x > box[o + 1]! || z < box[o + 2]! || z > box[o + 3]!) continue;
-      best = top;
-    }
-    return best;
-  };
-  return {
-    heightAt,
-    normalAt: (_x, _z, out) => {
-      out.x = 0;
-      out.y = 1;
-      out.z = 0;
-      return out;
-    },
-    frictionAt: () => 1,
-    surfaceAt: () => "asphalt",
-  };
+}
+
+export function labGround(surfaces: readonly LabSurface[]): Ground {
+  return new LabGround(surfaces);
 }
 
 /** The props of a layout as the race places them (`Placed`), held ones on their brackets; `items[k]` is the layout index of `placed[k]`. */
