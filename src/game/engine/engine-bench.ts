@@ -14,6 +14,7 @@ import { browserName, describeBench, DETAIL_ARMS, perSecond, PHASE_AB_DETAIL, PH
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
+import { SETTING_KEY } from "./constants.ts";
 import type { World } from "./world-step.ts";
 
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
@@ -611,9 +612,9 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
     canvas: `${size.width}x${size.height}`,
     antialias: renderer.getContext().getContextAttributes()?.antialias === true,
     toneMapping: renderer.toneMapping,
-    night: hud["night"] === true,
-    wet: hud["wet"] === true,
-    realism: Number(hud["realism"]),
+    night: hud[SETTING_KEY.night] === true,
+    wet: hud[SETTING_KEY.wet] === true,
+    realism: Number(hud[SETTING_KEY.realism]),
     squash: Number(hud["squash"]),
     buckle: Number(hud["buckle"]),
     deformMode: String(hud["deformMode"]),
@@ -803,7 +804,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   parts.detail.setLevel(parts.governor.level);
   page.phase(PHASE_AB_FX);
   const fxTiers: FxTier[] = plan.ultra ? ["minimal", "low", "high", "ultra"] : ["minimal", "low", "high"];
-  const fx = await alternate(engine, parts, t, beat, ui, "fx", fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  const fx = await alternate(engine, parts, t, beat, ui, SETTING_KEY.fx, fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
   const pageEvents = page.stop();
   engine.setFxAuto();
   if (plan.lab) engine.setTimeScale(null);

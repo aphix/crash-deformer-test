@@ -6,3 +6,5 @@ export const BENCH_QUERY = "bench";
 export const BENCH_KIND = { city: "city", lab: "lab", strip: "strip" } as const;
 /** The page query that adds a bench's Ultra arm (`?ultra=1`). */
 export const ULTRA_QUERY = "ultra";
+/** The settings the bench reads off the HUD and the HUD's reset command names (`night`, `wet`, `realism`, `fx`): one spelling for both. */
+export const SETTING_KEY = { night: "night", wet: "wet", realism: "realism", fx: "fx" } as const;

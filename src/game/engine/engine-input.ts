@@ -17,6 +17,7 @@ import { ResetHold } from "../hud/reset-hold.ts";
 import type { BenchParts } from "./engine-bench.ts";
 import { DETAIL_LEVELS } from "../present/car-detail.ts";
 import { EngineRigs } from "./engine-rigs.ts";
+import { SETTING_KEY } from "./constants.ts";
 
 /**
  * Player input: keyboard, gamepad, pointer picks and the HUD's commands and settings.
@@ -339,13 +340,13 @@ export abstract class EngineInput extends EngineRigs {
       case "audio":
         if (this.audioOn !== D.audioOn) this.toggleAudio();
         break;
-      case "night":
+      case SETTING_KEY.night:
         this.setNight(D.night);
         break;
-      case "wet":
+      case SETTING_KEY.wet:
         this.setWet(D.wet);
         break;
-      case "fx":
+      case SETTING_KEY.fx:
         this.setFxAuto();
         break;
       case "cel":
@@ -357,7 +358,7 @@ export abstract class EngineInput extends EngineRigs {
       case "car":
         if (this.playerCar.id !== D.playerCar) this.setPlayerCar(D.playerCar);
         break;
-      case "realism":
+      case SETTING_KEY.realism:
         this.setRealism(D.realism);
         break;
       case "cars":
