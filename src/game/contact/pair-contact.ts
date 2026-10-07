@@ -124,7 +124,8 @@ function shoveWreck(car: DeformableCar, nx: number, nz: number, d: number): void
  * on the face and the crush force spends the hit's stroke, so the car goes on into the face at its own speed until the stroke
  * is gone (the wall used to cancel and bounce the whole closing speed in one step, before the crush had anything to take).
  * A light touch of a whole car, or a hard one whose hull is still `WALL_HOLD` short of the face while the footprint is in it
- * (a corner the face does not reach), only pushes out and bounces by `WALL_E`.
+ * (a corner the face does not reach), pushes out and bounces by `WALL_E`; the car's tyres and its body's friction on the face
+ * hold it where it touched or let it slide along the face.
  */
 export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number): void {
   const v = car.velocity;
@@ -149,16 +150,38 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
     if (pen < WALL_HOLD) return;
   }
   const closing = Math.max(0, -(v.x * nx + v.z * nz));
-  pos.x += nx * pen;
-  pos.z += nz * pen;
-  const j = closing * (1 + WALL_E);
+  const along0 = v.z * nx - v.x * nz;
+  let j = closing * (1 + WALL_E);
+  // A car on its wheels goes where its nose points as far as the sideways grip its tyres have left this step holds it
+  // (`drive.hold`): the face and the tyres meet the closing speed together, and the face takes what the tyres leave.
+  const r = car.rightFlat;
+  const k = nx * r.x + nz * r.z;
+  if (closing > 0 && car.drive.hold > 0 && k * k < 1) {
+    const side = v.x * r.x + v.z * r.z;
+    const held = (j + k * side) / (1 - k * k);
+    if (held >= 0) {
+      const b = Math.max(-car.drive.hold, Math.min(car.drive.hold, -side - held * k));
+      j = Math.max(0, j - b * k);
+      car.drive.hold -= Math.abs(b);
+      v.x += r.x * b;
+      v.z += r.z * b;
+    }
+  }
   v.x += nx * j;
   v.z += nz * j;
-  // The body scrapes the face: its friction takes at most `WALL_MU` of the touch's impulse from the speed along the face.
+  // The body scrapes the face: its friction takes at most `WALL_MU` of the face's push from the speed along it. A face that
+  // takes all of it holds the car where it touched, so the push out takes it back the way it came in. Met one after the
+  // other, the tyres kept the share of the face's along speed that lies along the nose, which drives into the face again,
+  // and pushed out square to the face, a held car kept each slice's move along it and each crossing of the push's skin: a
+  // car driven at a face 30° off it crept along it at 0.2–0.4 m/s.
   const along = v.z * nx - v.x * nz;
-  const rub = Math.sign(along) * Math.min(Math.abs(along), WALL_MU * j);
+  const stuck = Math.abs(along) <= WALL_MU * j;
+  const rub = stuck ? along : Math.sign(along) * WALL_MU * j;
   v.x += nz * rub;
   v.z -= nx * rub;
+  const back = stuck && closing > 0 ? (along0 * pen) / closing : 0;
+  pos.x += nx * pen + nz * back;
+  pos.z += nz * pen - nx * back;
 }
 
 /**

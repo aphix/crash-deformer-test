@@ -97,6 +97,7 @@ function idleDriveState(d: DeformableCar["drive"]): void {
   d.spin = 0;
   d.lock = 0;
   d.slide = 0;
+  d.hold = 0;
   d.boost = false;
   d.neutral = false;
 }
@@ -289,6 +290,7 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const nvz = fz * lon - fx * latOut;
 
   d.spin = spin;
+  d.hold = bite * dt - (Math.abs(lat) - Math.abs(latOut));
   d.lock = lock;
   d.slide = Math.max(drift, Math.min(1, (3 * Math.abs(lat)) / Math.max(1, Math.abs(lon) + Math.abs(lat))));
 

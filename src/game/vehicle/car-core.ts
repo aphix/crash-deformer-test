@@ -287,10 +287,11 @@ export abstract class CarCore {
   placements = 0;
   /**
    * Last slice's drive (applyDrive writes it). spin / lock / slide are 0–1 wheel slip for tyre FX:
-   * launch wheelspin, brake lock-up, sideways slide; `drift` is the drift assist's own state. `-0`: doubles
+   * launch wheelspin, brake lock-up, sideways slide; `drift` is the drift assist's own state; `hold` is the sideways grip
+   * (m/s) the tyres have left this step, which a face the car is pressed on spends (`wallBounce`). `-0`: doubles
    * from construction, or each field's first fractional write mid-race deoptimised applyDrive for seconds.
    */
-  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0 };
+  readonly drive = { throttle: -0, steer: -0, brake: -0, ebrake: false, boost: false, neutral: false, spin: -0, lock: -0, slide: -0, drift: -0, hold: -0 };
 
   protected world: THREE.Scene;
   protected onGlass: GlassBurst | null;
