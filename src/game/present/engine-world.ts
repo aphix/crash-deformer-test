@@ -196,8 +196,11 @@ function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
  * The sun's shadow bias, from the map's texel (the box's width over its resolution: 4.7 cm at 48 m / 1024). A normal offset of a
  * quarter texel stops a lit surface shading itself at grazing sun; the constant depth bias, half of the old -0.0004 (a fraction of
  * the 2..60 m depth range: 2.3 cm down to 1.2 cm), covers what the offset leaves, so a shadow starts at its caster's foot.
- * Picked by a grid sweep against a 4096 map (see the lane report): fewer wrongly lit and wrongly shadowed pixels than the old
- * constant alone, and less acne away from shadow edges than the old value.
+ * Picked by a grid sweep (depth bias 0 to -0.0004, normal offset 0 to 0.64 texel) against the same frame drawn with a 4096 map, on
+ * city, oval and rally frames at sun elevations 8 to 58 degrees: against the old constant alone, fewer wrongly shadowed pixels
+ * (city -38 %, oval -18 %, rally -3 %), about as many wrongly lit ones (city -4 %, oval +2 %, rally -11 %), and less acne away
+ * from shadow edges (city -36 %, oval -13 %, rally -48 %). A half texel offset (0.023) cut acne as far but left 45 % more flat-area
+ * pixels lit that 4096 shadows on the city frames: a gap at the caster's foot.
  */
 const SUN_NORMAL_BIAS_TEXELS = 0.25;
 const SUN_DEPTH_BIAS = -0.0002;

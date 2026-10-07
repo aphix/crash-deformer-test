@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Bakes three's RoomEnvironment to public/env-studio.hdr: a 1024x512 equirect in linear radiance (Radiance RGBE, run-length coded),
-// so the softboxes keep their real brightness (up to ~50) instead of the 8-bit jpeg's clip at 1.
+// so the softboxes keep their real brightness (peaks near 46 after the exposure match below) instead of the 8-bit jpeg's clip at 1.
 import { createReadStream, existsSync, statSync, writeFileSync } from "node:fs";
 import { createServer } from "node:http";
 import { extname, join, resolve } from "node:path";
