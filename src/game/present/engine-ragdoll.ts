@@ -22,7 +22,7 @@
 import * as THREE from "three";
 import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { activeGround } from "../world/ground.ts";
+import { activeGround, type Ground } from "../world/ground.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
@@ -142,7 +142,8 @@ const GLASS_SKIN = 0.005;
 const G_STATIC = 1;
 const dollBit = (s: number) => 2 << s;
 const G_DOLLS = 0x1e;
-const carBit = (i: number) => 0x40 << i % 10;
+/** Car i's bit; a dummy with no car of his own (`place`, car -1) has none, so he hits every car from the first frame. */
+const carBit = (i: number) => (i < 0 ? 0 : 0x40 << i % 10);
 const G_CARS = 0xffc0;
 const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CARS;
 /** A woman's purse and what falls out of it hit the world, the barrier and every car (not their own for `GRACE` s), never a dummy. */
@@ -156,6 +157,8 @@ type Doll = {
   bodies: RigidBody[];
   live: boolean;
   age: number;
+  /** Sim seconds he lies about before he goes: `LIFE` for a thrown driver, as long as the scene wants for a placed one (`place`). */
+  life: number;
   /** Sim seconds the torso has been under `REST_SPEED`. */
   still: number;
   patch: Collider[];
@@ -176,7 +179,7 @@ type Doll = {
   speed: number;
 };
 
-/** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him. */
+/** A throw, placed: car (-1: none, `place`), torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him. */
 type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean };
 
 const _q = new THREE.Quaternion();
@@ -212,16 +215,19 @@ function endZ(car: DeformableCar, name: string): number {
  * the other copy's table): every step then throws "reading 'memory'" and the dummy never lands (measured in the
  * browser; a production build has one copy).
  */
-const HIT_DV = 4;
+export const HIT_DV = 4;
 /** His torso centre this near (m) the ground: he has touched down (lying, it rests at 0.1–0.3 m; thrown, it is over 0.5 m). */
-const GROUND_REACH = 0.45;
+export const GROUND_REACH = 0.45;
 
 export class RagdollSystem {
   /** The sandbox's lamp posts: the standing ones are fixed colliders in the run's statics (set by the engine). */
   poles: readonly Pole[] = [];
-  /** The race course whose walls and solids a throw collides with, while its ground is the active one (`setCourse`). */
-  private course: { track: Track; placed: readonly Placed[]; knocked: (prop: number) => boolean } | null = null;
-  /** The course's `courseSolids`, built at its first throw. */
+  /**
+   * The solids a throw collides with while `ground` is the active one: a race course's walls and solids (`setCourse`), or a
+   * scene's own (`setSolids`, no track).
+   */
+  private course: { ground: Ground; track: Track | null; placed: readonly Placed[]; knocked: (prop: number) => boolean } | null = null;
+  /** The course's `courseSolids` (built at its first throw), or the scene's own. */
   private solids: readonly Solid[] | null = null;
   /** The flat ground is the range's sand pit (`SAND`), read when a run's first throw builds it (set by the engine). */
   sand = false;
@@ -355,7 +361,7 @@ export class RagdollSystem {
         return body;
       });
       joinUp(R, world, bodies);
-      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, rides: false, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
+      this.dolls.push({ bodies, live: false, age: 0, life: LIFE, still: 0, patch: [], car: -1, rides: false, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
@@ -444,7 +450,7 @@ export class RagdollSystem {
       const before = d.age;
       d.age += dt;
       if (before < GRACE && d.age >= GRACE) for (const b of d.bodies) b.collider(0).setCollisionGroups(dollGroups(s));
-      if (d.age > LIFE || d.bodies[0]!.translation().y < -30) {
+      if (d.age > d.life || d.bodies[0]!.translation().y < -30) {
         this.despawn(s);
         continue;
       }
@@ -936,9 +942,40 @@ export class RagdollSystem {
     else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop, rides: t.rides });
   }
 
-  /** Throw `t`'s dummy into a free slot (else the oldest one's). */
-  private spawn(t: Throw): void {
-    let slot = this.dolls.findIndex((d) => !d.live);
+  /**
+   * A dummy of the scene's own, with no car (the Lab's): torso at `p` turned `q` (standing upright at identity, arms up),
+   * moving at `v` and spinning at `w` (world), lying about `life` sim s, in slot `slot` (-1: a free one, else the oldest).
+   * Nobody is thrown: no exit, no throw hook, no ride-along. Returns his slot; -1 while Rapier is still loading.
+   */
+  place(p: THREE.Vector3, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, life: number, slot: number): number {
+    if (!this.world) return -1;
+    const t = this.next;
+    t.p.copy(p);
+    t.q.copy(q);
+    t.v.copy(v);
+    t.w.copy(w);
+    t.car = -1;
+    t.age = 0;
+    t.cop = false;
+    t.rides = false;
+    return this.spawn(t, slot, life);
+  }
+
+  /** Slot `s`'s torso centre after the last step into `p`, and its velocity (world) into `v` unless null; false while no dummy is out in it. */
+  torso(s: number, p: THREE.Vector3, v: THREE.Vector3 | null): boolean {
+    const d = this.dolls[s];
+    if (!d?.live) return false;
+    p.set(d.cur[0]!, d.cur[1]!, d.cur[2]!);
+    if (v) {
+      const u = d.bodies[0]!.linvel();
+      v.set(u.x, u.y, u.z);
+    }
+    return true;
+  }
+
+  /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s; returns the slot. */
+  private spawn(t: Throw, at = -1, life = LIFE): number {
+    let slot = at >= 0 ? at : this.dolls.findIndex((d) => !d.live);
     if (slot < 0) slot = this.dolls.reduce((o, d, s) => (d.age > this.dolls[o]!.age ? s : o), 0);
     this.despawn(slot);
     const d = this.dolls[slot]!;
@@ -974,6 +1011,7 @@ export class RagdollSystem {
     this.buildPatch(d, t.p.x + (speed > 0.5 ? (t.v.x / speed) * PATCH_AHEAD : 0), t.p.z + (speed > 0.5 ? (t.v.z / speed) * PATCH_AHEAD : 0), t.p.y);
     d.live = true;
     d.age = 0;
+    d.life = life;
     d.still = 0;
     d.car = t.car;
     d.rides = t.rides;
@@ -1019,21 +1057,28 @@ export class RagdollSystem {
     this.mesh.visible = true;
     this.exitCar = t.car;
     this.exitSpeed = Math.hypot(t.v.x, t.v.z);
-    if (this.sandbox) this.onThrow(t.car);
+    if (this.sandbox && t.car >= 0) this.onThrow(t.car);
+    return slot;
   }
 
   /** The course a throw collides with (`knocked(i)`: placed prop `i` is off its spot). Its solids are built at the first throw on it, as recipes: Rapier colliders live only from a throw to its despawn. */
   setCourse(track: Track, placed: readonly Placed[], knocked: (prop: number) => boolean): void {
-    this.course = { track, placed, knocked };
+    this.course = { ground: track.ground(), track, placed, knocked };
     this.solids = null;
   }
 
-  /** The ground under a throw (`groundColliders`): built once for the pad, the disc or the corkscrew, per dummy on a course. */
+  /** A scene's own solids (the Lab's props, wall and brackets) a dummy collides with while `ground` is the active one, as a course's are (`knocked(i)`: solid prop `i` is off its spot). */
+  setSolids(ground: Ground, solids: readonly Solid[], knocked: (prop: number) => boolean): void {
+    this.course = { ground, track: null, placed: [], knocked };
+    this.solids = solids;
+  }
+
+  /** The ground under a throw (`groundColliders`): built once for the pad, the disc or the corkscrew, per dummy on a course or a scene's solids. */
   private buildPatch(d: Doll, cx: number, cz: number, y: number): void {
     const c = this.course;
-    const onCourse = c !== null && activeGround() === c.track.ground();
+    const onCourse = c !== null && activeGround() === c.ground;
     if (!onCourse && this.statics.length > 0) return;
-    if (c && onCourse) this.solids ??= courseSolids(c.track, c.placed);
+    if (c?.track && onCourse) this.solids ??= courseSolids(c.track, c.placed);
     const course = c && onCourse ? { track: c.track, solids: this.solids!, knocked: c.knocked } : null;
     (onCourse ? d.patch : this.statics).push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, course, this.sand, this.bowlR, this.poles, cx, cz, y));
   }

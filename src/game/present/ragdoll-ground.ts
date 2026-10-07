@@ -7,8 +7,8 @@ import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/gr
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
 
-/** The course under a throw: its road walls come from `track`, every other solid from `solids` (`courseSolids`); `knocked(i)`: prop `i` has been knocked off its spot. */
-type Course = { track: Track; solids: readonly Solid[]; knocked: (prop: number) => boolean };
+/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`); `knocked(i)`: prop `i` has been knocked off its spot. */
+type Course = { track: Track | null; solids: readonly Solid[]; knocked: (prop: number) => boolean };
 /** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
 export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
 /** Corkscrew channel triangle spacing (m) along the run: the floor's twist is held to a few cm per strip. */
@@ -69,7 +69,8 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
         if (hull) add(hull);
       }
     }
-  } else {
+  } else if (course?.track !== null) {
+    // A course's heightfield; a scene's own solids (the Lab's bench and floor, `setSolids`) carry its ground, edges sharp.
     const n = PATCH_N;
     const heights = new Float32Array((n + 1) * (n + 1));
     for (let ix = 0; ix <= n; ix++) {
@@ -123,8 +124,9 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
       const desc = s.make(R);
       if (desc) add(desc);
     }
-    const wallH = course.track.json.road.wallHeight;
-    for (const p of course.track.paths()) {
+    const track = course.track;
+    const wallH = track?.json.road.wallHeight ?? 0;
+    for (const p of track ? track.paths() : []) {
       const segs = p.closed ? p.count : p.count - 1;
       for (let k = 0; k < segs; k++) {
         const b = (k + 1) % p.count;

@@ -1,6 +1,5 @@
 import * as THREE from "three";
 import { CAR_HALF } from "../vehicle/car.ts";
-import { G } from "../vehicle/car-air.ts";
 import { FREE, WALL, type Lab } from "./engine-lab.ts";
 
 /** The screen box the pointer's client coordinates are read in (the canvas's `getBoundingClientRect`). */
@@ -8,8 +7,9 @@ type Rect = { readonly left: number; readonly top: number; readonly width: numbe
 
 /** The flick's feel: what a press picks, how the release speed maps to a launch, what is a tap, and what a swipe snaps to. */
 const FLICK = {
-  /** A press within this many CSS px of a car's middle, or inside its drawn half length, picks it. */
+  /** A press within this many CSS px of a car's or a dummy's middle, or inside its drawn half length (a dummy's: `dummyHalf` m), picks it. */
   pickPx: 48,
+  dummyHalf: 0.8,
   /** Launch speed (m/s) per short side of the screen per second of release speed, and its range. */
   gain: 12,
   min: 6,
@@ -99,7 +99,7 @@ export class LabFlick {
     this.group.add(this.arrow, this.dots);
   }
 
-  /** A press at client (x, y), `t` ms: picks the car under it (its middle within `pickPx`, or inside its drawn half length). */
+  /** A press at client (x, y), `t` ms: picks the car or dummy under it (its middle within `pickPx`, or inside its drawn half length). */
   down(x: number, y: number, t: number): boolean {
     const r = this.rect();
     if (r.width < 2 || r.height < 2) return false;
@@ -107,13 +107,13 @@ export class LabFlick {
     let bestD = Infinity;
     const lab = this.lab;
     this.right.setFromMatrixColumn(this.camera.matrixWorld, 0);
-    for (let s = 0; s < lab.carItems.length; s++) {
-      const k = lab.carItems[s]!;
+    for (let s = 0; s < lab.thingN; s++) {
+      const k = lab.things[s]!;
       if (!this.screen(lab.centre(k, this.at), r)) continue;
       const mx = this.px.x;
       const my = this.px.y;
-      // The car's drawn half length: its middle moved that far along the camera's right, on screen.
-      this.screen(this.at.addScaledVector(this.right, CAR_HALF.z), r);
+      // The thing's drawn half length: its middle moved that far along the camera's right, on screen.
+      this.screen(this.at.addScaledVector(this.right, lab.slotOf[k]! >= 0 ? CAR_HALF.z : FLICK.dummyHalf), r);
       const reach = Math.max(FLICK.pickPx, Math.hypot(this.px.x - mx, this.px.y - my));
       const d = Math.hypot(x - mx, y - my);
       if (d <= reach && d < bestD) {
@@ -248,8 +248,8 @@ export class LabFlick {
     this.arrow.rotation.set(0, Math.atan2(v.x, v.z), 0);
     this.arrow.scale.set(1 + s, 1, 1 + 3 * s);
     for (let i = 0; i < DOTS; i++) {
-      const tt = ((i + 1) / DOTS) * v.w;
-      this.m4.makeTranslation(this.at.x + v.x * tt, this.at.y + v.y * tt - 0.5 * G * tt * tt, this.at.z + v.z * tt);
+      lab.flightAt(((i + 1) / DOTS) * v.w, this.at, null);
+      this.m4.makeTranslation(this.at.x, this.at.y, this.at.z);
       this.dots.setMatrixAt(i, this.m4);
     }
     this.dots.instanceMatrix.needsUpdate = true;

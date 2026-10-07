@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { CAR_HALF, DeformableCar } from "../vehicle/car.ts";
+import { DeformableCar } from "../vehicle/car.ts";
 import type { CarPaint } from "../vehicle/car-core.ts";
 import { WheelBatch } from "../vehicle/wheel-batch.ts";
 import { COMPACTOR, CompactorRig } from "../scenes/compactor.ts";
@@ -48,6 +48,7 @@ import { clearTransients } from "./scene-clear.ts";
 import { Lab } from "./engine-lab.ts";
 import type { LabFlick } from "./lab-flick.ts";
 import type { LabArt } from "../present/lab-art.ts";
+import { FLOOR } from "../scenes/lab.ts";
 
 const _v = new THREE.Vector3();
 /**
@@ -562,6 +563,11 @@ export abstract class EngineCore {
         const b = ball.mesh.position;
         if (ball.mesh.visible) occ.push(occluder(b.x, b.z, 0, ball.radius, ball.radius, true, b.y - ball.radius, b.y + ball.radius));
       }
+    }
+    if (this.showLab) {
+      // The wall the pegboard hangs on (the Lab's last collider): the crash cam never stands behind the board.
+      const w = this.lab.colliders.at(-1)!;
+      occ.push(occluder(w.x, w.z, w.yaw, w.hx, w.hz, false, FLOOR, w.top));
     }
     return { ground: activeGround(), path: null, wallTop: 0, rim: this.derbyMode ? this.derbyR : Infinity, occ };
   }

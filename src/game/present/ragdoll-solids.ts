@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import type { ColliderDesc } from "@dimforge/rapier3d";
 import type { Rapier } from "../kernel/rapier.ts";
-import { PREFABS } from "../world/catalog.ts";
-import { propColliders, type Placed } from "../world/placements.ts";
+import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { blankPoint, pointOn, type Track, type TrackPath } from "../world/track.ts";
 import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, levelAt, RoadIndex, sampleStep, sections, surfY, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
 import { pillarPieces } from "./track-structures.ts";
@@ -165,22 +164,29 @@ function structures(track: Track, out: Solid[]): void {
 }
 
 /**
- * Every solid of `track` a dummy can hit that the ground heightfield and the road walls do not already give: the
- * props at the footprint the cars hit (`propColliders`, so a dummy meets exactly what a car does; `prop` is the
- * placement's index, for the knocked ones the engine says are gone), the start gantry's legs, bridge decks and bents,
- * and the tunnels' shell.
+ * Every collider as a solid standing from its placement's base (`floor` for one with no placement: the Lab's wall) to its
+ * top, at the footprint the cars hit, so a dummy meets exactly what a car does; `prop` is the collider's index, for the
+ * knocked ones the scene says are gone. Appended to `out`.
  */
-export function courseSolids(track: Track, placed: readonly Placed[]): Solid[] {
-  const out: Solid[] = [];
-  for (const c of propColliders(placed)) {
-    const p = placed[c.index]!;
-    const h = PREFABS[c.prefab].size[1] * p.sy;
-    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, prop: c.index, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, p.y + h / 2, c.z) });
+export function colliderSolids(colliders: readonly PropCollider[], placed: readonly Placed[], floor: number, out: Solid[]): Solid[] {
+  for (const c of colliders) {
+    const y0 = placed[c.index]?.y ?? floor;
+    const h = c.top - y0;
+    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, prop: c.index, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
     else {
       _q.setFromAxisAngle(UP, c.yaw);
-      out.push({ ...box(c.x, p.y + h / 2, c.z, c.hx, h / 2, c.hz), prop: c.index });
+      out.push({ ...box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz), prop: c.index });
     }
   }
+  return out;
+}
+
+/**
+ * Every solid of `track` a dummy can hit that the ground heightfield and the road walls do not already give: the props
+ * (`colliderSolids`), the start gantry's legs, bridge decks and bents, and the tunnels' shell.
+ */
+export function courseSolids(track: Track, placed: readonly Placed[]): Solid[] {
+  const out = colliderSolids(propColliders(placed), placed, 0, []);
   structures(track, out);
   return out;
 }

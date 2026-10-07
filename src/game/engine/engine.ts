@@ -196,6 +196,7 @@ export class CrashEngine extends EngineShare {
     this.smoke = new TireSmokeSystem(this.scene);
     this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i), (at, frame, inherit) => this.onExit(at, frame, inherit));
     this.ragdolls.poles = this.poles;
+    this.lab.dolls = this.ragdolls;
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots, witness: this.witness }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|minimal|low|high` picks the tier for the session (bench A/B); the auto tier otherwise.
     const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get("fx"));

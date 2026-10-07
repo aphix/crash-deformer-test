@@ -1,9 +1,13 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BOARD, type LabItem, type LabPose } from "../scenes/lab.ts";
+import * as THREE from "three";
+import { BOARD, heldPose, LAB_LAYOUTS, type LabItem, type LabPose } from "../scenes/lab.ts";
 import { tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { pairEta, PRE_IMPACT_LEAD, preImpact } from "../match/phase.ts";
-import { labRig, leaveLab, runLab, type LabRig } from "./engine-lab.test-util.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { glassCorners } from "../vehicle/car-glass.ts";
+import { glassOf, paneFrame } from "../vehicle/car-glass.test-util.ts";
+import { labDollRig, labRig, leaveLab, runLab, type LabRig } from "./engine-lab.test-util.ts";
 import { FREE, WALL, type LabShot } from "./engine-lab.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
 
@@ -212,6 +216,133 @@ describe("given the throws of the Lab's bench page (?bench=lab), each on its own
       // The bench's A/B blocks are 3 s of wall from the set's load: the hit must land well inside one.
       assert.ok(seq.settleS + shot.contactS! < 2, `met the set ${(seq.settleS + shot.contactS!).toFixed(2)} s after it loaded`);
       assert.ok(shot.fell.includes(step.target), `knocked ${JSON.stringify(shot.fell)}, not ${step.target}`);
+    });
+  }
+});
+
+/** Whether world point `p` is in `car`'s cabin: inside the box around every corner of its glass, behind its windshield and its rear glass. */
+function inCabin(car: DeformableCar, p: THREE.Vector3): boolean {
+  const c = glassCorners(car.style);
+  const box = new THREE.Box3();
+  for (let k = 0; k < c.length; k += 3) box.expandByPoint(new THREE.Vector3(c[k], c[k + 1], c[k + 2]));
+  const local = car.group.worldToLocal(p.clone());
+  // Panes 0 and 1 (windshield, rear glass): across their bottom edge, then up them; across × up is out of the cabin at the windshield, into it at the rear.
+  const behind = (o: number) => {
+    const corner = new THREE.Vector3(c[o], c[o + 1], c[o + 2]);
+    const across = new THREE.Vector3(c[o + 3], c[o + 4], c[o + 5]).sub(corner);
+    const up = new THREE.Vector3(c[o + 6], c[o + 7], c[o + 8]).sub(corner);
+    return across.cross(up).dot(local.clone().sub(corner)) * (o === 0 ? 1 : -1) < 0;
+  };
+  return box.containsPoint(local) && behind(0) && behind(12);
+}
+
+/** What the Glass set's dummy (item 0) did over `seconds` after a flick at the sedan (item 1) at `speed` m/s. */
+function flickDummyAtCar(r: LabRig, speed: number, seconds: number): { shot: LabShot; everInCabin: boolean; outAfterHit: number; endInCabin: boolean; endSpeed: number } {
+  const car = r.cars[0]!;
+  const out = paneFrame(car, "windshield").out;
+  const slot = r.lab.dollOf[0]!;
+  const p = new THREE.Vector3();
+  const v = new THREE.Vector3();
+  const shot = r.lab.flick(0, 1, 0, 0, speed);
+  let everInCabin = false;
+  let outAfterHit = -Infinity;
+  for (let t = 0; t < seconds - 1e-9; t += FRAME) {
+    runLab(r, FRAME);
+    assert.ok(r.dolls!.torso(slot, p, v), "the dummy is gone");
+    everInCabin ||= inCabin(car, p);
+    if (shot.contactS !== null && t < shot.contactS + 0.2) outAfterHit = Math.max(outAfterHit, v.dot(out));
+  }
+  r.dolls!.torso(slot, p, v);
+  return { shot, everInCabin, outAfterHit, endInCabin: inCabin(car, p), endSpeed: v.length() };
+}
+
+describe("given the Glass set: a dummy standing on the bench and a sedan on a stand bracket, its windshield facing him", () => {
+  it("when he is flicked at the sedan, then his torso cracks the windshield and bounces back off it; flicked at it again from where he came to rest, his torso shatters it and he comes to rest inside the cabin", async (t) => {
+    const r = await labDollRig("glass");
+    runLab(r, 1);
+    const first = flickDummyAtCar(r, 12, 4);
+    const afterFirst = glassOf(r.cars[0]!);
+    const second = flickDummyAtCar(r, 12, 4);
+    const afterSecond = glassOf(r.cars[0]!);
+    r.dolls!.dispose();
+    t.diagnostic(`first: met ${first.shot.hit} at ${first.shot.contactS?.toFixed(2)} s, glass ${JSON.stringify(afterFirst)}, out ${first.outAfterHit.toFixed(2)} m/s; second: glass ${JSON.stringify(afterSecond)}, at rest ${second.endInCabin ? "in" : "out of"} the cabin at ${second.endSpeed.toFixed(2)} m/s`);
+    assert.equal(first.shot.hit, 1, "the first flick never met the sedan");
+    for (const [name, state] of Object.entries(afterFirst)) assert.equal(state, name === "windshield" ? "cracked" : "intact", `${name} after the first flick`);
+    assert.ok(!first.everInCabin, "the first flick put him in the cabin");
+    assert.ok(first.outAfterHit > 0, `he never moved back out off the glass (${first.outAfterHit.toFixed(2)} m/s out)`);
+    for (const [name, state] of Object.entries(afterSecond)) assert.equal(state, name === "windshield" ? "shattered" : "intact", `${name} after the second flick`);
+    assert.ok(second.endInCabin && second.endSpeed < 0.3, `he came to rest ${second.endInCabin ? "in" : "out of"} the cabin, at ${second.endSpeed.toFixed(2)} m/s`);
+  });
+
+  // Where a bounce off the glass leaves him: in front of the sedan or round its side, near or across the bench.
+  const crackedCases = [
+    { it: "when he stands 1.5 m in front of its windshield, 60° round to the side, and is flicked at the sedan, then his torso shatters the cracked windshield and he comes to rest inside the cabin", dist: 1.5, deg: 60 },
+    { it: "when he stands 2.5 m from its windshield, 80° round to the side, and is flicked at the sedan, then his torso shatters the cracked windshield and he comes to rest inside the cabin", dist: 2.5, deg: 80 },
+    { it: "when he stands 4 m from its windshield, 20° round to the side, and is flicked at the sedan, then his torso shatters the cracked windshield and he comes to rest inside the cabin", dist: 4, deg: 20 },
+    { it: "when he stands 8 m from its windshield, 40° round to the side, and is flicked at the sedan, then his torso shatters the cracked windshield and he comes to rest inside the cabin", dist: 8, deg: 40 },
+    { it: "when he stands 14 m straight in front of its windshield and is flicked at the sedan, then his torso shatters the cracked windshield and he comes to rest inside the cabin", dist: 14, deg: 0 },
+  ] as const;
+  for (const testCase of crackedCases) {
+    it(testCase.it, async (t) => {
+      // The sedan faces −x; its windshield's middle is about 0.77 m ahead of its own.
+      const stand = LAB_LAYOUTS.glass[1]!;
+      const a = (testCase.deg * Math.PI) / 180;
+      const x = heldPose(stand).x - 0.77 - testCase.dist * Math.cos(a);
+      const z = heldPose(stand).z + testCase.dist * Math.sin(a);
+      const r = await labDollRig([{ kind: "dummy", pose: { x, y: 1, z, yaw: 0, pitch: 0, roll: 0 }, hold: "free" }, stand]);
+      runLab(r, 1);
+      r.cars[0]!.hitGlass("windshield");
+      const flick = flickDummyAtCar(r, 12, 4);
+      const glass = glassOf(r.cars[0]!);
+      r.dolls!.dispose();
+      t.diagnostic(`glass ${JSON.stringify(glass)}, at rest ${flick.endInCabin ? "in" : "out of"} the cabin at ${flick.endSpeed.toFixed(2)} m/s`);
+      for (const [name, state] of Object.entries(glass)) assert.equal(state, name === "windshield" ? "shattered" : "intact", name);
+      assert.ok(flick.endInCabin && flick.endSpeed < 0.3, `he came to rest ${flick.endInCabin ? "in" : "out of"} the cabin, at ${flick.endSpeed.toFixed(2)} m/s`);
+    });
+  }
+});
+
+describe("given a dummy standing on the bench", () => {
+  const dummy = (x: number, z: number, yaw: number): LabItem => ({ kind: "dummy", pose: { x, y: 1, z, yaw, pitch: 0, roll: 0 }, hold: "free" });
+
+  const boardCases = [
+    { it: "when he is flicked at the pegboard at 10 m/s, then he meets the board and his torso's centre never gets to its face", speed: 10 },
+    { it: "when he is flicked at the pegboard at 30 m/s, then he meets the board and his torso's centre never gets to its face", speed: 30 },
+    { it: "when he is flicked at the pegboard at 55 m/s, then he meets the board and his torso's centre never gets to its face", speed: 55 },
+  ] as const;
+  for (const testCase of boardCases) {
+    it(testCase.it, async () => {
+      const r = await labDollRig([dummy(0, BOARD.z + 16, Math.PI)]);
+      runLab(r, 1);
+      const shot = r.lab.flick(0, WALL, 0, 0, testCase.speed);
+      runLab(r, 3);
+      r.dolls!.dispose();
+      assert.equal(shot.hit, WALL, "he never met the board");
+      let nearest = Infinity;
+      for (let k = 0; k < shot.pathN; k++) nearest = Math.min(nearest, shot.path[k * 3 + 2]! - BOARD.z);
+      assert.ok(nearest > 0, `his torso's centre reached ${nearest.toFixed(2)} m from the board's face`);
+    });
+  }
+
+  // The wall set's props, a dummy where its car stands: the row of crates, tyre stacks and hay bales at x = 10.
+  const wallCases = [
+    { it: "when he is flicked into the wall of items at 20 m/s, then he meets the row and his torso's centre never gets past its line", speed: 20 },
+    { it: "when he is flicked into the wall of items at 30 m/s, then he meets the row and his torso's centre never gets past its line", speed: 30 },
+    { it: "when he is flicked into the wall of items at 55 m/s, then he meets the row and his torso's centre never gets past its line", speed: 55 },
+  ] as const;
+  for (const testCase of wallCases) {
+    it(testCase.it, async () => {
+      const row = LAB_LAYOUTS.wall.slice(1);
+      const r = await labDollRig([dummy(-14, 0, Math.PI / 2), ...row]);
+      runLab(r, 1);
+      // Item 4: the crate in the row's middle.
+      const shot = r.lab.flick(0, 4, 0, 0, testCase.speed);
+      runLab(r, 3);
+      r.dolls!.dispose();
+      assert.ok(shot.hit !== null && shot.hit > 0 && row[shot.hit - 1]!.pose.x === 10, `he met ${shot.hit}, not the row`);
+      let farthest = -Infinity;
+      for (let k = 0; k < shot.pathN; k++) farthest = Math.max(farthest, shot.path[k * 3]!);
+      assert.ok(farthest < 10, `his torso's centre reached x = ${farthest.toFixed(2)}`);
     });
   }
 });

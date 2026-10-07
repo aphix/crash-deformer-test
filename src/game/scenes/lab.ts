@@ -190,7 +190,7 @@ export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
     { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOF, 0, Math.PI / 2), hold: "free" },
   ],
   glass: [
-    { kind: "dummy", pose: pose(-4, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },
+    { kind: "dummy", pose: pose(0, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },
     { kind: "car", type: SEDAN, pose: pose(10, 4 * PEG, 0, -Math.PI / 2), hold: "pin" },
   ],
 };

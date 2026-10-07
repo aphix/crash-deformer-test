@@ -32,13 +32,14 @@ const _w = new THREE.Vector3();
  * that far from the thrower to the set's middle; `turn`: bearing off straight behind, rad), so the set runs up the screen's
  * length; wide ones look across the bench from its front at the set's middle, the thrower on the left, the targets on the
  * right and the pegboard behind, from just far enough back that every item of the set and `fit` m to spare fits the width,
- * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it. A wide screen
- * `shortPx` CSS px tall or less (a phone on its side) has its dock and set panel along the bottom: there the look point is the
- * set's own height, so the thrower and the set sit mid-screen, clear of both.
+ * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it, but never so high
+ * that the thrower sits more than `low` of the half height below the middle (a dummy lying on the bench dropped under the dock
+ * and the set panel). A wide screen `shortPx` CSS px tall or less (a phone on its side) has its dock and set panel along the
+ * bottom: there the look point is the set's own height, so the thrower and the set sit mid-screen, clear of both.
  */
 const LAB_SHOT = {
   upright: { toFocus: 0.8, turn: 0.06, radius: 21, pitch: 0.22, lift: 0 },
-  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5, shortPx: 500 },
+  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5, low: 0.35, shortPx: 500 },
 };
 const LAB_FOV = 60;
 
@@ -247,6 +248,7 @@ export abstract class EngineScenes extends EngineHud {
         span = Math.max(span, Math.abs(_w.x * Math.cos(a) - _w.z * Math.sin(a)));
       }
       radius = (span + LAB_SHOT.wide.fit) / (Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2) * this.camera.aspect);
+      look.y = Math.min(look.y, from.y + LAB_SHOT.wide.low * radius * Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2));
     }
     this.view.frameReset(true, this.live(), behind + shot.turn, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
   }

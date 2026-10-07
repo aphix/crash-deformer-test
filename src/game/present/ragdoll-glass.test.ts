@@ -2,9 +2,9 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
-import type { DeformableCar } from "../vehicle/car.ts";
 import type { GlassName } from "../vehicle/car-core.ts";
 import { makeCar } from "../contact/crash-scenarios.test-util.ts";
+import { glassOf, paneFrame } from "../vehicle/car-glass.test-util.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 
 const FRAME = 1 / 60;
@@ -20,28 +20,6 @@ const TORSO_HALF_LENGTH = 0.27;
 
 type Body = { translation(): THREE.Vector3Like; linvel(): THREE.Vector3Like; collider(i: number): { setCollisionGroups(g: number): void } };
 type Dolls = { bodies: Body[] }[];
-
-/** World centre of pane `name` of `car` and its outward unit normal (out of the cabin), from the drawn pane itself. */
-function paneFrame(car: DeformableCar, name: GlassName): { centre: THREE.Vector3; out: THREE.Vector3 } {
-  const centre = car.glassWorld(name, new THREE.Vector3());
-  const pane = car["glassPanes"].find((g) => g.name === name)!;
-  const normals = pane.mesh.geometry.getAttribute("normal");
-  const out = new THREE.Vector3();
-  for (let i = 0; i < normals.count; i++) out.add(new THREE.Vector3(normals.getX(i), normals.getY(i), normals.getZ(i)));
-  out.transformDirection(pane.mesh.matrixWorld);
-  // Out of the cabin: away from the middle of the greenhouse.
-  const cabin = new THREE.Vector3(0, 1, -0.1).applyMatrix4(car.group.matrixWorld);
-  if (out.dot(centre.clone().sub(cabin)) < 0) out.negate();
-  return { centre, out };
-}
-
-/** Each pane's state, by name. */
-function glassOf(car: DeformableCar): Record<string, string> {
-  const names: GlassName[] = ["windshield", "rear", "doorL", "doorR", "quarterL", "quarterR"];
-  const bits = car.glassBits();
-  const states = ["intact", "cracked", "shattered"];
-  return Object.fromEntries(names.map((n, i) => [n, states[(bits >> (2 * i)) & 3]!]));
-}
 
 type Strike = {
   /** The torso's velocity along the pane's outward normal (m/s): the step before the strike (the dummy reaching the glass, or stopping short of it), the step after it, and the most outward over the 12 steps (25 ms) after it. */
