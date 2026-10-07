@@ -1,8 +1,8 @@
 /*
  * Thrown-driver ragdolls: a cosmetic crash-test dummy flung out through the windshield or a front side window
  * when one hit disables a car (`EjectionWatch`). Its own Rapier world (@dimforge/rapier3d, Apache-2.0):
- * ground and walls are fixed colliders around the throw, every car (and the sandbox's jersey barrier) a kinematic
- * box that follows its pose, so cars push dummies and nothing pushes back; no dummy state reaches the sim or the
+ * ground and walls are fixed colliders around the throw, every car within `WAKE_NEAR` of a dummy (and the sandbox's
+ * jersey barrier) a kinematic box that follows its pose, so cars push dummies and nothing pushes back; no dummy state reaches the sim or the
  * netplay snapshots. The camera may ride along with the latest dummy's head (`follow`, `frameCamera`).
  *
  * The jointed body (ten boxes on spherical joints: head, torso, upper and lower arms, thighs, shins) follows the
@@ -342,7 +342,7 @@ export class RagdollSystem {
     this.teleport ||= this.slept;
     this.slept = dormant;
     for (let i = 0; i < MAX_CARS; i++) {
-      const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized ? cars[i]! : null;
+      const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(cars[i]!.group.position) ? cars[i]! : null;
       this.follow3(i, this.carBodies[i]!, car?.group ?? null);
       if (car) this.fitEnds(i, car);
     }
@@ -354,7 +354,14 @@ export class RagdollSystem {
     const steps = Math.floor(this.acc / STEP + 1e-6);
     for (let j = 1; j <= steps; j++) {
       this.moveProxies(Math.min(1, (j * STEP - lead) / dt));
-      if (j === steps) for (const d of this.dolls) if (d.live) this.capture(d, d.prev);
+      // One step this frame: the pose before it is the last frame's last (nothing moves a part between steps but a step).
+      if (j === steps) {
+        for (const d of this.dolls) {
+          if (!d.live) continue;
+          if (steps === 1) d.prev.set(d.cur);
+          else this.capture(d, d.prev);
+        }
+      }
       if (j === steps) this.purses?.capture(false);
       world.step();
       if (++this.tick % WATCH_EVERY !== 0) continue;
@@ -402,6 +409,23 @@ export class RagdollSystem {
       for (const car of cars) if (!car.falling && !car.vaporized && car.velocity.lengthSq() > WAKE_SPEED ** 2 && car.group.position.distanceTo(_r) < WAKE_NEAR) return false;
     }
     return true;
+  }
+
+  /**
+   * Is a dummy out (his torso as last stepped) or a purse thing within `WAKE_NEAR` of `p`? Only those cars' proxies are
+   * in the world: a car further out cannot touch him this frame. A car that gets this near in one frame from outside it
+   * moved over 4 m, which `follow3` teleports for anyway, so the proxy it gets is the one it had.
+   */
+  private near(p: THREE.Vector3): boolean {
+    for (let s = 0; s < SLOTS; s++) {
+      const d = this.dolls[s]!;
+      if (!d.live) continue;
+      const dx = d.cur[0]! - p.x;
+      const dy = d.cur[1]! - p.y;
+      const dz = d.cur[2]! - p.z;
+      if (dx * dx + dy * dy + dz * dz < WAKE_NEAR * WAKE_NEAR) return true;
+    }
+    return this.purses !== null && this.purses.near(p, WAKE_NEAR);
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
@@ -452,24 +476,34 @@ export class RagdollSystem {
   /**
    * After a step: a part that has just hit something (`HIT_DV`) gives at each of its joints (`give`), once per hit (a hit
    * runs a few steps; only its first counts). His torso touching down for the first time damps him harder from then on.
-   * Velocities are recorded after the giving, so its own change is not read as the next hit.
+   * Velocities are recorded after the giving, so its own change is not read as the next hit: read again only when a
+   * part gave (each read is a Rapier getter that allocates).
    */
   private hits(s: number, d: Doll): void {
     const o = s * PARTS.length * 4;
+    let gave = false;
     for (let k = 0; k < PARTS.length; k++) {
       const v = d.bodies[k]!.linvel();
       const i = o + 4 * k;
       const fresh = this.vel[i + 3] === 3;
       const jump = !fresh && Math.hypot(v.x - this.vel[i]!, v.y - this.vel[i + 1]!, v.z - this.vel[i + 2]!) > HIT_DV;
-      if (jump && this.vel[i + 3] === 0) give(d.bodies, k);
-      this.vel[i + 3] = jump ? 1 : 0;
-    }
-    for (let k = 0; k < PARTS.length; k++) {
-      const v = d.bodies[k]!.linvel();
-      const i = o + 4 * k;
+      if (jump && this.vel[i + 3] === 0) {
+        give(d.bodies, k);
+        gave = true;
+      }
       this.vel[i] = v.x;
       this.vel[i + 1] = v.y;
       this.vel[i + 2] = v.z;
+      this.vel[i + 3] = jump ? 1 : 0;
+    }
+    if (gave) {
+      for (let k = 0; k < PARTS.length; k++) {
+        const v = d.bodies[k]!.linvel();
+        const i = o + 4 * k;
+        this.vel[i] = v.x;
+        this.vel[i + 1] = v.y;
+        this.vel[i + 2] = v.z;
+      }
     }
     if (d.ground) return;
     const t = d.bodies[0]!.translation();

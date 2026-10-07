@@ -75,6 +75,15 @@ export const CALM_FOR = 0.5;
 
 const _v = { x: 0, y: 0, z: 0 };
 const _w = { x: 0, y: 0, z: 0 };
+/** `limit`'s spins, 3 per part: each part read once (a Rapier getter allocates), again only after a shed changed it. */
+const SPIN = new Float64Array(PARTS.length * 3);
+
+function readSpin(bodies: readonly RigidBody[], k: number): void {
+  const w = bodies[k]!.angvel();
+  SPIN[3 * k] = w.x;
+  SPIN[3 * k + 1] = w.y;
+  SPIN[3 * k + 2] = w.z;
+}
 
 /** Part `k` of the dummy `bodies` was just hit: the skin gives at each joint of it. */
 export function give(bodies: readonly RigidBody[], k: number): void {
@@ -83,11 +92,15 @@ export function give(bodies: readonly RigidBody[], k: number): void {
 
 /** Holds every joint of the dummy `bodies` to `JOINT_SPIN` rad/s of relative spin. */
 export function limit(bodies: readonly RigidBody[]): void {
-  for (const [a, b] of JOINTS) {
-    const wa = bodies[a]!.angvel();
-    const wb = bodies[b]!.angvel();
-    const spin = Math.hypot(wa.x - wb.x, wa.y - wb.y, wa.z - wb.z);
-    if (spin > JOINT_SPIN) shed(bodies[a]!, bodies[b]!, 0, 1 - JOINT_SPIN / spin);
+  for (let k = 0; k < PARTS.length; k++) readSpin(bodies, k);
+  for (let j = 0; j < JOINTS.length; j++) {
+    const a = 3 * JOINTS[j]![0];
+    const b = 3 * JOINTS[j]![1];
+    const spin = Math.hypot(SPIN[a]! - SPIN[b]!, SPIN[a + 1]! - SPIN[b + 1]!, SPIN[a + 2]! - SPIN[b + 2]!);
+    if (spin <= JOINT_SPIN) continue;
+    shed(bodies[JOINTS[j]![0]]!, bodies[JOINTS[j]![1]]!, 0, 1 - JOINT_SPIN / spin);
+    readSpin(bodies, JOINTS[j]![0]);
+    readSpin(bodies, JOINTS[j]![1]);
   }
 }
 

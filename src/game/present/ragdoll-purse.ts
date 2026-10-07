@@ -237,6 +237,21 @@ export class Purses {
     return true;
   }
 
+  /** Is any thing out (as last stepped) within `r` (m) of `p`? */
+  near(p: THREE.Vector3, r: number): boolean {
+    for (let s = 0; s < this.sets; s++) {
+      for (let b = 0; b < BODIES; b++) {
+        if (!(this.on[s]! & (1 << b))) continue;
+        const o = (s * BODIES + b) * 7;
+        const dx = this.cur[o]! - p.x;
+        const dy = this.cur[o + 1]! - p.y;
+        const dz = this.cur[o + 2]! - p.z;
+        if (dx * dx + dy * dy + dz * dz < r * r) return true;
+      }
+    }
+    return false;
+  }
+
   /** Poses after the last step (`cur`) or the one before it, for `pose`'s blend. */
   capture(cur: boolean): void {
     const into = cur ? this.cur : this.prev;
