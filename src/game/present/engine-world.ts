@@ -201,7 +201,7 @@ function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
  */
 const SUN_NORMAL_BIAS_TEXELS = 0.25;
 const SUN_DEPTH_BIAS = -0.0002;
-function setSunBias(shadow: THREE.DirectionalLightShadow): void {
+export function setSunBias(shadow: THREE.DirectionalLightShadow): void {
   const cam = shadow.camera;
   shadow.normalBias = (SUN_NORMAL_BIAS_TEXELS * (cam.right - cam.left)) / shadow.mapSize.x;
   shadow.bias = SUN_DEPTH_BIAS;
