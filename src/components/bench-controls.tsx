@@ -19,6 +19,8 @@ function Tick({ storageKey, label, title }: { storageKey: string; label: string;
  * The scene list's Benchmark entry and its three tick boxes. Pressing Benchmark runs the strip, the city and the biggest course in turn, each
  * on its own page load, posting each card with a receipt before the next starts. Keep benching runs the cycle again; auto-reload takes
  * the loop onto a newly deployed build between benches; include Ultra adds each bench's Ultra pass (offered only where the build has Ultra).
+ * On a phone the dock has no room for the boxes (a fourth grid row pushes the panel above over the rig buttons): there keep benching and
+ * auto-reload are ticked on the loop's own bar, and Ultra stays off.
  */
 export function BenchEntry() {
   return (
@@ -32,14 +34,16 @@ export function BenchEntry() {
       >
         Benchmark
       </Button>
-      <Tick storageKey={PREF_KEYS.keep} label="keep benching" title="Run the cycle again when it ends" />
-      <Tick storageKey={PREF_KEYS.auto} label="auto-reload" title="Reload onto a newly deployed build between benches, and carry on" />
-      {ULTRA_AVAILABLE ? <Tick storageKey={PREF_KEYS.ultra} label="include Ultra" title="Run each bench's Ultra pass after it" /> : null}
+      <span className="hidden sm:contents">
+        <Tick storageKey={PREF_KEYS.keep} label="keep benching" title="Run the cycle again when it ends" />
+        <Tick storageKey={PREF_KEYS.auto} label="auto-reload" title="Reload onto a newly deployed build between benches, and carry on" />
+        {ULTRA_AVAILABLE ? <Tick storageKey={PREF_KEYS.ultra} label="include Ultra" title="Run each bench's Ultra pass after it" /> : null}
+      </span>
     </>
   );
 }
 
-/** On a loop's bench page: where the loop is, and a way out. */
+/** On a loop's bench page: where the loop is, the keep/auto-reload boxes (read when this bench ends), and a way out. */
 export function BenchLoopBar() {
   const [loop, setLoop] = useState<{ run: BenchRun; steps: number } | null>(null);
   // After mount: the server renders no bar, and hydration must find the same.
@@ -53,6 +57,8 @@ export function BenchLoopBar() {
       <span>
         Benchmark loop {loop.run.loop} · step {(loop.run.step % loop.steps) + 1}/{loop.steps}
       </span>
+      <Tick storageKey={PREF_KEYS.keep} label="keep benching" title="Run the cycle again when it ends" />
+      <Tick storageKey={PREF_KEYS.auto} label="auto-reload" title="Reload onto a newly deployed build between benches, and carry on" />
       <Button variant="secondary" className="h-7 px-2 text-[11px]" onClick={stopBenchLoop}>
         Stop
       </Button>
