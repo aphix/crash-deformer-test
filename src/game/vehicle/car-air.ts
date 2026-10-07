@@ -101,7 +101,8 @@ const BOUNCE_V = 1.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
 const MU_BODY = 0.6;
 /** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
- *  (g / speed) is a tumble's, not a jump's, and the body turns freely. */
+ *  (g / speed) is a tumble's, not a jump's, and the body turns freely. `NOSE_V` is also the speed from which a driven car keeps its
+ *  travel through the world's faces (`stepFree`). */
 const NOSE_K = 6;
 const SPIN_TAU = 0.05;
 const NOSE_V = 6;
@@ -721,13 +722,17 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   // So does one whose body strikes the world's faces (a point closing on its surface): a rocker meeting the wedge's corner as the car
   // drove off its side took 0.7-0.8 m/s and 1.4-1.6° of heading in one slice. A belly resting or sliding on a face keeps its friction.
+  // Kept in full from `NOSE_V` down to none at a standstill: a stopped car's resting contacts close under gravity every slice, and kept
+  // at its slice-start zero they held its centre still while it tipped over a wedge's side edge (it pivoted about its centre, 35
+  // frames on the edge). The drop matrix and ramp-crossing give the same cells with the full keep from 2, 4, 6 or 8 m/s.
   let struck = false;
   for (let c = 0; c < n; c++) if (OWN[c]! < 0 && CLOSE[c]) struck = true;
   if (rolling || (!car.crashed && struck)) {
-    v.x = vx0;
-    v.z = vz0;
-    _lift.x = 0;
-    _lift.z = 0;
+    const keep = Math.min(1, Math.sqrt(vx0 * vx0 + vz0 * vz0) / NOSE_V);
+    v.x += (vx0 - v.x) * keep;
+    v.z += (vz0 - v.z) * keep;
+    _lift.x *= 1 - keep;
+    _lift.z *= 1 - keep;
   }
   _com.add(_lift);
   const yielded = surf.commit();
