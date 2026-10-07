@@ -228,7 +228,9 @@ export class CarSurfaces extends Surface {
         top = j;
         self.restsOn = o;
       }
-      if (o.airborne) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
+      // The car under takes the push where its own contacts move it (the rigid step): one on another's roof is on its wheels, not in
+      // the air, and skipping it there dropped every load but its rider's from a stack's bottom roof (0.024 m under 1, 2 or 3 cars).
+      if (o.rigid) o.velocity.y -= (j * self.deform.totalMass) / o.deform.totalMass;
     }
     if (self.restsOn === null) {
       for (let i = 0; i < this.cars.length; i++) {
