@@ -759,31 +759,30 @@ export function contactIn(s: Surface, x: number, z: number, y: number, out: Floa
   report(out);
 }
 
-// The tyre's footprint (wheel frame: axle x, then the rolling plane's y and z; at wheel scale 1): the crown's arc ±0.5 rad and ±45° (a
-// round tyre meets a lip with its arc, not only its lowest point), and the crown's two edges and both shoulders where the tread meets
-// the ground at its bottom (a rolled tyre stands on its low edge: `TYRE_PROFILE`, car-materials.ts). The whole tyre turns with the body,
-// so a rolled or pitched car's tread meets the ground where the drawn tyre does.
-const ARC = [0, 0.25, -0.25, 0.5, -0.5, 0.785, -0.785];
-const SIDE = [0, 0.2, -0.2, 0.4, -0.4, 0.6, -0.6, 0.8, -0.8, 1.0, -1.0, 1.2, -1.2, 1.4, -1.4, 1.5708, -1.5708];
-const FOOT = ARC.length + 2 + 2 * SIDE.length;
+// The tyre's footprint (wheel frame: axle x, then the rolling plane's y and z; at wheel scale 1): the drawn tyre's five tread rings
+// (`TYRE_PROFILE`, car-materials.ts: the crown, its two edges and both shoulders), each over its lower half in `STEPS` arcs a side. A
+// tyre rolling off a face's edge rests on the edge with whichever ring and arc still reach it, up to its hub's height, so its hub comes
+// down that arc as the drawn tyre does. The whole tyre turns with the body, so a rolled or pitched car's tread meets the ground where
+// the drawn tyre does.
+const RINGS: readonly (readonly [number, number])[] = [
+  [0, 0.32],
+  [0.082, 0.314],
+  [-0.082, 0.314],
+  [0.104, 0.298],
+  [-0.104, 0.298],
+];
+const STEPS = 8;
+const FOOT = RINGS.length * (2 * STEPS + 1);
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
-const TYRE = 0.32;
-for (let k = 0; k < ARC.length; k++) {
-  FY[k] = -TYRE * Math.cos(ARC[k]!);
-  FZ[k] = TYRE * Math.sin(ARC[k]!);
-}
-FX[ARC.length] = 0.082;
-FY[ARC.length] = -0.314;
-FX[ARC.length + 1] = -0.082;
-FY[ARC.length + 1] = -0.314;
-for (let k = 0; k < SIDE.length; k++) {
-  for (let s = 0; s < 2; s++) {
-    const i = ARC.length + 2 + 2 * k + s;
-    FX[i] = s === 0 ? 0.104 : -0.104;
-    FY[i] = -0.298 * Math.cos(SIDE[k]!);
-    FZ[i] = 0.298 * Math.sin(SIDE[k]!);
+for (let k = -STEPS; k <= STEPS; k++) {
+  const a = (k / STEPS) * (Math.PI / 2);
+  for (let s = 0; s < RINGS.length; s++) {
+    const i = (k + STEPS) * RINGS.length + s;
+    FX[i] = RINGS[s]![0];
+    FY[i] = -RINGS[s]![1] * Math.cos(a);
+    FZ[i] = RINGS[s]![1] * Math.sin(a);
   }
 }
 

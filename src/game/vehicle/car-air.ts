@@ -411,6 +411,8 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
     car.roll = roll;
     car.group.rotation.set(pitch, yaw, roll, "YXZ");
     if (moved < 1e-3) break;
+    // The last pass moved the body off where its tyres were read (a wheel at the edge of its reach): read them where it rests.
+    if (pass === 1) wheelsAt(car, spring + TOUCH);
   }
   // The tilt's turn over this slice (world rad/s) is what the body carries into the air at a takeoff, smoothed over `SPIN_TAU`: the
   // pose snaps a few degrees in a slice where a wheel meets a lip or leaves a ledge, and that is no turn the body is making.
@@ -510,6 +512,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const within = spring + TOUCH;
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
+  // A driven car with a wheel on the world's ground travels as its drive takes it, as on its wheels (`stepPlane`): the world's faces
+  // lift and turn it but neither push it along nor drag it (no friction: the drive grips). A rear tyre meeting a ramp's toe at 30°
+  // with the front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin.
   const rolling = !car.crashed && worldWheels(car, wheelsAt(car, within)) > 0;
   const vx0 = v.x;
   const vz0 = v.z;
