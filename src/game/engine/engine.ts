@@ -367,6 +367,7 @@ export class CrashEngine extends EngineShare {
 
   protected tickInner(now: number): void {
     if (this.disposed) return;
+    const t0 = performance.now();
     // The first rAF stamp can predate `start()`'s performance.now(): a negative dt froze the sim for seconds.
     const wallDt = Math.min(Math.max(0, (now - this.last) / 1000), 0.1);
     this.last = now;
@@ -478,6 +479,7 @@ export class CrashEngine extends EngineShare {
       this.hudAcc = 0;
       this.emitHud();
     }
+    this.workMs = performance.now() - t0;
   }
 
   /**

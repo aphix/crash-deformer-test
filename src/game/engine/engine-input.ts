@@ -127,24 +127,25 @@ export abstract class EngineInput extends EngineRigs {
 
   /**
    * Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier
-   * otherwise; and while the tier is automatic, a running match walks the distance detail's rung (`DetailGovernor`) by the frame
-   * rate and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
+   * otherwise; and while the tier is automatic, a running match walks the distance detail's rung (`DetailGovernor`) by how full the
+   * frame is (the main thread's ms and the GPU's, `present/frame-work.ts`) and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
    */
   protected fxFrame(wallDt: number, lostSimS: number): void {
     const p = this.race.phase;
     const matchTime = p === "grid" || p === "countdown" || p === "racing" ? this.race.time : this.derbyMode && this.derby.active && this.derby.winnerId === null ? this.derby.time : null;
     const lost = lostSimS - this.lostSeen;
     this.lostSeen = lostSimS;
+    const gpuMs = this.cine.gpuMs();
     if (this.autoFx.auto) {
-      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, matchTime !== null && matchTime >= 0);
+      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, this.workMs, gpuMs, matchTime !== null && matchTime >= 0);
       if (level !== null) {
         console.info(`Crush Stream detail auto: ${DETAIL_LEVELS[level]!.far} m`);
         this.detail.setLevel(level);
       }
     }
-    const tier = this.autoFx.frame(wallDt * 1000, matchTime);
+    const tier = this.autoFx.frame(wallDt * 1000, this.workMs, gpuMs, matchTime);
     if (tier === null) return;
-    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps)`);
+    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps, ${(this.autoFx.busy * 100).toFixed(0)} % of the frame budget)`);
     this.cine.setTier(tier);
     this.emitHud();
   }

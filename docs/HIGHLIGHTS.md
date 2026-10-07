@@ -17,6 +17,8 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 | `present/shot-cam.ts` | `pickShot`, `ShotCam`: which shot comes next and how it is posed (the reel and the Auto cam share it). |
 | `present/auto-cam.ts` | `AutoCam`: the spectator "Auto" camera, the reel's shot director run live on the watched car. |
 | `present/auto-fx.ts` | `hardwareDesktop`, `AutoFx`: the automatic FX tier the reel runs on (docs/CINEMATIC.md). |
+| `present/frame-work.ts` | `FrameWork`: the window both quality governors read (median main-thread ms and GPU ms against the 60 fps budget). |
+| `present/gpu-timer.ts` | `GpuTimer`: the draw's GPU time from `EXT_disjoint_timer_query_webgl2` (none where the browser lacks it). |
 | `net/reel-codec.ts` | One byte layout for a clip on the wire (`MSG.reel`) and in storage. |
 | `engine/highlight-store.ts` | Saved clips in `localStorage`. |
 
@@ -256,9 +258,9 @@ it), so every rig's centred subject plays in the free part, clear of the panels 
 
 ### FX tier
 
-The reel has no FX switch of its own. A race starts on `minimal` under the automatic tier and lifts back to the ceiling at green + 3 s if it holds 57 fps (docs/CINEMATIC.md "Auto"); its end,
+The reel has no FX switch of its own. A race starts on `minimal` under the automatic tier and lifts back to the ceiling at green + 3 s if its frame work has room (docs/CINEMATIC.md "Auto"); its end,
 where the reel starts, returns the tier to the highest one that held this session, so a capable desktop plays the reel
-on "high" and steps down if it can't hold 50 fps. A manual pick keeps the user's tier through the reel. Switching tiers
+on "high" and steps down if its frame work (main thread or GPU) exceeds the 60 fps budget. A manual pick keeps the user's tier through the reel. Switching tiers
 only switches post passes: on the RTX 4080 laptop run, `renderer.info.programs` stayed at 84 before, through and after
 a switch to "high".
 

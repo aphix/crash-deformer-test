@@ -168,6 +168,8 @@ export abstract class EngineCore {
   protected skipDraw = false;
   protected readonly clock = phaseClock();
   protected fps = 0;
+  /** Main-thread ms the last `tickInner` took (sim, camera, FX, draw submit): what the quality governors read as frame work. */
+  protected workMs = 0;
   protected impactKph: number | null = null;
   protected elapsedWall = 0;
   protected elapsedSim = 0;

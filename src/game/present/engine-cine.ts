@@ -6,6 +6,7 @@ import type { ChaseCamera } from "./engine-camera.ts";
 import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine-fx.ts";
 import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
+import { GpuTimer } from "./gpu-timer.ts";
 import { camUsable, type Sight } from "./spectate-cam.ts";
 import { FX_REACH, type Witness } from "./witness.ts";
 import { NO_FLOOR } from "../world/ground.ts";
@@ -378,9 +379,11 @@ export class Cinematics {
   private punch = 0;
   /** The crash cam (the camera half of the crash): `impact` starts it, `direct` runs it. */
   readonly crash: CrashCam;
+  private readonly gpu: GpuTimer | null;
 
   constructor(renderer: THREE.WebGLRenderer, scene: THREE.Scene, view: ChaseCamera, fx: FxRefs, maxCars: number, reduceMotion: boolean) {
     this.renderer = renderer;
+    this.gpu = GpuTimer.create(renderer.getContext() as WebGL2RenderingContext);
     this.view = view;
     this.fx = fx;
     this.reduceMotion = reduceMotion;
@@ -481,13 +484,21 @@ export class Cinematics {
     return on;
   }
 
-  /** Stamp the mark map, then draw the frame through the post chain. */
+  /** Stamp the mark map, then draw the frame through the post chain (timed on the GPU where the browser has a timer). */
   render(scene: THREE.Scene, camera: THREE.Camera, wallDt: number): void {
+    this.gpu?.begin();
     this.marks.flush(this.renderer, wallDt);
     this.post.render(scene, camera);
+    this.gpu?.end();
+  }
+
+  /** GPU ms of the newest finished draw since the last call; -1 when none finished or the browser has no timer. */
+  gpuMs(): number {
+    return this.gpu ? this.gpu.take() : -1;
   }
 
   dispose(): void {
+    this.gpu?.dispose();
     this.post.dispose();
     this.marks.dispose();
     this.tyreSmoke.dispose();
