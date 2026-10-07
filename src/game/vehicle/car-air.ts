@@ -379,8 +379,6 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
   _q0.copy(q).invert();
-  const pitch0 = car.pitch;
-  const roll0 = car.roll;
   let gy = 0;
   let nx = 0;
   let ny = 1;
@@ -389,10 +387,8 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   for (let pass = 0; pass < 2; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
     if (worldWheels(car, mask) < 3 || !restPlane(car, mask, yaw, spring)) {
-      // The body takes off from the pose it had: a pass's plane that the next pass does not confirm leaves nothing behind.
-      q.copy(_q0).invert();
-      car.pitch = pitch0;
-      car.roll = roll0;
+      // The body takes off from the pose this read was taken on: a tyre on a face's corner that the first pass's plane rolls off it
+      // has no rest on that corner, and handed back the pose it had, the corner (risen under it meanwhile) sank the drawn tyre 6-13 cm.
       car.wheelsDown = mask;
       car.airborne = mask === 0;
       return false;
