@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { launch, makeCar, makeWorld, relaunchDamaged } from "../contact/crash-scenarios.test-util.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { clipScore, clipTitle, CRUSH_MIN, IMPACT_MIN, MIN_SCORE, TOP, type CrashCluster } from "../match/highlights.ts";
+import { clipScore, clipTitle, IMPACT_MIN, MIN_SCORE, TOP, type CrashCluster } from "../match/highlights.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
 
@@ -243,16 +243,6 @@ describe("given the deformation the cars of a clip gained", () => {
   });
 });
 
-describe("given the crush a hit at the minimum impact speed makes", () => {
-  it("when two sedans meet head-on at the minimum impact speed, then the crush they gain is the crush minimum that a slower contact must reach to count as an impact", () => {
-    const [a, b] = [makeCar(), makeCar()] as const;
-    placeHeadOn(a, b, IMPACT_MIN + 0.1);
-    const [clip] = record([a, b], false, 4).rec.ledger.kept;
-    assert.ok(clip, "a hit at the minimum impact speed made no clip");
-    assert.ok(Math.abs(clip.deform - CRUSH_MIN) < 0.1, `${clip.deform.toFixed(3)} m of crush, the crush minimum is ${CRUSH_MIN}`);
-  });
-});
-
 /** Height (m) of a sedan's roof over its origin, and of a turned-over one's origin over the ground (stack-crush.test.ts). */
 const ROOF_Y = 1.17;
 const FLIPPED_Y = 1.2;
@@ -274,23 +264,12 @@ function dropOnto(h: number, turnedOver: boolean): { clusters: CrashCluster[]; r
 }
 
 describe("given a sedan falling onto another's, slower than any impact that counts by its speed", () => {
-  for (const { turnedOver, counts } of [
-    { turnedOver: false, counts: false },
-    { turnedOver: true, counts: true },
-  ]) {
-    it(`when it falls 3 m (28 km/h) ${turnedOver ? "roof onto roof" : "wheels onto the roof"}, then ${counts ? "the two roofs crush deep enough to count: one cluster of two cars and a clip that scores their crush" : "the one roof it dents is not crushed deep enough to count and nothing is recorded"}`, () => {
+  for (const turnedOver of [false, true]) {
+    it(`when it falls 3 m (28 km/h) ${turnedOver ? "roof onto roof" : "wheels onto the roof"}, then a slow crush is no highlight however deep: no cluster opens and no clip is recorded`, () => {
       assert.ok(Math.sqrt(2 * 9.81 * 3) < IMPACT_MIN, "the fall is slower than any impact that counts by speed");
       const { clusters, rec } = dropOnto(3, turnedOver);
-      assert.equal(clusters.length, counts ? 1 : 0, "clusters opened");
-      const [clip] = rec.ledger.kept;
-      if (!counts) {
-        assert.equal(clip, undefined, "a clip of a shallow crush");
-        return;
-      }
-      assert.equal(clusters[0]!.hit, 2, "the cars it crushed");
-      assert.ok(clip, "the deep crush made no clip");
-      assert.ok(clip.deform >= CRUSH_MIN, `${clip.deform.toFixed(3)} m of crush, the crush minimum is ${CRUSH_MIN}`);
-      assert.ok(clip.score >= MIN_SCORE, `scores ${clip.score.toFixed(2)}, the minimum is ${MIN_SCORE}`);
+      assert.equal(clusters.length, 0, "clusters opened");
+      assert.equal(rec.ledger.kept.length, 0, "clips recorded");
     });
   }
 });

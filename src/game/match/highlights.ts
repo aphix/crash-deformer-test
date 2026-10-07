@@ -85,15 +85,6 @@ export function clipScore(impact: number, deform: number): number {
 /** Below this a cluster is a scrape, not a highlight (a lone 20 km/h tap scores ~1.0). */
 export const MIN_SCORE = 3;
 
-/**
- * Crush (m, the measure of `HighlightClip.deform`, summed over the two cars) at which a contact slower than `IMPACT_MIN` counts
- * anyway: a car rolling onto another's roof closes slowly and wrecks it. It is what two sedans gain in a hit at `IMPACT_MIN`
- * (45 km/h; measured through the recorder, engine-record-scale.test.ts: 2.2 m, as deep as the owner's 2 m at 30 km/h), so a
- * slow contact counts once it has crushed its cars as deep as a hit at the threshold speed does. The crush alone then earns
- * 4 × 2.2 = 8.8 points, above `MIN_SCORE`: a slow deep crush makes a clip (roof onto roof from 3 m: 4.4 m, 17.8 points).
- */
-export const CRUSH_MIN = 2.2;
-
 /** Number of set bits (cars in a 32-car mask). */
 function popcount(x: number): number {
   let v = x >>> 0;
@@ -118,13 +109,12 @@ function impactWeight(closing: number): number {
 
 /**
  * Whether a contact is an impact: its pair (or its car and the walls) had been apart `apart` s, at least `REHIT_S`, and it
- * closes at `strength` m/s, at least `IMPACT_MIN` (grinding never re-counts); or the pair has crushed its cars `crush` m
- * deep since their contacts began, at least `CRUSH_MIN`, however slowly it closed (the caller hands over 0 for a run of
- * contacts that has counted already). The recorder's ledger and the replay's first-hit marker (`ClipSim`) both ask it; the
- * marker sees no crush (0).
+ * closes at `strength` m/s, at least `IMPACT_MIN` (grinding never re-counts). A slow contact is never one, however deep it
+ * crushes (owner 10-07: a slow roof crush is not a highlight); its crush still scores in a clip an impact opened (`clipScore`).
+ * The recorder's ledger and the replay's first-hit marker (`ClipSim`) both ask it.
  */
-export function countsAsImpact(apart: number, strength: number, crush = 0): boolean {
-  return (apart >= REHIT_S && strength >= IMPACT_MIN) || crush >= CRUSH_MIN;
+export function countsAsImpact(apart: number, strength: number): boolean {
+  return apart >= REHIT_S && strength >= IMPACT_MIN;
 }
 
 /** The kinds of event a cluster remembers. */

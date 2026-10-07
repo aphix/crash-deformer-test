@@ -46,8 +46,6 @@ const KEY_EVERY = 1;
 const KEY_SLOTS = 40;
 /** Ejections remembered for the clips (a race has a handful; the oldest drop out of a pathological one). */
 const MAX_EJECTED = 64;
-/** Pairs in slow contact watched for their crush at once (`watchRuns`): a derby pile-up has a dozen; a pair beyond this is not watched. */
-const MAX_RUNS = 32;
 
 /**
  * A clip also takes cars within this many metres of its hit (`bystanders`): a camera sees them, and a car left out of
@@ -158,19 +156,8 @@ export class CrashRecorder {
   private readonly strainPeak = new Float32Array(MAX_CARS * CAGES.length);
   private readonly strainNow = new Float32Array(CAGES.length);
   private tracked = 0;
-  /** Last time each car met another (`meet`): its run of contacts goes on while this is under `REHIT_S` old, and a car that had been apart that long begins a new one. */
+  /** Last time each car met another (`meet`): a car met within `REHIT_S` is tracked for its crush (`trackCrush`). */
   private readonly carAt = new Float64Array(MAX_CARS);
-  /** Per car, each cage's strain when its present run of contacts began (`meet`): the crush that qualifies a slow contact is read from it (`dent`). */
-  private readonly contactBase = new Float32Array(MAX_CARS * CAGES.length);
-  /** The cars whose present run of contacts has counted as an impact (`meet`): the crush that goes on after it counts no more. */
-  private spent = 0;
-  /**
-   * Pairs in contact whose run has not counted (`meet`): the pair (a·`MAX_CARS` + b), and where and how fast it last met (x, y, z,
-   * closing). The crush of a slow contact grows after the sim reports it (`watchRuns` reads it at each step's end).
-   */
-  private readonly runKey = new Uint16Array(MAX_RUNS);
-  private readonly runAt = new Float32Array(MAX_RUNS * 4);
-  private runs = 0;
   /** `bystanders`' scratch: each car's least squared distance to the hit. */
   private readonly near = new Float64Array(MAX_CARS);
   /** Every driver thrown out this race (`eject`): the step he left in, and the event; a clip takes those of its steps and cars. */
@@ -215,8 +202,6 @@ export class CrashRecorder {
     this.touchAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
     this.carAt.fill(-Infinity);
-    this.spent = 0;
-    this.runs = 0;
     this.pre.count = 0;
     this.owed = -Infinity;
     this.throwing = false;
@@ -320,7 +305,6 @@ export class CrashRecorder {
       if (under >= 0 && under < MAX_CARS) this.meet(Math.min(i, under), Math.max(i, under), 0, c.group.position.x, c.group.position.y, c.group.position.z);
     }
     this.trackCrush(cars, n);
-    this.watchRuns();
     this.time += h;
     this.step++;
     if (this.throwing) {
@@ -341,86 +325,24 @@ export class CrashRecorder {
     if (this.on && first) this.meet(a, b, hit.impulse, hit.contact.x, hit.contact.y, hit.contact.z);
   }
 
-  /**
-   * Cars `a` < `b` are in contact this step, closing at `closing` m/s at (x, y, z): an impact (`countsAsImpact`) when they had
-   * been apart and it is hard; otherwise the pair's run is watched for its crush (`watchRuns`) until it counts or ends.
-   */
+  /** Cars `a` < `b` are in contact this step, closing at `closing` m/s at (x, y, z): an impact (`countsAsImpact`) when they had been apart and it is hard. */
   private meet(a: number, b: number, closing: number, x: number, y: number, z: number): void {
     const n = this.pre.count;
     if (a >= n || b >= n) return;
     const k = a * MAX_CARS + b;
-    const both = ((1 << a) | (1 << b)) >>> 0;
-    this.startRun(a);
-    this.startRun(b);
     const counts = countsAsImpact(this.time - this.pairAt[k]!, closing);
     this.pairAt[k] = this.carAt[a] = this.carAt[b] = this.time;
     // Traffic and police make a moment only against a racer (`begin`).
-    if (a >= this.racers && b >= this.racers) return;
-    if (counts) this.count(a, b, closing, x, y, z);
-    else if ((this.spent & both) === 0) this.watch(k, closing, x, y, z);
+    if (counts && (a < this.racers || b < this.racers)) this.count(a, b, closing, x, y, z);
   }
 
-  /** Cars `a` < `b` hit each other at (x, y, z), closing at `closing` m/s: the ledger takes the impact and their run of contacts is spent. */
+  /** Cars `a` < `b` hit each other at (x, y, z), closing at `closing` m/s: the ledger takes the impact. */
   private count(a: number, b: number, closing: number, x: number, y: number, z: number): void {
-    this.spent = (this.spent | (1 << a) | (1 << b)) >>> 0;
     // Each car's own speed is the step's start (`pre`): `resolveCarPair` has already traded momentum by the time the hit is reported.
     const fa = this.pre.cars[a]!;
     const fb = this.pre.cars[b]!;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
     this.ledger.impact(this.time, a, b, closing, e, x, y, z, hypot3(fa.vx, fa.vy, fa.vz), hypot3(fb.vx, fb.vy, fb.vz));
-  }
-
-  /** Pair `k` (a·`MAX_CARS` + b) is a run to watch: where and how fast it last met. */
-  private watch(k: number, closing: number, x: number, y: number, z: number): void {
-    let q = 0;
-    while (q < this.runs && this.runKey[q] !== k) q++;
-    if (q === this.runs) {
-      if (q === MAX_RUNS) return;
-      this.runKey[q] = k;
-      this.runs++;
-    }
-    const o = q * 4;
-    this.runAt[o] = x;
-    this.runAt[o + 1] = y;
-    this.runAt[o + 2] = z;
-    this.runAt[o + 3] = closing;
-  }
-
-  /**
-   * Once a step: a watched run counts as an impact once its pair has crushed `CRUSH_MIN` m (`countsAsImpact`), at where it last
-   * met; it is dropped when it has counted (`spent`) or its pair has been apart for `REHIT_S`.
-   */
-  private watchRuns(): void {
-    for (let q = 0; q < this.runs; ) {
-      const k = this.runKey[q]!;
-      const a = (k / MAX_CARS) | 0;
-      const b = k % MAX_CARS;
-      const o = q * 4;
-      if (this.time - this.pairAt[k]! < REHIT_S && (this.spent & (((1 << a) | (1 << b)) >>> 0)) === 0) {
-        if (!countsAsImpact(0, 0, this.dent(a) + this.dent(b))) {
-          q++;
-          continue;
-        }
-        this.count(a, b, this.runAt[o + 3]!, this.runAt[o]!, this.runAt[o + 1]!, this.runAt[o + 2]!);
-      }
-      this.runs--;
-      this.runKey[q] = this.runKey[this.runs]!;
-      this.runAt.copyWithin(o, this.runs * 4, this.runs * 4 + 4);
-    }
-  }
-
-  /** Car `i` meets a car: a car apart from every other for `REHIT_S` begins a new run of contacts, its strains now the base of its crush and nothing counted yet. */
-  private startRun(i: number): void {
-    if (this.time - this.carAt[i]! < REHIT_S) return;
-    this.spent = (this.spent & ~(1 << i)) >>> 0;
-    const L = CAGES.length;
-    for (let k = 0; k < L; k++) this.contactBase[i * L + k] = this.strainPre[i * L + k]!;
-  }
-
-  /** The dent (m) car `i` has gained since its run of contacts began (`risen`). */
-  private dent(i: number): number {
-    this.readStrain(this.cars[i]!, this.strainNow, 0);
-    return this.risen(this.strainNow, 0, this.contactBase, i * CAGES.length);
   }
 
   /**
@@ -439,8 +361,6 @@ export class CrashRecorder {
     const counts = countsAsImpact(this.time - this.wallAt[i]!, closing);
     this.wallAt[i] = this.time;
     if (!counts || i >= this.racers) return;
-    // Its crush is the wall's: a car contact in the run it is in counts by speed alone (`meet`).
-    this.spent = (this.spent | (1 << i)) >>> 0;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[i]!)].mass, Infinity);
     this.ledger.impact(this.time, i, -1, closing, e, x, this.pre.cars[i]!.y, z, closing, 0);
   }

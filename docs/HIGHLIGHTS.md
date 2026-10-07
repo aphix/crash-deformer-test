@@ -47,14 +47,8 @@ An impact is any contact (car–car, wall or prop) closing at `IMPACT_MIN` (12.5
 apart for `REHIT_S` (0.35 s), so grinding never re-counts. 12.5 m/s is the speed at which a lone sedan head-on reaches `MIN_SCORE`: a slower bump could only join a cluster and lift its car count and score (owner 10-05: "multi car pileups are just slow bumps"). Measured on 192 races (city, oval with police, breaker-yard, dam-spine, seeds 1-48): the old 5 m/s floor kept 81 of 150 oval-police clips as 3+-car pile-ups, 34 of them (and 8 of 9 on the city) only through bumps under 12 m/s; 49 of 56 city "pile-up" titles had two cars hit (the title counted the bystanders in the shot). The title now counts the cars hit (`HighlightClip.hit`, ≥ 3 for "N-car pile-up").
 A cluster closes after `QUIET_GAP` (1.5 s) with no impact, or when it spans `MAX_SPAN` (6 s).
 
-A car–car contact slower than that counts too once it has crushed its cars as deep as a hit at that speed does: `CRUSH_MIN`
-(2.2 m: what two sedans gain head-on at 45 km/h, measured through the recorder, and the owner's 2 m at 30 km/h) of the pair's
-summed new dent (the clip's `deform` measure, from the moment each car's run of contacts began). A car rolling onto another's
-roof closes slowly and wrecks it: roof onto roof from 3 m (28 km/h) crushes 4.4 m, a sedan's wheels onto a roof only 1.7 (no
-impact). The crush of a slow contact keeps growing after the sim reports it, so a pending pair is read at every step's end
-(`CrashRecorder.watchRuns`) until it counts or its contact ends (`REHIT_S` apart). A run counts once (`spent`); a car that had
-been apart from every other for `REHIT_S` begins a new run, with its strains then as the base. Its crush term alone (4 × 2.2) is
-8.8 points, above `MIN_SCORE`: a slow deep crush makes a clip. The replay's first-hit marker sees no crush.
+A slower contact is never an impact, however deep it crushes (owner 10-07: a car slowly crushing a roof is not a highlight); its
+crush still scores through the clip's `deform` term when an impact opens the clip.
 
 **Scope** (owner 10-07). A clip is about its main car (the faster car of its strongest impact), the cars it hit directly, and
 what happens within `SCOPE_R` (10 m) of an impact of those cars: one rule (`CrashCluster.takes`) that the ledger joins events

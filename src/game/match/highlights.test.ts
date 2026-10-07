@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { clipScore, countsAsImpact, CRUSH_MIN, HighlightLedger, IMPACT_MIN, impactEnergy, MAX_SPAN, MIN_SCORE, QUIET_GAP, REHIT_S, TOP, type CrashCluster } from "./highlights.ts";
+import { clipScore, countsAsImpact, HighlightLedger, IMPACT_MIN, impactEnergy, MAX_SPAN, MIN_SCORE, QUIET_GAP, REHIT_S, TOP, type CrashCluster } from "./highlights.ts";
 
 const SEDAN = 1400;
 const kph = (v: number): number => v / 3.6;
@@ -54,13 +54,6 @@ describe("given a highlight ledger (the list of crash clusters scored for the hi
     assert.equal(countsAsImpact(5, IMPACT_MIN - 0.1), false, "a soft touch");
     assert.equal(countsAsImpact(5, 5), false, "the old 5 m/s floor: a slow bump is no impact");
     assert.equal(countsAsImpact(Infinity, IMPACT_MIN), true, "the first ever contact");
-  });
-
-  it("when a slow contact has crushed its cars to the crush minimum, then it counts as an impact whatever its speed or quiet spell, and that crush alone earns a clip", () => {
-    assert.equal(countsAsImpact(0, 1, CRUSH_MIN), true, "a slow contact in a grind, crushed deep");
-    assert.equal(countsAsImpact(0, 1, CRUSH_MIN - 0.01), false, "a slow contact a little short of it");
-    assert.equal(countsAsImpact(5, 5, 0), false, "a slow bump with no crush is none");
-    assert.ok(clipScore(0, CRUSH_MIN) >= MIN_SCORE, `the crush minimum alone earns ${clipScore(0, CRUSH_MIN).toFixed(2)}, the minimum score is ${MIN_SCORE}`);
   });
 
   it("when impacts land inside, outside and far from an open cluster, then those inside the quiet gap merge into one cluster while a later one, or a far one with other cars, opens its own, and a cluster stops growing past its maximum span", () => {
