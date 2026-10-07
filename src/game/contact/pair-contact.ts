@@ -58,6 +58,8 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
  * crushed nose is shorter than the box it was built in (a wreck driven in further, by a car ramming it, is put back).
  */
 const WALL_E = 0.15;
+/** Friction of a car's body scraping a fixed solid's face (`MU_BODY`, the rigid step's body against a surface). */
+const WALL_MU = 0.6;
 export const WALL_CRUSH = 5.5;
 const WALL_HOLD = 0.4;
 const WALL_REACH = 1.2;
@@ -149,8 +151,14 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
   const closing = Math.max(0, -(v.x * nx + v.z * nz));
   pos.x += nx * pen;
   pos.z += nz * pen;
-  v.x += nx * closing * (1 + WALL_E);
-  v.z += nz * closing * (1 + WALL_E);
+  const j = closing * (1 + WALL_E);
+  v.x += nx * j;
+  v.z += nz * j;
+  // The body scrapes the face: its friction takes at most `WALL_MU` of the touch's impulse from the speed along the face.
+  const along = v.z * nx - v.x * nz;
+  const rub = Math.sign(along) * Math.min(Math.abs(along), WALL_MU * j);
+  v.x += nz * rub;
+  v.z -= nx * rub;
 }
 
 /**
