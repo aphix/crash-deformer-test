@@ -1,5 +1,7 @@
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
+import { UNDERSIDE } from "../vehicle/car-suspension.ts";
+import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Hull } from "../deform/hulls.ts";
 import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "../deform/physics-util.ts";
 import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
@@ -11,15 +13,37 @@ export const BALL_EXPOSE = 0.25;
 /** A body with no wheel contact to read (in flight, a wreck on its masses) clears the slab with its origin this high (m). */
 const FLIGHT_CLEAR = BARRIER_TOP - 0.3;
 
-/**
- * The slab meets a car until it is over it: a driven car clears while a wheel that is down stands higher than the slab's top (up a
- * fleet ramp beside the slab's end, on its top: that wheel's contact point, `wheelHit`), a body with no wheel contact to read by its
- * origin's height. A car on the ground never clears.
- */
-function overSlab(car: DeformableCar): boolean {
-  if (car.airborne || car.deform.massActive) return car.group.position.y > FLIGHT_CLEAR;
-  for (let i = 0; i < 4; i++) if (((car.wheelsDown >> i) & 1) !== 0 && car.wheelHit[i * HIT_SIZE + C_PY]! > BARRIER_TOP) return true;
-  return false;
+/** The underside's lowest point over the tyre plane (car-local m, a lifted class's body lifted by its `lift`). */
+const UNDER_LOW = Math.min(...UNDERSIDE.map((u) => u[2]));
+const _sp = new THREE.Vector3();
+const _qi = new THREE.Quaternion();
+/** The slab's top clipped to a car's plan box, as car-local corners (x, y, z; at most 8). */
+const _poly = new Float64Array(24);
+const _clip = new Float64Array(24);
+
+/** The part of polygon `src` (`n` corners) where `sign` × its coordinate `axis` is at most `limit`, into `dst`; returns its corner count. */
+function clipAxis(src: Float64Array, n: number, axis: number, sign: number, limit: number, dst: Float64Array): number {
+  let m = 0;
+  for (let i = 0; i < n; i++) {
+    const a = i * 3;
+    const b = ((i + 1) % n) * 3;
+    const da = sign * src[a + axis]! - limit;
+    const db = sign * src[b + axis]! - limit;
+    if (da <= 0) {
+      dst[m * 3] = src[a]!;
+      dst[m * 3 + 1] = src[a + 1]!;
+      dst[m * 3 + 2] = src[a + 2]!;
+      m++;
+    }
+    if (da <= 0 !== db <= 0) {
+      const t = da / (da - db);
+      dst[m * 3] = src[a]! + (src[b]! - src[a]!) * t;
+      dst[m * 3 + 1] = src[a + 1]! + (src[b + 1]! - src[a + 1]!) * t;
+      dst[m * 3 + 2] = src[a + 2]! + (src[b + 2]! - src[a + 2]!) * t;
+      m++;
+    }
+  }
+  return m;
 }
 
 export type ContactHit = { impulse: number; contact: THREE.Vector3; normal: THREE.Vector3 };
@@ -133,9 +157,43 @@ export class JerseyBarrier {
 
   /** Mass-level slab contact, then the cabin tunnelling floor. */
   clip(car: DeformableCar): void {
-    if (overSlab(car)) return;
+    if (this.over(car)) return;
     this.hold(car);
     clipCarToBarrier(car, this.yaw, this.group.position, this.hx(), leftoverCrumple(car.deform.slabTravel()));
+  }
+
+  /**
+   * The slab meets a car until the car is over it: a driven car clears while a wheel that is down stands higher than the slab's top
+   * (up a fleet ramp beside the slab's end, on its top: that wheel's contact point, `wheelHit`) or while the slab's top, where it is
+   * under the car's plan, is under the car's underside (a car straddling a ramp's edge crosses the slab's end with its high side, its
+   * low wheels still on the floor beside it); a body with no wheel contact to read clears by its origin's height. A car on the ground
+   * never clears.
+   */
+  private over(car: DeformableCar): boolean {
+    if (car.airborne || car.deform.massActive) return car.group.position.y > FLIGHT_CLEAR;
+    for (let i = 0; i < 4; i++) if (((car.wheelsDown >> i) & 1) !== 0 && car.wheelHit[i * HIT_SIZE + C_PY]! > BARRIER_TOP) return true;
+    const o = this.group.position;
+    const p = car.group.position;
+    _qi.copy(car.group.quaternion).invert();
+    const ax = Math.cos(this.yaw);
+    const az = -Math.sin(this.yaw);
+    const hx = this.hx();
+    for (let k = 0; k < 4; k++) {
+      const u = k === 1 || k === 2 ? hx : -hx;
+      const v = k < 2 ? -BARRIER_HALF.z : BARRIER_HALF.z;
+      _sp.set(o.x + u * ax - v * az - p.x, BARRIER_TOP - p.y, o.z + u * az + v * ax - p.z).applyQuaternion(_qi);
+      _poly[k * 3] = _sp.x;
+      _poly[k * 3 + 1] = _sp.y;
+      _poly[k * 3 + 2] = _sp.z;
+    }
+    let n = clipAxis(_poly, 4, 0, 1, CAR_HALF.x, _clip);
+    n = clipAxis(_clip, n, 0, -1, CAR_HALF.x, _poly);
+    n = clipAxis(_poly, n, 2, 1, CAR_HALF.z, _clip);
+    n = clipAxis(_clip, n, 2, -1, CAR_HALF.z, _poly);
+    if (n === 0) return false;
+    const low = UNDER_LOW + CLASSES[carClass(car)].lift;
+    for (let k = 0; k < n; k++) if (_poly[k * 3 + 1]! > low) return false;
+    return true;
   }
 
   /**
@@ -183,7 +241,7 @@ export class JerseyBarrier {
   }
 
   resolve(car: DeformableCar, deform: boolean, feed: boolean, dt: number): ContactHit | null {
-    if (overSlab(car)) return null;
+    if (this.over(car)) return null;
     const crushHit = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _cn, _cp, car.crushHulls());
     const overlap = satCarBarrier(car, this.yaw, this.group.position, this.hx(), _bn, _bp, car.hulls());
     this.hold(car);
