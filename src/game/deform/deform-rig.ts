@@ -12,7 +12,7 @@ import {
 import { DeformParticleHelper, DeformRigHelper } from "./deform-helper.ts";
 import type { Hull } from "./hulls.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
-import { FACES, faceFollow } from "./load-crush.ts";
+import { FACES, faceFollow, IMPRINT_NONE } from "./load-crush.ts";
 import { PushBudget } from "./push-budget.ts";
 
 /**
@@ -380,10 +380,12 @@ export abstract class DeformRig {
   /**
    * Load crush (load-crush.ts): each face's crush depth (m), the depth already baked into the masses (`bakeLoadCrush`),
    * how much each mass follows each face (rest-only), and a changed-since-the-skin-read mark. Typed arrays, not scalar
-   * fields, so the solver-state layout (`simState`) stays what it was.
+   * fields, so the solver-state layout (`simState`) stays what it was. `imprint`: the plane the roof was last pressed to
+   * (`IMPRINT_NONE` until a load crushes it), which cuts the drawn skin and the top other cars stand on alike.
    */
   readonly crush = new Float64Array(FACES);
   protected readonly crushBaked = new Float64Array(FACES);
+  readonly imprint = Float64Array.of(IMPRINT_NONE, 0, 0);
   protected readonly loadW: Float64Array;
   protected readonly loadDirty = new Uint8Array(1);
   /** The style's rig overrides, kept (a shared reference) for `rebuildRunStructures`. */
@@ -543,6 +545,9 @@ export abstract class DeformRig {
     this.netFlags = 0;
     this.crush.fill(0);
     this.crushBaked.fill(0);
+    this.imprint[0] = IMPRINT_NONE;
+    this.imprint[1] = 0;
+    this.imprint[2] = 0;
     this.loadDirty.fill(0);
     for (const h of this.hullBuf) h.cx = h.cz = h.hx = h.hz = 0;
     for (const h of this.crushHullBuf) h.cx = h.cz = h.hx = h.hz = 0;

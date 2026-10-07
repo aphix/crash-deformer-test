@@ -37,6 +37,13 @@ export function faceMax(face: number): number {
   return MAX[face]!;
 }
 
+/**
+ * A pressed roof takes the shape of what pressed it (plastic, it stays): `DeformRig.imprint` holds that plane in the car's body frame
+ * (height at the origin, rise per metre along x and along z), and the drawn skin and the top another car stands on are both cut down to
+ * it. This height (m) is over any car's top: no imprint.
+ */
+export const IMPRINT_NONE = 10;
+
 /** The force (in car weights) face `face` carries at crush depth `d` (m); `Infinity` once it is packed. */
 export function faceStrength(face: number, d: number): number {
   return d >= MAX[face]! ? Infinity : Y0[face]! + (K[face]! + Q[face]! * d) * d;
