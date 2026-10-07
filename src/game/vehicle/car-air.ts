@@ -92,6 +92,14 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
 export const REST_LIFT = 0.02;
 /** A wheel this close (m) to the ground counts as down. */
 export const TOUCH = 0.03;
+/** A wheel within this (m) of its rest ride, or pressed past it, carries its share: the rigid step hands the body to its wheels on three such. */
+const CARRY = TOUCH;
+/**
+ * The turn (rad, pitch plus roll) within which the rest plane takes the body from the rigid step. Handed over further off it, the
+ * pose-following step set it on the plane in one slice: a monster landing nose-first over the CRUSH crest, its front springs
+ * pressed, turned 9° in that frame (4° of it its own rotation).
+ */
+const LAND_TURN = Math.PI / 90;
 /** How far (m) a wheel's tread may be off a surface for a spawn's first slice to lay the body on it (`DeformableCar.laying`): a bank's low side. */
 const LAY_REACH = 0.4;
 /** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
@@ -351,7 +359,8 @@ export function wreckContact(car: DeformableCar): void {
 /**
  * What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which step moves it and
  * which wheels reach. A wreck on its masses is moved by them, and touches what their last slice left (`wreckContact`); one off
- * them (`armed`: flying) by the rigid step, as is any body with fewer than three wheels on the world.
+ * them (`armed`: flying) by the rigid step, as is any body with fewer than three wheels on the world, and a body the rigid step
+ * moved last (no support height) until it is back on its wheels as the slices hand it over (`onWheels`).
  */
 export function readContact(car: DeformableCar): void {
   car.restsOn = null;
@@ -362,9 +371,12 @@ export function readContact(car: DeformableCar): void {
     return;
   }
   beginContacts(car);
-  const mask = wheelsAt(car, droop(carClass(car)) + TOUCH);
+  const spring = droop(carClass(car));
+  const mask = wheelsAt(car, spring + TOUCH);
+  let carried = 0;
+  for (let i = 0; i < 4; i++) if (-car.wheelHit[i * HIT_SIZE + C_H]! <= CARRY) carried |= 1 << i;
   car.wheelsDown = mask;
-  car.rigid = (car.crashed && car.deform.armed) || worldWheels(car, mask) < 3;
+  car.rigid = (car.crashed && car.deform.armed) || worldWheels(car, mask) < 3 || (Number.isNaN(car.support) && !onWheels(car, mask, carried & mask, spring));
   car.airborne = mask === 0;
 }
 
@@ -497,6 +509,18 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
   if (best === Infinity) return fitPlane(mask, stop);
   _pl.set(_bp);
   return true;
+}
+
+/**
+ * Whether the rigid step hands `car` to its wheels (the pose-following step), as posed: three on the world carry it (`carried`), and
+ * the rest plane through those in reach (`mask`, springs of `spring` travel) holds it in the attitude it has, within `LAND_TURN`.
+ */
+function onWheels(car: DeformableCar, mask: number, carried: number, spring: number): boolean {
+  if (worldWheels(car, carried) < 3) return false;
+  _eul.setFromQuaternion(car.group.quaternion, "YXZ");
+  if (!restPlane(car, mask, _eul.y, spring)) return false;
+  planePose(Math.sin(_eul.y), Math.cos(_eul.y));
+  return Math.abs(_pose[0]! - _eul.x) + Math.abs(_pose[1]! - _eul.z) < LAND_TURN;
 }
 
 /**
@@ -916,15 +940,19 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   // What the body touches now: each wheel's tread gap moved by the lift. No wheel within its springs' reach and no hull point
-  // in a surface is flight; a belly or a roof resting on something is not.
+  // in a surface is flight; a belly or a roof resting on something is not. The body is back on its wheels when three on the world
+  // carry it and the rest plane holds it as it is (`onWheels`), not when three first reach: handed over on three tyres hanging in
+  // reach, a monster nose-first over the CRUSH crest took the plane through them, 9.6° off the road, and snapped flat the next frame.
   const dy = pos.y - y0;
   let down = 0;
+  let carried = 0;
   for (let i = 0; i < 4; i++) {
     const o = i * HIT_SIZE + C_H;
     hit[o] = hit[o]! - dy;
     if (-hit[o]! <= within) down |= 1 << i;
+    if (-hit[o]! <= CARRY) carried |= 1 << i;
   }
   car.wheelsDown = down;
   car.airborne = down === 0 && n === 0;
-  return worldWheels(car, down) >= 3;
+  return onWheels(car, down, carried, spring);
 }
