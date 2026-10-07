@@ -3,6 +3,7 @@ import type { RaceCommand } from "../match/types.ts";
 import { DETAIL_LEVELS, type CarDetail } from "../present/car-detail.ts";
 import type { DetailGovernor } from "../present/detail-governor.ts";
 import type { Cinematics } from "../present/engine-cine.ts";
+import { describeDepthProbe, probeDepth, type DepthProbe } from "../present/depth-probe.ts";
 import { describePost, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
@@ -106,7 +107,7 @@ interface BenchSettings {
   squash: number;
   buckle: number;
   deformMode: string;
-  depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean };
+  depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
 }
 
 export interface BenchResult {
@@ -261,7 +262,7 @@ export function describeBench(r: BenchResult): string[] {
     `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
-    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
+    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}, ${describeDepthProbe(s.depth.probe)}`,
     `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `                  ${arm("1/120 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
@@ -603,7 +604,11 @@ async function alternate(
   return { accs, blockKeys };
 }
 
-/** The depth buffer facts a ground flicker (z-fighting) depends on: the drawing buffer's depth bits, the fragment shader's float precision, the camera's planes. */
+/**
+ * The depth buffer facts a ground flicker (z-fighting) depends on: the drawing buffer's depth bits, the fragment shader's float precision,
+ * the camera's planes, and the probe's measure of the offset a ground layer needs to show over a coplanar one (drawn now, between the
+ * window and the A/Bs, whose settle frames absorb it).
+ */
 function depthOf(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera): BenchSettings["depth"] {
   const gl = renderer.getContext();
   const frag = gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT);
@@ -615,6 +620,7 @@ function depthOf(renderer: THREE.WebGLRenderer, camera: THREE.PerspectiveCamera)
     near: camera.near,
     far: camera.far,
     logarithmicDepthBuffer: renderer.capabilities.logarithmicDepthBuffer,
+    probe: probeDepth(renderer),
   };
 }
 

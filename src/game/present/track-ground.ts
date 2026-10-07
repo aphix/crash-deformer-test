@@ -3,13 +3,28 @@ import { clamp } from "../kernel/scalar.ts";
 import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 import { TILE } from "./prefabs.ts";
 import { type Track, type TrackGround, type TrackPath } from "../world/track.ts";
-import type { GroundLevel } from "../world/ground-stack.ts";
+import type { GroundLevel } from "../scenes/ground-stack.ts";
 import {
   BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, mottle, PAVED,
   RED, ROAD_LIFT, RoadIndex, sampleAt, sampleStep, SKIRT_RADIUS, surfaceHex, surfY, texClass, WHITE,
 } from "./track-mesh.ts";
 
 /** Track art on the ground: terrain with its far skirt, road / runoff ribbons, markings and kerbs. */
+
+/** A deck span this far (m) over the terrain under it is clear of what it crosses; nearer the ground (its ramp ends) it is ground like any other. */
+const BRIDGE_CLEAR = 2;
+const bridges = new WeakMap<TrackPath, Uint8Array>();
+
+/** Per sample of `p`: 1 where it is a bridge, a deck span at least `BRIDGE_CLEAR` over the terrain under it. */
+function bridgeSamples(ground: TrackGround, p: TrackPath): Uint8Array {
+  let b = bridges.get(p);
+  if (!b) {
+    b = new Uint8Array(p.count);
+    for (let k = 0; k < p.count; k++) if (p.deck[k] && p.y[k]! - ground.heightAt(p.x[k]!, p.z[k]!, -Infinity) >= BRIDGE_CLEAR) b[k] = 1;
+    bridges.set(p, b);
+  }
+  return b;
+}
 
 /** Chunk side in blocks (128 m): the terrain draws chunk by chunk (`TerrainBatch`), so three culls the ones out of view. */
 const CHUNK = 16;
@@ -262,13 +277,14 @@ function addSkirt(m: Mesher, ground: TrackGround, x0: number, z0: number, bx: nu
   }
 }
 
-/** Ribbon meshers by kind and surface. */
-type Ribbons = Map<string, { kind: "road" | "runoff"; surface: number; m: Mesher }>;
+/** Ribbon meshers by kind, surface and whether the section is on a bridge deck (a deck's top is its own base-level mesh). */
+type Ribbons = Map<string, { kind: "road" | "runoff"; surface: number; deck: boolean; m: Mesher }>;
 
 /** Road and runoff strips of `p` (smooth along the path, one mesher per kind + surface). */
 function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground: TrackGround, lift: number): void {
   const n = secs.length;
   const last = p.closed ? n : n - 1;
+  const bridge = bridgeSamples(ground, p);
   // Strip 0: road [−half, half]; 1: left runoff; 2: right runoff.
   const span = (strip: number, k: number): [number, number] => {
     const h = p.half[k]!;
@@ -288,10 +304,11 @@ function addRibbons(out: Ribbons, p: TrackPath, secs: readonly number[], ground:
       }
       const sid = strip === 0 ? p.surface[k]! : p.runSurface[k]!;
       const kind = strip === 0 ? "road" : "runoff";
-      const key = `${kind}:${sid}`;
+      const deck = bridge[k] === 1;
+      const key = `${kind}:${sid}:${deck ? "deck" : ""}`;
       let found = out.get(key);
       if (!found) {
-        found = { kind, surface: sid, m: new Mesher() };
+        found = { kind, surface: sid, deck, m: new Mesher() };
         out.set(key, found);
       }
       const r = found;
@@ -322,6 +339,8 @@ class RibbonSurface {
   private readonly ground: TrackGround;
   private readonly n: number;
   private readonly ds: number;
+  /** 1 per sample where this path is a bridge (`bridgeSamples`). */
+  readonly bridge: Uint8Array;
 
   constructor(p: TrackPath, secs: readonly number[], ground: TrackGround) {
     this.p = p;
@@ -329,6 +348,7 @@ class RibbonSurface {
     this.ground = ground;
     this.n = p.count;
     this.ds = sampleStep(p);
+    this.bridge = bridgeSamples(ground, p);
   }
 
   /** Lateral edges [e0, e1] at sample k of the ribbon strip (road, left or right runoff) holding lateral `lat`. */
@@ -425,8 +445,8 @@ function addSpan(m: Mesher, rs: RibbonSurface, s0: number, s1: number, l0: numbe
   }
 }
 
-/** Edge lines and centre dashes on paved stretches, a chequered line on the loop; none where another road crosses. */
-function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly number[], index: RoadIndex): void {
+/** Edge lines and centre dashes on paved stretches (a bridge's go to `deck`), a chequered line on the loop; none where another road crosses. */
+function addMarkings(m: Mesher, deck: Mesher, pi: number, rs: RibbonSurface, secs: readonly number[], index: RoadIndex): void {
   const p = rs.p;
   const n = secs.length;
   const last = p.closed ? n : n - 1;
@@ -444,7 +464,7 @@ function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly nu
     if (sb <= sa) continue;
     for (const side of [1, -1]) {
       if (clear(k, side * p.half[k]!) && clear(k2, side * p.half[k2]!)) {
-        addSpan(m, rs, sa, sb, side > 0 ? -0.35 : 0.13, side > 0 ? -0.13 : 0.35, side, MARK_LIFT, WHITE);
+        addSpan(rs.bridge[k] ? deck : m, rs, sa, sb, side > 0 ? -0.35 : 0.13, side > 0 ? -0.13 : 0.35, side, MARK_LIFT, WHITE);
       }
     }
   }
@@ -452,7 +472,7 @@ function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly nu
     const k = sampleAt(p, s);
     const k2 = sampleAt(p, s + 3);
     if (!PAVED.includes(p.surface[k]!) || !clear(k, 0) || !clear(k2, 0)) continue;
-    addSpan(m, rs, s, s + 3, -0.09, 0.09, 0, MARK_LIFT, WHITE);
+    addSpan(rs.bridge[k] ? deck : m, rs, s, s + 3, -0.09, 0.09, 0, MARK_LIFT, WHITE);
   }
   if (!main) return;
   // Chequered start / finish band: ≈1 m squares across the road, two rows.
@@ -468,8 +488,8 @@ function addMarkings(m: Mesher, pi: number, rs: RibbonSurface, secs: readonly nu
   }
 }
 
-/** Red / white kerbs on the inside of the loop's tight turns (paved, not at crossings). */
-function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
+/** Red / white kerbs on the inside of the loop's tight turns (paved, not at crossings; a bridge's go to `deck`). */
+function addKerbs(m: Mesher, deck: Mesher, rs: RibbonSurface, index: RoadIndex): void {
   const p = rs.p;
   for (let s = 0; s + 2 <= p.length; s += 2) {
     const k = sampleAt(p, s + 1);
@@ -484,8 +504,7 @@ function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
     const lat = c > 0 ? h + KERB_WIDTH / 2 : -h - KERB_WIDTH / 2;
     if (index.onOther(0, p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, p.y[k]!, 0.2)) continue;
     const hex = Math.floor(s / 2) % 2 ? RED : WHITE;
-    if (c > 0) addSpan(m, rs, s, s + 2, -0.05, KERB_WIDTH, 1, KERB_LIFT, hex);
-    else addSpan(m, rs, s, s + 2, -KERB_WIDTH, 0.05, -1, KERB_LIFT, hex);
+    addSpan(rs.bridge[k] ? deck : m, rs, s, s + 2, c > 0 ? -0.05 : -KERB_WIDTH, c > 0 ? KERB_WIDTH : 0.05, c > 0 ? 1 : -1, KERB_LIFT, hex);
   }
 }
 
@@ -498,7 +517,8 @@ type GroundLayer = { kind: "terrain" | "runoff" | "road" | "marking" | "kerb"; s
 
 /**
  * Every ground mesh of a course, bottom of the stack up: the terrain, the road and runoff ribbons (one per kind and
- * surface, all paths together), markings, kerbs. The ribbons all lift by `ROAD_LIFT`; their level orders them.
+ * surface, all paths together), markings, kerbs. The ribbons all lift by `ROAD_LIFT`; their level orders them. What lies
+ * on a bridge deck is split off into "deck" level meshes (depth-written, ordered by height), after the ground ones.
  */
 export function buildGroundLayers(track: Track, ground: TrackGround, index: RoadIndex, paths: readonly TrackPath[], secs: readonly (readonly number[])[]): GroundLayer[] {
   const terrain = buildTerrain(track, ground, index);
@@ -507,14 +527,18 @@ export function buildGroundLayers(track: Track, ground: TrackGround, index: Road
   for (const [i, p] of paths.entries()) addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT);
   for (const r of ribbons.values()) {
     const surface = SURFACE_IDS[r.surface]!;
-    out.push({ kind: r.kind, surface, level: r.kind === "road" ? surface : "runoff", m: r.m, smooth: true, chunks: null });
+    out.push({ kind: r.kind, surface, level: r.deck ? "deck" : r.kind === "road" ? surface : "runoff", m: r.m, smooth: true, chunks: null });
   }
   const marks = new Mesher();
-  for (const [i, p] of paths.entries()) addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index);
+  const deckMarks = new Mesher();
+  for (const [i, p] of paths.entries()) addMarkings(marks, deckMarks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index);
   out.push({ kind: "marking", surface: null, level: "marking", m: marks, smooth: true, chunks: null });
+  if (!deckMarks.empty) out.push({ kind: "marking", surface: null, level: "deck", m: deckMarks, smooth: true, chunks: null });
   const kerbs = new Mesher();
-  addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
+  const deckKerbs = new Mesher();
+  addKerbs(kerbs, deckKerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
   if (!kerbs.empty) out.push({ kind: "kerb", surface: null, level: "kerb", m: kerbs, smooth: true, chunks: null });
+  if (!deckKerbs.empty) out.push({ kind: "kerb", surface: null, level: "deck", m: deckKerbs, smooth: true, chunks: null });
   return out;
 }
 

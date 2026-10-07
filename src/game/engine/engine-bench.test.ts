@@ -55,7 +55,16 @@ const RESULT: BenchResult = {
     squash: 1,
     buckle: 1,
     deformMode: "shape",
-    depth: { bits: 24, subpixelBits: 8, contextDepth: true, fragmentHighFloat: { precision: 23, rangeMin: 127, rangeMax: 127 }, near: 0.1, far: 180, logarithmicDepthBuffer: false },
+    depth: {
+      bits: 24,
+      subpixelBits: 8,
+      contextDepth: true,
+      fragmentHighFloat: { precision: 23, rangeMin: 127, rangeMax: 127 },
+      near: 0.1,
+      far: 180,
+      logarithmicDepthBuffer: false,
+      probe: { subpixelBits: 8, bands: [{ from: 5, to: 10, slope: { u50: 0.01, u95: 0.0625 }, steps: { u50: 20, u95: 61.6 } }] },
+    },
   },
   abPace: { fine: B(41, 3, 12.5), coarse: B(58, 3, 0) },
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
@@ -92,7 +101,7 @@ describe("given the frame times and the sim's time per frame of a bench run", ()
 });
 
 describe("given the bench result of a phone running the city course (describeBench writes it as the results card)", () => {
-  test("when the card is written, then it leads with the build, fps, the sim's ms each second and sim speed, lists the settings, both A/Bs and the steps cut short for a coming hit, marks a browser-masked GPU, shows the GPU timing when it can, and fits a 412 px tall phone screen", () => {
+  test("when the card is written, then it leads with the build, fps, the sim's ms each second and sim speed, lists the settings (the depth buffer with the offset a ground layer needs to show over a coplanar one), both A/Bs and the steps cut short for a coming hit, marks a browser-masked GPU, shows the GPU timing when it can, and fits a 412 px tall phone screen", () => {
     const lines = describeBench(RESULT);
     assert.match(lines[0]!, /^CRUSH BENCH {2}city {2}22 cars.*\(Chrome 150\) {2}build 36b137f$/);
     assert.match(lines[1]!, /^90\.0 FPS {3}1% low 41\.7 {3}by thirds 90\.0 \/ 90\.0 \/ 89\.0$/);
@@ -103,9 +112,9 @@ describe("given the bench result of a phone running the city course (describeBen
     assert.ok(lines.some((l) => l.endsWith("2.7 steps/frame, 1.56 ms/step, 212 ms per sim-second, 3.4 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.startsWith("fx tier: high 97 %, minimal 3 % (auto)") && l.includes("radial blur, grain 0.03")));
     assert.ok(lines.some((l) => l.includes("PCF 2048x2048, 223 casters") && l.includes("pixel ratio 1.5 of device 2.625, canvas 1373x618, no MSAA")));
-    assert.ok(lines.some((l) => l === "depth: 24 bits (drawing buffer), subpixel 8 bits, fragment highp 23 bits, range 2^127..2^127, camera near 0.1 far 180, log depth off"));
+    assert.ok(lines.some((l) => l === "depth: 24 bits (drawing buffer), subpixel 8 bits, fragment highp 23 bits, range 2^127..2^127, camera near 0.1 far 180, log depth off, coplanar layer shows at 0.063 px of slope or 62 steps"));
     const noDepth = describeBench({ ...RESULT, settings: { ...RESULT.settings, depth: { ...RESULT.settings.depth, bits: 16, contextDepth: false, fragmentHighFloat: null, logarithmicDepthBuffer: true } } });
-    assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), subpixel 8 bits, fragment highp not supported, camera near 0.1 far 180, log depth on"));
+    assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), subpixel 8 bits, fragment highp not supported, camera near 0.1 far 180, log depth on, coplanar layer shows at 0.063 px of slope or 62 steps"));
     assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps") && l.endsWith(", 12.5 fine-slice cuts/sim-s")) && lines.some((l) => l.includes("1/120 s 58.0 fps") && l.endsWith(", 0.0 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.includes("minimal 60.0 fps") && l.includes("gpu 1.1")) && lines.some((l) => l.includes("high 48.0 fps") && l.includes("gpu n/a")));
     assert.ok(lines.some((l) => l === "detail: only the body drawn beyond 50 m for 80 %, 40 m for 20 % of the window"));

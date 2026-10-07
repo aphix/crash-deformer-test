@@ -40,7 +40,7 @@ import { LampBatch, LampLights } from "../vehicle/lamp-lights.ts";
 import { DriverSeat } from "../vehicle/car-drive.ts";
 import { GamepadInput } from "../vehicle/gamepad.ts";
 import { DERBY_RADIUS, WinnerSpot } from "../scenes/derby-arena.ts";
-import { LINE_LIFT, levelOffset } from "../world/ground-stack.ts";
+import { groundMesh, LINE_LIFT } from "../scenes/ground-stack.ts";
 import { RangeRun } from "../scenes/range.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
@@ -698,17 +698,17 @@ export abstract class EngineCore {
       opacity: 0.22,
       side: THREE.DoubleSide,
       forceSinglePass: true,
-      ...levelOffset("decal"),
     });
-    this.ring = new THREE.Mesh(ringGeo, ringMat);
+    this.ring = groundMesh(ringGeo, ringMat, "decal");
     this.ring.rotation.x = -Math.PI / 2;
     this.ring.position.y = 0.03;
     this.scene.add(this.ring);
     this.studio.push(this.ring);
 
-    const inner = new THREE.Mesh(
+    const inner = groundMesh(
       new THREE.RingGeometry(0.12, 0.22, 24),
-      new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, forceSinglePass: true, ...levelOffset("decal") }),
+      new THREE.MeshBasicMaterial({ color: 0xd8d4cc, transparent: true, opacity: 0.35, side: THREE.DoubleSide, forceSinglePass: true }),
+      "decal",
     );
     inner.rotation.x = -Math.PI / 2;
     inner.position.y = 0.03;

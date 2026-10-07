@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { applyMarkMap } from "./engine-marks.ts";
-import { levelOffset } from "../world/ground-stack.ts";
+import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
 
 function makeConcrete(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -115,15 +115,16 @@ const lampHead = new THREE.MeshStandardMaterial({
   roughness: 0.4,
 });
 /** Fake light pool under each lamp: an additive ground decal, drawn only at night. */
-const lampPool = new THREE.MeshBasicMaterial({
-  color: 0xffd9a0,
-  transparent: true,
-  opacity: 0.55,
-  blending: THREE.AdditiveBlending,
-  depthWrite: false,
-  visible: false,
-  ...levelOffset("decal"),
-});
+const lampPool = groundMaterial(
+  new THREE.MeshBasicMaterial({
+    color: 0xffd9a0,
+    transparent: true,
+    opacity: 0.55,
+    blending: THREE.AdditiveBlending,
+    visible: false,
+  }),
+  "decal",
+);
 
 export function makeLamp(): THREE.Group {
   const g = new THREE.Group();
@@ -136,7 +137,7 @@ export function makeLamp(): THREE.Group {
   const head = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.22), lampHead);
   head.position.set(0, 5.15, 0.15);
   lampPool.map ??= makePoolTexture();
-  const pool = new THREE.Mesh(new THREE.PlaneGeometry(9, 9), lampPool);
+  const pool = groundMesh(new THREE.PlaneGeometry(9, 9), lampPool, "decal");
   pool.name = "pool";
   pool.rotation.x = -Math.PI / 2;
   pool.position.set(0, 0.025, 0.15);
@@ -233,14 +234,13 @@ export class WorldStage {
     scene.add(this.fill);
 
     this.groundMat = new THREE.MeshStandardMaterial({
-      ...levelOffset("terrain"),
       color: 0x2a2c34,
       roughness: 0.88,
       metalness: 0.06,
       map: makeAsphalt(),
     });
     applyMarkMap(this.groundMat);
-    this.ground = new THREE.Mesh(new THREE.CircleGeometry(48, 64), this.groundMat);
+    this.ground = groundMesh(new THREE.CircleGeometry(48, 64), this.groundMat, "terrain");
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     scene.add(this.ground);

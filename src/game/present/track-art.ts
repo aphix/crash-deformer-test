@@ -10,7 +10,7 @@ import {
   LIGHT_RGB, Mesher, RED, RoadIndex, sections, texClass,
 } from "./track-mesh.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
-import { levelOffset } from "../world/ground-stack.ts";
+import { depthProxy, groundMaterial, groundMesh, levelOrder } from "../scenes/ground-stack.ts";
 import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures.ts";
 
 /**
@@ -81,7 +81,7 @@ export class TrackArt {
     const index = new RoadIndex(paths);
     const secs = paths.map((p) => sections(p, 0));
     // Ground materials (one per mesh) also darken under the tyre-mark map.
-    const textured = (sid: number, extra: THREE.MeshStandardMaterialParameters = {}) => {
+    const textured = (sid: number) => {
       const t = texClass(sid);
       const mat = new THREE.MeshStandardMaterial({
         vertexColors: true,
@@ -89,29 +89,33 @@ export class TrackArt {
         color: t === "asphalt" ? tex.asphaltGain : t === "concrete" ? tex.concreteGain : tex.detailGain,
         roughness: t === "asphalt" ? 0.9 : 0.95,
         metalness: 0.02,
-        ...extra,
       });
       applyMarkMap(mat);
       return mat;
     };
 
-    // Every ground mesh takes its depth offset from its level in the one stack (`ground-stack.ts`).
+    // Every ground mesh is drawn in its level's place in the one stack (`ground-stack.ts`).
     const sharedMarkMat = new Map<string, THREE.MeshStandardMaterial>();
-    for (const layer of buildGroundLayers(track, ground, index, paths, secs)) {
-      const offset = levelOffset(layer.level);
+    const layers = buildGroundLayers(track, ground, index, paths, secs);
+    for (const layer of layers) {
       if (layer.surface == null) {
         // Markings and kerbs: vertex colour only, one material per level.
         let mat = sharedMarkMat.get(layer.level);
         if (!mat) {
-          mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0, ...offset });
+          mat = groundMaterial(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.7, metalness: 0 }), layer.level);
           sharedMarkMat.set(layer.level, mat);
         }
-        if (!layer.m.empty) this.add(new THREE.Mesh(layer.m.geometry(layer.smooth), mat), { kind: layer.kind }, false);
+        if (!layer.m.empty) this.add(groundMesh(layer.m.geometry(layer.smooth), mat, layer.level), { kind: layer.kind }, false);
         continue;
       }
-      const mat = textured(SURFACE_IDS.indexOf(layer.surface), offset);
-      this.add(layer.chunks ? new TerrainBatch(layer.m, layer.chunks, mat) : new THREE.Mesh(layer.m.geometry(layer.smooth), mat), { kind: layer.kind, surface: layer.surface }, false);
+      const mat = textured(SURFACE_IDS.indexOf(layer.surface));
+      const mesh = layer.chunks ? new TerrainBatch(layer.m, layer.chunks, groundMaterial(mat, layer.level)) : groundMesh(layer.m.geometry(layer.smooth), mat, layer.level);
+      // The chunked terrain is a batch, not a plain mesh: its place in the stack is set here.
+      mesh.renderOrder = levelOrder(layer.level);
+      this.add(mesh, { kind: layer.kind, surface: layer.surface }, false);
     }
+    // The painted ribbons write no depth: their depth copy hides what a crest of road or run-off stands in front of.
+    this.group.add(depthProxy(layers));
 
     const walls = new Mesher();
     const decks = new Mesher();
