@@ -372,7 +372,11 @@ export abstract class DeformContact extends DeformState {
     const yawLen = hypot2(fx, fz);
     let minHub = Infinity;
     // The attached hubs' ground (last slice's floors, once sampled since the masses armed): their mean, whether
-    // every one is on it (within 3 cm of its `HUB_FLOOR` `groundMasses` holds it at), and the plane through it.
+    // every one is on it (within 3 cm of its `HUB_FLOOR` `groundMasses` holds it at), and the plane under the hubs: through
+    // each one's floor where it stands on it, through its seat (`HUB_FLOOR` under it) where it is over its floor. Through
+    // the floors alone, a wreck's front tyres rolling off the disc's rim (floors 0 → −0.13 → none in two frames, the hubs
+    // still on 0.28) pitched the frame 2.7° nose-down for one frame and back to level when those hubs left the fit, a 6 mm
+    // hop. A hub over no ground is not in the plane: it hangs from the body, which its other hubs and the band hold.
     let held = 1;
     let hubFloor = 0;
     let hubs = 0;
@@ -389,7 +393,8 @@ export abstract class DeformContact extends DeformState {
       hubs++;
       if (m.world.y - f > HUB_FLOOR + 0.03) held = 0;
       low = Math.min(low, m.world.y - f);
-      plane.add(m.world.x - cell.world.x, m.world.z - cell.world.z, f);
+      const seat = m.world.y - HUB_FLOOR;
+      plane.add(m.world.x - cell.world.x, m.world.z - cell.world.z, seat > f ? seat : f);
     }
     if (hubs === 0) held = 0;
     plane.fit(this.prevYaw, 1 - Math.max(0, Math.min(1, (low - HUB_FLOOR - PLANE_FADE_FROM) / PLANE_FADE)));
