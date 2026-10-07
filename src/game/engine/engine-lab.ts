@@ -4,7 +4,7 @@ import { AIR_LINEAR } from "../present/ragdoll-body.ts";
 import type { PropTumble } from "../present/prop-tumble.ts";
 import { colliderSolids, type Solid } from "../present/ragdoll-solids.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { G } from "../vehicle/car-air.ts";
+import { G, readContact } from "../vehicle/car-air.ts";
 import { glassCorners } from "../vehicle/car-glass.ts";
 import { propContact, type PropHits } from "../contact/prop-contact.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
@@ -107,18 +107,18 @@ function carMomentum(car: DeformableCar, d: THREE.Vector3): number {
   return p;
 }
 
-/** A car of the layout at its pose, at rest: on its bracket or shelf, or in the air over it (falling onto it). */
-function placeCar(car: DeformableCar, item: LabItem, ground: Ground): void {
+/** A car of the layout at its pose, at rest: on its bracket or shelf, or in the air over it (falling onto it); what it touches is read off that pose. */
+function placeCar(car: DeformableCar, item: LabItem): void {
   const p = heldPose(item);
   car.spawnFacing(p.x, p.z, p.yaw, 0);
   car.group.rotation.set(p.pitch, p.yaw, p.roll, "YXZ");
   car.group.position.y = p.y;
   car.pitch = p.pitch;
   car.roll = p.roll;
-  car.airborne = p.pitch !== 0 || p.roll !== 0 || p.y - ground.heightAt(p.x, p.z, p.y) > 0.01;
   car.group.updateMatrixWorld(true);
   car.refreshBasis();
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
+  readContact(car);
 }
 
 /** The bench as one block from the floor to its top, and the workshop floor (half-size `FLOOR_HALF` m): the dummies' ground in the Lab. */
@@ -274,7 +274,7 @@ export class Lab {
     this.cars = cars;
     this.screens = new Float32Array(this.carItems.length * 3);
     for (const [slot, k] of this.carItems.entries()) {
-      placeCar(cars[slot]!, this.layout[k]!, this.ground);
+      placeCar(cars[slot]!, this.layout[k]!);
       // Its windshield's corners (`glassCorners`, pane 0): its bottom edge across, then up the pane; across × up is out of the cabin.
       const c = glassCorners(cars[slot]!.style);
       _u.set(c[3]! - c[0]!, c[4]! - c[1]!, c[5]! - c[2]!);
@@ -460,10 +460,13 @@ export class Lab {
       car.velocity.copy(v);
       car.angular.set(0, spin, 0);
       car.speed = Math.hypot(v.x, v.z);
-      car.airborne = v.y > 0.05;
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
-      } else car.deform.bindKinematic(car.group, car.velocity, car.angular);
+      } else {
+        // Thrown: the rigid step flies it (`stepFree`) from its centre of mass, and hands it back to its wheels where it lands on them.
+        car.rigid = true;
+        car.deform.bindKinematic(car.group, car.velocity, car.angular);
+      }
     } else {
       // Chest first where he arrives, his spine level across the throw (his head on its left): his torso is what meets what he is
       // thrown at (the glass rule's). At a car, flat to its windshield with his spine across it, so an arc that slants in still

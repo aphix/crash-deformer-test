@@ -336,7 +336,8 @@ export function wreckContact(car: DeformableCar): void {
 
 /**
  * What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which step moves it and
- * which wheels reach. A wreck on its masses is moved by them, and touches what their last slice left (`wreckContact`).
+ * which wheels reach. A wreck on its masses is moved by them, and touches what their last slice left (`wreckContact`); one off
+ * them (`armed`: flying) by the rigid step, as is any body with fewer than three wheels on the world.
  */
 export function readContact(car: DeformableCar): void {
   car.restsOn = null;
@@ -349,7 +350,7 @@ export function readContact(car: DeformableCar): void {
   beginContacts(car);
   const mask = wheelsAt(car, droop(carClass(car)) + TOUCH);
   car.wheelsDown = mask;
-  car.rigid = car.crashed || worldWheels(car, mask) < 3;
+  car.rigid = (car.crashed && car.deform.armed) || worldWheels(car, mask) < 3;
   car.airborne = mask === 0;
 }
 

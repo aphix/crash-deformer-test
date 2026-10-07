@@ -301,7 +301,8 @@ export class DeformableCar extends CarParts {
 
   /**
    * Back on its wheels (`stepFree`: three on the world): the pose-following step takes the body where and as it is (the caller lays
-   * it on the rest plane of its wheels' contacts in the same slice). A wreck goes back to its masses.
+   * it on the rest plane of its wheels' contacts in the same slice). A wreck goes back to its masses (`armed`); a body crushed only by
+   * a load has none and stands on its wheels as an intact car does.
    */
   private land(): void {
     this.rigid = false;
@@ -309,7 +310,7 @@ export class DeformableCar extends CarParts {
     if (this.crashed) this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
     this.angular.set(0, this.angular.y, 0);
     this.speed = hypot2(this.velocity.x, this.velocity.z);
-    if (this.crashed) {
+    if (this.crashed && this.deform.armed) {
       this.deform.armMasses(this.group, this.velocity, this.angular);
       // Landing, not aloft: marked aloft its masses handed it straight back to `stepFree` before they took the slice,
       // and a stunt-course wreck hovered on its tyres (vy −5 m/s, its height still) for seconds.
@@ -401,8 +402,6 @@ export class DeformableCar extends CarParts {
       this.stepLooseParts(dt);
       return;
     }
-    // A wreck handed back to the body (`syncPose`) is a rigid box from here; so is any car with fewer than three wheels on the world.
-    if (this.crashed && !this.rigid) this.takeOff();
     if (this.rigid) {
       this.spinWheels(dt, false);
       this.flewDt = dt;
@@ -411,13 +410,11 @@ export class DeformableCar extends CarParts {
       this.yaw = this.group.rotation.y;
       this.pitch = this.group.rotation.x;
       this.roll = this.group.rotation.z;
-      // A wreck's masses take it back where it lands; a body crushed only by a load has none to go back to and rests on its contacts
-      // here: handed to masses, the bottom car of a stack stopped taking its roof's load (a wreck takes no load crush), 0.024 m under 1, 2 or 3 cars.
-      if (landed && (!this.crashed || this.deform.armed)) {
+      if (landed) {
         this.land();
-        // A driven car is laid on its wheels' rest plane in the slice it lands: left on the rigid body's tilt for that slice, its tyres sat
+        // A body on its wheels is laid on their rest plane in the slice it lands: left on the rigid body's tilt for that slice, its tyres sat
         // in their springs 2-2.5° off the plane through the three they touched.
-        if (!this.crashed && !stepPlane(this, dt)) this.takeOff();
+        if (!this.deform.massActive && !stepPlane(this, dt)) this.takeOff();
       }
       this.refreshBasis();
       this.ride(dt);
