@@ -6,6 +6,7 @@ import { paint } from "./test-support.ts";
 import { makeWorld, tickWorld, type CrashWorld } from "../contact/crash-scenarios.test-util.ts";
 import { FACE_LEFT, FACE_NOSE, FACE_RIGHT, FACE_TAIL, FACE_TOP, faceMax, faceStrength } from "../deform/load-crush.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
+import { bellyY, roofHeight } from "./car-surfaces.ts";
 
 /**
  * Load crush (docs/LOAD_CRUSH.md): a face yields under the load on it, so a stack of cars crushes each roof by the
@@ -13,9 +14,8 @@ import { MASS_SPECS } from "../kernel/rig-spec.ts";
  * Headless, through the engine's own step (`stepWorld`), on the flat pad.
  */
 const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
-/** Belly-to-roof gap of a car above (m): the 1.17 m between a car's origin and the roof it stands on, plus this. */
+/** Belly-to-roof gap of a car above (m): its belly starts this far over the drawn roof of the car below. */
 const GAP = 0.02;
-const STACK_STEP = 1.17 + GAP;
 const SETTLE_S = 8;
 
 function roofSink(c: DeformableCar): number {
@@ -26,15 +26,19 @@ function run(w: CrashWorld, seconds: number, hz = 60): void {
   for (let f = 0; f < seconds * hz; f++) tickWorld(w, 1 / hz);
 }
 
-/** `n` cars one above the other, bottom first: the bottom on the ground, the rest falling from `GAP` over the roof below. */
+/** `n` cars one above the other, bottom first: the bottom on the ground, the rest falling from `GAP` over the drawn roof below. */
 function stack(n: number, hz = 60): { cars: DeformableCar[]; w: CrashWorld } {
-  const cars = Array.from({ length: n }, (_, i) => {
+  const cars: DeformableCar[] = [];
+  for (let i = 0; i < n; i++) {
     const c = new DeformableCar(paint(), new THREE.Scene());
     c.spawnFacing(0, 0, 0, 0);
-    c.group.position.y = i * STACK_STEP;
+    if (i > 0) {
+      const under = cars[i - 1]!;
+      c.group.position.y = under.group.position.y + roofHeight(under) - bellyY(c) + GAP;
+    }
     c.airborne = i > 0;
-    return c;
-  });
+    cars.push(c);
+  }
   const w = makeWorld(cars, false, false);
   run(w, SETTLE_S, hz);
   return { cars, w };
