@@ -44,14 +44,28 @@ const TREAD_HALF = 0.054;
 const SIGNS = [-1, 1] as const;
 const SLOPE = RAMP.top / RAMP.len;
 /**
- * A wedge's face across its width, as one patch per strip: v0 (m across from the wedge's axis), width, and how far (m) the face may be above
- * a point and still be under it. Beside a side wall (within `WALL_SKIN` of it) the face above `MOUNT_MAX` is a wall to a tyre, not floor;
- * elsewhere a body climbs the face while it is at most `CLIMB` above it.
+ * How far (m) under the top a point within `END_W` of a wedge's high end may be and still stand on it: deeper, it came through
+ * the end's 1.2 m face, the wall. A stock tyre's mount step (`MOUNT` x `TYRE_R`, 0.082 m): only a tyre climbs onto a face from
+ * beside it, and nothing else of a body sits under the top there. Measured bounds (fleet-ramps D1, 15/7/0.3): a belly riding over
+ * the far end's edge sat 0.006-0.037 m under it; a belly crossing the end from the gap entered 0.116 m under the top and, with the
+ * run's `CLIMB` reach there, sank 0.21 m into it before a tyre struck the end (a stock belly's clearance is 0.13 m: deeper than
+ * that under the top nothing of a car on its tyres there is). The band is as deep as its reach: a point that far in and deeper
+ * under the top is nearer the end's face than the top's (a solid's point is its nearest face's), and it is more than the 0.07 m
+ * a physics slice moves a body (`physicsSlice`), so the slice that crosses the end ends in it.
  */
-const STRIPS: readonly (readonly [number, number, number])[] = [
-  [-RAMP.halfW, WALL_SKIN, MOUNT_MAX],
-  [-RAMP.halfW + WALL_SKIN, 2 * RAMP.halfW - 2 * WALL_SKIN, CLIMB],
-  [RAMP.halfW - WALL_SKIN, WALL_SKIN, MOUNT_MAX],
+const END_REACH = MOUNT * TYRE_R;
+const END_W = END_REACH;
+/**
+ * A wedge's face as one patch per strip: u0 (m down the run from the high end), length, v0 (m across from the wedge's axis), width, and
+ * how far (m) the face may be above a point and still be under it. Within `END_W` of the high end the face above `END_REACH` is the end's
+ * wall; beside a side wall (within `WALL_SKIN` of it) the face above `MOUNT_MAX` is a wall to a tyre, not floor; elsewhere a body climbs
+ * the face while it is at most `CLIMB` above it.
+ */
+const STRIPS: readonly (readonly [number, number, number, number, number])[] = [
+  [0, END_W, -RAMP.halfW, 2 * RAMP.halfW, END_REACH],
+  [END_W, RAMP.len - END_W, -RAMP.halfW, WALL_SKIN, MOUNT_MAX],
+  [END_W, RAMP.len - END_W, -RAMP.halfW + WALL_SKIN, 2 * RAMP.halfW - 2 * WALL_SKIN, CLIMB],
+  [END_W, RAMP.len - END_W, RAMP.halfW - WALL_SKIN, WALL_SKIN, MOUNT_MAX],
 ];
 
 const _c = new THREE.Vector3();
@@ -90,8 +104,10 @@ export class FleetRamps extends Ground {
     this.setSolid(this.slabTop, false);
     for (let k = 0; k < 2; k++) {
       for (let s = 0; s < STRIPS.length; s++) {
-        const [v0, w, reach] = STRIPS[s]!;
-        this.faces[k * STRIPS.length + s] = this.addGrid({ nu: 2, nv: 2, step: RAMP.len, stepV: w, u0: 0, v0, heights: new Float32Array([RAMP.top, 0, RAMP.top, 0]), ox: 0, oy: 0, oz: 0, reach });
+        const [u0, len, v0, w, reach] = STRIPS[s]!;
+        const h0 = RAMP.top - u0 * SLOPE;
+        const h1 = RAMP.top - (u0 + len) * SLOPE;
+        this.faces[k * STRIPS.length + s] = this.addGrid({ nu: 2, nv: 2, step: len, stepV: w, u0, v0, heights: new Float32Array([h0, h1, h0, h1]), ox: 0, oy: 0, oz: 0, reach });
       }
     }
     const shape = new THREE.Shape([new THREE.Vector2(0, 0), new THREE.Vector2(RAMP.len, 0), new THREE.Vector2(0, RAMP.top)]);
