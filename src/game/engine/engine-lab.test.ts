@@ -1,7 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { BOARD, heldPose, LAB_LAYOUTS, type LabItem, type LabPose } from "../scenes/lab.ts";
+import { BOARD, LAB_LAYOUTS, type LabItem, type LabPose } from "../scenes/lab.ts";
 import { tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { pairEta, PRE_IMPACT_LEAD, preImpact } from "../match/phase.ts";
 import type { DeformableCar } from "../vehicle/car.ts";

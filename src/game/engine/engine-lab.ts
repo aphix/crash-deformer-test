@@ -125,8 +125,8 @@ function labSolids(colliders: readonly PropCollider[], placed: readonly Placed[]
 
 /**
  * The Lab's runtime (`scenes/lab.ts` is its data): a layout loaded onto the world's cars and the Lab's ground, the props and
- * the pegboard's wall met by the race's own prop rule (`propContact`), and the throw API: `throwAt` launches a placed thing at
- * another and `step` reads back what the physics did (`LabShot`). The engine and the headless tests drive the same object.
+ * the pegboard's wall met by the race's own prop rule (`propContact`), and the throw API: `launch` lets a placed thing go at a
+ * velocity and `slice` reads back what the physics did (`LabShot`). The engine and the headless tests drive the same object.
  */
 export class Lab {
   layout: LabLayout = [];
