@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
-import type { Rapier } from "../kernel/rapier.ts";
+import { disable, type Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { block } from "./ragdoll-mesh.ts";
@@ -222,7 +222,7 @@ export class Purses {
   /** Everything of set `s` away (its dummy is gone). */
   clear(s: number): void {
     if (!this.on[s]) return;
-    for (const b of this.bodies[s]!) b.setEnabled(false);
+    for (const b of this.bodies[s]!) disable(b);
     for (let i = 0; i < PIECES; i++) this.mesh.hide(s * PIECES + i);
     this.on[s] = 0;
     this.car[s] = -1;

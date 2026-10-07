@@ -1,4 +1,5 @@
 import type RAPIER from "@dimforge/rapier3d";
+import type { RigidBody } from "@dimforge/rapier3d";
 import { once } from "./scalar.ts";
 
 /** The Rapier namespace (`@dimforge/rapier3d`, Apache-2.0). */
@@ -15,3 +16,14 @@ export const loadRapier = once(async (): Promise<Rapier> => {
   // Dynamic on purpose: a static import would put Rapier in the boot bundle.
   return (await import("@dimforge/rapier3d")).default;
 });
+
+/**
+ * Takes `body` and its colliders out of the world. In 0.19.3 `setEnabled(false)` alone leaves the colliders of a body
+ * that moved or touched something in the last step behind as invisible fixed obstacles (a box dropped onto one rested
+ * on it 240 of 240 steps): new bodies spawned onto them blew up to 10⁴ m/s and a non-finite bound panicked the broad
+ * phase. So every collider's collision groups go to 0 first; whoever enables the body again sets them again.
+ */
+export function disable(body: RigidBody): void {
+  for (let c = 0, n = body.numColliders(); c < n; c++) body.collider(c).setCollisionGroups(0);
+  body.setEnabled(false);
+}

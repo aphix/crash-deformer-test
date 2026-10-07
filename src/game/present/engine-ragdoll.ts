@@ -30,7 +30,7 @@ import type { Placed } from "../world/placements.ts";
 import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
 import { GLASS_NAMES, glassCorners } from "../vehicle/car-glass.ts";
 import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
-import { loadRapier, type Rapier } from "../kernel/rapier.ts";
+import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
 import { Purses } from "./ragdoll-purse.ts";
@@ -369,7 +369,7 @@ export class RagdollSystem {
     const d = this.dolls[0]!;
     for (const b of d.bodies) b.setEnabled(true);
     world.step();
-    for (const b of d.bodies) b.setEnabled(false);
+    for (const b of d.bodies) disable(b);
   }
 
   /** A new run: no dummies out, every car's driver back in. */
@@ -740,7 +740,18 @@ export class RagdollSystem {
     const bits = car.glassBits();
     if (bits === this.paneBits[i]) return;
     this.paneBits[i] = bits;
-    for (let p = 0; p < PANES; p++) this.cabins[i * CABIN + p]!.setCollisionGroups(((bits >> (2 * p)) & 3) === 2 ? 0 : carGroups(i));
+    this.collide(i);
+  }
+
+  /**
+   * Proxy i's colliders into the world (after `disable`, or onto new glass): the barrier's, or car i's lower box and
+   * slabs, a gone pane's (`paneBits`) colliding with nothing.
+   */
+  private collide(i: number): void {
+    if (i === MAX_CARS) return this.barrierBody!.collider(0).setCollisionGroups(FIXED_GROUPS);
+    const bits = this.paneBits[i]!;
+    this.carBodies[i]!.collider(0).setCollisionGroups(carGroups(i));
+    for (let p = 0; p < CABIN; p++) this.cabins[i * CABIN + p]!.setCollisionGroups(p < PANES && ((bits >> (2 * p)) & 3) === 2 ? 0 : carGroups(i));
   }
 
   /**
@@ -890,7 +901,7 @@ export class RagdollSystem {
   private follow3(i: number, body: RigidBody, obj: THREE.Object3D | null): void {
     if (!obj) {
       if (this.on[i]) {
-        body.setEnabled(false);
+        disable(body);
         this.on[i] = 0;
       }
       return;
@@ -901,6 +912,7 @@ export class RagdollSystem {
     const q = obj.quaternion;
     const jump = this.teleport || !this.on[i] || Math.abs(a[o + 7]! - p.x) + Math.abs(a[o + 8]! - p.y) + Math.abs(a[o + 9]! - p.z) > 4;
     if (!this.on[i]) {
+      this.collide(i);
       body.setEnabled(true);
       this.on[i] = 1;
     }
@@ -1087,7 +1099,7 @@ export class RagdollSystem {
     const d = this.dolls[s]!;
     if (d.live) this.live--;
     d.live = false;
-    for (const b of d.bodies) b.setEnabled(false);
+    for (const b of d.bodies) disable(b);
     for (const c of d.patch) this.world!.removeCollider(c, false);
     d.patch.length = 0;
     this.mesh.hide(s);
