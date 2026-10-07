@@ -26,7 +26,15 @@ function m3Id(out = m3()) {
   return out;
 }
 function m3Copy(src, out = m3()) {
-  for (let i = 0; i < 9; i++) out[i] = src[i];
+  out[0] = src[0];
+  out[1] = src[1];
+  out[2] = src[2];
+  out[3] = src[3];
+  out[4] = src[4];
+  out[5] = src[5];
+  out[6] = src[6];
+  out[7] = src[7];
+  out[8] = src[8];
   return out;
 }
 function m3Mul(a, b, out) {
@@ -338,23 +346,36 @@ function clampRotation(R, maxRad, cosMax) {
   m3Orthonormalize(R);
 }
 function stabilizeMat(R, Rprev) {
-  let idle = 0;
-  for (let i = 0; i < 9; i++) {
-    const d = Rprev[i] - (i === 0 || i === 4 || i === 8 ? 1 : 0);
-    idle += d * d;
-  }
+  const d0 = Rprev[0] - 1, d4 = Rprev[4] - 1, d8 = Rprev[8] - 1;
+  const idle = d0 * d0 + Rprev[1] * Rprev[1] + Rprev[2] * Rprev[2] + Rprev[3] * Rprev[3] + d4 * d4 + Rprev[5] * Rprev[5] + Rprev[6] * Rprev[6] + Rprev[7] * Rprev[7] + d8 * d8;
   if (idle < 1e-12) {
     m3Copy(R, Rprev);
     return;
   }
-  let dot = 0;
-  for (let i = 0; i < 9; i++) dot += R[i] * Rprev[i];
+  let dot = R[0] * Rprev[0] + R[1] * Rprev[1] + R[2] * Rprev[2] + R[3] * Rprev[3] + R[4] * Rprev[4] + R[5] * Rprev[5] + R[6] * Rprev[6] + R[7] * Rprev[7] + R[8] * Rprev[8];
   if (dot < 0) {
-    for (let i = 0; i < 9; i++) R[i] = -R[i];
+    R[0] = -R[0];
+    R[1] = -R[1];
+    R[2] = -R[2];
+    R[3] = -R[3];
+    R[4] = -R[4];
+    R[5] = -R[5];
+    R[6] = -R[6];
+    R[7] = -R[7];
+    R[8] = -R[8];
     dot = -dot;
   }
   const t = dot < 0.35 ? 0.08 : dot < 0.7 ? 0.22 : 0.55;
-  for (let i = 0; i < 9; i++) R[i] = Rprev[i] * (1 - t) + R[i] * t;
+  const keep = 1 - t;
+  R[0] = Rprev[0] * keep + R[0] * t;
+  R[1] = Rprev[1] * keep + R[1] * t;
+  R[2] = Rprev[2] * keep + R[2] * t;
+  R[3] = Rprev[3] * keep + R[3] * t;
+  R[4] = Rprev[4] * keep + R[4] * t;
+  R[5] = Rprev[5] * keep + R[5] * t;
+  R[6] = Rprev[6] * keep + R[6] * t;
+  R[7] = Rprev[7] * keep + R[7] * t;
+  R[8] = Rprev[8] * keep + R[8] * t;
   m3Orthonormalize(R);
   m3Copy(R, Rprev);
 }
