@@ -64,6 +64,8 @@ export type Control = {
   released?: (sys: RagdollSystem, car: DeformableCar, e: Ejection) => void;
   /** Runs after every engine frame the dummy is live. */
   frame?: (sys: RagdollSystem, bodies: readonly RigidBody[]) => void;
+  /** Runs before every physics slice of `h` sim seconds, as the engine's driven car takes its input (`applyDrive`). */
+  slice?: (car: DeformableCar, h: number) => void;
 };
 
 /** Wall seconds a run may last; wall seconds after the hit with nobody thrown before it is called a no-throw. */
@@ -162,6 +164,11 @@ export async function rangeThrow(type: DriverCar, control: Control = {}, frameDt
   barrier.orient(car.group.position, false);
   const w = makeWorld([car], false, true);
   w.world.barrier = barrier;
+  const inner = w.world.beforeSlice!;
+  w.world.beforeSlice = (h) => {
+    control.slice?.(car, h);
+    return inner(h);
+  };
   const sys = new RagdollSystem(new THREE.Scene(), () => holdForThrow(w.clock), () => {});
   await sys.preload();
   sys.sand = true;

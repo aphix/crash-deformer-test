@@ -1,23 +1,21 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { killSpeed } from "../vehicle/ejection.ts";
 import { CLASSES, killClass } from "../vehicle/vehicle-classes.ts";
-
-/** Barrier speed (m/s) of the hit that packs a durability-1 block to `killTravel` at realism 1: 56 km/h. */
-const KILL_EBS = 15.6;
 
 /**
  * Will the hit about to land throw a driver: does either car take it past the realistic kill, at its energy-equivalent
- * barrier speed (its share of `closing` by the other's mass; all of it into a wall, `b` null) against `KILL_EBS` ×
- * √durability? The sandbox clock asks just before the hit, so a throw's slow-mo waits (`THROW_ONSET`). The throw
- * itself is the sim's call (`EjectionWatch`, vehicle/ejection.ts); this only predicts it.
+ * barrier speed (its share of `closing` by the other's mass; all of it into a wall, `b` null) against its `killSpeed`?
+ * The sandbox clock asks just before the hit, so a throw's slow-mo waits (`THROW_ONSET`). The throw itself is the sim's
+ * call (`EjectionWatch`, vehicle/ejection.ts); this only predicts it.
  * Lane ragdoll-5's probe: 40 default fleet runs (0–32 m/s) and 7 barrier speeds, 87 of 87 cars as `EjectionWatch` judged them.
  */
 function throwLikely(a: DeformableCar, b: DeformableCar | null, closing: number): boolean {
-  const ca = CLASSES[killClass(a)];
-  if (!b) return closing >= KILL_EBS * Math.sqrt(ca.durability);
-  const cb = CLASSES[killClass(b)];
-  const share = closing / (ca.mass + cb.mass);
-  return share * cb.mass >= KILL_EBS * Math.sqrt(ca.durability) || share * ca.mass >= KILL_EBS * Math.sqrt(cb.durability);
+  if (!b) return closing >= killSpeed(a);
+  const ma = CLASSES[killClass(a)].mass;
+  const mb = CLASSES[killClass(b)].mass;
+  const share = closing / (ma + mb);
+  return share * mb >= killSpeed(a) || share * ma >= killSpeed(b);
 }
 
 const _rel = new THREE.Vector3();

@@ -2,7 +2,6 @@ import * as THREE from "three";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
-import { getCrackMap } from "./car-materials.ts";
  import { activeGround, DISC_GROUND, FLAT_GROUND, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
@@ -664,13 +663,7 @@ export class DeformableCar extends CarParts {
       const have = g.state === "intact" ? 0 : g.state === "cracked" ? 1 : 2;
       if (want === have) continue;
       if (want < have) this.resetGlass(g);
-      if (want >= 1 && g.state === "intact") {
-        g.state = "cracked";
-        g.mat.map = getCrackMap();
-        g.mat.opacity = 0.55;
-        g.mat.roughness = 0.32;
-        g.mat.needsUpdate = true;
-      }
+      if (want >= 1 && g.state === "intact") this.crackGlass(g);
       if (want === 2) {
         g.state = "shattered";
         g.mesh.visible = false;

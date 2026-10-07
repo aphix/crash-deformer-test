@@ -28,6 +28,8 @@ import { BARRIER_HALF } from "../contact/sat.ts";
 import type { Track } from "../world/track.ts";
 import type { Placed } from "../world/placements.ts";
 import { ejectionVelocity, type Ejection } from "../vehicle/ejection.ts";
+import { GLASS_NAMES, glassCorners } from "../vehicle/car-glass.ts";
+import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
 import { loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
@@ -74,11 +76,12 @@ const PENDING_MAX = 1;
 /**
  * Rapier's step (sim s), the same at any display rate: `update` steps whole `STEP`s out of an accumulator and the draw
  * blends the last two (it once stepped per frame, and Rapier warm-starts with the last step's impulse: landings 25.6–58.1 m).
- * 1/960, was 1/120 (lane ragdoll-rate): the slow-mo is 0.032×, so 1/120 was 273 ms of wall time, 3.7 poses a real second
- * drawn as chords, 8.3 sim ms behind the cars that step every frame; now 33 ms and 1.04 sim ms. A step per frame at
- * 240 Hz would be 1/7500: 125 steps a frame at 1× (0.09 ms each with four dummies out). Tables: docs/CINEMATIC.md.
+ * 1/960 was 1/120 (lane ragdoll-rate): the slow-mo is 0.032×, so 1/120 was 273 ms of wall time, 3.7 poses a real second
+ * drawn as chords, 8.3 sim ms behind the cars that step every frame. 1/480 (owner, 2026-10-06: half the steps, each
+ * twice as long, the draw still blending every frame): 65 ms of slow-mo wall time a step, 2.1 sim ms behind the cars.
+ * Tables: docs/CINEMATIC.md.
  */
-const STEP = 1 / 960;
+const STEP = 1 / 480;
 /** The skin's hits, the spin limit and the purses are judged at this interval (sim s) whatever `STEP` is: `HIT_DV` is a speed change per interval. */
 const WATCH = 1 / 120;
 const WATCH_EVERY = Math.round(WATCH / STEP);
@@ -100,10 +103,39 @@ const LOW_Y = 0.45;
 const NOSE_PAD = 0.09;
 /** How far (m) a car's lower box end may lag its crushed length before `fitEnds` refits it. */
 const FIT_EPS = 1e-4;
+/**
+ * Each car's cabin is a slab under each pane of its own glass (`glassCorners`, raised by its class's body lift), plus a
+ * roof slab: hollow, so a pane that is gone (shattered by the crash, a torso or the throw) lets a dummy through. Slabs
+ * are `PANE_HALF` thick inside the glass and run `PANE_PAD` past its edges, which closes the pillars between panes.
+ */
+const PANES = GLASS_NAMES.length;
+const CABIN = PANES + 1;
+const PANE_HALF = 0.03;
+const PANE_PAD = 0.05;
+const ROOF_HALF = 0.04;
+/** A pane's bounce (restitution, the higher of the pair counts, so it beats the dummy's 0): a torso that cracks it comes off it. */
+const PANE_BOUNCE = 0.3;
+/** All six panes shattered (`glassBits`): nothing left for a torso to strike. */
+const ALL_GONE = 0xaaa;
+/**
+ * Glass rule (owner, 2026-10-06): a dummy's torso (never a limb or the head) that touches another car's pane while closing
+ * on it at this speed (m/s) or faster strikes it (`hitGlass`): an intact pane cracks and holds, so he bounces off; a cracked
+ * one shatters, so he goes through. 4 m/s is the speed change the skin already counts as a hit (`HIT_DV`): a torso slid,
+ * rolled or dropped against a pane (under 1 m/s lying, about 3 m/s off a car's roof height) or coming back off a hit's
+ * bounce (`PANE_BOUNCE` × the hit) does nothing; every throw into a car (car speed + 3 m/s out) is over it.
+ */
+const GLASS_FLOOR = 4;
+/** Panes are tried for a torso whose centre is this near (m) a car's origin (its farthest pane corner is 2.2 m out), plus both speeds' frame of travel. */
+const GLASS_REACH = 3;
+/** How far out (m) a pane is looked at for a coming touch, and the gap past which a touch has ended (a new one can strike). */
+const GLASS_SEE = 0.15;
+const GLASS_SEP = 0.03;
+/** A torso this near (m) a pane, past what it closes in one step, is on it: Rapier's contacts start within millimetres. */
+const GLASS_SKIN = 0.005;
 
 /**
  * Collision groups (membership << 16 | filter), 16 bits: the world; each dummy slot; each car (its lower box, bumper
- * to bonnet line, fitted to its crushed length, and its cabin box), in 10 buckets of car index. Out of the car a
+ * to bonnet line, fitted to its crushed length, and its cabin's slabs), in 10 buckets of car index. Out of the car a
  * dummy hits everything but its own jointed neighbours (`setContactsEnabled(false)`). For `GRACE` s after the throw
  * it ignores its own car (it starts inside it) and the other dummies; every other car it hits from the first frame.
  */
@@ -117,6 +149,8 @@ const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CA
 const G_PROPS = 0x20;
 const propGroups = (car: number) => (G_PROPS << 16) | G_STATIC | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
 const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS | G_PROPS;
+/** Car i's lower box and standing panes; a gone pane's slab collides with nothing (Rapier kept a disabled slab on a moving kinematic body in contact). */
+const carGroups = (i: number) => (carBit(i) << 16) | G_DOLLS | G_PROPS;
 
 type Doll = {
   bodies: RigidBody[];
@@ -136,6 +170,8 @@ type Doll = {
   settled: boolean;
   /** Sim seconds he has been under `CALM_ENERGY` (`calm`). */
   calm: number;
+  /** Torso speed (m/s) at the end of the last frame: how far he may travel toward a pane in the next (`glassNear`). */
+  speed: number;
 };
 
 /** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver. */
@@ -155,6 +191,12 @@ const _cq = new THREE.Quaternion();
 const _v = { x: 0, y: 0, z: 0 };
 const _rot = { x: 0, y: 0, z: 0, w: 1 };
 const Y = new THREE.Vector3(0, 1, 0);
+const _u = new THREE.Vector3();
+const _w = new THREE.Vector3();
+const _n = new THREE.Vector3();
+const _mid = new THREE.Vector3();
+/** A pane's hull: its four padded corners on the glass, then the same four `2 × PANE_HALF` inside it. */
+const _hull = new Float32Array(24);
 
 /** Car-local z (m) of `car`'s mass `name`, along its heading. */
 function endZ(car: DeformableCar, name: string): number {
@@ -195,6 +237,16 @@ export class RagdollSystem {
   private readonly carBodies: RigidBody[] = [];
   /** Each car's lower box ends as last fitted (`fitEnds`): front, rear (car-local z). */
   private readonly ends = new Float32Array(MAX_CARS * 2);
+  /** Each car's cabin slabs, `CABIN` per car: its panes in `GLASS_NAMES` order, then its roof. */
+  private readonly cabins: Collider[] = [];
+  /** The car each slot's cabin was last fitted to (`fitGlass`), its body lift (m), and its glass state as the slabs show it (`glassBits`, -1: refit). */
+  private readonly fitted: (DeformableCar | null)[] = Array.from({ length: MAX_CARS }, () => null);
+  private readonly lift = new Float64Array(MAX_CARS);
+  private readonly paneBits = new Int32Array(MAX_CARS).fill(-1);
+  /** Per dummy slot, the cars whose panes his torso may reach this frame (`glassNear`) and how many; per slot and car, the panes he is touching (bits). */
+  private readonly nearCars = new Uint8Array(SLOTS * MAX_CARS);
+  private readonly nearN = new Uint8Array(SLOTS);
+  private readonly touching = new Uint8Array(SLOTS * MAX_CARS);
   private barrierBody: RigidBody | null = null;
   private live = 0;
   /** Throws judged before Rapier was in (`PENDING_MAX`). */
@@ -270,9 +322,13 @@ export class RagdollSystem {
     for (let i = 0; i < MAX_CARS; i++) {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
       // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
-      // it the cabin (car-local, origin on the ground, +z forward). `fitEnds` follows the lower box's crushed ends.
-      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, LOW_HALF_Y, LOW_HALF_Z).setTranslation(0, LOW_Y, 0).setCollisionGroups((carBit(i) << 16) | G_DOLLS | G_PROPS), body);
-      world.createCollider(R.ColliderDesc.cuboid(0.7, 0.27, 0.68).setTranslation(0, 1.07, -0.07).setCollisionGroups((carBit(i) << 16) | G_DOLLS | G_PROPS), body);
+      // it the cabin's slabs (`fitGlass`; car-local, origin on the ground, +z forward). `fitEnds` follows the lower box's crushed ends.
+      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, LOW_HALF_Y, LOW_HALF_Z).setTranslation(0, LOW_Y, 0).setCollisionGroups(carGroups(i)), body);
+      for (let p = 0; p < CABIN; p++) {
+        const slab = R.ColliderDesc.cuboid(0.5, 0.5, PANE_HALF).setCollisionGroups(carGroups(i));
+        if (p < PANES) slab.setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
+        this.cabins.push(world.createCollider(slab, body));
+      }
       this.ends[2 * i] = LOW_HALF_Z;
       this.ends[2 * i + 1] = -LOW_HALF_Z;
       this.carBodies.push(body);
@@ -297,7 +353,7 @@ export class RagdollSystem {
         return body;
       });
       joinUp(R, world, bodies);
-      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0 });
+      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
@@ -344,10 +400,12 @@ export class RagdollSystem {
     for (let i = 0; i < MAX_CARS; i++) {
       const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(cars[i]!.group.position) ? cars[i]! : null;
       this.follow3(i, this.carBodies[i]!, car?.group ?? null);
+      if (car) this.fitGlass(i, car);
       if (car) this.fitEnds(i, car);
     }
     this.follow3(MAX_CARS, this.barrierBody!, barrier);
     this.teleport = false;
+    this.glassNear(dt);
     // Whole `STEP`s out of the accumulator, each proxy a step further along its frame's path.
     const lead = this.acc;
     this.acc = dormant ? 0 : Math.min(lead + dt, MAX_ACC);
@@ -363,6 +421,7 @@ export class RagdollSystem {
         }
       }
       if (j === steps) this.purses?.capture(false);
+      this.glassTouch();
       world.step();
       if (++this.tick % WATCH_EVERY !== 0) continue;
       this.purses?.advance(WATCH_EVERY * STEP);
@@ -388,7 +447,8 @@ export class RagdollSystem {
         continue;
       }
       const v = d.bodies[0]!.linvel();
-      d.still = Math.hypot(v.x, v.y, v.z) < REST_SPEED ? d.still + dt : 0;
+      d.speed = Math.hypot(v.x, v.y, v.z);
+      d.still = d.speed < REST_SPEED ? d.still + dt : 0;
       this.calm(d, dt);
       for (let k = 0; k < PARTS.length; k++) {
         this.blend(d, k, _p, _q);
@@ -657,6 +717,135 @@ export class RagdollSystem {
   }
 
   /**
+   * Car i's cabin onto `car`: refit to its glass (`glassCorners`, raised by its class's body lift) when the slot holds
+   * another car or the lift changed, and each pane's slab in the world only while the pane stands (`glassBits`).
+   */
+  private fitGlass(i: number, car: DeformableCar): void {
+    const lift = classStats(carClass(car)).lift;
+    if (this.fitted[i] !== car || this.lift[i] !== lift) {
+      this.fitted[i] = car;
+      this.lift[i] = lift;
+      this.ends[2 * i] = NaN;
+      this.paneBits[i] = -1;
+      this.fitCabin(i, glassCorners(car.style), lift);
+    }
+    const bits = car.glassBits();
+    if (bits === this.paneBits[i]) return;
+    this.paneBits[i] = bits;
+    for (let p = 0; p < PANES; p++) this.cabins[i * CABIN + p]!.setCollisionGroups(((bits >> (2 * p)) & 3) === 2 ? 0 : carGroups(i));
+  }
+
+  /**
+   * Car i's slabs onto pane corners `c` (`glassCorners`) raised by `lift`: under each pane a hull of its four corners
+   * (each `PANE_PAD` further out from the pane's middle) and the same `2 × PANE_HALF` into the cabin (away from the middle
+   * of all the corners): the panes are trapezoids, and a box over a windshield's wide base stuck out past its narrow top
+   * into the door window. The roof is a box on the windshield's and the rear glass's top edges.
+   */
+  private fitCabin(i: number, c: Float32Array, lift: number): void {
+    const R = this.R!;
+    const world = this.world!;
+    _mid.set(0, 0, 0);
+    for (let k = 0; k < c.length; k += 3) _mid.add(_p.fromArray(c, k));
+    _mid.multiplyScalar(3 / c.length);
+    for (let p = 0; p < PANES; p++) {
+      // Corners: across 0 and 1 at the base (_p, _s), then at the top (_r, _c).
+      _p.fromArray(c, 12 * p);
+      _s.fromArray(c, 12 * p + 3);
+      _r.fromArray(c, 12 * p + 6);
+      _c.fromArray(c, 12 * p + 9);
+      _u.copy(_s).sub(_p).add(_c).sub(_r);
+      _w.copy(_r).add(_c).sub(_p).sub(_s);
+      _n.crossVectors(_u, _w).normalize();
+      _e.copy(_p).add(_s).add(_r).add(_c).multiplyScalar(0.25);
+      if (_n.dot(_f.copy(_e).sub(_mid)) < 0) _n.negate();
+      for (let k = 0; k < 4; k++) {
+        _f.fromArray(c, 12 * p + 3 * k);
+        _f.addScaledVector(_w.copy(_f).sub(_e).normalize(), PANE_PAD);
+        _f.y += lift;
+        _f.toArray(_hull, 3 * k);
+        _f.addScaledVector(_n, -2 * PANE_HALF).toArray(_hull, 12 + 3 * k);
+      }
+      const desc = R.ColliderDesc.convexHull(_hull)!.setCollisionGroups(carGroups(i)).setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
+      world.removeCollider(this.cabins[i * CABIN + p]!, false);
+      this.cabins[i * CABIN + p] = world.createCollider(desc, this.carBodies[i]!);
+    }
+    // The roof: over the top corners of the windshield (pane 0) and the rear glass (pane 1).
+    let top = -Infinity;
+    let half = 0;
+    for (let k = 0; k < 4; k++) {
+      const o = (k >> 1) * 12 + 6 + 3 * (k & 1);
+      top = Math.max(top, c[o + 1]!);
+      half = Math.max(half, Math.abs(c[o]!));
+    }
+    const front = Math.max(c[8]!, c[11]!);
+    const rear = Math.min(c[20]!, c[23]!);
+    const roof = this.cabins[i * CABIN + PANES]!;
+    roof.setHalfExtents({ x: half + PANE_PAD, y: ROOF_HALF, z: (front - rear) / 2 + PANE_PAD });
+    roof.setTranslationWrtParent({ x: 0, y: top + lift + ROOF_HALF, z: (front + rear) / 2 });
+  }
+
+  /** Per dummy, the cars (never his own) with a pane standing that his torso may reach within this frame: `glassTouch` tries only those. */
+  private glassNear(dt: number): void {
+    const cars = this.cars;
+    const a = this.aim;
+    for (let s = 0; s < SLOTS; s++) {
+      const d = this.dolls[s]!;
+      let n = 0;
+      for (let i = 0; d.live && i < cars.length && i < MAX_CARS; i++) {
+        if (i === d.car || !this.on[i] || this.paneBits[i] === ALL_GONE) continue;
+        const o = 14 * i + 7;
+        const dx = d.cur[0]! - a[o]!;
+        const dy = d.cur[1]! - a[o + 1]!;
+        const dz = d.cur[2]! - a[o + 2]!;
+        const reach = GLASS_REACH + (d.speed + cars[i]!.speed) * dt;
+        if (dx * dx + dy * dy + dz * dz < reach * reach) this.nearCars[s * MAX_CARS + n++] = i;
+      }
+      this.nearN[s] = n;
+    }
+  }
+
+  /**
+   * Before a step: each dummy's torso against the standing panes of the cars near it (`glassNear`). A touch closing at
+   * `GLASS_FLOOR` or faster strikes the pane once (`hitGlass`; this peer's glass only, `authority`): a pane it shatters
+   * leaves the world before the step, so he goes through; one it cracks stays, so Rapier bounces him off it. A touch lasts
+   * until he is `GLASS_SEP` off the pane again. Rapier is read (allocating) only for a torso within `GLASS_SEE` of a pane.
+   */
+  private glassTouch(): void {
+    for (let s = 0; s < SLOTS; s++) {
+      const n = this.nearN[s]!;
+      if (n === 0) continue;
+      const d = this.dolls[s]!;
+      const torso = d.bodies[0]!.collider(0);
+      for (let m = 0; m < n; m++) {
+        const i = this.nearCars[s * MAX_CARS + m]!;
+        const t = s * MAX_CARS + i;
+        for (let p = 0; p < PANES; p++) {
+          if (((this.paneBits[i]! >> (2 * p)) & 3) === 2) continue;
+          const bit = 1 << p;
+          const c = torso.contactCollider(this.cabins[i * CABIN + p]!, GLASS_SEE);
+          const held = (this.touching[t]! & bit) !== 0;
+          if (c === null || (held && c.distance > GLASS_SEP)) {
+            this.touching[t] = this.touching[t]! & ~bit;
+            continue;
+          }
+          if (held) continue;
+          const v = d.bodies[0]!.linvel();
+          const cv = this.cars[i]!.velocity;
+          const closing = (v.x - cv.x) * c.normal1.x + (v.y - cv.y) * c.normal1.y + (v.z - cv.z) * c.normal1.z;
+          // Not on the pane within this step yet.
+          if (c.distance > Math.max(0, closing) * STEP + GLASS_SKIN) continue;
+          this.touching[t] = this.touching[t]! | bit;
+          if (closing < GLASS_FLOOR || !this.authority) continue;
+          const car = this.cars[i]!;
+          car.hitGlass(GLASS_NAMES[p]!);
+          this.paneBits[i] = car.glassBits();
+          if (((this.paneBits[i]! >> (2 * p)) & 3) === 2) this.cabins[i * CABIN + p]!.setCollisionGroups(0);
+        }
+      }
+    }
+  }
+
+  /**
    * Car i's lower box onto its crushed length, bumper to bumper by the end masses, so a thrown dummy meets a crumpled
    * nose where it is. Refit only past `FIT_EPS`: each resize hands Rapier a new shape. A coarser step (it was 2 cm) makes
    * the box depend on the frames that led there, so a replay's nose sat up to 2 cm off the live one and a dummy thrown at
@@ -671,7 +860,7 @@ export class RagdollSystem {
     this.ends[2 * i + 1] = rear;
     const box = this.carBodies[i]!.collider(0);
     box.setHalfExtents({ x: LOW_HALF_X, y: LOW_HALF_Y, z: (front - rear) / 2 });
-    box.setTranslationWrtParent({ x: 0, y: LOW_Y, z: (front + rear) / 2 });
+    box.setTranslationWrtParent({ x: 0, y: LOW_Y + this.lift[i]!, z: (front + rear) / 2 });
   }
 
   dispose(): void {
@@ -784,6 +973,9 @@ export class RagdollSystem {
     d.still = 0;
     d.car = t.car;
     d.calm = 0;
+    d.speed = Math.hypot(t.v.x, t.v.y, t.v.z);
+    this.touching.fill(0, slot * MAX_CARS, (slot + 1) * MAX_CARS);
+    this.nearN[slot] = 0;
     for (let k = 0; k < PARTS.length; k++) this.vel[(slot * PARTS.length + k) * 4 + 3] = 3;
     if (d.ground) {
       d.ground = false;
@@ -793,8 +985,24 @@ export class RagdollSystem {
         b.setAngularDamping(AIR_ANGULAR);
       }
     }
-    this.capture(d, d.prev);
-    d.cur.set(d.prev);
+    // The pose one step before the release, along his launch motion: from the first frame he is drawn moving out of the
+    // pane, one step behind the sim as on every later frame, not held at it until his first step (4 frames at 0.03× and
+    // 60 Hz, 16 at 240).
+    this.capture(d, d.cur);
+    const spin = t.w.length();
+    _qx.setFromAxisAngle(spin > 0 ? _s.copy(t.w).divideScalar(spin) : Y, -spin * STEP);
+    for (let k = 0; k < PARTS.length; k++) {
+      const v = d.bodies[k]!.linvel();
+      const o = 7 * k;
+      d.prev[o] = d.cur[o]! - v.x * STEP;
+      d.prev[o + 1] = d.cur[o + 1]! - v.y * STEP;
+      d.prev[o + 2] = d.cur[o + 2]! - v.z * STEP;
+      _qb.set(d.cur[o + 3]!, d.cur[o + 4]!, d.cur[o + 5]!, d.cur[o + 6]!).premultiply(_qx);
+      d.prev[o + 3] = _qb.x;
+      d.prev[o + 4] = _qb.y;
+      d.prev[o + 5] = _qb.z;
+      d.prev[o + 6] = _qb.w;
+    }
     const look = driverLook(this.lookSeed, t.car);
     this.mesh.dress(slot, t.cop, look);
     if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);

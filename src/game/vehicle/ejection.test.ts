@@ -23,7 +23,7 @@ function throws(cars: DeformableCar[], barrier = false): [number, ExitPane, numb
     .sort((a, b) => a[0] - b[0]);
 }
 
-describe("given two cars crashing, where only a disabling head-on or side hit throws a driver out", () => {
+describe("given two cars crashing, where a disabling head-on or side hit, or a door slammed into a hit at a frontal kill's speed, throws a driver out", () => {
   it("when two cars drive head-on at 56 km/h each, then both engines die and both drivers are thrown out through the windshield at their pre-hit speed", () => {
     const a = makeCar();
     const b = makeCar();
@@ -86,6 +86,26 @@ describe("given two cars crashing, where only a disabling head-on or side hit th
     const out = throws([car], true);
     assert.ok(!car.deform.drivetrainAlive, "the rear hit disabled the worn car");
     assert.ok(car.deform.impactInward.z > Math.abs(car.deform.impactInward.x), "it was struck from behind");
+    assert.deepEqual(out, []);
+  });
+
+  it("when a fleet sedan slides sideways into the barrier at 22 m/s, then its engine keeps running and its driver is thrown out of the door window that met the barrier", () => {
+    const car = fleetCar();
+    // Facing +z, sliding along +x: its right side (car-local +x) leads into the barrier's -x face.
+    launch(car, -BARRIER_HALF.x - 2.4, 0, 0, 22, 0);
+    const out = throws([car], true);
+    assert.ok(car.deform.drivetrainAlive, "the side blow left the engine running");
+    assert.deepEqual(out.map(([i, exit]) => [i, exit]), [[0, "doorR"]]);
+  });
+
+  it("when two fleet sedans slide sideways together, 10 and 18 m/s across their run, and the faster one's door meets the other's at 8 m/s, then nobody is thrown out", () => {
+    const a = fleetCar();
+    const b = fleetCar();
+    // Both facing +x at 30 m/s, sliding toward +z; b, 2.3 m to a's right (-z), closes on a's right door with its left.
+    launch(a, 0, 0, Math.PI / 2, 30, 10);
+    launch(b, 0, -2.3, Math.PI / 2, 30, 18);
+    const out = throws([a, b]);
+    assert.ok(a.crashed && b.crashed, "their doors met hard enough to dent");
     assert.deepEqual(out, []);
   });
 });

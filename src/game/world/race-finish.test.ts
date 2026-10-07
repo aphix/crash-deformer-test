@@ -394,7 +394,11 @@ describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on
           const v = car.velocity;
           const speed = Math.hypot(v.x, v.z);
           if (!car.group.visible) {
+            // Stored: it comes back parked somewhere new, so its next read is a first read. Kept, the hint from its last spot
+            // read Dam Spine seed 1's cop 6 (stored after a thrown driver, re-parked at 54.25 s) on the stretch stacked under
+            // its new spot: 488 m along, not 2543, so the racer 8 m past it as it woke read 2064 m past.
             parkS[i] = NaN;
+            hint[i] = -1;
             continue;
           }
           // A wrecked cop that lies still is not a stakeout: a racer wreck that shoves it along would read as the cop waking (a wall now slows a racer

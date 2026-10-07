@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import type { ExitPane } from "./car-core.ts";
-import { killClass, killTravel } from "./vehicle-classes.ts";
+import { CLASSES, killClass, killTravel } from "./vehicle-classes.ts";
 
 /** Velocity samples per car, one per 1/60 s of sim time (`SAMPLE`): 0.53 s, past `PRE`. */
 const RING = 32;
@@ -20,6 +20,33 @@ const OTHER_REACH = 3.5;
  * and a solid side blow, not on a car shoved into its last bit of wear.
  */
 const EJECT_CLOSING = 6;
+
+/**
+ * Barrier speed (m/s) of the slowest square hit that throws the driver of a durability-1 car (a sedan): it packs the
+ * block to `killTravel` at realism 1, whatever the HUD's realism. Measured into the range's barrier at the HUD's
+ * defaults: lane ragdoll's probe 56 km/h, lane ragdoll-glass (1 km/h steps) 55 km/h (15.3 m/s). A class's is this ×
+ * √durability (`killSpeed`): measured 58 km/h muscle, 60 truck and police, 68 monster against the root's 60, 63, 64
+ * and 73, so it errs 2-5 km/h high for the tough ones.
+ */
+const KILL_EBS = 15.6;
+
+/**
+ * The barrier speed (m/s) at which a square hit throws `car`'s driver (`KILL_EBS` × √ its kill class's durability): the
+ * sandbox's slow-mo predicts a throw by it (`throwComing`), and a car that slams a door into a hit at least this fast
+ * of its own throws its driver out of that door (`EjectionWatch`), as hard a blow to him as the nose-first kill.
+ */
+export function killSpeed(car: DeformableCar): number {
+  return KILL_EBS * Math.sqrt(CLASSES[killClass(car)].durability);
+}
+
+/**
+ * A hit is square on a door, for the slam throw, when its inward normal's across-the-car part is over this × its
+ * along-the-car part: within 27 degrees of straight in from the side (owner, 2026-10-07: the case is a car sliding in
+ * sideways). A front- or rear-quarter hit stays a frontal one's (a kill): with the side window at 45 degrees, police
+ * cruisers driving into race walls 13-45 degrees off at 9-42 m/s threw 12 drivers out of a door in 10 seeded oval and
+ * stunt races (main: none).
+ */
+const DOOR_SQUARE = 2;
 
 /** The throw: out of the pane, up, and a somersault over his shoulder line (owner, 2026-10-02: arcade, set by eye). */
 export const THROW_OUT = 3;
@@ -127,16 +154,21 @@ function launch(car: DeformableCar, i: number, exit: ExitPane, pre: THREE.Vector
 }
 
 /**
- * Watches every car for a disabling hit: the drivetrain dying (`drivetrainAlive`: derby engine-kill and wreck, race
- * DNF by damage) or the block packed as far as kills it at the realistic end of the slider, whatever the slider.
- * It decides, once per car per edge, whether that hit throws the driver out: closing fast enough (`EJECT_CLOSING`),
- * head-on or from the side, never from behind. The decision is SIM state: `step` runs once per fixed step, at the
- * end of `stepWorld`, on the step's own dt, and reads only the cars' deform state, poses and velocities, so the
- * same steps give the same ejections on every run at every frame rate. A hit that throws sets `car.driverOut` (until
- * the car is put back: `resetVisual`) and queues an `Ejection` for `take`. Clients never run it: the flag rides the
- * snapshot, the event its own message. The kill has to follow a fresh hit on that car, one that began (`beginCrush`,
- * a re-armed `rearmHit`) at most `PRE` s ago: a drivetrain that dies with no new hit, long after the one whose normal is
- * still in its deform state, is a damaged car on a crest or a bank, not a throw, and so is a graze that only touched it.
+ * Watches every car for a hit that throws its driver out. A disabling hit (the drivetrain dying, `drivetrainAlive`:
+ * derby engine-kill and wreck, race DNF by damage; or the block packed as far as kills it at the realistic end of the
+ * slider, whatever the slider) throws him when it closed fast enough (`EJECT_CLOSING`), head-on or from the side, never
+ * from behind. A hit square on a door (`DOOR_SQUARE`) that the car slammed into at its `killSpeed` or faster throws him
+ * out of that door's window though the car runs on (owner, 2026-10-07: a handbrake slide sideways into a wall): a side
+ * blow never packs the block (the range at 23-25 m/s, 66-83 degrees off: 0.02-0.16 m), so no kill would ever throw
+ * him. Slammed: both its own speed into the hit and the closing are that fast, so a car shunted from standstill (a
+ * T-bone's struck car) stays in, and so does one trading doors at speed with a car alongside going its way. The
+ * decision is SIM state: `step` runs once per fixed step, at the end of `stepWorld`, on the step's own dt, and reads
+ * only the cars' deform state, poses and velocities, so the same steps give the same ejections on every run at every
+ * frame rate. A hit that throws sets `car.driverOut` (until the car is put back: `resetVisual`) and queues an
+ * `Ejection` for `take`. Clients never run it: the flag rides the snapshot, the event its own message. Either way the
+ * hit is a fresh one on that car, begun (`beginCrush`, a re-armed `rearmHit`) at most `PRE` s ago: a drivetrain that
+ * dies with no new hit, long after the one whose normal is still in its deform state, is a damaged car on a crest or a
+ * bank, not a throw, and so is a graze that only touched it.
  */
 export class EjectionWatch {
   /** Kill context (`armKill`'s): a derby's limits or anywhere else's; the engine sets it per scene. */
@@ -191,7 +223,9 @@ export class EjectionWatch {
       const now = car.deform.drivetrainAlive && car.deform.engineTravel < killTravel(killClass(car), 1, this.ctx) ? 1 : 0;
       const was = this.alive[i]!;
       this.alive[i] = now;
-      if (was === 1 && now === 0 && car.driverOut === null && car.deform.sinceHit() <= PRE + dt) this.judge(cars, i);
+      if (car.driverOut !== null || car.deform.sinceHit() > PRE + dt) continue;
+      if (was === 1 && now === 0) this.judge(cars, i, true);
+      else if (now === 1 && car.deform.massActive && Math.abs(car.deform.impactInward.x) > DOOR_SQUARE * Math.abs(car.deform.impactInward.z)) this.judge(cars, i, false);
     }
     if (!sample) return;
     for (let i = 0; i < n; i++) {
@@ -203,8 +237,12 @@ export class EjectionWatch {
     }
   }
 
-  /** Car i was just disabled: was that hit head-on or from the side, and hard enough? */
-  private judge(cars: readonly DeformableCar[], i: number): void {
+  /**
+   * Car i was just disabled (`killed`), or runs on in a fresh hit on a door: was that hit head-on or from the side, and
+   * hard enough? A kill against the closing speed, a door slam against the lesser of the car's own speed into it and
+   * the closing (`killSpeed`).
+   */
+  private judge(cars: readonly DeformableCar[], i: number, killed: boolean): void {
     const car = cars[i]!;
     // The struck end: inward points from the contact into the car.
     const ix = car.deform.impactInward.x;
@@ -214,8 +252,8 @@ export class EjectionWatch {
     else if (iz < 0) exit = "windshield";
     else return;
     _n.copy(car.deform.impactInward).applyQuaternion(car.group.quaternion);
-    _hit.copy(car.deform.impactLocal).applyQuaternion(car.group.quaternion).add(car.group.position);
     let other = -1;
+    _hit.copy(car.deform.impactLocal).applyQuaternion(car.group.quaternion).add(car.group.position);
     let best = OTHER_REACH;
     for (let j = 0; j < cars.length; j++) {
       if (j === i) continue;
@@ -235,14 +273,15 @@ export class EjectionWatch {
       let c = -(this.vel[a]! * _n.x + this.vel[a + 1]! * _n.z);
       if (other >= 0) {
         const b = (other * RING + ((this.head[other]! - k + RING) % RING)) * 2;
-        c += this.vel[b]! * _n.x + this.vel[b + 1]! * _n.z;
+        const close = c + this.vel[b]! * _n.x + this.vel[b + 1]! * _n.z;
+        c = killed ? close : Math.min(c, close);
       }
       if (c <= closing) continue;
       closing = c;
       sx = this.vel[a]!;
       sz = this.vel[a + 1]!;
     }
-    if (closing < EJECT_CLOSING) return;
+    if (closing < (killed ? EJECT_CLOSING : killSpeed(car))) return;
     car.driverOut = exit;
     this.pending.push(launch(car, i, exit, _pre.set(sx, 0, sz)));
   }

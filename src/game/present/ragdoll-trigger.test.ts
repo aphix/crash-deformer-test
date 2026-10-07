@@ -59,6 +59,30 @@ describe("given thrown drivers (dummies that are cosmetic: the cars move the sam
   }
 });
 
+describe("given a fleet 2×36 km/h head-on that crashes both cars, cracks their windshields and leaves the rest of their glass whole, and a dummy's torso that strikes their glass (each strike cracks a pane, the next shatters it)", () => {
+  it("when every pane of both cars is struck twice in the second after the hit, then every pane ends shattered and the cars move exactly as they do with the glass left to the crash", () => {
+    const cars = headOn(10);
+    const plain = headOn(10);
+    const w = makeWorld(cars, false, false);
+    const wPlain = makeWorld(plain, false, false);
+    const panes = ["windshield", "rear", "doorL", "doorR", "quarterL", "quarterR"] as const;
+    const first = 24;
+    for (let f = 0; f < 240; f++) {
+      tickWorld(w);
+      tickWorld(wPlain);
+      // From 0.4 s (the hit lands about 0.3 s in), a strike every other frame: every pane of both cars twice over.
+      const k = (f - first) / 2;
+      if (Number.isInteger(k) && k >= 0 && k < 2 * 2 * panes.length) cars[k % 2]!.hitGlass(panes[(k >> 1) % panes.length]!);
+    }
+    assert.ok(cars.every((c) => c.crashed), "both cars crashed");
+    let allShattered = 0;
+    for (let p = 0; p < panes.length; p++) allShattered |= 2 << (2 * p);
+    for (const [i, car] of cars.entries()) assert.equal(car.glassBits(), allShattered, `car ${i}: every pane struck twice is gone`);
+    assert.ok(plain.some((c) => c.glassBits() !== allShattered), "the crash alone left some pane unshattered");
+    assertSameDigest(simState(cars), simState(plain), "every car's sim state with struck glass vs without");
+  });
+});
+
 describe("given a head-on crash between two fleet cars whose physics engine for the dummies loads late", () => {
   /** The fleet head-on with Rapier loading `late` frames in (the hit lands about 0.2 s in): dummies out at the end. */
   async function thrownAfterLoad(late: number): Promise<boolean> {

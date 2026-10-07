@@ -504,13 +504,7 @@ export abstract class CarParts extends CarCore {
     for (const g of this.glassPanes) {
       if (g.state === "shattered") continue;
       const strain = this.deform.cageStrain(g.skin ?? (g.parts.includes("doorLeft") ? "doorLeft" : "doorRight"));
-      if (g.state === "intact" && strain > GLASS_CRACK) {
-        g.state = "cracked";
-        g.mat.map = getCrackMap();
-        g.mat.opacity = 0.55;
-        g.mat.roughness = 0.32;
-        g.mat.needsUpdate = true;
-      }
+      if (g.state === "intact" && strain > GLASS_CRACK) this.crackGlass(g);
       if (strain > (g.skin === "glassFront" ? GLASS_LAMINATED : GLASS_TEMPERED)) this.shatterGlass(g);
     }
 
@@ -690,6 +684,40 @@ export abstract class CarParts extends CarCore {
     this.onGlass?.(origin, vel, 56);
   }
 
+  /** Pane `g` cracks: the crack map over a hazier pane. Every crack goes through here (the frame strain, a thrown torso, a net state). */
+  protected crackGlass(g: GlassPane): void {
+    g.state = "cracked";
+    g.mat.map = getCrackMap();
+    g.mat.opacity = 0.55;
+    g.mat.roughness = 0.32;
+    g.mat.needsUpdate = true;
+  }
+
+  /**
+   * A thrown driver's torso struck pane `name` (`RagdollSystem`): an intact pane cracks and holds, a cracked one (by a
+   * torso or by its frame's strain) shatters. False if it was already gone. Authority only, as `smashGlass`.
+   */
+  hitGlass(name: GlassName): boolean {
+    for (const g of this.glassPanes) {
+      if (g.name !== name) continue;
+      if (g.state === "shattered") return false;
+      if (g.state === "intact") this.crackGlass(g);
+      else this.shatterGlass(g);
+      return true;
+    }
+    return false;
+  }
+
+  /** Every pane's state, 2 bits each in `GLASS_NAMES` order: 0 intact, 1 cracked, 2 shattered (the net state's `glass`). */
+  glassBits(): number {
+    let glass = 0;
+    for (let i = 0; i < this.glassPanes.length; i++) {
+      const s = this.glassPanes[i]!.state;
+      glass |= (s === "cracked" ? 1 : s === "shattered" ? 2 : 0) << (i * 2);
+    }
+    return glass;
+  }
+
   /** Shatter pane `name` now (a driver thrown through it); false if it is already gone. Call it on the
    *  authority only: netplay carries the pane to clients in the glass bits. */
   smashGlass(name: GlassName): boolean {
@@ -768,13 +796,8 @@ export abstract class CarParts extends CarCore {
     }
     let lamps = 0;
     for (let i = 0; i < this.lamps.length; i++) if (this.lamps[i]!.intact) lamps |= 1 << i;
-    let glass = 0;
-    for (let i = 0; i < this.glassPanes.length; i++) {
-      const s = this.glassPanes[i]!.state;
-      glass |= (s === "cracked" ? 1 : s === "shattered" ? 2 : 0) << (i * 2);
-    }
     out.lamps = lamps;
-    out.glass = glass;
+    out.glass = this.glassBits();
     let wheels = 0;
     for (let i = 0; i < this.wheels.length; i++) {
       if (!this.looseWheels[i]!.loose) continue;

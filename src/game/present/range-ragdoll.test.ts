@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DRIVER_CARS } from "../match/types.ts";
 import { RangeRun } from "../scenes/range.ts";
+import { applyDrive } from "../vehicle/car-drive.ts";
+import type { ExitPane } from "../vehicle/car-core.ts";
 import { ejectionVelocity } from "../vehicle/ejection.ts";
 import { apexOf, type Carry, type Control, deepest, displayFrames, type DriverCar, inCar, lowest, rangeThrow, type RangeThrow, restOf, speeds, STILL, travel } from "./range-run.test-util.ts";
 
@@ -159,6 +161,60 @@ describe("given the ejection range at its defaults, for every car type, at 60 an
     it(`when the ${type.label}'s thrown driver comes to rest on the ground, then the readout says LANDED at once, at the distance where he lies`, async () => {
       for (const [display, frames] of DISPLAYS) assert.deepEqual(await readoutAtRest(type, frames()), [], `${type.id} at ${display}`);
     });
+  }
+});
+
+/** Metres before the barrier's line where the driver pulls the handbrake turn: every car type then meets the barrier 66–71° off its run-up, at 24.4–24.6 m/s (measured). */
+const TURN_AT = 12;
+
+type Slide = { run: RangeThrow; exit: ExitPane | null; out: THREE.Vector3; heading: number; speed: number };
+
+/**
+ * The range with a hard handbrake turn: full lock `steer` (+1 swings the nose left) and the handbrake from `TURN_AT` m
+ * before the barrier, off the throttle, until the driver is out. At the last slice before the car first touches the
+ * barrier, how far its heading is off the run-up (deg) and its speed (m/s); the first throw's pane and way out (world).
+ */
+async function slideIn(type: DriverCar, steer: number): Promise<Slide> {
+  const fwd = new THREE.Vector3();
+  let speed = 0;
+  let exit: ExitPane | null = null;
+  const out = new THREE.Vector3();
+  const run = await rangeThrow(type, {
+    slice: (car, h) => {
+      if (!car.crashed) {
+        fwd.copy(car.fwdFlat);
+        speed = Math.hypot(car.velocity.x, car.velocity.z);
+      }
+      if (car.group.position.x > -TURN_AT && car.driverOut === null) applyDrive(car, { throttle: 0, steer, brake: 0, ebrake: true, boost: false }, h);
+    },
+    event: (e) => {
+      if (exit !== null) return;
+      exit = e.exit;
+      out.copy(e.dir);
+    },
+  });
+  return { run, exit, out, heading: THREE.MathUtils.radToDeg(Math.acos(THREE.MathUtils.clamp(fwd.dot(run.runUp), -1, 1))), speed };
+}
+
+/** The car types, the owner's truck and monster first. */
+const SLIDERS = [...DRIVER_CARS].sort((a, b) => Number(b.id === "truck" || b.id === "monster") - Number(a.id === "truck" || a.id === "monster"));
+/** Which way the nose swings, and the pane on the side that then leads into the barrier (car-local -x is `doorL`). */
+const TURNS: readonly [string, number, ExitPane][] = [
+  ["left", 1, "doorL"],
+  ["right", -1, "doorR"],
+];
+
+describe(`given the ejection range with a hard handbrake turn ${TURN_AT} m before the barrier, so the car slides into it sideways while still moving fast toward it`, () => {
+  for (const type of SLIDERS) {
+    for (const [side, steer, pane] of TURNS) {
+      it(`when a ${type.label} swings its nose ${side} and slides into the barrier, then its driver is thrown once, out of the side window that met the barrier, facing it, not out of the windshield`, async () => {
+        const s = await slideIn(type, steer);
+        assert.ok(s.heading >= 60 && s.speed >= 20, `${type.id}: met the barrier ${s.heading.toFixed(0)}° off the run-up at ${s.speed.toFixed(1)} m/s`);
+        assert.equal(s.run.ejections, 1, `${type.id}: ${s.run.ejections} throws`);
+        assert.equal(s.exit, pane, `${type.id}: thrown out of the ${s.exit}`);
+        assert.ok(s.out.dot(s.run.runUp) > 0.7, `${type.id}: the way out faces ${s.out.dot(s.run.runUp).toFixed(2)} along the run-up`);
+      });
+    }
   }
 });
 

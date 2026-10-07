@@ -157,6 +157,39 @@ describe("given the ejection range (a sedan at 100 km/h into the jersey barrier,
   });
 });
 
+describe("given a dummy thrown while time runs at 0.03× (the deepest slow-mo)", () => {
+  it("when he is drawn at 60 and at 240 Hz, then every frame from the one after the throw shows him further along, by 0.5–2× the frame before's move", async () => {
+    const out: string[] = [];
+    for (const hz of [60, 240]) {
+      const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+      await ragdolls.preload();
+      ragdolls.update(1 / 60, [], true, true, 0, null);
+      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false });
+      // What the GPU gets: his slot's pieces (slot 0, the first throw), the throw frame's pose first.
+      const drawn: Float32Array = ragdolls["mesh"].instanceMatrix.array as Float32Array;
+      const per = drawn.length / ragdolls["dolls"].length;
+      ragdolls.update(0.03 / hz, [], true, true, 0, null);
+      const last = drawn.slice(0, per);
+      const moves: number[] = [];
+      for (let f = 0; f < hz / 2; f++) {
+        ragdolls.update(0.03 / hz, [], true, true, 0, null);
+        let move = 0;
+        for (let o = 0; o < per; o += 16) {
+          move = Math.max(move, Math.hypot(drawn[o + 12]! - last[o + 12]!, drawn[o + 13]! - last[o + 13]!, drawn[o + 14]! - last[o + 14]!));
+          last.set(drawn.subarray(o, o + 16), o);
+        }
+        moves.push(move);
+      }
+      ragdolls.dispose();
+      for (const [f, m] of moves.entries()) {
+        const before = f === 0 ? m : moves[f - 1]!;
+        if (m === 0 || m < 0.5 * before || m > 2 * before) out.push(`${hz} Hz frame ${f + 1}: moved ${(m * 1000).toFixed(2)} mm after ${(before * 1000).toFixed(2)} mm`);
+      }
+    }
+    assert.deepEqual(out, []);
+  });
+});
+
 describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
   // 240 Hz is the owner's display: frames of 0.5–1.5× with an occasional 5× hitch (main: one such run landed 58 m out).
   for (const [hz, seed] of [[240, 3], [240, 4], [240, 16], [60, 3]] as const) {
