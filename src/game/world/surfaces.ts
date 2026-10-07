@@ -230,6 +230,9 @@ export class Surface {
     this.q[i * Q_STRIDE + Q_SOLID] = solid ? 1 : 0;
   }
 
+  /** Readies `always` for a query asked by body slot `skip`: every query tests a static surface's alike; the cars' tops list the roofs near the asker (`CarSurfaces`). */
+  near(_skip: number): void {}
+
   /** A bilinear grid patch; returns its index. */
   addGrid(g: GridSpec): number {
     const i = this.addPatch(GRID);
@@ -743,7 +746,10 @@ export function pointContact(x: number, z: number, y: number, skip: number, out:
   live.surf = null;
   if (live.statics !== null) find(live.statics, x, z, y, skip);
   const t = live.tops;
-  if (t !== null) for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, x, z, y, skip);
+  if (t !== null) {
+    t.near(skip);
+    for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, x, z, y, skip);
+  }
   report(out);
 }
 
@@ -984,7 +990,9 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const x = hub[0]!;
   const z = hub[2]!;
   const y = hub[1]!;
-  const n = (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) || (live.tops !== null && edgeIn(live.tops, x, z, y, r, skip)) ? FOOT : BASE;
+  const tops = live.tops;
+  if (tops !== null) tops.near(skip);
+  const n = (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   pointContact(x, z, y, skip, _w);

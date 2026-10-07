@@ -25,6 +25,11 @@ export const SKIN = 0.25;
 export const UPRIGHT = 0.5;
 /** Plan radius (m) past which a car's top is out of reach: its half-diagonal. */
 const REACH = 2.5;
+/**
+ * Plan slack (m) of a roof list (`reach`) over 2·REACH: a list stands for the rest of its slice, through which two cars closing at
+ * 60 m/s each move 2 m in a 1/60 s slice, and a query must find every roof the patch boxes (`sync`) hold under its point.
+ */
+const NEAR_SLACK = 2;
 /** A top point that follows its car's roof crush less than this is rigid (bonnet and boot ends carry, never yield). */
 const YIELDS = 0.3;
 /** The top within this (m) of the middle across and 0.5 m of the crown along is one flat plate at the crown's height: the roof's crown is 3 cm across and 9 cm along, and a belly on a ridge rolls or pitches off. */
@@ -120,6 +125,8 @@ export class CarSurfaces extends Surface {
   private grew = new Float64Array(FACES);
   private react = new Float64Array(1);
   private touched = new Uint8Array(1);
+  /** The slot whose roofs within reach `always` lists (`reach`). */
+  private nearOf = -1;
 
   /** A car's slice starts: nothing of any face is spent, yielded or pressed yet, and a query is asked of the roofs within reach of its plan. */
   begin(car: DeformableCar): void {
@@ -138,16 +145,28 @@ export class CarSurfaces extends Surface {
     this.grew.fill(0);
     this.react.fill(0);
     this.touched.fill(0);
+    this.reach(car);
+  }
+
+  /** A query asked by car `skip` tests the roofs within reach of that car's plan, whoever's slice is under way: a wreck's masses read the ground under their hubs at the end of the slice. */
+  override near(skip: number): void {
+    if (skip !== this.nearOf && skip >= 0 && skip < this.cars.length) this.reach(this.cars[skip]!);
+  }
+
+  /** `always`: the roofs that may meet `car`'s points, while the two plans are within 2·REACH (a hull point sits up to REACH from its car's origin). */
+  private reach(car: DeformableCar): void {
+    const m = this.cars.length;
     if (this.always.length < m) this.always = new Int32Array(m);
-    // Another car's top may meet this car's points while the two plans are within 2·REACH (a hull point sits up to REACH from its car's origin).
     const p = car.group.position;
+    const r = 2 * REACH + NEAR_SLACK;
     let k = 0;
     for (let i = 0; i < m && i < this.count; i++) {
       const o = this.cars[i]!;
       if (i === car.slot || o.falling || o.vaporized) continue;
-      if (Math.abs(o.group.position.x - p.x) < 2 * REACH && Math.abs(o.group.position.z - p.z) < 2 * REACH) this.always[k++] = i;
+      if (Math.abs(o.group.position.x - p.x) < r && Math.abs(o.group.position.z - p.z) < r) this.always[k++] = i;
     }
     this.nAlways = k;
+    this.nearOf = car.slot;
   }
 
   /** The face slot a contact presses: car `own`'s top where the point (hit factor `follow`) follows its crush, else the stepping car's face under normal `nrm` (body points only; -1: rigid). */
@@ -244,8 +263,9 @@ export class CarSurfaces extends Surface {
     return any;
   }
 
-  /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): a plate at the roof's crown, lifted by the class, sinking by the crush along its follow. */
+  /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): a plate at the roof's crown, lifted by the class, sinking by the crush along its follow. The roofs a query lists (`reach`) are listed again after it. */
   sync(i: number, car: DeformableCar): void {
+    this.nearOf = -1;
     for (let k = this.count; k <= i; k++) {
       this.addGrid({ nu: 2, nv: 2, step: 1, stepV: 1, u0: 0, v0: 0, heights: NO_PLATE, ox: 0, oy: 0, oz: 0, reach: SKIN, hmax: 0 });
       this.own(k, k);

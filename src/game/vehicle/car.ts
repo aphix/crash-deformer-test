@@ -251,7 +251,7 @@ export class DeformableCar extends CarParts {
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
    * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
    * off), the squeeze clocks, the drift state, the last support height and whether a spawn's laying slice is still due. What the
-   * body touches is read off the pose again.
+   * body touches is read again (`restoreContact`).
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
@@ -268,8 +268,8 @@ export class DeformableCar extends CarParts {
       this.endSqueeze = buf[o + 18] !== 0;
       this.drive.drift = buf[o + 19]!;
       this.support = buf[o + 20]!;
-      readContact(this);
       this.laying = buf[o + 21] !== 0;
+      this.restoreContact();
       return;
     }
     this.angular.toArray(buf, o);
@@ -327,6 +327,15 @@ export class DeformableCar extends CarParts {
     this.restsOn = null;
     this.yielding = false;
     this.wheelHit.set(STANDING);
+  }
+
+  /**
+   * What the body touches, read again where no slice carried it (a keyframe restored): a spawn whose laying slice is still due stands
+   * on its four wheels as the spawn put it there; any other body reads it off its pose or its masses (`readContact`).
+   */
+  restoreContact(): void {
+    if (this.laying) this.resetContact();
+    else readContact(this);
   }
 
   afterContacts(dt: number, bounce?: WorldBounce): void {
