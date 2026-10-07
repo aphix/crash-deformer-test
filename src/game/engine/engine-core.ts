@@ -52,6 +52,8 @@ import type { LabArt } from "../present/lab-art.ts";
 import { FLOOR } from "../scenes/lab.ts";
 
 const _v = new THREE.Vector3();
+/** The masses a wreck's engine smoke rises from (`puffEngine`). */
+const ENGINE_MASSES = ["engineL", "engineR"] as const;
 /**
  * A thrown driver's shard cover (`onExit`), half extents (m) in his way out's frame: 1.4 m across, 0.6 m tall, 1.6 m
  * out of the pane (to the nose over the bonnet; past the door).
@@ -495,7 +497,8 @@ export abstract class EngineCore {
     if (this.showCompactor) return COMPACTOR.speed * 2;
     if (this.showPistons) {
       let u = 0;
-      for (const h of this.pistons.heads) u = Math.max(u, h.u);
+      const heads = this.pistons.heads;
+      for (let k = 0; k < heads.length; k++) u = Math.max(u, heads[k]!.u);
       return u;
     }
     if (this.showDoors) return this.doorRig.u;
@@ -518,7 +521,7 @@ export abstract class EngineCore {
   /** Sim seconds to the first hit coming between the live cars, or a car and the slab (`pairEta`), Infinity if none. */
   protected contactEta(): number {
     const cars = this.live();
-    for (const car of cars) car.refreshBasis();
+    for (let i = 0; i < cars.length; i++) cars[i]!.refreshBasis();
     const eta = pairEta(cars);
     return this.barrierUp ? this.barrier.contactEta(cars, eta) : eta;
   }
@@ -632,8 +635,8 @@ export abstract class EngineCore {
     if (!car.crashed || !car.deform.massActive) return;
     if (car.deform.drivetrainAlive && car.deform.partCompression("bonnet") < 0.08) return;
     const n = Math.max(2, (4 * this.fxDensity) | 0);
-    for (const name of ["engineL", "engineR"] as const) {
-      const m = car.deform.massWorld(name);
+    for (let k = 0; k < ENGINE_MASSES.length; k++) {
+      const m = car.deform.massWorld(ENGINE_MASSES[k]!);
       _v.copy(m);
       _v.y = 0.12;
       if (this.witness.sees(_v, FX_REACH.smoke)) this.smoke.plume(_v, car.velocity, n);

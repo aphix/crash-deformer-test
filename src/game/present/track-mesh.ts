@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES } from "../world/catalog.ts";
 import { blankSegment, segmentAt, type TrackGround, type TrackPath } from "../world/track.ts";
@@ -100,7 +101,7 @@ export class Mesher {
   }
 
   normal(i: number, x: number, y: number, z: number): void {
-    const l = Math.hypot(x, y, z) || 1;
+    const l = hypot3(x, y, z) || 1;
     this.nrm[i * 3] = x / l;
     this.nrm[i * 3 + 1] = y / l;
     this.nrm[i * 3 + 2] = z / l;
@@ -308,7 +309,7 @@ export class RoadIndex {
       const dx = x - p.x[k]! - ex * f;
       const dz = z - p.z[k]! - ez * f;
       const lat = (dx * ez - dz * ex) / Math.sqrt(len2);
-      if (Math.hypot(dx, dz) <= p.half[k]! + (lat > 0 ? p.runL[k]! : p.runR[k]!) + pad) return true;
+      if (hypot2(dx, dz) <= p.half[k]! + (lat > 0 ? p.runL[k]! : p.runR[k]!) + pad) return true;
     }
     return false;
   }

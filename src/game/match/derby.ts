@@ -336,6 +336,14 @@ type CrushMass = {
   readonly rest: { readonly z: number };
 };
 
+/** What `snapshotAiCar` reads of a `DeformableCar`. The car is passed whole: a number handed to a call V8 does not inline is boxed on the heap. */
+type SnapCar = {
+  readonly group: { readonly position: { readonly x: number; readonly z: number } };
+  readonly yaw: number;
+  readonly velocity: { readonly x: number; readonly z: number };
+  readonly deform: { readonly masses: readonly CrushMass[] };
+};
+
 function spent(nowLen: number, restLen: number): number {
   const span = restLen - 0.36;
   if (span <= 1e-6) return 0;
@@ -348,23 +356,14 @@ function spent(nowLen: number, restLen: number): number {
  * plastic, so these only grow; engine block travel was tried and is mostly
  * elastic slosh (0.5–1.0 on cars with untouched noses).
  */
-export function snapshotAiCar(
-  out: AiCar,
-  id: number,
-  x: number,
-  z: number,
-  yaw: number,
-  vx: number,
-  vz: number,
-  drivetrainAlive: boolean,
-  masses: readonly CrushMass[],
-): AiCar {
+export function snapshotAiCar(out: AiCar, id: number, car: SnapCar, drivetrainAlive: boolean): AiCar {
+  const masses = car.deform.masses;
   out.id = id;
-  out.x = x;
-  out.z = z;
-  out.yaw = yaw;
-  out.vx = vx;
-  out.vz = vz;
+  out.x = car.group.position.x;
+  out.z = car.group.position.z;
+  out.yaw = car.yaw;
+  out.vx = car.velocity.x;
+  out.vz = car.velocity.z;
   out.alive = drivetrainAlive;
   let cellNow = 0;
   let cellRest = 0;

@@ -28,7 +28,7 @@ function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sampl
   const scratch = idleDrive();
   const park = { ...idleDrive(), brake: 1 };
   for (let step = 0; step < seconds / DT; step++) {
-    for (const [i, c] of fleet.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses);
+    for (const [i, c] of fleet.entries()) snapshotAiCar(snaps[i]!, i, c, true);
     for (const [i, c] of fleet.entries()) {
       const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
       applyDrive(c, onSurface(i === frozen ? park : brain.think(snaps[i]!, snaps, DT), surf, scratch), DT);

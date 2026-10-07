@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { hypot3 } from "../kernel/physics-core.js";
 import { bodyContact, makeBox, partContact } from "../contact/external-contact.ts";
 
 /**
@@ -208,13 +209,13 @@ export class DoorRig {
     for (let i = 0; i < masses.length; i++) {
       const m = masses[i]!.local;
       const o = this.particles0;
-      particle = Math.max(particle, Math.hypot(m.x - o[i * 3]!, m.y - o[i * 3 + 1]!, m.z - o[i * 3 + 2]!));
+      particle = Math.max(particle, hypot3(m.x - o[i * 3]!, m.y - o[i * 3 + 1]!, m.z - o[i * 3 + 2]!));
     }
     let vertex = 0;
     const now = (car.body.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
     for (let i = 0; i < now.length; i += 3) {
       const v0 = this.verts0;
-      vertex = Math.max(vertex, Math.hypot(now[i]! - v0[i]!, now[i + 1]! - v0[i + 1]!, now[i + 2]! - v0[i + 2]!));
+      vertex = Math.max(vertex, hypot3(now[i]! - v0[i]!, now[i + 1]! - v0[i + 1]!, now[i + 2]! - v0[i + 2]!));
     }
     return {
       detached,

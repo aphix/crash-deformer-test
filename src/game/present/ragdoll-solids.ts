@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import type { ColliderDesc } from "@dimforge/rapier3d";
 import type { Rapier } from "../kernel/rapier.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { blankPoint, pointOn, type Track, type TrackPath } from "../world/track.ts";
 import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, levelAt, RoadIndex, sampleStep, sections, surfY, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
@@ -30,7 +31,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 /** A cuboid `solid`: half extents (`hx`, `hy`, `hz`) about (`x`, `y`, `z`), turned by the current `_q`. */
 function box(x: number, y: number, z: number, hx: number, hy: number, hz: number): Solid {
   const { x: qx, y: qy, z: qz, w: qw } = _q;
-  return { x, z, r: Math.hypot(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation({ x: qx, y: qy, z: qz, w: qw }) };
+  return { x, z, r: hypot2(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation({ x: qx, y: qy, z: qz, w: qw }) };
 }
 
 /** The slab of depth `thick` on the far side of the quad a0 b0 b1 a1 from `away`: a0→b0 across, a→a1 along the run. */
@@ -156,7 +157,7 @@ function structures(track: Track, out: Solid[]): void {
       x /= pts.length / 3;
       z /= pts.length / 3;
       let r = 0;
-      for (let i = 0; i < pts.length; i += 3) r = Math.max(r, Math.hypot(pts[i]! - x, pts[i + 2]! - z));
+      for (let i = 0; i < pts.length; i += 3) r = Math.max(r, hypot2(pts[i]! - x, pts[i + 2]! - z));
       out.push({ x, z, r, make: (R) => R.ColliderDesc.convexHull(pts) });
     }
   }

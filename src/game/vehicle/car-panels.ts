@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 import { ARCH_R, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 
@@ -94,7 +95,7 @@ function cut(style: BodyStyle, body: THREE.BufferGeometry): PanelRegion[] {
         const [wx, , wz] = WHEEL_POS[k]!;
         if (Math.sign(wx) !== side) continue;
         const dy = y - hubY;
-        const r = dy > 0 ? Math.hypot(z - wz, dy) : Math.abs(z - wz);
+        const r = dy > 0 ? hypot2(z - wz, dy) : Math.abs(z - wz);
         if (archOk && r >= ARCH_R - ARCH_IN && r <= ARCH_R + ARCH_OUT) name = PANEL_NAMES[2 + k]!;
       }
       if (!name && m <= QUARTER_LAST && z <= zFront && z >= zTail) name = side < 0 ? "quarterL" : "quarterR";

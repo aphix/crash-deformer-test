@@ -142,7 +142,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
     const speed0 = cars.map((c) => Math.hypot(c.velocity.x, c.velocity.z));
     const shove = new Array<number>(n).fill(0);
     const snaps = match.snapshots(n);
-    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
     for (const [i, c] of cars.entries()) {
       applyDrive(c, match.think(snaps[i]!, snaps, h), h);
       const now = match.brain.tacticOf(i);

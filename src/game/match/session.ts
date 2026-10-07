@@ -62,6 +62,18 @@ export function startLights(time: number): 0 | 1 | 2 | 3 {
 const NO_EVENTS: readonly RaceEvent[] = [];
 const NO_COPS: readonly { x: number; z: number }[] = [];
 
+/**
+ * Slots of `RaceSession.io`: the step's window and the car's move, written by `step` and `stepCar`, read by the rules that run
+ * per car per step. A number handed to a call V8 does not inline is boxed on the heap; a slot is not.
+ */
+const WIN_FROM_IDX = 0; // race clock (s) where the step's racing part starts
+const WIN_SPAN_IDX = 1; // its length (s); 0 where the clock does not run (no wrong-way timer)
+const MOVE_X0_IDX = 2; // the car's position when the step began
+const MOVE_Z0_IDX = 3;
+const VEL_X_IDX = 4; // its velocity at the end of the step
+const VEL_Z_IDX = 5;
+const IO_COUNT = 6;
+
 const RANK_GROUP: Record<CarStatus, number> = { finished: 0, racing: 1, respawning: 1, dnf: 1, out: 2 };
 
 function newRecord(e: Entrant, grid: number, x: number, z: number): CarRecord {
@@ -131,6 +143,8 @@ export class RaceSession {
   private readonly pt = blankPoint();
   /** `stretch`'s result (a field, not a returned object: it runs per car per step). */
   private readonly span = { lo: 0, hi: 0, u: 0, at: NaN };
+  /** The step's window and the car's move (`WIN_*`, `MOVE_*`, `VEL_*` slots). */
+  private readonly io = new Float64Array(IO_COUNT);
 
   /** `entrants` in grid order (index 0 on pole). */
   constructor(track: Track, entrants: readonly Entrant[], opts: { laps: number; noReset: boolean; survival?: { bustTime: number } }) {
@@ -145,7 +159,7 @@ export class RaceSession {
     });
     this.rank = this.cars.map((_, i) => i);
     this.firstAt = new Float64Array((this.laps + 1) * track.gates.length).fill(NaN);
-    for (let i = 0; i < this.cars.length; i++) this.measure(i, 0, 0, 0);
+    for (let i = 0; i < this.cars.length; i++) this.measure(i);
     this.sortRank();
   }
 
@@ -191,14 +205,17 @@ export class RaceSession {
     if (this.phase === "grid" && this.time >= -COUNTDOWN) this.phase = "countdown";
     if (this.phase === "countdown" && this.time >= 0) {
       this.phase = "racing";
-      this.queue.push({ type: "go" });
+      this.announceGo();
     }
     if (this.phase !== "racing") {
+      this.io[VEL_X_IDX] = 0;
+      this.io[VEL_Z_IDX] = 0;
+      this.io[WIN_SPAN_IDX] = 0;
       for (let i = 0; i < this.cars.length; i++) {
         const p = poses[i]!;
         this.cars[i]!.x = p.x;
         this.cars[i]!.z = p.z;
-        this.measure(i, 0, 0, 0);
+        this.measure(i);
       }
       this.sortRank();
       return;
@@ -206,12 +223,32 @@ export class RaceSession {
     // The green light fell inside this step: the move before it earns nothing.
     const from = Math.max(t0, 0);
     const span = this.time - from;
+    this.io[WIN_FROM_IDX] = from;
+    this.io[WIN_SPAN_IDX] = span;
     this.finishers.length = 0;
-    for (let i = 0; i < this.cars.length; i++) this.stepCar(i, poses[i]!, from, span);
+    for (let i = 0; i < this.cars.length; i++) this.stepCar(i, poses[i]!);
     this.drafting(poses, span);
     this.busting(poses, cops, span);
     this.sortRank();
     this.settle();
+  }
+
+  /** The green light: `go` for the host. */
+  private announceGo(): void {
+    this.queue.push({ type: "go" });
+  }
+
+  /** This step's finishers for the host, and the winner when the first of them is home. */
+  private announceFinishers(): void {
+    for (let k = 0; k < this.finishers.length; k++) {
+      const c = this.cars[this.finishers[k]!]!;
+      this.queue.push({ type: "finish", id: c.id, place: c.place, time: c.finishTime! });
+    }
+    if (this.winnerId == null) {
+      const first = this.cars[this.rank[0]!]!;
+      this.winnerId = first.id;
+      this.winBy = "laps";
+    }
   }
 
   /** `DRAFT`: each racing car's unbroken seconds in another's trail, and the boost bonuses that earned. */
@@ -324,7 +361,7 @@ export class RaceSession {
     });
   }
 
-  private stepCar(i: number, pose: CarPose, t0: number, dt: number): void {
+  private stepCar(i: number, pose: CarPose): void {
     const c = this.cars[i]!;
     if (c.status === "finished" || c.status === "out" || c.status === "dnf") {
       c.x = pose.x;
@@ -350,12 +387,17 @@ export class RaceSession {
     c.z = pose.z;
     const mx = pose.x - x0;
     const mz = pose.z - z0;
-    if (!this.endless && mx * mx + mz * mz < TELEPORT * TELEPORT) this.gates(i, x0, z0, t0, dt);
-    if (!this.endless && c.status === "racing") this.measure(i, pose.vx, pose.vz, dt);
+    const io = this.io;
+    io[MOVE_X0_IDX] = x0;
+    io[MOVE_Z0_IDX] = z0;
+    io[VEL_X_IDX] = pose.vx;
+    io[VEL_Z_IDX] = pose.vz;
+    if (!this.endless && mx * mx + mz * mz < TELEPORT * TELEPORT) this.gates(i);
+    if (!this.endless && c.status === "racing") this.measure(i);
   }
 
   /**
-   * Gate credit for the move (x0, z0) → (c.x, c.z) over [t0, t0 + dt]. A designed shortcut counts
+   * Gate credit for the move (x0, z0) → (c.x, c.z) over [t0, t0 + dt] (the `io` slots). A designed shortcut counts
    * from any of its gates but the last, through any later one: a car that drives its own line
    * across the shortcut's ground (skipping a gate of it) still took the shortcut. Main checkpoints
    * stay strict; crossing a later one with a checkpoint still owed sets `missed`. Which road the car is
@@ -364,13 +406,18 @@ export class RaceSession {
    * main road (a shortcut that runs beside the road lies within a gate's reach), and where several
    * shortcuts leave one checkpoint the car is on the one whose road is nearest.
    */
-  private gates(i: number, x0: number, z0: number, t0: number, dt: number): void {
+  private gates(i: number): void {
     const c = this.cars[i]!;
     const tr = this.track;
     const n = tr.gates.length;
+    const io = this.io;
+    const x0 = io[MOVE_X0_IDX]!;
+    const z0 = io[MOVE_Z0_IDX]!;
+    const t0 = io[WIN_FROM_IDX]!;
+    const dt = io[WIN_SPAN_IDX]!;
     for (let guard = 0; guard < 4 && c.status === "racing"; guard++) {
       if (c.route >= 0) {
-        this.reroute(c, x0, z0);
+        this.reroute(c);
         const sc = tr.shortcuts[c.route]!;
         const last = sc.gates.length - 1;
         let hit = -1;
@@ -399,7 +446,7 @@ export class RaceSession {
       }
       // A shortcut gate crossed off the main road comes first: a shortcut that runs through the reach of a main gate is not the main road.
       if (c.armed) {
-        this.reroute(c, x0, z0);
+        this.reroute(c);
         if (c.route >= 0) continue;
       }
       const f = crossGate(tr.gates[c.next]!, x0, z0, c.x, c.z);
@@ -429,7 +476,9 @@ export class RaceSession {
    * with a gate (but the exit) crossed this move off the main road, the car takes the one whose road is nearest, and a car
    * already on one only moves to a nearer.
    */
-  private reroute(c: CarRecord, x0: number, z0: number): void {
+  private reroute(c: CarRecord): void {
+    const x0 = this.io[MOVE_X0_IDX]!;
+    const z0 = this.io[MOVE_Z0_IDX]!;
     const tr = this.track;
     const n = tr.gates.length;
     let best = -1;
@@ -514,16 +563,16 @@ export class RaceSession {
     } else {
       const L = tr.length;
       const n = tr.gates.length;
-      sp.lo = tr.gateS((c.next - 1 + n) % n);
-      sp.hi = c.next === 0 ? L : tr.gateS(c.next);
+      sp.lo = tr.gates[(c.next - 1 + n) % n]!.s;
+      sp.hi = c.next === 0 ? L : tr.gates[c.next]!.s;
       if (sp.u < sp.lo - L * 0.5) sp.u += L;
       else if (sp.u > sp.hi + L * 0.5) sp.u -= L;
     }
     sp.at = road && sp.u >= sp.lo && sp.u <= sp.hi ? sp.u : NaN;
   }
 
-  /** Projection, ranking distance and the wrong-way timer (velocity, dt = 0 to skip the timer). */
-  private measure(i: number, vx: number, vz: number, dt: number): void {
+  /** Projection, ranking distance and the wrong-way timer (the car's velocity and the step's window from `io`; no window, no timer). */
+  private measure(i: number): void {
     const c = this.cars[i]!;
     const tr = this.track;
     const L = tr.length;
@@ -539,11 +588,11 @@ export class RaceSession {
       // that crossed a gate at a mouth while driving past, and one that left the shortcut for the road, owes the main gate it owed.
       if (p.dist2 > (path.half[p.k]! + OPEN_REACH) ** 2 && tr.onRoad(c.x, c.z, this.back)) {
         this.leaveRoute(c, c.next);
-        this.measure(i, vx, vz, dt);
+        this.measure(i);
         return;
       }
-      const a = tr.gateS(sc.from);
-      const b = sc.to === 0 ? L : tr.gateS(sc.to);
+      const a = tr.gates[sc.from]!.s;
+      const b = sc.to === 0 ? L : tr.gates[sc.to]!.s;
       s = a + clamp(p.s / path.length, 0, 1) * (b - a);
       road = inCorridor(path, p);
       this.stretch(c, p, road);
@@ -562,7 +611,10 @@ export class RaceSession {
     }
     c.seg = p.k;
     c.progress = c.lap * L + s;
+    const dt = this.io[WIN_SPAN_IDX]!;
     if (dt <= 0) return;
+    const vx = this.io[VEL_X_IDX]!;
+    const vz = this.io[VEL_Z_IDX]!;
     const speed = hypot2(vx, vz);
     const k = p.k;
     // Heading against the road means nothing off it (a car leaving through a mouth, a spin in the field): only on the road, its runoff and its wall.
@@ -697,17 +749,7 @@ export class RaceSession {
 
   /** Finish events, the winner, the last-alive rule and the close. */
   private settle(): void {
-    if (this.finishers.length > 0) {
-      for (let k = 0; k < this.finishers.length; k++) {
-        const c = this.cars[this.finishers[k]!]!;
-        this.queue.push({ type: "finish", id: c.id, place: c.place, time: c.finishTime! });
-      }
-      if (this.winnerId == null) {
-        const first = this.cars[this.rank[0]!]!;
-        this.winnerId = first.id;
-        this.winBy = "laps";
-      }
-    }
+    if (this.finishers.length > 0) this.announceFinishers();
     let winTime = Number.NaN;
     if (this.winBy === "laps") for (let k = 0; k < this.cars.length; k++) if (this.cars[k]!.id === this.winnerId) winTime = this.cars[k]!.finishTime!;
     let running = 0;

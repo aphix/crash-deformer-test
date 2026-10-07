@@ -48,7 +48,7 @@ function race(track: Track, n: number, aggression: number, laps: number, limit: 
   let samples = 0;
   let step = 0;
   while (session.phase !== "finished" && session.time < limit) {
-    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses);
+    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, true);
     for (const [i, c] of cars.entries()) {
       const rec = session.cars[i]!;
       const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
