@@ -808,12 +808,10 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const hl = Math.hypot(axes[6]!, axes[8]!);
   const fx = hl > 1e-6 ? axes[6]! / hl : 0;
   const fz = hl > 1e-6 ? axes[8]! / hl : 1;
-  // A tyre stands on what is under its hub; the arcs add what it can mount from there (a step of at most `MOUNT` of its radius over
-  // that floor): a face higher than that is a wall, not a floor the arc has lifted itself onto (the wedge's flank a tyre's arc overhangs).
-  // Every point asks from the tyre's bottom (`TYRE` under the hub).
+  // The arcs add what the tyre can mount from where its bottom is (a step of at most `MOUNT` of its radius): a face higher than that is a
+  // wall, not a floor the arc has lifted itself onto (the wedge's flank a tyre's arc overhangs). Every point asks from the tyre's bottom.
   const stands = hub[1]! - TYRE * scale;
-  pointContact(hub[0]!, hub[2]!, stands, skip, _w);
-  const mounts = (_w[C_H]! > NONE ? _w[C_H]! : stands) + MOUNT * TYRE * scale;
+  const mounts = stands + MOUNT * TYRE * scale;
   // The tread as a whole is what the tyre touches: every arc point and both shoulders, each asked from the hub's height as a tread point of
   // the drawn tyre is (a face a kerb above it is the ground it sits in). A tyre pressed to a wall or hung on a lip's edge is down on the floor
   // under its hub: it counts when any of its tread is in or on a surface, whatever its hub stands on (`C_TOUCH`).

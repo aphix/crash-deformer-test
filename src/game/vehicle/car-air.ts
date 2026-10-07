@@ -221,7 +221,6 @@ export function wheelsAt(car: DeformableCar, within: number): number {
     wheelContact(_hub, _e, sc, car.slot, _hit);
     const o = i * HIT_SIZE;
     for (let k = 0; k < HIT_SIZE; k++) hit[o + k] = _hit[k]!;
-    // The tread within reach of what is under it, or pressed into a wall beside the floor under the hub (it stands on that floor).
     if (-_hit[C_TOUCH]! <= within && _hit[C_H]! > NO_FLOOR) mask |= 1 << i;
   }
   return mask;
@@ -376,6 +375,8 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
   _q0.copy(q).invert();
+  const pitch0 = car.pitch;
+  const roll0 = car.roll;
   let gy = 0;
   let nx = 0;
   let ny = 1;
@@ -383,8 +384,12 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   // The pose a pass leaves moves the tyres over the surface (a lip's face, a bank): a second pass reads them where the first left them.
   for (let pass = 0; pass < 2; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
+    if (Reflect.get(globalThis, "DBGP") === true) console.log(`   pass${pass} mask ${mask} rises ${[0, 1, 2, 3].map((i) => car.wheelHit[i * HIT_SIZE + C_H]!.toFixed(3)).join(",")} touch ${[0, 1, 2, 3].map((i) => car.wheelHit[i * HIT_SIZE + C_TOUCH]!.toFixed(3)).join(",")} y ${pos.y.toFixed(3)} pitch ${car.pitch.toFixed(3)} roll ${car.roll.toFixed(3)}`);
     if (worldWheels(car, mask) < 3 || !restPlane(car, mask, yaw, spring)) {
-      // The body takes off: the wheels still reaching are all it touches (its hull is read by the rigid step next slice).
+      // The body takes off from the pose it had: a pass's plane that the next pass does not confirm leaves nothing behind.
+      q.copy(_q0).invert();
+      car.pitch = pitch0;
+      car.roll = roll0;
       car.wheelsDown = mask;
       car.airborne = mask === 0;
       return false;
