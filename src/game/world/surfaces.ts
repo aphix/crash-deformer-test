@@ -773,11 +773,11 @@ const RINGS: readonly (readonly [number, number])[] = [
   [0.104, 0.298],
   [-0.104, 0.298],
 ];
-const STEPS = 8;
+const STEPS = 12;
 const FOOT = RINGS.length * (2 * STEPS + 1);
 const BASE = RINGS.length + 6;
-/** The crown's arcs (in steps either side) that the base footprint carries. */
-const CROWN = [1, 2, 4];
+/** The crown's arcs (in steps either side) that the base footprint carries: 7.5°, 15° and 45°. */
+const CROWN = [1, 2, STEPS / 2];
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
