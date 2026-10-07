@@ -118,7 +118,7 @@ function onFloor(x: number, z: number, margin = 0): boolean {
  * The channel (floor and both walls) as one triangle mesh, a section every `step` m along the run: what the ragdoll
  * dummies collide with. Sections hold the floor's left and right edge and the top of each wall (4 vertices each).
  */
-export function corkscrewMesh(step: number): { vertices: Float32Array; indices: Uint32Array } {
+function corkscrewMesh(step: number): { vertices: Float32Array; indices: Uint32Array } {
   const n = Math.round(CORKSCREW.len / step) + 1;
   const vertices = new Float32Array(n * 12);
   const indices = new Uint32Array((n - 1) * 18);

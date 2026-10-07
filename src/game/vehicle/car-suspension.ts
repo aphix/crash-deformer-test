@@ -49,7 +49,7 @@ export const UNDERSIDE: readonly (readonly [number, number, number])[] = [
   ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
 ];
 /** The underside samples and the bumpers' bottom corners (car-local x, z, height above the tyre plane): what the body bottoms out on. */
-export const HULL_UNDER: readonly (readonly [number, number, number])[] = [
+const HULL_UNDER: readonly (readonly [number, number, number])[] = [
   ...UNDERSIDE,
   ...[-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, number] => [sx * CAR_HALF.x, sz * CAR_HALF.z, 0.35])),
 ];

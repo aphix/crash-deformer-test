@@ -21,7 +21,7 @@ export const C_NZ = 3;
 export const C_GRIP = 4;
 export const C_SURF = 5;
 export const C_OWNER = 6;
-export const C_ARG = 7;
+const C_ARG = 7;
 /** A roof's follow factor (0..1) at the point, 1 for a patch without `aux`. */
 export const C_AUX = 8;
 /** `wheelContact` only: the world position of the footprint point that sets `rise`. */
@@ -46,7 +46,7 @@ const NONE = -Infinity;
 
 /** A patch's kind. */
 export const GRID = 0;
-export const DECK = 1;
+const DECK = 1;
 
 /** Patch parameters, `P_STRIDE` numbers each. A grid reads its frame, a deck its road segment. */
 export const P_STRIDE = 25;
@@ -126,7 +126,7 @@ for (let i = 0; i < SURFACE_IDS.length; i++) GRIPS[i] = SURFACES[SURFACE_IDS[i]!
 const ASPHALT = 0;
 
 /** A grid patch's data. `heights` are the nodes' frame y (row-major, `nu` wide); the frame's origin is at world (ox, oy, oz). */
-export type GridSpec = {
+type GridSpec = {
   nu: number;
   nv: number;
   /** Node spacing along the frame's x (`step`) and z (`stepV`). */
@@ -493,43 +493,40 @@ export class Surface {
 
 const YAW0 = [1, 0, 0, 0, 1, 0, 0, 0, 1] as const;
 
-/** The static surface in force (a scene's ground) and the cars' tops while a step runs. */
-let statics: Surface | null = null;
-let tops: Surface | null = null;
+/** The static surface in force (a scene's ground) and the cars' tops while a step runs; `surf` is `offer`'s best candidate's surface. */
+const live: { statics: Surface | null; tops: Surface | null; surf: Surface | null } = { statics: null, tops: null, surf: null };
 
 /** Make `s` the scene's static surface (`null`: none). Sealed on first use. */
 export function activate(s: Surface | null): void {
   if (s !== null && !s.sealed) s.seal();
-  statics = s;
+  live.statics = s;
 }
 
 /** Arm (or, with `null`, disarm) the dynamic tops: the other cars' roofs a body steps on while a world step runs. */
 export function armTops(t: Surface | null): void {
-  tops = t;
+  live.tops = t;
 }
 
 /** Whether the scene's static surface has walls its own contact parts a body from. */
 export function groundWalls(): boolean {
-  return statics !== null && statics.walls;
+  return live.statics !== null && live.statics.walls;
 }
 
-// The best candidate so far (scratch of `offer`).
-let _best = NONE;
-let _surf: Surface | null = null;
-let _patch = -1;
-let _g0 = 0;
-let _g1 = 0;
-let _node = -1;
-let _owner = -1;
-let _aux = 1;
-// The candidate being evaluated.
-let _cg0 = 0;
-let _cg1 = 0;
-let _cn = -1;
-let _caux = 1;
-// One cell's bilinear partials (per cell unit), set by `bil`.
-let _pu = 0;
-let _pv = 0;
+/** `offer`'s scratch: the best candidate so far (`S_BEST`..`S_AUX`), the candidate being evaluated (`S_CG0`..`S_CAUX`) and one cell's bilinear partials (per cell unit, `S_PU`, `S_PV`, set by `bil`). */
+const _s = new Float64Array(13);
+const S_BEST = 0;
+const S_PATCH = 1;
+const S_G0 = 2;
+const S_G1 = 3;
+const S_NODE = 4;
+const S_OWNER = 5;
+const S_AUX = 6;
+const S_CG0 = 7;
+const S_CG1 = 8;
+const S_CN = 9;
+const S_CAUX = 10;
+const S_PU = 11;
+const S_PV = 12;
 
 function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): number {
   const h00 = f[c]!;
@@ -538,8 +535,8 @@ function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): nu
   const h11 = f[c + nu + 1]!;
   const a = h00 + (h10 - h00) * fu;
   const b = h01 + (h11 - h01) * fu;
-  _pu = (1 - fv) * (h10 - h00) + fv * (h11 - h01);
-  _pv = b - a;
+  _s[S_PU] = (1 - fv) * (h10 - h00) + fv * (h11 - h01);
+  _s[S_PV] = b - a;
   return a + (b - a) * fv;
 }
 
@@ -557,8 +554,8 @@ function hillsAt(h: Float64Array, x: number, z: number): number {
     gx += (-2 * dx * e) / r2;
     gz += (-2 * dz * e) / r2;
   }
-  _cg0 = gx;
-  _cg1 = gz;
+  _s[S_CG0] = gx;
+  _s[S_CG1] = gz;
   return sum;
 }
 
@@ -587,7 +584,7 @@ function gridAt(s: Surface, i: number, x: number, z: number, y: number): number 
   const nv = s.q[qo + Q_NV]!;
   if (fu < 0 || fv < 0 || fu >= nu - 1 || fv >= nv - 1) {
     if (s.q[qo + Q_SURF2]! < 0) return NaN;
-    _cn = -1;
+    _s[S_CN] = -1;
     return P[o + P_OY]! + hillsAt(s.hills[i]!, x, z);
   }
   const ci = Math.floor(fu);
@@ -600,28 +597,28 @@ function gridAt(s: Surface, i: number, x: number, z: number, y: number): number 
   if (lat.length > 0 && lat[c]! === lat[c]! && lat[c + 1]! === lat[c + 1]! && lat[c + nu]! === lat[c + nu]! && lat[c + nu + 1]! === lat[c + nu + 1]!) {
     // The road's crease: centre height less the (clamped) lateral share of the drop, so the bank's edge stays sharp.
     const l = bil(lat, c, nu, tu, tv);
-    const lu1 = _pu;
-    const lv1 = _pv;
+    const lu1 = _s[S_PU];
+    const lv1 = _s[S_PV];
     const centre = bil(s.centre[i]!, c, nu, tu, tv);
-    const cu = _pu;
-    const cv = _pv;
+    const cu = _s[S_PU];
+    const cv = _s[S_PV];
     const drop = bil(s.drop[i]!, c, nu, tu, tv);
-    const du = _pu;
-    const dv = _pv;
+    const du = _s[S_PU];
+    const dv = _s[S_PV];
     const k = Math.max(-1, Math.min(1, l));
     const inside = l > -1 && l < 1;
     h = centre - k * drop;
-    _cg0 = (cu - k * du - (inside ? lu1 * drop : 0)) / step;
-    _cg1 = (cv - k * dv - (inside ? lv1 * drop : 0)) / stepV;
+    _s[S_CG0] = (cu - k * du - (inside ? lu1 * drop : 0)) / step;
+    _s[S_CG1] = (cv - k * dv - (inside ? lv1 * drop : 0)) / stepV;
   } else {
     h = bil(s.nodes[i]!, c, nu, tu, tv);
-    _cg0 = _pu / step;
-    _cg1 = _pv / stepV;
+    _s[S_CG0] = _s[S_PU] / step;
+    _s[S_CG1] = _s[S_PV] / stepV;
   }
-  _cn = Math.round(fv) * nu + Math.round(fu);
+  _s[S_CN] = Math.round(fv) * nu + Math.round(fu);
   const aux = s.auxs[i]!;
-  if (aux.length > 0) _caux = bil(aux, c, nu, tu, tv);
-  h -= P[o + P_DROP]! * _caux;
+  if (aux.length > 0) _s[S_CAUX] = bil(aux, c, nu, tu, tv);
+  h -= P[o + P_DROP]! * _s[S_CAUX];
   // The surface point's world height: the frame's origin plus its local x, y and z along the axes' y components.
   return P[o + P_OY]! + P[o + P_AX + 1]! * lu + P[o + P_BX + 1]! * h + P[o + P_CX + 1]! * lv;
 }
@@ -644,9 +641,9 @@ function deckAt(s: Surface, i: number, x: number, z: number): number {
   if (Math.abs(lat) > half + run) return NaN;
   const tan = P[o + D_TAN]!;
   const inside = Math.abs(lat) < half;
-  _cg0 = (P[o + D_DY]! * ex) / len2 - (inside ? (tan * ez) / len : 0);
-  _cg1 = (P[o + D_DY]! * ez) / len2 + (inside ? (tan * ex) / len : 0);
-  _cn = Math.abs(lat) <= half ? 0 : 1;
+  _s[S_CG0] = (P[o + D_DY]! * ex) / len2 - (inside ? (tan * ez) / len : 0);
+  _s[S_CG1] = (P[o + D_DY]! * ez) / len2 + (inside ? (tan * ex) / len : 0);
+  _s[S_CN] = Math.abs(lat) <= half ? 0 : 1;
   return P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
 }
 
@@ -659,18 +656,18 @@ function offer(s: Surface, i: number, x: number, z: number, y: number, skip: num
   const owner = s.q[qo + Q_OWNER]!;
   // A car's own roof is not under it, nor is the roof of a car whose origin is higher (two cars standing on each other lifted one another 1.5 m a frame).
   if (owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && P[o + P_OY]! > P[skip * P_STRIDE + P_OY]!))) return;
-  _caux = 1;
+  _s[S_CAUX] = 1;
   const h = s.q[qo + Q_KIND] === DECK ? deckAt(s, i, x, z) : gridAt(s, i, x, z, y);
   // NaN (no surface) fails the first test; an unlimited reach under an asker at -Infinity is NaN and passes the second.
-  if (h !== h || h > y + P[o + P_REACH]! || h < _best) return;
-  _best = h;
-  _surf = s;
-  _patch = i;
-  _g0 = _cg0;
-  _g1 = _cg1;
-  _node = _cn;
-  _aux = _caux;
-  _owner = owner;
+  if (h !== h || h > y + P[o + P_REACH]! || h < _s[S_BEST]) return;
+  _s[S_BEST] = h;
+  live.surf = s;
+  _s[S_PATCH] = i;
+  _s[S_G0] = _s[S_CG0];
+  _s[S_G1] = _s[S_CG1];
+  _s[S_NODE] = _s[S_CN];
+  _s[S_AUX] = _s[S_CAUX];
+  _s[S_OWNER] = owner;
 }
 
 /** The highest surface at the point over `s`'s patches, into the best-candidate scratch. */
@@ -690,7 +687,7 @@ function find(s: Surface, x: number, z: number, y: number, skip: number): void {
  * (aux: the patch's per-node factor there, 1 without one); height `-Infinity` and grip 0 where there is none.
  */
 function report(out: Float64Array): void {
-  const w = _surf as Surface | null;
+  const w = live.surf;
   if (w === null) {
     out[C_H] = NONE;
     out[C_NX] = 0;
@@ -704,21 +701,21 @@ function report(out: Float64Array): void {
     return;
   }
   const P = w.p;
-  const o = _patch * P_STRIDE;
-  const qo = _patch * Q_STRIDE;
+  const o = _s[S_PATCH] * P_STRIDE;
+  const qo = _s[S_PATCH] * Q_STRIDE;
   const deck = w.q[qo + Q_KIND] === DECK;
-  out[C_H] = _best;
-  if (deck || _node < 0) {
+  out[C_H] = _s[S_BEST];
+  if (deck || _s[S_NODE] < 0) {
     // Partials in world plan.
-    const len = Math.hypot(_g0, 1, _g1);
-    out[C_NX] = -_g0 / len;
+    const len = Math.hypot(_s[S_G0], 1, _s[S_G1]);
+    out[C_NX] = -_s[S_G0] / len;
     out[C_NY] = 1 / len;
-    out[C_NZ] = -_g1 / len;
+    out[C_NZ] = -_s[S_G1] / len;
   } else {
     // Partials along the frame's x and z: the normal is (−gx, 1, −gz) in the frame, turned into world.
-    const nx = -_g0 * P[o + P_AX]! + P[o + P_BX]! - _g1 * P[o + P_CX]!;
-    const ny = -_g0 * P[o + P_AX + 1]! + P[o + P_BX + 1]! - _g1 * P[o + P_CX + 1]!;
-    const nz = -_g0 * P[o + P_AX + 2]! + P[o + P_BX + 2]! - _g1 * P[o + P_CX + 2]!;
+    const nx = -_s[S_G0] * P[o + P_AX]! + P[o + P_BX]! - _s[S_G1] * P[o + P_CX]!;
+    const ny = -_s[S_G0] * P[o + P_AX + 1]! + P[o + P_BX + 1]! - _s[S_G1] * P[o + P_CX + 1]!;
+    const nz = -_s[S_G0] * P[o + P_AX + 2]! + P[o + P_BX + 2]! - _s[S_G1] * P[o + P_CX + 2]!;
     const len = Math.hypot(nx, ny, nz);
     out[C_NX] = nx / len;
     out[C_NY] = ny / len;
@@ -726,14 +723,14 @@ function report(out: Float64Array): void {
   }
   let surf = w.q[qo + Q_SURF]!;
   if (deck) {
-    if (_node !== 0) surf = w.q[qo + Q_SURF2]!;
-  } else if (surf < 0) surf = _node >= 0 ? w.surfs[_patch]![_node]! : w.q[qo + Q_SURF2]!;
-  else if (_node < 0) surf = w.q[qo + Q_SURF2]!;
+    if (_s[S_NODE] !== 0) surf = w.q[qo + Q_SURF2]!;
+  } else if (surf < 0) surf = _s[S_NODE] >= 0 ? w.surfs[_s[S_PATCH]]![_s[S_NODE]]! : w.q[qo + Q_SURF2]!;
+  else if (_s[S_NODE] < 0) surf = w.q[qo + Q_SURF2]!;
   out[C_SURF] = surf;
   out[C_GRIP] = P[o + P_GRIP]! * GRIPS[surf]!;
-  out[C_OWNER] = _owner;
-  out[C_ARG] = _patch;
-  out[C_AUX] = _aux;
+  out[C_OWNER] = _s[S_OWNER];
+  out[C_ARG] = _s[S_PATCH];
+  out[C_AUX] = _s[S_AUX];
 }
 
 /**
@@ -742,18 +739,18 @@ function report(out: Float64Array): void {
  * slot the body is itself (its own roof is not under it, nor is a roof of a car higher than it), −1 none.
  */
 export function pointContact(x: number, z: number, y: number, skip: number, out: Float64Array): void {
-  _best = NONE;
-  _surf = null;
-  if (statics !== null) find(statics, x, z, y, skip);
-  const t = tops;
+  _s[S_BEST] = NONE;
+  live.surf = null;
+  if (live.statics !== null) find(live.statics, x, z, y, skip);
+  const t = live.tops;
   if (t !== null) for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, x, z, y, skip);
   report(out);
 }
 
 /** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
 export function contactIn(s: Surface, x: number, z: number, y: number, out: Float64Array): void {
-  _best = NONE;
-  _surf = null;
+  _s[S_BEST] = NONE;
+  live.surf = null;
   if (!s.sealed) s.seal();
   find(s, x, z, y, -1);
   report(out);
@@ -784,22 +781,25 @@ const FZ = new Float64Array(FOOT);
 /** Arcs per ring, and the footprint index of ring s's arc k at `s * ARCS + k + STEPS`. */
 const ARCS = 2 * STEPS + 1;
 const KOF = new Int16Array(FOOT);
-let _at = 0;
-function arc(ring: number, k: number): void {
+/** Footprint point `at` as ring `ring`'s arc `k`; returns the next point's index. */
+function arc(at: number, ring: number, k: number): number {
   const a = (k / STEPS) * (Math.PI / 2);
-  FX[_at] = RINGS[ring]![0];
-  FY[_at] = -RINGS[ring]![1] * Math.cos(a);
-  FZ[_at] = RINGS[ring]![1] * Math.sin(a);
-  KOF[ring * ARCS + k + STEPS] = _at;
-  _at++;
+  FX[at] = RINGS[ring]![0];
+  FY[at] = -RINGS[ring]![1] * Math.cos(a);
+  FZ[at] = RINGS[ring]![1] * Math.sin(a);
+  KOF[ring * ARCS + k + STEPS] = at;
+  return at + 1;
 }
-for (let s = 0; s < RINGS.length; s++) arc(s, 0);
-for (let c = 0; c < CROWN.length; c++) {
-  arc(0, CROWN[c]!);
-  arc(0, -CROWN[c]!);
-}
-for (let k = -STEPS; k <= STEPS; k++) {
-  for (let s = 0; s < RINGS.length; s++) if (k !== 0 && (s !== 0 || !CROWN.includes(Math.abs(k)))) arc(s, k);
+{
+  let at = 0;
+  for (let s = 0; s < RINGS.length; s++) at = arc(at, s, 0);
+  for (let c = 0; c < CROWN.length; c++) {
+    at = arc(at, 0, CROWN[c]!);
+    at = arc(at, 0, -CROWN[c]!);
+  }
+  for (let k = -STEPS; k <= STEPS; k++) {
+    for (let s = 0; s < RINGS.length; s++) if (k !== 0 && (s !== 0 || !CROWN.includes(Math.abs(k)))) at = arc(at, s, k);
+  }
 }
 /** How far (m at wheel scale 1, plan) a footprint point reaches from its hub, with a margin for the body's tilt. */
 const FOOT_REACH = 0.4;
@@ -984,7 +984,7 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const x = hub[0]!;
   const z = hub[2]!;
   const y = hub[1]!;
-  const n = (statics !== null && edgeIn(statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
+  const n = (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) || (live.tops !== null && edgeIn(live.tops, x, z, y, r, skip)) ? FOOT : BASE;
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   pointContact(x, z, y, skip, _w);

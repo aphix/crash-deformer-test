@@ -93,7 +93,7 @@ export const TOUCH = 0.03;
 const LAY_REACH = 0.4;
 /** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
  *  peaked at 4–12 g on the same ramps and crests). The pose-following step shares it. */
-export const SUPPORT = 8 * G;
+const SUPPORT = 8 * G;
 /** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,
  *  `Suspension`, take a landing) don't bounce. */
 const RESTITUTION = 0.25;
@@ -271,7 +271,7 @@ function basisOf(q: THREE.Quaternion): void {
  * `car.wheelHit` (slot i at `i * HIT_SIZE`: the lift it needs, the normal, grip, surface, owner and the footprint point).
  * Returns the wheels reaching, bit i: the tread within `within` m above its surface (or in it).
  */
-export function wheelsAt(car: DeformableCar, within: number): number {
+function wheelsAt(car: DeformableCar, within: number): number {
   const p = car.group.position;
   basisOf(car.group.quaternion);
   const hit = car.wheelHit;
