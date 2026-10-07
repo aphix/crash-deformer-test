@@ -34,14 +34,14 @@ import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
 import { Purses } from "./ragdoll-purse.ts";
-import { PropBodies } from "./ragdoll-props.ts";
+import { CAR_BOX, PropBodies } from "./ragdoll-props.ts";
 import type { PropTumble } from "./prop-tumble.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
 import { AIR_ANGULAR, AIR_LINEAR, ARM, blendPose, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, readPose, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
 import { joinUp } from "./ragdoll-joints.ts";
-import { groundColliders, PATCH_AHEAD, type Pole } from "./ragdoll-ground.ts";
+import { groundColliders, PATCH_AHEAD, PATCH_HALF, type Pole } from "./ragdoll-ground.ts";
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
@@ -74,7 +74,7 @@ const REST_SPEED = 0.4;
  */
 const PENDING_MAX = 1;
 /**
- * Rapier's step (sim s), the same at any display rate: `update` steps whole `STEP`s out of an accumulator and the draw
+ * Rapier's step (sim s) while a dummy is out, the same at any display rate: `update` takes whole steps out of an accumulator and the draw
  * blends the last two (it once stepped per frame, and Rapier warm-starts with the last step's impulse: landings 25.6–58.1 m).
  * 1/960 was 1/120 (lane ragdoll-rate): the slow-mo is 0.032×, so 1/120 was 273 ms of wall time, 3.7 poses a real second
  * drawn as chords, 8.3 sim ms behind the cars that step every frame. 1/480 (owner, 2026-10-06: half the steps, each
@@ -82,6 +82,20 @@ const PENDING_MAX = 1;
  * Tables: docs/CINEMATIC.md.
  */
 const STEP = 1 / 480;
+/**
+ * The step (sim s) while knocked props alone are out and none moves fast: rigid shapes with no joints to tear, with CCD
+ * (`PropBodies`) for the walls a coarser step would get wrong. Headless City, 32 cars, the props' 32 m patch: 2 steps of
+ * 0.079 ms a stepping frame against 8 of 0.047 at 1/480 (Rapier's profiler).
+ */
+const PROP_STEP = 1 / 120;
+/**
+ * A knocked prop any point of whose own shape moves faster than this (m/s: its middle's speed plus its turn times its
+ * reach) keeps the world at `STEP`: at 1/120, CCD and soft CCD on, a spinning cone flung at 31 m/s landed with its tip
+ * 110 mm in the ground. Measured over 80 run-overs of a lying cone at 10-40 m/s (deepest lowest point under the ground):
+ * 110.8 mm at 1/120 throughout, 50.4 with this at 12 m/s, 22.8 at 8, 23.0 at 1/480 throughout; the race's knocks (City,
+ * 32 cars, seeds 2-4, 17 props) at most 21 mm.
+ */
+const PROP_FAST = 8;
 /** The skin's hits, the spin limit and the purses are judged at this interval (sim s) whatever `STEP` is: `HIT_DV` is a speed change per interval. */
 const WATCH = 1 / 120;
 const WATCH_EVERY = Math.round(WATCH / STEP);
@@ -95,11 +109,23 @@ const BARRIER_REACH = Math.hypot(BARRIER_HALF.x, BARRIER_HALF.z);
 const ITERATIONS = 4;
 /** Rapier's internal solver passes per iteration (default 1): at the first touch of a 29 m/s throw one pass rose energy 75–325 J in a frame at 1/120 and 26–30 J (1 of 5 runs) at 1/480 and 1/960; two at most 0.6 J over 60 runs (60/144/240 Hz). */
 const INTERNAL_PASSES = 2;
-/** Each car's lower box (car-local, origin on the ground): half extents and centre height at rest; its ends past the bumpers' masses. */
+/**
+ * Each car's lower box (car-local, origin on the ground): half extents and centre height at rest of the part a standing
+ * prop meets (its bumper band, 5 cm up to the bonnet line); its ends past the bumpers' masses.
+ */
 const LOW_HALF_X = 0.86;
 const LOW_HALF_Y = 0.4;
 const LOW_HALF_Z = 2.15;
 const LOW_Y = 0.45;
+/**
+ * How far (m) the lower box reaches under the ground: no gap under it for a lying body to wedge into, so the box's front
+ * shoves it and never presses it into the ground (with its bottom 5 cm up, 31 of 80 run-overs of a lying cone pressed its
+ * lowest point over 32 mm under the road, one 0.66 m, left buried), and a car landing on one from up to a metre up shoves
+ * it aside. A bridge deck clears a road under it by more.
+ */
+const UNDER = 1;
+const BOX_HALF_Y = (LOW_Y + LOW_HALF_Y + UNDER) / 2;
+const BOX_Y = (LOW_Y + LOW_HALF_Y - UNDER) / 2;
 const NOSE_PAD = 0.09;
 /** How far (m) a car's lower box end may lag its crushed length before `fitEnds` refits it. */
 const FIT_EPS = 1e-4;
@@ -150,7 +176,7 @@ const G_PROPS = 0x20;
 const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CARS | G_PROPS;
 /** A woman's purse and what falls out of it hit the world, the barrier and every car (not their own for `GRACE` s), never a dummy. */
 const propGroups = (car: number) => (G_PROPS << 16) | G_STATIC | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
-/** A knocked prop (`PropBodies`) hits the world, the dummies, every car (not the one that knocked it for `GRACE` s) and the other knocked props; a purse lets it by. */
+/** A knocked prop (`PropBodies`) hits the world, the dummies, every car (not the one that knocked it for `GRACE` s, nor one squeezing it while its box covers it) and the other knocked props; a purse lets it by. */
 const knockedGroups = (car: number) => (G_PROPS << 16) | G_STATIC | G_DOLLS | G_PROPS | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
 const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS | G_PROPS;
 /** Car i's lower box and standing panes; a gone pane's slab collides with nothing (Rapier kept a disabled slab on a moving kinematic body in contact). */
@@ -241,8 +267,8 @@ export class RagdollSystem {
   /** The look seed (`driverLook`) the engine sets each frame: a driver keeps his tee and hair through a race. */
   lookSeed = 0;
   private purses: Purses | null = null;
-  /** The course's or the scene's knockable props: standing fixed on their spots, knocked ones tumbling (`knockProp`). */
-  private readonly props = new PropBodies(knockedGroups, FIXED_GROUPS, GRACE, STEP, (cx, cz, y) => this.patchAt(cx, cz, y));
+  /** The course's or the scene's knockable props: standing fixed on their spots, knocked ones tumbling (`knockProp`); a car's front meets one over its lower box's height. */
+  private readonly props = new PropBodies(knockedGroups, FIXED_GROUPS, GRACE, LOW_Y - LOW_HALF_Y, LOW_Y + LOW_HALF_Y, (cx, cz, y, half) => this.patchAt(cx, cz, y, half));
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
@@ -250,11 +276,13 @@ export class RagdollSystem {
   private readonly carBodies: RigidBody[] = [];
   /** Each car's lower box ends as last fitted (`fitEnds`): front, rear (car-local z). */
   private readonly ends = new Float32Array(MAX_CARS * 2);
+  /** Each car's lower box as last fitted, `CAR_BOX` floats (`PropBodies.press`): centre height and forward offset, half extents. */
+  private readonly boxes = new Float64Array(MAX_CARS * CAR_BOX);
   /**
    * Each car proxy's reach (m): the farthest point of its lower box and slabs from the car's origin (`fitEnds`; the box as
    * built until it is first fitted), and of its slabs alone (`fitCabin`).
    */
-  private readonly reach = new Float32Array(MAX_CARS).fill(Math.hypot(LOW_HALF_X, LOW_Y + LOW_HALF_Y, LOW_HALF_Z));
+  private readonly reach = new Float32Array(MAX_CARS).fill(Math.hypot(LOW_HALF_X, Math.max(LOW_Y + LOW_HALF_Y, UNDER), LOW_HALF_Z));
   private readonly cabinReach = new Float32Array(MAX_CARS);
   /** Each car's cabin slabs, `CABIN` per car: its panes in `GLASS_NAMES` order, then its roof. */
   private readonly cabins: Collider[] = [];
@@ -281,8 +309,9 @@ export class RagdollSystem {
   private sandbox = true;
   /** The car proxies sat still while no dummy was out: jump them to the cars before the next step. */
   private teleport = false;
-  /** Sim seconds the world has not stepped yet (under `STEP` after each frame), and how far into the next step the draw is. */
+  /** Sim seconds the world has not stepped yet (under a step after each frame), and how far into the next step the draw is; the step of the frame that last stepped (`STEP` with a dummy out, else `PROP_STEP`). */
   private acc = 0;
+  private step = STEP;
   /** Steps since the first dummy out: every `WATCH_EVERY`th one the skin, spin limit and purses are watched. */
   private tick = 0;
   private alpha = 0;
@@ -340,9 +369,9 @@ export class RagdollSystem {
     world.integrationParameters.numInternalPgsIterations = INTERNAL_PASSES;
     for (let i = 0; i < MAX_CARS; i++) {
       const body = world.createRigidBody(R.RigidBodyDesc.kinematicPositionBased().setTranslation(0, -100, i * 10));
-      // From 5 cm off the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
+      // From `UNDER` under the ground to the bonnet line the whole car, so a lying dummy is shoved, not driven over; above
       // it the cabin's slabs (`fitGlass`; car-local, origin on the ground, +z forward). `fitEnds` follows the lower box's crushed ends.
-      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, LOW_HALF_Y, LOW_HALF_Z).setTranslation(0, LOW_Y, 0).setCollisionGroups(carGroups(i)), body);
+      world.createCollider(R.ColliderDesc.cuboid(LOW_HALF_X, BOX_HALF_Y, LOW_HALF_Z).setTranslation(0, BOX_Y, 0).setCollisionGroups(carGroups(i)), body);
       for (let p = 0; p < CABIN; p++) {
         const slab = R.ColliderDesc.cuboid(0.5, 0.5, PANE_HALF).setCollisionGroups(carGroups(i));
         if (p < PANES) slab.setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
@@ -426,16 +455,24 @@ export class RagdollSystem {
       this.follow3(i, this.carBodies[i]!, car?.group ?? null);
       if (car) this.fitGlass(i, car);
       if (car) this.fitEnds(i, car);
+      // Its lower box where this frame's steps take it: a knocked prop it would squeeze against a wall lets it by.
+      if (car) this.props.press(i, car.group.position, car.group.quaternion, this.boxes);
     }
     this.follow3(MAX_CARS, this.barrierBody!, barrier);
     this.teleport = false;
     this.glassNear(dt);
-    // Whole `STEP`s out of the accumulator, each proxy a step further along its frame's path.
+    // Whole steps out of the accumulator (`STEP` with a dummy out or a knocked prop moving fast, `PROP_STEP` for knocked
+    // props alone), each proxy a step further along its frame's path.
+    const step = this.live > 0 || this.props.faster(PROP_FAST) ? STEP : PROP_STEP;
     const lead = this.acc;
     this.acc = dormant ? 0 : Math.min(lead + dt, MAX_ACC);
-    const steps = Math.floor(this.acc / STEP + 1e-6);
+    const steps = Math.floor(this.acc / step + 1e-6);
+    if (steps > 0 && step !== this.step) {
+      this.step = step;
+      world.timestep = step;
+    }
     for (let j = 1; j <= steps; j++) {
-      this.moveProxies(Math.min(1, (j * STEP - lead) / dt));
+      this.moveProxies(Math.min(1, (j * step - lead) / dt));
       // One step this frame: the pose before it is the last frame's last (nothing moves a part between steps but a step).
       if (j === steps) {
         for (const d of this.dolls) {
@@ -457,8 +494,8 @@ export class RagdollSystem {
         limit(d.bodies);
       }
     }
-    this.acc = Math.max(0, this.acc - steps * STEP);
-    this.alpha = dormant ? 1 : Math.min(1, this.acc / STEP);
+    this.acc = Math.max(0, this.acc - steps * step);
+    this.alpha = dormant ? 1 : Math.min(1, this.acc / step);
     if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
     if (steps > 0) this.purses?.capture(true);
     if (steps > 0) this.props.capture(true);
@@ -483,7 +520,7 @@ export class RagdollSystem {
       }
     }
     this.purses?.pose(this.alpha);
-    this.props.advance(dt);
+    this.props.advance(dt, this.step);
     this.props.pose(this.alpha);
   }
 
@@ -526,6 +563,8 @@ export class RagdollSystem {
    */
   private near(i: number, car: DeformableCar, dt: number): boolean {
     const p = car.group.position;
+    // The props first, as before any dummy: a car that can touch a knocked prop this frame gets its proxy.
+    if (this.props.touches(p, this.reach[i]!, car.velocity.length(), dt)) return true;
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -534,7 +573,7 @@ export class RagdollSystem {
       const dz = d.cur[2]! - p.z;
       if (dx * dx + dy * dy + dz * dz < WAKE_NEAR * WAKE_NEAR) return true;
     }
-    return (this.purses !== null && this.purses.near(p, WAKE_NEAR)) || this.props.touches(p, this.reach[i]!, car.velocity.length(), dt);
+    return this.purses !== null && this.purses.near(p, WAKE_NEAR);
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
@@ -906,9 +945,15 @@ export class RagdollSystem {
     this.ends[2 * i] = front;
     this.ends[2 * i + 1] = rear;
     const box = this.carBodies[i]!.collider(0);
-    box.setHalfExtents({ x: LOW_HALF_X, y: LOW_HALF_Y, z: (front - rear) / 2 });
-    box.setTranslationWrtParent({ x: 0, y: LOW_Y + this.lift[i]!, z: (front + rear) / 2 });
-    this.reach[i] = Math.max(this.cabinReach[i]!, Math.hypot(LOW_HALF_X, LOW_Y + this.lift[i]! + LOW_HALF_Y, Math.max(front, -rear)));
+    box.setHalfExtents({ x: LOW_HALF_X, y: BOX_HALF_Y, z: (front - rear) / 2 });
+    box.setTranslationWrtParent({ x: 0, y: BOX_Y + this.lift[i]!, z: (front + rear) / 2 });
+    this.reach[i] = Math.max(this.cabinReach[i]!, Math.hypot(LOW_HALF_X, Math.max(LOW_Y + this.lift[i]! + LOW_HALF_Y, UNDER - this.lift[i]!), Math.max(front, -rear)));
+    const b = i * CAR_BOX;
+    this.boxes[b] = BOX_Y + this.lift[i]!;
+    this.boxes[b + 1] = (front + rear) / 2;
+    this.boxes[b + 2] = LOW_HALF_X;
+    this.boxes[b + 3] = BOX_HALF_Y;
+    this.boxes[b + 4] = (front - rear) / 2;
   }
 
   dispose(): void {
@@ -1145,15 +1190,15 @@ export class RagdollSystem {
   /** The ground under a throw: built once for the pad, the disc or the corkscrew, per dummy on a course or a scene's solids (`patchAt`). */
   private buildPatch(d: Doll, cx: number, cz: number, y: number): void {
     const c = this.course;
-    if (c !== null && activeGround() === c.ground) d.patch.push(...this.patchAt(cx, cz, y));
-    else if (this.statics.length === 0) this.statics.push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, null, this.sand, this.bowlR, this.poles, cx, cz, y));
+    if (c !== null && activeGround() === c.ground) d.patch.push(...this.patchAt(cx, cz, y, PATCH_HALF));
+    else if (this.statics.length === 0) this.statics.push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, null, this.sand, this.bowlR, this.poles, cx, cz, y, PATCH_HALF));
   }
 
-  /** The course's or the scene's ground, walls and solids around (`cx`, `cz`) at height `y` (`groundColliders`): a dummy's patch, or knocked props'. */
-  private patchAt(cx: number, cz: number, y: number): Collider[] {
+  /** The course's or the scene's ground, walls and solids `half` m around (`cx`, `cz`) at height `y` (`groundColliders`): a dummy's patch, or knocked props'. */
+  private patchAt(cx: number, cz: number, y: number, half: number): Collider[] {
     const c = this.course!;
     if (c.track) this.solids ??= courseSolids(c.track, c.placed);
-    return groundColliders(this.R!, this.world!, FIXED_GROUPS, { track: c.track, solids: this.solids! }, this.sand, this.bowlR, this.poles, cx, cz, y);
+    return groundColliders(this.R!, this.world!, FIXED_GROUPS, { track: c.track, solids: this.solids! }, this.sand, this.bowlR, this.poles, cx, cz, y, half);
   }
 
   private despawn(s: number): void {

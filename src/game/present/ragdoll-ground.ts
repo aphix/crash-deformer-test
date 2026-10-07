@@ -16,15 +16,20 @@ const CORK_STEP = 0.25;
 /** Sandbox lamp post height (m): the cinematic eye's occluder for it. */
 const POLE_H = 5.3;
 
-/** Course ground patch around a throw: cells per side and cell size (m), 96 m across. */
-const PATCH_N = 48;
+/** Course ground patch cell size (m). */
 const PATCH_CELL = 2;
-/** A patch's half side (m): its heightfield's square, and the reach of the walls and solids built with it. */
-export const PATCH_HALF = (PATCH_N * PATCH_CELL) / 2;
+/** A dummy's patch around a throw (`groundColliders`' `half`): 96 m across. */
+export const PATCH_HALF = 48;
 /** Metres down a throw that the patch built for it is centred. */
 export const PATCH_AHEAD = 24;
 /** Half-size (m) of the sandbox's flat pad collider: past any spot a car reaches. */
 const FLAT_HALF = 1000;
+/**
+ * How far (m) a wall's box reaches under the ground: no bottom edge where it meets the ground for a body to be driven
+ * under. A lying cone slid at 38 m/s into a road wall that stopped at the ground went 46 mm into it (4 of 80 run-overs
+ * at 1/480); with the footing none over 23 mm.
+ */
+const FOOTING = 1;
 /** Derby bowl wall: `derby-arena.ts`'s 28 slabs, 1.15 m high, 0.42 m thick at the 16.4 m bowl. */
 const BOWL_SEGMENTS = 28;
 const BOWL_H = 1.15;
@@ -41,15 +46,17 @@ const _r = new THREE.Vector3();
 
 /**
  * The ground under a throw at (`cx`, `cz`), `y` high: the flat pad, the fleet disc (with the jump ramps' wedges), the
- * corkscrew's pad and channel, or a course heightfield patch, and the solids on it: the derby bowl's wall when `bowlR` > 0,
- * the sandbox's standing `poles`, and on a `course` the road walls, props, tunnels and decks near it. `sand`: the
- * range's pad. `groups`: the collision groups of every collider built.
+ * corkscrew's pad and channel, or a course heightfield patch `half` m to a side of it (its square, and the reach of the
+ * walls and solids built with it), and the solids on it: the derby bowl's wall when `bowlR` > 0, the sandbox's standing
+ * `poles`, and on a `course` the road walls, props, tunnels and decks near it. `sand`: the range's pad. `groups`: the
+ * collision groups of every collider built.
  */
-export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number): Collider[] {
+export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number, half: number): Collider[] {
   const ground = activeGround();
   const into: Collider[] = [];
   const add = (desc: ColliderDesc, friction = 0.9) => into.push(world.createCollider(desc.setFriction(friction).setCollisionGroups(groups)));
-  const size = PATCH_N * PATCH_CELL;
+  const n = Math.round((2 * half) / PATCH_CELL);
+  const size = n * PATCH_CELL;
   if (ground === FLAT_GROUND || ground instanceof Corkscrew) {
     const rule = sand ? R.CoefficientCombineRule.Max : R.CoefficientCombineRule.Average;
     add(R.ColliderDesc.cuboid(FLAT_HALF, 0.5, FLAT_HALF).setTranslation(0, -0.5, 0).setFrictionCombineRule(rule), sand ? SAND : 0.9);
@@ -75,17 +82,22 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
     }
   } else if (course?.track !== null) {
     // A course's heightfield; a scene's own solids (the Lab's bench and floor, `setSolids`) carry its ground, edges sharp.
-    const n = PATCH_N;
+    // Its vertices lie on the world's `PATCH_CELL` lattice, so every patch (any size, anywhere) has the same triangles where
+    // they overlap, and what a body lands on does not hang on where its patch was centred.
+    const x0 = Math.round((cx - size / 2) / PATCH_CELL) * PATCH_CELL;
+    const z0 = Math.round((cz - size / 2) / PATCH_CELL) * PATCH_CELL;
     const heights = new Float32Array((n + 1) * (n + 1));
     for (let ix = 0; ix <= n; ix++) {
       for (let iz = 0; iz <= n; iz++) {
         // A bridge deck counts only for a throw at its height: under it the heightfield is the road.
-        const h = ground.heightAt(cx - size / 2 + ix * PATCH_CELL, cz - size / 2 + iz * PATCH_CELL, y);
+        const h = ground.heightAt(x0 + ix * PATCH_CELL, z0 + iz * PATCH_CELL, y);
         // Rapier's heightfield: rows run along z, columns along x.
         heights[iz + ix * (n + 1)] = Number.isFinite(h) ? h : -40;
       }
     }
-    add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }).setTranslation(cx, 0, cz));
+    // Its triangles' inner edges are fixed (`FIX_INTERNAL_EDGES`): a body sliding over the seam between two never catches on
+    // it. Without, a crate slid flat at 11 m/s across the flat infield tipped 88° on a seam instead of sliding 7 m upright.
+    add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }, R.HeightFieldFlags.FIX_INTERNAL_EDGES).setTranslation(x0 + size / 2, 0, z0 + size / 2));
   }
   // Off a course every wall is built (the bowl's are all within reach of any throw in it); on one, those near it.
   const reach = course ? size / 2 : Infinity;
@@ -103,8 +115,8 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
     const nz = (-(bx - ax) / len) * out;
     _q.setFromAxisAngle(_r.set(0, 1, 0), Math.atan2(bx - ax, bz - az));
     add(
-      R.ColliderDesc.cuboid(t / 2, h / 2, len / 2 + 0.05)
-        .setTranslation(mx + (nx * t) / 2, base + h / 2, mz + (nz * t) / 2)
+      R.ColliderDesc.cuboid(t / 2, (h + FOOTING) / 2, len / 2 + 0.05)
+        .setTranslation(mx + (nx * t) / 2, base + (h - FOOTING) / 2, mz + (nz * t) / 2)
         .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }),
     );
   };
