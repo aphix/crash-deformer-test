@@ -121,7 +121,8 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 - **T6.** Bounded: traces and per-frame captures use ring buffers or fixed caps; every test, probe and sweep runs under a
   memory cap so a runaway dies alone.
 
-Runner: `node --test` with `--experimental-strip-types` (no test framework). `npm run test:app` runs the game and
+Runner: `node --test` semantics with `--experimental-strip-types` (no test framework), through `scripts/run-tests.mjs`, which
+starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI. `npm run test:app` runs the game and
 multiplayer suites, `npm run test:game` only `src/game`. Harnesses: `contact/crash-scenarios.test-util.ts` (headless crash
 scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker vs car), `world/race-world.test-util.ts`
 (the whole race stack headless), `vehicle/test-support.ts` (`forModes`, `DT`).

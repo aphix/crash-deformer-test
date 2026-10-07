@@ -17,6 +17,8 @@
     "allowJs": true,
     "checkJs": true,
     "noEmit": true,
+    "incremental": true,
+    "tsBuildInfoFile": ".cache/tsc.tsbuildinfo",
     "types": [
       "vite/client",
       "node"
