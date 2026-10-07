@@ -106,7 +106,7 @@ const REST_V = 0.15;
 const REST_W = 0.3;
 const REST_UP = 0.97;
 /** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
-const CONTACT_HZ = 480;
+export const CONTACT_HZ = 480;
 /** How far (m) past its own approach a body point may be in a face and still have come down onto it (`fromSide`). */
 const STAND_SLOP = 0.005;
 /** A point on a face this shallow (normal's up component over it: a slope under 70°) pushes and lifts straight up: a tyre anywhere, in its springs and past their stop alike, and any body point on the world's ground (no drag on the world: the drive grips). A steeper face is a wall: the point pushes along its normal. */
