@@ -36,6 +36,15 @@ export const HULL: readonly (readonly [number, number, number])[] = [
   ),
 ];
 /**
+ * The belly's centre patch, the flat pan under the cabin (car-local x, height, z). It lies inside another car's roof plate (`car-surfaces.ts`:
+ * ±0.5 across, the crown at z −0.1 ± 0.5 along): at ±0.5 its front row was past the plate and its sides on the plate's edges, so a car
+ * centred on a roof stood on the rows at and behind its centre of mass, a wagon's rear tyres on a hatchback's roof tipped it nose-down, and
+ * a few mm aside one side left the plate and it rolled. Only its own lines meet a car top's ridge (`ridgeCross`): the hull lines past it
+ * slope down to the nose (`UNDERSIDE`), and at the plate's front edge they stood 14-16 mm under the pan, so every car in a stack rested
+ * 1° nose-up on the one under it.
+ */
+const PAN: readonly (readonly [number, number, number])[] = [-0.35, 0.35].flatMap((z) => [-0.35, 0, 0.35].map((x): [number, number, number] => [x, 0.132, z]));
+/**
  * The underside (car-local x, height, z): `UNDERSIDE`'s keel and rockers, and the belly between them 0.5 m either side of
  * the keel (its height interpolated), so a car on another's flat roof rests on its width, not balanced on the keel line.
  */
@@ -46,16 +55,15 @@ const BELLY: readonly (readonly [number, number, number])[] = [
     const rocker = UNDERSIDE.find((p) => p[0] === 0.8 && p[1] === z)![2];
     return [-0.5, 0.5].map((x): [number, number, number] => [x, keel + (rocker - keel) * 0.625, z]);
   }),
-  // The centre patch lies inside another car's roof plate (`car-surfaces.ts`: ±0.5 across, the crown at z −0.1 ± 0.5 along): at ±0.5 its
-  // front row was past the plate and its sides on the plate's edges, so a car centred on a roof stood on the rows at and behind its centre
-  // of mass, a wagon's rear tyres on a hatchback's roof tipped it nose-down, and a few mm aside one side left the plate and it rolled.
-  ...[-0.35, 0.35].flatMap((z) => [-0.35, 0, 0.35].map((x): [number, number, number] => [x, 0.132, z])),
+  ...PAN,
 ];
 /**
  * `HULL` plus the belly: the points a car meets another car's top with, and the world's ground when it bottoms out in
  * flight (a keel 4–5 cm in the road at 30 m/s, a car parked on a bank's crease, a car across a ramp's edge).
  */
 const POINTS: readonly (readonly [number, number, number])[] = [...HULL, ...BELLY];
+/** Where `PAN` starts in `POINTS`. */
+const PAN_FROM = POINTS.length - PAN.length;
 /** Neighbouring belly points as `POINTS` index pairs (along x at one z, along z at one x): where the two stand on different patches,
  *  the belly between them meets that patch's edge (`edgeCross`), as a ramp's crest does between rows half a metre apart. */
 const SEGS: Int16Array = (() => {
@@ -873,16 +881,16 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   // Between two belly points on different patches the belly meets that edge where it crosses (`edgeCross`, the tyres' rule): a car
   // dropped level across a ramp's crest balanced on the row in front of it, the crest 17 cm inside the belly half a metre behind.
-  // Over one car's top (one patch) it rests on the top's ridge between them where that stands above both (`ridgeCross`), pressed along
-  // the belly's own normal, not the windscreen's: a sedan on another's roof, its middle row on the roof and its front row past the roof's
-  // front edge, tipped 10° nose-down onto the windscreen with its centre still 25 cm behind that edge.
+  // Over one car's top (one patch) the pan's lines rest on the top's ridge between their points where that stands above both
+  // (`ridgeCross`), pressed along the belly's own normal, not the windscreen's: a sedan on another's roof, its middle row on the roof and
+  // its front row past the roof's front edge, tipped 10° nose-down onto the windscreen with its centre still 25 cm behind that edge.
   _up.set(0, 1, 0).applyQuaternion(q);
   for (let s = 0; s < SEGS.length; s += 2) {
     let a = SEGS[s]!;
     let b = SEGS[s + 1]!;
     let pen: number;
     if (BPATCH[a] === BPATCH[b]) {
-      if (!(BPATCH[a]! >= 0)) continue;
+      if (!(BPATCH[a]! >= 0) || a < PAN_FROM || b < PAN_FROM) continue;
       pen = ridgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, car.slot, BPATCH[a]!);
       if (!(pen > 0 && pen > BRISE[a]! && pen > BRISE[b]!)) continue;
       EDGE_HIT[C_NX] = _up.x;
