@@ -90,5 +90,5 @@ export async function runBenchPage(engine: CrashEngine, hud: () => object): Prom
   if (run === null) return;
   // A page that asks for no bench the game knows is a broken loop: stop it rather than cycle on it forever.
   if (result === null) write(RUN_KEY, null);
-  else await finishStep(run, prefs);
+  else await finishStep(run, readPrefs());
 }
