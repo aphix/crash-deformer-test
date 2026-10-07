@@ -343,9 +343,14 @@ describe("given a car driven at 14 m/s up the ramp and over the slab", () => {
     let stuck = 0;
     run(w, 6, () => {
       time += FRAME;
-      if (hitAt < 0 && car.airborne && time > 0.5 && p.y - ramps.heightAt(p.x, p.z, p.y) < 0.4) {
-        hitAt = time;
-        car.applyImpact(new THREE.Vector3(p.x + 1, p.y + 0.5, p.z), new THREE.Vector3(-1, 0, 0), 20, 12);
+      // Just before touchdown: coming down with its lowest point, body or tyre, within 0.2 m of the ground. Not the origin's
+      // height: a nose-down landing touches the keel with the origin still 0.68 m up.
+      if (hitAt < 0 && car.airborne && time > 0.5 && car.velocity.y < 0) {
+        const f = fit(car, ramps);
+        if (Math.min(f.hull, ...f.gaps) < 0.2) {
+          hitAt = time;
+          car.applyImpact(new THREE.Vector3(p.x + 1, p.y + 0.5, p.z), new THREE.Vector3(-1, 0, 0), 20, 12);
+        }
       }
       if (hitAt < 0 || car.velocity.length() > 0.3) return;
       stopped += FRAME;
