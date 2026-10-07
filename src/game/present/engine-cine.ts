@@ -211,19 +211,27 @@ export class CrashPick {
 
 /**
  * The crash-cam cut a reel holds through one crash: `current` while its eye (still at the cut's start) is usable, that
- * is `CLEAR.radius` m of room round it and sight of `target` (`camUsable`); otherwise the first of `HOLD_ORDER` that is,
- * and -1 when none is (the reel camera keeps the shot). `reach`: `crashAxis`'s, 0 = no eye on that cut. `hit`: the hit
- * itself is still to come, so a cut whose eye sees it (`crashAxis` checked that eye's room and its sight of `at`) holds
- * even when no eye sees the car (a car in the way, the other car of a head-on): `current` if it has one, else the first.
+ * is `CLEAR.radius` m of room round it and sight of `target` (`camUsable`), and of every impact of `later` from `ahead` on
+ * (those still to come); otherwise the first of `HOLD_ORDER` that is. When no cut sees every later impact, the cuts that see
+ * `target` alone count as before. -1 when none is (the reel camera keeps the shot). `reach`: `crashAxis`'s, 0 = no eye on that
+ * cut. `hit`: the hit itself is still to come, so a cut whose eye sees it (`crashAxis` checked that eye's room and its sight
+ * of `at`) holds even when no eye sees the car (a car in the way, the other car of a head-on): `current` if it has one, else the first.
  */
-export function heldCut(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array, target: THREE.Vector3, current: number, hit = false): number {
-  const usable = (cut: number): boolean => {
+export function heldCut(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array, target: THREE.Vector3, current: number, hit = false, later: LaterHits = NO_LATER, ahead = 0): number {
+  const usable = (cut: number, every: boolean): boolean => {
     if (reach[cut] === 0) return false;
     crashEye(_eye, CUTS[cut]!, at, n, 0, reach[cut]!);
-    return camUsable(s, _eye, target, STILL, 0);
+    if (!camUsable(s, _eye, target, STILL, 0)) return false;
+    if (every) for (let k = ahead; k < later.n; k++) if (!camUsable(s, _eye, later.at[k]!, STILL, 0)) return false;
+    return true;
   };
-  if (current >= 0 && usable(current)) return current;
-  for (const cut of HOLD_ORDER) if (cut !== current && usable(cut)) return cut;
+  // First the cuts that see every impact still to come, then those that see the car alone.
+  for (let pass = 0; pass < 2; pass++) {
+    const every = pass === 0;
+    if (every && ahead >= later.n) continue;
+    if (current >= 0 && usable(current, every)) return current;
+    for (const cut of HOLD_ORDER) if (cut !== current && usable(cut, every)) return cut;
+  }
   if (!hit) return -1;
   if (current >= 0 && reach[current]! > 0) return current;
   for (const cut of HOLD_ORDER) if (reach[cut]! > 0) return cut;
@@ -231,11 +239,32 @@ export function heldCut(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Fl
 }
 
 /**
- * What a held crash cam asks of the reel clip: the point it aims at once the hit has landed (the clip's focus car; the hit
- * itself before), the scene's solids round it, built when asked, and until when (wall s into the crash cam) the hit itself
- * is still to come (`heldCut`'s `hit`).
+ * The impacts of a clip's scope after its first that fall inside the crash cam's window, in time order (`n` of them): per
+ * impact the wall second (into the crash cam) the held cam starts to look at it and the one it stops, and where it lands.
  */
-export type CrashHold = { target: THREE.Vector3; sight: () => Sight; hit: number };
+type LaterHits = { n: number; from: Float64Array; until: Float64Array; at: THREE.Vector3[] };
+
+/** Room for `max` later impacts. */
+export function laterHits(max: number): LaterHits {
+  return { n: 0, from: new Float64Array(max), until: new Float64Array(max), at: Array.from({ length: max }, () => new THREE.Vector3()) };
+}
+
+const NO_LATER = laterHits(0);
+
+/**
+ * What a held crash cam asks of the reel clip: the point it aims at once the hit has landed (the clip's focus car; the hit
+ * itself before), the scene's solids round it, built when asked, until when (wall s into the crash cam) the hit itself
+ * is still to come (`heldCut`'s `hit`), and the clip's later impacts of the window (`LaterHits`): it looks at each as it comes.
+ */
+export type CrashHold = { target: THREE.Vector3; sight: () => Sight; hit: number; later: LaterHits };
+
+/** What a held crash cam looks at `t` wall s in: the first hit until it has landed, a later impact from its `from` to its `until`, else the car. */
+function holdAim(hold: CrashHold, at: THREE.Vector3, t: number): THREE.Vector3 {
+  if (t < hold.hit) return at;
+  const l = hold.later;
+  for (let k = 0; k < l.n; k++) if (t >= l.from[k]! && t < l.until[k]!) return l.at[k]!;
+  return hold.target;
+}
 
 /**
  * The Burnout-style crash cam: the camera half of `Cinematics`, with no GPU in it (the headless reel harness runs this very
@@ -324,12 +353,14 @@ export class CrashCam {
     if (hold) {
       if (t >= this.heldAt) {
         this.heldAt = t + HOLD_CHECK;
-        this.held = heldCut(hold.sight(), this.camAt, this.camN, this.camReach, hold.target, this.held, t < hold.hit);
+        let ahead = 0;
+        while (ahead < hold.later.n && hold.later.until[ahead]! <= t) ahead++;
+        this.held = heldCut(hold.sight(), this.camAt, this.camN, this.camReach, hold.target, this.held, t < hold.hit, hold.later, ahead);
       }
       cut = this.held;
       eyeT = cut < 0 ? u : CUTS[cut]!;
-      // The hit itself until it has landed (the reel's moment, framed at the lens's centre), then the car.
-      const want = t < hold.hit ? this.camAt : hold.target;
+      // The hit itself until it has landed (the reel's moment, framed at the lens's centre), each later impact of the window as it comes, else the car.
+      const want = holdAim(hold, this.camAt, t);
       if (this.aimSet) this.aim.lerp(want, 1 - Math.exp(-wallDt * HOLD_AIM));
       else this.aim.copy(want);
       this.aimSet = true;

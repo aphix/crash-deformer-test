@@ -36,8 +36,10 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  parts state, cage corners and sensor positions.
  13: a reel clip carries the count of cars its cluster hit (`hit`, a byte after `ejects`).
  14: `MSG.input` flags gain bit 8 (hold reset) and a race snapshot's car record carries its safe reset spot (`safe`).
+ 15: a reel clip carries `hitKph` and `deform` (f32), a hits list (t f64, x/y/z f32, cars a/b u8) and an `own` byte per
+ ejection.
  */
-export const NET_VERSION = 14;
+export const NET_VERSION = 15;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

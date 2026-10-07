@@ -53,6 +53,14 @@ function crashes(len: number, shift: number): Crash[] {
   ];
 }
 
+/** The city's straightest 60 m (arc length, m, `Track.pointAt`): a staged chain's three cars stand in line on it. */
+const STRAIGHT = 592;
+
+/** A chain on the city's straight: a car (slot 1) runs into an empty one, which it shoves into a third standing `gap` m behind it; `shift` of 60 m on. */
+function chain(shift: number, gap: number): Crash[] {
+  return [{ kind: "chain", at: STRAIGHT + shift * 60, speed: 34, gap, cars: [1, 2, 3] }];
+}
+
 /** The stunt course's CRUSH crest (arc length, m), where the road drops down the kicker (`crush-crest.test.ts`). */
 const CREST = 899;
 
@@ -107,13 +115,16 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
       await scene(`stunt staged +${shift}`, raceOn("stunt", 3, 7), stuntTrack, crashes(stuntTrack.length, shift), 20);
       await scene(`havana survival +${shift}`, survivalOn(2), havana, [{ ...crashes(havana.length, shift)[i % 5]!, cars: [0, 1] }], 16);
     }
+    for (const [gap, seed] of [[7, 5], [16, 6], [24, 7]] as const) {
+      for (const shift of [0, 0.05, 0.1]) await scene(`city chain gap ${gap} m +${shift}`, raceOn("city", seed, 7), cityTrack, chain(shift, gap), 16);
+    }
     for (const land of [28, 32]) await scene(`stunt jump +${land} m`, raceOn("stunt", 3, 7), stuntTrack, [{ kind: "jump", at: CREST, speed: 30, land }], 14);
     for (const [x, z, speed] of [[4, 26, 32], [-1, 30, 36]] as const) {
       await scene(`havana launch (${x}, ${z})`, survivalOn(2), havana, [{ kind: "ramp", x, z, yaw: Math.PI, speed, cars: [0, 1] }], 16);
     }
   });
 
-  it("when each clip plays through the reel's cameras, then at every first impact, thrown driver and take-off the moment's point is inside the frame with a margin, no wall or building stands on the line to it, and the subject is not tiny", (t) => {
+  it("when each clip plays through the reel's cameras, then at every first impact, later hit of its scope, thrown driver and take-off the moment's point is inside the frame with a margin, no wall or building stands on the line to it, and the subject is not tiny", (t) => {
     const kinds = new Map<string, [number, number]>();
     for (const v of views) {
       const k = kinds.get(v.kind) ?? [0, 0];
@@ -127,11 +138,11 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
       t.diagnostic(`${v.scene} "${v.title}" ${v.kind} at ${v.at.toFixed(2)} s by ${v.rig}: ndc ${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.front ? "" : " behind"}, ${v.clear ? "clear" : "BLOCKED"}, share ${v.share.toFixed(3)} (${v.note})`);
     }
     const count = (kind: string): number => kinds.get(kind)?.[1] ?? 0;
-    assert.ok(count("impact") >= 10 && count("throw") >= 4 && count("takeoff") >= 4, `too few moments to test: ${[...kinds].map(([k, [, n]]) => `${k} ${n}`).join(", ")}`);
+    assert.ok(count("impact") >= 10 && count("hit") >= 6 && count("throw") >= 4 && count("takeoff") >= 4, `too few moments to test: ${[...kinds].map(([k, [, n]]) => `${k} ${n}`).join(", ")}`);
     assert.equal(missed.length, 0, `${missed.length} of ${views.length} moments not visible (margin ${VIEW.margin}, share ${VIEW.share.toFixed(3)})`);
   });
 
-  it("when each clip plays behind the results sheet and the standings list (a desktop side panel, a phone's side panel in landscape, its bottom sheet in portrait), then at every first impact, thrown driver and take-off the moment's point is in the frame with the margin and clear of both panels by it, unblocked, and not tiny", (t) => {
+  it("when each clip plays behind the results sheet and the standings list (a desktop side panel, a phone's side panel in landscape, its bottom sheet in portrait), then at every first impact, later hit, thrown driver and take-off the moment's point is in the frame with the margin and clear of both panels by it, unblocked, and not tiny", (t) => {
     const missed: string[] = [];
     for (const [i, { name }] of LAYOUTS.entries()) {
       const seen = covered[i]!.filter((v) => v.seen).length;
@@ -145,8 +156,18 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
     assert.equal(missed.length, 0, `${missed.length} moments not visible beside the panels`);
   });
 
+  it("when a hit of a clip's scope comes after its camera changed, then the earlier impact's point is still in the frame at that hit, so the viewer keeps the place", (t) => {
+    const later = views.filter((v) => v.kind === "hit");
+    const cuts = later.filter((v) => v.back?.cut);
+    const lost = cuts.filter((v) => !v.back!.inFrame);
+    t.diagnostic(`${later.length} later hits, ${cuts.length} after a camera change, the earlier point lost at ${lost.length}`);
+    for (const v of lost) t.diagnostic(`${v.scene} "${v.title}" hit at ${v.at.toFixed(2)} s by ${v.cam}: the earlier point at ndc ${v.back!.ndcX.toFixed(2)},${v.back!.ndcY.toFixed(2)} (${v.note})`);
+    assert.ok(later.length >= 6 && cuts.length >= 1, `too few later hits to test: ${later.length} hits, ${cuts.length} after a camera change`);
+    assert.deepEqual(lost.map((v) => `${v.scene} ${v.at.toFixed(2)}`), []);
+  });
+
   it("when each clip plays, then its slow-mo holds 6.3 s of wall clock past the cars meeting and 7.3 s past each driver thrown while it runs, every hold plays out in full before the clip ends, it hands back to 1× when the last of those is up, and a driver thrown after that plays at 1×", (t) => {
-    const held = views.filter((v) => v.kind !== "takeoff" && v.at >= v.hitAt);
+    const held = views.filter((v) => v.kind !== "takeoff" && v.kind !== "hit" && v.at >= v.hitAt);
     const key = (v: MomentView): string => `${v.scene}|${v.title}|${v.hitAt}`;
     // The hand-back each clip owes, from its moments in order (wall s into the clip).
     const handBack = new Map<string, number>();
@@ -156,7 +177,7 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
       else if (v.wall < h) handBack.set(key(v), Math.max(h, v.wall + HOLD.throw));
     }
     const bad: string[] = [];
-    const sums: Record<MomentKind, [number, number]> = { impact: [0, 0], throw: [0, 0], takeoff: [0, 0] };
+    const sums: Record<MomentKind, [number, number]> = { impact: [0, 0], hit: [0, 0], throw: [0, 0], takeoff: [0, 0] };
     let late = 0;
     for (const v of held) {
       const h = handBack.get(key(v))!;

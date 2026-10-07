@@ -2,7 +2,7 @@ import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import { frame, FRAME, type World } from "../world/race-world.test-util.ts";
 import { blankPoint, type Track } from "../world/track.ts";
-import { clipTitle, ownThrow, type HighlightClip } from "../match/highlights.ts";
+import { clipTitle, type HighlightClip } from "../match/highlights.ts";
 import { phaseClock } from "../match/phase.ts";
 import type { ViewBox } from "../match/types.ts";
 import { CrashCam } from "../present/engine-cine.ts";
@@ -34,7 +34,14 @@ const DESKTOP: Screen = { view: { left: 0, top: 0, right: 1280, bottom: 720 }, c
 /** The scene's lens (deg), as `ChaseCamera.lens`. */
 const LENS = 55;
 
-export type MomentKind = "impact" | "throw" | "takeoff";
+export type MomentKind = "impact" | "hit" | "throw" | "takeoff";
+
+/**
+ * At a `hit` (an impact of the clip's scope after its first): the previous impact's point in the frame, and whether the
+ * camera changed since that impact (a cut: another rig, another shot, another crash-cam cut). `inFrame`: front of the eye,
+ * inside the frame's margin and clear of the panels.
+ */
+export type Back = { cut: boolean; inFrame: boolean; ndcX: number; ndcY: number };
 
 /** One moment of a clip and the reel's camera at it. */
 export type MomentView = {
@@ -60,6 +67,10 @@ export type MomentView = {
   /** The share of the frame's height a `VIEW.subject` m subject at the point spans. */
   share: number;
   seen: boolean;
+  /** The camera stack at the moment: the rig, the shot's index in the clip and the crash cam's held cut. */
+  cam: string;
+  /** Set for a `hit` (see `Back`), null for the other moments. */
+  back: Back | null;
   /** Wall seconds the viewer watches from the moment to the slow-mo's hand-back to 1× (`holdAfter`); 0 when it comes at 1×. */
   hold: number;
   /** Wall seconds into the clip's timeline of the moment, and of the clip's end (no hold outlasts it). */
@@ -117,18 +128,20 @@ export function judge(cam: THREE.PerspectiveCamera, s: Sight, p: THREE.Vector3, 
   return { ndcX: _ndc.x, ndcY: _ndc.y, front, clear, covered, share, seen };
 }
 
-type Moment = { kind: MomentKind; at: number; point: THREE.Vector3 | null; car: number };
+type Moment = { kind: MomentKind; at: number; point: THREE.Vector3 | null; car: number; x: number; z: number };
 
 /**
- * A clip's moments known from its record: the first impact (its point set when it comes) and every throw of its own crash
- * (`ownThrow`), by clip time. Another crash's throw, in the lead-in or far off in the tail, is not the clip's moment.
+ * A clip's moments known from its record: the first impact (its point set when it comes), every later impact of its scope
+ * (`ClipHit`) and every throw of its own scope (`ClipEjection.own`), by clip time. Another crash's throw in the clip's steps
+ * is not the clip's moment.
  */
 function momentsOf(clip: HighlightClip): Moment[] {
   const ends = new Float64Array(clip.h.length + 1);
   for (let i = 0; i < clip.h.length; i++) ends[i + 1] = ends[i]! + clip.h[i]!;
-  const out: Moment[] = [{ kind: "impact", at: clip.firstImpact, point: null, car: clip.firstA }];
-  for (const x of clip.ejections) if (ownThrow(clip, ends[x.step + 1]!, x.e.pos.x, x.e.pos.z)) out.push({ kind: "throw", at: ends[x.step + 1]!, point: x.e.pos.clone(), car: x.e.car });
-  return out;
+  const out: Moment[] = [{ kind: "impact", at: clip.firstImpact, point: null, car: clip.firstA, x: clip.x, z: clip.z }];
+  for (const h of clip.hits) if (h.t > clip.firstImpact + 1e-9) out.push({ kind: "hit", at: h.t, point: null, car: h.a, x: h.x, z: h.z });
+  for (const x of clip.ejections) if (x.own) out.push({ kind: "throw", at: ends[x.step + 1]!, point: x.e.pos.clone(), car: x.e.car, x: x.e.pos.x, z: x.e.pos.z });
+  return out.sort((p, q) => p.at - q.at);
 }
 
 /** A take-off counts once the car has flown this long (clip s): a hop over a kerb does not. */
@@ -188,6 +201,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
     const watch = [clip.focus, clip.firstA, clip.firstB];
     const flightAt = [-1, -1, -1];
     const pending: (MomentView | null)[] = [null, null, null];
+    let last: { cam: string; p: THREE.Vector3 } | null = null;
     for (let k = -1; k * FRAME < wall; k++) {
       const dt = reel.frame(FLIGHT_S + k * FRAME) ?? 0;
       ragdolls.update(dt, w.live(), true, false, 0, null);
@@ -198,12 +212,21 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       if (k < 0 || !cur) continue;
       const sim = cur.sim;
       const shot = cur.shots[Math.max(0, reel["shot"])]!;
-      const rig = rode ? "ride" : cut ? "crash" : reel["flying"] ? "flight" : `shot:${shot.kind === "chase" || reel["shotCam"].found ? shot.kind : "chase"}`;
-      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
+      const rig = rode ? "ride" : cut ? "crash" : reel["flying"] ? "flight" : shot.ctx ? "shot:context" : `shot:${shot.kind === "chase" || reel["shotCam"].found ? shot.kind : "chase"}`;
+      const cam = `${rig}|${reel["shot"]}|${crash["held"]}`;
+      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), cam, back: null, hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
       for (const m of moments) {
         if (m.at > sim.time + 1e-9 || m.at < 0) continue;
-        const p = m.point ?? new THREE.Vector3(clip.x, sim.cars[m.car]!.group.position.y + 0.55, clip.z);
-        out.push(view(m.kind, m.at, p, m.car));
+        const p = m.point ?? new THREE.Vector3(m.x, sim.cars[m.car]!.group.position.y + 0.55, m.z);
+        const v = view(m.kind, m.at, p, m.car);
+        if (m.kind === "impact" || m.kind === "hit") {
+          if (m.kind === "hit" && last) {
+            const j = judge(camera, s, last.p, screen);
+            v.back = { cut: cam !== last.cam, inFrame: j.front && Math.abs(j.ndcX) <= VIEW.margin && Math.abs(j.ndcY) <= VIEW.margin && !j.covered, ndcX: j.ndcX, ndcY: j.ndcY };
+          }
+          last = { cam, p };
+        }
+        out.push(v);
         m.at = -1;
       }
       for (let j = 0; j < watch.length; j++) {
@@ -232,14 +255,16 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
 
 /**
  * A scripted crash: two cars head-on, a car into the wall (or the kerb's buildings), a car into another's side, a car over
- * a crest at `at` (a jump) onto another standing across its line `land` m past the crest, where it comes down, or a car
- * driven from (x, z) heading `yaw` up a ramp (a plateau's face) and off its lip, into whatever stands beyond it. `cars`:
- * the slots of `a` and `b` (the next pair from car 1 on when absent).
+ * a crest at `at` (a jump) onto another standing across its line `land` m past the crest, where it comes down, a car
+ * driven from (x, z) heading `yaw` up a ramp (a plateau's face) and off its lip, into whatever stands beyond it, or a chain:
+ * a car into the rear of an empty one that stands 9 m ahead, which it shoves into a third standing `gap` m behind it.
+ * `cars`: the slots of `a`, `b` (and the chain's third; the next pair from car 1 on when absent).
  */
 export type Crash = (
   | { kind: "headOn" | "wall" | "tBone" | "jump"; at: number; speed: number; side?: 1 | -1; land?: number }
+  | { kind: "chain"; at: number; speed: number; gap: number }
   | { kind: "ramp"; x: number; z: number; yaw: number; speed: number }
-) & { cars?: readonly [number, number] };
+) & { cars?: readonly number[] };
 
 const pt = blankPoint();
 
@@ -252,8 +277,8 @@ function put(track: Track, car: World["cars"][number], x: number, z: number, yaw
 /** A staged jump's car runs at the crest from this far (m) short of it: too short for its driver to brake for it. */
 const JUMP_RUN = 10;
 
-/** Put cars `a` and `b` (`b` unused by a wall hit or a ramp) on course `track` for `c`: each a few metres from the meeting point, closing at `c.speed` each. */
-export function stage(track: Track, a: World["cars"][number], b: World["cars"][number], c: Crash): void {
+/** Put cars `a` and `b` (`b` unused by a wall hit or a ramp; a chain's third car is `third`) on course `track` for `c`: each a few metres from the meeting point, closing at `c.speed` each. */
+export function stage(track: Track, a: World["cars"][number], b: World["cars"][number], c: Crash, third: World["cars"][number] = b): void {
   if (c.kind === "ramp") {
     pt.y = track.ground().heightAt(c.x, c.z);
     put(track, a, c.x, c.z, c.yaw, c.speed);
@@ -275,6 +300,18 @@ export function stage(track: Track, a: World["cars"][number], b: World["cars"][n
     put(track, a, pt.x, pt.z, yaw, c.speed);
     track.pointAt(c.at + 9, pt);
     put(track, b, pt.x, pt.z, yaw + Math.PI, c.speed);
+    return;
+  }
+  if (c.kind === "chain") {
+    put(track, a, pt.x, pt.z, yaw, c.speed);
+    // All three are empty (driver out: they coast as wrecks do): `a` runs straight into `b` whatever the AI would do, and the other two stand put.
+    a.driverOut = "windshield";
+    track.pointAt(c.at + 9, pt);
+    put(track, b, pt.x, pt.z, yaw, 0);
+    b.driverOut = "windshield";
+    track.pointAt(c.at + 9 + c.gap, pt);
+    put(track, third, pt.x, pt.z, yaw, 0);
+    third.driverOut = "windshield";
     return;
   }
   const side = c.side ?? 1;
@@ -316,12 +353,13 @@ export function recordRace(w: World, track: Track, crashes: readonly Crash[], se
       const cars = w.live();
       const c = crashes[next]!;
       const a = cars[c.cars?.[0] ?? (1 + 2 * next) % cars.length]!;
-      stage(track, a, cars[c.cars?.[1] ?? (2 + 2 * next) % cars.length]!, c);
+      stage(track, a, cars[c.cars?.[1] ?? (2 + 2 * next) % cars.length]!, c, cars[c.cars?.[2] ?? (3 + 2 * next) % cars.length]!);
       if (w.seat.mode === "drive" && a === cars[w.seat.carIndex]) floor(w);
       next++;
     }
     frame(w, state);
   }
   r.recorder.end();
-  return [...r.recorder.ledger.kept];
+  // A clip the end of the run cut short (an impact in its last seconds, `CrashRecorder.end`) has less than the post-roll (3 s) after its last impact: it plays no full hold, which no race clip owes. One that ends with its own thrown driver's hold is whole: the recorder runs on until that hold is recorded (`CrashRecorder.over`).
+  return [...r.recorder.ledger.kept].filter((c) => c.h.reduce((a, h) => a + h, 0) >= c.lastImpact + 2.95 || c.ejections.some((x) => x.own));
 }

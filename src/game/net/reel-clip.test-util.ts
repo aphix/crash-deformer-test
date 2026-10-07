@@ -63,6 +63,7 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
     hit: 3,
     ejections: [
       {
+        own: true,
         step: 361,
         e: {
           car: 1,
@@ -84,6 +85,12 @@ export function makeClip(): { clip: HighlightClip; car: DeformableCar } {
       { step: 432, prop: 200 },
     ],
     peakKph: 96,
+    hitKph: 48,
+    deform: 1.25,
+    hits: [
+      { t: 1.5, x: 3, y: 0.5, z: -7, a: 0, b: 1 },
+      { t: 2, x: 5.5, y: 0.75, z: -9, a: 1, b: -1 },
+    ],
     t0: 41.25,
     firstImpact: 1.5,
     lastImpact: 2.25,
@@ -119,7 +126,7 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   for (const k of ["trackId", "impacts", "kills", "ejects", "hit", "firstStep", "focus", "firstA", "firstB", "bleed", "t0", "firstImpact", "lastImpact", "realism"] as const) {
     assert.equal(got[k], want[k], k);
   }
-  for (const k of ["score", "peakKph", "x", "z"] as const) assert.equal(got[k], Math.fround(want[k]), k);
+  for (const k of ["score", "peakKph", "hitKph", "deform", "x", "z"] as const) assert.equal(got[k], Math.fround(want[k]), k);
   assert.equal(got.cars.length, want.cars.length);
   for (const [i, c] of got.cars.entries()) {
     for (const k of ["slot", "style", "cls", "name"] as const) assert.equal(c[k], want.cars[i]![k], `car ${i} ${k}`);
@@ -135,7 +142,13 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   for (const [i, x] of got.ejections.entries()) {
     const w = want.ejections[i]!;
     assert.equal(x.step, w.step, `ejection ${i} step`);
+    assert.equal(x.own, w.own, `ejection ${i} own`);
     assertSameDigest({ ...x.e, pos: x.e.pos.toArray(), local: x.e.local.toArray(), dir: x.e.dir.toArray(), quat: x.e.quat.toArray(), rel: x.e.rel.toArray(), carVel: x.e.carVel.toArray(), spin: x.e.spin.toArray() }, { ...w.e, pos: w.e.pos.toArray(), local: w.e.local.toArray(), dir: w.e.dir.toArray(), quat: w.e.quat.toArray(), rel: w.e.rel.toArray(), carVel: w.e.carVel.toArray(), spin: w.e.spin.toArray() }, `ejection ${i}`);
   }
   assert.deepEqual(got.knocks, want.knocks, "knocked props");
+  assert.equal(got.hits.length, want.hits.length);
+  for (const [i, p] of got.hits.entries()) {
+    const w = want.hits[i]!;
+    assert.deepEqual(p, { t: w.t, x: Math.fround(w.x), y: Math.fround(w.y), z: Math.fround(w.z), a: w.a, b: w.b }, `scope hit ${i}`);
+  }
 }
