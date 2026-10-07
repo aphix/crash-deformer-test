@@ -587,12 +587,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const within = spring + TOUCH;
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
-  // A driven car with a wheel on the world's ground travels as its drive takes it, as on its wheels (`stepPlane`): the world's faces
-  // lift and turn it but neither push it along nor drag it (no friction: the drive grips). A rear tyre meeting a ramp's toe at 30°
-  // with the front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin.
+  // A driven car with a wheel on a surface, the world's ground or another car's top alike, travels as its drive takes it, as on its
+  // wheels (`stepPlane`): the faces lift and turn it but neither push it along nor drag it (no friction on the world: the drive grips).
+  // A rear tyre meeting a ramp's toe at 30° with the front in the air turned its travel 2-3° through the face's slope and the tyre's
+  // friction against the body's spin; a monster on a sedan, its rear tyres on the trunk against the rear window, never drove off.
   // Every body's tyres are read each slice, a wreck's too: skipped, a wreck's tyres kept their reading from its hand-over and it never
   // landed on them (a struck wreck came to rest on its belly 10 cm in the floor, its tyres read 0.9-1.5 m up).
-  const rolling = worldWheels(car, wheelsAt(car, within)) > 0 && !car.crashed;
+  const rolling = wheelsAt(car, within) !== 0 && !car.crashed;
   const vx0 = v.x;
   const vz0 = v.z;
   const hit = car.wheelHit;
@@ -720,13 +721,15 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   // So does one whose body strikes the world's faces (a point closing on its surface): a rocker meeting the wedge's corner as the car
   // drove off its side took 0.7-0.8 m/s and 1.4-1.6° of heading in one slice. A belly resting or sliding on a face keeps its friction.
-  // Kept in full from `NOSE_V` down to none at a standstill: a stopped car's resting contacts close under gravity every slice, and kept
-  // at its slice-start zero they held its centre still while it tipped over a wedge's side edge (it pivoted about its centre, 35
-  // frames on the edge). The drop matrix and ramp-crossing give the same cells with the full keep from 2, 4, 6 or 8 m/s.
+  // Under throttle the drive owns the travel from a standstill (a monster pulling away with its rear tyres against a sedan's rear window
+  // held 0.47 m/s at 0.25 s against 3.73 on a platform). Coasting or braked, it is kept in full from `NOSE_V` down to none at a
+  // standstill: a stopped car's resting contacts close under gravity every slice, and kept at its slice-start zero they held its centre
+  // still while it tipped over a wedge's side edge (it pivoted about its centre, 35 frames on the edge). The drop matrix and
+  // ramp-crossing give the same cells with the full keep from 2, 4, 6 or 8 m/s.
   let struck = false;
   for (let c = 0; c < n; c++) if (OWN[c]! < 0 && CLOSE[c]) struck = true;
   if (rolling || (!car.crashed && struck)) {
-    const keep = Math.min(1, Math.sqrt(vx0 * vx0 + vz0 * vz0) / NOSE_V);
+    const keep = powered ? 1 : Math.min(1, Math.sqrt(vx0 * vx0 + vz0 * vz0) / NOSE_V);
     v.x += (vx0 - v.x) * keep;
     v.z += (vz0 - v.z) * keep;
     _lift.x *= 1 - keep;
