@@ -5,7 +5,7 @@ import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_
 import { TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
-import { droop, UNDERSIDE } from "./car-suspension.ts";
+import { droop, SPRINGS, UNDERSIDE } from "./car-suspension.ts";
 import { CLASSES, carClass } from "./vehicle-classes.ts";
 import { CarSurfaces } from "./car-surfaces.ts";
 import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
@@ -143,6 +143,8 @@ const SLOT = Array.from({ length: CONTACTS }, () => -1);
 const OWN = Array.from({ length: CONTACTS }, () => -1);
 const FOLLOW = Array.from({ length: CONTACTS }, () => 1);
 const SINK = Array.from({ length: CONTACTS }, () => 0);
+/** Per tyre in its springs: how far (m, vertical) its spring is pressed past the rest ride, negative while it hangs toward its droop. */
+const PRESS = new Float64Array(CONTACTS);
 /** Per contact: the point is still closing on its surface (a point moving off needs no lift). */
 const CLOSE = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the belly resting on the world's ground (it only resists, see `stepFree`). */
@@ -601,10 +603,14 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const crushed = cr[0] !== 0 || cr[1] !== 0 || cr[2] !== 0 || cr[3] !== 0 || cr[4] !== 0;
   // A driven wheel rolls freely along its tread wherever it stands; an unpowered one on another car's top grips both ways.
   const powered = car.drive.throttle !== 0;
-  // A tyre within its springs' full travel of the surface sits in them: it pushes at most `SUPPORT` (shared by
-  // the four, over every pass) and takes no positional lift. Past that, and for every body point, the contact is
-  // rigid. Rigid tyres stopped a nose-first landing's front in one slice: 35 g on the body within one frame.
-  let budget = SUPPORT * dt;
+  // A tyre within its springs' full travel of the surface, its wheel hanging down to its droop below the rest ride, sits in them: the
+  // class's spring and damper (`SPRINGS`, the drawn suspension's: per corner a quarter of the car, k = ω², c = 2ζω, a quarter of its
+  // weight at the rest ride) push the body straight up, and it takes no positional lift. Past that travel, and for every body point,
+  // the contact is rigid. Rigid tyres stopped a nose-first landing's front in one slice: 35 g on the body within one frame.
+  const sp = SPRINGS[cls];
+  const om = 2 * Math.PI * sp.hz;
+  const stiff = (om * om) / 4;
+  const damp = (sp.zeta * om) / 2;
   let n = 0;
   // The deepest rigid point's depth along its surface normal (a steep face's vertical gap overstates it).
   let deep = 0;
@@ -615,7 +621,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   for (let i = 0; i < 4; i++) {
     const o = i * HIT_SIZE;
     const pen = hit[o + C_H]!;
-    if (!(pen > 0)) continue;
+    if (!(pen > -spring)) continue;
     const own = hit[o + C_OWNER]!;
     R[n]!.set(hit[o + C_PX]! - _com.x, hit[o + C_PY]! - _com.y, hit[o + C_PZ]! - _com.z);
     N[n]!.set(hit[o + C_NX]!, hit[o + C_NY]!, hit[o + C_NZ]!);
@@ -629,6 +635,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     const sink = pen * N[n]!.y - stop;
     SOFT[n] = sink < 0;
     SINK[n] = sink;
+    PRESS[n] = pen;
     CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
     n++;
   }
@@ -674,31 +681,39 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const r = R[c]!;
-      // A tyre in its springs pushes the body straight up through them, whatever face its tread meets: the springs ride the wheel up a
-      // steep face (a monster's rear tyres against a sedan's rear window, n.y 0.43, took its whole drive pushed along the face's normal).
-      // Straight up, not along the body's up axis: a car rolled 32° on one soft tyre was kicked 1 rad/s sideways into a wedge's wall.
-      // Past their travel the face holds the tyre along its normal; friction stays in the face's plane.
-      const nrm = SOFT[c] ? UP : N[c]!;
-      const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
-      if (vn >= 0) continue;
-      const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
-      let jn = -(1 + e) * vn * reach(r, nrm, q);
-      // A face carries what its strength law gives (`CarSurfaces.take`); the rest of the impulse is the face yielding.
-      if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
+      const nrm = N[c]!;
+      let jn: number;
       if (SOFT[c]) {
-        jn = Math.min(jn, budget);
-        budget -= jn;
+        // A tyre in its springs: once a slice its spring and damper push the body straight up, whatever face its tread meets, the damper
+        // on the rate that face rises under the wheel. Pushed along the face's normal and rigid up to 8 g, a monster's rear tyres against
+        // a sedan's rear window (n.y 0.43) took its whole drive; along the body's up axis a car rolled 32° on one tyre was kicked
+        // 1 rad/s sideways into a wedge's wall; straight up but rigid, a car whose front had passed a ramp's lip sank its rear into the
+        // face (v.y 3.2 -> 1.3 m/s in 12 frames). Friction stays in the face's plane.
+        if (pass > 0) continue;
+        _vp.crossVectors(w, r).add(v);
+        const rate = nrm.y > 0 ? -_vp.dot(nrm) / nrm.y : 0;
+        jn = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
+        // A face carries what its strength law gives (`CarSurfaces.take`); the rest of the impulse is the face yielding.
+        if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
+        if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
+        push(v, w, q, r, UP, jn);
+      } else {
+        const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
+        if (vn >= 0) continue;
+        const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
+        jn = -(1 + e) * vn * reach(r, nrm, q);
+        if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
+        if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
+        push(v, w, q, r, nrm, jn);
       }
-      if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
-      push(v, w, q, r, nrm, jn);
       if (rolling && OWN[c]! < 0) continue;
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) where it
       // rolls: on the world's ground and under power. A car in flight on another car's top is unpowered with its wheels not
       // turning under it, and a free-rolling tyre slid a car down the 8° of a pickup's bed at 0.38 m/s, for good: it grips both ways.
       _vp.crossVectors(w, r).add(v);
-      _vp.addScaledVector(N[c]!, -_vp.dot(N[c]!));
+      _vp.addScaledVector(nrm, -_vp.dot(nrm));
       if (TYRE[c] && (OWN[c]! < 0 || powered)) {
-        _tn.copy(_x).addScaledVector(N[c]!, -_x.dot(N[c]!)).normalize();
+        _tn.copy(_x).addScaledVector(nrm, -_x.dot(nrm)).normalize();
         const across = _vp.dot(_tn);
         _vp.copy(_tn).multiplyScalar(across);
       }

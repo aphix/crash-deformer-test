@@ -6,17 +6,18 @@ import { C_H, HIT_SIZE } from "../world/surfaces.ts";
 import { LoadTransfer } from "./car-load.ts";
 
 /**
- * A spring and a damper between each wheel and the body, drawn only: the physics frame (hulls, masses, contacts,
- * the wheels) stays on the ground pose and nothing here feeds grip, tyre or drive forces. The body (the class lift
+ * A spring and a damper between each wheel and the body, drawn: the physics frame (hulls, masses, contacts, the
+ * wheels) stays on the ground pose and nothing here feeds grip, tyre or drive forces. The body (the class lift
  * group, `assignClass`) rides the four springs' mean heave, pitch and roll. While its wheels are on the ground a
  * spring's input is the change in its wheel's vertical speed on the ground pose (a landing, a ramp's foot, a
  * crest): the body keeps going and the spring takes up the difference. In the air body and wheels fall together.
  *
  * Per class: ride frequency f (Hz), one symmetric damping ratio ζ (a little under real bump/rebound, for arcade
  * bounce) and total travel (m), split evenly into bump and droop with a hard stop at each end. Per corner mass m:
- * k = m (2πf)², c = 2ζ √(k m); per unit mass ω² and 2ζω. Ranges: `.extraResearch` 2026-10-02-suspension-*.
+ * k = m (2πf)², c = 2ζ √(k m); per unit mass ω² and 2ζω. Ranges: `.extraResearch` 2026-10-02-suspension-*. The same springs
+ * push a rigid body's tyres in their travel (`stepFree`), there per unit of the whole car's mass.
  */
-const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; travel: number }>> = {
+export const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; travel: number }>> = {
   sedan: { hz: 1.3, zeta: 0.3, travel: 0.13 },
   muscle: { hz: 1.6, zeta: 0.3, travel: 0.11 },
   police: { hz: 1.5, zeta: 0.35, travel: 0.13 },
