@@ -16,7 +16,10 @@ import { fit } from "../vehicle/ground-probe.test-util.ts";
  * E1 of docs/UNIFIED_CONTACT.md (section 1.1, 7.1): the owner's ramp cases. A sedan cruises at v m/s with steer 0 and the
  * throttle holding its speed, at `th` degrees to the fleet ramp's long axis, its centreline crossing the toe line `e` m
  * inside the ramp's -x edge, so one or two wheels meet the wedge first (32 cells: th 0/15/30/45 x e -0.8..0.6, none aimed at a
- * wall). Per physics slice from the spawn until the car is up the wedge (z under the slab's end) or has crashed.
+ * wall). Per physics slice from the spawn until the car is up the wedge (z under the slab's end) or has crashed. "The plane
+ * through its touching wheels" is fitted through each touching tyre's tread contact point (the tread point with the smallest
+ * gap: its x, z and the ground height under it), as docs/UNIFIED_CONTACT.md 10.5 designs the wheel contact: a tyre on a ramp's
+ * edge rests on the edge, whichever side of it the hub is.
  */
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
@@ -36,7 +39,22 @@ function wrap(a: number): number {
   return r;
 }
 
-type Result = { yaw: number; heading: number; shove: number; dv: number; tilt: number; tiltAt: string; airWhileTouching: number; slices: number; crashed: boolean };
+type Result = {
+  yaw: number;
+  heading: number;
+  shove: number;
+  dv: number;
+  tilt: number;
+  tiltAt: string;
+  airWhileTouching: number;
+  slices: number;
+  crashed: boolean;
+  /** Worst angle (deg) between the plane through the touching wheels' hub points and the one through their tread contact points, over the slices where every one of those points has the same ground normal (one plane under all of them). */
+  planeGap: number;
+  /** Slices that `planeGap` covers, and of those the ones on level ground. */
+  planeSlices: number;
+  flatSlices: number;
+};
 
 const _q = new THREE.Vector3();
 const _ax = new THREE.Vector3();
@@ -48,6 +66,45 @@ function axis(q: THREE.Quaternion, x: number, y: number, z: number, dir: Float64
   dir[0] = _ax.x / len;
   dir[1] = _ax.z / len;
   return Math.asin(_ax.y) * DEG;
+}
+
+/** Least-squares plane y = a x + b z + c through the first n points (into `abc`); false when they are collinear. */
+function fitPlane(px: Float64Array, py: Float64Array, pz: Float64Array, n: number, abc: Float64Array): boolean {
+  let mx = 0;
+  let my = 0;
+  let mz = 0;
+  for (let i = 0; i < n; i++) {
+    mx += px[i]! / n;
+    my += py[i]! / n;
+    mz += pz[i]! / n;
+  }
+  let sxx = 0;
+  let sxz = 0;
+  let szz = 0;
+  let sxy = 0;
+  let szy = 0;
+  for (let i = 0; i < n; i++) {
+    const ax = px[i]! - mx;
+    const az = pz[i]! - mz;
+    const ay = py[i]! - my;
+    sxx += ax * ax;
+    sxz += ax * az;
+    szz += az * az;
+    sxy += ax * ay;
+    szy += az * ay;
+  }
+  const det = sxx * szz - sxz * sxz;
+  if (!(Math.abs(det) > 1e-9)) return false;
+  abc[0] = (sxy * szz - szy * sxz) / det;
+  abc[1] = (szy * sxx - sxy * sxz) / det;
+  abc[2] = my - abc[0]! * mx - abc[1]! * mz;
+  return true;
+}
+
+/** Angle (deg) between two fitted planes. */
+function planeAngle(p: Float64Array, q: Float64Array): number {
+  const dot = (p[0]! * q[0]! + 1 + p[1]! * q[1]!) / (Math.hypot(p[0]!, 1, p[1]!) * Math.hypot(q[0]!, 1, q[1]!));
+  return Math.acos(Math.min(1, dot)) * DEG;
 }
 
 /** Cross the toe once: the worst of every bar over every physics slice. */
@@ -68,7 +125,7 @@ function cross(v: number, thDeg: number, e: number): Result {
   car.spawnFacing(EDGE + e - dx * 10, TOE - dz * 10, yaw, v);
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
   const p = car.group.position;
-  const out: Result = { yaw: 0, heading: 0, shove: 0, dv: 0, tilt: 0, tiltAt: "", airWhileTouching: 0, slices: 0, crashed: false };
+  const out: Result = { yaw: 0, heading: 0, shove: 0, dv: 0, tilt: 0, tiltAt: "", airWhileTouching: 0, slices: 0, crashed: false, planeGap: 0, planeSlices: 0, flatSlices: 0 };
   const yaw0 = car.group.rotation.y;
   const head0 = wrap(yaw);
   let lastVx = car.velocity.x;
@@ -77,9 +134,17 @@ function cross(v: number, thDeg: number, e: number): Result {
   let lastZ = p.z;
   const dirF = new Float64Array(2);
   const dirR = new Float64Array(2);
-  const px = new Float64Array(4);
-  const py = new Float64Array(4);
-  const pz = new Float64Array(4);
+  // The touching wheels' hub points (x, the ground's height under the hub, z) and tread contact points (`Fit.contacts`).
+  const hx = new Float64Array(4);
+  const hy = new Float64Array(4);
+  const hz = new Float64Array(4);
+  const cx = new Float64Array(4);
+  const cy = new Float64Array(4);
+  const cz = new Float64Array(4);
+  const planeC = new Float64Array(3);
+  const planeH = new Float64Array(3);
+  const normal0 = new THREE.Vector3();
+  const normal = new THREE.Vector3();
   let acc = 0;
   for (let f = 0; f < 5 * 60; f++) {
     acc = Math.min(0.05, acc + FRAME);
@@ -94,13 +159,15 @@ function cross(v: number, thDeg: number, e: number): Result {
       const fi = fit(car, ramps);
       let touching = 0;
       for (let i = 0; i < 4; i++) {
+        if (fi.gaps[i]! >= TOUCH) continue;
         car.wheels[i]!.getWorldPosition(_q);
-        if (fi.gaps[i]! < TOUCH) {
-          px[touching] = _q.x;
-          pz[touching] = _q.z;
-          py[touching] = ramps.heightAt(_q.x, _q.z, _q.y);
-          touching++;
-        }
+        hx[touching] = _q.x;
+        hz[touching] = _q.z;
+        hy[touching] = ramps.heightAt(_q.x, _q.z, _q.y);
+        cx[touching] = fi.contacts[i * 3]!;
+        cy[touching] = fi.contacts[i * 3 + 1]!;
+        cz[touching] = fi.contacts[i * 3 + 2]!;
+        touching++;
       }
       if (fi.airborne && touching > 0) out.airWhileTouching++;
       out.yaw = Math.max(out.yaw, Math.abs(wrap(car.group.rotation.y - yaw0)) * DEG);
@@ -111,45 +178,31 @@ function cross(v: number, thDeg: number, e: number): Result {
       lastVz = car.velocity.z;
       lastX = p.x;
       lastZ = p.z;
-      if (touching >= 3) {
-        // The plane through the touching wheels' ground points (least squares): y = a x + b z + c.
-        let mx = 0;
-        let my = 0;
-        let mz = 0;
-        for (let i = 0; i < touching; i++) {
-          mx += px[i]! / touching;
-          my += py[i]! / touching;
-          mz += pz[i]! / touching;
+      if (touching >= 3 && fitPlane(cx, cy, cz, touching, planeC)) {
+        // The plane through the touching wheels' tread contact points (least squares): y = a x + b z + c.
+        const q = car.group.quaternion;
+        const pitch = axis(q, 0, 0, 1, dirF);
+        const roll = axis(q, 1, 0, 0, dirR);
+        const pitchErr = Math.abs(pitch - Math.atan(planeC[0]! * dirF[0]! + planeC[1]! * dirF[1]!) * DEG);
+        const rollErr = Math.abs(roll - Math.atan(planeC[0]! * dirR[0]! + planeC[1]! * dirR[1]!) * DEG);
+        const worst = Math.max(pitchErr, rollErr);
+        if (worst > out.tilt) {
+          out.tilt = worst;
+          out.tiltAt = `${pitchErr > rollErr ? "pitch" : "roll"} at z ${p.z.toFixed(2)} on ${touching} wheels`;
         }
-        let sxx = 0;
-        let sxz = 0;
-        let szz = 0;
-        let sxy = 0;
-        let szy = 0;
-        for (let i = 0; i < touching; i++) {
-          const ax = px[i]! - mx;
-          const az = pz[i]! - mz;
-          const ay = py[i]! - my;
-          sxx += ax * ax;
-          sxz += ax * az;
-          szz += az * az;
-          sxy += ax * ay;
-          szy += az * ay;
+        // One plane under every point: the same ground normal at the hubs and at the contacts. There the two fits are the same plane.
+        let one = fitPlane(hx, hy, hz, touching, planeH);
+        ramps.normalAt(hx[0]!, hz[0]!, normal0, hy[0]! + 0.5);
+        for (let i = 0; one && i < touching; i++) {
+          ramps.normalAt(hx[i]!, hz[i]!, normal, hy[i]! + 0.5);
+          if (normal.distanceTo(normal0) > 1e-9) one = false;
+          ramps.normalAt(cx[i]!, cz[i]!, normal, cy[i]! + 0.5);
+          if (normal.distanceTo(normal0) > 1e-9) one = false;
         }
-        const det = sxx * szz - sxz * sxz;
-        if (Math.abs(det) > 1e-9) {
-          const a = (sxy * szz - szy * sxz) / det;
-          const b = (szy * sxx - sxy * sxz) / det;
-          const q = car.group.quaternion;
-          const pitch = axis(q, 0, 0, 1, dirF);
-          const roll = axis(q, 1, 0, 0, dirR);
-          const pitchErr = Math.abs(pitch - Math.atan(a * dirF[0]! + b * dirF[1]!) * DEG);
-          const rollErr = Math.abs(roll - Math.atan(a * dirR[0]! + b * dirR[1]!) * DEG);
-          const worst = Math.max(pitchErr, rollErr);
-          if (worst > out.tilt) {
-            out.tilt = worst;
-            out.tiltAt = `${pitchErr > rollErr ? "pitch" : "roll"} at z ${p.z.toFixed(2)} on ${touching} wheels`;
-          }
+        if (one) {
+          out.planeSlices++;
+          if (normal0.y > 1 - 1e-12) out.flatSlices++;
+          out.planeGap = Math.max(out.planeGap, planeAngle(planeH, planeC));
         }
       }
     }
@@ -186,4 +239,15 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
       }
     }
   }
+});
+
+describe("given a sedan driving up the middle of the ramp's wedge, so its tyres stand on the level floor and then on the wedge's one plane", () => {
+  afterEach(() => setGround(null));
+
+  it("when the plane through its touching wheels is fitted at their tread contact points and at their hub points, then the two planes agree within 0.01° wherever the ground under all of those points is one plane", () => {
+    const r = cross(8, 0, RAMP.halfW);
+    assert.ok(r.flatSlices >= 10, `only ${r.flatSlices} slices with every point on level ground`);
+    assert.ok(r.planeSlices - r.flatSlices >= 5, `only ${r.planeSlices - r.flatSlices} slices with every point on the wedge's slope`);
+    assert.ok(r.planeGap <= 0.01, `the planes differ by ${r.planeGap.toFixed(4)}° over ${r.planeSlices} single-plane slices`);
+  });
 });

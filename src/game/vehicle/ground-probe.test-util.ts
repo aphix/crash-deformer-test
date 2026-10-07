@@ -42,6 +42,8 @@ export type Fit = {
   airborne: boolean;
   /** Per tyre (`WHEEL_POS` order): its lowest tread point's height above the ground under it (m; < 0 sunk in). */
   gaps: number[];
+  /** Per tyre: the tread point with the smallest gap, as (x, ground height under it, z): where the tyre rests on the ground (`NaN`s with no ground under it). */
+  contacts: Float64Array;
   /** Drawn body pitch (nose up +) and roll (+x side up), and the ground's under the four hubs (deg). */
   pitch: number;
   groundPitch: number;
@@ -120,6 +122,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   const e = body.matrixWorld.elements;
   const gy = car.group.position.y;
   const gaps: number[] = [];
+  const contacts = new Float64Array(12).fill(NaN);
   for (const [i, wh] of car.wheels.entries()) {
     wh.getWorldPosition(_hub[i]!);
     const hint = _hub[i]!.y;
@@ -127,7 +130,11 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     for (const t of TREAD) {
       _p.copy(t).applyMatrix4(wh.matrixWorld);
       const g = ground.heightAt(_p.x, _p.z, hint);
-      if (g !== -Infinity) gap = Math.min(gap, _p.y - g);
+      if (g === -Infinity || _p.y - g >= gap) continue;
+      gap = _p.y - g;
+      contacts[i * 3] = _p.x;
+      contacts[i * 3 + 1] = g;
+      contacts[i * 3 + 2] = _p.z;
     }
     gaps.push(gap);
     _g[i] = ground.heightAt(_hub[i]!.x, _hub[i]!.z, hint);
@@ -181,6 +188,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   return {
     airborne: car.airborne,
     gaps,
+    contacts,
     pitch: axisPitch(e, 8),
     groundPitch,
     roll: axisPitch(e, 0),
