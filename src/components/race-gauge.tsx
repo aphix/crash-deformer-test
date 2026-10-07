@@ -4,6 +4,7 @@ import { RESET_GLOW } from "@/components/reset-prompt";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { needsReset } from "@/game/hud/reset-prompt";
 import { formatSpeed } from "@/game/hud/speed-units";
+import { KPH_PER_MS } from "@/game/kernel/constants";
 import type { RaceView } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
@@ -103,7 +104,7 @@ export function DriveCluster({ view }: { view: RaceView }) {
         <path d={arc(100, DMG_FROM, DMG_TO)} className="stroke-fg/20" strokeWidth="6" strokeLinecap="round" fill="none" />
         {view.damage > 0.01 ? <path d={arc(100, DMG_FROM, dmgTo)} className={dmgTone} strokeWidth="6" strokeLinecap="round" fill="none" /> : null}
         <text x={C} y="112" textAnchor="middle" fontSize="46" className="fill-fg font-semibold" aria-label="Speed">
-          {formatSpeed(view.speedKph / 3.6, unit)}
+          {formatSpeed(view.speedKph / KPH_PER_MS, unit)}
         </text>
         <text x={C} y="127" textAnchor="middle" fontSize="10" letterSpacing="1.5" className="fill-fg/70 uppercase">
           {unit}

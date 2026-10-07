@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, type RefObject } from "react";
 import { Button } from "@/components/ui/button";
 import { RoomShare } from "@/components/room-share";
 import type { CrashEngine } from "@/game/engine/engine";
-import type { NetStatus, NetTx } from "@/game/net/net-ports";
+import { NET_TX, type NetStatus, type NetTx } from "@/game/net/net-ports";
 import { roomLink } from "@/game/hud/share-url";
 import { ROOM_MAX } from "@/lib/multiplayer/rooms";
 import { encodeQr } from "@/lib/qr";
@@ -39,7 +39,7 @@ function deepLink(search: string): { join: boolean; code: string; tx: NetTx } | 
   const net = params.get("net");
   const code = (params.get("room") ?? "").toUpperCase();
   if ((net !== "host" && net !== "join") || !/^[A-Z0-9]{1,12}$/.test(code)) return null;
-  return { join: net === "join", code, tx: params.get("tx") === "bc" ? "bc" : "rtc" };
+  return { join: net === "join", code, tx: params.get("tx") === NET_TX.bc ? NET_TX.bc : NET_TX.rtc };
 }
 
 /** A client's session problem as the panel words it (net-play.ts `NetStatus.problem`). */
@@ -70,7 +70,7 @@ function NetNotice({ status }: { status: NetStatus }) {
 export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) {
   const [open, setOpen] = useState(false);
   const [room, setRoom] = useState("");
-  const [tx, setTx] = useState<NetTx>("rtc");
+  const [tx, setTx] = useState<NetTx>(NET_TX.rtc);
   const [status, setStatus] = useState<NetStatus | null>(null);
 
   useEffect(() => {
@@ -135,7 +135,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
         <>
           <p className="font-display">
             {status.public ? `Public ${status.public}` : status.role === "host" ? "Hosting" : "Joined"} <span className="tabular-nums">{status.room}</span> ·{" "}
-            {status.tx === "rtc" ? "WebRTC" : "this browser"}
+            {status.tx === NET_TX.rtc ? "WebRTC" : "this browser"}
           </p>
           {status.public ? null : <RoomShare engine={engine} status={status} />}
           <NetNotice status={status} />
@@ -158,7 +158,7 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
               </li>
             ))}
           </ul>
-          {status.public || status.tx !== "rtc" ? null : <InviteQr link={invite} />}
+          {status.public || status.tx !== NET_TX.rtc ? null : <InviteQr link={invite} />}
           <Button variant="secondary" className={cn(NET_CONTROL, "w-full text-xs")} onClick={() => engine.current?.net.leave()}>
             Leave
           </Button>
@@ -180,12 +180,12 @@ export function NetPanel({ engine }: { engine: RefObject<CrashEngine | null> }) 
             <span className="hud-label w-12 shrink-0">Link</span>
             <select
               value={tx}
-              onChange={(e) => setTx(e.target.value === "bc" ? "bc" : "rtc")}
+              onChange={(e) => setTx(e.target.value === NET_TX.bc ? NET_TX.bc : NET_TX.rtc)}
               aria-label="Connection"
               className={cn(NET_CONTROL, "w-full rounded-md bg-surface-2 px-2")}
             >
-              <option value="rtc">Internet (WebRTC)</option>
-              <option value="bc">This browser (tabs)</option>
+              <option value={NET_TX.rtc}>Internet (WebRTC)</option>
+              <option value={NET_TX.bc}>This browser (tabs)</option>
             </select>
           </label>
           <div className="flex gap-1">

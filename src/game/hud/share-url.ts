@@ -7,6 +7,7 @@
 
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
 import { DEFAULT_RACE_OPTIONS, DRIVER_CARS } from "../match/types.ts";
+import { NET_TX } from "../net/net-ports.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
@@ -58,7 +59,7 @@ const O = DEFAULT_RACE_OPTIONS;
 const FIELDS = {
   // The room first: it is what a link is for. `tx` is `bc` only for two tabs of one browser.
   room: roomCode,
-  tx: pick(["rtc", "bc"] as const, "rtc"),
+  tx: pick([NET_TX.rtc, NET_TX.bc] as const, NET_TX.rtc),
   scene: pick(SCENE_IDS, "fleet"),
   cars: num(1, MAX_CARS, D.carCount, true),
   smin: num(R.speed.min, R.speed.max, D.speedMin),

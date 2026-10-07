@@ -1,4 +1,5 @@
 import type { PrefabId } from "./catalog.ts";
+import { SURFACE } from "./constants.ts";
 
 /** One kind of static prop along the strip's left, `count` copies spread evenly over the straight. */
 export interface StripProp {
@@ -86,7 +87,7 @@ export function stripCourse(spec: StripSpec): unknown {
     name: "Bench strip",
     blurb: "Benchmark: a straight lane, a props row and a traffic road.",
     laps: 1,
-    road: { width: 14, surface: "asphalt", runoff: [4, 4], runoffSurface: "grass", wall: [true, true], wallHeight: 1.1 },
+    road: { width: 14, surface: SURFACE.asphalt, runoff: [4, 4], runoffSurface: SURFACE.grass, wall: [true, true], wallHeight: 1.1 },
     nodes,
     checkpoints,
     grid: { perRow: 2, spacing: 9, back: 8 },
@@ -94,6 +95,6 @@ export function stripCourse(spec: StripSpec): unknown {
     along,
     scatter: [],
     traffic: { count: 0, speed: 9, lanes: [], routes },
-    environment: { sky: "#9db3c7", fog: 0.0028, terrain: "grass", hills: [] },
+    environment: { sky: "#9db3c7", fog: 0.0028, terrain: SURFACE.grass, hills: [] },
   };
 }

@@ -1,4 +1,5 @@
 import { DOOR } from "./car-mesh.ts";
+import { KPH_PER_MS } from "../kernel/constants.ts";
 
 /**
  * Hinged parts in motion (docs/PANEL_FLAP.md): the wind on a loosened quarter panel, arch flare or hanging bumper, and an
@@ -36,7 +37,7 @@ export function flapWave(phase: number): number {
 }
 
 /** Above this speed (m/s, 80 km/h) a hinged part wears: faster, and quicker still once stretched. */
-export const FLAP_TEAR_MPS = 80 / 3.6;
+export const FLAP_TEAR_MPS = 80 / KPH_PER_MS;
 /** Seconds at `FLAP_TEAR_MPS` a part hinged `FLAP_FULL_T` or more lasts (a stretched one: `FLAP_TEAR_FRAGILE_S`). */
 const FLAP_TEAR_S = 6;
 const FLAP_TEAR_FRAGILE_S = 1.5;

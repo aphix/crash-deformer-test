@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { bodyContact, makeBox, partContact } from "../contact/external-contact.ts";
 import type { StreamedDeformation } from "../deform/streamed-deform.ts";
+import { KPH_PER_MS } from "../kernel/constants.ts";
 
 type MassNode = StreamedDeformation["masses"][number];
 
@@ -277,7 +278,7 @@ export class PistonRig {
 
   /** ½·μ·v² share the car takes: μ is the reduced mass, or the impactor's when the car is held. */
   shotEnergy(carMass: number): number {
-    const v = this.config.speedKph / 3.6;
+    const v = this.config.speedKph / KPH_PER_MS;
     const big = this.config.massKg;
     const mu = this.config.holdCar ? big : (carMass * big) / (carMass + big);
     return 0.5 * mu * v * v * THREE.MathUtils.clamp(this.config.hardness, 0, 1);
@@ -342,7 +343,7 @@ export class PistonRig {
 
   fire(which: PistonId | "all"): void {
     if (!this.car) return;
-    const speed = this.config.speedKph / 3.6;
+    const speed = this.config.speedKph / KPH_PER_MS;
     for (const h of this.heads) {
       if (which !== "all" && h.id !== which) continue;
       if (h.phase !== "idle") continue;
@@ -361,7 +362,7 @@ export class PistonRig {
   step(dt: number): void {
     if (!this.car || dt <= 0) return;
     let fastest = 0;
-    for (const h of this.heads) if (h.firing) fastest = Math.max(fastest, Math.abs(h.u), h.phase === "accel" ? this.config.speedKph / 3.6 : 0);
+    for (const h of this.heads) if (h.firing) fastest = Math.max(fastest, Math.abs(h.u), h.phase === "accel" ? this.config.speedKph / KPH_PER_MS : 0);
     const n = Math.max(1, Math.min(16, Math.ceil((fastest * dt) / PISTON.maxSubstep)));
     const h = dt / n;
     for (let i = 0; i < n; i++) this.substep(this.car, h);
@@ -407,7 +408,7 @@ export class PistonRig {
     h.contacted = true;
     h.contactAt = this.time;
     h.closing = h.u;
-    h.energy = this.shotEnergy(m) * (h.u * h.u) / Math.max(1e-6, (this.config.speedKph / 3.6) ** 2);
+    h.energy = this.shotEnergy(m) * (h.u * h.u) / Math.max(1e-6, (this.config.speedKph / KPH_PER_MS) ** 2);
     h.ebs = Math.sqrt((2 * h.energy) / m);
     h.touch(this.time);
     const s = h.face(honey) + h.pad;

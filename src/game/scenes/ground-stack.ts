@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { SURFACE } from "../world/constants.ts";
+import { GROUND_LEVEL } from "./constants.ts";
 
 /**
  * The one layering rule for everything drawn flat on the ground. A layer sits on a LEVEL of a fixed stack, and the level is
@@ -23,25 +25,25 @@ import * as THREE from "three";
  * `ground-overlap.test-util.ts` scans every course for overlaps this leaves ambiguous.
  */
 const GROUND_STACK = [
-  "terrain",
-  "deck",
-  "runoff",
-  "concrete",
-  "asphalt",
-  "cobble",
-  "marking",
-  "kerb",
-  "dirt",
-  "gravel",
-  "grass",
-  "sand",
-  "decal",
-  "glow",
+  GROUND_LEVEL.terrain,
+  GROUND_LEVEL.deck,
+  GROUND_LEVEL.runoff,
+  SURFACE.concrete,
+  SURFACE.asphalt,
+  SURFACE.cobble,
+  GROUND_LEVEL.marking,
+  GROUND_LEVEL.kerb,
+  SURFACE.dirt,
+  SURFACE.gravel,
+  SURFACE.grass,
+  SURFACE.sand,
+  GROUND_LEVEL.decal,
+  GROUND_LEVEL.glow,
 ] as const;
 export type GroundLevel = (typeof GROUND_STACK)[number];
 
 /** Levels that write depth and sit where they are: the terrain and a bridge's top (it is metres over what it crosses). */
-const BASE_LEVELS: readonly GroundLevel[] = ["terrain", "deck"];
+const BASE_LEVELS: readonly GroundLevel[] = [GROUND_LEVEL.terrain, GROUND_LEVEL.deck];
 
 /** True for a level that writes depth and is drawn where it lies. */
 export function isBaseLevel(level: GroundLevel): boolean {
@@ -121,7 +123,7 @@ export function depthProxy(layers: readonly { kind: string; level: GroundLevel; 
   geometry.setIndex(new THREE.BufferAttribute(idx, 1));
   const mesh = new THREE.Mesh(geometry, new THREE.MeshBasicMaterial({ colorWrite: false }));
   mesh.name = "ground-depth";
-  mesh.renderOrder = levelOrder("terrain") + 0.5;
+  mesh.renderOrder = levelOrder(GROUND_LEVEL.terrain) + 0.5;
   return mesh;
 }
 

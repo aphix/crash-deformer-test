@@ -1,5 +1,6 @@
 import type { DeformableCar } from "../vehicle/car.ts";
 import { carGear, carRpm } from "../vehicle/vehicle-classes.ts";
+import { KPH_PER_MS } from "../kernel/constants.ts";
 import type { RaceView } from "./types.ts";
 
 /**
@@ -15,7 +16,7 @@ function carDamage(car: DeformableCar): number {
 /** The gauge fields of a `RaceView` that come straight off the car: speed, gear, revs, damage, wheels, boost burn. */
 export function carGauge(car: DeformableCar): Pick<RaceView, "speedKph" | "gear" | "rpm" | "damage" | "wheelsOff" | "boosting"> {
   return {
-    speedKph: car.velocity.length() * 3.6,
+    speedKph: car.velocity.length() * KPH_PER_MS,
     gear: carGear(car),
     rpm: carRpm(car),
     damage: carDamage(car),

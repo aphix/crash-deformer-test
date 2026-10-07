@@ -1,4 +1,6 @@
 /** What a position-only pass (a clamp, an overlap push, shape matching) does to a wreck's turn and its angular momentum. */
+import { MIN_INERTIA } from "./constants.ts";
+
 type Body = { readonly mass: number; readonly world: { x: number; z: number }; readonly vel: { x: number; z: number } };
 
 /** Every mass's world x/z into `heldX`/`heldZ`: the pose `undoNetTurn` measures a pass's turn against. */
@@ -71,7 +73,7 @@ export function holdMomentum(masses: readonly Body[], held: Float64Array, slot: 
     return;
   }
   const target = held[slot]!;
-  if (Number.isNaN(target) || inertia < 1e-9) return;
+  if (Number.isNaN(target) || inertia < MIN_INERTIA) return;
   const w = (target - l) / inertia;
   for (let mi = 0; mi < masses.length; mi++) {
     const m = masses[mi]!;

@@ -377,6 +377,143 @@ for (const [f, p] of parsed) {
 }
 check("C11", "implements clauses in game code", c11);
 
+// C12/C13: one place for every magic string and number (owner, 10-07). A name, id, storage or query key, part
+// name, or a tuning value typed in 2+ places drifts silently; it lives in the owning folder's constants.ts (or the
+// one file that owns the concern) and everyone else imports it. Both checks ratchet from today's count.
+const PLATFORM_WORDS = new Set([
+  // DOM / browser events and values
+  "keydown", "keyup", "message", "hashchange", "popstate", "pagehide", "pointerdown", "pointerup", "pointermove", "pointercancel",
+  "pointerlockchange", "pointerlockerror", "mousemove", "fullscreenchange", "webkitfullscreenchange", "languagechange",
+  "visibilitychange", "resize", "blur", "focus", "click", "error", "load", "change", "input", "contextmenu", "wheel", "copy",
+  "cut", "paste", "connected", "connecting", "standard", "stylesheet", "preconnect", "rel", "navigate", "same-origin", "include",
+  "gamepadconnected", "gamepaddisconnected", "http:", "https:",
+  // canvas / three.js
+  "position", "uv", "uv1", "color", "normal", "index", "2d", "canvas", "YXZ", "WEBGL_debug_renderer_info", "EXT_disjoint_timer_query_webgl2", "div", "textarea", "button",
+  // HTTP / encodings
+  "GET", "POST", "PUT", "DELETE", "content-type", "application/json", "accept", "cookie", "set-cookie", "host", "cache-control",
+  "no-store", "x-forwarded-host", "Authorization", "origin", "localhost", "utf8", "utf-8", "sha256", "base64", "base64url", "hex",
+  "deflate-raw",
+  // language / library vocabulary
+  "none", "auto", "hidden", "center", "left", "right", "top", "bottom", "middle", "string", "number", "boolean", "object", "function",
+  "undefined", "custom", "default", "id", "name", "type", "value", "key", "width", "height", "length", "min", "max", "step", "on", "off",
+  "true", "false", "null",
+]);
+const KEY_CODE = /^(Key[A-Z]|Arrow[A-Z][a-z]+|Digit\d|Enter|Escape|Space|Tab|(Shift|Control|Alt)(Left|Right)|Backspace)$/;
+const ID_SHAPE = /^[A-Za-z_#/][A-Za-z0-9_.\-:/#]*$/; // an id, key or name; sentences (UI copy) have spaces and fall out
+const UI_LABEL = /^[A-Z][a-z]+([ -][A-Za-z]+)*$/;
+const TRIVIAL = new Set([
+  "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11", "12", "13", "14", "15", "16", "20", "24", "30", "32", "60", "64", "90",
+  "100", "128", "180", "255", "256", "360", "512", "1000", "1024", "0.5", "0.25", "0.75", "1.5", "0.1", "0.01", "0.001", "16777215",
+]);
+const APPEARANCE = /^(roughness|metalness|opacity|color|emissive\w*|specular\w*|shininess|intensity|fog\w*|sky|ambient|clearcoat\w*|transmission|ior|thickness|alphaTest|sheen\w*|envMapIntensity|toneMappingExposure)$/;
+const SHORT_KNOBS = new Set(["dt", "hx", "hy", "hz"]);
+const GENERIC_NAME = /^(min|max|low|high|from|to|len|len2|sum|tmp|val|value|num|count|size|idx|index|key|id|status)$/;
+const enclosingStatement = (n) => {
+  let c = n.parent;
+  while (c && !ts.isStatement(c)) c = c.parent;
+  return c;
+};
+const underJsxAttribute = (n) => {
+  for (let c = n.parent; c && !ts.isStatement(c); c = c.parent) if (ts.isJsxAttribute(c)) return true;
+  return false;
+};
+// What a string handed to a call is checked against. When the callee is declared here (the calling file's own declaration
+// wins, else any under that name) with a non-`string` parameter type (`keyof X`, a union), tsc rejects a typo: the argument
+// is pinned. A library call is trusted for a union member (zod `.default("x")`) except the platform's string-keyed lookups
+// (`startsWith`, `getObjectByName`, `Map.get` ...), where a typo is silent whatever the argument's type.
+const SILENT_SINKS = new Set(["startsWith", "endsWith", "includes", "indexOf", "getObjectByName", "getObjectByProperty", "get", "has", "set", "delete", "getItem", "setItem", "removeItem", "getAttribute", "setAttribute", "getElementById", "querySelector", "querySelectorAll", "getExtension", "push", "add", "append"]);
+const paramLists = new Map(); // callee name -> { file, parameters } of every function, method or constructor declared under it
+const calleeOf = (n) => {
+  const call = n.parent;
+  if (!(ts.isCallExpression(call) || ts.isNewExpression(call)) || !call.arguments?.includes(n) || call.typeArguments?.length) return null;
+  const name = ts.isIdentifier(call.expression) ? call.expression.text : ts.isPropertyAccessExpression(call.expression) ? call.expression.name.text : null;
+  if (!name) return null;
+  const i = call.arguments.indexOf(n);
+  const untyped = (d) => {
+    const t = d.ps[i]?.type?.kind;
+    return t === undefined || t === ts.SyntaxKind.StringKeyword || t === ts.SyntaxKind.AnyKeyword || t === ts.SyntaxKind.UnknownKeyword;
+  };
+  const decls = paramLists.get(name) ?? [];
+  const here = decls.filter((d) => d.f === n.getSourceFile().fileName);
+  const own = here.length ? here : decls;
+  return { declared: own.length > 0, untyped: own.some(untyped), silent: SILENT_SINKS.has(name) };
+};
+const pinnedByCall = (n) => {
+  const c = calleeOf(n);
+  return c !== null && c.declared && !c.untyped;
+};
+const silentArgument = (n) => {
+  const c = calleeOf(n);
+  return c !== null && (c.declared ? c.untyped : c.silent);
+};
+const isClassHelperArgument = (n) => ts.isCallExpression(n.parent) && ts.isIdentifier(n.parent.expression) && ["cn", "cva"].includes(n.parent.expression.text);
+const isIndexArithmetic = (n) => {
+  for (let c = n.parent, prev = n; c && !ts.isStatement(c); prev = c, c = c.parent) if (ts.isElementAccessExpression(c) && c.argumentExpression === prev) return true;
+  return false;
+};
+// The identifier a number is bound to: `name: 0.35`, `const name = 0.35`, `name < 0.35`, `x * 0.35` (-> the other operand).
+const knobName = (lit) => {
+  let n = lit;
+  if (ts.isPrefixUnaryExpression(n.parent)) n = n.parent;
+  const c = n.parent;
+  if (ts.isPropertyAssignment(c) || ts.isPropertyDeclaration(c) || ts.isVariableDeclaration(c) || ts.isParameter(c) || ts.isBindingElement(c)) return c.name.getText();
+  if (ts.isBinaryExpression(c)) {
+    const other = c.left === n ? c.right : c.left;
+    if (ts.isIdentifier(other)) return other.text;
+    if (ts.isPropertyAccessExpression(other)) return other.name.text;
+  }
+  return null;
+};
+// Scope: the game, its components and the multiplayer relay. The rest of `src/lib` is platform template code, as in C9.
+const inMagicScope = (f) => !isTest(f) && (!f.startsWith("src/lib/") || f.startsWith("src/lib/multiplayer/"));
+const unionMembers = new Set(); // a value some string-literal union type pins: tsc catches a typo in a typed position
+for (const [f, p] of parsed) {
+  if (!inMagicScope(f)) continue;
+  const visit = (n) => {
+    if (ts.isLiteralTypeNode(n) && ts.isStringLiteral(n.literal)) unionMembers.add(n.literal.text);
+    const bound = (ts.isVariableDeclaration(n) || ts.isPropertyDeclaration(n)) && n.initializer && (ts.isArrowFunction(n.initializer) || ts.isFunctionExpression(n.initializer)) ? n.initializer : null;
+    const fn = ts.isFunctionDeclaration(n) || ts.isMethodDeclaration(n) || ts.isMethodSignature(n) ? n : bound;
+    if (fn && n.name && ts.isIdentifier(n.name)) paramLists.set(n.name.text, [...(paramLists.get(n.name.text) ?? []), { f, ps: fn.parameters }]);
+    if (ts.isClassDeclaration(n) && n.name) for (const m of n.members) if (ts.isConstructorDeclaration(m)) paramLists.set(n.name.text, [...(paramLists.get(n.name.text) ?? []), { f, ps: m.parameters }]);
+    ts.forEachChild(n, visit);
+  };
+  visit(p.sf);
+}
+const strGroups = new Map();
+const numGroups = new Map();
+for (const [f, p] of parsed) {
+  if (!inMagicScope(f)) continue;
+  const where = (n) => `${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1}`;
+  const visit = (n) => {
+    if (ts.isStringLiteral(n) || ts.isNoSubstitutionTemplateLiteral(n)) {
+      const v = n.text;
+      const st = enclosingStatement(n);
+      const exempt = !st || ts.isImportDeclaration(st) || ts.isExportDeclaration(st) || ts.isLiteralTypeNode(n.parent) || ts.isEnumMember(n.parent) ||
+        underJsxAttribute(n) || isClassHelperArgument(n) || v.length < 2 || !ID_SHAPE.test(v) || PLATFORM_WORDS.has(v) || KEY_CODE.test(v) || UI_LABEL.test(v) ||
+        pinnedByCall(n) || (unionMembers.has(v) && !silentArgument(n));
+      if (!exempt) strGroups.set(v, [...(strGroups.get(v) ?? []), where(n)]);
+    } else if (ts.isNumericLiteral(n)) {
+      const name = knobName(n);
+      const v = (ts.isPrefixUnaryExpression(n.parent) && n.parent.operator === ts.SyntaxKind.MinusToken ? "-" : "") + n.text;
+      const knob = name && (name.length >= 3 || SHORT_KNOBS.has(name)) && !GENERIC_NAME.test(name) && !APPEARANCE.test(name) && !/_IDX$/.test(name);
+      if (knob && !TRIVIAL.has(n.text) && !isIndexArithmetic(n)) {
+        const key = `${v} @ ${name}`;
+        const g = numGroups.get(key) ?? [];
+        g.push({ f, at: where(n) });
+        numGroups.set(key, g);
+      }
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(p.sf);
+}
+const c12 = [];
+for (const [v, at] of strGroups) if (at.length > 1) for (const w of at) c12.push(`${w} "${v}" ×${at.length}`);
+check("C12", "id-like string literals repeated in production code (one constant, imported)", c12);
+const c13 = [];
+for (const [key, g] of numGroups) if (new Set(g.map((o) => o.f)).size > 1) for (const o of g) c13.push(`${o.at} ${key} ×${g.length}`);
+check("C13", "named numeric knobs repeated across files (one constant, imported)", c13);
+
 // Size caps (C8) are listed but never fail the ratchet: the owner treats splitting files as clean-up paperwork after
 // the lanes settle (10-05), not a merge blocker.
 const REPORT_ONLY = new Set(["C8"]);
