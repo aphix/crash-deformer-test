@@ -65,6 +65,8 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
 export const REST_LIFT = 0.02;
 /** A wheel this close (m) to the ground counts as down. */
 export const TOUCH = 0.03;
+/** How far (m) a wheel's tread may be off a surface for a spawn's first slice to lay the body on it (`DeformableCar.laying`): a bank's low side. */
+const LAY_REACH = 0.4;
 /** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
  *  peaked at 4–12 g on the same ramps and crests). The pose-following step shares it. */
 export const SUPPORT = 8 * G;
@@ -326,31 +328,31 @@ function bumped(mask: number): number {
 }
 
 /**
- * The plane the body rests on over the wheels in `mask` (at least three), facing `yaw`: the least-squares plane through each
- * wheel's contact (its tyre's bottom point lifted by `wheelContact`'s rise: a tyre meeting a lip rises as its arc does).
- * Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that holds the body up alone with two
+ * The plane the body rests on over the wheels in `mask` (at least three), facing `yaw`: the least-squares plane through the surface
+ * point under each wheel's tread (where the tyre rests, whichever side of its hub that is: `wheelContact`'s footprint point lifted by
+ * its rise). Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that holds the body up alone with two
  * others (the lowest plane through three contacts that leaves the fourth within its stop): a car on a kerb's corner rests on three.
  */
 function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number): boolean {
   const p = car.group.position;
-  basisOf(car.group.quaternion);
+  const hit = car.wheelHit;
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
   for (let i = 0; i < 4; i++) {
     if (((mask >> i) & 1) === 0) continue;
-    const bx = _e[0]! * WX[i]! + _e[6]! * WZ[i]!;
-    const by = _e[1]! * WX[i]! + _e[7]! * WZ[i]!;
-    const bz = _e[2]! * WX[i]! + _e[8]! * WZ[i]!;
-    _u[i] = bx * sy + bz * cy;
-    _wd[i] = bx * cy - bz * sy;
-    _hh[i] = p.y + by + car.wheelHit[i * HIT_SIZE + C_H]!;
+    const o = i * HIT_SIZE;
+    const dx = hit[o + C_PX]! - p.x;
+    const dz = hit[o + C_PZ]! - p.z;
+    _u[i] = dx * sy + dz * cy;
+    _wd[i] = dx * cy - dz * sy;
+    _hh[i] = hit[o + C_PY]! + hit[o + C_H]!;
   }
   if (!fitPlane(mask)) return false;
   if (mask !== 15 || bumped(mask) <= stop) return true;
   let best = Infinity;
-  for (let k = 0; k < 4; k++) {
-    if (!fitPlane(15 & ~(1 << k))) continue;
-    if (_hh[k]! - (_pl[0]! + _pl[1]! * _u[k]! + _pl[2]! * _wd[k]!) > stop || _pl[0]! >= best) continue;
+  for (let j = 0; j < 4; j++) {
+    if (!fitPlane(15 & ~(1 << j))) continue;
+    if (_hh[j]! - (_pl[0]! + _pl[1]! * _u[j]! + _pl[2]! * _wd[j]!) > stop || _pl[0]! >= best) continue;
     best = _pl[0]!;
     _bp.set(_pl);
   }
@@ -370,7 +372,8 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   const q = car.group.quaternion;
   const pos = car.group.position;
   const v = car.velocity;
-  const spring = droop(carClass(car));
+  const spring = car.laying ? LAY_REACH : droop(carClass(car));
+  car.laying = false;
   const yaw = car.yaw;
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
@@ -384,7 +387,6 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   // The pose a pass leaves moves the tyres over the surface (a lip's face, a bank): a second pass reads them where the first left them.
   for (let pass = 0; pass < 2; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
-    if (Reflect.get(globalThis, "DBGP") === true) console.log(`   pass${pass} mask ${mask} rises ${[0, 1, 2, 3].map((i) => car.wheelHit[i * HIT_SIZE + C_H]!.toFixed(3)).join(",")} touch ${[0, 1, 2, 3].map((i) => car.wheelHit[i * HIT_SIZE + C_TOUCH]!.toFixed(3)).join(",")} y ${pos.y.toFixed(3)} pitch ${car.pitch.toFixed(3)} roll ${car.roll.toFixed(3)}`);
     if (worldWheels(car, mask) < 3 || !restPlane(car, mask, yaw, spring)) {
       // The body takes off from the pose it had: a pass's plane that the next pass does not confirm leaves nothing behind.
       q.copy(_q0).invert();
@@ -468,6 +470,7 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
  */
 export function stepFree(car: DeformableCar, dt: number): boolean {
   const q = car.group.quaternion;
+  car.laying = false;
   const pos = car.group.position;
   const v = car.velocity;
   const w = car.angular;

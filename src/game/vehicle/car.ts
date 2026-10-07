@@ -51,6 +51,8 @@ export class DeformableCar extends CarParts {
   readonly wheelHit = new Float64Array(4 * HIT_SIZE);
   /** The wheels within their springs' reach of a surface, bit i: wheel i (`WHEEL_POS` order). Drive and traction follow them. */
   wheelsDown = 15;
+  /** Set at a spawn: the first slice lays the body on what its wheels reach within `LAY_REACH`, not only within their springs' travel (a spawn puts it level at the road's height, and a bank takes two wheels' ground far off that). */
+  laying = false;
   /** The pose-following step's support height (m) under the origin last slice; NaN when none. */
   support = NaN;
   /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
@@ -307,6 +309,7 @@ export class DeformableCar extends CarParts {
     this.airborne = false;
     this.support = NaN;
     this.wheelsDown = 15;
+    this.laying = true;
     this.restsOn = null;
     this.yielding = false;
     this.wheelHit.fill(0);
