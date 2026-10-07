@@ -27,11 +27,8 @@ const TREAD_RINGS = [
   [0.104, 0.298],
   [-0.104, 0.298],
 ] as const;
-const TREAD: THREE.Vector3[] = [];
-for (let a = 0; a < 48; a++) {
-  const t = (a / 48) * Math.PI * 2;
-  for (const [x, r] of TREAD_RINGS) TREAD.push(new THREE.Vector3(x, Math.cos(t) * r, Math.sin(t) * r));
-}
+/** Points round each tread ring (7.5° apart). */
+const TREAD_STEPS = 48;
 /** The body's front bumper corners, over the underside samples (car-local x, y, z; `HULL` in car-air.ts). */
 const BUMPERS = [-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, number] => [sx * 0.88, 0.35, sz * 2.22]));
 
@@ -127,14 +124,32 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     wh.getWorldPosition(_hub[i]!);
     const hint = _hub[i]!.y;
     let gap = Infinity;
-    for (const t of TREAD) {
-      _p.copy(t).applyMatrix4(wh.matrixWorld);
+    /** The tread point at angle `t` (rad) on the ring at axle offset `x`, radius `r`: its gap, kept as the tyre's when it is the smallest. */
+    const at = (x: number, r: number, t: number): number => {
+      _p.set(x, Math.cos(t) * r, Math.sin(t) * r).applyMatrix4(wh.matrixWorld);
       const g = ground.heightAt(_p.x, _p.z, hint);
-      if (g === -Infinity || _p.y - g >= gap) continue;
-      gap = _p.y - g;
-      contacts[i * 3] = _p.x;
-      contacts[i * 3 + 1] = g;
-      contacts[i * 3 + 2] = _p.z;
+      if (g === -Infinity) return Infinity;
+      if (_p.y - g < gap) {
+        gap = _p.y - g;
+        contacts[i * 3] = _p.x;
+        contacts[i * 3 + 1] = g;
+        contacts[i * 3 + 2] = _p.z;
+      }
+      return _p.y - g;
+    };
+    // Each ring at `TREAD_STEPS` points, then at 1/32 of that step across the step either side of its lowest one: at a face's edge the
+    // tread's lowest point over the face is where the ring crosses the edge, and the nearest of 48 points read up to 4 cm above it.
+    for (const [x, r] of TREAD_RINGS) {
+      let low = 0;
+      let lowGap = Infinity;
+      for (let a = 0; a < TREAD_STEPS; a++) {
+        const g = at(x, r, (a / TREAD_STEPS) * Math.PI * 2);
+        if (g < lowGap) {
+          lowGap = g;
+          low = a;
+        }
+      }
+      for (let f = -32; f <= 32; f++) at(x, r, ((low + f / 32) / TREAD_STEPS) * Math.PI * 2);
     }
     gaps.push(gap);
     _g[i] = ground.heightAt(_hub[i]!.x, _hub[i]!.z, hint);
