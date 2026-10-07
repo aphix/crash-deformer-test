@@ -104,19 +104,25 @@ try {
   if (!baked || typeof baked.b64 !== "string") throw new Error(`bake produced no pixels\n${errors.join("\n")}`);
   const bytes = Buffer.from(baked.b64, "base64");
   const rgb = new Float32Array(bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length));
-  // The scene's ambient and night levels were tuned against the old jpeg, which clipped at 1: scale the radiance so the
-  // equirect's mean matches that clipped mean. Diffuse light stays where it was; only the highlights above 1 are new.
+  // The scene's ambient and night levels were tuned against the old jpeg, which clipped at 1: scale the radiance so the mean over the
+  // sphere (rows weighted by the solid angle they cover, sin of the polar angle) matches that clipped mean. Light stays about where it
+  // was; only the highlights above 1 are new.
   let clipped = 0;
   let full = 0;
+  let weights = 0;
   let peak = 0;
-  for (let i = 0; i < rgb.length; i++) {
-    clipped += Math.min(rgb[i], 1);
-    full += rgb[i];
-    peak = Math.max(peak, rgb[i]);
+  for (let y = 0; y < baked.h; y++) {
+    const wRow = Math.sin(((y + 0.5) / baked.h) * Math.PI);
+    for (let i = y * baked.w * 3; i < (y + 1) * baked.w * 3; i++) {
+      clipped += Math.min(rgb[i], 1) * wRow;
+      full += rgb[i] * wRow;
+      peak = Math.max(peak, rgb[i]);
+    }
+    weights += wRow * baked.w * 3;
   }
   const k = clipped / full;
   for (let i = 0; i < rgb.length; i++) rgb[i] *= k;
-  console.log(`mean clipped ${(clipped / rgb.length).toFixed(4)}, mean linear ${(full / rgb.length).toFixed(4)}, peak ${peak.toFixed(2)}, scale ${k.toFixed(4)}`);
+  console.log(`sphere mean clipped ${(clipped / weights).toFixed(4)}, linear ${(full / weights).toFixed(4)}, peak ${peak.toFixed(2)}, scale ${k.toFixed(4)}`);
   const shrink = 1024 / WIDTH;
   const w = baked.w / shrink;
   const h = baked.h / shrink;
