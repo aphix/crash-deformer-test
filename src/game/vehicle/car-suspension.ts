@@ -92,11 +92,16 @@ const PAN_PLANE: readonly [number, number] = (() => {
  * way on a flat roof. A flat pan at 0.132 stood 15-22 mm over the drawn underside at its front row.
  */
 export const PAN: readonly (readonly [number, number, number])[] = [-PAN_HALF, PAN_HALF].flatMap((z) => [-PAN_HALF, 0, PAN_HALF].map((x): [number, number, number] => [x, PAN_PLANE[0] + PAN_PLANE[1] * z, z]));
-/** The underside samples and the bumpers' bottom corners (car-local x, z, height above the tyre plane): what the body bottoms out on. */
-const HULL_UNDER: readonly (readonly [number, number, number])[] = [
-  ...UNDERSIDE,
-  ...[-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, number] => [sx * CAR_HALF.x, sz * CAR_HALF.z, 0.35])),
-];
+/** `HULL_UNDER`'s row: car-local x, z and height above the tyre plane. */
+const HU_X = 0;
+const HU_Z = 1;
+const HU_H = 2;
+const HU_SIZE = 3;
+/** The underside samples and the bumpers' bottom corners (rows of `HU_SIZE`): what the body bottoms out on. */
+const HULL_UNDER = Float64Array.from([
+  ...UNDERSIDE.flat(),
+  ...[-1, 1].flatMap((sx) => [-1, 1].flatMap((sz) => [sx * CAR_HALF.x, sz * CAR_HALF.z, 0.35])),
+]);
 /** The underside's height (m) at each hub's plan position (a front hub's is the bumper corner's, a rear hub's the tail's). */
 const SILL = [0.084, 0.084, 0.157, 0.157] as const;
 
@@ -345,7 +350,10 @@ export class Suspension {
     const cz = Math.cos(rz);
     const dy = lift + this.heave;
     let pen = 0;
-    for (const [x, z, h] of HULL_UNDER) {
+    for (let i = 0; i < HULL_UNDER.length; i += HU_SIZE) {
+      const x = HULL_UNDER[i + HU_X]!;
+      const z = HULL_UNDER[i + HU_Z]!;
+      const h = HULL_UNDER[i + HU_H]!;
       const x1 = x * cz - h * sz;
       const y1 = x * sz + h * cz;
       const y = y1 * cx - z * sx + dy;

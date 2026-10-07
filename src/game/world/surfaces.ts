@@ -515,8 +515,8 @@ export function groundWalls(): boolean {
   return live.statics !== null && live.statics.walls;
 }
 
-/** `offer`'s scratch: the best candidate so far (`S_BEST`..`S_AUX`), the candidate being evaluated (`S_CG0`..`S_CAUX`) and one cell's bilinear partials (per cell unit, `S_PU`, `S_PV`, set by `bil`). */
-const _s = new Float64Array(13);
+/** `offer`'s scratch: the best candidate so far (`S_BEST`..`S_AUX`), the candidate being evaluated (`S_CG0`..`S_CAUX`, its height `S_H`: NaN where it has none) and one cell's bilinear partials (per cell unit, `S_PU`, `S_PV`, set by `bil`). */
+const _s = new Float64Array(14);
 const S_BEST = 0;
 const S_PATCH = 1;
 const S_G0 = 2;
@@ -530,6 +530,7 @@ const S_CN = 9;
 const S_CAUX = 10;
 const S_PU = 11;
 const S_PV = 12;
+const S_H = 13;
 
 function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): number {
   const h00 = f[c]!;
@@ -544,7 +545,9 @@ function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): nu
 }
 
 /** The base terrain past a grid: its gaussian hills' height at (x, z), the gradient into `_cg0`/`_cg1` (world plan). */
-function hillsAt(h: Float64Array, x: number, z: number): number {
+function hillsAt(h: Float64Array, q: Float64Array): void {
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
   let sum = 0;
   let gx = 0;
   let gz = 0;
@@ -559,7 +562,7 @@ function hillsAt(h: Float64Array, x: number, z: number): number {
   }
   _s[S_CG0] = gx;
   _s[S_CG1] = gz;
-  return sum;
+  _s[S_H] = sum;
 }
 
 /**
@@ -567,13 +570,19 @@ function hillsAt(h: Float64Array, x: number, z: number): number {
  * surface's partials along the frame's x and z; in world plan past the grid) and `_cn` (the nearest node, −1 past the grid). A
  * patch with per-node factors (`auxs`) lowers by `P_DROP × factor` and leaves the factor in `_caux` (`offer` presets it to 1).
  */
-function gridAt(s: Surface, i: number, x: number, z: number, y: number): number {
+function gridAt(s: Surface, i: number, q: Float64Array): void {
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
+  const y = q[PQ_Y]!;
   const P = s.p;
   const o = i * P_STRIDE;
   const dx = x - P[o + P_OX]!;
   const dz = z - P[o + P_OZ]!;
   const rad2 = P[o + P_RAD2]!;
-  if (rad2 > 0 && dx * dx + dz * dz > rad2) return NaN;
+  if (rad2 > 0 && dx * dx + dz * dz > rad2) {
+    _s[S_H] = NaN;
+    return;
+  }
   // The frame's coordinates of the point: its height counts only to a tilted frame (a roof); a plan-aligned one ignores it.
   const dy = y > -1e9 && y < 1e9 ? y - P[o + P_OY]! : 0;
   const lu = P[o + P_AX]! * dx + P[o + P_AX + 1]! * dy + P[o + P_AX + 2]! * dz;
@@ -586,9 +595,14 @@ function gridAt(s: Surface, i: number, x: number, z: number, y: number): number 
   const nu = s.q[qo + Q_NU]!;
   const nv = s.q[qo + Q_NV]!;
   if (fu < 0 || fv < 0 || fu >= nu - 1 || fv >= nv - 1) {
-    if (s.q[qo + Q_SURF2]! < 0) return NaN;
+    if (s.q[qo + Q_SURF2]! < 0) {
+      _s[S_H] = NaN;
+      return;
+    }
     _s[S_CN] = -1;
-    return P[o + P_OY]! + hillsAt(s.hills[i]!, x, z);
+    hillsAt(s.hills[i]!, q);
+    _s[S_H] = P[o + P_OY]! + _s[S_H]!;
+    return;
   }
   const ci = Math.floor(fu);
   const cj = Math.floor(fv);
@@ -623,11 +637,13 @@ function gridAt(s: Surface, i: number, x: number, z: number, y: number): number 
   if (aux.length > 0) _s[S_CAUX] = bil(aux, c, nu, tu, tv);
   h -= P[o + P_DROP]! * _s[S_CAUX];
   // The surface point's world height: the frame's origin plus its local x, y and z along the axes' y components.
-  return P[o + P_OY]! + P[o + P_AX + 1]! * lu + P[o + P_BX + 1]! * h + P[o + P_CX + 1]! * lv;
+  _s[S_H] = P[o + P_OY]! + P[o + P_AX + 1]! * lu + P[o + P_BX + 1]! * h + P[o + P_CX + 1]! * lv;
 }
 
 /** A bridge deck segment at (x, z): its height, NaN off it. Sets `_cg0`/`_cg1` (the height's world-plan partials) and `_cn` (0 the road, 1 its run). */
-function deckAt(s: Surface, i: number, x: number, z: number): number {
+function deckAt(s: Surface, i: number, q: Float64Array): void {
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
   const P = s.p;
   const o = i * P_STRIDE;
   const ex = P[o + D_EX]!;
@@ -637,31 +653,42 @@ function deckAt(s: Surface, i: number, x: number, z: number): number {
   const x0 = P[o + P_OX]!;
   const z0 = P[o + P_OZ]!;
   const f = ((x - x0) * ex + (z - z0) * ez) / len2;
-  if (f < -0.02 || f > 1.02) return NaN;
+  if (f < -0.02 || f > 1.02) {
+    _s[S_H] = NaN;
+    return;
+  }
   const lat = ((x - x0) * ez - (z - z0) * ex) / len;
   const half = P[o + D_HALF]!;
   const run = lat > 0 ? P[o + D_RUNL]! : P[o + D_RUNR]!;
-  if (Math.abs(lat) > half + run) return NaN;
+  if (Math.abs(lat) > half + run) {
+    _s[S_H] = NaN;
+    return;
+  }
   const tan = P[o + D_TAN]!;
   const inside = Math.abs(lat) < half;
   _s[S_CG0] = (P[o + D_DY]! * ex) / len2 - (inside ? (tan * ez) / len : 0);
   _s[S_CG1] = (P[o + D_DY]! * ez) / len2 + (inside ? (tan * ex) / len : 0);
   _s[S_CN] = Math.abs(lat) <= half ? 0 : 1;
-  return P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
+  _s[S_H] = P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
 }
 
 /** Test patch `i` of `s` for the point; a candidate that reaches and is the highest so far becomes the best. */
-function offer(s: Surface, i: number, x: number, z: number, y: number, skip: number): void {
+function offer(s: Surface, i: number, q: Float64Array, skip: number): void {
   const P = s.p;
   const o = i * P_STRIDE;
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
   if (x < P[o + P_MINX]! || x > P[o + P_MAXX]! || z < P[o + P_MINZ]! || z > P[o + P_MAXZ]!) return;
   const qo = i * Q_STRIDE;
   const owner = s.q[qo + Q_OWNER]!;
   // A car's own roof is not under it, nor is the roof of a car whose origin is higher (two cars standing on each other lifted one another 1.5 m a frame).
   if (owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && P[o + P_OY]! > P[skip * P_STRIDE + P_OY]!))) return;
   _s[S_CAUX] = 1;
-  const h = s.q[qo + Q_KIND] === DECK ? deckAt(s, i, x, z) : gridAt(s, i, x, z, y);
+  if (s.q[qo + Q_KIND] === DECK) deckAt(s, i, q);
+  else gridAt(s, i, q);
+  const h = _s[S_H]!;
   // NaN (no surface) fails the first test; an unlimited reach under an asker at -Infinity is NaN and passes the second.
+  const y = q[PQ_Y]!;
   if (h !== h || h > y + P[o + P_REACH]! || h < _s[S_BEST]) return;
   _s[S_BEST] = h;
   live.surf = s;
@@ -674,15 +701,15 @@ function offer(s: Surface, i: number, x: number, z: number, y: number, skip: num
 }
 
 /** The highest surface at the point over `s`'s patches, into the best-candidate scratch. */
-function find(s: Surface, x: number, z: number, y: number, skip: number): void {
+function find(s: Surface, q: Float64Array, skip: number): void {
   const always = s.always;
-  for (let k = 0; k < s.nAlways; k++) offer(s, always[k]!, x, z, y, skip);
+  for (let k = 0; k < s.nAlways; k++) offer(s, always[k]!, q, skip);
   if (s.cellList.length === 0) return;
-  const ci = Math.floor(x / CELL) - s.cx0;
-  const cj = Math.floor(z / CELL) - s.cz0;
+  const ci = Math.floor(q[PQ_X]! / CELL) - s.cx0;
+  const cj = Math.floor(q[PQ_Z]! / CELL) - s.cz0;
   if (ci < 0 || cj < 0 || ci >= s.cnx || cj >= s.cnz) return;
   const c = cj * s.cnx + ci;
-  for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, x, z, y, skip);
+  for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, q, skip);
 }
 
 /**
@@ -736,29 +763,36 @@ function report(out: Float64Array): void {
   out[C_AUX] = _s[S_AUX];
 }
 
+/** The asked point of a query, in the typed array a caller passes: world x, z and the asking height y (no boxed doubles cross the call). */
+export const PQ_X = 0;
+export const PQ_Z = 1;
+export const PQ_Y = 2;
+export const PQ_SIZE = 3;
+
 /**
- * The surface at plan (x, z) under a body asking from height `y` (`Infinity`: the top surface): the highest one of the scene's
- * static surface and the armed car tops that is at most its patch's reach above `y`, into `out` (see `report`). `skip` is the
- * slot the body is itself (its own roof is not under it, nor is a roof of a car higher than it), −1 none.
+ * The surface at plan (x, z) of the query point `q` (`PQ_X`, `PQ_Z`, `PQ_Y`) under a body asking from height y (`Infinity`: the
+ * top surface): the highest one of the scene's static surface and the armed car tops that is at most its patch's reach above y,
+ * into `out` (see `report`). `skip` is the slot the body is itself (its own roof is not under it, nor is a roof of a car higher
+ * than it), −1 none.
  */
-export function pointContact(x: number, z: number, y: number, skip: number, out: Float64Array): void {
+export function pointContact(q: Float64Array, skip: number, out: Float64Array): void {
   _s[S_BEST] = NONE;
   live.surf = null;
-  if (live.statics !== null) find(live.statics, x, z, y, skip);
+  if (live.statics !== null) find(live.statics, q, skip);
   const t = live.tops;
   if (t !== null) {
     t.near(skip);
-    for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, x, z, y, skip);
+    for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, q, skip);
   }
   report(out);
 }
 
 /** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
-export function contactIn(s: Surface, x: number, z: number, y: number, out: Float64Array): void {
+export function contactIn(s: Surface, q: Float64Array, out: Float64Array): void {
   _s[S_BEST] = NONE;
   live.surf = null;
   if (!s.sealed) s.seal();
-  find(s, x, z, y, -1);
+  find(s, q, -1);
   report(out);
 }
 
@@ -860,6 +894,7 @@ function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: nu
 
 const _w = new Float64Array(HIT_SIZE);
 const _x = new Float64Array(HIT_SIZE);
+const _pq = new Float64Array(PQ_SIZE);
 /** Per footprint point of the last `wheelContact`: its rise, the patch that sets it (`patchOf`) and the point (world x, y, z). */
 const _rise = new Float64Array(FOOT);
 const _pid = new Float64Array(FOOT);
@@ -904,7 +939,10 @@ export function edgeCross(ax: number, ay: number, az: number, bx: number, by: nu
       py = oy + (py - oy) * k;
       pz = oz + (pz - oz) * k;
     }
-    pointContact(px, pz, Number.isNaN(ask) ? py : ask, skip, _x);
+    _pq[PQ_X] = px;
+    _pq[PQ_Z] = pz;
+    _pq[PQ_Y] = Number.isNaN(ask) ? py : ask;
+    pointContact(_pq, skip, _x);
     if (patchOf(_x) !== id) {
       t1 = t;
       continue;
@@ -931,7 +969,10 @@ function ridgeAt(ax: number, ay: number, az: number, dx: number, dy: number, dz:
   const px = ax + dx * t;
   const py = ay + dy * t;
   const pz = az + dz * t;
-  pointContact(px, pz, py, skip, _x);
+  _pq[PQ_X] = px;
+  _pq[PQ_Z] = pz;
+  _pq[PQ_Y] = py;
+  pointContact(_pq, skip, _x);
   if (patchOf(_x) !== id) return NONE;
   const r = _x[C_H]! - py;
   if (r > ridgeBest) {
@@ -1004,7 +1045,10 @@ function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: numbe
   const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
   const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
   const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
-  pointContact(px, pz, hub[1]!, skip, _w);
+  _pq[PQ_X] = px;
+  _pq[PQ_Z] = pz;
+  _pq[PQ_Y] = hub[1]!;
+  pointContact(_pq, skip, _w);
   const r = _w[C_H]! - py;
   _rise[k] = r;
   _pid[k] = patchOf(_w);
@@ -1051,7 +1095,10 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const n = (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
-  pointContact(x, z, y, skip, _w);
+  _pq[PQ_X] = x;
+  _pq[PQ_Z] = z;
+  _pq[PQ_Y] = y;
+  pointContact(_pq, skip, _w);
   let c = 1;
   let s = 0;
   if (_w[C_H]! !== NONE) {

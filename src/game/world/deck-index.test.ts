@@ -5,7 +5,6 @@ import { OFF_MENU, TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
 import { mulberry32 } from "./placements.ts";
 import { STEP_UP } from "./ground.ts";
-import { C_H, C_SURF, HIT_SIZE, contactIn } from "./surfaces.ts";
 
 /**
  * A course's ground lists each bridge-deck segment only in the 8 m cells its accepted region touches. What a car asks there
@@ -43,7 +42,6 @@ for (const json of [...TRACKS, ...OFF_MENU]) {
       const rand = mulberry32(7);
       const decks: number[] = [];
       for (let k = 0; k < p.count; k++) if (p.deck[k]) decks.push(k);
-      const out = new Float64Array(HIT_SIZE);
       let hits = 0;
       for (let n = 0; n < 40000; n++) {
         const k = decks[Math.floor(rand() * decks.length)]!;
@@ -55,15 +53,15 @@ for (const json of [...TRACKS, ...OFF_MENU]) {
         const z = p.z[k]! + p.tz[k]! * along - p.tx[k]! * across;
         const y = p.y[k]! + (rand() * 8 - 6) - STEP_UP;
         // The ground alone: asked from -Infinity no deck reaches the asker.
-        contactIn(ground, x, z, -Infinity, out);
-        const field = out[C_H]!;
-        const fieldSurface = out[C_SURF]!;
+        const field = ground.heightAt(x, z, -Infinity);
+        const fieldSurface = ground.surfaceIndex(x, z, -Infinity);
         const deck = scanAll(track, x, z, y + STEP_UP);
         const onDeck = deck.best >= field;
-        contactIn(ground, x, z, y, out);
+        const height = ground.heightAt(x, z, y);
+        const surface = ground.surfaceIndex(x, z, y);
         const at = `(${x.toFixed(3)}, ${z.toFixed(3)}) from ${y.toFixed(3)}`;
-        assert.equal(out[C_H], onDeck ? deck.best : field, `height at ${at}`);
-        assert.equal(out[C_SURF], onDeck ? deck.surface : fieldSurface, `surface at ${at}`);
+        assert.equal(height, onDeck ? deck.best : field, `height at ${at}`);
+        assert.equal(surface, onDeck ? deck.surface : fieldSurface, `surface at ${at}`);
         if (onDeck) hits++;
       }
       assert.ok(hits > 4000, `the points land on the deck often enough to mean something (${hits})`);

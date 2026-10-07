@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { C_GRIP, C_H, C_OWNER, C_SURF, HIT_SIZE, pointContact } from "../world/surfaces.ts";
+import { C_GRIP, C_H, C_OWNER, C_SURF, HIT_SIZE, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "../world/surfaces.ts";
 import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 
 /**
@@ -114,6 +114,7 @@ type WheelFx = {
 
 const _q = new THREE.Vector3();
 const _hit = new Float64Array(HIT_SIZE);
+const _pq = new Float64Array(PQ_SIZE);
 const _clear = new THREE.Color();
 
 export class SkidMarks {
@@ -264,7 +265,10 @@ export class SkidMarks {
         const jump = vx * vx + vz * vz > 80 * 80;
         // Where the tyre's bottom stands on the store's surfaces, asked as the sim asks it (a wheel over a deck sees the deck, one on
         // another car's roof is not on the mark map's floor), whatever moves the car: its drive, a wreck's masses, a netplay pose.
-        pointContact(x, z, _q.y - WHEEL_R, car.slot, _hit);
+        _pq[PQ_X] = x;
+        _pq[PQ_Z] = z;
+        _pq[PQ_Y] = _q.y - WHEEL_R;
+        pointContact(_pq, car.slot, _hit);
         const gap = _q.y - WHEEL_R - _hit[C_H]!;
         const grounded = gap < 0.14 && _hit[C_OWNER]! < 0;
         const grip = _hit[C_GRIP]!;

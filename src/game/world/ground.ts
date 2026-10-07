@@ -1,5 +1,5 @@
 import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
-import { activate, C_GRIP, C_H, C_NX, C_NY, C_NZ, C_SURF, contactIn, HIT_SIZE, Surface } from "./surfaces.ts";
+import { activate, C_GRIP, C_H, C_NX, C_NY, C_NZ, C_SURF, contactIn, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, Surface } from "./surfaces.ts";
 
 /** A surface this far (m) above a body still counts as under it (kerbs, ramp lips, a wreck's dropped hub). */
 export const STEP_UP = 1.2;
@@ -14,6 +14,15 @@ export const NO_FLOOR = -Infinity;
 export const DISC_RADIUS = 48;
 
 const _out = new Float64Array(HIT_SIZE);
+const _q = new Float64Array(PQ_SIZE);
+
+/** `contactIn` of `g` at (x, z) asked from y, into `_out` (the point goes in a typed array: no boxed doubles cross the call). */
+function ask(g: Ground, x: number, z: number, y: number): void {
+  _q[PQ_X] = x;
+  _q[PQ_Z] = z;
+  _q[PQ_Y] = y;
+  contactIn(g, _q, _out);
+}
 
 /**
  * The world's ground: a scene's static set of solid surfaces (what `setGround` loads), asked by height, up-normal, grip and
@@ -29,13 +38,13 @@ const _out = new Float64Array(HIT_SIZE);
 export class Ground extends Surface {
   /** Surface height (m) at world (x, z); `NO_FLOOR` where nothing is under the body. */
   heightAt(x: number, z: number, y = Infinity): number {
-    contactIn(this, x, z, y, _out);
+    ask(this, x, z, y);
     return _out[C_H]!;
   }
 
   /** Writes the unit up-normal at (x, z) into `out` and returns it. */
   normalAt<T extends { x: number; y: number; z: number }>(x: number, z: number, out: T, y = Infinity): T {
-    contactIn(this, x, z, y, _out);
+    ask(this, x, z, y);
     out.x = _out[C_NX]!;
     out.y = _out[C_NY]!;
     out.z = _out[C_NZ]!;
@@ -44,13 +53,13 @@ export class Ground extends Surface {
 
   /** Grip multiplier at (x, z): 1 = dry asphalt (today's μ), gravel ≈ 0.6, grass ≈ 0.5, 0 over `NO_FLOOR`. */
   frictionAt(x: number, z: number, y = Infinity): number {
-    contactIn(this, x, z, y, _out);
+    ask(this, x, z, y);
     return _out[C_GRIP]!;
   }
 
   /** Index into `SURFACE_IDS` of the surface at (x, z). */
   surfaceIndex(x: number, z: number, y = Infinity): number {
-    contactIn(this, x, z, y, _out);
+    ask(this, x, z, y);
     return _out[C_SURF]!;
   }
 

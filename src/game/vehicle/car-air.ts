@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, ridgeCross, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, ridgeCross, wheelContact } from "../world/surfaces.ts";
 import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -210,6 +210,8 @@ const BPATCH = new Float64Array(POINTS.length);
 const LOCAL = new CarSurfaces();
 const _s = new THREE.Vector3();
 const HIT = new Float64Array(HIT_SIZE);
+/** The query point `pointContact` is asked (world x, z and the asking height y). */
+const PQ = new Float64Array(PQ_SIZE);
 
 /** Contact `n`, a body point at `R[n]` from the centre `pen` m under the surface in `hit` (`pointContact`): `hull` a crushable hull point, else the belly. */
 function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: number, hull: boolean, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, mass: number): void {
@@ -411,7 +413,10 @@ export function pressing(car: DeformableCar): boolean {
   }
   for (let i = BODY_FROM; i < HULL.length; i++) {
     const r = hullPoint(i, q, 0, 0, _r);
-    pointContact(pos.x + r.x, pos.z + r.z, pos.y + r.y, car.slot, HIT);
+    PQ[PQ_X] = pos.x + r.x;
+    PQ[PQ_Z] = pos.z + r.z;
+    PQ[PQ_Y] = pos.y + r.y;
+    pointContact(PQ, car.slot, HIT);
     if (HIT[C_H]! === NO_FLOOR || pos.y + r.y < HIT[C_H]!) return true;
   }
   return false;
@@ -587,7 +592,10 @@ function launching(car: DeformableCar, sy: number, cy: number, reach: number): b
   const along = v.x * sy + v.z * cy;
   if (!(_pl[1]! * along > LAUNCH_RISE * Math.abs(along))) return false;
   const p = car.group.position;
-  pointContact(p.x, p.z, _pl[0]!, car.slot, HIT);
+  PQ[PQ_X] = p.x;
+  PQ[PQ_Z] = p.z;
+  PQ[PQ_Y] = _pl[0]!;
+  pointContact(PQ, car.slot, HIT);
   return HIT[C_H]! >= _pl[0]! - reach;
 }
 
@@ -824,7 +832,10 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     const px = _com.x + r.x;
     const py = _com.y + r.y;
     const pz = _com.z + r.z;
-    pointContact(px, pz, py, car.slot, HIT);
+    PQ[PQ_X] = px;
+    PQ[PQ_Z] = pz;
+    PQ[PQ_Y] = py;
+    pointContact(PQ, car.slot, HIT);
     const gy = HIT[C_H]!;
     if (i >= HULL.length) {
       BX[i] = px;
