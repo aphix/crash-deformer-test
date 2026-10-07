@@ -193,6 +193,21 @@ function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
 }
 
 /**
+ * The sun's shadow bias, from the map's texel (the box's width over its resolution: 4.7 cm at 48 m / 1024). A normal offset of a
+ * quarter texel stops a lit surface shading itself at grazing sun; the constant depth bias, half of the old -0.0004 (a fraction of
+ * the 2..60 m depth range: 2.3 cm down to 1.2 cm), covers what the offset leaves, so a shadow starts at its caster's foot.
+ * Picked by a grid sweep against a 4096 map (see the lane report): fewer wrongly lit and wrongly shadowed pixels than the old
+ * constant alone, and less acne away from shadow edges than the old value.
+ */
+const SUN_NORMAL_BIAS_TEXELS = 0.25;
+const SUN_DEPTH_BIAS = -0.0002;
+function setSunBias(shadow: THREE.DirectionalLightShadow): void {
+  const cam = shadow.camera;
+  shadow.normalBias = (SUN_NORMAL_BIAS_TEXELS * (cam.right - cam.left)) / shadow.mapSize.x;
+  shadow.bias = SUN_DEPTH_BIAS;
+}
+
+/**
  * Lights, sky colour and the asphalt disc, plus the time of day (day / night) and a wet-road option.
  * Night drops the sun to moonlight so the cars' own lamps, the pole heads (bloomed) and their fake light
  * pools carry the scene; wet asphalt turns glossy so those lights streak across it.
@@ -226,7 +241,7 @@ export class WorldStage {
     dir.shadow.camera.right = 24;
     dir.shadow.camera.top = 24;
     dir.shadow.camera.bottom = -24;
-    dir.shadow.bias = -0.0004;
+    setSunBias(dir.shadow);
     this.sun = dir;
     scene.add(dir);
     this.fill = new THREE.DirectionalLight(DAY.fill[0], DAY.fill[1]);

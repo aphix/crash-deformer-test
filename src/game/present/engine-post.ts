@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { blueNoiseTexture } from "./blue-noise.ts";
 
 /**
  * Cinematic FX quality, cheapest first. `off` and `minimal` render straight to the canvas (no post chain);
@@ -76,14 +77,14 @@ uniform float uPunch;
 uniform float uRadial;
 uniform vec2 uCenter;
 uniform float uGrain;
-uniform float uSeed;
+uniform float uPhase;
+uniform sampler2D tNoise;
 uniform float uVignette;
 uniform float uSat;
 uniform float uContrast;
 uniform float uLetterbox;
 uniform float uCel;
 varying vec2 vUv;
-float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 float celL(vec2 p) {
   float l = dot(texture2D(tScene, p).rgb, vec3(0.2126, 0.7152, 0.0722));
   return l / (1.0 + l);
@@ -131,13 +132,21 @@ void main() {
   vec2 q = uv - 0.5;
   g *= clamp(1.0 - dot(q, q) * (uVignette + uPunch * 0.9), 0.0, 1.0);
   g *= 1.0 - step(0.5 - uLetterbox * 0.128, abs(q.y));
-  gl_FragColor.rgb = g + (hash(gl_FragCoord.xy + uSeed) - 0.5) * uGrain;
+  // Blue-noise dither / grain: the shared 64x64 table, rotated by the golden ratio each frame so it stays blue in space and decorrelates in time.
+  float n = fract(texelFetch(tNoise, ivec2(gl_FragCoord.xy) & 63, 0).r + 0.5 / 255.0 + uPhase);
+  gl_FragColor.rgb = g + (n - 0.5) * uGrain;
 }`;
 
-/** Bloom runs over `mips` targets of the shared chain starting at `mip0` (the chain halves from ½ canvas res). */
+/**
+ * Bloom runs over `mips` targets of the shared chain starting at `mip0` (the chain halves from ½ canvas res).
+ * `grain` is the blue-noise amplitude (display units, peak to peak): one 8-bit step dithers away banding, the high tier adds visible film grain.
+ */
 type TierSpec = { mip0: number; mips: number; radial: boolean; grain: number };
+const DITHER = 1 / 255;
+/** The per-frame step of the noise's phase: the golden ratio's fraction, which never repeats and spreads the offsets evenly. */
+const GOLDEN = 0.6180339887;
 const TIER: Record<PostTier, TierSpec> = {
-  low: { mip0: 1, mips: 3, radial: false, grain: 0 },
+  low: { mip0: 1, mips: 3, radial: false, grain: DITHER },
   high: { mip0: 0, mips: 5, radial: true, grain: 0.03 },
 };
 /** Length of the shared bloom chain: ½, ¼, ⅛, 1/16, 1/32 of the canvas. */
@@ -148,7 +157,7 @@ export function describePost(tier: FxTier): string {
   if (tier === "off" || tier === "minimal") return "none: the scene draws straight to the canvas (no HDR target, bloom, grade, vignette or grain)";
   const s = TIER[tier];
   const radial = s.radial ? ", radial blur" : "";
-  const grain = s.grain > 0 ? `, grain ${s.grain}` : "";
+  const grain = s.grain >= DITHER * 2 ? `, grain ${s.grain} (blue noise)` : ", blue-noise dither";
   return `HDR half-float scene target, bloom (${s.mips} mips from 1/${2 ** (s.mip0 + 1)} res, threshold ${GRADE.threshold}, ${GRADE.bloom} strength), one composite pass: tone map, grade, vignette${radial}${grain}`;
 }
 
@@ -230,7 +239,8 @@ export class PostFX {
           uRadial: { value: 0 },
           uCenter: { value: this.center },
           uGrain: { value: spec.grain },
-          uSeed: { value: 0 },
+          uPhase: { value: 0 },
+          tNoise: { value: blueNoiseTexture() },
           uVignette: { value: GRADE.vignette },
           uSat: { value: GRADE.saturation },
           uContrast: { value: GRADE.contrast },
@@ -338,8 +348,7 @@ export class PostFX {
     u.uRadial!.value = this.radial;
     u.uLetterbox!.value = this.letterbox;
     u.uCel!.value = this.cel;
-    u.uSeed!.value = (u.uSeed!.value as number) + 17.31;
-    if ((u.uSeed!.value as number) > 1e4) u.uSeed!.value = 0;
+    u.uPhase!.value = (u.uPhase!.value as number + GOLDEN) % 1;
     this.blit(composite, null);
     r.info.autoReset = true;
   }
