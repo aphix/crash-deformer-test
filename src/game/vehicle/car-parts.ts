@@ -87,6 +87,8 @@ const WEAR_MIN_T = 0.04;
 /** A contact is fresh when the last was over `TOUCH_GAP` s ago and the next lands within `TOUCH_NOW` s. */
 const TOUCH_GAP = 0.15;
 const TOUCH_NOW = 0.03;
+/** A part hinged or swung no further than this (rad, or the hinge value) is still within a shadow texel of its rest (4.7 cm). */
+const FLUSH_HINGE = 0.02;
 
 /** The hinge value above which a part counts as folding (hung open, crushed, flapping), by hinge kind. */
 function foldAt(p: DetachPart): number {
@@ -118,6 +120,20 @@ export abstract class CarParts extends CarGlass {
   readonly motion = new Float64Array(3);
   /** Pendulum drive, car frame: acceleration right, acceleration forward (m/s²), yaw rate (rad/s), yaw acceleration (rad/s²). */
   readonly swingDrive = new Float64Array(4);
+  /**
+   * Once a frame, with the skin: the hood, boot lid, doors and bumpers cast into the sun's shadow map (one draw each) only
+   * when the car has been hit or a part has hinged, swung or come off. Until then they lie on the body's shell and the
+   * body's shadow is theirs to within a texel row at the bumpers (`flush-casters.test.ts` measures it).
+   */
+  protected settleCasters(): void {
+    let flush = !this.crashed;
+    for (let i = 0; i < this.parts.length && flush; i++) {
+      const p = this.parts[i]!;
+      flush = !p.detached && p.hingeT <= FLUSH_HINGE && (p.swing === null || p.swing.theta <= FLUSH_HINGE);
+    }
+    for (let i = 0; i < this.flushCasters.length; i++) this.flushCasters[i]!.castShadow = !flush;
+  }
+
   protected syncAttachedParts(dt: number): void {
     this.advanceFlap(dt);
     const ix = this.deform.impactInward.x;

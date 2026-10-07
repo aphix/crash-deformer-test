@@ -4,10 +4,16 @@ import { lampEmissiveMap, makeLampUnit, type LampKind } from "./car-materials.ts
 /**
  * Lamp light pools, created once and only ever re-aimed or dimmed: adding, removing or hiding a light
  * changes three's lights hash and recompiles every lit material (32c53c1 dropped a 19-light shader
- * for a boot hang). Broken, off and unassigned lights sit at intensity 0.
+ * for a boot hang). Broken, off and unassigned lights sit at intensity 0. The pool size is chosen once at boot, before the
+ * programs link (`CrashEngine`), never per FX tier or mid-race.
  */
-export const SPOT_POOL = 4;
-const POINT_POOL = 4;
+export interface LampPool {
+  readonly spots: number;
+  readonly points: number;
+}
+export const FULL_POOL: LampPool = { spots: 4, points: 4 };
+/** The lean pool a phone can opt into (`?lamps=lean`): every lit fragment loops over every light, and these are 4 of the 8 pooled ones. */
+export const PHONE_POOL: LampPool = { spots: 2, points: 2 };
 
 const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };
 const TAIL = { color: 0xff2414, intensity: 0.5, distance: 2.5, decay: 2 };
@@ -152,18 +158,20 @@ export class LampLights {
   readonly glow: THREE.Points;
   private readonly glowPos: THREE.BufferAttribute;
   private readonly glowCol: THREE.BufferAttribute;
-  private readonly heads = new Ranking(SPOT_POOL);
-  private readonly tails = new Ranking(POINT_POOL);
+  private readonly heads: Ranking;
+  private readonly tails: Ranking;
   private readonly frustum = new THREE.Frustum();
   private readonly viewProj = new THREE.Matrix4();
 
-  constructor(scene: THREE.Scene, maxLamps: number) {
-    for (let i = 0; i < SPOT_POOL; i++) {
+  constructor(scene: THREE.Scene, maxLamps: number, pool: LampPool = FULL_POOL) {
+    this.heads = new Ranking(pool.spots);
+    this.tails = new Ranking(pool.points);
+    for (let i = 0; i < pool.spots; i++) {
       const s = new THREE.SpotLight(HEAD.color, 0, HEAD.distance, HEAD.angle, HEAD.penumbra, HEAD.decay);
       scene.add(s, s.target);
       this.spots.push(s);
     }
-    for (let i = 0; i < POINT_POOL; i++) {
+    for (let i = 0; i < pool.points; i++) {
       const p = new THREE.PointLight(TAIL.color, 0, TAIL.distance, TAIL.decay);
       scene.add(p);
       this.points.push(p);

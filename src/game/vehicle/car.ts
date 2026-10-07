@@ -93,6 +93,7 @@ export class DeformableCar extends CarParts {
     this.velocity.copy(dir).multiplyScalar(speed);
     this.deform.bindKinematic(this.group, this.velocity, this.angular);
     this.resetLamps();
+    this.settleCasters();
   }
 
   resetVisual(): void {
@@ -509,6 +510,7 @@ export class DeformableCar extends CarParts {
     }
     if (this.deform.massActive) this.fitInterior();
     if (this.hullHelper?.visible) this.updateHullHelper();
+    this.settleCasters();
   }
 
   /** LoD catch-up once the camera has moved: write a deferred dent before this car is drawn. */

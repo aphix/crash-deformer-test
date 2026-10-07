@@ -26,7 +26,7 @@ import {
   makePaintMaterial,
   makeSirenMaterial,
   makeTailTrim,
-  makeTrimMaterial,
+  trimMaterial,
   type LampKind,
 } from "./car-materials.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "../deform/hulls.ts";
@@ -314,6 +314,12 @@ export abstract class CarCore {
   protected endReach = Infinity;
   protected endSqueeze = false;
   readonly lamps: Lamp[] = [];
+  /**
+   * The hood, boot lid, doors and bumpers. They lie on the body's shell until a crash or a hinge moves them, so an undamaged
+   * car's sun shadow is the body's alone and they cast only from then on (`CarParts.settleCasters`). Far-car detail cuts
+   * (`present/car-detail.ts`) treat them as casters all the same.
+   */
+  readonly flushCasters: THREE.Mesh[] = [];
   protected hullHelper: THREE.LineSegments | null = null;
   private bumperF: THREE.Group;
   private bumperR: THREE.Group;
@@ -409,6 +415,7 @@ export abstract class CarCore {
     this.doorRRest = this.copyRest(this.doorMeshR.geometry);
     this.hoodOrigin = this.hood.position.clone();
     this.trunkOrigin = this.trunk.position.clone();
+    this.flushCasters.push(this.hood, this.trunk, this.doorMeshL, this.doorMeshR);
 
     this.bumperF = this.makeBumper(true, livery?.accent ?? paint.accent);
     this.bumperR = this.makeBumper(false, livery?.accent ?? paint.accent);
@@ -451,8 +458,9 @@ export abstract class CarCore {
 
   private makeBumper(front: boolean, accent: number): THREE.Group {
     const g = new THREE.Group();
-    const mesh = new THREE.Mesh(makeBumperGeometry(front), makeTrimMaterial(accent));
+    const mesh = new THREE.Mesh(makeBumperGeometry(front), trimMaterial(accent));
     mesh.castShadow = true;
+    this.flushCasters.push(mesh);
     g.add(mesh);
     if (!front) g.add(makeTailTrim());
     g.position.set(0, 0.33, front ? 2.06 : -2.06);
