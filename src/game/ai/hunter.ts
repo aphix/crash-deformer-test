@@ -1,13 +1,10 @@
-import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
-import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
+import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
-import { MAX_CARS } from "../scenes/fleet.ts";
-import { clamp, hash01, wrapPi } from "../kernel/scalar.ts";
+import { clamp, wrapPi } from "../kernel/scalar.ts";
 import type { PropCollider } from "../world/placements.ts";
 import type { SurvivalSpec } from "../world/track-schema.ts";
 import type { Track } from "../world/track.ts";
-import { ATTACK, attackTarget, Backoff, CATCH_UP, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type CopBrain, type HunterWorld } from "./police.ts";
-import { guardMates } from "./pack-guard.ts";
+import { ATTACK, attackTarget, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type HunterWorld } from "./police.ts";
 
 /** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
 export const HUNT = {
@@ -143,28 +140,18 @@ function cellKey(gx: number, gz: number): number {
  * or lost (far and unseen) is put away and a new one dropped in on a road, `HUNT.dropMin`…`dropMax` m from the player, ahead of it
  * first, only where `world.hidden` says the camera cannot see it. Deterministic (seeded dice, no clock); no allocation per call.
  */
-export class HunterBrain implements CopBrain {
-  readonly first: number;
-  readonly count: number;
+export class HunterBrain extends CopBrain {
   /** This run: cops dropped in after the start, put away for being lost, knocked out, and the most hunting at once. */
   readonly stats = { drops: 0, despawns: 0, disabled: 0, peak: 0 };
   private readonly racers: number;
   private readonly formation: SurvivalSpec["formation"];
   private readonly obstacles: Obstacles;
-  private readonly seed: number;
-  private readonly out: DriveInput = idleDrive();
-  /** The pack-mate guard's view of a unit: driving, so a slow one may be pulling out (not waiting in storage; bound once: no allocation per call). */
-  private readonly pullsOut = (u: number): boolean => this.state[u] !== STORED;
+  /** Driving, so a slow one may be pulling out (not waiting in storage). */
+  protected readonly pullsOut = (u: number): boolean => this.state[u] !== STORED;
   private readonly state: Uint8Array;
-  private readonly since: Float64Array;
   private readonly lost: Float64Array;
-  private readonly role: Uint8Array;
   /** Per unit: the side (+1 / −1) it last bent round a solid, so it keeps to it. */
   private readonly side: Int8Array;
-  private readonly wedge: Backoff;
-  /** Per car id: a class's full-lock yaw rate. */
-  private readonly turn = new Float64Array(MAX_CARS).fill(1.5);
-  private readonly grip = new Float64Array(MAX_CARS).fill(classStats("sedan").grip);
   /** Candidate drop-in spots along every road: position and the road's direction. */
   private readonly spotX: number[] = [];
   private readonly spotZ: number[] = [];
@@ -173,7 +160,6 @@ export class HunterBrain implements CopBrain {
   private target = -1;
   private go = false;
   private nextDrop = 0;
-  private dice = 0;
   /** Per unit: the lane it last queued in (−1 / +1; 0 none). Scratch: the queue place `slot` found, and the last drop-in spot found. */
   private readonly queued: Int8Array;
   private lane = 0;
@@ -182,21 +168,16 @@ export class HunterBrain implements CopBrain {
 
   /** `racers` cars (ids 0 …) are hunted; the units follow them from `first`. */
   constructor(track: Track, colliders: readonly PropCollider[], racers: number, first: number, count: number, seed: number) {
+    super(first, count, seed);
     const spec = track.survival;
     if (!spec) throw new Error(`${track.id} has no survival anchors`);
     this.racers = racers;
-    this.first = first;
-    this.count = count;
-    this.seed = seed;
     this.formation = spec.formation;
     this.obstacles = new Obstacles(colliders);
     this.state = new Uint8Array(count);
-    this.since = new Float64Array(count);
     this.lost = new Float64Array(count);
-    this.role = new Uint8Array(count);
     this.queued = new Int8Array(count);
     this.side = new Int8Array(count).fill(1);
-    this.wedge = new Backoff(count);
     for (const p of track.paths()) {
       for (let k = 0; k < p.count; k += HUNT.spacing) {
         if (p.deck[k]) continue;
@@ -206,11 +187,6 @@ export class HunterBrain implements CopBrain {
         this.spotTz.push(p.tz[k]!);
       }
     }
-  }
-
-  setClass(id: number, s: ClassStats): void {
-    this.turn[id] = s.turn;
-    this.grip[id] = s.grip;
   }
 
   /** Cops hunting now. */
@@ -233,24 +209,20 @@ export class HunterBrain implements CopBrain {
     });
   }
 
-  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[] {
-    out.length = 0;
-    for (let u = 0; u < this.count; u++) if (this.state[u] === HUNTING) out.push(cars[this.first + u]!);
-    return out;
-  }
-
   copsOn(id: number): number {
     return id === this.target ? this.hunting : 0;
   }
 
-  /** A unit's input for this physics slice (scratch output: apply it before the next call): its hunt, then the pack-mate guard. */
-  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
-    const out = this.hunt(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.pullsOut, this.turn[self.id]!, this.grip[self.id]!);
-    return out;
+  protected chasing(u: number): boolean {
+    return this.state[u] === HUNTING;
   }
 
-  private hunt(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+  protected stored(u: number): boolean {
+    return this.state[u] === STORED;
+  }
+
+  /** Its hunt. */
+  protected drive(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;
     out.throttle = 0;
     out.steer = 0;
@@ -416,15 +388,9 @@ export class HunterBrain implements CopBrain {
     world.sirens(this.first + u, true);
   }
 
-  private store(u: number, world: HunterWorld): void {
-    world.sirens(this.first + u, false);
-    world.store(this.first + u);
+  protected override store(u: number, world: HunterWorld): void {
+    super.store(u, world);
     this.state[u] = STORED;
-  }
-
-  private free(): number {
-    for (let u = 0; u < this.count; u++) if (this.state[u] === STORED) return u;
-    return -1;
   }
 
   /**
@@ -467,10 +433,5 @@ export class HunterBrain implements CopBrain {
   private crowded(x: number, z: number, cars: readonly AiCar[]): boolean {
     for (const c of cars) if (Math.hypot(c.x - x, c.z - z) < HUNT.clear) return true;
     return false;
-  }
-
-  /** Next seeded die, 0..1. */
-  private roll(): number {
-    return hash01(this.seed * 7.13 + 3.1, ++this.dice);
   }
 }

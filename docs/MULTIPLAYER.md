@@ -34,19 +34,19 @@ VPS node server) applies it before its first query. The game code only sees
 `NetTransport` (`src/game/net/transport.ts`):
 
 ```ts
-interface NetTransport {
+abstract class NetTransport {
   readonly selfId: string;
-  readonly error?: string | null; // why the relay refused this peer (room full, host seat taken)
-  onMessage: ((from: string, data: Uint8Array) => void) | null;
-  send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void; // unreliable, unordered unless reliable; to = one peer, else all
-  peers(): readonly { id: string; rttMs: number | null; host?: boolean }[]; // host: the relay roster's tag
-  close(): void;
+  onMessage: ((from: string, data: Uint8Array) => void) | null = null;
+  get error(): string | null; // why the relay refused this peer (room full, host seat taken); null without a relay
+  abstract send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void; // unreliable, unordered unless reliable; to = one peer, else all
+  abstract peers(): readonly { id: string; rttMs: number | null; host?: boolean }[]; // host: the relay roster's tag
+  abstract close(): void;
 }
 ```
 
-Implementations: `BroadcastTransport` (two tabs of one browser; reliable already, it ignores `reliable`) and
+Subclasses: `BroadcastTransport` (two tabs of one browser; reliable already, it ignores `reliable`) and
 `RtcTransport` (wraps `P2PRoom`; binary frames go over its unreliable `state` channel, or its ordered
-`reliable` one when asked). A PartyKit transport would be a third class.
+`reliable` one when asked; overrides `error` with the relay's refusal). A PartyKit transport would be a third subclass.
 
 ## Authority
 

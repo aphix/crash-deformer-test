@@ -60,8 +60,8 @@ const HOT = {
   "src/game/match/derby.ts": ["step"],
   "src/game/ai/derby-ai.ts": ["think"],
   "src/game/ai/race-ai.ts": ["think"],
-  "src/game/ai/police.ts": ["think", "attackTarget", "pursuitSteer"],
-  "src/game/ai/hunter.ts": ["think", "update"],
+  "src/game/ai/police.ts": ["think", "drive", "attackTarget", "pursuitSteer"],
+  "src/game/ai/hunter.ts": ["drive", "update"],
 };
 const KNOB_CONTEXTS = new Set(["kernel", "world", "deform", "vehicle", "contact", "scenes", "ai"]);
 const MAX_FILE_LINES = 800;
@@ -339,6 +339,21 @@ for (const [f, p] of parsed) {
   }
 }
 check("C10", "module-level mutable bindings", c10);
+
+// C11: no `implements` in game code, tests included (owner, 10-05). It re-declares a shape and lets each class
+// re-implement the same logic; shared logic lives in a base class the others extend.
+const c11 = [];
+for (const [f, p] of parsed) {
+  if (!f.startsWith("src/game/")) continue;
+  const visit = (n) => {
+    if (ts.isHeritageClause(n) && n.token === ts.SyntaxKind.ImplementsKeyword) {
+      c11.push(`${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} ${n.parent.name?.text ?? "class"} ${n.getText()}`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(p.sf);
+}
+check("C11", "implements clauses in game code", c11);
 
 // Size caps (C8) are listed but never fail the ratchet: the owner treats splitting files as clean-up paperwork after
 // the lanes settle (10-05), not a merge blocker.

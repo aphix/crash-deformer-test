@@ -1,4 +1,5 @@
 import type { DetachPart } from "./car-core.ts";
+import type { CarParts } from "./car-parts.ts";
 
 /** Netplay part slots: the most parts any style has (8, six body panels, plus the police light bar), so every car shares one layout. */
 export const PART_SLOTS = 15;
@@ -6,16 +7,6 @@ export const PART_SLOTS = 15;
 const PART_STATE_HEAD = 10;
 const PART_STATE_EACH = 9;
 export const PART_STATE = PART_STATE_HEAD + PART_SLOTS * PART_STATE_EACH;
-
-/** What `partState` reads and writes of a car. */
-export interface PartStateCar {
-  /** The car's velocity (x, z) and yaw rate at the last door-swing sample, and the pendulum's drive. */
-  readonly motion: Float64Array;
-  readonly swingDrive: Float64Array;
-  quietPrev: number;
-  flapClock: number;
-  flapSpeed: number;
-}
 
 /**
  * Highlight keyframes (docs/HIGHLIGHTS.md): what the netplay part state (float32 on the wire, and no rates or clocks) leaves
@@ -25,7 +16,7 @@ export interface PartStateCar {
  * is still swinging, or a panel half bent, slows the next striker by what it holds: the replay is the sim that recorded
  * it only if it starts from the same doubles. Which parts are on the car and which are off stays the net state's.
  */
-export function partState(car: PartStateCar, parts: readonly DetachPart[], buf: Float64Array, write: boolean): void {
+export function partState(car: CarParts, parts: readonly DetachPart[], buf: Float64Array, write: boolean): void {
   const m = car.motion;
   const d = car.swingDrive;
   if (write) {

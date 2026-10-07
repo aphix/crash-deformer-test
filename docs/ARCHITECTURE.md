@@ -70,6 +70,9 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
   *Check C4.*
 - **B6.** An export exists because another production file imports it. Symbols used only in their own file are not exported;
   API only tests use lives in a `*.test-util.ts` beside the suite. *Check C5.*
+- **B7.** No `implements` in `src/game` (tests included): it only re-declares a shape and lets each class re-implement the
+  same logic. A family of classes extends one base class that holds what they share (`CopBrain`, `NetTransport`,
+  `RigLayer`). *Check C11*, capped at 4 (the `Ground` implementers) until unified contact Stage 1 converts them.
 
 ## 3. Construction and ownership
 

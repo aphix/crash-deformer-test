@@ -10,17 +10,26 @@ export interface NetPeer {
 /**
  * What netplay needs from a network (docs/MULTIPLAYER.md): unreliable, unordered binary messages
  * between the peers of one room, plus an ordered reliable send for rare bulky ones (the highlight reel).
- * Swapping WebRTC for a relay (PartyKit, …) is a new class.
+ * Swapping WebRTC for a relay (PartyKit, …) is a new subclass. Each one shares this peer's id, the message
+ * sink and the no-relay error; how messages travel and who the peers are is each network's own.
  */
-export interface NetTransport {
+export abstract class NetTransport {
   readonly selfId: string;
-  /** Why the relay refused this peer (room full, host seat taken, …), null while fine; absent without a relay. */
-  readonly error?: string | null;
-  onMessage: ((from: string, data: Uint8Array) => void) | null;
+  onMessage: ((from: string, data: Uint8Array) => void) | null = null;
+
+  constructor(selfId: string) {
+    this.selfId = selfId;
+  }
+
+  /** Why the relay refused this peer (room full, host seat taken, …), null while fine and always without a relay. */
+  get error(): string | null {
+    return null;
+  }
+
   /** To one peer, else to all; `reliable` on an ordered reliable channel. `data` may be a view of a reused buffer: send copies it. */
-  send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void;
-  peers(): readonly NetPeer[];
-  close(): void;
+  abstract send(data: Uint8Array<ArrayBuffer>, to?: string, reliable?: boolean): void;
+  abstract peers(): readonly NetPeer[];
+  abstract close(): void;
 }
 
 type BcMessage =
@@ -31,15 +40,13 @@ const PING_MS = 1000;
 const PEER_TTL_MS = 3000;
 
 /** Same-origin tabs of one browser (smoke tests, local play): a BroadcastChannel per room, reliable already (`send` ignores `reliable`). */
-export class BroadcastTransport implements NetTransport {
-  onMessage: ((from: string, data: Uint8Array) => void) | null = null;
+export class BroadcastTransport extends NetTransport {
   private readonly channel: BroadcastChannel;
   private readonly seen = new Map<string, NetPeer & { at: number }>();
   private readonly timer: number;
-  readonly selfId: string;
 
   constructor(room: string, selfId: string) {
-    this.selfId = selfId;
+    super(selfId);
     this.channel = new BroadcastChannel(`crush-net:${room}`);
     this.channel.onmessage = (e: MessageEvent<BcMessage>) => this.receive(e.data);
     const ping = () => this.channel.postMessage({ from: this.selfId, kind: "ping", t: performance.now() } satisfies BcMessage);

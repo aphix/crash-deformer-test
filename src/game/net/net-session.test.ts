@@ -9,7 +9,7 @@ import * as codec from "./codec.ts";
 import { NetPlay } from "./net-play.ts";
 import type { NetTx } from "./net-ports.ts";
 import { publicRoomName } from "./matchmaking.ts";
-import type { NetPeer, NetTransport } from "./transport.ts";
+import { NetTransport, type NetPeer } from "./transport.ts";
 import { packReel } from "./reel-codec.ts";
 import { reelParts } from "./reel-wire.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
@@ -73,16 +73,14 @@ class Hub {
   }
 }
 
-class Link implements NetTransport {
-  onMessage: ((from: string, data: Uint8Array) => void) | null = null;
+class Link extends NetTransport {
   closed = false;
-  readonly selfId: string;
   private readonly hub: Hub;
   private readonly role: "host" | "client";
 
   constructor(hub: Hub, id: string, role: "host" | "client") {
+    super(id);
     this.hub = hub;
-    this.selfId = id;
     this.role = role;
   }
 

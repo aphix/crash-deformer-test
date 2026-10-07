@@ -19,12 +19,19 @@ interface DeformRigView {
 }
 
 /** One toggleable slice of the rig view; owns its scene object and GPU resources. */
-interface RigLayer {
-  readonly object: THREE.Object3D;
+abstract class RigLayer {
+  abstract readonly object: THREE.Object3D;
   /** Only shown in this solver mode; null = always. */
   readonly onlyIn: DeformMode | null;
-  update(): void;
-  dispose(): void;
+  protected readonly view: DeformRigView;
+
+  constructor(view: DeformRigView, onlyIn: DeformMode | null) {
+    this.view = view;
+    this.onlyIn = onlyIn;
+  }
+
+  abstract update(): void;
+  abstract dispose(): void;
 }
 
 const _n = new THREE.Vector3();
@@ -99,59 +106,61 @@ export class DeformRigHelper {
   }
 }
 
-function lineSegments(vertexPairs: number, renderOrder: number, color: THREE.ColorRepresentation | null, opacity: number): THREE.LineSegments {
-  const geo = new THREE.BufferGeometry();
-  geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(vertexPairs * 2 * 3), 3));
-  if (color === null) geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(vertexPairs * 2 * 3), 3));
-  const mat = new THREE.LineBasicMaterial({
-    ...(color === null ? { vertexColors: true } : { color }),
-    transparent: true,
-    opacity,
-    depthTest: false,
-  });
-  const lines = new THREE.LineSegments(geo, mat);
-  lines.renderOrder = renderOrder;
-  return lines;
+/** A layer of `vertexPairs` line segments, one `color` or per-vertex colours (null). */
+abstract class LineLayer extends RigLayer {
+  readonly object: THREE.LineSegments<THREE.BufferGeometry, THREE.LineBasicMaterial>;
+
+  constructor(view: DeformRigView, onlyIn: DeformMode | null, vertexPairs: number, renderOrder: number, color: THREE.ColorRepresentation | null, opacity: number) {
+    super(view, onlyIn);
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.BufferAttribute(new Float32Array(vertexPairs * 2 * 3), 3));
+    if (color === null) geo.setAttribute("color", new THREE.BufferAttribute(new Float32Array(vertexPairs * 2 * 3), 3));
+    const mat = new THREE.LineBasicMaterial({
+      ...(color === null ? { vertexColors: true } : { color }),
+      transparent: true,
+      opacity,
+      depthTest: false,
+    });
+    this.object = new THREE.LineSegments(geo, mat);
+    this.object.renderOrder = renderOrder;
+  }
+
+  dispose(): void {
+    this.object.geometry.dispose();
+    this.object.material.dispose();
+  }
 }
 
 function attr(lines: THREE.LineSegments, name: "position" | "color"): THREE.BufferAttribute {
   return lines.geometry.getAttribute(name) as THREE.BufferAttribute;
 }
 
-function disposeLines(lines: THREE.LineSegments): void {
-  lines.geometry.dispose();
-  (lines.material as THREE.Material).dispose();
-}
+/** A layer of `count` spheres sharing one geometry, each with its own material (tinted per sphere), always shown. */
+abstract class SphereLayer extends RigLayer {
+  readonly object = new THREE.Group();
+  protected readonly meshes: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[];
 
-function sphereGroup(count: number, radius: number, color: number, opacity: number, renderOrder: number): { object: THREE.Group; meshes: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[] } {
-  const object = new THREE.Group();
-  const geo = new THREE.SphereGeometry(radius, 10, 8);
-  const meshes: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[] = [];
-  for (let i = 0; i < count; i++) {
-    const mat = new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false });
-    const mesh = new THREE.Mesh(geo, mat);
-    mesh.renderOrder = renderOrder;
-    object.add(mesh);
-    meshes.push(mesh);
+  constructor(view: DeformRigView, count: number, radius: number, color: number, opacity: number, renderOrder: number) {
+    super(view, null);
+    const geo = new THREE.SphereGeometry(radius, 10, 8);
+    this.meshes = Array.from({ length: count }, () => {
+      const mesh = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, depthTest: false }));
+      mesh.renderOrder = renderOrder;
+      this.object.add(mesh);
+      return mesh;
+    });
   }
-  return { object, meshes };
-}
 
-function disposeSpheres(meshes: readonly THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[]): void {
-  for (const mesh of meshes) mesh.material.dispose();
-  meshes[0]?.geometry.dispose();
+  dispose(): void {
+    for (const mesh of this.meshes) mesh.material.dispose();
+    this.meshes[0]?.geometry.dispose();
+  }
 }
 
 /** Crush sensors: grow and redden with compression. */
-class SensorLayer implements RigLayer {
-  readonly object: THREE.Group;
-  readonly onlyIn = null;
-  private readonly meshes: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[];
-  private readonly view: DeformRigView;
-
+class SensorLayer extends SphereLayer {
   constructor(view: DeformRigView) {
-    this.view = view;
-    ({ object: this.object, meshes: this.meshes } = sphereGroup(view.sensors.length, 0.045, 0xb9c4d4, 0.7, 3));
+    super(view, view.sensors.length, 0.045, 0xb9c4d4, 0.7, 3);
   }
 
   update(): void {
@@ -165,22 +174,12 @@ class SensorLayer implements RigLayer {
       mesh.material.color.setRGB(0.72 + c * 0.28, 0.75 - c * 0.45, 0.8 - c * 0.65);
     }
   }
-
-  dispose(): void {
-    disposeSpheres(this.meshes);
-  }
 }
 
 /** Control masses: purple while clipping, red once displaced, mode tint at rest. */
-class MassLayer implements RigLayer {
-  readonly object: THREE.Group;
-  readonly onlyIn = null;
-  private readonly meshes: THREE.Mesh<THREE.SphereGeometry, THREE.MeshBasicMaterial>[];
-  private readonly view: DeformRigView;
-
+class MassLayer extends SphereLayer {
   constructor(view: DeformRigView) {
-    this.view = view;
-    ({ object: this.object, meshes: this.meshes } = sphereGroup(view.masses.length, 0.055, 0xd4894a, 0.85, 4));
+    super(view, view.masses.length, 0.055, 0xd4894a, 0.85, 4);
   }
 
   update(): void {
@@ -199,21 +198,12 @@ class MassLayer implements RigLayer {
       else color.setRGB(0.83, 0.54, 0.29);
     }
   }
-
-  dispose(): void {
-    disposeSpheres(this.meshes);
-  }
 }
 
 /** FFD cage wireframes. */
-class CageLayer implements RigLayer {
-  readonly object: THREE.LineSegments;
-  readonly onlyIn = null;
-  private readonly view: DeformRigView;
-
+class CageLayer extends LineLayer {
   constructor(view: DeformRigView) {
-    this.view = view;
-    this.object = lineSegments(view.cages.length * CAGE_EDGES.length, 2, 0xd8d4cc, 0.35);
+    super(view, null, view.cages.length * CAGE_EDGES.length, 2, 0xd8d4cc, 0.35);
   }
 
   update(): void {
@@ -234,21 +224,12 @@ class CageLayer implements RigLayer {
     }
     posAttr.needsUpdate = true;
   }
-
-  dispose(): void {
-    disposeLines(this.object);
-  }
 }
 
 /** Lattice beams coloured by state: compression red, shear orange, tension blue. */
-class BeamLayer implements RigLayer {
-  readonly object: THREE.LineSegments;
-  readonly onlyIn = "lattice";
-  private readonly view: DeformRigView;
-
+class BeamLayer extends LineLayer {
   constructor(view: DeformRigView) {
-    this.view = view;
-    this.object = lineSegments(view.beams.length, 3, null, 0.92);
+    super(view, "lattice", view.beams.length, 3, null, 0.92);
   }
 
   update(): void {
@@ -304,23 +285,14 @@ class BeamLayer implements RigLayer {
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
   }
-
-  dispose(): void {
-    disposeLines(this.object);
-  }
 }
 
 /** Shape-match clusters as stars from each member to the cluster COM; tint = plastic strain. */
-class ClusterLayer implements RigLayer {
-  readonly object: THREE.LineSegments;
-  readonly onlyIn = "shape";
-  private readonly view: DeformRigView;
-
+class ClusterLayer extends LineLayer {
   constructor(view: DeformRigView) {
-    this.view = view;
     let star = 0;
     for (const cl of view.clusters) star += cl.idx.length;
-    this.object = lineSegments(Math.max(star, 1), 4, null, 0.85);
+    super(view, "shape", Math.max(star, 1), 4, null, 0.85);
   }
 
   update(): void {
@@ -369,10 +341,6 @@ class ClusterLayer implements RigLayer {
     }
     posAttr.needsUpdate = true;
     colAttr.needsUpdate = true;
-  }
-
-  dispose(): void {
-    disposeLines(this.object);
   }
 }
 

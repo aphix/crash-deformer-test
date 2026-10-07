@@ -39,7 +39,7 @@ import {
   swingAccel,
   windWear,
 } from "./car-wear.ts";
-import { partState, PART_SLOTS, type PartStateCar } from "./part-state.ts";
+import { partState, PART_SLOTS } from "./part-state.ts";
 
 const _push = new THREE.Vector3();
 const _p = new THREE.Vector3();
@@ -107,7 +107,7 @@ function showOnCamera(o: THREE.Object3D): void {
  * Detachable parts: attached-part posing, door hinges and mirrors, glass following, breakage and detaching,
  * loose parts and wheels, and their netplay state.
  */
-export abstract class CarParts extends CarCore implements PartStateCar {
+export abstract class CarParts extends CarCore {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
   /** The flap clock (rad) turns with speed and shakes every hinged panel and bumper (`flapAngle`). Cosmetic: no rule reads it. */

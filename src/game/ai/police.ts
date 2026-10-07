@@ -128,7 +128,7 @@ export function pursuitSteer(alpha: number, reach: number, speed: number, turn: 
 }
 
 /** Wedge recovery of every police drive: throttle held without progress for `STUCK_FOR` s backs a unit off for `BACK_FOR` s, steering the other way. */
-export class Backoff {
+class Backoff {
   private readonly stuck: Float64Array;
   private readonly back: Float64Array;
   private readonly backSteer: Float64Array;
@@ -280,21 +280,89 @@ export interface HunterWorld extends PoliceWorld {
   hidden(x: number, z: number): boolean;
 }
 
-/** What the race director asks of a police brain: the road-bound chase (`PoliceBrain`) and Survival's open-ground hunt (`HunterBrain`). */
-export interface CopBrain {
+/**
+ * A police brain the race director drives: the road-bound chase (`PoliceBrain`) and Survival's open-ground hunt (`HunterBrain`). Both
+ * share their unit ids, the seeded dice, each unit's attack role, state clock and wedge back-off, each car's class steering, the scratch
+ * drive output and the pack-mate guard over it, the chaser list, and putting a unit away or finding one in storage.
+ */
+export abstract class CopBrain {
   readonly first: number;
   readonly count: number;
-  setClass(id: number, s: ClassStats): void;
+  protected readonly out: DriveInput = idleDrive();
+  /** Per unit: its place in the attack (`attackTarget`'s role), seconds in its state, its wedged back-off. */
+  protected readonly role: Uint8Array;
+  protected readonly since: Float64Array;
+  protected readonly wedge: Backoff;
+  /** Per car id: a class's full-lock yaw rate and grip. */
+  protected readonly turn = new Float64Array(MAX_CARS).fill(1.5);
+  protected readonly grip = new Float64Array(MAX_CARS).fill(classStats("sedan").grip);
+  /** The pack-mate guard's view of a unit: driving, so a slow one may be pulling out (bound once: no allocation per call). */
+  protected abstract readonly pullsOut: (u: number) => boolean;
+  private readonly seed: number;
+  private dice = 0;
+
+  constructor(first: number, count: number, seed: number) {
+    this.first = first;
+    this.count = count;
+    this.seed = seed;
+    this.role = new Uint8Array(count);
+    this.since = new Float64Array(count);
+    this.wedge = new Backoff(count);
+  }
+
+  /** Unit `id`'s class figures for its own steering. */
+  setClass(id: number, s: ClassStats): void {
+    this.turn[id] = s.turn;
+    this.grip[id] = s.grip;
+  }
+
   /** Racer `id` respawned at race time `time` (a brain that leaves it alone for a while). */
   respawned?(id: number, time: number): void;
+
   /** The units chasing a racer right now, from `cars` into `out` (cleared first): the rules' `BUST` counts only these. */
-  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[];
+  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[] {
+    let n = 0;
+    for (let u = 0; u < this.count; u++) if (this.chasing(u)) out[n++] = cars[this.first + u]!;
+    out.length = n;
+    return out;
+  }
+
   /** How many of the `chasers` are after racer `id` (the HUD's pursuit strip). */
-  copsOn(id: number): number;
-  /** A unit's input for this physics slice (scratch output: apply it before the next call). */
-  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput;
+  abstract copsOn(id: number): number;
+
+  /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
+  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+    const out = this.drive(self, cars, dt);
+    guardMates(self, cars, this.first, this.count, out, this.pullsOut, this.turn[self.id]!, this.grip[self.id]!);
+    return out;
+  }
+
   /** One patrol pass (the director's bubble beat, `dt` s). `hunt[id]` is 1 for a racer still racing; `lead` is the leader's progress (m). */
-  update(time: number, dt: number, cars: readonly AiCar[], hunt: Uint8Array, lead: number, world: HunterWorld): void;
+  abstract update(time: number, dt: number, cars: readonly AiCar[], hunt: Uint8Array, lead: number, world: HunterWorld): void;
+
+  /** Unit `u` chases a racer right now. */
+  protected abstract chasing(u: number): boolean;
+  /** Unit `u` waits in storage. */
+  protected abstract stored(u: number): boolean;
+  /** Unit `self`'s own drive, before the pack-mate guard. */
+  protected abstract drive(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput;
+
+  /** Unit `u` is put away: sirens off, the car stored (the subclass marks its state). */
+  protected store(u: number, world: PoliceWorld): void {
+    world.sirens(this.first + u, false);
+    world.store(this.first + u);
+  }
+
+  /** A unit in storage (−1 none). */
+  protected free(): number {
+    for (let u = 0; u < this.count; u++) if (this.stored(u)) return u;
+    return -1;
+  }
+
+  /** Next seeded die, 0..1. */
+  protected roll(): number {
+    return hash01(this.seed * 7.13 + 3.1, ++this.dice);
+  }
 }
 
 /** The racing line's rules state for a unit driving it: main loop only, never a shortcut. */
@@ -315,23 +383,16 @@ const LINE_STATE = { next: -1, lap: 0 };
  * Police are never entrants: the rules and standings never see them.
  * Deterministic (seeded dice, no clock); no allocation per call.
  */
-export class PoliceBrain implements CopBrain {
-  readonly first: number;
-  readonly count: number;
+export class PoliceBrain extends CopBrain {
   /** This race: stakeouts parked, pursuits started (stakeouts woken), the largest pack in pursuit, units knocked out. */
   readonly stats = { stakeouts: 0, pursuits: 0, maxPack: 0, disabled: 0 };
   private readonly track: Track;
   private readonly line: RaceBrain;
-  private readonly seed: number;
-  private readonly out: DriveInput = idleDrive();
-  /** The pack-mate guard's view of a unit: driving, so a slow one may be pulling out (not parked at a stakeout, knocked out or stored: those are stopped obstacles; bound once: no allocation per call). */
-  private readonly pullsOut = (u: number): boolean => this.state[u] === "pursuit";
+  /** Driving, so a slow one may be pulling out (not parked at a stakeout, knocked out or stored: those are stopped obstacles). */
+  protected readonly pullsOut = (u: number): boolean => this.state[u] === "pursuit";
   private readonly state: UnitState[] = [];
-  /** Per unit: its pack (−1 none: stored, or giving up), its place in the pack, seconds in its state. */
+  /** Per unit: its pack (−1 none: stored, or giving up). */
   private readonly pack: Int16Array;
-  private readonly role: Uint8Array;
-  private readonly since: Float64Array;
-  private readonly wedge: Backoff;
   /** Per unit: seconds of lead-in left, and its parking spot's road arc (m). */
   private readonly leadIn: Float64Array;
   private readonly parkS: Float64Array;
@@ -341,30 +402,22 @@ export class PoliceBrain implements CopBrain {
   private readonly sustain: Float64Array;
   private readonly lost: Float64Array;
   private readonly age: Float64Array;
-  /** Per car id: projection hint, a class's full-lock yaw rate, race time a respawned racer is left alone until. */
+  /** Per car id: projection hint, race time a respawned racer is left alone until. */
   private readonly seg = new Int32Array(MAX_CARS).fill(-1);
-  private readonly turn = new Float64Array(MAX_CARS).fill(1.5);
-  private readonly grip = new Float64Array(MAX_CARS).fill(classStats("sedan").grip);
   private readonly immune = new Float64Array(MAX_CARS);
   private readonly proj = blankProjection();
   private readonly pt = blankPoint();
   private armed = false;
   private nextAt = 0;
-  private dice = 0;
   /** Scratch: the last `nearest` call's distance and the last `spot` found. */
   private nearD = Infinity;
   private readonly spotAt = { x: 0, y: 0, z: 0, yaw: 0, s: 0 };
 
   constructor(track: Track, line: RaceBrain, first: number, count: number, seed: number) {
+    super(first, count, seed);
     this.track = track;
     this.line = line;
-    this.first = first;
-    this.count = count;
-    this.seed = seed;
     this.pack = new Int16Array(count).fill(-1);
-    this.role = new Uint8Array(count);
-    this.since = new Float64Array(count);
-    this.wedge = new Backoff(count);
     this.leadIn = new Float64Array(count);
     this.parkS = new Float64Array(count);
     this.packLive = new Uint8Array(count);
@@ -376,26 +429,15 @@ export class PoliceBrain implements CopBrain {
   }
 
   /** Unit `id`'s class figures (the line driver's and its own steering). */
-  setClass(id: number, s: ClassStats): void {
+  override setClass(id: number, s: ClassStats): void {
     this.line.setClass(id, s);
     this.line.setAggression(id, 1);
-    this.turn[id] = s.turn;
-    this.grip[id] = s.grip;
+    super.setClass(id, s);
   }
 
   /** Racer `id` respawned at race time `time`: left alone for `IMMUNE` s. */
-  respawned(id: number, time: number): void {
+  override respawned(id: number, time: number): void {
     this.immune[id] = time + IMMUNE;
-  }
-
-  /**
-   * The units chasing a racer right now (in pursuit with a pack, not giving up), from `cars` into `out` (cleared
-   * first): the rules' `BUST` counts only these, never a parked stakeout, a knocked-out wreck or a unit driving off.
-   */
-  chasers(cars: readonly AiCar[], out: AiCar[]): AiCar[] {
-    out.length = 0;
-    for (let u = 0; u < this.count; u++) if (this.state[u] === "pursuit" && this.pack[u]! >= 0) out.push(cars[this.first + u]!);
-    return out;
   }
 
   copsOn(id: number): number {
@@ -404,14 +446,16 @@ export class PoliceBrain implements CopBrain {
     return n;
   }
 
-  /** A unit's input for this physics slice (scratch output: apply it before the next call): its drive, then the pack-mate guard. */
-  think(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
-    const out = this.drive(self, cars, dt);
-    guardMates(self, cars, this.first, this.count, out, this.pullsOut, this.turn[self.id]!, this.grip[self.id]!);
-    return out;
+  /** In pursuit with a pack, not giving up: never a parked stakeout, a knocked-out wreck or a unit driving off. */
+  protected chasing(u: number): boolean {
+    return this.state[u] === "pursuit" && this.pack[u]! >= 0;
   }
 
-  private drive(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
+  protected stored(u: number): boolean {
+    return this.state[u] === "stored";
+  }
+
+  protected drive(self: AiCar, cars: readonly AiCar[], dt: number): DriveInput {
     const out = this.out;
     out.throttle = 0;
     out.steer = 0;
@@ -697,9 +741,8 @@ export class PoliceBrain implements CopBrain {
     }
   }
 
-  private store(u: number, world: PoliceWorld): void {
-    world.sirens(this.first + u, false);
-    world.store(this.first + u);
+  protected override store(u: number, world: PoliceWorld): void {
+    super.store(u, world);
     this.pack[u] = -1;
     this.setState(u, "stored");
   }
@@ -709,11 +752,6 @@ export class PoliceBrain implements CopBrain {
     if (st === "pursuit" && this.state[u] === "parked") this.leadIn[u] = LEAD_IN;
     this.state[u] = st;
     this.since[u] = 0;
-  }
-
-  private free(): number {
-    for (let u = 0; u < this.count; u++) if (this.state[u] === "stored") return u;
-    return -1;
   }
 
   private sizeOf(p: number): number {
@@ -778,10 +816,5 @@ export class PoliceBrain implements CopBrain {
       }
     }
     return best;
-  }
-
-  /** Next seeded die, 0..1. */
-  private roll(): number {
-    return hash01(this.seed * 7.13 + 3.1, ++this.dice);
   }
 }

@@ -1,15 +1,13 @@
 import { P2PRoom } from "../../lib/multiplayer/p2p.ts";
-import type { NetPeer, NetTransport } from "./transport.ts";
+import { NetTransport, type NetPeer } from "./transport.ts";
 
 /** Cross-machine: the template's WebRTC mesh (`P2PRoom`), signaled through `/api/rtc`; binary on its unreliable channel, or its reliable one on request. */
-export class RtcTransport implements NetTransport {
-  onMessage: ((from: string, data: Uint8Array) => void) | null = null;
-  readonly selfId: string;
+export class RtcTransport extends NetTransport {
   private readonly room: P2PRoom;
 
   /** `role` is the roster tag the relay lists public rooms by ("host" / "client"); no personal name is sent. `meta` is read on every poll: a public host's match tag. */
   constructor(room: string, selfId: string, role: "host" | "client", meta: () => string) {
-    this.selfId = selfId;
+    super(selfId);
     this.room = new P2PRoom({
       room,
       selfId,
@@ -21,7 +19,7 @@ export class RtcTransport implements NetTransport {
   }
 
   /** The relay's refusal ("room full", "host taken", …) while it lasts; the Net panel shows it. */
-  get error(): string | null {
+  override get error(): string | null {
     return this.room.error;
   }
 
