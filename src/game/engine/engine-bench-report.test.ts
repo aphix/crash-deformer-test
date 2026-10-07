@@ -39,6 +39,7 @@ const RESULT: BenchResult = {
   tierPct: { high: 97, minimal: 3 },
   detailPct: { "50 m": 80, "40 m": 20 },
   setupMs: { options: 800, start: 140 },
+  pageEvents: [{ phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false }],
   settings: {
     fxTier: "high",
     fxAuto: true,
