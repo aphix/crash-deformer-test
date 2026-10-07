@@ -48,6 +48,50 @@ export const UNDERSIDE: readonly (readonly [number, number, number])[] = [
   [0, 2, 0.032], [0, 1, 0.072], [0, 0, 0.131], [0, -1, 0.136], [0, -2, 0.161],
   ...([-0.8, 0.8] as const).flatMap((x) => [[x, 2, 0.051], [x, 1, 0.101], [x, 0, 0.134], [x, -0.5, 0.147], [x, -2, 0.169]] as const),
 ];
+/** The drawn underside's height (m) at car-local (`x`, `z`) within the rockers: `UNDERSIDE`'s keel and its rocker line along z, between them across. */
+function underY(x: number, z: number): number {
+  let keel = 0;
+  let rocker = 0;
+  for (const [line, side] of [[0, 0], [0.8, 1]] as const) {
+    let lo: readonly [number, number, number] | undefined;
+    let hi: readonly [number, number, number] | undefined;
+    for (const p of UNDERSIDE) {
+      if (p[0] !== line) continue;
+      if (p[1] <= z && (!lo || p[1] > lo[1])) lo = p;
+      if (p[1] >= z && (!hi || p[1] < hi[1])) hi = p;
+    }
+    const h = !lo || !hi || lo === hi ? (lo ?? hi)![2] : lo[2] + ((hi[2] - lo[2]) * (z - lo[1])) / (hi[1] - lo[1]);
+    if (side === 0) keel = h;
+    else rocker = h;
+  }
+  return keel + ((rocker - keel) * Math.abs(x)) / 0.8;
+}
+/** The pan's half width and half length (m). */
+const PAN_HALF = 0.35;
+/**
+ * The plane the belly's centre patch lies on, along the car: height at z = 0 and rise per metre of z (least squares through the drawn
+ * underside under the pan's rows, 22 mm higher at the rear row than at the front; the pan is symmetric across).
+ */
+const PAN_PLANE: readonly [number, number] = (() => {
+  let sum = 0;
+  let sz = 0;
+  let n = 0;
+  for (const z of [-PAN_HALF, PAN_HALF]) {
+    for (const x of [-PAN_HALF, 0, PAN_HALF]) {
+      const h = underY(x, z);
+      sum += h;
+      sz += h * z;
+      n++;
+    }
+  }
+  return [sum / n, sz / (n * PAN_HALF * PAN_HALF)];
+})();
+/**
+ * The belly's centre patch, the pan under the cabin (car-local x, height, z): six points on `PAN_PLANE`, within 3 mm of the drawn
+ * underside. Flat across: on the drawn underside's V (keel 5 mm under its rocker side) it stood on the keel line alone, rolling 1° each
+ * way on a flat roof. A flat pan at 0.132 stood 15-22 mm over the drawn underside at its front row.
+ */
+export const PAN: readonly (readonly [number, number, number])[] = [-PAN_HALF, PAN_HALF].flatMap((z) => [-PAN_HALF, 0, PAN_HALF].map((x): [number, number, number] => [x, PAN_PLANE[0] + PAN_PLANE[1] * z, z]));
 /** The underside samples and the bumpers' bottom corners (car-local x, z, height above the tyre plane): what the body bottoms out on. */
 const HULL_UNDER: readonly (readonly [number, number, number])[] = [
   ...UNDERSIDE,

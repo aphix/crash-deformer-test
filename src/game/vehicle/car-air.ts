@@ -5,7 +5,7 @@ import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_
 import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
-import { droop, SPRINGS, UNDERSIDE } from "./car-suspension.ts";
+import { droop, PAN, SPRINGS, UNDERSIDE } from "./car-suspension.ts";
 import { CLASSES, carClass } from "./vehicle-classes.ts";
 import { CarSurfaces } from "./car-surfaces.ts";
 import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
@@ -36,17 +36,11 @@ export const HULL: readonly (readonly [number, number, number])[] = [
   ),
 ];
 /**
- * The belly's centre patch, the flat pan under the cabin (car-local x, height, z). It lies inside another car's roof plate (`car-surfaces.ts`:
- * ±0.5 across, the crown at z −0.1 ± 0.5 along): at ±0.5 its front row was past the plate and its sides on the plate's edges, so a car
- * centred on a roof stood on the rows at and behind its centre of mass, a wagon's rear tyres on a hatchback's roof tipped it nose-down, and
- * a few mm aside one side left the plate and it rolled. Only its own lines meet a car top's ridge (`ridgeCross`): the hull lines past it
- * slope down to the nose (`UNDERSIDE`), and at the plate's front edge they stood 14-16 mm under the pan, so every car in a stack rested
- * 1° nose-up on the one under it.
- */
-const PAN: readonly (readonly [number, number, number])[] = [-0.35, 0.35].flatMap((z) => [-0.35, 0, 0.35].map((x): [number, number, number] => [x, 0.132, z]));
-/**
  * The underside (car-local x, height, z): `UNDERSIDE`'s keel and rockers, and the belly between them 0.5 m either side of
- * the keel (its height interpolated), so a car on another's flat roof rests on its width, not balanced on the keel line.
+ * the keel (its height interpolated), so a car on another's flat roof rests on its width, not balanced on the keel line, and `PAN`
+ * (the belly's centre patch, car-suspension.ts): the only part of the belly that meets a car top's ridge between its points
+ * (`ridgeCross`), since the hull lines past it slope down to the nose and stood under the pan at a roof's front edge (every car in a
+ * stack rested 1° nose-up on the one under it).
  */
 const BELLY: readonly (readonly [number, number, number])[] = [
   ...UNDERSIDE.map(([x, z, h]): [number, number, number] => [x, h, z]),
@@ -973,15 +967,26 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         give(c, v, w, q, UP, jn, jn - Math.min(jn, REST[c]!), surf);
       } else {
         const vn = pointVel(c, v, w, _vp).dot(nrm);
-        if (vn >= 0) continue;
-        const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
-        const rest = Math.min(-vn, REST[c]!);
-        REST[c] = REST[c]! - rest;
-        const jd = (1 + e) * (-vn - rest) * reach(c, nrm, q, true);
-        jn = rest * reach(c, nrm, q, false) + jd;
-        ACC[c] = ACC[c]! + jn;
-        DYN[c] = DYN[c]! + jd;
-        give(c, v, w, q, nrm, jn, jd, surf);
+        // A contact that closes takes what it needs. One that already parts takes back, of the dynamic impulse the earlier passes gave it,
+        // what its parting asks (never more: it never pulls). A neighbour's impulse that had over-corrected it kept it for good, so the
+        // first of several equal contacts took most of the load and rolled the car: an 11-car column walked 69 mm for the order the belly's
+        // points are listed in.
+        if (vn >= 0 && DYN[c] === 0) continue;
+        if (vn >= 0) {
+          jn = Math.max(-DYN[c]!, -vn * reach(c, nrm, q, true));
+          ACC[c] = ACC[c]! + jn;
+          DYN[c] = DYN[c]! + jn;
+          give(c, v, w, q, nrm, jn, jn, surf);
+        } else {
+          const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
+          const rest = Math.min(-vn, REST[c]!);
+          REST[c] = REST[c]! - rest;
+          const jd = (1 + e) * (-vn - rest) * reach(c, nrm, q, true);
+          jn = rest * reach(c, nrm, q, false) + jd;
+          ACC[c] = ACC[c]! + jn;
+          DYN[c] = DYN[c]! + jd;
+          give(c, v, w, q, nrm, jn, jd, surf);
+        }
       }
       if (rolling && OWN[c]! < 0) continue;
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) where it
