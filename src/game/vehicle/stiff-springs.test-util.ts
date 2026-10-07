@@ -9,6 +9,7 @@ import { VEHICLE_CLASS_IDS } from "./vehicle-classes.ts";
  */
 export const STIFF_HZ = 24;
 export const STIFF_TRAVEL = 0.01;
+/** The explicit damper's stability limit is ω·dt of about 1.3 at the slowest slice a driven car takes (1/114 s at 8 m/s): 24 Hz is the stiffest ride that holds, and a damping ratio past the classes' own 0.25-0.35 launches a landing. */
 
 export function useStiffSprings(): () => void {
   const saved = VEHICLE_CLASS_IDS.map((cls) => ({ ...SPRINGS[cls] }));

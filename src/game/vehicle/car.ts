@@ -27,8 +27,8 @@ const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
 /** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
-export const FLIGHT = 22;
-export const FLIGHT_POSE = 6;
+export const FLIGHT = 18;
+export const FLIGHT_POSE = 3;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
@@ -65,10 +65,6 @@ export class DeformableCar extends CarParts {
   wheelsDown = 15;
   /** Set at a spawn: the first slice lays the body on what its wheels reach within `LAY_REACH`, not only within their springs' travel (a spawn puts it level at the road's height, and a bank takes two wheels' ground far off that). */
   laying = false;
-  /** The pose-following step's support height (m) under the origin last slice; NaN when none. */
-  support = NaN;
-  /** The body's turn (world rad/s) over its last grounded slice, carried into the air at a takeoff. */
-  readonly groundSpin = new THREE.Vector3();
   /** The slice (s) `stepFree` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */
   private flewDt = 0;
   /** The body's springs over its wheels (drawn only: the physics frame stays on the ground pose). */
@@ -252,41 +248,37 @@ export class DeformableCar extends CarParts {
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
    * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
-   * off), the squeeze clocks, the drift state, the last support height and whether a spawn's laying slice is still due. What the
+   * off), the squeeze clocks, the drift state and whether a spawn's laying slice is still due. What the
    * body touches is read again (`restoreContact`).
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
       this.angular.fromArray(buf, o);
-      this.groundSpin.fromArray(buf, o + 3);
       this.pitch = buf[o + FLIGHT_POSE]!;
       this.yaw = buf[o + FLIGHT_POSE + 1]!;
       this.roll = buf[o + FLIGHT_POSE + 2]!;
       this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
       this.velocity.fromArray(buf, o + FLIGHT_POSE + 3);
       this.group.position.fromArray(buf, o + FLIGHT_POSE + 6);
-      this.endAgo.set(buf.subarray(o + 15, o + 17));
-      this.endReach = buf[o + 17]!;
-      this.endSqueeze = buf[o + 18] !== 0;
-      this.drive.drift = buf[o + 19]!;
-      this.support = buf[o + 20]!;
-      this.laying = buf[o + 21] !== 0;
+      this.endAgo.set(buf.subarray(o + FLIGHT_POSE + 9, o + FLIGHT_POSE + 11));
+      this.endReach = buf[o + FLIGHT_POSE + 11]!;
+      this.endSqueeze = buf[o + FLIGHT_POSE + 12] !== 0;
+      this.drive.drift = buf[o + FLIGHT_POSE + 13]!;
+      this.laying = buf[o + FLIGHT_POSE + 14] !== 0;
       this.restoreContact();
       return;
     }
     this.angular.toArray(buf, o);
-    this.groundSpin.toArray(buf, o + 3);
     buf[o + FLIGHT_POSE] = this.pitch;
     buf[o + FLIGHT_POSE + 1] = this.yaw;
     buf[o + FLIGHT_POSE + 2] = this.roll;
     this.velocity.toArray(buf, o + FLIGHT_POSE + 3);
     this.group.position.toArray(buf, o + FLIGHT_POSE + 6);
-    buf.set(this.endAgo, o + 15);
-    buf[o + 17] = this.endReach;
-    buf[o + 18] = this.endSqueeze ? 1 : 0;
-    buf[o + 19] = this.drive.drift;
-    buf[o + 20] = this.support;
-    buf[o + 21] = this.laying ? 1 : 0;
+    buf.set(this.endAgo, o + FLIGHT_POSE + 9);
+    buf[o + FLIGHT_POSE + 11] = this.endReach;
+    buf[o + FLIGHT_POSE + 12] = this.endSqueeze ? 1 : 0;
+    buf[o + FLIGHT_POSE + 13] = this.drive.drift;
+    buf[o + FLIGHT_POSE + 14] = this.laying ? 1 : 0;
   }
 
   /**
@@ -306,7 +298,6 @@ export class DeformableCar extends CarParts {
   /** On the road at a spawn: its four wheels stand on it, and none of the last slice's contact state applies. */
   private resetContact(): void {
     this.airborne = false;
-    this.support = NaN;
     this.wheelsDown = 15;
     this.laying = true;
     this.restsOn = null;
