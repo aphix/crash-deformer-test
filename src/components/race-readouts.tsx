@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { DriveCluster } from "@/components/race-gauge";
+import { DriveCluster, nitroGlowClass } from "@/components/race-gauge";
 import { fmtGap, fmtTime } from "@/game/hud/race-clock";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { SurvivalReadout } from "@/components/survival-hud";
@@ -39,9 +39,14 @@ function useSplitFlash(split: number | null, time: number): boolean {
  */
 export function RaceReadouts({ race, corner }: { race: RaceHud; corner: boolean }) {
   const view = race.view;
-  if (!view || race.phase === null || race.reel !== null) return null;
+  if (!view || !showsDriveReadouts(race)) return null;
   // Keyed by car: switching the watched car doesn't flash the new car's standing split.
   return <Cluster key={view.id} race={race} view={view} corner={corner} />;
+}
+
+/** The race's readouts are up: a car to read, the race begun, and no results reel (its cameras ride replayed wrecks). */
+export function showsDriveReadouts(race: RaceHud): boolean {
+  return race.view !== null && race.phase !== null && race.reel === null;
 }
 
 function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner: boolean }) {
@@ -83,7 +88,7 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
           </dl>
         </>
       ) : null}
-      <Gauge view={view} corner={corner} />
+      <Gauge view={view} corner={corner} spectated={race.spectating !== null} />
       {race.survival ? null : (
         <p
           className={cn(
@@ -99,18 +104,16 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
   );
 }
 
-/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. A car with no nitrous (`boost` null: police, traffic, nobody driving) shows the meter empty and greyed. In `corner` mode a big window gets the race's drive cluster (`DriveCluster`) in the bottom-right corner instead. */
-export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
+/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. A car with no nitrous (`boost` null: police, traffic, nobody driving) shows the meter empty and greyed. In `corner` mode a big window, and a phone on its side whatever `corner` says, gets the race's drive cluster (`DriveCluster`) in the bottom-right corner instead; there its bottle boosts when tapped, unless the car is a `spectated` one. */
+export function Gauge({ view, corner, spectated = false }: { view: RaceView; corner: boolean; spectated?: boolean }) {
   const unit = useSpeedUnit();
   const boost = view.boost;
   return (
     <>
-      {corner ? (
-        <div className="absolute bottom-4 right-4 hidden md:block">
-          <DriveCluster view={view} />
-        </div>
-      ) : null}
-      <div className={cn("flex flex-col items-end gap-1", corner && "md:hidden")}>
+      <div className={cn("absolute bottom-4 right-4 hidden phone-landscape:bottom-2 phone-landscape:right-2 phone-landscape:block", corner && "md:block")}>
+        <DriveCluster view={view} boostable={!spectated} />
+      </div>
+      <div className={cn("flex flex-col items-end gap-1 phone-landscape:hidden", corner && "md:hidden")}>
         <div className="hud-ink flex items-baseline gap-2">
           <p className="grid size-7 place-items-center self-center rounded-md text-lg font-semibold leading-none shadow-[var(--shadow-border)]" aria-label="Gear">
             {view.gear === 0 ? "R" : view.gear}
@@ -124,7 +127,7 @@ export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
           {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
           <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">{boost === null ? "No boost" : "Boost"}</span>
           <div
-            className={cn("flex h-2 w-24 gap-0.5", view.boosting && "drop-shadow-[0_0_6px_var(--color-accent)]")}
+            className={cn("flex h-2 w-24 gap-0.5", nitroGlowClass("bar", boost, view.boosting))}
             role="meter"
             aria-label="Boost"
             aria-valuenow={Math.round((boost ?? 0) * 100)}

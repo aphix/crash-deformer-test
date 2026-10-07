@@ -361,7 +361,7 @@ function DriveHint({ state, touch }: { state: CrashHudState; touch: boolean }) {
           ))}
         </p>
       )}
-      {state.seat === "drive" ? (
+      {state.seat === "drive" && !state.race && !state.derbyView ? (
         <div className="mt-1 h-1 w-40 overflow-hidden rounded-full bg-surface-2/80" aria-label="Boost">
           <div className="h-full bg-accent" style={{ width: `${Math.round(state.boost * 100)}%` }} />
         </div>
