@@ -42,8 +42,7 @@ there, so the strap takes the ram's closing energy ½·m_ram·v².
 
 ### Crash-driven doors and mirrors (C1/C3) are unchanged
 
-The crash rules from `docs/RIG_ANALYSIS.md` §6.1 still run in `syncAttachedParts` and
-`evaluateBreakage`:
+The crash rules for doors and mirrors still run in `syncAttachedParts` and `evaluateBreakage`:
 
 - **C1**: a door is loaded only by a hit on its own side. End-on crush jams it at most
   `DOOR_AJAR` open. A side hit tears it off only at EBS ≥ 12.5 m/s.

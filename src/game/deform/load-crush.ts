@@ -13,7 +13,7 @@
  * - **nose**: the calibrated frontal stroke (docs/CRUSH_CALIBRATION.md): 56 km/h into a wall, 0.37 m, is 104 kJ at 860 kg, a
  *   mean 33 W over the stroke; `15 + 97·d` gives that mean (15 + 97·0.185 = 33). Packed at 0.55 m (the rig's front `maxCrush`).
  * - **tail**: the same yield with the shorter, stiffer rear stroke (`maxCrush` 0.38 m): `15 + 150·d`.
- * - **flanks**: yield 8 W, 160 W/m, packed at 0.30 m (the door band: 0.12-0.28 m at 50 km/h, docs/RIG_ANALYSIS.md).
+ * - **flanks**: yield 8 W, 160 W/m, packed at 0.30 m (the door band: 0.12-0.28 m at 50 km/h, docs/CRUSH_CALIBRATION.md).
  */
 
 export const FACE_TOP = 0;

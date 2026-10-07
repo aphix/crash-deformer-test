@@ -73,7 +73,7 @@ and whether density could scale like LoD.
 
 ## C. Realism
 
-### Measured structural gaps (from `docs/RIG_ANALYSIS.md`; crash harness in shape and lattice modes)
+### Measured structural gaps (crash harness in shape and lattice modes)
 
 - **The nose does not crumple against a rigid wall.**
   - At 56 km/h the car stops 0.17 m after contact in 14 ms (about 110 g). A real car crushes 0.35–0.55 m over 90–140 ms at 18–25 g.
@@ -98,7 +98,7 @@ and whether density could scale like LoD.
   - Per-axis yield and strain limits from `maxCrush` / `maxAngle` (SBD14).
   - Work hardening (RC17).
   - When a cluster is ill-conditioned, re-rest it instead of hard-clamping at `maxE` (RC17, EP16).
-- **Structure:** see `docs/RIG_ANALYSIS.md` (rig vs body-in-white, measured crush versus NCAP targets).
+- **Structure:** see `docs/CRUSH_CALIBRATION.md` (the crush bars against NCAP / IIHS targets).
 - **Detachment and hinges:**
   - Detach on load or cluster strain instead of `hingeT` crush thresholds, and keep the part's velocity when it detaches (XRB20, SVG16, RAJ08).
   - Doors, hood and trunk on real hinge joints with limits, where crush sets the minimum open angle (XRB20).

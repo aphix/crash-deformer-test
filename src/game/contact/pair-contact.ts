@@ -205,7 +205,7 @@ function momentumAlong(car: DeformableCar, nx: number, nz: number): number {
  * door on a flank, not the nose the hit never touched; the minimum gap too reads the struck face's travel, `faceTravel`),
  * and while they are still closing. Before that the crush and the hit's impulse carry the exchange. Once it holds, the pair
  * meets as a rigid inelastic impact along the line of centres (`stopClosing`, once a slice); the position push after it
- * only takes the pair out of the floor (docs/RIG_ANALYSIS.md 6.19).
+ * only takes the pair out of the floor, so a push never becomes velocity.
  */
 function holdComGap(carA: DeformableCar, carB: DeformableCar, leftoverA: number, leftoverB: number, dist: number, feed: boolean, dt: number): void {
   const minSep = 2.15 + leftoverA * 0.28 + leftoverB * 0.28;

@@ -16,7 +16,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
  * contact. Locality is the extra travel over a 3 km/h tap of the same piston
  * (0.2 kJ), because arming the crash already moves the skin.
  *
- * Real-world anchors (docs/RIG_ANALYSIS.md §3.3, sources [09][10]): frontal
+ * Real-world anchors (NCAP full-frontal and IIHS side tests): frontal
  * crush at 56 km/h is 350–550 mm dynamic, 250–450 mm static; crush scales
  * with speed (linear spring), so at 32 km/h EBS 0.14–0.26 m static, ≤ 0.31 m
  * dynamic. IIHS side test (1500 kg MDB, 50 km/h): about 0.15–0.25 m of
@@ -29,7 +29,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 const STANDARD: PistonShot = { speedKph: 40, massKg: 1500, hardness: 1, holdCar: false };
 const TAP: PistonShot = { ...STANDARD, speedKph: 3 };
 const LOCAL_TOL = 0.03;
-/** Cabin intrusion target, the same sourced figure the barrier tests use (docs/RIG_ANALYSIS.md §3.3). */
+/** Cabin intrusion target, the same figure the barrier tests use (IIHS rates footwell / A-pillar intrusion under 5 cm Good). */
 const CABIN_TOL = 0.06;
 
 const cache = new Map<string, PistonShotResult>();
@@ -206,8 +206,8 @@ describe(`given a parked car and any one piston firing the standard shot, judged
     it(`when the ${id} piston fires, then cabin intrusion stays under ${CABIN_TOL} m, except at the struck door`, { todo: TODO[`${id}:cabin`] }, () => {
       const r = shoot(id);
       const doors = id === "left" ? [r.doorR] : id === "right" ? [r.doorL] : [r.doorL, r.doorR];
-      for (const d of doors) assert.ok(d <= CABIN_TOL, `door ${f3(d)} m (target < ${CABIN_TOL} m, RIG_ANALYSIS §3.3)`);
-      assert.ok(r.roof <= CABIN_TOL, `roof ${f3(r.roof)} m (target < ${CABIN_TOL} m, RIG_ANALYSIS §3.3)`);
+      for (const d of doors) assert.ok(d <= CABIN_TOL, `door ${f3(d)} m (target < ${CABIN_TOL} m)`);
+      assert.ok(r.roof <= CABIN_TOL, `roof ${f3(r.roof)} m (target < ${CABIN_TOL} m)`);
     });
   }
 });

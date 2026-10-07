@@ -14,8 +14,8 @@ import { physicsSlice, sliceSpeed } from "./sat.ts";
  * pile-up in the engine's derby contact order (drive, integrate/sync, part contact, SAT passes, structure),
  * every car driving at the bowl centre. Heap growth is summed per frame, positive deltas only: a frame with
  * a scavenge counts as 0, so this only undercounts. 75bc12d: 2280–2300 KB per frame; f8821eb (boxing, iterator
- * and closure fixes): 657–672; with the split mass loops, typed-array outs and double-from-construction fields
- * (RIG_ANALYSIS §6.12): 421–425. The bound sits between, with room for JIT timing under a loaded runner.
+ * and closure fixes): 657–672; with the split mass loops, typed-array outs and double-from-construction fields:
+ * 421–425. The bound sits between, with room for JIT timing under a loaded runner.
  */
 const CARS = 24;
 const WARM = 600;

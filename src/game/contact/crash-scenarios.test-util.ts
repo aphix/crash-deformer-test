@@ -14,7 +14,7 @@ import type { SimPacer } from "../engine/sim-pace.ts";
 
 /**
  * Headless crash scenarios through the engine's own step (`stepWorld`) and phase clock, at
- * `CrashEngine.tickInner`'s slices (docs/RIG_ANALYSIS.md §3.1). The jersey slab is the real
+ * `CrashEngine.tickInner`'s slices. The jersey slab is the real
  * `JerseyBarrier`, held fixed (no slide, no dent). Not a test file itself.
  */
 

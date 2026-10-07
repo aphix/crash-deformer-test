@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Squash × buckle sweep over the headless crash harness, scored against the
-// real-car targets in docs/RIG_ANALYSIS.md §2-§3.3 and barrier.test.ts.
+// real-car targets in docs/CRUSH_CALIBRATION.md and barrier.test.ts.
 //
 //   npm run sweep -- [--grid 0,0.2,0.4,0.6,0.8,1] [--cells 0.4:0.45,1:1] [--slomo]
 //                    [--scenarios wall56,side50] [--after 1.5] [--root <tree>] [--out <dir>]

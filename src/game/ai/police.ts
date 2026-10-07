@@ -10,7 +10,7 @@ import { blankPoint, blankProjection, projectPath, type Track } from "../world/t
 /**
  * Most police cars in one race (all packs together; fewer when the field and traffic leave fewer car
  * slots): a full pack, or a pack of 4 and a stakeout. 8 cost city 3.7 ms more per tick in the browser and 66 frames
- * in 1628 over 33 ms. Measured frame cost: docs/RACE_DESIGN.md "Police chase".
+ * in 1628 over 33 ms (Watch, 7 AI + one car, 30 s windows with 3 or more police out).
  */
 export const POLICE_CAP = 6;
 /** Largest pack; a stakeout parks `PACK_START`, a sustained pursuit calls one more every `REINFORCE_EVERY` s. */

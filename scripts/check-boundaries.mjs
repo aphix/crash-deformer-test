@@ -41,7 +41,7 @@ const PLATFORM_USERS = new Set(["net", "ui", "platform"]);
 // Contexts that hold rules, data or decisions and never build scene-graph objects.
 const SCENE_FREE = new Set(["kernel", "world", "ai", "match", "hud", "net"]);
 const SCENE_GRAPH = /^(Mesh|InstancedMesh|SkinnedMesh|Object3D|Scene|Group|Line|LineSegments|LineLoop|Points|Sprite|\w+Material|\w*Geometry|\w+Light|\w*Texture|\w*Camera|WebGLRenderer|WebGLRenderTarget|\w+Helper)$/;
-// Per-frame entry points (the frame flow in docs/CODEMAPS/architecture.md) and the per-pair/per-slice
+// Per-frame entry points (the frame flow in docs/ARCHITECTURE.md) and the per-pair/per-slice
 // queries they call. Their bodies allocate nothing.
 const HOT = {
   "src/game/engine/engine.ts": ["tickInner", "fixedStep", "scheduleSkins", "flushVisibleSkins", "updateCamera"],

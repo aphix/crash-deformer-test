@@ -27,7 +27,7 @@ describe("given the calibrated crash knob defaults (squash, buckle and realism)"
     }
   });
 
-  it("when the default squash sets the 56 km/h stroke, then the stroke sits in the real dynamic-crush band (0.35–0.55 m, RIG_ANALYSIS §3.3)", () => {
+  it("when the default squash sets the 56 km/h stroke, then the stroke sits in the real dynamic-crush band (0.35–0.55 m)", () => {
     const m = strokeAt56(INITIAL_HUD.squash);
     assert.ok(m >= 0.35 && m <= 0.55, `default stroke ${m.toFixed(3)} m`);
   });

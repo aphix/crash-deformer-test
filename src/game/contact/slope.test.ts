@@ -45,7 +45,7 @@ const slopeCrashCases = [
   { it: "when a 48 km/h head-on crashes on it, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "head-on", kph: 48 },
   // The struck car (facing uphill) used to level out at quiet 0.35 s to world level, not to the slope: the frame
   // turned 0.2 rad against masses resting on the ground, the cell shifted 0.058 m and the tail read 0.083 m of crush
-  // (0.023 on the flat pad). It levels to the plane under its hubs now (RIG_ANALYSIS §6.14).
+  // (0.023 on the flat pad). It levels to the plane under its hubs now.
   { it: "when a 50 km/h T-bone crashes on it, then each car keeps the flat pad's dents and no mass pops past 3·v·h + 5 cm in a slice", kind: "t-bone", kph: 50 },
   // ReplayFidelity2: the 50 km/h pass sat on a cliff. The slope's tightest dent margin against max(0.03 m, 15 %) at
   // 46 / 48 / 49 / 50 / 51 / 52 / 54 km/h was +0.0091 / +0.0064 / +0.0016 / +0.0006 / -0.0024 / -0.0387 / -0.0497 m

@@ -14,7 +14,7 @@ const WITNESS_PAD = 1.5;
 export const FX_REACH = { sparks: 4, debris: 14, glass: 12, smoke: 6 } as const;
 
 /**
- * "Could the camera be witnessing this?" The one broad test behind every cosmetic skip (docs/CODEMAPS/architecture.md,
+ * "Could the camera be witnessing this?" The one broad test behind every cosmetic skip (docs/ARCHITECTURE.md,
  * frame flow). A sphere is witnessed when, grown by `WITNESS_PAD`, it touches the camera's view frustum (the far plane
  * is the draw distance). Walls, glass and every other occluder are ignored on purpose, so "no" is always safe to
  * act on and "yes" is only ever wrong about being drawn. It only reads the camera; the sim never asks it anything.

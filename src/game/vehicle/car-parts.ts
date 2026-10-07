@@ -50,7 +50,7 @@ const _doorW = new THREE.Vector3();
 const _c = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
- * door's. Measured over the standard crashes (docs/RIG_ANALYSIS.md, glass): an unloaded pane reads ≤ 0.04, a loaded
+ * door's. Measured over the standard crashes: an unloaded pane reads ≤ 0.04, a loaded
  * frame 0.07–0.17, a collapsed one 0.2–0.4. Any load cracks a pane; tempered side and rear glass bursts once its frame
  * has clearly moved, the laminated windshield only once its frame has collapsed (a 50 km/h side hit reads 0.23 there).
  */
@@ -66,7 +66,7 @@ const BAR_TEAR_MPS = 60 / 3.6;
 export const ROOF_REST_Y = MASS_SPECS.find((m) => m.name === "roof")!.rest[1];
 /**
  * Quarter panels and arch flares hinge by the crush under them, `(crush - on) / range`, and tear off once the hinge value
- * passes `PANEL_TEAR` on a hit this fast (EBS). Tuned on the walls (docs/RIG_ANALYSIS.md, body panels): the rear wing sensor peaks
+ * passes `PANEL_TEAR` on a hit this fast (EBS). Tuned on the walls: the rear wing sensor peaks
  * 0.06 / 0.23 / 0.47 m on a 30 % offset rear hit at 40 / 56 / 80 km/h, the front one 0.57 / 0.92 / 1.0 m on an offset front hit
  * and 0.29 / 0.78 m on the side wall at 40 / 56.
  */

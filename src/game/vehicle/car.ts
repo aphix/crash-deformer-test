@@ -782,7 +782,7 @@ function fitMasses(car: DeformableCar, at: THREE.Vector3, spin: THREE.Vector3): 
  * A crashed car's slide after the hit (`CrashEngine.tickInner`): tyre-style friction on the group, and
  * the mass ground drag. The drag ramps from the hit, not from the last car contact: a pair grinding
  * together kept resetting the contact timer and slid ~3× as far as one wreck alone, and a frictionless
- * pair pushed long enough lets the bullet drive through the struck car (T-bone, RIG_ANALYSIS §6.6). A driven
+ * pair pushed long enough lets the bullet drive through the struck car (T-bone). A driven
  * car (under power, drivetrain alive) does not slide: its tyres are applyDrive's (`groundMasses` skips it too).
  * A car whose drivetrain died under power keeps the contact ramp; `dragGround` skips an airborne wreck.
  */

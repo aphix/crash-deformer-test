@@ -462,8 +462,8 @@ export abstract class DeformRig {
    * helpers and the rest-only tables stay.
    * Fields declared `-0` (here, and the masses' and sensors' in their literals) hold a double from construction.
    * A Smi field's first double write changes the maps: each race car's first crash, first re-arm and first drive
-   * as a wreck deoptimised 60–100 physics functions mid-race, which then ran unoptimised for seconds
-   * (RIG_ANALYSIS §6.12). The declarations keep those `-0`s; the sentinels below go on over them.
+   * as a wreck deoptimised 60–100 physics functions mid-race, which then ran unoptimised for seconds.
+   * The declarations keep those `-0`s; the sentinels below go on over them.
    */
   protected initRunState(): void {
     this.dirty = false;
