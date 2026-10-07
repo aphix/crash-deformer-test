@@ -6,7 +6,7 @@ import { sliceSpeed } from "../contact/sat.ts";
 import { PACE_BUDGET_MS, SimPacer } from "./sim-pace.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { INITIAL_HUD, type HudStore } from "../hud/hud-store.ts";
-import { easeTimeScale, impactScale, PRE_IMPACT_LEAD, stepPhase, THROW_ONSET } from "../match/phase.ts";
+import { easeTimeScale, PRE_IMPACT_LEAD, preImpact, stepPhase } from "../match/phase.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { damageStage } from "../vehicle/vehicle-classes.ts";
@@ -143,6 +143,8 @@ export class CrashEngine extends EngineShare {
     this.veil = veil;
     this.hudStore = hudStore;
     this.clock.reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    this.lab.load("cards");
+    this.lab.fx = this.hitFx;
 
     this.renderer = new THREE.WebGLRenderer({
       canvas,
@@ -312,6 +314,7 @@ export class CrashEngine extends EngineShare {
     this.resizeObs.disconnect();
     for (const car of this.cars) car.dispose();
     this.race.dispose();
+    this.labArt?.dispose();
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
     this.lampBatch.dispose();
@@ -406,6 +409,7 @@ export class CrashEngine extends EngineShare {
       }
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
       if (this.barrierUp) this.barrier.step(simDt);
+      if (this.showLab) this.labArt?.update(simDt);
       const fxDt = Math.max(simDt, wallDt * 0.6);
       this.debris.update(fxDt, this.bounceWorld);
       this.sparks.update(fxDt, bounceGround);
@@ -512,24 +516,12 @@ export class CrashEngine extends EngineShare {
   }
 
   private maybePreSlowmo(wallDt: number): void {
-    if (this.derbyMode || this.race.active) return;
-    if (this.clock.userTimeScale != null) return;
-    if (!this.autoSlomo) return;
-    if (this.rigScene) return;
-    if (this.clock.phase !== "approach") return;
-    const scale = impactScale(this.clock);
-    if (this.clock.timeScale <= scale * 1.2 || this.clock.slomoAt > 0) return;
-    const eta = this.contactEta();
-    if (!Number.isFinite(eta)) return;
-    if (eta > Math.max(PRE_IMPACT_LEAD, wallDt + FIXED)) return;
-    // A hit that will throw a driver plays at 1× until his exit is clear (`THROW_ONSET`).
-    if (throwComing(this.live(), this.barrierUp ? this.barrier : null)) {
-      this.clock.slomoAt = THROW_ONSET;
-      return;
-    }
-    this.clock.timeScale = scale;
-    this.clock.targetScale = scale;
+    if (this.derbyMode || this.race.active || !this.autoSlomo || this.rigScene || this.clock.phase !== "approach") return;
+    preImpact(this.clock, this.contactEta(), this.elapsedSim, Math.max(PRE_IMPACT_LEAD, wallDt + FIXED), FIXED, this.throwSoon);
   }
+
+  /** Whether the coming hit will throw a driver: his exit then plays at 1× (`THROW_ONSET`). */
+  private readonly throwSoon = (): boolean => throwComing(this.live(), this.barrierUp ? this.barrier : null);
 
   private fixedStep(dt: number): void {
     const cars = this.live();
@@ -569,16 +561,16 @@ export class CrashEngine extends EngineShare {
     w.barrier = this.barrierUp ? this.barrier : null;
     w.barrierHits = this.barrierHits;
     w.bounce = this.bounceWorld;
-    w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : null;
-    w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : null;
+    w.beforeSlice = this.rigScene && !this.showStack ? this.rigSlice : this.showLab ? this.lab.slice : null;
+    w.pairHit = this.derbyMode ? this.derbyHit : this.race.active ? this.race.pairHit : this.showLab ? this.lab.pairHit : null;
     w.partTouch = this.race.active ? this.race.partTouch : null;
     w.ballHit = this.ballsUp ? this.ballHit : null;
-    // The corkscrew hides the lamp posts its run passes through.
-    w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew ? null : this.poleHit;
+    // The corkscrew hides the lamp posts its run passes through; the Lab has none.
+    w.poleHit = this.derbyMode || this.race.active || this.showCorkscrew || this.showLab ? null : this.poleHit;
     w.afterCar = this.derbyMode ? this.clipDerby : null;
     // The rig scenes put the ramps away (`SCENE_PROPS`), like the slab and the balls: their faces must not stand in for
     // the corkscrew's walls (a 6 m/s car slid off the bank onto its roof) or wall in a parked car.
-    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.rampsUp ? this.rampCollide : null;
+    w.collide = this.race.active ? this.raceCollide : this.showCorkscrew ? this.corkCollide : this.rampsUp ? this.rampCollide : this.showLab ? this.lab.collide : null;
     this.ejection.ctx = this.derbyMode ? "derby" : "default";
     w.fine = this.pace.fine;
     stepWorld(w, dt);
@@ -591,7 +583,11 @@ export class CrashEngine extends EngineShare {
     if (this.race.active) this.race.step(dt, w.shape);
 
     const { impulse, contact, normal } = w.strongest;
-    if (!this.derbyMode && !this.race.active && !this.showStack && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
+    // The Lab's crash is its throw's first contact (`Lab.shot`): a stack settling before any throw is no crash.
+    const shot = this.showLab ? this.lab.shot : null;
+    if (shot && shot.contactS !== null && this.clock.phase === "approach") {
+      this.beginCinematic(shot.contactAt, shot.normal, shot.speedBefore);
+    } else if (!this.derbyMode && !this.race.active && !this.showStack && !this.showLab && this.clock.phase === "approach" && contact && normal && impulse > 0.4) {
       this.beginCinematic(contact, normal, impulse);
     } else if ((this.derbyMode || this.race.active) && contact && normal && impulse > 1.2 && this.elapsedWall - this.sparkAt > 0.16 && this.witness.sees(contact, FX_REACH.sparks)) {
       this.sparkAt = this.elapsedWall;
@@ -663,10 +659,10 @@ export class CrashEngine extends EngineShare {
     const settled = this.clock.phase === "aftermath";
     stepPhase(this.clock, wallDt);
     // A thrown range driver holds the loop until his landing has been shown (`RangeRun`); otherwise it runs as the
-    // fleet's, after any ride-along with thrown drivers.
+    // fleet's, after any ride-along with thrown drivers. The Lab never loops: the wreckage stays until the player resets.
     const still = this.showRange ? this.ragdolls.latest(_v) : -1;
     const shown = this.showRange && this.rangeRun.step(still >= 0, this.ragdolls.latestSettled, _v.x, wallDt);
-    if (this.looping && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
+    if (this.looping && !this.showLab && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
   }
 
   /** `aimRigs`'s derby centroid set, refilled per frame. */
@@ -754,13 +750,18 @@ export class CrashEngine extends EngineShare {
       for (const c of this.live()) if (c.deform.drivetrainAlive) alive.push(c);
       centroid(_v, alive.length ? alive : this.live());
       look.set(_v.x, 0.7, _v.z);
+    } else if (this.showLab) {
+      // A phone turned on its side (or back) gets that shape's shot, unless the user framed one.
+      if (this.camera.aspect < 1 !== this.labUpright && !this.view.userFramed) this.frameLab();
+      look.copy(this.labLook);
     } else {
       centroid(_v, this.live());
       look.set(_v.x, 0.7, _v.z);
     }
 
+    // The Lab holds still for the aim: a turning view would turn every flick.
     let spinRate = 0;
-    if (this.autoRotate && this.playing && this.seat.mode !== "drive") {
+    if (this.autoRotate && this.playing && this.seat.mode !== "drive" && !this.showLab) {
       spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.clock.phase === "approach" ? 0.12 : 0.32;
     }
     this.view.orbit(wallDt, spinRate, this.playing);

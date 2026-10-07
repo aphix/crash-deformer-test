@@ -103,7 +103,7 @@ describe("given a race field handed the strip as its bench course", () => {
     try {
       const plan = benchPlan("?bench=strip")!;
       w.race.loadBenchCourse(plan.course);
-      w.race.command(plan.race);
+      w.race.command(plan.race!);
       w.race.reseed(1);
       w.race.command({ type: "start" });
       const state = { acc: 0 };

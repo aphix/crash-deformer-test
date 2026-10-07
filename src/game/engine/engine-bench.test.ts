@@ -32,6 +32,7 @@ const RESULT: BenchResult = {
   coarsePct: 62.4,
   simSpeedPct: 98.3,
   strip: null,
+  labThrown: null,
   calls: 420,
   triangles: 380_000,
   tierPct: { high: 97, minimal: 3 },
@@ -128,5 +129,14 @@ describe("given the bench result of a phone running the city course (describeBen
     const waiting = describeBench({ ...RESULT, frameMs: S(6.1), gpuMs: { mean: 2.9, p50: 1.5, p95: 5.96, p99: 6.2, max: 10.6 } });
     assert.ok(waiting.some((l) => /^GPU {7}p50 1\.5 {2}p95 6\.0 {2}p99 6\.2 {2}max 10\.6 ms {3}p95 is one frame long: a wait on the display, p50 is the work$/.test(l)));
     assert.ok(lines.length <= 30, "the card scrolls on a 412 px tall phone screen at 11 px type");
+  });
+});
+
+describe("given the bench result of the Lab's throws (?bench=lab)", () => {
+  test("when the card is written, then its second line names the throws in turn, how often and when they leave, that time was held at 1x, and how many the window saw; a race's card has no such line", () => {
+    const lines = describeBench({ ...RESULT, course: "lab", cars: 4, cops: null, labThrown: 4 });
+    assert.match(lines[0]!, /^CRUSH BENCH {2}lab {2}4 cars/);
+    assert.equal(lines[1], "lab: cards item 3 at 30 m/s, then wall item 4 at 30 m/s; one each 4 sim-s, 0.5 s after its set loads, time held at 1x; 4 thrown in the window");
+    assert.ok(!describeBench(RESULT).some((l) => l.startsWith("lab:")));
   });
 });

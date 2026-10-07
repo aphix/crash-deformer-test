@@ -284,8 +284,9 @@ export function easeFov(camera: THREE.PerspectiveCamera, fov: number, dt: number
   camera.updateProjectionMatrix();
 }
 
-/** The one-car rigs' orbit shot (`frameReset`): look height, distance and pitch. */
-const SOLO_SHOT = { lookY: 0.55, radius: 9.4, pitch: 0.44 };
+/** An orbit shot (`frameReset`): look point (x and z 0 unless given), distance and pitch. The one-car rigs' is `SOLO_SHOT`. */
+type OrbitShot = { lookY: number; radius: number; pitch: number; lookX?: number; lookZ?: number };
+const SOLO_SHOT: OrbitShot = { lookY: 0.55, radius: 9.4, pitch: 0.44 };
 
 /**
  * Orbit / chase / first-person rig over the shared PerspectiveCamera, plus canvas pointer input:
@@ -316,6 +317,8 @@ export class ChaseCamera {
   /** What framed the last frame, so a drag knows what to move: the orbit, a chase rig's look, or nothing (cine, dutch). */
   private rig: "orbit" | "chase" | "fixed" = "orbit";
   private readonly baseFov: number;
+  /** The scene's own lens (deg), when it is not the camera's `baseFov` (the Lab's wider one). */
+  private sceneFov: number | null = null;
   /** The ride-along (a thrown driver's camera) holds the camera: a drag orbits it, whatever the seat. */
   private ride = false;
   /** Seconds since the last ride drag ended (Infinity: none this ride). */
@@ -345,6 +348,12 @@ export class ChaseCamera {
   private pinchX = 0;
   private pinchY = 0;
   private pinchDist = 0;
+  /**
+   * A scene that takes presses from the drag (the Lab's flick): `down` (client px, `t` ms) claims a press or leaves it to the
+   * camera; a claimed press's moves and its release (`cancel`: the system took the pointer) go to it, never the orbit or a pick.
+   */
+  take: { down(x: number, y: number, t: number): boolean; move(x: number, y: number, t: number): void; up(x: number, y: number, t: number, cancel: boolean): void } | null = null;
+  private taking = false;
 
   readonly camera: THREE.PerspectiveCamera;
   private readonly canvas: HTMLCanvasElement;
@@ -394,9 +403,16 @@ export class ChaseCamera {
     return this.angle;
   }
 
-  /** The scene's own lens (deg): what the ride-along eases back to. */
+  /** The scene's own lens (deg): what the orbit, a fall watch and the ride-along ease back to. */
   get lens(): number {
-    return this.baseFov;
+    return this.sceneFov ?? this.baseFov;
+  }
+
+  /** Set the scene's lens (null: the camera's own) and cut to it: called on a scene switch, under its fade. */
+  setLens(fov: number | null): void {
+    this.sceneFov = fov;
+    this.camera.fov = this.lens;
+    this.camera.updateProjectionMatrix();
   }
 
   /**
@@ -428,15 +444,15 @@ export class ChaseCamera {
     // This snap replaces any shot `lookBack` parked.
     this.flipped = false;
     if (compactor) {
-      this.look.set(0, shot.lookY, 0);
+      this.look.set(shot.lookX ?? 0, shot.lookY, shot.lookZ ?? 0);
       this.radius = shot.radius;
       this.pitch = shot.pitch;
       this.angle = soloAngle;
       const cp = Math.cos(this.pitch);
       this.pos.set(
-        Math.sin(this.angle) * this.radius * cp,
+        this.look.x + Math.sin(this.angle) * this.radius * cp,
         this.look.y + this.radius * Math.sin(this.pitch),
-        Math.cos(this.angle) * this.radius * cp,
+        this.look.z + Math.cos(this.angle) * this.radius * cp,
       );
     } else {
       if (cars.length >= 2) {
@@ -497,7 +513,7 @@ export class ChaseCamera {
     this.camera.position.lerp(this.pos, k);
     this.camera.lookAt(this.look);
     if (shake) this.shake();
-    easeFov(this.camera, this.baseFov, wallDt);
+    easeFov(this.camera, this.lens, wallDt);
   }
 
   /**
@@ -640,7 +656,7 @@ export class ChaseCamera {
     if (!hold) this.fallAim.lerp(p, 1 - Math.exp(-8 * wallDt));
     this.camera.position.lerp(this.fallEye, 1 - Math.exp(-3 * wallDt));
     this.camera.lookAt(this.fallAim);
-    easeFov(this.camera, this.baseFov, wallDt);
+    easeFov(this.camera, this.lens, wallDt);
   }
 
   private shake(): void {
@@ -687,12 +703,18 @@ export class ChaseCamera {
     if (e.button !== 0 || this.locked) return;
     // A second finger on the canvas pinch-zooms (the touch wheel); it never orbits or picks.
     if (this.dragId !== -1) {
-      if (this.pinchId !== -1) return;
+      if (this.pinchId !== -1 || this.taking) return;
       this.pinchId = e.pointerId;
       this.pinchX = e.clientX;
       this.pinchY = e.clientY;
       this.pinchDist = Math.hypot(this.lastX - e.clientX, this.lastY - e.clientY);
       this.pointerTravel = Infinity;
+      this.canvas.setPointerCapture(e.pointerId);
+      return;
+    }
+    if (this.take?.down(e.clientX, e.clientY, e.timeStamp)) {
+      this.dragId = e.pointerId;
+      this.taking = true;
       this.canvas.setPointerCapture(e.pointerId);
       return;
     }
@@ -716,6 +738,10 @@ export class ChaseCamera {
       return;
     }
     if (e.pointerId !== this.dragId) return;
+    if (this.taking) {
+      this.take?.move(e.clientX, e.clientY, e.timeStamp);
+      return;
+    }
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
     this.pointerTravel += Math.hypot(dx, dy);
@@ -775,7 +801,10 @@ export class ChaseCamera {
     } catch {
       /* already released */
     }
-    if (click) this.onClick(e.clientX, e.clientY);
+    if (this.taking) {
+      this.taking = false;
+      this.take?.up(e.clientX, e.clientY, e.timeStamp, e.type === "pointercancel");
+    } else if (click) this.onClick(e.clientX, e.clientY);
   };
 
   private onWheel = (e: WheelEvent): void => {

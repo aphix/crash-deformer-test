@@ -10,6 +10,7 @@ import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
 import { WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { propContact } from "../contact/prop-contact.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
@@ -79,7 +80,7 @@ describe("given a panel of the Havana alley wall (0.6 m thick) and a car with on
       // Nose to +x, tail toward the wall, the tail at x = −40.45: 0.5 m into the panel, 0.2 m past its middle plane.
       const x0 = -40.45 + WALL_HALF_L;
       car.spawnFacing(x0, PANEL.z, 90 * D, 0);
-      w.race["props"](car, 0, 1 / 120);
+      propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       const { past, inside } = reach(car);
       assert.equal(past, 0, "no corner past the far face");
@@ -91,7 +92,7 @@ describe("given a panel of the Havana alley wall (0.6 m thick) and a car with on
       const car = makeCar(cls);
       const x0 = -40.45 + WALL_PROBES[1]![0];
       car.spawnFacing(x0, PANEL.z, 0, 0);
-      w.race["props"](car, 0, 1 / 120);
+      propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
       assert.ok(car.group.position.x > x0, `pushed east, to x=${car.group.position.x.toFixed(3)}`);
       assert.equal(reach(car).past, 0);
     });

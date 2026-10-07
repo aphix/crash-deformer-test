@@ -1,12 +1,12 @@
 import * as THREE from "three";
 import { idleDrive, type DriveInput, type DriverSeat } from "../vehicle/car-drive.ts";
-import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
-import { HIT_AHEAD, impulseCar, markApproach, wallBounce, WALL_CRUSH, WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { markApproach, wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
 import { makeBox, solidFace } from "../contact/external-contact.ts";
-import { footprintOverlap, type Overlap } from "../contact/prop-contact.ts";
+import type { PropHits } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
@@ -95,24 +95,11 @@ const PARK_Z = 4000;
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
 const _n = new THREE.Vector3();
-const _o: Overlap = { pen: 0, nx: 0, nz: 0, cx: 0, cz: 0, face: { nx: 0, nz: 0, x: 0, z: 0, w: 0, d: 0 } };
 /** The solid face of the wall or prop the car is meeting this slice (`solidFace`), reused. */
 const _face = makeBox();
 /** A course wall met as a slab: how far (m) it reaches along the road either side of the contact (more than a car's length), and how thick it is behind its face. */
 const WALL_SPAN = 6;
 const WALL_DEPTH = 2;
-
-/**
- * Height (m) of the lowest point of `car`'s body box (`CAR_HALF` about its ground point), as tilted: the origin's height plus
- * the box middle's rise along up, less the box's extent along up (`|right.y|·hx + |up.y|·hy + |fwd.y|·hz`). Read from the
- * group's own quaternion, never a slice stale. A level car reads its ground point's height, a nose-down one its front corner's.
- */
-export function lowestY(car: DeformableCar): number {
-  const { x, y, z, w } = car.group.quaternion;
-  const up = 1 - 2 * (x * x + z * z);
-  const extent = Math.abs(2 * (x * y + w * z)) * CAR_HALF.x + Math.abs(up) * CAR_HALF.y + Math.abs(2 * (y * z - w * x)) * CAR_HALF.z;
-  return car.group.position.y + up * CAR_HALF.y - extent;
-}
 
 /**
  * The race field: course loading (track, art, ground, props), the grid, spawns and respawns, the traffic bubble and
@@ -166,6 +153,15 @@ export abstract class RaceField {
   });
   /** A wall or solid prop hit car `i` closing at `closing` m/s at (x, z): the recorder, or a highlight replay while one runs. */
   onWallHit: (i: number, closing: number, x: number, z: number) => void = (i, closing, x, z) => this.recorder.wallHit(i, closing, x, z);
+  /** The course's props as the shared rule meets them (`propContact`): the recorder and the art hear a knock, a solid hit is a wall hit. */
+  protected readonly propHits: PropHits = {
+    knock: (index, car, vx, vy, vz) => {
+      this.recorder.knock(index, car);
+      this.art?.props.knock(index, vx, vy, vz);
+    },
+    fx: (at, n, closing) => this.host.hitFx(at, n, closing),
+    wall: (_index, i, closing, x, z) => this.onWallHit(i, closing, x, z),
+  };
   private readonly observers: AiCar[] = [];
   private readonly viewProj = new THREE.Matrix4();
   private readonly frustum = new THREE.Frustum();
@@ -180,7 +176,7 @@ export abstract class RaceField {
   protected art: TrackArt | null = null;
   private placed: Placed[] = [];
   protected colliders: PropCollider[] = [];
-  private knocked = new Uint8Array(0);
+  protected knocked = new Uint8Array(0);
   protected session: RaceSession | null = null;
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
   protected traffic: TrafficBrain | null = null;
@@ -361,7 +357,7 @@ export abstract class RaceField {
     this.markTime.fill(0);
     this.markProgress.fill(0);
     this.knocked.fill(0);
-    this.art?.reset();
+    this.art?.props.reset();
     this.overFor = 0;
     this.menu = null;
     const seat = this.host.seat;
@@ -382,7 +378,7 @@ export abstract class RaceField {
   /** Every knocked prop back on its spot (a race start, each highlight clip). */
   resetProps(): void {
     this.knocked.fill(0);
-    this.art?.reset();
+    this.art?.props.reset();
   }
 
   /**
@@ -404,7 +400,7 @@ export abstract class RaceField {
     for (let i = 0; i < this.knocked.length; i++) {
       if (!((bits[i >> 3] ?? 0) & (1 << (i & 7))) || this.knocked[i]) continue;
       this.knocked[i] = 1;
-      this.art?.knock(i, 0, 0, 0);
+      this.art?.props.knock(i, 0, 0, 0);
     }
   }
 
@@ -754,54 +750,4 @@ export abstract class RaceField {
     this.wallZ[i] = pos.z;
     this.wallBeyond[i] = Math.max(beyond, 0);
   }
-
-  /**
-   * Solid props push the car out (and crumple it on a hard hit); knockable props fly off. A prop touches only a car whose
-   * lowest point (the tilted body box, `lowestY`) is under the prop's top: a car flying over it clears it.
-   */
-  protected props(car: DeformableCar, i: number, dt: number): void {
-    const pos = car.group.position;
-    const v = car.velocity;
-    const low = lowestY(car);
-    // How far past a prop's reach a hard-driving car is still asked about (`markApproach`).
-    const ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? Math.hypot(v.x, v.z) * HIT_AHEAD : 0;
-    for (const col of this.colliders) {
-      if (this.knocked[col.index] || low >= col.top) continue;
-      const reach = col.r + WALL_HALF_L + 0.3;
-      const dx = pos.x - col.x;
-      const dz = pos.z - col.z;
-      const d2 = dx * dx + dz * dz;
-      if (d2 > (reach + ahead) * (reach + ahead)) continue;
-      if (ahead > 0 && col.body === "solid" && d2 > 0) {
-        const d = Math.sqrt(d2);
-        markApproach(car, d - col.r - WALL_HALF_L, -(v.x * dx + v.z * dz) / d);
-      }
-      if (d2 > reach * reach) continue;
-      // The car's footprint against the collider; the normal points out of it.
-      if (!footprintOverlap(car, col, _o)) continue;
-      const { pen, nx, nz, cx, cz, face } = _o;
-      const vn = v.x * nx + v.z * nz;
-      const closing = Math.max(0, -vn);
-      _c.set(cx, 0.5, cz);
-      _n.set(nx, 0, nz);
-      if (col.body === "knock") {
-        this.knocked[col.index] = 1;
-        this.recorder.knock(col.index, i);
-        const speed = Math.hypot(v.x, v.z);
-        this.art?.knock(col.index, v.x * 1.1 - nx * 1.5, 2 + speed * 0.25, v.z * 1.1 - nz * 1.5);
-        const keep = 1 - col.mass / (col.mass + 1400);
-        if (car.deform.massActive) impulseCar(car, nx, 0, nz, col.mass * closing * 0.5);
-        else {
-          v.x *= keep;
-          v.z *= keep;
-        }
-        if (closing > 2) this.host.hitFx(_c, _n, closing * 0.4);
-        continue;
-      }
-      wallBounce(car, solidFace(_face, face.nx, face.nz, face.x, face.z, face.x, face.z, face.w, face.d), nx, nz, pen, dt);
-      if (closing > 1.5) this.host.hitFx(_c, _n, closing);
-      this.onWallHit(i, closing, cx, cz);
-    }
-  }
-
 }

@@ -1,12 +1,13 @@
 import { stackLoads } from "../scenes/stack-rig.ts";
 import { compactorStage } from "../scenes/compactor.ts";
-import type { HudStore } from "../hud/hud-store.ts";
+import type { HudStore, LabHud } from "../hud/hud-store.ts";
 import { carGauge } from "../match/car-view.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { mayRecoverFlipped } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
+import { WALL } from "./engine-lab.ts";
 
 /**
  * HUD publish: the engine's state as one `CrashHudState` snapshot.
@@ -57,6 +58,7 @@ export abstract class EngineHud extends EngineWarm {
       showDoors: this.showDoors,
       showCorkscrew: this.showCorkscrew,
       stack: this.showStack ? { ...this.stack.config, dropped: this.stack.dropped, ...stackLoads(cars, this.stack.dropped) } : null,
+      lab: this.showLab ? { preset: this.lab.preset ?? "cards", shot: this.labShotHud() } : null,
       pendingScene: this.sceneFade.pending,
       inRoom: this.net.role !== "off",
       doors: {
@@ -137,6 +139,16 @@ export abstract class EngineHud extends EngineWarm {
   /** R / D-pad ↓ may put `car` back on its wheels: always, but in a derby only a flipped car that still runs (`mayRecoverFlipped`, no free heal): the player's and the AI's R alike. */
   protected mayRecover(car: DeformableCar): boolean {
     return !this.derbyMode || mayRecoverFlipped(car);
+  }
+
+  /** The Lab's last throw as the HUD reads it (`LabHud.shot`). */
+  private labShotHud(): LabHud["shot"] {
+    const s = this.lab.shot;
+    if (!s) return null;
+    if (s.hit === null) return { hit: null, speed: s.launch.length(), fell: s.fell.length };
+    const item = s.hit === WALL ? null : this.lab.layout[s.hit]!;
+    const hit = item === null ? "pegboard" : item.kind === "prop" ? item.prefab : item.kind;
+    return { hit, speed: s.speedBefore, fell: s.fell.length };
   }
 
   /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */

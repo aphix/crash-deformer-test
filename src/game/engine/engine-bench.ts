@@ -8,7 +8,8 @@ import { describePost, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
-import { benchPlan, leaderAhead, stripLines, type BenchPlan, type StripResult } from "./engine-bench-plan.ts";
+import { benchPlan, labLine, leaderAhead, stripLines, type BenchPlan, type StripResult } from "./engine-bench-plan.ts";
+import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import type { World } from "./world-step.ts";
@@ -51,6 +52,14 @@ interface BenchEngine {
   followUrl: boolean;
   toggleRace(): void;
   raceCommand(cmd: RaceCommand): void;
+  toggleLab(): void;
+  setLabPreset(id: LabPresetId): void;
+  /** The HUD's Reset: the scene's set put back. */
+  reset(): void;
+  /** The HUD's time scale: a fixed one, or null for the automatic slow-mo. */
+  setTimeScale(value: number | null): void;
+  /** Lab item `thing` thrown at item `target` at `speed` m/s (the plan direction dx, dz is a free throw's only). */
+  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void;
   advance(seconds: number, opts?: { frameDt?: number; render?: boolean }): void;
   start(): void;
   setFxTier(tier: FxTier): void;
@@ -149,10 +158,12 @@ export interface BenchResult {
   lostSimS: number;
   /** Share of the sampled frames the pacer ran at its coarse 1/120 s slice (`SimPacer` adaptive), %. */
   coarsePct: number;
-  /** Race-clock seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
+  /** Sim seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
   simSpeedPct: number;
   /** The strip bench's settings and how far up the straight the lead racer got (null: the city bench). */
   strip: StripResult | null;
+  /** The Lab bench's throws the window saw (null: a race bench). */
+  labThrown: number | null;
   calls: number;
   triangles: number;
   /** Share of the window's frames at each FX tier, % (the auto tier moves). */
@@ -248,6 +259,7 @@ export function describeBench(r: BenchResult): string[] {
   return [
     `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames  (${d.browser})  build ${r.build}`,
     ...(r.strip ? stripLines(r.strip) : []),
+    ...(r.labThrown !== null ? [labLine(r.labThrown)] : []),
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
     `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
@@ -347,6 +359,8 @@ function timerStep(): number {
 interface Tap {
   simMs: number;
   drawMs: number;
+  /** Sim seconds the pacer stepped since the patch went on (each frame's sim time less what it gave up): every bench's clock, the race clock while it races. */
+  simS: number;
   /** Draws are wrapped in a GPU timer query while true. */
   timing: boolean;
   /** The block the queries belong to (0: the main window). */
@@ -368,6 +382,7 @@ function tap(pace: SimPacer, parts: BenchParts): Tap {
   const t: Tap = {
     simMs: 0,
     drawMs: 0,
+    simS: 0,
     timing: false,
     block: 0,
     blocks: 0,
@@ -393,8 +408,10 @@ function tap(pace: SimPacer, parts: BenchParts): Tap {
   };
   pace.run = (...a: Parameters<SimPacer["run"]>): void => {
     const t0 = performance.now();
+    const lost0 = pace.lost;
     run.apply(pace, a);
     t.simMs += performance.now() - t0;
+    t.simS += a[0] - (pace.lost - lost0);
   };
   cine.render = (...a: Parameters<Cinematics["render"]>): void => {
     const t0 = performance.now();
@@ -423,12 +440,58 @@ interface Frame {
   drawMs: number;
 }
 
-/** The last rAF stamp, so a frame's dt is the real interval wherever the caller picks the loop up. */
+/**
+ * The loop's state between rAFs: the last stamp, so a frame's dt is the real interval wherever the caller picks the loop up,
+ * and the Lab bench's throws (null: a race).
+ */
 interface Beat {
   prev: number;
+  lab: LabRun | null;
 }
 
-/** One rAF: hand the engine its measured wall time through `advance` (the loop's own `tickInner`), timed. */
+/**
+ * Where the Lab bench's sequence is: the sim second it (re)started at and the throw it started with, the segment under way (-1:
+ * none yet), the set up, whether the segment's throw has left, and the throws so far.
+ */
+interface LabRun {
+  plan: NonNullable<BenchPlan["lab"]>;
+  origin: number;
+  first: number;
+  segment: number;
+  preset: LabPresetId | null;
+  thrown: boolean;
+  throws: number;
+}
+
+/**
+ * The Lab's sequence on the sim seconds stepped (`Tap.simS`): each `segmentS` the next throw's set loads (the player's set picker,
+ * or Reset for the set already up), and `settleS` into the segment its thrower leaves for its target (the player's flick), so a
+ * device steps the same throws per sim-second however fast it runs.
+ */
+function driveLab(engine: BenchEngine, t: Tap, run: LabRun): void {
+  const k = Math.floor((t.simS - run.origin) / run.plan.segmentS);
+  const next = run.plan.throws[(run.first + k) % run.plan.throws.length]!;
+  if (k !== run.segment) {
+    run.segment = k;
+    run.thrown = false;
+    if (run.preset === next.preset) engine.reset();
+    else engine.setLabPreset(next.preset);
+    run.preset = next.preset;
+  }
+  if (run.thrown || t.simS - run.origin - k * run.plan.segmentS < run.plan.settleS) return;
+  run.thrown = true;
+  run.throws++;
+  engine.flickLab(0, next.target, 0, 0, next.speed);
+}
+
+/** The Lab's sequence starts over now at throw `first` (an A/B block: every arm of a round replays the same throw from its set's load). */
+function restartLab(run: LabRun, simS: number, first: number): void {
+  run.origin = simS;
+  run.first = first;
+  run.segment = -1;
+}
+
+/** One rAF: the Lab's throw when one is due, then the engine handed its measured wall time through `advance` (the loop's own `tickInner`), timed together. */
 async function frame(engine: BenchEngine, renderer: THREE.WebGLRenderer, t: Tap, beat: Beat): Promise<Frame> {
   const now = await nextFrame();
   const dt = Math.min(0.1, (now - beat.prev) / 1000);
@@ -436,6 +499,7 @@ async function frame(engine: BenchEngine, renderer: THREE.WebGLRenderer, t: Tap,
   renderer.info.reset();
   t.simMs = t.drawMs = 0;
   const f0 = performance.now();
+  if (beat.lab) driveLab(engine, t, beat.lab);
   engine.advance(dt, { frameDt: dt, render: true });
   return { now, dt, cpuMs: performance.now() - f0, simMs: t.simMs, drawMs: t.drawMs };
 }
@@ -463,35 +527,39 @@ interface Samples {
   levels: Map<string, number>;
 }
 
-/** The window: what the pacer lost and the race clock covered while it ran. */
+/** The window: what the pacer lost, the sim clock covered and the Lab threw while it ran. */
 interface Window {
   wallS: number;
   lostSimS: number;
   cutFrames: number;
   fineCuts: number;
   clockS: number;
+  thrown: number;
 }
 
-/** The grid and the warm-up: frames with no samples until `plan.warmS` of race clock has run. */
+/** The grid and the warm-up: frames with no samples until `plan.warmS` has run, of race clock from the green or of the Lab's sim. */
 async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, plan: BenchPlan): Promise<void> {
   const { renderer, race } = parts;
   for (;;) {
     await frame(engine, renderer, t, beat);
-    if (race.phase === "racing" && race.time >= plan.warmS) return;
-    ui.set(`CRUSH BENCH: ${race.phase === "racing" ? `warming ${Math.round(race.time)} / ${plan.warmS} s` : "grid"}`);
+    const going = plan.lab !== null || race.phase === "racing";
+    const clock = plan.lab ? t.simS : race.time;
+    if (going && clock >= plan.warmS) return;
+    ui.set(`CRUSH BENCH: ${going ? `warming ${Math.round(clock)} / ${plan.warmS} s` : "grid"}`);
   }
 }
 
 /** `measureS` wall seconds of one sample per frame, the engine's own auto FX tier and pacer as they are. */
 async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window }> {
-  const { renderer, race, cine } = parts;
+  const { renderer, cine } = parts;
   const arr = (): Float64Array => new Float64Array(CAP);
   const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), coarse: arr(), wrecks: arr(), calls: arr(), tris: arr(), tiers: new Map(), levels: new Map() };
   const pace = engine.pace;
   const lost0 = pace.lost;
   const cut0 = pace.cut;
   const fine0 = parts.world.fineCuts;
-  const clock0 = race.time;
+  const clock0 = t.simS;
+  const thrown0 = beat.lab?.throws ?? 0;
   let wall = 0;
   t.timing = true;
   t.block = 0;
@@ -514,7 +582,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
     ui.set(`CRUSH BENCH: measuring ${Math.round(wall)} / ${BENCH.measureS} s`);
   }
   t.timing = false;
-  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: race.time - clock0 } };
+  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0 } };
 }
 
 /** Sums over the frames of one arm (all its blocks). */
@@ -570,19 +638,20 @@ async function alternate(
   arms: Arm[],
   cycles: number,
 ): Promise<{ accs: Map<string, Acc>; blockKeys: Map<number, string> }> {
-  const { renderer, race } = parts;
+  const { renderer } = parts;
   const accs = new Map(arms.map((a) => [a.key, emptyAcc()]));
   const blockKeys = new Map<number, string>();
   for (let c = 0; c < cycles; c++) {
     for (const a of arms) {
       a.set();
+      if (beat.lab) restartLab(beat.lab, t.simS, c);
       t.timing = false;
       for (let i = 0; i < BENCH.settleFrames; i++) await frame(engine, renderer, t, beat);
       t.block = ++t.blocks;
       blockKeys.set(t.block, a.key);
       t.timing = true;
       const acc = accs.get(a.key)!;
-      const clock0 = race.time;
+      const clock0 = t.simS;
       const fine0 = parts.world.fineCuts;
       let wall = 0;
       while (wall < BENCH.blockS) {
@@ -596,7 +665,7 @@ async function alternate(
         ui.set(`CRUSH BENCH: ${title} ${a.key}, round ${c + 1} / ${cycles}`);
       }
       acc.wallS += wall;
-      acc.clockS += race.time - clock0;
+      acc.clockS += t.simS - clock0;
       acc.fineCuts += parts.world.fineCuts - fine0;
     }
   }
@@ -654,7 +723,7 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
   };
 }
 
-function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "settings" | "abPace" | "abFx" | "abDetail" | "device"> {
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -738,13 +807,14 @@ function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> },
 }
 
 /**
- * `?bench=city` or `?bench=strip&…` (`benchPlan`): the real game on the real clock for a fixed run, then a card of what it
+ * `?bench=city`, `?bench=strip&…` or `?bench=lab` (`benchPlan`): the real game on the real clock for a fixed run, then a card of what it
  * cost. The engine's own loop is stopped and each rAF hands the engine its measured wall time through `advance` (the same
  * `tickInner` the loop runs, the pacer's real 8 ms deadline included), so a frame is timed, not simulated. Sequence: the
- * race is set up, runs its grid and `warmS` of race clock, then `measureS` wall seconds are sampled with the game's own
+ * race is set up, runs its grid and `warmS` of race clock (the Lab: its first set stands `warmS` of sim, and its throws then
+ * run on throughout), then `measureS` wall seconds are sampled with the game's own
  * settings (auto FX tier, adaptive pacer). Then, on the same race, the pacer is pinned to 1/240 s and to 1/120 s in
  * alternating blocks, and the FX tier to minimal, low and high in alternating blocks, each arm scored the same way.
- * Afterwards the settings go back to automatic, the loop restarts and the race plays on under the card. `hud` reads the
+ * Afterwards the settings go back to automatic, the loop restarts and the scene plays on under the card. `hud` reads the
  * HUD's state (every setting the player can change); `search` is the page's query string. Null: no such bench.
  */
 export async function runBench(engine: BenchEngine, hud: () => object, search: string): Promise<BenchResult | null> {
@@ -758,20 +828,29 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   parts.renderer.setAnimationLoop(null);
   engine.fadeScenes = false;
   engine.followUrl = false;
-  engine.toggleRace();
+  // The Lab bench throws on the Lab's own sets (`LAB_BENCH`) at 1x: the slow-mo would stretch each hit over a different share
+  // of each block. A race bench enters the race scene (no slow-mo in a race).
+  if (plan.lab) {
+    engine.toggleLab();
+    engine.setTimeScale(1);
+  } else engine.toggleRace();
   // The strip is built now, handed to the race field as an off-menu course, and every non-police car wears the one body asked for.
   if (plan.course) parts.race.loadBenchCourse(plan.course);
   engine.useOneBody(plan.body);
-  const t0 = performance.now();
-  engine.raceCommand(plan.race);
-  const t1 = performance.now();
-  parts.race.reseed(BENCH.seed);
-  engine.raceCommand({ type: "start" });
-  const setupMs = { options: t1 - t0, start: performance.now() - t1 };
-  parts.seat.mode = "follow";
+  const setupMs = { options: 0, start: 0 };
+  if (plan.race) {
+    const t0 = performance.now();
+    engine.raceCommand(plan.race);
+    const t1 = performance.now();
+    parts.race.reseed(BENCH.seed);
+    engine.raceCommand({ type: "start" });
+    setupMs.options = t1 - t0;
+    setupMs.start = performance.now() - t1;
+    parts.seat.mode = "follow";
+  }
 
   const t = tap(engine.pace, parts);
-  const beat: Beat = { prev: await nextFrame() };
+  const beat: Beat = { prev: await nextFrame(), lab: plan.lab ? { plan: plan.lab, origin: 0, first: 0, segment: -1, preset: null, thrown: false, throws: 0 } : null };
   await lead(engine, parts, t, beat, ui, plan);
   const { s, w } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
@@ -787,6 +866,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   parts.detail.setLevel(parts.governor.level);
   const fx = await alternate(engine, parts, t, beat, ui, "fx", (["minimal", "low", "high"] as const).map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
   engine.setFxAuto();
+  if (plan.lab) engine.setTimeScale(null);
 
   const gpu = await t.finish();
   const abPace = blocksOf(pace, gpu);
@@ -795,6 +875,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const result: BenchResult = {
     ...summarize(parts, plan, s, w, gpu.filter((g) => g.block === 0).map((g) => g.ms), setupMs),
     strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM: leaderAhead(parts, plan) } : null,
+    labThrown: plan.lab ? w.thrown : null,
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },
     abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]! },

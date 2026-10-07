@@ -1,5 +1,5 @@
 /** The scene picker's scenes (`CrashEngine.setScene`), and the values of the share URL's `scene=`. */
-export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "stack", "derby", "race", "range", "survival"] as const;
+export const SCENE_IDS = ["fleet", "press", "pistons", "doors", "corkscrew", "stack", "derby", "race", "range", "survival", "lab"] as const;
 export type SceneId = (typeof SCENE_IDS)[number];
 
 /**
@@ -9,7 +9,7 @@ export type SceneId = (typeof SCENE_IDS)[number];
 export const SEEDED_SCENES: Readonly<Partial<Record<SceneId, true>>> = { fleet: true, corkscrew: true, derby: true };
 
 /** Single-player scenes: a netplay room (hosted or joined) cannot be in them, and a room's link never opens one. */
-export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { survival: true };
+export const SOLO_SCENES: Readonly<Partial<Record<SceneId, true>>> = { survival: true, lab: true };
 
 /**
  * The fleet props (jersey barrier, ramp balls, jump ramps) a scene sets for itself. The user's own choice (`showBarrier`
@@ -27,6 +27,7 @@ const SCENE_PROPS: Readonly<Partial<Record<SceneId, FleetProps>>> = {
   derby: NO_PROPS,
   race: NO_PROPS,
   survival: NO_PROPS,
+  lab: NO_PROPS,
   // The range's wall is the run's target.
   range: { barrier: true, balls: false, ramps: false },
 };

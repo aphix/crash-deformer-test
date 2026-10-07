@@ -7,6 +7,9 @@ import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
 import { RANGE } from "../scenes/range.ts";
 import { makeRangeArt } from "../present/range-art.ts";
+import { LAB_LIGHT, LabArt } from "../present/lab-art.ts";
+import { LabFlick } from "./lab-flick.ts";
+import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { stackShot } from "../scenes/stack-rig.ts";
 import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
@@ -22,6 +25,20 @@ import { EngineHud } from "./engine-hud.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 
 const _v = new THREE.Vector3();
+const _w = new THREE.Vector3();
+/**
+ * The Lab's opening orbit, low over the bench at toy height through a wider lens (`LAB_FOV`, deg): the bench, the board and
+ * the tools on it loom over the set. Upright screens look over the thrower's shoulder down the throw (`toFocus`: the look point
+ * that far from the thrower to the set's middle; `turn`: bearing off straight behind, rad), so the set runs up the screen's
+ * length; wide ones look across the bench from its front at the set's middle, the thrower on the left, the targets on the
+ * right and the pegboard behind, from just far enough back that every item of the set and `fit` m to spare fits the width,
+ * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it.
+ */
+const LAB_SHOT = {
+  upright: { toFocus: 0.8, turn: 0.06, radius: 21, pitch: 0.22, lift: 0 },
+  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5 },
+};
+const LAB_FOV = 60;
 
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
@@ -34,9 +51,13 @@ export abstract class EngineScenes extends EngineHud {
   /** The corkscrew's car this run: not yet flown, in the air, or down again (`EngineRigs.watchCorkscrew`). */
   protected corkFlight: "ground" | "air" | "down" = "ground";
 
+  /** The fleet props are the host's (netplay), and ignored while the press, a rig, the range, the Lab or the race owns the pad (the HUD locks them too). */
+  private get fleetPropsLocked(): boolean {
+    return this.net.client || this.rigScene || this.showRange || this.showLab || this.race.active;
+  }
+
   toggleBarrier(): void {
-    // A fleet prop: the host's (netplay), and ignored while the press, a rig, the range or the race owns the pad (the HUD locks it too).
-    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
+    if (this.fleetPropsLocked) return;
     this.showBarrier = !this.showBarrier;
     if (this.derbyMode) {
       // Out of the bowl like every scene switch: the reset brings back the disc ground, poles and fresh spots, and places the barrier.
@@ -56,7 +77,7 @@ export abstract class EngineScenes extends EngineHud {
   }
 
   toggleBalls(): void {
-    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
+    if (this.fleetPropsLocked) return;
     this.showBalls = !this.showBalls;
     if (this.derbyMode) {
       this.setDerby(false);
@@ -70,7 +91,7 @@ export abstract class EngineScenes extends EngineHud {
 
   /** The jump ramps on the slab's ends (`FleetRamps`): a fleet prop like the slab and the balls. */
   toggleRamps(): void {
-    if (this.net.client || this.rigScene || this.showRange || this.race.active) return;
+    if (this.fleetPropsLocked) return;
     this.showRamps = !this.showRamps;
     if (this.derbyMode) {
       this.setDerby(false);
@@ -110,9 +131,14 @@ export abstract class EngineScenes extends EngineHud {
   /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the cel pass and the veil. */
   protected stepSceneFade(wallDt: number): void {
     const fade = this.sceneFade;
-    // Survival is single player: a room (hosted or joined) takes the player back to the fleet.
+    // Survival and the Lab are single player: a room (hosted or joined) takes the player back to the fleet.
     if (SOLO_SCENES[this.sceneId] && this.net.role !== "off") {
       this.setRace(false);
+      if (this.showLab) {
+        this.sceneId = "fleet";
+        this.ensureCars(this.sandboxCars);
+        this.followSceneTypes();
+      }
       this.randomizeAndReset();
       this.emitHud();
     }
@@ -134,14 +160,16 @@ export abstract class EngineScenes extends EngineHud {
   protected applyScene(next: SceneId): void {
     if (this.net.client) return;
     // The range is a one-car scene: the sandbox's field comes back after it (its wall is the range's own, never the user's).
-    if (this.showRange) this.ensureCars(this.sandboxCars);
-    // The stack runs its own car count and gives the sandbox's back.
-    if (this.showStack) this.ensureCars(this.sandboxCars);
+    // The stack and the Lab run their own car counts and give the sandbox's back.
+    const wasLab = this.showLab;
+    if (this.showRange || this.showStack || this.showLab) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
+    // The workshop's lights go with the Lab, before a race lights its course.
+    if (wasLab && next !== "lab") this.stage.look(null);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
-    if (next === "range" || next === "stack") {
+    if (next === "range" || next === "stack" || next === "lab") {
       this.sandboxCars = this.carCount;
-      this.ensureCars(next === "range" ? 1 : this.stack.config.cars);
+      this.ensureCars(next === "range" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
     }
     if (next === "race" || next === "survival") this.setRace(true, next === "survival");
     else this.sceneId = next;
@@ -152,6 +180,11 @@ export abstract class EngineScenes extends EngineHud {
     // starts 1.2 s of orbit short of the front-right ram so the first synced shot comes from its side.
     if (next === "pistons") this.view.frameReset(true, this.live(), pistonBearing(2) - PISTON_ORBIT_RATE * 1.2);
     if (next === "stack") this.frameStack();
+    if (next === "lab") {
+      this.stage.look(LAB_LIGHT);
+      this.view.setLens(LAB_FOV);
+      this.frameLab();
+    } else if (wasLab) this.view.setLens(null);
     this.emitHud();
   }
 
@@ -169,6 +202,59 @@ export abstract class EngineScenes extends EngineHud {
 
   toggleRange(): void {
     this.setScene("range");
+  }
+
+  /** The Lab (`scenes/lab.ts`): flick a toy car at a stack, a wall of props or a car on a stand, on a giant workbench. */
+  toggleLab(): void {
+    this.setScene("lab");
+  }
+
+  /** The Lab's set (HUD): its preset's cars and props in place, framed afresh. */
+  setLabPreset(id: LabPresetId): void {
+    if (!this.showLab || this.lab.preset === id) return;
+    this.lab.load(id);
+    this.ensureCars(this.lab.types.length);
+    this.retypeCars();
+    this.randomizeAndReset();
+    this.frameLab();
+    this.emitHud();
+  }
+
+  /** The look point the Lab's camera holds (`frameLab`), and whether it was framed for an upright screen. */
+  protected readonly labLook = new THREE.Vector3();
+  protected labUpright = false;
+
+  /** The Lab's opening shot (`LAB_SHOT`) for this screen's shape; the camera then holds that look point (`labLook`). */
+  protected frameLab(): void {
+    const from = this.lab.centre(0, _v);
+    const f = this.lab.focus;
+    const upright = this.camera.aspect < 1;
+    this.labUpright = upright;
+    const shot = upright ? LAB_SHOT.upright : LAB_SHOT.wide;
+    this.labLook.lerpVectors(from, f, shot.toFocus).setY(f.y + shot.lift);
+    const behind = Math.atan2(from.x - f.x, from.z - f.z);
+    const look = this.labLook;
+    let radius = LAB_SHOT.upright.radius;
+    if (!upright) {
+      // The farthest item off the look point across the screen (along the camera's right), and the distance that fits it.
+      const a = behind + shot.turn;
+      let span = 0;
+      for (let k = 0; k < this.lab.layout.length; k++) {
+        this.lab.centre(k, _w).sub(look);
+        span = Math.max(span, Math.abs(_w.x * Math.cos(a) - _w.z * Math.sin(a)));
+      }
+      radius = (span + LAB_SHOT.wide.fit) / (Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2) * this.camera.aspect);
+    }
+    this.view.frameReset(true, this.live(), behind + shot.turn, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
+  }
+
+  /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves, and the crash starts over so the slow-mo and the crash cam catch its hit. */
+  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void {
+    this.restartCrash();
+    this.view.userFramed = false;
+    this.lab.flick(thing, target, dx, dz, speed);
+    this.tryUnlockAudio();
+    this.emitHud();
   }
 
   toggleCorkscrew(): void {
@@ -291,6 +377,15 @@ export abstract class EngineScenes extends EngineHud {
     }
     if (this.rangeArt) this.rangeArt.visible = this.showRange;
     this.ragdolls.sand = this.showRange;
+    if (this.showLab && !this.labArt) {
+      this.labArt = new LabArt();
+      this.labFlick = new LabFlick(this.camera, () => this.canvas.getBoundingClientRect(), this.lab, (thing, target, dx, dz, speed) => this.flickLab(thing, target, dx, dz, speed));
+      this.scene.add(this.labArt.group, this.labFlick.group);
+      this.queueWarm();
+    }
+    if (this.labArt) this.labArt.group.visible = this.showLab;
+    // In the Lab a press on a car picks it for a flick; elsewhere every press is the camera's.
+    this.view.take = this.showLab ? this.labFlick : null;
     if (this.race.active) {
       this.race.reset();
       this.finishResetCommon();
@@ -298,9 +393,10 @@ export abstract class EngineScenes extends EngineHud {
     }
     // The fleet's ground ends at the disc's rim (with the ramps, they and the slab's top too); the derby bowl, the rigs
     // and the range keep the endless pad; the corkscrew's channel is the ground over a pad drawn three times wider for
-    // its far landings.
-    setGround(this.showCorkscrew ? this.corkscrew : this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    // its far landings; the Lab's is its bench, brackets, shelves and the workshop floor, and its art replaces the pad.
+    setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
     this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
+    for (const o of this.studio) o.visible = !this.showLab;
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -332,6 +428,7 @@ export abstract class EngineScenes extends EngineHud {
     this.corkscrew.group.visible = false;
     if (this.derbyMode) this.spawnDerby();
     else if (this.showRange) this.spawnRange();
+    else if (this.showLab) this.spawnLab();
     else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.group.visible = this.barrierUp;
@@ -340,7 +437,7 @@ export abstract class EngineScenes extends EngineHud {
     this.ramps.group.visible = this.rampsUp;
     this.ramps.place(this.barrier.yaw, this.barrierUp ? this.barrier : null);
     scatterRampBalls(this.balls, this.ballsUp, this.sceneRng(1));
-    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange;
+    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange && !this.showLab;
     this.finishResetCommon();
   }
 
@@ -354,12 +451,29 @@ export abstract class EngineScenes extends EngineHud {
       car.spawn(slot.x, slot.z, slot.speed);
       this.dressCar(car);
     }
+    this.parkExtras();
+  }
+
+  /** The cars past the scene's count: hidden, at rest, out of the way. */
+  private parkExtras(): void {
     for (let i = this.carCount; i < this.cars.length; i++) {
       const extra = this.cars[i]!;
       extra.group.visible = false;
       extra.group.position.set(80 + i * 6, 0, 80);
       extra.velocity.set(0, 0, 0);
     }
+  }
+
+  /** The Lab's preset: its cars at their poses on the bench and its brackets, shelves and props shown (`LabArt`), knocked by its cars. */
+  private spawnLab(): void {
+    if (this.labArt) this.lab.tumble = this.labArt.show(this.lab.preset ?? "cards");
+    const cars = this.live();
+    this.lab.placeCars(cars);
+    for (const car of cars) {
+      car.group.visible = true;
+      this.dressCar(car);
+    }
+    this.parkExtras();
   }
 
   /** Car A on the range's run-up at speed, aimed down +x at the barrier on the origin (the wall, balls and ramps are the scene's: `SCENE_PROPS`). */
@@ -394,12 +508,7 @@ export abstract class EngineScenes extends EngineHud {
       car.spawnFacing(slot.x, slot.z, slot.yaw, 0);
       this.dressCar(car);
     }
-    for (let i = this.carCount; i < this.cars.length; i++) {
-      const extra = this.cars[i]!;
-      extra.group.visible = false;
-      extra.group.position.set(80 + i * 6, 0, 80);
-      extra.velocity.set(0, 0, 0);
-    }
+    this.parkExtras();
     this.arena.visible = true;
     for (const p of this.poles) p.group.visible = false;
   }
@@ -598,7 +707,8 @@ export abstract class EngineScenes extends EngineHud {
     return this.stackEye;
   }
 
-  private finishResetCommon(): void {
+  /** A fresh crash: the clock back in approach at the user's time scale (or 1×), the last hit's readout and its once-a-crash FX cleared. */
+  private restartCrash(): void {
     this.clock.phase = "approach";
     if (this.clock.userTimeScale != null) {
       this.clock.timeScale = this.clock.userTimeScale;
@@ -609,18 +719,24 @@ export abstract class EngineScenes extends EngineHud {
     }
     this.clock.wallSinceImpact = 0;
     this.clock.slomoAt = 0;
+    this.clock.preImpactBy = NaN;
+    this.impactKph = null;
+    this.fxPoofed = false;
+  }
+
+  private finishResetCommon(): void {
+    this.restartCrash();
     this.elapsedWall = 0;
     this.elapsedSim = 0;
-    this.impactKph = null;
     this.impactLightLife = 0;
     this.impactLight.intensity = 0;
 
-    if (!this.showPistons && !this.showStack) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
+    // The pistons, the stack and the Lab frame on entering only (`applyScene`): their resets keep the user's view.
+    if (!this.showPistons && !this.showStack && !this.showLab) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.vaporAt.length = 0;
     this.sparkAt = -10;
-    this.fxPoofed = false;
     this.barrier.reset();
     this.trace.setupCopied = false;
     this.trace.snapshotInitial(this.traceSetup(), this.live());

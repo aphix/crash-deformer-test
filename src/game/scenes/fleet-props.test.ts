@@ -19,8 +19,8 @@ describe("given the user's choices of fleet props (wall, balls, ramps) and the p
     assert.deepEqual(up("fleet", false), { barrier: false, balls: false, ramps: false });
   });
 
-  it("when the user has chosen all three props, then the derby, the race, Survival and the rigs show none of them", () => {
-    for (const scene of ["derby", "race", "survival", "press", "pistons", "doors", "corkscrew", "stack"] as const) {
+  it("when the user has chosen all three props, then the derby, the race, Survival, the Lab and the rigs show none of them", () => {
+    for (const scene of ["derby", "race", "survival", "lab", "press", "pistons", "doors", "corkscrew", "stack"] as const) {
       assert.deepEqual(up(scene, true), { barrier: false, balls: false, ramps: false }, scene);
     }
   });

@@ -173,8 +173,8 @@ const DAY: Day = {
   smoke: 1,
 };
 
-/** A course's own daylight (`environment.light`): sun, hemisphere and fill colours (hex) and the sun's intensity. */
-type Daylight = { sun: string; sunIntensity: number; hemi: string; fill: string };
+/** A course's own daylight (`environment.light`), or the Lab's workshop: sun, hemisphere and fill colours (hex), the sun's intensity, and the sky (and fog) colour when it is not the studio's. */
+type Daylight = { sun: string; sunIntensity: number; hemi: string; fill: string; sky?: string };
 const hex = (c: string): number => parseInt(c.slice(1), 16);
 const NIGHT = {
   sky: 0x040509,
@@ -262,9 +262,9 @@ export class WorldStage {
     return this.night ? this.nightDepth : 0;
   }
 
-  /** A course's own daylight, or the default (null: it leaves). The sky and fog are the course's (`RaceField.load`). */
+  /** A course's own daylight, or the default (null: it leaves). A course's sky and fog are its own (`RaceField.load`). */
   look(light: Daylight | null): void {
-    this.day = light ? { ...DAY, sun: [hex(light.sun), light.sunIntensity], hemi: [hex(light.hemi), DAY.hemi[1]], fill: [hex(light.fill), DAY.fill[1]] } : DAY;
+    this.day = light ? { ...DAY, sky: light.sky ? hex(light.sky) : DAY.sky, sun: [hex(light.sun), light.sunIntensity], hemi: [hex(light.hemi), DAY.hemi[1]], fill: [hex(light.fill), DAY.fill[1]] } : DAY;
     this.apply();
   }
 

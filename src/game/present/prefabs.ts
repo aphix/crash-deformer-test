@@ -217,7 +217,7 @@ export function makeRaceTextures(): RaceTextures {
 }
 
 /** Materials the prefabs draw with (shared with the track art where it says so). */
-type PrefabMaterials = {
+export type PrefabMaterials = {
   /** Flat-shaded vertex colours (most props, gantry). */
   plain: THREE.Material;
   /** Vertex colours × concrete texture (barrier blocks, walls). */

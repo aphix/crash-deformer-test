@@ -3,7 +3,7 @@ import "../kernel/rapier-node.test-util.ts";
 import type { RigidBody } from "@dimforge/rapier3d";
 import { makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { holdForThrow, impactScale, PRE_IMPACT_LEAD, THROW_ONSET, type PhaseClock } from "../match/phase.ts";
+import { holdForThrow, PRE_IMPACT_LEAD, preImpact, type PhaseClock } from "../match/phase.ts";
 import type { DRIVER_CARS } from "../match/types.ts";
 import { JerseyBarrier } from "../scenes/engine-props.ts";
 import { RANGE } from "../scenes/range.ts";
@@ -95,19 +95,11 @@ export function rangeCar(type: DriverCar): DeformableCar {
   return car;
 }
 
-/** `CrashEngine.maybePreSlowmo` for the range's one car: a coming throw holds the slow-mo back for the exit (`THROW_ONSET`), any other hit slows at once. */
-function preSlowmo(c: PhaseClock, car: DeformableCar, barrier: JerseyBarrier, wallDt: number): void {
-  const scale = impactScale(c);
-  if (c.userTimeScale != null || c.phase !== "approach" || c.timeScale <= scale * 1.2 || c.slomoAt > 0) return;
+/** `CrashEngine.maybePreSlowmo` for the range's one car at sim second `simT`: the engine's rule (`preImpact`) on the barrier's contact time. */
+function preSlowmo(c: PhaseClock, car: DeformableCar, barrier: JerseyBarrier, wallDt: number, simT: number): void {
+  if (c.phase !== "approach") return;
   car.refreshBasis();
-  const eta = barrier.contactEta([car], Number.POSITIVE_INFINITY);
-  if (!Number.isFinite(eta) || eta > Math.max(PRE_IMPACT_LEAD, wallDt + 1 / 60)) return;
-  if (throwComing([car], barrier)) {
-    c.slomoAt = THROW_ONSET;
-    return;
-  }
-  c.timeScale = scale;
-  c.targetScale = scale;
+  preImpact(c, barrier.contactEta([car], Number.POSITIVE_INFINITY), simT, Math.max(PRE_IMPACT_LEAD, wallDt + 1 / 60), 1 / 60, () => throwComing([car], barrier));
 }
 
 type Doll = RagdollSystem["dolls"][number];
@@ -215,10 +207,12 @@ export async function rangeThrow(type: DriverCar, control: Control = {}, frameDt
     control.released?.(sys, car, e);
   };
 
+  let sim = 0;
   for (let dt = frameDt(); wall < WALL_MAX; wall += dt, dt = frameDt()) {
-    preSlowmo(w.clock, car, barrier, dt);
+    preSlowmo(w.clock, car, barrier, dt, sim);
     tickWorld(w, dt);
     const simDt = dt * w.clock.timeScale;
+    sim += simDt;
     barrier.step(simDt);
     sys.update(simDt, [car], true, true, 0, barrier.group);
     out.peakLive = Math.max(out.peakLive, sys["live"]);

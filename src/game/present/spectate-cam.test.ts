@@ -19,7 +19,7 @@ const MOUNT_COUNT = WHEEL_POS.length * 2;
 
 /**
  * Oracle for the trackside eye, independent of `solid`: the cars' own collision footprints (props and the wall
- * line, `RaceField.props` / `wall`) at the props' drawn heights, the wall's 0.6 m body, and the ground.
+ * line, `propContact` / `RaceField.wall`) at the props' drawn heights, the wall's 0.6 m body, and the ground.
  */
 function blocked(track: Track, placed: readonly Placed[], cols: readonly PropCollider[], x: number, y: number, z: number): string | null {
   const ground = track.ground();

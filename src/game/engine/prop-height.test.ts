@@ -9,13 +9,13 @@ import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { WALL_PROBES } from "../contact/pair-contact.ts";
-import { lowestY } from "./engine-race-field.ts";
+import { lowestY, propContact } from "../contact/prop-contact.ts";
 import { frame, makeCar, worldOf } from "../vehicle/ground-probe.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /**
- * A prop touches a car only while the car's lowest point is under the prop's top (`RaceField.props`): the same rule for a
+ * A prop touches a car only while the car's lowest point is under the prop's top (`propContact`): the same rule for a
  * race and for Survival, for solid props (walls, palms, a dumpster) and knockable ones (cones, crates). Before it, props
  * ignored height, so a car flying over the Havana alley wall met it in mid-air.
  */
@@ -31,7 +31,7 @@ function course(id: string) {
   const colliders = propColliders(placed);
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
-  const props = (car: DeformableCar): void => w.race["props"](car, 0, 1 / 120);
+  const props = (car: DeformableCar): void => propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
   return { w, colliders, placed, hits, props, top: (c: PropCollider) => placed[c.index]!.y + PREFABS[c.prefab].size[1] * placed[c.index]!.sy };
 }
 

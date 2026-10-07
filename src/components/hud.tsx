@@ -1,7 +1,7 @@
 import { Fragment, type RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, ChevronDown, ChevronUp, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
-import { DerbyBoard, DoorPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
+import { DerbyBoard, DoorPanel, LabPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
@@ -49,8 +49,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 /** Camera names: the drive views and the spectator cams. */
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto" };
 
-/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack and range mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range and the Lab mutually exclusive. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab";
 /** `tone`: the mode's accent (a `--tone` variable), so the richer game modes carry a ring and a tinted fill; `quiet`: a test rig, muted until picked. */
 type SceneDef = { id: Scene; label: string; aria: string; tone?: string; quiet?: boolean };
 /** Richer game modes first, then the test rigs. */
@@ -60,6 +60,7 @@ const SCENES: SceneDef[] = [
   { id: "race", label: "Race", aria: "Race scene", tone: "[--tone:var(--color-scene-race)]" },
   { id: "range", label: "Range", aria: "Ejection range scene", tone: "[--tone:var(--color-scene-range)]" },
   { id: "survival", label: "Survival", aria: "Survival scene: how long can you last", tone: "[--tone:var(--color-scene-survival)]" },
+  { id: "lab", label: "Lab", aria: "Lab scene: flick a toy car at a stack of cars on a workbench", tone: "[--tone:var(--color-scene-lab)]" },
   { id: "press", label: "Press", aria: "Car compactor scene", quiet: true },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene", quiet: true },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene", quiet: true },
@@ -187,6 +188,8 @@ export function Hud(props: HudProps) {
                         ? "One car into a twisting channel at a spawn speed: too slow rolls back, then half a roll onto the roof, a full roll back onto its wheels, a roll and a half."
                         : state.stack
                           ? "Cars dropped one at a time onto a base car. Each roof carries the weight above it: the panel reads the load and the crush."
+                        : state.lab
+                          ? "Toy cars on a giant workbench. Put a finger on a car and swipe to flick it at the stack, the wall or the stand."
                         : state.carCount <= 2
                           ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
                           : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
@@ -209,6 +212,7 @@ export function Hud(props: HudProps) {
         {state.showDoors ? <DoorPanel doors={state.doors} engine={engine} /> : null}
         {state.stack ? <StackPanel stack={state.stack} engine={engine} /> : null}
         {state.range ? <RangePanel range={state.range} /> : null}
+        {state.lab ? <LabPanel lab={state.lab} engine={engine} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
         {state.race && !state.race.survival ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
         {state.race ? <ResetPrompt view={state.race.view} input={reset} race onTap={tapReset} className="mt-2 sm:hidden" /> : null}
@@ -221,7 +225,8 @@ export function Hud(props: HudProps) {
           <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
         ) : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} touch={touch} /> : null}
-        {touch ? <TouchControls {...props} /> : null}
+        {/* The Lab's control is the flick on the view itself: no stick, no car buttons. */}
+        {touch && !state.lab ? <TouchControls {...props} /> : null}
         {focus && state.race ? (
           // Under a race menu these would only peek out beside the card; on a phone on its side they leave the dock row to the pad and sit bottom centre.
           state.race.menu === null ? (
@@ -278,7 +283,8 @@ function Readouts({ state }: { state: CrashHudState }) {
   const hot = state.phase === "slowmo" || state.phase === "impact";
   const unit = useSpeedUnit();
   return (
-    <div className="hud-panel self-start px-2 py-1.5 md:justify-self-end idle:opacity-60" style={{ gridArea: "readouts" }}>
+    // A phone in the Lab keeps the top of the screen for the pegboard: the Lab panel reads each throw out.
+    <div className={cn("hud-panel self-start px-2 py-1.5 md:justify-self-end idle:opacity-60", state.lab && "max-sm:hidden phone-landscape:hidden")} style={{ gridArea: "readouts" }}>
       <dl className="grid grid-cols-4 gap-x-3 gap-y-1">
         <Readout
           label={press ? "Press gap" : state.carCount === 1 ? "Car" : "Lead"}
@@ -386,7 +392,9 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
                 ? "corkscrew"
                 : state.stack
                   ? "stack"
-                  : "fleet";
+                  : state.lab
+                    ? "lab"
+                    : "fleet";
   // A pick in its fade lights its target at once, so a second click (Fleet included) retargets it.
   const scene: Scene = state.pendingScene ?? inPlay;
   const toggleScene = {
@@ -399,9 +407,10 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
     survival: () => engine.current?.toggleSurvival(),
     corkscrew: () => engine.current?.toggleCorkscrew(),
     stack: () => engine.current?.toggleStack(),
+    lab: () => engine.current?.toggleLab(),
   };
-  // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range or the race owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.race !== null;
+  // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range, the Lab or the race owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.lab !== null || state.race !== null;
   return (
     <div
       className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto idle:touch-none"

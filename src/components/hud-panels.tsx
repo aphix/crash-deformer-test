@@ -5,7 +5,8 @@ import { Button } from "@/components/ui/button";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import type { DoorScenario } from "@/game/scenes/door-rig";
 import type { CrashEngine } from "@/game/engine/engine";
-import type { CrashHudState, DoorHud, PistonHud, StackHud } from "@/game/hud/hud-store";
+import type { CrashHudState, DoorHud, LabHud, PistonHud, StackHud } from "@/game/hud/hud-store";
+import { LAB_PRESETS, type LabPresetId } from "@/game/scenes/lab";
 import { formatSpeed } from "@/game/hud/speed-units";
 
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. A phone on its side shows the three best scores and the watched car. */
@@ -250,6 +251,38 @@ export function RangePanel({ range }: { range: NonNullable<CrashHudState["range"
       <p className="mt-1 font-display text-3xl font-semibold leading-none tabular-nums">
         {range.distance === null ? "–" : range.distance.toFixed(1)}
         {range.distance === null ? null : <span className="ml-1 text-sm font-medium text-muted">m</span>}
+      </p>
+    </div>
+  );
+}
+
+const LAB_SET_LABEL: Record<LabPresetId, string> = { pad: "Pad", wall: "Wall", cards: "Cards", glass: "Glass" };
+
+/** The Lab: its set (a pick puts it up afresh) and the last throw's readout, low in the view for a thumb; the throw is a swipe from a car. */
+export function LabPanel({ lab, engine }: { lab: LabHud; engine: RefObject<CrashEngine | null> }) {
+  const unit = useSpeedUnit();
+  const shot = lab.shot;
+  return (
+    <div className="hud-panel pointer-events-auto mt-auto w-full max-w-xs space-y-1 p-1 idle:opacity-70">
+      <div className="grid grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5" role="group" aria-label="Lab set">
+        {LAB_PRESETS.map((id) => (
+          <Button
+            key={id}
+            variant={lab.preset === id ? "default" : "ghost"}
+            aria-pressed={lab.preset === id}
+            className="h-11 px-1 text-xs sm:h-8"
+            onClick={() => engine.current?.setLabPreset(id)}
+          >
+            {LAB_SET_LABEL[id]}
+          </Button>
+        ))}
+      </div>
+      <p className="truncate px-1 font-display text-xs tabular-nums text-muted idle:hidden" role="status">
+        {shot === null
+          ? "Swipe from a car to flick it"
+          : shot.hit === null
+            ? `Flying at ${formatSpeed(shot.speed, unit)} ${unit}`
+            : `Hit the ${shot.hit} at ${formatSpeed(shot.speed, unit)} ${unit} · ${shot.fell} moved`}
       </p>
     </div>
   );

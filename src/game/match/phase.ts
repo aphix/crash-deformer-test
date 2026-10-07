@@ -1,3 +1,5 @@
+import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
+
 /** The sandbox crash's phases: driving in, the hit, the slow-mo look, the wreck settling at 1×. */
 export type CrashPhase = "approach" | "impact" | "slowmo" | "aftermath";
 
@@ -42,10 +44,15 @@ export type PhaseClock = {
   slomoAt: number;
   /** Wall seconds after the hit at which the slow-mo hands back to 1×: `SLOMO_HOLD`, or what a highlight reel's clip sets. */
   hold: number;
+  /**
+   * Sim second by which the hit that dropped the slow-mo in before it (`preImpact`) is due: its predicted time plus one
+   * step. NaN: none pending; Infinity: one just failed to come, so the same pass doesn't slow again.
+   */
+  preImpactBy: number;
 };
 
 export function phaseClock(): PhaseClock {
-  return { phase: "approach", timeScale: 1, targetScale: 1, wallSinceImpact: 0, userTimeScale: null, reduceMotion: false, slomoAt: 0, hold: SLOMO_HOLD };
+  return { phase: "approach", timeScale: 1, targetScale: 1, wallSinceImpact: 0, userTimeScale: null, reduceMotion: false, slomoAt: 0, hold: SLOMO_HOLD, preImpactBy: NaN };
 }
 
 /** Auto slow-mo's scale for this clock. */
@@ -62,6 +69,7 @@ export function easeTimeScale(c: PhaseClock, wallDt: number): void {
 export function beginImpact(c: PhaseClock, autoSlomo: boolean): void {
   c.phase = "impact";
   c.wallSinceImpact = 0;
+  c.preImpactBy = NaN;
   if (c.userTimeScale != null) {
     c.slomoAt = 0;
     c.targetScale = c.userTimeScale;
@@ -86,6 +94,68 @@ export function holdForThrow(c: PhaseClock): void {
   c.slomoAt = c.wallSinceImpact + THROW_ONSET;
   c.targetScale = 1;
   c.timeScale = 1;
+}
+
+/**
+ * The auto slow-mo before a hit, once a frame in approach (`CrashEngine.maybePreSlowmo`): it drops in when the contact
+ * predicted `eta` sim s ahead is within `lead` sim s, or is held for his exit (`THROW_ONSET`) when the hit will throw a
+ * driver (`throwing`, asked only then). `simT`: the sim clock; `step`: one sim step. A hit still missing one step past its
+ * predicted time (a flick that misses, a pair that passes or turns apart) hands time back to 1×, and the slow-mo waits
+ * for a fresh prediction: one that first went out of reach.
+ */
+export function preImpact(c: PhaseClock, eta: number, simT: number, lead: number, step: number, throwing: () => boolean): void {
+  const scale = impactScale(c);
+  if (c.phase !== "approach" || c.userTimeScale != null) return;
+  if (c.timeScale <= scale * 1.2 || c.slomoAt > 0) {
+    if (simT > c.preImpactBy) {
+      c.timeScale = 1;
+      c.targetScale = 1;
+      c.slomoAt = 0;
+      c.preImpactBy = Infinity;
+    }
+    return;
+  }
+  if (!(eta <= lead)) {
+    c.preImpactBy = NaN;
+    return;
+  }
+  if (c.preImpactBy === Infinity) return;
+  c.preImpactBy = simT + eta + step;
+  if (throwing()) {
+    c.slomoAt = THROW_ONSET;
+    return;
+  }
+  c.timeScale = scale;
+  c.targetScale = scale;
+}
+
+/**
+ * Sim seconds until the first pair of `cars` closing in plan meets (each footprint taken along the line between their
+ * centres; `refreshBasis` current), Infinity if none: the hit `preImpact` slows for. A pair a car's height apart
+ * vertically passes over and never counts: a Lab throw arcing over the house of cards' lower car to its top one held
+ * the pre-impact slow-mo (3 %) for 6 s of wall before the real hit.
+ */
+export function pairEta(cars: readonly DeformableCar[]): number {
+  let eta = Number.POSITIVE_INFINITY;
+  for (let i = 0; i < cars.length; i++) {
+    for (let j = i + 1; j < cars.length; j++) {
+      const a = cars[i]!;
+      const b = cars[j]!;
+      if (Math.abs(a.group.position.y - b.group.position.y) >= 2 * CAR_HALF.y) continue;
+      const dx = b.group.position.x - a.group.position.x;
+      const dz = b.group.position.z - a.group.position.z;
+      const dist = Math.hypot(dx, dz);
+      if (dist <= 0.001) continue;
+      const nx = dx / dist;
+      const nz = dz / dist;
+      const closing = -((b.velocity.x - a.velocity.x) * nx + (b.velocity.z - a.velocity.z) * nz);
+      if (closing <= 0.35) continue;
+      const halfA = Math.abs(a.right.x * nx + a.right.z * nz) * CAR_HALF.x + Math.abs(a.forward.x * nx + a.forward.z * nz) * CAR_HALF.z;
+      const halfB = Math.abs(b.right.x * nx + b.right.z * nz) * CAR_HALF.x + Math.abs(b.forward.x * nx + b.forward.z * nz) * CAR_HALF.z;
+      eta = Math.min(eta, Math.max(0, dist - halfA - halfB) / closing);
+    }
+  }
+  return eta;
 }
 
 /**

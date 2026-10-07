@@ -42,6 +42,10 @@ writes neither the address bar nor storage.
 A value that does not parse falls back to its default. Splits: `?bench=strip` (baseline), `&props=off`, `&traffic=off`,
 `&props=off&traffic=off` (the bare lane).
 
+### The Lab: `/crush/?bench=lab`
+
+The same card and run in the Lab (`engine-bench-plan.ts` `LAB_BENCH`): no race, a fixed throw sequence instead, with time held at 1x (the slow-mo would stretch each hit over a different share of each block). Every 4 s of sim the next set loads (the HUD's set picker, or Reset for the set already up) and, 0.5 s later, its thrower is flicked at its target (`flickLab`, the player's flick): the house of cards' top car at 30 m/s, then the middle of the wall of props at 30 m/s, in turn through the window. Each A/B block starts the sequence over, every arm of a round on the same throw (round 1 the cards, round 2 the wall), so the arms see the same hit. The sequence runs on the sim seconds the pacer stepped, so every device steps the same throws per sim-second. The card's second line names the throws and how many the window saw. Every bench's sim speed and ms per sim-second now read the sim seconds the pacer stepped, which is the race clock while a race runs.
+
 ### Card lines (`describeBench`, top first)
 
 | Line | Meaning |

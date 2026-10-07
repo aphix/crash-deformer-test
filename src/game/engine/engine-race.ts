@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
+import { propContact } from "../contact/prop-contact.ts";
 import { carGauge } from "../match/car-view.ts";
 import { snapshotAiCar } from "../match/derby.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -514,7 +515,7 @@ export class RaceDirector extends RaceField {
     const proj = tr.project(p.x, p.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
     this.wall(car, i, proj.k, proj.lateral, h);
-    if (this.colliders.length > 0) this.props(car, i, h);
+    if (this.colliders.length > 0) propContact(car, i, this.colliders, this.knocked, this.propHits, h);
   }
 
   /** End of a physics step of `dt` s, which the world ran on the schedule `shape` (`World.shape`): rules step, deaths, respawns. */
@@ -581,7 +582,7 @@ export class RaceDirector extends RaceField {
     const s = this.session;
     if (this.art) {
       this.art.setLights(s ? s.lights : 0);
-      this.art.update(wallDt);
+      this.art.props.update(wallDt);
     }
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;

@@ -1,6 +1,7 @@
 import type { FxTier } from "../present/engine-post.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import type { StackConfig } from "../scenes/stack-rig.ts";
+import type { LabPresetId } from "../scenes/lab.ts";
 import { crushStroke } from "../kernel/physics-core.js";
 import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
@@ -43,6 +44,12 @@ export type DoorHud = {
 /** The stack scene's HUD slice (`CrashHudState.stack`). */
 export type StackHud = StackConfig & { dropped: number; loadKn: (number | null)[]; crushMm: number[] };
 
+/**
+ * The Lab's HUD slice (`CrashHudState.lab`): its preset, and its last throw since the reset (null before one): what it met first
+ * (`hit`: "car", a prop's name or "pegboard"; null while it flies), its speed then (m/s) and how many things it moved off their spots.
+ */
+export type LabHud = { preset: LabPresetId; shot: { hit: string | null; speed: number; fell: number } | null };
+
 export type CrashHudState = {
   playing: boolean;
   looping: boolean;
@@ -66,6 +73,8 @@ export type CrashHudState = {
    * car, bottom first, the weight above it (kN) and its roof's sink (mm), read off the sim's cars.
    */
   stack: StackHud | null;
+  /** The Lab (null in every other scene): its preset and the last throw's readback. */
+  lab: LabHud | null;
   /** The scene a pick is fading to (the switch comes at the transition's black), else null; the scene buttons light it. */
   pendingScene: SceneId | null;
   /** This browser is in a netplay room (hosting or joined): the single-player scenes are not offered. */
@@ -186,6 +195,7 @@ export const INITIAL_HUD: CrashHudState = {
   range: null,
   showCorkscrew: false,
   stack: null,
+  lab: null,
   pendingScene: null,
   inRoom: false,
   autoRotate: true,

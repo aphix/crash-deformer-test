@@ -9,7 +9,7 @@ import { PistonBank } from "../present/engine-pistons.ts";
 import { DoorRig, type RamShot } from "../scenes/door-rig.ts";
 import { DoorRam } from "../present/engine-doors.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
-import { beginImpact, holdForThrow, phaseClock } from "../match/phase.ts";
+import { beginImpact, holdForThrow, pairEta, phaseClock } from "../match/phase.ts";
 import { newWorld } from "./world-step.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import type { DeformMode } from "../deform/deform-rig.ts";
@@ -45,6 +45,9 @@ import { RangeRun } from "../scenes/range.ts";
 import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { clearTransients } from "./scene-clear.ts";
+import { Lab } from "./engine-lab.ts";
+import type { LabFlick } from "./lab-flick.ts";
+import type { LabArt } from "../present/lab-art.ts";
 
 const _v = new THREE.Vector3();
 /**
@@ -137,6 +140,10 @@ export abstract class EngineCore {
   get showStack(): boolean {
     return this.sceneId === "stack";
   }
+  /** The Lab: toy cars, props and a pegboard on a giant workbench; the player flicks a thing at the others (`Lab`). */
+  get showLab(): boolean {
+    return this.sceneId === "lab";
+  }
   /** A staged scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it; the stack's cars fall under the world step alone. */
   protected get rigScene(): boolean {
     return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew" || this.sceneId === "stack";
@@ -189,6 +196,10 @@ export abstract class EngineCore {
   /** The range's sand field and distance signs: built on first entering the range, shown in that scene only. */
   protected rangeArt: THREE.Group | null = null;
   protected readonly rangeRun = new RangeRun();
+  /** The Lab's set and throw readback; its workshop art and flick are built on first entering the Lab. */
+  protected readonly lab = new Lab();
+  protected labArt: LabArt | null = null;
+  protected labFlick: LabFlick | null = null;
   protected fxPoofed = false;
   protected sparkAt = -10;
   protected deadSmokeAcc: number[] = [];
@@ -204,8 +215,8 @@ export abstract class EngineCore {
   protected squash = INITIAL_HUD.squash;
   /** Slot 0's car type: the HUD's pick for the player's car (`setPlayerCar`, `setDriver`); the Stack drops it in every slot. */
   protected playerCar: DriverCar = DRIVER_CARS[0]!;
-  /** Whether the cars were last retyped for the Stack scene (`followSceneTypes`). */
-  private stackTyped = false;
+  /** Which scene's car types the cars were last built for (`followSceneTypes`): the Stack's, the Lab's or the fleet's (""). */
+  private typedFor = "";
   /** Race police chase: cars `policeFrom … policeFrom + policeCount − 1` are built as police (`setPolice`). */
   private policeFrom = 0;
   private policeCount = 0;
@@ -321,9 +332,9 @@ export abstract class EngineCore {
     this.retypeCars();
   }
 
-  /** What car slot `i` is now: a police cruiser inside the race's police range, else the bench's one body, else `slotType`. */
+  /** What car slot `i` is now: a police cruiser inside the race's police range, else the bench's one body, else the Lab's car or `slotType`. */
   private slotCar(i: number): CarType {
-    return this.isPolice(i) ? { cls: "police", style: "police" } : (this.oneBody ?? slotType(i, this.playerCar, this.showStack));
+    return this.isPolice(i) ? { cls: "police", style: "police" } : (this.oneBody ?? (this.showLab && i < this.lab.types.length ? this.lab.types[i]! : slotType(i, this.playerCar, this.showStack)));
   }
 
   protected buildCar(i: number, type: CarType = this.slotCar(i)): DeformableCar {
@@ -370,19 +381,26 @@ export abstract class EngineCore {
   }
 
   /**
-   * The Stack puts the player's pick in every slot and every other scene the fleet's: when the scene changed between the two,
-   * every car whose body or class is not its slot's now is rebuilt (hidden ones too, so a later bigger field is already right).
+   * The Stack puts the player's pick in every slot, the Lab its layout's cars and every other scene the fleet's: when the scene
+   * changed between them, every car whose body or class is not its slot's now is rebuilt (hidden ones too, so a later bigger
+   * field is already right).
    */
   protected followSceneTypes(): void {
-    if (this.showStack === this.stackTyped) return;
-    this.stackTyped = this.showStack;
+    const typedFor = this.showStack ? "stack" : this.showLab ? "lab" : "";
+    if (typedFor === this.typedFor) return;
+    this.typedFor = typedFor;
     this.retypeCars();
   }
 
-  /** Rebuilds every car that is not what its slot is now; true when any was. */
+  /**
+   * Rebuilds every car that is not what its slot is now; true when any was. In the Lab a slot past the set's cars is a hidden
+   * spare and keeps its body: rebuilding three spares to the fleet's bodies on every set change (and back to sedans on the
+   * next) was the set picker's hitch (25-42 ms on desktop, the bench's 165 ms frame at 4x).
+   */
   protected retypeCars(): boolean {
     let changed = false;
     for (let i = 0; i < this.cars.length; i++) {
+      if (this.showLab && i >= this.lab.types.length) continue;
       const car = this.cars[i]!;
       const want = this.slotCar(i);
       if (car.style.id === want.style && carClass(car) === want.cls) continue;
@@ -491,41 +509,11 @@ export abstract class EngineCore {
       ? this.cars[this.seat.carIndex]!
       : null;
   }
+  /** Sim seconds to the first hit coming between the live cars, or a car and the slab (`pairEta`), Infinity if none. */
   protected contactEta(): number {
     const cars = this.live();
     for (const car of cars) car.refreshBasis();
-    let eta = Number.POSITIVE_INFINITY;
-
-    for (let i = 0; i < cars.length; i++) {
-      for (let j = i + 1; j < cars.length; j++) {
-        const a = cars[i]!;
-        const b = cars[j]!;
-        const ax = a.group.position.x;
-        const az = a.group.position.z;
-        const bx = b.group.position.x;
-        const bz = b.group.position.z;
-        const dx = bx - ax;
-        const dz = bz - az;
-        const dist = Math.hypot(dx, dz);
-        if (dist <= 0.001) continue;
-        const nx = dx / dist;
-        const nz = dz / dist;
-        const relVx = b.velocity.x - a.velocity.x;
-        const relVz = b.velocity.z - a.velocity.z;
-        const closing = -(relVx * nx + relVz * nz);
-        if (closing > 0.35) {
-          const halfA =
-            Math.abs(a.right.x * nx + a.right.z * nz) * CAR_HALF.x +
-            Math.abs(a.forward.x * nx + a.forward.z * nz) * CAR_HALF.z;
-          const halfB =
-            Math.abs(b.right.x * nx + b.right.z * nz) * CAR_HALF.x +
-            Math.abs(b.forward.x * nx + b.forward.z * nz) * CAR_HALF.z;
-          const gap = dist - halfA - halfB;
-          eta = Math.min(eta, Math.max(0, gap) / closing);
-        }
-      }
-    }
-
+    const eta = pairEta(cars);
     return this.barrierUp ? this.barrier.contactEta(cars, eta) : eta;
   }
   /** The crash's hit: slow-mo, kick, flash and burst; `crashCam` overrides the sandbox's rule for the crash cam (the reel always wants it). */

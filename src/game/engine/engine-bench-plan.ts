@@ -1,4 +1,5 @@
 import type { RaceCommand } from "../match/types.ts";
+import type { LabPresetId } from "../scenes/lab.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
@@ -7,19 +8,37 @@ import { stripCourse, type StripProp, type StripSpec } from "../world/bench-stri
 /** The city bench's race: its own course, field and rules as a program over the player's options, which it never touches. */
 export const BENCH_RACE: RaceCommand = { type: "program", options: { trackId: "city", laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
 
+/** One throw of the Lab bench: the set it loads, then the thrower (item 0) at item `target` at `speed` m/s. */
+type LabThrow = { preset: LabPresetId; target: number; speed: number };
+
+/**
+ * `?bench=lab`: the throws in turn, one each `segmentS` sim seconds: the house of cards' top car at 30 m/s, then the middle
+ * of the wall of props at 30 m/s. A set loads at its segment's start (the HUD's set picker, or Reset for the set already up)
+ * and stands `settleS` before its throw, which lands about 0.8 s later, inside an A/B block's 3 s.
+ */
+const LAB_BENCH: { throws: readonly LabThrow[]; segmentS: number; settleS: number } = {
+  throws: [
+    { preset: "cards", target: 3, speed: 30 },
+    { preset: "wall", target: 4, speed: 30 },
+  ],
+  segmentS: 4,
+  settleS: 0.5,
+};
+
 /** Which bench a page asks for, and everything it sets up. */
 export interface BenchPlan {
   id: string;
-  /** The race to program (`engine.raceCommand`), and the course it runs when it is not one of the game's (the strip). */
-  race: RaceCommand;
+  /** The race to program (`engine.raceCommand`; null: the Lab, no race), and the course it runs when it is not one of the game's (the strip). */
+  race: RaceCommand | null;
   course: unknown;
-  /** Race clock (s) to run before the window opens. */
+  /** Clock (s) to run before the window opens: race clock from the green, or the Lab's sim seconds (its first set settling). */
   warmS: number;
   /** Racers in the race (the player's car included). */
   racers: number;
   /** The one body every non-police car wears; null: the fleet's mix. */
   body: CarStyleId | null;
   strip: StripSpec | null;
+  lab: typeof LAB_BENCH | null;
 }
 
 /** The strip's defaults: a bare `?bench=strip` is the repeatable baseline. */
@@ -46,7 +65,7 @@ function parseTraffic(v: string): StripSpec["traffic"] {
 }
 
 /**
- * The bench a page's query asks for: `?bench=city`, or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
+ * The bench a page's query asks for: `?bench=city`, `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
  * `traffic=2x12|1x8|off`, `cars=16` (racers, 2-16), `same=sedan|hatchback|wagon|coupe|pickup|off` (one body for every car, or
  * the fleet's mix) and `len=6000` (the straight, m: 1500-12000). A value that does not parse falls back to its default; the card
  * prints what ran. Null for any other `bench=`.
@@ -54,7 +73,8 @@ function parseTraffic(v: string): StripSpec["traffic"] {
 export function benchPlan(search: string): BenchPlan | null {
   const q = new URLSearchParams(search);
   const kind = q.get("bench");
-  if (kind === "city") return { id: "city", race: BENCH_RACE, course: null, warmS: 20, racers: 16, body: null, strip: null };
+  if (kind === "city") return { id: "city", race: BENCH_RACE, course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null };
+  if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH };
   if (kind !== "strip") return null;
   const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
   const same = q.get("same") ?? STRIP_DEFAULTS.same;
@@ -69,6 +89,7 @@ export function benchPlan(search: string): BenchPlan | null {
     racers,
     body,
     strip,
+    lab: null,
   };
 }
 
@@ -91,6 +112,12 @@ export function stripLines(s: StripResult): string[] {
     `strip ${s.spec.length} m: props ${props}; traffic ${traffic}; ${s.racers} racers, ${s.body ? `all ${s.body}` : "mixed bodies"}`,
     `lead racer ${Math.round(s.leaderWindowM)} m up the strip when the window ended, ${Math.round(s.leaderEndM)} m at the end of the run: ${onStraight ? "on the straight throughout" : "REACHED THE TURN, the late blocks include it"}`,
   ];
+}
+
+/** The card's Lab line: the throws in turn, and how many of them the window saw. */
+export function labLine(thrown: number): string {
+  const throws = LAB_BENCH.throws.map((t) => `${t.preset} item ${t.target} at ${t.speed} m/s`).join(", then ");
+  return `lab: ${throws}; one each ${LAB_BENCH.segmentS} sim-s, ${LAB_BENCH.settleS} s after its set loads, time held at 1x; ${thrown} thrown in the window`;
 }
 
 /** How far the lead racer is up the strip (m); 0 on the city course, which has no straight to stay on. */

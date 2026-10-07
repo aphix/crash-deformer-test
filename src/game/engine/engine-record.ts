@@ -346,7 +346,7 @@ export class CrashRecorder {
   }
 
   /**
-   * Car `car` knocked placed prop `prop` off its spot in the step under way (`RaceField.props`). The prop is gone for every
+   * Car `car` knocked placed prop `prop` off its spot in the step under way (`propContact`). The prop is gone for every
    * car, so a clip that leaves `car` out must knock it in the replay at this step (`HighlightClip.knocks`) or its cars find it standing.
    */
   knock(prop: number, car: number): void {
