@@ -330,8 +330,10 @@ for (const testCase of testCases) {
 - A case whose shape genuinely differs (extra setup step, different assertion) stays its own `it()` — *don't* force it
   into the table with a special-case branch. Forcing dissimilar cases into one table is the same smell as a
   god-function.
-- A stack of assertions — one per field of the expected shape — is encouraged; each reads as its own sub-assertion.
-  Prefer asserting the *exact full* expected object over spot-checking one field.
+- Assert every field of the expected result, not just one: one `assert.equal` per field (or per index), each with a
+  message naming the field, e.g. `assert.equal(result.engineKilled, testCase.expectedEngineKilled, "engine killed")`.
+  Never `assert.deepEqual` two computed values, and never `deepEqual` large numeric arrays: boundaries rule C9 rejects
+  the first, and a failing `deepEqual` on tens of thousands of floats renders a diff large enough to exhaust memory.
 
 ### Assertions must discriminate
 
