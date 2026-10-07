@@ -695,13 +695,15 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   const yEval = pos.y;
   const y0 = yEval - v.y * dt;
   const was = Number.isNaN(car.support) ? gy : car.support;
+  // The support's own rise rate is what the body rides while the ground's push can follow it. Across a step (a kerb, a ramp's lip, a
+  // strip's edge: 24 m/s for a 0.2 m kerb in one slice, 10 m/s off a 0.894 m strip's lip, which then flew the sedan 5.7 m) it cannot.
   const climb = (gy - was) / dt;
   car.support = gy;
   if (pos.y <= gy) {
     // The ground only pushes up, by at most `SUPPORT`: the body climbs with its support and, where the slice started in its
-    // springs, rises out of them no faster than gravity stops it at the top (no hop), as far as that push allows; past it
-    // the body sinks into them, down to their stop (their full travel, its tyres' give included). Set onto its support
-    // in one slice, a ramp's foot, a dip's floor or a landing kicked the body up at 20–36 g within one frame.
+    // springs, rises out of them no faster than gravity stops it at the top (no hop: a push past that threw the body over its
+    // support), as far as that push allows; past it the body sinks into them, down to their stop (their full travel, its tyres'
+    // give included). Set onto its support in one slice, a ramp's foot, a dip's floor or a landing kicked the body up at 20–36 g.
     const sunk = was - y0;
     const want = sunk > 0 ? climb + Math.sqrt(2 * G * sunk) : climb;
     if (sunk <= 0 && want - v.y <= SUPPORT * dt) {
@@ -711,11 +713,13 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
       const lift = Math.min(Math.max(0, want - v.y), SUPPORT * dt);
       v.y += lift;
       pos.y += lift * dt;
+      if (sunk > 0 && v.y > want) v.y = want;
     }
     if (pos.y < gy - 2 * spring && v.y < climb) {
-      // On the stop the body sinks no further: it moves with its support and the push brings it back out.
-      v.y = climb;
-      pos.y = y0 + climb * dt;
+      // On the stop the body sinks no further: it moves with its support, as fast as the push brings it (`SUPPORT` a slice), and
+      // the push brings it back out.
+      v.y = Math.min(climb, v.y + SUPPORT * dt);
+      pos.y = y0 + v.y * dt;
     }
     // Gravity along the surface (none on the level): it slows a car uphill and speeds it downhill.
     v.x += G * ny * nx * dt;
@@ -1087,13 +1091,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // row, its centre 7 cm past it and its front row 25 mm off the windscreen, and the column built on it fell.
   let up = 0;
   for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
-  const froze = n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n);
-  if (Reflect.get(globalThis, "__dump") === car.slot) {
-    let s = "";
-    for (let c = 0; c < n; c++) s += ` [${c} pen${(SINK[c]! * 1e6).toFixed(0)} a${ACC[c]!.toFixed(4)} d${DEMAND[c]!.toFixed(4)}]`;
-    console.log(`n${n} Y${yielded ? 1 : 0} F${froze ? 1 : 0} sur${surrounds(n) ? 1 : 0} v${(v.x * 1e3).toFixed(1)},${(v.y * 1e3).toFixed(1)},${(v.z * 1e3).toFixed(1)} w${(w.x * 1e3).toFixed(1)},${(w.y * 1e3).toFixed(1)},${(w.z * 1e3).toFixed(1)} x${(_com.x * 1e6).toFixed(0)} z${(_com.z * 1e6).toFixed(0)} qx${(q.x * 1e6).toFixed(0)} qz${(q.z * 1e6).toFixed(0)} lift${(_lift.y * 1e6).toFixed(0)}${s}`);
-  }
-  if (froze) {
+  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n)) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
     _com.y += Math.min(under, REST_LIFT);
