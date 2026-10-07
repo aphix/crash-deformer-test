@@ -58,8 +58,17 @@ export interface BenchSettings {
   depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
 }
 
-/** The page's state at `atS` (`BenchResult.pageEvents`). */
+/** The stretches of a run in order: the grid and warm-up, the sampled window, then the three A/Bs (`PAGE_PHASES[PHASE_WARM]` ...). */
+export const PAGE_PHASES = ["warm", "window", "ab-pace", "ab-detail", "ab-fx"] as const;
+export const PHASE_WARM = 0;
+export const PHASE_WINDOW = 1;
+export const PHASE_AB_PACE = 2;
+export const PHASE_AB_DETAIL = 3;
+export const PHASE_AB_FX = 4;
+
+/** The page's state `atS` seconds into `phase` (`BenchResult.pageEvents`). */
 export interface PageEvent {
+  phase: (typeof PAGE_PHASES)[number];
   atS: number;
   visible: boolean;
   focused: boolean;
@@ -119,8 +128,8 @@ export interface BenchResult {
   detailPct: Record<string, number>;
   setupMs: { options: number; start: number };
   /**
-   * The page's state over the run, one entry at the window's start and one at every change after it (`atS`: seconds since the window
-   * began; past `wallS` the A/B arms run): shown on screen (not a background tab), the window focused, fullscreen. A hidden or
+   * The page's state over the run, from the warm-up to the end of the A/B arms: one entry as each phase begins and one at every change
+   * (`atS`: seconds into that entry's phase): shown on screen (not a background tab), the window focused, fullscreen. A hidden or
    * unfocused page is throttled by the browser, so frames in those spans are not the device's speed.
    */
   pageEvents: PageEvent[];
