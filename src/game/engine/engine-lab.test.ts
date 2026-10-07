@@ -400,3 +400,49 @@ describe("given a crate standing on the bench, with the dummies' physics in", ()
     assert.ok(farthest < 10, `its middle reached x = ${farthest.toFixed(2)}`);
   });
 });
+
+describe("given an item turning on the bench that is let go", () => {
+  const LET_GO = new THREE.Vector3(10, 3, 0);
+
+  it("when a sedan turning at 3 rad/s is let go, then it leaves with the orientation it had and no spin", () => {
+    const r = labRig([car(at(-14, 0, Math.PI / 2))]);
+    runLab(r, 1);
+    r.cars[0]!.angular.set(0, 3, 0);
+    const before = r.cars[0]!.group.quaternion.clone();
+    r.lab.launch(0, LET_GO);
+    assert.equal(r.cars[0]!.group.quaternion.angleTo(before), 0, "turned by");
+    assert.equal(r.cars[0]!.angular.length(), 0, "spin");
+  });
+
+  it("when a dummy turning at 2 rad/s is let go, then he leaves with the orientation his torso had and no spin in any part", async () => {
+    const r = await labDollRig([{ kind: "dummy", pose: { x: 0, y: 1, z: 0, yaw: 1, pitch: 0, roll: 0 }, hold: "free" }]);
+    runLab(r, 1);
+    const bodies = r.dolls!["dolls"][r.lab.dollOf[0]!]!.bodies;
+    bodies[0]!.setAngvel({ x: 0, y: 2, z: 0 }, true);
+    const turned = bodies[0]!.rotation();
+    const before = new THREE.Quaternion(turned.x, turned.y, turned.z, turned.w);
+    r.lab.launch(0, LET_GO);
+    const after = bodies[0]!.rotation();
+    const spins = bodies.map((b) => Math.hypot(b.angvel().x, b.angvel().y, b.angvel().z));
+    r.dolls!.dispose();
+    assert.ok(new THREE.Quaternion(after.x, after.y, after.z, after.w).angleTo(before) < 1e-3, "his torso turned");
+    assert.equal(Math.max(...spins), 0, "spin of his fastest part");
+  });
+
+  it("when a crate that is already out and tumbling at 2 rad/s is let go, then it leaves with the orientation it had and no spin", async () => {
+    const r = await labDollRig([{ kind: "prop", prefab: "crate", pose: at(0, 0, 0.7), hold: "free" }]);
+    runLab(r, 1);
+    r.lab.launch(0, new THREE.Vector3(2, 4, 0));
+    runLab(r, 0.1);
+    const body = r.dolls!["props"]["bodies"][r.lab.propOf[0]!]!;
+    body.setAngvel({ x: 0, y: 2, z: 0 }, true);
+    const turned = body.rotation();
+    const before = new THREE.Quaternion(turned.x, turned.y, turned.z, turned.w);
+    r.lab.launch(0, LET_GO);
+    const after = body.rotation();
+    const spin = Math.hypot(body.angvel().x, body.angvel().y, body.angvel().z);
+    r.dolls!.dispose();
+    assert.ok(new THREE.Quaternion(after.x, after.y, after.z, after.w).angleTo(before) < 1e-3, "it turned");
+    assert.equal(spin, 0, "spin");
+  });
+});
