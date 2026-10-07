@@ -12,7 +12,7 @@ export interface LampPool {
   readonly points: number;
 }
 export const FULL_POOL: LampPool = { spots: 4, points: 4 };
-/** A phone's pool: every lit fragment loops over every light, and these are 4 of its 10 punctual ones. */
+/** The lean pool a phone can opt into (`?lamps=lean`): every lit fragment loops over every light, and these are 4 of the 8 pooled ones. */
 export const PHONE_POOL: LampPool = { spots: 2, points: 2 };
 
 const HEAD = { color: 0xfff1d8, intensity: 40, distance: 22, angle: 0.5, penumbra: 0.55, decay: 2 };

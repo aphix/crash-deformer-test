@@ -26,7 +26,7 @@ import {
   makePaintMaterial,
   makeSirenMaterial,
   makeTailTrim,
-  makeTrimMaterial,
+  trimMaterial,
   type LampKind,
 } from "./car-materials.ts";
 import { CRUSH_HULLS, HULLS, type Hull } from "../deform/hulls.ts";
@@ -458,7 +458,7 @@ export abstract class CarCore {
 
   private makeBumper(front: boolean, accent: number): THREE.Group {
     const g = new THREE.Group();
-    const mesh = new THREE.Mesh(makeBumperGeometry(front), makeTrimMaterial(accent));
+    const mesh = new THREE.Mesh(makeBumperGeometry(front), trimMaterial(accent));
     mesh.castShadow = true;
     this.flushCasters.push(mesh);
     g.add(mesh);

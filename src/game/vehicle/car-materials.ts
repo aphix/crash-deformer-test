@@ -173,34 +173,57 @@ export function makeWheelMaterial(): THREE.MeshStandardMaterial {
   return m;
 }
 
+/**
+ * A car material's draw class: opaque draws of one class need one shader program, so `sortByDrawClass` (present/draw-order.ts)
+ * draws a class together instead of switching programs once per car. 0 (unset) sorts first.
+ */
+const DRAW_CLASS = { paint: 1, parts: 2, trim: 3 } as const;
+
+function classed<T extends THREE.Material>(m: T, drawClass: number): T {
+  m.userData.drawClass = drawClass;
+  return m;
+}
+
+export function drawClassOf(m: THREE.Material): number {
+  return (m.userData.drawClass as number | undefined) ?? 0;
+}
+
 export function makePaintMaterial(color: number): THREE.MeshPhysicalMaterial {
   const maps = typeof document === "undefined" ? { map: null, roughness: null } : makePaintMaps();
-  return withPrimer(
-    capHighlights(
-      new THREE.MeshPhysicalMaterial({
-        color,
-        map: maps.map ?? undefined,
-        roughnessMap: maps.roughness ?? undefined,
-        metalness: 0.2,
-        roughness: 0.42,
-        clearcoat: 0.72,
-        clearcoatRoughness: 0.24,
-        envMapIntensity: 0.9,
-        side: THREE.FrontSide,
-      }),
+  return classed(
+    withPrimer(
+      capHighlights(
+        new THREE.MeshPhysicalMaterial({
+          color,
+          map: maps.map ?? undefined,
+          roughnessMap: maps.roughness ?? undefined,
+          metalness: 0.2,
+          roughness: 0.42,
+          clearcoat: 0.72,
+          clearcoatRoughness: 0.24,
+          envMapIntensity: 0.9,
+          side: THREE.FrontSide,
+        }),
+      ),
     ),
+    DRAW_CLASS.paint,
   );
 }
 
-export function makeTrimMaterial(color: number): THREE.MeshStandardMaterial {
-  return capHighlights(
-    new THREE.MeshStandardMaterial({
-      color,
-      metalness: 0.55,
-      roughness: 0.38,
-      envMapIntensity: 0.65,
-    }),
-  );
+const trimByColor = new Map<number, THREE.MeshStandardMaterial>();
+
+/**
+ * The bumper trim of `color`, one material for every car that wears it (the palette has a dozen): a material switch costs a
+ * frame about 0.015 ms at 4x CPU, and 32 cars drew 64 trim materials. Never disposed, like `partsMaterial`.
+ */
+export function trimMaterial(color: number): THREE.MeshStandardMaterial {
+  let m = trimByColor.get(color);
+  if (m === undefined) {
+    m = classed(capHighlights(new THREE.MeshStandardMaterial({ color, metalness: 0.55, roughness: 0.38, envMapIntensity: 0.65 })), DRAW_CLASS.trim);
+    m.userData.shared = true;
+    trimByColor.set(color, m);
+  }
+  return m;
 }
 
 /** Roughness/metalness lookup in 0.01 steps: texel (i, j) = roughness i/100 (G), metalness j/100 (B). */
@@ -232,8 +255,9 @@ const partsMaterial = once(makePartsMaterial);
 
 function makePartsMaterial(): THREE.MeshStandardMaterial {
   const grid = toneGrid();
-  const m = capHighlights(
-    new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid }),
+  const m = classed(
+    capHighlights(new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 1, metalness: 1, roughnessMap: grid, metalnessMap: grid })),
+    DRAW_CLASS.parts,
   );
   m.userData.shared = true;
   return m;

@@ -16,6 +16,7 @@ import { FX_TIERS } from "../present/engine-post.ts";
 import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
 import { PHONE_LEVEL } from "../present/car-detail.ts";
 import { DetailGovernor } from "../present/detail-governor.ts";
+import { sortByDrawClass } from "../present/draw-order.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -77,6 +78,7 @@ function makeRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   renderer.toneMappingExposure = 1.45;
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.setOpaqueSort(sortByDrawClass);
   return renderer;
 }
 
@@ -224,9 +226,11 @@ export class CrashEngine extends EngineShare {
     });
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
-    // Four body lamps per car plus at most one lit siren (police flash red, then blue). A phone's pool is smaller, fixed here
-    // before the programs link: a light-count change relinks every lit shader.
-    this.lampLights = new LampLights(this.scene, MAX_CARS * 5, desktop ? FULL_POOL : PHONE_POOL);
+    // Four body lamps per car plus at most one lit siren (police flash red, then blue). `?lamps=lean` trims a phone's pool to 2 spots
+    // + 2 points (about 0.5 ms a frame at 4x CPU; at night the second-nearest car loses its tail wash). Fixed here, before the programs
+    // link: a light-count change relinks every lit shader.
+    const leanLamps = !desktop && new URLSearchParams(window.location.search).get("lamps") === "lean";
+    this.lampLights = new LampLights(this.scene, MAX_CARS * 5, leanLamps ? PHONE_POOL : FULL_POOL);
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,
