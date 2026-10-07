@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import { Ground, STEP_UP } from "./ground.ts";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
-import { SURFACE_IDS, SURFACES, type SurfaceId } from "./catalog.ts";
+import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
 import { checkPlateaus, paintGrid, raisePlateaus } from "./terrain.ts";
 import { RoadCrease } from "./road-crease.ts";
@@ -27,10 +27,6 @@ const BLEND = 24;
  */
 const MEET = 8;
 const CELL = 1;
-/** Deck lookup cell (m). */
-const DECK_CELL = 8;
-/** A deck segment is listed in a cell this far (m) before its accepted region reaches it, so rounding never drops a hit. */
-const DECK_MARGIN = 0.001;
 /**
  * A gate reaches this far (m) past its road and runoff: `WALL_REACH` where a wall stands, `OPEN_REACH` on a side with no wall
  * (a shortcut's road, an opening in the main wall at a mouth). A car fishtailing or knocked 5-10 m off the road where there is no
@@ -42,10 +38,6 @@ const WALL_REACH = 1.5;
 export const OPEN_REACH = 12;
 /** A gate counts a wall as open on a side when the wall is down anywhere within this many samples (m) of it: a car leaving through an opening is outside the wall at the gate. */
 const OPEN_SPAN = 12;
-
-function deckKey(i: number, j: number): number {
-  return (i + 4096) * 8192 + (j + 4096);
-}
 
 /** A gate segment a→b; crossing it along (nx, nz) counts. */
 type Gate = { ax: number; az: number; bx: number; bz: number; nx: number; nz: number; s: number };

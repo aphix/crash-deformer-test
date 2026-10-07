@@ -4,10 +4,12 @@ import { Track, segmentAt, blankSegment } from "./track.ts";
 import { OFF_MENU, TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
 import { mulberry32 } from "./placements.ts";
+import { STEP_UP } from "./ground.ts";
+import { C_H, C_SURF, HIT_SIZE, contactIn } from "./surfaces.ts";
 
 /**
- * `TrackGround.deckAt` lists each deck segment only in the 8 m cells its accepted region touches. Its answer (height and the
- * surface of the deck it found) must be the one a scan of every deck segment gives, anywhere a car can be.
+ * A course's ground lists each bridge-deck segment only in the 8 m cells its accepted region touches. What a car asks there
+ * (height and surface) must be what a scan of every deck segment over the ground under it gives, anywhere a car can be.
  */
 
 function scanAll(track: Track, x: number, z: number, yMax: number): { best: number; surface: number } {
@@ -19,7 +21,7 @@ function scanAll(track: Track, x: number, z: number, yMax: number): { best: numb
     if (!p.deck[k]) continue;
     const { b, ex, ez, len2, f } = segmentAt(p, k, x, z, seg);
     if (f < -0.02 || f > 1.02) continue;
-    const lat = ((x - p.x[k]! - ex * f) * ez - (z - p.z[k]! - ez * f) * ex) / Math.sqrt(len2);
+    const lat = ((x - p.x[k]!) * ez - (z - p.z[k]!) * ex) / Math.sqrt(len2);
     const half = p.half[k]!;
     const run = lat > 0 ? p.runL[k]! : p.runR[k]!;
     if (Math.abs(lat) > half + run) continue;
@@ -36,11 +38,12 @@ for (const json of [...TRACKS, ...OFF_MENU]) {
   const p = track.path;
   if (!p.deck.includes(1)) continue;
   describe(`given the ${parseTrack(json).id} course, whose deck segments are listed per 8 m cell`, () => {
-    it("when points over and around the deck are looked up, then the cell lists answer exactly as a scan of every deck segment does (height and deck surface)", () => {
+    it("when points over and around the deck are asked from below, beside and above it, then each answers exactly as a scan of every deck segment over the ground under it does (height and surface)", () => {
       const ground = track.ground();
       const rand = mulberry32(7);
       const decks: number[] = [];
       for (let k = 0; k < p.count; k++) if (p.deck[k]) decks.push(k);
+      const out = new Float64Array(HIT_SIZE);
       let hits = 0;
       for (let n = 0; n < 40000; n++) {
         const k = decks[Math.floor(rand() * decks.length)]!;
@@ -50,14 +53,18 @@ for (const json of [...TRACKS, ...OFF_MENU]) {
         const across = (rand() * 2 - 1) * reach;
         const x = p.x[k]! + p.tx[k]! * along + p.tz[k]! * across;
         const z = p.z[k]! + p.tz[k]! * along - p.tx[k]! * across;
-        const yMax = p.y[k]! + (rand() * 8 - 6);
-        const want = scanAll(track, x, z, yMax);
-        const got = ground["deckAt"](x, z, yMax);
-        assert.equal(got, want.best, `deckAt at (${x.toFixed(3)}, ${z.toFixed(3)}) yMax ${yMax.toFixed(3)}`);
-        if (want.best > -Infinity) {
-          hits++;
-          assert.equal(ground["deckSurface"], want.surface, `deck surface at (${x.toFixed(3)}, ${z.toFixed(3)})`);
-        }
+        const y = p.y[k]! + (rand() * 8 - 6) - STEP_UP;
+        // The ground alone: asked from -Infinity no deck reaches the asker.
+        contactIn(ground, x, z, -Infinity, out);
+        const field = out[C_H]!;
+        const fieldSurface = out[C_SURF]!;
+        const deck = scanAll(track, x, z, y + STEP_UP);
+        const onDeck = deck.best >= field;
+        contactIn(ground, x, z, y, out);
+        const at = `(${x.toFixed(3)}, ${z.toFixed(3)}) from ${y.toFixed(3)}`;
+        assert.equal(out[C_H], onDeck ? deck.best : field, `height at ${at}`);
+        assert.equal(out[C_SURF], onDeck ? deck.surface : fieldSurface, `surface at ${at}`);
+        if (onDeck) hits++;
       }
       assert.ok(hits > 4000, `the points land on the deck often enough to mean something (${hits})`);
     });

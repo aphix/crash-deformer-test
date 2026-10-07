@@ -637,7 +637,7 @@ function deckAt(s: Surface, i: number, x: number, z: number): number {
   if (f < -0.02 || f > 1.02) return NaN;
   const lat = ((x - x0) * ez - (z - z0) * ex) / len;
   const half = P[o + D_HALF]!;
-  const run = lat > 0 ? P[o + D_RUNR]! : P[o + D_RUNL]!;
+  const run = lat > 0 ? P[o + D_RUNL]! : P[o + D_RUNR]!;
   if (Math.abs(lat) > half + run) return NaN;
   const tan = P[o + D_TAN]!;
   const inside = Math.abs(lat) < half;
