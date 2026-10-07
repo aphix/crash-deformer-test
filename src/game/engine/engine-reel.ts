@@ -1,10 +1,10 @@
 import { carClass } from "../vehicle/vehicle-classes.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { carLayout } from "../net/car-pose.ts";
-import { decodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
+import { decodeSaved, encodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
 import { reelParts } from "../net/reel-wire.ts";
-import type { HighlightClip } from "../match/highlights.ts";
-import type { RaceCommand, RaceHud, ReelCoverId, SavedHud, ViewBox } from "../match/types.ts";
+import { clipTitle, type HighlightClip } from "../match/highlights.ts";
+import type { FlagClip, RaceCommand, RaceHud, ReelCoverId, SavedHud, ViewBox } from "../match/types.ts";
 import { RESULTS_DELAY } from "./engine-race.ts";
 import { coverLens, type ReelDirector } from "./engine-highlights.ts";
 import { deleteSaved, listSaved, loadSaved, saveClip } from "./highlight-store.ts";
@@ -130,9 +130,22 @@ export abstract class EngineReel extends EngineInput {
     coverLens(this.camera, this.canvas.getBoundingClientRect(), open);
   }
 
-  protected reelHud(): Pick<RaceHud, "reel" | "solo" | "saved"> {
+  protected reelHud(): Pick<RaceHud, "reel" | "solo" | "shown" | "saved"> {
     this.savedList ??= listSaved();
     return { ...this.highlights.hud(), saved: this.savedList };
+  }
+
+  /**
+   * The clip `id` (`RaceHud.shown`, as it was when the [!] button was drawn) in the form a flag sends: the clip as the game saves it, its
+   * title and course, and how it came. Null once the director no longer holds that clip (another reel, or its view ended): a flag never
+   * falls on the clip that came next.
+   */
+  async flagClip(id: number): Promise<FlagClip | null> {
+    const held = this.highlights.clipById(id);
+    if (!held) return null;
+    const { clip, from } = held;
+    const course = this.race.courses.find((c) => c.id === clip.trackId)?.name ?? clip.trackId;
+    return { title: clipTitle(clip), course, from, clip: await encodeSaved(clip) };
   }
 
   /** Which rig holds the camera, mirroring `aimRigs`' and `updateCamera`'s precedence from the state they read (the trace's `camera.rig`). */

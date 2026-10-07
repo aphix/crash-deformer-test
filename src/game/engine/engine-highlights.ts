@@ -228,7 +228,8 @@ export type ReelHost = {
   ride(camera: THREE.PerspectiveCamera, wallDt: number, subject: DeformableCar): boolean;
 };
 
-type Prepared = { clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[] };
+/** A clip ready to play. `id` names it for as long as the director holds it (every loop of a reel, and its solo view, are the same id); `from` is how it came (the results reel, a saved highlight). */
+type Prepared = { id: number; from: "reel" | "saved"; clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[] };
 type Solo = Prepared & { startAt: number; back: () => void };
 
 const _c = new THREE.Vector3();
@@ -262,6 +263,8 @@ export class ReelDirector {
   private sparkAt = -Infinity;
   /** Reel clip on screen, −1 in a flight. */
   private showing = -1;
+  /** The last clip id handed out (`prepare`). */
+  private serial = 0;
   private flying = false;
   private readonly flight = { ax: 0, az: 0, bx: 0, bz: 0, u: 0 };
   private readonly shotCam = new ShotCam();
@@ -288,7 +291,7 @@ export class ReelDirector {
   play(reel: Reel, startAt: number): void {
     this.stop();
     if (reel.clips.length === 0) return;
-    this.clips = reel.clips.map((clip, i) => this.prepare(clip, mulberry32(reel.seed ^ Math.imul(i + 1, 0x9e3779b9))));
+    this.clips = reel.clips.map((clip, i) => this.prepare(clip, mulberry32(reel.seed ^ Math.imul(i + 1, 0x9e3779b9)), "reel"));
     this.loopWall = this.clips.reduce((a, p) => a + FLIGHT_S + p.tl.wall, 0);
     this.startAt = startAt;
   }
@@ -301,7 +304,7 @@ export class ReelDirector {
 
   /** A saved clip alone from `now`, on cars `cars`; `back` gives the field back when the solo view ends. */
   viewSaved(clip: HighlightClip, now: number, back: () => void): void {
-    this.soloOf(this.prepare(clip, mulberry32(Math.floor(clip.score * 1000))), now, back);
+    this.soloOf(this.prepare(clip, mulberry32(Math.floor(clip.score * 1000)), "saved"), now, back);
   }
 
   /** Leave the solo view (to the reel, or nothing). */
@@ -321,6 +324,12 @@ export class ReelDirector {
 
   clip(i: number): HighlightClip | null {
     return this.clips[i]?.clip ?? null;
+  }
+
+  /** The clip with `id`, as the director holds it now (the solo clip, or a reel clip); null once it is gone (another reel replaced it, or its view ended). */
+  clipById(id: number): Pick<Prepared, "clip" | "from"> | null {
+    if (this.solo?.id === id) return this.solo;
+    return this.clips.find((p) => p.id === id) ?? null;
   }
 
   /** Stop: the cars' visibility and the crash clock as they were. */
@@ -443,7 +452,7 @@ export class ReelDirector {
     return this.hold;
   }
 
-  hud(): { reel: ReelHud | null; solo: string | null } {
+  hud(): { reel: ReelHud | null; solo: string | null; shown: number | null } {
     return {
       reel:
         this.clips.length > 0
@@ -453,10 +462,11 @@ export class ReelDirector {
             }
           : null,
       solo: this.solo ? clipTitle(this.solo.clip) : null,
+      shown: this.solo ? this.solo.id : this.showing >= 0 ? (this.clips[this.showing]?.id ?? null) : null,
     };
   }
 
-  private prepare(clip: HighlightClip, rand: () => number): Prepared {
+  private prepare(clip: HighlightClip, rand: () => number, from: Prepared["from"]): Prepared {
     const sim = new ClipSim(clip, this.host.carsOf(clip), this.host.scene);
     // The clip's own throws (its scope's, `ClipEjection.own`), each at the end of its step, where `ClipSim.take` hands it over.
     const ends = clip.ejections.map((x) => {
@@ -466,7 +476,7 @@ export class ReelDirector {
     });
     const throws = ends.filter((_, i) => clip.ejections[i]!.own);
     const tl = clipTimeline(clip.firstImpact, sim.length, throws);
-    return { clip, sim, tl, shots: shotsFor(clip, tl, rand, () => this.host.still()) };
+    return { id: ++this.serial, from, clip, sim, tl, shots: shotsFor(clip, tl, rand, () => this.host.still()) };
   }
 
   private soloOf(p: Prepared, now: number, back: () => void): void {

@@ -71,7 +71,7 @@ export function SurvivalResults({ race, pad, onCommand }: { race: RaceHud; pad: 
           Leave
         </NavButton>
       </div>
-      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
+      {race.reel ? <ReelList reel={race.reel} shown={race.shown} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }

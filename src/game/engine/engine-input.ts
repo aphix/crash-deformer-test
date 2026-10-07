@@ -5,7 +5,7 @@ import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
 import { SETTING_IDS, type SettingId } from "../hud/settings-changes.ts";
 import { armKill, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { cleanName, DRIVER_CARS, type DriverCar } from "../match/types.ts";
+import { cleanName, DRIVER_CARS, type DriverCar, type SubmitContext } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
@@ -375,6 +375,39 @@ export abstract class EngineInput extends EngineRigs {
       return json;
     }
     return this.trace.traceJson(this.traceSetup());
+  }
+
+  /**
+   * What the Submit button sends: the capture the JSON button would copy (same record), with the scene's context. Null unless a
+   * capture is on and has recorded samples; the button is drawn under the same rule (`captureSubmitShown`).
+   */
+  submitCapture(): { payload: object; context: SubmitContext } | null {
+    if (!this.captureTrace || this.trace.samples.length === 0) return null;
+    return { payload: this.trace.traceRecord(this.traceSetup()), context: this.submitContext() };
+  }
+
+  /** The scene and the flat settings every submission carries (the trace's own knobs: what a result depends on). */
+  submitContext(): SubmitContext {
+    const s = this.traceSetup();
+    return {
+      scene: s.scene,
+      settings: {
+        seed: s.seed,
+        night: s.night,
+        wet: s.wet,
+        realism: Math.round(s.realism * 1000) / 1000,
+        fxTier: s.fxTier,
+        loop: s.loop,
+        autoSlomo: s.autoSlomo,
+        userTimeScale: s.userTimeScale,
+        deformMode: s.deformMode,
+        playerClass: s.playerClass,
+        carCount: s.carCount,
+        viewW: s.viewW,
+        viewH: s.viewH,
+        pixelRatio: Math.round(s.pixelRatio * 100) / 100,
+      },
+    };
   }
 
   reset(): void {

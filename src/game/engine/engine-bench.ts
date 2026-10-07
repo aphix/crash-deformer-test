@@ -15,9 +15,6 @@ import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import type { World } from "./world-step.ts";
 
-/** The commit the page was built from (`vite.config.ts` `define`; "dev" where the build had no git). */
-declare const __BUILD_SHA__: string;
-
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
 const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, settleFrames: 10 } as const;
 /** The key a rung's share of the window is kept under. */
@@ -93,29 +90,64 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** A text card over the canvas; `set` rewrites it while the bench runs, `done` swaps in the results and a button that copies the full details as JSON. */
-function overlay(): { set(text: string): void; done(lines: string[], details: () => string): void } {
+/** A bench card posted: the receipt id the server gave, or why it did not go. */
+type BenchReceipt = { id: string } | { error: string };
+/** What posts a bench card's JSON (the page owns the server's address and the loop's context). */
+type SubmitBench = (payload: object) => Promise<BenchReceipt>;
+
+/**
+ * A text card over the canvas; `set` rewrites it while the bench runs, `done` swaps in the results and the buttons that copy
+ * the full details as JSON and submit them, `receipt` shows how a submit went.
+ */
+function overlay(): {
+  set(text: string): void;
+  done(lines: string[], details: () => string, submit: () => void): void;
+  receipt(state: "sending" | BenchReceipt): void;
+} {
   const root = document.createElement("div");
   root.style.cssText =
     "position:fixed;left:8px;top:8px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;z-index:99999;padding:8px 10px;" +
     "background:rgba(8,10,14,.92);color:#e8f0ff;font:11px/1.35 ui-monospace,Menlo,Consolas,monospace;border-radius:8px;pointer-events:none";
   const pre = document.createElement("pre");
   pre.style.cssText = "margin:0;white-space:pre-wrap";
-  root.append(pre);
+  const status = document.createElement("div");
+  status.style.cssText = "margin-top:6px";
+  root.append(pre, status);
   document.body.append(root);
+  const buttonStyle = "margin:6px 6px 0 0;padding:6px 10px;font:inherit;border-radius:6px;border:1px solid #7ee787;background:#14301c;color:#e8f0ff";
+  const submitButton = document.createElement("button");
   return {
     set: (text) => void (pre.textContent = text),
-    done: (lines, details) => {
+    done: (lines, details, submit) => {
       pre.textContent = lines.join("\n");
       root.style.pointerEvents = "auto";
       root.style.borderLeft = "4px solid #7ee787";
-      const button = document.createElement("button");
-      button.textContent = "Copy details (JSON)";
-      button.style.cssText = "margin-top:6px;padding:6px 10px;font:inherit;border-radius:6px;border:1px solid #7ee787;background:#14301c;color:#e8f0ff";
-      button.onclick = () => {
-        void copyText(details()).then((ok) => void (button.textContent = ok ? "Copied" : "Copy failed: select the card text instead"));
+      const copy = document.createElement("button");
+      copy.textContent = "Copy details (JSON)";
+      copy.style.cssText = buttonStyle;
+      copy.onclick = () => {
+        void copyText(details()).then((ok) => void (copy.textContent = ok ? "Copied" : "Copy failed: select the card text instead"));
       };
-      root.append(button);
+      submitButton.textContent = "Submit \u2191";
+      submitButton.style.cssText = buttonStyle;
+      submitButton.onclick = submit;
+      root.append(copy, submitButton);
+    },
+    receipt: (state) => {
+      status.replaceChildren();
+      submitButton.disabled = state === "sending";
+      if (state === "sending") status.textContent = "Sending\u2026";
+      else if ("error" in state) status.textContent = `Not sent: ${state.error}`;
+      else {
+        const id = document.createElement("code");
+        id.textContent = state.id;
+        id.style.cssText = "user-select:all;font-size:13px;letter-spacing:.06em;padding:0 4px;background:#1c2530;border-radius:4px";
+        const copyId = document.createElement("button");
+        copyId.textContent = "Copy";
+        copyId.style.cssText = `${buttonStyle};margin:0 0 0 6px;padding:2px 8px`;
+        copyId.onclick = () => void copyText(state.id).then((ok) => void (copyId.textContent = ok ? "Copied" : "Select the id"));
+        status.append("Receipt ", id, copyId);
+      }
     },
   };
 }
@@ -596,9 +628,10 @@ function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> },
  * settings (auto FX tier, adaptive pacer). Then, on the same race, the pacer is pinned to 1/240 s and to 1/120 s in
  * alternating blocks, and the FX tier to minimal, low and high in alternating blocks, each arm scored the same way.
  * Afterwards the settings go back to automatic, the loop restarts and the scene plays on under the card. `hud` reads the
- * HUD's state (every setting the player can change); `search` is the page's query string. Null: no such bench.
+ * HUD's state (every setting the player can change); `search` is the page's query string. `opts.submit` posts the card's JSON (the
+ * card's Submit button, and the bench loop's `auto` post before it moves on). Null: no such bench.
  */
-export async function runBench(engine: BenchEngine, hud: () => object, search: string): Promise<BenchResult | null> {
+export async function runBench(engine: BenchEngine, hud: () => object, search: string, opts: { submit: SubmitBench; auto: boolean }): Promise<BenchResult | null> {
   const plan = benchPlan(search);
   if (!plan) return null;
   const ui = overlay();
@@ -663,10 +696,18 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     abDetail: blocksOf(detail, gpu),
     device,
   };
-  const details = (): string => JSON.stringify({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result }, null, 1);
-  ui.done(describeBench(result), details);
+  const payload = (): object => ({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result });
+  const send = async (): Promise<BenchReceipt> => {
+    ui.receipt("sending");
+    const receipt = await opts.submit(payload());
+    ui.receipt(receipt);
+    return receipt;
+  };
+  ui.done(describeBench(result), () => JSON.stringify(payload(), null, 1), () => void send());
   (window as unknown as { __benchResult?: BenchResult }).__benchResult = result;
   console.log("CRUSH BENCH", JSON.stringify(result));
   engine.start();
+  // The bench loop posts each card as it finishes, before the page moves on to the next bench.
+  if (opts.auto) await send();
   return result;
 }

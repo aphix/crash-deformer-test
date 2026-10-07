@@ -614,7 +614,7 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
           Menu
         </NavButton>
       </div>
-      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
+      {race.reel ? <ReelList reel={race.reel} shown={race.shown} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }
@@ -689,7 +689,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           Menu
         </NavButton>
       </div>
-      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
+      {race.reel ? <ReelList reel={race.reel} shown={race.shown} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }

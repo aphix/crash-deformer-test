@@ -213,12 +213,29 @@ function buildSha(): string {
   }
 }
 
+const BUILD_SHA = buildSha();
+
+/**
+ * `<base>version.json` (`{ "sha": "<short sha>" }`) in the client build, beside the assets: what a running page polls to learn a newer
+ * build is deployed (`src/lib/deploy/update-check.ts`). It comes out of the same build as the page it is served with, so it can
+ * never name a release the server is not yet serving.
+ */
+function versionFilePlugin(sha: string): Plugin {
+  return {
+    name: "crush:version-file",
+    applyToEnvironment: (environment) => environment.name === "client",
+    generateBundle() {
+      this.emitFile({ type: "asset", fileName: "version.json", source: JSON.stringify({ sha }) });
+    },
+  };
+}
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
 export default defineConfig(({ command, isPreview }) => ({
   base,
-  define: { __BUILD_SHA__: JSON.stringify(buildSha()) },
+  define: { __BUILD_SHA__: JSON.stringify(BUILD_SHA) },
   server: {
     host: "0.0.0.0",
     port: 8080,
@@ -254,6 +271,7 @@ export default defineConfig(({ command, isPreview }) => ({
     grokPwaPlugin(),
     tailwindcss(),
     tanstackStart(),
+    ...(command === "build" ? [versionFilePlugin(BUILD_SHA)] : []),
     ...(command === "build" || isPreview
       ? [
           nitro({

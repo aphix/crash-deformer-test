@@ -4,9 +4,13 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { stripCourse, type StripProp, type StripSpec } from "../world/bench-strip.ts";
+import { CAMPAIGN } from "../world/tracks/index.ts";
 
-/** The city bench's race: its own course, field and rules as a program over the player's options, which it never touches. */
-export const BENCH_RACE: RaceCommand = { type: "program", options: { trackId: "city", laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
+/** The city bench's race on course `trackId`: its own field and rules as a program over the player's options, which it never touches. */
+function benchRace(trackId: string): RaceCommand {
+  return { type: "program", options: { trackId, laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
+}
+export const BENCH_RACE: RaceCommand = benchRace("city");
 
 /** One throw of the Lab bench: the set it loads, then the thrower (item 0) at item `target` at `speed` m/s. */
 type LabThrow = { preset: LabPresetId; target: number; speed: number };
@@ -65,7 +69,7 @@ function parseTraffic(v: string): StripSpec["traffic"] {
 }
 
 /**
- * The bench a page's query asks for: `?bench=city`, `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
+ * The bench a page's query asks for: `?bench=city` (with `course=<campaign course id>` for the same field on another course), `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
  * `traffic=2x12|1x8|off`, `cars=16` (racers, 2-16), `same=sedan|hatchback|wagon|coupe|pickup|off` (one body for every car, or
  * the fleet's mix) and `len=6000` (the straight, m: 1500-12000). A value that does not parse falls back to its default; the card
  * prints what ran. Null for any other `bench=`.
@@ -73,7 +77,11 @@ function parseTraffic(v: string): StripSpec["traffic"] {
 export function benchPlan(search: string): BenchPlan | null {
   const q = new URLSearchParams(search);
   const kind = q.get("bench");
-  if (kind === "city") return { id: "city", race: BENCH_RACE, course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null };
+  if (kind === "city") {
+    const course = q.get("course");
+    const id = course !== null && CAMPAIGN.includes(course) ? course : "city";
+    return { id, race: id === "city" ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null };
+  }
   if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH };
   if (kind !== "strip") return null;
   const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));

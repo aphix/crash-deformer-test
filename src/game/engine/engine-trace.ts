@@ -255,8 +255,9 @@ export class TraceRecorder {
     });
   }
 
-  traceJson(setup: TraceSetup): string {
-    return pretty({
+  /** What the JSON button copies while a capture is on, as an object (`traceJson`'s text, and what Submit sends). */
+  traceRecord(setup: TraceSetup): TraceRecord {
+    return {
       version: 1,
       capturedAt: new Date().toISOString(),
       squash: setup.squash,
@@ -275,6 +276,10 @@ export class TraceRecorder {
       initial: this.initial,
       ballHits: this.ballHits,
       samples: this.samples,
-    });
+    };
+  }
+
+  traceJson(setup: TraceSetup): string {
+    return pretty(this.traceRecord(setup));
   }
 }

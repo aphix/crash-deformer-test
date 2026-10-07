@@ -539,8 +539,8 @@ export class RaceDirector extends RaceWatch {
     this.followSun();
   }
 
-  /** The race's part of the HUD read model; the engine adds the reel's (`reel`, `solo`, `saved`). */
-  hud(): Omit<RaceHud, "reel" | "solo" | "saved"> {
+  /** The race's part of the HUD read model; the engine adds the reel's (`reel`, `solo`, `shown`, `saved`). */
+  hud(): Omit<RaceHud, "reel" | "solo" | "shown" | "saved"> {
     const s = this.session;
     const tr = this.track;
     const cars = this.host.live();

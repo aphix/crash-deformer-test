@@ -4,6 +4,7 @@ import { BrickWall, ChevronDown, ChevronUp, CircleDot, CircleHelp, Pause, Play, 
 import { DerbyBoard, DoorPanel, LabPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
+import { BenchEntry } from "@/components/bench-controls";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { RaceStatus } from "@/components/race-status";
 import { SoloExit } from "@/components/race-reel";
@@ -156,7 +157,7 @@ export function Hud(props: HudProps) {
   const menuOpen = (!focus && settingsShown && sections !== "") || state.race?.menu != null;
   const menu = useHudIdle(touch && !focus, menuOpen);
   // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
-  if (state.race?.solo != null) return <SoloExit title={state.race.solo} onCommand={raceCommand} />;
+  if (state.race?.solo != null) return <SoloExit title={state.race.solo} shown={state.race.shown} onCommand={raceCommand} />;
   return (
     <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
       {focus && state.race ? (
@@ -428,7 +429,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
         <RotateCcw />
       </Button>
       <div
-        className="order-last grid w-full grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto idle:order-none idle:w-auto idle:grid-cols-1"
+        className="order-last grid w-full grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5 sm:order-none sm:flex sm:w-auto sm:max-w-full sm:flex-wrap idle:order-none idle:w-auto idle:grid-cols-1"
         role="group"
         aria-label="Scene"
       >
@@ -449,6 +450,7 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
             {label}
           </Button>
         ))}
+        {state.inRoom ? null : <BenchEntry />}
       </div>
       <Button
         onClick={() => engine.current?.toggleBarrier()}
