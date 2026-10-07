@@ -114,8 +114,8 @@ function planeAngle(p: Float64Array, q: Float64Array): number {
   return Math.acos(Math.min(1, dot)) * DEG;
 }
 
-/** Cross the toe once: the worst of every bar over every physics slice. */
-function cross(v: number, thDeg: number, e: number): Result {
+/** Cross the toe once: the worst of every bar over every physics slice. `mirrored` drives the reflection of the same crossing in the ramp's axis. */
+function cross(v: number, thDeg: number, e: number, mirrored = false): Result {
   const three = new THREE.Scene();
   const ramps = new FleetRamps(three);
   const slab = new JerseyBarrier(three, new THREE.Group());
@@ -126,10 +126,12 @@ function cross(v: number, thDeg: number, e: number): Result {
   assignClass(car, "sedan");
   const w = newWorld([car], slab);
   w.collide = (c, _i, h) => void ramps.contact(c, h);
-  const yaw = Math.PI + thDeg / DEG;
+  const yaw = mirrored ? Math.PI - thDeg / DEG : Math.PI + thDeg / DEG;
   const dx = Math.sin(yaw);
   const dz = Math.cos(yaw);
-  car.spawnFacing(EDGE + e - dx * 10, TOE - dz * 10, yaw, v);
+  // The mirrored crossing is the same situation reflected in the ramp's axis: the edge it crosses inside is the +x one.
+  const edge = mirrored ? RAMP.halfW : EDGE;
+  car.spawnFacing(mirrored ? edge - e - dx * 10 : edge + e - dx * 10, TOE - dz * 10, yaw, v);
   const input: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
   const p = car.group.position;
   const out: Result = { yaw: 0, heading: 0, shove: 0, dv: 0, tilt: 0, tiltAt: "", airWhileTouching: 0, slices: 0, crashed: false, planeGap: 0, planeSlices: 0, flatSlices: 0 };

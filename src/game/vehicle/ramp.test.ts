@@ -1,4 +1,4 @@
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { applyDrive, type DriveInput } from "./car-drive.ts";
@@ -8,6 +8,7 @@ import { Ground, setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "./test-support.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
+import { useStiffSprings } from "./stiff-springs.test-util.ts";
 
 /**
  * The owner's ramp test: a car dropped 0.5 m onto a wedge, brake and handbrake held, must settle with all
@@ -84,7 +85,12 @@ function settle(deg: number, yaw: number): Settled {
   return { gaps, pitchErr, rollErr, tiltErr, pitch, roll, slide };
 }
 
-describe("given a car with brake and handbrake held, dropped 0.5 m onto the middle of a wedge-shaped ramp", () => {
+describe("given a car with brake and handbrake held, dropped 0.5 m onto the middle of a wedge-shaped ramp, on springs so stiff and short that no sag leans it off the face", () => {
+  let restoreSprings = (): void => {};
+  before(() => {
+    restoreSprings = useStiffSprings();
+  });
+  after(() => restoreSprings());
   afterEach(() => setGround(null));
 
   for (const deg of [10, 20, 30]) {

@@ -100,12 +100,6 @@ const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
 const MU_BODY = 0.6;
-/** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
- *  (g / speed) is a tumble's, not a jump's, and the body turns freely. `NOSE_V` is also the speed from which a driven car keeps its
- *  travel through the world's faces (`stepFree`). */
-const NOSE_K = 6;
-const SPIN_TAU = 0.05;
-const NOSE_V = 6;
 /** Below these speeds (m/s, rad/s) a body on three or more hull points is at rest (on two it can still tip), on ground
  *  whose mean up-normal is over `REST_UP` (cos 14°). */
 const REST_V = 0.15;
@@ -115,6 +109,8 @@ const REST_UP = 0.97;
 const CONTACT_HZ = 480;
 /** How far (m) past its own approach a body point may be in a face and still have come down onto it (`fromSide`). */
 const STAND_SLOP = 0.005;
+/** A point on a face this shallow (normal's up component over it: a slope under 70°) pushes and lifts straight up: a tyre anywhere, in its springs and past their stop alike, and any body point on the world's ground (no drag on the world: the drive grips). A steeper face is a wall: the point pushes along its normal. */
+const CLIMB_NY = 0.34;
 
 /**
  * Whether a body point `sink` m in a face (along the face's normal), moving at `vn` m/s along that normal (closing < 0), reached
@@ -138,19 +134,16 @@ const _fd = new THREE.Vector3();
 /** A driven car's Euler yaw drifts by up to this (rad) in a rigid turn before it is a tumble (a flip is no heading). */
 const YAW_HOLD = 0.5;
 const _qi = new THREE.Quaternion();
-const _q0 = new THREE.Quaternion();
-const _f = new THREE.Vector3();
 const _x = new THREE.Vector3();
-const _a = new THREE.Vector3();
-const _b = new THREE.Vector3();
 const _vp = new THREE.Vector3();
 const _rn = new THREE.Vector3();
 const _k = new THREE.Vector3();
 const _tn = new THREE.Vector3();
-const GRAV = new THREE.Vector3(0, -G, 0);
 const R = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
 const _lift = new THREE.Vector3();
 const N = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
+/** Per contact: the direction its impulse and its lift go: up for a tyre on a face it can climb, else the face's normal. */
+const DIR = Array.from({ length: CONTACTS }, () => UP);
 const TYRE = Array.from({ length: CONTACTS }, () => false);
 const SOFT = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the face slot it presses (-1 rigid), the car whose top it stands on (-1 the world), how far that point follows its crush, its sink past what holds it. */
@@ -211,6 +204,7 @@ function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: numbe
   const own = hit[C_OWNER]!;
   N[n]!.set(hit[C_NX]!, hit[C_NY]!, hit[C_NZ]!);
   TYRE[n] = false;
+  DIR[n] = own < 0 && N[n]!.y >= CLIMB_NY ? UP : N[n]!;
   OWN[n] = own;
   UNDER[n] = !hull && own < 0;
   FOLLOW[n] = own >= 0 ? hit[C_AUX]! : 1;
@@ -278,12 +272,12 @@ function give(c: number, v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion
  * with `both` the car under it (`HELD`) taking its share. Stopping the rider alone against a car of its own weight handed that car the
  * whole closing speed: an elastic pair, and a stack whose cars never came to rest.
  */
-function reach(c: number, dir: THREE.Vector3, q: THREE.Quaternion, both: boolean): number {
-  let k = 1 + _k.crossVectors(invInertia(_rn.crossVectors(R[c]!, dir), q, _qi), R[c]!).dot(dir);
+function reach(c: number, dir: THREE.Vector3, along: THREE.Vector3, q: THREE.Quaternion, both: boolean): number {
+  let k = along.dot(dir) + _k.crossVectors(invInertia(_rn.crossVectors(R[c]!, dir), q, _qi), R[c]!).dot(along);
   const o = HELD[c];
   if (both && o !== null) {
     const oq = o.group.quaternion;
-    k += RATIO[c]! * (1 + _k.crossVectors(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), ARM[c]!).dot(dir));
+    k += RATIO[c]! * (along.dot(dir) + _k.crossVectors(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), ARM[c]!).dot(along));
   }
   return 1 / k;
 }
@@ -478,29 +472,18 @@ function landing(hit: Float64Array, down: number, v: THREE.Vector3): boolean {
  * when it is back on its wheels: three of them on the world's ground (the caller hands it to the pose-following step).
  * `car.airborne`, `wheelsDown` and `restsOn` are derived from the contacts.
  */
+export const DBG: { cb: null | ((car: DeformableCar, n: number, tyres: number, nearing: boolean) => void); pre: null | ((car: DeformableCar) => void) } = { cb: null, pre: null };
+export function dbgContacts() {
+  return { N, SOFT, TYRE, OWN, ACC, DYN, ASK, PRESS, SINK, SLOT, FRA, R, CLOSE, _lift };
+}
 export function stepFree(car: DeformableCar, dt: number): boolean {
   const q = car.group.quaternion;
   car.laying = false;
+  if (DBG.pre) DBG.pre(car);
   const pos = car.group.position;
   const v = car.velocity;
   const w = car.angular;
   v.y -= G * dt;
-  const sp2 = v.lengthSq();
-  if (!car.crashed && car.airborne && sp2 > NOSE_V * NOSE_V) {
-    // A driven car's nose follows its flight path (arcade): the path's own turn (gravity bends it) plus a pull that
-    // closes the angle between them, while that angle is under 30° (sin 0.5); further off, the body tumbles
-    // freely. The roll about the nose stays free. The spin eases onto that turn over `SPIN_TAU`: set at once, it stepped
-    // 0.33 rad/s as the last tyre left its reach over the disc's rim (the origin's height popped 0.0031 m/frame²).
-    _f.set(0, 0, 1).applyQuaternion(q);
-    _b.crossVectors(_f, v).divideScalar(Math.sqrt(sp2));
-    const off = _b.length();
-    if (off < 0.5) {
-      _a.crossVectors(v, GRAV).divideScalar(sp2);
-      if (off > 1e-9) _a.addScaledVector(_b, (NOSE_K * Math.asin(off)) / off);
-      _a.addScaledVector(_f, w.dot(_f) - _a.dot(_f));
-      w.lerp(_a, 1 - Math.exp(-dt / SPIN_TAU));
-    }
-  }
   // The centre moves at the slice's mean velocity under gravity, so its fall over a frame does not depend on how many slices cut it:
   // stepped at the end velocity, the 480 Hz contact slices dropped it 0.17 mm a frame less than the plain ones, a pop where they switch.
   _com.copy(_r.set(0, COM_Y, 0).applyQuaternion(q)).add(pos).addScaledVector(v, dt);
@@ -530,15 +513,12 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const stop = 2 * spring;
   const lift = CLASSES[cls].lift;
   const walls = groundWalls();
-  // A driven car with a wheel on a surface, the world's ground or another car's top alike, travels as its drive takes it, as on its
-  // wheels (`stepPlane`): the faces lift and turn it but neither push it along nor drag it (no friction on the world: the drive grips).
-  // A rear tyre meeting a ramp's toe at 30° with the front in the air turned its travel 2-3° through the face's slope and the tyre's
-  // friction against the body's spin; a monster on a sedan, its rear tyres on the trunk against the rear window, never drove off.
+  // A driven car with a wheel on a surface, the world's ground or another car's top alike, rolls on it: the drive owns its travel along
+  // the road, so the world's faces neither drag it nor grip its tyres along their tread (a rear tyre meeting a ramp's toe at 30° with the
+  // front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin).
   // Every body's tyres are read each slice, a wreck's too: skipped, a wreck's tyres kept their reading from its hand-over and it never
   // landed on them (a struck wreck came to rest on its belly 10 cm in the floor, its tyres read 0.9-1.5 m up).
   const rolling = wheelsAt(car, within) !== 0 && !car.crashed;
-  const vx0 = v.x;
-  const vz0 = v.z;
   const hit = car.wheelHit;
   const cr = car.deform.crush;
   const crushed = cr[0] !== 0 || cr[1] !== 0 || cr[2] !== 0 || cr[3] !== 0 || cr[4] !== 0;
@@ -568,6 +548,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     N[n]!.set(hit[o + C_NX]!, hit[o + C_NY]!, hit[o + C_NZ]!);
     TYRE[n] = true;
     OWN[n] = own;
+    DIR[n] = N[n]!.y >= CLIMB_NY ? UP : N[n]!;
     UNDER[n] = false;
     FOLLOW[n] = own >= 0 ? hit[o + C_AUX]! : 1;
     if (own >= 0) surf.touch(own);
@@ -714,6 +695,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
         give(c, v, w, q, UP, jn, jn - Math.min(jn, REST[c]!), surf);
       } else {
+        const dir = DIR[c]!;
         const vn = pointVel(c, v, w, _vp).dot(nrm);
         // A contact that closes takes what it needs. One that already parts takes back, of the dynamic impulse the earlier passes gave it,
         // what its parting asks (never more: it never pulls). A neighbour's impulse that had over-corrected it kept it for good, so the
@@ -721,19 +703,19 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         // points are listed in.
         if (vn >= 0 && DYN[c] === 0) continue;
         if (vn >= 0) {
-          jn = Math.max(-DYN[c]!, -vn * reach(c, nrm, q, true));
+          jn = Math.max(-DYN[c]!, -vn * reach(c, dir, nrm, q, true));
           ACC[c] = ACC[c]! + jn;
           DYN[c] = DYN[c]! + jn;
-          give(c, v, w, q, nrm, jn, jn, surf);
+          give(c, v, w, q, dir, jn, jn, surf);
         } else {
           const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
           const rest = Math.min(-vn, REST[c]!);
           REST[c] = REST[c]! - rest;
-          const jd = (1 + e) * (-vn - rest) * reach(c, nrm, q, true);
-          jn = rest * reach(c, nrm, q, false) + jd;
+          const jd = (1 + e) * (-vn - rest) * reach(c, dir, nrm, q, true);
+          jn = rest * reach(c, dir, nrm, q, false) + jd;
           ACC[c] = ACC[c]! + jn;
           DYN[c] = DYN[c]! + jd;
-          give(c, v, w, q, nrm, jn, jd, surf);
+          give(c, v, w, q, dir, jn, jd, surf);
         }
       }
       if (rolling && OWN[c]! < 0) continue;
@@ -753,7 +735,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       // its push). Bounded by each pass's push instead, a sedan's belly rows on a roof whose budget its tyres had spent gripped at 0.6 of
       // impulses the cut then took back, and the sedan under took that grip as a 4 rad/s roll.
       _tn.copy(_vp).divideScalar(-slide);
-      _fd.copy(FRA[c]!).addScaledVector(_tn, slide * reach(c, _tn, q, true));
+      _fd.copy(FRA[c]!).addScaledVector(_tn, slide * reach(c, _tn, _tn, q, true));
       const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * (SOFT[c] ? jn : ACC[c]!);
       const held = _fd.length();
       if (held > cap) _fd.multiplyScalar(cap / held);
@@ -772,7 +754,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       if (SUMF[f]! <= ROOM[f]!) continue;
       const cut = ACC[c]! * (1 - ROOM[f]! / SUMF[f]!);
       const cutD = DYN[c]! * (1 - ROOM[f]! / SUMF[f]!);
-      give(c, v, w, q, N[c]!, -cut, -cutD, surf);
+      give(c, v, w, q, DIR[c]!, -cut, -cutD, surf);
       ACC[c] = ACC[c]! - cut;
       DYN[c] = DYN[c]! - cutD;
       const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * ACC[c]!;
@@ -785,7 +767,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   for (let c = 0; c < n; c++) {
     if (FIRST[c] === c) surf.take(SLOT[c]!, DEMAND[c]!, G, dt);
-    if (!SOFT[c] && OWN[c]! >= 0) surf.press(OWN[c]!, ACC[c]! * N[c]!.y);
+    if (!SOFT[c] && OWN[c]! >= 0) surf.press(OWN[c]!, ACC[c]! * DIR[c]!.y);
   }
   // The deepest point the surface can still hold up lifts the body out (a face that yields sinks instead). The belly over the
   // world's ground only resists (impulse, no bounce, no lift while it moves): lifting a moving body out by a belly point's
@@ -804,25 +786,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       // gravity walked a car at rest down its support: a sedan frozen on another's crushed roof (normal 1° off) crept 0.68 mm a second.
       const mu = TYRE[c] ? MU_TYRE : MU_BODY;
       const grips = (!rolling || OWN[c]! >= 0) && (!TYRE[c] || (OWN[c]! >= 0 && !powered));
-      if (grips && hypot2(N[c]!.x, N[c]!.z) <= mu * N[c]!.y && FRA[c]!.length() < mu * ACC[c]!) _lift.set(0, deep / N[c]!.y, 0);
+      if (DIR[c] === UP || (grips && hypot2(N[c]!.x, N[c]!.z) <= mu * N[c]!.y && FRA[c]!.length() < mu * ACC[c]!)) _lift.set(0, deep / N[c]!.y, 0);
       else _lift.copy(N[c]!).multiplyScalar(deep);
     }
-  }
-  // So does one whose body strikes the world's faces (a point closing on its surface): a rocker meeting the wedge's corner as the car
-  // drove off its side took 0.7-0.8 m/s and 1.4-1.6° of heading in one slice. A belly resting or sliding on a face keeps its friction.
-  // Under throttle the drive owns the travel from a standstill (a monster pulling away with its rear tyres against a sedan's rear window
-  // held 0.47 m/s at 0.25 s against 3.73 on a platform). Coasting or braked, it is kept in full from `NOSE_V` down to none at a
-  // standstill: a stopped car's resting contacts close under gravity every slice, and kept at its slice-start zero they held its centre
-  // still while it tipped over a wedge's side edge (it pivoted about its centre, 35 frames on the edge). The drop matrix and
-  // ramp-crossing give the same cells with the full keep from 2, 4, 6 or 8 m/s.
-  let struck = false;
-  for (let c = 0; c < n; c++) if (OWN[c]! < 0 && CLOSE[c]) struck = true;
-  if (rolling || (!car.crashed && struck)) {
-    const keep = powered ? 1 : Math.min(1, Math.sqrt(vx0 * vx0 + vz0 * vz0) / NOSE_V);
-    v.x += (vx0 - v.x) * keep;
-    v.z += (vz0 - v.z) * keep;
-    _lift.x *= 1 - keep;
-    _lift.z *= 1 - keep;
   }
   // The tyres in their springs push straight up, so the world's face under them leaves the body its gravity along it, each tyre's share
   // by the weight it carries (a frictionless face would hand the body G·ny·n horizontal): it slows a car uphill and speeds it downhill.
@@ -855,6 +821,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     w.set(0, 0, 0);
     _com.y += Math.min(under, REST_LIFT);
   }
+  if (DBG.cb) DBG.cb(car, n, tyres, nearing);
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   // What the body touches now: each wheel's tread gap moved by the lift. No wheel within its springs' reach and no hull point
   // in a surface is flight; a belly or a roof resting on something is not.

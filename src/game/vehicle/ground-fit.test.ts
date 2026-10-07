@@ -1,4 +1,4 @@
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
@@ -9,6 +9,7 @@ import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";
 import { setGround } from "../world/ground.ts";
 import { blankPoint, pointOn, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
+import { useStiffSprings } from "./stiff-springs.test-util.ts";
 
 /**
  * The owner's drop matrix, generalising ramp.test.ts's wedge: a car dropped 0.5 m onto each site at every heading, brake
@@ -148,7 +149,12 @@ function bankSites(): Site[] {
   });
 }
 
-describe("given a braked car placed at every heading across a matrix of ground sites", () => {
+describe("given a braked car placed at every heading across a matrix of ground sites, on springs so stiff and short that no sag excuses a gap", () => {
+  let restoreSprings = (): void => {};
+  before(() => {
+    restoreSprings = useStiffSprings();
+  });
+  after(() => restoreSprings());
   afterEach(() => setGround(null));
 
   it("when the car sits on fleet ramp faces, ends and straddling the side edges, then it sits on the ground at every heading", (t) => report(t, rampSites()));
