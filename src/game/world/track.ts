@@ -588,13 +588,13 @@ export class TrackGround extends Ground {
   readonly surf: Uint8Array;
   /** The main loop's road + runoff, crease kept (`RoadCrease`). */
   private readonly crease: RoadCrease;
-  private readonly hills: TrackJson["environment"]["hills"];
+  private readonly terrainHills: TrackJson["environment"]["hills"];
   private readonly terrain: number;
 
   constructor(track: Track) {
     super();
     const env = track.json.environment;
-    this.hills = env.hills;
+    this.terrainHills = env.hills;
     this.terrain = SURFACE_IDS.indexOf(env.terrain);
     const m = BLEND + 4;
     this.minX = Math.floor(track.bounds.minX - m);
@@ -622,8 +622,9 @@ export class TrackGround extends Ground {
    * corners have a lateral) and each bridge-deck segment of the main loop as a crease patch; the store's index is built once.
    */
   private register(track: Track): void {
-    const hills = new Float64Array(this.hills.length * 4);
-    for (let i = 0; i < this.hills.length; i++) hills.set([this.hills[i]!.x, this.hills[i]!.z, this.hills[i]!.height, this.hills[i]!.radius], i * 4);
+    const th = this.terrainHills;
+    const hills = new Float64Array(th.length * 4);
+    for (let i = 0; i < th.length; i++) hills.set([th[i]!.x, th[i]!.z, th[i]!.height, th[i]!.radius], i * 4);
     this.addGrid({
       nu: this.nx,
       nv: this.nz,
@@ -654,7 +655,7 @@ export class TrackGround extends Ground {
   /** Base terrain: gaussian hills over y = 0. */
   base(x: number, z: number): number {
     let h = 0;
-    for (const hl of this.hills) {
+    for (const hl of this.terrainHills) {
       const dx = x - hl.x;
       const dz = z - hl.z;
       h += hl.height * Math.exp(-(dx * dx + dz * dz) / (hl.radius * hl.radius));
