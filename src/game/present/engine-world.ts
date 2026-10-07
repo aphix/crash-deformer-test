@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { applyMarkMap } from "./engine-marks.ts";
 import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
+import { tagSurface } from "./ultra/surface-tag.ts";
+
+/** The sandbox's asphalt disc: its UVs span this many metres (its texture repeats 18 times across). */
+const STAGE_DIAMETER = 96;
 
 function makeConcrete(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -193,6 +197,24 @@ function mixHex(out: THREE.Color, day: number, night: number, k: number): void {
 }
 
 /**
+ * The sun's shadow bias, from the map's texel (the box's width over its resolution: 4.7 cm at 48 m / 1024). A normal offset of a
+ * quarter texel stops a lit surface shading itself at grazing sun; the constant depth bias, half of the old -0.0004 (a fraction of
+ * the 2..60 m depth range: 2.3 cm down to 1.2 cm), covers what the offset leaves, so a shadow starts at its caster's foot.
+ * Picked by a grid sweep (depth bias 0 to -0.0004, normal offset 0 to 0.64 texel) against the same frame drawn with a 4096 map, on
+ * city, oval and rally frames at sun elevations 8 to 58 degrees: against the old constant alone, fewer wrongly shadowed pixels
+ * (city -38 %, oval -18 %, rally -3 %), about as many wrongly lit ones (city -4 %, oval +2 %, rally -11 %), and less acne away
+ * from shadow edges (city -36 %, oval -13 %, rally -48 %). A half texel offset (0.023) cut acne as far but left 45 % more flat-area
+ * pixels lit that 4096 shadows on the city frames: a gap at the caster's foot.
+ */
+const SUN_NORMAL_BIAS_TEXELS = 0.25;
+const SUN_DEPTH_BIAS = -0.0002;
+export function setSunBias(shadow: THREE.DirectionalLightShadow): void {
+  const cam = shadow.camera;
+  shadow.normalBias = (SUN_NORMAL_BIAS_TEXELS * (cam.right - cam.left)) / shadow.mapSize.x;
+  shadow.bias = SUN_DEPTH_BIAS;
+}
+
+/**
  * Lights, sky colour and the asphalt disc, plus the time of day (day / night) and a wet-road option.
  * Night drops the sun to moonlight so the cars' own lamps, the pole heads (bloomed) and their fake light
  * pools carry the scene; wet asphalt turns glossy so those lights streak across it.
@@ -211,6 +233,8 @@ export class WorldStage {
    * owner found night too dark; 0.62–0.83 is the agreed range. The lamp heads always glow at full night strength. */
   nightDepth = 0.72;
   private day = DAY;
+  /** A multiplier on the environment's day / night level: 1 except under Ultra (`present/ultra/`), whose HDRI is lit differently from the studio env. */
+  envGain = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -226,7 +250,7 @@ export class WorldStage {
     dir.shadow.camera.right = 24;
     dir.shadow.camera.top = 24;
     dir.shadow.camera.bottom = -24;
-    dir.shadow.bias = -0.0004;
+    setSunBias(dir.shadow);
     this.sun = dir;
     scene.add(dir);
     this.fill = new THREE.DirectionalLight(DAY.fill[0], DAY.fill[1]);
@@ -237,10 +261,10 @@ export class WorldStage {
       color: 0x2a2c34,
       roughness: 0.88,
       metalness: 0.06,
-      map: makeAsphalt(),
+      map: tagSurface(makeAsphalt(), "asphalt", STAGE_DIAMETER),
     });
     applyMarkMap(this.groundMat);
-    this.ground = groundMesh(new THREE.CircleGeometry(48, 64), this.groundMat, "terrain");
+    this.ground = groundMesh(new THREE.CircleGeometry(STAGE_DIAMETER / 2, 64), this.groundMat, "terrain");
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     scene.add(this.ground);
@@ -249,7 +273,7 @@ export class WorldStage {
 
   /** Environment-map strength for the current time of day (the studio env loads async). */
   get envIntensity(): number {
-    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth);
+    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth) * this.envGain;
   }
 
   /** Smoke brightness for the current time of day. */

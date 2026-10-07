@@ -43,6 +43,8 @@ export interface BenchPlan {
   body: CarStyleId | null;
   strip: StripSpec | null;
   lab: typeof LAB_BENCH | null;
+  /** `&ultra=1`: the card also runs the Ultra look as an FX arm, against the other tiers (`runBench`). */
+  ultra: boolean;
 }
 
 /** The strip's defaults: a bare `?bench=strip` is the repeatable baseline. */
@@ -72,17 +74,18 @@ function parseTraffic(v: string): StripSpec["traffic"] {
  * The bench a page's query asks for: `?bench=city` (with `course=<campaign course id>` for the same field on another course), `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
  * `traffic=2x12|1x8|off`, `cars=16` (racers, 2-16), `same=sedan|hatchback|wagon|coupe|pickup|off` (one body for every car, or
  * the fleet's mix) and `len=6000` (the straight, m: 1500-12000). A value that does not parse falls back to its default; the card
- * prints what ran. Null for any other `bench=`.
+ * prints what ran. Any bench takes `ultra=1` (the Ultra arm). Null for any other `bench=`.
  */
 export function benchPlan(search: string): BenchPlan | null {
   const q = new URLSearchParams(search);
   const kind = q.get("bench");
+  const ultra = q.get("ultra") === "1";
   if (kind === "city") {
     const course = q.get("course");
     const id = course !== null && CAMPAIGN.includes(course) ? course : "city";
-    return { id, race: id === "city" ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null };
+    return { id, race: id === "city" ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null, ultra };
   }
-  if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH };
+  if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH, ultra };
   if (kind !== "strip") return null;
   const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
   const same = q.get("same") ?? STRIP_DEFAULTS.same;
@@ -98,6 +101,7 @@ export function benchPlan(search: string): BenchPlan | null {
     body,
     strip,
     lab: null,
+    ultra,
   };
 }
 

@@ -204,9 +204,9 @@ export class CrashEngine extends EngineShare {
     this.ragdolls.poles = this.poles;
     this.lab.dolls = this.ragdolls;
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots, witness: this.witness }, MAX_CARS, this.clock.reduceMotion);
-    // `?fx=off|minimal|low|high` picks the tier for the session (bench A/B); the auto tier otherwise.
+    // `?fx=off|minimal|low|high|ultra` picks the tier for the session (bench A/B); the auto tier otherwise. Ultra loads after boot (below).
     const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get("fx"));
-    this.cine.setTier(fxParam ?? INITIAL_HUD.fxTier);
+    this.cine.setTier(fxParam === "ultra" ? "high" : (fxParam ?? INITIAL_HUD.fxTier));
     const gl = this.renderer.getContext();
     const gpu = gl.getExtension("WEBGL_debug_renderer_info");
     const desktop = hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches);
@@ -294,6 +294,7 @@ export class CrashEngine extends EngineShare {
       .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
       .then(() => {
         this.warming = false;
+        if (fxParam === "ultra") this.setFxTier("ultra");
         // Only a throw needs Rapier, so boot never waits for it: it loads in the background from here, and a car
         // disabled before it is in simply throws nobody (`EjectionWatch` only judges edges it saw).
         this.ragdolls.preload().catch((err: unknown) => console.error("Crush Stream ragdoll load failed", err));

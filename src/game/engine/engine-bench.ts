@@ -60,6 +60,8 @@ interface BenchEngine {
   start(): void;
   setFxTier(tier: FxTier): void;
   setFxAuto(): void;
+  /** Fetch the Ultra look (the `ultra=1` arm needs it in before its first block); false when it did not load. */
+  loadUltra(): Promise<boolean>;
   benchParts(): BenchParts;
   /** Every non-police car wears `style` (null: the fleet's mix). */
   useOneBody(style: CarStyleId | null): void;
@@ -408,10 +410,12 @@ interface Acc {
   draw: number;
   steps: number;
   fineCuts: number;
+  calls: number;
+  tris: number;
   gpu: number[];
 }
 
-const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, fineCuts: 0, gpu: [] });
+const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, fineCuts: 0, calls: 0, tris: 0, gpu: [] });
 
 function toBlock(a: Acc): Block {
   const n = Math.max(1, a.frames);
@@ -427,6 +431,8 @@ function toBlock(a: Acc): Block {
     drawMs: a.draw / n,
     gpuMs: a.gpu.length ? a.gpu.reduce((x, y) => x + y, 0) / a.gpu.length : null,
     fineCutsPerSimS: a.clockS ? a.fineCuts / a.clockS : 0,
+    calls: a.calls / n,
+    triangles: a.tris / n,
   };
 }
 
@@ -475,6 +481,8 @@ async function alternate(
         acc.cpu += f.cpuMs;
         acc.draw += f.drawMs;
         acc.steps += engine.pace.steps;
+        acc.calls += renderer.info.render.calls;
+        acc.tris += renderer.info.render.triangles;
         ui.set(`CRUSH BENCH: ${title} ${a.key}, round ${c + 1} / ${cycles}`);
       }
       acc.wallS += wall;
@@ -638,6 +646,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   ui.set("CRUSH BENCH: loading…");
   const timerStepMs = timerStep();
   await engine.ready;
+  if (plan.ultra && !(await engine.loadUltra())) throw new Error("CRUSH BENCH: ultra=1, but the Ultra look did not load (see the console)");
   const parts = engine.benchParts();
   parts.renderer.setAnimationLoop(null);
   engine.fadeScenes = false;
@@ -678,7 +687,8 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   // The detail arms run at the window's tier too (the governor is off with the tier pinned), then the governor's rung is put back.
   const detail = await alternate(engine, parts, t, beat, ui, "detail", DETAIL_ARMS.map((a) => ({ key: a.key, set: () => (a.level === null ? parts.detail.setDistances(Infinity, Infinity) : parts.detail.setLevel(a.level)) })), BENCH.detailCycles);
   parts.detail.setLevel(parts.governor.level);
-  const fx = await alternate(engine, parts, t, beat, ui, "fx", (["minimal", "low", "high"] as const).map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  const fxTiers: FxTier[] = plan.ultra ? ["minimal", "low", "high", "ultra"] : ["minimal", "low", "high"];
+  const fx = await alternate(engine, parts, t, beat, ui, "fx", fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
   engine.setFxAuto();
   if (plan.lab) engine.setTimeScale(null);
 
@@ -692,7 +702,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
     labThrown: plan.lab ? w.thrown : null,
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },
-    abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]! },
+    abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]!, ...(plan.ultra ? { ultra: abFx["ultra"]! } : {}) },
     abDetail: blocksOf(detail, gpu),
     device,
   };

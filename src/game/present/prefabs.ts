@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { makeAsphalt, makeJerseyBarrier, makeLamp } from "./engine-world.ts";
+import { tagSurface } from "./ultra/surface-tag.ts";
 import type { PrefabId } from "../world/catalog.ts";
 
 /**
@@ -75,7 +76,7 @@ function texture(c: HTMLCanvasElement, repeat: boolean): THREE.CanvasTexture {
 }
 
 /** 1 / mean linear colour of a canvas. */
-function gainOf(c: HTMLCanvasElement): THREE.Color {
+export function gainOf(c: HTMLCanvasElement): THREE.Color {
   const lut = new Float32Array(256);
   const col = new THREE.Color();
   for (let i = 0; i < 256; i++) lut[i] = col.setRGB(i / 255, 0, 0, THREE.SRGBColorSpace).r;
@@ -200,16 +201,16 @@ function makeBillboard(): HTMLCanvasElement {
 }
 
 export function makeRaceTextures(): RaceTextures {
-  const asphalt = makeAsphalt();
+  const asphalt = tagSurface(makeAsphalt(), "asphalt", TILE.asphalt);
   asphalt.repeat.set(1, 1);
   const concrete = makeConcrete();
   const detail = makeDetail();
   return {
     asphalt,
     asphaltGain: gainOf(asphalt.image as HTMLCanvasElement),
-    concrete: texture(concrete, true),
+    concrete: tagSurface(texture(concrete, true), "concrete", TILE.concrete),
     concreteGain: gainOf(concrete),
-    detail: texture(detail, true),
+    detail: tagSurface(texture(detail, true), "ground", TILE.detail),
     detailGain: gainOf(detail),
     windows: texture(makeWindows(), true),
     billboard: texture(makeBillboard(), false),

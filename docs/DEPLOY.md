@@ -20,7 +20,7 @@ variables do).
   becomes Vite's `base`. TanStack Start derives the router basepath from it and Nitro gets it as
   `baseURL`, so pages, `/_serverFn`, `/api/rtc` and public files all live under it. Client code
   builds URLs from `import.meta.env.BASE_URL` (always ends in `/`), never from a
-  hard-coded `/`: `${import.meta.env.BASE_URL}api/rtc`, `${import.meta.env.BASE_URL}env-studio.jpg`,
+  hard-coded `/`: `${import.meta.env.BASE_URL}api/rtc`, `${import.meta.env.BASE_URL}env-studio.hdr`,
   and for share links `location.origin + import.meta.env.BASE_URL + "?net=join&room=X"`. A
   request outside the base gets a redirect to it.
 

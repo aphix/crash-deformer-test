@@ -17,23 +17,15 @@
       import * as THREE from "three";
       import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
+      // RoomEnvironment's linear radiance (its softboxes reach 50), not the 8-bit sRGB the old jpeg clipped to 1.
       const W = 1024;
       const H = 512;
-      const renderer = new THREE.WebGLRenderer({
-        antialias: false,
-        preserveDrawingBuffer: true,
-        alpha: false,
-      });
+      const renderer = new THREE.WebGLRenderer({ antialias: false });
       renderer.setSize(W, H);
-      renderer.outputColorSpace = THREE.SRGBColorSpace;
       renderer.toneMapping = THREE.NoToneMapping;
-      document.body.appendChild(renderer.domElement);
 
       const scene = new RoomEnvironment();
-      const cubeRT = new THREE.WebGLCubeRenderTarget(256, {
-        type: THREE.UnsignedByteType,
-        colorSpace: THREE.SRGBColorSpace,
-      });
+      const cubeRT = new THREE.WebGLCubeRenderTarget(256, { type: THREE.HalfFloatType });
       const cubeCam = new THREE.CubeCamera(0.1, 60, cubeRT);
       cubeCam.update(renderer, scene);
 
@@ -58,8 +50,25 @@
           }`,
       });
       eqScene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat));
+      const eqRT = new THREE.WebGLRenderTarget(W, H, { type: THREE.FloatType, depthBuffer: false });
+      renderer.setRenderTarget(eqRT);
       renderer.render(eqScene, eqCam);
-      window.__baked = renderer.domElement.toDataURL("image/jpeg", 0.9);
+      const rgba = new Float32Array(W * H * 4);
+      await renderer.readRenderTargetPixelsAsync(eqRT, 0, 0, W, H, rgba);
+      // Rows top to bottom, RGB only. The old canvas jpeg's top row was v = 1, the render target's last row.
+      const rgb = new Float32Array(W * H * 3);
+      for (let y = 0; y < H; y++) {
+        const src = (H - 1 - y) * W * 4;
+        for (let x = 0; x < W; x++) {
+          rgb[(y * W + x) * 3] = rgba[src + x * 4];
+          rgb[(y * W + x) * 3 + 1] = rgba[src + x * 4 + 1];
+          rgb[(y * W + x) * 3 + 2] = rgba[src + x * 4 + 2];
+        }
+      }
+      const bytes = new Uint8Array(rgb.buffer);
+      let bin = "";
+      for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+      window.__baked = { w: W, h: H, b64: btoa(bin) };
     </script>
   </body>
 </html>

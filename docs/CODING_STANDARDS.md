@@ -303,10 +303,37 @@ outcome>`. Both labels must be readable without the source file open.
 
 ### Parametrize same-shaped cases
 
-When several tests share the same body and differ only by inputs + expected output, drive them from an array of
-pure-data cases with one shared loop body. The case objects MUST be flat data only — no functions, no closures, no
-test bodies inside a case object. A case whose shape genuinely differs stays its own `it()` — don't force it into the
-table with a special-case branch. Prefer asserting the exact full expected object over spot-checking one field.
+*When several tests share the same body and differ only by inputs + expected output, drive them from an array of
+pure-data cases with one shared loop body.* This is the test-side of the DRY rule.
+
+The case objects MUST be flat data only — *no functions, no closures, no test bodies inside a case object.* A case is
+`{ it: 'message for the it()', ...inputs, expected: <obj-or-string> }`. The loop is the only place with logic:
+
+```ts
+const testCases = [
+  { it: "when a sedan hits the barrier at 30 m/s, then its engine is killed", carClass: "sedan", speed: 30, expectedEngineKilled: true },
+  { it: "when a sedan hits the barrier at 10 m/s, then its engine survives", carClass: "sedan", speed: 10, expectedEngineKilled: false },
+] as const;
+
+for (const testCase of testCases) {
+  it(testCase.it, () => { /* setup → act → assert, shared */ });
+}
+```
+
+- **Never `describe.each` / `it.each` / `test.each`, and never bare positional arrays** (`[["sedan", 30, true], ...]`):
+  they are ugly to read and the reader has to count columns to know what `30` means. Use the named case objects and
+  `for (const testCase of testCases)` above.
+- Values that only exist at run time (built cars, generated ids, sorted lists) are referenced *by name* in the case
+  data (e.g. `carClass: "sedan"`) and resolved inside the loop. *Never* put a `() => …` builder in the case.
+- Expected strings that embed run-time values hold literal `{token}` placeholders the loop fills; the *exact* full
+  expected string/object is still asserted, never a partial/regex match.
+- A case whose shape genuinely differs (extra setup step, different assertion) stays its own `it()` — *don't* force it
+  into the table with a special-case branch. Forcing dissimilar cases into one table is the same smell as a
+  god-function.
+- Assert every field of the expected result, not just one: one `assert.equal` per field (or per index), each with a
+  message naming the field, e.g. `assert.equal(result.engineKilled, testCase.expectedEngineKilled, "engine killed")`.
+  Never `assert.deepEqual` two computed values, and never `deepEqual` large numeric arrays: boundaries rule C9 rejects
+  the first, and a failing `deepEqual` on tens of thousands of floats renders a diff large enough to exhaust memory.
 
 ### Assertions must discriminate
 

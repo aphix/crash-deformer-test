@@ -117,6 +117,8 @@ export abstract class EngineWarm extends EngineCore {
     this.warmsInFlight++;
     queueMicrotask(() => {
       this.warmQueued = false;
+      // Surfaces added since (a course's art) wear the Ultra set before the compile, so their programs link with the rest.
+      this.cine.ultra?.dress();
       this.warmScene()
         .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
         .finally(() => this.warmsInFlight--);

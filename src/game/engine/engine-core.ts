@@ -21,6 +21,7 @@ import { armKill, assignClass, carClass, HANDLING, killClass, STYLE_CLASS, type 
 import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
+import { loadHdrEnv, STUDIO_ENV_URL } from "../present/look-env.ts";
 import { CarDetail } from "../present/car-detail.ts";
 import { addCars, occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround } from "../world/ground.ts";
@@ -178,6 +179,8 @@ export abstract class EngineCore {
   protected cine!: Cinematics;
   /** The automatic FX tier (`present/auto-fx.ts`); `fxFrame` applies it. */
   protected autoFx!: AutoFx;
+  /** The Ultra tier is being fetched (`setFxTier`); the HUD shows it. */
+  protected fxLoading = false;
   /** The distance detail's rung (`present/detail-governor.ts`), chosen by how the match runs; `fxFrame` applies it to `detail` while the tier is automatic. */
   protected detailGov!: DetailGovernor;
   protected impactLightLife = 0;
@@ -652,24 +655,14 @@ export abstract class EngineCore {
   /** The camera's lens for the canvas's new size (`EngineReel`: the results reel frames the part the sheet leaves free). */
   protected abstract fitLens(): void;
 
-  /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. Settles once attached or failed. */
+  /** The studio environment (public/env-studio.hdr, RGBE) prefiltered to PMREM at boot. Settles once attached or failed. */
   protected async attachStudioEnv(): Promise<void> {
-    const tex = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}env-studio.jpg`).catch(() => null);
-    if (!tex) return;
-    if (this.disposed) {
-      tex.dispose();
-      return;
-    }
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.mapping = THREE.EquirectangularReflectionMapping;
-    const gen = new THREE.PMREMGenerator(this.renderer);
-    const env = gen.fromEquirectangular(tex).texture;
+    const env = await loadHdrEnv(this.renderer, STUDIO_ENV_URL, () => !this.disposed);
+    if (!env) return;
     this.scene.environment = env;
     this.scene.environmentIntensity = this.stage.envIntensity;
     this.envMap?.dispose();
     this.envMap = env;
-    tex.dispose();
-    gen.dispose();
   }
 
   protected buildWorld(): void {
