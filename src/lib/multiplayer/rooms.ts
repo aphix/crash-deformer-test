@@ -1,4 +1,4 @@
-/** Room rules shared by the signaling relay (server) and the game's Net panel (client). */
+/** Room rules shared by the signaling relay (server) and the game's online entry (client). */
 
 /** Peers per room: a full mesh, and a P2P host's upload, top out here (docs/MULTIPLAYER.md). */
 export const ROOM_MAX = 8;

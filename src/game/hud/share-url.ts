@@ -48,6 +48,15 @@ const roomCode: Field<string> = {
 /** Whether `room` is a code the `#` can carry (what `room=` accepts back). */
 export const isShareableRoom = (room: string): boolean => roomCode.parse(room) === room;
 
+/** The older `?net=host|join&room=CODE[&tx=bc]` link: `join` joins on load, `host` only fills in the Room field. Null when the code is not one the Room field takes. */
+export function netDeepLink(search: string): { join: boolean; code: string; tx: ShareState["tx"] } | null {
+  const params = new URLSearchParams(search);
+  const net = params.get("net");
+  const code = roomCode.parse(params.get("room") ?? "");
+  if ((net !== "host" && net !== "join") || code === undefined) return null;
+  return { join: net === "join", code, tx: params.get("tx") === NET_TX.bc ? NET_TX.bc : NET_TX.rtc };
+}
+
 const R = KNOB_RANGES;
 const D = INITIAL_HUD;
 const O = DEFAULT_RACE_OPTIONS;

@@ -5,6 +5,7 @@ import { DerbyBoard, DoorPanel, LabPanel, PistonPanel, RangePanel, StackPanel } 
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { BenchEntry } from "@/components/bench-controls";
+import { OnlineEntry } from "@/components/online-entry";
 import { Gauge, RaceReadouts } from "@/components/race-readouts";
 import { RaceStatus } from "@/components/race-status";
 import { SoloExit } from "@/components/race-reel";
@@ -30,6 +31,8 @@ export type HudProps = {
   state: CrashHudState;
   /** The engine once booted (null before): controls call it directly. */
   engine: RefObject<CrashEngine | null>;
+  /** Whether the online entry shows (not on a `?bench=` page). */
+  onlineShown: boolean;
 };
 
 const PHASE: Record<CrashHudState["phase"], string> = {
@@ -135,7 +138,7 @@ function seatHint(state: CrashHudState): { title: string; keys: string } {
 }
 
 export function Hud(props: HudProps) {
-  const { state, engine } = props;
+  const { state, engine, onlineShown } = props;
   // Phones and tablets get the thumb pad and touch hints; a fine pointer keeps the desktop HUD as it was.
   const touch = useCoarsePointer();
   // What resets the driven car: the connected pad, the thumb pad's button, or R.
@@ -160,43 +163,47 @@ export function Hud(props: HudProps) {
   if (state.race?.solo != null) return <SoloExit title={state.race.solo} shown={state.race.shown} onCommand={raceCommand} />;
   return (
     <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
-      {focus && state.race ? (
-        <header className="hud-ink min-w-0 pb-12 font-display" style={{ gridArea: "title" }}>
-          <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
-            {state.race.survival ? "Survival" : state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
-          </p>
-        </header>
-      ) : (
-        <header className={cn("hud-ink min-w-0 max-sm:min-h-11", state.race && "pb-12")} style={{ gridArea: "title" }}>
-          <p className="hud-label idle:hidden">Streamed deformation</p>
-          <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight idle:text-lg idle:opacity-70">Crush Stream</h1>
-          <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block phone-landscape:hidden idle:hidden">
-            {state.race
-              ? state.race.survival
-                ? `Survival. One car, the cops dropped in more and more. Last as long as you can; held slow beside one for ${SURVIVAL.bustTime} s and you are busted.`
-                : `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
-              : state.derby
-                ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
-                : state.showCompactor
-                  ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
-                  : state.showPistons
-                    ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
-                    : state.showDoors
-                      ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
-                      : state.range
-                        ? "One car, 100 km/h, into a hood-height wall. The driver goes over it; the signs count the metres."
-                      : state.showCorkscrew
-                        ? "One car into a twisting channel at a spawn speed: too slow rolls back, then half a roll onto the roof, a full roll back onto its wheels, a roll and a half."
-                        : state.stack
-                          ? "Cars dropped one at a time onto a base car. Each roof carries the weight above it: the panel reads the load and the crush."
-                        : state.lab
-                          ? "Toy cars on a giant workbench. Put a finger on a car and swipe along the bench: it leaves at the swipe's speed and angle."
-                        : state.carCount <= 2
-                          ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
-                          : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
-          </p>
-        </header>
-      )}
+      <div className="flex min-w-0 flex-col items-start max-sm:min-h-11" style={{ gridArea: "title" }}>
+        {focus && state.race ? (
+          <header className="hud-ink min-w-0 font-display">
+            <p className="truncate text-sm font-semibold uppercase leading-tight tracking-[0.12em] text-fg/80">
+              {state.race.survival ? "Survival" : state.race.mode === "campaign" ? "Campaign" : "Race"} · <span className="text-fg">{state.race.trackName || "Pick a course"}</span>
+            </p>
+          </header>
+        ) : (
+          <header className="hud-ink min-w-0 max-sm:min-h-11">
+            <p className="hud-label idle:hidden">Streamed deformation</p>
+            <h1 className="font-display text-2xl font-semibold leading-tight tracking-tight idle:text-lg idle:opacity-70">Crush Stream</h1>
+            <p className="mt-0.5 hidden max-w-xs text-xs leading-snug text-fg/80 sm:block phone-landscape:hidden idle:hidden">
+              {state.race
+                ? state.race.survival
+                  ? `Survival. One car, the cops dropped in more and more. Last as long as you can; held slow beside one for ${SURVIVAL.bustTime} s and you are busted.`
+                  : `Circuit race${state.race.trackName ? ` on ${state.race.trackName}` : ""}. ${state.race.noReset ? "No resets: a wreck is out, the last car running wins." : "Wrecks respawn on the racing line after 3 s."}`
+                : state.derby
+                  ? "Demolition derby. Engine kill is a disable. Last car with a living block wins."
+                  : state.showCompactor
+                    ? "One car, two steel plates. They close square to the chassis — bumper, wheel-well, then the cage."
+                    : state.showPistons
+                      ? "One parked car, eight rams: corners at 45°, mids square to each side. 1–8 fire one, 0 fires all."
+                      : state.showDoors
+                        ? "One parked car, one ram down its side. A clips the mirror, B forces the open door past its stop, C swings it shut."
+                        : state.range
+                          ? "One car, 100 km/h, into a hood-height wall. The driver goes over it; the signs count the metres."
+                        : state.showCorkscrew
+                          ? "One car into a twisting channel at a spawn speed: too slow rolls back, then half a roll onto the roof, a full roll back onto its wheels, a roll and a half."
+                          : state.stack
+                            ? "Cars dropped one at a time onto a base car. Each roof carries the weight above it: the panel reads the load and the crush."
+                          : state.lab
+                            ? "Toy cars on a giant workbench. Put a finger on a car and swipe along the bench: it leaves at the swipe's speed and angle."
+                          : state.carCount <= 2
+                            ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
+                            : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}
+            </p>
+          </header>
+        )}
+        {/* The one online entry sits right under the title, so it never needs a guessed offset. The solo clip view returned above; the results reel and bench pages have none. */}
+        {onlineShown && state.race?.reel == null ? <OnlineEntry engine={engine} race={state.race} /> : null}
+      </div>
 
       {state.race ? (
         <RaceReadouts race={state.race} corner={focus && !touch} />

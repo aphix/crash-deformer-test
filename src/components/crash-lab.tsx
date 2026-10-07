@@ -2,8 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { dismissBootLoader } from "@/lib/boot-loader";
 import { Hud } from "@/components/hud";
 import { useDriver } from "@/components/use-driver";
-import { NetPanel } from "@/components/net-panel";
-import { LiveRooms } from "@/components/live-rooms";
+import { useDeepLinkJoin } from "@/components/use-deep-link-join";
 import type { CrashEngine } from "@/game/engine/engine";
 import { runBenchPage } from "@/components/bench-run";
 import { EngineContext } from "@/components/engine-context";
@@ -29,6 +28,7 @@ export function CrashLab() {
   const [bootError, setBootError] = useState<string | null>(null);
   const [booted, setBooted] = useState(false);
   const driver = useDriver();
+  useDeepLinkJoin(engineRef);
   const newer = useUpdateCheck();
   const benchPage = useSyncExternalStore(subscribeNever, () => isBenchPage(window.location.search), () => false);
   const deployed = updateNoticeShown(newer, hud.race) ? newer : null;
@@ -101,13 +101,7 @@ export function CrashLab() {
         {bootError ? (
           <p className="absolute inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-lg bg-black/80 px-4 py-3 text-center text-sm text-red-200">{bootError}</p>
         ) : null}
-        {/* The race focus view, the solo highlight view and the bench pages hide the Net button; it stays mounted (its room keeps running). */}
-        <div className={benchPage || (hud.race && (!hud.race.fullUi || hud.race.solo !== null)) ? "hidden" : "contents"}>
-          <NetPanel engine={engineRef} />
-        </div>
-        <Hud state={hud} engine={engineRef} />
-        {/* Race mode's online entry: live races and Play online (hidden in the solo clip view and while the results reel plays). */}
-        {hud.race && hud.race.solo === null && hud.race.reel === null && !benchPage ? <LiveRooms engine={engineRef} race={hud.race} /> : null}
+        <Hud state={hud} engine={engineRef} onlineShown={!benchPage} />
         {/* The scene switch's fade to black (`SceneFade`): the engine drives its opacity; it covers the HUD and takes no input. */}
         <div ref={veilRef} aria-hidden className="pointer-events-none fixed inset-0 z-[100] bg-black opacity-0" />
         <BuildLabel />
