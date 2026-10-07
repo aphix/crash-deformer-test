@@ -904,9 +904,11 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // At rest: slow on three or more points whose surface is near level. Past ~14° a body there only creeps (a tyre grips
   // across its tread alone, gravity adds 0.04 m/s a slice, under `REST_V`), so freezing it held a car level on a slope,
   // tail on the road and the nose over the drop, for good (the stunt kicker's face): it keeps simulating until it
-  // rolls onto its tyres or its friction holds it.
+  // rolls onto its tyres or its friction holds it. A tyre in its springs on another car's top, unpowered, pushes straight up and grips
+  // both ways (it does not creep), so it counts as level: read by its face, a roof's 58° shoulder under a coupe's rear tyres kept the
+  // coupe on a wagon from ever coming to rest.
   let up = 0;
-  for (let c = 0; c < n; c++) up += N[c]!.y;
+  for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
   if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
