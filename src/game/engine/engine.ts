@@ -241,7 +241,7 @@ export class CrashEngine extends EngineShare {
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
       // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).
       bleeds: () => this.clock.wallSinceImpact > 0.2,
-      reelReady: (clips) => this.startReel(clips),
+      reelReady: (clips, since) => this.startReel(clips, since),
       clear: () => this.clearScene(),
     });
     this.highlights = new ReelDirector({
@@ -251,10 +251,12 @@ export class CrashEngine extends EngineShare {
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
+      still: () => this.sceneSight(null, false),
       clock: this.clock,
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
       hit: this.hitFx,
       eject: (e, ride) => { this.ragdolls.launch(e, this.live()); if (ride) this.ragdolls.follow(); },
+      ride: (camera, wallDt, subject) => this.ragdolls.rideAlong && this.ragdolls.frameCamera(camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) !== "none",
     });
 
     this.resize();
@@ -704,10 +706,7 @@ export class CrashEngine extends EngineShare {
     if (this.highlights.playing) {
       // The reel frames its own shots; the subject's thrown driver's ride-along takes the camera over them, the crash cam on a probe lens.
       this.reelFov ??= this.camera.fov;
-      const subject = this.highlights.focus();
-      const ride = this.ragdolls.rideAlong && subject ? this.ragdolls.frameCamera(this.camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) : "none";
-      const cut = this.cine.direct(ride === "none" ? this.camera : this.crashProbe, wallDt, true, this.highlights.crashHold());
-      if (ride === "none" && !cut) this.highlights.camera(this.camera);
+      this.highlights.aim(this.camera, this.crashProbe, wallDt, this.cine);
       return;
     }
     // A thrown driver's ride-along holds the camera from his exit (the windshield shot, then the dummy), over the crash

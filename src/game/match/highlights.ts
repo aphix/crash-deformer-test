@@ -23,6 +23,13 @@ export const MAX_SPAN = 6;
 /** An impact joins an open cluster that shares a car, or whose centre is within this distance (m). */
 const JOIN_R = 30;
 /**
+ * A driver thrown at clip second `at` at (x, z) is the clip's own crash's (the reel rides with him and holds its slow-mo for
+ * him): from the first impact on, within `JOIN_R` of it. Another car's crash in the clip's tail is not.
+ */
+export function ownThrow(clip: HighlightClip, at: number, x: number, z: number): boolean {
+  return at >= clip.firstImpact && (x - clip.x) ** 2 + (z - clip.z) ** 2 < JOIN_R * JOIN_R;
+}
+/**
  * Closing speed (m/s) at which any contact counts as an impact: car–car, wall and prop alike (45 km/h). Measured on 192 races
  * (docs/HIGHLIGHTS.md): below it a hit cannot make a clip alone (a sedan head-on scores `MIN_SCORE` at 12.5 m/s), so a
  * slower bump could only ever join a cluster and lift its score and car count: the "pile-ups of slow bumps".

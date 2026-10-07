@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
-import { PREFABS } from "../world/catalog.ts";
+import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import type { Placed } from "../world/placements.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
 import { projectGrid, roadGrid, type RoadGrid } from "./road-grid.ts";
@@ -22,6 +22,15 @@ export type Occluder = { x: number; z: number; cos: number; sin: number; hx: num
 /** Box local x = (cos yaw, −sin yaw), local z = (sin yaw, cos yaw): the props' and the jersey slab's frame. */
 export function occluder(x: number, z: number, yaw: number, hx: number, hz: number, circle: boolean, y0: number, y1: number): Occluder {
   return { x, z, cos: Math.cos(yaw), sin: Math.sin(yaw), hx, hz, circle, y0, y1 };
+}
+
+/** Every visible car but `except` (not vaporized) into `occ` as a solid the eye may not stand in or look through: an upright cylinder over its body. */
+export function addCars(occ: Occluder[], cars: readonly DeformableCar[], except: DeformableCar | null): void {
+  for (const c of cars) {
+    if (c === except || c.vaporized || !c.group.visible) continue;
+    const p = c.group.position;
+    occ.push(occluder(p.x, p.z, 0, CAR_HALF.z, CAR_HALF.z, true, p.y - 0.3, p.y + 1.6));
+  }
 }
 
 /** The scene's solids, as the cinematic eye sees them. */
@@ -74,20 +83,29 @@ export const CINE = {
 
 const raceSights = new WeakMap<Track, Sight>();
 
+/**
+ * Crowned props as `present/prefabs.ts` draws them: the share of the height where the crown (the prop's drawn width) starts.
+ * Below it stands only the trunk: a tree's lower cone starts at 1.4 of its 7 m, a palm's fronds droop to 6.5 of its 8.5 m.
+ */
+const CROWN_FROM: Partial<Record<PrefabId, number>> = { tree: 0.2, palm: 0.75 };
+
 /** The course's solids at their drawn size (placed props, the start gantry's legs, bridge pillars); cached per track. */
 export function raceSight(track: Track, placed: readonly Placed[]): Sight {
   const hit = raceSights.get(track);
   if (hit) return hit;
-  const occ = placed.map((p) => {
+  const occ = placed.flatMap((p) => {
     const spec = PREFABS[p.prefab];
     const hx = (spec.size[0] * p.sx) / 2;
     const hz = (spec.size[2] * p.sz) / 2;
-    // Thin round props (lamps, cones) get their heads and arms: 0.45 m at least.
-    if (spec.collider?.kind === "circle") {
-      const r = Math.max(hx, hz, 0.45);
-      return occluder(p.x, p.z, p.yaw, r, r, true, p.y, p.y + spec.size[1] * p.sy);
-    }
-    return occluder(p.x, p.z, p.yaw, hx, hz, false, p.y, p.y + spec.size[1] * p.sy);
+    const top = p.y + spec.size[1] * p.sy;
+    if (spec.collider?.kind !== "circle") return [occluder(p.x, p.z, p.yaw, hx, hz, false, p.y, top)];
+    // Thin round props (lamps, cones, trunks) get their heads and arms: 0.45 m at least.
+    const r = Math.max(hx, hz, 0.45);
+    const crown = CROWN_FROM[p.prefab];
+    if (crown === undefined) return [occluder(p.x, p.z, p.yaw, r, r, true, p.y, top)];
+    const trunk = Math.max(spec.collider.r * Math.max(p.sx, p.sz), 0.45);
+    const base = p.y + spec.size[1] * p.sy * crown;
+    return [occluder(p.x, p.z, p.yaw, trunk, trunk, true, p.y, base), occluder(p.x, p.z, p.yaw, r, r, true, base, top)];
   });
   // Start gantry legs (art only, `TrackArt`): just past each side's wall line.
   const path = track.path;
@@ -139,17 +157,17 @@ export function solid(s: Sight, x: number, y: number, z: number, pad: number, oc
     // In a wall, or low behind it (so a sight line that leaves the corridor under the wall top is blocked).
     if ((left ? p.wallL[k] : p.wallR[k]) && over > -pad && over < 3 && y < road + s.wallTop + pad) return true;
   }
-  for (const o of occ) {
-    if (y < o.y0 - pad || y > o.y1 + pad) continue;
-    const ex = x - o.x;
-    const ez = z - o.z;
-    if (o.circle) {
-      if (ex * ex + ez * ez < (o.hx + pad) ** 2) return true;
-      continue;
-    }
-    if (Math.abs(ex * o.cos - ez * o.sin) < o.hx + pad && Math.abs(ex * o.sin + ez * o.cos) < o.hz + pad) return true;
-  }
+  for (const o of occ) if (inside(o, x, y, z, pad)) return true;
   return false;
+}
+
+/** (x, y, z) is within `pad` of occluder `o`. */
+function inside(o: Occluder, x: number, y: number, z: number, pad: number): boolean {
+  if (y < o.y0 - pad || y > o.y1 + pad) return false;
+  const ex = x - o.x;
+  const ez = z - o.z;
+  if (o.circle) return ex * ex + ez * ez < (o.hx + pad) ** 2;
+  return Math.abs(ex * o.cos - ez * o.sin) < o.hx + pad && Math.abs(ex * o.sin + ez * o.cos) < o.hz + pad;
 }
 
 /** A chase eye is pulled in at most this far (m) toward its subject, and bisected to 1 / 2^`PULL_BISECT` m. */

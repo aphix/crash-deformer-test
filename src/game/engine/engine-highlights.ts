@@ -1,13 +1,13 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
-import { beginImpact, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, stepPhase, type CrashPhase, type PhaseClock } from "../match/phase.ts";
-import { clipTitle, type HighlightClip, type Reel } from "../match/highlights.ts";
+import { beginImpact, CONTACT_HOLD, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
+import { clipTitle, ownThrow, type HighlightClip, type Reel } from "../match/highlights.ts";
 import type { ReelHud, SaveResult } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, type ShotKind } from "../present/shot-cam.ts";
 import { CINE, type Sight } from "../present/spectate-cam.ts";
-import { CRASH_CAM_END, type CrashHold } from "../present/engine-cine.ts";
+import { crashCamEnd, hitAim, type CrashCam, type CrashHold } from "../present/engine-cine.ts";
 import { overheadPose } from "../present/highlight-cam.ts";
 import { ClipSim, type ReplayScene } from "./engine-replay.ts";
 
@@ -24,6 +24,11 @@ const TL_DT = 1 / 120;
 const JOIN_LATE = 0.25;
 /** A car–car hit in a replay throws sparks at most this often (wall s), as a race does. */
 const SPARK_GAP = 0.16;
+/**
+ * The held crash cam keeps a cut whose eye sees the hit this long (wall s) past the cars meeting, the car in its sight or
+ * not (`CrashHold.hit`): longer than its re-ask (`HOLD_CHECK`), so an ask just before the hit cannot hand the shot off on it.
+ */
+const HIT_KEEP = 0.3;
 
 /** A clip's wall timeline from the phase.ts slow-mo: per `TL_DT` the clip time, the time scale and the crash phase. */
 type Timeline = {
@@ -34,20 +39,39 @@ type Timeline = {
   phase: CrashPhase[];
   /** Wall s of the hit: slow-mo begins `PRE_IMPACT_LEAD` sim s before the recorded first impact. */
   impact: number;
+  /** Wall s of the recorded first impact itself (the cars meet). */
+  contact: number;
+  /** Wall s from `impact` to the slow-mo's hand-back to 1× (or to the clip's end, if it comes first). */
+  hold: number;
 };
 
-/** The phase clock run at fixed wall steps over a `length` s clip: 1× to the impact, the auto slow-mo, then back to 1×. */
-export function clipTimeline(firstImpact: number, length: number): Timeline {
+/**
+ * The phase clock run at fixed wall steps over a `length` s clip: 1× to the impact, the auto slow-mo held over the cars
+ * meeting and every throw (clip s, in order) that comes while it runs, then back to 1×.
+ */
+export function clipTimeline(firstImpact: number, length: number, throws: readonly number[]): Timeline {
   const c = phaseClock();
+  // The slow-mo holds until the cars meeting sets its hand-back.
+  c.hold = Infinity;
   const lead = firstImpact - PRE_IMPACT_LEAD;
   const sim: number[] = [];
   const scale: number[] = [];
   const phase: CrashPhase[] = [];
   let impact = Infinity;
+  let contact = Infinity;
+  let next = 0;
   for (let t = 0; ; ) {
     if (c.phase === "approach" && t >= lead) {
       beginImpact(c, true);
       impact = sim.length * TL_DT;
+    }
+    if (contact === Infinity && t >= firstImpact) {
+      contact = sim.length * TL_DT;
+      c.hold = c.wallSinceImpact + CONTACT_HOLD;
+    }
+    // A throw before the cars meet is an earlier crash's; one after the hand-back plays at 1×.
+    for (; next < throws.length && throws[next]! <= t; next++) {
+      if (contact !== Infinity && (c.phase === "impact" || c.phase === "slowmo")) c.hold = Math.max(c.hold, c.wallSinceImpact + THROW_HOLD);
     }
     sim.push(Math.min(t, length));
     scale.push(c.timeScale);
@@ -58,7 +82,9 @@ export function clipTimeline(firstImpact: number, length: number): Timeline {
     t += TL_DT * c.timeScale;
     stepPhase(c, TL_DT);
   }
-  return { wall: (sim.length - 1) * TL_DT, sim: Float64Array.from(sim), scale: Float32Array.from(scale), phase, impact };
+  const back = phase.indexOf("aftermath");
+  const hold = (back < 0 ? sim.length - 1 : back) * TL_DT - impact;
+  return { wall: (sim.length - 1) * TL_DT, sim: Float64Array.from(sim), scale: Float32Array.from(scale), phase, impact, contact, hold };
 }
 
 /** Clip time at wall `w` s into the timeline. */
@@ -69,8 +95,8 @@ export function simAt(tl: Timeline, w: number): number {
   return tl.sim[i]! + (tl.sim[j]! - tl.sim[i]!) * Math.min(1, k - i);
 }
 
-/** A camera from clip time `at`: a picked shot (`present/shot-cam.ts`, the director the Auto spectator cam shares). */
-type Shot = PickedShot & { at: number };
+/** A camera from clip time `at`: a picked shot (`present/shot-cam.ts`, the director the Auto spectator cam shares); `hit`: the cars meet while it is on. */
+type Shot = PickedShot & { at: number; hit: boolean };
 
 /**
  * A clip's shots, picked from the reel's seed (docs/HIGHLIGHTS.md "Cameras"): an opener, a run-in about a second before
@@ -79,12 +105,13 @@ type Shot = PickedShot & { at: number };
 function shotsFor(clip: HighlightClip, tl: Timeline, rand: () => number): Shot[] {
   const shots: Shot[] = [];
   const add = (at: number, kinds: readonly ShotKind[]): void => {
-    shots.push({ at, ...pickShot(kinds, shots[shots.length - 1]?.kind, rand) });
+    shots.push({ at, hit: false, ...pickShot(kinds, shots[shots.length - 1]?.kind, rand) });
   };
   add(0, OPENERS);
   const runIn = clip.firstImpact - 1 - rand() * 0.8;
   if (runIn > 0.8) add(runIn, RUN_INS);
-  const after = simAt(tl, tl.impact + CRASH_CAM_END);
+  shots[shots.length - 1]!.hit = true;
+  const after = simAt(tl, tl.impact + crashCamEnd(tl.hold));
   if (after < tl.sim[tl.sim.length - 1]!) add(after, AFTERS);
   return shots;
 }
@@ -101,14 +128,18 @@ export type ReelHost = {
   clear(): void;
   /** The course's solids with every visible car but `focus` (the cinematic eye's sight lines). */
   sight(focus: DeformableCar): Sight;
+  /** The course's own solids, no car in them: what a sight line to a moment to come is checked against. */
+  still(): Sight;
   /** The engine's crash clock: the reel mirrors its slow-mo into it (letterbox, HUD). */
   clock: PhaseClock;
   /** A clip's first impact as its slow-mo begins: the crash cam, flash and burst. */
   impact(contact: THREE.Vector3, normal: THREE.Vector3, closing: number): void;
   /** A replay's car–car hit: sparks. */
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
-  /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he is the clip's subject, so the camera follows his flight. */
+  /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight. */
   eject(e: Ejection, ride: boolean): void;
+  /** The thrown drivers' ride-along places `camera` on them this frame (`subject`: the clip's focus car); false when no ride is on. */
+  ride(camera: THREE.PerspectiveCamera, wallDt: number, subject: DeformableCar): boolean;
 };
 
 type Prepared = { clip: HighlightClip; sim: ClipSim; tl: Timeline; shots: Shot[] };
@@ -147,7 +178,7 @@ export class ReelDirector {
   private readonly flight = { ax: 0, az: 0, bx: 0, bz: 0, u: 0 };
   private readonly shotCam = new ShotCam();
   /** What the held crash cam asks about the clip's focus car (`crashHold`). */
-  private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!) };
+  private readonly hold: CrashHold = { target: new THREE.Vector3(), sight: () => this.host.sight(this.focus()!), hit: 0 };
   /** Every live car's visibility when the reel took them. */
   private shown: boolean[] | null = null;
 
@@ -227,6 +258,7 @@ export class ReelDirector {
     c.timeScale = 1;
     c.targetScale = 1;
     c.wallSinceImpact = 0;
+    c.hold = SLOMO_HOLD;
     s?.back();
   }
 
@@ -281,6 +313,17 @@ export class ReelDirector {
     return 0;
   }
 
+  /**
+   * The reel's camera this frame: the subject's thrown driver's ride-along over everything, then the crash cam (on `probe`
+   * while a ride holds `camera`: its bars and clock run on), then the clip's shot or the flight.
+   */
+  aim(camera: THREE.PerspectiveCamera, probe: THREE.PerspectiveCamera, wallDt: number, crash: Pick<CrashCam, "direct">): void {
+    const subject = this.focus();
+    const ride = subject !== null && this.host.ride(camera, wallDt, subject);
+    const cut = crash.direct(ride ? probe : camera, wallDt, true, this.crashHold());
+    if (!ride && !cut) this.camera(camera);
+  }
+
   /** The reel's camera when the crash cam does not hold it: the flight, or the clip's current shot. */
   camera(cam: THREE.PerspectiveCamera): void {
     if (this.flying) {
@@ -299,12 +342,14 @@ export class ReelDirector {
     return p && !this.flying ? p.sim.cars[p.clip.focus]! : null;
   }
 
-  /** The crash cam's view of the clip: its focus car's aim point and the scene's solids; null in a flight. */
+  /** The crash cam's view of the clip: its focus car's aim point, the scene's solids, and until when its hit is to come; null in a flight. */
   crashHold(): CrashHold | null {
     const car = this.focus();
     if (!car) return null;
     const p = car.group.position;
     this.hold.target.set(p.x, p.y + CINE.aimUp, p.z);
+    const tl = this.cur!.tl;
+    this.hold.hit = tl.contact - tl.impact + HIT_KEEP;
     return this.hold;
   }
 
@@ -323,7 +368,14 @@ export class ReelDirector {
 
   private prepare(clip: HighlightClip, rand: () => number): Prepared {
     const sim = new ClipSim(clip, this.host.carsOf(clip), this.host.scene);
-    const tl = clipTimeline(clip.firstImpact, sim.length);
+    // The clip's own throws (`ownThrow`), each at the end of its step, where `ClipSim.take` hands it over.
+    const ends = clip.ejections.map((x) => {
+      let at = 0;
+      for (let s = 0; s <= x.step; s++) at += clip.h[s]!;
+      return at;
+    });
+    const throws = ends.filter((at, i) => ownThrow(clip, at, clip.ejections[i]!.e.pos.x, clip.ejections[i]!.e.pos.z));
+    const tl = clipTimeline(clip.firstImpact, sim.length, throws);
     return { clip, sim, tl, shots: shotsFor(clip, tl, rand) };
   }
 
@@ -365,6 +417,8 @@ export class ReelDirector {
     c.timeScale = tl.scale[k]!;
     c.targetScale = c.timeScale;
     c.wallSinceImpact = w >= tl.impact ? w - tl.impact : 0;
+    // The crash cam's cuts follow the clip's hold (`crashCamEnd`) from the hit on.
+    c.hold = tl.hold;
     if (!this.impacted && w >= tl.impact) {
       this.impacted = true;
       this.impact(p);
@@ -393,15 +447,23 @@ export class ReelDirector {
     return sim.time - before;
   }
 
-  /** The dummies the clip's steps threw since the last look fly; the clip's subject car's driver gets the ride-along. */
+  /**
+   * The dummies the clip's steps threw since the last look fly; a driver thrown in the clip's own crash (`ownThrow`) gets
+   * the ride-along, the subject's or not, so his launch is on screen. One thrown before it, or far off in its tail, is another crash's.
+   */
   private launch(p: Prepared): void {
-    const focus = p.clip.cars[p.clip.focus]!.slot;
-    for (const e of p.sim.take()) this.host.eject(e, e.car === focus);
+    for (const e of p.sim.take()) this.host.eject(e, ownThrow(p.clip, p.sim.time, e.pos.x, e.pos.z));
   }
 
   private frameShot(p: Prepared, s: Shot): void {
-    const car = p.sim.cars[p.clip.focus]!;
-    this.shotCam.frame(s, car, this.host.sight(car), p.clip.x, p.clip.z);
+    const { clip, sim } = p;
+    const car = sim.cars[clip.focus]!;
+    const cam = this.shotCam;
+    cam.frame(s, car, this.host.sight(car), clip.x, clip.z);
+    if (!s.hit) return;
+    // The shot the cars meet in: its spot must see where they will meet (the record says where), else it is the chase.
+    const still = this.host.still();
+    if (!cam.sees(still, hitAim(_c, clip.x, sim.cars[clip.firstA]!.group.position.y, clip.z, still))) cam.found = false;
   }
 
   private impact(p: Prepared): void {

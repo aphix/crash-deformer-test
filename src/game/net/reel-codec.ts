@@ -63,10 +63,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * 36: a hunter's drop-in keeps dropMin from the player up to the frame the cop shows; 37: a car whose masses are idle
  * holds no contact clock, so a once-touched intact bystander stays quiet; 38: a car's far-end bumpers ride with the
  * cabin, crumpleWeight 1 only at the struck end; 39: a race reset puts a car at its last on-road spot between the last
- * checkpoint hit and the first owed, and a held reset moves a car there keeping its damage).
+ * checkpoint hit and the first owed, and a held reset moves a car there keeping its damage; 40: Survival's course sight
+ * models trees and palms as a trunk under a crown, which moves cop drop-ins).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 39;
+const REPLAY_VERSION = 40;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

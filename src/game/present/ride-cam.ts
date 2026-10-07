@@ -52,6 +52,13 @@ const GLASS_LOW_UP = [1.6, 2] as const;
 /** No spot clear: the nearest one is lifted by this much (m) until it is, at most this many times. */
 const GLASS_LIFT = 1.5;
 const GLASS_LIFTS = 8;
+/** Directions the high eyes are tried in, as (along, across) the car's forward axis: ahead, behind, then either side (a car nose-in against a wall has every spot ahead of it behind the wall). */
+const GLASS_DIRS = [
+  [1, 0],
+  [-1, 0],
+  [0, 1],
+  [0, -1],
+] as const;
 
 type RideShot = "glass" | "follow" | "trackside";
 /** What a ride frame did: `none` no ride, `shot` the camera is placed, `held` the user's orbit has it (aim: `RideCam.look`). */
@@ -93,7 +100,8 @@ export class RideCam {
   /** Ahead (1) or behind (-1), alternating per ride. */
   private side = -1;
   private age = 0;
-  private fresh = false;
+  /** The ride (re)opened and has not framed a frame yet: its next one is the windshield cut. */
+  fresh = false;
   private resume = false;
   /** Seconds since the ride ended while `fade` eases the camera into the engine's view; -1 when it is not. */
   private left = -1;
@@ -264,6 +272,9 @@ export class RideCam {
   }
 
   private place(camera: THREE.PerspectiveCamera, dt: number, f: Framing): void {
+    // A new shot placed at once (no ease from the old pose) is a cut: its lens cuts with it, or the old shot's (a crash cam
+    // zoomed to 20°) frames the new eye's aim, the thrown drivers out at the frame's edge.
+    const cut = this.snap && this.blend >= 1;
     if (this.shot === "follow") this.pos.lerp(this.followEye(_p, f), 1 - Math.exp(-5 * dt));
     camera.position.copy(this.pos);
     camera.lookAt(this.look);
@@ -278,7 +289,7 @@ export class RideCam {
       camera.position.lerpVectors(this.from, this.pos, w);
       camera.quaternion.slerpQuaternions(this.fromQ, this.aimQ, w);
     }
-    easeFov(camera, this.shot === "trackside" ? this.probe.fov : f.lens, dt);
+    easeFov(camera, this.shot === "trackside" ? this.probe.fov : f.lens, cut ? Infinity : dt);
   }
 
   /** The follow shot's eye: ahead of or behind the heads' travel, to the side and up, over the ground. */
@@ -294,8 +305,9 @@ export class RideCam {
 
   /**
    * The windshield eye: a low one first (`GLASS_LOW_*`: a driver's-height look at the glass), else the first high spot
-   * ahead of the car on its forward axis that stands clear and sees the heads. The thrown car does not hide its own
-   * driver from the low eye (it is the one he leaves); another car ahead, as in a head-on, does, and the pick goes up.
+   * ahead of the car on its forward axis that stands clear and sees the heads, else the same spots behind it and to either
+   * side (`GLASS_DIRS`). The thrown car does not hide its own driver from the low eye (it is the one he leaves); another car
+   * ahead, as in a head-on, does, and the pick goes up.
    */
   private pickGlass(f: Framing): void {
     const s = f.sight();
@@ -303,9 +315,13 @@ export class RideCam {
     const fwd = this.exitFwd;
     const own: Sight = { ...s, occ: s.occ.filter((o) => Math.hypot(o.x - at.x, o.z - at.z) > 1) };
     _vel.set(f.vx / f.n, 0, f.vz / f.n);
-    for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, this.reach, up, true)) return;
-    for (const up of GLASS_UP) {
-      for (const share of GLASS_SHARE) if (this.tryEye(s, f, this.reach * share, up, false)) return;
+    for (const up of GLASS_LOW_UP) if (this.tryEye(own, f, fwd.x, fwd.z, this.reach, up, true)) return;
+    for (const [along, across] of GLASS_DIRS) {
+      const dx = fwd.x * along - fwd.z * across;
+      const dz = fwd.z * along + fwd.x * across;
+      for (const up of GLASS_UP) {
+        for (const share of GLASS_SHARE) if (this.tryEye(s, f, dx, dz, this.reach * share, up, false)) return;
+      }
     }
     // Nothing clear: the nearest spot, lifted out of whatever holds it.
     const x = at.x + fwd.x * this.reach * GLASS_SHARE[2];
@@ -317,13 +333,13 @@ export class RideCam {
   }
 
   /**
-   * The eye `ahead` m on the car's forward axis and `up` m over the ground, set when it can be used: a low eye
+   * The eye `dist` m from the exit along flat unit (dx, dz) and `up` m over the ground, set when it can be used: a low eye
    * passes `camUsable` (room round it, and sight of the heads now and `GLASS_LEAD` s on at their velocity); a
    * high one stands clear of the solids and sees the heads.
    */
-  private tryEye(s: Sight, f: Framing, ahead: number, up: number, low: boolean): boolean {
-    const x = this.exitAt.x + this.exitFwd.x * ahead;
-    const z = this.exitAt.z + this.exitFwd.z * ahead;
+  private tryEye(s: Sight, f: Framing, dx: number, dz: number, dist: number, up: number, low: boolean): boolean {
+    const x = this.exitAt.x + dx * dist;
+    const z = this.exitAt.z + dz * dist;
     const g = s.ground.heightAt(x, z, this.exitAt.y + 1);
     if (g === NO_FLOOR) return false;
     const y = g + up;

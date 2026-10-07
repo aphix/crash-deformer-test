@@ -520,8 +520,15 @@ export class RaceDirector extends RaceField {
   /** End of a physics step of `dt` s, which the world ran on the schedule `shape` (`World.shape`): rules step, deaths, respawns. */
   step(dt: number, shape: number): void {
     const s = this.session;
-    if (!s || s.phase === "finished") return;
+    if (!s) return;
     const cars = this.host.live();
+    if (s.phase === "finished") {
+      // Over: the recorder runs on for the last thrown driver's hold (`CrashRecorder.over`), and the reel goes out when it ends.
+      if (!this.recorder.on) return;
+      this.recorder.endStep(cars, dt, shape);
+      this.reelIfRecorded();
+      return;
+    }
     const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const car = cars[i]!;

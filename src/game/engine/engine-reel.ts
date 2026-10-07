@@ -19,12 +19,12 @@ export abstract class EngineReel extends EngineInput {
   /** `listSaved()`, re-read after a save or a delete. */
   private savedList: SavedHud[] | null = null;
 
-  /** Race over (host or offline): the reel from the results' first moment. Every peer, this one too, replays the decoded bytes. */
-  protected startReel(clips: readonly HighlightClip[]): void {
+  /** Race over (host or offline) `since` wall s ago: the reel from the results' first moment. Every peer, this one too, replays the decoded bytes. */
+  protected startReel(clips: readonly HighlightClip[], since: number): void {
     if (clips.length === 0 || this.net.client) return;
     const lay = carLayout(this.cars[0]!);
     const reel = { seed: (Math.random() * 2 ** 32) >>> 0, clips: [...clips] };
-    const startAt = performance.now() / 1000 + RESULTS_DELAY;
+    const startAt = performance.now() / 1000 + RESULTS_DELAY - since;
     const current = (): boolean => this.race.active && this.race.phase === "finished";
     void (async () => {
       const msg = await packReel(reel, startAt);

@@ -6,8 +6,17 @@ const IMPACT_SCALE = 0.032;
 /** Reduced motion: a gentler slow-mo, and held for less. */
 const CALM_SCALE = 0.16;
 /** Wall seconds of slow-mo before the hand-back to 1× (`CALM_HOLD` under reduced motion). */
-const SLOMO_HOLD = 6.5;
+export const SLOMO_HOLD = 6.5;
 const CALM_HOLD = 1.4;
+/**
+ * Wall seconds a highlight reel's slow-mo holds past the cars meeting, and past each driver thrown out while it runs (owner,
+ * 2026-10-07: collisions "a little longer", ejections "about twice as long", in the viewer's real time): +40 % and 2× of the
+ * 4.50 s and 3.65 s the browser timed on main. It hands back to 1× when the last of them is up.
+ */
+export const CONTACT_HOLD = 6.3;
+export const THROW_HOLD = 7.3;
+/** Sim seconds a reel's slow-mo plays over a thrown driver's hold: how far past his throw a recording must run to show it whole. */
+export const THROW_HOLD_SIM = THROW_HOLD * IMPACT_SCALE;
 /** Auto slow-mo starts this long (sim s) before contact: the sandbox from its contact ETA, a highlight reel before the recorded impact. */
 export const PRE_IMPACT_LEAD = 0.07;
 /**
@@ -31,10 +40,12 @@ export type PhaseClock = {
    * approach when the coming hit will throw one (`THROW_ONSET`), or by `holdForThrow`. 0: none pending.
    */
   slomoAt: number;
+  /** Wall seconds after the hit at which the slow-mo hands back to 1×: `SLOMO_HOLD`, or what a highlight reel's clip sets. */
+  hold: number;
 };
 
 export function phaseClock(): PhaseClock {
-  return { phase: "approach", timeScale: 1, targetScale: 1, wallSinceImpact: 0, userTimeScale: null, reduceMotion: false, slomoAt: 0 };
+  return { phase: "approach", timeScale: 1, targetScale: 1, wallSinceImpact: 0, userTimeScale: null, reduceMotion: false, slomoAt: 0, hold: SLOMO_HOLD };
 }
 
 /** Auto slow-mo's scale for this clock. */
@@ -94,7 +105,7 @@ export function stepPhase(c: PhaseClock, wallDt: number): void {
   if (c.phase === "impact") {
     if (c.wallSinceImpact > 0.12 && c.slomoAt === 0) c.phase = "slowmo";
   } else if (c.phase === "slowmo") {
-    if (c.wallSinceImpact > (c.reduceMotion ? CALM_HOLD : SLOMO_HOLD)) {
+    if (c.wallSinceImpact > (c.reduceMotion ? CALM_HOLD : c.hold)) {
       if (c.userTimeScale == null) c.targetScale = 1;
       c.phase = "aftermath";
     }

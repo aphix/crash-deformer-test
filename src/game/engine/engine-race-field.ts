@@ -57,8 +57,11 @@ interface RaceHost {
   markBounds(minX: number, minZ: number, maxX: number, maxZ: number): void;
   /** The engine's wreck-slide rule is on (`settleStep`'s `bleed`): a highlight replays with the same. */
   bleeds(): boolean;
-  /** The race is over: its highlights (best first; empty when nothing ranked) for the results reel. */
-  reelReady(clips: readonly HighlightClip[]): void;
+  /**
+   * The race is over and its recording done (`CrashRecorder.over`): its highlights (best first; empty when nothing ranked)
+   * for the results reel; `since`: wall s since the race ended.
+   */
+  reelReady(clips: readonly HighlightClip[], since: number): void;
   /** A run starts (start, retry, next, a campaign leg): the last run's torn parts, loose wheels, dummies and fx go (`CrashEngine.clearScene`). */
   clear(): void;
   /** A race starts with no car of ours: the spectator camera goes to Auto. */
@@ -491,10 +494,15 @@ export abstract class RaceField {
       } else if (e.type === "over") {
         this.overFor = 0;
         if (this.survival) this.settle(s);
-        this.recorder.end();
-        this.host.reelReady(this.recorder.ledger.kept);
+        this.recorder.over();
+        this.reelIfRecorded();
       }
     }
+  }
+
+  /** The recording ran out (`CrashRecorder.over`, then the steps it records on): the reel goes out. */
+  protected reelIfRecorded(): void {
+    if (!this.recorder.on) this.host.reelReady(this.recorder.ledger.kept, this.overFor);
   }
 
   /**

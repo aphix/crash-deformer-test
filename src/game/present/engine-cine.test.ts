@@ -8,7 +8,7 @@ import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
-import { CrashPick, crashEye, CUTS, heldCut } from "./engine-cine.ts";
+import { CrashCam, CrashPick, crashEye, CUTS, heldCut } from "./engine-cine.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /** An eye's times through its cut, tried here: twice as many as the pick's, so half of them fall between its. */
@@ -200,4 +200,36 @@ describe("given a reel's crash camera in an open field where every cut has its f
     assert.equal(heldCut(open, at, n, reach, target.set(0, 0.55, 0), 2), 2, "it holds once the way is clear again");
     assert.equal(heldCut(walled, at, n, new Float32Array(3), target, first), -1, "no eye on any cut: the reel's own camera");
   });
+});
+
+/** The crash cam's lens on each cut: bumper, crane, long lens. */
+const LENS = { bumper: 34, crane: 46, long: 21 };
+const SCHEDULES = [
+  { hold: 6.5, take: 1.3, crane: 2.9, long: 4.5, back: 6.1 },
+  { hold: 9.5, take: 1.3, crane: 3.9, long: 6.5, back: 9.1 },
+  { hold: 11.2, take: 1.3, crane: 4.47, long: 7.63, back: 10.8 },
+];
+
+describe("given the crash cam on a hit in an open field", () => {
+  for (const s of SCHEDULES) {
+    it(`when the slow-mo holds ${s.hold} s of wall clock, then it takes the camera on the bumper cam at ${s.take} s, cuts to the crane at ${s.crane} s and the long lens at ${s.long} s, and hands the camera back at ${s.back} s`, () => {
+      const cam = new CrashCam(false);
+      const camera = new THREE.PerspectiveCamera(55, 16 / 9, 0.1, 900);
+      cam.begin(new THREE.Vector3(), new THREE.Vector3(1, 0, 0), null, s.hold);
+      const dt = 1 / 240;
+      const changes: [number, number][] = [];
+      let lens = 0;
+      while (cam.camT >= 0 && cam.camT < s.hold + 1) {
+        const now = cam.direct(camera, dt, true) ? camera.fov : 0;
+        if (now !== lens) changes.push([cam.camT, now]);
+        lens = now;
+      }
+      const want: [number, number][] = [[s.take, LENS.bumper], [s.crane, LENS.crane], [s.long, LENS.long], [s.back, 0]];
+      assert.equal(changes.length, want.length, `lens changes ${JSON.stringify(changes)}`);
+      for (const [i, [t, f]] of changes.entries()) {
+        assert.equal(f, want[i]![1], `change ${i} to a ${f}° lens, not ${want[i]![1]}°`);
+        assert.ok(Math.abs(t - want[i]![0]) < 0.02, `change ${i} at ${t.toFixed(3)} s, not ${want[i]![0]} s`);
+      }
+    });
+  }
 });

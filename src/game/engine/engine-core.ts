@@ -22,7 +22,7 @@ import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
 import { CarDetail } from "../present/car-detail.ts";
-import { occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
+import { addCars, occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround } from "../world/ground.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { AutoFx } from "../present/auto-fx.ts";
@@ -534,7 +534,7 @@ export abstract class EngineCore {
     this.impactKph = impulse * 3.6;
     this.view.kick(this.carCount);
     const rigScene = this.rigScene;
-    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.sceneSight(null, false));
+    this.cine.impact(contact, normal, impulse, crashCam ?? (!rigScene && this.autoSlomo && this.clock.userTimeScale == null && this.seat.mode === "global" && !this.view.userFramed), this.sceneSight(null, false), this.clock.hold);
     this.impactLight.position.copy(contact);
     this.impactLight.position.y = 0.8;
     this.impactLightLife = 0.35;
@@ -560,13 +560,7 @@ export abstract class EngineCore {
   protected sceneSight(followed: DeformableCar | null, cars: boolean): Sight {
     const course = this.race.active ? this.race.courseSight() : null;
     const occ: Occluder[] = course ? [...course.occ] : [];
-    if (cars) {
-      for (const c of this.live()) {
-        if (c === followed || c.vaporized || !c.group.visible) continue;
-        const p = c.group.position;
-        occ.push(occluder(p.x, p.z, 0, CAR_HALF.z, CAR_HALF.z, true, p.y - 0.3, p.y + 1.6));
-      }
-    }
+    if (cars) addCars(occ, this.live(), followed);
     if (course) return { ...course, occ };
     for (const pole of this.poles) {
       if (pole.intact && pole.group.visible) occ.push(occluder(pole.group.position.x, pole.group.position.z, 0, 0.45, 0.45, true, 0, 5.3));

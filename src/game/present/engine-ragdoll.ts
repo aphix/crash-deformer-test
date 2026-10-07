@@ -541,13 +541,17 @@ export class RagdollSystem {
   /**
    * Ride along with the dummies thrown: the camera opens on the windshield of the car the driver left, then frames
    * one dummy at a time (and any near it), cutting to the next one still moving as each comes to rest, until they all
-   * lie still.
+   * lie still. A driver thrown while it rides, out of its shot (further than `CAM_NEAR` from the heads it frames), is the
+   * moment now: it opens again on his windshield, framing him.
    */
   follow(): void {
-    if (!this.riding) {
-      const car = this.cars[this.exitCar];
-      this.cam.begin(car ?? null, this.exitSpeed);
-      this.primary = -1;
+    const d = this.dolls[this.lastSlot];
+    const c = this.cam.framing.c;
+    // Drivers thrown in the same frame (a head-on's two) open one ride: a far one counts once the ride has framed.
+    const away = this.riding && !this.cam.fresh && d !== undefined && d.live && Math.hypot(d.cur[0]! - c.x, d.cur[1]! - c.y, d.cur[2]! - c.z) > CAM_NEAR;
+    if (!this.riding || away) {
+      this.cam.begin(this.cars[this.exitCar] ?? null, this.exitSpeed);
+      this.primary = away ? this.lastSlot : -1;
     }
     this.riding = true;
   }

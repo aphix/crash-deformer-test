@@ -85,8 +85,8 @@ A thrown-out driver's car freewheels (`DriveInput.neutral`, flag 8 of the step's
 output needs nothing else; keyframes carry `driverOut` in the snapshot flags.
 
 `ClipSim` fires each ejection after its step ran (`take()` hands them out with `car` the engine slot), sets `driverOut`, and
-the reel launches the dummy from the recorded numbers (`ReelHost.eject`); the clip's subject car's driver gets the ride-along
-camera (`aimRigs`), over the clip's shots, until every dummy lies still. Two replays of one clip fly the dummy along exactly
+the reel launches the dummy from the recorded numbers (`ReelHost.eject`); every driver thrown in the clip's own crash (`ownThrow`: from its first impact on, within 30 m of it) gets the ride-along
+camera (`ReelDirector.aim`), over the clip's shots, until every dummy lies still. Two replays of one clip fly the dummy along exactly
 the same path (`race-eject-reel.test.ts`); the live dummy and the replay's start from the same point (0 m) but part once
 they bounce off replayed cars (a free flight stayed within 0.9 m of the live one over 4 s, one that hit the oncoming car
 did not): the launch falls on another frame boundary (up to 1/60 s) and the replayed cars are cm to dm off the live ones.
@@ -180,8 +180,13 @@ the shot. A peer at 45 Hz and one at 60 Hz therefore frame the same camera at th
 (`engine-highlights.test.ts`: under 1e-6 m or rad over 200+ moments).
 
 - **Timeline.** `clipTimeline` steps the phase.ts crash clock at a fixed 1/120 s: 1× up to `PRE_IMPACT_LEAD` (0.07 s)
-  before the recorded first impact, then the auto slow-mo, then back to 1× to the clip's end. The reel mirrors it into
-  the engine's clock, so the letterbox and the HUD behave as in a live crash.
+  before the recorded first impact, then the auto slow-mo, held `CONTACT_HOLD` (6.3 wall s) past the cars meeting and
+  `THROW_HOLD` (7.3 wall s) past each of the crash's own throws that comes while it runs (owner 2026-10-07: +40 % and 2×
+  of the 4.50 s and 3.65 s timed on main), then back to 1× to the clip's end. The reel mirrors it into the engine's
+  clock, the clip's hold too (`PhaseClock.hold`), so the letterbox, the HUD and the crash cam behave as in a live crash.
+  A race that ends as a driver is thrown (Survival's run-ending throw) would leave his clip no hold, so at "over" the
+  recorder runs on (`CrashRecorder.over`) until `THROW_HOLD_SIM` (7.3 × 0.032 = 0.23 s of race) past the last throw,
+  then files: every hold plays whole on recorded motion.
 - **Stepping.** The replay runs up to 6 ms per frame (`stepBudgetMs`). A frame that falls behind catches up over the
   next ones.
 - **Late join.** A peer that reaches a clip more than `JOIN_LATE` (0.25 s) in (a late join, back from the solo view, a
@@ -195,7 +200,7 @@ Each clip's shots come from `mulberry32(seed ^ clip)`, so the same seed gives th
 
 1. an opener at clip time 0;
 2. a run-in about a second before the hit;
-3. the aftermath, once the crash cam hands back (`CRASH_CAM_END`).
+3. the aftermath, once the crash cam hands back (`crashCamEnd` of the clip's hold).
 
 A shot is one of: chase (behind the car along its travel), trackside cinematic (`CineCam.pick`, searched in full when
 the shot starts, so the pick depends only on the poses and the seed), wheel-well dutch (`DutchCam.place` on a seeded
@@ -229,11 +234,13 @@ Before that check, a wall hit filmed the back of the wall: 86–178 of each cour
 (`engine-cine.test.ts`) put an eye behind it; after it, every cut has an eye on oval and city, and 14 of 186 (rally) and
 55 of 272 (stunt, tight walls) wall spots have a cut left to the chase.
 
-In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `CUTS[3]`, 1.3 to 6.1 s after the hit), not the
+In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `crashCamEnd(hold)`: 1.3 s after the hit to as
+long before the clip's slow-mo hands back as the sandbox's 6.1 s is before its 6.5 s hold, its cut times stretched evenly
+over it), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
 has `CLEAR.radius` m of room and sight of the car (`camUsable`), keeps its eye where its cut begins, turns toward the
 car at 4/s, and re-asks every 0.25 s: it moves to another cut only when the held eye has lost room or sight (a wall, a
-building or a car in the way), and hands the shot to the reel camera when none is usable. Camera changes from the hit
+building or a car in the way), and hands the shot to the reel camera when none is usable (until 0.3 s past the hit, a cut whose eye sees the hit holds). Camera changes from the hit
 to 7 s after, in the browser at 60 and 240 Hz: 4 before (bumper, crane, long lens, hand-back), 2 after (take-over,
 hand-back). The sandbox crash cam still cuts three times. A hit inside the window never re-picks (the reel calls
 `impact` once a pass).

@@ -19,6 +19,7 @@ import {
   type HighlightClip,
   type ReelCar,
 } from "../match/highlights.ts";
+import { THROW_HOLD_SIM } from "../match/phase.ts";
 import { ensureFrames, makeSnapshot, readSnapshot, Reader, snapshotMaxBytes, writeSnapshot, Writer, type NetLayout, type Snapshot } from "../net/codec.ts";
 import { carLayout, readCarPose } from "../net/car-pose.ts";
 import { REEL_BUDGET } from "../net/reel-codec.ts";
@@ -146,6 +147,13 @@ export class CrashRecorder {
   private readonly ejected: { step: number; e: Ejection }[] = [];
   /** Every prop knocked off its spot this race (`knock`): the step it went in, the prop and the car that knocked it; a clip takes those of its steps by cars it leaves out. */
   private readonly knocked: { step: number; prop: number; car: number }[] = [];
+  /**
+   * Recorder time up to which the last driver thrown out (`eject`) is owed his reel slow-mo hold (`THROW_HOLD_SIM` past
+   * the end of his step); `throwing`: one was thrown in the step under way; `closing`: the race is over (`over`) and recording runs on until then.
+   */
+  private owed = -Infinity;
+  private throwing = false;
+  private closing = false;
 
   constructor(course: CourseMemory | null = null) {
     this.course = course;
@@ -176,6 +184,18 @@ export class CrashRecorder {
     this.touchAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
     this.pre.count = 0;
+    this.owed = -Infinity;
+    this.throwing = false;
+    this.closing = false;
+  }
+
+  /**
+   * The race is over: recording runs on until the last thrown driver's slow-mo hold is recorded (a reel holds him in slow-mo
+   * `THROW_HOLD` wall s, which plays this much race), then ends. The race ending as he is thrown left his clip no hold at all.
+   */
+  over(): void {
+    this.closing = true;
+    if (this.time >= this.owed) this.end();
   }
 
   /** Recording stops; open clusters are cut at the current step and filed if they rank. */
@@ -229,7 +249,10 @@ export class CrashRecorder {
     this.keyPlaced[slot] = placed >>> 0;
   }
 
-  /** End of a fixed step of `h` s whose world ran the schedule `shape` (`World.shape`): the drive outputs it ran on, engine kills, and any cluster now due. */
+  /**
+   * End of a fixed step of `h` s whose world ran the schedule `shape` (`World.shape`): the drive outputs it ran on, engine
+   * kills, any cluster now due, and, once the race is over (`over`), the end when the last throw's hold is recorded.
+   */
   endStep(cars: readonly DeformableCar[], h: number, shape: number): void {
     if (!this.on) return;
     const n = Math.min(cars.length, MAX_CARS);
@@ -260,7 +283,12 @@ export class CrashRecorder {
     }
     this.time += h;
     this.step++;
+    if (this.throwing) {
+      this.throwing = false;
+      this.owed = this.time + THROW_HOLD_SIM;
+    }
     for (let c = this.ledger.due(this.time); c; c = this.ledger.due(this.time)) this.file(c);
+    if (this.closing && this.time >= this.owed) this.end();
   }
 
   /** Car `i` drives this step at the race draft's top speed (`DRAFT.top`): the replay must too. */
@@ -314,6 +342,7 @@ export class CrashRecorder {
     const { x, z } = car.group.position;
     if (e.car >= this.racers && !this.ledger.joins(this.time, e.car, -1, x, z)) return;
     this.ledger.eject(this.time, e.car, x, z);
+    this.throwing = true;
   }
 
   /**

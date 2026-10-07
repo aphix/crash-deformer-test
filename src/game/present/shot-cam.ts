@@ -153,6 +153,15 @@ export class ShotCam {
     this.step(shot, car, cx, cz, Infinity);
   }
 
+  /**
+   * The found spot has a clear line to `p` in `s`: a trackside or high eye, which stands still, so the line it will have at
+   * a moment to come is the one it has now. A wheel mount moves with the car, so it cannot be told ahead: no.
+   */
+  sees(s: Sight, p: THREE.Vector3): boolean {
+    const eye = !this.found ? null : this.kind === "cine" ? this.cine.eye : this.kind === "high" ? this.highEye : null;
+    return eye !== null && sightLine(s, eye.x, eye.y, eye.z, p.x, p.y, p.z) >= 0;
+  }
+
   /** The held shot's spot is being re-asked: `usable` answered "more". */
   get asking(): boolean {
     return this.lines.active;

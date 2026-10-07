@@ -27,7 +27,7 @@ const CLEAN_SEED = 8;
 
 describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
   it("when the clip plays, then it runs at normal speed up to the hit, holds the slow-motion over the hit, then catches up to the clip's last step", () => {
-    const tl = clipTimeline(4, 10);
+    const tl = clipTimeline(4, 10, []);
     // Slow-mo starts `PRE_IMPACT_LEAD` (0.07 s) before the recorded impact.
     assert.ok(Math.abs(tl.impact - 3.93) <= 1 / 120 + 1e-9, `slow-mo began at wall ${tl.impact.toFixed(3)} s, not at 3.93`);
     assert.ok(Math.abs(simAt(tl, 2) - 2) < 1e-9, "1× before the hit");
@@ -48,10 +48,12 @@ function hostOf(w: World): ReelHost {
     resetProps: () => w.race.resetProps(),
     clear: () => {},
     sight: () => w.race.courseSight()!,
+    still: () => w.race.courseSight()!,
     clock: phaseClock(),
     impact: () => {},
     hit: () => {},
     eject: () => {},
+    ride: () => false,
   };
 }
 
@@ -96,7 +98,7 @@ describe("given two peers each playing the same recorded highlight reel on their
       const ca = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
       const cb = new THREE.PerspectiveCamera(50, 1.6, 0.1, 900);
       // Peer a draws at 60 Hz, peer b at 45 Hz; both draw every 1/15 s, where they are compared.
-      const end = FLIGHT_S + clipTimeline(reel.clips[0]!.firstImpact, reel.clips[0]!.h.reduce((s, h) => s + h, 0)).wall;
+      const end = FLIGHT_S + da["clips"][0]!.tl.wall;
       let worst = 0;
       let compared = 0;
       // How far the camera and the focus car travel: a reel that never moved would compare equal for nothing.
@@ -225,11 +227,11 @@ describe("given a recorded highlight clip from a seeded city race that opens wit
       race(a, FIELD, CLEAN_SEED);
       const reel = await recordedReel(a);
       const clip = reel.clips[0]!;
-      const tl = clipTimeline(clip.firstImpact, clip.h.reduce((s, h) => s + h, 0));
       for (const hz of [60, 240]) {
         const d = new ReelDirector(hostOf(a));
         d.stepBudgetMs = Infinity;
         d.play(reel, 0);
+        const tl = d["clips"][0]!.tl;
         const prev = new THREE.Vector3();
         let frames = 0;
         let still = 0;
