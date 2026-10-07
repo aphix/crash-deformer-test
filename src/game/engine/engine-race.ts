@@ -580,10 +580,7 @@ export class RaceDirector extends RaceField {
   frame(wallDt: number): void {
     if (!this.active) return;
     const s = this.session;
-    if (this.art) {
-      this.art.setLights(s ? s.lights : 0);
-      this.art.props.update(wallDt);
-    }
+    if (this.art) this.art.setLights(s ? s.lights : 0);
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;
       if (this.overFor >= RESULTS_DELAY) {

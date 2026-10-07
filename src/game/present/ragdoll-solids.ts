@@ -8,10 +8,9 @@ import { pillarPieces } from "./track-structures.ts";
 
 /**
  * A fixed solid of a course that a thrown dummy hits (the cosmetic Rapier world's static colliders). `x`, `z`, `r`: its
- * centre and bounding radius in plan (the reach test); `make`: its collider; `prop`: the placement it is, for a prop.
- * Built once per course and shared by every throw.
+ * centre and bounding radius in plan (the reach test); `make`: its collider. Built once per course and shared by every throw.
  */
-export type Solid = { x: number; z: number; r: number; make: (R: Rapier) => ColliderDesc | null; prop?: number };
+export type Solid = { x: number; z: number; r: number; make: (R: Rapier) => ColliderDesc | null };
 
 /** Longest beam (m) a tunnel roof or a deck is cut into: bends and crests stay within a few cm of the drawn shell. */
 const BEAM = 8;
@@ -164,18 +163,19 @@ function structures(track: Track, out: Solid[]): void {
 }
 
 /**
- * Every collider as a solid standing from its placement's base (`floor` for one with no placement: the Lab's wall) to its
- * top, at the footprint the cars hit, so a dummy meets exactly what a car does; `prop` is the collider's index, for the
- * knocked ones the scene says are gone. Appended to `out`.
+ * Every collider but the knockable props' (each of those is its own body, `PropBodies`) as a solid standing from its
+ * placement's base (`floor` for one with no placement: the Lab's wall) to its top, at the footprint the cars hit, so a
+ * dummy meets exactly what a car does. Appended to `out`.
  */
 export function colliderSolids(colliders: readonly PropCollider[], placed: readonly Placed[], floor: number, out: Solid[]): Solid[] {
   for (const c of colliders) {
+    if (c.body === "knock") continue;
     const y0 = placed[c.index]?.y ?? floor;
     const h = c.top - y0;
-    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, prop: c.index, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
+    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
     else {
       _q.setFromAxisAngle(UP, c.yaw);
-      out.push({ ...box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz), prop: c.index });
+      out.push(box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz));
     }
   }
   return out;

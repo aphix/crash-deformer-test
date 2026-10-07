@@ -7,8 +7,8 @@ import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/gr
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
 
-/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`); `knocked(i)`: prop `i` has been knocked off its spot. */
-type Course = { track: Track | null; solids: readonly Solid[]; knocked: (prop: number) => boolean };
+/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`). */
+type Course = { track: Track | null; solids: readonly Solid[] };
 /** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
 export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
 /** Corkscrew channel triangle spacing (m) along the run: the floor's twist is held to a few cm per strip. */
@@ -19,6 +19,10 @@ const POLE_H = 5.3;
 /** Course ground patch around a throw: cells per side and cell size (m), 96 m across. */
 const PATCH_N = 48;
 const PATCH_CELL = 2;
+/** A patch's half side (m): its heightfield's square, and the reach of the walls and solids built with it. */
+export const PATCH_HALF = (PATCH_N * PATCH_CELL) / 2;
+/** Metres down a throw that the patch built for it is centred. */
+export const PATCH_AHEAD = 24;
 /** Half-size (m) of the sandbox's flat pad collider: past any spot a car reaches. */
 const FLAT_HALF = 1000;
 /** Derby bowl wall: `derby-arena.ts`'s 28 slabs, 1.15 m high, 0.42 m thick at the 16.4 m bowl. */
@@ -119,7 +123,6 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   }
   if (course) {
     for (const s of course.solids) {
-      if (s.prop !== undefined && course.knocked(s.prop)) continue;
       if (Math.hypot(s.x - cx, s.z - cz) > reach + s.r) continue;
       const desc = s.make(R);
       if (desc) add(desc);

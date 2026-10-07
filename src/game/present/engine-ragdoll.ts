@@ -34,12 +34,14 @@ import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
 import { Purses } from "./ragdoll-purse.ts";
+import { PropBodies } from "./ragdoll-props.ts";
+import type { PropTumble } from "./prop-tumble.ts";
 import { RagdollDebug } from "./ragdoll-debug.ts";
 import { RideCam, type RideFrame } from "./ride-cam.ts";
 import type { Sight } from "./spectate-cam.ts";
-import { AIR_ANGULAR, AIR_LINEAR, ARM, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
+import { AIR_ANGULAR, AIR_LINEAR, ARM, blendPose, CALM_FOR, GROUND_ANGULAR, GROUND_LINEAR, give, isCalm, JOINTS, limit, PARTS, readPose, SETTLE_AFTER, SETTLE_ANGULAR, SETTLE_LINEAR, SHOULDER_Y } from "./ragdoll-body.ts";
 import { joinUp } from "./ragdoll-joints.ts";
-import { groundColliders, type Pole } from "./ragdoll-ground.ts";
+import { groundColliders, PATCH_AHEAD, type Pole } from "./ragdoll-ground.ts";
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
@@ -49,8 +51,6 @@ const LIFE = 10;
 /** Seconds after the throw the dummy ignores its own car and the other dummies (the collision groups below): it
  *  starts inside its own cabin, over its own lower box. */
 const GRACE = 0.35;
-/** Metres down the throw that a course ground patch (`groundColliders`) is centred. */
-const PATCH_AHEAD = 24;
 const GRAVITY = 9.6;
 /** Dummy friction against anything (the lower of the pair counts): low, so it slides a good way (owner, 2026-10-02). */
 const SLIDE = 0.12;
@@ -87,7 +87,7 @@ const WATCH = 1 / 120;
 const WATCH_EVERY = Math.round(WATCH / STEP);
 /** Most sim seconds one frame steps: a longer hitch drops the rest instead of spiralling (the cars drop beyond 0.05 too). */
 const MAX_ACC = 0.05;
-/** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. */
+/** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. A sleeping knocked prop is stirred only by such a car that can touch it this frame (`PropBodies.touches`). */
 const WAKE_SPEED = 0.5;
 const WAKE_NEAR = 10;
 const BARRIER_REACH = Math.hypot(BARRIER_HALF.x, BARRIER_HALF.z);
@@ -135,9 +135,10 @@ const GLASS_SKIN = 0.005;
 
 /**
  * Collision groups (membership << 16 | filter), 16 bits: the world; each dummy slot; each car (its lower box, bumper
- * to bonnet line, fitted to its crushed length, and its cabin's slabs), in 10 buckets of car index. Out of the car a
- * dummy hits everything but its own jointed neighbours (`setContactsEnabled(false)`). For `GRACE` s after the throw
- * it ignores its own car (it starts inside it) and the other dummies; every other car it hits from the first frame.
+ * to bonnet line, fitted to its crushed length, and its cabin's slabs), in 10 buckets of car index; the props. Out of
+ * the car a dummy hits everything but its own jointed neighbours (`setContactsEnabled(false)`) and the purses. For
+ * `GRACE` s after the throw it ignores its own car (it starts inside it) and the other dummies; every other car it hits
+ * from the first frame.
  */
 const G_STATIC = 1;
 const dollBit = (s: number) => 2 << s;
@@ -145,10 +146,12 @@ const G_DOLLS = 0x1e;
 /** Car i's bit; a dummy with no car of his own (`place`, car -1) has none, so he hits every car from the first frame. */
 const carBit = (i: number) => (i < 0 ? 0 : 0x40 << i % 10);
 const G_CARS = 0xffc0;
-const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CARS;
-/** A woman's purse and what falls out of it hit the world, the barrier and every car (not their own for `GRACE` s), never a dummy. */
 const G_PROPS = 0x20;
+const dollGroups = (s: number) => (dollBit(s) << 16) | G_STATIC | G_DOLLS | G_CARS | G_PROPS;
+/** A woman's purse and what falls out of it hit the world, the barrier and every car (not their own for `GRACE` s), never a dummy. */
 const propGroups = (car: number) => (G_PROPS << 16) | G_STATIC | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
+/** A knocked prop (`PropBodies`) hits the world, the dummies, every car (not the one that knocked it for `GRACE` s) and the other knocked props; a purse lets it by. */
+const knockedGroups = (car: number) => (G_PROPS << 16) | G_STATIC | G_DOLLS | G_PROPS | (car < 0 ? G_CARS : G_CARS & ~carBit(car));
 const FIXED_GROUPS = (G_STATIC << 16) | G_DOLLS | G_PROPS;
 /** Car i's lower box and standing panes; a gone pane's slab collides with nothing (Rapier kept a disabled slab on a moving kinematic body in contact). */
 const carGroups = (i: number) => (carBit(i) << 16) | G_DOLLS | G_PROPS;
@@ -226,7 +229,7 @@ export class RagdollSystem {
    * The solids a throw collides with while `ground` is the active one: a race course's walls and solids (`setCourse`), or a
    * scene's own (`setSolids`, no track).
    */
-  private course: { ground: Ground; track: Track | null; placed: readonly Placed[]; knocked: (prop: number) => boolean } | null = null;
+  private course: { ground: Ground; track: Track | null; placed: readonly Placed[] } | null = null;
   /** The course's `courseSolids` (built at its first throw), or the scene's own. */
   private solids: readonly Solid[] | null = null;
   /** The flat ground is the range's sand pit (`SAND`), read when a run's first throw builds it (set by the engine). */
@@ -238,6 +241,8 @@ export class RagdollSystem {
   /** The look seed (`driverLook`) the engine sets each frame: a driver keeps his tee and hair through a race. */
   lookSeed = 0;
   private purses: Purses | null = null;
+  /** The course's or the scene's knockable props: standing fixed on their spots, knocked ones tumbling (`knockProp`). */
+  private readonly props = new PropBodies(knockedGroups, FIXED_GROUPS, GRACE, STEP, (cx, cz, y) => this.patchAt(cx, cz, y));
   private readonly onExit: (at: THREE.Vector3, frame: THREE.Quaternion, inherit: THREE.Vector3) => void;
   private R: Rapier | null = null;
   private world: World | null = null;
@@ -245,6 +250,12 @@ export class RagdollSystem {
   private readonly carBodies: RigidBody[] = [];
   /** Each car's lower box ends as last fitted (`fitEnds`): front, rear (car-local z). */
   private readonly ends = new Float32Array(MAX_CARS * 2);
+  /**
+   * Each car proxy's reach (m): the farthest point of its lower box and slabs from the car's origin (`fitEnds`; the box as
+   * built until it is first fitted), and of its slabs alone (`fitCabin`).
+   */
+  private readonly reach = new Float32Array(MAX_CARS).fill(Math.hypot(LOW_HALF_X, LOW_Y + LOW_HALF_Y, LOW_HALF_Z));
+  private readonly cabinReach = new Float32Array(MAX_CARS);
   /** Each car's cabin slabs, `CABIN` per car: its panes in `GLASS_NAMES` order, then its roof. */
   private readonly cabins: Collider[] = [];
   /** The car each slot's cabin was last fitted to (`fitGlass`), its body lift (m), and its glass state as the slabs show it (`glassBits`, -1: refit). */
@@ -365,6 +376,7 @@ export class RagdollSystem {
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
+    this.props.load(R, world);
     // One step with a dummy out, far below the world: links the step path before a crash needs it.
     const d = this.dolls[0]!;
     for (const b of d.bodies) b.setEnabled(true);
@@ -372,22 +384,24 @@ export class RagdollSystem {
     for (const b of d.bodies) disable(b);
   }
 
-  /** A new run: no dummies out, every car's driver back in. */
+  /** A new run: no dummies out, every car's driver back in, every knocked prop back on its spot. */
   reset(): void {
     this.pending.length = 0;
     this.acc = this.tick = 0;
     this.riding = false;
     this.cam.leave(null);
     for (let s = 0; s < this.dolls.length; s++) this.despawn(s);
+    this.props.clear();
     for (const c of this.statics) this.world?.removeCollider(c, false);
     this.statics.length = 0;
   }
 
   /**
-   * One frame: step the dummies `dt` sim seconds against the cars' poses (`authority`: this peer owns the glass, so
-   * it smashes the exit pane of a throw). `sandbox`: neither a race nor a derby (`onThrow`); `bowlR`: the derby
-   * bowl's radius, 0 outside a derby; `barrier`: the sandbox's jersey barrier while it stands, else null. Who is
-   * thrown is not decided here (`launch`); a throw launched before Rapier is in waits for it, up to `PENDING_MAX`.
+   * One frame: step the dummies and the knocked props `dt` sim seconds against the cars' poses (`authority`: this peer
+   * owns the glass, so it smashes the exit pane of a throw). `sandbox`: neither a race nor a derby (`onThrow`); `bowlR`:
+   * the derby bowl's radius, 0 outside a derby; `barrier`: the sandbox's jersey barrier while it stands, else null. Who
+   * is thrown is not decided here (`launch`); a throw launched before Rapier is in waits for it, up to `PENDING_MAX`; a
+   * prop knocked before it is in flies once it is.
    */
   update(dt: number, cars: readonly DeformableCar[], authority: boolean, sandbox: boolean, bowlR: number, barrier: THREE.Object3D | null): void {
     if (dt <= 0) return;
@@ -400,13 +414,15 @@ export class RagdollSystem {
     if (!world) return;
     for (const t of this.pending) if (t.age <= PENDING_MAX) this.spawn(t);
     this.pending.length = 0;
-    if (this.live === 0) return;
-    const dormant = this.dormant(cars, barrier);
+    this.wake();
+    this.props.here(this.course !== null && activeGround() === this.course.ground);
+    if (this.live === 0 && this.props.count === 0) return;
+    const dormant = this.dormant(cars, barrier, dt);
     // The proxies stood still while nothing stepped: jump them to where the cars are now instead of flinging dummies.
     this.teleport ||= this.slept;
     this.slept = dormant;
     for (let i = 0; i < MAX_CARS; i++) {
-      const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(cars[i]!.group.position) ? cars[i]! : null;
+      const car = i < cars.length && !cars[i]!.falling && !cars[i]!.vaporized && this.near(i, cars[i]!, dt) ? cars[i]! : null;
       this.follow3(i, this.carBodies[i]!, car?.group ?? null);
       if (car) this.fitGlass(i, car);
       if (car) this.fitEnds(i, car);
@@ -429,6 +445,7 @@ export class RagdollSystem {
         }
       }
       if (j === steps) this.purses?.capture(false);
+      if (j === steps) this.props.capture(false);
       this.glassTouch();
       world.step();
       if (++this.tick % WATCH_EVERY !== 0) continue;
@@ -444,6 +461,7 @@ export class RagdollSystem {
     this.alpha = dormant ? 1 : Math.min(1, this.acc / STEP);
     if (steps > 0) for (const d of this.dolls) if (d.live) this.capture(d, d.cur);
     if (steps > 0) this.purses?.capture(true);
+    if (steps > 0) this.props.capture(true);
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -465,26 +483,49 @@ export class RagdollSystem {
       }
     }
     this.purses?.pose(this.alpha);
+    this.props.advance(dt);
+    this.props.pose(this.alpha);
   }
 
-  /** Nothing to step: every dummy and purse thing lies asleep, and no car moving over `WAKE_SPEED` nor the barrier is within `WAKE_NEAR` of a dummy. */
-  private dormant(cars: readonly DeformableCar[], barrier: THREE.Object3D | null): boolean {
+  /**
+   * Nothing to step: every dummy, purse thing and knocked prop lies asleep; no car moving over `WAKE_SPEED` nor the
+   * barrier is within `WAKE_NEAR` of a dummy, no such car can touch a knocked prop this frame (`touches`), and the
+   * barrier is not within `WAKE_NEAR` of one.
+   */
+  private dormant(cars: readonly DeformableCar[], barrier: THREE.Object3D | null, dt: number): boolean {
     if (this.purses && !this.purses.asleep()) return false;
+    if (!this.props.asleep()) return false;
     for (const d of this.dolls) {
       if (!d.live) continue;
-      _r.set(d.cur[0]!, d.cur[1]!, d.cur[2]!);
-      if (!d.bodies[0]!.isSleeping() || (barrier && barrier.position.distanceTo(_r) < WAKE_NEAR + BARRIER_REACH)) return false;
-      for (const car of cars) if (!car.falling && !car.vaporized && car.velocity.lengthSq() > WAKE_SPEED ** 2 && car.group.position.distanceTo(_r) < WAKE_NEAR) return false;
+      if (!d.bodies[0]!.isSleeping() || this.stirred(_r.set(d.cur[0]!, d.cur[1]!, d.cur[2]!), cars, barrier)) return false;
+    }
+    if (barrier && this.props.touches(barrier.position, WAKE_NEAR + BARRIER_REACH, 0, 0)) return false;
+    for (let i = 0; i < cars.length && i < MAX_CARS; i++) {
+      const car = cars[i]!;
+      if (!car.falling && !car.vaporized && car.velocity.lengthSq() > WAKE_SPEED ** 2 && this.props.touches(car.group.position, this.reach[i]!, car.velocity.length(), dt)) return false;
     }
     return true;
   }
 
+  /** Is the barrier, or a car moving over `WAKE_SPEED`, within `WAKE_NEAR` of `p`? */
+  private stirred(p: THREE.Vector3, cars: readonly DeformableCar[], barrier: THREE.Object3D | null): boolean {
+    if (barrier && barrier.position.distanceTo(p) < WAKE_NEAR + BARRIER_REACH) return true;
+    for (let i = 0; i < cars.length; i++) {
+      const car = cars[i]!;
+      if (!car.falling && !car.vaporized && car.velocity.lengthSq() > WAKE_SPEED ** 2 && car.group.position.distanceTo(p) < WAKE_NEAR) return true;
+    }
+    return false;
+  }
+
   /**
-   * Is a dummy out (his torso as last stepped) or a purse thing within `WAKE_NEAR` of `p`? Only those cars' proxies are
-   * in the world: a car further out cannot touch him this frame. A car that gets this near in one frame from outside it
-   * moved over 4 m, which `follow3` teleports for anyway, so the proxy it gets is the one it had.
+   * Does car `i` need its proxy in the world: a dummy out (his torso as last stepped) or a purse thing within `WAKE_NEAR`
+   * of it, or a knocked prop it can touch within a frame of `dt` (`touches`: both reaches plus both travels, so it is in a
+   * frame before it can meet the prop, and walks there)? A car further out cannot touch them this frame. A car that gets
+   * within `WAKE_NEAR` in one frame from outside it moved over 4 m, which `follow3` teleports for anyway, so the proxy it
+   * gets is the one it had.
    */
-  private near(p: THREE.Vector3): boolean {
+  private near(i: number, car: DeformableCar, dt: number): boolean {
+    const p = car.group.position;
     for (let s = 0; s < SLOTS; s++) {
       const d = this.dolls[s]!;
       if (!d.live) continue;
@@ -493,32 +534,16 @@ export class RagdollSystem {
       const dz = d.cur[2]! - p.z;
       if (dx * dx + dy * dy + dz * dz < WAKE_NEAR * WAKE_NEAR) return true;
     }
-    return this.purses !== null && this.purses.near(p, WAKE_NEAR);
+    return (this.purses !== null && this.purses.near(p, WAKE_NEAR)) || this.props.touches(p, this.reach[i]!, car.velocity.length(), dt);
   }
 
   /** Part `k` of `d` as drawn: `alpha` of the way from its pose one step before the last to the last. */
   private blend(d: Doll, k: number, p: THREE.Vector3, q: THREE.Quaternion): void {
-    const a = d.prev;
-    const b = d.cur;
-    const o = 7 * k;
-    const t = this.alpha;
-    p.set(a[o]! + (b[o]! - a[o]!) * t, a[o + 1]! + (b[o + 1]! - a[o + 1]!) * t, a[o + 2]! + (b[o + 2]! - a[o + 2]!) * t);
-    q.set(a[o + 3]!, a[o + 4]!, a[o + 5]!, a[o + 6]!).slerp(_qb.set(b[o + 3]!, b[o + 4]!, b[o + 5]!, b[o + 6]!), t);
+    blendPose(d.prev, d.cur, 7 * k, this.alpha, p, q);
   }
 
   private capture(d: Doll, into: Float32Array): void {
-    for (let k = 0; k < PARTS.length; k++) {
-      const t = d.bodies[k]!.translation();
-      const r = d.bodies[k]!.rotation();
-      const o = 7 * k;
-      into[o] = t.x;
-      into[o + 1] = t.y;
-      into[o + 2] = t.z;
-      into[o + 3] = r.x;
-      into[o + 4] = r.y;
-      into[o + 5] = r.z;
-      into[o + 6] = r.w;
-    }
+    for (let k = 0; k < PARTS.length; k++) readPose(d.bodies[k]!, into, 7 * k);
   }
 
   /** Every kinematic proxy `f` of the way along its frame's path (position lerped, rotation slerped). */
@@ -766,6 +791,7 @@ export class RagdollSystem {
     _mid.set(0, 0, 0);
     for (let k = 0; k < c.length; k += 3) _mid.add(_p.fromArray(c, k));
     _mid.multiplyScalar(3 / c.length);
+    let far = 0;
     for (let p = 0; p < PANES; p++) {
       // Corners: across 0 and 1 at the base (_p, _s), then at the top (_r, _c).
       _p.fromArray(c, 12 * p);
@@ -784,6 +810,7 @@ export class RagdollSystem {
         _f.toArray(_hull, 3 * k);
         _f.addScaledVector(_n, -2 * PANE_HALF).toArray(_hull, 12 + 3 * k);
       }
+      for (let k = 0; k < 24; k += 3) far = Math.max(far, Math.hypot(_hull[k]!, _hull[k + 1]!, _hull[k + 2]!));
       const desc = R.ColliderDesc.convexHull(_hull)!.setCollisionGroups(carGroups(i)).setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
       world.removeCollider(this.cabins[i * CABIN + p]!, false);
       this.cabins[i * CABIN + p] = world.createCollider(desc, this.carBodies[i]!);
@@ -801,6 +828,7 @@ export class RagdollSystem {
     const roof = this.cabins[i * CABIN + PANES]!;
     roof.setHalfExtents({ x: half + PANE_PAD, y: ROOF_HALF, z: (front - rear) / 2 + PANE_PAD });
     roof.setTranslationWrtParent({ x: 0, y: top + lift + ROOF_HALF, z: (front + rear) / 2 });
+    this.cabinReach[i] = Math.max(far, Math.hypot(half + PANE_PAD, top + lift + 2 * ROOF_HALF, Math.max(front, -rear) + PANE_PAD));
   }
 
   /** Per dummy, the cars (never his own) with a pane standing that his torso may reach within this frame: `glassTouch` tries only those. */
@@ -880,6 +908,7 @@ export class RagdollSystem {
     const box = this.carBodies[i]!.collider(0);
     box.setHalfExtents({ x: LOW_HALF_X, y: LOW_HALF_Y, z: (front - rear) / 2 });
     box.setTranslationWrtParent({ x: 0, y: LOW_Y + this.lift[i]!, z: (front + rear) / 2 });
+    this.reach[i] = Math.max(this.cabinReach[i]!, Math.hypot(LOW_HALF_X, LOW_Y + this.lift[i]! + LOW_HALF_Y, Math.max(front, -rear)));
   }
 
   dispose(): void {
@@ -887,6 +916,7 @@ export class RagdollSystem {
     this.debug.dispose();
     this.mesh.removeFromParent();
     this.purses?.dispose();
+    this.props.dispose();
     this.mesh.geometry.dispose();
     this.mesh.material.dispose();
     this.mesh.dispose();
@@ -1015,7 +1045,7 @@ export class RagdollSystem {
       _v.y = t.w.y;
       _v.z = t.w.z;
       b.setAngvel(_v, false);
-      b.collider(0).setCollisionGroups((dollBit(slot) << 16) | G_STATIC | dollBit(slot) | (G_CARS & ~carBit(t.car)));
+      b.collider(0).setCollisionGroups((dollBit(slot) << 16) | G_STATIC | dollBit(slot) | G_PROPS | (G_CARS & ~carBit(t.car)));
       b.setEnabled(true);
       b.wakeUp();
     }
@@ -1061,9 +1091,7 @@ export class RagdollSystem {
     const look = driverLook(this.lookSeed, t.car);
     this.mesh.dress(slot, t.cop, look);
     if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
-    // The first dummy out starts the stepping afresh: no leftover from an earlier throw shifts this one's first step.
-    if (this.live === 0) this.acc = this.tick = 0;
-    this.teleport ||= this.live === 0;
+    this.wake();
     this.live++;
     this.lastSlot = slot;
     this.mesh.visible = true;
@@ -1073,26 +1101,59 @@ export class RagdollSystem {
     return slot;
   }
 
-  /** The course a throw collides with (`knocked(i)`: placed prop `i` is off its spot). Its solids are built at the first throw on it, as recipes: Rapier colliders live only from a throw to its despawn. */
-  setCourse(track: Track, placed: readonly Placed[], knocked: (prop: number) => boolean): void {
-    this.course = { ground: track.ground(), track, placed, knocked };
+  /**
+   * The course a throw collides with, and its knockable props (`placed`; drawn by `props`, null headless), all back on their
+   * spots. Its solids are built at the first throw on it, as recipes: Rapier colliders live only from a throw to its despawn.
+   */
+  setCourse(track: Track, placed: readonly Placed[], props: PropTumble | null): void {
+    this.course = { ground: track.ground(), track, placed };
     this.solids = null;
+    this.props.set(placed, props);
   }
 
-  /** A scene's own solids (the Lab's props, wall and brackets) a dummy collides with while `ground` is the active one, as a course's are (`knocked(i)`: solid prop `i` is off its spot). */
-  setSolids(ground: Ground, solids: readonly Solid[], knocked: (prop: number) => boolean): void {
-    this.course = { ground, track: null, placed: [], knocked };
+  /**
+   * A scene's own solids (the Lab's wall, brackets and solid props) a dummy collides with while `ground` is the active one,
+   * as a course's are, and its knockable props (`placed`, drawn by `props`), all back on their spots.
+   */
+  setSolids(ground: Ground, solids: readonly Solid[], placed: readonly Placed[], props: PropTumble | null): void {
+    this.course = { ground, track: null, placed };
     this.solids = solids;
+    this.props.set(placed, props);
   }
 
-  /** The ground under a throw (`groundColliders`): built once for the pad, the disc or the corkscrew, per dummy on a course or a scene's solids. */
+  /**
+   * Knockable prop `i` of the course or scene knocked off its spot by car `car` (-1: none) at (vx, vy, vz) m/s: it flies,
+   * tumbles and comes to rest in this world (cosmetic: nothing here reaches the sim); knocked before Rapier is in, once it is.
+   */
+  knockProp(i: number, car: number, vx: number, vy: number, vz: number): void {
+    this.wake();
+    this.props.knock(i, car, vx, vy, vz);
+  }
+
+  /** Knocked prop `i`'s middle after the last step into `p`, and its velocity into `v`; false while it is not out. */
+  propAt(i: number, p: THREE.Vector3, v: THREE.Vector3): boolean {
+    return this.props.centre(i, p, v);
+  }
+
+  /** Nothing was out: the stepping starts afresh (no leftover from an earlier throw shifts the first step) and the proxies jump to the cars. */
+  private wake(): void {
+    if (this.live > 0 || this.props.count > 0) return;
+    this.acc = this.tick = 0;
+    this.teleport = true;
+  }
+
+  /** The ground under a throw: built once for the pad, the disc or the corkscrew, per dummy on a course or a scene's solids (`patchAt`). */
   private buildPatch(d: Doll, cx: number, cz: number, y: number): void {
     const c = this.course;
-    const onCourse = c !== null && activeGround() === c.ground;
-    if (!onCourse && this.statics.length > 0) return;
-    if (c?.track && onCourse) this.solids ??= courseSolids(c.track, c.placed);
-    const course = c && onCourse ? { track: c.track, solids: this.solids!, knocked: c.knocked } : null;
-    (onCourse ? d.patch : this.statics).push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, course, this.sand, this.bowlR, this.poles, cx, cz, y));
+    if (c !== null && activeGround() === c.ground) d.patch.push(...this.patchAt(cx, cz, y));
+    else if (this.statics.length === 0) this.statics.push(...groundColliders(this.R!, this.world!, FIXED_GROUPS, null, this.sand, this.bowlR, this.poles, cx, cz, y));
+  }
+
+  /** The course's or the scene's ground, walls and solids around (`cx`, `cz`) at height `y` (`groundColliders`): a dummy's patch, or knocked props'. */
+  private patchAt(cx: number, cz: number, y: number): Collider[] {
+    const c = this.course!;
+    if (c.track) this.solids ??= courseSolids(c.track, c.placed);
+    return groundColliders(this.R!, this.world!, FIXED_GROUPS, { track: c.track, solids: this.solids! }, this.sand, this.bowlR, this.poles, cx, cz, y);
   }
 
   private despawn(s: number): void {

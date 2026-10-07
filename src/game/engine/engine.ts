@@ -236,10 +236,12 @@ export class CrashEngine extends EngineShare {
       leave: () => this.setScene("fleet"),
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
+      knockProp: (index, car, vx, vy, vz) => this.ragdolls.knockProp(index, car, vx, vy, vz),
       buildArt: (track, placed) => {
         this.queueWarm();
-        this.ragdolls.setCourse(track, placed, (i) => this.race.propKnocked(i));
-        return new TrackArt(track, placed, this.stage);
+        const art = new TrackArt(track, placed, this.stage);
+        this.ragdolls.setCourse(track, placed, art.props);
+        return art;
       },
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
       // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).
@@ -410,7 +412,6 @@ export class CrashEngine extends EngineShare {
       }
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
       if (this.barrierUp) this.barrier.step(simDt);
-      if (this.showLab) this.labArt?.update(simDt);
       const fxDt = Math.max(simDt, wallDt * 0.6);
       this.debris.update(fxDt, this.bounceWorld);
       this.sparks.update(fxDt, bounceGround);

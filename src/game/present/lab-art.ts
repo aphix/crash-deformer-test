@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { BENCH, BOARD, BRACKET_T, FLOOR, LAB_LAYOUTS, LAB_SCALE, labGround, labPlaced, labSurfaces, PEG, type LabPresetId } from "../scenes/lab.ts";
+import { BENCH, BOARD, BRACKET_T, FLOOR, LAB_LAYOUTS, LAB_SCALE, labPlaced, labSurfaces, PEG, type LabPresetId } from "../scenes/lab.ts";
 import { makePrefabMaterials, makeRaceTextures, type RaceTextures } from "./prefabs.ts";
 import { PropTumble } from "./prop-tumble.ts";
 import { DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR } from "./track-mesh.ts";
@@ -442,7 +442,7 @@ export class LabArt {
         group.add(brackets);
         for (const g of plates) g.dispose();
       }
-      const props = new PropTumble(labPlaced(layout).placed, labGround(labSurfaces(layout)), mats, (mesh) => {
+      const props = new PropTumble(labPlaced(layout).placed, mats, (mesh) => {
         mesh.castShadow = true;
         mesh.receiveShadow = true;
         mesh.customDepthMaterial = mesh.instanceColor ? DEPTH_INSTANCED_COLOR : DEPTH_INSTANCED;
@@ -461,11 +461,6 @@ export class LabArt {
     this.active = this.sets[id];
     this.active.group.visible = true;
     return this.active.props;
-  }
-
-  /** Knocked props tumble (no allocation). */
-  update(dt: number): void {
-    this.active.props.update(dt);
   }
 
   dispose(): void {

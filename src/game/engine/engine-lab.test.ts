@@ -89,6 +89,13 @@ describe("given the house of cards on the bench (two sedans nose to tail, a thir
     for (const c of r.cars) assert.ok(c.group.matrixWorld.elements[5]! > 0.99, `a car tipped to up ${c.group.matrixWorld.elements[5]}`);
   });
 
+  it("when it is freshly loaded and left alone for 5 s, then the top car settles onto the two roofs without dropping on them: neither roof gives 15 mm", () => {
+    const r = labRig("cards");
+    runLab(r, 5);
+    const roofs = [r.cars[1]!.deform.crush[0]!, r.cars[2]!.deform.crush[0]!];
+    assert.ok(Math.max(...roofs) < 0.015, `the roofs under the top car gave ${roofs.map((d) => (d * 1000).toFixed(1)).join(" / ")} mm`);
+  });
+
   const toppleCases = [
     { it: "when a sedan is thrown at its top car at 10 m/s, then the top car and both cars under it are knocked off their places", speed: 10 },
     { it: "when a sedan is thrown at its top car at 30 m/s, then the top car and both cars under it are knocked off their places", speed: 30 },
@@ -345,4 +352,59 @@ describe("given a dummy standing on the bench", () => {
       assert.ok(farthest < 10, `his torso's centre reached x = ${farthest.toFixed(2)}`);
     });
   }
+});
+
+describe("given a crate standing on the bench, with the dummies' physics in", () => {
+  const crate = (x: number, z: number): LabItem => ({ kind: "prop", prefab: "crate", pose: at(x, z, 0), hold: "free" });
+
+  it("when the set loads, then a flick may pick the crate", async () => {
+    const r = await labDollRig([crate(0, 0)]);
+    r.dolls!.dispose();
+    assert.deepEqual([...r.lab.things.subarray(0, r.lab.thingN)], [0]);
+  });
+
+  const boardCases = [
+    { it: "when it is flicked at the pegboard at 10 m/s, then it meets the board and its middle never gets to the board's face", speed: 10 },
+    { it: "when it is flicked at the pegboard at 30 m/s, then it meets the board and its middle never gets to the board's face", speed: 30 },
+  ] as const;
+  for (const testCase of boardCases) {
+    it(testCase.it, async () => {
+      const r = await labDollRig([crate(0, BOARD.z + 16)]);
+      runLab(r, 1);
+      const shot = r.lab.flick(0, WALL, 0, 0, testCase.speed);
+      runLab(r, 3);
+      r.dolls!.dispose();
+      assert.equal(shot.hit, WALL, "it never met the board");
+      let nearest = Infinity;
+      for (let k = 0; k < shot.pathN; k++) nearest = Math.min(nearest, shot.path[k * 3 + 2]! - BOARD.z);
+      assert.ok(nearest > 0, `its middle reached ${nearest.toFixed(2)} m from the board's face`);
+    });
+  }
+
+  it("when it is flicked at 20 m/s at a sedan parked broadside 10 m off, then it meets the sedan and its middle never gets into the car's side", async () => {
+    const r = await labDollRig([crate(-6, 0), car(at(4, 0, 0))]);
+    runLab(r, 1);
+    const shot = r.lab.flick(0, 1, 0, 0, 20);
+    runLab(r, 3);
+    r.dolls!.dispose();
+    assert.equal(shot.hit, 1, `it met ${shot.hit}, not the sedan`);
+    let farthest = -Infinity;
+    for (let k = 0; k < shot.pathN; k++) farthest = Math.max(farthest, shot.path[k * 3]!);
+    // The sedan's side is 0.86 m from its middle line; the crate is 0.5 m to its middle.
+    assert.ok(farthest < 4 - 0.86 - 0.35, `its middle reached x = ${farthest.toFixed(2)}, the sedan's side is at ${(4 - 0.86).toFixed(2)}`);
+  });
+
+  it("when it is flicked into the wall of items at 20 m/s, then it meets the row and its middle never gets past the row's line", async () => {
+    const row = LAB_LAYOUTS.wall.slice(1);
+    const r = await labDollRig([crate(-4, 0.9), ...row]);
+    runLab(r, 1);
+    // Item 4: the crate in the row's middle.
+    const shot = r.lab.flick(0, 4, 0, 0, 20);
+    runLab(r, 3);
+    r.dolls!.dispose();
+    assert.ok(shot.hit !== null && shot.hit > 0 && row[shot.hit - 1]!.pose.x === 10, `it met ${shot.hit}, not the row`);
+    let farthest = -Infinity;
+    for (let k = 0; k < shot.pathN; k++) farthest = Math.max(farthest, shot.path[k * 3]!);
+    assert.ok(farthest < 10, `its middle reached x = ${farthest.toFixed(2)}`);
+  });
 });

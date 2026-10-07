@@ -37,7 +37,7 @@ export class TrackArt {
   private readonly shared: THREE.Material[] = [];
   /** `forDraw`: per source material, the material each draw kind uses (copies are disposed with the art). */
   private readonly byKind = new Map<THREE.Material, Partial<Record<DrawKind, THREE.Material>>>();
-  /** The knockable props as a car sends them flying (`knock`, `update`, `reset`). */
+  /** The placed props drawn; the knocked ones where the dummies' world has them (`RagdollSystem.setCourse`). */
   readonly props: PropTumble;
   private readonly m4 = new THREE.Matrix4();
   private readonly col = new THREE.Color();
@@ -152,7 +152,6 @@ export class TrackArt {
     // Props: one InstancedMesh per prefab part (the course's lamp heads and pools are the scene's materials).
     this.props = new PropTumble(
       placed,
-      ground,
       mats,
       (mesh, id, shared) => {
         if (shared) this.shared.push(shared);

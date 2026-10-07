@@ -30,7 +30,7 @@ async function system(ground: Ground | null, track: Track | null): Promise<Ragdo
   const sys = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await sys.preload();
   setGround(ground);
-  if (track) sys.setCourse(track, placeProps(track), () => false);
+  if (track) sys.setCourse(track, placeProps(track), null);
   sys.update(FRAME, [], true, false, 0, null);
   return sys;
 }
@@ -112,12 +112,15 @@ describe("given a thrown dummy (the ejected driver's ragdoll) and the solid prop
     }
   });
 
-  it("when a crate has been knocked over versus left standing and a dummy is fired at it, then the standing crate stops him and the knocked one lets him by", async () => {
+  it("when a crate has been knocked off its spot versus left standing and a dummy is fired at the spot, then the standing crate stops him and the knocked one, flown off sideways, lets him by", async () => {
     const track = new Track(parseTrack(square({ props: [{ prefab: "crate", x: -45, z: 30, yaw: 0, scale: 1 }] })));
     const ends: number[] = [];
     for (const knocked of [false, true]) {
       const sys = await system(track.ground(), track);
-      sys.setCourse(track, placeProps(track), () => knocked);
+      if (knocked) {
+        sys.knockProp(0, -1, 0, 4, 12);
+        run(sys, 2, () => {});
+      }
       throwFrom(sys, new THREE.Vector3(-51, 1.2, 30), new THREE.Vector3(15, 0, 0), new THREE.Vector3(1, 0, 0));
       run(sys, 3, () => {});
       ends.push(dollsOf(sys)[0]!.bodies[0]!.translation().x);
@@ -265,23 +268,25 @@ describe("given a thrown dummy and the corkscrew's channel and the sandbox's lam
 });
 
 describe("given the ragdoll world after throws on a course, the corkscrew and the ramps", () => {
-  it("when it is reset after each, then it leaves exactly the collider count it started with, and a course swap drops the old solids", async () => {
+  it("when it is reset after each, then it leaves exactly the collider count it had before the throws, and a course swap drops the old solids", async () => {
     const track = stunt();
     const sys = await system(track.ground(), track);
-    const base = colliders(sys);
     const peaks: number[] = [];
     // A course throw builds its patch (heightfield, walls, solids) and a second dummy another; a despawn removes its own.
     for (const [ground, at] of [[track.ground(), [-150, -80]], [new Corkscrew(new THREE.Scene()), [0, -30]], [new FleetRamps(new THREE.Scene()), [0, 0]]] as const) {
       setGround(ground);
+      // The course's standing props are bodies while its ground is the active one, and go with it.
+      sys.update(FRAME, [], true, false, 0, null);
+      const base = colliders(sys);
       for (let n = 0; n < 2; n++) throwFrom(sys, new THREE.Vector3(at[0], 2 + n, at[1]), new THREE.Vector3(8, 0, 0), null);
       sys.update(FRAME, [], true, false, 0, null);
-      peaks.push(colliders(sys));
+      peaks.push(colliders(sys) - base);
       sys.reset();
       assert.equal(colliders(sys), base, `after a reset on ${ground.constructor.name}`);
     }
-    assert.ok(peaks.every((n) => n > base), `the throws built colliders: ${peaks.join(", ")} over ${base}`);
+    assert.ok(peaks.every((n) => n > 0), `the throws built colliders: ${peaks.join(", ")} more`);
     // The course swap: a new course drops the old solids' recipes with it.
-    sys.setCourse(track, placeProps(track), () => false);
+    sys.setCourse(track, placeProps(track), null);
     assert.equal(sys["solids"], null);
     sys.dispose();
   });

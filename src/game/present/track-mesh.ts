@@ -42,7 +42,6 @@ export const TUNNEL_SIDE = 4.4;
 export const TUNNEL_SHELL = 0.7;
 export const TUNNEL_LIGHT_EVERY = 10;
 export const ARCH_STEPS = 6;
-export const GRAVITY = 9.81;
 
 export const WHITE = 0xe8e6e0;
 export const RED = 0xc8261c;

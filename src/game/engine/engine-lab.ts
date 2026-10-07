@@ -12,6 +12,7 @@ import { BENCH, BOARD, BRACKET_T, FLOOR, heldPose, labColliders, labGround, labP
 import type { CarType } from "../scenes/fleet.ts";
 import type { Ground } from "../world/ground.ts";
 import type { Placed, PropCollider } from "../world/placements.ts";
+import { PREFABS } from "../world/catalog.ts";
 
 /** Sim seconds after the first contact at which the throw's "after" speeds are read: the hit's pulse is over (crash pulses run 60–120 ms). */
 const AFTER_S = 0.3;
@@ -33,6 +34,12 @@ const FREE_LIFT = 0.15;
  */
 const DOLL_READ_S = 1 / 60;
 const DOLL_REACH = 3;
+/**
+ * A thrown prop's change of velocity rising steeper than this sine (45° over level) is the ground pushing it up, its landing;
+ * less steep, a hit. Friction (0.85 at most) adds at most 0.85 of a push across it: the bench's push with its friction never
+ * rises less than 50°, and a wall's or a car's side's, its friction slowing the fall, never more than 40°.
+ */
+const PROP_LAND = Math.SQRT1_2;
 /** A dummy's torso centre is picked up this high (m) over the ground to be thrown: it stands 1.11 m over his feet, so no limb starts in the ground. */
 const DOLL_LIFT = 1.2;
 /**
@@ -92,6 +99,7 @@ const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 const _from = new THREE.Vector3();
 const _n = new THREE.Vector3();
+const _w = new THREE.Vector3();
 
 /** How far (m per m/s of launch velocity) a body under `drag` (per s) has carried `t` s into its flight: `t` without drag. */
 const reachOf = (drag: number, t: number): number => (drag > 0 ? (1 - Math.exp(-drag * t)) / drag : t);
@@ -162,7 +170,9 @@ export class Lab {
   /** Layout index of each dummy, and the dummy slot (`RagdollSystem`) of each layout item (-1: not a dummy): the n-th dummy is slot n. */
   dummyItems: number[] = [];
   dollOf = new Int16Array(0);
-  /** The items a flick may pick (`LabFlick`): every car, and each dummy once he is out; `thingN` of them. */
+  /** The placed prop (index into `placed`) of each layout item (-1: not a prop). */
+  propOf = new Int16Array(0);
+  /** The items a flick may pick (`LabFlick`): every car, each dummy once he is out, and with the dummies' world every knockable prop; `thingN` of them. */
   things = new Int16Array(0);
   thingN = 0;
   /** What a dummy meets besides the bench and the cars (`RagdollSystem.setSolids`). */
@@ -177,13 +187,12 @@ export class Lab {
   private sampleAt = 0;
   private thingSlot = -1;
   private targetSlot = -1;
-  /** The thrown dummy's slot (-1: a car is thrown), whether a dummy waits for Rapier, and his torso's velocity at sim second `tRef`. */
+  /** The thrown dummy's slot and the thrown prop (-1: a car is thrown), whether a dummy waits for Rapier, and the thrown body's velocity at sim second `tRef`. */
   private thingDoll = -1;
+  private thingProp = -1;
   private dollsDue = false;
   private tRef = 0;
   private readonly vRef = new THREE.Vector3();
-  /** Whether solid prop `i` (or the wall after the props) is off its spot: what the dummies' world leaves out. */
-  readonly isKnocked = (i: number): boolean => this.knocked[i] === 1;
   /** Where each car stood when the throw left (x, y, z) and its up axis's y. */
   private rest = new Float64Array(0);
   /** Thrown car's and target car's velocity, and their momentum (`carMomentum`), at the end of the last slice (before this slice's contact). */
@@ -200,15 +209,15 @@ export class Lab {
   private screens = new Float32Array(0);
   /** Contact FX (`CrashEngine.hitFx`), or nothing headless. */
   fx: ((at: THREE.Vector3, n: THREE.Vector3, closing: number) => void) | null = null;
-  /** Where knocked props are drawn flying (`LabArt`), or nothing headless. */
+  /** Where the props are drawn (`LabArt`), or nothing headless. */
   tumble: PropTumble | null = null;
   /** The middle of the set (m): halfway from the thrower (item 0) to the middle of the other items, at a car's mid height. */
   readonly focus = new THREE.Vector3();
 
-  /** The prop rule's hooks: a knock or a wall hit by the thrown car is its first contact. */
+  /** The prop rule's hooks: a knocked prop tumbles in the dummies' world; a knock or a wall hit by the thrown car is its first contact. */
   readonly hits: PropHits = {
     knock: (index, car, vx, vy, vz) => {
-      this.tumble?.knock(index, vx, vy, vz);
+      this.dolls?.knockProp(index, car, vx, vy, vz);
       const p = this.placed[index]!;
       this.contact(car, this.propItems[index]!, _v.set(p.x, p.y + 0.5, p.z), _d.copy(this.launchDir).negate());
     },
@@ -246,7 +255,9 @@ export class Lab {
     this.dummyItems = [...this.layout.keys()].filter((k) => this.layout[k]!.kind === "dummy");
     this.dollOf = new Int16Array(this.layout.length).fill(-1);
     for (const [n, k] of this.dummyItems.entries()) this.dollOf[k] = n;
-    this.things = new Int16Array(this.carItems.length + this.dummyItems.length);
+    this.propOf = new Int16Array(this.layout.length).fill(-1);
+    for (const [n, k] of items.entries()) this.propOf[k] = n;
+    this.things = new Int16Array(this.carItems.length + this.dummyItems.length + items.length);
     this.solids = labSolids(this.colliders, placed, this.surfaces);
     this.rest = new Float64Array(this.carItems.length * 4);
     // Halfway from the thrower to the middle of the rest; a lone thrower looks 12 m down its own line.
@@ -267,6 +278,7 @@ export class Lab {
     this.thingSlot = -1;
     this.targetSlot = -1;
     this.thingDoll = -1;
+    this.thingProp = -1;
   }
 
   /** Every car and dummy of the layout at its pose, at rest; props back on their spots. */
@@ -282,16 +294,16 @@ export class Lab {
       _u.cross(_d).normalize().toArray(this.screens, slot * 3);
     }
     this.knocked.fill(0);
-    this.tumble?.reset();
-    this.dolls?.setSolids(this.ground, this.solids, this.isKnocked);
+    this.dolls?.setSolids(this.ground, this.solids, this.placed, this.tumble);
     this.placeDummies();
     this.shot = null;
     this.thingSlot = -1;
     this.targetSlot = -1;
     this.thingDoll = -1;
+    this.thingProp = -1;
   }
 
-  /** Every dummy standing at his pose (he falls where he stands), and the items a flick may pick; while Rapier loads they wait (`slice` tries again). */
+  /** Every dummy standing at his pose (he falls where he stands), and the items a flick may pick; while Rapier loads the dummies wait (`slice` tries again). */
   private placeDummies(): void {
     let n = 0;
     for (const k of this.carItems) this.things[n++] = k;
@@ -301,10 +313,12 @@ export class Lab {
       if (this.dolls && this.dolls.place(_p.set(p.x, p.y, p.z), _q.setFromAxisAngle(UP, p.yaw), _v.set(0, 0, 0), _u.set(0, 0, 0), Infinity, d) >= 0) this.things[n++] = k;
       else if (this.dolls) this.dollsDue = true;
     }
+    // A prop flicked before Rapier is in flies once it is (`RagdollSystem.knockProp`).
+    if (this.dolls) for (const [i, k] of this.propItems.entries()) if (PREFABS[this.placed[i]!.prefab].body === "knock") this.things[n++] = k;
     this.thingN = n;
   }
 
-  /** Centre (m) of item `k` as it is now: a car's body box middle, a dummy's torso, a prop's middle. */
+  /** Centre (m) of item `k` as it is now: a car's body box middle, a dummy's torso, a prop's middle (a knocked one's where it is). */
   centre(k: number, out: THREE.Vector3): THREE.Vector3 {
     const slot = this.slotOf[k]!;
     if (slot >= 0) {
@@ -313,6 +327,8 @@ export class Lab {
     }
     const doll = this.dollOf[k]!;
     if (doll >= 0 && this.dolls?.torso(doll, out, null)) return out;
+    const prop = this.propOf[k]!;
+    if (prop >= 0 && this.dolls?.propAt(prop, out, _w)) return out;
     // A dummy's pose is his torso's centre (`LabPose`); a prop's is its base.
     const p = heldPose(this.layout[k]!);
     return out.set(p.x, p.y + (doll >= 0 ? 0 : 0.5), p.z);
@@ -336,7 +352,7 @@ export class Lab {
   /** Whether item `k` can be thrown at from item `thing`: any other item but a shelf, and a prop only while it stands on its spot. */
   canTarget(thing: number, k: number): boolean {
     if (k === thing || this.layout[k]!.kind === "shelf") return false;
-    const p = this.propItems.indexOf(k);
+    const p = this.propOf[k]!;
     return p < 0 || this.knocked[p] === 0;
   }
 
@@ -380,7 +396,7 @@ export class Lab {
       if (lob > 0) flight = Math.sqrt(lob);
     }
     flight = Math.max(1e-3, flight);
-    this.aimDrag = doll ? AIR_LINEAR : 0;
+    this.aimDrag = doll || this.propOf[thing]! >= 0 ? AIR_LINEAR : 0;
     const reach = reachOf(this.aimDrag, flight);
     out.copy(to).sub(from);
     out.y += fallOf(this.aimDrag, flight, reach);
@@ -400,7 +416,7 @@ export class Lab {
       return;
     }
     this.launchPoint(thing, this.from);
-    this.aimDrag = this.dollOf[thing]! >= 0 ? AIR_LINEAR : 0;
+    this.aimDrag = this.dollOf[thing]! >= 0 || this.propOf[thing]! >= 0 ? AIR_LINEAR : 0;
     const d = Math.hypot(dx, dz) || 1;
     const flat = speed * Math.cos(FREE_LIFT);
     const up = speed * Math.sin(FREE_LIFT);
@@ -422,7 +438,7 @@ export class Lab {
     return out;
   }
 
-  /** Flick item `thing` (a car or a dummy) at `target` (or `FREE` along (dx, dz)) at `speed` m/s (`flickAim`). */
+  /** Flick item `thing` (a car, a dummy or a knockable prop) at `target` (or `FREE` along (dx, dz)) at `speed` m/s (`flickAim`). */
   flick(thing: number, target: number, dx: number, dz: number, speed: number): LabShot {
     const out = new THREE.Vector4();
     this.flickAim(thing, target, dx, dz, speed, out);
@@ -430,7 +446,7 @@ export class Lab {
   }
 
   /**
-   * Launch item `thing` (a car or a dummy) at item `target` (or `WALL`) at `speed` m/s along the line between their centres,
+   * Launch item `thing` (a car, a dummy or a knockable prop) at item `target` (or `WALL`) at `speed` m/s along the line between their centres,
    * arriving at the target's point (`aim`), spinning `spin` rad/s about the vertical.
    */
   throwAt(thing: number, target: number, speed: number, spin = 0): LabShot {
@@ -439,14 +455,16 @@ export class Lab {
   }
 
   /**
-   * Item `thing` (a car, or a dummy flat to the throw, chest first) leaves at velocity `v` toward `target` (a layout index, `WALL`
-   * or `FREE`), spinning `spin` rad/s about the vertical, `flight` s from where it arrives (`flickAim`). Starts a fresh readback
-   * (`shot`). Every other car's stand is remembered, so `fell` counts only what the throw moved.
+   * Item `thing` (a car; a dummy flat to the throw, chest first; a knockable prop from where it is, off its spot) leaves at
+   * velocity `v` toward `target` (a layout index, `WALL` or `FREE`), spinning `spin` rad/s about the vertical (a prop: its
+   * knock's own tumble), `flight` s from where it arrives (`flickAim`). Starts a fresh readback (`shot`). Every other car's
+   * stand is remembered, so `fell` counts only what the throw moved.
    */
   private launch(thing: number, target: number, v: THREE.Vector3, spin: number, flight: number): LabShot {
     const slot = this.slotOf[thing]!;
     const doll = this.dollOf[thing]!;
-    if (slot < 0 && doll < 0) throw new Error(`lab item ${thing} is not a car or a dummy`);
+    const prop = slot < 0 && doll < 0 ? this.propOf[thing]! : -1;
+    if (slot < 0 && doll < 0 && (prop < 0 || PREFABS[this.placed[prop]!.prefab].body !== "knock")) throw new Error(`lab item ${thing} is not a car, a dummy or a knockable prop`);
     this.launchDir.set(v.x, 0, v.z).normalize();
     for (let s = 0; s < this.cars.length && s < this.carItems.length; s++) {
       const c = this.cars[s]!;
@@ -464,7 +482,7 @@ export class Lab {
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
       } else car.deform.bindKinematic(car.group, car.velocity, car.angular);
-    } else {
+    } else if (doll >= 0) {
       // Chest first where he arrives, his spine level across the throw (his head on its left): his torso is what meets what he is
       // thrown at (the glass rule's). At a car, flat to its windshield with his spine across it, so an arc that slants in still
       // meets it with his torso.
@@ -482,10 +500,14 @@ export class Lab {
       _u.normalize();
       _q.setFromRotationMatrix(_m.makeBasis(_from.crossVectors(_u, _d), _u, _d));
       this.dolls?.place(this.from, _q, v, _u.set(0, spin, 0), Infinity, doll);
-      this.vRef.copy(v);
-      this.tRef = 0;
+    } else {
+      this.knocked[prop] = 1;
+      this.dolls?.knockProp(prop, -1, v.x, v.y, v.z);
     }
+    this.vRef.copy(v);
+    this.tRef = 0;
     this.thingDoll = doll;
+    this.thingProp = prop;
     this.thingSlot = slot;
     this.targetSlot = target >= 0 ? this.slotOf[target]! : -1;
     this.vThing.copy(v);
@@ -528,9 +550,9 @@ export class Lab {
     if (this.dollsDue) this.placeDummies();
     const s = this.shot;
     if (!s) return false;
-    if (this.thingDoll >= 0) {
+    if (this.thingDoll >= 0 || this.thingProp >= 0) {
       if (this.t >= this.sampleAt) this.sample();
-      this.dollRead(s);
+      this.bodyRead(s);
       this.fell(s);
       this.t += h;
       return false;
@@ -581,11 +603,13 @@ export class Lab {
   }
 
   /**
-   * A thrown dummy, before each slice: his first contact (`DOLL_READ_S`, `HIT_DV`; the normal is his torso's change of
-   * velocity, out of what he met), then the after read at `AFTER_S`. A dummy's throw reads no momentum or crush.
+   * A thrown dummy or prop, before each slice: its first contact (`DOLL_READ_S`, `HIT_DV`; the normal is its change of
+   * velocity, out of what it met) off the ground, then the after read at `AFTER_S`. A dummy's is off the ground while his
+   * torso is over `GROUND_REACH`; a prop's while its change of velocity points less steeply up than `PROP_LAND` (steeper, it
+   * met the ground under it). Neither reads momentum or crush.
    */
-  private dollRead(s: LabShot): void {
-    if (!this.dolls?.torso(this.thingDoll, _p, _u)) return;
+  private bodyRead(s: LabShot): void {
+    if (!(this.thingDoll >= 0 ? this.dolls?.torso(this.thingDoll, _p, _u) : this.dolls?.propAt(this.thingProp, _p, _u))) return;
     if (s.contactS !== null) {
       if (s.speedAfter === null && this.t >= s.contactS + AFTER_S) {
         s.speedAfter = _u.length();
@@ -598,7 +622,8 @@ export class Lab {
     if (dt < DOLL_READ_S) return;
     _d.copy(_u).sub(this.vRef);
     _d.y += G * dt;
-    if (_d.length() > HIT_DV && _p.y - this.ground.heightAt(_p.x, _p.z, _p.y) > GROUND_REACH) {
+    const off = this.thingDoll >= 0 ? _p.y - this.ground.heightAt(_p.x, _p.z, _p.y) > GROUND_REACH : _d.y < PROP_LAND * _d.length();
+    if (_d.length() > HIT_DV && off) {
       s.contactS = this.t;
       s.contactAt.copy(_p);
       s.normal.copy(_d).normalize();
@@ -610,7 +635,7 @@ export class Lab {
     this.tRef = this.t;
   }
 
-  /** What a dummy's torso at `p` met: the nearest other item whose middle is within `DOLL_REACH`, else the wall when he is at the board, else nothing known. */
+  /** What a thrown dummy's torso or prop at `p` met: the nearest other item whose middle is within `DOLL_REACH`, else the wall when it is at the board, else nothing known. */
   private met(thing: number, p: THREE.Vector3): number | null {
     let best: number | null = null;
     let bestD = DOLL_REACH;
@@ -640,7 +665,7 @@ export class Lab {
     s.momentumBefore = this.pBefore;
   }
 
-  /** Rebuilds `fell`: every car but the thrown one off its stand, every knocked prop. */
+  /** Rebuilds `fell`: every car but the thrown one off its stand, every knocked prop but the thrown one. */
   private fell(s: LabShot): void {
     let n = 0;
     for (let slot = 0; slot < this.carItems.length; slot++) {
@@ -651,7 +676,7 @@ export class Lab {
       const moved = Math.hypot(p.x - this.rest[o]!, p.y - this.rest[o + 1]!, p.z - this.rest[o + 2]!);
       if (moved > FELL_M || c.group.matrixWorld.elements[5]! < UPRIGHT) s.fell[n++] = this.carItems[slot]!;
     }
-    for (let k = 0; k < this.propItems.length; k++) if (this.knocked[k]) s.fell[n++] = this.propItems[k]!;
+    for (let k = 0; k < this.propItems.length; k++) if (this.knocked[k] && k !== this.thingProp) s.fell[n++] = this.propItems[k]!;
     s.fell.length = n;
   }
 }

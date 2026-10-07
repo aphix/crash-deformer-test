@@ -51,6 +51,8 @@ interface RaceHost {
   leave(): void;
   /** Sparks / debris at a wall or prop hit. */
   hitFx(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
+  /** Knockable prop `index` knocked off its spot by car `car` at (vx, vy, vz) m/s: drawn flying and tumbling (cosmetic; headless: nothing). */
+  knockProp(index: number, car: number, vx: number, vy: number, vz: number): void;
   /** The course's art (null headless: rules, AI, contacts and physics run without it). */
   buildArt(track: Track, placed: readonly Placed[]): TrackArt | null;
   /** Re-target the tyre-mark map to the course's bounds (headless: nothing to draw). */
@@ -157,7 +159,7 @@ export abstract class RaceField {
   protected readonly propHits: PropHits = {
     knock: (index, car, vx, vy, vz) => {
       this.recorder.knock(index, car);
-      this.art?.props.knock(index, vx, vy, vz);
+      this.host.knockProp(index, car, vx, vy, vz);
     },
     fx: (at, n, closing) => this.host.hitFx(at, n, closing),
     wall: (_index, i, closing, x, z) => this.onWallHit(i, closing, x, z),
@@ -357,7 +359,6 @@ export abstract class RaceField {
     this.markTime.fill(0);
     this.markProgress.fill(0);
     this.knocked.fill(0);
-    this.art?.props.reset();
     this.overFor = 0;
     this.menu = null;
     const seat = this.host.seat;
@@ -375,10 +376,9 @@ export abstract class RaceField {
     this.recorder.begin(tr.id, HANDLING.realism, this.host.bleeds(), racers, (i) => this.entrants[i]?.name ?? "Traffic", this.look);
   }
 
-  /** Every knocked prop back on its spot (a race start, each highlight clip). */
+  /** Every knocked prop back on its spot for the rules (a race start, each highlight clip; the drawn ones go back with the scene's `clear`). */
   resetProps(): void {
     this.knocked.fill(0);
-    this.art?.props.reset();
   }
 
   /**
@@ -400,11 +400,11 @@ export abstract class RaceField {
     for (let i = 0; i < this.knocked.length; i++) {
       if (!((bits[i >> 3] ?? 0) & (1 << (i & 7))) || this.knocked[i]) continue;
       this.knocked[i] = 1;
-      this.art?.props.knock(i, 0, 0, 0);
+      this.host.knockProp(i, -1, 0, 0, 0);
     }
   }
 
-  /** Whether car contact has knocked placed prop `i` off its spot (the ragdolls leave those out of their world). */
+  /** Whether car contact has knocked placed prop `i` off its spot. */
   propKnocked(i: number): boolean {
     return this.knocked[i] === 1;
   }

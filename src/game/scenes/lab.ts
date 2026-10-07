@@ -163,8 +163,14 @@ export function labColliders(placed: readonly Placed[]): PropCollider[] {
  */
 const CARDS_X = 10;
 const CARDS_GAP = 0.2;
-/** Height (m) of a sedan's origin lying on two sedans' roofs, as measured at rest (lab probe: 1.191, the roofs' 1.17 m of `vehicle/stack-crush.test.ts` plus the belly's ride). */
-const ON_ROOF = 1.191;
+/**
+ * The top car's pose on the two roofs, at rest on them uncrushed: its underside's keel at the nose (0.032 m over its origin,
+ * `UNDERSIDE`) and at the tail (0.161 m) each on a roof's plate (1.344 m), so it lies nose up by atan(0.129 / 4). Placed level
+ * at its height over roofs already crushed (1.191 m), the nose started 12 cm inside a roof: lifted out, the car dropped its
+ * tail onto the other roof at 0.9 m/s and crushed it 86 mm.
+ */
+const ON_ROOF_PITCH = -Math.atan(0.129 / 4);
+const ON_ROOF = 1.344 - 0.161 * Math.cos(ON_ROOF_PITCH) - 2 * Math.sin(ON_ROOF_PITCH);
 
 /** A throw lane's start: a sedan on the bench left of the targets, facing them (+x). */
 const THROWER = pose(-14, 0, 0, Math.PI / 2);
@@ -187,7 +193,7 @@ export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
     { kind: "car", type: SEDAN, pose: THROWER, hold: "free" },
     { kind: "car", type: SEDAN, pose: pose(CARDS_X - CAR_HALF.z - CARDS_GAP / 2, 0, 0, Math.PI / 2), hold: "free" },
     { kind: "car", type: SEDAN, pose: pose(CARDS_X + CAR_HALF.z + CARDS_GAP / 2, 0, 0, Math.PI / 2), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOF, 0, Math.PI / 2), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOF, 0, Math.PI / 2, ON_ROOF_PITCH), hold: "free" },
   ],
   glass: [
     { kind: "dummy", pose: pose(0, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },

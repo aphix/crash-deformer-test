@@ -49,6 +49,8 @@ export type World = {
   watchCams: number;
   /** Every driver the sim threw out so far, in order (`CrashEngine.ejected` hands each to the recorder). */
   ejections: Ejection[];
+  /** Called for every prop knock the race hands the engine (`RaceHost.knockProp`): where the engine's dummies' world takes it. */
+  onKnock: ((index: number, car: number, vx: number, vy: number, vz: number) => void) | null;
 };
 
 /** `survivalCourse`: a variant of the Survival course file (props added, say); the real one when omitted. */
@@ -106,6 +108,7 @@ export function makeWorld(survivalCourse?: unknown): World {
       w.leaves++;
     },
     hitFx: () => {},
+    knockProp: (index, car, vx, vy, vz) => w.onKnock?.(index, car, vx, vy, vz),
     buildArt: () => null,
     markBounds: () => {},
     bleeds: () => false,
@@ -121,7 +124,7 @@ export function makeWorld(survivalCourse?: unknown): World {
   const step = newWorld(liveBuf);
   step.ejection = new EjectionWatch();
   step.collide = (car, i, h) => race.collide(car, i, h);
-  const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [] };
+  const w: World = { cars, live, race, camera, leaves: 0, seat, onPairContact: null, step, dress, clears: 0, watchCams: 0, ejections: [], onKnock: null };
   step.pairHit = (a, b, hit, first) => {
     race.pairHit(a, b, hit, first);
     if (first) w.onPairContact?.(a, b);
