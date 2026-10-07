@@ -8,8 +8,7 @@ const TRACK = Math.abs(WHEEL_POS[0]![0]);
 /**
  * Per class: height of the centre of gravity over the ground (m), and the most the drawn body pitches (squat / dive)
  * and rolls under load transfer (deg). The spring model alone gives a sedan 2.3° of pitch at 1 g and a monster 15°;
- * these limits (the springs overshoot them by about a third) are what arcade launches and corners saturate at, small
- * enough that the springs keep room for a landing.
+ * these limits are what arcade launches and corners saturate at, small enough that the springs keep room for a landing.
  */
 const LOAD: Readonly<Record<VehicleClassId, { cg: number; pitch: number; roll: number }>> = {
   sedan: { cg: 0.5, pitch: 1.5, roll: 3 },

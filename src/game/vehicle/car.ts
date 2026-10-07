@@ -67,7 +67,7 @@ export class DeformableCar extends CarParts {
   laying = false;
   /** The slice (s) `stepFree` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */
   private flewDt = 0;
-  /** The body's springs over its wheels (drawn only: the physics frame stays on the ground pose). */
+  /** The drawn body's load transfer over the physics body, and its wheels' seats (drawn only). */
   readonly suspension = new Suspension();
   /** A wreck's drawn body stood up off its frame (m) so its underside clears the ground (`seatBody`); 0 on any other car. */
   private hullLift = 0;

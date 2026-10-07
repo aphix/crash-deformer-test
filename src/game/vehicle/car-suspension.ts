@@ -6,16 +6,13 @@ import { C_H, HIT_SIZE } from "../world/surfaces.ts";
 import { LoadTransfer } from "./car-load.ts";
 
 /**
- * A spring and a damper between each wheel and the body, drawn: the physics frame (hulls, masses, contacts, the
- * wheels) stays on the ground pose and nothing here feeds grip, tyre or drive forces. The body (the class lift
- * group, `assignClass`) rides the four springs' mean heave, pitch and roll. While its wheels are on the ground a
- * spring's input is the change in its wheel's vertical speed on the ground pose (a landing, a ramp's foot, a
- * crest): the body keeps going and the spring takes up the difference. In the air body and wheels fall together.
+ * The tyre springs and dampers of a body on the road (`stepFree`): a spring and a damper per corner push the physics body up, per
+ * unit of the whole car's mass. The drawn body (the class lift group, `assignClass`) rides that body: the springs' own compression
+ * is the body's own heave, pitch and roll, and only the load transfer (squat, dive and lean) is drawn on top.
  *
  * Per class: ride frequency f (Hz), one symmetric damping ratio ζ (a little under real bump/rebound, for arcade
  * bounce) and total travel (m), split evenly into bump and droop with a hard stop at each end. Per corner mass m:
- * k = m (2πf)², c = 2ζ √(k m); per unit mass ω² and 2ζω. Ranges: `.extraResearch` 2026-10-02-suspension-*. The same springs
- * push a rigid body's tyres in their travel (`stepFree`), there per unit of the whole car's mass.
+ * k = m (2πf)², c = 2ζ √(k m); per unit mass ω² and 2ζω. Ranges: `.extraResearch` 2026-10-02-suspension-*.
  */
 export const SPRINGS: Readonly<Record<VehicleClassId, { hz: number; zeta: number; travel: number }>> = {
   sedan: { hz: 1.3, zeta: 0.3, travel: 0.13 },
@@ -161,9 +158,6 @@ export class Suspension {
    * edge, a crest, a twist the frame's one plane can't take), within its spring's stops of the body.
    */
   readonly seat = new Float64Array(4);
-  private readonly rate = new Float64Array(4);
-  private readonly lastY = new Float64Array(4);
-  private readonly lastV = new Float64Array(4);
   /** The ground pose's load transfer (squat, dive, roll): the springs' resting offsets while it lasts. */
   private readonly load = new LoadTransfer();
   private readonly target = new Float64Array(4);
@@ -171,8 +165,8 @@ export class Suspension {
   private sagLift = NaN;
   private sagStop = NaN;
   private sagGone = -1;
-  /** Slices seen since the spawn (2: both last height and last speed are real). */
-  private seen = 0;
+  /** The body has ridden the load transfer since the spawn (a crash puts it back on its stock ride once). */
+  private riding = false;
   /** The body group the springs carry (found once per spawn; null without a class lift). */
   private body: THREE.Object3D | null | undefined = undefined;
   /** The drawn body's extra rise (m) over the springs' ride while its underside rests on the ground (`bottomOut`). */
@@ -187,27 +181,27 @@ export class Suspension {
       this.body.rotation.z = 0;
     }
     o.fill(0);
-    this.rate.fill(0);
     this.seat.fill(0);
     this.load.reset();
-    this.seen = 0;
+    this.riding = false;
     this.body = undefined;
   }
 
   /**
-   * One slice for a car whose ground pose is `group` (its matrixWorld current), class `cls` with body `lift`;
-   * `air` while no wheel is on the ground. `free` false (a crash) puts the body back on its stock ride, then eases it
-   * down onto the corners of the wheels it has lost (`gone`, bit i: `WHEEL_POS` i; `sagOffsets`; snapped at dt 0); the
-   * wheels are then the wreck's (`nudgeWheels` puts them on their hubs).
+   * One slice for a car whose body pose is `group` (its matrixWorld current), class `cls` with body `lift`; `air` while no wheel
+   * is on the ground. The group is the physics body, already sprung on its tyres (`stepFree`): the drawn body rides it with the
+   * load transfer alone (squat, dive, roll: drawn only), each drawn wheel seated by what the physics tyre reads (`seatWheels`).
+   * `free` false (a crash) puts the body back on its stock ride, then eases it down onto the corners of the wheels it has lost
+   * (`gone`, bit i: `WHEEL_POS` i; `sagOffsets`; snapped at dt 0); the wheels are then the wreck's (`nudgeWheels` puts them on their
+   * hubs).
    */
   step(group: THREE.Object3D, wheels: readonly THREE.Object3D[], cls: VehicleClassId, lift: number, free: boolean, air: boolean, gone: number, hit: Float64Array, dt: number): void {
     if (this.body === undefined) this.body = group.getObjectByName("classLift") ?? null;
     if (!free) {
-      if (this.seen > 0) {
+      if (this.riding) {
         this.offset.fill(0);
-        this.rate.fill(0);
         this.load.reset();
-        this.seen = 0;
+        this.riding = false;
         this.rise = 0;
         this.pose(lift);
         this.seat.fill(0);
@@ -218,36 +212,16 @@ export class Suspension {
     if (dt <= 0) return;
     const s = SPRINGS[cls];
     const w = 2 * Math.PI * s.hz;
-    const k = w * w;
-    const c = 2 * s.zeta * w;
     const stop = s.travel / 2;
     const e = group.matrixWorld.elements;
-    this.load.step(e, dt, air, cls, k);
-    const rest = this.load.target;
-    let moved = false;
+    this.load.step(e, dt, air, cls, w * w);
+    let moved = !this.riding;
+    this.riding = true;
     for (let i = 0; i < 4; i++) {
-      const [x, , z] = WHEEL_POS[i]!;
-      // The wheel's tyre contact on the ground pose: its height and vertical speed.
-      const y = e[1]! * x + e[9]! * z + e[13]!;
-      const vy = this.seen > 0 ? (y - this.lastY[i]!) / dt : 0;
-      let r = this.rate[i]!;
-      if (this.seen > 1 && !air) r -= vy - this.lastV[i]!;
-      this.lastY[i] = y;
-      this.lastV[i] = vy;
-      r -= (k * (this.offset[i]! - rest[i]!) + c * r) * dt;
-      let o = this.offset[i]! + r * dt;
-      if (o < -stop) {
-        o = -stop;
-        r = Math.max(r, 0);
-      } else if (o > stop) {
-        o = stop;
-        r = Math.min(r, 0);
-      }
-      if (o !== 0 || r !== 0) moved = true;
+      const o = Math.max(-stop, Math.min(stop, this.load.target[i]!));
+      if (o !== this.offset[i]) moved = true;
       this.offset[i] = o;
-      this.rate[i] = r;
     }
-    if (this.seen < 2) this.seen++;
     // Still held up (`rise`) or sprung down on a compressed spring, the drawn body keeps bottoming out through a slice the hull is clear
     // in: a nose bouncing off a landing lifts it out for one slice (nothing touched: `airborne`), and dropping `rise` then sank the underside 4.7 cm.
     const off = this.offset;
@@ -298,7 +272,6 @@ export class Suspension {
         s = Math.max(-stop, need);
         if (s > o + stop) {
           this.offset[i] = s - stop;
-          this.rate[i] = Math.max(this.rate[i]!, 0);
           lifted = true;
         }
       }
