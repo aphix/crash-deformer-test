@@ -4,10 +4,10 @@ import { blueNoiseTexture } from "./blue-noise.ts";
 /**
  * Cinematic FX quality, cheapest first. `off` and `minimal` render straight to the canvas (no post chain);
  * `minimal` keeps the director's camera moves, tyre marks and smoke, `off` drops those too; `low` / `high`
- * add the post chain.
+ * add the post chain. `ultra` runs the `high` chain over the Ultra scene look (`present/ultra/`): a manual pick only, never Auto's.
  */
-export type FxTier = "off" | "minimal" | "low" | "high";
-export const FX_TIERS: readonly FxTier[] = ["off", "minimal", "low", "high"];
+export type FxTier = "off" | "minimal" | "low" | "high" | "ultra";
+export const FX_TIERS: readonly FxTier[] = ["off", "minimal", "low", "high", "ultra"];
 type PostTier = Exclude<FxTier, "off" | "minimal">;
 
 const VERT = /* glsl */ `
@@ -148,6 +148,7 @@ const GOLDEN = 0.6180339887;
 const TIER: Record<PostTier, TierSpec> = {
   low: { mip0: 1, mips: 3, radial: false, grain: DITHER },
   high: { mip0: 0, mips: 5, radial: true, grain: 0.03 },
+  ultra: { mip0: 0, mips: 5, radial: true, grain: 0.03 },
 };
 /** Length of the shared bloom chain: ½, ¼, ⅛, 1/16, 1/32 of the canvas. */
 const CHAIN = 5;
@@ -158,7 +159,8 @@ export function describePost(tier: FxTier): string {
   const s = TIER[tier];
   const radial = s.radial ? ", radial blur" : "";
   const grain = s.grain >= DITHER * 2 ? `, grain ${s.grain} (blue noise)` : ", blue-noise dither";
-  return `HDR half-float scene target, bloom (${s.mips} mips from 1/${2 ** (s.mip0 + 1)} res, threshold ${GRADE.threshold}, ${GRADE.bloom} strength), one composite pass: tone map, grade, vignette${radial}${grain}`;
+  const chain = `HDR half-float scene target, bloom (${s.mips} mips from 1/${2 ** (s.mip0 + 1)} res, threshold ${GRADE.threshold}, ${GRADE.bloom} strength), one composite pass: tone map, grade, vignette${radial}${grain}`;
+  return tier === "ultra" ? `${chain}; ultra look: HDRI daylight lighting, soft sun shadows, PBR ground textures` : chain;
 }
 
 /** Look shared by both post tiers (tuned against the studio env at exposure 1.45). `contrast` is the S-curve mix. */
@@ -251,7 +253,9 @@ export class PostFX {
         depthTest: false,
         depthWrite: false,
       });
-    this.composites = { low: composite(TIER.low), high: composite(TIER.high) };
+    // Ultra's chain is the high chain: one material, so no extra program.
+    const high = composite(TIER.high);
+    this.composites = { low: composite(TIER.low), high, ultra: high };
     // Match the canvas: the renderer asked for MSAA only at a device pixel ratio of 1.
     const samples = renderer.getContextAttributes()?.antialias ? 4 : 0;
     this.sceneRT = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, stencilBuffer: false });

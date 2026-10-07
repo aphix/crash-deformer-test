@@ -8,6 +8,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { cleanName, DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
+import { loadUltra as fetchUltra } from "../present/ultra/load.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { MouseLook } from "./mouse-look.ts";
@@ -22,6 +23,9 @@ import { EngineRigs } from "./engine-rigs.ts";
  */
 export abstract class EngineInput extends EngineRigs {
   protected abstract tickInner(now: number): void;
+  /** The last FX pick is Ultra (a pick of another tier, or Auto, while it loads cancels the switch). */
+  private ultraWanted = false;
+  private ultraLoad: Promise<boolean> | null = null;
 
   /**
    * Fast-forward for probes: the exact per-frame path of `tick` on a synthetic clock, synchronously (so the rAF loop
@@ -103,8 +107,16 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. The user's pick turns the auto tier off. */
+  /**
+   * Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high / ultra the
+   * post chain. The user's pick turns the auto tier off. Ultra is fetched on its first pick (`loadUltra`) and the tier changes when it is in.
+   */
   setFxTier(tier: FxTier): void {
+    this.ultraWanted = tier === "ultra";
+    if (tier === "ultra" && this.cine.ultra === null) {
+      void this.pickUltra();
+      return;
+    }
     this.autoFx.auto = false;
     this.cine.setTier(tier);
     this.emitHud();
@@ -112,7 +124,38 @@ export abstract class EngineInput extends EngineRigs {
 
   /** The auto tier back on (the HUD's "auto"): the next frame applies its tier. */
   setFxAuto(): void {
+    this.ultraWanted = false;
     this.autoFx.resume(this.cine.tier);
+    this.emitHud();
+  }
+
+  /** True once the Ultra look is loaded (the bench awaits it before its Ultra arm). Fetches it on the first call; false, logged, when that fails. */
+  loadUltra(): Promise<boolean> {
+    if (this.cine.ultra !== null) return Promise.resolve(true);
+    this.ultraLoad ??= fetchUltra({ renderer: this.renderer, scene: this.scene, stage: this.stage, queueWarm: () => this.queueWarm(), alive: () => !this.disposed })
+      .then((handle) => {
+        if (handle === null) return false;
+        if (this.disposed) {
+          handle.dispose();
+          return false;
+        }
+        this.cine.ultra = handle;
+        return true;
+      })
+      .finally(() => void (this.ultraLoad = null));
+    return this.ultraLoad;
+  }
+
+  /** A pick of Ultra: load it, then switch if it is still the player's last pick. */
+  private async pickUltra(): Promise<void> {
+    this.fxLoading = true;
+    this.emitHud();
+    const loaded = await this.loadUltra();
+    this.fxLoading = false;
+    if (loaded && this.ultraWanted) {
+      this.autoFx.auto = false;
+      this.cine.setTier("ultra");
+    }
     this.emitHud();
   }
 

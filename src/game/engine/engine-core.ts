@@ -179,6 +179,8 @@ export abstract class EngineCore {
   protected cine!: Cinematics;
   /** The automatic FX tier (`present/auto-fx.ts`); `fxFrame` applies it. */
   protected autoFx!: AutoFx;
+  /** The Ultra tier is being fetched (`setFxTier`); the HUD shows it. */
+  protected fxLoading = false;
   /** The distance detail's rung (`present/detail-governor.ts`), chosen by how the match runs; `fxFrame` applies it to `detail` while the tier is automatic. */
   protected detailGov!: DetailGovernor;
   protected impactLightLife = 0;

@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { applyMarkMap } from "./engine-marks.ts";
 import { groundMaterial, groundMesh } from "../scenes/ground-stack.ts";
+import { tagSurface } from "./ultra/surface-tag.ts";
+
+/** The sandbox's asphalt disc: its UVs span this many metres (its texture repeats 18 times across). */
+const STAGE_DIAMETER = 96;
 
 function makeConcrete(): THREE.CanvasTexture {
   const c = document.createElement("canvas");
@@ -229,6 +233,8 @@ export class WorldStage {
    * owner found night too dark; 0.62–0.83 is the agreed range. The lamp heads always glow at full night strength. */
   nightDepth = 0.72;
   private day = DAY;
+  /** A multiplier on the environment's day / night level: 1 except under Ultra (`present/ultra/`), whose HDRI is lit differently from the studio env. */
+  envGain = 1;
 
   constructor(scene: THREE.Scene) {
     this.scene = scene;
@@ -255,10 +261,10 @@ export class WorldStage {
       color: 0x2a2c34,
       roughness: 0.88,
       metalness: 0.06,
-      map: makeAsphalt(),
+      map: tagSurface(makeAsphalt(), "asphalt", STAGE_DIAMETER),
     });
     applyMarkMap(this.groundMat);
-    this.ground = groundMesh(new THREE.CircleGeometry(48, 64), this.groundMat, "terrain");
+    this.ground = groundMesh(new THREE.CircleGeometry(STAGE_DIAMETER / 2, 64), this.groundMat, "terrain");
     this.ground.rotation.x = -Math.PI / 2;
     this.ground.receiveShadow = true;
     scene.add(this.ground);
@@ -267,7 +273,7 @@ export class WorldStage {
 
   /** Environment-map strength for the current time of day (the studio env loads async). */
   get envIntensity(): number {
-    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth);
+    return THREE.MathUtils.lerp(this.day.env, NIGHT.env, this.depth) * this.envGain;
   }
 
   /** Smoke brightness for the current time of day. */

@@ -8,12 +8,13 @@ import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
 import { GpuTimer } from "./gpu-timer.ts";
 import { camUsable, type Sight } from "./spectate-cam.ts";
+import type { Ultra } from "./ultra/ultra.ts";
 import { FX_REACH, type Witness } from "./witness.ts";
 import { NO_FLOOR } from "../world/ground.ts";
 import { SLOMO_HOLD } from "../match/phase.ts";
 
 /** Mark-map edge (texels) per tier: 2048 over the 96 m sandbox is 4.7 cm a texel. */
-const MARK_RES: Record<FxTier, number> = { off: 0, minimal: 1024, low: 1024, high: 2048 };
+const MARK_RES: Record<FxTier, number> = { off: 0, minimal: 1024, low: 1024, high: 2048, ultra: 2048 };
 
 /** Per-frame speed change (m/s) of one car that counts as a hit, and where it is full strength. */
 const HIT_DV = 4.5;
@@ -364,6 +365,8 @@ export class Cinematics {
   /** Thin wide tyre smoke, separate from the dense crash plumes. */
   readonly tyreSmoke: TireSmokeSystem;
   private tierNow: FxTier = "off";
+  /** The Ultra look, once loaded (`CrashEngine.loadUltra`); the tier "ultra" needs it. */
+  ultra: Ultra | null = null;
   private readonly renderer: THREE.WebGLRenderer;
   private readonly view: ChaseCamera;
   private readonly fx: FxRefs;
@@ -403,15 +406,19 @@ export class Cinematics {
   }
 
   setTier(tier: FxTier): void {
+    if (tier === "ultra" && this.ultra === null) throw new Error("FX tier ultra needs the Ultra chunk: await CrashEngine.loadUltra() first");
+    const was = this.tierNow;
     this.tierNow = tier;
     this.post.setTier(tier);
     this.marks.setResolution(MARK_RES[tier]);
     const on = tier !== "off";
     // Streaks and over-bright glow are for the bloom; the canvas-only tiers draw plain dots.
-    const bloom = tier === "low" || tier === "high";
+    const bloom = tier === "low" || tier === "high" || tier === "ultra";
     this.fx.sparks.streaked = bloom;
     this.fx.sparks.glow(bloom ? 2.6 : 1);
     this.fx.glass.glow(bloom ? 1.8 : 1);
+    if (tier === "ultra") this.ultra!.enable();
+    else if (was === "ultra") this.ultra?.disable();
     if (!on) this.reset();
   }
 
@@ -499,6 +506,7 @@ export class Cinematics {
 
   dispose(): void {
     this.gpu?.dispose();
+    this.ultra?.dispose();
     this.post.dispose();
     this.marks.dispose();
     this.tyreSmoke.dispose();

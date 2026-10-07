@@ -179,9 +179,11 @@ function PlaybackSection({ state, engine }: HudProps) {
               variant={state.fxTier === tier ? "default" : "ghost"}
               aria-pressed={state.fxTier === tier}
               aria-label={`Cinematic FX ${tier}`}
+              title={tier === "ultra" ? "Desktop GPU: HDRI daylight, soft shadows, PBR ground (about 3.5 MB, fetched on the first pick)" : undefined}
+              disabled={tier === "ultra" && state.fxLoading}
               onClick={() => engine.current?.setFxTier(tier)}
             >
-              {tier}
+              {tier === "ultra" && state.fxLoading ? "loading…" : tier}
             </Button>
           ))}
           <Button
@@ -224,7 +226,7 @@ function PlaybackSection({ state, engine }: HudProps) {
           Auto
         </Button>
       </div>
-      {state.fxTier === "off" || state.fxTier === "minimal" ? <p className="hud-label">Cel look needs FX low or high (a race runs minimal on Auto)</p> : null}
+      {state.fxTier === "off" || state.fxTier === "minimal" ? <p className="hud-label">Cel look needs FX low, high or ultra (a race runs minimal on Auto)</p> : null}
       <label className="flex items-center gap-2">
         <span className="hud-label relative w-12 shrink-0">
           Time

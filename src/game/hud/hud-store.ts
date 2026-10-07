@@ -86,6 +86,8 @@ export type CrashHudState = {
   fxTier: FxTier;
   /** The tier is the automatic one (`present/auto-fx.ts`); a manual pick turns it off. */
   fxAuto: boolean;
+  /** The Ultra tier was picked and is downloading (its code, sky and textures, about 3.5 MB); the tier changes when it arrives. */
+  fxLoading: boolean;
   /**
    * Cel look held on at this strength (0-1), under the scene-switch pulse; null = Auto, the pulse alone. It shows
    * at the post tiers only (low / high).
@@ -203,6 +205,7 @@ export const INITIAL_HUD: CrashHudState = {
   audioOn: false,
   fxTier: "minimal",
   fxAuto: true,
+  fxLoading: false,
   celLook: null,
   night: false,
   wet: false,

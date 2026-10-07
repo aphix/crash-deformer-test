@@ -29,6 +29,9 @@ export interface Block {
   gpuMs: number | null;
   /** Steps cut to the pacer's fine slice for a hit about to land (`World.fineCuts`), per race-clock second. */
   fineCutsPerSimS: number;
+  /** Draw calls and triangles of a frame, mean (`renderer.info`: the whole frame, the post chain's passes included). */
+  calls: number;
+  triangles: number;
 }
 
 /** What was switched on while the bench ran. */
@@ -107,9 +110,9 @@ export interface BenchResult {
   detailPct: Record<string, number>;
   setupMs: { options: number; start: number };
   settings: BenchSettings;
-  /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high. */
+  /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high (and ultra when the page asked: `&ultra=1`). */
   abPace: { fine: Block; coarse: Block };
-  abFx: { minimal: Block; low: Block; high: Block };
+  abFx: { minimal: Block; low: Block; high: Block; ultra?: Block };
   /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
   abDetail: Record<string, Block>;
   device: {
@@ -184,7 +187,7 @@ const row = (label: string, s: Stat): string => `${label.padEnd(10)}p50 ${f1(s.p
 /** The GPU timer spans the draw, so a wait inside it (the display's back buffer, another process) counts: a p95 within 15 % of a frame's length is that wait, and p50 is the work. */
 const waited = (gpu: Stat, frame: Stat): boolean => gpu.p95 >= 0.85 * frame.p50 && gpu.p95 <= 1.15 * frame.p50;
 const gpuOf = (b: Block): string => (b.gpuMs === null ? "gpu n/a" : `gpu ${f1(b.gpuMs)}`);
-const arm = (label: string, b: Block): string => `${label} ${f1(b.fps)} fps, sim ${Math.round(b.simSpeedPct)} %, ${Math.round(b.simMsPerSimS)} ms/sim-s, cpu ${f1(b.cpuMs)}, draw ${f1(b.drawMs)}, ${gpuOf(b)}`;
+const arm = (label: string, b: Block): string => `${label} ${f1(b.fps)} fps, sim ${Math.round(b.simSpeedPct)} %, ${Math.round(b.simMsPerSimS)} ms/sim-s, cpu ${f1(b.cpuMs)}, draw ${f1(b.drawMs)}, ${gpuOf(b)}, ${Math.round(b.calls)} calls`;
 
 /** The results card's text, top line first: the numbers the owner reads off a screenshot. */
 export function describeBench(r: BenchResult): string[] {
@@ -215,6 +218,7 @@ export function describeBench(r: BenchResult): string[] {
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,
+    ...(r.abFx.ultra ? [`               ${arm("ultra", r.abFx.ultra)}`] : []),
     ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
     `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
     `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,

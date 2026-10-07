@@ -82,6 +82,7 @@ export abstract class EngineHud extends EngineWarm {
       audioOn: this.audioOn,
       fxTier: this.cine.tier,
       fxAuto: this.autoFx.auto,
+      fxLoading: this.fxLoading,
       celLook: this.celLook,
       night: this.stage.night,
       wet: this.stage.wet,

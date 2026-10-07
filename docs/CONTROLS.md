@@ -83,8 +83,8 @@ Top left: the standings with gaps. Top right: lap, position, the race time besid
 | Scenes: Fleet, Derby, Race, Press, Pistons, Doors, Corkscrew, Stack, Range (each pick fades through a brief cel-shaded pulse and black; reduced motion: plain fade) | D (from the whole field), Z, C (when not driving), I, N, , (comma), / (slash), (none) | | scene buttons |
 | Jersey barrier / ramp balls / jump ramps (fleet only) | B / K / . (period) | | wall / balls / ramps buttons |
 | Loop, slow-mo, auto-orbit, audio | L, M, O, U | | Playback section |
-| Night, wet asphalt, cinematic FX tier (off → minimal → low → high; turns Auto off) | H (outside a race), X, F | | Playback section (FX Auto button too) |
-| Cel look: Auto (the cel look plays only as the scene-switch pulse) or a 0-100 % slider that holds it on, the pulse still playing over it | | | Playback section, Cel row (needs FX low / high; greyed with a hint on minimal / off) |
+| Night, wet asphalt, cinematic FX tier (off → minimal → low → high → ultra; turns Auto off) | H (outside a race), X, F | | Playback section (FX Auto button too) |
+| Cel look: Auto (the cel look plays only as the scene-switch pulse) or a 0-100 % slider that holds it on, the pulse still playing over it | | | Playback section, Cel row (needs FX low / high / ultra; greyed with a hint on minimal / off) |
 | Shape ↔ lattice | Y | | Cars & crash section |
 | Deform rig, control particles, JSON capture | G, P, J | | Debug views section |
 | Pistons: fire one ram (clockwise from front-left) / all eight | 1–8 / 0 | | piston panel |

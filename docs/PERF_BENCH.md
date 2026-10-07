@@ -40,7 +40,7 @@ writes neither the address bar nor storage.
 | `len` | the straight in metres, 1500–12000 | `6000` |
 
 A value that does not parse falls back to its default. Splits: `?bench=strip` (baseline), `&props=off`, `&traffic=off`,
-`&props=off&traffic=off` (the bare lane).
+`&props=off&traffic=off` (the bare lane). Any bench (`city`, `strip`, `lab`) also takes `&ultra=1`: the card fetches the Ultra look before its first block and adds an `ultra` arm to the FX A/B (below), or fails if it does not load.
 
 ### The Lab: `/crush/?bench=lab`
 
@@ -64,7 +64,7 @@ The same card and run in the Lab (`engine-bench-plan.ts` `LAB_BENCH`): no race, 
 | `night, wet, realism, squash, buckle, deform` | sim and look settings in force |
 | `depth` | depth-buffer bits, subpixel bits, fragment highp range, camera near / far, log depth |
 | `A/B pacer pinned` | 3 × 3 s per arm: `SimPacer.pin` holds the 1/240 s and the 1/120 s floor in turn. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms |
-| `A/B fx pinned` | 2 × 3 s per arm at `minimal`, `low` and `high` (`high`: HDR target, 5-mip bloom, radial blur, tone map, grade, vignette, grain; `low`: 3-mip bloom; `minimal`: none) |
+| `A/B fx pinned` | 2 × 3 s per arm at `minimal`, `low` and `high` (`high`: HDR target, 5-mip bloom, radial blur, tone map, grade, vignette, grain; `low`: 3-mip bloom; `minimal`: none), then `ultra` with `&ultra=1`. Each arm prints fps, sim speed, ms per sim-second, CPU / draw / GPU ms and draw calls per frame |
 | `A/B detail pinned` | 2 × 3 s per arm, run before the FX arms at stretch 1's tier with `AutoFx` and the governor off: no cuts, then body alone beyond 75, 50 and 30 m |
 | `load` | ms the race's options and start took |
 | GPU string, cores, memory, screen, canvas, timer step | the device; a GPU string the browser masks is labelled; timer step is what `performance.now()` resolves (0.1 ms Chrome, 1 ms Firefox / Safari, 16.7 ms with resistFingerprinting) |

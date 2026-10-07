@@ -36,13 +36,13 @@ no hitching (`docs/DESIGN_PILLARS.md`).
 - Post render targets and the mark map are allocated once and resized with the canvas, so a tier switch allocates nothing.
 - One material per draw kind: track art gives each draw kind its own copy of a material (`TrackArt.forDraw`) and
   instanced casters their own depth material, so three never re-selects a program between plain and instanced draws.
-- `npm run check:programs` plays the sandbox (fleet crash with cracked glass, drive, night / wet, every FX tier, every
+- `npm run check:programs` plays the sandbox (fleet crash with cracked glass, drive, night / wet, every FX tier but Ultra, every
   scene, debug views) and a race on every course, and fails if any program links after the boot warm-up or between a
-  race's green light and its end.
+  race's green light and its end. Ultra links its programs on its first pick, by design (`docs/CINEMATIC.md`).
 
 **The `minimal` tier** (the default, `INITIAL_HUD.fxTier`; `?fx=` sets it) renders straight to the canvas: no HDR target,
 bloom, grade, vignette, grain or blur. It keeps every effect that needs no post (tyre marks, tyre smoke, slip sparks, shake,
-FOV kick, hit-stop, crash-cam cuts) and draws sparks and glass plain. Order `off < minimal < low < high`; `off` also drops
+FOV kick, hit-stop, crash-cam cuts) and draws sparks and glass plain. Order `off < minimal < low < high < ultra`; `off` also drops
 marks, smoke, hit-stop and crash cam.
 
 **Distance detail** (`present/car-detail.ts`, `DetailGovernor`): past a car's rung its small non-shadow parts leave the
