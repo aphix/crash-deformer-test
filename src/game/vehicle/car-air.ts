@@ -197,6 +197,15 @@ const ARM = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
 const RATIO = new Float64Array(CONTACTS);
 /** Per contact: the friction impulse (world, per unit mass) it has given over the passes, held within its friction of `ACC`. */
 const FRA = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
+/**
+ * Per contact this slice: the closing its own gravity and the weight borne on the stepping car bring there, left to stop against the car
+ * under as fixed (a tyre in its springs: its quarter of the weight), and the impulse beyond it that moved that car at once.
+ */
+const REST = new Float64Array(CONTACTS);
+const DYN = new Float64Array(CONTACTS);
+/** The weight borne on the stepping car since its last step (`CarSurfaces.takeBorne`): its velocity and spin change. */
+const _lv = new THREE.Vector3();
+const _lw = new THREE.Vector3();
 /** Per belly point (`POINTS` index) this slice: its world position, its rise (surface height less its own) and its patch (`patchOf`). */
 const BX = new Float64Array(POINTS.length);
 const BY = new Float64Array(POINTS.length);
@@ -259,28 +268,31 @@ function pointVel(c: number, v: THREE.Vector3, w: THREE.Vector3, out: THREE.Vect
 
 /**
  * Impulse `j` along unit `dir` at contact `c` on the stepping body (unit mass `v`, `w`, orientation `q`), and its reaction at the same
- * point on the car under it (`HELD`), centre and spin both. Taken at that car's centre alone, a load off the middle of its roof never
- * turned it, and a car turning back under a still rider lifted it 48 mm in 0.1 s (329 J) on 54 J of its own spin.
+ * point on the car under it (`HELD`), centre and spin both: the part `jd` that stops closing beyond this slice's weight at once, the
+ * weight's part (`j - jd`) borne on it for its next step (`CarSurfaces.bear`), which its own contacts then hold and bear on. Taken at
+ * that car's centre alone, a load off the middle of its roof never turned it, and a car turning back under a still rider lifted it
+ * 48 mm in 0.1 s (329 J) on 54 J of its own spin.
  */
-function give(c: number, v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion, dir: THREE.Vector3, j: number): void {
+function give(c: number, v: THREE.Vector3, w: THREE.Vector3, q: THREE.Quaternion, dir: THREE.Vector3, j: number, jd: number, surf: CarSurfaces): void {
   push(v, w, q, R[c]!, dir, j);
   const o = HELD[c];
   if (o === null) return;
   const oq = o.group.quaternion;
-  const k = -j * RATIO[c]!;
-  o.velocity.addScaledVector(dir, k);
-  o.angular.addScaledVector(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), k);
+  invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert());
+  o.velocity.addScaledVector(dir, -jd * RATIO[c]!);
+  o.angular.addScaledVector(_rn, -jd * RATIO[c]!);
+  if (j !== jd) surf.bear(OWN[c]!, dir, _rn, (jd - j) * RATIO[c]!);
 }
 
 /**
  * Unit-mass impulse per m/s of contact `c`'s closing speed along unit `dir`: 1 / (1 + dir · (I⁻¹(r × dir) × r)) for the stepping body,
- * the car under it (`HELD`) taking its share. Stopping the rider alone against a car of its own weight handed that car the whole
- * closing speed: an elastic pair, and a stack whose cars never came to rest.
+ * with `both` the car under it (`HELD`) taking its share. Stopping the rider alone against a car of its own weight handed that car the
+ * whole closing speed: an elastic pair, and a stack whose cars never came to rest.
  */
-function reach(c: number, dir: THREE.Vector3, q: THREE.Quaternion): number {
+function reach(c: number, dir: THREE.Vector3, q: THREE.Quaternion, both: boolean): number {
   let k = 1 + _k.crossVectors(invInertia(_rn.crossVectors(R[c]!, dir), q, _qi), R[c]!).dot(dir);
   const o = HELD[c];
-  if (o !== null) {
+  if (both && o !== null) {
     const oq = o.group.quaternion;
     k += RATIO[c]! * (1 + _k.crossVectors(invInertia(_rn.crossVectors(ARM[c]!, dir), oq, _qo.copy(oq).invert()), ARM[c]!).dot(dir));
   }
@@ -769,6 +781,10 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const mass = car.deform.totalMass;
 
   const surf = beginContacts(car);
+  // The weight the cars on its top bore on it since its last step, taken after its move so its contacts hold it (no sinking under it).
+  surf.takeBorne(car.slot, _lv, _lw);
+  v.add(_lv);
+  w.add(_lw);
   const cls = carClass(car);
   const spring = droop(cls);
   const within = spring + TOUCH;
@@ -909,9 +925,16 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   // The rigid contacts on a face that yields share what it carries in proportion to what each asks, after every pass: cut in list
   // order, the left side of a coupe's belly on a wagon's yielding roof stopped and the right sank, and it rolled 0.43 rad/s off.
+  // Shock propagation for the weight: of each contact's closing this slice, the share its own gravity and the weight borne on it
+  // (`takeBorne`) bring there is stopped against the car under as fixed and borne on that car for its next step; only closing beyond it
+  // (a landing, a rock, a car turning under it) moves both at once. Pushed into the car under at once, every support moved down at the
+  // weight above it each slice and was lifted back: 28-34 kJ of lift every 0.5 s on the owner's 11-car column, which then fell.
   for (let c = 0; c < n; c++) {
     ACC[c] = 0;
+    DYN[c] = 0;
     FRA[c]!.set(0, 0, 0);
+    if (SOFT[c]) REST[c] = (G / 4) * dt;
+    else REST[c] = Math.max(0, -_vp.crossVectors(_lw, R[c]!).add(_lv).addScaledVector(UP, -G * dt).dot(N[c]!));
     FIRST[c] = -1;
     const s = SLOT[c]!;
     if (SOFT[c] || s < 0) continue;
@@ -939,14 +962,18 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         if (pass > 0) continue;
         jn = ASK[c]!;
         if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
-        give(c, v, w, q, UP, jn);
+        give(c, v, w, q, UP, jn, jn - Math.min(jn, REST[c]!), surf);
       } else {
         const vn = pointVel(c, v, w, _vp).dot(nrm);
         if (vn >= 0) continue;
         const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
-        jn = -(1 + e) * vn * reach(c, nrm, q);
+        const rest = Math.min(-vn, REST[c]!);
+        REST[c] = REST[c]! - rest;
+        const jd = (1 + e) * (-vn - rest) * reach(c, nrm, q, true);
+        jn = rest * reach(c, nrm, q, false) + jd;
         ACC[c] = ACC[c]! + jn;
-        give(c, v, w, q, nrm, jn);
+        DYN[c] = DYN[c]! + jd;
+        give(c, v, w, q, nrm, jn, jd, surf);
       }
       if (rolling && OWN[c]! < 0) continue;
       // Friction against the point's sliding: a tyre grips only across its tread (its axle laid in the contact plane) where it
@@ -965,7 +992,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       // its push). Bounded by each pass's push instead, a sedan's belly rows on a roof whose budget its tyres had spent gripped at 0.6 of
       // impulses the cut then took back, and the sedan under took that grip as a 4 rad/s roll.
       _tn.copy(_vp).divideScalar(-slide);
-      _fd.copy(FRA[c]!).addScaledVector(_tn, slide * reach(c, _tn, q));
+      _fd.copy(FRA[c]!).addScaledVector(_tn, slide * reach(c, _tn, q, true));
       const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * (SOFT[c] ? jn : ACC[c]!);
       const held = _fd.length();
       if (held > cap) _fd.multiplyScalar(cap / held);
@@ -973,7 +1000,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       FRA[c]!.add(_fd);
       const fj = _fd.length();
       if (fj < 1e-9) continue;
-      give(c, v, w, q, _fd.divideScalar(fj), fj);
+      give(c, v, w, q, _fd.divideScalar(fj), fj, fj, surf);
     }
     for (let c = 0; c < n; c++) if (FIRST[c] === c) SUMF[c] = 0;
     for (let c = 0; c < n; c++) if (FIRST[c]! >= 0) SUMF[FIRST[c]!] = SUMF[FIRST[c]!]! + ACC[c]!;
@@ -983,14 +1010,16 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       if (f === c) DEMAND[c] = Math.max(DEMAND[c]!, SUMF[c]!);
       if (SUMF[f]! <= ROOM[f]!) continue;
       const cut = ACC[c]! * (1 - ROOM[f]! / SUMF[f]!);
-      give(c, v, w, q, N[c]!, -cut);
+      const cutD = DYN[c]! * (1 - ROOM[f]! / SUMF[f]!);
+      give(c, v, w, q, N[c]!, -cut, -cutD, surf);
       ACC[c] = ACC[c]! - cut;
+      DYN[c] = DYN[c]! - cutD;
       const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * ACC[c]!;
       const held = FRA[c]!.length();
       if (held <= cap) continue;
       _fd.copy(FRA[c]!).multiplyScalar(-1 / held);
       FRA[c]!.multiplyScalar(cap / held);
-      give(c, v, w, q, _fd, held - cap);
+      give(c, v, w, q, _fd, held - cap, held - cap, surf);
     }
   }
   for (let c = 0; c < n; c++) {

@@ -125,6 +125,13 @@ export class CarSurfaces extends Surface {
   private grew = new Float64Array(FACES);
   private react = new Float64Array(1);
   private touched = new Uint8Array(1);
+  /**
+   * Per car, 6 numbers (velocity, spin): the weight the cars resting on its top bore on it at their contacts (`bear`), which its next
+   * rigid step takes after its move and before its own contacts, so they hold it and bear it on in turn (`takeBorne`). Pushed into its
+   * velocity at once, after its own step, a stack's bottom car moved down at the weight of the nine above (0.19 m/s) every slice and its
+   * contacts lifted it back 0.4 mm a slice (1.9 mm a slice at the top): 28-34 kJ of lift every 0.5 s, and the column fell at 13-17 s.
+   */
+  private borne = new Float64Array(0);
   /** The slot whose roofs within reach `always` lists (`reach`). */
   private nearOf = -1;
 
@@ -212,6 +219,32 @@ export class CarSurfaces extends Surface {
     this.react[own]! += j;
   }
 
+  /** Car `own`, under the stepping car, takes `k` of velocity change `dv` and spin change `dw` (the weight borne on it) at its next rigid step. */
+  bear(own: number, dv: THREE.Vector3, dw: THREE.Vector3, k: number): void {
+    const o = 6 * own;
+    const b = this.borne;
+    b[o] = b[o]! + dv.x * k;
+    b[o + 1] = b[o + 1]! + dv.y * k;
+    b[o + 2] = b[o + 2]! + dv.z * k;
+    b[o + 3] = b[o + 3]! + dw.x * k;
+    b[o + 4] = b[o + 4]! + dw.y * k;
+    b[o + 5] = b[o + 5]! + dw.z * k;
+  }
+
+  /** The weight borne on car `i` since its last rigid step, into `dv`, `dw` (zero when none), and spent. */
+  takeBorne(i: number, dv: THREE.Vector3, dw: THREE.Vector3): void {
+    const o = 6 * i;
+    const b = this.borne;
+    if (i < 0 || o >= b.length) {
+      dv.set(0, 0, 0);
+      dw.set(0, 0, 0);
+      return;
+    }
+    dv.set(b[o]!, b[o + 1]!, b[o + 2]!);
+    dw.set(b[o + 3]!, b[o + 4]!, b[o + 5]!);
+    b.fill(0, o, o + 6);
+  }
+
   /** The stepping car has a point in car `own`'s top this slice, pressing or not: a body at rest has slices with no impulse. */
   touch(own: number): void {
     this.touched[own] = 1;
@@ -268,6 +301,9 @@ export class CarSurfaces extends Surface {
   /** Car `i`'s roof slot from its pose (call after the car's integrate/pose each slice): a plate at the roof's crown, lifted by the class, sinking by the crush along its follow. The roofs a query lists (`reach`) are listed again after it. */
   sync(i: number, car: DeformableCar): void {
     this.nearOf = -1;
+    if (this.borne.length < 6 * this.cars.length) this.borne = new Float64Array(6 * this.cars.length);
+    // Only the rigid step takes the weight borne on it: a car its wheels or its masses carry drops it.
+    if (!car.rigid) this.borne.fill(0, 6 * i, 6 * i + 6);
     for (let k = this.count; k <= i; k++) {
       this.addGrid({ nu: 2, nv: 2, step: 1, stepV: 1, u0: 0, v0: 0, heights: NO_PLATE, ox: 0, oy: 0, oz: 0, reach: SKIN, hmax: 0 });
       this.own(k, k);
