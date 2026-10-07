@@ -86,7 +86,8 @@ export function shareHeight(a: DeformableCar, b: DeformableCar): boolean {
   const over = aUnder ? b : a;
   const eu = aUnder ? ea : eb;
   const top = eu[13]! + eu[5]! * roofHeight(under);
-  const bottom = (aUnder ? cb - hb : ca - ha) + bellyY(over);
+  const eo = aUnder ? eb : ea;
+  const bottom = eo[13]! + eo[5]! * bellyY(over);
   return !(eu[5]! > UPRIGHT && bottom >= top - ROOF_SLACK);
 }
 

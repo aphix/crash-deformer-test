@@ -190,13 +190,18 @@ export class CarSurfaces extends Surface {
     return slot < FACES ? this.self! : this.cars[(slot / FACES | 0) - 1]!;
   }
 
-  /** `jn` (per unit mass of the stepping car) cut to what slot `slot` still carries this slice at `g`, `dt`; a cut marks the slot yielding. */
-  take(slot: number, jn: number, g: number, dt: number): number {
+  /** What slot `slot` still carries this slice (impulse per unit mass of the stepping car) at `g`, `dt`. */
+  room(slot: number, g: number, dt: number): number {
     if (Number.isNaN(this.left[slot]!)) {
       const o = this.carOf(slot);
       this.left[slot] = faceStrength(slot % FACES, o.deform.crush[slot % FACES]!) * g * dt * (o.deform.totalMass / this.self!.deform.totalMass);
     }
-    const j = Math.min(jn, this.left[slot]!);
+    return this.left[slot]!;
+  }
+
+  /** `jn` (per unit mass of the stepping car) cut to what slot `slot` still carries this slice at `g`, `dt`; a cut marks the slot yielding. */
+  take(slot: number, jn: number, g: number, dt: number): number {
+    const j = Math.min(jn, this.room(slot, g, dt));
     this.left[slot]! -= j;
     if (j < jn) this.yielded[slot] = 1;
     return j;

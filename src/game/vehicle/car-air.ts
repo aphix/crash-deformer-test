@@ -46,7 +46,10 @@ const BELLY: readonly (readonly [number, number, number])[] = [
     const rocker = UNDERSIDE.find((p) => p[0] === 0.8 && p[1] === z)![2];
     return [-0.5, 0.5].map((x): [number, number, number] => [x, keel + (rocker - keel) * 0.625, z]);
   }),
-  ...[-0.5, 0.5].flatMap((z) => [-0.5, 0, 0.5].map((x): [number, number, number] => [x, 0.132, z])),
+  // The centre patch lies inside another car's roof plate (`car-surfaces.ts`: ±0.5 across, the crown at z −0.1 ± 0.5 along): at ±0.5 its
+  // front row was past the plate and its sides on the plate's edges, so a car centred on a roof stood on the rows at and behind its centre
+  // of mass, a wagon's rear tyres on a hatchback's roof tipped it nose-down, and a few mm aside one side left the plate and it rolled.
+  ...[-0.35, 0.35].flatMap((z) => [-0.35, 0, 0.35].map((x): [number, number, number] => [x, 0.132, z])),
 ];
 /**
  * `HULL` plus the belly: the points a car meets another car's top with, and the world's ground when it bottoms out in
@@ -160,6 +163,17 @@ const FOLLOW = Array.from({ length: CONTACTS }, () => 1);
 const SINK = Array.from({ length: CONTACTS }, () => 0);
 /** Per tyre in its springs: how far (m, vertical) its spring is pressed past the rest ride, negative while it hangs toward its droop. */
 const PRESS = new Float64Array(CONTACTS);
+/** Per tyre in its springs: the impulse (per unit mass) its spring and damper push with this slice, what its face carries of it. */
+const ASK = new Float64Array(CONTACTS);
+/**
+ * Per contact of the rigid solve: its normal impulse over the passes; the first contact pressing the same face slot (-1: a rigid
+ * surface); and, at that first contact, what the slot carries this slice, the most its contacts asked of it, and their sum in a pass.
+ */
+const ACC = new Float64Array(CONTACTS);
+const FIRST = new Int32Array(CONTACTS);
+const ROOM = new Float64Array(CONTACTS);
+const DEMAND = new Float64Array(CONTACTS);
+const SUMF = new Float64Array(CONTACTS);
 /** Per contact: the point is still closing on its surface (a point moving off needs no lift). */
 const CLOSE = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the belly resting on the world's ground (it only resists, see `stepFree`). */
@@ -715,6 +729,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
     n++;
   }
+  const tyres = n;
   for (let i = BODY_FROM; i < POINTS.length; i++) {
     const r = hullPoint(i, q, -COM_Y, lift, R[n]!);
     if (crushed && i < HULL.length) crushShift(i, q, cr, r);
@@ -759,6 +774,45 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     n++;
   }
 
+  // The tyres in their springs push together, from the slice's state, and share each face's budget (`take`) in proportion to what each
+  // asks: in list order the first spent it, and a coupe's two rear tyres landing on a wagon's roof took 6.2 and 2.3 of 6.2 each and rolled
+  // it off the column.
+  for (let c = 0; c < tyres; c++) {
+    if (!SOFT[c]) continue;
+    _vp.crossVectors(w, R[c]!).add(v);
+    const rate = N[c]!.y > 0 ? -_vp.dot(N[c]!) / N[c]!.y : 0;
+    ASK[c] = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
+  }
+  for (let c = 0; c < tyres; c++) {
+    const s = SLOT[c]!;
+    if (!SOFT[c] || s < 0) continue;
+    let seen = false;
+    for (let k = 0; k < c; k++) if (SOFT[k] && SLOT[k] === s) seen = true;
+    if (seen) continue;
+    let sum = 0;
+    for (let k = c; k < tyres; k++) if (SOFT[k] && SLOT[k] === s) sum += ASK[k]!;
+    if (sum === 0) continue;
+    const share = surf.take(s, sum, G, dt) / sum;
+    for (let k = c; k < tyres; k++) if (SOFT[k] && SLOT[k] === s) ASK[k] = ASK[k]! * share;
+  }
+  // The rigid contacts on a face that yields share what it carries in proportion to what each asks, after every pass: cut in list
+  // order, the left side of a coupe's belly on a wagon's yielding roof stopped and the right sank, and it rolled 0.43 rad/s off.
+  for (let c = 0; c < n; c++) {
+    ACC[c] = 0;
+    FIRST[c] = -1;
+    const s = SLOT[c]!;
+    if (SOFT[c] || s < 0) continue;
+    FIRST[c] = c;
+    for (let k = 0; k < c; k++) {
+      if (!SOFT[k] && SLOT[k] === s) {
+        FIRST[c] = k;
+        break;
+      }
+    }
+    if (FIRST[c] !== c) continue;
+    ROOM[c] = surf.room(s, G, dt);
+    DEMAND[c] = 0;
+  }
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const r = R[c]!;
@@ -771,11 +825,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         // 1 rad/s sideways into a wedge's wall; straight up but rigid, a car whose front had passed a ramp's lip sank its rear into the
         // face (v.y 3.2 -> 1.3 m/s in 12 frames). Friction stays in the face's plane.
         if (pass > 0) continue;
-        _vp.crossVectors(w, r).add(v);
-        const rate = nrm.y > 0 ? -_vp.dot(nrm) / nrm.y : 0;
-        jn = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
-        // A face carries what its strength law gives (`CarSurfaces.take`); the rest of the impulse is the face yielding.
-        if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
+        jn = ASK[c]!;
         if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
         push(v, w, q, r, UP, jn);
       } else {
@@ -783,8 +833,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         if (vn >= 0) continue;
         const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
         jn = -(1 + e) * vn * reach(r, nrm, q);
-        if (SLOT[c]! >= 0) jn = surf.take(SLOT[c]!, jn, G, dt);
-        if (OWN[c]! >= 0) surf.press(OWN[c]!, jn * nrm.y);
+        ACC[c] = ACC[c]! + jn;
         push(v, w, q, r, nrm, jn);
       }
       if (rolling && OWN[c]! < 0) continue;
@@ -803,6 +852,21 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       _tn.copy(_vp).divideScalar(-slide);
       push(v, w, q, r, _tn, Math.min((TYRE[c] ? MU_TYRE : MU_BODY) * jn, slide * reach(r, _tn, q)));
     }
+    for (let c = 0; c < n; c++) if (FIRST[c] === c) SUMF[c] = 0;
+    for (let c = 0; c < n; c++) if (FIRST[c]! >= 0) SUMF[FIRST[c]!] = SUMF[FIRST[c]!]! + ACC[c]!;
+    for (let c = 0; c < n; c++) {
+      const f = FIRST[c]!;
+      if (f < 0) continue;
+      if (f === c) DEMAND[c] = Math.max(DEMAND[c]!, SUMF[c]!);
+      if (SUMF[f]! <= ROOM[f]!) continue;
+      const cut = ACC[c]! * (1 - ROOM[f]! / SUMF[f]!);
+      push(v, w, q, R[c]!, N[c]!, -cut);
+      ACC[c] = ACC[c]! - cut;
+    }
+  }
+  for (let c = 0; c < n; c++) {
+    if (FIRST[c] === c) surf.take(SLOT[c]!, DEMAND[c]!, G, dt);
+    if (!SOFT[c] && OWN[c]! >= 0) surf.press(OWN[c]!, ACC[c]! * N[c]!.y);
   }
   // The deepest point the surface can still hold up lifts the body out (a face that yields sinks instead). The belly over the
   // world's ground only resists (impulse, no bounce, no lift while it moves): lifting a moving body out by a belly point's
