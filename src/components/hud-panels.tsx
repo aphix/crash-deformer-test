@@ -283,7 +283,7 @@ export function LabPanel({ lab, engine }: { lab: LabHud; engine: RefObject<Crash
       </div>
       <p className="truncate px-1 font-display text-xs tabular-nums text-muted idle:hidden" role="status">
         {shot === null
-          ? "Swipe from a car or a dummy to flick it"
+          ? "Swipe from a car or a dummy to throw it along the bench"
           : shot.hit === null
             ? `Flying at ${formatSpeed(shot.speed, unit)} ${unit}`
             : `Hit the ${shot.hit} at ${formatSpeed(shot.speed, unit)} ${unit} · ${shot.fell} moved`}

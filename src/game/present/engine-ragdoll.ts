@@ -1060,6 +1060,13 @@ export class RagdollSystem {
     return true;
   }
 
+  /** Slot `s`'s dummy leaves from where he is, turned as he is, moving at `v` (world) and spinning at none. */
+  leave(s: number, v: THREE.Vector3): void {
+    const d = this.dolls[s];
+    if (!d?.live) return;
+    this.place(_p.set(d.cur[0]!, d.cur[1]!, d.cur[2]!), _q.set(d.cur[3]!, d.cur[4]!, d.cur[5]!, d.cur[6]!), v, _w.set(0, 0, 0), Infinity, s);
+  }
+
   /** Throw `t`'s dummy into slot `at` (-1: a free slot, else the oldest one's), to lie about `life` sim s; returns the slot. */
   private spawn(t: Throw, at = -1, life = LIFE): number {
     let slot = at >= 0 ? at : this.dolls.findIndex((d) => !d.live);

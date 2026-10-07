@@ -588,6 +588,9 @@ export class PropBodies {
       body.setAngvel(_v, false);
       vx *= keep;
       vz *= keep;
+    } else if (this.by[i]! < 0) {
+      _v.x = _v.y = _v.z = 0;
+      body.setAngvel(_v, false);
     }
     _v.x = vx;
     _v.y = vy;

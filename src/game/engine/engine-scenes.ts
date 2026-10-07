@@ -253,11 +253,11 @@ export abstract class EngineScenes extends EngineDerby {
     this.view.frameReset(true, this.live(), behind + shot.turn, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
   }
 
-  /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves, and the crash starts over so the slow-mo and the crash cam catch its hit. */
-  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void {
+  /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves at `velocity`, and the crash starts over so the slow-mo and the crash cam catch its hit. */
+  flickLab(thing: number, velocity: THREE.Vector3): void {
     this.restartCrash();
     this.view.userFramed = false;
-    this.lab.flick(thing, target, dx, dz, speed);
+    this.lab.launch(thing, velocity);
     this.tryUnlockAudio();
     this.emitHud();
   }
@@ -366,8 +366,8 @@ export abstract class EngineScenes extends EngineDerby {
     this.ragdolls.sand = this.showRange;
     if (this.showLab && !this.labArt) {
       this.labArt = new LabArt();
-      this.labFlick = new LabFlick(this.camera, () => this.canvas.getBoundingClientRect(), this.lab, (thing, target, dx, dz, speed) => this.flickLab(thing, target, dx, dz, speed));
-      this.scene.add(this.labArt.group, this.labFlick.group);
+      this.labFlick = new LabFlick(this.camera, () => this.canvas.getBoundingClientRect(), this.lab, (thing, velocity) => this.flickLab(thing, velocity));
+      this.scene.add(this.labArt.group);
       this.queueWarm();
     }
     if (this.labArt) this.labArt.group.visible = this.showLab;
