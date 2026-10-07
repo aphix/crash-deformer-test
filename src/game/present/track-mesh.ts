@@ -85,9 +85,14 @@ export class Mesher {
   readonly uv: number[] = [];
   readonly idx: number[] = [];
   private readonly c = new THREE.Color();
+  /** The colour `c` holds, so a run of vertices in one colour converts it once. */
+  private hex = -1;
 
   v(x: number, y: number, z: number, hex: number, u = 0, w = 0, shade = 1): number {
-    this.c.setHex(hex);
+    if (hex !== this.hex) {
+      this.c.setHex(hex);
+      this.hex = hex;
+    }
     this.pos.push(x, y, z);
     this.nrm.push(0, 1, 0);
     this.col.push(this.c.r * shade, this.c.g * shade, this.c.b * shade);
@@ -113,13 +118,23 @@ export class Mesher {
 
   /** `smooth`: recompute normals from the triangles (shared vertices blend); otherwise keep the set ones. */
   geometry(smooth: boolean): THREE.BufferGeometry {
-    const g = new THREE.BufferGeometry();
-    g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos, 3));
-    g.setAttribute("normal", new THREE.Float32BufferAttribute(this.nrm, 3));
-    g.setAttribute("color", new THREE.Float32BufferAttribute(this.col, 3));
-    g.setAttribute("uv", new THREE.Float32BufferAttribute(this.uv, 2));
-    g.setIndex(this.idx);
+    const g = this.part(0, this.pos.length / 3, 0, this.idx.length);
     if (smooth) g.computeVertexNormals();
+    return g;
+  }
+
+  /**
+   * Vertices [v0, v1) and the triangle indices [i0, i1), which use only those vertices, as a geometry of their own
+   * (normals as set), its bounds already read (three culls by them; a `BatchedMesh` takes them as given).
+   */
+  part(v0: number, v1: number, i0: number, i1: number): THREE.BufferGeometry {
+    const g = new THREE.BufferGeometry();
+    g.setAttribute("position", new THREE.Float32BufferAttribute(this.pos.slice(v0 * 3, v1 * 3), 3));
+    g.setAttribute("normal", new THREE.Float32BufferAttribute(this.nrm.slice(v0 * 3, v1 * 3), 3));
+    g.setAttribute("color", new THREE.Float32BufferAttribute(this.col.slice(v0 * 3, v1 * 3), 3));
+    g.setAttribute("uv", new THREE.Float32BufferAttribute(this.uv.slice(v0 * 2, v1 * 2), 2));
+    g.setIndex(this.idx.slice(i0, i1).map((i) => i - v0));
+    g.computeBoundingSphere();
     return g;
   }
 }

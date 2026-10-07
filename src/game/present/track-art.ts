@@ -9,7 +9,7 @@ import {
   BLACK, DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR, type DrawKind, GANTRY_BEAM, GRAVITY, hash01, LIGHT_OFF, LIGHT_ON,
   LIGHT_RGB, Mesher, RED, RoadIndex, sections, texClass,
 } from "./track-mesh.ts";
-import { buildGroundLayers } from "./track-ground.ts";
+import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 import { levelOffset } from "../world/ground-stack.ts";
 import { addDecks, addTunnels, addWalls, pillarPieces } from "./track-structures.ts";
 
@@ -109,7 +109,8 @@ export class TrackArt {
         if (!layer.m.empty) this.add(new THREE.Mesh(layer.m.geometry(layer.smooth), mat), { kind: layer.kind }, false);
         continue;
       }
-      this.add(new THREE.Mesh(layer.m.geometry(layer.smooth), textured(SURFACE_IDS.indexOf(layer.surface), offset)), { kind: layer.kind, surface: layer.surface }, false);
+      const mat = textured(SURFACE_IDS.indexOf(layer.surface), offset);
+      this.add(layer.chunks ? new TerrainBatch(layer.m, layer.chunks, mat) : new THREE.Mesh(layer.m.geometry(layer.smooth), mat), { kind: layer.kind, surface: layer.surface }, false);
     }
 
     const walls = new Mesher();
@@ -326,7 +327,7 @@ export class TrackArt {
       if (!(o instanceof THREE.Mesh)) return;
       geos.add(o.geometry as THREE.BufferGeometry);
       mats.add(o.material as THREE.Material);
-      if (o instanceof THREE.InstancedMesh) o.dispose();
+      if (o instanceof THREE.InstancedMesh || o instanceof THREE.BatchedMesh) o.dispose();
     });
     for (const g of geos) g.dispose();
     for (const m of mats) if (!this.shared.includes(m)) m.dispose();

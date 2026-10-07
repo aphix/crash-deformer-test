@@ -11,7 +11,29 @@ import {
 
 /** Track art on the ground: terrain with its far skirt, road / runoff ribbons, markings and kerbs. */
 
-function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): Mesher {
+/** Chunk side in blocks (128 m): the terrain draws chunk by chunk (`TerrainBatch`), so three culls the ones out of view. */
+const CHUNK = 16;
+/** A chunk draws its far mesh past this flat distance (m) from the camera to its nearest point, its near one again FAR_HOLD m inside it. */
+const FAR_RING = 240;
+const FAR_HOLD = 16;
+/** A far-mesh block's two triangles stay this close (m) to every cell height they cover: about a pixel at FAR_RING on a phone. */
+const FAR_TOL = 0.2;
+
+/** The terrain cut into square chunks of CHUNK blocks: each one's xz box and where it starts in the near and far meshes. */
+type TerrainChunks = {
+  /** The far mesh: the near one with every block clear of roads that fits within FAR_TOL drawn as one quad. */
+  coarse: Mesher;
+  /** minX, minZ, maxX, maxZ per chunk. */
+  box: Float32Array;
+  /**
+   * First vertex and first index of chunk c at [2c] and [2c + 1], and one more entry closing the last chunk: in the near
+   * mesh (the terrain layer's own, its far skirt after the chunks) and in `coarse`.
+   */
+  fineAt: Int32Array;
+  coarseAt: Int32Array;
+};
+
+function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m: Mesher; chunks: TerrainChunks } {
   const m = new Mesher();
   const far = Math.max(60, ...track.json.scatter.map((s) => s.far));
   const margin = Math.max(80, far + 40);
@@ -87,56 +109,130 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): Mesh
       kind[bj * bx + bi] = simple ? 1 : 2;
     }
   }
-  const n = new THREE.Vector3();
-  const vert = (i: number, j: number, y: number) => {
-    const x = x0 + i * CELL;
-    const z = z0 + j * CELL;
-    const id = m.v(x, y, z, surfaceHex(col[j * nx + i]!), x / tile, z / tile, mottle(x, z));
-    ground.normalAt(x, z, n, -Infinity);
-    m.normal(id, n.x, n.y, n.z);
-    return id;
+  /** Cells between a block's vertices, by kind: 0 hidden, 1 one quad, 2 split into cells, 3 split into 4 m cells (far mesh only). */
+  const STEP = [0, per, 1, 2];
+  /**
+   * Height of the vertex at cell (u, v) of block (bi, bj) as `kinds` draws the blocks: on the edge it shares with a
+   * coarser block, that block's edge height (linear between its vertices), so no crack opens.
+   */
+  const vertexY = (kinds: Uint8Array, bi: number, bj: number, u: number, v: number) => {
+    const i = bi * per + u;
+    const j = bj * per + v;
+    const onU = (u === 0 || u === per) && v !== 0 && v !== per;
+    const onV = (v === 0 || v === per) && u !== 0 && u !== per;
+    const ni = onU ? bi + (u === 0 ? -1 : 1) : bi;
+    const nj = onV ? bj + (v === 0 ? -1 : 1) : bj;
+    const t = (onU || onV) && ni >= 0 && nj >= 0 && ni < bx && nj < bz ? STEP[kinds[nj * bx + ni]!]! : 0;
+    const along = onU ? v : u;
+    if (t <= 1 || along % t === 0) return h[j * nx + i]!;
+    const a = along - (along % t);
+    const ya = onU ? h[(j - along + a) * nx + i]! : h[j * nx + i - along + a]!;
+    const yb = onU ? h[(j - along + a + t) * nx + i]! : h[j * nx + i - along + a + t]!;
+    return ya + (yb - ya) * ((along - a) / t);
   };
-  const coarse = (bi: number, bj: number) => bi >= 0 && bj >= 0 && bi < bx && bj < bz && kind[bj * bx + bi] === 1;
-  const ids = new Int32Array((per + 1) * (per + 1));
+  /** Whether block (bi, bj), drawn among `kinds` in quads `s` cells wide, stays within FAR_TOL of every cell height. */
+  const fits = (kinds: Uint8Array, bi: number, bj: number, s: number) => {
+    for (let v = 0; v <= per; v++) {
+      for (let u = 0; u <= per; u++) {
+        // The quad holding (u, v); its triangles meet on the diagonal from its (s, 0) corner to its (0, s) one (`Mesher.quad`).
+        const qu = Math.min(u - (u % s), per - s);
+        const qv = Math.min(v - (v % s), per - s);
+        const fu = u - qu;
+        const fv = v - qv;
+        const y00 = vertexY(kinds, bi, bj, qu, qv);
+        const y10 = vertexY(kinds, bi, bj, qu + s, qv);
+        const y01 = vertexY(kinds, bi, bj, qu, qv + s);
+        const y11 = vertexY(kinds, bi, bj, qu + s, qv + s);
+        const y = fu + fv <= s ? y00 + ((y10 - y00) * fu + (y01 - y00) * fv) / s : y11 + ((y01 - y11) * (s - fu) + (y10 - y11) * (s - fv)) / s;
+        if (Math.abs(h[(bj * per + v) * nx + bi * per + u]! - y) > FAR_TOL) return false;
+      }
+    }
+    return true;
+  };
+  /** Whether no road is on or near block (bi, bj): one colour all over and no ribbon within a cell of it. */
+  const clear = (bi: number, bj: number) => {
+    const i0 = bi * per;
+    const j0 = bj * per;
+    for (let v = 0; v <= per; v++) {
+      for (let u = 0; u <= per; u++) {
+        if (col[(j0 + v) * nx + i0 + u] !== col[j0 * nx + i0]) return false;
+        if (index.coveredBy(x0 + (i0 + u) * CELL, z0 + (j0 + v) * CELL, -CELL) >= 0) return false;
+      }
+    }
+    return true;
+  };
+  // The far mesh: a split block clear of roads draws as one quad, or else in 4 m cells, when that stays within
+  // FAR_TOL of every cell height. Blocks on a chunk's edge keep their kind, so both meshes draw a chunk's seam alike
+  // and a near chunk never cracks against a far neighbour. A 4 m block's fit reads its one-quad neighbours' edges.
+  const farKind = kind.slice();
   for (let bj = 0; bj < bz; bj++) {
     for (let bi = 0; bi < bx; bi++) {
-      const k = kind[bj * bx + bi]!;
-      if (k === 0) continue;
-      const i0 = bi * per;
-      const j0 = bj * per;
-      if (k === 1) {
-        const a = vert(i0, j0, h[j0 * nx + i0]!);
-        const r = vert(i0 + per, j0, h[j0 * nx + i0 + per]!);
-        const f = vert(i0, j0 + per, h[(j0 + per) * nx + i0]!);
-        const d = vert(i0 + per, j0 + per, h[(j0 + per) * nx + i0 + per]!);
+      const edge = bi % CHUNK === 0 || bj % CHUNK === 0 || bi % CHUNK === CHUNK - 1 || bj % CHUNK === CHUNK - 1;
+      if (edge || kind[bj * bx + bi] !== 2 || !clear(bi, bj)) continue;
+      farKind[bj * bx + bi] = fits(farKind, bi, bj, per) ? 1 : 3;
+    }
+  }
+  for (let b = 0; b < bx * bz; b++) {
+    if (farKind[b] === 3 && !fits(farKind, b % bx, Math.floor(b / bx), 2)) farKind[b] = 2;
+  }
+  const n = new THREE.Vector3();
+  const vert = (out: Mesher, i: number, j: number, y: number) => {
+    const x = x0 + i * CELL;
+    const z = z0 + j * CELL;
+    const id = out.v(x, y, z, surfaceHex(col[j * nx + i]!), x / tile, z / tile, mottle(x, z));
+    ground.normalAt(x, z, n, -Infinity);
+    out.normal(id, n.x, n.y, n.z);
+    return id;
+  };
+  const ids = new Int32Array((per + 1) * (per + 1));
+  /** Block (bi, bj) into `out` as `kinds` has it: hidden, or quads STEP cells wide (a split block leaves out its dropped cells). */
+  const addBlock = (out: Mesher, kinds: Uint8Array, bi: number, bj: number) => {
+    const s = STEP[kinds[bj * bx + bi]!]!;
+    if (s === 0) return;
+    const i0 = bi * per;
+    const j0 = bj * per;
+    const row = per / s + 1;
+    for (let v = 0; v <= per; v += s) {
+      for (let u = 0; u <= per; u += s) ids[(v / s) * row + u / s] = vert(out, i0 + u, j0 + v, vertexY(kinds, bi, bj, u, v));
+    }
+    for (let v = 0; v < per; v += s) {
+      for (let u = 0; u < per; u += s) {
+        if (dropped(i0 + u, j0 + v)) continue;
+        const a = (v / s) * row + u / s;
         // Rows run +z (ahead), columns +x: +x is left of +z, so the +x vertex is the left one.
-        m.quad(a, r, f, d);
-        continue;
+        out.quad(ids[a]!, ids[a + 1]!, ids[a + row]!, ids[a + row + 1]!);
       }
-      for (let v = 0; v <= per; v++) {
-        for (let u = 0; u <= per; u++) {
-          const i = i0 + u;
-          const j = j0 + v;
-          let y = h[j * nx + i]!;
-          // Edge shared with a one-quad block: take that quad's edge height, so no crack opens.
-          const edgeU = u === 0 ? coarse(bi - 1, bj) : u === per ? coarse(bi + 1, bj) : false;
-          const edgeV = v === 0 ? coarse(bi, bj - 1) : v === per ? coarse(bi, bj + 1) : false;
-          if (edgeU && v !== 0 && v !== per) y = h[j0 * nx + i]! + (h[(j0 + per) * nx + i]! - h[j0 * nx + i]!) * (v / per);
-          else if (edgeV && u !== 0 && u !== per) y = h[j * nx + i0]! + (h[j * nx + i0 + per]! - h[j * nx + i0]!) * (u / per);
-          ids[v * (per + 1) + u] = vert(i, j, y);
-        }
-      }
-      for (let v = 0; v < per; v++) {
-        for (let u = 0; u < per; u++) {
-          if (dropped(i0 + u, j0 + v)) continue;
-          const a = v * (per + 1) + u;
-          m.quad(ids[a]!, ids[a + 1]!, ids[a + per + 1]!, ids[a + per + 2]!);
-        }
+    }
+  };
+  const coarse = new Mesher();
+  const cx = Math.ceil(bx / CHUNK);
+  const cz = Math.ceil(bz / CHUNK);
+  const box = new Float32Array(cx * cz * 4);
+  const fineAt = new Int32Array(cx * cz * 2 + 2);
+  const coarseAt = new Int32Array(cx * cz * 2 + 2);
+  const mark = (c: number) => {
+    fineAt[c * 2] = m.pos.length / 3;
+    fineAt[c * 2 + 1] = m.idx.length;
+    coarseAt[c * 2] = coarse.pos.length / 3;
+    coarseAt[c * 2 + 1] = coarse.idx.length;
+  };
+  for (let c = 0; c < cx * cz; c++) {
+    mark(c);
+    const ci = c % cx;
+    const cj = Math.floor(c / cx);
+    const bi1 = Math.min(bx, (ci + 1) * CHUNK);
+    const bj1 = Math.min(bz, (cj + 1) * CHUNK);
+    box.set([x0 + ci * CHUNK * BLOCK, z0 + cj * CHUNK * BLOCK, x0 + bi1 * BLOCK, z0 + bj1 * BLOCK], c * 4);
+    for (let bj = cj * CHUNK; bj < bj1; bj++) {
+      for (let bi = ci * CHUNK; bi < bi1; bi++) {
+        addBlock(m, kind, bi, bj);
+        addBlock(coarse, farKind, bi, bj);
       }
     }
   }
+  mark(cx * cz);
   addSkirt(m, ground, x0, z0, bx, bz, surfaceHex(terrain), tile);
-  return m;
+  return { m, chunks: { coarse, box, fineAt, coarseAt } };
 }
 
 /** Far skirt: an annulus under the terrain grid's edge out to the horizon, just below the base terrain. */
@@ -394,26 +490,103 @@ function addKerbs(m: Mesher, rs: RibbonSurface, index: RoadIndex): void {
 }
 
 
-/** One ground mesh of a course: what it is, the surface it shows, its level in the stack (`ground-stack.ts`) and its geometry. */
-type GroundLayer = { kind: "terrain" | "runoff" | "road" | "marking" | "kerb"; surface: SurfaceId | null; level: GroundLevel; m: Mesher; smooth: boolean };
+/**
+ * One ground mesh of a course: what it is, the surface it shows, its level in the stack (`ground-stack.ts`) and its
+ * geometry; the terrain's also comes in chunks with a far mesh (`TerrainBatch`).
+ */
+type GroundLayer = { kind: "terrain" | "runoff" | "road" | "marking" | "kerb"; surface: SurfaceId | null; level: GroundLevel; m: Mesher; smooth: boolean; chunks: TerrainChunks | null };
 
 /**
  * Every ground mesh of a course, bottom of the stack up: the terrain, the road and runoff ribbons (one per kind and
  * surface, all paths together), markings, kerbs. The ribbons all lift by `ROAD_LIFT`; their level orders them.
  */
 export function buildGroundLayers(track: Track, ground: TrackGround, index: RoadIndex, paths: readonly TrackPath[], secs: readonly (readonly number[])[]): GroundLayer[] {
-  const out: GroundLayer[] = [{ kind: "terrain", surface: track.json.environment.terrain, level: "terrain", m: buildTerrain(track, ground, index), smooth: false }];
+  const terrain = buildTerrain(track, ground, index);
+  const out: GroundLayer[] = [{ kind: "terrain", surface: track.json.environment.terrain, level: "terrain", m: terrain.m, smooth: false, chunks: terrain.chunks }];
   const ribbons: Ribbons = new Map();
   for (const [i, p] of paths.entries()) addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT);
   for (const r of ribbons.values()) {
     const surface = SURFACE_IDS[r.surface]!;
-    out.push({ kind: r.kind, surface, level: r.kind === "road" ? surface : "runoff", m: r.m, smooth: true });
+    out.push({ kind: r.kind, surface, level: r.kind === "road" ? surface : "runoff", m: r.m, smooth: true, chunks: null });
   }
   const marks = new Mesher();
   for (const [i, p] of paths.entries()) addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index);
-  out.push({ kind: "marking", surface: null, level: "marking", m: marks, smooth: true });
+  out.push({ kind: "marking", surface: null, level: "marking", m: marks, smooth: true, chunks: null });
   const kerbs = new Mesher();
   addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);
-  if (!kerbs.empty) out.push({ kind: "kerb", surface: null, level: "kerb", m: kerbs, smooth: true });
+  if (!kerbs.empty) out.push({ kind: "kerb", surface: null, level: "kerb", m: kerbs, smooth: true, chunks: null });
   return out;
+}
+
+/**
+ * The terrain in one draw call: its chunks in a batch. Each render, a chunk whose bounds leave the camera's view is
+ * left out, and a chunk draws its near mesh while the camera is within FAR_RING m of it (flat distance to its nearest
+ * point), its far mesh beyond, and its near one again only FAR_HOLD m inside the ring, so a camera on the ring never
+ * flips it frame to frame. The batch re-sends its draw list only on a frame where a chunk changed (three culls nothing
+ * itself). The far skirt is always drawn.
+ */
+export class TerrainBatch extends THREE.BatchedMesh {
+  /** minX, minZ, maxX, maxZ per drawn chunk (the batch's instance with the same index; chunks with no triangles are left out). */
+  readonly box: Float32Array;
+  /** 1 while a drawn chunk draws its far mesh. */
+  readonly far: Uint8Array;
+  /** Near and far geometry ids per drawn chunk. */
+  private readonly lods: Int32Array;
+  /** Per drawn chunk, its near and far meshes' bounds together: what the view is tested against. */
+  private readonly bounds: THREE.Box3[];
+  private readonly frustum = new THREE.Frustum();
+  private readonly viewProjection = new THREE.Matrix4();
+
+  constructor(m: Mesher, t: TerrainChunks, material: THREE.Material) {
+    const chunks = t.box.length / 4;
+    super(chunks + 1, m.pos.length / 3 + t.coarse.pos.length / 3, m.idx.length + t.coarse.idx.length, material);
+    this.sortObjects = false;
+    this.perObjectFrustumCulled = false;
+    let drawn = 0;
+    for (let c = 0; c < chunks; c++) drawn += t.fineAt[c * 2 + 3]! > t.fineAt[c * 2 + 1]! ? 1 : 0;
+    this.box = new Float32Array(drawn * 4);
+    this.far = new Uint8Array(drawn);
+    this.lods = new Int32Array(drawn * 2);
+    this.bounds = new Array<THREE.Box3>(drawn);
+    for (let c = 0, k = 0; c < chunks; c++) {
+      const f = t.fineAt;
+      const g = t.coarseAt;
+      if (f[c * 2 + 3]! === f[c * 2 + 1]!) continue;
+      const near = m.part(f[c * 2]!, f[c * 2 + 2]!, f[c * 2 + 1]!, f[c * 2 + 3]!);
+      const far = t.coarse.part(g[c * 2]!, g[c * 2 + 2]!, g[c * 2 + 1]!, g[c * 2 + 3]!);
+      near.computeBoundingBox();
+      far.computeBoundingBox();
+      this.bounds[k] = near.boundingBox!.clone().union(far.boundingBox!);
+      this.lods[k * 2] = this.addGeometry(near);
+      this.lods[k * 2 + 1] = this.addGeometry(far);
+      this.addInstance(this.lods[k * 2]!);
+      this.box.set(t.box.subarray(c * 4, c * 4 + 4), k * 4);
+      k++;
+    }
+    this.addInstance(this.addGeometry(m.part(t.fineAt[chunks * 2]!, m.pos.length / 3, t.fineAt[chunks * 2 + 1]!, m.idx.length)));
+  }
+
+  override onBeforeRender(renderer: THREE.WebGLRenderer, scene: THREE.Scene, camera: THREE.Camera, geometry: THREE.BufferGeometry, material: THREE.Material, group: THREE.Group): void {
+    this.view(camera);
+    super.onBeforeRender(renderer, scene, camera, geometry, material, group);
+  }
+
+  /** Which chunks `camera` sees, and the near or far mesh for each (no allocation). */
+  view(camera: THREE.Camera): void {
+    this.frustum.setFromProjectionMatrix(this.viewProjection.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse), camera.coordinateSystem, camera.reversedDepth);
+    const e = camera.matrixWorld.elements;
+    const x = e[12]!;
+    const z = e[14]!;
+    const box = this.box;
+    for (let k = 0; k < this.far.length; k++) {
+      this.setVisibleAt(k, this.frustum.intersectsBox(this.bounds[k]!));
+      const dx = Math.max(box[k * 4]! - x, x - box[k * 4 + 2]!, 0);
+      const dz = Math.max(box[k * 4 + 1]! - z, z - box[k * 4 + 3]!, 0);
+      const ring = this.far[k] === 1 ? FAR_RING - FAR_HOLD : FAR_RING;
+      const far = dx * dx + dz * dz > ring * ring ? 1 : 0;
+      if (far === this.far[k]) continue;
+      this.far[k] = far;
+      this.setGeometryIdAt(k, this.lods[k * 2 + far]!);
+    }
+  }
 }
