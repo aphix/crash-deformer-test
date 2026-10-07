@@ -12,7 +12,7 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
-import { frame } from "../vehicle/ground-probe.test-util.ts";
+import { fit, frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
 const TYRE_CENTRE = 0.32;
@@ -135,9 +135,10 @@ type Jump = { air: number; peak: number; noseOff: number; turn: number; sink: nu
 
 /**
  * One car at `v` m/s up the −z ramp, end-on over the slab. Flight: frames with every tyre more than 5 cm off the
- * ground. noseOff: the most the nose's elevation strays from the flight path's (deg) after the first 0.1 s of
- * flight; turn: the most the nose's elevation changes in one frame (deg) from takeoff to 0.5 s after touchdown (a
- * snap); sink: the deepest any tyre gets into the ground over the run (m).
+ * ground and no part of the body resting on it (its underside, bumpers and hull all more than 2 cm clear: a nose that
+ * strikes the ground first has landed). noseOff: the most the nose's elevation strays from the flight path's (deg)
+ * after the first 0.1 s of flight; turn: the most the nose's elevation changes in one frame (deg) from takeoff to 0.5 s
+ * after touchdown (a snap); sink: the deepest any tyre gets into the ground over the run (m).
  */
 function jump(v: number): Jump {
   const { ramps, w, car } = scene(true);
@@ -164,7 +165,7 @@ function jump(v: number): Jump {
     peak = Math.max(peak, p.y);
     const nose = Math.asin(f.set(0, 0, 1).applyQuaternion(q).y) * DEG;
     const path = Math.atan2(car.velocity.y, Math.hypot(car.velocity.x, car.velocity.z)) * DEG;
-    const flying = Math.min(...gaps) > 0.05;
+    const flying = Math.min(...gaps) > 0.05 && fit(car, ramps).hull > 0.02;
     if (flying) {
       air += FRAME;
       since = 0;

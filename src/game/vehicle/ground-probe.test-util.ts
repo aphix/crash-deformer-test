@@ -142,7 +142,8 @@ function axisPitch(e: ArrayLike<number>, o: number): number {
 /** How `car` sits on `ground` now. */
 export function fit(car: DeformableCar, ground: Ground): Fit {
   car.group.updateWorldMatrix(true, true);
-  const body = car.group.getObjectByName("classLift")!;
+  // A car with no class assigned has no class body: its drawn body is the group (the springs move nothing, `Suspension.body`).
+  const body = car.group.getObjectByName("classLift") ?? car.group;
   const e = body.matrixWorld.elements;
   const gy = car.group.position.y;
   const gaps: number[] = [];
