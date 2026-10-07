@@ -5,17 +5,20 @@ import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
 import { LiveRooms } from "@/components/live-rooms";
 import type { CrashEngine } from "@/game/engine/engine";
-import { BENCH_QUERY } from "@/game/engine/constants";
-import { BenchLoopBar } from "@/components/bench-controls";
-import { PREF_KEYS, runBenchPage } from "@/components/bench-run";
+import { runBenchPage } from "@/components/bench-run";
 import { EngineContext } from "@/components/engine-context";
 import { SubmissionToast } from "@/components/submission-toast";
 import { BuildLabel, UpdateNotice } from "@/components/update-notice";
-import { useStoredString } from "@/components/use-stored-string";
+import { autoReloadAsked, isBenchPage } from "@/game/engine/bench-loop";
 import { useUpdateCheck } from "@/components/use-update-check";
 import { settleOnLoad, reloadOntoUpdate } from "@/lib/deploy/update-check";
 import { updateNoticeShown } from "@/game/hud/submit-rules";
 import { HudStore } from "@/game/hud/hud-store";
+
+/** The page's address never changes under the page (every bench step is a page load), so there is nothing to subscribe to. */
+function subscribeNever(): () => void {
+  return () => {};
+}
 
 export function CrashLab() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -27,7 +30,7 @@ export function CrashLab() {
   const [booted, setBooted] = useState(false);
   const driver = useDriver();
   const newer = useUpdateCheck();
-  const [autoReload] = useStoredString(PREF_KEYS.auto, "0", "0");
+  const benchPage = useSyncExternalStore(subscribeNever, () => isBenchPage(window.location.search), () => false);
   const deployed = updateNoticeShown(newer, hud.race) ? newer : null;
 
   useEffect(() => {
@@ -48,7 +51,7 @@ export function CrashLab() {
           setBooted(true);
           engine.ready.finally(dismissBootLoader);
           // `?bench=city` / `?bench=strip&…`: the phone-timing pages (engine-bench.ts), fetched only when asked for.
-          if (new URLSearchParams(window.location.search).has(BENCH_QUERY)) void runBenchPage(engine, hudStore.get);
+          if (isBenchPage(window.location.search)) void runBenchPage(engine, hudStore.get);
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);
@@ -79,17 +82,17 @@ export function CrashLab() {
   // A reload that landed on the new build is done with; the `?v=` it carried goes from the address.
   useEffect(() => settleOnLoad(__BUILD_SHA__), []);
 
-  // Auto-reload (ticked beside the Benchmark entry): onto a newly deployed build as soon as no race is under way. A bench page waits for its
+  // Auto-reload (`?auto=1`): onto a newly deployed build as soon as no race is under way. A bench page waits for its
   // bench to end (the loop's next page is the reload, `bench-run.ts`); a reload the backoff holds back is tried again each minute.
   useEffect(() => {
-    if (autoReload !== "1" || deployed === null || new URLSearchParams(window.location.search).has(BENCH_QUERY)) return;
+    if (deployed === null || !autoReloadAsked(window.location.search) || isBenchPage(window.location.search)) return;
     let timer = 0;
     const attempt = (): void => {
       if (!reloadOntoUpdate(deployed)) timer = window.setTimeout(attempt, 60_000);
     };
     attempt();
     return () => window.clearTimeout(timer);
-  }, [autoReload, deployed]);
+  }, [deployed]);
 
   return (
     <EngineContext.Provider value={engineRef}>
@@ -98,19 +101,18 @@ export function CrashLab() {
         {bootError ? (
           <p className="absolute inset-x-4 top-1/2 z-50 -translate-y-1/2 rounded-lg bg-black/80 px-4 py-3 text-center text-sm text-red-200">{bootError}</p>
         ) : null}
-        {/* The race focus view and the solo highlight view hide the Net button; it stays mounted (its room keeps running). */}
-        <div className={hud.race && (!hud.race.fullUi || hud.race.solo !== null) ? "hidden" : "contents"}>
+        {/* The race focus view, the solo highlight view and the bench pages hide the Net button; it stays mounted (its room keeps running). */}
+        <div className={benchPage || (hud.race && (!hud.race.fullUi || hud.race.solo !== null)) ? "hidden" : "contents"}>
           <NetPanel engine={engineRef} />
         </div>
         <Hud state={hud} engine={engineRef} />
         {/* Race mode's online entry: live races and Play online (hidden in the solo clip view and while the results reel plays). */}
-        {hud.race && hud.race.solo === null && hud.race.reel === null ? <LiveRooms engine={engineRef} race={hud.race} /> : null}
+        {hud.race && hud.race.solo === null && hud.race.reel === null && !benchPage ? <LiveRooms engine={engineRef} race={hud.race} /> : null}
         {/* The scene switch's fade to black (`SceneFade`): the engine drives its opacity; it covers the HUD and takes no input. */}
         <div ref={veilRef} aria-hidden className="pointer-events-none fixed inset-0 z-[100] bg-black opacity-0" />
         <BuildLabel />
         <UpdateNotice newer={deployed} />
         <SubmissionToast />
-        <BenchLoopBar />
       </main>
     </EngineContext.Provider>
   );

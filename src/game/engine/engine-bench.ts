@@ -101,7 +101,7 @@ type SubmitBench = (payload: object) => Promise<BenchReceipt>;
  * A text card over the canvas; `set` rewrites it while the bench runs, `done` swaps in the results and the buttons that copy
  * the full details as JSON and submit them, `receipt` shows how a submit went.
  */
-function overlay(): {
+function overlay(loopProgress: string | null): {
   set(text: string): void;
   done(lines: string[], details: () => string, submit: () => void): void;
   receipt(state: "sending" | BenchReceipt): void;
@@ -119,7 +119,7 @@ function overlay(): {
   const buttonStyle = "margin:6px 6px 0 0;padding:6px 10px;font:inherit;border-radius:6px;border:1px solid #7ee787;background:#14301c;color:#e8f0ff";
   const submitButton = document.createElement("button");
   return {
-    set: (text) => void (pre.textContent = text),
+    set: (text) => void (pre.textContent = loopProgress === null ? text : `${text} · ${loopProgress}`),
     done: (lines, details, submit) => {
       pre.textContent = lines.join("\n");
       root.style.pointerEvents = "auto";
@@ -641,10 +641,10 @@ function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> },
  * HUD's state (every setting the player can change); `search` is the page's query string. `opts.submit` posts the card's JSON (the
  * card's Submit button, and the bench loop's `auto` post before it moves on). Null: no such bench.
  */
-export async function runBench(engine: BenchEngine, hud: () => object, search: string, opts: { submit: SubmitBench; auto: boolean }): Promise<BenchResult | null> {
+export async function runBench(engine: BenchEngine, hud: () => object, search: string, opts: { submit: SubmitBench; auto: boolean; loopProgress: string | null }): Promise<BenchResult | null> {
   const plan = benchPlan(search);
   if (!plan) return null;
-  const ui = overlay();
+  const ui = overlay(opts.loopProgress);
   ui.set("CRUSH BENCH: loading…");
   const timerStepMs = timerStep();
   await engine.ready;
