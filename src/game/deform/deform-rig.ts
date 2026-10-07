@@ -488,6 +488,7 @@ export abstract class DeformRig {
    */
   protected initRunState(): void {
     this.dirty = false;
+    this.slot = -1;
     this.skinnedThisFrame = false;
     this.skinDeferred = false;
     this.skinOwed = false;
