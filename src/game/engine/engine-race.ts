@@ -32,6 +32,9 @@ const BUBBLE_EVERY = 0.25;
 /** Seconds the finish card shows before the results menu (and the results reel), and the BUSTED banner before the camera moves on. */
 export const RESULTS_DELAY = 2.5;
 const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
+/** The sun's shadow-camera basis (unit; three's lookAt with world up): right = up x (eye - target), up = (eye - target) x right. */
+const SUN_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET).normalize();
+const SUN_UP = SUN_OFFSET.clone().cross(SUN_RIGHT).normalize();
 
 /**
  * Race scene glue: owns the course (track, art, ground), the field's controller slots, the rules
@@ -714,8 +717,19 @@ export class RaceDirector extends RaceWatch {
     if (!car) return;
     const p = car.group.position;
     const sun = this.host.sun;
-    sun.target.position.set(p.x, 0, p.z);
-    sun.position.set(p.x + SUN_OFFSET.x, SUN_OFFSET.y, p.z + SUN_OFFSET.z);
+    const cam = sun.shadow.camera;
+    const texX = (cam.right - cam.left) / sun.shadow.mapSize.x;
+    const texY = (cam.top - cam.bottom) / sun.shadow.mapSize.y;
+    // Snap the box centre to whole shadow-map texels in the light's right/up basis, so static casters' edges never crawl.
+    const a = SUN_RIGHT.x * p.x + SUN_RIGHT.z * p.z;
+    const b = SUN_UP.x * p.x + SUN_UP.z * p.z;
+    const da = Math.round(a / texX) * texX - a;
+    const db = Math.round(b / texY) * texY - b;
+    const tx = p.x + SUN_RIGHT.x * da + SUN_UP.x * db;
+    const ty = SUN_RIGHT.y * da + SUN_UP.y * db;
+    const tz = p.z + SUN_RIGHT.z * da + SUN_UP.z * db;
+    sun.target.position.set(tx, ty, tz);
+    sun.position.set(tx + SUN_OFFSET.x, ty + SUN_OFFSET.y, tz + SUN_OFFSET.z);
     sun.target.updateMatrixWorld();
   }
 
