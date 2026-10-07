@@ -286,8 +286,8 @@ export class DeformableCar extends CarParts {
   }
 
   /**
-   * Back on its wheels (`stepFree`: three on the world): the pose-following step takes the body where and as it is and
-   * lays it on the rest plane of its wheels' contacts next slice. A wreck goes back to its masses.
+   * Back on its wheels (`stepFree`: three on the world): the pose-following step takes the body where and as it is (the caller lays
+   * it on the rest plane of its wheels' contacts in the same slice). A wreck goes back to its masses.
    */
   private land(): void {
     this.rigid = false;
@@ -391,7 +391,12 @@ export class DeformableCar extends CarParts {
       this.yaw = this.group.rotation.y;
       this.pitch = this.group.rotation.x;
       this.roll = this.group.rotation.z;
-      if (landed) this.land();
+      if (landed) {
+        this.land();
+        // A driven car is laid on its wheels' rest plane in the slice it lands: left on the rigid body's tilt for that slice, its tyres sat
+        // in their springs 2-2.5° off the plane through the three they touched.
+        if (!this.crashed && !stepPlane(this, dt)) this.takeOff();
+      }
       this.refreshBasis();
       this.ride(dt);
       if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
