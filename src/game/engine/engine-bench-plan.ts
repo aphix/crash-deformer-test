@@ -14,18 +14,18 @@ function benchRace(trackId: string): RaceCommand {
 }
 export const BENCH_RACE: RaceCommand = benchRace(TRACK_ID.city);
 
-/** One throw of the Lab bench: the set it loads, then the thrower (item 0) at item `target` at `speed` m/s. */
-type LabThrow = { preset: LabPresetId; target: number; speed: number };
+/** One throw of the Lab bench: the set it loads, then the thrower (item 0) let go at `along` m/s along the bench and `up` m/s up (what a flick's swipe gives it, stored so every run hits alike). */
+type LabThrow = { preset: LabPresetId; along: number; up: number };
 
 /**
- * `?bench=lab`: the throws in turn, one each `segmentS` sim seconds: the house of cards' top car at 30 m/s, then the middle
- * of the wall of props at 30 m/s. A set loads at its segment's start (the HUD's set picker, or Reset for the set already up)
+ * `?bench=lab`: the throws in turn, one each `segmentS` sim seconds: at the house of cards' top car, then at the wall of props,
+ * about 30 m/s each. A set loads at its segment's start (the HUD's set picker, or Reset for the set already up)
  * and stands `settleS` before its throw, which lands about 0.8 s later, inside an A/B block's 3 s.
  */
 const LAB_BENCH: { throws: readonly LabThrow[]; segmentS: number; settleS: number } = {
   throws: [
-    { preset: "cards", target: 3, speed: 30 },
-    { preset: "wall", target: 4, speed: 30 },
+    { preset: "cards", along: 30, up: 5.4 },
+    { preset: "wall", along: 30, up: 3.6 },
   ],
   segmentS: 4,
   settleS: 0.5,
@@ -130,7 +130,7 @@ export function stripLines(s: StripResult): string[] {
 
 /** The card's Lab line: the throws in turn, and how many of them the window saw. */
 export function labLine(thrown: number): string {
-  const throws = LAB_BENCH.throws.map((t) => `${t.preset} item ${t.target} at ${t.speed} m/s`).join(", then ");
+  const throws = LAB_BENCH.throws.map((t) => `${t.preset} at ${t.along} m/s along the bench, ${t.up} m/s up`).join(", then ");
   return `lab: ${throws}; one each ${LAB_BENCH.segmentS} sim-s, ${LAB_BENCH.settleS} s after its set loads, time held at 1x; ${thrown} thrown in the window`;
 }
 

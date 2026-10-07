@@ -1,11 +1,9 @@
 import * as THREE from "three";
 import { GROUND_REACH, HIT_DV, type RagdollSystem } from "../present/engine-ragdoll.ts";
-import { AIR_LINEAR } from "../present/ragdoll-body.ts";
 import type { PropTumble } from "../present/prop-tumble.ts";
 import { colliderSolids, type Solid } from "../present/ragdoll-solids.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { G } from "../vehicle/car-air.ts";
-import { glassCorners } from "../vehicle/car-glass.ts";
 import { propContact, type PropHits } from "../contact/prop-contact.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
 import { BENCH, BOARD, BRACKET_T, FLOOR, heldPose, labColliders, labGround, labPlaced, labSurfaces, LAB_LAYOUTS, type LabItem, type LabLayout, type LabPresetId, type LabSurface } from "../scenes/lab.ts";
@@ -22,11 +20,8 @@ const UPRIGHT = 0.9;
 /** Path samples: one per `PATH_S` sim seconds, `PATH_N` of them (10 s). */
 const PATH_S = 1 / 60;
 const PATH_N = 600;
-/** Throw target `-1`: the wall the pegboard hangs on; `-2`: nothing, a free throw (`flick`). */
+/** What a throw met: `-1`, the wall the pegboard hangs on (`LabShot.hit`). */
 export const WALL = -1;
-export const FREE = -2;
-/** A free throw (`flick` at `FREE`) leaves this far (rad) above level. */
-const FREE_LIFT = 0.15;
 /**
  * A thrown dummy's readback: his torso's velocity is held against its free flight over each `DOLL_READ_S` sim s, and a
  * change past the hit his own skin counts (`HIT_DV`) off the ground is his first contact, with the item whose middle is
@@ -40,24 +35,11 @@ const DOLL_REACH = 3;
  * rises less than 50°, and a wall's or a car's side's, its friction slowing the fall, never more than 40°.
  */
 const PROP_LAND = Math.SQRT1_2;
-/** A dummy's torso centre is picked up this high (m) over the ground to be thrown: it stands 1.11 m over his feet, so no limb starts in the ground. */
-const DOLL_LIFT = 1.2;
-/**
- * A dummy thrown at a car meets its windshield square, at this speed (m/s) or faster: the glass rule's 4 m/s twice over, so
- * his torso cracks it, and once cracked shatters it and goes on into the cabin (`aim`). He is picked up no further round from
- * square to it than `PANE_YAW` (rad, in plan): from further round his limbs catch its pillars and he stops in the opening
- * (headless, a cracked windshield on a stand, dummies 1.5–14 m off at 0–80°: 30° left his torso at the glass's line from
- * 60° round, 10° put it in the cabin from all 25).
- */
-const PANE_V = 8;
-const PANE_YAW = Math.PI / 18;
 
-/** One throw's readback (`Lab.throwAt`): what the physics did, read off the sim. Positions and speeds are m and m/s, times sim s from the launch. */
+/** One throw's readback (`Lab.launch`): what the physics did, read off the sim. Positions and speeds are m and m/s, times sim s from the launch. */
 export type LabShot = {
   thing: number;
-  target: number;
   launch: THREE.Vector3;
-  spin: number;
   /** The thing's first contact with anything but the ground: when, where, the normal out of what it met, and what (a layout index, `WALL`). Null: none yet. */
   contactS: number | null;
   contactAt: THREE.Vector3;
@@ -66,24 +48,24 @@ export type LabShot = {
   /** The thing's speed at the last step before the contact and `AFTER_S` after it (null until then). */
   speedBefore: number;
   speedAfter: number | null;
-  /** Thing and target: their speeds along `normal` before the contact (the target's is 0 for a fixed solid), and after. */
+  /** Thing and the car or wall it met: their speeds along `normal` before the contact (a fixed solid's is 0), and after. */
   closingBefore: number;
   closingAfter: number | null;
   /** −(closing after) / (closing before): 0 a dead stop together, 1 elastic. Null until `AFTER_S`. */
   restitution: number | null;
   /**
-   * Momentum (kg m/s) of the thrown car and a target car together along the launch's plan direction (the bench carries the
+   * Momentum (kg m/s) of the thrown car and a car it met together along the launch's plan direction (the bench carries the
    * vertical): the step before the contact, and at the pulse's end (`pulseS` after it: the pair stopped closing, at most `AFTER_S`).
    */
   momentumBefore: number;
   momentumAfter: number | null;
   pulseS: number | null;
-  /** Peak crush (m) of the thrown car and of a target car since the launch (`crushAmount`, the sensors' compression). */
+  /** Peak crush (m) of the thrown car and of a car it met since the launch (`crushAmount`, the sensors' compression). */
   crush: number;
   targetCrush: number;
   /** Layout indices of the items knocked off where they stood at the launch: cars moved over `FELL_M` or tipped, props knocked. */
   fell: number[];
-  /** Thing and target positions every `PATH_S` (x, y, z); `pathN` samples. */
+  /** Thing and the car it met: positions every `PATH_S` (x, y, z; NaN before the contact); `pathN` samples. */
   path: Float32Array;
   targetPath: Float32Array;
   pathN: number;
@@ -91,20 +73,12 @@ export type LabShot = {
 
 const _v = new THREE.Vector3();
 const _d = new THREE.Vector3();
-const _to = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _u = new THREE.Vector3();
 const _q = new THREE.Quaternion();
-const _m = new THREE.Matrix4();
 const UP = new THREE.Vector3(0, 1, 0);
 const _from = new THREE.Vector3();
-const _n = new THREE.Vector3();
 const _w = new THREE.Vector3();
-
-/** How far (m per m/s of launch velocity) a body under `drag` (per s) has carried `t` s into its flight: `t` without drag. */
-const reachOf = (drag: number, t: number): number => (drag > 0 ? (1 - Math.exp(-drag * t)) / drag : t);
-/** How far (m) gravity has pulled that body below its launch line `t` s in, `reach` its `reachOf`. */
-const fallOf = (drag: number, t: number, reach: number): number => (drag > 0 ? (G / drag) * (t - reach) : 0.5 * G * t * t);
 
 /** Momentum (kg m/s) of `car` along unit `d`: every mass's own while its rig is loose (a crash), else its body's. */
 function carMomentum(car: DeformableCar, d: THREE.Vector3): number {
@@ -186,7 +160,8 @@ export class Lab {
   private t = 0;
   private sampleAt = 0;
   private thingSlot = -1;
-  private targetSlot = -1;
+  /** The car the thrown car met (`contact`; -1: none yet, or it met no car). */
+  private metSlot = -1;
   /** The thrown dummy's slot and the thrown prop (-1: a car is thrown), whether a dummy waits for Rapier, and the thrown body's velocity at sim second `tRef`. */
   private thingDoll = -1;
   private thingProp = -1;
@@ -195,18 +170,14 @@ export class Lab {
   private readonly vRef = new THREE.Vector3();
   /** Where each car stood when the throw left (x, y, z) and its up axis's y. */
   private rest = new Float64Array(0);
-  /** Thrown car's and target car's velocity, and their momentum (`carMomentum`), at the end of the last slice (before this slice's contact). */
+  /** Thrown car's velocity and momentum (`carMomentum`) at the end of the last slice (before this slice's contact), and every car's, for the one it meets. */
   private readonly vThing = new THREE.Vector3();
   private readonly vTarget = new THREE.Vector3();
   private pBefore = 0;
+  private vCars = new Float64Array(0);
+  private pCars = new Float64Array(0);
   /** The launch's direction in plan (unit, y = 0). */
   private readonly launchDir = new THREE.Vector3();
-  /** The last aimed throw (`flickAim`): its launch point, launch velocity and drag (per s: a dummy's air drag, none for a car). */
-  private readonly from = new THREE.Vector3();
-  private readonly aimV = new THREE.Vector3();
-  private aimDrag = 0;
-  /** Each car slot's windshield normal, car-local, out of the cabin (x, y, z per slot). */
-  private screens = new Float32Array(0);
   /** Contact FX (`CrashEngine.hitFx`), or nothing headless. */
   fx: ((at: THREE.Vector3, n: THREE.Vector3, closing: number) => void) | null = null;
   /** Where the props are drawn (`LabArt`), or nothing headless. */
@@ -276,7 +247,7 @@ export class Lab {
     this.focus.set((first.x + mx) / 2, 0.7, (first.z + mz) / 2);
     this.shot = null;
     this.thingSlot = -1;
-    this.targetSlot = -1;
+    this.metSlot = -1;
     this.thingDoll = -1;
     this.thingProp = -1;
   }
@@ -284,21 +255,15 @@ export class Lab {
   /** Every car and dummy of the layout at its pose, at rest; props back on their spots. */
   placeCars(cars: readonly DeformableCar[]): void {
     this.cars = cars;
-    this.screens = new Float32Array(this.carItems.length * 3);
-    for (const [slot, k] of this.carItems.entries()) {
-      placeCar(cars[slot]!, this.layout[k]!, this.ground);
-      // Its windshield's corners (`glassCorners`, pane 0): its bottom edge across, then up the pane; across × up is out of the cabin.
-      const c = glassCorners(cars[slot]!.style);
-      _u.set(c[3]! - c[0]!, c[4]! - c[1]!, c[5]! - c[2]!);
-      _d.set(c[6]! - c[0]!, c[7]! - c[1]!, c[8]! - c[2]!);
-      _u.cross(_d).normalize().toArray(this.screens, slot * 3);
-    }
+    this.vCars = new Float64Array(this.carItems.length * 3);
+    this.pCars = new Float64Array(this.carItems.length);
+    for (const [slot, k] of this.carItems.entries()) placeCar(cars[slot]!, this.layout[k]!, this.ground);
     this.knocked.fill(0);
     this.dolls?.setSolids(this.ground, this.solids, this.placed, this.tumble);
     this.placeDummies();
     this.shot = null;
     this.thingSlot = -1;
-    this.targetSlot = -1;
+    this.metSlot = -1;
     this.thingDoll = -1;
     this.thingProp = -1;
   }
@@ -335,132 +300,10 @@ export class Lab {
   }
 
   /**
-   * Where a throw from item `thing` at `target` arrives (into `out`): the target item's centre (a dummy thrown at a car: its
-   * windshield's middle), or for `WALL` the board's face straight back from where the thing leaves (`launchPoint`: a dummy lying
-   * on the bench is picked up, so he meets the board at that height, not at its foot).
+   * Item `thing` (a car, a dummy or a knockable prop) leaves from where it is at velocity `v`, turned as it is and spinning at
+   * none. Starts a fresh readback (`shot`). Every other car's stand is remembered, so `fell` counts only what the throw moved.
    */
-  targetPoint(thing: number, target: number, out: THREE.Vector3): THREE.Vector3 {
-    if (target !== WALL) {
-      const slot = this.slotOf[target]!;
-      return this.dollOf[thing]! >= 0 && slot >= 0 ? this.cars[slot]!.glassWorld("windshield", out) : this.centre(target, out);
-    }
-    this.launchPoint(thing, out);
-    out.z = BOARD.z;
-    return out;
-  }
-
-  /** Whether item `k` can be thrown at from item `thing`: any other item but a shelf, and a prop only while it stands on its spot. */
-  canTarget(thing: number, k: number): boolean {
-    if (k === thing || this.layout[k]!.kind === "shelf") return false;
-    const p = this.propOf[k]!;
-    return p < 0 || this.knocked[p] === 0;
-  }
-
-  /** Where item `thing` leaves from (into `out`): its centre; a dummy's torso picked up to `DOLL_LIFT` m over the ground under it, so his diving body clears it. */
-  private launchPoint(thing: number, out: THREE.Vector3): THREE.Vector3 {
-    this.centre(thing, out);
-    if (this.dollOf[thing]! >= 0) out.y = Math.max(out.y, this.ground.heightAt(out.x, out.z, out.y) + DOLL_LIFT);
-    return out;
-  }
-
-  /**
-   * The launch velocity (into `out`) that carries item `thing` from its launch point (`launchPoint`, into `from`) to `target`'s
-   * point (`targetPoint`) under gravity, and a dummy under the air's drag (`AIR_LINEAR`); returns the flight (s). It flies the line
-   * between them at `speed` m/s on average, but a dummy thrown at a car lands square on its windshield whatever the `speed`: on
-   * its middle along its inward normal at `PANE_V` m/s or faster, picked up as high and as near square as that needs (`PANE_YAW`).
-   * (A flatter arc meets the car's nose, a steeper one its roof or bonnet with an arm before his torso reaches the glass.)
-   */
-  private aim(thing: number, target: number, speed: number, out: THREE.Vector3): number {
-    const from = this.launchPoint(thing, this.from);
-    const to = this.targetPoint(thing, target, _to);
-    const doll = this.dollOf[thing]! >= 0;
-    const slot = target >= 0 ? this.slotOf[target]! : -1;
-    let flight = from.distanceTo(to) / speed;
-    if (doll && slot >= 0) {
-      // `tan`: how steeply the pane's inward normal comes down (rise over run); `off`: his bearing round from it in plan. Under
-      // gravity alone, the arc that ends along it at `PANE_V` passes `run` m out at the height `from` is lifted to, and the one
-      // from `from` that ends along it takes `lob`.
-      const n = _n.fromArray(this.screens, slot * 3).applyQuaternion(this.cars[slot]!.group.quaternion);
-      const flat = Math.max(1e-3, Math.hypot(n.x, n.z));
-      const tan = Math.max(0, n.y) / flat;
-      const run = Math.hypot(to.x - from.x, to.z - from.z);
-      const off = Math.atan2(n.x * (from.z - to.z) - n.z * (from.x - to.x), n.x * (from.x - to.x) + n.z * (from.z - to.z));
-      if (Math.abs(off) > PANE_YAW) {
-        const bearing = Math.atan2(n.z, n.x) + Math.sign(off) * PANE_YAW;
-        from.x = to.x + run * Math.cos(bearing);
-        from.z = to.z + run * Math.sin(bearing);
-        from.y = Math.max(from.y, this.ground.heightAt(from.x, from.z, from.y) + DOLL_LIFT);
-      }
-      from.y = Math.max(from.y, to.y + run * tan - (G * run * run * (1 + tan * tan)) / (2 * PANE_V * PANE_V));
-      const lob = (2 * (to.y - from.y + run * tan)) / G;
-      if (lob > 0) flight = Math.sqrt(lob);
-    }
-    flight = Math.max(1e-3, flight);
-    this.aimDrag = doll || this.propOf[thing]! >= 0 ? AIR_LINEAR : 0;
-    const reach = reachOf(this.aimDrag, flight);
-    out.copy(to).sub(from);
-    out.y += fallOf(this.aimDrag, flight, reach);
-    this.aimV.copy(out.divideScalar(reach));
-    return flight;
-  }
-
-  /**
-   * A flick of item `thing` at `speed` m/s: at `target` (an item or `WALL`), arriving at its point as `throwAt` does, or for `FREE`
-   * along plan direction (dx, dz) lifted `FREE_LIFT` above level. Its launch velocity goes into `out` (x, y, z) with its flight in
-   * `out.w` (s: to the target's point, or back down to its own height); `flightAt` follows it.
-   */
-  flickAim(thing: number, target: number, dx: number, dz: number, speed: number, out: THREE.Vector4): void {
-    if (target !== FREE) {
-      const flight = this.aim(thing, target, speed, _v);
-      out.set(_v.x, _v.y, _v.z, flight);
-      return;
-    }
-    this.launchPoint(thing, this.from);
-    this.aimDrag = this.dollOf[thing]! >= 0 || this.propOf[thing]! >= 0 ? AIR_LINEAR : 0;
-    const d = Math.hypot(dx, dz) || 1;
-    const flat = speed * Math.cos(FREE_LIFT);
-    const up = speed * Math.sin(FREE_LIFT);
-    this.aimV.set((dx / d) * flat, up, (dz / d) * flat);
-    out.set(this.aimV.x, up, this.aimV.z, (2 * up) / G);
-  }
-
-  /** Where the last aimed throw (`flickAim`) is `t` s into its flight (into `out`), and its velocity there into `v` unless null. */
-  flightAt(t: number, out: THREE.Vector3, v: THREE.Vector3 | null): THREE.Vector3 {
-    const reach = reachOf(this.aimDrag, t);
-    out.copy(this.from).addScaledVector(this.aimV, reach);
-    out.y -= fallOf(this.aimDrag, t, reach);
-    if (v) {
-      // The air takes the share of the launch velocity it has damped away, and gravity pulls what it has not.
-      const kept = this.aimDrag > 0 ? Math.exp(-this.aimDrag * t) : 1;
-      v.copy(this.aimV).multiplyScalar(kept);
-      v.y -= this.aimDrag > 0 ? (G / this.aimDrag) * (1 - kept) : G * t;
-    }
-    return out;
-  }
-
-  /** Flick item `thing` (a car, a dummy or a knockable prop) at `target` (or `FREE` along (dx, dz)) at `speed` m/s (`flickAim`). */
-  flick(thing: number, target: number, dx: number, dz: number, speed: number): LabShot {
-    const out = new THREE.Vector4();
-    this.flickAim(thing, target, dx, dz, speed, out);
-    return this.launch(thing, target, new THREE.Vector3(out.x, out.y, out.z), 0, out.w);
-  }
-
-  /**
-   * Launch item `thing` (a car, a dummy or a knockable prop) at item `target` (or `WALL`) at `speed` m/s along the line between their centres,
-   * arriving at the target's point (`aim`), spinning `spin` rad/s about the vertical.
-   */
-  throwAt(thing: number, target: number, speed: number, spin = 0): LabShot {
-    const v = new THREE.Vector3();
-    return this.launch(thing, target, v, spin, this.aim(thing, target, speed, v));
-  }
-
-  /**
-   * Item `thing` (a car; a dummy flat to the throw, chest first; a knockable prop from where it is, off its spot) leaves at
-   * velocity `v` toward `target` (a layout index, `WALL` or `FREE`), spinning `spin` rad/s about the vertical (a prop: its
-   * knock's own tumble), `flight` s from where it arrives (`flickAim`). Starts a fresh readback (`shot`). Every other car's
-   * stand is remembered, so `fell` counts only what the throw moved.
-   */
-  private launch(thing: number, target: number, v: THREE.Vector3, spin: number, flight: number): LabShot {
+  launch(thing: number, v: THREE.Vector3): LabShot {
     const slot = this.slotOf[thing]!;
     const doll = this.dollOf[thing]!;
     const prop = slot < 0 && doll < 0 ? this.propOf[thing]! : -1;
@@ -476,31 +319,14 @@ export class Lab {
     if (slot >= 0) {
       const car = this.cars[slot]!;
       car.velocity.copy(v);
-      car.angular.set(0, spin, 0);
+      car.angular.set(0, 0, 0);
       car.speed = Math.hypot(v.x, v.z);
       car.airborne = v.y > 0.05;
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
       } else car.deform.bindKinematic(car.group, car.velocity, car.angular);
-    } else if (doll >= 0) {
-      // Chest first where he arrives, his spine level across the throw (his head on its left): his torso is what meets what he is
-      // thrown at (the glass rule's). At a car, flat to its windshield with his spine across it, so an arc that slants in still
-      // meets it with his torso.
-      this.flightAt(flight, _p, _d);
-      _d.normalize();
-      _u.crossVectors(UP, _d);
-      if (_u.lengthSq() < 1e-6) _u.set(1, 0, 0);
-      const at = target >= 0 ? this.slotOf[target]! : -1;
-      if (at >= 0) {
-        const car = this.cars[at]!;
-        _d.fromArray(this.screens, at * 3).applyQuaternion(car.group.quaternion).negate();
-        _v.setFromMatrixColumn(car.group.matrixWorld, 0);
-        _u.copy(_v.addScaledVector(_d, -_v.dot(_d)).multiplyScalar(Math.sign(_v.dot(_u)) || 1));
-      }
-      _u.normalize();
-      _q.setFromRotationMatrix(_m.makeBasis(_from.crossVectors(_u, _d), _u, _d));
-      this.dolls?.place(this.from, _q, v, _u.set(0, spin, 0), Infinity, doll);
-    } else {
+    } else if (doll >= 0) this.dolls?.leave(doll, v);
+    else {
       this.knocked[prop] = 1;
       this.dolls?.knockProp(prop, -1, v.x, v.y, v.z);
     }
@@ -509,16 +335,14 @@ export class Lab {
     this.thingDoll = doll;
     this.thingProp = prop;
     this.thingSlot = slot;
-    this.targetSlot = target >= 0 ? this.slotOf[target]! : -1;
+    this.metSlot = -1;
     this.vThing.copy(v);
     this.vTarget.set(0, 0, 0);
     this.t = 0;
     this.sampleAt = 0;
     this.shot = {
       thing,
-      target,
       launch: v.clone(),
-      spin,
       contactS: null,
       contactAt: new THREE.Vector3(),
       normal: new THREE.Vector3(),
@@ -558,7 +382,7 @@ export class Lab {
       return false;
     }
     const car = this.cars[this.thingSlot]!;
-    const tgt = this.targetSlot >= 0 ? this.cars[this.targetSlot]! : null;
+    const tgt = this.metSlot >= 0 ? this.cars[this.metSlot]! : null;
     s.crush = Math.max(s.crush, car.deform.crushAmount);
     if (tgt) s.targetCrush = Math.max(s.targetCrush, tgt.deform.crushAmount);
     if (this.t >= this.sampleAt) this.sample();
@@ -579,8 +403,13 @@ export class Lab {
     this.fell(s);
     if (s.contactS === null) {
       this.vThing.copy(car.velocity);
-      if (tgt) this.vTarget.copy(tgt.velocity);
-      this.pBefore = carMomentum(car, this.launchDir) + (tgt ? carMomentum(tgt, this.launchDir) : 0);
+      this.pBefore = carMomentum(car, this.launchDir);
+      for (let other = 0; other < this.cars.length && other < this.carItems.length; other++) {
+        this.vCars[other * 3] = this.cars[other]!.velocity.x;
+        this.vCars[other * 3 + 1] = this.cars[other]!.velocity.y;
+        this.vCars[other * 3 + 2] = this.cars[other]!.velocity.z;
+        this.pCars[other] = carMomentum(this.cars[other]!, this.launchDir);
+      }
     }
     this.t += h;
     return false;
@@ -594,7 +423,7 @@ export class Lab {
     s.path[o] = p.x;
     s.path[o + 1] = p.y;
     s.path[o + 2] = p.z;
-    const q = this.targetSlot >= 0 ? this.cars[this.targetSlot]!.group.position : _v.set(NaN, NaN, NaN);
+    const q = this.metSlot >= 0 ? this.cars[this.metSlot]!.group.position : _v.set(NaN, NaN, NaN);
     s.targetPath[o] = q.x;
     s.targetPath[o + 1] = q.y;
     s.targetPath[o + 2] = q.z;
@@ -650,7 +479,7 @@ export class Lab {
     return best ?? (p.z - BOARD.z < 1.5 ? WALL : null);
   }
 
-  /** The thrown car met `hit` (a layout index or `WALL`) at `at`, `n` out of it: the first one only. */
+  /** The thrown car met `hit` (a layout index or `WALL`) at `at`, `n` out of it: the first one only. A car it met is read back too (`metSlot`). */
   private contact(slot: number, hit: number, at: THREE.Vector3, n: THREE.Vector3): void {
     const s = this.shot;
     if (!s || slot !== this.thingSlot || s.contactS !== null) return;
@@ -659,10 +488,11 @@ export class Lab {
     s.normal.copy(n).normalize();
     s.hit = hit;
     s.speedBefore = this.vThing.length();
-    const tgt = this.targetSlot >= 0 ? this.cars[this.targetSlot]! : null;
-    // The normal out of what it met, toward the thrown car: closing is the thrown car's speed into it less the target's.
-    s.closingBefore = -(this.vThing.dot(s.normal) - (tgt ? this.vTarget.dot(s.normal) : 0));
-    s.momentumBefore = this.pBefore;
+    this.metSlot = hit >= 0 ? this.slotOf[hit]! : -1;
+    if (this.metSlot >= 0) this.vTarget.fromArray(this.vCars, this.metSlot * 3);
+    // The normal out of what it met, toward the thrown car: closing is the thrown car's speed into it less the met car's.
+    s.closingBefore = -(this.vThing.dot(s.normal) - (this.metSlot >= 0 ? this.vTarget.dot(s.normal) : 0));
+    s.momentumBefore = this.pBefore + (this.metSlot >= 0 ? this.pCars[this.metSlot]! : 0);
   }
 
   /** Rebuilds `fell`: every car but the thrown one off its stand, every knocked prop but the thrown one. */

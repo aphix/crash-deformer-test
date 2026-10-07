@@ -190,7 +190,7 @@ export function Hud(props: HudProps) {
                         : state.stack
                           ? "Cars dropped one at a time onto a base car. Each roof carries the weight above it: the panel reads the load and the crush."
                         : state.lab
-                          ? "Toy cars on a giant workbench. Put a finger on a car and swipe to flick it at the stack, the wall or the stand."
+                          ? "Toy cars on a giant workbench. Put a finger on a car and swipe along the bench: it leaves at the swipe's speed and angle."
                         : state.carCount <= 2
                           ? "Cars lock onto the pad. Control particles shape-match the mesh — Müller 2005, with the lattice still a toggle."
                           : `${state.carCount} cars on the pad. Same crumple rules, now a pile-up.`}

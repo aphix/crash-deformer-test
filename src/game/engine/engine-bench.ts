@@ -1,4 +1,4 @@
-import type * as THREE from "three";
+import * as THREE from "three";
 import type { RaceCommand } from "../match/types.ts";
 import { DETAIL_LEVELS, type CarDetail } from "../present/car-detail.ts";
 import type { DetailGovernor } from "../present/detail-governor.ts";
@@ -54,8 +54,8 @@ interface BenchEngine {
   reset(): void;
   /** The HUD's time scale: a fixed one, or null for the automatic slow-mo. */
   setTimeScale(value: number | null): void;
-  /** Lab item `thing` thrown at item `target` at `speed` m/s (the plan direction dx, dz is a free throw's only). */
-  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void;
+  /** Lab item `thing` let go at `velocity` (m/s). */
+  flickLab(thing: number, velocity: THREE.Vector3): void;
   advance(seconds: number, opts?: { frameDt?: number; render?: boolean }): void;
   start(): void;
   setFxTier(tier: FxTier): void;
@@ -278,10 +278,12 @@ interface LabRun {
   throws: number;
 }
 
+const _launch = new THREE.Vector3();
+
 /**
  * The Lab's sequence on the sim seconds stepped (`Tap.simS`): each `segmentS` the next throw's set loads (the player's set picker,
- * or Reset for the set already up), and `settleS` into the segment its thrower leaves for its target (the player's flick), so a
- * device steps the same throws per sim-second however fast it runs.
+ * or Reset for the set already up), and `settleS` into the segment its thrower leaves at the throw's stored velocity (the player's
+ * flick), so a device steps the same throws per sim-second however fast it runs.
  */
 function driveLab(engine: BenchEngine, t: Tap, run: LabRun): void {
   const k = Math.floor((t.simS - run.origin) / run.plan.segmentS);
@@ -296,7 +298,7 @@ function driveLab(engine: BenchEngine, t: Tap, run: LabRun): void {
   if (run.thrown || t.simS - run.origin - k * run.plan.segmentS < run.plan.settleS) return;
   run.thrown = true;
   run.throws++;
-  engine.flickLab(0, next.target, 0, 0, next.speed);
+  engine.flickLab(0, _launch.set(next.along, next.up, 0));
 }
 
 /** The Lab's sequence starts over now at throw `first` (an A/B block: every arm of a round replays the same throw from its set's load). */
