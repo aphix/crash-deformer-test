@@ -35,6 +35,33 @@ const BUMPERS = [-1, 1].flatMap((sx) => [-1, 1].map((sz): [number, number, numbe
 /** Height hints are the asking point plus this (m): the layer rule (`STEP_UP`, a ramp's kerb) reads them. */
 const HINT_ABOVE = 1;
 
+/** `UNDERSIDE`'s keel (x 0) and rocker (x ±`ROCKER`) lines, [z, height] from the nose back. */
+const ROCKER = 0.8;
+const KEEL = UNDERSIDE.filter((p) => p[0] === 0).map(([, z, h]) => [z, h] as const);
+const ROCKERS = UNDERSIDE.filter((p) => p[0] === ROCKER).map(([, z, h]) => [z, h] as const);
+/** The lines the belly is read along (car-local): along z at each `LINE_X`, across x at each `LINE_Z` (car-air.ts `BELLY`'s rows). */
+const LINE_X = [-ROCKER, -0.5, 0, 0.5, ROCKER] as const;
+const LINE_Z = [2, 1, 0, -0.5, -1, -2] as const;
+/** A belly line is halved down to this (m) where the ground under it is not one plane: a face's edge under the belly is found within 1 cm. */
+const LINE_STEP = 0.01;
+/** The ground under a line is one plane between two samples when the clearance midway is their mean within this (m). */
+const LINE_FLAT = 0.001;
+/** A belly sample this far (m) in the ground is in it, not resting on it: the drop matrix's `pen` bound (ground-judge.test-util.ts). */
+const BELLY_IN = 0.01;
+/** Pending halves of a belly line: [ax, az, bx, bz, clearance at a, clearance at b] each (a line's 4 m halves to 1 cm in 9 levels). */
+const _span = new Float64Array(6 * 32);
+
+/** Height (m) at `z` of a line of [z, height] stations from the nose back (linear between them). */
+function along(line: readonly (readonly [number, number])[], z: number): number {
+  for (let i = 1; i < line.length; i++) {
+    const [z1, h1] = line[i]!;
+    if (z < z1) continue;
+    const [z0, h0] = line[i - 1]!;
+    return h0 + ((h1 - h0) * (z - z0)) / (z1 - z0);
+  }
+  return line[line.length - 1]![1];
+}
+
 export type Fit = {
   airborne: boolean;
   /** Per tyre (`WHEEL_POS` order): its lowest tread point's height above the ground under it (m; < 0 sunk in). */
@@ -58,8 +85,8 @@ export type Fit = {
   /** The same, asking at the body's height + 1 m: a wall's depth too (a fleet ramp's side face the car is inside). */
   overlap: number;
   overlapAt: string;
-  /** Lowest clearance of any underside or bumper point over the ground as the physics reads it (m; negative is `pen`).
-   *  Within 2 cm, the hull is resting on the ground, so a tyre hanging in the air is the belly on a crest, not a float. */
+  /** Lowest clearance of any underside or bumper point over the ground as the physics reads it (m; negative is `pen`), and of the
+   *  belly along its lines where that is under `BELLY_IN` deep. Within 2 cm, the hull is resting on the ground. */
   hull: number;
   /** Angle (deg) of the mean ground normal under the four hubs from vertical: how steep the ground is under the car. */
   slope: number;
@@ -199,6 +226,51 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     const [x, y, z] = HULL[i]!;
     probe(`hull(${x.toFixed(2)},${y.toFixed(2)},${z.toFixed(2)})`, x, y, z);
   }
+  // The belly between the keel and the rockers, along its lines: where the ground under a line is not one plane between two samples (a
+  // face's edge or a crest under the belly) the line is halved down to `LINE_STEP`, so a belly resting on an edge between the stations
+  // above reads as resting. A sample deeper than `BELLY_IN` is in the ground, not resting on it (its depth is not `pen`'s reading).
+  const clearance = (x: number, z: number): number => {
+    const keel = along(KEEL, z);
+    _p.set(x, keel + ((along(ROCKERS, z) - keel) * Math.abs(x)) / ROCKER, z).applyMatrix4(body.matrixWorld);
+    const c = _p.y - ground.heightAt(_p.x, _p.z, _p.y);
+    if (c >= -BELLY_IN) hull = Math.min(hull, c);
+    return c;
+  };
+  const line = (ax: number, az: number, bx: number, bz: number): void => {
+    _span[0] = ax;
+    _span[1] = az;
+    _span[2] = bx;
+    _span[3] = bz;
+    _span[4] = clearance(ax, az);
+    _span[5] = clearance(bx, bz);
+    let top = 6;
+    while (top > 0) {
+      top -= 6;
+      const x0 = _span[top]!;
+      const z0 = _span[top + 1]!;
+      const x1 = _span[top + 2]!;
+      const z1 = _span[top + 3]!;
+      const c0 = _span[top + 4]!;
+      const c1 = _span[top + 5]!;
+      if (Math.hypot(x1 - x0, z1 - z0) <= LINE_STEP) continue;
+      const mx = (x0 + x1) / 2;
+      const mz = (z0 + z1) / 2;
+      const cm = clearance(mx, mz);
+      if (Math.abs(cm - (c0 + c1) / 2) <= LINE_FLAT) continue;
+      _span[top + 2] = mx;
+      _span[top + 3] = mz;
+      _span[top + 5] = cm;
+      _span[top + 6] = mx;
+      _span[top + 7] = mz;
+      _span[top + 8] = x1;
+      _span[top + 9] = z1;
+      _span[top + 10] = cm;
+      _span[top + 11] = c1;
+      top += 12;
+    }
+  };
+  for (const x of LINE_X) for (let i = 1; i < LINE_Z.length; i++) line(x, LINE_Z[i - 1]!, x, LINE_Z[i]!);
+  for (const z of LINE_Z) for (let i = 1; i < LINE_X.length; i++) line(LINE_X[i - 1]!, z, LINE_X[i]!, z);
   const ge = car.group.matrixWorld.elements;
   return {
     airborne: car.airborne,
