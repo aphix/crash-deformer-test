@@ -6,3 +6,5 @@ export const ROOM_MAX = 8;
 export const PUBLIC_PREFIX = "pub-";
 /** Request header carrying the token a peer's first relay poll was issued (signaling.server.ts). */
 export const TOKEN_HEADER = "x-rtc-token";
+/** Relay wire words shared by client and server: the POST `op` values and the poll's `room` / `meta` query parameters. */
+export const RELAY = { LEAVE: "leave", SIGNAL: "signal", ROOM: "room", META: "meta" } as const;

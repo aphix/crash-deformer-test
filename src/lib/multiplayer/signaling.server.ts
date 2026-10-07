@@ -22,7 +22,7 @@ import { z } from "zod";
 import type { Sql } from "@/lib/db";
 import type { PeerRow, RtcPollResponse, SignalRow } from "./p2p";
 import { clientIp, RateLimiter } from "./rate-limit.ts";
-import { PUBLIC_PREFIX, ROOM_MAX, TOKEN_HEADER } from "./rooms.ts";
+import { PUBLIC_PREFIX, RELAY, ROOM_MAX, TOKEN_HEADER } from "./rooms.ts";
 
 type GetSql = () => Promise<Sql>;
 
@@ -32,7 +32,7 @@ const NAME = z.string().regex(/^[a-z]{0,12}$/);
 /** A public host's match tag (`<stage>.<course>`, game/net/matchmaking.ts `publicMeta`); the list shows it beside the room. */
 const META = z.string().regex(/^[a-z0-9._-]{0,32}$/);
 const signalSchema = z.object({
-  op: z.literal("signal"),
+  op: z.literal(RELAY.SIGNAL),
   room: ID,
   from: ID,
   to: ID,
@@ -43,7 +43,7 @@ const signalSchema = z.object({
     message: "payload too large",
   }),
 });
-const leaveSchema = z.object({ op: z.literal("leave"), room: ID, peer: ID });
+const leaveSchema = z.object({ op: z.literal(RELAY.LEAVE), room: ID, peer: ID });
 const postSchema = z.discriminatedUnion("op", [signalSchema, leaveSchema]);
 
 const PEER_TTL_SECONDS = 30;
@@ -183,11 +183,11 @@ async function handleGet(request: Request, ip: string, getSql: GetSql): Promise<
   const parsed = z
     .object({ room: ID, peer: ID, name: NAME.default(""), since: z.coerce.number().int().min(0).default(0), meta: META.default("") })
     .safeParse({
-      room: url.searchParams.get("room"),
+      room: url.searchParams.get(RELAY.ROOM),
       peer: url.searchParams.get("peer"),
       name: url.searchParams.get("name") ?? "",
       since: url.searchParams.get("since") ?? 0,
-      meta: url.searchParams.get("meta") ?? "",
+      meta: url.searchParams.get(RELAY.META) ?? "",
     });
   if (!parsed.success) return json({ error: "invalid query" }, 400);
   const { room, peer, name, since, meta } = parsed.data;
@@ -238,11 +238,11 @@ async function handlePost(request: Request, ip: string, getSql: GetSql): Promise
   const parsed = postSchema.safeParse(body);
   if (!parsed.success) return json({ error: "invalid request" }, 400);
   const msg = parsed.data;
-  if (!limiter.peer(ip, msg.op === "signal" ? msg.from : msg.peer)) return json({ error: "rate limited" }, 429);
+  if (!limiter.peer(ip, msg.op === RELAY.SIGNAL ? msg.from : msg.peer)) return json({ error: "rate limited" }, 429);
   const sql = await getSql();
   const hash = await sha256(request.headers.get(TOKEN_HEADER) ?? "");
 
-  if (msg.op === "leave") {
+  if (msg.op === RELAY.LEAVE) {
     const left = await sql.query(
       `DELETE FROM webrtc_peers WHERE room = $1 AND peer_id = $2 AND secret_hash = $3 RETURNING seat`,
       [msg.room, msg.peer, hash],
