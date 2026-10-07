@@ -112,15 +112,15 @@ describe("given the owner's drops (11 cars, 0.15 m, one a second) of the mixed f
     let worst = 0;
     let at = "";
     column(OWNER, "fleet", 12, (cs) => {
-      cs.forEach((c, i) => {
-        if (!c.deform.massActive) return;
+      for (const [i, c] of cs.entries()) {
+        if (!c.deform.massActive) continue;
         const masses = c.deform.masses.reduce((s, m) => s + m.vel.y * m.mass, 0) / c.deform.totalMass;
         const off = Math.abs(c.velocity.y - masses);
         if (off > worst) {
           worst = off;
           at = `car ${i}: ${c.velocity.y.toFixed(1)} m/s, its masses ${masses.toFixed(1)}`;
         }
-      });
+      }
     });
     assert.ok(worst < 4, `a car reported ${worst.toFixed(1)} m/s off its masses (${at})`);
   });

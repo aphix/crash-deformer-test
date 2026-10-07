@@ -193,15 +193,15 @@ const TrackSchema = z
     const at = (g: { node: number; t: number }) => g.node + g.t;
     const c0 = t.checkpoints[0]!;
     if (c0.node !== 0 || c0.t !== 0) ctx.addIssue({ code: "custom", path: ["checkpoints", 0], message: "checkpoint 0 must be node 0, t 0" });
-    t.checkpoints.forEach((g, i) => {
+    for (const [i, g] of t.checkpoints.entries()) {
       if (g.node >= n) ctx.addIssue({ code: "custom", path: ["checkpoints", i, "node"], message: `node ${g.node} ≥ ${n} nodes` });
       if (i > 0 && at(g) <= at(t.checkpoints[i - 1]!)) {
         ctx.addIssue({ code: "custom", path: ["checkpoints", i], message: "checkpoints must run in driving order" });
       }
-    });
+    }
     const m = t.checkpoints.length;
     const ids = new Set<string>();
-    t.shortcuts.forEach((s, i) => {
+    for (const [i, s] of t.shortcuts.entries()) {
       if (ids.has(s.id)) ctx.addIssue({ code: "custom", path: ["shortcuts", i, "id"], message: `duplicate id ${s.id}` });
       ids.add(s.id);
       if (s.from >= m || s.to >= m) ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "from/to must be checkpoint indices" });
@@ -211,13 +211,13 @@ const TrackSchema = z
       if (s.to !== 0 && s.to < s.from) {
         ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut may not skip the start/finish line" });
       }
-    });
+    }
     const tr = t.traffic;
     if (tr && tr.count > 0 && tr.lanes.length === 0) ctx.addIssue({ code: "custom", path: ["traffic", "lanes"], message: "loop traffic needs at least one lane" });
     const routeIds = new Set((tr?.routes ?? []).map((r) => r.id));
-    t.along.forEach((a, i) => {
+    for (const [i, a] of t.along.entries()) {
       if (a.route != null && !routeIds.has(a.route)) ctx.addIssue({ code: "custom", path: ["along", i, "route"], message: `no traffic route ${a.route}` });
-    });
+    }
   });
 
 /** Survival mode's anchors (`Track.survival`). */

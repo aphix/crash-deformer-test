@@ -150,7 +150,12 @@ describe("given a city race whose first crash is two cars put head-on a second i
       const reel = await recordedReel(a);
       const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
       // Precondition of the seed, not the rule: the first clip itself restores no torn part, so what a setup leaves is the race's.
-      const opening = new ReelDirector({ ...hostOf(a), clear: () => a.cars.forEach((c) => c.resetVisual()) });
+      const opening = new ReelDirector({
+        ...hostOf(a),
+        clear: () => {
+          for (const c of a.cars) c.resetVisual();
+        },
+      });
       opening.stepBudgetMs = Infinity;
       opening.play(reel, 0);
       opening.frame(FLIGHT_S / 2);

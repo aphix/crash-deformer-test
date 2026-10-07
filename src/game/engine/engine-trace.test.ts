@@ -41,7 +41,7 @@ const none = { snapshot: () => ({ count: 0, items: [] }) };
 function rig() {
   const scene = new THREE.Scene();
   const cars = [0, 1].map((i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
-  cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 10));
+  for (const [i, c] of cars.entries()) c.spawnFacing(i * 6, 0, 0, 10);
   const camera = new THREE.PerspectiveCamera(46, 16 / 9);
   camera.position.set(10.12345, 6, 16);
   camera.lookAt(0, 0.7, 0);

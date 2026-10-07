@@ -87,11 +87,11 @@ export async function headOn(mps: number, secs: number): Promise<Pose[]> {
   for (let wall = 0; wall < 30 && (first < 0 || wall - first < secs); wall += FRAME) {
     tickWorld(w, FRAME);
     sys.update(FRAME * w.clock.timeScale, [a, b], true, true, 0, null);
-    dollsOf(sys).forEach((d, s) => {
-      if (!d.live || s > 1) return;
+    for (const [s, d] of dollsOf(sys).entries()) {
+      if (!d.live || s > 1) continue;
       if (first < 0) first = wall;
       worst(outs[s]!, pose(d.bodies));
-    });
+    }
   }
   sys.dispose();
   return outs;

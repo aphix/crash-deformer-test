@@ -95,7 +95,7 @@ function bankRun(track: Track, cls: VehicleClassId, lat: (half: number) => numbe
     assert.equal(car.crashed, false, `${cls} crashed on ${track.id}'s bank`);
     if (car.airborne) continue;
     car.group.updateWorldMatrix(true, true);
-    car.wheels.forEach((wh, i) => {
+    for (const [i, wh] of car.wheels.entries()) {
       let gap = Infinity;
       for (const t of TREAD) {
         p.copy(t).applyMatrix4(wh.matrixWorld);
@@ -104,7 +104,7 @@ function bankRun(track: Track, cls: VehicleClassId, lat: (half: number) => numbe
       if (gap < low || gap > high) where = `wheel ${i} at s ${s.toFixed(0)} (bank ${(path.bank[proj.k]! * DEG).toFixed(1)}°)`;
       low = Math.min(low, gap);
       high = Math.max(high, gap);
-    });
+    }
   }
   car.dispose();
   return { low, high, at: where };

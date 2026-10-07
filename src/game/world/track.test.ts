@@ -12,7 +12,7 @@ for (const json of TRACKS) {
       for (let i = 1; i < t.gates.length; i++) assert.ok(t.gates[i]!.s > t.gates[i - 1]!.s, `gate ${i} not after gate ${i - 1}`);
       const p = blankProjection();
       const slots = Array.from({ length: 16 }, (_, i) => t.gridSlot(i));
-      slots.forEach((g, i) => {
+      for (const [i, g] of slots.entries()) {
         t.project(g.x, g.z, -1, p);
         assert.ok(Math.abs(p.lateral) < t.path.half[p.k]! - 1, `slot ${i} off the road (lateral ${p.lateral.toFixed(1)})`);
         assert.ok(p.s > t.length - 6 - 8 * 9, `slot ${i} too far back (s ${p.s.toFixed(0)})`);
@@ -20,7 +20,7 @@ for (const json of TRACKS) {
         const tz = t.path.tz[p.k]!;
         assert.ok(Math.sin(g.yaw) * tx + Math.cos(g.yaw) * tz > 0.99, `slot ${i} not facing the race direction`);
         for (let j = 0; j < i; j++) assert.ok(Math.hypot(g.x - slots[j]!.x, g.z - slots[j]!.z) > 4.5, `slots ${j} and ${i} overlap`);
-      });
+      }
     });
 
     /** Each sample of every shortcut path with its projection on the main loop; the hint follows the path (two levels can share an (x, z)). */

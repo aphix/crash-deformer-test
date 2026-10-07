@@ -99,17 +99,17 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
     list,
     slice: (h) => {
       hmax = Math.max(hmax, h);
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const vy = c.velocity.y;
         vmin[i] = Math.min(vmin[i]!, vy);
         vmax[i] = Math.max(vmax[i]!, vy);
         if (!c.airborne || Math.abs(vy - prev[i]! + G * h) > 1e-6) touch[i] = true;
         prev[i] = vy;
-      });
+      }
     },
     frame: () => {
       n++;
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const [o0, com0, vy0, air0] = last[i]!;
         const [o, com] = heights(c);
         const flying = air0 && c.airborne;
@@ -125,7 +125,7 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
         last[i] = [o, com, c.velocity.y, c.airborne];
         vmin[i] = vmax[i] = prev[i] = c.velocity.y;
         touch[i] = !c.airborne;
-      });
+      }
       hmax = 0;
     },
   };
@@ -156,10 +156,10 @@ function jump(v: number): Jump {
   let lastNose = 0;
   run(w, 3, () => {
     car.group.updateWorldMatrix(true, true);
-    car.wheels.forEach((wh, i) => {
+    for (const [i, wh] of car.wheels.entries()) {
       wh.getWorldPosition(wp);
       gaps[i] = wp.y - TYRE_CENTRE - ramps.heightAt(wp.x, wp.z, wp.y);
-    });
+    }
     sink = Math.max(sink, -Math.min(...gaps));
     peak = Math.max(peak, p.y);
     const nose = Math.asin(f.set(0, 0, 1).applyQuaternion(q).y) * DEG;
@@ -246,9 +246,9 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
       if (r.noseOff > 3) failures.push(`nose ${r.noseOff.toFixed(1)}° off the flight path`);
       if (r.turn > 6) failures.push(`nose turned ${r.turn.toFixed(1)}° in one frame`);
       if (r.sink > 0.02) failures.push(`a tyre ${r.sink.toFixed(3)} m into the ground`);
-      r.gaps.forEach((g, i) => {
+      for (const [i, g] of r.gaps.entries()) {
         if (Math.abs(g) > 0.02) failures.push(`wheel ${i} gap ${g.toFixed(3)} m`);
-      });
+      }
       assert.deepEqual(failures, []);
     });
   }

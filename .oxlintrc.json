@@ -2,7 +2,8 @@
   "$schema": "./node_modules/oxlint/configuration_schema.json",
   "plugins": [
     "typescript",
-    "react"
+    "react",
+    "unicorn"
   ],
   "jsPlugins": [
     {
@@ -28,6 +29,7 @@
     "src/routeTree.gen.ts"
   ],
   "rules": {
+    "unicorn/no-array-for-each": "error",
     "constructor-super": "error",
     "for-direction": "error",
     "getter-return": "error",

@@ -85,7 +85,7 @@ export class Obstacles {
     this.hx = Float64Array.from(solid, (c) => c.hx + SWATH);
     this.hz = Float64Array.from(solid, (c) => c.hz + SWATH);
     this.circle = Uint8Array.from(solid, (c) => (c.kind === "circle" ? 1 : 0));
-    solid.forEach((c, i) => {
+    for (const [i, c] of solid.entries()) {
       const r = c.r + SWATH;
       for (let gx = Math.floor((c.x - r) / CELL); gx <= Math.floor((c.x + r) / CELL); gx++) {
         for (let gz = Math.floor((c.z - r) / CELL); gz <= Math.floor((c.z + r) / CELL); gz++) {
@@ -95,7 +95,7 @@ export class Obstacles {
           else this.cells.set(key, [i]);
         }
       }
-    });
+    }
   }
 
   blocked(x: number, z: number): boolean {
@@ -202,11 +202,11 @@ export class HunterBrain extends CopBrain {
     this.target = -1;
     this.nextDrop = 0;
     for (let u = 0; u < this.count; u++) this.state[u] = STORED;
-    this.formation.forEach((f, k) => {
-      if (k >= this.count) return;
+    for (const [k, f] of this.formation.entries()) {
+      if (k >= this.count) continue;
       world.park(this.first + k, f.x, 0, f.z, f.yaw);
       this.deploy(k, world);
-    });
+    }
   }
 
   copsOn(id: number): number {

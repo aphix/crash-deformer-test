@@ -308,10 +308,10 @@ describe("given a default two-car derby in shape deform mode", () => {
     const b = new DeformableCar({ body: 0x3d8a86, accent: 0x2a6360, name: "Petrol" }, scene);
     let seed = 7;
     const slots = layoutDerby(2, derbyRadius(2), () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646);
-    [a, b].forEach((c, i) => {
+    for (const [i, c] of [a, b].entries()) {
       c.deform.setMode("shape");
       c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
-    });
+    }
     const match = new DerbyMatch();
     match.begin([
       { id: 0, name: "Titanium" },
@@ -325,9 +325,7 @@ describe("given a default two-car derby in shape deform mode", () => {
     while (t < 5.05) {
       const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
       const snaps = match.snapshots(2);
-      [a, b].forEach((c, i) =>
-        snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses),
-      );
+      for (const [i, c] of [a, b].entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
       applyDrive(a, match.think(snaps[0]!, snaps, h), h);
       applyDrive(b, match.think(snaps[1]!, snaps, h), h);
       stepWorld(w, h);
@@ -400,7 +398,7 @@ function sixCarDerby(seconds: number, seed = 7, knobs = ARCADE): DerbyRun {
     const cars = Array.from({ length: 6 }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene));
     const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
     const slots = layoutDerby(cars.length, DERBY_RADIUS, rng);
-    cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0));
+    for (const [i, c] of cars.entries()) c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
     return cars;
   }, seconds);
 }
@@ -467,10 +465,8 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
       for (const c of cars) vmax = Math.max(vmax, c.speed);
       const h = physicsSlice(1 / 60, vmax);
       const snaps = match.snapshots(n);
-      cars.forEach((c, i) =>
-        snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses),
-      );
-      cars.forEach((c, i) => applyDrive(c, match.think(snaps[i]!, snaps, h), h));
+      for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+      for (const [i, c] of cars.entries()) applyDrive(c, match.think(snaps[i]!, snaps, h), h);
       w.pairHit = (a, b, pair) => {
         const ca = cars[a]!;
         const cb = cars[b]!;
@@ -488,14 +484,14 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
       state = match.step(h, cars.map((c, i) => ({ id: i, name: names[i]!, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })));
       const dead = cars.filter((c) => !c.deform.drivetrainAlive).length;
       while (deaths.length < dead) deaths.push(t);
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const stuck = c.deform.drivetrainAlive && Math.abs(c.drive.throttle) > 0.3 && Math.hypot(c.velocity.x, c.velocity.z) < 1;
         wedged[i] = stuck ? wedged[i]! + h : 0;
         worstWedge = Math.max(worstWedge, wedged[i]!);
-      });
-      cars.forEach((c, i) => {
+      }
+      for (const [i, c] of cars.entries()) {
         const a = before[i];
-        if (!a || !c.deform.massActive) return;
+        if (!a || !c.deform.massActive) continue;
         const b = centroid(c);
         const moved = Math.hypot(b.x - a.x, b.z - a.z);
         const v = Math.max(speed0[i]!, Math.hypot(c.velocity.x, c.velocity.z), shove[i]!);
@@ -503,7 +499,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
         const g = group0[i];
         const jump = g ? Math.hypot(c.group.position.x - g.x, c.group.position.z - g.z) : 0;
         if (g && jump > 3 * v * h + 0.02) pops.push(`t=${t.toFixed(2)} ${names[i]} group ${jump.toFixed(3)} m in ${(h * 1000).toFixed(1)} ms at ${v.toFixed(1)} m/s quiet ${c.deform.quietTime().toFixed(2)}`);
-      });
+      }
       t += h;
     }
     return { hits, noseToNose, worstWedge, t, state, deaths, zips, pops };

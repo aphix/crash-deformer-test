@@ -78,9 +78,9 @@ describe("given the Survival hunter pack (the cops that chase the player) on a s
     const r = rig();
     assert.equal(r.brain.hunting, spec.formation.length);
     const slots = r.drops.slice(0, spec.formation.length);
-    spec.formation.forEach((f, k) => {
+    for (const [k, f] of spec.formation.entries()) {
       assert.ok(Math.abs(slots[k]!.x - f.x) < 1e-9 && Math.abs(slots[k]!.z - f.z) < 1e-9 && slots[k]!.id === 1 + k, `slot ${k}`);
-    });
+    }
     assert.equal(r.drops.length, spec.formation.length, "nothing dropped in before the green");
     const out = r.brain.think(r.cars[1]!, r.cars, 1 / 60);
     assert.deepEqual([out.throttle, out.brake], [0, 1], "held on the brake until the green");

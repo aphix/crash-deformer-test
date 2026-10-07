@@ -105,10 +105,10 @@ export function runLine(
     prev.copy(p);
     if (o.at !== undefined && out.speedAt === null && p.z <= o.at) out.speedAt = car.speed;
     if (n >= SETTLE && !car.airborne) {
-      car.wheels.forEach((wh, i) => {
+      for (const [i, wh] of car.wheels.entries()) {
         wh.getWorldPosition(_hub);
         if (ground.surfaceAt(_hub.x, _hub.z) === "grass") out.grass = Math.max(out.grass, -f.gaps[i]! - f.shoulder * Math.sin(f.tilt / DEG));
-      });
+      }
     }
     const below = p.y - ground.heightAt(p.x, p.z);
     if (car.airborne) {

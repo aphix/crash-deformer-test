@@ -101,13 +101,13 @@ describe("given a fleet head-on crash that throws both drivers", () => {
       ragdolls.update(FRAME, cars, true, true, 0, null);
       // Slots fill in car order (car 0's driver first): each torso against the OTHER car's cabin (it never crushes;
       // the crushed nose in front of it is not where the rest-size box says).
-      ragdolls["dolls"].forEach((d, s) => {
-        if (!d.live) return;
+      for (const [s, d] of ragdolls["dolls"].entries()) {
+        if (!d.live) continue;
         const other = cars[1 - s]!;
         const t = d.bodies[0]!.translation();
         local.set(t.x, t.y, t.z).sub(other.group.position).applyQuaternion(inv.copy(other.group.quaternion).invert());
         if (Math.abs(local.x) < 0.7 && local.y > 0.8 && local.y < 1.34 && local.z > -0.75 && local.z < 0.61) inside.push(`frame ${f} driver ${s} at ${local.toArray().map((v) => v.toFixed(2))}`);
-      });
+      }
     }
     ragdolls.dispose();
     assert.deepEqual(inside, [], "a torso inside the other car's cabin");

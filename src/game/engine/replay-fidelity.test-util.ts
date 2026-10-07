@@ -134,11 +134,11 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
       capture(cars, trace[step]!);
       times.set(step, rec.now);
       rec.startStep(cars);
-      cars.forEach((car, i) => {
+      for (const [i, car] of cars.entries()) {
         input.throttle = spawns[i]!.throttle ?? 0.6;
         input.steer = spawns[i]!.steer ?? 0;
         applyDrive(car, input, h);
-      });
+      }
       stepWorld(world, h);
       rec.endStep(cars, h, world.shape);
       settleStep(cars, h, false);

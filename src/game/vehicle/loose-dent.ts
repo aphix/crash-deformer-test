@@ -67,12 +67,12 @@ export function applyDents(d: DentState, object: THREE.Object3D): void {
 /** Put the skin back as it was before the first dent. */
 export function clearDents(d: DentState): void {
   if (d.meshes) {
-    d.meshes.forEach((m, k) => {
+    for (const [k, m] of d.meshes.entries()) {
       const attr = m.geometry.getAttribute("position") as THREE.BufferAttribute;
       (attr.array as Float32Array).set(d.rest![k]!);
       attr.needsUpdate = true;
       computeNormalsFast(m.geometry);
-    });
+    }
   }
   d.count = d.applied = 0;
   d.meshes = d.rest = null;
@@ -101,7 +101,9 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
       if (along < best) [best, cx, cy, cz] = [along, x, y, z];
     }
   }
-  d.meshes!.forEach((m, k) => {
+  const meshes = d.meshes!;
+  for (let k = 0; k < meshes.length; k++) {
+    const m = meshes[k]!;
     const attr = m.geometry.getAttribute("position") as THREE.BufferAttribute;
     const a = attr.array as Float32Array;
     const rest = d.rest![k]!;
@@ -126,5 +128,5 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
     }
     attr.needsUpdate = true;
     computeNormalsFast(m.geometry);
-  });
+  }
 }

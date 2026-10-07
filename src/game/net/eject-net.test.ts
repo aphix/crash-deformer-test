@@ -34,11 +34,11 @@ describe("given a network snapshot whose per-car flags byte records whether the 
     const s = makeSnapshot();
     ensureFrames(s, 4, L);
     s.count = 4;
-    [0, 1, 2, 3].forEach((code, i) => {
+    for (const [i, code] of [0, 1, 2, 3].entries()) {
       s.cars[i]!.driverOut = code;
       s.cars[i]!.crashed = i % 2 === 1;
       s.cars[i]!.sirens = i === 3;
-    });
+    }
     const w = new Writer();
     writeSnapshot(w, s, L);
     const got = makeSnapshot();

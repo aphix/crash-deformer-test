@@ -28,7 +28,7 @@ function pileUp(): { cars: DeformableCar[]; step: () => void } {
   let seed = 11;
   const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   const slots = layoutDerby(CARS, derbyRadius(CARS), rng);
-  cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 12));
+  for (const [i, c] of cars.entries()) c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 12);
   const inputs: DriveInput[] = cars.map(() => ({ ...idleDrive(), throttle: 1 }));
   const step = () => {
     const h = physicsSlice(1 / 60, sliceSpeed(cars));

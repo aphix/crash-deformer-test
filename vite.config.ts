@@ -121,10 +121,10 @@ function authPopupPlugin(): Plugin {
             typeof response.headers.getSetCookie === "function"
               ? response.headers.getSetCookie()
               : [];
-          response.headers.forEach((value, key) => {
-            if (key.toLowerCase() === "set-cookie") return;
+          for (const [key, value] of response.headers) {
+            if (key.toLowerCase() === "set-cookie") continue;
             res.setHeader(key, value);
-          });
+          }
           for (const cookie of setCookies) {
             res.appendHeader("set-cookie", cookie);
           }

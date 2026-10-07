@@ -30,10 +30,10 @@ describe("given a BodyFit (works out a body's spin rate from its parts' momentum
     cz /= m;
     const fit = new BodyFit();
     fit.reset();
-    BODY.forEach(([x, z, k], i) => {
+    for (const [i, [x, z, k]] of BODY.entries()) {
       const ww = i === who ? w + extra : w;
       fit.addSpin(k, x + 40, z - 9, vx + ww * (z - cz), vz - ww * (x - cx));
-    });
+    }
     return fit.spin();
   }
 

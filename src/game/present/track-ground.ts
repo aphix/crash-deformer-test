@@ -404,13 +404,13 @@ type GroundLayer = { kind: "terrain" | "runoff" | "road" | "marking" | "kerb"; s
 export function buildGroundLayers(track: Track, ground: TrackGround, index: RoadIndex, paths: readonly TrackPath[], secs: readonly (readonly number[])[]): GroundLayer[] {
   const out: GroundLayer[] = [{ kind: "terrain", surface: track.json.environment.terrain, level: "terrain", m: buildTerrain(track, ground, index), smooth: false }];
   const ribbons: Ribbons = new Map();
-  paths.forEach((p, i) => addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT));
+  for (const [i, p] of paths.entries()) addRibbons(ribbons, p, secs[i]!, ground, ROAD_LIFT);
   for (const r of ribbons.values()) {
     const surface = SURFACE_IDS[r.surface]!;
     out.push({ kind: r.kind, surface, level: r.kind === "road" ? surface : "runoff", m: r.m, smooth: true });
   }
   const marks = new Mesher();
-  paths.forEach((p, i) => addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index));
+  for (const [i, p] of paths.entries()) addMarkings(marks, i, new RibbonSurface(p, secs[i]!, ground), secs[i]!, index);
   out.push({ kind: "marking", surface: null, level: "marking", m: marks, smooth: true });
   const kerbs = new Mesher();
   addKerbs(kerbs, new RibbonSurface(paths[0]!, secs[0]!, ground), index);

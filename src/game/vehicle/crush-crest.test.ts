@@ -63,11 +63,11 @@ describe("given the stunt course's CRUSH crest (the hill under the CRUSH billboa
       let air = 0;
       let landed = -1;
       let was = false;
-      run.forEach((r, i) => {
+      for (const [i, r] of run.entries()) {
         if (r.airborne) air++;
         else if (was) landed = i;
         was = r.airborne;
-      });
+      }
       const after = worst(run.slice(Math.max(0, landed) + 60), 0, Infinity);
       const whole = worst(run, 0, Infinity);
       t.diagnostic(`${cls}: ${(air * FRAME).toFixed(2)} s in the air, landed at s ${landed >= 0 ? run[landed]!.s.toFixed(0) : "-"}; a second later gap ${(after.gap * 100).toFixed(1)} cm, pitch ${after.pitch.toFixed(2)}°; hull under the road all run ${(whole.pen * 100).toFixed(1)} cm`);

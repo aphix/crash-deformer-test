@@ -56,14 +56,14 @@ function turnBetween(a: P[], b: P[], ms: number[]): number {
   const [bx, bz] = cen(b);
   let s = 0;
   let c = 0;
-  a.forEach((p, i) => {
+  for (const [i, p] of a.entries()) {
     const rx = p[0] - ax;
     const rz = p[1] - az;
     const sx = b[i]![0] - bx;
     const sz = b[i]![1] - bz;
     s += ms[i]! * (rz * sx - rx * sz);
     c += ms[i]! * (rx * sx + rz * sz);
-  });
+  }
   return Math.atan2(s, c);
 }
 
@@ -91,12 +91,12 @@ describe("given a wreck that has sat still on its wheels for over 0.2 s, whose f
     const [vx1, vz1] = mean();
     let err = 0;
     let norm = 0;
-    d.masses.forEach((q, i) => {
+    for (const [i, q] of d.masses.entries()) {
       const ex = u0[i]![0] * Math.cos(w) + u0[i]![1] * Math.sin(w);
       const ez = u0[i]![1] * Math.cos(w) - u0[i]![0] * Math.sin(w);
       err += q.mass * ((q.vel.x - vx1 - ex) ** 2 + (q.vel.z - vz1 - ez) ** 2);
       norm += q.mass * (ex * ex + ez * ez);
-    });
+    }
     const off = Math.sqrt(err / norm);
     assert.ok(off < 0.1, `the velocities about the centroid are ${(off * 100).toFixed(0)} % off a turn of ${w.toFixed(2)} rad with the positions`);
   });

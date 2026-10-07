@@ -231,7 +231,7 @@ type RunStructures = {
 export function buildRunStructures(rig: RigOverrides, nameIndex = new Map<MassName, number>()): RunStructures {
   const cages = makeCages(rig);
   const partIndex = new Map<BodyPartName, number>();
-  cages.forEach((c, i) => partIndex.set(c.spec.name, i));
+  for (const [i, c] of cages.entries()) partIndex.set(c.spec.name, i);
   const masses = makeMasses(nameIndex);
   const shapeParticles = masses.map((m) => ({ x: m.rest.x, y: m.rest.y, z: m.rest.z, vx: 0, vy: 0, vz: 0, mass: m.mass }));
   return {

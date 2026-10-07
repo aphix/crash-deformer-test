@@ -15,7 +15,7 @@ function drawn(look: DriverLook, cop: boolean): { color: THREE.Color; size: THRE
   const mesh = new DummyMesh(1);
   mesh.dress(0, cop, look);
   const q = new THREE.Quaternion();
-  PARTS.forEach((p, k) => mesh.pose(0, k, new THREE.Vector3(p.c[0], p.c[1], p.c[2]), q));
+  for (const [k, p] of PARTS.entries()) mesh.pose(0, k, new THREE.Vector3(p.c[0], p.c[1], p.c[2]), q);
   const rows: { color: THREE.Color; size: THREE.Vector3; at: THREE.Vector3 }[] = [];
   const m = new THREE.Matrix4();
   const pos = new THREE.Vector3();

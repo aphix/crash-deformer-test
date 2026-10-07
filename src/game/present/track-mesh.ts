@@ -234,7 +234,7 @@ export class RoadIndex {
 
   constructor(paths: readonly TrackPath[]) {
     this.paths = paths;
-    paths.forEach((p, pi) => {
+    for (const [pi, p] of paths.entries()) {
       const segs = p.closed ? p.count : p.count - 1;
       for (let k = 0; k < segs; k++) {
         const b = (k + 1) % p.count;
@@ -252,7 +252,7 @@ export class RoadIndex {
           }
         }
       }
-    });
+    }
   }
 
   private list(x: number, z: number): number[] | undefined {

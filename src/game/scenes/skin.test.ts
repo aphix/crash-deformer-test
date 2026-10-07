@@ -191,7 +191,7 @@ function referenceSkin(d: Internals): Float32Array {
 }
 
 function referenceCageSolve(d: Internals): void {
-  d.cages.forEach((cage, ci) => {
+  for (const [ci, cage] of d.cages.entries()) {
     for (let i = 0; i < 8; i++) {
       const rest = cage.restCorners[i]!;
       const a = anchor(d, d.vertexCount + ci * 8 + i);
@@ -216,7 +216,7 @@ function referenceCageSolve(d: Internals): void {
       if (wsum > 1e-6) cage.corners[i]!.set(a.x + px / wsum, a.y + py / wsum, a.z + pz / wsum);
       else cage.corners[i]!.set(a.x + rest.x - a.cx, a.y + rest.y - a.cy, a.z + rest.z - a.cz);
     }
-  });
+  }
   d.capCageCorners();
   if (d.bidirectional) d.fitCagesToMasses();
 }

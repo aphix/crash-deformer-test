@@ -102,9 +102,9 @@ describe("given a car with brake and handbrake held, dropped 0.5 m onto the midd
           `${deg}° ${name}: gaps ${r.gaps.map((v) => v.toFixed(3)).join("/")} m, pitch ${r.pitch.toFixed(2)}° (err ${r.pitchErr.toFixed(2)}), roll ${r.roll.toFixed(2)}° (err ${r.rollErr.toFixed(2)}), tilt ${r.tiltErr.toFixed(2)}°, slide ${r.slide.toFixed(3)} m`,
         );
         const failures: string[] = [];
-        r.gaps.forEach((gap, i) => {
+        for (const [i, gap] of r.gaps.entries()) {
           if (Math.abs(gap) > 0.02) failures.push(`wheel ${i} gap ${gap.toFixed(3)} m`);
-        });
+        }
         if (Math.abs(r.pitchErr) > 1.5) failures.push(`pitch ${r.pitch.toFixed(2)}° vs face ${(r.pitch - r.pitchErr).toFixed(2)}°`);
         if (Math.abs(r.rollErr) > 1.5) failures.push(`roll ${r.roll.toFixed(2)}° vs face ${(r.roll - r.rollErr).toFixed(2)}°`);
         if (r.tiltErr > 1.5) failures.push(`body up ${r.tiltErr.toFixed(2)}° off the face normal`);

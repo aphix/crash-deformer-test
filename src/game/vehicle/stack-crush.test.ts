@@ -71,10 +71,10 @@ describe("given a stack of cars dropped one on the next on the flat pad, each ro
     for (const c of cars) assert.ok(Math.hypot(c.group.position.x, c.group.position.z) < 0.02, `a car slid ${Math.hypot(c.group.position.x, c.group.position.z).toFixed(3)} m off the stack`);
     const y = cars.map((c) => c.group.position.y);
     run(w, 5);
-    cars.forEach((c, i) => {
+    for (const [i, c] of cars.entries()) {
       assert.ok(Math.abs(c.group.position.y - y[i]!) < 0.001, `car ${i} sank ${(y[i]! - c.group.position.y).toFixed(4)} m in 5 s more`);
       assert.ok(Math.abs(roofSink(c) - sink[i]!) < 0.001, `car ${i}'s roof moved ${(roofSink(c) - sink[i]!).toFixed(4)} m in 5 s more`);
-    });
+    }
   });
 
   it("when the stack has two, three and four cars, then the bottom roof is crushed more with each car added, so it takes the weight above it and not just the car on it", () => {
@@ -112,11 +112,11 @@ describe("given a stack of cars dropped one on the next on the flat pad, each ro
       c.refreshBasis();
       return c;
     });
-    live.forEach((c, i) => assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.0005, `car ${i}: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`));
+    for (const [i, c] of live.entries()) assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.0005, `car ${i}: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`);
     const rw = makeWorld(restored, false, false);
     run(w, 3);
     run(rw, 3);
-    live.forEach((c, i) => assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.002, `car ${i} 3 s on: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`));
+    for (const [i, c] of live.entries()) assert.ok(Math.abs(roofSink(restored[i]!) - roofSink(c)) < 0.002, `car ${i} 3 s on: restored roof ${roofSink(restored[i]!).toFixed(4)} m, live ${roofSink(c).toFixed(4)} m`);
   });
 });
 

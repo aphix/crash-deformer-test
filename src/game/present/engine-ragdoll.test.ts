@@ -171,7 +171,7 @@ describe("given the ride-along camera (the camera that rides along with thrown d
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(FRAME, [], true, true, 0, null);
-    at.forEach(([x, z], car) => ragdolls["spawn"]({ car, p: new THREE.Vector3(x, 1.2, z), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, vz), w: new THREE.Vector3(), age: 0, cop: false }));
+    for (const [car, [x, z]] of at.entries()) ragdolls["spawn"]({ car, p: new THREE.Vector3(x, 1.2, z), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, vz), w: new THREE.Vector3(), age: 0, cop: false });
     ragdolls.follow();
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     for (let f = 0; f < frames; f++) {
@@ -451,7 +451,7 @@ describe("given the user's drag holding the ride-along camera, while the cut to 
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(FRAME, [], true, true, 0, null);
-    [[0, 0], [20, 0]].forEach(([x, z], car) => ragdolls["spawn"]({ car, p: new THREE.Vector3(x, 1.2, z), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, 4), w: new THREE.Vector3(), age: 0, cop: false }));
+    for (const [car, [x, z]] of [[0, 0], [20, 0]].entries()) ragdolls["spawn"]({ car, p: new THREE.Vector3(x, 1.2, z), q: new THREE.Quaternion(), v: new THREE.Vector3(0, 0, 4), w: new THREE.Vector3(), age: 0, cop: false });
     ragdolls.follow();
     const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
     let held = false;
@@ -460,9 +460,9 @@ describe("given the user's drag holding the ride-along camera, while the cut to 
     const frame = (): string => {
       ragdolls.update(FRAME, [], true, true, 0, null);
       // The other dummy keeps moving, so the cut has somewhere to go (the settled body lies still within seconds).
-      ragdolls["dolls"].forEach((d, s) => {
+      for (const [s, d] of ragdolls["dolls"].entries()) {
         if (d.live) d.still = s === first ? 9 : 0;
-      });
+      }
       return ragdolls.frameCamera(camera, FRAME, false, -1, held, 50, OPEN);
     };
     for (let f = 0; f < 90; f++) frame();

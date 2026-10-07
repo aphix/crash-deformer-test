@@ -442,10 +442,10 @@ export abstract class DeformRig {
     this.clusterOwner = SHAPE_CLUSTERS.map((spec) => spec.owner);
     this.clusterAbsorb = Float64Array.from(SHAPE_CLUSTERS, (spec) => this.cageByPart.get(spec.owner)!.spec.absorption);
     this.loadW = new Float64Array(this.masses.length * FACES);
-    this.masses.forEach((m, i) => {
-      if (m.hub) return;
+    for (const [i, m] of this.masses.entries()) {
+      if (m.hub) continue;
       for (let f = 0; f < FACES; f++) this.loadW[i * FACES + f] = faceFollow(f, m.rest.x, m.rest.y, m.rest.z);
-    });
+    }
     this.buildSkinWeights();
     this.initRunState();
   }

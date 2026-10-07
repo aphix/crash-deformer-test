@@ -91,7 +91,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
   );
   const w = newWorld(cars);
   w.afterCar = (c) => clipDerbyCar(c, radius);
-  cars.forEach((c, i) => {
+  for (const [i, c] of cars.entries()) {
     c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 0);
     c.deform.squash = INITIAL_HUD.squash;
     c.deform.buckle = INITIAL_HUD.buckle;
@@ -99,7 +99,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
     const cls = i === 0 && playerClass ? playerClass : carClass(c);
     assignClass(c, cls);
     armKill(c.deform, cls, HANDLING.realism, "derby");
-  });
+  }
   const out: Field = {
     seed,
     winner: null,
@@ -142,17 +142,15 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
     const speed0 = cars.map((c) => Math.hypot(c.velocity.x, c.velocity.z));
     const shove = new Array<number>(n).fill(0);
     const snaps = match.snapshots(n);
-    cars.forEach((c, i) =>
-      snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses),
-    );
-    cars.forEach((c, i) => {
+    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+    for (const [i, c] of cars.entries()) {
       applyDrive(c, match.think(snaps[i]!, snaps, h), h);
       const now = match.brain.tacticOf(i);
       if (now === "swing" || now === "jturn" || now === "sideswipe") {
         if (t - lastIn[now][i]! > MOVE_GAP) out[now === "swing" ? "swings" : now === "jturn" ? "jturns" : "sideswipes"]++;
         lastIn[now][i] = t;
       }
-    });
+    }
     w.pairHit = (a, b, pair) => {
       const ca = cars[a]!;
       const cb = cars[b]!;
@@ -177,7 +175,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
     );
     const running = (i: number) => cars[i]!.deform.drivetrainAlive && !match.board[i]!.out;
     if (watch.due(t)) watch.sample(t, cars.map((c, i) => ({ alive: running(i), x: c.group.position.x, z: c.group.position.z, fwd: c.velocity.x * c.fwdFlat.x + c.velocity.z * c.fwdFlat.z })));
-    cars.forEach((c, i) => {
+    for (const [i, c] of cars.entries()) {
       if (t >= 0 && running(i)) out.carSeconds += h;
       if (alive[i] && !c.deform.drivetrainAlive) out.deaths.push(+t.toFixed(1));
       alive[i] = c.deform.drivetrainAlive;
@@ -201,7 +199,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
         if (rate > out.contactPeak.rate) out.contactPeak = { rate, note: `c${i} ${rate.toFixed(2)} rad/s at t=${t.toFixed(1)}` };
       }
       const a = before[i];
-      if (!a || !c.deform.massActive || t >= 120) return;
+      if (!a || !c.deform.massActive || t >= 120) continue;
       const b = centroid(c);
       const moved = Math.hypot(b.x - a.x, b.z - a.z);
       const vMax = Math.max(speed0[i]!, Math.hypot(c.velocity.x, c.velocity.z), shove[i]!);
@@ -209,7 +207,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
         out.zips.push(`t=${t.toFixed(2)} c${i} ${moved.toFixed(2)} m`);
         out.zipMax = Math.max(out.zipMax, moved);
       }
-    });
+    }
     t += h;
   }
   out.t = +t.toFixed(1);

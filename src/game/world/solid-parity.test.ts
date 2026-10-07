@@ -27,14 +27,14 @@ const SURVIVABLE = 8;
  */
 function matches(label: string, solid: readonly Outcome[], slab: readonly Outcome[]): void {
   assert.equal(solid.length, slab.length);
-  solid.forEach((o, k) => {
+  for (const [k, o] of solid.entries()) {
     const ref = slab[k]!;
     const at = `${label}, hit ${k + 1}: ${JSON.stringify(o)} against the slab's ${JSON.stringify(ref)}`;
     assert.equal(o.ejected, ref.ejected, `driver: ${at}`);
     assert.ok(Math.abs(o.health - ref.health) <= HEALTH_BAND, `crush: ${at}`);
     assert.ok(o.speed <= ref.speed + 1, `speed after the hit: ${at}`);
     if (Math.max(o.health, ref.health) >= HEALTH_BAND) assert.equal(o.alive, ref.alive, `drivetrain: ${at}`);
-  });
+  }
 }
 
 /** What the slab does, from CRUSH_CALIBRATION.md's barrier table: the reference of the reference. */

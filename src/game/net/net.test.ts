@@ -278,11 +278,11 @@ describe("given a client car that applies the host car's state from the wire", (
     const c = panels(client);
     assert.equal(h.filter((p) => p.detached).length, 1, "the 80 km/h rear corner hit tears one quarter panel");
     assert.ok(h.some((p) => !p.detached && p.hingeT > 0.1), "and hinges another panel");
-    h.forEach((p, i) => {
+    for (const [i, p] of h.entries()) {
       assert.equal(c[i]!.detached, p.detached, `${p.name} torn on the client`);
       assert.ok(Math.abs(c[i]!.hingeT - p.hingeT) < 1e-3, `${p.name} hinge ${c[i]!.hingeT} vs ${p.hingeT}`);
       if (p.detached) assert.ok(Math.hypot(c[i]!.pos.x - p.pos.x, c[i]!.pos.y - p.pos.y, c[i]!.pos.z - p.pos.z) < 1e-3, `${p.name} lies where the host's does`);
-    });
+    }
     assert.ok(primer(host) > 20 && Math.abs(primer(client) - primer(host)) < 0.5, `primer under the panels: host ${primer(host)}, client ${primer(client)}`);
 
     host.resetVisual();

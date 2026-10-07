@@ -80,14 +80,14 @@ export class RagdollDebug {
     this.radius = Float32Array.from(mass, (m) => THREE.MathUtils.clamp(RADIUS_BASE * Math.cbrt(m / mean), RADIUS_MIN, RADIUS_MAX));
     this.anchors = new Float32Array(joints.length * 6);
     this.at = parts.map(() => []);
-    joints.forEach(([a, b, x, y, z], j) => {
+    for (const [j, [a, b, x, y, z]] of joints.entries()) {
       for (let i = 0; i < 3; i++) {
         const w = [x, y, z][i]!;
         this.anchors[j * 6 + i] = w - parts[a]!.c[i]!;
         this.anchors[j * 6 + 3 + i] = w - parts[b]!.c[i]!;
       }
       this.at[Math.max(a, b)]!.push(j);
-    });
+    }
     this.boxVerts = parts.length * EDGE_ENDS.length;
   }
 

@@ -72,12 +72,12 @@ function record(): Recorded {
   cars[MIRROR]!.spawnFacing(IMPACT_X, 45, Math.PI / 2, 12);
   cars[MIRROR]!.breakMirror(-1, new THREE.Vector3(1, 1, 0));
   assert.ok(!cars[MIRROR]!.crashed && cars[MIRROR]!.hasLoosePart(), "the mirror car has a part off and is no wreck");
-  WRECKS.forEach((i, k) => {
+  for (const [k, i] of WRECKS.entries()) {
     const car = cars[i]!;
     car.spawnFacing(IMPACT_X + 6 * (k & 1), 50 + 4 * (k >> 1), Math.PI / 2, 12);
     car.applyImpact(new THREE.Vector3(car.group.position.x + 2.2, 0.5, car.group.position.z), new THREE.Vector3(-1, 0, 0), 16, 12);
     assert.ok(car.crashed, `car ${i} is a wreck`);
-  });
+  }
   // A course (the race's wall memory and 128 props, none knocked at the start): every keyframe reads them, a replay restores them.
   const rec = new CrashRecorder({ recall: (_i, out) => out.set([Infinity, 0, 0, -1]), knocks: () => new Uint8Array(16) });
   rec.begin("flat", HANDLING.realism, false, ALL, (i) => `c${i}`, 1);
@@ -95,11 +95,11 @@ function record(): Recorded {
       rec.knock(OUTSIDE_PROP, FAR);
       rec.knock(INSIDE_PROP, NEAR);
     }
-    cars.forEach((car, i) => {
+    for (const [i, car] of cars.entries()) {
       input.throttle = i === A || i === B ? 1 : 0.6;
       input.steer = i === NEAR ? 0.3 * Math.sin(t * 4) : 0;
       applyDrive(car, input, H);
-    });
+    }
     stepWorld(world, H);
     rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);

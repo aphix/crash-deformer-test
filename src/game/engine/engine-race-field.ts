@@ -328,24 +328,24 @@ export abstract class RaceField {
     this.deadFor.fill(0);
     this.bubbleAcc = 0;
     if (this.traffic) {
-      this.traffic.spawns().slice(0, tcount).forEach((spot, k) => {
+      for (const [k, spot] of this.traffic.spawns().slice(0, tcount).entries()) {
         const car = cars[racers + k]!;
         car.group.visible = true;
         this.place(car, spot.x, spot.z, spot.yaw, spot.y);
-      });
+      }
     }
     for (let i = this.policeFrom; i < n; i++) {
       this.putAway(i, cars[i]!);
       this.police!.setClass(i, classStats(carClass(cars[i]!)));
     }
-    this.grid.forEach((id, k) => {
+    for (const [k, id] of this.grid.entries()) {
       this.rowOf[id] = k;
       const slot = sv ? { ...sv.start, y: 0 } : tr.gridSlot(k);
       const car = cars[id]!;
       this.place(car, slot.x, slot.z, slot.yaw, slot.y);
       this.brain!.setAggression(id, this.entrants[id]!.aggression);
       this.brain!.setClass(id, classStats(carClass(car)));
-    });
+    }
     if (this.police instanceof HunterBrain) {
       this.police.launch(this.patrolWorld);
       this.bestBefore = loadBest(tr.id);
@@ -415,11 +415,11 @@ export abstract class RaceField {
     this.entrants = this.field();
     this.grid = this.defaultGrid();
     const cars = this.host.live();
-    this.grid.forEach((id, k) => {
+    for (const [k, id] of this.grid.entries()) {
       this.rowOf[id] = k;
       const slot = tr.gridSlot(k);
       this.place(cars[id]!, slot.x, slot.z, slot.yaw, slot.y);
-    });
+    }
   }
 
   /** Build (or reuse) the course: art, colliders, sky, fog, far plane, ground. */

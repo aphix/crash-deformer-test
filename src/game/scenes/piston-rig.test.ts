@@ -370,12 +370,12 @@ describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, struc
           if (touched && !touching) at = crush;
           continue;
         }
-        crush.forEach((c, i) => {
+        for (const [i, c] of crush.entries()) {
           if (at![i]! - c > drop) {
             drop = at![i]! - c;
             worst = `${d.masses[i]!.name} ${(at![i]! * 1000).toFixed(0)} → ${(c * 1000).toFixed(0)} mm`;
           }
-        });
+        }
       }
       assert.ok(at, `squash ${squash}: the heads never ${touched ? "left" : "touched"}`);
       assert.ok(drop <= 0.08, `squash ${squash}: ${worst} after the heads left`);

@@ -141,7 +141,7 @@ describe("given every body style fitted with its own lamps", () => {
       const q = new THREE.Vector3();
       const pos = new THREE.Vector3();
       const dir = new THREE.Vector3();
-      car.lamps.forEach((l, i) => {
+      for (const [i, l] of car.lamps.entries()) {
         const name = `${l.kind}${l.side < 0 ? "L" : "R"}`;
         const m = l.seat.matrixWorld;
         x.setFromMatrixColumn(m, 0).normalize();
@@ -164,7 +164,7 @@ describe("given every body style fitted with its own lamps", () => {
         car.lampWorld(i, pos, dir);
         assert.ok(pos.distanceTo(q.setFromMatrixPosition(m)) < 1e-6, `${name} lights from ${pos.distanceTo(q).toFixed(3)} m off the drawn lamp`);
         assert.ok(dir.dot(axis) > 0.9999, `${name} light axis off the lamp's`);
-      });
+      }
     });
   }
 });
@@ -206,7 +206,7 @@ describe("given the lamp light pool with a followed car far ahead, a nearer car 
     const { lights, camera, far, near, behind } = rig();
     lights.update([far, near, behind], camera, far);
     const want = [far, far, near, near].slice(0, SPOT_POOL);
-    want.forEach((car, k) => assert.ok(spotOn(lights.spots[k]!, car), `spot ${k} is not on the expected car`));
+    for (const [k, car] of want.entries()) assert.ok(spotOn(lights.spots[k]!, car), `spot ${k} is not on the expected car`);
     assert.equal(lights.glow.geometry.drawRange.count, 12);
   });
 

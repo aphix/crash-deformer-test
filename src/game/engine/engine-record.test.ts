@@ -33,7 +33,7 @@ describe(`given the highlight recorder fed a ${MAX_CARS}-car race with a third o
   it("when it records minutes of steady racing with no crash opening, then it allocates no more than 16 bytes per recorded step", () => {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: MAX_CARS }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
-    cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 10));
+    for (const [i, c] of cars.entries()) c.spawnFacing(i * 6, 0, 0, 10);
     // A third are wrecks: every keyframe encodes their netplay wreck section.
     for (let i = 0; i < MAX_CARS; i += 3) cars[i]!.applyImpact(new THREE.Vector3(i * 6, 0.5, 2.2), new THREE.Vector3(0, 0, -1), 16, 12);
     // With a course (the race's wall memory and props: every keyframe reads them too), not the flat field's.
@@ -100,10 +100,10 @@ function firstImpacts(racers: number): number[][] {
     dress(car);
     return car;
   });
-  PAIRS.forEach(([a, b], k) => {
+  for (const [k, [a, b]] of PAIRS.entries()) {
     cars[a]!.spawnFacing(0, k * LANE, Math.PI / 2, 15);
     cars[b]!.spawnFacing(40, k * LANE, -Math.PI / 2, 15);
-  });
+  }
   const z = PAIRS.length * LANE;
   cars[TBONE[0]]!.spawnFacing(0, z, Math.PI / 2, 15);
   cars[TBONE[1]]!.spawnFacing(20, z - 20, 0, 15);
@@ -117,10 +117,10 @@ function firstImpacts(racers: number): number[][] {
   for (let s = 0; s < 6 * 240; s++) {
     rec.startStep(cars);
     if (s === 2 * 240) rec.wallHit(WALLER, 40, 30, z + LANE);
-    cars.forEach((car, i) => {
+    for (const [i, car] of cars.entries()) {
       input.throttle = i === 1 ? 0 : 1;
       applyDrive(car, input, H);
-    });
+    }
     stepWorld(world, H);
     rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);
@@ -179,7 +179,7 @@ describe("given a racer that hits a cop, and the cop being destroyed later", () 
   it("when it dies 1 s after the hit, then the death joins the racer's highlight, and when it dies 2 s after (past the 1.5 s quiet gap), then it joins nothing and opens no highlight of its own", () => {
     const scene = new THREE.Scene();
     const cars = Array.from({ length: 3 }, (_, i) => new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i)));
-    cars.forEach((c, i) => c.spawnFacing(i * 6, 0, 0, 0));
+    for (const [i, c] of cars.entries()) c.spawnFacing(i * 6, 0, 0, 0);
     const run = (killAt: number): { open: number; kills: number } => {
       cars[2]!.deform.drivetrainAlive = true;
       const rec = new CrashRecorder();

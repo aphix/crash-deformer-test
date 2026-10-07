@@ -79,7 +79,7 @@ describe("given every body style, compared with the sedan that the shared platfo
 
   for (const id of CAR_STYLE_IDS) {
     it(`when a ${id} is built, then it keeps the sedan's wheel positions, and its length to within 0.12 m and its width to within 3 cm`, () => {
-      cars[id].wheels.forEach((w, i) => assertSameNumbers(w.position.toArray(), WHEEL_POS[i]!, `${id} wheel ${i}`));
+      for (const [i, w] of cars[id].wheels.entries()) assertSameNumbers(w.position.toArray(), WHEEL_POS[i]!, `${id} wheel ${i}`);
       const b = chassisBox(CAR_STYLES[id]);
       const len = b.max.z - b.min.z;
       assert.ok(Math.abs(len - (sedan.max.z - sedan.min.z)) <= 0.12, `${id} length ${len}`);

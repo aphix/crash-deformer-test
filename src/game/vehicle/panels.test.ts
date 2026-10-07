@@ -171,7 +171,7 @@ describe("given a parked car that tears its hood and right quarter panel off and
     const hood = a.part("hood");
     assert.ok(hood.dent.count > 0 && a.part("quarterR").dent.count > 0, "no bounce dented them");
     let moved = 0;
-    positions(hood.object).forEach((v, i) => (moved = Math.max(moved, Math.abs(v - fresh[i]!))));
+    for (const [i, v] of positions(hood.object).entries()) moved = Math.max(moved, Math.abs(v - fresh[i]!));
     assert.ok(moved > 0.01 && moved <= 0.09, `hood dented by ${moved} m`);
     const b = dropped();
     assertSameNumbers(positions(b.part("hood").object), positions(hood.object), "hood vertices");

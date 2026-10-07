@@ -34,11 +34,11 @@ function race(track: Track, n: number, aggression: number, laps: number, limit: 
   const entrants: Entrant[] = cars.map((_, i) => ({ id: i, name: `ai${i}`, kind: "ai", aggression }));
   const session = new RaceSession(track, entrants, { laps, noReset: false });
   const brain = new RaceBrain(track, n);
-  cars.forEach((c, i) => {
+  for (const [i, c] of cars.entries()) {
     const g = track.gridSlot(i);
     c.spawnFacing(g.x, g.z, g.yaw, 0);
     brain.setAggression(i, aggression);
-  });
+  }
   const snaps: AiCar[] = cars.map((_, i) => blankAiCar(i));
   const poses: CarPose[] = cars.map(() => ({ x: 0, z: 0, yaw: 0, vx: 0, vz: 0, alive: true }));
   const hold = { ...idleDrive(), brake: 1 };
@@ -48,43 +48,43 @@ function race(track: Track, n: number, aggression: number, laps: number, limit: 
   let samples = 0;
   let step = 0;
   while (session.phase !== "finished" && session.time < limit) {
-    cars.forEach((c, i) => snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses));
-    cars.forEach((c, i) => {
+    for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses);
+    for (const [i, c] of cars.entries()) {
       const rec = session.cars[i]!;
       const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
       const input = session.phase === "racing" && rec.status === "racing" ? brain.think(snaps[i]!, snaps, rec, DT) : hold;
       applyDrive(c, onSurface(input, surf, scratch), DT);
       c.integrate(DT);
-    });
-    cars.forEach((c, i) => {
+    }
+    for (const [i, c] of cars.entries()) {
       const pose = poses[i]!;
       pose.x = c.group.position.x;
       pose.z = c.group.position.z;
       pose.yaw = c.yaw;
       pose.vx = c.velocity.x;
       pose.vz = c.velocity.z;
-    });
+    }
     session.step(DT, poses);
     session.events();
     if (session.phase === "racing" && ++step % 6 === 0) {
-      cars.forEach((c, i) => {
-        if (session.cars[i]!.status !== "racing") return;
+      for (const [i, c] of cars.entries()) {
+        if (session.cars[i]!.status !== "racing") continue;
         samples++;
         const x = c.group.position.x;
         const z = c.group.position.z;
         projectPath(track.path, x, z, -1, p);
         if (Math.abs(p.lateral) <= track.path.half[p.k]! + 0.3) {
           onRoad++;
-          return;
+          continue;
         }
         for (const sc of track.shortcuts) {
           projectPath(sc.path, x, z, -1, p);
           if (Math.abs(p.lateral) <= sc.path.half[p.k]! + 0.3) {
             onRoad++;
-            return;
+            break;
           }
         }
-      });
+      }
     }
   }
   setGround(null);

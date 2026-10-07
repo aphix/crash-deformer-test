@@ -28,13 +28,13 @@ function run(brain: TrafficBrain, fleet: DeformableCar[], seconds: number, sampl
   const scratch = idleDrive();
   const park = { ...idleDrive(), brake: 1 };
   for (let step = 0; step < seconds / DT; step++) {
-    fleet.forEach((c, i) => snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses));
-    fleet.forEach((c, i) => {
+    for (const [i, c] of fleet.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, true, c.deform.masses);
+    for (const [i, c] of fleet.entries()) {
       const surf = SURFACES[ground.surfaceAt(c.group.position.x, c.group.position.z)];
       applyDrive(c, onSurface(i === frozen ? park : brain.think(snaps[i]!, snaps, DT), surf, scratch), DT);
       c.integrate(DT);
-    });
-    if (step % 6 === 0) fleet.forEach((c, i) => sample(i, c));
+    }
+    if (step % 6 === 0) for (const [i, c] of fleet.entries()) sample(i, c);
   }
   setGround(null);
 }
@@ -45,14 +45,14 @@ describe("given the city track's ambient traffic (cars that drive the lanes arou
   it("when the traffic is first laid out, then it fills the loop lanes and then every side street, each car in its lane facing its lane's direction", () => {
     assert.equal(brain.count, 4 + 4 + 4);
     const p = blankProjection();
-    brain.spawns().forEach((s, i) => {
+    for (const [i, s] of brain.spawns().entries()) {
       const slot = brain.slotOf(i);
       projectPath(slot.path, s.x, s.z, -1, p);
       assert.ok(Math.abs(p.lateral - slot.offset) < 0.2, `car ${i} lateral ${p.lateral.toFixed(2)} vs lane ${slot.offset}`);
       const along = Math.sin(s.yaw) * slot.path.tx[p.k]! + Math.cos(s.yaw) * slot.path.tz[p.k]!;
       assert.ok(along * slot.dir > 0.95, `car ${i} faces its lane direction`);
       if (slot.path === track.path) assert.ok(p.s > 70 && p.s < track.length - 70, `loop car ${i} on the grid (s ${p.s.toFixed(0)})`);
-    });
+    }
     assert.ok(brain.slots.some((s) => s.path !== track.path && s.dir < 0) && brain.slots.some((s) => s.path !== track.path && s.dir > 0));
   });
 
@@ -60,7 +60,7 @@ describe("given the city track's ambient traffic (cars that drive the lanes arou
     const scene = new THREE.Scene();
     const fleet = cars(12, scene);
     brain.reset();
-    brain.spawns().forEach((s, i) => fleet[i]!.spawnFacing(s.x, s.z, s.yaw, 0));
+    for (const [i, s] of brain.spawns().entries()) fleet[i]!.spawnFacing(s.x, s.z, s.yaw, 0);
     // Junction centres where a side street meets the loop.
     const junctions = [
       [0, 0],

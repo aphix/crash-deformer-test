@@ -68,10 +68,10 @@ describe("given a Survival run on the Havana course (the player against a pack o
     try {
       const p = w.cars[0]!.group.position;
       assert.ok(Math.hypot(p.x - spec.start.x, p.z - spec.start.z) < 0.01, `player at ${p.x},${p.z}`);
-      spec.formation.forEach((f, k) => {
+      for (const [k, f] of spec.formation.entries()) {
         const c = w.cars[1 + k]!;
         assert.ok(c.group.visible && Math.hypot(c.group.position.x - f.x, c.group.position.z - f.z) < 0.01, `cop ${k} is not on its slot`);
-      });
+      }
       for (let i = 1 + spec.formation.length; i < w.live().length; i++) assert.ok(!w.cars[i]!.group.visible, `spare cop ${i} is on the road`);
       assert.equal(w.live().length, 1 + HUNT.units);
       const h = hud(w);
@@ -88,7 +88,7 @@ describe("given a Survival run on the Havana course (the player against a pack o
         hold(w);
         frame(w, state);
         phases.add(w.race.phase ?? "");
-        w.cars.slice(1, 6).forEach((c, k) => assert.ok(c.group.position.distanceTo(where[k]!) < 0.3, `cop ${k} moved before the green`));
+        for (const [k, c] of w.cars.slice(1, 6).entries()) assert.ok(c.group.position.distanceTo(where[k]!) < 0.3, `cop ${k} moved before the green`);
       }
       assert.deepEqual([...phases].sort(), ["countdown", "grid", "racing"]);
       // After the green they come.

@@ -39,7 +39,7 @@ const TOUCH = [0, 1, 3];
 
 /** Build the dummy's joints between `bodies` (`JOINTS` order): limits set, contacts between jointed parts on only for `TOUCH`. */
 export function joinUp(R: Rapier, world: World, bodies: readonly RigidBody[]): void {
-  JOINTS.forEach(([a, b, x, y, z], j) => {
+  for (const [j, [a, b, x, y, z]] of JOINTS.entries()) {
     const pa = PARTS[a]!.c;
     const pb = PARTS[b]!.c;
     const at = [{ x: x - pa[0], y: y - pa[1], z: z - pa[2] }, { x: x - pb[0], y: y - pb[1], z: z - pb[2] }] as const;
@@ -47,8 +47,8 @@ export function joinUp(R: Rapier, world: World, bodies: readonly RigidBody[]): v
     const hinge = limit !== null && "hinge" in limit;
     const joint = world.createImpulseJoint(hinge ? R.JointData.revolute(at[0], at[1], { x: 1, y: 0, z: 0 }) : R.JointData.spherical(at[0], at[1]), bodies[a]!, bodies[b]!, true);
     joint.setContactsEnabled(TOUCH.includes(j));
-    if (limit === null) return;
+    if (limit === null) continue;
     if (hinge) (joint as RevoluteImpulseJoint).setLimits(limit.hinge[0], limit.hinge[1]);
-    else limit.euler.forEach(([lo, hi], k) => world.impulseJoints.raw.jointSetLimits(joint.handle, ANG[k]!, lo, hi));
-  });
+    else for (const [k, [lo, hi]] of limit.euler.entries()) world.impulseJoints.raw.jointSetLimits(joint.handle, ANG[k]!, lo, hi);
+  }
 }

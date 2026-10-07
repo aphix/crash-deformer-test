@@ -120,7 +120,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
   const e = body.matrixWorld.elements;
   const gy = car.group.position.y;
   const gaps: number[] = [];
-  car.wheels.forEach((wh, i) => {
+  for (const [i, wh] of car.wheels.entries()) {
     wh.getWorldPosition(_hub[i]!);
     const hint = _hub[i]!.y;
     let gap = Infinity;
@@ -131,7 +131,7 @@ export function fit(car: DeformableCar, ground: Ground): Fit {
     }
     gaps.push(gap);
     _g[i] = ground.heightAt(_hub[i]!.x, _hub[i]!.z, hint);
-  });
+  }
   const mid = (a: number, b: number, c: "x" | "z") => (_hub[a]![c] + _hub[b]![c]) / 2;
   const planFB = Math.hypot(mid(0, 1, "x") - mid(2, 3, "x"), mid(0, 1, "z") - mid(2, 3, "z"));
   const planLR = Math.hypot(mid(1, 3, "x") - mid(0, 2, "x"), mid(1, 3, "z") - mid(0, 2, "z"));

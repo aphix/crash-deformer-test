@@ -286,7 +286,7 @@ export class Probe {
     const limit = 3 * Math.max(v, this.massPrevV) * h + 0.05;
     this.massPrevV = v;
     const seen = this.massPrev.length > 0;
-    d.masses.forEach((m, i) => {
+    for (const [i, m] of d.masses.entries()) {
       if (seen) {
         const excess = Math.hypot(m.world.x - this.massPrev[i * 2]!, m.world.z - this.massPrev[i * 2 + 1]!) - limit;
         if (excess > this.r.massStepExcess) {
@@ -296,7 +296,7 @@ export class Probe {
       }
       this.massPrev[i * 2] = m.world.x;
       this.massPrev[i * 2 + 1] = m.world.z;
-    });
+    }
   }
 
   /** Called once per rendered frame; contact start uses the previous frame so the first-frame Δv counts. */
@@ -440,7 +440,7 @@ export function holdThrottle(w: CrashWorld, cars: DeformableCar[], seconds: numb
     if (since < 0 && w.cars.some((c) => c.crashed)) since = 0;
     if (since >= 0 && since < seconds) {
       since += h;
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const fx = c.fwdFlat.x;
         const fz = c.fwdFlat.z;
         let before = 0;
@@ -449,7 +449,7 @@ export function holdThrottle(w: CrashWorld, cars: DeformableCar[], seconds: numb
         applyDrive(c, { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false }, h);
         for (const m of c.deform.masses) if (m.dynamic) after += m.mass * (m.vel.x * fx + m.vel.z * fz);
         added[i]! += (after - before) / c.deform.totalMass;
-      });
+      }
     }
     return inner(h);
   };

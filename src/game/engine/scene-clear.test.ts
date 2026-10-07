@@ -91,13 +91,14 @@ const ROWS: Record<keyof Transients, Row> = {
   },
   poles: {
     label: "knocked-over lamp poles",
-    seed: (r) =>
-      r.poles.forEach((p) => {
+    seed: (r) => {
+      for (const p of r.poles) {
         p.intact = false;
         p.kicked.add("c0");
         p.group.rotation.x = 1.4;
         p.group.position.set(3, 0.2, 3);
-      }),
+      }
+    },
     left: (r) => r.poles.filter((p) => !p.intact || p.kicked.size > 0 || p.group.rotation.x !== 0).length,
   },
   debris: { label: "crash debris", seed: (r) => r.debris.burst(V, UP, 40), left: (r) => alive(r.debris["life"]) },

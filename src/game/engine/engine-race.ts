@@ -392,7 +392,7 @@ export class RaceDirector extends RaceField {
     this.session = RaceSession.restore(tr, snap);
     this.entrants = entrants;
     this.self = self;
-    snap.cars.forEach((c, k) => (this.rowOf[c.id] = k));
+    for (const [k, c] of snap.cars.entries()) this.rowOf[c.id] = k;
     this.credit(this.session);
     if (!fresh) return;
     this.menu = null;

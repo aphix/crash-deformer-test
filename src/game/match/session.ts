@@ -159,9 +159,9 @@ export class RaceSession {
     s.time = snap.time;
     s.winnerId = snap.winnerId;
     s.winBy = snap.winBy;
-    snap.cars.forEach((c, i) => Object.assign(s.cars[i]!, structuredClone(c)));
-    snap.order.forEach((id, k) => (s.rank[k] = s.cars.findIndex((c) => c.id === id)));
-    snap.firstAt.forEach((t, k) => (s.firstAt[k] = t ?? NaN));
+    for (const [i, c] of snap.cars.entries()) Object.assign(s.cars[i]!, structuredClone(c));
+    for (const [k, id] of snap.order.entries()) s.rank[k] = s.cars.findIndex((c) => c.id === id);
+    for (const [k, t] of snap.firstAt.entries()) s.firstAt[k] = t ?? NaN;
     return s;
   }
 

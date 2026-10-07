@@ -153,11 +153,11 @@ export class Purses {
       const [pb, pc] = half(PURSE_H, 400, 0);
       this.bodies.push([pb]);
       this.colliders.push([pc]);
-      ITEMS.forEach((it, j) => {
+      for (const [j, it] of ITEMS.entries()) {
         const [b, c] = half(it.h, 800, 1 + j);
         this.bodies[s]!.push(b);
         this.colliders[s]!.push(c);
-      });
+      }
     }
   }
 

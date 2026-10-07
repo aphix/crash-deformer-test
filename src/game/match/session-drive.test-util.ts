@@ -77,7 +77,7 @@ export function runTo(s: RaceSession, drivers: Driver[], to: number, until?: (s:
   const events: RaceEvent[] = [];
   while (s.time < to - 1e-9 && s.phase !== "finished") {
     const t = s.time + DT;
-    drivers.forEach((d, i) => {
+    for (const [i, d] of drivers.entries()) {
       const p = d(t);
       const pose = poses[i]!;
       pose.x = p.x;
@@ -86,7 +86,7 @@ export function runTo(s: RaceSession, drivers: Driver[], to: number, until?: (s:
       pose.vz = p.vz;
       pose.yaw = Math.atan2(p.vx, p.vz);
       pose.alive = p.alive ?? true;
-    });
+    }
     s.step(DT, poses);
     events.push(...s.events());
     if (until?.(s)) break;

@@ -57,7 +57,7 @@ describe("given a 1-lap oval race of 4 AI rivals and the AI-driven player slot, 
       assert.equal(rows.map((r) => r.id).join(), byTime.map((c) => c.id).join(), "classified in finish-time order");
       assert.deepEqual(rows.map((r) => r.place), [1, 2, 3, 4, 5]);
       const win = byTime[0]!.finishTime!;
-      rows.forEach((r, k) => assert.ok(Math.abs(r.gap! - (byTime[k]!.finishTime! - win)) < 1e-9, `P${r.place} gap ${r.gap}`));
+      for (const [k, r] of rows.entries()) assert.ok(Math.abs(r.gap! - (byTime[k]!.finishTime! - win)) < 1e-9, `P${r.place} gap ${r.gap}`);
     } finally {
       w.race.exit();
       setGround(null);

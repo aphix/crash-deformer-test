@@ -637,11 +637,11 @@ forModes("given a car struck at its nose or its tail", (spawn) => {
       const cell0 = { z: cell.world.z, v: cell.vel.z };
       const was = far.map((n) => ({ z: mass(s.d, n).world.z, v: mass(s.d, n).vel.z }));
       s.d.separateAlong(0, 0, nz, 0.02, 2);
-      far.forEach((n, i) => {
+      for (const [i, n] of far.entries()) {
         const m = mass(s.d, n);
         assert.ok(Math.abs(m.world.z - was[i]!.z - (cell.world.z - cell0.z)) < 1e-9, `${n} moved ${((m.world.z - was[i]!.z) * 1000).toFixed(2)} mm, cabin ${((cell.world.z - cell0.z) * 1000).toFixed(2)} mm`);
         assert.ok(Math.abs(m.vel.z - was[i]!.v - (cell.vel.z - cell0.v)) < 1e-9, `${n} dv ${(m.vel.z - was[i]!.v).toFixed(3)} m/s, cabin ${(cell.vel.z - cell0.v).toFixed(3)} m/s`);
-      });
+      }
     });
   }
 });
@@ -849,9 +849,9 @@ forModes("given a car whose wheels stay on until a hard enough hit knocks them o
     settle(1);
     assert.equal(fl.popped, true);
     assert.ok(s.group.position.distanceTo(frame) < 0.01, `frame jumped ${s.group.position.distanceTo(frame).toFixed(3)} m at the pop`);
-    s.d.masses.forEach((m, i) => {
+    for (const [i, m] of s.d.masses.entries()) {
       if (m !== fl) assert.ok(m.world.distanceTo(before[i]!) < 0.01, `${m.name} jumped ${m.world.distanceTo(before[i]!).toFixed(3)} m at the pop`);
-    });
+    }
   });
 
   it("when a squeezing wall face reaches 10 cm into the tread of the front-left tyre of a standing car, then the hub is shoved back over 9 cm, stays shoved on the next step and the wheel stays on", () => {
@@ -956,9 +956,9 @@ forModes("given a wreck that has settled in place with three wheels knocked off 
     const before = s.d.masses.map((m) => m.world.clone());
     assert.equal(s.d.rearmHit(new THREE.Vector3(-0.95, 0.36, 0), new THREE.Vector3(1, 0, 0), 20, 6), true);
     s.d.followGroup(s.group, s.vel, s.omega, 0);
-    s.d.masses.forEach((m, i) => {
+    for (const [i, m] of s.d.masses.entries()) {
       if (!m.hub) assert.ok(m.world.distanceTo(before[i]!) < 0.03, `${m.name} jumped ${m.world.distanceTo(before[i]!).toFixed(3)} m at the touch`);
-    });
+    }
   });
 });
 

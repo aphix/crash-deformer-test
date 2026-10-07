@@ -105,12 +105,12 @@ export function scanOverlaps(layers: readonly ScanLayer[], range = RANGE, cell =
       }
     }
   };
-  layers.forEach((l, li) => {
+  for (const [li, l] of layers.entries()) {
     if (!sparse.includes(l.name)) raster(li, false);
-  });
-  layers.forEach((l, li) => {
+  }
+  for (const [li, l] of layers.entries()) {
     if (sparse.includes(l.name)) raster(li, true);
-  });
+  }
 
   const out = new Map<string, Overlap>();
   const bins = new Map<string, Map<string, [number, number, number]>>();

@@ -121,21 +121,21 @@ export function sameClip(got: HighlightClip, want: HighlightClip): void {
   }
   for (const k of ["score", "peakKph", "x", "z"] as const) assert.equal(got[k], Math.fround(want[k]), k);
   assert.equal(got.cars.length, want.cars.length);
-  got.cars.forEach((c, i) => {
+  for (const [i, c] of got.cars.entries()) {
     for (const k of ["slot", "style", "cls", "name"] as const) assert.equal(c[k], want.cars[i]![k], `car ${i} ${k}`);
-  });
+  }
   assertSameNumbers(got.h, want.h, "step dt");
   assertSameNumbers(got.shape, want.shape, "step schedule");
   assertSameNumbers(got.inputs, want.inputs, "inputs");
   assertSameNumbers(got.keyStep, want.keyStep, "keyframe steps");
   assertSameNumbers(got.keyCars, want.keyCars, "keyframe car masks");
   assert.equal(got.keys.length, want.keys.length);
-  got.keys.forEach((k, i) => assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`));
+  for (const [i, k] of got.keys.entries()) assertSameNumbers(k, want.keys[i]!, `keyframe ${i} bytes`);
   assert.equal(got.ejections.length, want.ejections.length);
-  got.ejections.forEach((x, i) => {
+  for (const [i, x] of got.ejections.entries()) {
     const w = want.ejections[i]!;
     assert.equal(x.step, w.step, `ejection ${i} step`);
     assertSameDigest({ ...x.e, pos: x.e.pos.toArray(), local: x.e.local.toArray(), dir: x.e.dir.toArray(), quat: x.e.quat.toArray(), rel: x.e.rel.toArray(), carVel: x.e.carVel.toArray(), spin: x.e.spin.toArray() }, { ...w.e, pos: w.e.pos.toArray(), local: w.e.local.toArray(), dir: w.e.dir.toArray(), quat: w.e.quat.toArray(), rel: w.e.rel.toArray(), carVel: w.e.carVel.toArray(), spin: w.e.spin.toArray() }, `ejection ${i}`);
-  });
+  }
   assert.deepEqual(got.knocks, want.knocks, "knocked props");
 }

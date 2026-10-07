@@ -40,7 +40,7 @@ const _q = new THREE.Quaternion();
 /** The farthest apart two jointed parts' anchor points are in `world` (m). */
 function jointGap(world: World): number {
   let gap = 0;
-  world.impulseJoints.forEach((j) => {
+  for (const j of world.impulseJoints.getAll()) {
     const p = j.body1();
     const c = j.body2();
     const pa = p.translation();
@@ -49,7 +49,7 @@ function jointGap(world: World): number {
     const first = _a.clone();
     _a.set(j.anchor2().x, j.anchor2().y, j.anchor2().z).applyQuaternion(_q.copy(c.rotation())).add(_b.set(ca.x, ca.y, ca.z));
     gap = Math.max(gap, first.distanceTo(_a));
-  });
+  }
   return gap;
 }
 

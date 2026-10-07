@@ -584,11 +584,11 @@ export class P2PRoom {
     try {
       const stats = await slot.pc.getStats();
       let selected: RTCIceCandidatePairStats | undefined;
-      stats.forEach((s) => {
+      for (const s of stats.values()) {
         if (s.type === "candidate-pair" && (s as RTCIceCandidatePairStats).nominated) {
           selected = s as RTCIceCandidatePairStats;
         }
-      });
+      }
       const localId = selected?.localCandidateId;
       if (localId) {
         const local = stats.get(localId) as { candidateType?: string } | undefined;

@@ -38,7 +38,7 @@ function intrusions(track: Track, p: Placed, index: number): Hit[] {
   for (let j = 0; j <= nz; j++) for (const u of [-hw, hw]) pts.push([u, -hd + (2 * hd * j) / nz]);
   for (let u = -hw + 1; u < hw; u += 1) for (let v = -hd + 1; v < hd; v += 1) pts.push([u, v]);
   const out: Hit[] = [];
-  track.paths().forEach((path, pi) => {
+  for (const [pi, path] of track.paths().entries()) {
     let best: Hit | null = null;
     for (const [u, v] of pts) {
       const x = p.x + u * c + v * sn;
@@ -47,20 +47,20 @@ function intrusions(track: Track, p: Placed, index: number): Hit[] {
       if (d > TOL && (!best || d > best.depth)) best = { piece: `${p.prefab}#${index}`, path: pi, k, s: proj.s, depth: d };
     }
     if (best) out.push(best);
-  });
+  }
   return out;
 }
 
 /** Every intrusion of a placed piece; knock props (cones, crates, hay bales) are road obstacles by design. */
 function courseIntrusions(track: Track): string[] {
   const bad: string[] = [];
-  placeProps(track).forEach((p, i) => {
-    if (PREFABS[p.prefab].body === "knock") return;
+  for (const [i, p] of placeProps(track).entries()) {
+    if (PREFABS[p.prefab].body === "knock") continue;
     for (const hit of intrusions(track, p, i)) {
       const name = hit.path === 0 ? "loop" : `path ${hit.path}`;
       bad.push(`${track.id}: ${hit.piece} at (${p.x.toFixed(1)}, ${p.z.toFixed(1)}) intrudes ${hit.depth.toFixed(2)} m into the ${name} at segment ${hit.k} (s=${hit.s.toFixed(0)})`);
     }
-  });
+  }
   return bad;
 }
 
@@ -77,7 +77,7 @@ const STEP_TOL = 0.05;
 function roadSteps(track: Track): string[] {
   const g = track.ground();
   const bad: string[] = [];
-  track.paths().forEach((p, pi) => {
+  for (const [pi, p] of track.paths().entries()) {
     const segs = p.closed ? p.count : p.count - 1;
     for (let k = 0; k < segs; k++) {
       if (p.deck[k]) continue;
@@ -91,7 +91,7 @@ function roadSteps(track: Track): string[] {
         prev = h;
       }
     }
-  });
+  }
   return bad;
 }
 

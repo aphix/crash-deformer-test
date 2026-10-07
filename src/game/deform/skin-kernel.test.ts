@@ -80,15 +80,15 @@ function numberField(o: object, key: string): number {
 function play(s: Scenario): Leg {
   const scene = new THREE.Scene();
   const cars = Array.from({ length: s.cars }, (_, i) => new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: `c${i}` }, scene, null, fleetStyle(i)));
-  cars.forEach((c, i) => assignClass(c, fleetClass(i)));
+  for (const [i, c] of cars.entries()) assignClass(c, fleetClass(i));
   let seed = 11;
   const rng = () => ((seed = (seed * 16807) % 2147483647) - 1) / 2147483646;
   if (s.derby) {
     const slots = layoutDerby(s.cars, derbyRadius(s.cars), rng);
-    cars.forEach((c, i) => c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 12));
+    for (const [i, c] of cars.entries()) c.spawnFacing(slots[i]!.x, slots[i]!.z, slots[i]!.yaw, 12);
   } else {
     const slots = layoutFleet(s.cars, 18, 28, rng);
-    cars.forEach((c, i) => c.spawn(slots[i]!.x, slots[i]!.z, slots[i]!.speed));
+    for (const [i, c] of cars.entries()) c.spawn(slots[i]!.x, slots[i]!.z, slots[i]!.speed);
   }
   const inputs: DriveInput[] = cars.map(() => ({ ...idleDrive(), throttle: 1 }));
   const world = newWorld(cars);
@@ -173,7 +173,7 @@ describe("given the WASM skin kernel (the compiled skin and normals maths), load
       assert.ok(runs >= ref.seen.skins, `${runs} kernel runs for ${ref.seen.skins} skinned car-frames: some skins stayed in JS`);
       assertSameNumbers(leg.digests, ref.digests, "per-frame digest");
       assert.equal(leg.final.length, ref.final.length);
-      leg.final.forEach((a, i) => assertSameNumbers(a, ref.final[i]!, `car ${i >> 1} ${i % 2 ? "normals" : "positions"}`));
+      for (const [i, a] of leg.final.entries()) assertSameNumbers(a, ref.final[i]!, `car ${i >> 1} ${i % 2 ? "normals" : "positions"}`);
     });
   }
 

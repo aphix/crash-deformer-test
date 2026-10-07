@@ -79,9 +79,9 @@ describe("given the highlight recorder scoring crashes between real simulated se
       ["T-bone", tBone],
     ] as const) {
       const scores = SWEEP.map((v) => crash(v).score);
-      scores.forEach((s, i) => {
+      for (const [i, s] of scores.entries()) {
         if (i > 0) assert.ok(s > scores[i - 1]!, `${name}: ${SWEEP[i]} km/h scores ${s.toFixed(2)}, not above ${SWEEP[i - 1]} km/h's ${scores[i - 1]!.toFixed(2)} (${scores.map((x) => x.toFixed(1)).join(" ")})`);
-      });
+      }
     }
     const wall = [50, 56, 80].map((v) => wallHit(v, 0.4)!.score);
     assert.ok(wall[0]! < wall[1]! && wall[1]! < wall[2]!, `offset wall 50/56/80 km/h: ${wall.map((x) => x.toFixed(1)).join(" ")}`);
@@ -106,7 +106,7 @@ describe("given the highlight recorder scoring crashes between real simulated se
   it("when a race has seven head-ons from 20 to 100 km/h, then the five hardest are kept, best first, and the softest two are dropped", () => {
     const speeds = [20, 100, 45, 80, 60, 90, 70];
     const cars = speeds.flatMap(() => [makeCar(), makeCar()]);
-    speeds.forEach((v, k) => placeHeadOn(cars[2 * k]!, cars[2 * k + 1]!, v / 3.6, k * 200));
+    for (const [k, v] of speeds.entries()) placeHeadOn(cars[2 * k]!, cars[2 * k + 1]!, v / 3.6, k * 200);
     const { rec } = record(cars, false, 4);
     const kept = rec.ledger.kept;
     assert.equal(kept.length, TOP);
@@ -115,9 +115,9 @@ describe("given the highlight recorder scoring crashes between real simulated se
       [100, 90, 80, 70, 60],
       `the reel: ${kept.map((c) => `${c.peakKph.toFixed(0)} km/h = ${c.score.toFixed(1)}`).join(", ")}`,
     );
-    kept.forEach((c, i) => {
+    for (const [i, c] of kept.entries()) {
       if (i > 0) assert.ok(c.score < kept[i - 1]!.score, "best first");
-    });
+    }
   });
 
   it("when the softest driver ejection (a 55 km/h wall hit) is scored against the hardest hit that spares both engines (a 109 km/h head-on), then the ejection scores more than 1.5 times as much, and an 80 km/h wall throw scores higher still", () => {

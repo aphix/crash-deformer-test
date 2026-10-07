@@ -294,16 +294,16 @@ forModes("given a car whose wheel hubs all pop off after a 2 m/s nose knock", (m
     for (const m of car.deform.masses) if (m.hub) car.deform.popHub(m);
     const before = car.wheels.map((w) => w.position.clone());
     for (let i = 0; i < 300; i++) {
-      if (i === 299) car.wheels.forEach((w, k) => before[k]!.copy(w.position));
+      if (i === 299) for (const [k, w] of car.wheels.entries()) before[k]!.copy(w.position);
       car.syncPose(DT);
       car.afterContacts(DT);
     }
     assert.equal(car.deform.drivetrainAlive, false, "no wheels and the drivetrain still runs");
-    car.wheels.forEach((w, k) => {
+    for (const [k, w] of car.wheels.entries()) {
       assert.equal(w.parent, scene, `wheel ${k} still rides the car`);
       assert.ok(Math.abs(w.position.y - TYRE_R) < 0.01, `wheel ${k} rests at y ${w.position.y.toFixed(3)}, not on its tyre`);
       assert.ok(w.position.distanceTo(before[k]!) < 1e-3, `wheel ${k} still sliding after 5 s`);
-    });
+    }
   });
 });
 
@@ -524,11 +524,11 @@ describe("given the recorded 16-car pile-up in which wrecks spun on the spot, in
     const prev = cars.map((c) => c.group.rotation.y);
     for (let f = 0; f < 6 * 60; f++) {
       tickWorld(w);
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const d = c.group.rotation.y - prev[i]!;
         prev[i] = c.group.rotation.y;
         if (f >= 4 * 60) turn[i]! += Math.abs(Math.atan2(Math.sin(d), Math.cos(d)));
-      });
+      }
     }
     const worst = turn.indexOf(Math.max(...turn));
     assert.ok(turn[worst]! < 0.1, `${SPIN_FLEET[worst]![0]} turned ${turn[worst]!.toFixed(2)} rad in the last 2 s, |ω| ${cars[worst]!.angular.y.toFixed(2)}`);
@@ -552,14 +552,14 @@ describe("given the recorded 16-car pile-up in which wrecks spun on the spot, in
     const peak = cars.map(() => 0);
     for (let f = 0; f < 2.5 * 60; f++) {
       tickWorld(w);
-      cars.forEach((c, i) => {
+      for (const [i, c] of cars.entries()) {
         const h = yaws[i]!;
         h.push(c.group.rotation.y);
         if (h.length > 6) {
           const d = h[h.length - 1]! - h[h.length - 7]!;
           peak[i] = Math.max(peak[i]!, Math.abs(Math.atan2(Math.sin(d), Math.cos(d))) * 10);
         }
-      });
+      }
     }
     const worst = peak.indexOf(Math.max(...peak));
     assert.ok(peak[worst]! <= 5, `${SPIN_FLEET[worst]![0]} turned at ${peak[worst]!.toFixed(2)} rad/s over 0.1 s`);

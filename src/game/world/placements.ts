@@ -182,7 +182,7 @@ export function placeProps(track: Track): Placed[] {
     if (s === undefined) throw new Error(`${track.id}: ${field} ${i} ≥ ${track.nodeS.length} nodes`);
     return s;
   };
-  json.along.forEach((a, ai) => {
+  for (const [ai, a] of json.along.entries()) {
     const route = a.route === undefined ? null : track.routes.find((r) => r.id === a.route);
     if (route === undefined) throw new Error(`${track.id}: along[${ai}].route ${a.route} is not a traffic route`);
     // The race loop between two nodes (whole loop when the range is empty), or a route's whole centreline.
@@ -233,7 +233,7 @@ export function placeProps(track: Track): Placed[] {
         });
       }
     }
-  });
+  }
 
   const g0 = track.gates[0]!;
   const b = track.bounds;
@@ -264,10 +264,10 @@ export function placeProps(track: Track): Placed[] {
 /** Colliders of the solid / knock placements, scaled by each placement's sx / sz. */
 export function propColliders(placed: readonly Placed[]): PropCollider[] {
   const out: PropCollider[] = [];
-  placed.forEach((p, index) => {
+  for (const [index, p] of placed.entries()) {
     const spec = PREFABS[p.prefab];
     const c = spec.collider;
-    if (spec.body === "none" || !c) return;
+    if (spec.body === "none" || !c) continue;
     const hx = c.kind === "circle" ? c.r * Math.max(p.sx, p.sz) : c.hx * p.sx;
     const hz = c.kind === "circle" ? hx : c.hz * p.sz;
     out.push({
@@ -284,6 +284,6 @@ export function propColliders(placed: readonly Placed[]): PropCollider[] {
       mass: spec.mass * p.sx * p.sy * p.sz,
       top: p.y + spec.size[1] * p.sy,
     });
-  });
+  }
   return out;
 }

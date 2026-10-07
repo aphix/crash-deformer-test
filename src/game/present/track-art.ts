@@ -117,14 +117,14 @@ export class TrackArt {
     const tunnels = new Mesher();
     const tunnelLights = new Mesher();
     const pillars: Piece[] = [];
-    paths.forEach((p, i) => {
+    for (const [i, p] of paths.entries()) {
       if (p.wallL.includes(1) || p.wallR.includes(1)) addWalls(walls, p, ground, track.json.road.wallHeight);
       if (p.deck.includes(1)) {
         addDecks(decks, p, secs[i]!);
         pillars.push(...pillarPieces(p, secs[i]!, ground, index));
       }
       if (p.tunnel.includes(1)) addTunnels(tunnels, tunnelLights, p, secs[i]!, ground);
-    });
+    }
     if (!walls.empty) this.add(new THREE.Mesh(walls.geometry(false), mats.concrete), { kind: "wall" }, true);
     if (!decks.empty) this.add(new THREE.Mesh(decks.geometry(false), mats.concrete), { kind: "deck" }, true);
     if (pillars.length > 0) this.add(new THREE.Mesh(painted(pillars), mats.concrete), { kind: "pillar" }, true);
@@ -171,7 +171,7 @@ export class TrackArt {
 
     // Props: one InstancedMesh per prefab part.
     const byPrefab: Partial<Record<PrefabId, number[]>> = {};
-    placed.forEach((pl, idx) => (byPrefab[pl.prefab] ??= []).push(idx));
+    for (const [idx, pl] of placed.entries()) (byPrefab[pl.prefab] ??= []).push(idx);
     this.slot = new Int32Array(placed.length);
     for (const id of Object.keys(byPrefab) as PrefabId[]) {
       const list = byPrefab[id]!;
@@ -180,12 +180,12 @@ export class TrackArt {
         if (part.shared) this.shared.push(part.material);
         // Knocked props leave the instances' original bounds.
         mesh.frustumCulled = PREFABS[id].body !== "knock";
-        list.forEach((idx, s) => {
+        for (const [s, idx] of list.entries()) {
           this.slot[idx] = s;
           this.restMatrix(idx);
           mesh.setMatrixAt(s, this.m4);
           if (pi === 0 && this.tint(id, idx, this.col)) mesh.setColorAt(s, this.col);
-        });
+        }
         mesh.computeBoundingSphere();
         // Lamp heads and light pools neither cast shadows nor need to.
         this.add(mesh, { kind: "prop", prefab: id }, !part.shared);

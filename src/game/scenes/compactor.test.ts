@@ -450,12 +450,12 @@ describe("given a shape-deform-mode car at squash setting 0.32 and at 0.4, press
         car.afterContacts(1 / 60);
         car.stepBreakage(1 / 60);
         car.updateSkin();
-        d.masses.forEach((m, i) => {
+        for (const [i, m] of d.masses.entries()) {
           if (at[i]! - crush(m) > drop) {
             drop = at[i]! - crush(m);
             worst = `${m.name} ${(at[i]! * 1000).toFixed(0)} → ${(crush(m) * 1000).toFixed(0)} mm`;
           }
-        });
+        }
       }
       assert.ok(drop <= 0.08, `squash ${squash}: ${worst} during the hold`);
     }

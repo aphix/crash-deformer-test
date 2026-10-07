@@ -131,7 +131,7 @@ function contacts(sys: RagdollSystem, d: Doll): { ground: number; foreign: numbe
 function sample(sys: RagdollSystem, d: Doll, wall: number): Frame {
   const n = PARTS.length;
   const f: Frame = { age: d.age, wall, p: new Float64Array(n * 3), q: new Float64Array(n * 4), v: new Float64Array(n * 3), w: new Float64Array(n * 3), ...contacts(sys, d) };
-  d.bodies.forEach((b, k) => {
+  for (const [k, b] of d.bodies.entries()) {
     const t = b.translation();
     const r = b.rotation();
     const v = b.linvel();
@@ -140,7 +140,7 @@ function sample(sys: RagdollSystem, d: Doll, wall: number): Frame {
     f.q.set([r.x, r.y, r.z, r.w], k * 4);
     f.v.set([v.x, v.y, v.z], k * 3);
     f.w.set([w.x, w.y, w.z], k * 3);
-  });
+  }
   return f;
 }
 
