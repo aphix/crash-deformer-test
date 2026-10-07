@@ -2,6 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
+import { COM_Y } from "../vehicle/car-air.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
@@ -58,6 +59,7 @@ type Result = {
 
 const _q = new THREE.Vector3();
 const _ax = new THREE.Vector3();
+const _c = new THREE.Vector3();
 
 /** Elevation (deg) of a body axis and the unit plan direction it points in (`dir`). */
 function axis(q: THREE.Quaternion, x: number, y: number, z: number, dir: Float64Array): number {
@@ -132,6 +134,9 @@ function cross(v: number, thDeg: number, e: number): Result {
   let lastVz = car.velocity.z;
   let lastX = p.x;
   let lastZ = p.z;
+  _c.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion);
+  let lastCx = p.x + _c.x;
+  let lastCz = p.z + _c.z;
   const dirF = new Float64Array(2);
   const dirR = new Float64Array(2);
   // The touching wheels' hub points (x, the ground's height under the hub, z) and tread contact points (`Fit.contacts`).
@@ -152,6 +157,10 @@ function cross(v: number, thDeg: number, e: number): Result {
       const h = physicsSlice(acc, sliceSpeed(w.cars));
       input.throttle = Math.max(0, Math.min(1, (v - Math.hypot(car.velocity.x, car.velocity.z)) / 1.5));
       applyDrive(car, input, h);
+      // `velocity` is the origin's on the wheels and the centre of mass's in the rigid step (`DeformableCar.rigid`): a slice the body
+      // spends rigid throughout shoves it by its centre's move past that velocity (a body turning about its centre swings its origin,
+      // and that is no shove); any other slice by its origin's (a landing lays the body on its wheels' plane about the origin).
+      const rigid = car.rigid;
       stepWorld(w, h);
       car.stepBreakage(h);
       acc -= h;
@@ -173,11 +182,17 @@ function cross(v: number, thDeg: number, e: number): Result {
       out.yaw = Math.max(out.yaw, Math.abs(wrap(car.group.rotation.y - yaw0)) * DEG);
       out.heading = Math.max(out.heading, Math.abs(wrap(Math.atan2(car.velocity.x, car.velocity.z) - head0)) * DEG);
       out.dv = Math.max(out.dv, Math.hypot(car.velocity.x - lastVx, car.velocity.z - lastVz));
-      out.shove = Math.max(out.shove, Math.hypot(p.x - lastX - car.velocity.x * h, p.z - lastZ - car.velocity.z * h));
+      _c.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion);
+      const com = rigid && car.rigid;
+      const mx = com ? p.x + _c.x - lastCx : p.x - lastX;
+      const mz = com ? p.z + _c.z - lastCz : p.z - lastZ;
+      out.shove = Math.max(out.shove, Math.hypot(mx - car.velocity.x * h, mz - car.velocity.z * h));
       lastVx = car.velocity.x;
       lastVz = car.velocity.z;
       lastX = p.x;
       lastZ = p.z;
+      lastCx = p.x + _c.x;
+      lastCz = p.z + _c.z;
       if (touching >= 3 && fitPlane(cx, cy, cz, touching, planeC)) {
         // The plane through the touching wheels' tread contact points (least squares): y = a x + b z + c.
         const q = car.group.quaternion;
