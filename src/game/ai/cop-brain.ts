@@ -104,7 +104,7 @@ class Backoff {
    * back), and sat there for 10 s on Havana.
    */
   watch(u: number, x: number, z: number, dt: number, out: DriveInput): void {
-    if (Math.hypot(x - this.anchorX[u]!, z - this.anchorZ[u]!) > PROGRESS) {
+    if (hypot2(x - this.anchorX[u]!, z - this.anchorZ[u]!) > PROGRESS) {
       this.anchorX[u] = x;
       this.anchorZ[u] = z;
       this.stuck[u] = 0;

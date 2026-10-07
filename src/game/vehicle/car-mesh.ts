@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { hypot2 } from "../kernel/physics-core.js";
 import { CAR_STYLES, type BodyStyle, type ProfileStation, type YZ } from "./car-variants.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
@@ -136,7 +137,7 @@ function archFlare(z: number, y: number): number {
   let f = 0;
   for (const [, , wz] of WHEEL_POS) {
     const dz = z - wz;
-    const r = y >= WHEEL_Y ? Math.hypot(dz, y - WHEEL_Y) : Math.abs(dz);
+    const r = y >= WHEEL_Y ? hypot2(dz, y - WHEEL_Y) : Math.abs(dz);
     const band =
       THREE.MathUtils.smoothstep(r, ARCH_R - 0.04, ARCH_R + 0.02) *
       (1 - THREE.MathUtils.smoothstep(r, ARCH_R + 0.06, ARCH_R + 0.17));

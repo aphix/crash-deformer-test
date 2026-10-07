@@ -278,7 +278,7 @@ export class HunterBrain extends CopBrain {
     for (let v = 0; v < this.count; v++) {
       if (v === u || this.state[v] !== HUNTING || this.queued[v] !== lane) continue;
       const c = cars[this.first + v]!;
-      if (c.alive && Math.hypot(c.x - tg.x, c.z - tg.z) < dist) this.row++;
+      if (c.alive && hypot2(c.x - tg.x, c.z - tg.z) < dist) this.row++;
     }
   }
 
@@ -297,7 +297,7 @@ export class HunterBrain extends CopBrain {
     const lead = Math.min(2, dist / Math.max(8, speed));
     const ax = tg.x + tg.vx * lead;
     const az = tg.z + tg.vz * lead;
-    const aimDist = Math.hypot(ax - self.x, az - self.z);
+    const aimDist = hypot2(ax - self.x, az - self.z);
     const h = this.openHeading(u, self, Math.atan2(ax - self.x, az - self.z), speed, aimDist);
     const alpha = wrapPi(h - self.yaw);
     // Pure pursuit looks a speed-scaled way ahead, so a heading bent round a solid is followed as sharply as it was asked.
@@ -404,7 +404,7 @@ export class HunterBrain extends CopBrain {
     const fx = Math.sin(tg.yaw);
     const fz = Math.cos(tg.yaw);
     const v2 = tg.vx * tg.vx + tg.vz * tg.vz;
-    const moving = Math.hypot(tg.vx, tg.vz) > 5;
+    const moving = hypot2(tg.vx, tg.vz) > 5;
     let tests = 0;
     for (let pass = moving ? 0 : 1; pass < 2; pass++) {
       const ahead = pass === 0;
@@ -413,10 +413,10 @@ export class HunterBrain extends CopBrain {
         const i = (from + k) % n;
         const dx = this.spotX[i]! - tg.x;
         const dz = this.spotZ[i]! - tg.z;
-        const d = Math.hypot(dx, dz);
+        const d = hypot2(dx, dz);
         if (d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
         const t = v2 > 0 ? clamp((dx * tg.vx + dz * tg.vz) / v2, 0, HUNT.lag) : 0;
-        if (Math.hypot(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
+        if (hypot2(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
         if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars)) continue;
         if (tests++ >= HUNT.tests) return false;
         if (!world.hidden(this.spotX[i]!, this.spotZ[i]!)) continue;
@@ -432,7 +432,7 @@ export class HunterBrain extends CopBrain {
   }
 
   private crowded(x: number, z: number, cars: readonly AiCar[]): boolean {
-    for (const c of cars) if (Math.hypot(c.x - x, c.z - z) < HUNT.clear) return true;
+    for (const c of cars) if (hypot2(c.x - x, c.z - z) < HUNT.clear) return true;
     return false;
   }
 }

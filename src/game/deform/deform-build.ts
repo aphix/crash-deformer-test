@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot3 } from "../kernel/physics-core.js";
 import { regionSoftness, regionCrushBands } from "./physics-util.ts";
 import { makeCluster, type ShapeCluster, type ShapeParticle } from "./shape-match.ts";
 import {
@@ -182,7 +183,7 @@ export function bindLattice(
       for (let p = 0; p < cages.length; p++) {
         if (!skinsCage[p]) continue;
         const c = cages[p]!;
-        const d = Math.hypot(Math.max(c.min.x - x, 0, x - c.max.x), Math.max(c.min.y - y, 0, y - c.max.y), Math.max(c.min.z - z, 0, z - c.max.z));
+        const d = hypot3(Math.max(c.min.x - x, 0, x - c.max.x), Math.max(c.min.y - y, 0, y - c.max.y), Math.max(c.min.z - z, 0, z - c.max.z));
         if (d < bestD) {
           bestD = d;
           best = p;

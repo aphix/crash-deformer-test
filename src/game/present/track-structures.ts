@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { TILE, box, type Piece } from "./prefabs.ts";
 import { blankPoint, pointOn, type TrackGround, type TrackPath } from "../world/track.ts";
@@ -30,7 +31,7 @@ function stripJ(m: Mesher, fa: Frame, A: readonly number[], fb: Frame, B: readon
   ] as const) {
     const dl = P[j * 2 + 2]! - P[j * 2]!;
     const dy = P[j * 2 + 3]! - P[j * 2 + 1]!;
-    const len = Math.hypot(dl, dy) || 1;
+    const len = hypot2(dl, dy) || 1;
     for (let q = 0; q < 2; q++) {
       const l = P[(j + q) * 2]!;
       const id = m.v(f.x + f.tz * l, P[(j + q) * 2 + 1]!, f.z - f.tx * l, hex, f.s / tile, (v0 + q * len) / tile);
@@ -90,7 +91,7 @@ export function addWalls(m: Mesher, p: TrackPath, ground: TrackGround, wallHeigh
   const n = secs.length;
   const prof = WALL_PROFILE.map(([u, v]) => [u, v > 0 ? v * wallHeight : v] as const);
   const vlen: number[] = [0];
-  for (let j = 1; j < prof.length; j++) vlen.push(vlen[j - 1]! + Math.hypot(prof[j]![0] - prof[j - 1]![0], prof[j]![1] - prof[j - 1]![1]));
+  for (let j = 1; j < prof.length; j++) vlen.push(vlen[j - 1]! + hypot2(prof[j]![0] - prof[j - 1]![0], prof[j]![1] - prof[j - 1]![1]));
   const ds = sampleStep(p);
   for (const side of [1, -1]) {
     const flag = side > 0 ? p.wallL : p.wallR;
@@ -143,7 +144,7 @@ export function addDecks(m: Mesher, p: TrackPath, secs: readonly number[]): void
       let v = 0;
       for (let j = 0; j < 5; j++) {
         stripJ(m, frameOf(p, k), A, frameOf(p, k2), B, j, j === 2 ? CONCRETE_DARK : DECK_COL, TILE.concrete, v);
-        v += Math.hypot(A[j * 2 + 2]! - A[j * 2]!, A[j * 2 + 3]! - A[j * 2 + 1]!);
+        v += hypot2(A[j * 2 + 2]! - A[j * 2]!, A[j * 2 + 3]! - A[j * 2 + 1]!);
       }
     }
     for (const [i, facing] of [

@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "./catalog.ts";
 import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmentAt, type Projection, type Track, type TrackPath } from "./track.ts";
 
@@ -92,7 +93,7 @@ function segBoxDist(u0: number, v0: number, u1: number, v1: number, hw: number, 
   };
   if (clip(-du, u0 + hw) && clip(du, hw - u0) && clip(-dv, v0 + hd) && clip(dv, hd - v0)) return 0;
   // Apart: the gap closes at an endpoint or a box corner.
-  const toBox = (u: number, v: number) => Math.hypot(Math.max(Math.abs(u) - hw, 0), Math.max(Math.abs(v) - hd, 0));
+  const toBox = (u: number, v: number) => hypot2(Math.max(Math.abs(u) - hw, 0), Math.max(Math.abs(v) - hd, 0));
   let d = Math.min(toBox(u0, v0), toBox(u1, v1));
   for (const cu of [-hw, hw]) for (const cv of [-hd, hd]) d = Math.min(d, segDist(cu, cv, u0, v0, u1, v1));
   return d;
@@ -106,7 +107,7 @@ function segBoxDist(u0: number, v0: number, u1: number, v1: number, hw: number, 
 function boxClear(path: TrackPath, x: number, z: number, yaw: number, hw: number, hd: number): number {
   const c = Math.cos(yaw);
   const sn = Math.sin(yaw);
-  const reach = Math.hypot(hw, hd);
+  const reach = hypot2(hw, hd);
   const segs = path.closed ? path.count : path.count - 1;
   let best = Infinity;
   for (let k = 0; k < segs; k++) {

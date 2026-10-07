@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { SURFACE_IDS } from "./catalog.ts";
 import type { TrackJson } from "./track-schema.ts";
 
@@ -28,7 +29,7 @@ export function plateauHeight(p: Plateau, x: number, z: number): number {
   const ux = soft(Math.abs(dx) - p.halfX, p.round) / rx;
   const uz = soft(Math.abs(dz) - p.halfZ, p.round) / rz;
   // The foot is rounded `round` m along the side it falls off.
-  return p.height * soft(1 - Math.hypot(ux, uz), p.round / (ux >= uz ? rx : rz));
+  return p.height * soft(1 - hypot2(ux, uz), p.round / (ux >= uz ? rx : rz));
 }
 
 function inside(poly: readonly (readonly [number, number])[], x: number, z: number): boolean {

@@ -3,6 +3,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { DRIVE, type DriverSeat, type SeatView } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { DISC_RADIUS } from "../world/ground.ts";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
@@ -187,7 +188,7 @@ export class DriveCam {
     } else {
       const c = view === "far" ? CHASE.far : CHASE.third;
       const dist = c.dist + Math.min(Math.abs(along), 30) * CHASE.pullback;
-      const r = Math.hypot(dist, c.height);
+      const r = hypot2(dist, c.height);
       const elev = THREE.MathUtils.clamp(Math.atan2(c.height, dist) + this.lookPitch.x, 0.02, 1.25);
       const flat = r * Math.cos(elev);
       _v.set(p.x - sy * flat, p.y + r * Math.sin(elev), p.z - cy * flat);
@@ -231,7 +232,7 @@ export class DriveCam {
       return;
     }
     const s = car.suspension;
-    const fade = Math.max(0, 1 - 20 * Math.hypot(this.lookYaw.x, this.lookPitch.x));
+    const fade = Math.max(0, 1 - 20 * hypot2(this.lookYaw.x, this.lookPitch.x));
     const y = RIDE.heave * s.heave + (view === "first" ? RIDE.lever : -RIDE.lever) * s.pitch;
     camera.position.y += this.rideY.step(RIDE.drop * Math.tanh(y / RIDE.drop) * fade, RIDE.omega, dt);
     camera.rotateX(this.rideTilt.step(RIDE.maxTilt * Math.tanh((RIDE.tilt * s.pitch) / RIDE.maxTilt) * fade, RIDE.omega, dt));
@@ -491,7 +492,7 @@ export class ChaseCamera {
     const p = this.pos;
     const ex = p.x - this.look.x;
     const ez = p.z - this.look.z;
-    const R = Math.hypot(ex, ez);
+    const R = hypot2(ex, ez);
     if (R < 1e-3) return;
     const ux = ex / R;
     const uz = ez / R;
@@ -508,7 +509,7 @@ export class ChaseCamera {
       if (px * ux + pz * uz <= 0 || Math.abs(s) >= 3 * c) continue;
       const swell = 1 - (s * s) / (9 * c * c);
       // How far the post's circle lies beyond the orbit's (negative: inside it), and the shift that clears it on the chosen side.
-      const gap = Math.hypot(px, pz) - R;
+      const gap = hypot2(px, pz) - R;
       const shift = gap >= -c / 4 ? -Math.max(0, c - gap) : Math.max(0, c + gap);
       p.x += ux * shift * swell * swell;
       p.z += uz * shift * swell * swell;
@@ -636,7 +637,7 @@ export class ChaseCamera {
     const dy = this.camera.position.y - this.look.y;
     const dz = this.camera.position.z - this.look.z;
     this.angle = Math.atan2(dx, dz);
-    this.radius = THREE.MathUtils.clamp(Math.hypot(dx, dy, dz), 4.2, 32);
+    this.radius = THREE.MathUtils.clamp(hypot3(dx, dy, dz), 4.2, 32);
     this.pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(dy / this.radius, -0.99, 0.99)), 0.08, 1.22);
   }
 
@@ -669,7 +670,7 @@ export class ChaseCamera {
       this.pinchId = e.pointerId;
       this.pinchX = e.clientX;
       this.pinchY = e.clientY;
-      this.pinchDist = Math.hypot(this.lastX - e.clientX, this.lastY - e.clientY);
+      this.pinchDist = hypot2(this.lastX - e.clientX, this.lastY - e.clientY);
       this.pointerTravel = Infinity;
       this.canvas.setPointerCapture(e.pointerId);
       return;
@@ -706,7 +707,7 @@ export class ChaseCamera {
     }
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
-    this.pointerTravel += Math.hypot(dx, dy);
+    this.pointerTravel += hypot2(dx, dy);
     this.lastX = e.clientX;
     this.lastY = e.clientY;
     if (this.pinchId !== -1) {
@@ -740,7 +741,7 @@ export class ChaseCamera {
 
   /** Two fingers apart zoom in, together zoom out, on the wheel's radius range. */
   private pinch(): void {
-    const d = Math.hypot(this.lastX - this.pinchX, this.lastY - this.pinchY);
+    const d = hypot2(this.lastX - this.pinchX, this.lastY - this.pinchY);
     if (this.pinchDist > 0 && d > 0) this.radius = THREE.MathUtils.clamp((this.radius * this.pinchDist) / d, 4.2, 32);
     this.pinchDist = d;
     this.userFramed = true;

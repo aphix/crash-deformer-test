@@ -245,8 +245,9 @@ for (const [f, p] of parsed) {
 check("C5", "exports with no production importer", c5);
 
 // C6: per-frame entry points allocate nothing and stay on V8's fast path: no new X, .clone(), array or object literals,
-// closures, spreads, .push/.unshift (preallocate and write by index), for..of/for..in (indexed loops), try/catch, JSON, or
-// Math.hypot (TurboFan never inlines it, so every call boxes its arguments: kernel/physics-core.js hypot2/hypot3 instead).
+// closures, spreads, .push/.unshift (preallocate and write by index), for..of/for..in (indexed loops), try/catch, JSON.
+// And, in every non-test game file, no Math.hypot (TurboFan never inlines it, so every call boxes its arguments, and
+// the sim must compute the same bits on every browser: kernel/physics-core.js hypot2/hypot3 instead).
 const c6 = [];
 for (const [f, names] of Object.entries(HOT)) {
   const p = parsed.get(f);
@@ -264,7 +265,6 @@ for (const [f, names] of Object.entries(HOT)) {
         if (m === "clone") c6.push(`${at()} .clone()`);
         else if (m === "push" || m === "unshift") c6.push(`${at()} .${m}()`);
         else if (of === "JSON") c6.push(`${at()} JSON.${m}`);
-        else if (of === "Math" && m === "hypot") c6.push(`${at()} Math.hypot`);
       } else if (ts.isArrayLiteralExpression(n)) c6.push(`${at()} array literal`);
       else if (ts.isObjectLiteralExpression(n)) c6.push(`${at()} object literal`);
       else if (ts.isArrowFunction(n) || ts.isFunctionExpression(n)) c6.push(`${at()} closure`);
@@ -277,7 +277,17 @@ for (const [f, names] of Object.entries(HOT)) {
   visit(p.sf, null);
   for (const n of names) if (!found.has(n)) c6.push(`${f} hot entry ${n} not found (update HOT)`);
 }
-check("C6", "allocations in per-frame entry points", c6);
+for (const [f, p] of parsed) {
+  if (isTest(f) || !f.startsWith("src/game/")) continue;
+  const visit = (n) => {
+    if (ts.isCallExpression(n) && ts.isPropertyAccessExpression(n.expression) && n.expression.expression.getText() === "Math" && n.expression.name.text === "hypot") {
+      c6.push(`${f}:${p.sf.getLineAndCharacterOfPosition(n.getStart()).line + 1} Math.hypot`);
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(p.sf);
+}
+check("C6", "allocations in per-frame entry points; Math.hypot in game code", c6);
 
 // C7: module-level numeric knobs in sim contexts carry a comment (source or measurement). One comment may
 // head a block of consecutive knob lines. An enum series (contiguous consts 0, 1, 2, ...) is not a knob.

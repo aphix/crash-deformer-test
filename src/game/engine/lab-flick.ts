@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { CAR_HALF } from "../vehicle/car.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 import { FREE, WALL, type Lab } from "./engine-lab.ts";
 
 /** The screen box the pointer's client coordinates are read in (the canvas's `getBoundingClientRect`). */
@@ -117,8 +118,8 @@ export class LabFlick {
       const my = this.px.y;
       // The thing's drawn half length: its middle moved that far along the camera's right, on screen.
       this.screen(this.at.addScaledVector(this.right, lab.slotOf[k]! >= 0 ? CAR_HALF.z : FLICK.dummyHalf), r);
-      const reach = Math.max(FLICK.pickPx, Math.hypot(this.px.x - mx, this.px.y - my));
-      const d = Math.hypot(x - mx, y - my);
+      const reach = Math.max(FLICK.pickPx, hypot2(this.px.x - mx, this.px.y - my));
+      const d = hypot2(x - mx, y - my);
       if (d <= reach && d < bestD) {
         bestD = d;
         best = k;
@@ -191,7 +192,7 @@ export class LabFlick {
   private aim(x: number, y: number, t: number): number {
     const dx = x - this.x0;
     const dy = y - this.y0;
-    const len = Math.hypot(dx, dy);
+    const len = hypot2(dx, dy);
     if (len < FLICK.tapPx) return 0;
     const r = this.rect();
     const lab = this.lab;
@@ -202,7 +203,7 @@ export class LabFlick {
       if (!this.screen(lab.targetPoint(this.thing, k, this.at), r)) continue;
       const ox = this.px.x - this.cx;
       const oy = this.px.y - this.cy;
-      const off = Math.acos(THREE.MathUtils.clamp((ox * dx + oy * dy) / (Math.hypot(ox, oy) * len || 1), -1, 1));
+      const off = Math.acos(THREE.MathUtils.clamp((ox * dx + oy * dy) / (hypot2(ox, oy) * len || 1), -1, 1));
       if (off < bestOff) {
         bestOff = off;
         best = k;
@@ -226,7 +227,7 @@ export class LabFlick {
       old = j;
     }
     const ms = t - this.st[old]!;
-    const pxs = ms > 0.5 ? Math.hypot(x - this.sx[old]!, y - this.sy[old]!) / (ms / 1000) : 0;
+    const pxs = ms > 0.5 ? hypot2(x - this.sx[old]!, y - this.sy[old]!) / (ms / 1000) : 0;
     return THREE.MathUtils.clamp((FLICK.gain * pxs) / Math.max(1, Math.min(r.width, r.height)), FLICK.min, FLICK.max);
   }
 
@@ -250,7 +251,7 @@ export class LabFlick {
     const s = (speed - FLICK.min) / (FLICK.max - FLICK.min);
     this.cueMat.color.copy(SOFT).lerp(HARD, s);
     // On the bench under the car's middle, from its nose's reach out along the launch, longer the harder.
-    const plan = Math.hypot(v.x, v.z) || 1;
+    const plan = hypot2(v.x, v.z) || 1;
     const reach = CAR_HALF.z + 0.3;
     this.arrow.position.set(this.at.x + (v.x / plan) * reach, this.at.y - 0.62, this.at.z + (v.z / plan) * reach);
     this.arrow.rotation.set(0, Math.atan2(v.x, v.z), 0);

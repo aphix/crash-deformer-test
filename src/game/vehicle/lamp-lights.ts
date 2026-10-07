@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2 } from "../kernel/physics-core.js";
 import { lampEmissiveMap, makeLampUnit, type LampKind } from "./car-materials.ts";
 
 /**
@@ -267,7 +268,7 @@ function glowSprite(): THREE.DataTexture {
   const data = new Uint8Array(n * n * 4);
   for (let y = 0; y < n; y++) {
     for (let x = 0; x < n; x++) {
-      const r = Math.min(1, Math.hypot(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2));
+      const r = Math.min(1, hypot2(x + 0.5 - n / 2, y + 0.5 - n / 2) / (n / 2));
       const o = (y * n + x) * 4;
       data[o] = data[o + 1] = data[o + 2] = 255;
       data[o + 3] = Math.round(255 * (1 - r) ** 2);

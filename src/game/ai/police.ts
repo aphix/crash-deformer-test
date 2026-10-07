@@ -232,7 +232,7 @@ export class PoliceBrain extends CopBrain {
     const pt = this.track.pointAt(((s % L) + L) % L, this.pt);
     const blend = Math.min(1, (2 * (LEAD_IN - this.leadIn[u]!)) / LEAD_IN);
     const alpha = blend * wrapPi(Math.atan2(pt.x - self.x, pt.z - self.z) - self.yaw);
-    const reach = Math.hypot(pt.x - self.x, pt.z - self.z);
+    const reach = hypot2(pt.x - self.x, pt.z - self.z);
     // An aim behind its shoulder (the stakeout car facing the oncoming racers): full lock, half throttle.
     const behind = Math.abs(alpha) > BEHIND;
     out.steer = behind ? Math.sign(alpha) : pursuitSteer(alpha, reach, speed, this.turn[self.id]!);
@@ -266,7 +266,7 @@ export class PoliceBrain extends CopBrain {
       if (st === "parked") {
         // Held back until a racer passes its spot (or a knock moves it).
         let r = this.passer(u, cars, hunt, time);
-        if (r < 0 && Math.hypot(car.vx, car.vz) > KNOCK) r = this.nearest(car, cars, hunt, time);
+        if (r < 0 && hypot2(car.vx, car.vz) > KNOCK) r = this.nearest(car, cars, hunt, time);
         if (r >= 0) this.wake(u, r);
         else if (this.since[u]! > PARK_MAX && !world.seen(car.x, car.z)) this.store(u, world);
         continue;
@@ -302,7 +302,7 @@ export class PoliceBrain extends CopBrain {
       for (let u = 0; u < this.count; u++) {
         if (this.pack[u] !== p || this.state[u] !== "pursuit") continue;
         chasing++;
-        near = Math.min(near, Math.hypot(cars[this.first + u]!.x - tg.x, cars[this.first + u]!.z - tg.z));
+        near = Math.min(near, hypot2(cars[this.first + u]!.x - tg.x, cars[this.first + u]!.z - tg.z));
       }
       this.stats.maxPack = Math.max(this.stats.maxPack, chasing);
       this.age[p]! += dt;
@@ -403,7 +403,7 @@ export class PoliceBrain extends CopBrain {
       const z = pt.z - pt.tx * lat;
       if (world.seen(x, z)) continue;
       let clear = true;
-      for (const o of cars) if (Math.hypot(o.x - x, o.z - z) < PARK_CLEAR) clear = false;
+      for (const o of cars) if (hypot2(o.x - x, o.z - z) < PARK_CLEAR) clear = false;
       if (!clear) continue;
       // Nose toward the road: forward turned by `angle` toward the centreline.
       const fx = facing * pt.tx * Math.cos(angle) - side * pt.tz * Math.sin(angle);
@@ -476,7 +476,7 @@ export class PoliceBrain extends CopBrain {
     this.nearD = Infinity;
     for (let i = 0; i < this.line.racers; i++) {
       if (!this.huntable(i, hunt, time)) continue;
-      const d = Math.hypot(cars[i]!.x - c.x, cars[i]!.z - c.z);
+      const d = hypot2(cars[i]!.x - c.x, cars[i]!.z - c.z);
       if (d < this.nearD) {
         this.nearD = d;
         best = i;
