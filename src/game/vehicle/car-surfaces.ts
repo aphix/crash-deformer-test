@@ -377,8 +377,8 @@ export class CarSurfaces extends Surface {
       const f = s % FACES;
       const before = d.crush[f]!;
       d.crush[f] = Math.min(faceMax(f), before + this.grew[s]!);
-      // A roof that sank takes the shape of the belly that pressed it.
-      if (f === FACE_TOP && d.crush[f]! > before) imprint(self, car);
+      // A roof another car's belly sank takes the shape of that belly; the ground's or a wall's press (the stepping car's own faces) has no pan.
+      if (f === FACE_TOP && car !== self && d.crush[f]! > before) imprint(self, car);
       d.bakeLoadCrush();
     }
     let top = 0;

@@ -1087,7 +1087,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // row, its centre 7 cm past it and its front row 25 mm off the windscreen, and the column built on it fell.
   let up = 0;
   for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
-  if (n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n)) {
+  const froze = n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n);
+  if (Reflect.get(globalThis, "__dump") === car.slot) {
+    let s = "";
+    for (let c = 0; c < n; c++) s += ` [${c} pen${(SINK[c]! * 1e6).toFixed(0)} a${ACC[c]!.toFixed(4)} d${DEMAND[c]!.toFixed(4)}]`;
+    console.log(`n${n} Y${yielded ? 1 : 0} F${froze ? 1 : 0} sur${surrounds(n) ? 1 : 0} v${(v.x * 1e3).toFixed(1)},${(v.y * 1e3).toFixed(1)},${(v.z * 1e3).toFixed(1)} w${(w.x * 1e3).toFixed(1)},${(w.y * 1e3).toFixed(1)},${(w.z * 1e3).toFixed(1)} x${(_com.x * 1e6).toFixed(0)} z${(_com.z * 1e6).toFixed(0)} qx${(q.x * 1e6).toFixed(0)} qz${(q.z * 1e6).toFixed(0)} lift${(_lift.y * 1e6).toFixed(0)}${s}`);
+  }
+  if (froze) {
     v.set(0, 0, 0);
     w.set(0, 0, 0);
     _com.y += Math.min(under, REST_LIFT);
