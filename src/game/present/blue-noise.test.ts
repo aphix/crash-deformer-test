@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { BLUE_NOISE_SIZE, blueNoiseTexture } from "./blue-noise.ts";
+import { BLUE_NOISE, BLUE_NOISE_SIZE } from "./blue-noise.ts";
 
 const CHANNELS = 4;
 const channelCases = [
@@ -25,12 +25,8 @@ function meanNeighbourStep(data: Uint8Array, channel: number): number {
 }
 
 describe("given the shared blue-noise texture", () => {
-  const tex = blueNoiseTexture();
+  const tex = BLUE_NOISE;
   const data = tex.image.data as Uint8Array;
-
-  it("when it is asked for twice, then both calls return the same texture", () => {
-    assert.equal(blueNoiseTexture(), tex);
-  });
 
   it("when its size is read, then it is a 64 by 64 table of four 8-bit channels", () => {
     assert.equal(tex.image.width, 64);

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { blueNoiseTexture } from "./blue-noise.ts";
+import { BLUE_NOISE } from "./blue-noise.ts";
 
 /**
  * Cinematic FX quality, cheapest first. `off` and `minimal` render straight to the canvas (no post chain);
@@ -242,7 +242,7 @@ export class PostFX {
           uCenter: { value: this.center },
           uGrain: { value: spec.grain },
           uPhase: { value: 0 },
-          tNoise: { value: blueNoiseTexture() },
+          tNoise: { value: BLUE_NOISE },
           uVignette: { value: GRADE.vignette },
           uSat: { value: GRADE.saturation },
           uContrast: { value: GRADE.contrast },
