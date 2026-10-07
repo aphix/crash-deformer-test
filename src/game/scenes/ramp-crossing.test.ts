@@ -1,4 +1,4 @@
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
@@ -12,6 +12,7 @@ import { paint } from "../vehicle/test-support.ts";
 import { assignClass } from "../vehicle/vehicle-classes.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { fit } from "../vehicle/ground-probe.test-util.ts";
+import { useStiffSprings } from "../vehicle/stiff-springs.test-util.ts";
 
 /**
  * E1 of docs/UNIFIED_CONTACT.md (section 1.1, 7.1): the owner's ramp cases. A sedan cruises at v m/s with steer 0 and the
@@ -34,6 +35,8 @@ const ES = [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6] as const;
 const SPEEDS = [8, 12, 20] as const;
 /** The bars (docs/UNIFIED_CONTACT.md E1). */
 const BAR = { yaw: 1.0, heading: 1.0, shove: 0.01, dv: 0.3, tilt: 1.5 } as const;
+/** Gives the class springs back after each suite: the crossings run on very stiff short springs (`useStiffSprings`), so no sprung offset hides the plane and shove the text judges. */
+let restoreSprings = (): void => {};
 
 function wrap(a: number): number {
   let r = a;
@@ -134,8 +137,6 @@ function cross(v: number, thDeg: number, e: number): Result {
   const head0 = wrap(yaw);
   let lastVx = car.velocity.x;
   let lastVz = car.velocity.z;
-  let lastX = p.x;
-  let lastZ = p.z;
   _c.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion);
   let lastCx = p.x + _c.x;
   let lastCz = p.z + _c.z;
@@ -159,10 +160,6 @@ function cross(v: number, thDeg: number, e: number): Result {
       const h = physicsSlice(acc, sliceSpeed(w.cars));
       input.throttle = Math.max(0, Math.min(1, (v - Math.hypot(car.velocity.x, car.velocity.z)) / 1.5));
       applyDrive(car, input, h);
-      // `velocity` is the origin's on the wheels and the centre of mass's in the rigid step (`DeformableCar.rigid`): a slice the body
-      // spends rigid throughout shoves it by its centre's move past that velocity (a body turning about its centre swings its origin,
-      // and that is no shove); any other slice by its origin's (a landing lays the body on its wheels' plane about the origin).
-      const rigid = car.rigid;
       stepWorld(w, h);
       car.stepBreakage(h);
       acc -= h;
@@ -183,15 +180,13 @@ function cross(v: number, thDeg: number, e: number): Result {
       out.yaw = Math.max(out.yaw, Math.abs(wrap(car.group.rotation.y - yaw0)) * DEG);
       out.heading = Math.max(out.heading, Math.abs(wrap(Math.atan2(car.velocity.x, car.velocity.z) - head0)) * DEG);
       out.dv = Math.max(out.dv, Math.hypot(car.velocity.x - lastVx, car.velocity.z - lastVz));
+      // `velocity` is the centre of mass's: a body turning about its centre swings its origin, and that is no shove.
       _c.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion);
-      const com = rigid && car.rigid;
-      const mx = com ? p.x + _c.x - lastCx : p.x - lastX;
-      const mz = com ? p.z + _c.z - lastCz : p.z - lastZ;
+      const mx = p.x + _c.x - lastCx;
+      const mz = p.z + _c.z - lastCz;
       out.shove = Math.max(out.shove, Math.hypot(mx - car.velocity.x * h, mz - car.velocity.z * h));
       lastVx = car.velocity.x;
       lastVz = car.velocity.z;
-      lastX = p.x;
-      lastZ = p.z;
       lastCx = p.x + _c.x;
       lastCz = p.z + _c.z;
       if (touching >= 3 && fitPlane(hx, ry, hz, touching, planeC)) {
@@ -236,6 +231,10 @@ function cross(v: number, thDeg: number, e: number): Result {
 }
 
 describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the throttle holding its speed", () => {
+  before(() => {
+    restoreSprings = useStiffSprings();
+  });
+  after(() => restoreSprings());
   afterEach(() => setGround(null));
 
   for (const v of SPEEDS) {
@@ -262,6 +261,10 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
 });
 
 describe("given a sedan driving up the middle of the ramp's wedge, so its tyres stand on the level floor and then on the wedge's one plane", () => {
+  before(() => {
+    restoreSprings = useStiffSprings();
+  });
+  after(() => restoreSprings());
   afterEach(() => setGround(null));
 
   it("when the plane through its touching wheels is fitted through their resting hubs and through the ground under their hubs, then the two planes agree within 0.01° wherever the ground under every tyre is one plane", () => {

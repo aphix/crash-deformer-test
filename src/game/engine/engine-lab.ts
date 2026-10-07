@@ -463,8 +463,7 @@ export class Lab {
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
       } else {
-        // Thrown: the rigid step flies it (`stepFree`) from its centre of mass, and hands it back to its wheels where it lands on them.
-        car.rigid = true;
+        // Thrown: the rigid step flies it (`stepFree`) from its centre of mass, and lands it on its wheels.
         car.deform.bindKinematic(car.group, car.velocity, car.angular);
       }
     } else {

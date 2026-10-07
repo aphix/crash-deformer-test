@@ -94,11 +94,6 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
 export const REST_LIFT = 0.02;
 /** A wheel this close (m) to the ground counts as down. */
 export const TOUCH = 0.03;
-/** How far (m) a wheel's tread may be off a surface for a spawn's first slice to lay the body on it (`DeformableCar.laying`): a bank's low side. */
-const LAY_REACH = 0.4;
-/** The ground's most upward push (m/s²) on a body through its tyres and springs: 8 g (Rapier's raycast vehicle
- *  peaked at 4–12 g on the same ramps and crests). The pose-following step shares it. */
-const SUPPORT = 8 * G;
 /** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,
  *  `Suspension`, take a landing) don't bounce. */
 const RESTITUTION = 0.25;
@@ -107,12 +102,10 @@ const BOUNCE_V = 1.5;
 const MU_BODY = 0.6;
 /** Rate (1/s) a driven car's nose closes on its flight path, above `NOSE_V` (m/s): slower, the path's turn
  *  (g / speed) is a tumble's, not a jump's, and the body turns freely. `NOSE_V` is also the speed from which a driven car keeps its
- *  travel through the world's faces (`stepFree`) and is launched by a ramp's face (`stepPlane`). */
+ *  travel through the world's faces (`stepFree`). */
 const NOSE_K = 6;
 const SPIN_TAU = 0.05;
 const NOSE_V = 6;
-/** Least rise (m per m of travel) of a face that launches a car riding off it on one axle (`launching`): a ramp, not a level edge. */
-const LAUNCH_RISE = 0.02;
 /** Below these speeds (m/s, rad/s) a body on three or more hull points is at rest (on two it can still tip), on ground
  *  whose mean up-normal is over `REST_UP` (cos 14°). */
 const REST_V = 0.15;
@@ -441,279 +434,21 @@ export function wreckContact(car: DeformableCar): void {
 }
 
 /**
- * What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which step moves it and
- * which wheels reach. A wreck on its masses is moved by them, and touches what their last slice left (`wreckContact`); one off
- * them (`armed`: flying) by the rigid step, as is any body with fewer than three wheels on the world.
+ * What the body touches as posed, read off the pose where no slice carried it (a keyframe restored): which wheels reach. A wreck on its
+ * masses touches what their last slice left (`wreckContact`).
  */
 export function readContact(car: DeformableCar): void {
   car.restsOn = null;
   car.yielding = false;
   car.hardTouch = false;
   if (car.deform.massActive) {
-    car.rigid = false;
     wreckContact(car);
     return;
   }
   beginContacts(car);
   const mask = wheelsAt(car, droop(carClass(car)) + TOUCH);
   car.wheelsDown = mask;
-  car.rigid = (car.crashed && car.deform.armed) || worldWheels(car, mask) < 3;
   car.airborne = mask === 0;
-}
-
-const _u = new Float64Array(4);
-const _wd = new Float64Array(4);
-const _hh = new Float64Array(4);
-/** A fitted plane: height at the origin, rise per metre along the heading, rise per metre toward the car's +x side. */
-const _pl = new Float64Array(3);
-const _bp = new Float64Array(3);
-/** The previous pass's plane (`stepPlane`). */
-const _pp = new Float64Array(3);
-/** The pose `_pl` gives a body facing the asked yaw: pitch, roll and the plane's unit up-normal (x, y, z). */
-const _pose = new Float64Array(5);
-/** Reads of the tyres per slice at most (`stepPlane`). */
-const PASSES = 4;
-
-/** The pose of `_pl` for a body facing yaw (sin `sy`, cos `cy`) into `_pose`. */
-function planePose(sy: number, cy: number): void {
-  const gx = _pl[1]! * sy + _pl[2]! * cy;
-  const gz = _pl[1]! * cy - _pl[2]! * sy;
-  const len = Math.hypot(gx, 1, gz);
-  const nx = -gx / len;
-  const ny = 1 / len;
-  const nz = -gz / len;
-  const nf = nx * sy + nz * cy;
-  _pose[0] = Math.atan2(nf, ny);
-  _pose[1] = Math.atan2(nz * sy - nx * cy, hypot2(nf, ny));
-  _pose[2] = nx;
-  _pose[3] = ny;
-  _pose[4] = nz;
-}
-
-/** The least-squares plane c + a·u + b·w through the contacts of the wheels in `mask` (exact for three) into `_pl`; false when degenerate. */
-function fitPlane(mask: number): boolean {
-  let m = 0;
-  let su = 0;
-  let sw = 0;
-  let suu = 0;
-  let suw = 0;
-  let sww = 0;
-  let sh = 0;
-  let suh = 0;
-  let swh = 0;
-  for (let i = 0; i < 4; i++) {
-    if (((mask >> i) & 1) === 0) continue;
-    const u = _u[i]!;
-    const w = _wd[i]!;
-    const h = _hh[i]!;
-    m++;
-    su += u;
-    sw += w;
-    suu += u * u;
-    suw += u * w;
-    sww += w * w;
-    sh += h;
-    suh += u * h;
-    swh += w * h;
-  }
-  const d = m * (suu * sww - suw * suw) - su * (su * sww - suw * sw) + sw * (su * suw - suu * sw);
-  if (Math.abs(d) < 1e-9) return false;
-  _pl[0] = (sh * (suu * sww - suw * suw) - su * (suh * sww - suw * swh) + sw * (suh * suw - suu * swh)) / d;
-  _pl[1] = (m * (suh * sww - suw * swh) - sh * (su * sww - suw * sw) + sw * (su * swh - suh * sw)) / d;
-  _pl[2] = (m * (suu * swh - suh * suw) - su * (su * swh - suh * sw) + sh * (su * suw - suu * sw)) / d;
-  return true;
-}
-
-/** The most (m) any wheel in `mask` has its contact above `_pl` (a spring pushed past its bump stop). */
-function bumped(mask: number): number {
-  let worst = -Infinity;
-  for (let i = 0; i < 4; i++) {
-    if (((mask >> i) & 1) === 0) continue;
-    worst = Math.max(worst, _hh[i]! - (_pl[0]! + _pl[1]! * _u[i]! + _pl[2]! * _wd[i]!));
-  }
-  return worst;
-}
-
-/**
- * The plane the body rests on over the wheels in `mask` (at least three), facing `yaw`: the least-squares plane through each wheel's
- * foot (its hub's point on the tyre plane, the body's y = 0, on the pose `wheelsAt` read) lifted by its rise: where the wheel's hub
- * comes to rest on what its tread meets, so a tyre on a lip or rolling off an edge holds its corner of the body as high as its hub
- * stands, not as high as the point it touches. Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that
- * holds the body up alone with two others (a car on a kerb's corner rests on three). One axle's two wheels (a launch, `stepPlane`) give
- * the plane through their two feet at the pitch the body rides: it leaves a face in the attitude it climbed it in.
- */
-function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number): boolean {
-  const p = car.group.position;
-  const hit = car.wheelHit;
-  const sy = Math.sin(yaw);
-  const cy = Math.cos(yaw);
-  for (let i = 0; i < 4; i++) {
-    if (((mask >> i) & 1) === 0) continue;
-    const dx = _e[0]! * WX[i]! + _e[6]! * WZ[i]!;
-    const dz = _e[2]! * WX[i]! + _e[8]! * WZ[i]!;
-    _u[i] = dx * sy + dz * cy;
-    _wd[i] = dx * cy - dz * sy;
-    _hh[i] = p.y + _e[1]! * WX[i]! + _e[7]! * WZ[i]! + hit[i * HIT_SIZE + C_H]!;
-  }
-  if (mask === 3 || mask === 12) {
-    const i = mask === 3 ? 0 : 2;
-    const o = i * HIT_SIZE;
-    const nx = hit[o + C_NX]! + hit[o + HIT_SIZE + C_NX]!;
-    const nz = hit[o + C_NZ]! + hit[o + HIT_SIZE + C_NZ]!;
-    const a = -(nx * sy + nz * cy) / (hit[o + C_NY]! + hit[o + HIT_SIZE + C_NY]!);
-    const b = (_hh[i]! - a * _u[i]! - _hh[i + 1]! + a * _u[i + 1]!) / (_wd[i]! - _wd[i + 1]!);
-    _pl[0] = _hh[i]! - a * _u[i]! - b * _wd[i]!;
-    _pl[1] = a;
-    _pl[2] = b;
-    return true;
-  }
-  if (!fitPlane(mask)) return false;
-  if (mask !== 15 || bumped(mask) <= stop) return true;
-  // Past a stop the body rests on three, the fourth's spring at full droop: the lowest plane through three feet that leaves the fourth
-  // within its stop.
-  let best = Infinity;
-  for (let j = 0; j < 4; j++) {
-    if (!fitPlane(15 & ~(1 << j))) continue;
-    if (_hh[j]! - (_pl[0]! + _pl[1]! * _u[j]! + _pl[2]! * _wd[j]!) > stop || _pl[0]! >= best) continue;
-    best = _pl[0]!;
-    _bp.set(_pl);
-  }
-  if (best === Infinity) return fitPlane(mask);
-  _pl.set(_bp);
-  return true;
-}
-
-/**
- * Whether the plane through one axle's feet (`restPlane`) launches `car`, facing (`sy`, `cy`): it rises along the car's travel by at
- * least `LAUNCH_RISE` (a ramp's face, not a level edge the car rolls off) and the surface under the car's origin is within `reach` of it
- * (the face goes on under its middle).
- */
-function launching(car: DeformableCar, sy: number, cy: number, reach: number): boolean {
-  const v = car.velocity;
-  const along = v.x * sy + v.z * cy;
-  if (!(_pl[1]! * along > LAUNCH_RISE * Math.abs(along))) return false;
-  const p = car.group.position;
-  PQ[PQ_X] = p.x;
-  PQ[PQ_Z] = p.z;
-  PQ[PQ_Y] = _pl[0]!;
-  pointContact(PQ, car.slot, HIT);
-  return HIT[C_H]! >= _pl[0]! - reach;
-}
-
-/**
- * One slice of a driven car whose wheels stand on the world: its pose is the rest plane through their contacts (yaw kept),
- * its height follows that plane's height under its origin, climbing at the rate the plane rises along its travel and sinking
- * into its springs where the plane rose faster than the ground's push (`SUPPORT`) can follow. Returns false when fewer than
- * three wheels stand on the world, unless one axle is launching the car off a ramp's face (`launching`): the caller hands it to the
- * rigid step.
- */
-export function stepPlane(car: DeformableCar, dt: number): boolean {
-  beginContacts(car);
-  const q = car.group.quaternion;
-  const pos = car.group.position;
-  const v = car.velocity;
-  const spring = car.laying ? LAY_REACH : droop(carClass(car));
-  car.laying = false;
-  const yaw = car.yaw;
-  const sy = Math.sin(yaw);
-  const cy = Math.cos(yaw);
-  _q0.copy(q).invert();
-  // The pose a pass leaves moves the tyres over the surface (a lip's face, a bank): the next pass reads them where it left them, until
-  // the plane holds (a wheel easing over an edge took three passes). A plane that sends the body back to the pose before the last one
-  // has a tyre straddling a step's edge that each pose moves on and off it: the body rests on that edge, between the two.
-  let p2 = car.pitch;
-  let r2 = car.roll;
-  for (let pass = 0; pass < PASSES; pass++) {
-    const mask = wheelsAt(car, spring + TOUCH);
-    const ww = worldWheels(car, mask);
-    // A jump's launch (arcade, as the nose follows the path in flight): above `NOSE_V` a car whose front wheels have left a ramp's lip
-    // rides its rear axle up the face, as on its wheels, until its middle is past the lip. Left to the rigid step, the rear axle carried
-    // its share alone: the front half fell at G/2 and the springs pitched the nose down (11 m/s: off the lip at 1.3 m/s up, not 2.7).
-    const axle = ww === 2 && (mask === 3 || mask === 12) && v.lengthSq() > NOSE_V * NOSE_V;
-    if ((ww < 3 && !axle) || !restPlane(car, mask, yaw, spring) || (axle && !launching(car, sy, cy, spring + TOUCH))) {
-      // The body takes off from the pose this read was taken on: a tyre on a face's corner that the first pass's plane rolls off it
-      // has no rest on that corner, and handed back the pose it had, the corner (risen under it meanwhile) sank the drawn tyre 6-13 cm.
-      car.wheelsDown = mask;
-      car.airborne = mask === 0;
-      return false;
-    }
-    planePose(sy, cy);
-    const moved = Math.abs(_pose[0]! - car.pitch) + Math.abs(_pose[1]! - car.roll);
-    const cycled = pass > 0 && moved >= 1e-3 && Math.abs(_pose[0]! - p2) + Math.abs(_pose[1]! - r2) < 1e-3;
-    if (cycled) {
-      for (let k = 0; k < 3; k++) _pl[k] = (_pl[k]! + _pp[k]!) / 2;
-      planePose(sy, cy);
-    }
-    _pp.set(_pl);
-    p2 = car.pitch;
-    r2 = car.roll;
-    car.pitch = _pose[0]!;
-    car.roll = _pose[1]!;
-    car.group.rotation.set(car.pitch, yaw, car.roll, "YXZ");
-    if (moved < 1e-3) break;
-    // The last pass moved the body off where its tyres were read (a wheel at the edge of its reach): read them where it rests.
-    if (cycled || pass === PASSES - 1) {
-      wheelsAt(car, spring + TOUCH);
-      break;
-    }
-  }
-  const gy = _pl[0]!;
-  const nx = _pose[2]!;
-  const ny = _pose[3]!;
-  const nz = _pose[4]!;
-  // The tilt's turn over this slice (world rad/s) is what the body carries into the air at a takeoff, smoothed over `SPIN_TAU`: the
-  // pose snaps a few degrees in a slice where a wheel meets a lip or leaves a ledge, and that is no turn the body is making.
-  _q0.premultiply(q);
-  const keep = Math.exp(-dt / SPIN_TAU);
-  const k = ((_q0.w < 0 ? -2 : 2) / dt) * (1 - keep);
-  car.groundSpin.set(car.groundSpin.x * keep + _q0.x * k, car.groundSpin.y * keep + _q0.y * k, car.groundSpin.z * keep + _q0.z * k);
-
-  const yEval = pos.y;
-  const y0 = yEval - v.y * dt;
-  const was = Number.isNaN(car.support) ? gy : car.support;
-  // The support's own rise rate is what the body rides while the ground's push can follow it. Across a step (a kerb, a ramp's lip, a
-  // strip's edge: 24 m/s for a 0.2 m kerb in one slice, 10 m/s off a 0.894 m strip's lip, which then flew the sedan 5.7 m) it cannot.
-  const climb = (gy - was) / dt;
-  car.support = gy;
-  if (pos.y <= gy) {
-    // The ground only pushes up, by at most `SUPPORT`: the body climbs with its support and, where the slice started in its
-    // springs, rises out of them no faster than gravity stops it at the top (no hop: a push past that threw the body over its
-    // support), as far as that push allows; past it the body sinks into them, down to their stop (their full travel, its tyres'
-    // give included). Set onto its support in one slice, a ramp's foot, a dip's floor or a landing kicked the body up at 20–36 g.
-    const sunk = was - y0;
-    const want = sunk > 0 ? climb + Math.sqrt(2 * G * sunk) : climb;
-    if (sunk <= 0 && want - v.y <= SUPPORT * dt) {
-      pos.y = gy;
-      v.y = climb;
-    } else {
-      const lift = Math.min(Math.max(0, want - v.y), SUPPORT * dt);
-      v.y += lift;
-      pos.y += lift * dt;
-      if (sunk > 0 && v.y > want) v.y = want;
-    }
-    if (pos.y < gy - 2 * spring && v.y < climb) {
-      // On the stop the body sinks no further: it moves with its support, as fast as the push brings it (`SUPPORT` a slice), and
-      // the push brings it back out.
-      v.y = Math.min(climb, v.y + SUPPORT * dt);
-      pos.y = y0 + v.y * dt;
-    }
-    // Gravity along the surface (none on the level): it slows a car uphill and speeds it downhill.
-    v.x += G * ny * nx * dt;
-    v.z += G * ny * nz * dt;
-  }
-  const dy = pos.y - yEval;
-  let down = 0;
-  for (let i = 0; i < 4; i++) {
-    const o = i * HIT_SIZE + C_H;
-    car.wheelHit[o] = car.wheelHit[o]! - dy;
-    if (-car.wheelHit[o]! <= spring + TOUCH) down |= 1 << i;
-  }
-  car.wheelsDown = down;
-  car.airborne = false;
-  car.restsOn = null;
-  car.yielding = false;
-  car.hardTouch = false;
-  return true;
 }
 
 /**

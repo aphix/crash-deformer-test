@@ -6,7 +6,7 @@ import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
-import { COM_Y, pressing, readContact, stepFree, stepPlane, wreckContact } from "./car-air.ts";
+import { COM_Y, pressing, readContact, stepFree, wreckContact } from "./car-air.ts";
 import { Suspension, UNDERSIDE } from "./car-suspension.ts";
 import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
@@ -43,8 +43,10 @@ for (let i = 0; i < 4; i++) {
 export class DeformableCar extends CarParts {
   /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight); a body on its masses is in the air while they are (`aloft`). Drive and grip follow the wheels (`wheelsDown`), not this. */
   airborne = false;
-  /** How the body is moved: the rigid contact solve (`stepFree`: `velocity` is its centre of mass's) or the pose-following step (`stepPlane`: the origin's). Read off the pose when a keyframe is restored. */
-  rigid = false;
+  /** Moved by the rigid contact solve (`stepFree`), not by its crush masses or the fake fall: derived, never stored. `velocity` is then its centre of mass's. */
+  get rigid(): boolean {
+    return !this.deform.massActive && !this.falling;
+  }
   /** The world's other-car tops this body can stand on (`stepWorld` sets it; null: the world's ground alone). */
   surfaces: CarSurfaces | null = null;
   /** This car's slot in the world's `cars` (`stepWorld` sets it; -1 in no world): its own roof is not under it. */
@@ -194,7 +196,6 @@ export class DeformableCar extends CarParts {
       // origin, as `land` does, and a wreck's masses keep their dents. Its masses fly it on (`syncPose`) and
       // hand it back to `stepFree` once their contact window closes; left rigid, nothing ever landed it and
       // its drive stayed idled (8 s, stopped, on the stunt course).
-      this.rigid = false;
       this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
       if (this.crashed) {
         this.deform.armMasses(this.group, this.velocity, this.angular);
@@ -244,7 +245,6 @@ export class DeformableCar extends CarParts {
     if (dt > 0 && this.deform.aloft && !this.deform.live() && !pressing(this)) {
       fitMasses(this, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion).add(this.group.position), this.angular);
       this.deform.massActive = false;
-      this.rigid = true;
     }
     this.refreshBasis();
   }
@@ -290,39 +290,21 @@ export class DeformableCar extends CarParts {
   }
 
   /**
-   * Fewer than three wheels stand on the world: the body flies (`stepFree`) from its centre of mass, turning as the ground last turned
-   * it. A driven car keeps its velocity (the tilt's turn is no push on the car: a lip's 1.5 rad/s over the 0.55 m to its centre was a
-   * 0.8 m/s sideways kick); a wreck's spin is its own, and carries its centre.
+   * A wreck flying as a rigid body (`stepFree`) with three wheels on the world goes back to its masses (`armed`): they take its centre's
+   * velocity less the spin's carry (a body crushed only by a load has no masses and stands on its wheels as an intact car does).
    */
-  private takeOff(): void {
-    this.rigid = true;
-    this.support = NaN;
-    if (this.crashed) this.velocity.add(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
-    else this.angular.add(this.groundSpin);
-  }
-
-  /**
-   * Back on its wheels (`stepFree`: three on the world): the pose-following step takes the body where and as it is (the caller lays
-   * it on the rest plane of its wheels' contacts in the same slice). A wreck goes back to its masses (`armed`); a body crushed only by
-   * a load has none and stands on its wheels as an intact car does.
-   */
-  private land(): void {
-    this.rigid = false;
-    this.support = NaN;
-    if (this.crashed) this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
+  private landWreck(): void {
+    this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
     this.angular.set(0, this.angular.y, 0);
     this.speed = hypot2(this.velocity.x, this.velocity.z);
-    if (this.crashed && this.deform.armed) {
-      this.deform.armMasses(this.group, this.velocity, this.angular);
-      // Landing, not aloft: marked aloft its masses handed it straight back to `stepFree` before they took the slice,
-      // and a stunt-course wreck hovered on its tyres (vy −5 m/s, its height still) for seconds.
-      this.deform.unstep(this.flewDt);
-    }
+    this.deform.armMasses(this.group, this.velocity, this.angular);
+    // Landing, not aloft: marked aloft its masses handed it straight back to `stepFree` before they took the slice,
+    // and a stunt-course wreck hovered on its tyres (vy −5 m/s, its height still) for seconds.
+    this.deform.unstep(this.flewDt);
   }
 
   /** On the road at a spawn: its four wheels stand on it, and none of the last slice's contact state applies. */
   private resetContact(): void {
-    this.rigid = false;
     this.airborne = false;
     this.support = NaN;
     this.wheelsDown = 15;
@@ -405,34 +387,17 @@ export class DeformableCar extends CarParts {
       this.stepLooseParts(dt);
       return;
     }
-    if (this.rigid) {
-      this.spinWheels(dt, false);
-      this.flewDt = dt;
-      const landed = stepFree(this, dt);
-      // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
-      this.yaw = this.group.rotation.y;
-      this.pitch = this.group.rotation.x;
-      this.roll = this.group.rotation.z;
-      if (landed) {
-        this.land();
-        // A body on its wheels is laid on their rest plane in the slice it lands: left on the rigid body's tilt for that slice, its tyres sat
-        // in their springs 2-2.5° off the plane through the three they touched.
-        if (!this.deform.massActive && !stepPlane(this, dt)) this.takeOff();
-      }
-      this.refreshBasis();
-      this.ride(dt);
-      if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
-      this.stepLooseParts(dt);
-      return;
-    }
-    this.velocity.y -= G * dt;
-    this.group.position.addScaledVector(this.velocity, dt);
-    this.spinWheels(dt, true);
-    this.deform.bindKinematic(this.group, this.velocity, this.angular);
-    // Three wheels on the world: the pose is the rest plane through their contacts. Fewer: the body flies from its centre of mass.
-    if (!stepPlane(this, dt)) this.takeOff();
+    this.spinWheels(dt, !this.airborne);
+    this.flewDt = dt;
+    const landed = stepFree(this, dt);
+    // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
+    this.yaw = this.group.rotation.y;
+    this.pitch = this.group.rotation.x;
+    this.roll = this.group.rotation.z;
+    if (landed && this.crashed && this.deform.armed) this.landWreck();
     this.refreshBasis();
     this.ride(dt);
+    if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
     this.stepLooseParts(dt);
   }
 
