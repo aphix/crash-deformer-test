@@ -23,25 +23,10 @@ import { mulberry32 } from "../world/placements.ts";
 import { celStrength } from "../present/scene-fade.ts";
 import { EngineDerby } from "./engine-derby.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
+import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
-/**
- * The Lab's opening orbit, low over the bench at toy height through a wider lens (`LAB_FOV`, deg): the bench, the board and
- * the tools on it loom over the set. Upright screens look over the thrower's shoulder down the throw (`toFocus`: the look point
- * that far from the thrower to the set's middle; `turn`: bearing off straight behind, rad), so the set runs up the screen's
- * length; wide ones look across the bench from its front at the set's middle, the thrower on the left, the targets on the
- * right and the pegboard behind, from just far enough back that every item of the set and `fit` m to spare fits the width,
- * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it, but never so high
- * that the thrower sits more than `low` of the half height below the middle (a dummy lying on the bench dropped under the dock
- * and the set panel). A wide screen `shortPx` CSS px tall or less (a phone on its side) has its dock and set panel along the
- * bottom: there the look point is the set's own height, so the thrower and the set sit mid-screen, clear of both.
- */
-const LAB_SHOT = {
-  upright: { toFocus: 0.8, turn: 0.06, radius: 21, pitch: 0.22, lift: 0 },
-  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5, low: 0.35, shortPx: 500 },
-};
-const LAB_FOV = 60;
 
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
@@ -235,22 +220,20 @@ export abstract class EngineScenes extends EngineDerby {
     this.labUpright = upright;
     const shot = upright ? LAB_SHOT.upright : LAB_SHOT.wide;
     const short = !upright && this.canvas.clientHeight <= LAB_SHOT.wide.shortPx;
-    this.labLook.lerpVectors(from, f, shot.toFocus).setY(f.y + (short ? 0 : shot.lift));
-    const behind = Math.atan2(from.x - f.x, from.z - f.z);
     const look = this.labLook;
+    const bearing = aimLabShot(from, f, shot, short, look);
     let radius = LAB_SHOT.upright.radius;
     if (!upright) {
       // The farthest item off the look point across the screen (along the camera's right), and the distance that fits it.
-      const a = behind + shot.turn;
       let span = 0;
       for (let k = 0; k < this.lab.layout.length; k++) {
         this.lab.centre(k, _w).sub(look);
-        span = Math.max(span, Math.abs(_w.x * Math.cos(a) - _w.z * Math.sin(a)));
+        span = Math.max(span, Math.abs(_w.x * Math.cos(bearing) - _w.z * Math.sin(bearing)));
       }
       radius = (span + LAB_SHOT.wide.fit) / (Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2) * this.camera.aspect);
       look.y = Math.min(look.y, from.y + LAB_SHOT.wide.low * radius * Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2));
     }
-    this.view.frameReset(true, this.live(), behind + shot.turn, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
+    this.view.frameReset(true, this.live(), bearing, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
   }
 
   /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves at `velocity`, and the crash starts over so the slow-mo and the crash cam catch its hit. */
