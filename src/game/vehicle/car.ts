@@ -53,6 +53,8 @@ export class DeformableCar extends CarParts {
   restsOn: DeformableCar | null = null;
   /** A face of this body (or of the car under it) is yielding to its load this slice (`CarSurfaces.commit`). */
   yielding = false;
+  /** The last slice left a hard contact held or about to be: a hull point, a belly or a roof in a surface, or a tyre at its spring stop or closing through what is left of its travel within a slice. Derived each slice (`stepFree`); read by `contactHz` to cut the step. */
+  hardTouch = false;
   /** A hard hit is about to land: this car is closing on a fixed solid (the course's collide pass) or on another car (`markApproaches`), within a step or two of travel of it, or driving into it. Not state: derived again every step, read by `stepWorld` to cut the step. */
   nearHit = false;
   /** Each wheel's last contact (`wheelContact`, `HIT_SIZE` doubles per wheel, `WHEEL_POS` order): the lift it needs, normal, grip, surface and owner. */
@@ -327,6 +329,7 @@ export class DeformableCar extends CarParts {
     this.laying = true;
     this.restsOn = null;
     this.yielding = false;
+    this.hardTouch = false;
     this.wheelHit.set(STANDING);
   }
 
