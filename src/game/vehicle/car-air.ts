@@ -328,10 +328,12 @@ function bumped(mask: number): number {
 }
 
 /**
- * The plane the body rests on over the wheels in `mask` (at least three), facing `yaw`: the least-squares plane through the surface
- * point under each wheel's tread (where the tyre rests, whichever side of its hub that is: `wheelContact`'s footprint point lifted by
- * its rise). Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that holds the body up alone with two
- * others (the lowest plane through three contacts that leaves the fourth within its stop): a car on a kerb's corner rests on three.
+ * The plane the body rests on over the wheels in `mask` (at least three), facing `yaw`: the least-squares plane through each wheel's
+ * foot (its hub's point on the tyre plane, the body's y = 0, on the pose `wheelsAt` read) lifted by its rise: where the wheel's hub
+ * comes to rest on what its tread meets, so a tyre on a lip or rolling off an edge holds its corner of the body as high as its hub
+ * stands, not as high as the point it touches. Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that
+ * holds the body up alone with two others (the lowest plane through three feet that leaves the fourth within its stop): a car on a
+ * kerb's corner rests on three.
  */
 function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number): boolean {
   const p = car.group.position;
@@ -340,12 +342,11 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
   const cy = Math.cos(yaw);
   for (let i = 0; i < 4; i++) {
     if (((mask >> i) & 1) === 0) continue;
-    const o = i * HIT_SIZE;
-    const dx = hit[o + C_PX]! - p.x;
-    const dz = hit[o + C_PZ]! - p.z;
+    const dx = _e[0]! * WX[i]! + _e[6]! * WZ[i]!;
+    const dz = _e[2]! * WX[i]! + _e[8]! * WZ[i]!;
     _u[i] = dx * sy + dz * cy;
     _wd[i] = dx * cy - dz * sy;
-    _hh[i] = hit[o + C_PY]! + hit[o + C_H]!;
+    _hh[i] = p.y + _e[1]! * WX[i]! + _e[7]! * WZ[i]! + hit[i * HIT_SIZE + C_H]!;
   }
   if (!fitPlane(mask)) return false;
   if (mask !== 15 || bumped(mask) <= stop) return true;
