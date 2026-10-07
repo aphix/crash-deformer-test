@@ -33,7 +33,7 @@ const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
 
 export class DeformableCar extends CarParts {
-  /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight). Drive and grip follow the wheels (`wheelsDown`), not this. */
+  /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight); a body on its masses is in the air while they are (`aloft`). Drive and grip follow the wheels (`wheelsDown`), not this. */
   airborne = false;
   /** How the body is moved: the rigid contact solve (`stepFree`: `velocity` is its centre of mass's) or the pose-following step (`stepPlane`: the origin's). Read off the pose when a keyframe is restored. */
   rigid = false;
@@ -224,6 +224,9 @@ export class DeformableCar extends CarParts {
     this.yaw = this.group.rotation.y;
     this.roll = this.group.rotation.z;
     this.pitch = this.group.rotation.x;
+    // On its masses a body is in the air while they are (`aloft`): struck in flight it kept the flag the hit found and, landed and
+    // stopped, still read as flying with its drive idled.
+    this.airborne = this.deform.aloft;
     // A wreck whose middle is off the ground (`aloft`) and whose hull is clear of it flies as a rigid body
     // (`stepFree`) once its contact window closes, fitted to its masses' motion; until then its masses fly it (a hit
     // in flight still crumples, a wreck over a lip pivots on its last wheels and one coming down lands on them).
@@ -231,7 +234,6 @@ export class DeformableCar extends CarParts {
       fitMasses(this, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion).add(this.group.position), this.angular);
       this.deform.massActive = false;
       this.rigid = true;
-      this.airborne = true;
     }
     this.refreshBasis();
   }
