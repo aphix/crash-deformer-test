@@ -368,8 +368,13 @@ function planePose(sy: number, cy: number): void {
   _pose[4] = nz;
 }
 
-/** The least-squares plane c + a·u + b·w through the contacts of the wheels in `mask` (exact for three) into `_pl`; false when degenerate. */
-function fitPlane(mask: number): boolean {
+/**
+ * The plane c + a·u + b·w the body's springs hold it at over the contacts of the wheels in `mask` into `_pl`; false when degenerate.
+ * Each spring carries its static share at its rest ride and `hang` m of travel more or less; a wheel off the ground carries none, so
+ * the others hold the whole weight about the origin. On four wheels that is the least-squares plane; on three it is the one the four
+ * left as the fourth lost its load at full droop (`hang` under its foot), so a body handed from four wheels to three does not jump.
+ */
+function fitPlane(mask: number, hang: number): boolean {
   let m = 0;
   let su = 0;
   let sw = 0;
@@ -394,6 +399,10 @@ function fitPlane(mask: number): boolean {
     suh += u * h;
     swh += w * h;
   }
+  // Off wheels' share: the springs in contact sink `hang` per wheel off in all, and turn the body toward where the off wheels' load was.
+  sh -= hang * (4 - m);
+  suh += hang * su;
+  swh += hang * sw;
   const d = m * (suu * sww - suw * suw) - su * (su * sww - suw * sw) + sw * (su * suw - suu * sw);
   if (Math.abs(d) < 1e-9) return false;
   _pl[0] = (sh * (suu * sww - suw * suw) - su * (suh * sww - suw * swh) + sw * (suh * suw - suu * swh)) / d;
@@ -417,9 +426,8 @@ function bumped(mask: number): number {
  * foot (its hub's point on the tyre plane, the body's y = 0, on the pose `wheelsAt` read) lifted by its rise: where the wheel's hub
  * comes to rest on what its tread meets, so a tyre on a lip or rolling off an edge holds its corner of the body as high as its hub
  * stands, not as high as the point it touches. Springs absorb what the plane leaves, up to `stop` m of bump; a wheel pushed past that
- * holds the body up alone with two others (the lowest plane through three feet that leaves the fourth within its stop): a car on a
- * kerb's corner rests on three. One axle's two wheels (a launch, `stepPlane`) give the plane through their two feet at the slope
- * along the heading of the surface under them.
+ * holds the body up alone with two others (a car on a kerb's corner rests on three). One axle's two wheels (a launch, `stepPlane`) give
+ * the plane through their two feet at the pitch the body rides: it leaves a face in the attitude it climbed it in.
  */
 function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number): boolean {
   const p = car.group.position;
@@ -436,26 +444,28 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
   }
   if (mask === 3 || mask === 12) {
     const i = mask === 3 ? 0 : 2;
-    const o = i * HIT_SIZE;
-    const nx = hit[o + C_NX]! + hit[o + HIT_SIZE + C_NX]!;
-    const nz = hit[o + C_NZ]! + hit[o + HIT_SIZE + C_NZ]!;
-    const a = -(nx * sy + nz * cy) / (hit[o + C_NY]! + hit[o + HIT_SIZE + C_NY]!);
+    const a = -Math.tan(car.pitch);
     const b = (_hh[i]! - a * _u[i]! - _hh[i + 1]! + a * _u[i + 1]!) / (_wd[i]! - _wd[i + 1]!);
     _pl[0] = _hh[i]! - a * _u[i]! - b * _wd[i]!;
     _pl[1] = a;
     _pl[2] = b;
     return true;
   }
-  if (!fitPlane(mask)) return false;
+  if (!fitPlane(mask, stop)) return false;
   if (mask !== 15 || bumped(mask) <= stop) return true;
+  // Past a stop the body rests on three, the fourth's spring at full droop: of those that leave the fourth within its stop, the one
+  // that turns it least from the pose it rides (a twist growing under it, the corkscrew's floor, hands it on without a jump).
   let best = Infinity;
   for (let j = 0; j < 4; j++) {
-    if (!fitPlane(15 & ~(1 << j))) continue;
-    if (_hh[j]! - (_pl[0]! + _pl[1]! * _u[j]! + _pl[2]! * _wd[j]!) > stop || _pl[0]! >= best) continue;
-    best = _pl[0]!;
+    if (!fitPlane(15 & ~(1 << j), stop)) continue;
+    if (_hh[j]! - (_pl[0]! + _pl[1]! * _u[j]! + _pl[2]! * _wd[j]!) > stop) continue;
+    planePose(sy, cy);
+    const turn = Math.abs(_pose[0]! - car.pitch) + Math.abs(_pose[1]! - car.roll);
+    if (turn >= best) continue;
+    best = turn;
     _bp.set(_pl);
   }
-  if (best === Infinity) return fitPlane(mask);
+  if (best === Infinity) return fitPlane(mask, stop);
   _pl.set(_bp);
   return true;
 }
