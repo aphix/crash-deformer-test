@@ -19,10 +19,12 @@ export const CORKSCREW = {
   climb: 0.55,
   rise: 7,
   /** The bank starts at `twistFrom`, its rate easing up over `twistEase`, then turns at a constant rate to `bank`
-   *  (rad, ~63°) at the lip: the floor stays a height field a car can ride (u = x / cos bank across it). */
+   *  (rad, ~43°) at the lip: the floor stays a height field a car can ride (u = x / cos bank across it). A car leaves
+   *  the lip with the floor's roll rate (0.094 rad/m of run): at 22 m/s it lands back on its wheels after a turn, at
+   *  27 m/s on its roof after a turn and a half (with its tyres on the floor; 63° spun a 22 m/s car 1.6 turns). */
   twistFrom: 3,
   twistEase: 2,
-  bank: 1.1,
+  bank: 0.75,
   /** Half the floor's width between the walls, and the walls' height off the floor (m). */
   halfW: 1.7,
   wallH: 0.9,
