@@ -27,7 +27,7 @@ const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
 /** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
-export const FLIGHT = 21;
+export const FLIGHT = 22;
 export const FLIGHT_POSE = 6;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
@@ -250,7 +250,8 @@ export class DeformableCar extends CarParts {
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
    * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
-   * off), the squeeze clocks, the drift state and the last support height. What the body touches is read off the pose again.
+   * off), the squeeze clocks, the drift state, the last support height and whether a spawn's laying slice is still due. What the
+   * body touches is read off the pose again.
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
@@ -268,6 +269,7 @@ export class DeformableCar extends CarParts {
       this.drive.drift = buf[o + 19]!;
       this.support = buf[o + 20]!;
       readContact(this);
+      this.laying = buf[o + 21] !== 0;
       return;
     }
     this.angular.toArray(buf, o);
@@ -282,6 +284,7 @@ export class DeformableCar extends CarParts {
     buf[o + 18] = this.endSqueeze ? 1 : 0;
     buf[o + 19] = this.drive.drift;
     buf[o + 20] = this.support;
+    buf[o + 21] = this.laying ? 1 : 0;
   }
 
   /**
