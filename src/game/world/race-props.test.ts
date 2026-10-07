@@ -10,9 +10,9 @@ import { Track } from "./track.ts";
 import { parseTrack } from "./track-schema.ts";
 import { TRACKS } from "./tracks/index.ts";
 
-/** City, 4 AI rivals and the AI-driven player slot, seed 2: its first 40 s knock four of the course's cones and crates. */
+/** City, 4 AI rivals and the AI-driven player slot, seed 5: its first 40 s knock three of the course's cones and crates (a scenario input: the seed is picked for its knocks). */
 const SECONDS = 40;
-const SEED = 2;
+const SEED = 5;
 
 type Run = { knocks: number[]; knocked: number; state: number[]; flying: number };
 
