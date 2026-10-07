@@ -418,6 +418,21 @@ function restPlane(car: DeformableCar, mask: number, yaw: number, stop: number):
     _wd[i] = dx * cy - dz * sy;
     _hh[i] = p.y + _e[1]! * WX[i]! + _e[7]! * WZ[i]! + hit[i * HIT_SIZE + C_H]!;
   }
+  if (mask === 3 || mask === 12) {
+    const i = mask === 3 ? 0 : 2;
+    const j = i + 1;
+    const oi = i * HIT_SIZE;
+    const oj = j * HIT_SIZE;
+    const nx = hit[oi + C_NX]! + hit[oj + C_NX]!;
+    const ny = hit[oi + C_NY]! + hit[oj + C_NY]!;
+    const nz = hit[oi + C_NZ]! + hit[oj + C_NZ]!;
+    const a = -(nx * sy + nz * cy) / ny;
+    const b = (_hh[i]! - a * _u[i]! - (_hh[j]! - a * _u[j]!)) / (_wd[i]! - _wd[j]!);
+    _pl[0] = _hh[i]! - a * _u[i]! - b * _wd[i]!;
+    _pl[1] = a;
+    _pl[2] = b;
+    return true;
+  }
   if (!fitPlane(mask)) return false;
   if (mask !== 15 || bumped(mask) <= stop) return true;
   let best = Infinity;
@@ -456,7 +471,9 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   let r2 = car.roll;
   for (let pass = 0; pass < PASSES; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
-    if (worldWheels(car, mask) < 3 || !restPlane(car, mask, yaw, spring)) {
+    const ww = worldWheels(car, mask);
+    const axle = !!process.env.AXLE && ww === 2 && (mask === 3 || mask === 12) && v.lengthSq() > NOSE_V * NOSE_V;
+    if ((ww < 3 && !axle) || !restPlane(car, mask, yaw, spring) || (axle && process.env.AXLE === "2" && (pointContact(pos.x, pos.z, _pl[0]!, car.slot, HIT), !(HIT[C_H]! >= _pl[0]! - spring - TOUCH)))) {
       // The body takes off from the pose this read was taken on: a tyre on a face's corner that the first pass's plane rolls off it
       // has no rest on that corner, and handed back the pose it had, the corner (risen under it meanwhile) sank the drawn tyre 6-13 cm.
       car.wheelsDown = mask;
@@ -678,6 +695,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     n++;
   }
 
+  if ("__dbg" in globalThis && globalThis.__dbg) for (let c = 0; c < n; c++) console.log(`  c${c} tyre ${+TYRE[c]!} soft ${+SOFT[c]!} own ${OWN[c]} press ${PRESS[c]!.toFixed(3)} sink ${SINK[c]!.toFixed(3)} ny ${N[c]!.y.toFixed(2)} close ${+CLOSE[c]!} local ${_r.copy(R[c]!).applyQuaternion(_qi).toArray().map((x) => x.toFixed(2))} v ${v.y.toFixed(2)} w ${w.x.toFixed(2)}`);
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const r = R[c]!;

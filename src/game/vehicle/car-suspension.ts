@@ -230,9 +230,10 @@ export class Suspension {
   }
 
   /**
-   * Each drawn wheel onto the ground under its tread's crown and shoulders (`seat`); off the ground back onto its hub.
-   * A wheel hangs up to the full travel below the body; up into its arch it stops `stop` above the body's ride there
-   * (a sedan's tyre top is 6 cm under its arch at rest) and lifts that corner of the body beyond. True when it lifted one.
+   * Each drawn wheel onto the surface under its tread (`seat`: its footprint's rise, `wheelContact`); off the ground back onto its hub.
+   * A wheel hangs down to its droop (`stop`, half the travel) below its rest ride on the physics frame, as far as the physics tyre
+   * reaches; up into its arch it stops `stop` above the body's ride there (a sedan's tyre top is 6 cm under its arch at rest) and lifts
+   * that corner of the body beyond. True when it lifted one.
    */
   private seatWheels(e: readonly number[], hit: Float64Array, wheels: readonly THREE.Object3D[], stop: number, air: boolean, dt: number): boolean {
     const uy = e[5]!;
