@@ -1,6 +1,7 @@
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import type * as THREE from "three";
 import { sightLine, solid, type Sight } from "./spectate-cam.ts";
+import { SHOT_FOV } from "./constants.ts";
 
 /** The reel's far-overhead flight between clips (docs/HIGHLIGHTS.md). */
 const OVERHEAD = {
@@ -46,7 +47,7 @@ export function overheadPose(camera: THREE.PerspectiveCamera, ax: number, az: nu
  */
 const CONTEXT = {
   /** The widest lens (deg); an eye's own lens is the widest up to this that still shows both points car-sized. */
-  fov: 55,
+  fov: SHOT_FOV,
   /**
    * The narrowest screen (width over height) the points are fitted to: what the reel's lens (`coverLens`) frames in the part of
    * the view the panels leave free, a phone upright under its bottom sheet (0.446 in the judge's layouts). Any wider screen

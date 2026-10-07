@@ -1,4 +1,5 @@
 import { describeDepthProbe, type DepthProbe } from "../present/depth-probe.ts";
+import { FX_TIER_ULTRA } from "../present/constants.ts";
 import { labLine, stripLines, type StripResult } from "./engine-bench-plan.ts";
 
 /** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
@@ -218,7 +219,7 @@ export function describeBench(r: BenchResult): string[] {
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,
-    ...(r.abFx.ultra ? [`               ${arm("ultra", r.abFx.ultra)}`] : []),
+    ...(r.abFx.ultra ? [`               ${arm(FX_TIER_ULTRA, r.abFx.ultra)}`] : []),
     ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
     `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
     `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,

@@ -5,12 +5,14 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { stripCourse, type StripProp, type StripSpec } from "../world/bench-strip.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
+import { BENCH_STRIP_ID, TRACK_ID } from "../world/constants.ts";
+import { BENCH_KIND, BENCH_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /** The city bench's race on course `trackId`: its own field and rules as a program over the player's options, which it never touches. */
 function benchRace(trackId: string): RaceCommand {
   return { type: "program", options: { trackId, laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
 }
-export const BENCH_RACE: RaceCommand = benchRace("city");
+export const BENCH_RACE: RaceCommand = benchRace(TRACK_ID.city);
 
 /** One throw of the Lab bench: the set it loads, then the thrower (item 0) at item `target` at `speed` m/s. */
 type LabThrow = { preset: LabPresetId; target: number; speed: number };
@@ -78,23 +80,23 @@ function parseTraffic(v: string): StripSpec["traffic"] {
  */
 export function benchPlan(search: string): BenchPlan | null {
   const q = new URLSearchParams(search);
-  const kind = q.get("bench");
-  const ultra = q.get("ultra") === "1";
-  if (kind === "city") {
+  const kind = q.get(BENCH_QUERY);
+  const ultra = q.get(ULTRA_QUERY) === "1";
+  if (kind === BENCH_KIND.city) {
     const course = q.get("course");
-    const id = course !== null && CAMPAIGN.includes(course) ? course : "city";
-    return { id, race: id === "city" ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null, ultra };
+    const id = course !== null && CAMPAIGN.includes(course) ? course : TRACK_ID.city;
+    return { id, race: id === TRACK_ID.city ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null, ultra };
   }
-  if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH, ultra };
-  if (kind !== "strip") return null;
+  if (kind === BENCH_KIND.lab) return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH, ultra };
+  if (kind !== BENCH_KIND.strip) return null;
   const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
   const same = q.get("same") ?? STRIP_DEFAULTS.same;
   const body = same === "off" ? null : Object.hasOwn(BODIES, same) ? (same as CarStyleId) : (STRIP_DEFAULTS.same as CarStyleId);
   const length = Math.min(12000, Math.max(1500, Math.round(Number(q.get("len") ?? STRIP_DEFAULTS.length)) || STRIP_DEFAULTS.length));
   const strip: StripSpec = { length, props: parseProps(q.get("props") ?? STRIP_DEFAULTS.props), traffic: parseTraffic(q.get("traffic") ?? STRIP_DEFAULTS.traffic) };
   return {
-    id: "bench",
-    race: { type: "program", options: { trackId: "bench", laps: 1, aiCount: racers - 1, police: false, aggression: 0.5, spectate: false, noReset: false } },
+    id: BENCH_STRIP_ID,
+    race: { type: "program", options: { trackId: BENCH_STRIP_ID, laps: 1, aiCount: racers - 1, police: false, aggression: 0.5, spectate: false, noReset: false } },
     course: stripCourse(strip),
     warmS: 8,
     racers,

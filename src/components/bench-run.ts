@@ -5,7 +5,9 @@
 import type { CrashEngine } from "@/game/engine/engine";
 import type { runBench } from "@/game/engine/engine-bench";
 import { advance, isStepPage, loopSettings, parseRun, startRun, stepHref, stepOf, type BenchPrefs, type BenchRun } from "@/game/engine/bench-loop";
+import { BENCH_QUERY } from "@/game/engine/constants";
 import { fetchDeployedSha, newerBuild, reloadTarget } from "@/lib/deploy/update-check";
+import { KIND } from "@/lib/submissions/kinds";
 import { sendSubmission } from "@/lib/submissions/status";
 
 const RUN_KEY = "crush.bench.run";
@@ -81,10 +83,10 @@ export async function runBenchPage(engine: CrashEngine, hud: () => object): Prom
   const result = await bench.runBench(engine, hud, location.search, {
     auto: run !== null,
     submit: (payload) =>
-      sendSubmission("bench", async () => {
+      sendSubmission(KIND.bench, async () => {
         const { scene, settings } = engine.submitContext();
         const loop = run === null ? {} : loopSettings(run, stepOf(run, prefs));
-        return { context: { scene, settings: { ...settings, bench: new URLSearchParams(location.search).get("bench"), ...loop } }, payload };
+        return { context: { scene, settings: { ...settings, bench: new URLSearchParams(location.search).get(BENCH_QUERY), ...loop } }, payload };
       }),
   });
   if (run === null) return;

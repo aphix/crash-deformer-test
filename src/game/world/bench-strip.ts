@@ -1,5 +1,5 @@
 import type { PrefabId } from "./catalog.ts";
-import { SURFACE } from "./constants.ts";
+import { BENCH_STRIP_ID, SURFACE } from "./constants.ts";
 
 /** One kind of static prop along the strip's left, `count` copies spread evenly over the straight. */
 export interface StripProp {
@@ -83,7 +83,7 @@ export function stripCourse(spec: StripSpec): unknown {
   }
 
   return {
-    id: "bench",
+    id: BENCH_STRIP_ID,
     name: "Bench strip",
     blurb: "Benchmark: a straight lane, a props row and a traffic road.",
     laps: 1,

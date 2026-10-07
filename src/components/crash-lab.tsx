@@ -5,6 +5,7 @@ import { useDriver } from "@/components/use-driver";
 import { NetPanel } from "@/components/net-panel";
 import { LiveRooms } from "@/components/live-rooms";
 import type { CrashEngine } from "@/game/engine/engine";
+import { BENCH_QUERY } from "@/game/engine/constants";
 import { BenchLoopBar } from "@/components/bench-controls";
 import { PREF_KEYS, runBenchPage } from "@/components/bench-run";
 import { EngineContext } from "@/components/engine-context";
@@ -47,7 +48,7 @@ export function CrashLab() {
           setBooted(true);
           engine.ready.finally(dismissBootLoader);
           // `?bench=city` / `?bench=strip&…`: the phone-timing pages (engine-bench.ts), fetched only when asked for.
-          if (new URLSearchParams(window.location.search).has("bench")) void runBenchPage(engine, hudStore.get);
+          if (new URLSearchParams(window.location.search).has(BENCH_QUERY)) void runBenchPage(engine, hudStore.get);
         } catch (err) {
           const message = err instanceof Error ? err.stack ?? err.message : String(err);
           console.error("Crush Stream failed to start", err);
@@ -81,7 +82,7 @@ export function CrashLab() {
   // Auto-reload (ticked beside the Benchmark entry): onto a newly deployed build as soon as no race is under way. A bench page waits for its
   // bench to end (the loop's next page is the reload, `bench-run.ts`); a reload the backoff holds back is tried again each minute.
   useEffect(() => {
-    if (autoReload !== "1" || deployed === null || new URLSearchParams(window.location.search).has("bench")) return;
+    if (autoReload !== "1" || deployed === null || new URLSearchParams(window.location.search).has(BENCH_QUERY)) return;
     let timer = 0;
     const attempt = (): void => {
       if (!reloadOntoUpdate(deployed)) timer = window.setTimeout(attempt, 60_000);

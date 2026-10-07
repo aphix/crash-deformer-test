@@ -1,5 +1,6 @@
 /** What a submission is: a bench card's JSON, a JSON trace capture, a flagged replay clip. */
-export const KINDS = ["bench", "capture", "flag"] as const;
+export const KIND = { bench: "bench", capture: "capture", flag: "flag" } as const;
+export const KINDS = [KIND.bench, KIND.capture, KIND.flag] as const;
 export type Kind = (typeof KINDS)[number];
 
 const MB = 1024 * 1024;
