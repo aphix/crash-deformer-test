@@ -703,6 +703,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     ROOM[c] = surf.room(s, G, dt);
     DEMAND[c] = 0;
   }
+  // Every tyre in its springs pushes before any rigid contact solves, so the list order of the tyres is not the order they act in: a
+  // flat road's tyre listed before the face's soft one took an impulse the face's push then made unneeded (and never took back).
+  for (let c = 0; c < tyres; c++) {
+    if (!SOFT[c]) continue;
+    if (OWN[c]! >= 0) surf.press(OWN[c]!, ASK[c]!);
+    give(c, v, w, q, UP, ASK[c]!, ASK[c]! - Math.min(ASK[c]!, REST[c]!), surf);
+  }
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const nrm = N[c]!;
@@ -715,8 +722,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
         // face (v.y 3.2 -> 1.3 m/s in 12 frames). Friction stays in the face's plane.
         if (pass > 0) continue;
         jn = ASK[c]!;
-        if (OWN[c]! >= 0) surf.press(OWN[c]!, jn);
-        give(c, v, w, q, UP, jn, jn - Math.min(jn, REST[c]!), surf);
       } else {
         const dir = DIR[c]!;
         const vn = pointVel(c, v, w, _vp).dot(nrm);

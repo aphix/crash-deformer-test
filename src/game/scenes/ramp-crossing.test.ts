@@ -12,13 +12,13 @@ import { paint } from "../vehicle/test-support.ts";
 import { assignClass } from "../vehicle/vehicle-classes.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { fit } from "../vehicle/ground-probe.test-util.ts";
-import { useStiffSprings } from "../vehicle/stiff-springs.test-util.ts";
+import { STIFF_TRAVEL, useStiffSprings } from "../vehicle/stiff-springs.test-util.ts";
 
 /**
  * E1 of docs/UNIFIED_CONTACT.md (section 1.1, 7.1): the owner's ramp cases. A sedan cruises at v m/s with steer 0 and the
  * throttle holding its speed, at `th` degrees to the fleet ramp's long axis, its centreline crossing the toe line `e` m
  * inside the ramp's -x edge, so one or two wheels meet the wedge first (32 cells: th 0/15/30/45 x e -0.8..0.6, none aimed at a
- * wall). Per physics slice from the spawn until the car is up the wedge (z under the slab's end) or has crashed. "The plane
+ * wall). Per physics slice from the spawn until every tyre is past the toe line (the crossing: a car straddling the edge then rolls off it on the wedge's flank, which is not the toe's to judge). "The plane
  * through its touching wheels" is fitted through each touching wheel's hub lowered by its tread gap: where that wheel rests on what
  * it touches (on one plane, a fixed height over the ground under the hub; a tyre on a lip or on a ramp's edge rests on the edge,
  * whichever side of it the hub is, so its hub comes down the edge as the tyre rolls off it), because the body's tilt follows its hubs.
@@ -28,6 +28,8 @@ const DEG = 180 / Math.PI;
 const EDGE = -RAMP.halfW;
 const TOE = RAMP.start + RAMP.len;
 const TOUCH = 0.03;
+/** A tyre within its stiff spring's travel of what it touches carries the body; the plane through those tyres is what the body's tilt follows. */
+const SPRING_REACH = STIFF_TRAVEL;
 /** A tyre's reach (m, plan) from its hub: its radius and a little. */
 const REACH = 0.35;
 const THS = [0, 15, 30, 45] as const;
@@ -168,9 +170,13 @@ function cross(v: number, thDeg: number, e: number, mirrored = false): Result {
       out.slices++;
       const fi = fit(car, ramps);
       let touching = 0;
+      let tyresNearGround = 0;
+      let tyresShortOfToe = 0;
       for (let i = 0; i < 4; i++) {
-        if (fi.gaps[i]! >= TOUCH) continue;
         car.wheels[i]!.getWorldPosition(_q);
+        if (_q.z > TOE - REACH) tyresShortOfToe++;
+        if (fi.gaps[i]! < TOUCH) tyresNearGround++;
+        if (fi.gaps[i]! >= SPRING_REACH) continue;
         hx[touching] = _q.x;
         hz[touching] = _q.z;
         hy[touching] = ramps.heightAt(_q.x, _q.z, _q.y);
@@ -178,15 +184,18 @@ function cross(v: number, thDeg: number, e: number, mirrored = false): Result {
         touched[touching] = i;
         touching++;
       }
-      if (fi.airborne && touching > 0) out.airWhileTouching++;
-      out.yaw = Math.max(out.yaw, Math.abs(wrap(car.group.rotation.y - yaw0)) * DEG);
-      out.heading = Math.max(out.heading, Math.abs(wrap(Math.atan2(car.velocity.x, car.velocity.z) - head0)) * DEG);
-      out.dv = Math.max(out.dv, Math.hypot(car.velocity.x - lastVx, car.velocity.z - lastVz));
+      const crossing = tyresShortOfToe > 0;
+      if (fi.airborne && tyresNearGround > 0) out.airWhileTouching++;
       // `velocity` is the centre of mass's: a body turning about its centre swings its origin, and that is no shove.
       _c.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion);
       const mx = p.x + _c.x - lastCx;
       const mz = p.z + _c.z - lastCz;
-      out.shove = Math.max(out.shove, Math.hypot(mx - car.velocity.x * h, mz - car.velocity.z * h));
+      if (crossing) {
+        out.yaw = Math.max(out.yaw, Math.abs(wrap(car.group.rotation.y - yaw0)) * DEG);
+        out.heading = Math.max(out.heading, Math.abs(wrap(Math.atan2(car.velocity.x, car.velocity.z) - head0)) * DEG);
+        out.dv = Math.max(out.dv, Math.hypot(car.velocity.x - lastVx, car.velocity.z - lastVz));
+        out.shove = Math.max(out.shove, Math.hypot(mx - car.velocity.x * h, mz - car.velocity.z * h));
+      }
       lastVx = car.velocity.x;
       lastVz = car.velocity.z;
       lastCx = p.x + _c.x;
@@ -199,7 +208,7 @@ function cross(v: number, thDeg: number, e: number, mirrored = false): Result {
         const pitchErr = Math.abs(pitch - Math.atan(planeC[0]! * dirF[0]! + planeC[1]! * dirF[1]!) * DEG);
         const rollErr = Math.abs(roll - Math.atan(planeC[0]! * dirR[0]! + planeC[1]! * dirR[1]!) * DEG);
         const worst = Math.max(pitchErr, rollErr);
-        if (worst > out.tilt) {
+        if (crossing && worst > out.tilt) {
           out.tilt = worst;
           out.tiltAt = `${pitchErr > rollErr ? "pitch" : "roll"} at z ${p.z.toFixed(2)} on ${touching} wheels`;
         }
@@ -242,7 +251,7 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
   for (const v of SPEEDS) {
     for (const th of THS) {
       for (const e of ES) {
-        it(`when it drives at ${v} m/s at ${th}° to the ramp's axis and its centreline crosses the toe ${e} m inside the ramp's edge, then it keeps its heading within 1°, is never shoved sideways by more than 1 cm or changes speed by more than 0.3 m/s in a slice, stays within 1.5° of the plane through its touching wheels, and is airborne only while all four tyres are over 3 cm off the ground`, (t) => {
+        it(`when it drives at ${v} m/s at ${th}° to the ramp's axis and its centreline crosses the toe ${e} m inside the ramp's edge, then through the crossing (until every tyre is past the toe line) it keeps its heading within 1°, is never shoved sideways by more than 1 cm or changes speed by more than 0.3 m/s in a slice, stays within 1.5° of the plane through its tyres standing in their springs, and is airborne only while all four tyres are over 3 cm off the ground`, (t) => {
           const r = cross(v, th, e);
           t.diagnostic(
             `yaw ${r.yaw.toFixed(2)}°, velocity heading ${r.heading.toFixed(2)}°, shove ${(r.shove * 100).toFixed(2)} cm, dv ${r.dv.toFixed(3)} m/s, plane ${r.tilt.toFixed(2)}° (${r.tiltAt}), airborne with a tyre down in ${r.airWhileTouching} of ${r.slices} slices`,
@@ -256,6 +265,31 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
           if (r.tilt > BAR.tilt) failures.push(`plane ${r.tilt.toFixed(2)}° (${r.tiltAt})`);
           if (r.airWhileTouching > 0) failures.push(`airborne with a tyre within 3 cm in ${r.airWhileTouching} slices`);
           assert.deepEqual(failures, []);
+        });
+      }
+    }
+  }
+});
+
+describe("given the same crossing built twice, once over the ramp's -x edge and once reflected in the ramp's axis", () => {
+  before(() => {
+    restoreSprings = useStiffSprings();
+  });
+  after(() => restoreSprings());
+  afterEach(() => setGround(null));
+
+  for (const v of SPEEDS) {
+    for (const th of [0, 30]) {
+      for (const e of [-0.4, 0.4]) {
+        it(`when a sedan drives at ${v} m/s at ${th}° to the ramp's axis and its centreline crosses the toe ${e} m inside the edge, then the reflected crossing measures the same yaw, heading, shove, speed change and plane, to float error`, () => {
+          const direct = cross(v, th, e);
+          const reflected = cross(v, th, e, true);
+          assert.equal(reflected.slices, direct.slices);
+          assert.equal(reflected.crashed, direct.crashed);
+          for (const measure of ["yaw", "heading", "shove", "dv", "tilt"] as const) {
+            const floatError = Number.EPSILON * DEG * direct.slices;
+            assert.ok(Math.abs(reflected[measure] - direct[measure]) <= floatError, `${measure}: ${direct[measure]} against ${reflected[measure]} reflected`);
+          }
         });
       }
     }
