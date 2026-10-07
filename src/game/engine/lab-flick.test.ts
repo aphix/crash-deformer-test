@@ -4,16 +4,19 @@ import * as THREE from "three";
 import { labRig, leaveLab, runLab, throwAt, type LabRig } from "./engine-lab.test-util.ts";
 import type { LabShot } from "./engine-lab.ts";
 import { FLICK, LabFlick } from "./lab-flick.ts";
+import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 
 /**
  * The Lab's flick (`LabFlick`), headless: a landscape 844 × 390 screen looking at the house of cards from a bearing off the
  * bench's long axis (side-on, oblique, or straight down it); a press and a swipe are client px with their times (ms), as the
  * canvas's pointer events give them. The swipe is read on the throw plane: the upright plane through the item holding the bench axis.
+ * The last suite looks through the camera the Lab opens with on a 414 × 757 phone held upright (`LAB_SHOT.upright`).
  */
 
 afterEach(leaveLab);
 
 const SCREEN = { left: 0, top: 0, width: 844, height: 390 };
+const PHONE_UPRIGHT = { left: 0, top: 0, width: 414, height: 757 };
 const LOOK = new THREE.Vector3(-2, 2, 0);
 const CAMERA_RADIUS = 28;
 const CAMERA_PITCH = 0.12;
@@ -39,22 +42,43 @@ function cameraAt(degrees: number): THREE.PerspectiveCamera {
 
 type View = { r: LabRig; flick: LabFlick; flicks: Flick[]; px: (v: THREE.Vector3) => Px; thrower: Px; along: Px; up: Px };
 
-/** A rig of `preset`, settled, seen from `degrees` off the bench axis, and a flick on that screen; `along` and `up`: the thrower's metre along the bench and its metre up, in px on that screen. */
-function view(preset: "cards" | "pad", degrees: number): View {
+/** A rig of `preset`, settled, seen through the camera `aim` makes for it on `screen`, and a flick on that screen; `along` and `up`: the thrower's metre along the bench and its metre up, in px on that screen. */
+function viewThrough(preset: "cards" | "pad", aim: (r: LabRig) => THREE.PerspectiveCamera, screen: typeof SCREEN): View {
   const r = labRig(preset);
   runLab(r, 2);
-  const cam = cameraAt(degrees);
+  const cam = aim(r);
   const flicks: Flick[] = [];
-  const flick = new LabFlick(cam, () => SCREEN, r.lab, (thing, velocity) => flicks.push({ thing, velocity: velocity.clone() }));
+  const flick = new LabFlick(cam, () => screen, r.lab, (thing, velocity) => flicks.push({ thing, velocity: velocity.clone() }));
   const px = (v: THREE.Vector3): Px => {
     const p = v.clone().project(cam);
-    return [((p.x + 1) / 2) * SCREEN.width, ((1 - p.y) / 2) * SCREEN.height];
+    return [((p.x + 1) / 2) * screen.width, ((1 - p.y) / 2) * screen.height];
   };
   const centre = r.lab.centre(0, new THREE.Vector3());
   const thrower = px(centre);
   const along = px(centre.clone().add(new THREE.Vector3(1, 0, 0)));
   const up = px(centre.clone().add(new THREE.Vector3(0, 1, 0)));
   return { r, flick, flicks, px, thrower, along: [along[0] - thrower[0], along[1] - thrower[1]], up: [up[0] - thrower[0], up[1] - thrower[1]] };
+}
+
+/** The landscape screen, `preset` seen from `degrees` off the bench axis. */
+function view(preset: "cards" | "pad", degrees: number): View {
+  return viewThrough(preset, () => cameraAt(degrees), SCREEN);
+}
+
+/** The camera the Lab opens with on an upright screen (`LAB_SHOT.upright`), placed on its orbit about the look point as the orbit rig places it. */
+function openingCameraUpright(r: LabRig): THREE.PerspectiveCamera {
+  const shot = LAB_SHOT.upright;
+  const look = new THREE.Vector3();
+  const bearing = aimLabShot(r.lab.centre(0, new THREE.Vector3()), r.lab.focus, shot, false, look);
+  const cam = new THREE.PerspectiveCamera(LAB_FOV, PHONE_UPRIGHT.width / PHONE_UPRIGHT.height, 0.1, 400);
+  cam.position.set(
+    look.x + Math.sin(bearing) * shot.radius * Math.cos(shot.pitch),
+    look.y + shot.radius * Math.sin(shot.pitch),
+    look.z + Math.cos(bearing) * shot.radius * Math.cos(shot.pitch),
+  );
+  cam.lookAt(look);
+  cam.updateMatrixWorld(true);
+  return cam;
 }
 
 /** A swipe from (x0, y0) to (x1, y1) over `ms` in 8 ms steps (a 120 Hz screen), released there; false when the press was not taken. */
@@ -224,5 +248,43 @@ describe("given the house of cards on the bench, its thrower swiped on the throw
     v.flick.move({ clientX: (v.thrower[0] + x1) / 2, clientY: (v.thrower[1] + y1) / 2, timeStamp: 60 });
     v.flick.up(x1, y1, 120, true);
     assert.equal(v.flicks.length, 0);
+  });
+});
+
+describe("given the house of cards seen on a 414 × 757 phone held upright, as the Lab opens", () => {
+  const screenSwipeMs = 120;
+  const screenSwipeSpeedPx = 600;
+  const minDegreesOffUp = 30;
+
+  /** The unit screen direction from the thrower to the roof car of the stack. */
+  function towardStack(v: View): Px {
+    const roof = v.px(v.r.lab.centre(3, new THREE.Vector3()));
+    const length = Math.hypot(roof[0] - v.thrower[0], roof[1] - v.thrower[1]);
+    return [(roof[0] - v.thrower[0]) / length, (roof[1] - v.thrower[1]) / length];
+  }
+
+  it("when the stack is looked for on the screen, then it lies at least 30° off straight up from the thrower, so a throw toward it is a diagonal swipe", () => {
+    const v = viewThrough("cards", openingCameraUpright, PHONE_UPRIGHT);
+    const direction = towardStack(v);
+    const degreesOffUp = (Math.atan2(direction[0], -direction[1]) * 180) / Math.PI;
+    assert.ok(degreesOffUp >= minDegreesOffUp, `the stack reads ${degreesOffUp.toFixed(1)}° off straight up`);
+  });
+
+  it("when the thrower is swiped straight toward the stack on the screen, then it leaves along the bench toward the stack at the swipe's own velocity on the throw plane, lifted by the swipe's upward part and never across the bench", () => {
+    const v = viewThrough("cards", openingCameraUpright, PHONE_UPRIGHT);
+    const direction = towardStack(v);
+    const distancePx = (screenSwipeSpeedPx * screenSwipeMs) / 1000;
+    const end: Px = [v.thrower[0] + direction[0] * distancePx, v.thrower[1] + direction[1] * distancePx];
+    assert.ok(swipe(v.flick, v.thrower, end, screenSwipeMs), "the press on the thrower was left to the camera");
+    assert.equal(v.flicks.length, 1, "flicks");
+    assert.equal(v.flicks[0]!.thing, 0, "the flicked item is the thrower");
+    const out = v.flicks[0]!.velocity;
+    assert.ok(out.x > 0, `along the bench toward the stack ${out.x.toFixed(3)} m/s`);
+    assert.ok(out.y > 0 && out.y < out.x, `lifted by the upward part of the swipe, still a throw and not a lob: up ${out.y.toFixed(3)} m/s over along ${out.x.toFixed(3)} m/s`);
+    assert.equal(out.z, 0, "across the bench");
+    const screenX = out.x * v.along[0] + out.y * v.up[0];
+    const screenY = out.x * v.along[1] + out.y * v.up[1];
+    assert.ok(Math.abs(screenX - direction[0] * screenSwipeSpeedPx) < 1e-6, `the launch on the screen x ${screenX.toFixed(3)} px/s, the swipe's ${(direction[0] * screenSwipeSpeedPx).toFixed(3)} px/s`);
+    assert.ok(Math.abs(screenY - direction[1] * screenSwipeSpeedPx) < 1e-6, `the launch on the screen y ${screenY.toFixed(3)} px/s, the swipe's ${(direction[1] * screenSwipeSpeedPx).toFixed(3)} px/s`);
   });
 });
