@@ -841,8 +841,8 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // from ever coming to rest. Three points in a row are no stand: a sedan on another's roof froze 10° nose-down on its belly's middle
   // row, its centre 7 cm past it and its front row 25 mm off the windscreen, and the column built on it fell.
   let up = 0;
-  for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 && !powered ? 1 : N[c]!.y;
-  const stands = n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n);
+  for (let c = 0; c < n; c++) up += SOFT[c] && OWN[c]! >= 0 ? 1 : N[c]!.y;
+  const stands = !powered && n >= 3 && !yielded && up > REST_UP * n && v.lengthSq() < REST_V * REST_V && w.lengthSq() < REST_W * REST_W && surrounds(n);
   const hard = hardContactNear(tyres, n, nearing);
   if (stands && !hard) {
     // On its springs alone they hold it: its vertical speed and its roll and pitch are theirs (zeroed, a body that landed 1.75° nose-down froze

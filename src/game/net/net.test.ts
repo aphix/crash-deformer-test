@@ -186,8 +186,8 @@ describe("given a two-car network snapshot with every field filled in", () => {
       for (let k = 0; k < 3; k++) assert.equal(b.parts.pose[i * 7 + k], Math.fround(a.parts.pose[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.pose[i * 7 + k]! - a.parts.pose[i * 7 + k]!) <= Q.quat);
     }
-    // 17-byte header, 28-byte poses, a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
-    assert.equal(w.off, 17 + 28 + (661 + 20 * 4 + 20 * 2) + 28);
+    // 17-byte header, 28-byte poses, a 667-byte wreck (its impact block is 12 numbers of 2 bytes) with 20 more per loose part (4) and per loose wheel (2).
+    assert.equal(w.off, 17 + 28 + (667 + 20 * 4 + 20 * 2) + 28);
   });
 });
 
@@ -272,11 +272,11 @@ describe("given a client car that applies the host car's state from the wire", (
     const panels = (c: DeformableCar) => (c.snapshot().parts as Row[]).filter((p) => /^(quarter|arch)/.test(p.name));
     const primer = (c: DeformableCar) => (c.body.geometry.getAttribute("primer").array as Float32Array).reduce((a, b) => a + b, 0);
     const host = makeCar();
-    runWall(80, 0.3, "rear", { car: host, after: 1.5 });
+    runWall(58, 0.3, "rear", { car: host, after: 1.5 });
     const client = apply(makeCar(), wire(host));
     const h = panels(host);
     const c = panels(client);
-    assert.equal(h.filter((p) => p.detached).length, 1, "the 80 km/h rear corner hit tears one quarter panel");
+    assert.equal(h.filter((p) => p.detached).length, 1, "the 58 km/h rear corner hit tears one quarter panel");
     assert.ok(h.some((p) => !p.detached && p.hingeT > 0.1), "and hinges another panel");
     for (const [i, p] of h.entries()) {
       assert.equal(c[i]!.detached, p.detached, `${p.name} torn on the client`);

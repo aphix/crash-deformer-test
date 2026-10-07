@@ -1,5 +1,7 @@
 import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { applyDrive, type DriveInput } from "./car-drive.ts";
+import { stepFree } from "./car-air.ts";
 import { SPRINGS } from "./car-suspension.ts";
 import { makeCar } from "./ground-probe.test-util.ts";
 import { layOnWedge, RAD, stepSlices, Wedge } from "./wedge.test-util.ts";
@@ -25,6 +27,26 @@ describe("given a car at its rest ride on flat ground, held by its tyre springs"
       car.spawnFacing(0, 0, 0, 0);
       stepSlices(car, PARK_S, testCase.hz);
       assert.ok(Math.abs(car.group.position.y) <= MILLIMETRE, `origin ${(car.group.position.y * 1000).toFixed(2)} mm off its rest ride`);
+    });
+  }
+});
+
+describe("given a car standing still on flat ground with the drive's throttle held", () => {
+  const FULL_THROTTLE: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
+
+  for (const cls of ["sedan", "monster"] as const) {
+    it(`when the drive pushes a ${cls} every slice for 0.5 s from rest, then its speed grows slice after slice instead of being held at rest`, () => {
+      const car = makeCar(cls);
+      car.spawnFacing(0, 0, 0, 0);
+      const slice = 1 / 120;
+      let speedBefore = 0;
+      for (let s = 0; s < 60; s++) {
+        applyDrive(car, FULL_THROTTLE, slice);
+        stepFree(car, slice);
+        const speed = car.velocity.length();
+        assert.ok(speed > speedBefore, `slice ${s}: speed ${speed.toFixed(4)} m/s after ${speedBefore.toFixed(4)}`);
+        speedBefore = speed;
+      }
     });
   }
 });
