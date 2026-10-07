@@ -1038,7 +1038,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       if (!SOFT[c]) surf.note(s, SINK[c]!, FOLLOW[c]!);
     } else if (CLOSE[c] && SINK[c]! > deep) {
       deep = SINK[c]!;
-      _lift.copy(N[c]!).multiplyScalar(deep);
+      // A point its friction holds (gripping both ways, under its cap at the passes, on a face no steeper than that friction) goes back
+      // up the way the slice's drop took it in: straight up by its depth there. Lifted along the face's normal, each slice's drop under
+      // gravity walked a car at rest down its support: a sedan frozen on another's crushed roof (normal 1° off) crept 0.68 mm a second.
+      const mu = TYRE[c] ? MU_TYRE : MU_BODY;
+      const grips = (!rolling || OWN[c]! >= 0) && (!TYRE[c] || (OWN[c]! >= 0 && !powered));
+      if (grips && hypot2(N[c]!.x, N[c]!.z) <= mu * N[c]!.y && FRA[c]!.length() < mu * ACC[c]!) _lift.set(0, deep / N[c]!.y, 0);
+      else _lift.copy(N[c]!).multiplyScalar(deep);
     }
   }
   // So does one whose body strikes the world's faces (a point closing on its surface): a rocker meeting the wedge's corner as the car
