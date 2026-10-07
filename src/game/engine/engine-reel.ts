@@ -4,9 +4,9 @@ import { carLayout } from "../net/car-pose.ts";
 import { decodeSaved, packReel, unpackReel } from "../net/reel-codec.ts";
 import { reelParts } from "../net/reel-wire.ts";
 import type { HighlightClip } from "../match/highlights.ts";
-import type { RaceCommand, RaceHud, SavedHud } from "../match/types.ts";
+import type { RaceCommand, RaceHud, SavedHud, ViewBox } from "../match/types.ts";
 import { RESULTS_DELAY } from "./engine-race.ts";
-import type { ReelDirector } from "./engine-highlights.ts";
+import { coverLens, type ReelDirector } from "./engine-highlights.ts";
 import { deleteSaved, listSaved, loadSaved, saveClip } from "./highlight-store.ts";
 import { EngineInput } from "./engine-input.ts";
 
@@ -18,6 +18,10 @@ export abstract class EngineReel extends EngineInput {
   protected reelFov: number | null = null;
   /** `listSaved()`, re-read after a save or a delete. */
   private savedList: SavedHud[] | null = null;
+  /** The results sheet's box on the page (`reelCover`), null: none. */
+  private cover: ViewBox | null = null;
+  /** The reel drew last frame (`reelFrame`): the lens frames the part of the view the sheet leaves free. */
+  private reelOn = false;
 
   /** Race over (host or offline) `since` wall s ago: the reel from the results' first moment. Every peer, this one too, replays the decoded bytes. */
   protected startReel(clips: readonly HighlightClip[], since: number): void {
@@ -45,6 +49,10 @@ export abstract class EngineReel extends EngineInput {
       case "reelBack":
         this.cine.direct(this.camera, 0, false);
         r.back();
+        return true;
+      case "reelCover":
+        this.cover = cmd.cover;
+        this.fitLens();
         return true;
       case "reelSave": {
         const clip = r.clip(cmd.clip);
@@ -105,12 +113,20 @@ export abstract class EngineReel extends EngineInput {
     this.emitHud();
   }
 
-  /** Per frame: once the reel is over, the camera's lens comes back. */
+  /** Per frame: the reel's lens while it plays; once the reel is over, the camera's lens comes back. */
   protected reelFrame(on: boolean): void {
+    if (on !== this.reelOn) {
+      this.reelOn = on;
+      this.fitLens();
+    }
     if (on || this.reelFov === null) return;
     this.camera.fov = this.reelFov;
     this.camera.updateProjectionMatrix();
     this.reelFov = null;
+  }
+
+  protected fitLens(): void {
+    coverLens(this.camera, this.canvas.getBoundingClientRect(), this.reelOn ? this.cover : null);
   }
 
   protected reelHud(): Pick<RaceHud, "reel" | "solo" | "saved"> {

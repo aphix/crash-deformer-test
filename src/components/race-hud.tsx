@@ -546,7 +546,7 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
       title="Results"
       pad={pad}
       wide
-      sheet={race.reel !== null}
+      sheet={race.reel ? onCommand : null}
       onBack={campaign ? null : quit}
       onStart={null}
     >
@@ -620,7 +620,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
       title="Championship"
       pad={pad}
       wide
-      sheet={race.reel !== null}
+      sheet={race.reel ? onCommand : null}
       onBack={null}
       onStart={null}
     >

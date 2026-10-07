@@ -43,7 +43,7 @@ export function SurvivalResults({ race, pad, onCommand }: { race: RaceHud; pad: 
   const r = race.survival?.result;
   const quit = () => onCommand({ type: "quit" });
   return (
-    <MenuShell id="results" eyebrow={`${race.trackName} · Survival`} title={r ? CAUSE[r.cause] : "Run over"} pad={pad} sheet={race.reel !== null} onBack={quit} onStart={null}>
+    <MenuShell id="results" eyebrow={`${race.trackName} · Survival`} title={r ? CAUSE[r.cause] : "Run over"} pad={pad} sheet={race.reel ? onCommand : null} onBack={quit} onStart={null}>
       {r ? (
         <div className="font-display tabular-nums">
           <p className="text-5xl font-semibold leading-none tracking-tight" aria-label="Time survived">

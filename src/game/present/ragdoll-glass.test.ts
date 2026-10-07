@@ -83,7 +83,7 @@ async function strikes(name: GlassName, up: number, along: number, pose: Pose, t
   const q = new THREE.Quaternion().setFromRotationMatrix(basis);
   const throws: Strike[] = [];
   for (const speed of speeds) {
-    ragdolls["spawn"]({ car: 0, p: aim.clone().addScaledVector(out, LEAD[pose] + START_GAP), q, v: inward.clone().multiplyScalar(speed), w: new THREE.Vector3(), age: 0, cop: false });
+    ragdolls["spawn"]({ car: 0, p: aim.clone().addScaledVector(out, LEAD[pose] + START_GAP), q, v: inward.clone().multiplyScalar(speed), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const bodies = (ragdolls["dolls"] as Dolls)[ragdolls["lastSlot"]]!.bodies;
     if (torsoOnly) for (let k = 1; k < bodies.length; k++) bodies[k]!.collider(0).setCollisionGroups(0);
     const torso = bodies[0]!;

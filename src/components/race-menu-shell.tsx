@@ -1,7 +1,8 @@
-import { type ReactNode, useRef } from "react";
+import { type ReactNode, useEffect, useRef } from "react";
 import { Button, type ButtonProps } from "@/components/ui/button";
 import { usePadMenu } from "@/components/use-pad-menu";
 import { FOCUS } from "@/components/race-menu-styles";
+import type { RaceCommand } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
 /** Opaque card for centre-screen moments and menus (the translucent `hud-panel` lets panels behind bleed through). */
@@ -28,8 +29,12 @@ export function MenuShell({
   title: string;
   pad: boolean;
   wide?: boolean;
-  /** Leave the view visible (the results reel plays behind): a right-side panel on wide screens, a bottom sheet on phones, no backdrop. */
-  sheet?: boolean;
+  /**
+   * Leave the view visible (the results reel plays behind): a right-side panel on wide screens, a bottom sheet on phones, no
+   * backdrop. Its box on the page goes to the engine through this as `reelCover` (null once it closes), so the reel frames
+   * its shots in the part of the view it leaves free.
+   */
+  sheet?: ((cmd: RaceCommand) => void) | null;
   /** The menu has ←/→ adjustable rows (hint only). */
   adjust?: boolean;
   onBack: (() => void) | null;
@@ -38,6 +43,25 @@ export function MenuShell({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   usePadMenu(ref, id, { onBack, onStart });
+  const send = useRef(sheet);
+  useEffect(() => {
+    send.current = sheet;
+  });
+  const covers = !!sheet;
+  useEffect(() => {
+    const el = ref.current;
+    if (!covers || !el) return;
+    const report = (): void => send.current?.({ type: "reelCover", cover: el.getBoundingClientRect() });
+    // A size change of the sheet, or of the page (a right-hand panel moves without resizing).
+    const obs = new ResizeObserver(report);
+    obs.observe(el);
+    window.addEventListener("resize", report);
+    return () => {
+      obs.disconnect();
+      window.removeEventListener("resize", report);
+      send.current?.({ type: "reelCover", cover: null });
+    };
+  }, [covers]);
   const chip = "rounded bg-surface-2 px-1.5 py-0.5 font-display text-xs text-fg shadow-[var(--shadow-border)]";
   const glyph = "inline-flex size-5 items-center justify-center rounded-full bg-surface-2 font-display text-xs font-semibold text-fg shadow-[var(--shadow-border)]";
   return (

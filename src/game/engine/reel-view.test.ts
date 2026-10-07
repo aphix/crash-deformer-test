@@ -8,7 +8,7 @@ import { Track } from "../world/track.ts";
 import city from "../world/tracks/city.json" with { type: "json" };
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { HAVANA } from "../world/tracks/havana.ts";
-import { recordRace, reelViews, VIEW, type Crash, type MomentKind, type MomentView } from "./reel-view.test-util.ts";
+import { recordRace, reelViews, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
 
 /**
  * Owner, 2026-10-06: "the impact point (car-car hit) or the launch (driver ejection, car taking off) must actually be visible
@@ -56,7 +56,19 @@ function crashes(len: number, shift: number): Crash[] {
 /** The stunt course's CRUSH crest (arc length, m), where the road drops down the kicker (`crush-crest.test.ts`). */
 const CREST = 899;
 
+/**
+ * Owner, 2026-10-07: the reel plays behind the results sheet, and the impact or launch must be visible beside it. The
+ * sheet as the browser lays it out (CSS px): the desktop side panel over the right 35 % of the page, a phone's side
+ * panel in landscape (`sm:max-w-md` inside its 16 px padding), and a phone's bottom sheet in portrait (`max-h-[45dvh]`).
+ */
+const SHEETS: { name: string; screen: Screen }[] = [
+  { name: "desktop side sheet", screen: { view: { left: 0, top: 0, right: 1280, bottom: 720 }, sheet: { left: 832, top: 0, right: 1280, bottom: 720 } } },
+  { name: "phone landscape side sheet", screen: { view: { left: 0, top: 0, right: 844, bottom: 390 }, sheet: { left: 380, top: 16, right: 828, bottom: 374 } } },
+  { name: "phone portrait bottom sheet", screen: { view: { left: 0, top: 0, right: 390, bottom: 844 }, sheet: { left: 8, top: 456, right: 382, bottom: 836 } } },
+];
+
 const views: MomentView[] = [];
+const covered: MomentView[][] = SHEETS.map(() => []);
 let world: World | null = null;
 after(() => {
   world?.race.exit();
@@ -68,6 +80,7 @@ async function scene(name: string, w: World, track: Track, staged: readonly Cras
   const clips = recordRace(w, track, staged, seconds);
   assert.ok(clips.length >= 1, `${name}: no clip`);
   for (const v of await reelViews(w, clips, name)) views.push(v);
+  for (const [i, { screen }] of SHEETS.entries()) for (const v of await reelViews(w, clips, name, screen)) covered[i]!.push(v);
   w.race.exit();
   setGround(null);
   world = null;
@@ -106,6 +119,20 @@ describe("given highlight reels from a ramming city race; staged head-ons, wall 
     const count = (kind: string): number => kinds.get(kind)?.[1] ?? 0;
     assert.ok(count("impact") >= 10 && count("throw") >= 4 && count("takeoff") >= 4, `too few moments to test: ${[...kinds].map(([k, [, n]]) => `${k} ${n}`).join(", ")}`);
     assert.equal(missed.length, 0, `${missed.length} of ${views.length} moments not visible (margin ${VIEW.margin}, share ${VIEW.share.toFixed(3)})`);
+  });
+
+  it("when each clip plays behind the results sheet (a desktop side panel, a phone's side panel in landscape, its bottom sheet in portrait), then at every first impact, thrown driver and take-off the moment's point is in the frame with the margin and clear of the sheet by it, unblocked, and not tiny", (t) => {
+    const missed: string[] = [];
+    for (const [i, { name }] of SHEETS.entries()) {
+      const seen = covered[i]!.filter((v) => v.seen).length;
+      t.diagnostic(`${name}: seen ${seen}/${covered[i]!.length}, under the sheet ${covered[i]!.filter((v) => v.covered).length}`);
+      for (const v of covered[i]!) {
+        if (!v.seen) missed.push(`${name}: ${v.scene} "${v.title}" ${v.kind} at ${v.at.toFixed(2)} s by ${v.rig}: ndc ${v.ndcX.toFixed(2)},${v.ndcY.toFixed(2)}${v.front ? "" : " behind"}${v.covered ? " UNDER THE SHEET" : ""}, ${v.clear ? "clear" : "BLOCKED"}, share ${v.share.toFixed(3)}`);
+      }
+    }
+    for (const m of missed) t.diagnostic(m);
+    assert.ok(covered.every((c) => c.length === views.length), "every layout plays the same moments");
+    assert.equal(missed.length, 0, `${missed.length} moments not visible beside the sheet`);
   });
 
   it("when each clip plays, then its slow-mo holds 6.3 s of wall clock past the cars meeting and 7.3 s past each driver thrown while it runs, every hold plays out in full before the clip ends, it hands back to 1× when the last of those is up, and a driver thrown after that plays at 1×", (t) => {

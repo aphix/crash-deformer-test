@@ -28,7 +28,7 @@ async function system(seed: number): Promise<RagdollSystem> {
 }
 
 function throwOut(r: RagdollSystem, car = 0, cop = false): void {
-  const t = { car, p: new THREE.Vector3(0, 1.4, 0), q: new THREE.Quaternion(), v: V.clone(), w: new THREE.Vector3(), age: 0, cop };
+  const t = { car, p: new THREE.Vector3(0, 1.4, 0), q: new THREE.Quaternion(), v: V.clone(), w: new THREE.Vector3(), age: 0, cop, rides: true };
   r["spawn"](t);
 }
 

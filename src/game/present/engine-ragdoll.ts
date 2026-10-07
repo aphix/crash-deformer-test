@@ -161,6 +161,8 @@ type Doll = {
   patch: Collider[];
   /** The car he was thrown from. */
   car: number;
+  /** The ride-along may frame him (`launch`'s `rides`). */
+  rides: boolean;
   /** Each part's pose (position xyz, rotation xyzw) after the last step and the one before it: the draw blends them. */
   prev: Float32Array;
   cur: Float32Array;
@@ -174,8 +176,8 @@ type Doll = {
   speed: number;
 };
 
-/** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver. */
-type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean };
+/** A throw, placed: car, torso point and orientation, linear and angular velocity (world), sim seconds waiting, a police driver, whether the ride-along may frame him. */
+type Throw = { car: number; p: THREE.Vector3; q: THREE.Quaternion; v: THREE.Vector3; w: THREE.Vector3; age: number; cop: boolean; rides: boolean };
 
 const _q = new THREE.Quaternion();
 const _qb = new THREE.Quaternion();
@@ -251,7 +253,7 @@ export class RagdollSystem {
   private live = 0;
   /** Throws judged before Rapier was in (`PENDING_MAX`). */
   private readonly pending: Throw[] = [];
-  private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false };
+  private readonly next: Throw = { car: 0, p: new THREE.Vector3(), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true };
   /** Fixed colliders every dummy shares off a course (pad or disc with its ramps, corkscrew, bowl wall, poles), built at the run's first throw: Rapier's step allocates per collider (0.31 KB, RapierEval). */
   private readonly statics: Collider[] = [];
   private disposed = false;
@@ -353,7 +355,7 @@ export class RagdollSystem {
         return body;
       });
       joinUp(R, world, bodies);
-      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
+      this.dolls.push({ bodies, live: false, age: 0, still: 0, patch: [], car: -1, rides: false, prev: new Float32Array(PARTS.length * 7), cur: new Float32Array(PARTS.length * 7), ground: false, settled: false, calm: 0, speed: 0 });
     }
     // A child of the dummies' mesh, so the scene root keeps its one `ragdolls` child and the props draw only while a dummy is out.
     this.mesh.add((this.purses = new Purses(R, world, SLOTS, propGroups, GRACE)).mesh);
@@ -711,9 +713,9 @@ export class RagdollSystem {
     return this.cam.update(camera, wallDt, f);
   }
 
-  /** Is dummy `d` out and in the ride's shot: still moving, or (`hold`) anywhere out? */
+  /** Is dummy `d` out and in the ride's shot: one it may frame, still moving, or (`hold`) anywhere out? */
   private framed(d: Doll | undefined, hold: boolean): d is Doll {
-    return d !== undefined && d.live && (hold || d.still <= CAM_STILL);
+    return d !== undefined && d.live && d.rides && (hold || d.still <= CAM_STILL);
   }
 
   /**
@@ -909,9 +911,10 @@ export class RagdollSystem {
    * A driver is thrown out of `cars[e.car]`: the exit pane smashes and the way out gets its cover (`onExit`) now, the
    * dummy flies now or (Rapier still loading) once it is in. The sim's own event (`EjectionWatch`), a netplay host's
    * message or a highlight clip's record: the dummy starts from the event's numbers alone, so the same event is the
-   * same throw wherever it is launched.
+   * same throw wherever it is launched. `rides` false: the ride-along never frames him (a reel's throw from another
+   * crash than its own, `ownThrow`).
    */
-  launch(e: Ejection, cars: readonly DeformableCar[]): void {
+  launch(e: Ejection, cars: readonly DeformableCar[], rides = true): void {
     this.cars = cars;
     const car = cars[e.car]!;
     if (this.authority) car.smashGlass(e.exit);
@@ -927,9 +930,10 @@ export class RagdollSystem {
     t.car = e.car;
     t.age = 0;
     t.cop = e.cop;
+    t.rides = rides;
     this.onExit(_c, _cq, car.velocity);
     if (this.world) this.spawn(t);
-    else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop });
+    else this.pending.push({ car: t.car, p: t.p.clone(), q: t.q.clone(), v: t.v.clone(), w: t.w.clone(), age: 0, cop: t.cop, rides: t.rides });
   }
 
   /** Throw `t`'s dummy into a free slot (else the oldest one's). */
@@ -972,6 +976,7 @@ export class RagdollSystem {
     d.age = 0;
     d.still = 0;
     d.car = t.car;
+    d.rides = t.rides;
     d.calm = 0;
     d.speed = Math.hypot(t.v.x, t.v.y, t.v.z);
     this.touching.fill(0, slot * MAX_CARS, (slot + 1) * MAX_CARS);

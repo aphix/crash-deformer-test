@@ -229,8 +229,9 @@ export function heldCut(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Fl
 }
 
 /**
- * What a held crash cam asks of the reel clip: the point it aims at (the clip's focus car), the scene's solids round it,
- * built when asked, and until when (wall s into the crash cam) the hit itself is still to come (`heldCut`'s `hit`).
+ * What a held crash cam asks of the reel clip: the point it aims at once the hit has landed (the clip's focus car; the hit
+ * itself before), the scene's solids round it, built when asked, and until when (wall s into the crash cam) the hit itself
+ * is still to come (`heldCut`'s `hit`).
  */
 export type CrashHold = { target: THREE.Vector3; sight: () => Sight; hit: number };
 
@@ -325,8 +326,10 @@ export class CrashCam {
       }
       cut = this.held;
       eyeT = cut < 0 ? u : CUTS[cut]!;
-      if (this.aimSet) this.aim.lerp(hold.target, 1 - Math.exp(-wallDt * HOLD_AIM));
-      else this.aim.copy(hold.target);
+      // The hit itself until it has landed (the reel's moment, framed at the lens's centre), then the car.
+      const want = t < hold.hit ? this.camAt : hold.target;
+      if (this.aimSet) this.aim.lerp(want, 1 - Math.exp(-wallDt * HOLD_AIM));
+      else this.aim.copy(want);
       this.aimSet = true;
       aim = this.aim;
     }

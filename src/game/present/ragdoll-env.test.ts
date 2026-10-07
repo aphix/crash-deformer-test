@@ -42,7 +42,7 @@ const colliders = (sys: RagdollSystem): number => (sys["world"]!.colliders as Co
 function throwFrom(sys: RagdollSystem, p: THREE.Vector3, v: THREE.Vector3, lie: THREE.Vector3 | null): void {
   const q = new THREE.Quaternion();
   if (lie) q.setFromUnitVectors(UP, lie);
-  sys["spawn"]({ car: 0, p, q, v, w: new THREE.Vector3(), age: 0, cop: false });
+  sys["spawn"]({ car: 0, p, q, v, w: new THREE.Vector3(), age: 0, cop: false, rides: true });
 }
 
 /** Step `secs` of frames and call `each` with every part's centre after each. */

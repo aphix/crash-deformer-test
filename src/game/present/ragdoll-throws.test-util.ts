@@ -25,7 +25,7 @@ export async function flatSystem(): Promise<RagdollSystem> {
 /** Throw `shot` (slot 0) and return the worst `Pose` of the next `secs` sim seconds, one reading a frame. */
 export function flatThrow(sys: RagdollSystem, shot: Shot, secs: number): Pose {
   sys.reset();
-  sys["spawn"]({ car: 0, p: shot.p, q: shot.q, v: shot.v, w: shot.w, age: 0, cop: false });
+  sys["spawn"]({ car: 0, p: shot.p, q: shot.q, v: shot.v, w: shot.w, age: 0, cop: false, rides: true });
   const out = noPose();
   const d = dollsOf(sys)[0]!;
   for (let f = 0; f < Math.round(secs / FRAME); f++) {

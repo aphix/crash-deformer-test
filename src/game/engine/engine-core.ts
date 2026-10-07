@@ -639,9 +639,10 @@ export abstract class EngineCore {
     const h = Math.max(1, parent.clientHeight);
     this.renderer.setSize(w, h, false);
     this.cine.post.setSize();
-    this.camera.aspect = w / h;
-    this.camera.updateProjectionMatrix();
+    this.fitLens();
   };
+  /** The camera's lens for the canvas's new size (`EngineReel`: the results reel frames the part the sheet leaves free). */
+  protected abstract fitLens(): void;
 
   /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. Settles once attached or failed. */
   protected async attachStudioEnv(): Promise<void> {

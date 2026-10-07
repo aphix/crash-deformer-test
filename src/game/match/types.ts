@@ -245,7 +245,12 @@ export type RaceCommand =
   | { type: "reelSave"; clip: number }
   /** Setup menu: replay saved highlight `key` alone, or delete it. */
   | { type: "savedPlay"; key: string }
-  | { type: "savedDelete"; key: string };
+  | { type: "savedDelete"; key: string }
+  /** The results sheet's box on the page while the reel plays behind it (null: gone): the reel frames its shots in the part of the view the sheet leaves free (this browser only). */
+  | { type: "reelCover"; cover: ViewBox | null };
+
+/** A box on the page in CSS px, as a `DOMRect`'s edges. */
+export type ViewBox = { left: number; top: number; right: number; bottom: number };
 
 /** How a Save went (`saveClip`): kept, or refused as too big for one clip, over the total, or by the browser's quota. */
 export type SaveResult = "saved" | "too big" | "full" | "failed";

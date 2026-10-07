@@ -4,10 +4,11 @@ import { frame, FRAME, type World } from "../world/race-world.test-util.ts";
 import { blankPoint, type Track } from "../world/track.ts";
 import { clipTitle, ownThrow, type HighlightClip } from "../match/highlights.ts";
 import { phaseClock } from "../match/phase.ts";
+import type { ViewBox } from "../match/types.ts";
 import { CrashCam } from "../present/engine-cine.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { addCars, sightLine, type Sight } from "../present/spectate-cam.ts";
-import { FLIGHT_S, ReelDirector, type ReelHost } from "./engine-highlights.ts";
+import { coverLens, FLIGHT_S, ReelDirector, type ReelHost } from "./engine-highlights.ts";
 
 /**
  * The results reel's cameras headless, as the engine runs them minus the renderer (`ReelDirector.aim`: the thrown driver's
@@ -23,6 +24,12 @@ export const VIEW = {
   subject: 2,
   share: 1 / 16,
 };
+
+/** The page the reel plays on (CSS px) and the results sheet over part of it (null: none). */
+export type Screen = { view: ViewBox; sheet: ViewBox | null };
+
+/** The browser probe's desktop page, nothing over it. */
+const DESKTOP: Screen = { view: { left: 0, top: 0, right: 1280, bottom: 720 }, sheet: null };
 
 /** The scene's lens (deg), as `ChaseCamera.lens`. */
 const LENS = 55;
@@ -48,6 +55,8 @@ export type MomentView = {
   front: boolean;
   /** No wall, building or hill of the course stands on the line from the eye to the point (`sightLine` over the static solids). */
   clear: boolean;
+  /** The point lies under the results sheet, or within the frame's margin of it. */
+  covered: boolean;
   /** The share of the frame's height a `VIEW.subject` m subject at the point spans. */
   share: number;
   seen: boolean;
@@ -87,16 +96,25 @@ export function holdAfter(tl: ScaleCurve, at: number): number {
 
 const _ndc = new THREE.Vector3();
 
-/** The moment at `p` as `cam` frames it, judged by `VIEW` against the course's static solids `s` (no cars). */
-export function judge(cam: THREE.PerspectiveCamera, s: Sight, p: THREE.Vector3): Pick<MomentView, "ndcX" | "ndcY" | "front" | "clear" | "share" | "seen"> {
+/** The moment at `p` as `cam` frames it on `screen`, judged by `VIEW` against the course's static solids `s` (no cars) and the screen's sheet. */
+export function judge(cam: THREE.PerspectiveCamera, s: Sight, p: THREE.Vector3, screen: Screen): Pick<MomentView, "ndcX" | "ndcY" | "front" | "clear" | "covered" | "share" | "seen"> {
   cam.updateMatrixWorld();
   _ndc.copy(p).project(cam);
   const front = _ndc.z > -1 && _ndc.z < 1;
   const e = cam.position;
   const clear = sightLine(s, e.x, e.y, e.z, p.x, p.y, p.z) >= 0;
+  const { view, sheet } = screen;
+  const w = view.right - view.left;
+  const h = view.bottom - view.top;
+  // The point on the page, and the frame's margin around the sheet (as at the frame's edges).
+  const x = view.left + ((_ndc.x + 1) / 2) * w;
+  const y = view.top + ((1 - _ndc.y) / 2) * h;
+  const mx = ((1 - VIEW.margin) / 2) * w;
+  const my = ((1 - VIEW.margin) / 2) * h;
+  const covered = sheet !== null && x > sheet.left - mx && x < sheet.right + mx && y > sheet.top - my && y < sheet.bottom + my;
   const share = VIEW.subject / (2 * e.distanceTo(p) * Math.tan(THREE.MathUtils.degToRad(cam.fov) / 2));
-  const seen = front && Math.abs(_ndc.x) <= VIEW.margin && Math.abs(_ndc.y) <= VIEW.margin && clear && share >= VIEW.share;
-  return { ndcX: _ndc.x, ndcY: _ndc.y, front, clear, share, seen };
+  const seen = front && Math.abs(_ndc.x) <= VIEW.margin && Math.abs(_ndc.y) <= VIEW.margin && clear && !covered && share >= VIEW.share;
+  return { ndcX: _ndc.x, ndcY: _ndc.y, front, clear, covered, share, seen };
 }
 
 type Moment = { kind: MomentKind; at: number; point: THREE.Vector3 | null; car: number };
@@ -117,10 +135,10 @@ function momentsOf(clip: HighlightClip): Moment[] {
 const FLIGHT_MIN = 0.3;
 
 /**
- * Every clip of `clips` played through the reel's cameras at 60 Hz on `w`'s cars, a `aspect` frame: each moment judged on
- * the frame it happens in (the first frame whose clip time reaches it).
+ * Every clip of `clips` played through the reel's cameras at 60 Hz on `w`'s cars, on `screen` (its lens as the engine fits
+ * it, `coverLens`): each moment judged on the frame it happens in (the first frame whose clip time reaches it).
  */
-export async function reelViews(w: World, clips: readonly HighlightClip[], scene: string, aspect = 16 / 9): Promise<MomentView[]> {
+export async function reelViews(w: World, clips: readonly HighlightClip[], scene: string, screen = DESKTOP): Promise<MomentView[]> {
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
   const crash = new CrashCam(false);
@@ -147,15 +165,16 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
     impact: (contact, normal) => crash.begin(contact, normal, course(), clock.hold),
     hit: () => {},
     eject: (e, ride) => {
-      ragdolls.launch(e, w.live());
+      ragdolls.launch(e, w.live(), ride);
       if (ride) ragdolls.follow();
     },
     ride: (camera, dt, subject) => (rode = ragdolls.rideAlong && ragdolls.frameCamera(camera, dt, false, w.cars.indexOf(subject), false, LENS, () => sight(subject)) !== "none"),
   };
   const reel = new ReelDirector(host);
   reel.stepBudgetMs = Infinity;
-  const camera = new THREE.PerspectiveCamera(LENS, aspect, 0.1, 900);
-  const probe = new THREE.PerspectiveCamera(LENS, aspect, 0.1, 900);
+  const camera = new THREE.PerspectiveCamera(LENS, 1, 0.1, 900);
+  coverLens(camera, screen.view, screen.sheet);
+  const probe = camera.clone();
   const out: MomentView[] = [];
   const s = course();
   for (const [i, clip] of clips.entries()) {
@@ -180,7 +199,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
       const sim = cur.sim;
       const shot = cur.shots[Math.max(0, reel["shot"])]!;
       const rig = rode ? "ride" : cut ? "crash" : reel["flying"] ? "flight" : `shot:${shot.kind === "chase" || reel["shotCam"].found ? shot.kind : "chase"}`;
-      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p), hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
+      const view = (kind: MomentKind, at: number, p: THREE.Vector3, car: number): MomentView => ({ scene, title, kind, at, hitAt: clip.firstImpact, rig, x: p.x, y: p.y, z: p.z, ...judge(camera, s, p, screen), hold: holdAfter(tl, at), wall: (stepOf(tl, at) * wall) / (tl.sim.length - 1), end: wall, note: `${car === clip.focus ? "subject" : "other car"}, hit at ${clip.firstImpact.toFixed(2)} s, eye ${camera.position.toArray().map((v) => v.toFixed(1))}` });
       for (const m of moments) {
         if (m.at > sim.time + 1e-9 || m.at < 0) continue;
         const p = m.point ?? new THREE.Vector3(clip.x, sim.cars[m.car]!.group.position.y + 0.55, clip.z);

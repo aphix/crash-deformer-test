@@ -135,7 +135,7 @@ describe("given the ejection range (a sedan at 100 km/h into the jersey barrier,
       await ragdolls.preload();
       ragdolls.sand = true;
       ragdolls.update(1 / 60, [], true, true, 0, null);
-      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false });
+      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false, rides: true });
       const torso = new THREE.Vector3();
       let x = NaN;
       for (let t = 0; t < 12 && Number.isNaN(x); ) {
@@ -164,7 +164,7 @@ describe("given a dummy thrown while time runs at 0.03× (the deepest slow-mo)",
       const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
       await ragdolls.preload();
       ragdolls.update(1 / 60, [], true, true, 0, null);
-      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false });
+      ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1.2, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), -Math.PI / 2 + 0.3), v: new THREE.Vector3(27, 3.5, 0), w: new THREE.Vector3(0, 0, -3), age: 0, cop: false, rides: true });
       // What the GPU gets: his slot's pieces (slot 0, the first throw), the throw frame's pose first.
       const drawn: Float32Array = ragdolls["mesh"].instanceMatrix.array as Float32Array;
       const per = drawn.length / ragdolls["dolls"].length;
@@ -210,7 +210,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(1 / 60, [], true, true, 0, null);
-    ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false });
+    ragdolls["spawn"]({ car: 0, p: new THREE.Vector3(0, 1, 0), q: new THREE.Quaternion(), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const bodies: RigidBody[] = ragdolls["dolls"][0]!.bodies;
     const [torso, arm] = [bodies[0]!, bodies[2]!];
     const r = stream(7);
@@ -242,7 +242,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
       ragdolls.update(1 / 60, [car], true, true, 0, null);
     };
     frame();
-    ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false });
+    ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const torso: RigidBody = ragdolls["dolls"][0]!.bodies[0]!;
     for (let f = 0; f < 120; f++) frame();
     assert.ok(torso.isSleeping(), "he lies asleep after two seconds on the ground");
@@ -257,7 +257,7 @@ describe("given a thrown dummy (the ejected driver's jointed ragdoll)", () => {
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     ragdolls.update(1 / 60, [], true, true, 0, null);
-    ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false });
+    ragdolls["spawn"]({ car: 5, p: new THREE.Vector3(0, 0.3, 0), q: new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2), v: new THREE.Vector3(), w: new THREE.Vector3(), age: 0, cop: false, rides: true });
     const world: World = ragdolls["world"]!;
     const step = world.step.bind(world);
     let steps = 0;

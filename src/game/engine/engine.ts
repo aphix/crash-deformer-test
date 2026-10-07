@@ -257,7 +257,7 @@ export class CrashEngine extends EngineShare {
       clock: this.clock,
       impact: (contact, normal, closing) => this.beginCinematic(contact, normal, closing, true),
       hit: this.hitFx,
-      eject: (e, ride) => { this.ragdolls.launch(e, this.live()); if (ride) this.ragdolls.follow(); },
+      eject: (e, ride) => { this.ragdolls.launch(e, this.live(), ride); if (ride) this.ragdolls.follow(); },
       ride: (camera, wallDt, subject) => this.ragdolls.rideAlong && this.ragdolls.frameCamera(camera, wallDt, false, this.cars.indexOf(subject), false, this.view.lens, () => this.sceneSight(subject, true)) !== "none",
     });
 

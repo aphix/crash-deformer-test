@@ -3,7 +3,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { beginImpact, CONTACT_HOLD, easeTimeScale, phaseClock, PRE_IMPACT_LEAD, SLOMO_HOLD, stepPhase, THROW_HOLD, type CrashPhase, type PhaseClock } from "../match/phase.ts";
 import { clipTitle, ownThrow, type HighlightClip, type Reel } from "../match/highlights.ts";
-import type { ReelHud, SaveResult } from "../match/types.ts";
+import type { ReelHud, SaveResult, ViewBox } from "../match/types.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { AFTERS, OPENERS, pickShot, RUN_INS, ShotCam, type Shot as PickedShot, type ShotKind } from "../present/shot-cam.ts";
 import { CINE, type Sight } from "../present/spectate-cam.ts";
@@ -116,6 +116,39 @@ function shotsFor(clip: HighlightClip, tl: Timeline, rand: () => number): Shot[]
   return shots;
 }
 
+/**
+ * `camera`'s lens over the canvas box `view` with the results sheet's box `cover` over part of it (null: none). The lens
+ * frames the largest strip of the canvas beside the sheet as if that strip were the screen (its aspect, the projection
+ * centre at its middle) and the rest of the canvas shows what lies past the strip's edges: the reel's cameras centre
+ * their subject, so it plays in the part of the view the sheet leaves free.
+ */
+export function coverLens(camera: THREE.PerspectiveCamera, view: ViewBox, cover: ViewBox | null): void {
+  const w = Math.max(1, view.right - view.left);
+  const h = Math.max(1, view.bottom - view.top);
+  let x = 0;
+  let y = 0;
+  let fw = w;
+  let fh = h;
+  if (cover) {
+    const clamp = THREE.MathUtils.clamp;
+    const l = clamp(cover.left - view.left, 0, w);
+    const r = clamp(cover.right - view.left, 0, w);
+    const t = clamp(cover.top - view.top, 0, h);
+    const b = clamp(cover.bottom - view.top, 0, h);
+    // The strips left of, right of, above and below the sheet: the largest is the frame.
+    const best = Math.max(l * h, (w - r) * h, t * w, (h - b) * w);
+    if (r > l && b > t && best > 0) {
+      if (best === l * h) fw = l;
+      else if (best === (w - r) * h) [x, fw] = [r, w - r];
+      else if (best === t * w) fh = t;
+      else [y, fh] = [b, h - b];
+    }
+  }
+  camera.aspect = fw / fh;
+  if (fw < w || fh < h) camera.setViewOffset(fw, fh, -x, -y, w, h);
+  else camera.clearViewOffset();
+}
+
 /** What the reel needs from the engine. */
 export type ReelHost = {
   /** The cars a clip replays on, in its `cars` order. */
@@ -136,7 +169,7 @@ export type ReelHost = {
   impact(contact: THREE.Vector3, normal: THREE.Vector3, closing: number): void;
   /** A replay's car–car hit: sparks. */
   hit(contact: THREE.Vector3, normal: THREE.Vector3, impulse: number): void;
-  /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight. */
+  /** A driver in the clip was thrown out (`ClipSim.take`, `e.car` the engine slot): his dummy flies, from the recording's numbers; `ride`: he was thrown in the clip's own crash, so the camera follows his flight (only such a driver is ever framed by the ride). */
   eject(e: Ejection, ride: boolean): void;
   /** The thrown drivers' ride-along places `camera` on them this frame (`subject`: the clip's focus car); false when no ride is on. */
   ride(camera: THREE.PerspectiveCamera, wallDt: number, subject: DeformableCar): boolean;

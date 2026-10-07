@@ -86,7 +86,7 @@ output needs nothing else; keyframes carry `driverOut` in the snapshot flags.
 
 `ClipSim` fires each ejection after its step ran (`take()` hands them out with `car` the engine slot), sets `driverOut`, and
 the reel launches the dummy from the recorded numbers (`ReelHost.eject`); every driver thrown in the clip's own crash (`ownThrow`: from its first impact on, within 30 m of it) gets the ride-along
-camera (`ReelDirector.aim`), over the clip's shots, until every dummy lies still. Two replays of one clip fly the dummy along exactly
+camera (`ReelDirector.aim`), over the clip's shots, until every dummy lies still. The ride frames only those drivers (`launch`'s `rides`): another crash's driver thrown faster elsewhere in the clip (a cop wrecking 120 m off) never pulls it away. Two replays of one clip fly the dummy along exactly
 the same path (`race-eject-reel.test.ts`); the live dummy and the replay's start from the same point (0 m) but part once
 they bounce off replayed cars (a free flight stayed within 0.9 m of the live one over 4 s, one that hit the oncoming car
 did not): the launch falls on another frame boundary (up to 1/60 s) and the replayed cars are cm to dm off the live ones.
@@ -238,8 +238,8 @@ In a reel the crash cam keeps ONE cut for its whole window (`CUTS[0]` to `crashC
 long before the clip's slow-mo hands back as the sandbox's 6.1 s is before its 6.5 s hold, its cut times stretched evenly
 over it), not the
 sandbox's bumper, crane and long-lens cuts: `heldCut` picks the crane (else the long lens, else the bumper cam) whose eye
-has `CLEAR.radius` m of room and sight of the car (`camUsable`), keeps its eye where its cut begins, turns toward the
-car at 4/s, and re-asks every 0.25 s: it moves to another cut only when the held eye has lost room or sight (a wall, a
+has `CLEAR.radius` m of room and sight of the car (`camUsable`), keeps its eye where its cut begins, aims at the hit until
+0.3 s past it, then turns toward the car at 4/s, and re-asks every 0.25 s: it moves to another cut only when the held eye has lost room or sight (a wall,
 building or a car in the way), and hands the shot to the reel camera when none is usable (until 0.3 s past the hit, a cut whose eye sees the hit holds). Camera changes from the hit
 to 7 s after, in the browser at 60 and 240 Hz: 4 before (bumper, crane, long lens, hand-back), 2 after (take-over,
 hand-back). The sandbox crash cam still cuts three times. A hit inside the window never re-picks (the reel calls
@@ -247,6 +247,11 @@ hand-back). The sandbox crash cam still cuts three times. A hit inside the windo
 
 The flight between clips (`overheadPose`) eases from the last clip to the next at 80 m, climbing over long flights. Its
 eye trails the point it is over, so the view is never straight down.
+
+The results sheet covers part of the view (a right-hand panel on a desktop or a phone in landscape, a bottom sheet in
+portrait). The sheet sends its box on the page as `reelCover`; while the reel plays, `coverLens` fits the camera to the
+largest strip of the canvas beside the sheet as if that strip were the screen (its aspect, the projection centre at its
+middle; the rest of the canvas shows what lies past it), so every rig's centred subject plays in the free part.
 
 ### FX tier
 
