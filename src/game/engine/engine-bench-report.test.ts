@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
 import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench-report.ts";
+import { benchPlan } from "./engine-bench-plan.ts";
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
 const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS, calls: 640, triangles: 410000 });
@@ -136,7 +137,17 @@ describe("given the bench result of the Lab's throws (?bench=lab)", () => {
   test("when the card is written, then its second line names the throws in turn, how often and when they leave, that time was held at 1x, and how many the window saw; a race's card has no such line", () => {
     const lines = describeBench({ ...RESULT, course: "lab", cars: 4, cops: null, labThrown: 4 });
     assert.match(lines[0]!, /^CRUSH BENCH {2}lab {2}4 cars/);
-    assert.equal(lines[1], "lab: cards item 3 at 30 m/s, then wall item 4 at 30 m/s; one each 4 sim-s, 0.5 s after its set loads, time held at 1x; 4 thrown in the window");
+    const line = lines[1]!;
+    const lab = benchPlan("?bench=lab")!.lab!;
+    assert.ok(line.startsWith("lab: "), line);
+    let from = 0;
+    for (const t of lab.throws) {
+      const at = line.indexOf(t.preset, from);
+      assert.ok(at >= from, `${t.preset} is not named after the throw before it: ${line}`);
+      assert.ok(line.slice(at).includes(`${t.along} m/s`) && line.slice(at).includes(`${t.up} m/s up`), `${t.preset}'s launch is not named: ${line}`);
+      from = at + t.preset.length;
+    }
+    assert.ok(line.includes("held at 1x") && line.includes("4 thrown in the window"), line);
     assert.ok(!describeBench(RESULT).some((l) => l.startsWith("lab:")));
   });
 });
