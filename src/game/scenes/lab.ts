@@ -171,8 +171,8 @@ const THROWER = pose(-14, 0, 0, Math.PI / 2);
 
 /**
  * The presets. `pad`: the empty bench and a car to throw. `wall`: a row of the game's props across the bench, more on the
- * pegboard's brackets above it. `cards`: the house of cards of cars. `glass`: a car held on a stand bracket, its
- * windscreen facing a dummy on the bench.
+ * pegboard's brackets above it. `cards`: the house of cards of cars. `glass`: a dummy on the bench, and a car held on a stand
+ * bracket with its windscreen facing him. The first item is where the opening shot looks from: never the car against the board.
  */
 export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
   pad: [{ kind: "car", type: SEDAN, pose: THROWER, hold: "free" }],
@@ -190,7 +190,7 @@ export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
     { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOF, 0, Math.PI / 2), hold: "free" },
   ],
   glass: [
-    { kind: "car", type: SEDAN, pose: pose(10, 4 * PEG, 0, -Math.PI / 2), hold: "pin" },
     { kind: "dummy", pose: pose(-4, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(10, 4 * PEG, 0, -Math.PI / 2), hold: "pin" },
   ],
 };

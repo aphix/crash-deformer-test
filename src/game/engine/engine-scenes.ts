@@ -32,11 +32,13 @@ const _w = new THREE.Vector3();
  * that far from the thrower to the set's middle; `turn`: bearing off straight behind, rad), so the set runs up the screen's
  * length; wide ones look across the bench from its front at the set's middle, the thrower on the left, the targets on the
  * right and the pegboard behind, from just far enough back that every item of the set and `fit` m to spare fits the width,
- * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it.
+ * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it. A wide screen
+ * `shortPx` CSS px tall or less (a phone on its side) has its dock and set panel along the bottom: there the look point is the
+ * set's own height, so the thrower and the set sit mid-screen, clear of both.
  */
 const LAB_SHOT = {
   upright: { toFocus: 0.8, turn: 0.06, radius: 21, pitch: 0.22, lift: 0 },
-  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5 },
+  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5, shortPx: 500 },
 };
 const LAB_FOV = 60;
 
@@ -231,7 +233,8 @@ export abstract class EngineScenes extends EngineHud {
     const upright = this.camera.aspect < 1;
     this.labUpright = upright;
     const shot = upright ? LAB_SHOT.upright : LAB_SHOT.wide;
-    this.labLook.lerpVectors(from, f, shot.toFocus).setY(f.y + shot.lift);
+    const short = !upright && this.canvas.clientHeight <= LAB_SHOT.wide.shortPx;
+    this.labLook.lerpVectors(from, f, shot.toFocus).setY(f.y + (short ? 0 : shot.lift));
     const behind = Math.atan2(from.x - f.x, from.z - f.z);
     const look = this.labLook;
     let radius = LAB_SHOT.upright.radius;

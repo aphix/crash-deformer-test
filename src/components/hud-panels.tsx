@@ -258,12 +258,15 @@ export function RangePanel({ range }: { range: NonNullable<CrashHudState["range"
 
 const LAB_SET_LABEL: Record<LabPresetId, string> = { pad: "Pad", wall: "Wall", cards: "Cards", glass: "Glass" };
 
-/** The Lab: its set (a pick puts it up afresh) and the last throw's readout, low in the view for a thumb; the throw is a swipe from a car. */
+/**
+ * The Lab: its set (a pick puts it up afresh) and the last throw's readout; the throw is a swipe from a car. An upright phone
+ * holds it at the top, where the Lab hides the readouts: low in the view it sat over the thrower; wider screens keep it low.
+ */
 export function LabPanel({ lab, engine }: { lab: LabHud; engine: RefObject<CrashEngine | null> }) {
   const unit = useSpeedUnit();
   const shot = lab.shot;
   return (
-    <div className="hud-panel pointer-events-auto mt-auto w-full max-w-xs space-y-1 p-1 idle:opacity-70">
+    <div className="hud-panel pointer-events-auto w-full max-w-xs space-y-1 p-1 sm:mt-auto idle:opacity-70">
       <div className="grid grid-cols-4 gap-0.5 rounded-md bg-surface-2/70 p-0.5" role="group" aria-label="Lab set">
         {LAB_PRESETS.map((id) => (
           <Button
