@@ -590,7 +590,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // A driven car with a wheel on the world's ground travels as its drive takes it, as on its wheels (`stepPlane`): the world's faces
   // lift and turn it but neither push it along nor drag it (no friction: the drive grips). A rear tyre meeting a ramp's toe at 30°
   // with the front in the air turned its travel 2-3° through the face's slope and the tyre's friction against the body's spin.
-  const rolling = !car.crashed && worldWheels(car, wheelsAt(car, within)) > 0;
+  // Every body's tyres are read each slice, a wreck's too: skipped, a wreck's tyres kept their reading from its hand-over and it never
+  // landed on them (a struck wreck came to rest on its belly 10 cm in the floor, its tyres read 0.9-1.5 m up).
+  const rolling = worldWheels(car, wheelsAt(car, within)) > 0 && !car.crashed;
   const vx0 = v.x;
   const vz0 = v.z;
   const hit = car.wheelHit;
@@ -645,10 +647,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       BPATCH[i] = patchOf(HIT);
     }
     if (gy === NO_FLOOR) continue;
-    const own = HIT[C_OWNER]!;
-    // A wreck's belly over the world's ground is not a flight contact: its masses hold it (the hub-plane pose) and a second, rigid
-    // support from here snapped a wreck falling on another car 31 cm in one frame (fleet-ramps D1).
-    if (i >= HULL.length && own < 0 && car.crashed) continue;
     const pen = gy - py;
     if (pen <= 0) continue;
     bodyContact(surf, n, HIT, pen, i < HULL.length, q, v, w);
@@ -666,7 +664,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     }
     if (BRISE[a] === NO_FLOOR) continue;
     const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, 0, 0, 0, 0, NaN, car.slot, BPATCH[a]!);
-    if (!(pen > 0) || (EDGE_HIT[C_OWNER]! < 0 && car.crashed)) continue;
+    if (!(pen > 0)) continue;
     R[n]!.set(EDGE_HIT[C_PX]! - _com.x, EDGE_HIT[C_PY]! - _com.y, EDGE_HIT[C_PZ]! - _com.z);
     bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w);
     n++;
