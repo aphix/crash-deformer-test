@@ -563,8 +563,8 @@ export class RaceSession {
     } else {
       const L = tr.length;
       const n = tr.gates.length;
-      sp.lo = tr.gateS((c.next - 1 + n) % n);
-      sp.hi = c.next === 0 ? L : tr.gateS(c.next);
+      sp.lo = tr.gates[(c.next - 1 + n) % n]!.s;
+      sp.hi = c.next === 0 ? L : tr.gates[c.next]!.s;
       if (sp.u < sp.lo - L * 0.5) sp.u += L;
       else if (sp.u > sp.hi + L * 0.5) sp.u -= L;
     }
@@ -591,8 +591,8 @@ export class RaceSession {
         this.measure(i);
         return;
       }
-      const a = tr.gateS(sc.from);
-      const b = sc.to === 0 ? L : tr.gateS(sc.to);
+      const a = tr.gates[sc.from]!.s;
+      const b = sc.to === 0 ? L : tr.gates[sc.to]!.s;
       s = a + clamp(p.s / path.length, 0, 1) * (b - a);
       road = inCorridor(path, p);
       this.stretch(c, p, road);

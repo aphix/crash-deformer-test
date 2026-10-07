@@ -47,7 +47,8 @@ const CLICK_PX = 8;
 export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): THREE.Vector3 {
   out.set(0, 0, 0);
   let n = 0;
-  for (const car of cars) {
+  for (let i = 0; i < cars.length; i++) {
+    const car = cars[i]!;
     if (car.falling || car.vaporized) continue;
     out.add(car.group.position);
     n++;
@@ -496,7 +497,9 @@ export class ChaseCamera {
     if (R < 1e-3) return;
     const ux = ex / R;
     const uz = ez / R;
-    for (const post of this.posts) {
+    const posts = this.posts;
+    for (let k = 0; k < posts.length; k++) {
+      const post = posts[k]!;
       if (!post.intact || !post.group.visible) continue;
       const q = post.group.position;
       const h = Math.max(0, p.y - q.y - POST_TOP);

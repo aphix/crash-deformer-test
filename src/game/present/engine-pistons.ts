@@ -113,7 +113,8 @@ export class PistonBank {
       this.put(this.stand, slot, i, h.ax, h.az, housingFront - HOUSING_LENGTH * 0.5, standH * 0.5, 0.24, standH, 0.6);
       this.head.setColorAt(slot, i === selected ? SELECTED_COLOR : HEAD_COLOR);
     }
-    for (const mesh of this.meshes) {
+    for (let k = 0; k < this.meshes.length; k++) {
+      const mesh = this.meshes[k]!;
       mesh.count = count;
       mesh.instanceMatrix.needsUpdate = true;
     }
