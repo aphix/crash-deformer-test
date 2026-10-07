@@ -205,7 +205,7 @@ export class RaceSession {
     if (this.phase === "grid" && this.time >= -COUNTDOWN) this.phase = "countdown";
     if (this.phase === "countdown" && this.time >= 0) {
       this.phase = "racing";
-      this.queue.push({ type: "go" });
+      this.announceGo();
     }
     if (this.phase !== "racing") {
       this.io[VEL_X_IDX] = 0;
@@ -231,6 +231,24 @@ export class RaceSession {
     this.busting(poses, cops, span);
     this.sortRank();
     this.settle();
+  }
+
+  /** The green light: `go` for the host. */
+  private announceGo(): void {
+    this.queue.push({ type: "go" });
+  }
+
+  /** This step's finishers for the host, and the winner when the first of them is home. */
+  private announceFinishers(): void {
+    for (let k = 0; k < this.finishers.length; k++) {
+      const c = this.cars[this.finishers[k]!]!;
+      this.queue.push({ type: "finish", id: c.id, place: c.place, time: c.finishTime! });
+    }
+    if (this.winnerId == null) {
+      const first = this.cars[this.rank[0]!]!;
+      this.winnerId = first.id;
+      this.winBy = "laps";
+    }
   }
 
   /** `DRAFT`: each racing car's unbroken seconds in another's trail, and the boost bonuses that earned. */
@@ -731,17 +749,7 @@ export class RaceSession {
 
   /** Finish events, the winner, the last-alive rule and the close. */
   private settle(): void {
-    if (this.finishers.length > 0) {
-      for (let k = 0; k < this.finishers.length; k++) {
-        const c = this.cars[this.finishers[k]!]!;
-        this.queue.push({ type: "finish", id: c.id, place: c.place, time: c.finishTime! });
-      }
-      if (this.winnerId == null) {
-        const first = this.cars[this.rank[0]!]!;
-        this.winnerId = first.id;
-        this.winBy = "laps";
-      }
-    }
+    if (this.finishers.length > 0) this.announceFinishers();
     let winTime = Number.NaN;
     if (this.winBy === "laps") for (let k = 0; k < this.cars.length; k++) if (this.cars[k]!.id === this.winnerId) winTime = this.cars[k]!.finishTime!;
     let running = 0;
