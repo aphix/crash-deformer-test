@@ -18,15 +18,17 @@ import { fit } from "../vehicle/ground-probe.test-util.ts";
  * throttle holding its speed, at `th` degrees to the fleet ramp's long axis, its centreline crossing the toe line `e` m
  * inside the ramp's -x edge, so one or two wheels meet the wedge first (32 cells: th 0/15/30/45 x e -0.8..0.6, none aimed at a
  * wall). Per physics slice from the spawn until the car is up the wedge (z under the slab's end) or has crashed. "The plane
- * through its touching wheels" is fitted through each touching tyre's tread contact point (the tread point with the smallest
- * gap: its x, z and the ground height under it), as docs/UNIFIED_CONTACT.md 10.5 designs the wheel contact: a tyre on a ramp's
- * edge rests on the edge, whichever side of it the hub is.
+ * through its touching wheels" is fitted through each touching wheel's hub lowered by its tread gap: where that wheel rests on what
+ * it touches (on one plane, a fixed height over the ground under the hub; a tyre on a lip or on a ramp's edge rests on the edge,
+ * whichever side of it the hub is, so its hub comes down the edge as the tyre rolls off it), because the body's tilt follows its hubs.
  */
 const FRAME = 1 / 60;
 const DEG = 180 / Math.PI;
 const EDGE = -RAMP.halfW;
 const TOE = RAMP.start + RAMP.len;
 const TOUCH = 0.03;
+/** A tyre's reach (m, plan) from its hub: its radius and a little. */
+const REACH = 0.35;
 const THS = [0, 15, 30, 45] as const;
 const ES = [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6] as const;
 const SPEEDS = [8, 12, 20] as const;
@@ -139,13 +141,13 @@ function cross(v: number, thDeg: number, e: number): Result {
   let lastCz = p.z + _c.z;
   const dirF = new Float64Array(2);
   const dirR = new Float64Array(2);
-  // The touching wheels' hub points (x, the ground's height under the hub, z) and tread contact points (`Fit.contacts`).
+  // The touching wheels' hub points (x, the ground's height under the hub, z) and resting hubs (x, the hub's height less its tread
+  // gap, z).
   const hx = new Float64Array(4);
   const hy = new Float64Array(4);
   const hz = new Float64Array(4);
-  const cx = new Float64Array(4);
-  const cy = new Float64Array(4);
-  const cz = new Float64Array(4);
+  const ry = new Float64Array(4);
+  const touched = new Int32Array(4);
   const planeC = new Float64Array(3);
   const planeH = new Float64Array(3);
   const normal0 = new THREE.Vector3();
@@ -173,9 +175,8 @@ function cross(v: number, thDeg: number, e: number): Result {
         hx[touching] = _q.x;
         hz[touching] = _q.z;
         hy[touching] = ramps.heightAt(_q.x, _q.z, _q.y);
-        cx[touching] = fi.contacts[i * 3]!;
-        cy[touching] = fi.contacts[i * 3 + 1]!;
-        cz[touching] = fi.contacts[i * 3 + 2]!;
+        ry[touching] = _q.y - fi.gaps[i]!;
+        touched[touching] = i;
         touching++;
       }
       if (fi.airborne && touching > 0) out.airWhileTouching++;
@@ -193,8 +194,8 @@ function cross(v: number, thDeg: number, e: number): Result {
       lastZ = p.z;
       lastCx = p.x + _c.x;
       lastCz = p.z + _c.z;
-      if (touching >= 3 && fitPlane(cx, cy, cz, touching, planeC)) {
-        // The plane through the touching wheels' tread contact points (least squares): y = a x + b z + c.
+      if (touching >= 3 && fitPlane(hx, ry, hz, touching, planeC)) {
+        // The plane through the touching wheels' resting hubs (least squares): y = a x + b z + c.
         const q = car.group.quaternion;
         const pitch = axis(q, 0, 0, 1, dirF);
         const roll = axis(q, 1, 0, 0, dirR);
@@ -205,14 +206,18 @@ function cross(v: number, thDeg: number, e: number): Result {
           out.tilt = worst;
           out.tiltAt = `${pitchErr > rollErr ? "pitch" : "roll"} at z ${p.z.toFixed(2)} on ${touching} wheels`;
         }
-        // One plane under every point: the same ground normal at the hubs and at the contacts. There the two fits are the same plane.
+        // One plane under every tyre: the same ground normal under each touching hub and a tyre's reach before, behind and to either
+        // side of it (a tyre whose hub and contact are on the wedge's face but whose front is over its crest rests on the crest). There
+        // the two fits are parallel planes.
         let one = fitPlane(hx, hy, hz, touching, planeH);
         ramps.normalAt(hx[0]!, hz[0]!, normal0, hy[0]! + 0.5);
         for (let i = 0; one && i < touching; i++) {
-          ramps.normalAt(hx[i]!, hz[i]!, normal, hy[i]! + 0.5);
-          if (normal.distanceTo(normal0) > 1e-9) one = false;
-          ramps.normalAt(cx[i]!, cz[i]!, normal, cy[i]! + 0.5);
-          if (normal.distanceTo(normal0) > 1e-9) one = false;
+          for (let s = 0; one && s < 5; s++) {
+            const a = s === 0 ? 0 : s < 3 ? (s === 1 ? REACH : -REACH) : 0;
+            const b = s < 3 ? 0 : s === 3 ? REACH : -REACH;
+            ramps.normalAt(hx[i]! + a * dirF[0]! + b * dirR[0]!, hz[i]! + a * dirF[1]! + b * dirR[1]!, normal, hy[i]! + 0.5);
+            if (normal.distanceTo(normal0) > 1e-9) one = false;
+          }
         }
         if (one) {
           out.planeSlices++;
@@ -259,7 +264,7 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
 describe("given a sedan driving up the middle of the ramp's wedge, so its tyres stand on the level floor and then on the wedge's one plane", () => {
   afterEach(() => setGround(null));
 
-  it("when the plane through its touching wheels is fitted at their tread contact points and at their hub points, then the two planes agree within 0.01° wherever the ground under all of those points is one plane", () => {
+  it("when the plane through its touching wheels is fitted through their resting hubs and through the ground under their hubs, then the two planes agree within 0.01° wherever the ground under every tyre is one plane", () => {
     const r = cross(8, 0, RAMP.halfW);
     assert.ok(r.flatSlices >= 10, `only ${r.flatSlices} slices with every point on level ground`);
     assert.ok(r.planeSlices - r.flatSlices >= 5, `only ${r.planeSlices - r.flatSlices} slices with every point on the wedge's slope`);
