@@ -598,7 +598,8 @@ export abstract class EngineScenes extends EngineDerby {
   protected stackLookY(wallDt: number): number {
     if (this.camera.aspect < 1 !== this.stackPortrait && !this.view.userFramed) this.frameStack();
     let top = 0;
-    for (const car of this.live()) top = Math.max(top, car.group.position.y);
+    const cars = this.live();
+    for (let i = 0; i < cars.length; i++) top = Math.max(top, cars[i]!.group.position.y);
     this.stackEye += ((top + 1.3) / 2 - this.stackEye) * (1 - Math.exp(-3 * wallDt));
     return this.stackEye;
   }
@@ -776,7 +777,8 @@ export abstract class EngineScenes extends EngineDerby {
   protected bounceWorld = (pos: THREE.Vector3, vel: THREE.Vector3, r: number): void => {
     // Loose parts and FX past the fleet disc's rim fall on: no ground there.
     if (activeGround().heightAt(pos.x, pos.z, pos.y) !== NO_FLOOR) bounceGround(pos, vel, r);
-    for (const car of this.live()) if (!car.vaporized) bounceOffCar(car, pos, vel, r);
+    const cars = this.live();
+    for (let i = 0; i < cars.length; i++) if (!cars[i]!.vaporized) bounceOffCar(cars[i]!, pos, vel, r);
     if (this.showCompactor) {
       const hz = 0.24;
       const hy = 1.05;

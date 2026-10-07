@@ -550,17 +550,7 @@ export class CrashEngine extends EngineShare {
       const snaps = this.derby.snapshots(cars.length);
       for (let i = 0; i < cars.length; i++) {
         const c = cars[i]!;
-        snapshotAiCar(
-          snaps[i]!,
-          i,
-          c.group.position.x,
-          c.group.position.z,
-          c.yaw,
-          c.velocity.x,
-          c.velocity.z,
-          c.deform.drivetrainAlive,
-          c.deform.masses,
-        );
+        snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       }
       for (let i = 0; i < cars.length; i++) {
         if (i === driven || this.derbySeated.has(i)) continue;

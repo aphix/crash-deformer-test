@@ -248,9 +248,9 @@ describe("given six derby cars laid out in the bowl", () => {
 describe("given the AI's damage reading of a car", () => {
   it("when a mint car and a car with a dead drivetrain are read, then the mint car reads near 0 and the dead drivetrain reads 1", () => {
     const c = new DeformableCar({ body: 0xc5c8ce, accent: 0x9aa0a8, name: "Titanium" }, new THREE.Scene());
-    const s = snapshotAiCar(blankAiCar(0), 0, 0, 0, 0, 0, 0, true, c.deform.masses);
+    const s = snapshotAiCar(blankAiCar(0), 0, c, true);
     assert.ok(s.front < 0.02 && s.rear < 0.02 && s.damage < 0.02, `mint read ${s.front}/${s.rear}/${s.damage}`);
-    assert.equal(snapshotAiCar(blankAiCar(0), 0, 0, 0, 0, 0, 0, false, c.deform.masses).damage, 1);
+    assert.equal(snapshotAiCar(blankAiCar(0), 0, c, false).damage, 1);
   });
 });
 
@@ -326,7 +326,7 @@ describe("given a default two-car derby in shape deform mode", () => {
     while (t < 5.05) {
       const h = physicsSlice(1 / 60, Math.max(a.speed, b.speed, 4));
       const snaps = match.snapshots(2);
-      for (const [i, c] of [a, b].entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+      for (const [i, c] of [a, b].entries()) snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       applyDrive(a, match.think(snaps[0]!, snaps, h), h);
       applyDrive(b, match.think(snaps[1]!, snaps, h), h);
       stepWorld(w, h);
@@ -466,7 +466,7 @@ function runDerby(cars: DeformableCar[], seconds: number, knobs: Knobs, start?: 
       for (const c of cars) vmax = Math.max(vmax, c.speed);
       const h = physicsSlice(1 / 60, vmax);
       const snaps = match.snapshots(n);
-      for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+      for (const [i, c] of cars.entries()) snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       for (const [i, c] of cars.entries()) applyDrive(c, match.think(snaps[i]!, snaps, h), h);
       w.pairHit = (a, b, pair) => {
         const ca = cars[a]!;

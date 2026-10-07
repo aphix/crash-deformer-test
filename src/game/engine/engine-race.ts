@@ -393,7 +393,7 @@ export class RaceDirector extends RaceWatch {
     const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i]!;
-      snapshotAiCar(this.snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+      snapshotAiCar(this.snaps[i]!, i, c, c.deform.drivetrainAlive);
     }
     const snaps = this.snaps;
     const racers = this.entrants.length;

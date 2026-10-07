@@ -2,6 +2,7 @@ import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
+import { GUARD_BRAKE_IDX, GUARD_LEAD_IDX, GUARD_TURN_IDX } from "./constants.ts";
 
 /** Seconds ahead the guard looks for a contact, in steps of `STEP`. */
 const HORIZON = 1.5;
@@ -47,11 +48,15 @@ function sampleTimes(): Float64Array {
  * (by its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
  * ahead that steering cannot clear is braked for, at the deceleration that takes the closing speed off, down to a `TAP`,
  * in the time left (`brake`, m/s²). A pair already touching and moving apart is left to the physics. No allocation.
+ * `brake`, `lead` and `turn` come in the `tune` buffer (`GUARD_*_IDX`).
  *
  * Cost: the guarded car's own arc is worked out once, and only when some other car is near enough to reach it: a pair
  * whose centres are further apart than the zone plus what the two cars can close in `HORIZON` s (their speeds added) cannot touch.
  */
-export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, brake: number, lead: number, turn: number, out: DriveInput): void {
+export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, tune: Float64Array, out: DriveInput): void {
+  const brake = tune[GUARD_BRAKE_IDX]!;
+  const lead = tune[GUARD_LEAD_IDX]!;
+  const turn = tune[GUARD_TURN_IDX]!;
   const nose = self.yaw;
   const sx = self.vx;
   const sz = self.vz;
