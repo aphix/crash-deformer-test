@@ -6,7 +6,7 @@ import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { COM_Y, pressing, readContact, stepFree, stepPlane } from "./car-air.ts";
-import { droop, Suspension, UNDERSIDE } from "./car-suspension.ts";
+import { Suspension, UNDERSIDE } from "./car-suspension.ts";
 import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
