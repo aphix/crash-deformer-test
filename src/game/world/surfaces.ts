@@ -853,44 +853,97 @@ function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: nu
 }
 
 const _w = new Float64Array(HIT_SIZE);
-/** Per footprint point of the last `wheelContact`: its rise, and the patch that sets it (owner · 1e6 + patch). */
+const _x = new Float64Array(HIT_SIZE);
+/** Per footprint point of the last `wheelContact`: its rise, the patch that sets it (`patchOf`) and the point (world x, y, z). */
 const _rise = new Float64Array(FOOT);
 const _pid = new Float64Array(FOOT);
-/** The patch that set the last `tread` point. */
-let _pidLast = 0;
-/** Halvings of the arc between a ring's highest point and a neighbour on another patch: 7.5° / 32, the tread within 1.3 mm of the edge. */
+const _fx = new Float64Array(FOOT);
+const _fy = new Float64Array(FOOT);
+const _fz = new Float64Array(FOOT);
+/** Halvings of the span between two sample points on different patches: 1/32 of it, a tyre's tread within 1.3 mm of the edge. */
 const REFINE = 5;
 /** The most (m at wheel scale 1) an arc's step can move a ring's height: a ring this far under the highest point cannot set the rise. */
 const ARC_RISE = (RINGS[0]![1] * (Math.PI / 2)) / STEPS;
 
+/** The patch that sets `hit` (a `pointContact` result): owner · 1e6 + patch, one number per patch of the store (-1e6 - 1: none). */
+export function patchOf(hit: Float64Array): number {
+  return hit[C_OWNER]! * 1e6 + hit[C_ARG]!;
+}
+
+/** The `pointContact` of the point `edgeCross` found, with the point itself in `C_PX`, `C_PY`, `C_PZ`. */
+export const EDGE_HIT = new Float64Array(HIT_SIZE);
+
 /**
- * One tread point (wheel frame `fx`, `fy`, `fz` at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the
- * hub's height: returns its rise and writes it into `out` as the wheel's (footprint index `k`) when it is the highest yet.
+ * Where a body's surface between two of its sample points, A on patch `id` and B on another, crosses off `id`: the segment A→B
+ * (world) is halved `REFINE` times, keeping the half whose near end stands on `id`, so a tyre's tread or a belly meets a face's edge
+ * where the edge is, not at the nearest sample. Each point asks from height `ask` (a tyre's hub) or, NaN, its own. Returns the
+ * greatest rise (surface height less the point's) found on `id`, `-Infinity` if none; that point's contact is in `EDGE_HIT`.
  */
-function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: number, c: number, s: number, fx: number, fy: number, fz: number, k: number, out: Float64Array): number {
-  const lx = fx * scale;
-  const ly = (fy * c + fz * s) * scale;
-  const lz = (fz * c - fy * s) * scale;
+export function edgeCross(ax: number, ay: number, az: number, bx: number, by: number, bz: number, ask: number, skip: number, id: number): number {
+  let best = NONE;
+  let t0 = 0;
+  let t1 = 1;
+  for (let h = 0; h < REFINE; h++) {
+    const t = (t0 + t1) / 2;
+    const px = ax + (bx - ax) * t;
+    const py = ay + (by - ay) * t;
+    const pz = az + (bz - az) * t;
+    pointContact(px, pz, Number.isNaN(ask) ? py : ask, skip, _x);
+    if (patchOf(_x) !== id) {
+      t1 = t;
+      continue;
+    }
+    t0 = t;
+    const r = _x[C_H]! - py;
+    if (!(r > best)) continue;
+    best = r;
+    EDGE_HIT.set(_x);
+    EDGE_HIT[C_PX] = px;
+    EDGE_HIT[C_PY] = py;
+    EDGE_HIT[C_PZ] = pz;
+  }
+  return best;
+}
+
+/** `hit` (a `pointContact` with its point in `C_PX`..`C_PZ`) as the wheel's contact in `out`: rise `r`, footprint index `k`. */
+function take(out: Float64Array, hit: Float64Array, r: number, k: number): void {
+  out[C_H] = r;
+  out[C_NX] = hit[C_NX]!;
+  out[C_NY] = hit[C_NY]!;
+  out[C_NZ] = hit[C_NZ]!;
+  out[C_GRIP] = hit[C_GRIP]!;
+  out[C_SURF] = hit[C_SURF]!;
+  out[C_OWNER] = hit[C_OWNER]!;
+  out[C_ARG] = k;
+  out[C_AUX] = hit[C_AUX]!;
+  out[C_PX] = hit[C_PX]!;
+  out[C_PY] = hit[C_PY]!;
+  out[C_PZ] = hit[C_PZ]!;
+}
+
+/**
+ * Footprint point `k` (wheel frame at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the hub's height:
+ * its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when it is the highest yet.
+ */
+function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: number, c: number, s: number, k: number, out: Float64Array): void {
+  const lx = FX[k]! * scale;
+  const ly = (FY[k]! * c + FZ[k]! * s) * scale;
+  const lz = (FZ[k]! * c - FY[k]! * s) * scale;
   const px = hub[0]! + axes[0]! * lx + axes[3]! * ly + axes[6]! * lz;
   const py = hub[1]! + axes[1]! * lx + axes[4]! * ly + axes[7]! * lz;
   const pz = hub[2]! + axes[2]! * lx + axes[5]! * ly + axes[8]! * lz;
   pointContact(px, pz, hub[1]!, skip, _w);
-  _pidLast = _w[C_OWNER]! * 1e6 + _w[C_ARG]!;
   const r = _w[C_H]! - py;
-  if (!(r > out[C_H]!)) return r;
-  out[C_H] = r;
-  out[C_NX] = _w[C_NX]!;
-  out[C_NY] = _w[C_NY]!;
-  out[C_NZ] = _w[C_NZ]!;
-  out[C_GRIP] = _w[C_GRIP]!;
-  out[C_SURF] = _w[C_SURF]!;
-  out[C_OWNER] = _w[C_OWNER]!;
-  out[C_ARG] = k;
-  out[C_AUX] = _w[C_AUX]!;
-  out[C_PX] = px;
-  out[C_PY] = py;
-  out[C_PZ] = pz;
-  return r;
+  _rise[k] = r;
+  _pid[k] = patchOf(_w);
+  _fx[k] = px;
+  _fy[k] = py;
+  _fz[k] = pz;
+  if (!(r > out[C_H]!)) return;
+  _w[C_PX] = px;
+  _w[C_PY] = py;
+  _w[C_PZ] = pz;
+  take(out, _w, r, k);
 }
 
 /**
@@ -937,12 +990,10 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     }
   }
   out[C_H] = NONE;
-  for (let k = 0; k < n; k++) {
-    _rise[k] = tread(hub, axes, scale, skip, c, s, FX[k]!, FY[k]!, FZ[k]!, k, out);
-    _pid[k] = _pidLast;
-  }
-  // Near an edge a ring's highest point is where it crosses onto the patch that holds it, between two arcs: the arc is halved toward
-  // the neighbour on another patch (a front tyre leaving the wedge's side read 1.6 cm lower at its nearest arc than the drawn tyre's tread).
+  for (let k = 0; k < n; k++) tread(hub, axes, scale, skip, c, s, k, out);
+  // Near an edge a ring's highest point is where it crosses onto the patch that holds it, between two arcs: the chord to the
+  // neighbour on another patch is halved (`edgeCross`; a front tyre leaving the wedge's side read 1.6 cm lower at its nearest arc
+  // than the drawn tyre's tread).
   if (n === FOOT) {
     const best = out[C_H]! - ARC_RISE * scale;
     for (let ring = 0; ring < RINGS.length; ring++) {
@@ -957,20 +1008,13 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
       }
       if (!(rb > best)) continue;
       const kb = KOF[ring * ARCS + jb + STEPS]!;
-      const fx = RINGS[ring]![0];
-      const rr = RINGS[ring]![1];
       for (let side = -1; side <= 1; side += 2) {
         const jn = jb + side;
-        if (jn < -STEPS || jn > STEPS || _pid[KOF[ring * ARCS + jn + STEPS]!] === _pid[kb]) continue;
-        let a0 = jb;
-        let a1 = jn;
-        for (let h = 0; h < REFINE; h++) {
-          const am = (a0 + a1) / 2;
-          const a = (am / STEPS) * (Math.PI / 2);
-          tread(hub, axes, scale, skip, c, s, fx, -rr * Math.cos(a), rr * Math.sin(a), kb, out);
-          if (_pidLast === _pid[kb]) a0 = am;
-          else a1 = am;
-        }
+        if (jn < -STEPS || jn > STEPS) continue;
+        const kn = KOF[ring * ARCS + jn + STEPS]!;
+        if (_pid[kn] === _pid[kb]) continue;
+        const r = edgeCross(_fx[kb]!, _fy[kb]!, _fz[kb]!, _fx[kn]!, _fy[kn]!, _fz[kn]!, y, skip, _pid[kb]!);
+        if (r > out[C_H]!) take(out, EDGE_HIT, r, kb);
       }
     }
   }

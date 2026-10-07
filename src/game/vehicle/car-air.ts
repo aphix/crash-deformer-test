@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
 import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, HIT_SIZE, MU_TYRE, pointContact, wheelContact } from "../world/surfaces.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, HIT_SIZE, MU_TYRE, patchOf, pointContact, wheelContact } from "../world/surfaces.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -53,6 +53,30 @@ const BELLY: readonly (readonly [number, number, number])[] = [
  * flight (a keel 4–5 cm in the road at 30 m/s, a car parked on a bank's crease, a car across a ramp's edge).
  */
 const POINTS: readonly (readonly [number, number, number])[] = [...HULL, ...BELLY];
+/** Neighbouring belly points as `POINTS` index pairs (along x at one z, along z at one x): where the two stand on different patches,
+ *  the belly between them meets that patch's edge (`edgeCross`), as a ramp's crest does between rows half a metre apart. */
+const SEGS: Int16Array = (() => {
+  const pairs = new Int16Array(BELLY.length * BELLY.length);
+  let m = 0;
+  for (let i = 0; i < BELLY.length; i++) {
+    for (let j = i + 1; j < BELLY.length; j++) {
+      const [xi, , zi] = BELLY[i]!;
+      const [xj, , zj] = BELLY[j]!;
+      if (xi !== xj && zi !== zj) continue;
+      let between = false;
+      for (const [xk, , zk] of BELLY) {
+        if (zi === zj && zk === zi && (xk - xi) * (xk - xj) < 0) between = true;
+        if (xi === xj && xk === xi && (zk - zi) * (zk - zj) < 0) between = true;
+      }
+      if (between) continue;
+      pairs[m++] = HULL.length + i;
+      pairs[m++] = HULL.length + j;
+    }
+  }
+  return pairs.slice(0, m);
+})();
+/** Contacts a body can hold in one slice: its tyres and points, and a belly segment's edge each. */
+const CONTACTS = POINTS.length + SEGS.length / 2;
 /** Bumper, beltline and roof corners (`HULL[4..]`): the body points whose face a hit crushes (`load-crush.ts`). */
 const BODY_FROM = 4;
 /** How far each body point follows each face's crush depth (`faceFollow`), per `FACES` row. */
@@ -108,24 +132,45 @@ const _rn = new THREE.Vector3();
 const _k = new THREE.Vector3();
 const _tn = new THREE.Vector3();
 const GRAV = new THREE.Vector3(0, -G, 0);
-const R = POINTS.map(() => new THREE.Vector3());
+const R = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
 const _lift = new THREE.Vector3();
-const N = POINTS.map(() => new THREE.Vector3());
-const TYRE = POINTS.map(() => false);
-const SOFT = POINTS.map(() => false);
+const N = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
+const TYRE = Array.from({ length: CONTACTS }, () => false);
+const SOFT = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the face slot it presses (-1 rigid), the car whose top it stands on (-1 the world), how far that point follows its crush, its sink past what holds it. */
-const SLOT = POINTS.map(() => -1);
-const OWN = POINTS.map(() => -1);
-const FOLLOW = POINTS.map(() => 1);
-const SINK = POINTS.map(() => 0);
+const SLOT = Array.from({ length: CONTACTS }, () => -1);
+const OWN = Array.from({ length: CONTACTS }, () => -1);
+const FOLLOW = Array.from({ length: CONTACTS }, () => 1);
+const SINK = Array.from({ length: CONTACTS }, () => 0);
 /** Per contact: the point is still closing on its surface (a point moving off needs no lift). */
-const CLOSE = POINTS.map(() => false);
+const CLOSE = Array.from({ length: CONTACTS }, () => false);
 /** Per contact: the belly resting on the world's ground (it only resists, see `stepFree`). */
-const UNDER = POINTS.map(() => false);
+const UNDER = Array.from({ length: CONTACTS }, () => false);
+/** Per belly point (`POINTS` index) this slice: its world position, its rise (surface height less its own) and its patch (`patchOf`). */
+const BX = new Float64Array(POINTS.length);
+const BY = new Float64Array(POINTS.length);
+const BZ = new Float64Array(POINTS.length);
+const BRISE = new Float64Array(POINTS.length);
+const BPATCH = new Float64Array(POINTS.length);
 /** The surfaces of a car in no world (a bare harness): the world's ground alone. */
 const LOCAL = new CarSurfaces();
 const _s = new THREE.Vector3();
 const HIT = new Float64Array(HIT_SIZE);
+
+/** Contact `n`, a body point at `R[n]` from the centre `pen` m under the surface in `hit` (`pointContact`): `hull` a crushable hull point, else the belly. */
+function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: number, hull: boolean, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3): void {
+  const own = hit[C_OWNER]!;
+  N[n]!.set(hit[C_NX]!, hit[C_NY]!, hit[C_NZ]!);
+  TYRE[n] = false;
+  OWN[n] = own;
+  UNDER[n] = !hull && own < 0;
+  FOLLOW[n] = own >= 0 ? hit[C_AUX]! : 1;
+  if (own >= 0) surf.touch(own);
+  SLOT[n] = surf.slot(own, N[n]!, hull, q, FOLLOW[n]!);
+  SOFT[n] = false;
+  SINK[n] = pen * N[n]!.y;
+  CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
+}
 
 /** World inverse inertia (body orientation `q`, its inverse in `_qi`) applied to `x` in place. */
 function invInertia(x: THREE.Vector3, q: THREE.Quaternion): THREE.Vector3 {
@@ -591,6 +636,13 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     const pz = _com.z + r.z;
     pointContact(px, pz, py, car.slot, HIT);
     const gy = HIT[C_H]!;
+    if (i >= HULL.length) {
+      BX[i] = px;
+      BY[i] = py;
+      BZ[i] = pz;
+      BRISE[i] = gy - py;
+      BPATCH[i] = patchOf(HIT);
+    }
     if (gy === NO_FLOOR) continue;
     const own = HIT[C_OWNER]!;
     // A wreck's belly over the world's ground is not a flight contact: its masses hold it (the hub-plane pose) and a second, rigid
@@ -598,16 +650,24 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     if (i >= HULL.length && own < 0 && car.crashed) continue;
     const pen = gy - py;
     if (pen <= 0) continue;
-    N[n]!.set(HIT[C_NX]!, HIT[C_NY]!, HIT[C_NZ]!);
-    TYRE[n] = false;
-    OWN[n] = own;
-    UNDER[n] = i >= HULL.length && own < 0;
-    FOLLOW[n] = own >= 0 ? HIT[C_AUX]! : 1;
-    if (own >= 0) surf.touch(own);
-    SLOT[n] = surf.slot(own, N[n]!, i < HULL.length, q, FOLLOW[n]!);
-    SOFT[n] = false;
-    SINK[n] = pen * N[n]!.y;
-    CLOSE[n] = _vp.crossVectors(w, R[n]!).add(v).dot(N[n]!) < 0;
+    bodyContact(surf, n, HIT, pen, i < HULL.length, q, v, w);
+    n++;
+  }
+  // Between two belly points on different patches the belly meets that edge where it crosses (`edgeCross`, the tyres' rule): a car
+  // dropped level across a ramp's crest balanced on the row in front of it, the crest 17 cm inside the belly half a metre behind.
+  for (let s = 0; s < SEGS.length; s += 2) {
+    let a = SEGS[s]!;
+    let b = SEGS[s + 1]!;
+    if (BPATCH[a] === BPATCH[b]) continue;
+    if (BRISE[b]! > BRISE[a]!) {
+      a = b;
+      b = SEGS[s]!;
+    }
+    if (BRISE[a] === NO_FLOOR) continue;
+    const pen = edgeCross(BX[a]!, BY[a]!, BZ[a]!, BX[b]!, BY[b]!, BZ[b]!, NaN, car.slot, BPATCH[a]!);
+    if (!(pen > 0) || (EDGE_HIT[C_OWNER]! < 0 && car.crashed)) continue;
+    R[n]!.set(EDGE_HIT[C_PX]! - _com.x, EDGE_HIT[C_PY]! - _com.y, EDGE_HIT[C_PZ]! - _com.z);
+    bodyContact(surf, n, EDGE_HIT, pen, false, q, v, w);
     n++;
   }
 
