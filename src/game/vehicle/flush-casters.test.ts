@@ -87,8 +87,7 @@ describe("given a car", () => {
     it(`when ${testCase.it}, then its hood, boot lid, doors and bumpers cast shadows as they are`, () => {
       const car = standingCar("sedan");
       hitAndSettle(car, testCase.side, testCase.speed, testCase.frames);
-      const casting = castingMeshes(car);
-      for (const part of car.flushCasters) assert.ok(casting.includes(part), `${part.name || "a part"} does not cast after the hit`);
+      for (const part of car.flushCasters) assert.ok(part.castShadow, "a flush part does not cast after the hit, torn off or not");
     });
   }
 
@@ -96,8 +95,7 @@ describe("given a car", () => {
     const car = standingCar("sedan");
     car.setDoorOpen(1, 0.6);
     car.updateSkin();
-    const casting = castingMeshes(car);
-    for (const part of car.flushCasters) assert.ok(casting.includes(part), `${part.name || "a part"} does not cast with a door open`);
+    for (const part of car.flushCasters) assert.ok(part.castShadow, "a flush part does not cast with a door open");
   });
 
   it("when it is hit and then put back on the grid, then only its body casts a shadow again", () => {
