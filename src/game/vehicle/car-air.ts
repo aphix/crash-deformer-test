@@ -674,7 +674,11 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   for (let pass = 0; pass < 4; pass++) {
     for (let c = 0; c < n; c++) {
       const r = R[c]!;
-      const nrm = N[c]!;
+      // A tyre in its springs pushes the body straight up through them, whatever face its tread meets: the springs ride the wheel up a
+      // steep face (a monster's rear tyres against a sedan's rear window, n.y 0.43, took its whole drive pushed along the face's normal).
+      // Straight up, not along the body's up axis: a car rolled 32° on one soft tyre was kicked 1 rad/s sideways into a wedge's wall.
+      // Past their travel the face holds the tyre along its normal; friction stays in the face's plane.
+      const nrm = SOFT[c] ? UP : N[c]!;
       const vn = _vp.crossVectors(w, r).add(v).dot(nrm);
       if (vn >= 0) continue;
       const e = pass === 0 && !TYRE[c] && !UNDER[c] && vn < -BOUNCE_V ? RESTITUTION : 0;
@@ -692,9 +696,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       // rolls: on the world's ground and under power. A car in flight on another car's top is unpowered with its wheels not
       // turning under it, and a free-rolling tyre slid a car down the 8° of a pickup's bed at 0.38 m/s, for good: it grips both ways.
       _vp.crossVectors(w, r).add(v);
-      _vp.addScaledVector(nrm, -_vp.dot(nrm));
+      _vp.addScaledVector(N[c]!, -_vp.dot(N[c]!));
       if (TYRE[c] && (OWN[c]! < 0 || powered)) {
-        _tn.copy(_x).addScaledVector(nrm, -_x.dot(nrm)).normalize();
+        _tn.copy(_x).addScaledVector(N[c]!, -_x.dot(N[c]!)).normalize();
         const across = _vp.dot(_tn);
         _vp.copy(_tn).multiplyScalar(across);
       }
