@@ -445,6 +445,35 @@ export function readContact(car: DeformableCar): void {
   car.airborne = mask === 0;
 }
 
+const _lay = new THREE.Vector3();
+
+/**
+ * `car` placed on the active ground once, as a placement and not as physics: its up turned to the mean normal under its four tyres (the
+ * heading kept) and its origin raised until none sinks, so it stands as it will roll. Call it where a car is set down on a slope or a bank.
+ */
+export function layOnGround(car: DeformableCar): void {
+  const q = car.group.quaternion;
+  const hit = car.wheelHit;
+  beginContacts(car);
+  wheelsAt(car, 0);
+  _lay.set(0, 0, 0);
+  for (let i = 0; i < 4; i++) {
+    const o = i * HIT_SIZE;
+    if (hit[o + C_H]! > NO_FLOOR) _lay.add(_r.set(hit[o + C_NX]!, hit[o + C_NY]!, hit[o + C_NZ]!));
+  }
+  if (_lay.lengthSq() > 0) q.setFromUnitVectors(UP, _lay.normalize()).multiply(_dq.setFromAxisAngle(UP, car.yaw));
+  wheelsAt(car, 0);
+  let sink = -Infinity;
+  for (let i = 0; i < 4; i++) if (hit[i * HIT_SIZE + C_H]! > NO_FLOOR) sink = Math.max(sink, hit[i * HIT_SIZE + C_H]!);
+  if (sink > -Infinity) car.group.position.y += sink;
+  _eul.setFromQuaternion(q, "YXZ");
+  car.yaw = _eul.y;
+  car.pitch = _eul.x;
+  car.roll = _eul.z;
+  car.refreshBasis();
+  readContact(car);
+}
+
 /**
  * Whether the contacts just solved (the first `tyres` of `n` are tyres) hold a hard one or are about to: a hull point or a belly's edge in
  * a surface or reaching one within the slice (`nearing`), or a tyre at its spring stop. Tyres riding in their springs are not: a car
@@ -472,14 +501,8 @@ function landing(hit: Float64Array, down: number, v: THREE.Vector3): boolean {
  * when it is back on its wheels: three of them on the world's ground (the caller hands it to the pose-following step).
  * `car.airborne`, `wheelsDown` and `restsOn` are derived from the contacts.
  */
-export const DBG: { cb: null | ((car: DeformableCar, n: number, tyres: number, nearing: boolean) => void); pre: null | ((car: DeformableCar) => void) } = { cb: null, pre: null };
-export function dbgContacts() {
-  return { N, SOFT, TYRE, OWN, ACC, DYN, ASK, PRESS, SINK, SLOT, FRA, R, CLOSE, _lift };
-}
 export function stepFree(car: DeformableCar, dt: number): boolean {
   const q = car.group.quaternion;
-  car.laying = false;
-  if (DBG.pre) DBG.pre(car);
   const pos = car.group.position;
   const v = car.velocity;
   const w = car.angular;
@@ -821,7 +844,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     w.set(0, 0, 0);
     _com.y += Math.min(under, REST_LIFT);
   }
-  if (DBG.cb) DBG.cb(car, n, tyres, nearing);
   pos.copy(_com).sub(_r.set(0, COM_Y, 0).applyQuaternion(q));
   // What the body touches now: each wheel's tread gap moved by the lift. No wheel within its springs' reach and no hull point
   // in a surface is flight; a belly or a roof resting on something is not.

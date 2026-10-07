@@ -27,7 +27,7 @@ const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
 const G = 9.6;
 /** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
-export const FLIGHT = 18;
+export const FLIGHT = 17;
 export const FLIGHT_POSE = 3;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
@@ -63,8 +63,6 @@ export class DeformableCar extends CarParts {
   readonly wheelHit = STANDING.slice();
   /** The wheels within their springs' reach of a surface, bit i: wheel i (`WHEEL_POS` order). Drive and traction follow them. */
   wheelsDown = 15;
-  /** Set at a spawn: the first slice lays the body on what its wheels reach within `LAY_REACH`, not only within their springs' travel (a spawn puts it level at the road's height, and a bank takes two wheels' ground far off that). */
-  laying = false;
   /** The slice (s) `stepFree` moved this body in the slice under way; 0 once that slice's masses have stepped (`afterContacts`). */
   private flewDt = 0;
   /** The drawn body's load transfer over the physics body, and its wheels' seats (drawn only). */
@@ -248,7 +246,7 @@ export class DeformableCar extends CarParts {
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
    * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
-   * off), the squeeze clocks, the drift state and whether a spawn's laying slice is still due. What the
+   * off), the squeeze clocks and the drift state. What the
    * body touches is read again (`restoreContact`).
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
@@ -264,7 +262,6 @@ export class DeformableCar extends CarParts {
       this.endReach = buf[o + FLIGHT_POSE + 11]!;
       this.endSqueeze = buf[o + FLIGHT_POSE + 12] !== 0;
       this.drive.drift = buf[o + FLIGHT_POSE + 13]!;
-      this.laying = buf[o + FLIGHT_POSE + 14] !== 0;
       this.restoreContact();
       return;
     }
@@ -278,7 +275,6 @@ export class DeformableCar extends CarParts {
     buf[o + FLIGHT_POSE + 11] = this.endReach;
     buf[o + FLIGHT_POSE + 12] = this.endSqueeze ? 1 : 0;
     buf[o + FLIGHT_POSE + 13] = this.drive.drift;
-    buf[o + FLIGHT_POSE + 14] = this.laying ? 1 : 0;
   }
 
   /**
@@ -299,20 +295,15 @@ export class DeformableCar extends CarParts {
   private resetContact(): void {
     this.airborne = false;
     this.wheelsDown = 15;
-    this.laying = true;
     this.restsOn = null;
     this.yielding = false;
     this.hardTouch = false;
     this.wheelHit.set(STANDING);
   }
 
-  /**
-   * What the body touches, read again where no slice carried it (a keyframe restored): a spawn whose laying slice is still due stands
-   * on its four wheels as the spawn put it there; any other body reads it off its pose or its masses (`readContact`).
-   */
+  /** What the body touches, read again where no slice carried it (a keyframe restored): off its pose, or its masses (`readContact`). */
   restoreContact(): void {
-    if (this.laying) this.resetContact();
-    else readContact(this);
+    readContact(this);
   }
 
   afterContacts(dt: number, bounce?: WorldBounce): void {
