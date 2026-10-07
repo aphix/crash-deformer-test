@@ -128,6 +128,7 @@ function collectNear(cars: readonly DeformableCar[]): number {
 export function stepWorld(w: World, dt: number): void {
   const { cars, barrier, strongest } = w;
   const n = cars.length;
+  w.ejection?.seed(cars);
   let nearWall = false;
   if (barrier) {
     for (let i = 0; i < n; i++) {
