@@ -282,6 +282,28 @@ const _hh = new Float64Array(4);
 /** A fitted plane: height at the origin, rise per metre along the heading, rise per metre toward the car's +x side. */
 const _pl = new Float64Array(3);
 const _bp = new Float64Array(3);
+/** The previous pass's plane (`stepPlane`). */
+const _pp = new Float64Array(3);
+/** The pose `_pl` gives a body facing the asked yaw: pitch, roll and the plane's unit up-normal (x, y, z). */
+const _pose = new Float64Array(5);
+/** Reads of the tyres per slice at most (`stepPlane`). */
+const PASSES = 4;
+
+/** The pose of `_pl` for a body facing yaw (sin `sy`, cos `cy`) into `_pose`. */
+function planePose(sy: number, cy: number): void {
+  const gx = _pl[1]! * sy + _pl[2]! * cy;
+  const gz = _pl[1]! * cy - _pl[2]! * sy;
+  const len = Math.hypot(gx, 1, gz);
+  const nx = -gx / len;
+  const ny = 1 / len;
+  const nz = -gz / len;
+  const nf = nx * sy + nz * cy;
+  _pose[0] = Math.atan2(nf, ny);
+  _pose[1] = Math.atan2(nz * sy - nx * cy, hypot2(nf, ny));
+  _pose[2] = nx;
+  _pose[3] = ny;
+  _pose[4] = nz;
+}
 
 /** The least-squares plane c + a·u + b·w through the contacts of the wheels in `mask` (exact for three) into `_pl`; false when degenerate. */
 function fitPlane(mask: number): boolean {
@@ -379,12 +401,12 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
   const sy = Math.sin(yaw);
   const cy = Math.cos(yaw);
   _q0.copy(q).invert();
-  let gy = 0;
-  let nx = 0;
-  let ny = 1;
-  let nz = 0;
-  // The pose a pass leaves moves the tyres over the surface (a lip's face, a bank): a second pass reads them where the first left them.
-  for (let pass = 0; pass < 2; pass++) {
+  // The pose a pass leaves moves the tyres over the surface (a lip's face, a bank): the next pass reads them where it left them, until
+  // the plane holds (a wheel easing over an edge took three passes). A plane that sends the body back to the pose before the last one
+  // has a tyre straddling a step's edge that each pose moves on and off it: the body rests on that edge, between the two.
+  let p2 = car.pitch;
+  let r2 = car.roll;
+  for (let pass = 0; pass < PASSES; pass++) {
     const mask = wheelsAt(car, spring + TOUCH);
     if (worldWheels(car, mask) < 3 || !restPlane(car, mask, yaw, spring)) {
       // The body takes off from the pose this read was taken on: a tyre on a face's corner that the first pass's plane rolls off it
@@ -393,24 +415,30 @@ export function stepPlane(car: DeformableCar, dt: number): boolean {
       car.airborne = mask === 0;
       return false;
     }
-    gy = _pl[0]!;
-    const gx = _pl[1]! * sy + _pl[2]! * cy;
-    const gz = _pl[1]! * cy - _pl[2]! * sy;
-    const len = Math.hypot(gx, 1, gz);
-    nx = -gx / len;
-    ny = 1 / len;
-    nz = -gz / len;
-    const nf = nx * sy + nz * cy;
-    const pitch = Math.atan2(nf, ny);
-    const roll = Math.atan2(nz * sy - nx * cy, hypot2(nf, ny));
-    const moved = Math.abs(pitch - car.pitch) + Math.abs(roll - car.roll);
-    car.pitch = pitch;
-    car.roll = roll;
-    car.group.rotation.set(pitch, yaw, roll, "YXZ");
+    planePose(sy, cy);
+    const moved = Math.abs(_pose[0]! - car.pitch) + Math.abs(_pose[1]! - car.roll);
+    const cycled = pass > 0 && moved >= 1e-3 && Math.abs(_pose[0]! - p2) + Math.abs(_pose[1]! - r2) < 1e-3;
+    if (cycled) {
+      for (let k = 0; k < 3; k++) _pl[k] = (_pl[k]! + _pp[k]!) / 2;
+      planePose(sy, cy);
+    }
+    _pp.set(_pl);
+    p2 = car.pitch;
+    r2 = car.roll;
+    car.pitch = _pose[0]!;
+    car.roll = _pose[1]!;
+    car.group.rotation.set(car.pitch, yaw, car.roll, "YXZ");
     if (moved < 1e-3) break;
     // The last pass moved the body off where its tyres were read (a wheel at the edge of its reach): read them where it rests.
-    if (pass === 1) wheelsAt(car, spring + TOUCH);
+    if (cycled || pass === PASSES - 1) {
+      wheelsAt(car, spring + TOUCH);
+      break;
+    }
   }
+  const gy = _pl[0]!;
+  const nx = _pose[2]!;
+  const ny = _pose[3]!;
+  const nz = _pose[4]!;
   // The tilt's turn over this slice (world rad/s) is what the body carries into the air at a takeoff, smoothed over `SPIN_TAU`: the
   // pose snaps a few degrees in a slice where a wheel meets a lip or leaves a ledge, and that is no turn the body is making.
   _q0.premultiply(q);
