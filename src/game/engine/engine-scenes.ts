@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { beginFakeFall, DeformableCar } from "../vehicle/car.ts";
 import { BOOST } from "../vehicle/car-drive.ts";
 import { separateSphereFromAabb } from "../deform/physics-util.ts";
-import { COMPACTOR } from "../scenes/compactor.ts";
+import { COMPACTOR, PLATE as COMPACTOR_PLATE } from "../scenes/compactor.ts";
+import { KPH_PER_MS } from "../kernel/constants.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
 import { RANGE } from "../scenes/range.ts";
@@ -466,7 +467,7 @@ export abstract class EngineScenes extends EngineDerby {
   private spawnRange(): void {
     const car = this.carA;
     car.group.visible = true;
-    car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6);
+    car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / KPH_PER_MS);
     this.dressCar(car);
   }
 
@@ -778,12 +779,9 @@ export abstract class EngineScenes extends EngineDerby {
     if (activeGround().heightAt(pos.x, pos.z, pos.y) !== NO_FLOOR) bounceGround(pos, vel, r);
     for (const car of this.live()) if (!car.vaporized) bounceOffCar(car, pos, vel, r);
     if (this.showCompactor) {
-      const hz = 0.24;
-      const hy = 1.05;
-      const hx = 1.8;
-      const z = this.compactor.face + 0.24;
-      separateSphereFromAabb(pos, vel, r, 0, 1.02, z, hx, hy, hz);
-      separateSphereFromAabb(pos, vel, r, 0, 1.02, -z, hx, hy, hz);
+      const z = this.compactor.face + COMPACTOR_PLATE.hz;
+      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
+      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, -z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
     }
     if (this.barrierUp) this.barrier.bounce(pos, vel, r);
   };

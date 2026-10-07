@@ -85,7 +85,8 @@ export interface NetGame {
 
 export type NetRole = "off" | "host" | "client";
 /** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
-export type NetTx = "bc" | "rtc";
+export const NET_TX = { bc: "bc", rtc: "rtc" } as const;
+export type NetTx = (typeof NET_TX)[keyof typeof NET_TX];
 
 /** `NetPlay.status()`: what the Net panel and the live-rooms chip show. */
 export interface NetStatus {

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { applyGroundFriction, hypot3, round4, snapshotPoints } from "../deform/physics-util.ts";
+import { GRAVITY } from "../kernel/constants.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { activeGround } from "../world/ground.ts";
 
@@ -186,7 +187,7 @@ export class DebrisSystem {
         continue;
       }
       any = true;
-      this.vy[i]! -= 9.6 * dt;
+      this.vy[i]! -= GRAVITY * dt;
       p.fromArray(this.pos, i * 3);
       p.x += this.vx[i]! * dt;
       p.y += this.vy[i]! * dt;
@@ -474,7 +475,7 @@ export class GlassDotSystem extends DotPoints {
       glow: "rgba(210,230,245,0.55)",
       size: 0.042,
       opacity: 0.9,
-      gravity: 9.6,
+      gravity: GRAVITY,
       radius: 0.02,
     });
   }

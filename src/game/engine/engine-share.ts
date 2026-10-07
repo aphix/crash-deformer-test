@@ -1,5 +1,6 @@
 import { decodeShare, followShare, isShareableRoom, joinsRoom, type ShareState } from "../hud/share-url.ts";
 import { DEFAULT_RACE_OPTIONS } from "../match/types.ts";
+import { NET_TX } from "../net/net-ports.ts";
 import { SEEDED_SCENES } from "../scenes/scene-id.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { EngineReel } from "./engine-reel.ts";
@@ -28,7 +29,7 @@ export abstract class EngineShare extends EngineReel {
     return {
       // A public match's `pub-…` name is not shared by the URL (Play online finds those); only a private code is.
       room: this.net.role !== "off" && isShareableRoom(this.net.room) ? this.net.room : "",
-      tx: this.net.role === "off" ? "rtc" : this.net.tx,
+      tx: this.net.role === "off" ? NET_TX.rtc : this.net.tx,
       scene: sc,
       // The race, the range, the stack and Survival put their own field up; the sandbox's size waits in `sandboxCars`.
       cars: sc === "race" || sc === "range" || sc === "stack" || sc === "survival" ? this.sandboxCars : this.carCount,

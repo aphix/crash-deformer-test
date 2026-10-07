@@ -5,6 +5,7 @@ import { useSpeedUnit } from "@/components/use-speed-unit";
 import { SurvivalReadout } from "@/components/survival-hud";
 import type { RaceHud, RaceView } from "@/game/match/types";
 import { formatSpeed } from "@/game/hud/speed-units";
+import { KPH_PER_MS } from "@/game/kernel/constants";
 import { cn } from "@/lib/utils";
 
 /** Seconds the split vs the leader stays up after each checkpoint. */
@@ -115,7 +116,7 @@ export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
             {view.gear === 0 ? "R" : view.gear}
           </p>
           <p className="text-3xl font-semibold leading-none tracking-tight" aria-label="Speed">
-            {formatSpeed(view.speedKph / 3.6, unit)}
+            {formatSpeed(view.speedKph / KPH_PER_MS, unit)}
             <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
           </p>
         </div>

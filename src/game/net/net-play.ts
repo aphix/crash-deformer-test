@@ -24,7 +24,7 @@ import {
   type Snapshot,
   type DerbyNetState, readDerby, writeDerby, packEject,
 } from "./codec.ts";
-import { PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
+import { NET_TX, PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
@@ -42,7 +42,7 @@ import {
 /** Opens this peer's link to a room: `role` is the roster tag the relay knows it by. */
 type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta: () => string) => NetTransport;
 
-const connectDefault: Connect = (tx, room, id, role, meta) => (tx === "rtc" ? new RtcTransport(room, id, role, meta) : new BroadcastTransport(room, id));
+const connectDefault: Connect = (tx, room, id, role, meta) => (tx === NET_TX.rtc ? new RtcTransport(room, id, role, meta) : new BroadcastTransport(room, id));
 
 /** Test seams: the link (default WebRTC or BroadcastChannel), the clock (ms, default `performance.now`) and the matchmaker's pauses and dice. */
 interface NetPlayOptions {
@@ -65,7 +65,7 @@ export class NetPlay {
   private readonly now: () => number;
   /** The room this peer is in and the link it runs over; meaningful while `role` is not "off" (the page's `#` shows them). */
   room = "";
-  tx: NetTx = "bc";
+  tx: NetTx = NET_TX.bc;
   private publicKind: PublicKind | null = null;
   /** The running public search's token (a newer search, or `leave`, cancels it) and whether it still looks. */
   private finder = 0;
@@ -166,12 +166,12 @@ export class NetPlay {
     return this.role === "client";
   }
 
-  host(room: string, tx: NetTx = "bc"): void {
+  host(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("host", room, tx);
     this.car = 0;
   }
 
-  join(room: string, tx: NetTx = "bc"): void {
+  join(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("client", room, tx);
     this.silentFor = 0;
     this.heardHost = false;
@@ -223,13 +223,13 @@ export class NetPlay {
 
   /** Join public room `room` of `kind` as a guest (the live-rooms list's Join). */
   publicJoin(room: string, kind: PublicKind): void {
-    this.join(room, "rtc");
+    this.join(room, NET_TX.rtc);
     this.publicKind = kind;
   }
 
   /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts; `weak` runs a smaller field. */
   publicHost(kind: PublicKind, weak = !this.game.hostFit()): void {
-    this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), "rtc");
+    this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), NET_TX.rtc);
     this.publicKind = kind;
     this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
     if (kind === "race") {

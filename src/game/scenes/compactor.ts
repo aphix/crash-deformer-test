@@ -26,7 +26,7 @@ export const COMPACTOR = {
 } as const;
 
 /** Plate slab (m): half thickness along the travel, half width, half height and centre height. */
-const PLATE = { hz: 0.24, hx: 1.8, hy: 1.05, y: 1.02 } as const;
+export const PLATE = { hz: 0.24, hx: 1.8, hy: 1.05, y: 1.02 } as const;
 
 type CompactorStage = "open" | "contact" | "wells" | "mid" | "max";
 

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { PREFAB_IDS, SURFACE_IDS } from "./catalog.ts";
+import { SURFACE } from "./constants.ts";
 
 /**
  * The track JSON format: the single source of truth for a course.
@@ -8,6 +9,11 @@ import { PREFAB_IDS, SURFACE_IDS } from "./catalog.ts";
 
 const surface = z.enum(SURFACE_IDS);
 const pair = z.tuple([z.number().min(0), z.number().min(0)]);
+/** A refinement issue's `path` names the field it rejects: the schema's own keys. */
+const CHECKPOINTS = "checkpoints";
+const SHORTCUTS = "shortcuts";
+/** An `along` row's side: both of the road's. */
+const BOTH = "both";
 
 /** Omitted node fields inherit the previous node's value (node 0 takes `road`). */
 const node = z.object({
@@ -40,7 +46,7 @@ const shortcut = z.object({
   /** Main checkpoint it rejoins before (gates strictly between `from` and `to` are skipped). */
   to: z.number().int().min(0),
   width: z.number().min(3).max(20).default(7),
-  surface: surface.default("dirt"),
+  surface: surface.default(SURFACE.dirt),
   /** Open spline, entry first; a gate sits on every point. */
   path: z.array(pathPoint).min(2),
 });
@@ -59,7 +65,7 @@ const route = z.object({
   path: z.array(pathPoint).min(2),
   loop: z.boolean().default(false),
   width: z.number().min(4).max(30).default(9),
-  surface: surface.default("asphalt"),
+  surface: surface.default(SURFACE.asphalt),
   /** Cars on this street. */
   count: z.number().int().min(0).max(16),
   lanes: z.array(lane).min(1),
@@ -79,7 +85,7 @@ const along = z.object({
   prefab: z.enum(PREFAB_IDS),
   /** Metres between copies along the centreline. */
   every: z.number().min(2),
-  side: z.enum(["left", "right", "both"]).default("both"),
+  side: z.enum(["left", "right", BOTH]).default(BOTH),
   /** Metres outside the wall line (road edge + runoff); negative = inside the runoff. */
   offset: z.number().default(1.5),
   fromNode: z.number().int().min(0).optional(),
@@ -113,7 +119,7 @@ const plateau = z.object({
   height: z.number().positive(),
   run: z.tuple([z.number().positive(), z.number().positive(), z.number().positive(), z.number().positive()]),
   round: z.number().min(0).default(1.5),
-  top: surface.default("concrete"),
+  top: surface.default(SURFACE.concrete),
 });
 
 /** A surface painted over the bare terrain inside a polygon (`terrain.ts`): the lawn of an island, a park. */
@@ -135,9 +141,9 @@ const TrackSchema = z
     road: z
       .object({
         width: z.number().min(4).max(40).default(14),
-        surface: surface.default("asphalt"),
+        surface: surface.default(SURFACE.asphalt),
         runoff: pair.default([4, 4]),
-        runoffSurface: surface.default("grass"),
+        runoffSurface: surface.default(SURFACE.grass),
         wall: z.tuple([z.boolean(), z.boolean()]).default([true, true]),
         wallHeight: z.number().positive().default(1.1),
       })
@@ -177,7 +183,7 @@ const TrackSchema = z
       .object({
         sky: hexColour.default("#12141a"),
         fog: z.number().min(0).max(0.05).default(0.0035),
-        terrain: surface.default("grass"),
+        terrain: surface.default(SURFACE.grass),
         hills: z.array(hill).default([]),
         plateaus: z.array(plateau).default([]),
         paint: z.array(paint).default([]),
@@ -192,24 +198,24 @@ const TrackSchema = z
     const n = t.nodes.length;
     const at = (g: { node: number; t: number }) => g.node + g.t;
     const c0 = t.checkpoints[0]!;
-    if (c0.node !== 0 || c0.t !== 0) ctx.addIssue({ code: "custom", path: ["checkpoints", 0], message: "checkpoint 0 must be node 0, t 0" });
+    if (c0.node !== 0 || c0.t !== 0) ctx.addIssue({ code: "custom", path: [CHECKPOINTS, 0], message: "checkpoint 0 must be node 0, t 0" });
     for (const [i, g] of t.checkpoints.entries()) {
-      if (g.node >= n) ctx.addIssue({ code: "custom", path: ["checkpoints", i, "node"], message: `node ${g.node} ≥ ${n} nodes` });
+      if (g.node >= n) ctx.addIssue({ code: "custom", path: [CHECKPOINTS, i, "node"], message: `node ${g.node} ≥ ${n} nodes` });
       if (i > 0 && at(g) <= at(t.checkpoints[i - 1]!)) {
-        ctx.addIssue({ code: "custom", path: ["checkpoints", i], message: "checkpoints must run in driving order" });
+        ctx.addIssue({ code: "custom", path: [CHECKPOINTS, i], message: "checkpoints must run in driving order" });
       }
     }
     const m = t.checkpoints.length;
     const ids = new Set<string>();
     for (const [i, s] of t.shortcuts.entries()) {
-      if (ids.has(s.id)) ctx.addIssue({ code: "custom", path: ["shortcuts", i, "id"], message: `duplicate id ${s.id}` });
+      if (ids.has(s.id)) ctx.addIssue({ code: "custom", path: [SHORTCUTS, i, "id"], message: `duplicate id ${s.id}` });
       ids.add(s.id);
-      if (s.from >= m || s.to >= m) ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "from/to must be checkpoint indices" });
+      if (s.from >= m || s.to >= m) ctx.addIssue({ code: "custom", path: [SHORTCUTS, i], message: "from/to must be checkpoint indices" });
       if ((s.to - s.from + m) % m < 2) {
-        ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut must skip at least one checkpoint" });
+        ctx.addIssue({ code: "custom", path: [SHORTCUTS, i], message: "a shortcut must skip at least one checkpoint" });
       }
       if (s.to !== 0 && s.to < s.from) {
-        ctx.addIssue({ code: "custom", path: ["shortcuts", i], message: "a shortcut may not skip the start/finish line" });
+        ctx.addIssue({ code: "custom", path: [SHORTCUTS, i], message: "a shortcut may not skip the start/finish line" });
       }
     }
     const tr = t.traffic;
