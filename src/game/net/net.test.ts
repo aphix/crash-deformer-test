@@ -186,8 +186,8 @@ describe("given a two-car network snapshot with every field filled in", () => {
       for (let k = 0; k < 3; k++) assert.equal(b.parts.pose[i * 7 + k], Math.fround(a.parts.pose[i * 7 + k]!));
       for (let k = 3; k < 7; k++) assert.ok(Math.abs(b.parts.pose[i * 7 + k]! - a.parts.pose[i * 7 + k]!) <= Q.quat);
     }
-    // 17-byte header, 28-byte poses, a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
-    assert.equal(w.off, 17 + 28 + (661 + 20 * 4 + 20 * 2) + 28);
+    // 17-byte header, 29-byte poses (body, meter, pose), a 661-byte wreck with 20 more per loose part (4) and per loose wheel (2).
+    assert.equal(w.off, 17 + 29 + (661 + 20 * 4 + 20 * 2) + 29);
   });
 });
 
@@ -202,19 +202,20 @@ describe("given the network writer's 16-bit fixed-point numbers", () => {
   });
 });
 
-describe("given a drive input of throttle, steer, brake, handbrake and boost", () => {
-  it("when it is written and read back, then each value comes back within its quantization step", () => {
+describe("given a drive input of throttle, steer, brake, handbrake and boost, sent with the peer's boost meter", () => {
+  it("when it is written and read back, then each value and the meter come back within their quantization step", () => {
     const input = { throttle: -0.5, steer: 1, brake: 0.25, ebrake: true, boost: false };
     const w = new Writer();
-    writeInput(w, input);
-    assert.equal(w.off, 5);
+    writeInput(w, input, 0, 0.6);
     const out = idleDrive();
-    readInput(new Reader().reset(w.done()), out);
+    const meter = new Float64Array(1);
+    readInput(new Reader().reset(w.done()), out, meter);
     assert.ok(Math.abs(out.throttle - input.throttle) < 1 / 127);
     assert.equal(out.steer, 1);
     assert.ok(Math.abs(out.brake - 0.25) < 1 / 255);
     assert.equal(out.ebrake, true);
     assert.equal(out.boost, false);
+    assert.ok(Math.abs(meter[0]! - 0.6) < 1 / 254, `meter ${meter[0]}`);
   });
 });
 

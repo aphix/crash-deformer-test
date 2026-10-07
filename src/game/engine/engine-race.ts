@@ -289,6 +289,16 @@ export class RaceDirector extends RaceWatch {
     r.boost = input.boost;
   }
 
+  /**
+   * Car `id`'s boost meter as its driver keeps it (0-1): this browser's seat, the race AI where this browser runs it, else what netplay
+   * heard (a peer's own meter; on a client, the host's). Null for a car with no nitrous: police, traffic, nobody heard.
+   */
+  meterOf(id: number): number | null {
+    if (this.seatDrives(id)) return this.host.seat.boost;
+    if (this.aiDrives(id) && this.brain) return this.brain.meter[id]!;
+    return this.host.heardMeter(id);
+  }
+
   /** Host: the whole rules state as plain JSON (null outside a race). */
   snapshot(): RaceSnapshot | null {
     return this.session ? this.session.snapshot() : null;
@@ -614,8 +624,7 @@ export class RaceDirector extends RaceWatch {
             }
           : null,
         ...carGauge(car),
-        // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
-        boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
+        boost: this.meterOf(id),
         chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
         // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing); holding it acts wherever `holdReset` does: a no-reset race too, not Survival.
         canReset: asking && !s.noReset,

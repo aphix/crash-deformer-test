@@ -99,7 +99,7 @@ function Cluster({ race, view, corner }: { race: RaceHud; view: RaceView; corner
   );
 }
 
-/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. In `corner` mode a big window gets the race's drive cluster (`DriveCluster`) in the bottom-right corner instead. */
+/** Speed and gear over the segmented boost meter (lit while burning) and the draft cue; the derby driver's readout too. A car with no nitrous (`boost` null: police, traffic, nobody driving) shows the meter empty and greyed. In `corner` mode a big window gets the race's drive cluster (`DriveCluster`) in the bottom-right corner instead. */
 export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
   const unit = useSpeedUnit();
   const boost = view.boost;
@@ -120,24 +120,22 @@ export function Gauge({ view, corner }: { view: RaceView; corner: boolean }) {
             <span className="ml-0.5 text-xs font-medium text-fg/70">{unit}</span>
           </p>
         </div>
-        {boost === null ? null : (
-          <div className="flex items-center gap-2">
-            {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
-            <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">Boost</span>
-            <div
-              className={cn("flex h-2 w-24 gap-0.5", view.boosting && "drop-shadow-[0_0_6px_var(--color-accent)]")}
-              role="meter"
-              aria-label="Boost"
-              aria-valuenow={Math.round(boost * 100)}
-            >
-              {Array.from({ length: CELLS }, (_, i) => (
-                <div key={i} className="flex-1 overflow-hidden rounded-[2px] bg-fg/25 shadow-[var(--shadow-border)]">
-                  <div className={cn("h-full", view.boosting ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, boost * CELLS - i)) * 100)}%` }} />
-                </div>
-              ))}
-            </div>
+        <div className={cn("flex items-center gap-2", boost === null && "opacity-30")}>
+          {view.racer?.drafting ? <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
+          <span className="hud-ink text-[10px] font-semibold uppercase tracking-[0.12em] text-fg/70">{boost === null ? "No boost" : "Boost"}</span>
+          <div
+            className={cn("flex h-2 w-24 gap-0.5", view.boosting && "drop-shadow-[0_0_6px_var(--color-accent)]")}
+            role="meter"
+            aria-label="Boost"
+            aria-valuenow={Math.round((boost ?? 0) * 100)}
+          >
+            {Array.from({ length: CELLS }, (_, i) => (
+              <div key={i} className="flex-1 overflow-hidden rounded-[2px] bg-fg/25 shadow-[var(--shadow-border)]">
+                <div className={cn("h-full", view.boosting ? "bg-fg" : "bg-accent")} style={{ width: `${Math.round(Math.min(1, Math.max(0, (boost ?? 0) * CELLS - i)) * 100)}%` }} />
+              </div>
+            ))}
           </div>
-        )}
+        </div>
       </div>
     </>
   );

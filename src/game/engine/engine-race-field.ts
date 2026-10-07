@@ -70,6 +70,8 @@ interface RaceHost {
   clear(): void;
   /** A race starts with no car of ours: the spectator camera goes to Auto. */
   watchCam(): void;
+  /** Car `i`'s boost meter as netplay heard it (a peer's own, from its input; on a client, the host's every car), null when nothing was heard. */
+  heardMeter(i: number): number | null;
 }
 
 /** Seconds upside down before a car counts as dead. */
@@ -653,7 +655,7 @@ export abstract class RaceField {
   }
 
   /** The race AI drives car `i`: an AI rival, or the player's car while its seat isn't driving. */
-  private aiDrives(i: number): boolean {
+  protected aiDrives(i: number): boolean {
     const kind = this.entrants[i]?.kind;
     return kind === "ai" || (kind === "player" && !this.seatDrives(i));
   }

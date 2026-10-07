@@ -134,6 +134,7 @@ export class CrashEngine extends EngineShare {
     playReel: (reel, startAt) => this.highlights.play(reel, startAt),
     reelPlaying: () => this.highlights.playing,
     launchEjection: (e) => this.ragdolls.launch(e, this.live()),
+    meterOf: (i) => this.meterOf(i),
     seat: this.seat,
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
@@ -259,6 +260,7 @@ export class CrashEngine extends EngineShare {
       bleeds: () => this.clock.wallSinceImpact > 0.2,
       reelReady: (clips, since) => this.startReel(clips, since),
       clear: () => this.clearScene(),
+      heardMeter: (i) => this.net.heard(i),
     });
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
