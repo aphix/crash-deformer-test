@@ -6,6 +6,7 @@ import { RES_SLOTS, SIM_SCALAR_NUMBERS, SKIN_K, type Beam, type MassNode, type S
 import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
+import { FACE_TOP } from "./load-crush.ts";
 
 const _a = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -215,6 +216,10 @@ export class StreamedDeformation extends DeformSolve {
     im[6] = this.wrinkleAmp * Math.min(1, this.elapsed * 6);
     im[7] = this.buckle;
     im[8] = this.squash;
+    // The roof's imprint where the skin draws it: sunk with the roof's baked crush.
+    im[9] = this.imprint[0]! - this.crushBaked[FACE_TOP]!;
+    im[10] = this.imprint[1]!;
+    im[11] = this.imprint[2]!;
     let popped = 0;
     for (let i = 0; i < this.masses.length; i++) if (this.masses[i]!.popped) popped |= 1 << i;
     this.netPopped = popped;
@@ -602,7 +607,7 @@ export class StreamedDeformation extends DeformSolve {
   simSize(): number {
     const { vecs, arrays } = this.simBlocks();
     let n = SIM_SCALAR_NUMBERS + this.sensors.length + vecs.length * 3 + this.masses.length * 17 + this.beams.length * 4;
-    n += this.crush.length * 2;
+    n += this.crush.length * 2 + this.imprint.length;
     for (let i = 0; i < arrays.length; i++) n += arrays[i]!.length;
     for (const c of this.clusters) n += c.q0x.length * 3 + 38;
     return n;
@@ -635,9 +640,10 @@ export class StreamedDeformation extends DeformSolve {
     for (let i = 0; i < this.masses.length; i++) o = simMass(buf, o, this.masses[i]!, write);
     for (let i = 0; i < this.beams.length; i++) o = simBeam(buf, o, this.beams[i]!, write);
     for (let i = 0; i < this.clusters.length; i++) o = simCluster(buf, o, this.clusters[i]!, write);
-    // Load crush (docs/LOAD_CRUSH.md): each face's depth and the depth already baked into the masses.
+    // Load crush (docs/LOAD_CRUSH.md): each face's depth, the depth already baked into the masses, and the roof's imprint.
     o = simArray(buf, o, this.crush, write);
-    simArray(buf, o, this.crushBaked, write);
+    o = simArray(buf, o, this.crushBaked, write);
+    simArray(buf, o, this.imprint, write);
   }
 
   /** Netplay: array sizes for a `DeformNetState` (fixed by the rig). */
