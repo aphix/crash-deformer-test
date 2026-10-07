@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { ColliderDesc } from "@dimforge/rapier3d";
+import type { ColliderDesc } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";

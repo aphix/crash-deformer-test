@@ -1,6 +1,6 @@
 /*
  * Thrown-driver ragdolls: a cosmetic crash-test dummy flung out through the windshield or a front side window
- * when one hit disables a car (`EjectionWatch`). Its own Rapier world (@dimforge/rapier3d, Apache-2.0):
+ * when one hit disables a car (`EjectionWatch`). Its own Rapier world (@dimforge/rapier3d-simd, Apache-2.0):
  * ground and walls are fixed colliders around the throw, every car within `WAKE_NEAR` of a dummy (and the sandbox's
  * jersey barrier) a kinematic box that follows its pose, so cars push dummies and nothing pushes back; no dummy state reaches the sim or the
  * netplay snapshots. The camera may ride along with the latest dummy's head (`follow`, `frameCamera`).
@@ -20,7 +20,7 @@
  * SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
  */
 import * as THREE from "three";
-import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { activeGround, type Ground } from "../world/ground.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";

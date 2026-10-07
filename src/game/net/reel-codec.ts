@@ -67,10 +67,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * models trees and palms as a trunk under a crown, which moves cop drop-ins; 41: a hit square on a door at or above
  * killSpeed throws the driver out of that door's window with the engine running; 42: the sim's distances use the
  * kernel's hypot2/hypot3, not Math.hypot, so every browser computes the same last bits; 43: a clip records the hit
- * speed, the summed cage crush, each scoped hit and which ejections are its own, and a deep slow crush counts as a hit).
+ * speed, the summed cage crush, each scoped hit and which ejections are its own, and a deep slow crush counts as a hit;
+ * 44: the ragdoll world runs on Rapier's SIMD wasm build, whose float results differ from the plain build's, so a thrown
+ * dummy's and a knocked prop's motion in a replayed clip changes).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 43;
+const REPLAY_VERSION = 44;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

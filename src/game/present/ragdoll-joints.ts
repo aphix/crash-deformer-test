@@ -1,4 +1,4 @@
-import type { RevoluteImpulseJoint, RigidBody, World } from "@dimforge/rapier3d";
+import type { RevoluteImpulseJoint, RigidBody, World } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { JOINTS, PARTS } from "./ragdoll-body.ts";
 

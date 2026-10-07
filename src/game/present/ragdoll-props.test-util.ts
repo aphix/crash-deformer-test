@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 
 const _q = new THREE.Quaternion();

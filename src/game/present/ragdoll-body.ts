@@ -1,6 +1,6 @@
 import { hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
-import type { RigidBody } from "@dimforge/rapier3d";
+import type { RigidBody } from "@dimforge/rapier3d-simd";
 
 /**
  * The thrown dummy's body (`RagdollSystem` builds and steps it): its parts and joints, its damping, and the only

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d";
+import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { Corkscrew, corkscrewMesh } from "../scenes/corkscrew.ts";
 import { FleetRamps, RAMP } from "../scenes/fleet-ramps.ts";

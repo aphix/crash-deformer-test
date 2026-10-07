@@ -1,6 +1,6 @@
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
-import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
 import { disable, type Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
 import { mulberry32 } from "../world/placements.ts";

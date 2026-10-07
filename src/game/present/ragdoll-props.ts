@@ -1,6 +1,6 @@
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
-import type { Collider, ColliderDesc, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, ColliderDesc, RigidBody, World } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { PREFABS } from "../world/catalog.ts";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
