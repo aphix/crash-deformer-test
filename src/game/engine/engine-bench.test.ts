@@ -3,10 +3,11 @@ import { describe, test } from "node:test";
 import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench.ts";
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
-const B = (fps: number, gpuMs: number | null): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs });
+const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS });
 
 const RESULT: BenchResult = {
   course: "city",
+  build: "36b137f",
   cars: 22,
   cops: { stakeouts: 6, pursuits: 3, maxPack: 2 },
   crashed: { mean: 3.4, end: 5 },
@@ -16,6 +17,7 @@ const RESULT: BenchResult = {
   fpsLow1: 41.7,
   fpsThirds: [90, 90, 89],
   fpsPerSecond: [90, 91, 89, 90],
+  simMsPerSecond: [212, 230, 640, 205],
   frameMs: S(11.1),
   cpuMs: S(7.5),
   simMs: S(4.2),
@@ -24,6 +26,7 @@ const RESULT: BenchResult = {
   stepsPerFrame: 2.7,
   msPerStep: 1.56,
   simMsPerSimS: 212,
+  fineCutsPerSimS: 3.4,
   cutFrames: 40,
   lostSimS: 0.5,
   coarsePct: 62.4,
@@ -54,7 +57,7 @@ const RESULT: BenchResult = {
     deformMode: "shape",
     depth: { bits: 24, subpixelBits: 8, contextDepth: true, fragmentHighFloat: { precision: 23, rangeMin: 127, rangeMax: 127 }, near: 0.1, far: 180, logarithmicDepthBuffer: false },
   },
-  abPace: { fine: B(41, 3), coarse: B(58, 3) },
+  abPace: { fine: B(41, 3, 12.5), coarse: B(58, 3, 0) },
   abFx: { minimal: B(60, 1.1), low: B(55, 2.4), high: B(48, null) },
   abDetail: { off: B(44, null), "75 m": B(49, null), "50 m": B(56, null), "30 m": B(59, null) },
   device: { browser: "Chrome 150", userAgent: "UA", gpu: "Mali-G715", gpuMasked: false, cores: 9, memoryGB: 8, screen: "412x915", dpr: 2.625, canvas: "1373x618", timerStepMs: 0.1 },
@@ -78,29 +81,32 @@ describe("given a browser's user-agent string", () => {
   });
 });
 
-describe("given the frame times of a bench run", () => {
-  test("when frames are counted per wall second, then each full second gives its frame count and a partial last second is dropped", () => {
+describe("given the frame times and the sim's time per frame of a bench run", () => {
+  test("when they are summed per wall second, then each full second gives its frame count and the sim's ms in it, scaled to 1000 ms, and a partial last second is dropped", () => {
     const frames = [...Array<number>(100).fill(10), ...Array<number>(50).fill(20), ...Array<number>(25).fill(40), 5];
-    assert.deepEqual(perSecond(frames), [100, 50, 25]);
-    assert.deepEqual(perSecond([300, 300]), []);
+    const simMs = [...Array<number>(100).fill(2), ...Array<number>(50).fill(8), ...Array<number>(25).fill(0), 3];
+    assert.deepEqual(perSecond(frames, simMs), { fps: [100, 50, 25], workMs: [200, 400, 0] });
+    assert.deepEqual(perSecond([500, 750], [100, 150]), { fps: [2], workMs: [200] });
+    assert.deepEqual(perSecond([300, 300], [1, 1]), { fps: [], workMs: [] });
   });
 });
 
 describe("given the bench result of a phone running the city course (describeBench writes it as the results card)", () => {
-  test("when the card is written, then it leads with fps and sim speed, lists the settings and both A/Bs, marks a browser-masked GPU, shows the GPU timing when it can, and fits a 412 px tall phone screen", () => {
+  test("when the card is written, then it leads with the build, fps, the sim's ms each second and sim speed, lists the settings, both A/Bs and the steps cut short for a coming hit, marks a browser-masked GPU, shows the GPU timing when it can, and fits a 412 px tall phone screen", () => {
     const lines = describeBench(RESULT);
-    assert.match(lines[0]!, /^CRUSH BENCH {2}city {2}22 cars.*\(Chrome 150\)$/);
+    assert.match(lines[0]!, /^CRUSH BENCH {2}city {2}22 cars.*\(Chrome 150\) {2}build 36b137f$/);
     assert.match(lines[1]!, /^90\.0 FPS {3}1% low 41\.7 {3}by thirds 90\.0 \/ 90\.0 \/ 89\.0$/);
     assert.equal(lines[2], "fps each second: 90 91 89 90");
-    assert.match(lines[3]!, /^SIM SPEED 98 % .*1\/120 s steps in 62 % of frames {3}wrecks: mean 3\.4, end 5$/);
+    assert.equal(lines[3], "sim ms each second: 212 230 640 205");
+    assert.match(lines[4]!, /^SIM SPEED 98 % .*1\/120 s steps in 62 % of frames {3}wrecks: mean 3\.4, end 5$/);
     assert.ok(lines.some((l) => /^GPU {7}no timer query/.test(l)));
-    assert.ok(lines.some((l) => l.includes("2.7 steps/frame, 1.56 ms/step, 212 ms per sim-second")));
+    assert.ok(lines.some((l) => l.endsWith("2.7 steps/frame, 1.56 ms/step, 212 ms per sim-second, 3.4 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.startsWith("fx tier: high 97 %, minimal 3 % (auto)") && l.includes("radial blur, grain 0.03")));
     assert.ok(lines.some((l) => l.includes("PCF 2048x2048, 223 casters") && l.includes("pixel ratio 1.5 of device 2.625, canvas 1373x618, no MSAA")));
     assert.ok(lines.some((l) => l === "depth: 24 bits (drawing buffer), subpixel 8 bits, fragment highp 23 bits, range 2^127..2^127, camera near 0.1 far 180, log depth off"));
     const noDepth = describeBench({ ...RESULT, settings: { ...RESULT.settings, depth: { ...RESULT.settings.depth, bits: 16, contextDepth: false, fragmentHighFloat: null, logarithmicDepthBuffer: true } } });
     assert.ok(noDepth.some((l) => l === "depth: 16 bits (drawing buffer, none requested), subpixel 8 bits, fragment highp not supported, camera near 0.1 far 180, log depth on"));
-    assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps")) && lines.some((l) => l.includes("1/120 s 58.0 fps")));
+    assert.ok(lines.some((l) => l.startsWith("A/B pacer pinned: 1/240 s 41.0 fps") && l.endsWith(", 12.5 fine-slice cuts/sim-s")) && lines.some((l) => l.includes("1/120 s 58.0 fps") && l.endsWith(", 0.0 fine-slice cuts/sim-s")));
     assert.ok(lines.some((l) => l.includes("minimal 60.0 fps") && l.includes("gpu 1.1")) && lines.some((l) => l.includes("high 48.0 fps") && l.includes("gpu n/a")));
     assert.ok(lines.some((l) => l === "detail: only the body drawn beyond 50 m for 80 %, 40 m for 20 % of the window"));
     assert.ok(lines.some((l) => l.startsWith("A/B detail pinned: no cuts 44.0 fps")) && lines.some((l) => l.includes("body beyond 30 m 59.0 fps")));

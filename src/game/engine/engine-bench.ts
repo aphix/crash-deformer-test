@@ -10,6 +10,10 @@ import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, stripLines, type BenchPlan, type StripResult } from "./engine-bench-plan.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
+import type { World } from "./world-step.ts";
+
+/** The commit the page was built from (`vite.config.ts` `define`; "dev" where the build had no git). */
+declare const __BUILD_SHA__: string;
 
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
 const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, settleFrames: 10 } as const;
@@ -33,6 +37,8 @@ export interface BenchParts {
   /** The distance detail (`present/car-detail.ts`) and the rung its governor holds: the bench pins rungs for its A/B and puts the governor's back. */
   detail: Pick<CarDetail, "level" | "setLevel" | "setDistances">;
   governor: Pick<DetailGovernor, "level">;
+  /** The live world: the steps it cut to fine slices for a hit about to land. */
+  world: Pick<World, "fineCuts">;
 }
 
 /** What `runBench` drives: the real engine, by its public face. */
@@ -76,6 +82,8 @@ export interface Block {
   drawMs: number;
   /** Mean draw time on the GPU (timer query), null where the device has none. */
   gpuMs: number | null;
+  /** Steps cut to the pacer's fine slice for a hit about to land (`World.fineCuts`), per race-clock second. */
+  fineCutsPerSimS: number;
 }
 
 /** What was switched on while the bench ran. */
@@ -103,6 +111,8 @@ interface BenchSettings {
 
 export interface BenchResult {
   course: string;
+  /** The commit the page was built from ("dev": built without git). */
+  build: string;
   /** Cars in play (racers, traffic, police), and what the police did: stakeouts parked, pursuits begun, the largest pack. */
   cars: number;
   cops: { stakeouts: number; pursuits: number; maxPack: number } | null;
@@ -115,8 +125,9 @@ export interface BenchResult {
   fpsLow1: number;
   /** Mean fps of each third of the window (a falling row is the device throttling). */
   fpsThirds: [number, number, number];
-  /** Frames drawn in each wall second of the window. */
+  /** Frames drawn in each wall second of the window, and the sim's ms (`SimPacer.run`: physics, AI, breakage) in each. */
   fpsPerSecond: number[];
+  simMsPerSecond: number[];
   /** Frame interval (rAF to rAF), ms. */
   frameMs: Stat;
   /** Main-thread time inside the engine's frame, ms (sim + AI + skins + fx + draw submission). */
@@ -130,6 +141,8 @@ export interface BenchResult {
   msPerStep: number;
   /** Wall ms of sim per race-clock second. */
   simMsPerSimS: number;
+  /** Steps cut to the pacer's fine slice for a hit about to land (`World.fineCuts`), per race-clock second. */
+  fineCutsPerSimS: number;
   /** Frames the pacer stopped early, and the sim seconds it gave up (never stepped). */
   cutFrames: number;
   lostSimS: number;
@@ -195,21 +208,28 @@ export function browserName(ua: string): string {
   return "unknown browser";
 }
 
-/** Frames per wall second from the frame intervals (ms): one count per full second. */
-export function perSecond(intervals: ArrayLike<number>, n = intervals.length): number[] {
-  const out: number[] = [];
+/**
+ * Per full wall second of the frame intervals (ms): the frames drawn, and the ms of `work` (one value per frame,
+ * e.g. the sim's time) spent in it; both scaled to an exact 1000 ms. A partial last second is dropped.
+ */
+export function perSecond(intervals: ArrayLike<number>, work: ArrayLike<number>, n = intervals.length): { fps: number[]; workMs: number[] } {
+  const fps: number[] = [];
+  const workMs: number[] = [];
   let acc = 0;
+  let busy = 0;
   let count = 0;
+  let k = 0;
   for (let i = 0; i < n; i++) {
     acc += intervals[i]!;
+    busy += work[i]!;
     count++;
     if (acc >= 1000) {
-      out.push(Math.round((count * 1000) / acc));
-      acc = 0;
-      count = 0;
+      fps[k] = Math.round((count * 1000) / acc);
+      workMs[k++] = Math.round((busy * 1000) / acc);
+      acc = busy = count = 0;
     }
   }
-  return out;
+  return { fps, workMs };
 }
 
 const f1 = (v: number): string => v.toFixed(1);
@@ -225,14 +245,15 @@ export function describeBench(r: BenchResult): string[] {
   const s = r.settings;
   const tiers = Object.entries(r.tierPct).sort((a, b) => b[1] - a[1]).map(([t, p]) => `${t} ${Math.round(p)} %`).join(", ");
   return [
-    `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames  (${d.browser})`,
+    `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames  (${d.browser})  build ${r.build}`,
     ...(r.strip ? stripLines(r.strip) : []),
     `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
     `fps each second: ${r.fpsPerSecond.join(" ")}`,
+    `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
     `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
     row("frame", r.frameMs),
     row("CPU", r.cpuMs),
-    row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second`,
+    row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second, ${f1(r.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     row("  draw", r.renderMs),
     r.gpuMs ? row("GPU", r.gpuMs) + (waited(r.gpuMs, r.frameMs) ? "   p95 is one frame long: a wait on the display, p50 is the work" : "") : "GPU       no timer query on this device",
     `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
@@ -241,8 +262,8 @@ export function describeBench(r: BenchResult): string[] {
     `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
     `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
     `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}`,
-    `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}`,
-    `                  ${arm("1/120 s", r.abPace.coarse)}`,
+    `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
+    `                  ${arm("1/120 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
     `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
     `               ${arm("low", r.abFx.low)}`,
     `               ${arm("high", r.abFx.high)}`,
@@ -446,6 +467,7 @@ interface Window {
   wallS: number;
   lostSimS: number;
   cutFrames: number;
+  fineCuts: number;
   clockS: number;
 }
 
@@ -467,6 +489,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
   const pace = engine.pace;
   const lost0 = pace.lost;
   const cut0 = pace.cut;
+  const fine0 = parts.world.fineCuts;
   const clock0 = race.time;
   let wall = 0;
   t.timing = true;
@@ -490,7 +513,7 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
     ui.set(`CRUSH BENCH: measuring ${Math.round(wall)} / ${BENCH.measureS} s`);
   }
   t.timing = false;
-  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, clockS: race.time - clock0 } };
+  return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: race.time - clock0 } };
 }
 
 /** Sums over the frames of one arm (all its blocks). */
@@ -502,10 +525,11 @@ interface Acc {
   cpu: number;
   draw: number;
   steps: number;
+  fineCuts: number;
   gpu: number[];
 }
 
-const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, gpu: [] });
+const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, fineCuts: 0, gpu: [] });
 
 function toBlock(a: Acc): Block {
   const n = Math.max(1, a.frames);
@@ -520,6 +544,7 @@ function toBlock(a: Acc): Block {
     cpuMs: a.cpu / n,
     drawMs: a.draw / n,
     gpuMs: a.gpu.length ? a.gpu.reduce((x, y) => x + y, 0) / a.gpu.length : null,
+    fineCutsPerSimS: a.clockS ? a.fineCuts / a.clockS : 0,
   };
 }
 
@@ -557,6 +582,7 @@ async function alternate(
       t.timing = true;
       const acc = accs.get(a.key)!;
       const clock0 = race.time;
+      const fine0 = parts.world.fineCuts;
       let wall = 0;
       while (wall < BENCH.blockS) {
         const f = await frame(engine, renderer, t, beat);
@@ -570,6 +596,7 @@ async function alternate(
       }
       acc.wallS += wall;
       acc.clockS += race.time - clock0;
+      acc.fineCuts += parts.world.fineCuts - fine0;
     }
   }
   t.timing = false;
@@ -638,8 +665,10 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     stepSum += s.steps[i]!;
     simSum += s.sim[i]!;
   }
+  const perS = perSecond(iv, s.sim, n);
   return {
     course: plan.id,
+    build: __BUILD_SHA__,
     cars: parts.live().length,
     cops: race.policeStats ? { ...race.policeStats } : null,
     crashed: { mean: stat(s.wrecks, n).mean, end: wrecks(parts) },
@@ -648,7 +677,8 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     fps: fpsOf(0, n),
     fpsLow1: frameMs.p99 ? 1000 / frameMs.p99 : 0,
     fpsThirds: [fpsOf(0, third), fpsOf(third, 2 * third), fpsOf(2 * third, n)],
-    fpsPerSecond: perSecond(iv, n),
+    fpsPerSecond: perS.fps,
+    simMsPerSecond: perS.workMs,
     frameMs,
     cpuMs: stat(s.cpu, n),
     simMs,
@@ -657,6 +687,7 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     stepsPerFrame: n ? stepSum / n : 0,
     msPerStep: stepSum ? simSum / stepSum : 0,
     simMsPerSimS: w.clockS ? simSum / w.clockS : 0,
+    fineCutsPerSimS: w.clockS ? w.fineCuts / w.clockS : 0,
     cutFrames: w.cutFrames,
     lostSimS: w.lostSimS,
     coarsePct: n ? 100 * stat(s.coarse, n).mean : 0,

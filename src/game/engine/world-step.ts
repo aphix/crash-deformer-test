@@ -56,6 +56,8 @@ export type World = {
   plan: number;
   /** The slice (s) the pacer's 1/240 s floor takes now (`SimPacer.fine`), which a step with a hit about to land is cut to; 0 where no pacer steps the world (a harness, a replay: the recorded `shape` decides there). */
   fine: number;
+  /** Steps `stepWorld` cut into more slices than it would have taken because a hit was about to land (to `fine`), counted up for ever (the bench reads differences). */
+  fineCuts: number;
 };
 
 export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier | null = null, ejection: EjectionWatch | null = null): World {
@@ -77,6 +79,7 @@ export function newWorld(cars: readonly DeformableCar[], barrier: JerseyBarrier 
     shape: 0,
     plan: -1,
     fine: 0,
+    fineCuts: 0,
   };
 }
 
@@ -151,6 +154,7 @@ export function stepWorld(w: World, dt: number): void {
       hit = hit || car.nearHit;
     }
     if (dt * hz > slices + 1e-6) slices = Math.min(8, Math.ceil(dt * hz - 1e-6));
+    if (hit && w.fine > 0 && Math.min(8, Math.ceil(dt / w.fine - 1e-6)) > slices) w.fineCuts++;
     if (hit && w.fine > 0) slices = Math.max(slices, Math.min(8, Math.ceil(dt / w.fine - 1e-6)));
   }
   // Read once: this step's collide passes mark the next.

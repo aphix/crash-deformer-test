@@ -1,4 +1,4 @@
-import { execFile } from "node:child_process";
+import { execFile, execFileSync } from "node:child_process";
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Plugin } from "vite";
@@ -204,11 +204,21 @@ function gitHeadWatchPlugin(): Plugin {
 const base = process.env.APP_BASE || "/";
 const preset = process.env.NITRO_PRESET || "vercel";
 
+/** The commit the bench card reports (`engine-bench.ts`); "dev" where the build has no git (a tarball, a CI without the repo). */
+function buildSha(): string {
+  try {
+    return execFileSync("git", ["rev-parse", "--short", "HEAD"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] }).trim() || "dev";
+  } catch {
+    return "dev";
+  }
+}
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
 export default defineConfig(({ command, isPreview }) => ({
   base,
+  define: { __BUILD_SHA__: JSON.stringify(buildSha()) },
   server: {
     host: "0.0.0.0",
     port: 8080,
