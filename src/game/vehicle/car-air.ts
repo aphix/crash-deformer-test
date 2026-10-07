@@ -147,6 +147,7 @@ const _dq = new THREE.Quaternion();
 const _eul = new THREE.Euler();
 const UP = new THREE.Vector3(0, 1, 0);
 const _up = new THREE.Vector3();
+const _fd = new THREE.Vector3();
 /** A driven car's Euler yaw drifts by up to this (rad) in a rigid turn before it is a tumble (a flip is no heading). */
 const YAW_HOLD = 0.5;
 const _qi = new THREE.Quaternion();
@@ -194,6 +195,8 @@ const UNDER = Array.from({ length: CONTACTS }, () => false);
 const HELD = Array.from({ length: CONTACTS }, (): DeformableCar | null => null);
 const ARM = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
 const RATIO = new Float64Array(CONTACTS);
+/** Per contact: the friction impulse (world, per unit mass) it has given over the passes, held within its friction of `ACC`. */
+const FRA = Array.from({ length: CONTACTS }, () => new THREE.Vector3());
 /** Per belly point (`POINTS` index) this slice: its world position, its rise (surface height less its own) and its patch (`patchOf`). */
 const BX = new Float64Array(POINTS.length);
 const BY = new Float64Array(POINTS.length);
@@ -908,6 +911,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // order, the left side of a coupe's belly on a wagon's yielding roof stopped and the right sank, and it rolled 0.43 rad/s off.
   for (let c = 0; c < n; c++) {
     ACC[c] = 0;
+    FRA[c]!.set(0, 0, 0);
     FIRST[c] = -1;
     const s = SLOT[c]!;
     if (SOFT[c] || s < 0) continue;
@@ -957,8 +961,19 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       }
       const slide = _vp.length();
       if (slide < 1e-6) continue;
+      // Friction holds what the contact carries over the passes: its normal impulse after a yielding face's cut (a tyre in its springs:
+      // its push). Bounded by each pass's push instead, a sedan's belly rows on a roof whose budget its tyres had spent gripped at 0.6 of
+      // impulses the cut then took back, and the sedan under took that grip as a 4 rad/s roll.
       _tn.copy(_vp).divideScalar(-slide);
-      give(c, v, w, q, _tn, Math.min((TYRE[c] ? MU_TYRE : MU_BODY) * jn, slide * reach(c, _tn, q)));
+      _fd.copy(FRA[c]!).addScaledVector(_tn, slide * reach(c, _tn, q));
+      const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * (SOFT[c] ? jn : ACC[c]!);
+      const held = _fd.length();
+      if (held > cap) _fd.multiplyScalar(cap / held);
+      _fd.sub(FRA[c]!);
+      FRA[c]!.add(_fd);
+      const fj = _fd.length();
+      if (fj < 1e-9) continue;
+      give(c, v, w, q, _fd.divideScalar(fj), fj);
     }
     for (let c = 0; c < n; c++) if (FIRST[c] === c) SUMF[c] = 0;
     for (let c = 0; c < n; c++) if (FIRST[c]! >= 0) SUMF[FIRST[c]!] = SUMF[FIRST[c]!]! + ACC[c]!;
@@ -970,6 +985,12 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       const cut = ACC[c]! * (1 - ROOM[f]! / SUMF[f]!);
       give(c, v, w, q, N[c]!, -cut);
       ACC[c] = ACC[c]! - cut;
+      const cap = (TYRE[c] ? MU_TYRE : MU_BODY) * ACC[c]!;
+      const held = FRA[c]!.length();
+      if (held <= cap) continue;
+      _fd.copy(FRA[c]!).multiplyScalar(-1 / held);
+      FRA[c]!.multiplyScalar(cap / held);
+      give(c, v, w, q, _fd, held - cap);
     }
   }
   for (let c = 0; c < n; c++) {
