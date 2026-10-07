@@ -302,7 +302,7 @@ contact is the sandbox's own.
 | `stunt` | Crossover Canyon | ≈ 1140 m | figure of eight over its own 9 m deck, banked wall-ride bowl (8–18°), kicker jump down the canyon side, tunnel through a ridge, sand terrain | quarry cut across the bowl, gravel (2 → 4) |
 | `four-count` | Four-Count | ≈ 4080 m | bowl, city, canyon and woods in one lap: 14–20 m wide, banked 2–12°, asphalt / concrete / dirt, climbs to 5.4 m | skip the blocks, asphalt (0 → 2); cliff shelf beside the valley, gravel (2 → 4) |
 | `dam-spine` | Dam Spine | ≈ 4530 m | the dam crest at 4–22 m with a bridge deck, banked to 8°, asphalt / concrete | spillway off the south face, gravel (0 → 3) |
-| `razor-shelf` | Razor Shelf | ≈ 2930 m | the cliff road: a shelf at 2–14 m, banked to 8°, gravel / asphalt / dirt | inside cut off the shelf past the mesa, dirt (0 → 3) |
+| `razor-shelf` | Razor Shelf | ≈ 2930 m | the cliff road: a shelf at 2–14 m, banked to 8°, gravel / asphalt / dirt | inside cut off the shelf past the mesa, dirt (0 → 3): a deliberate high-risk line (≈ 38 s against the road's 65 s, its 12 m mouth admits one car at a time, so who makes it is close to a lottery; owner 10-07) |
 | `breaker-yard` | Breaker Yard | ≈ 2270 m | the plant loop on concrete with a storm-drain culvert (tunnel) as the long way, 17 placed props | upper deck and yard cut, both concrete (1 → 3), both die on the drain gate |
 
 Havana (`havana`, Survival only) is off the menu: `docs/SURVIVAL.md`.
