@@ -8,7 +8,8 @@ import { Track } from "../world/track.ts";
 import city from "../world/tracks/city.json" with { type: "json" };
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { HAVANA } from "../world/tracks/havana.ts";
-import { recordRace, reelViews, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
+import type { HighlightClip } from "../match/highlights.ts";
+import { recordRace, reelViews, secondsToFirstImpact, STAGED_MEETING_S, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
 
 /**
  * Owner, 2026-10-06: "the impact point (car-car hit) or the launch (driver ejection, car taking off) must actually be visible
@@ -53,6 +54,15 @@ function crashes(len: number, shift: number): Crash[] {
   ];
 }
 
+/**
+ * The Survival player's crashes on havana start `shift` of the lap on from their usual spot. The wall hit at 0.41 of the lap
+ * meets its block 10° off the face, scraping it at 5 m/s into it and slowing the car, so that one starts at 0.38 (a wall hit's 43° to a face along the road).
+ */
+const HAVANA_SHIFTS = [0, 0, 0.07, 0.1, 0.13, 0.16];
+
+/** Fields of the ramming city race to try (its dice from each seed): a field that rams keeps a clip within a few of them. */
+const FIELD_SEEDS = [5, 6, 7, 8, 9, 10];
+
 /** The city's straightest 60 m (arc length, m, `Track.pointAt`): a staged chain's three cars stand in line on it. */
 const STRAIGHT = 592;
 
@@ -93,10 +103,8 @@ after(() => {
   setGround(null);
 });
 
-async function scene(name: string, w: World, track: Track, staged: readonly Crash[], seconds: number): Promise<void> {
+async function playClips(name: string, w: World, clips: readonly HighlightClip[]): Promise<void> {
   world = w;
-  const clips = recordRace(w, track, staged, seconds);
-  assert.ok(clips.length >= 1, `${name}: no clip`);
   for (const v of await reelViews(w, clips, name)) views.push(v);
   for (const [i, { screen }] of LAYOUTS.entries()) for (const v of await reelViews(w, clips, name, screen)) covered[i]!.push(v);
   w.race.exit();
@@ -104,16 +112,41 @@ async function scene(name: string, w: World, track: Track, staged: readonly Cras
   world = null;
 }
 
+async function scene(name: string, w: World, track: Track, staged: readonly Crash[], seconds: number): Promise<void> {
+  world = w;
+  const recording = recordRace(w, track, staged, seconds);
+  assert.ok(recording.clips.length >= 1, `${name}: no clip`);
+  const lone = staged.length === 1 ? staged[0] : undefined;
+  if (lone && lone.kind !== "jump" && lone.kind !== "ramp") {
+    const opensAfter = secondsToFirstImpact(recording);
+    assert.ok(opensAfter <= STAGED_MEETING_S, `${name}: the first clip opens ${opensAfter.toFixed(2)} s after the ${lone.kind} was staged: its cars missed each other`);
+  }
+  await playClips(name, w, recording.clips);
+}
+
+async function cityField(name: string, track: Track, seconds: number): Promise<void> {
+  for (const seed of FIELD_SEEDS) {
+    const w = raceOn("city", seed, 11);
+    world = w;
+    const { clips } = recordRace(w, track, [], seconds);
+    if (clips.length >= 1) return playClips(name, w, clips);
+    w.race.exit();
+    setGround(null);
+    world = null;
+  }
+  assert.fail(`${name}: none of ${FIELD_SEEDS.length} ramming fields kept a clip`);
+}
+
 describe("given highlight reels from a ramming city race; staged head-ons, wall hits and T-bones among the city's buildings and on the stunt course's tight walls; the Survival player's own crashes among havana's blocks; jumps over the stunt crest onto a car on the landing; and launches up havana's plaza face into the monument", () => {
   before(async () => {
     const cityTrack = new Track(parseTrack(city));
-    await scene("city field", raceOn("city", 5, 11), cityTrack, [], 70);
+    await cityField("city field", cityTrack, 70);
     const stuntTrack = new Track(parseTrack(stunt));
     const havana = new Track(parseTrack(HAVANA));
     for (const [i, shift] of [0, 0.03, 0.07, 0.1, 0.13, 0.16].entries()) {
       await scene(`city staged +${shift}`, raceOn("city", 8, 7), cityTrack, crashes(cityTrack.length, shift), 20);
       await scene(`stunt staged +${shift}`, raceOn("stunt", 3, 7), stuntTrack, crashes(stuntTrack.length, shift), 20);
-      await scene(`havana survival +${shift}`, survivalOn(2), havana, [{ ...crashes(havana.length, shift)[i % 5]!, cars: [0, 1] }], 16);
+      await scene(`havana survival ${i} +${HAVANA_SHIFTS[i]}`, survivalOn(2), havana, [{ ...crashes(havana.length, HAVANA_SHIFTS[i]!)[i % 5]!, cars: [0, 1] }], 16);
     }
     for (const [gap, seed] of [[7, 5], [16, 6], [24, 7]] as const) {
       for (const shift of [0, 0.05, 0.1]) await scene(`city chain gap ${gap} m +${shift}`, raceOn("city", seed, 7), cityTrack, chain(shift, gap), 16);

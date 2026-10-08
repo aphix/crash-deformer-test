@@ -191,17 +191,17 @@ export class DeformableCar extends CarParts {
    * The first hit starts the crash; on a wreck a fresh, hard enough contact re-arms a new hit (`rearmHit`).
    */
   applyImpact(worldPoint: THREE.Vector3, worldInward: THREE.Vector3, impulse: number, ebs: number): void {
-    const inFlight = this.rigid;
-    if (inFlight) {
-      // A rigid body in flight (`stepFree`) takes the hit on its masses: its centre's velocity carried to the group's
-      // origin, as `land` does, and a wreck's masses keep their dents. Its masses fly it on (`syncPose`) and
-      // hand it back to `stepFree` once their contact window closes; left rigid, nothing ever landed it and
-      // its drive stayed idled (8 s, stopped, on the stunt course).
+    const rigid = this.rigid;
+    if (rigid) {
+      // A rigid body (`stepFree`) takes the hit on its masses: its centre's velocity carried to the group's origin, as
+      // `land` does, and a wreck's masses keep their dents. Its masses fly it on (`syncPose`) and hand it back to
+      // `stepFree` once their contact window closes; left rigid, nothing ever landed it and its drive stayed idled
+      // (8 s, stopped, on the stunt course).
       this.velocity.sub(_v.crossVectors(this.angular, _p.set(0, COM_Y, 0).applyQuaternion(this.group.quaternion)));
       if (this.crashed) {
         this.deform.armMasses(this.group, this.velocity, this.angular);
         this.deform.unstep(this.flewDt);
-        this.deform.aloft = true;
+        this.deform.aloft = this.airborne;
       }
     }
     const localP = this.worldToLocalPoint(worldPoint, _p);
@@ -222,9 +222,9 @@ export class DeformableCar extends CarParts {
       this.crashed = true;
       this.ride(0);
       this.deform.beginCrush(localP, localN, impulse, ebs, this.group, this.velocity, this.angular);
-      if (inFlight) {
+      if (rigid) {
         this.deform.unstep(this.flewDt);
-        this.deform.aloft = true;
+        this.deform.aloft = this.airborne;
       }
       this.bodyMat.roughness = rough;
     }

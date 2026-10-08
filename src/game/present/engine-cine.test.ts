@@ -6,9 +6,10 @@ import { placeProps } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
+import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
-import { CrashCam, CrashPick, crashEye, CUTS, heldCut, laterHits } from "./engine-cine.ts";
+import { CrashCam, CrashPick, crashEye, CUTS, heldCut, hitAim, laterHits } from "./engine-cine.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /** An eye's times through its cut, tried here: twice as many as the pick's, so half of them fall between its. */
@@ -264,4 +265,34 @@ describe("given the crash cam on a hit in an open field", () => {
       }
     });
   }
+});
+
+/** A car this far above the road (m) at its hit: in flight over the stunt course. */
+const FLIGHT_HEIGHT = 5;
+/** A car this deep in the road (m) at its hit: a wheel through the surface. */
+const SUNK_DEPTH = 0.3;
+
+describe("given the crash camera aiming at a hit on the stunt course's road", () => {
+  const track = new Track(parseTrack(stunt));
+  const spot = blankPoint();
+  track.pointAt(track.length / 2, spot);
+  const sight: Sight = { ground: track.ground(), path: null, wallTop: 0, rim: Infinity, occ: [] };
+  const roadHeight = sight.ground.heightAt(spot.x, spot.z, spot.y + 1);
+  const riseOverCar = hitAim(new THREE.Vector3(), 0, 0, 0, null).y;
+  const aimHeight = (carHeight: number): number => hitAim(new THREE.Vector3(), spot.x, carHeight, spot.z, sight).y;
+  const assertAimsAt = (carHeight: number, want: number): void => {
+    assert.ok(Math.abs(aimHeight(carHeight) - want) < 1e-9, `aims ${aimHeight(carHeight).toFixed(3)} m, not ${want.toFixed(3)} m, for a car ${carHeight.toFixed(3)} m up`);
+  };
+
+  it("when the car is on the road at the hit, then the camera aims the same rise over the road as over a car on flat ground", () => {
+    assertAimsAt(roadHeight, roadHeight + riseOverCar);
+  });
+
+  it(`when the car is ${FLIGHT_HEIGHT} m above the road at the hit, then the camera aims that rise over the car, not over the road under it`, () => {
+    assertAimsAt(roadHeight + FLIGHT_HEIGHT, roadHeight + FLIGHT_HEIGHT + riseOverCar);
+  });
+
+  it(`when the car is ${SUNK_DEPTH} m into the road at the hit, then the camera aims that rise over the road, not over the car`, () => {
+    assertAimsAt(roadHeight - SUNK_DEPTH, roadHeight + riseOverCar);
+  });
 });

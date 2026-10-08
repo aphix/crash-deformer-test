@@ -341,14 +341,18 @@ function floor(w: World): void {
   i.handbrake = false;
 }
 
+/** A race recorded: the clips its recorder kept and the recorder second (`CrashRecorder.now`) each staged crash began at. */
+export type Recording = { clips: HighlightClip[]; stagedAt: number[] };
+
 /**
  * Race `w` (entered, its field started) on `track` for `seconds`, or until its recording ends (the race over and its last
  * thrown driver's hold recorded), staging `crashes` (each at its own race second from 1 on, on its `cars` or cars 1, 2, 3, …
  * in pairs); the clips its recorder kept.
  */
-export function recordRace(w: World, track: Track, crashes: readonly Crash[], seconds: number): HighlightClip[] {
+export function recordRace(w: World, track: Track, crashes: readonly Crash[], seconds: number): Recording {
   const r = w.race;
   const state = { acc: 0 };
+  const stagedAt: number[] = [];
   let next = 0;
   for (let n = 0; n * FRAME < seconds && r.recorder.on; n++) {
     if (next < crashes.length && r.time >= 1 + next * 2.5) {
@@ -357,11 +361,23 @@ export function recordRace(w: World, track: Track, crashes: readonly Crash[], se
       const a = cars[c.cars?.[0] ?? (1 + 2 * next) % cars.length]!;
       stage(track, a, cars[c.cars?.[1] ?? (2 + 2 * next) % cars.length]!, c, cars[c.cars?.[2] ?? (3 + 2 * next) % cars.length]!);
       if (w.seat.mode === "drive" && a === cars[w.seat.carIndex]) floor(w);
+      stagedAt.push(r.recorder.now);
       next++;
     }
     frame(w, state);
   }
   r.recorder.end();
   // A clip the end of the run cut short (an impact in its last seconds, `CrashRecorder.end`) has less than the post-roll (3 s) after its last impact: it plays no full hold, which no race clip owes. One that ends with its own thrown driver's hold is whole: the recorder runs on until that hold is recorded (`CrashRecorder.over`).
-  return [...r.recorder.ledger.kept].filter((c) => c.h.reduce((a, h) => a + h, 0) >= c.lastImpact + 2.95 || c.ejections.some((x) => x.own));
+  const clips = [...r.recorder.ledger.kept].filter((c) => c.h.reduce((a, h) => a + h, 0) >= c.lastImpact + 2.95 || c.ejections.some((x) => x.own));
+  return { clips, stagedAt };
+}
+
+/** A staged head-on, wall hit or T-bone meets within this many seconds: `stage` starts its cars at most 20 m from the meeting, the slowest closing at 20 m/s, doubled. */
+export const STAGED_MEETING_S = 2;
+
+/** Recorder seconds from the first staged crash to the first impact of the earliest clip; Infinity when there is no clip. */
+export function secondsToFirstImpact(rec: Recording): number {
+  let soonest = Infinity;
+  for (const clip of rec.clips) soonest = Math.min(soonest, clip.t0 + clip.firstImpact - rec.stagedAt[0]!);
+  return soonest;
 }
