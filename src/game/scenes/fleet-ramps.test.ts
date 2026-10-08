@@ -12,11 +12,18 @@ import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { assignClass, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
+import { droop, SPRINGS } from "../vehicle/car-suspension.ts";
 import { fit, frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
 const TYRE_CENTRE = 0.32;
 const DEG = 180 / Math.PI;
+/** The springs have settled when no corner is out of its rest length by more than this (m); a landing they took moved them past it. */
+const SETTLED = 0.01;
+/** The rise of a ramp's face per metre along it (`RAMP`). */
+const RAMP_SLOPE = RAMP.top / RAMP.len;
+/** A tyre this far (m) off the ground is out of its springs' reach: the car's class (the default, a sedan) pushes it up no more. */
+const SPRING_REACH = droop("sedan") + TOUCH;
 
 /** Ramps on a slab whose long axis is +z (the engine's end-on placement), and one car `x0` across, `z0` along. */
 function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: DeformableCar } {
@@ -75,6 +82,9 @@ function pair(vA: number, vB: number, dx = 0.4): { w: World; cars: [DeformableCa
  *    impulse took the speed of: dy ∈ [(vmin − G·hmax)·F, max(vmax, 0)·F], ±(`TOUCH` + `REST_LIFT`): the two ways a slice's
  *    contact moves a body with no speed (a wheel that close counts as down; a body stopped on its belly lifts out of the
  *    belly's depth, up to `REST_LIFT` a slice).
+ *  - A shove along a ramp's face (two cars meeting, or a car struck): it moves a body along the plan by at most the closing speed of
+ *    the pair (a car alone: its own speed) over the frame, and the face under its tyres rises by its slope (`RAMP_SLOPE`) times that
+ *    travel; the contact lifts the body out of it in the frame: the same bound again, plus that lift, with no speed to show for it.
  *  - A frame with an end on the ground measures the group's origin, which a wreck's pose (`followGroup`) keeps in a band over
  *    its floor: the frame drops onto the band by up to `LIFT_OFF` in a slice (beyond that the wreck goes aloft instead), so
  *    a drop is allowed that much (measured over the cells below: 0.0116 m past the speeds, 16/9/0.4 car B frame 121). A rise
@@ -93,12 +103,15 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
   const prev = [...vmin];
   const touch = cars.map((c) => !c.airborne);
   let hmax = 0;
+  let approach = 0;
   const list: string[] = [];
   let n = 0;
   return {
     list,
     slice: (h) => {
       hmax = Math.max(hmax, h);
+      const [first, second] = cars;
+      approach = Math.max(approach, Math.hypot(first!.velocity.x - (second?.velocity.x ?? 0), first!.velocity.z - (second?.velocity.z ?? 0)));
       for (const [i, c] of cars.entries()) {
         const vy = c.velocity.y;
         vmin[i] = Math.min(vmin[i]!, vy);
@@ -116,7 +129,7 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
         const y0 = flying ? com0 : o0;
         const y = flying ? com : o;
         const dy = y - y0;
-        const tol = touch[i] ? TOUCH + REST_LIFT : 0.02;
+        const tol = touch[i] ? TOUCH + REST_LIFT + RAMP_SLOPE * approach * FRAME : 0.02;
         const lo = (touch[i] ? vmin[i]! - G * hmax : vmin[i]!) * FRAME - tol - (flying ? 0 : LIFT_OFF);
         const hi = (touch[i] ? Math.max(vmax[i]!, 0) : vmax[i]!) * FRAME + tol;
         if (dy < lo || dy > hi) {
@@ -127,18 +140,31 @@ function watch(cars: readonly DeformableCar[]): { list: string[]; frame: () => v
         touch[i] = !c.airborne;
       }
       hmax = 0;
+      approach = 0;
     },
   };
 }
 
-type Jump = { air: number; peak: number; noseOff: number; turn: number; sink: number; gaps: number[]; endZ: number; slabHit: boolean; crashed: boolean };
+type Jump = { air: number; peak: number; flightError: number; spinChange: number; turn: number; sink: number; gaps: number[]; endZ: number; slabHit: boolean; crashed: boolean };
+
+const _com = new THREE.Vector3();
+const _expected = new THREE.Vector3();
+const _expectedVelocity = new THREE.Vector3();
+const _flownCom = new THREE.Vector3();
+const _flownVelocity = new THREE.Vector3();
+const _flownSpin = new THREE.Vector3();
+/** Float error of a flight frame's closed-form step: the rounding of one slice's sum (of the largest coordinate a course has), over the slices a frame is cut into. */
+const COORDINATE_SCALE = 100;
+const SLICES_PER_FRAME = 24;
+const FLIGHT_FLOAT = Number.EPSILON * COORDINATE_SCALE * SLICES_PER_FRAME;
 
 /**
- * One car at `v` m/s up the −z ramp, end-on over the slab. Flight: frames with every tyre more than 5 cm off the
- * ground and no part of the body resting on it (its underside, bumpers and hull all more than 2 cm clear: a nose that
- * strikes the ground first has landed). noseOff: the most the nose's elevation strays from the flight path's (deg)
- * after the first 0.1 s of flight; turn: the most the nose's elevation changes in one frame (deg) from takeoff to 0.5 s
- * after touchdown (a snap); sink: the deepest any tyre gets into the ground over the run (m).
+ * One car at `v` m/s up the −z ramp, end-on over the slab. Flight: frames with every tyre beyond its springs' reach off the
+ * ground (`SPRING_REACH`: no spring pushes it) and no part of the body resting on it (its underside, bumpers and hull all more than 2 cm clear: a nose that
+ * strikes the ground first has landed). flightError: the most a flight frame's centre and velocity stray (m, m/s) from the closed
+ * form of the frame before (gravity alone), over frames clear of the slab (whose own contact reaches a car passing over it); spinChange: the most its spin changes (rad/s) between them; turn: the most the
+ * nose's elevation changes in one frame (deg) from takeoff to 0.5 s after touchdown (a snap); sink: the deepest any tyre
+ * gets into the ground over the run (m).
  */
 function jump(v: number): Jump {
   const { ramps, w, car } = scene(true);
@@ -150,7 +176,9 @@ function jump(v: number): Jump {
   const gaps = [0, 0, 0, 0];
   let air = 0;
   let peak = 0;
-  let noseOff = 0;
+  let flightError = 0;
+  let spinChange = 0;
+  let flown = false;
   let turn = 0;
   let sink = 0;
   let since = -1;
@@ -164,17 +192,29 @@ function jump(v: number): Jump {
     sink = Math.max(sink, -Math.min(...gaps));
     peak = Math.max(peak, p.y);
     const nose = Math.asin(f.set(0, 0, 1).applyQuaternion(q).y) * DEG;
-    const path = Math.atan2(car.velocity.y, Math.hypot(car.velocity.x, car.velocity.z)) * DEG;
-    const flying = Math.min(...gaps) > 0.05 && fit(car, ramps).hull > 0.02;
+    const flying = Math.min(...gaps) > SPRING_REACH && fit(car, ramps).hull > 0.02;
+    const pastSlab = Math.abs(p.z) > RAMP.start + CAR_HALF.z;
+    _com.set(0, COM_Y, 0).applyQuaternion(q).add(p);
     if (flying) {
       air += FRAME;
       since = 0;
-      if (air > 0.1) noseOff = Math.max(noseOff, Math.abs(nose - path));
+      if (flown) {
+        // One frame of flight under gravity alone: the centre at its last velocity less g/2 of the frame, the velocity less g of it.
+        _expected.copy(_flownCom).addScaledVector(_flownVelocity, FRAME);
+        _expected.y -= 0.5 * G * FRAME * FRAME;
+        _expectedVelocity.copy(_flownVelocity).y -= G * FRAME;
+        flightError = Math.max(flightError, _com.distanceTo(_expected), car.velocity.distanceTo(_expectedVelocity));
+        spinChange = Math.max(spinChange, car.angular.distanceTo(_flownSpin));
+      }
     } else if (since >= 0) since += FRAME;
+    flown = flying && pastSlab;
+    _flownCom.copy(_com);
+    _flownVelocity.copy(car.velocity);
+    _flownSpin.copy(car.angular);
     if (air > 0 && since < 0.5) turn = Math.max(turn, Math.abs(nose - lastNose));
     lastNose = nose;
   });
-  return { air, peak, noseOff, turn, sink, gaps, endZ: p.z, slabHit: w.barrierHits[0] === true, crashed: car.crashed };
+  return { air, peak, flightError, spinChange, turn, sink, gaps, endZ: p.z, slabHit: w.barrierHits[0] === true, crashed: car.crashed };
 }
 
 /**
@@ -233,10 +273,10 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
     [14, "flies the slab end-on and lands on the flat past the far ramp", RAMP.start + RAMP.len],
     [11, "flies the slab end-on and lands on the far ramp's face", RAMP.start],
   ] as const) {
-    it(`when it drives up at ${v} m/s, then it ${name}, its nose follows the flight path, no tyre sinks or snaps on landing and all four wheels end on the ground`, (t) => {
+    it(`when it drives up at ${v} m/s, then it ${name}, its centre on the parabola of its velocity and its spin unchanged while it flies, no tyre sinks or snaps on landing and all four wheels end on the ground`, (t) => {
       const r = jump(v);
       t.diagnostic(
-        `air ${r.air.toFixed(2)} s, peak ${r.peak.toFixed(2)} m, nose off path ≤ ${r.noseOff.toFixed(1)}°, most turn in a frame ${r.turn.toFixed(1)}°, deepest tyre ${r.sink.toFixed(3)} m, end z ${r.endZ.toFixed(1)}, gaps ${r.gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${r.slabHit}`,
+        `air ${r.air.toFixed(2)} s, peak ${r.peak.toFixed(2)} m, centre off the parabola ≤ ${r.flightError.toExponential(1)} m, spin change ≤ ${r.spinChange.toExponential(1)} rad/s, most turn in a frame ${r.turn.toFixed(1)}°, deepest tyre ${r.sink.toFixed(3)} m, end z ${r.endZ.toFixed(1)}, gaps ${r.gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${r.slabHit}`,
       );
       const failures: string[] = [];
       if (r.air < 0.6) failures.push(`air ${r.air.toFixed(2)} s`);
@@ -244,7 +284,8 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
       if (r.slabHit) failures.push("touched the slab");
       if (r.crashed) failures.push("crashed");
       if (r.endZ < landZ) failures.push(`ended at z ${r.endZ.toFixed(1)}, short of ${landZ.toFixed(1)}`);
-      if (r.noseOff > 3) failures.push(`nose ${r.noseOff.toFixed(1)}° off the flight path`);
+      if (r.flightError > FLIGHT_FLOAT) failures.push(`centre ${r.flightError} m off the parabola of its velocity`);
+      if (r.spinChange > FLIGHT_FLOAT) failures.push(`spin changed ${r.spinChange} rad/s in flight`);
       if (r.turn > 6) failures.push(`nose turned ${r.turn.toFixed(1)}° in one frame`);
       if (r.sink > 0.02) failures.push(`a tyre ${r.sink.toFixed(3)} m into the ground`);
       for (const [i, g] of r.gaps.entries()) {
@@ -276,14 +317,14 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
         if (touch < 0) return;
         const o = car.suspension.offset;
         peak = Math.min(peak, ...o);
-        if (Math.max(...o.map(Math.abs)) > 0.01) swung = time - touch;
+        if (Math.max(...o.map(Math.abs)) > SETTLED) swung = time - touch;
         car.group.updateWorldMatrix(true, true);
         body.localToWorld(sill.set(0, 0.25, 0));
         low = Math.min(low, sill.y - ramps.heightAt(sill.x, sill.z, sill.y));
       });
       t.diagnostic(`${cls}: peak compression ${(-peak * 100).toFixed(1)} cm, swinging until ${swung.toFixed(2)} s after touchdown, sill ≥ ${low.toFixed(3)} m`);
       if (touch < 0) failures.push(`${cls} never came down`);
-      if (peak > -0.02) failures.push(`${cls} springs took ${(-peak * 100).toFixed(1)} cm`);
+      if (peak > -SETTLED) failures.push(`${cls} springs took ${(-peak * 100).toFixed(1)} cm`);
       if (swung > 2) failures.push(`${cls} still swinging ${swung.toFixed(2)} s after touchdown`);
       if (low < 0.05) failures.push(`${cls} sill ${low.toFixed(3)} m off the ground`);
       car.dispose();
@@ -312,6 +353,7 @@ describe("given the ramps with no slab between them", () => {
     const { ramps, w, car } = scene(false);
     // Square to the +z ramp's side 1 m from its high end (face 0.94 m up), from 6 m out on −x.
     const z = RAMP.start + 1;
+    assignClass(car, "sedan");
     car.spawnFacing(-6, z, Math.PI / 2, 10);
     const p = car.group.position;
     let deepest = -Infinity;
@@ -324,7 +366,7 @@ describe("given the ramps with no slab between them", () => {
     t.diagnostic(`face ${ramps.heightAt(0, z).toFixed(2)} m high; nose reached ${deepest.toFixed(3)} m past it, highest ${highest.toFixed(3)} m, end vx ${car.velocity.x.toFixed(2)} m/s, crashed ${car.crashed}`);
     const failures: string[] = [];
     if (deepest > 0.15) failures.push(`nose ${deepest.toFixed(3)} m into the ramp`);
-    if (highest > 0.05) failures.push(`climbed to ${highest.toFixed(3)} m`);
+    if (highest > SPRINGS.sedan.travel) failures.push(`climbed to ${highest.toFixed(3)} m`);
     if (car.velocity.x > 0.1) failures.push(`still driving in at ${car.velocity.x.toFixed(2)} m/s`);
     assert.deepEqual(failures, []);
   });
