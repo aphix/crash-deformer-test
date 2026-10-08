@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { activeGround, NO_FLOOR } from "../world/ground.ts";
+import { activeGround, NO_FLOOR, type Ground } from "../world/ground.ts";
 import { C_GRIP, C_H, HIT_SIZE, heightGrip, heightIn, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "../world/surfaces.ts";
 import {
   leftoverCrumple,
@@ -41,8 +41,27 @@ const _n = new THREE.Vector3();
  * the out-of-line call, all five were boxed per mass.
  */
 const _clamp = new Float64Array(5);
-/** `sampleGround`'s query point. */
+/** `sampleGround`'s query point, and the grip of its last `readGround`. */
 const _pq = new Float64Array(PQ_SIZE);
+const _readGrip = new Float64Array(1);
+/**
+ * How far (m, plan) fore and aft of a wreck's hub `sampleGround` also reads what its tyre can rest on, and how far (m) the
+ * tyre's arc stands there over its bottom: R − √(R² − d²), its whole radius at d = R.
+ */
+const TREAD_FORE = TYRE_R;
+const TREAD_DROP = TYRE_R - Math.sqrt(TYRE_R * TYRE_R - TREAD_FORE * TREAD_FORE);
+
+/** The ground at (x, z) asked from height y; with `grip`, read with its grip into `_readGrip`. */
+function readGround(ground: Ground, x: number, z: number, y: number, grip: boolean): number {
+  if (!grip) return ground.heightAt(x, z, y);
+  _pq[PQ_X] = x;
+  _pq[PQ_Z] = z;
+  _pq[PQ_Y] = y;
+  const h = heightIn(ground, _pq);
+  if (h !== NO_FLOOR) _readGrip[0] = heightGrip();
+  return h;
+}
+
 /** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
 const SHAPE_REF_HZ = 240;
 /** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
@@ -646,24 +665,34 @@ export abstract class DeformSolve extends DeformContact {
   }
 
   /** A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad) under every dynamic mass on its own
-   *  layer, where it stands now, and the grip where there is ground: one read under each mass, its hubs' too. */
+   *  layer, where it stands now, and the grip where there is ground: one read under each mass. An attached hub's is
+   *  what its tyre rests on, the highest ground within its radius: the read under it and one `TREAD_FORE` fore and aft
+   *  along its rolling plane (the heading), each lowered by the tyre's arc there. Read under its centre alone, a wreck's
+   *  hub 2 cm short of a wedge's high end, its tyre in the end's face, read the gap's floor 1.2 m down: the band's top
+   *  over the hubs held the frame 0.25 m under its cell, and the anchor's read stepping onto the wedge snapped it there
+   *  in one slice (19.7 m/s). */
   protected sampleGround(floor: Float64Array, grip: Float64Array | null): void {
     const ground = activeGround();
+    const withGrip = grip !== null;
+    const fx = Math.sin(this.prevYaw) * TREAD_FORE;
+    const fz = Math.cos(this.prevYaw) * TREAD_FORE;
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       const w = m.world;
-      if (grip === null) {
-        floor[i] = ground.heightAt(w.x, w.z, w.y);
-        continue;
+      let h = readGround(ground, w.x, w.z, w.y, withGrip);
+      let g = _readGrip[0]!;
+      if (m.hub && !m.popped) {
+        for (let side = -1; side <= 1; side += 2) {
+          const r = readGround(ground, w.x + side * fx, w.z + side * fz, w.y, withGrip) - TREAD_DROP;
+          if (r > h) {
+            h = r;
+            g = _readGrip[0]!;
+          }
+        }
       }
-      // Height and grip from one read of the ground.
-      _pq[PQ_X] = w.x;
-      _pq[PQ_Z] = w.z;
-      _pq[PQ_Y] = w.y;
-      const h = heightIn(ground, _pq);
       floor[i] = h;
-      if (h !== NO_FLOOR) grip[i] = heightGrip();
+      if (withGrip && h !== NO_FLOOR) grip[i] = g;
     }
   }
 

@@ -887,8 +887,8 @@ export function heightIn(s: Surface, q: Float64Array): number {
 // (`TYRE_PROFILE`, car-materials.ts: the crown, its two edges and both shoulders), each over its lower half in `STEPS` arcs a side. A
 // tyre rolling off a face's edge rests on the edge with whichever ring and arc still reach it, up to its hub's height, so its hub comes
 // down that arc as the drawn tyre does. The whole tyre turns with the body, so a rolled or pitched car's tread meets the ground where
-// the drawn tyre does. Where no patch ends within the tyre's reach (`edgeIn`) the crown's bottom, turned to face the surface, is the
-// whole footprint (`BASE`): over one patch's surface the rest add nothing but queries, 11 of them every wheel every slice.
+// the drawn tyre does. Where no patch ends within the tyre's reach (`edgeIn`) the rings' bottoms, turned to face the surface, are the
+// whole footprint (`BASE`): over one patch's surface the arcs add nothing but queries.
 const RINGS: readonly (readonly [number, number])[] = [
   [0, 0.32],
   [0.082, 0.314],
@@ -898,7 +898,14 @@ const RINGS: readonly (readonly [number, number])[] = [
 ];
 const STEPS = 12;
 const FOOT = RINGS.length * (2 * STEPS + 1);
-const BASE = 1;
+/**
+ * The footprint's first points, every ring's bottom, hold the tread's lowest point over one plane at any tilt: tilted φ across the axle
+ * (up to π/2, a rolled car's tyre on its sidewall) the tread's lowest point is the bottom of the ring with the greatest
+ * |x| sin φ + r cos φ, and an outer ring takes over from the one inside it at tan φ = Δr / Δ|x|: the crown leads to 4.2°, the edges
+ * to 36.0°, the shoulders past that, so none of the five is spare. The crown's alone sank the drawn tyre's edge 2.2 cm on the stunt
+ * course's 17° bank; without the shoulders a corkscrew roll at 27 m/s came down on its wheels instead of its roof.
+ */
+const BASE = RINGS.length;
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
