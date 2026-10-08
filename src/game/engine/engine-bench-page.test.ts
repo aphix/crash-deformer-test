@@ -10,6 +10,8 @@ interface PageState {
   hidden: boolean;
   focused: boolean;
   fullscreen: boolean;
+  /** The page runs as an installed app launched with `display: fullscreen`: no `fullscreenElement`, but the display-mode media query matches. */
+  installedFullscreen: boolean;
   clockMs: number;
 }
 
@@ -28,9 +30,9 @@ function stubPage(): StubPage {
     addEventListener: (type: string, listener: Listener) => void (listeners.get(type) ?? listeners.set(type, new Set()).get(type)!).add(listener),
     removeEventListener: (type: string, listener: Listener) => void listeners.get(type)?.delete(listener),
   };
-  const page: PageState = { hidden: false, focused: true, fullscreen: false, clockMs: 1000 };
+  const page: PageState = { hidden: false, focused: true, fullscreen: false, installedFullscreen: false, clockMs: 1000 };
   Object.defineProperty(globalThis, "document", { value: { ...target, get hidden() { return page.hidden; }, hasFocus: () => page.focused, get fullscreenElement() { return page.fullscreen ? {} : null; } }, configurable: true });
-  Object.defineProperty(globalThis, "window", { value: target, configurable: true });
+  Object.defineProperty(globalThis, "window", { value: { ...target, matchMedia: (query: string) => ({ matches: query === "(display-mode: fullscreen)" && page.installedFullscreen }) }, configurable: true });
   mock.method(performance, "now", () => page.clockMs);
   return {
     page,
@@ -62,6 +64,13 @@ describe("given the bench page with a stub document and window (watchPage record
       { phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false },
       { phase: "window", atS: 0, visible: true, focused: false, fullscreen: false },
     ]);
+  });
+
+  test("when the page runs as an installed fullscreen app, then its entries say fullscreen though the document has no fullscreen element", () => {
+    stub.page.installedFullscreen = true;
+    const watch = watchPage();
+    watch.phase(PHASE_WARM);
+    assert.deepEqual(watch.stop(), [{ phase: "warm", atS: 0, visible: true, focused: true, fullscreen: true }]);
   });
 
   test("when the page is hidden and fullscreened during a phase, then each change is an entry in that phase, at the seconds into it", () => {
