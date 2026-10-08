@@ -1,4 +1,4 @@
-import { afterEach, describe, it } from "node:test";
+import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { COMPASS, report, type Run, type Site } from "./ground-judge.test-util.ts";
 import { drop } from "./ground-probe.test-util.ts";
@@ -7,6 +7,7 @@ import { CLASSES, VEHICLE_CLASS_IDS, type VehicleClassId } from "./vehicle-class
 import { setGround } from "../world/ground.ts";
 import { Track } from "../world/track.ts";
 import { HAVANA } from "../world/tracks/havana.ts";
+import { useStiffSprings } from "./stiff-springs.test-util.ts";
 
 /**
  * The owner: "ensure wheels are good on the grass and whatnot!" The Survival course's grass embankment, crest, plaza, alley and
@@ -36,6 +37,13 @@ const dropSiteCases = [
   { it: "when it is dropped in the alley (cobble beside the slope) and on its kerb, then it sits on the ground at every heading", places: [["alley kerb (-33.5, 0)", -33.5, 0], ["alley (-36.5, 0)", -36.5, 0], ["alley south (-36.5, -30)", -36.5, -30]] },
   { it: "when it is dropped on the landing lawn and the paseo's edge, then it sits on the ground at every heading", places: [["landing lawn (0, -100)", 0, -100], ["landing lawn (30, -140)", 30, -140], ["paseo kerb (12, -100)", 12, -100], ["ring south (0, -57)", 0, -57]] },
 ] as const;
+
+/** The ground's fit is the subject, not the springs': every run of the file rides on springs so stiff and short that no sag or droop excuses a gap or a flight (`useStiffSprings`). */
+let restoreSprings = (): void => {};
+before(() => {
+  restoreSprings = useStiffSprings();
+});
+after(() => restoreSprings());
 
 describe("given a braked car dropped at every compass heading on Havana's grass embankment, plaza, alley and landing lawn", () => {
   afterEach(() => setGround(null));
@@ -70,7 +78,10 @@ function driveMatrix(): Row[] {
 
 describe("given every class driving up Havana's face and over the crest at 10, 20 and 30 m/s, from the start at full throttle, and 30° across it", () => {
   afterEach(() => setGround(null));
-  const rows = driveMatrix();
+  let rows: Row[] = [];
+  before(() => {
+    rows = driveMatrix();
+  });
 
   it("when the runs are tabulated, then the table prints the crest flight, the landing and the deepest hull and tyre in the ground", (t) => {
     const lines = ["| class | run | air s | apex m | rise m | takeoff z | landing x, z, surface, m/s | hull cm | grass tyre cm | thrown | killed | end speed | speed at the foot |", "|---|---|---|---|---|---|---|---|---|---|---|---|---|"];
@@ -136,7 +147,10 @@ describe("given a car driving at 30 m/s up Havana's face and over the crest, wit
 
 describe("given Havana's approach boulevard and its set piece", () => {
   afterEach(() => setGround(null));
-  const rows = driveMatrix();
+  let rows: Row[] = [];
+  before(() => {
+    rows = driveMatrix();
+  });
   const start = (cls: VehicleClassId) => rows.find((x) => x.cls === cls && x.run === "start, full throttle")!.r;
 
   it("when the default class (sedan) drives the start at full throttle, then the boulevard is long enough for it to reach 90 % of its top speed at the foot", () => {

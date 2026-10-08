@@ -24,10 +24,18 @@ const _zero = new THREE.Vector3();
 const _fallC = new THREE.Vector3();
 const _fallV = new THREE.Vector3();
 const _fallR = new THREE.Vector3();
+const _wantQuaternion = new THREE.Quaternion();
 const G = 9.6;
-/** Doubles in a `DeformableCar.flight` block; from `FLIGHT_POSE` its pitch, yaw, roll, velocity and position. */
-export const FLIGHT = 17;
-export const FLIGHT_POSE = 3;
+/** Where a `DeformableCar.flight` block holds each part: spin (3), pitch, yaw, roll (3), orientation quaternion (4), velocity (3), position (3), contact-end clocks (2), reach, squeeze flag and drift. */
+export const FLIGHT_EULER = 3;
+const FLIGHT_QUATERNION = 6;
+export const FLIGHT_VELOCITY = 10;
+export const FLIGHT_POSITION = 13;
+const FLIGHT_END_AGO = 16;
+const FLIGHT_END_REACH = 18;
+const FLIGHT_END_SQUEEZE = 19;
+const FLIGHT_DRIFT = 20;
+export const FLIGHT = 21;
 /** Rate (1/s) a wreck's body eases onto its ground clearance (`seatBody`), and most (m) it is stood up for its underside (a hollow deeper is a wall). */
 const HULL_LIFT_RATE = 12;
 const HULL_LIFT_MAX = 0.2;
@@ -244,36 +252,40 @@ export class DeformableCar extends CarParts {
 
   /**
    * Highlight keyframes (docs/HIGHLIGHTS.md): what a netplay pose rounds or leaves out, `FLIGHT` doubles into `buf` at `o`,
-   * or with `write` from it: the spins, the pose, velocity and position whole (the wire rounds them: a first impact 0.5 m/s
-   * off), the squeeze clocks and the drift state. What the
-   * body touches is read again (`restoreContact`).
+   * or with `write` from it: the spins, the Euler angles the drive turns and the quaternion the rigid step turns (each is the
+   * other's derived copy only up to rounding, and the drive reads the heading off the quaternion before it sets it from the
+   * Euler), velocity and position whole (the wire rounds them: a first impact 0.5 m/s off), the squeeze clocks and the drift
+   * state. What the body touches is read again (`restoreContact`).
    */
   flight(buf: Float64Array, o: number, write: boolean): void {
     if (write) {
       this.angular.fromArray(buf, o);
-      this.pitch = buf[o + FLIGHT_POSE]!;
-      this.yaw = buf[o + FLIGHT_POSE + 1]!;
-      this.roll = buf[o + FLIGHT_POSE + 2]!;
+      this.pitch = buf[o + FLIGHT_EULER]!;
+      this.yaw = buf[o + FLIGHT_EULER + 1]!;
+      this.roll = buf[o + FLIGHT_EULER + 2]!;
       this.group.rotation.set(this.pitch, this.yaw, this.roll, "YXZ");
-      this.velocity.fromArray(buf, o + FLIGHT_POSE + 3);
-      this.group.position.fromArray(buf, o + FLIGHT_POSE + 6);
-      this.endAgo.set(buf.subarray(o + FLIGHT_POSE + 9, o + FLIGHT_POSE + 11));
-      this.endReach = buf[o + FLIGHT_POSE + 11]!;
-      this.endSqueeze = buf[o + FLIGHT_POSE + 12] !== 0;
-      this.drive.drift = buf[o + FLIGHT_POSE + 13]!;
+      // The rigid step moved the quaternion after the drive set it from the Euler angles: the angles are then its derived copy.
+      if (!this.group.quaternion.equals(_wantQuaternion.fromArray(buf, o + FLIGHT_QUATERNION))) this.group.quaternion.copy(_wantQuaternion);
+      this.velocity.fromArray(buf, o + FLIGHT_VELOCITY);
+      this.group.position.fromArray(buf, o + FLIGHT_POSITION);
+      this.endAgo.set(buf.subarray(o + FLIGHT_END_AGO, o + FLIGHT_END_AGO + 2));
+      this.endReach = buf[o + FLIGHT_END_REACH]!;
+      this.endSqueeze = buf[o + FLIGHT_END_SQUEEZE] !== 0;
+      this.drive.drift = buf[o + FLIGHT_DRIFT]!;
       this.restoreContact();
       return;
     }
     this.angular.toArray(buf, o);
-    buf[o + FLIGHT_POSE] = this.pitch;
-    buf[o + FLIGHT_POSE + 1] = this.yaw;
-    buf[o + FLIGHT_POSE + 2] = this.roll;
-    this.velocity.toArray(buf, o + FLIGHT_POSE + 3);
-    this.group.position.toArray(buf, o + FLIGHT_POSE + 6);
-    buf.set(this.endAgo, o + FLIGHT_POSE + 9);
-    buf[o + FLIGHT_POSE + 11] = this.endReach;
-    buf[o + FLIGHT_POSE + 12] = this.endSqueeze ? 1 : 0;
-    buf[o + FLIGHT_POSE + 13] = this.drive.drift;
+    buf[o + FLIGHT_EULER] = this.pitch;
+    buf[o + FLIGHT_EULER + 1] = this.yaw;
+    buf[o + FLIGHT_EULER + 2] = this.roll;
+    this.group.quaternion.toArray(buf, o + FLIGHT_QUATERNION);
+    this.velocity.toArray(buf, o + FLIGHT_VELOCITY);
+    this.group.position.toArray(buf, o + FLIGHT_POSITION);
+    buf.set(this.endAgo, o + FLIGHT_END_AGO);
+    buf[o + FLIGHT_END_REACH] = this.endReach;
+    buf[o + FLIGHT_END_SQUEEZE] = this.endSqueeze ? 1 : 0;
+    buf[o + FLIGHT_DRIFT] = this.drive.drift;
   }
 
   /**

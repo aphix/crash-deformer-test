@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { beginFakeFall, FLIGHT, FLIGHT_POSE, type DeformableCar } from "../vehicle/car.ts";
+import { beginFakeFall, FLIGHT, FLIGHT_EULER, FLIGHT_POSITION, FLIGHT_VELOCITY, type DeformableCar } from "../vehicle/car.ts";
 import { PART_STATE } from "../vehicle/part-state.ts";
 import { EXIT_PANES, type WorldBounce } from "../vehicle/car-core.ts";
 import { applyDrive, BRAKE_STEPS, idleDrive, THROTTLE_STEPS, type DriveInput } from "../vehicle/car-drive.ts";
@@ -124,16 +124,16 @@ export class ClipSim {
         for (let i = 0; i < FLIGHT; i++) fl[j * FLIGHT + i] = r.f64();
         for (let i = 0; i < MEMORY; i++) mem[j * MEMORY + i] = r.f64();
         // The snapshot's pose is the netplay wire's (1e-4 rad, 1 cm/s, float32 metres); the block's is the car's own.
-        const o = j * FLIGHT + FLIGHT_POSE;
-        f.pitch = fl[o]!;
-        f.yaw = fl[o + 1]!;
-        f.roll = fl[o + 2]!;
-        f.vx = fl[o + 3]!;
-        f.vy = fl[o + 4]!;
-        f.vz = fl[o + 5]!;
-        f.x = fl[o + 6]!;
-        f.y = fl[o + 7]!;
-        f.z = fl[o + 8]!;
+        const base = j * FLIGHT;
+        f.pitch = fl[base + FLIGHT_EULER]!;
+        f.yaw = fl[base + FLIGHT_EULER + 1]!;
+        f.roll = fl[base + FLIGHT_EULER + 2]!;
+        f.vx = fl[base + FLIGHT_VELOCITY]!;
+        f.vy = fl[base + FLIGHT_VELOCITY + 1]!;
+        f.vz = fl[base + FLIGHT_VELOCITY + 2]!;
+        f.x = fl[base + FLIGHT_POSITION]!;
+        f.y = fl[base + FLIGHT_POSITION + 1]!;
+        f.z = fl[base + FLIGHT_POSITION + 2]!;
         const n = r.u16();
         if (n !== PART_STATE && n !== cars[j]!.deform.simSize() + PART_STATE) throw new RangeError("a keyframe's solver state is another build's");
         const words = new Uint32Array(2 * n);

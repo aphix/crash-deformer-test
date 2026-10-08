@@ -13,5 +13,9 @@ import { sweepSeeds } from "./engine-replay.test-util.ts";
  * before a clip car reached it: `HighlightClip.knocks`), 30 (the clip ends with the race: the harness's last trace
  * entry was the state after the finish, not the one the last step left) and 47 (a car with a torn mirror but no wreck
  * came back with a zero hit frame instead of its own: it carries its solver state like a wreck).
+ *
+ * Seed 4 of the natural field once had its flat-out player hit the far wall head-on at 41 m/s and stop; on the one rigid path
+ * the player is 1.3 m further left at z 90, is wrecked by something at z 98, slides 60 m along that wall and no crash of the
+ * 75 s ranks as a highlight (nothing to replay), so seed 9 is swept in its place.
  */
-sweepSeeds([1, 2, 3, 4, 5, 6, 7, 8, 18, 30, 47]);
+sweepSeeds([1, 2, 3, 5, 6, 7, 8, 9, 18, 30, 47]);

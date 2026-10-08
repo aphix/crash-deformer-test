@@ -17,7 +17,8 @@ import { agreement, recordField } from "./replay-fidelity.test-util.ts";
 const FIELD = { trackId: "oval", laps: 3, aiCount: 11, noReset: false, aggression: 1, police: true, spectate: true };
 /** Race seconds to wait for the first stakeout (a third of the first lap in), at most. */
 const WAIT_S = 120;
-const SEEDS = [1, 2, 3];
+/** Seed 3 once had the cop in the clip; on the one rigid path its head-on pair's clip holds nine racers and no cop, so seed 4 stands in. */
+const SEEDS = [1, 2, 4];
 
 describe("given the oval race with 11 AI and police on, where two racers are put head-on beside a cop that has just been placed on a stakeout spot", () => {
   for (const seed of SEEDS) {
