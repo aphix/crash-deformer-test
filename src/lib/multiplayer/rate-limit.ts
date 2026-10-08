@@ -12,9 +12,16 @@ export interface Limit {
  * Friends share a NAT, so one IP gets a full room's worth; one peer id flooding gets one peer's.
  */
 const PEER: Limit = { rate: 10, burst: 100 };
+/**
+ * Submissions (`@/lib/submissions`): a bench loop posts one card per bench, a few minutes apart, and a phone
+ * flags a clip now and then; a burst of 10 covers a household behind one address, then one every 20 s. The
+ * owner reads rarely, but a guessed token is refused under the same bucket, so guessing is slow.
+ */
 export const LIMITS = {
   peer: PEER,
   ip: { rate: PEER.rate * ROOM_MAX, burst: PEER.burst * ROOM_MAX },
+  submit: { rate: 1 / 20, burst: 10 },
+  read: { rate: 1, burst: 30 },
 } as const satisfies Record<string, Limit>;
 
 const BUCKETS_MAX = 20_000;
@@ -42,6 +49,16 @@ export class RateLimiter {
     return this.take(`list:${ip}`, LIMITS.peer, now);
   }
 
+  /** A submission post, before its body is read. */
+  submit(ip: string, now = Date.now()): boolean {
+    return this.take(`submit:${ip}`, LIMITS.submit, now);
+  }
+
+  /** An owner read (list or fetch), before its token is checked. */
+  read(ip: string, now = Date.now()): boolean {
+    return this.take(`read:${ip}`, LIMITS.read, now);
+  }
+
   /**
    * False once `key` has spent its bucket. A full map evicts its least recently used bucket (Map
    * order is use order: every take re-inserts its key), so minted keys never lock new callers out;
@@ -61,4 +78,20 @@ export class RateLimiter {
     b.tokens -= 1;
     return true;
   }
+}
+
+/**
+ * The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. An
+ * IPv6 caller is its /64, the block one subscriber gets, so minting addresses dodges no per-address limit.
+ */
+export function clientIp(request: Request): string {
+  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "direct";
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
+  if (v4) return v4[1]!;
+  if (!ip.includes(":")) return ip;
+  const [head = "", tail] = ip.split("::");
+  const left = head.split(":");
+  const right = tail === undefined ? [] : tail.split(":");
+  const groups = [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
+  return `${groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(":")}::/64`;
 }

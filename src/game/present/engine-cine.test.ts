@@ -8,7 +8,7 @@ import { blankPoint, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { sampleAt } from "./track-mesh.ts";
 import { camUsable, CLEAR, occluder, raceSight, solid, type Sight } from "./spectate-cam.ts";
-import { CrashCam, CrashPick, crashEye, CUTS, heldCut } from "./engine-cine.ts";
+import { CrashCam, CrashPick, crashEye, CUTS, heldCut, laterHits } from "./engine-cine.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /** An eye's times through its cut, tried here: twice as many as the pick's, so half of them fall between its. */
@@ -199,6 +199,38 @@ describe("given a reel's crash camera in an open field where every cut has its f
     assert.deepEqual(run(walled, first), { cut: 2, cuts: 1 }, "the long lens takes over from the blocked crane, once, and keeps the shot through the hits");
     assert.equal(heldCut(open, at, n, reach, target.set(0, 0.55, 0), 2), 2, "it holds once the way is clear again");
     assert.equal(heldCut(walled, at, n, new Float32Array(3), target, first), -1, "no eye on any cut: the reel's own camera");
+  });
+});
+
+describe("given a reel's crash camera in an open field and a later impact of its window, 12 m beside the first", () => {
+  /** The field, the first hit, the crane eye's offset, and the later impact's point (12 m round from the first hit, off the crane's side). */
+  const open: Sight = { ground: FLAT_GROUND, path: null, wallTop: 0.6, rim: Infinity, occ: [] };
+  const at = new THREE.Vector3(0, 0.55, 0);
+  const n = new THREE.Vector3(1, 0, 0);
+  const reach = new Float32Array([1, 1, 1]);
+  const target = new THREE.Vector3(0, 0.55, 0);
+  const crane = new THREE.Vector3();
+  crashEye(crane, CUTS[1], at, n, 0, 1);
+  const later = laterHits(1);
+  later.n = 1;
+  later.at[0]!.set(-crane.z * (12 / Math.hypot(crane.x, crane.z)), 0.55, crane.x * (12 / Math.hypot(crane.x, crane.z)));
+  /** A wall 6 m wide, 8 m in front of the later point on the line to the crane's eye: the long lens, from the far side, sees both. */
+  const toEye = new THREE.Vector3(crane.x - later.at[0]!.x, 0, crane.z - later.at[0]!.z).normalize();
+  const wall = occluder(later.at[0]!.x + toEye.x * 8, later.at[0]!.z + toEye.z * 8, Math.atan2(toEye.x, toEye.z), 3, 0.5, false, 0, 30);
+  const shadowed: Sight = { ...open, occ: [wall] };
+
+  it("when the crane's eye sees the car but a wall hides the later impact from it, then the cam leaves the crane for a cut that sees both until the impact has passed, and keeps the crane after it", () => {
+    assert.equal(heldCut(shadowed, at, n, reach, target, 1), 1, "the wall hides only the later impact: the car alone, the crane holds");
+    const seen = heldCut(shadowed, at, n, reach, target, 1, false, later, 0);
+    assert.notEqual(seen, 1, "the crane cannot see the later impact");
+    assert.ok(seen >= 0, "another cut sees the car and the later impact");
+    assert.equal(heldCut(shadowed, at, n, reach, target, 1, false, later, 1), 1, "the impact has passed: the crane holds again");
+  });
+
+  it("when a wall box round the later impact hides it from every cut, then the cam keeps the cut that sees the car alone, as it did before it knew the impacts", () => {
+    const a = later.at[0]!;
+    const box: Sight = { ...open, occ: [occluder(a.x + 3, a.z, 0, 0.5, 4, false, 0, 30), occluder(a.x - 3, a.z, 0, 0.5, 4, false, 0, 30), occluder(a.x, a.z + 3, 0, 4, 0.5, false, 0, 30), occluder(a.x, a.z - 3, 0, 4, 0.5, false, 0, 30)] };
+    assert.equal(heldCut(box, at, n, reach, target, 1, false, later, 0), 1, "no cut sees the impact: the crane that sees the car holds");
   });
 });
 

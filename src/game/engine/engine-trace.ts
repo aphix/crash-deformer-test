@@ -180,7 +180,7 @@ export class TraceRecorder {
     this.samples = [];
     this.ballHits = [];
     this.snapshotInitial(setup, cars);
-    this.push(setup, cars, clock);
+    this.sample(setup, cars, clock);
   }
 
   clear(): void {
@@ -197,7 +197,7 @@ export class TraceRecorder {
     return true;
   }
 
-  push(setup: TraceSetup, cars: readonly DeformableCar[], clock: TraceClock): void {
+  sample(setup: TraceSetup, cars: readonly DeformableCar[], clock: TraceClock): void {
     if (this.samples.length >= MAX_SAMPLES) return;
     const { barrier, balls, sparks, smoke, debris } = this.scene;
     this.samples.push({
@@ -255,8 +255,9 @@ export class TraceRecorder {
     });
   }
 
-  traceJson(setup: TraceSetup): string {
-    return pretty({
+  /** What the JSON button copies while a capture is on, as an object (`traceJson`'s text, and what Submit sends). */
+  traceRecord(setup: TraceSetup): TraceRecord {
+    return {
       version: 1,
       capturedAt: new Date().toISOString(),
       squash: setup.squash,
@@ -275,6 +276,10 @@ export class TraceRecorder {
       initial: this.initial,
       ballHits: this.ballHits,
       samples: this.samples,
-    });
+    };
+  }
+
+  traceJson(setup: TraceSetup): string {
+    return pretty(this.traceRecord(setup));
   }
 }

@@ -201,7 +201,7 @@ export class StreamedDeformation extends DeformSolve {
    * (lattice mode captures only the positions: netplay re-solves its cages from them).
    */
   protected bakeLocalSkin(): void {
-    if (this.mode === "shape") for (const c of this.clusters) matchSkinLocal(c, this.skinRest, this.skinLocal, this.skinMassN, SKIN_STRAIN);
+    if (this.mode === "shape") for (let ci = 0; ci < this.clusters.length; ci++) matchSkinLocal(this.clusters[ci]!, this.skinRest, this.skinLocal, this.skinMassN, SKIN_STRAIN);
     const pos = this.massPos;
     for (let j = 0, r = 0; j < this.masses.length; j++, r += 3) {
       const p = this.masses[j]!.local;
@@ -279,14 +279,16 @@ export class StreamedDeformation extends DeformSolve {
     const inward = this.impactInward;
     const ramp = THREE.MathUtils.clamp(this.elapsed / 0.08, 0.45, 1);
 
-    for (const cage of this.cages) {
+    for (let ci = 0; ci < this.cages.length; ci++) {
+      const cage = this.cages[ci]!;
       for (let i = 0; i < 8; i++) {
         const rest = cage.restCorners[i]!;
         const corner = cage.corners[i]!;
         corner.copy(rest);
         let wsum = 0;
         _d.set(0, 0, 0);
-        for (const m of this.masses) {
+        for (let mi = 0; mi < this.masses.length; mi++) {
+          const m = this.masses[mi]!;
           if (m.hub && !m.popped) continue;
           const dist = rest.distanceTo(m.rest);
           if (dist > 1.15) continue;
@@ -305,7 +307,8 @@ export class StreamedDeformation extends DeformSolve {
       }
     }
 
-    if (!this.bidirectional) for (const s of this.sensors) {
+    if (!this.bidirectional) for (let si = 0; si < this.sensors.length; si++) {
+      const s = this.sensors[si]!;
       if (s.compression < 0.015) continue;
       const cage = this.cages[s.partIndex]!;
       const amount = s.compression * cage.spec.maxCrush * 0.95 * ramp;
@@ -357,8 +360,9 @@ export class StreamedDeformation extends DeformSolve {
 
   private capCageCorners(): void {
     let maxTravel = 0;
-    for (const m of this.masses) maxTravel = Math.max(maxTravel, m.local.distanceTo(m.rest));
-    for (const cage of this.cages) {
+    for (let mi = 0; mi < this.masses.length; mi++) maxTravel = Math.max(maxTravel, this.masses[mi]!.local.distanceTo(this.masses[mi]!.rest));
+    for (let ci = 0; ci < this.cages.length; ci++) {
+      const cage = this.cages[ci]!;
       const isCell = cage.spec.name === "chassisCell" || cage.spec.name === "roof";
       let cap: number;
       if (this.bidirectional) {
@@ -384,7 +388,8 @@ export class StreamedDeformation extends DeformSolve {
       maxZ = -Infinity,
       minX = Infinity,
       maxX = -Infinity;
-    for (const m of this.masses) {
+    for (let mi = 0; mi < this.masses.length; mi++) {
+      const m = this.masses[mi]!;
       minZ = Math.min(minZ, m.local.z);
       maxZ = Math.max(maxZ, m.local.z);
       minX = Math.min(minX, m.local.x);
@@ -392,8 +397,10 @@ export class StreamedDeformation extends DeformSolve {
     }
     const zPad = 0.1;
     const xPad = 0.16;
-    for (const cage of this.cages) {
-      for (const corner of cage.corners) {
+    for (let ci = 0; ci < this.cages.length; ci++) {
+      const corners = this.cages[ci]!.corners;
+      for (let k = 0; k < corners.length; k++) {
+        const corner = corners[k]!;
         corner.z = THREE.MathUtils.clamp(corner.z, minZ - zPad, maxZ + zPad);
         corner.x = THREE.MathUtils.clamp(corner.x, minX - xPad, maxX + xPad);
       }

@@ -1,9 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, test } from "node:test";
-import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench.ts";
+import { browserName, describeBench, perSecond, stat, type Block, type BenchResult } from "./engine-bench-report.ts";
+import { benchPlan } from "./engine-bench-plan.ts";
 
 const S = (p50: number) => ({ mean: p50, p50, p95: p50 * 2, p99: p50 * 3, max: p50 * 4 });
-const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS });
+const B = (fps: number, gpuMs: number | null, fineCutsPerSimS = 0): Block => ({ frames: 270, wallS: 9, fps, simSpeedPct: 99, simMsPerSimS: 212, msPerStep: 0.9, stepsPerFrame: 2.7, cpuMs: 7.5, drawMs: 2.1, gpuMs, fineCutsPerSimS, calls: 640, triangles: 410000 });
 
 const RESULT: BenchResult = {
   course: "city",
@@ -38,6 +39,7 @@ const RESULT: BenchResult = {
   tierPct: { high: 97, minimal: 3 },
   detailPct: { "50 m": 80, "40 m": 20 },
   setupMs: { options: 800, start: 140 },
+  pageEvents: [{ phase: "warm", atS: 0, visible: true, focused: true, fullscreen: false }],
   settings: {
     fxTier: "high",
     fxAuto: true,
@@ -136,7 +138,26 @@ describe("given the bench result of the Lab's throws (?bench=lab)", () => {
   test("when the card is written, then its second line names the throws in turn, how often and when they leave, that time was held at 1x, and how many the window saw; a race's card has no such line", () => {
     const lines = describeBench({ ...RESULT, course: "lab", cars: 4, cops: null, labThrown: 4 });
     assert.match(lines[0]!, /^CRUSH BENCH {2}lab {2}4 cars/);
-    assert.equal(lines[1], "lab: cards item 3 at 30 m/s, then wall item 4 at 30 m/s; one each 4 sim-s, 0.5 s after its set loads, time held at 1x; 4 thrown in the window");
+    const line = lines[1]!;
+    const lab = benchPlan("?bench=lab")!.lab!;
+    assert.ok(line.startsWith("lab: "), line);
+    let from = 0;
+    for (const t of lab.throws) {
+      const at = line.indexOf(t.preset, from);
+      assert.ok(at >= from, `${t.preset} is not named after the throw before it: ${line}`);
+      assert.ok(line.slice(at).includes(`${t.along} m/s`) && line.slice(at).includes(`${t.up} m/s up`), `${t.preset}'s launch is not named: ${line}`);
+      from = at + t.preset.length;
+    }
+    assert.ok(line.includes("held at 1x") && line.includes("4 thrown in the window"), line);
     assert.ok(!describeBench(RESULT).some((l) => l.startsWith("lab:")));
+  });
+});
+
+describe("given the bench result of a page that asked for the Ultra arm (?ultra=1)", () => {
+  test("when the card is written, then the fx A/B has an ultra row after high with its fps, gpu ms and draw calls; a card without the arm has no ultra row", () => {
+    const lines = describeBench({ ...RESULT, abFx: { ...RESULT.abFx, ultra: { ...B(41, 3.2), calls: 655 } } });
+    const at = lines.findIndex((l) => l.includes("high 48.0 fps"));
+    assert.match(lines[at + 1]!, /^ +ultra 41\.0 fps, .*gpu 3\.2, 655 calls$/);
+    assert.ok(!describeBench(RESULT).some((l) => l.includes("ultra ")));
   });
 });

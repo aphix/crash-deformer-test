@@ -7,6 +7,10 @@ import { AutoFx, hardwareDesktop } from "./auto-fx.ts";
 const jitter60 = (i: number): number => 16.8 + ((i * 7) % 8) * 0.1;
 const steady = (fps: number) => (): number => 1000 / fps;
 
+/** A main thread that is nearly idle (ms per frame) and a browser with no GPU timer (Firefox): these tests vary the wall rate alone. */
+const LIGHT_WORK_MS = 3;
+const NO_GPU = -1;
+
 /** A match clock in seconds, negative before green; `run` advances it by each frame. */
 const race = (): { t: number } => ({ t: -4.5 });
 
@@ -18,7 +22,7 @@ function run(fx: AutoFx, seconds: number, frame: (i: number) => number, match?: 
     const ms = frame(i);
     t += ms;
     if (match) match.t += ms / 1000;
-    const to = fx.frame(ms, match ? match.t : null);
+    const to = fx.frame(ms, LIGHT_WORK_MS, NO_GPU, match ? match.t : null);
     if (to !== null) out.push([Math.round(t / 100) / 10, to]);
   }
   return out;
@@ -28,7 +32,7 @@ function run(fx: AutoFx, seconds: number, frame: (i: number) => number, match?: 
 function onHigh(): AutoFx {
   const fx = new AutoFx(true, true);
   let t = 0;
-  for (let i = 0; fx.frame(jitter60(i), null) === null; i++) t += jitter60(i);
+  for (let i = 0; fx.frame(jitter60(i), LIGHT_WORK_MS, NO_GPU, null) === null; i++) t += jitter60(i);
   assert.equal(Math.round(t / 100) / 10, 2.5);
   return fx;
 }
@@ -148,5 +152,61 @@ describe("given the check for a hardware desktop (a fine pointer and a hardware 
     assert.equal(hardwareDesktop("Gallium 0.4 on softpipe", true), false);
     assert.equal(hardwareDesktop(nvidia, false), false);
     assert.equal(hardwareDesktop(null, true), false);
+  });
+});
+
+/** A segment of identical frames: the wall interval, the main thread's ms and the GPU's ms (-1: no timer) of each, for `seconds`. */
+interface Spell {
+  seconds: number;
+  wallMs: number;
+  workMs: number;
+  gpuMs: number;
+}
+
+const calm = (seconds: number, wallMs = 1000 / 60): Spell => ({ seconds, wallMs, workMs: 3, gpuMs: 2 });
+/** Too full for 60 fps: 22 ms of main-thread work a frame, so the display shows every other vsync. */
+const overloaded = (seconds: number): Spell => ({ seconds, wallMs: 2000 / 60, workMs: 22, gpuMs: 8 });
+
+/** Feeds the spells in turn, outside a match; every switch as [second it happened, tier]. */
+function runSpells(fx: AutoFx, spells: Spell[]): [number, FxTier][] {
+  const out: [number, FxTier][] = [];
+  let t = 0;
+  for (const spell of spells) {
+    for (let spent = 0; spent < spell.seconds * 1000; spent += spell.wallMs) {
+      t += spell.wallMs;
+      const to = fx.frame(spell.wallMs, spell.workMs, spell.gpuMs, null);
+      if (to !== null) out.push([Math.round(t / 100) / 10, to]);
+    }
+  }
+  return out;
+}
+
+describe("given the tier decided by frame work (the main thread's and the GPU's ms against the 60 fps budget), whatever the display's refresh", () => {
+  const refreshCases = [
+    { it: "when a 48 Hz display shows 3 ms of work and 2 ms of GPU, then it lifts to high although the screen shows 48 fps", spells: [calm(10, 1000 / 48)], expected: [[2.5, "high"]] },
+    { it: "when a 30 Hz display shows 3 ms of work and 2 ms of GPU, then it lifts to high although the screen shows 30 fps", spells: [calm(10, 1000 / 30)], expected: [[2.6, "high"]] },
+    { it: "when a 144 Hz display shows 3 ms of work and no GPU timer, then it lifts to high", spells: [{ seconds: 10, wallMs: 1000 / 144, workMs: 3, gpuMs: -1 }], expected: [[2.5, "high"]] },
+    { it: "when a 60 Hz display shows 15 ms of work (on time, but a frame 90 % full) and no GPU timer, then it stays minimal", spells: [{ seconds: 10, wallMs: 1000 / 60, workMs: 15, gpuMs: -1 }], expected: [] },
+    { it: "when a 60 Hz display shows 3 ms of work but 15 ms of GPU, then it stays minimal", spells: [{ seconds: 10, wallMs: 1000 / 60, workMs: 3, gpuMs: 15 }], expected: [] },
+  ] as const;
+  for (const testCase of refreshCases) {
+    it(testCase.it, () => {
+      assert.equal(runSpells(new AutoFx(true, true), [...testCase.spells]).join(" "), testCase.expected.join(" "));
+    });
+  }
+
+  it("when a spell of overload falls to minimal and the load then ends, then it climbs one tier at a time after a long calm, never straight to high", () => {
+    const moves = runSpells(new AutoFx(true, true), [calm(4), overloaded(12), calm(120)]);
+    assert.deepEqual(moves, [[2.5, "high"], [6, "low"], [9.6, "minimal"], [31.4, "low"], [41, "high"]]);
+  });
+
+  it("when the load comes and goes every 10 s for 80 s, then it moves 5 times, not on every spell: a climb that fails is not repeated soon", () => {
+    const spells = Array.from({ length: 8 }, (_, i) => (i % 2 === 0 ? calm(10) : overloaded(10)));
+    assert.deepEqual(runSpells(new AutoFx(true, true), spells), [[2.5, "high"], [12.2, "low"], [15.7, "minimal"], [47.5, "low"], [52, "minimal"]]);
+  });
+
+  it("when frames stay calm for 2 minutes, then it stays on high and never asks for the ultra tier", () => {
+    const asked = runSpells(new AutoFx(true, true), [calm(120)]).map((m) => m[1]);
+    assert.deepEqual(asked, ["high"]);
   });
 });

@@ -121,7 +121,8 @@ Deploy (`deploy/`, `server/`, `scripts/` build helpers) sits outside `src/` and 
 - **T6.** Bounded: traces and per-frame captures use ring buffers or fixed caps; every test, probe and sweep runs under a
   memory cap so a runaway dies alone.
 
-Runner: `node --test` with `--experimental-strip-types` (no test framework). `npm run test:app` runs the game and
+Runner: `node --test` semantics with `--experimental-strip-types` (no test framework), through `scripts/run-tests.mjs`, which
+starts the slowest files first (`scripts/test-cost.json`; `--learn` refreshes it) and otherwise behaves like the CLI. `npm run test:app` runs the game and
 multiplayer suites, `npm run test:game` only `src/game`. Harnesses: `contact/crash-scenarios.test-util.ts` (headless crash
 scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker vs car), `world/race-world.test-util.ts`
 (the whole race stack headless), `vehicle/test-support.ts` (`forModes`, `DT`).
@@ -155,8 +156,8 @@ scenarios at the engine's slices), `scenes/contact-parity.test-util.ts` (striker
 ## 9. Code map
 
 **Engine.** `CrashEngine` is one class in layers, each extending the one before: `engine-core` (state, car roster, shared
-queries) → `engine-warm` (shader warm-up, skin kernel) → `engine-hud` (`emitHud`) → `engine-scenes` (scene picker, fade,
-reset, derby) → `engine-rigs` (press, pistons, doors) → `engine-input` (keys, pad, HUD commands, `advance`) → `engine-reel`
+queries) → `engine-warm` (shader warm-up, skin kernel) → `engine-hud` (`emitHud`) → `engine-derby` (derby on / off, its netplay
+mirror) → `engine-scenes` (scene picker, fade, reset, derby step) → `engine-rigs` (press, pistons, doors) → `engine-input` (keys, pad, HUD commands, `advance`) → `engine-reel`
 (crash highlights) → `engine-share` (the `#` URL) → `engine.ts`. `window.__crush` is the live engine (benches and probes).
 A race runs through `RaceDirector` (`engine-race.ts`) over `RaceField` (`engine-race-field.ts`).
 

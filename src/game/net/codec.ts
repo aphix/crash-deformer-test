@@ -36,8 +36,12 @@ export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby:
  parts state, cage corners and sensor positions.
  13: a reel clip carries the count of cars its cluster hit (`hit`, a byte after `ejects`).
  14: `MSG.input` flags gain bit 8 (hold reset) and a race snapshot's car record carries its safe reset spot (`safe`).
- */
-export const NET_VERSION = 14;
+ 15: a reel clip carries `hitKph` and `deform` (f32), a hits list (t f64, x/y/z f32, cars a/b u8) and an `own` byte per
+ejection.
+16: a snapshot car carries its boost meter (a byte after the body byte: 0-254, 255 for a car with no nitrous), and `MSG.input`
+carries the peer's own meter (a sixth byte), so every browser shows any viewed car's bottle as its driver keeps it.
+*/
+export const NET_VERSION = 16;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
@@ -107,6 +111,8 @@ export interface CarFrame {
   /** Index into `CAR_STYLE_IDS` / `VEHICLE_CLASS_IDS`: the body the client must build for this car. */
   style: number;
   cls: number;
+  /** Its driver's boost meter (0-1), as the host knows it; -1 for a car with no nitrous (police, traffic, nobody driving). */
+  meter: number;
   /** The wreck section (deform + parts) rides with this frame. */
   wreck: boolean;
   readonly deform: DeformNetState;
@@ -153,6 +159,7 @@ export function makeCarFrame(L: NetLayout): CarFrame {
     driverOut: 0,
     style: 0,
     cls: 0,
+    meter: -1,
     wreck: false,
     deform: {
       local: new Float32Array(L.masses * 3),
@@ -315,8 +322,8 @@ export class Reader {
 
 /** Most bytes `writeSnapshot` writes for `n` cars: each with a wreck section, every part and wheel loose. */
 export function snapshotMaxBytes(n: number, L: NetLayout): number {
-  const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + 18 + 13 + L.parts * 27 + 4 + L.wheels * 20;
-  return 17 + n * (28 + wreck);
+  const wreck = L.masses * 12 + L.clusters * 18 + L.sensors * 2 + IMPACT * 2 + 13 + L.parts * 27 + 4 + L.wheels * 20;
+  return 17 + n * (29 + wreck);
 }
 
 /** A car's doubles staged for `f32s`/`q16s` (see `Writer.q16s`). */
@@ -409,6 +416,7 @@ export function writeSnapshot(w: Writer, s: Snapshot, L: NetLayout): void {
     const f = s.cars[i]!;
     w.u8((f.crashed ? 1 : 0) | (f.wreck ? 2 : 0) | (f.vaporized ? 4 : 0) | (f.falling ? 8 : 0) | (f.sirens ? 16 : 0) | ((f.driverOut & 3) << 5));
     w.u8((f.style & 15) | ((f.cls & 15) << 4));
+    w.u8(f.meter < 0 ? METER_NONE : Math.round(Math.min(1, f.meter) * METER_FULL));
     const p = STAGE;
     p[0] = f.x;
     p[1] = f.y;
@@ -455,6 +463,8 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
     const body = r.u8();
     f.style = body & 15;
     f.cls = body >> 4;
+    const meter = r.u8();
+    f.meter = meter === METER_NONE ? -1 : meter / METER_FULL;
     f.x = r.fin32();
     f.y = r.fin32();
     f.z = r.fin32();
@@ -473,13 +483,17 @@ export function readSnapshot(r: Reader, s: Snapshot, L: NetLayout): void {
 export const INPUT_RESPAWN = 1;
 export const INPUT_HOLD = 2;
 
-/** Client → host: this peer's shaped drive input, and what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`) (5 bytes). */
-export function writeInput(w: Writer, input: DriveInput, ask = 0): void {
+/** A boost meter on the wire: 0..`METER_FULL` is empty to full, `METER_NONE` a car with no nitrous. */
+const METER_FULL = 254;
+const METER_NONE = 255;
+/** Client → host: this peer's shaped drive input, what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`), and its own boost meter (0-1) (6 bytes). */
+export function writeInput(w: Writer, input: DriveInput, ask = 0, meter = 0): void {
   w.u8(MSG.input);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.throttle)) * 127) & 0xff);
   w.u8(Math.round(Math.max(-1, Math.min(1, input.steer)) * 127) & 0xff);
   w.u8(Math.round(Math.max(0, Math.min(1, input.brake)) * 255));
   w.u8((input.ebrake ? 1 : 0) | (input.boost ? 2 : 0) | ((ask & INPUT_RESPAWN) !== 0 ? 4 : 0) | ((ask & INPUT_HOLD) !== 0 ? 8 : 0));
+  w.u8(Math.round(Math.max(0, Math.min(1, meter)) * METER_FULL));
 }
 
 /** A thrown driver as `launch` made him: car, pane and driver, then 22 f32 (position, car-local position, direction, orientation, relative and car velocity, spin). */
@@ -531,8 +545,8 @@ export function readEject(r: Reader, e: Ejection): number {
   return time;
 }
 
-/** Reads a client's input into `out`; returns what it asks of the race rules (`INPUT_RESPAWN` | `INPUT_HOLD`). */
-export function readInput(r: Reader, out: DriveInput): number {
+/** Reads a client's input packet into `out`: returns what it asks (`INPUT_RESPAWN` | `INPUT_HOLD`); its meter goes to `meterOut[0]`. */
+export function readInput(r: Reader, out: DriveInput, meterOut: Float64Array): number {
   r.u8();
   out.throttle = ((r.u8() << 24) >> 24) / 127;
   out.steer = ((r.u8() << 24) >> 24) / 127;
@@ -540,6 +554,7 @@ export function readInput(r: Reader, out: DriveInput): number {
   const bits = r.u8();
   out.ebrake = (bits & 1) !== 0;
   out.boost = (bits & 2) !== 0;
+  meterOut[0] = r.u8() / METER_FULL;
   return ((bits & 4) !== 0 ? INPUT_RESPAWN : 0) | ((bits & 8) !== 0 ? INPUT_HOLD : 0);
 }
 

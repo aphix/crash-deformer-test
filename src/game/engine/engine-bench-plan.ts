@@ -4,22 +4,28 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { stripCourse, type StripProp, type StripSpec } from "../world/bench-strip.ts";
+import { CAMPAIGN } from "../world/tracks/index.ts";
+import { BENCH_STRIP_ID, TRACK_ID } from "../world/constants.ts";
+import { BENCH_KIND, BENCH_QUERY, ULTRA_QUERY } from "./constants.ts";
 
-/** The city bench's race: its own course, field and rules as a program over the player's options, which it never touches. */
-export const BENCH_RACE: RaceCommand = { type: "program", options: { trackId: "city", laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
+/** The city bench's race on course `trackId`: its own field and rules as a program over the player's options, which it never touches. */
+function benchRace(trackId: string): RaceCommand {
+  return { type: "program", options: { trackId, laps: 9, aiCount: 15, police: true, aggression: 1, spectate: false, noReset: false } };
+}
+export const BENCH_RACE: RaceCommand = benchRace(TRACK_ID.city);
 
-/** One throw of the Lab bench: the set it loads, then the thrower (item 0) at item `target` at `speed` m/s. */
-type LabThrow = { preset: LabPresetId; target: number; speed: number };
+/** One throw of the Lab bench: the set it loads, then the thrower (item 0) let go at `along` m/s along the bench and `up` m/s up (what a flick's swipe gives it, stored so every run hits alike). */
+type LabThrow = { preset: LabPresetId; along: number; up: number };
 
 /**
- * `?bench=lab`: the throws in turn, one each `segmentS` sim seconds: the house of cards' top car at 30 m/s, then the middle
- * of the wall of props at 30 m/s. A set loads at its segment's start (the HUD's set picker, or Reset for the set already up)
+ * `?bench=lab`: the throws in turn, one each `segmentS` sim seconds: at the house of cards' top car, then at the wall of props,
+ * about 30 m/s each. A set loads at its segment's start (the HUD's set picker, or Reset for the set already up)
  * and stands `settleS` before its throw, which lands about 0.8 s later, inside an A/B block's 3 s.
  */
 const LAB_BENCH: { throws: readonly LabThrow[]; segmentS: number; settleS: number } = {
   throws: [
-    { preset: "cards", target: 3, speed: 30 },
-    { preset: "wall", target: 4, speed: 30 },
+    { preset: "cards", along: 30, up: 5.4 },
+    { preset: "wall", along: 30, up: 3.6 },
   ],
   segmentS: 4,
   settleS: 0.5,
@@ -39,6 +45,8 @@ export interface BenchPlan {
   body: CarStyleId | null;
   strip: StripSpec | null;
   lab: typeof LAB_BENCH | null;
+  /** `&ultra=1`: the card also runs the Ultra look as an FX arm, against the other tiers (`runBench`). */
+  ultra: boolean;
 }
 
 /** The strip's defaults: a bare `?bench=strip` is the repeatable baseline. */
@@ -65,31 +73,37 @@ function parseTraffic(v: string): StripSpec["traffic"] {
 }
 
 /**
- * The bench a page's query asks for: `?bench=city`, `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
+ * The bench a page's query asks for: `?bench=city` (with `course=<campaign course id>` for the same field on another course), `?bench=lab` (`LAB_BENCH`), or `?bench=strip` with optional `props=building:20,tree:40,rock:20|off`,
  * `traffic=2x12|1x8|off`, `cars=16` (racers, 2-16), `same=sedan|hatchback|wagon|coupe|pickup|off` (one body for every car, or
  * the fleet's mix) and `len=6000` (the straight, m: 1500-12000). A value that does not parse falls back to its default; the card
- * prints what ran. Null for any other `bench=`.
+ * prints what ran. Any bench takes `ultra=1` (the Ultra arm). Null for any other `bench=`.
  */
 export function benchPlan(search: string): BenchPlan | null {
   const q = new URLSearchParams(search);
-  const kind = q.get("bench");
-  if (kind === "city") return { id: "city", race: BENCH_RACE, course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null };
-  if (kind === "lab") return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH };
-  if (kind !== "strip") return null;
+  const kind = q.get(BENCH_QUERY);
+  const ultra = q.get(ULTRA_QUERY) === "1";
+  if (kind === BENCH_KIND.city) {
+    const course = q.get("course");
+    const id = course !== null && CAMPAIGN.includes(course) ? course : TRACK_ID.city;
+    return { id, race: id === TRACK_ID.city ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null, ultra };
+  }
+  if (kind === BENCH_KIND.lab) return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH, ultra };
+  if (kind !== BENCH_KIND.strip) return null;
   const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
   const same = q.get("same") ?? STRIP_DEFAULTS.same;
   const body = same === "off" ? null : Object.hasOwn(BODIES, same) ? (same as CarStyleId) : (STRIP_DEFAULTS.same as CarStyleId);
   const length = Math.min(12000, Math.max(1500, Math.round(Number(q.get("len") ?? STRIP_DEFAULTS.length)) || STRIP_DEFAULTS.length));
   const strip: StripSpec = { length, props: parseProps(q.get("props") ?? STRIP_DEFAULTS.props), traffic: parseTraffic(q.get("traffic") ?? STRIP_DEFAULTS.traffic) };
   return {
-    id: "bench",
-    race: { type: "program", options: { trackId: "bench", laps: 1, aiCount: racers - 1, police: false, aggression: 0.5, spectate: false, noReset: false } },
+    id: BENCH_STRIP_ID,
+    race: { type: "program", options: { trackId: BENCH_STRIP_ID, laps: 1, aiCount: racers - 1, police: false, aggression: 0.5, spectate: false, noReset: false } },
     course: stripCourse(strip),
     warmS: 8,
     racers,
     body,
     strip,
     lab: null,
+    ultra,
   };
 }
 
@@ -116,7 +130,7 @@ export function stripLines(s: StripResult): string[] {
 
 /** The card's Lab line: the throws in turn, and how many of them the window saw. */
 export function labLine(thrown: number): string {
-  const throws = LAB_BENCH.throws.map((t) => `${t.preset} item ${t.target} at ${t.speed} m/s`).join(", then ");
+  const throws = LAB_BENCH.throws.map((t) => `${t.preset} at ${t.along} m/s along the bench, ${t.up} m/s up`).join(", then ");
   return `lab: ${throws}; one each ${LAB_BENCH.segmentS} sim-s, ${LAB_BENCH.settleS} s after its set loads, time held at 1x; ${thrown} thrown in the window`;
 }
 

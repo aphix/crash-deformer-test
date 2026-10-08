@@ -1,9 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { launch, makeCar, makeWorld } from "../contact/crash-scenarios.test-util.ts";
+import { launch, makeCar, makeWorld, relaunchDamaged } from "../contact/crash-scenarios.test-util.ts";
 import { BARRIER_HALF } from "../contact/sat.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { clipTitle, MIN_SCORE, TOP, type CrashCluster } from "../match/highlights.ts";
+import { clipScore, clipTitle, IMPACT_MIN, MIN_SCORE, TOP, type CrashCluster } from "../match/highlights.ts";
 import { CrashRecorder } from "./engine-record.ts";
 import { settleStep, stepWorld } from "./world-step.ts";
 
@@ -14,8 +14,11 @@ import { settleStep, stepWorld } from "./world-step.ts";
  */
 const H = 1 / 240;
 
-/** The recorder over `cars` for `seconds`; `wall`: the slab's first touch is reported as a wall hit at that closing speed (m/s). The clusters it closed, ranked or not, and the recorder. */
-function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?: number): { clusters: CrashCluster[]; rec: CrashRecorder } {
+/**
+ * The recorder over `cars` for `seconds`; `wall`: the slab's first touch is reported as a wall hit at that closing speed (m/s);
+ * `again`: runs once, `again.at` s in (a second crash staged with the cars as the first left them). The clusters it closed, ranked or not, and the recorder.
+ */
+function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?: number, again?: { at: number; run: () => void }): { clusters: CrashCluster[]; rec: CrashRecorder } {
   const w = makeWorld(cars, barrier, false);
   const rec = new CrashRecorder();
   rec.begin("flat", 0.35, false, cars.length, (i) => `c${i}`, 1);
@@ -29,6 +32,7 @@ function record(cars: DeformableCar[], barrier: boolean, seconds: number, wall?:
   w.world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
   let touching = false;
   for (let s = 0; s < seconds / H; s++) {
+    if (again && s === Math.round(again.at / H)) again.run();
     rec.startStep(cars);
     stepWorld(w.world, H);
     const now = !!w.world.barrierHits[0];
@@ -131,17 +135,17 @@ describe("given the highlight recorder scoring crashes between real simulated se
   });
 });
 
-/** Two head-on pairs 20 m apart (one cluster by distance), each closing at `v` m/s: four cars hit. */
-const fourCars = (v: number, extra = 0): { clusters: CrashCluster[]; rec: CrashRecorder } => {
+/** Two head-on pairs, the second `apart` m beside the first (one cluster by distance), each closing at `v` m/s: four cars hit. */
+const fourCars = (v: number, extra = 0, apart = 8): { clusters: CrashCluster[]; rec: CrashRecorder } => {
   const cars = Array.from({ length: 4 + extra }, () => makeCar());
   placeHeadOn(cars[0]!, cars[1]!, v, 0, 0);
-  placeHeadOn(cars[2]!, cars[3]!, v, 0, 20);
+  placeHeadOn(cars[2]!, cars[3]!, v, apart, 0);
   // Idle cars within the bystander radius: in the clip's replay, never in a hit.
   for (let k = 0; k < extra; k++) launch(cars[4 + k]!, 40 + 8 * k, 40, Math.PI / 2, 0, 0);
   return record(cars, false, 4);
 };
 
-describe("given four cars in two head-on pairs 20 m apart, and the minimum closing speed any impact must reach to count", () => {
+describe("given four cars in two head-on pairs 8 m apart, and the minimum closing speed any impact must reach to count", () => {
   it("when they bump at 9 m/s (32 km/h), then no cluster, no clip and no pile-up is made", () => {
     const { clusters, rec } = fourCars(9);
     assert.equal(clusters.length, 0, `${clusters.length} cluster(s) opened by 32 km/h bumps`);
@@ -155,6 +159,15 @@ describe("given four cars in two head-on pairs 20 m apart, and the minimum closi
     assert.equal(clip.hit, 4, "four cars hit");
     assert.equal(clipTitle(clip), "4-car pile-up");
   });
+
+  it("when the second pair is 20 m from the first's hit instead of 8 m, then each pair is its own clip of two cars, not a 4-car pile-up", () => {
+    const { rec } = fourCars(20, 0, 20);
+    assert.deepEqual(
+      rec.ledger.kept.map((c) => c.hit),
+      [2, 2],
+    );
+    assert.ok(rec.ledger.kept.every((c) => clipTitle(c) === "36 km/h smash"), rec.ledger.kept.map((c) => clipTitle(c)).join(", "));
+  });
 });
 
 describe("given a two-car head-on at 72 km/h with six idle cars standing close enough to be in the clip's shot", () => {
@@ -166,6 +179,97 @@ describe("given a two-car head-on at 72 km/h with six idle cars standing close e
     assert.ok(clip, "the 72 km/h head-on made no clip");
     assert.ok(clip.cars.length > 2, `${clip.cars.length} cars in the clip: the idle ones are bystanders`);
     assert.equal(clip.hit, 2);
-    assert.equal(clipTitle(clip), `${Math.round(clip.peakKph)} km/h smash`);
+    assert.equal(clipTitle(clip), "36 km/h smash", "the title's speed is the main car's own (each car of a 72 km/h closing head-on drove at 36 km/h), not the closing speed");
+    assert.equal(Math.round(clip.peakKph), 72, "the closing speed is still the impact's flash");
   });
+});
+
+describe("given a head-on at 72 km/h and, 25 m beside it, another at 130 km/h that throws both drivers out", () => {
+  it("when both are recorded, then the 72 km/h clip is about its own two cars (no ejection counted, the far throws not its own) and the far crash is a clip of its own", () => {
+    const cars = Array.from({ length: 4 }, () => makeCar());
+    placeHeadOn(cars[0]!, cars[1]!, 20);
+    placeHeadOn(cars[2]!, cars[3]!, 130 / 3.6, 25);
+    const { clusters, rec } = record(cars, false, 4);
+    assert.equal(clusters.length, 2, "two clusters: the far crash is outside the near one's scope (the old 30 m join claimed it)");
+    assert.deepEqual(
+      rec.ledger.kept.map((c) => clipTitle(c)),
+      ["2 drivers thrown out", "36 km/h smash"],
+    );
+    const far = rec.ledger.kept.find((c) => c.ejects > 0)!;
+    const near = rec.ledger.kept.find((c) => c.ejects === 0)!;
+    assert.deepEqual({ hit: near.hit, ejects: near.ejects, far: far.ejects }, { hit: 2, ejects: 0, far: 2 });
+    assert.ok(near.ejections.length > 0 && near.ejections.every((x) => !x.own), "the far driver flies in the near clip's replay as recorded, and is not its own");
+    assert.ok(far.ejections.some((x) => x.own), "the far clip owns his throw");
+    assert.ok(near.score < 26, `the near clip scores ${near.score.toFixed(1)}: the far throw's 26 points are not in it`);
+  });
+});
+
+describe("given the deformation the cars of a clip gained", () => {
+  it("when two sedans crash head-on at 72 km/h, then the clip's deformation is their crush in metres and its score is the cluster's impact score plus the points for that crush", () => {
+    const [a, b] = [makeCar(), makeCar()] as const;
+    placeHeadOn(a, b, 20);
+    const { clusters, rec } = record([a, b], false, 4);
+    const [clip] = rec.ledger.kept;
+    assert.ok(clip, "no clip");
+    assert.ok(clip.deform > 2 && clip.deform < 6, `${clip.deform.toFixed(3)} m of crush`);
+    assert.ok(Math.abs(clip.score - clipScore(clusters[0]!.score, clip.deform)) < 1e-9, `score ${clip.score.toFixed(3)} = ${clusters[0]!.score.toFixed(3)} impact + ${clip.deform.toFixed(3)} m of crush`);
+  });
+
+  it("when the same two cars, their noses already crushed by the first crash, crash again at 72 km/h, then the second clip counts only what they gained, less than the first", () => {
+    const [a, b] = [makeCar(), makeCar()] as const;
+    placeHeadOn(a, b, 20);
+    const again = {
+      at: 8,
+      run: () => {
+        relaunchDamaged(a, -5, 0, Math.PI / 2, 10, 0);
+        relaunchDamaged(b, 5, 0, -Math.PI / 2, -10, 0);
+      },
+    };
+    const [first, second] = [...record([a, b], false, 12, undefined, again).rec.ledger.kept].sort((x, y) => x.t0 - y.t0);
+    assert.ok(first && second, "two clips");
+    assert.ok(second.deform > 0 && second.deform < first.deform, `second ${second.deform.toFixed(3)} m, first ${first.deform.toFixed(3)} m`);
+  });
+
+  it("when the softest driver ejection (a 55 km/h wall hit) and the hardest hit that spares both engines (a 109 km/h head-on) are recorded with their crush, then the ejection's clip outscores the head-on's", () => {
+    const car = makeCar();
+    launch(car, 6.2, 0, -Math.PI / 2, -55 / 3.6, 0);
+    const [thrown] = record([car], true, 4, 55 / 3.6).rec.ledger.kept;
+    const [a, b] = [makeCar(), makeCar()] as const;
+    placeHeadOn(a, b, 109 / 3.6);
+    const [spared] = record([a, b], false, 4).rec.ledger.kept;
+    assert.ok(thrown && spared, "both made a clip");
+    assert.deepEqual([thrown.ejects, spared.kills], [1, 0], "a thrown driver; both engines spared");
+    assert.ok(thrown.score > spared.score, `ejection ${thrown.score.toFixed(1)} (${thrown.deform.toFixed(1)} m of crush) vs head-on ${spared.score.toFixed(1)} (${spared.deform.toFixed(1)} m)`);
+  });
+});
+
+/** Height (m) of a sedan's roof over its origin, and of a turned-over one's origin over the ground (stack-crush.test.ts). */
+const ROOF_Y = 1.17;
+const FLIPPED_Y = 1.2;
+
+/** A sedan parked at the origin and another `h` m over it, falling onto it: both right side up (wheels onto the roof), or both turned over (roof onto roof). */
+function dropOnto(h: number, turnedOver: boolean): { clusters: CrashCluster[]; rec: CrashRecorder } {
+  const [under, over] = [makeCar(), makeCar()] as const;
+  under.spawnFacing(0, 0, 0, 0);
+  over.spawnFacing(0, 0, 0, 0);
+  if (turnedOver) {
+    under.group.rotation.set(0, 0, Math.PI, "YXZ");
+    under.group.position.y = FLIPPED_Y;
+    under.airborne = true;
+    over.group.rotation.set(Math.PI, 0, 0, "YXZ");
+  }
+  over.group.position.y = (turnedOver ? FLIPPED_Y + 1 : ROOF_Y) + h;
+  over.airborne = true;
+  return record([under, over], false, 6);
+}
+
+describe("given a sedan falling onto another's, slower than any impact that counts by its speed", () => {
+  for (const turnedOver of [false, true]) {
+    it(`when it falls 3 m (28 km/h) ${turnedOver ? "roof onto roof" : "wheels onto the roof"}, then a slow crush is no highlight however deep: no cluster opens and no clip is recorded`, () => {
+      assert.ok(Math.sqrt(2 * 9.81 * 3) < IMPACT_MIN, "the fall is slower than any impact that counts by speed");
+      const { clusters, rec } = dropOnto(3, turnedOver);
+      assert.equal(clusters.length, 0, "clusters opened");
+      assert.equal(rec.ledger.kept.length, 0, "clips recorded");
+    });
+  }
 });

@@ -1,20 +1,25 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import { FLIGHT, type DeformableCar } from "../vehicle/car.ts";
 import { PART_STATE } from "../vehicle/part-state.ts";
 import { CLASSES, carClass } from "../vehicle/vehicle-classes.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
+import { CAGES } from "../kernel/rig-spec.ts";
 import type { ContactHit } from "../scenes/engine-props.ts";
 import {
+  clipScore,
   HighlightLedger,
   impactEnergy,
   INPUT_BYTES,
   MAX_KNOCKS,
   MEMORY,
   PRE_ROLL,
+  REHIT_S,
   countsAsImpact,
   TOP,
   type CrashCluster,
   type ClipEjection,
+  type ClipHit,
   type ClipKnock,
   type HighlightClip,
   type ReelCar,
@@ -141,6 +146,18 @@ export class CrashRecorder {
   private readonly keyWreck = new Uint32Array(KEY_SLOTS);
   /** Per kept keyframe: the cars put on a spot (`DeformableCar.placements` moved) in its step. */
   private readonly keyPlaced = new Uint32Array(KEY_SLOTS);
+  /**
+   * Per car, each cage's frame strain (m, `DeformState.cageStrain`): as the step under way began (`strainPre`), as it was when the car
+   * joined an open cluster or began a contact (`strainBase`) and the most a step has left it since (`strainPeak`), which a clip's
+   * deformation is read from; `tracked`: the cars in an open cluster or in contact (`trackCrush`). `strainNow` is a scratch row.
+   */
+  private readonly strainPre = new Float32Array(MAX_CARS * CAGES.length);
+  private readonly strainBase = new Float32Array(MAX_CARS * CAGES.length);
+  private readonly strainPeak = new Float32Array(MAX_CARS * CAGES.length);
+  private readonly strainNow = new Float32Array(CAGES.length);
+  private tracked = 0;
+  /** Last time each car met another (`meet`): a car met within `REHIT_S` is tracked for its crush (`trackCrush`). */
+  private readonly carAt = new Float64Array(MAX_CARS);
   /** `bystanders`' scratch: each car's least squared distance to the hit. */
   private readonly near = new Float64Array(MAX_CARS);
   /** Every driver thrown out this race (`eject`): the step he left in, and the event; a clip takes those of its steps and cars. */
@@ -180,9 +197,11 @@ export class CrashRecorder {
     this.ejected.length = 0;
     this.knocked.length = 0;
     this.alive.fill(1);
+    this.tracked = 0;
     this.pairAt.fill(-Infinity);
     this.touchAt.fill(-Infinity);
     this.wallAt.fill(-Infinity);
+    this.carAt.fill(-Infinity);
     this.pre.count = 0;
     this.owed = -Infinity;
     this.throwing = false;
@@ -230,6 +249,7 @@ export class CrashRecorder {
       const f = s.cars[i]!;
       const car = cars[i]!;
       readCarPose(car, f);
+      this.readStrain(car, this.strainPre, i * CAGES.length);
       // Placed (a respawn, a wake, a put-away, wherever it landed): the replay cannot drive there, so a keyframe is taken at once, and a clip keeps it for this car.
       if (i < prev && car.placements !== this.placed[i]) placed |= 1 << i;
       this.placed[i] = car.placements;
@@ -280,7 +300,11 @@ export class CrashRecorder {
         if (i < this.racers || this.ledger.joins(this.time, i, -1, x, z)) this.ledger.kill(this.time, i, x, z);
       }
       this.alive[i] = alive;
+      // A car carried on another's roof (`CarSurfaces`) is in contact with it, though the plan SAT leaves the pair alone.
+      const under = c.airborne && c.restsOn ? cars.indexOf(c.restsOn) : -1;
+      if (under >= 0 && under < MAX_CARS) this.meet(Math.min(i, under), Math.max(i, under), 0, c.group.position.x, c.group.position.y, c.group.position.z);
     }
+    this.trackCrush(cars, n);
     this.time += h;
     this.step++;
     if (this.throwing) {
@@ -298,15 +322,27 @@ export class CrashRecorder {
 
   /** `World.pairHit`: a car–car SAT contact; the slice's first pass only (the contact the cars came in with). */
   pairHit(a: number, b: number, hit: ContactHit, first: boolean): void {
+    if (this.on && first) this.meet(a, b, hit.impulse, hit.contact.x, hit.contact.y, hit.contact.z);
+  }
+
+  /** Cars `a` < `b` are in contact this step, closing at `closing` m/s at (x, y, z): an impact (`countsAsImpact`) when they had been apart and it is hard. */
+  private meet(a: number, b: number, closing: number, x: number, y: number, z: number): void {
     const n = this.pre.count;
-    if (!this.on || !first || a >= n || b >= n) return;
+    if (a >= n || b >= n) return;
     const k = a * MAX_CARS + b;
-    const counts = countsAsImpact(this.time - this.pairAt[k]!, hit.impulse);
-    this.pairAt[k] = this.time;
+    const counts = countsAsImpact(this.time - this.pairAt[k]!, closing);
+    this.pairAt[k] = this.carAt[a] = this.carAt[b] = this.time;
     // Traffic and police make a moment only against a racer (`begin`).
-    if (!counts || (a >= this.racers && b >= this.racers)) return;
-    const e = impactEnergy(hit.impulse, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
-    this.ledger.impact(this.time, a, b, hit.impulse, e, hit.contact.x, hit.contact.z);
+    if (counts && (a < this.racers || b < this.racers)) this.count(a, b, closing, x, y, z);
+  }
+
+  /** Cars `a` < `b` hit each other at (x, y, z), closing at `closing` m/s: the ledger takes the impact. */
+  private count(a: number, b: number, closing: number, x: number, y: number, z: number): void {
+    // Each car's own speed is the step's start (`pre`): `resolveCarPair` has already traded momentum by the time the hit is reported.
+    const fa = this.pre.cars[a]!;
+    const fb = this.pre.cars[b]!;
+    const e = impactEnergy(closing, CLASSES[carClass(this.cars[a]!)].mass, CLASSES[carClass(this.cars[b]!)].mass);
+    this.ledger.impact(this.time, a, b, closing, e, x, y, z, hypot3(fa.vx, fa.vy, fa.vz), hypot3(fb.vx, fb.vy, fb.vz));
   }
 
   /**
@@ -326,7 +362,7 @@ export class CrashRecorder {
     this.wallAt[i] = this.time;
     if (!counts || i >= this.racers) return;
     const e = impactEnergy(closing, CLASSES[carClass(this.cars[i]!)].mass, Infinity);
-    this.ledger.impact(this.time, i, -1, closing, e, x, z);
+    this.ledger.impact(this.time, i, -1, closing, e, x, this.pre.cars[i]!.y, z, closing, 0);
   }
 
   /**
@@ -514,13 +550,76 @@ export class CrashRecorder {
     return w.done().slice();
   }
 
-  /** A cluster is over: if it ranks, copy its slice out of the rings into a clip and file it. */
+  /** Car `car`'s cage strains into `out` from `at`: all zero for a car whose body was never crushed (nothing to read). */
+  private readStrain(car: DeformableCar, out: Float32Array, at: number): void {
+    if (!car.deform.massActive) out.fill(0, at, at + CAGES.length);
+    else for (let k = 0; k < CAGES.length; k++) out[at + k] = car.deform.cageStrain(CAGES[k]!.name);
+  }
+
+  /**
+   * The dent (m) a car has gained: the sum over its cages of how far each cage's frame strain `cur` (from `curAt`) has risen over
+   * `base` (from `baseAt`), "the sum of all the deformations" (owner 10-07). A cage that relaxed below its base adds nothing, so a
+   * dent the car already had is no gain. The cages are a fixed set per car whatever the mesh or the mass count, and rigid motion reads 0.
+   */
+  private risen(cur: Float32Array, curAt: number, base: Float32Array, baseAt: number): number {
+    let sum = 0;
+    for (let k = 0; k < CAGES.length; k++) sum += Math.max(0, cur[curAt + k]! - base[baseAt + k]!);
+    return sum;
+  }
+
+  /**
+   * Once a step: the cars of every open cluster and every car in contact (`carAt`) are tracked. A car new to them takes its
+   * strains from before the step as its base (what it had already crushed is no gain), and every step raises its peak to what it
+   * reads now. The peak outlives the wreck: the race puts a crashed car back on the road (a respawn clears its dents) before its clip is filed.
+   */
+  private trackCrush(cars: readonly DeformableCar[], n: number): void {
+    const L = CAGES.length;
+    let watch = 0;
+    const clusters = this.ledger.open;
+    for (let q = 0; q < clusters.length; q++) watch |= clusters[q]!.cars;
+    for (let i = 0; i < n; i++) if (this.time - this.carAt[i]! < REHIT_S) watch |= 1 << i;
+    watch >>>= 0;
+    for (let i = 0; i < n; i++) {
+      if (((watch >>> i) & 1) === 0) continue;
+      const o = i * L;
+      const fresh = ((this.tracked >>> i) & 1) === 0;
+      this.readStrain(cars[i]!, this.strainNow, 0);
+      for (let k = 0; k < L; k++) {
+        if (fresh) this.strainBase[o + k] = this.strainPeak[o + k] = this.strainPre[o + k]!;
+        this.strainPeak[o + k] = Math.max(this.strainPeak[o + k]!, this.strainNow[k]!);
+      }
+    }
+    this.tracked = watch;
+  }
+
+  /**
+   * The aggregate deformation (m) of the cars in `mask`: per car what its cages gained (`risen`) from where the car joined the
+   * crash (`trackCrush`) to the most each reached, summed over the cars.
+   */
+  private deformGain(mask: number): number {
+    const L = CAGES.length;
+    let sum = 0;
+    for (let i = 0; i < MAX_CARS; i++) {
+      if ((((mask & this.tracked) >>> i) & 1) === 0) continue;
+      sum += this.risen(this.strainPeak, i * L, this.strainBase, i * L);
+    }
+    return sum;
+  }
+
+  /** A cluster is over: each of its scopes that ranks (`fileScope`) is copied out of the rings into a clip and filed. */
   private file(c: CrashCluster): void {
-    const score = c.score;
-    const L = this.layout;
-    if (!L || !this.ledger.ranks(score)) return;
+    if (!this.layout) return;
+    for (let k: CrashCluster | null = c; k; k = k.rest()) this.fileScope(k);
+  }
+
+  /**
+   * The cluster's current scope (docs/HIGHLIGHTS.md "Scope": the main car, the cars it hit, what happened within `SCOPE_R` of
+   * those hits) as a clip, if its score, its deformation included, ranks. The clip carries every car of the cluster: another
+   * crash the cluster joined is a clip of its own, from the same rings.
+   */
+  private fileScope(c: CrashCluster): void {
     // The clip starts at the last keyframe at or before the pre-roll whose step is still in the ring; failing that, the earliest left.
-    const want = c.first - PRE_ROLL;
+    const want = c.scopeFirst - PRE_ROLL;
     const oldest = this.step - RING + 1;
     const filled = Math.min(this.keyCount, KEY_SLOTS);
     let slot = -1;
@@ -536,6 +635,9 @@ export class CrashRecorder {
     const start = this.keyStep[slot]!;
     const steps = this.step - start;
     if (steps <= 0) return;
+    const deform = this.deformGain(c.hitCars);
+    const score = clipScore(c.score, deform);
+    if (!this.ledger.ranks(score)) return;
     // The cluster's cars and what touched them since the clip's start, then the bystanders with what touched them
     // (`bystanders`): a car left out would leave its shoves out of the replay, which then differs from the record.
     const t0 = this.at[start % RING]!;
@@ -553,7 +655,7 @@ export class CrashRecorder {
       // The ring's float32, whole: the codec stores it as is (`writeClip`), so this clip, its decoded copy and the live step agree to 6e-8.
       h[s] = this.h[r]!;
       shape[s] = this.shapes[r]!;
-      if (this.at[r] === c.first && firstStep === 0) firstStep = s;
+      if (this.at[r] === c.scopeFirst && firstStep === 0) firstStep = s;
       for (let j = 0; j < nc; j++) {
         const src = (r * MAX_CARS + slots[j]!) * INPUT_BYTES;
         inputs.set(this.inputs.subarray(src, src + INPUT_BYTES), (s * nc + j) * INPUT_BYTES);
@@ -576,12 +678,13 @@ export class CrashRecorder {
       keys.push(this.cutKey(this.keys[k]!.done(), here));
     }
     const cars: ReelCar[] = slots.map((i) => ({ slot: i, style: this.cars[i]!.style.id, cls: carClass(this.cars[i]!), name: this.names(i) }));
-    // The drivers thrown out during the clip's steps: their dummies fly again at those steps (car = the clip's own index).
+    // The drivers thrown out during the clip's steps: their dummies fly again at those steps (car = the clip's own index); `own`: the scope's.
     const ejections: ClipEjection[] = [];
     for (const x of this.ejected) {
       const j = slots.indexOf(x.e.car);
-      if (j >= 0 && x.step >= start && x.step < this.step) ejections.push({ step: x.step - start, e: { ...x.e, car: j } });
+      if (j >= 0 && x.step >= start && x.step < this.step) ejections.push({ step: x.step - start, e: { ...x.e, car: j }, own: c.owns(x.e.car, this.at[x.step % RING]!) });
     }
+    const hits: ClipHit[] = c.hits().map((p) => ({ t: p.t - t0, x: p.x, y: p.y, z: p.z, a: slots.indexOf(p.a), b: p.b < 0 ? -1 : slots.indexOf(p.b) }));
     // The props knocked off their spot during the clip's steps by cars it leaves out: the replay knocks them at those steps (the clip's own cars do their own).
     const knocks: ClipKnock[] = [];
     for (const x of this.knocked) if (x.step >= start && x.step < this.step && !slots.includes(x.car)) knocks.push({ step: x.step - start, prop: x.prop });
@@ -595,10 +698,13 @@ export class CrashRecorder {
       ejections,
       knocks,
       peakKph: c.peak * 3.6,
+      hitKph: c.hitMps * 3.6,
+      deform,
+      hits,
       t0,
-      firstImpact: c.first - t0,
+      firstImpact: c.scopeFirst - t0,
       firstStep,
-      lastImpact: c.last - t0,
+      lastImpact: c.scopeLast - t0,
       x: c.x0,
       z: c.z0,
       focus: Math.max(0, slots.indexOf(c.focus)),

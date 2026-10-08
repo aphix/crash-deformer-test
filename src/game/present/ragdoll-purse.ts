@@ -1,8 +1,10 @@
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
-import type { Collider, RigidBody, World } from "@dimforge/rapier3d";
+import type { Collider, RigidBody, World } from "@dimforge/rapier3d-simd";
 import { disable, type Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
 import { mulberry32 } from "../world/placements.ts";
+import { blendPose, readPose } from "./ragdoll-body.ts";
 import { block } from "./ragdoll-mesh.ts";
 
 /**
@@ -69,7 +71,6 @@ const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
 
 const _p = new THREE.Vector3();
 const _q = new THREE.Quaternion();
-const _qb = new THREE.Quaternion();
 const _o = new THREE.Vector3();
 const _s = new THREE.Vector3();
 const _m = new THREE.Matrix4();
@@ -176,7 +177,7 @@ export class Purses {
     this.rand[s] = rand;
     const side = rand() < 0.5 ? -1 : 1;
     const color = PURSE_COLORS[Math.floor(rand() * PURSE_COLORS.length)]!;
-    const run = Math.hypot(v.x, v.z) || 1;
+    const run = hypot2(v.x, v.z) || 1;
     const body = this.bodies[s]![0]!;
     body.setEnabled(true);
     body.setTranslation({ x: p.x + (v.z / run) * side * SIDE, y: p.y + LIFT, z: p.z - (v.x / run) * side * SIDE }, false);
@@ -212,7 +213,7 @@ export class Purses {
         if (!(this.on[s]! & (1 << b))) continue;
         const body = this.bodies[s]![b]!;
         const w = body.angvel();
-        const spin = Math.hypot(w.x, w.y, w.z);
+        const spin = hypot3(w.x, w.y, w.z);
         if (spin > SPIN_MAX) body.setAngvel({ x: (w.x * SPIN_MAX) / spin, y: (w.y * SPIN_MAX) / spin, z: (w.z * SPIN_MAX) / spin }, false);
         this.ground(s, b, body);
       }
@@ -256,7 +257,7 @@ export class Purses {
   capture(cur: boolean): void {
     const into = cur ? this.cur : this.prev;
     for (let s = 0; s < this.sets; s++) {
-      for (let b = 0; b < BODIES; b++) if (this.on[s]! & (1 << b)) this.read(this.bodies[s]![b]!, into, (s * BODIES + b) * 7);
+      for (let b = 0; b < BODIES; b++) if (this.on[s]! & (1 << b)) readPose(this.bodies[s]![b]!, into, (s * BODIES + b) * 7);
     }
   }
 
@@ -266,11 +267,7 @@ export class Purses {
       if (!this.on[s]) continue;
       for (let b = 0; b < BODIES; b++) {
         if (!(this.on[s]! & (1 << b))) continue;
-        const o = (s * BODIES + b) * 7;
-        const a = this.prev;
-        const c = this.cur;
-        _p.set(a[o]! + (c[o]! - a[o]!) * alpha, a[o + 1]! + (c[o + 1]! - a[o + 1]!) * alpha, a[o + 2]! + (c[o + 2]! - a[o + 2]!) * alpha);
-        _q.set(a[o + 3]!, a[o + 4]!, a[o + 5]!, a[o + 6]!).slerp(_qb.set(c[o + 3]!, c[o + 4]!, c[o + 5]!, c[o + 6]!), alpha);
+        blendPose(this.prev, this.cur, (s * BODIES + b) * 7, alpha, _p, _q);
 
         const base = s * PIECES;
         if (b === 0) {
@@ -303,7 +300,7 @@ export class Purses {
     const purse = this.bodies[s]![0]!;
     const at = purse.translation();
     const u = purse.linvel();
-    const speed = Math.hypot(u.x, u.y, u.z);
+    const speed = hypot3(u.x, u.y, u.z);
     const n = ITEMS_MIN + Math.floor(rand() * (ITEMS_MAX - ITEMS_MIN + 1));
     const first = Math.floor(rand() * ITEMS_MAX);
     for (let k = 0; k < n; k++) {
@@ -331,21 +328,9 @@ export class Purses {
   /** A body just placed: its previous and current pose are where it is, so the first frame does not blend from elsewhere. */
   private keep(s: number, b: number): void {
     const o = (s * BODIES + b) * 7;
-    this.read(this.bodies[s]![b]!, this.cur, o);
+    readPose(this.bodies[s]![b]!, this.cur, o);
     for (let i = 0; i < 7; i++) this.prev[o + i] = this.cur[o + i]!;
     this.setCount();
-  }
-
-  private read(body: RigidBody, into: Float32Array, o: number): void {
-    const t = body.translation();
-    const r = body.rotation();
-    into[o] = t.x;
-    into[o + 1] = t.y;
-    into[o + 2] = t.z;
-    into[o + 3] = r.x;
-    into[o + 4] = r.y;
-    into[o + 5] = r.z;
-    into[o + 6] = r.w;
   }
 
   /** Past `grace`: the set's own car is a car like any other. */

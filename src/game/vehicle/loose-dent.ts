@@ -1,3 +1,4 @@
+import { hypot3 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
 
@@ -53,15 +54,18 @@ export function recordDent(d: DentState, object: THREE.Object3D, dv: THREE.Vecto
 /** Carve every recorded dent not yet on the mesh. */
 export function applyDents(d: DentState, object: THREE.Object3D): void {
   if (d.applied === d.count) return;
-  if (!d.meshes) {
-    d.meshes = [];
-    object.traverse((o) => {
-      const m = o as THREE.Mesh;
-      if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh) d.meshes!.push(m);
-    });
-    d.rest = d.meshes.map((m) => Float32Array.from((m.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array));
-  }
+  if (!d.meshes) captureMeshes(d, object);
   while (d.applied < d.count) carve(d, object, d.applied++ * 4);
+}
+
+/** The part's meshes and their positions before the first dent (once per part, on its first dent). */
+function captureMeshes(d: DentState, object: THREE.Object3D): void {
+  d.meshes = [];
+  object.traverse((o) => {
+    const m = o as THREE.Mesh;
+    if (m.isMesh && !(m as THREE.InstancedMesh).isInstancedMesh) d.meshes!.push(m);
+  });
+  d.rest = d.meshes.map((m) => Float32Array.from((m.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array));
 }
 
 /** Put the skin back as it was before the first dent. */
@@ -90,7 +94,9 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
   let cx = 0;
   let cy = 0;
   let cz = 0;
-  for (const m of d.meshes!) {
+  const meshes = d.meshes!;
+  for (let mi = 0; mi < meshes.length; mi++) {
+    const m = meshes[mi]!;
     const a = (m.geometry.getAttribute("position") as THREE.BufferAttribute).array as Float32Array;
     const off = m === object ? _zero : m.position;
     for (let i = 0; i < a.length; i += 3) {
@@ -98,10 +104,14 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
       const y = a[i + 1]! + off.y;
       const z = a[i + 2]! + off.z;
       const along = x * nx + y * ny + z * nz;
-      if (along < best) [best, cx, cy, cz] = [along, x, y, z];
+      if (along < best) {
+        best = along;
+        cx = x;
+        cy = y;
+        cz = z;
+      }
     }
   }
-  const meshes = d.meshes!;
   for (let k = 0; k < meshes.length; k++) {
     const m = meshes[k]!;
     const attr = m.geometry.getAttribute("position") as THREE.BufferAttribute;
@@ -109,13 +119,13 @@ function carve(d: DentState, object: THREE.Object3D, o: number): void {
     const rest = d.rest![k]!;
     const off = m === object ? _zero : m.position;
     for (let i = 0; i < a.length; i += 3) {
-      const r = Math.hypot(a[i]! + off.x - cx, a[i + 1]! + off.y - cy, a[i + 2]! + off.z - cz);
+      const r = hypot3(a[i]! + off.x - cx, a[i + 1]! + off.y - cy, a[i + 2]! + off.z - cz);
       if (r >= DENT_REACH) continue;
       const push = depth * (1 - r / DENT_REACH) ** 2;
       let x = a[i]! + nx * push;
       let y = a[i + 1]! + ny * push;
       let z = a[i + 2]! + nz * push;
-      const moved = Math.hypot(x - rest[i]!, y - rest[i + 1]!, z - rest[i + 2]!);
+      const moved = hypot3(x - rest[i]!, y - rest[i + 1]!, z - rest[i + 2]!);
       if (moved > DENT_CAP) {
         const k2 = DENT_CAP / moved;
         x = rest[i]! + (x - rest[i]!) * k2;

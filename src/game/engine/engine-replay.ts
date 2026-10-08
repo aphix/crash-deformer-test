@@ -28,7 +28,9 @@ export type ReplayScene = {
 
 const _q = new THREE.Quaternion();
 const _from = new THREE.Quaternion();
-const NO_EJECTIONS: readonly Ejection[] = [];
+/** A throw the clip fires: the recorded ejection, `car` the engine slot, `own` whether the clip's scope owns it (`ClipEjection.own`). */
+type FiredEjection = Ejection & { own: boolean };
+const NO_EJECTIONS: readonly FiredEjection[] = [];
 /** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
 const TELEPORT = 5;
 
@@ -86,7 +88,7 @@ export class ClipSim {
   private aliveA = true;
   /** Next of `clip.ejections` to fire, and the throws fired since `take`. */
   private ejectAt = 0;
-  private fired: Ejection[] = [];
+  private fired: FiredEjection[] = [];
   /**
    * Clip time each car pair (a·n + b, a < b) and each car against the walls last touched: a contact marks the first hit
    * only after a quiet spell and hard enough, the recorder's own rule (`countsAsImpact`).
@@ -164,7 +166,7 @@ export class ClipSim {
    * The dummies thrown since the last call: the clip's `ejections` as their steps ran, `car` the engine slot of the clip's
    * car (a shared empty array when none). The recording's own numbers, so every replay launches the same throws.
    */
-  take(): readonly Ejection[] {
+  take(): readonly FiredEjection[] {
     if (this.fired.length === 0) return NO_EJECTIONS;
     const out = this.fired;
     this.fired = [];
@@ -175,9 +177,9 @@ export class ClipSim {
   private fire(s: number): void {
     const list = this.clip.ejections;
     for (; this.ejectAt < list.length && list[this.ejectAt]!.step <= s; this.ejectAt++) {
-      const e = list[this.ejectAt]!.e;
-      this.cars[e.car]!.driverOut = e.exit;
-      this.fired.push({ ...e, car: this.clip.cars[e.car]!.slot });
+      const x = list[this.ejectAt]!;
+      this.cars[x.e.car]!.driverOut = x.e.exit;
+      this.fired.push({ ...x.e, car: this.clip.cars[x.e.car]!.slot, own: x.own });
     }
   }
 

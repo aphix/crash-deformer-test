@@ -1,4 +1,4 @@
-import { useId, useRef } from "react";
+import { useId, useRef, useState } from "react";
 import {
   Ban,
   ChevronLeft,
@@ -20,6 +20,7 @@ import {
   Video,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { copyText } from "@/lib/clipboard";
 import { DriverRows } from "@/components/race-driver";
 import { CARD, MenuShell, NavButton } from "@/components/race-menu-shell";
 import { BustedBanner } from "@/components/race-busted";
@@ -546,6 +547,20 @@ const RESULT_STATUS: Record<CarStatus, string> = { racing: "Racing", respawning:
  */
 const NAV_ROW = "mt-3 flex flex-col gap-1.5 sm:flex-row sm:*:min-w-fit sm:*:flex-1";
 
+/** The finished race's link (the address bar already holds this run's share fragment), copied on a tap: muted, under the results. */
+function RunLink() {
+  const [said, setSaid] = useState<string | null>(null);
+  return (
+    <button
+      type="button"
+      className="mt-2 h-10 w-full text-xs text-muted underline-offset-2 hover:underline sm:h-7"
+      onClick={() => void copyText(window.location.href).then((ok) => setSaid(ok ? "Link copied" : "Copy failed: the link is in the address bar"))}
+    >
+      {said ?? "Copy link to this run"}
+    </button>
+  );
+}
+
 function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; onCommand: Send }) {
   const rows = race.results ?? [];
   const campaign = race.mode === "campaign";
@@ -614,7 +629,8 @@ function ResultsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; on
           Menu
         </NavButton>
       </div>
-      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
+      <RunLink />
+      {race.reel ? <ReelList reel={race.reel} shown={race.shown} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }
@@ -689,7 +705,7 @@ function StandingsMenu({ race, pad, onCommand }: { race: RaceHud; pad: boolean; 
           Menu
         </NavButton>
       </div>
-      {race.reel ? <ReelList reel={race.reel} onCommand={onCommand} /> : null}
+      {race.reel ? <ReelList reel={race.reel} shown={race.shown} onCommand={onCommand} /> : null}
     </MenuShell>
   );
 }

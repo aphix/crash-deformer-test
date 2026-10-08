@@ -2,7 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
-import type { RigidBody } from "@dimforge/rapier3d";
+import type { RigidBody } from "@dimforge/rapier3d-simd";
 import { launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import type { DeformableCar } from "../vehicle/car.ts";

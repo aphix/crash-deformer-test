@@ -16,6 +16,18 @@ export abstract class EngineHud extends EngineWarm {
   /** The UI's store (CrashLab's, passed to the constructor): one per engine. */
   protected hudStore!: HudStore;
 
+  /**
+   * Car `i`'s boost meter as its driver keeps it (0-1), the one rule the HUD and the host's snapshots read: this browser's seat; in a race
+   * the race's rule (`RaceDirector.meterOf`); in a derby the derby AI where this browser runs it (not a peer's seated car, not on a client);
+   * else what netplay heard. Null for a car with no nitrous: police, traffic, a car nobody drives.
+   */
+  meterOf(i: number): number | null {
+    if (this.race.active) return this.race.meterOf(i);
+    if (this.seat.mode === "drive" && this.seat.carIndex === i) return this.seat.boost;
+    if (this.derbyMode && !this.net.client && !this.derbySeated.has(i)) return this.derby.brain.meter[i]!;
+    return this.net.heard(i);
+  }
+
   protected emitHud(): void {
     const cars = this.live();
     const relVel = this.fleetClosing();
@@ -23,15 +35,18 @@ export abstract class EngineHud extends EngineWarm {
       this.clock.phase === "approach" && !this.rigScene ? this.contactEta() : 0;
     const carMass = this.carA.deform.totalMass;
     const pistonEnergy = this.pistons.shotEnergy(carMass);
-    // The driven car outside a race (a race publishes its own view): a derby driver gets the race's speed, gear and boost gauge; a sandbox driver only its wreck state (the reset controls' glow).
-    const driven = this.seat.mode === "drive" && !this.race.active ? cars[this.seat.carIndex] : undefined;
-    const drivenView = driven && {
-      id: this.seat.carIndex,
+    // The viewed car outside a race (a race publishes its own view), driven or watched: the gauge its driver has (`meterOf`).
+    // Only a car this browser drives can be reset from here.
+    const id = this.race.active || this.seat.mode === "global" ? -1 : this.seat.carIndex;
+    const viewed = id >= 0 ? cars[id] : undefined;
+    const drives = this.seat.mode === "drive";
+    const drivenView = viewed && {
+      id,
       racer: null,
-      ...carGauge(driven),
-      boost: this.seat.boost,
+      ...carGauge(viewed),
+      boost: this.meterOf(id),
       chase: null,
-      canReset: this.mayRecover(driven),
+      canReset: drives && this.mayRecover(viewed),
     };
     this.hudStore.publish({
       playing: this.playing,
@@ -82,6 +97,7 @@ export abstract class EngineHud extends EngineWarm {
       audioOn: this.audioOn,
       fxTier: this.cine.tier,
       fxAuto: this.autoFx.auto,
+      fxLoading: this.fxLoading,
       celLook: this.celLook,
       night: this.stage.night,
       wet: this.stage.wet,
@@ -152,5 +168,5 @@ export abstract class EngineHud extends EngineWarm {
   }
 
   /** The results reel's part of the race HUD (docs/HIGHLIGHTS.md). */
-  protected abstract reelHud(): Pick<RaceHud, "reel" | "solo" | "saved">;
+  protected abstract reelHud(): Pick<RaceHud, "reel" | "solo" | "shown" | "saved">;
 }

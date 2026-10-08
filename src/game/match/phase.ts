@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 
 /** The sandbox crash's phases: driving in, the hit, the slow-mo look, the wreck settling at 1×. */
@@ -144,7 +145,7 @@ export function pairEta(cars: readonly DeformableCar[]): number {
       if (Math.abs(a.group.position.y - b.group.position.y) >= 2 * CAR_HALF.y) continue;
       const dx = b.group.position.x - a.group.position.x;
       const dz = b.group.position.z - a.group.position.z;
-      const dist = Math.hypot(dx, dz);
+      const dist = hypot2(dx, dz);
       if (dist <= 0.001) continue;
       const nx = dx / dist;
       const nz = dz / dist;

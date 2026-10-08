@@ -258,29 +258,129 @@ describe("given a recorded highlight clip from a seeded city race that opens wit
   });
 });
 
+/**
+ * A stunt-course race's results reel of three clips. Two laps: the field no longer wrecks itself at the start, so one lap records fewer
+ * than 3 clips. And the race AI steers clear of what it closes on (`guardContact`), so the field's own crashes are too few for 3 clips in
+ * two laps: three head-on pairs, far apart on flat road, are wrecked on purpose a second into the race (cars 2-3, 4-5 and 6-7 at 2 x 20 m/s).
+ */
+async function stuntReel(a: World): Promise<Reel> {
+  race(a, { ...FIELD, trackId: "stunt", laps: 2 });
+  const track = new Track(stunt);
+  const pt = blankPoint();
+  const state = { acc: 0 };
+  for (let n = 0; a.race.time < 1 && n < 900; n++) frame(a, state);
+  for (const [k, d] of [150, 530, 725].entries()) {
+    track.pointAt(d, pt);
+    a.cars[2 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 20);
+    track.pointAt(d + 8, pt);
+    a.cars[3 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
+  }
+  const reel = await recordedReel(a, Infinity);
+  assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
+  return reel;
+}
+
 describe("given the stunt course with three head-on pairs wrecked on purpose a second into a two-lap race", () => {
   it("when each clip is replayed at 60 and 240 Hz, then drawing frames never changes the replay, even of airborne clips over the jumps", async () => {
     const a = makeWorld();
     try {
-      // Two laps: the field no longer wrecks itself at the start, so one lap records fewer than 3 clips. And the race AI steers clear
-      // of what it closes on (`guardContact`), so the field's own crashes are too few for 3 clips in two laps: three head-on pairs, far
-      // apart on flat road, are wrecked on purpose a second into the race (cars 2-3, 4-5 and 6-7 at 2 x 20 m/s).
-      race(a, { ...FIELD, trackId: "stunt", laps: 2 });
-      const track = new Track(stunt);
-      const pt = blankPoint();
-      const state = { acc: 0 };
-      for (let n = 0; a.race.time < 1 && n < 900; n++) frame(a, state);
-      for (const [k, d] of [150, 530, 725].entries()) {
-        track.pointAt(d, pt);
-        a.cars[2 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 20);
-        track.pointAt(d + 8, pt);
-        a.cars[3 + 2 * k]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
-      }
-      const reel = await recordedReel(a, Infinity);
-      assert.ok(reel.clips.length >= 3, `${reel.clips.length} stunt clips`);
+      const reel = await stuntReel(a);
       const firsts = reel.clips.map((c) => [c.cars[c.firstA]?.slot, c.cars[c.firstB]?.slot].sort().join("-"));
       for (const pair of ["2-3", "4-5", "6-7"]) assert.ok(firsts.includes(pair), `no clip opens on the head-on of cars ${pair}: ${firsts.join(", ")}`);
       for (const clip of reel.clips) for (const hz of [60, 240]) assertDrawingKeepsReplay(a, clip, hz);
+    } finally {
+      a.race.exit();
+      setGround(null);
+    }
+  });
+});
+
+describe("given a results reel of three clips playing on a loop, and a [!] button drawn for the clip on screen", () => {
+  it("when the reel plays through a loop and into the next, then the clip on screen keeps one id, the flights between clips show none, and an id still reaches its own clip after the reel has moved on", async () => {
+    const a = makeWorld();
+    try {
+      const reel = await stuntReel(a);
+      const d = new ReelDirector(hostOf(a));
+      d.stepBudgetMs = Infinity;
+      d.play(reel, 0);
+      const idOf: (number | undefined)[] = [];
+      const wrong: string[] = [];
+      const loopWall: number = d["loopWall"];
+      let finalShown: number | null = null;
+      for (let t = 0.25; t < loopWall + FLIGHT_S + 1; t += 0.25) {
+        d.frame(t);
+        const { reel: r, shown } = d.hud();
+        if (r === null) continue;
+        if (r.playing < 0) {
+          if (shown !== null) wrong.push(`t=${t}: id ${shown} shown in a flight`);
+          continue;
+        }
+        idOf[r.playing] ??= shown ?? undefined;
+        if (shown === null || shown !== idOf[r.playing]) wrong.push(`t=${t}: clip ${r.playing} showed id ${shown}, first seen as ${idOf[r.playing]}`);
+        finalShown = shown;
+      }
+      assert.deepEqual(wrong, []);
+      assert.equal(idOf.length, reel.clips.length, "every clip was on screen in the loop");
+      assert.equal(new Set(idOf).size, reel.clips.length, "each clip has an id of its own");
+      assert.notEqual(finalShown, null, "the second loop reached a clip");
+      // The reel has moved on from the first clip: the id a button drawn for it carries still reaches it, and no other.
+      for (const [i, id] of idOf.entries()) assert.equal(d.clipById(id!)?.clip, reel.clips[i], `id ${id} reaches clip ${i}`);
+      assert.equal(d.clipById(-1), null);
+    } finally {
+      a.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("when a new reel replaces it, then the old ids reach nothing, so a late tap flags no clip of the new reel", async () => {
+    const a = makeWorld();
+    try {
+      const reel = await stuntReel(a);
+      const d = new ReelDirector(hostOf(a));
+      d.stepBudgetMs = Infinity;
+      d.play(reel, 0);
+      d.frame(FLIGHT_S / 2);
+      d.frame(FLIGHT_S + 0.2);
+      const { shown } = d.hud();
+      assert.notEqual(shown, null);
+      d.play(reel, 0);
+      assert.equal(d.clipById(shown!), null);
+      d.frame(FLIGHT_S / 2);
+      d.frame(FLIGHT_S + 0.2);
+      assert.notEqual(d.hud().shown, shown, "the same clip in the new reel is a new id");
+    } finally {
+      a.race.exit();
+      setGround(null);
+    }
+  });
+
+  it("when a clip is watched alone from the reel and when a saved clip is watched alone, then the clip shown is the reel's own id or a saved one, and it ends with the view", async () => {
+    const a = makeWorld();
+    try {
+      const reel = await stuntReel(a);
+      const d = new ReelDirector(hostOf(a));
+      d.stepBudgetMs = Infinity;
+      d.play(reel, 0);
+      d.frame(FLIGHT_S / 2);
+      d.frame(FLIGHT_S + 0.2);
+      const inReel = d.hud().shown!;
+      d.view(0, 100);
+      d.frame(100.1);
+      assert.equal(d.hud().shown, inReel, "watching the reel's first clip alone shows the id it had in the reel");
+      assert.equal(d.clipById(inReel)?.from, "reel");
+      d.back();
+      d.stop();
+      let back = 0;
+      d.viewSaved(reel.clips[0]!, 200, () => back++);
+      d.frame(200.1);
+      const saved = d.hud().shown;
+      assert.notEqual(saved, null);
+      assert.equal(d.clipById(saved!)?.from, "saved");
+      assert.equal(d.hud().reel, null, "a saved clip has no reel behind it");
+      d.back();
+      assert.equal(d.hud().shown, null, "no clip on screen once the view has ended");
+      assert.equal(d.clipById(saved!), null);
+      assert.equal(back, 1);
     } finally {
       a.race.exit();
       setGround(null);

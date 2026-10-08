@@ -5,9 +5,10 @@ import { INITIAL_HUD, KNOB_RANGES } from "../hud/hud-store.ts";
 import { SETTING_IDS, type SettingId } from "../hud/settings-changes.ts";
 import { armKill, carClass, HANDLING, killClass } from "../vehicle/vehicle-classes.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { cleanName, DRIVER_CARS, type DriverCar } from "../match/types.ts";
+import { cleanName, DRIVER_CARS, type DriverCar, type SubmitContext } from "../match/types.ts";
 import { driverCarApplies } from "../match/driver-pick.ts";
 import { FX_TIERS, type FxTier } from "../present/engine-post.ts";
+import { loadUltra as fetchUltra } from "../present/ultra/load.ts";
 import { gameKey } from "../vehicle/drive-input.ts";
 import type { SceneId } from "../scenes/scene-id.ts";
 import { MouseLook } from "./mouse-look.ts";
@@ -22,6 +23,9 @@ import { EngineRigs } from "./engine-rigs.ts";
  */
 export abstract class EngineInput extends EngineRigs {
   protected abstract tickInner(now: number): void;
+  /** The last FX pick is Ultra (a pick of another tier, or Auto, while it loads cancels the switch). */
+  private ultraWanted = false;
+  private ultraLoad: Promise<boolean> | null = null;
 
   /**
    * Fast-forward for probes: the exact per-frame path of `tick` on a synthetic clock, synchronously (so the rAF loop
@@ -103,8 +107,16 @@ export abstract class EngineInput extends EngineRigs {
     this.emitHud();
   }
 
-  /** Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high the post chain. The user's pick turns the auto tier off. */
+  /**
+   * Cinematic FX quality (`FX_TIERS`): off and minimal draw straight to the canvas; minimal adds tyre marks and the crash cam, low / high / ultra the
+   * post chain. The user's pick turns the auto tier off. Ultra is fetched on its first pick (`loadUltra`) and the tier changes when it is in.
+   */
   setFxTier(tier: FxTier): void {
+    this.ultraWanted = tier === "ultra";
+    if (tier === "ultra" && this.cine.ultra === null) {
+      void this.pickUltra();
+      return;
+    }
     this.autoFx.auto = false;
     this.cine.setTier(tier);
     this.emitHud();
@@ -112,7 +124,38 @@ export abstract class EngineInput extends EngineRigs {
 
   /** The auto tier back on (the HUD's "auto"): the next frame applies its tier. */
   setFxAuto(): void {
+    this.ultraWanted = false;
     this.autoFx.resume(this.cine.tier);
+    this.emitHud();
+  }
+
+  /** True once the Ultra look is loaded (the bench awaits it before its Ultra arm). Fetches it on the first call; false, logged, when that fails. */
+  loadUltra(): Promise<boolean> {
+    if (this.cine.ultra !== null) return Promise.resolve(true);
+    this.ultraLoad ??= fetchUltra({ renderer: this.renderer, scene: this.scene, stage: this.stage, queueWarm: () => this.queueWarm(), alive: () => !this.disposed })
+      .then((handle) => {
+        if (handle === null) return false;
+        if (this.disposed) {
+          handle.dispose();
+          return false;
+        }
+        this.cine.ultra = handle;
+        return true;
+      })
+      .finally(() => void (this.ultraLoad = null));
+    return this.ultraLoad;
+  }
+
+  /** A pick of Ultra: load it, then switch if it is still the player's last pick. */
+  private async pickUltra(): Promise<void> {
+    this.fxLoading = true;
+    this.emitHud();
+    const loaded = await this.loadUltra();
+    this.fxLoading = false;
+    if (loaded && this.ultraWanted) {
+      this.autoFx.auto = false;
+      this.cine.setTier("ultra");
+    }
     this.emitHud();
   }
 
@@ -127,24 +170,25 @@ export abstract class EngineInput extends EngineRigs {
 
   /**
    * Per frame after boot: a match (a race from the grid to the flag, a derby until its winner) starts on minimal, the auto tier
-   * otherwise; and while the tier is automatic, a running match walks the distance detail's rung (`DetailGovernor`) by the frame
-   * rate and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
+   * otherwise; and while the tier is automatic, a running match walks the distance detail's rung (`DetailGovernor`) by how full the
+   * frame is (the main thread's ms and the GPU's, `present/frame-work.ts`) and the sim time the pacer gave up (`lostSimS`: the pacer's running total, s).
    */
   protected fxFrame(wallDt: number, lostSimS: number): void {
     const p = this.race.phase;
     const matchTime = p === "grid" || p === "countdown" || p === "racing" ? this.race.time : this.derbyMode && this.derby.active && this.derby.winnerId === null ? this.derby.time : null;
     const lost = lostSimS - this.lostSeen;
     this.lostSeen = lostSimS;
+    const gpuMs = this.cine.gpuMs();
     if (this.autoFx.auto) {
-      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, matchTime !== null && matchTime >= 0);
+      const level = this.detailGov.frame(wallDt * 1000, lost * 1000, this.workMs, gpuMs, matchTime !== null && matchTime >= 0);
       if (level !== null) {
         console.info(`Crush Stream detail auto: ${DETAIL_LEVELS[level]!.far} m`);
         this.detail.setLevel(level);
       }
     }
-    const tier = this.autoFx.frame(wallDt * 1000, matchTime);
+    const tier = this.autoFx.frame(wallDt * 1000, this.workMs, gpuMs, matchTime);
     if (tier === null) return;
-    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps)`);
+    console.info(`Crush Stream FX auto: ${tier} (last window ${this.autoFx.fps.toFixed(1)} fps, ${(this.autoFx.busy * 100).toFixed(0)} % of the frame budget)`);
     this.cine.setTier(tier);
     this.emitHud();
   }
@@ -374,6 +418,39 @@ export abstract class EngineInput extends EngineRigs {
       return json;
     }
     return this.trace.traceJson(this.traceSetup());
+  }
+
+  /**
+   * What the Submit button sends: the capture the JSON button would copy (same record), with the scene's context. Null unless a
+   * capture is on and has recorded samples; the button is drawn under the same rule (`captureSubmitShown`).
+   */
+  submitCapture(): { payload: object; context: SubmitContext } | null {
+    if (!this.captureTrace || this.trace.samples.length === 0) return null;
+    return { payload: this.trace.traceRecord(this.traceSetup()), context: this.submitContext() };
+  }
+
+  /** The scene and the flat settings every submission carries (the trace's own knobs: what a result depends on). */
+  submitContext(): SubmitContext {
+    const s = this.traceSetup();
+    return {
+      scene: s.scene,
+      settings: {
+        seed: s.seed,
+        night: s.night,
+        wet: s.wet,
+        realism: Math.round(s.realism * 1000) / 1000,
+        fxTier: s.fxTier,
+        loop: s.loop,
+        autoSlomo: s.autoSlomo,
+        userTimeScale: s.userTimeScale,
+        deformMode: s.deformMode,
+        playerClass: s.playerClass,
+        carCount: s.carCount,
+        viewW: s.viewW,
+        viewH: s.viewH,
+        pixelRatio: Math.round(s.pixelRatio * 100) / 100,
+      },
+    };
   }
 
   reset(): void {

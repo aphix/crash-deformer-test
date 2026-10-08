@@ -1,7 +1,10 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
+import { GUARD_BRAKE_IDX, GUARD_COUNT, GUARD_LEAD_IDX, GUARD_TURN_IDX } from "./constants.ts";
 import { guardContact } from "./contact-guard.ts";
-import { DERBY_RULES, personality, STUCK_SPEED, type AiCar, type Personality } from "./derby-ai.ts";
+import { DERBY_RULES, STUCK_SPEED, type AiCar } from "./derby-ai.ts";
+import { personality, type Personality } from "./personality.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SURFACE_IDS, SURFACES, type Surface } from "../world/catalog.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath, type TrackPoint } from "../world/track.ts";
@@ -80,6 +83,23 @@ const SHOVE_SPEED = DERBY_RULES.hitSpeed;
 const SHOVE_LAT = 0.5;
 /** ... and with this much road (m) beyond the rival on the side it is pushed to. */
 const WALL_ROOM = 2.5;
+/**
+ * Slots of `RaceBrain.args`: the scalars `think` hands to the calls it makes per car per step (`line`, `plan`, `pickRoute`,
+ * `upcoming`, `pointAhead`, `charge`). A number passed to a call V8 does not inline is boxed on the heap; a slot the caller
+ * writes and the callee reads is not.
+ */
+const ARG_S_IDX = 0; // arc length (m) along the route being driven
+const ARG_HALF_IDX = 1; // its half width (m) here
+const ARG_LAT_IDX = 2; // the car's lateral offset (m) from its line
+const ARG_FX_IDX = 3; // the car's heading, unit vector
+const ARG_FZ_IDX = 4;
+const ARG_ALONG_IDX = 5; // its speed along it (m/s)
+const ARG_SPEED_IDX = 6; // its speed (m/s)
+const ARG_TOP_IDX = 7; // the top speed (m/s) `plan` works up to
+const ARG_MAIN_S_IDX = 8; // arc length (m) along the main loop
+const ARG_AHEAD_IDX = 9; // arc length (m) of the point `pointAhead` returns
+const ARG_DT_IDX = 10; // the step (s)
+const ARG_COUNT = 11;
 
 function surfaceAt(path: TrackPath, k: number): Surface {
   return SURFACES[SURFACE_IDS[path.surface[k]!]!];
@@ -162,6 +182,9 @@ export class RaceBrain {
   private readonly lastThrottle = new Float64Array(MAX_CARS);
   private readonly mainProj = blankProjection();
   private readonly subProj = blankProjection();
+  private readonly args = new Float64Array(ARG_COUNT);
+  /** The tune `guardContact` reads (`GUARD_*_IDX`). */
+  private readonly guard = new Float64Array(GUARD_COUNT);
   private readonly pt: TrackPoint = blankPoint();
   /** Speed of the car we are boxed in behind this call, NaN when the way is clear. */
   private follow = Number.NaN;
@@ -254,14 +277,16 @@ export class RaceBrain {
     const i = self.id;
     if (i < 0 || i >= MAX_CARS || !self.alive) return out;
     const p = this.traits[i]!;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
+    const a = this.args;
+    a[ARG_DT_IDX] = dt;
 
     if (this.recover[i]! > 0) {
       this.recover[i]! -= dt;
       out.throttle = -0.9;
       out.steer = this.recoverSteer[i]!;
       this.lastThrottle[i] = 0;
-      this.charge(i, dt, false);
+      this.charge(i, false);
       return out;
     }
 
@@ -271,7 +296,8 @@ export class RaceBrain {
     this.seg[i] = main.k;
     // First look (race start, respawn): the line starts where the car is, no swerve to the middle.
     if (fresh) this.lane[i] = clamp(main.lateral, -tr.path.half[main.k]!, tr.path.half[main.k]!);
-    this.pickRoute(i, race, main.s, self, others);
+    a[ARG_MAIN_S_IDX] = main.s;
+    this.pickRoute(i, race, self, others);
 
     let route = this.route[i]!;
     let proj = main;
@@ -302,7 +328,13 @@ export class RaceBrain {
     this.chase = 0;
     this.swerve = 0;
     this.nudge = false;
-    const wanted = this.line(self, p, proj.s, path.half[k]!, proj.lateral, fx, fz, along, others);
+    a[ARG_S_IDX] = proj.s;
+    a[ARG_HALF_IDX] = path.half[k]!;
+    a[ARG_LAT_IDX] = proj.lateral;
+    a[ARG_FX_IDX] = fx;
+    a[ARG_FZ_IDX] = fz;
+    a[ARG_ALONG_IDX] = along;
+    const wanted = this.line(self, p, others);
     const want = route < 0 ? wanted : 0;
     const step = (this.nudge ? SHOVE_LAT : LANE_RATE * (1 + this.swerve)) * dt;
     this.lane[i] = route < 0 ? this.lane[i]! + clamp(want - this.lane[i]!, -step, step) : 0;
@@ -311,7 +343,7 @@ export class RaceBrain {
     // L3: pursue a point on the line.
     const ld = clamp(5 + 0.5 * speed, 7, LOOK);
     // Short of a shortcut's mouth: head for the mouth itself so the car goes through its gate.
-    const toMouth = route >= 0 ? Math.hypot(self.x - path.x[0]!, self.z - path.z[0]!) : 0;
+    const toMouth = route >= 0 ? hypot2(self.x - path.x[0]!, self.z - path.z[0]!) : 0;
     const early = route >= 0 && proj.s < 0.5 && toMouth > 4;
     // Onto a shortcut, until a look-ahead into it: the turn still to make onto its heading, from the
     // car's heading and (short of the mouth, `lead` m on) from the run in to the mouth. On the loop:
@@ -320,23 +352,27 @@ export class RaceBrain {
     this.lead = early ? toMouth : 0;
     this.turnIn = route >= 0 && proj.s < LOOK ? Math.abs(wrapPi(this.mouthYaw[route]! - self.yaw)) : 0;
     if (early) this.turnIn = Math.max(this.turnIn, Math.abs(wrapPi(this.mouthYaw[route]! - Math.atan2(path.x[0]! - self.x, path.z[0]! - self.z))));
-    if (route < 0) this.upcoming(i, race, main.s);
-    const pt = this.pointAhead(path, route, early ? 2 : proj.s + ld);
+    if (route < 0) this.upcoming(i, race);
+    a[ARG_AHEAD_IDX] = early ? 2 : proj.s + ld;
+    const pt = this.pointAhead(path, route);
     const tx = pt.x + pt.tz * lane;
     const tz = pt.z - pt.tx * lane;
     const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
-    const reach = early ? Math.max(4, Math.hypot(tx - self.x, tz - self.z)) : ld;
+    const reach = early ? Math.max(4, hypot2(tx - self.x, tz - self.z)) : ld;
     const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
     const cls = this.cls[i]!;
     const top = cls.topSpeed;
-    let target = this.plan(i, path, route, proj.s, speed, top);
+    a[ARG_SPEED_IDX] = speed;
+    a[ARG_TOP_IDX] = top;
+    let target = this.plan(i, path, route);
     // Boxed in, passing or keeping a gap sets `follow`; otherwise a clear run (or a hunted rival to
     // catch) boosts while the plan at the boosted top wants more speed than the car has.
     if (!Number.isNaN(this.follow)) target = Math.min(target, Math.max(0, this.follow - 0.5));
     else if (this.meter[i]! > (this.burst[i] ? 0.02 : BURST_MIN) && Math.abs(alpha) < (this.chase > 0 ? 0.45 : 0.3)) {
-      const boosted = this.plan(i, path, route, proj.s, speed, top * cls.boostTop);
+      a[ARG_TOP_IDX] = top * cls.boostTop;
+      const boosted = this.plan(i, path, route);
       if (boosted > along + BOOST_SHORT) {
         out.boost = true;
         target = boosted;
@@ -356,7 +392,13 @@ export class RaceBrain {
     }
 
     // Last rule, for a racer (police drive this line too and hit on purpose): no car it is closing on is driven into, except the ones it means to hit (`hit`); a car ahead is taken to brake as the plan does (`PLAN_BRAKE`).
-    if (i < this.racers) guardContact(self, others, this.guarded, this.hit, cls.brake * GUARD_BRAKE, cls.brake * PLAN_BRAKE, turnMax, out);
+    if (i < this.racers) {
+      const g = this.guard;
+      g[GUARD_BRAKE_IDX] = cls.brake * GUARD_BRAKE;
+      g[GUARD_LEAD_IDX] = cls.brake * PLAN_BRAKE;
+      g[GUARD_TURN_IDX] = turnMax;
+      guardContact(self, others, this.guarded, this.hit, g, out);
+    }
 
     // L0: wedged against something.
     if (this.lastThrottle[i]! > 0.35 && speed < STUCK_SPEED) this.stuck[i]! += dt;
@@ -372,13 +414,13 @@ export class RaceBrain {
     }
     this.lastThrottle[i] = out.throttle;
     if (out.throttle <= 0) out.boost = false;
-    this.charge(i, dt, out.boost);
+    this.charge(i, out.boost);
     return out;
   }
 
   /** Drain the meter while boosting, refill it otherwise (the seat's rates). */
-  private charge(i: number, dt: number, boosting: boolean): void {
-    this.meter[i] = chargeBoost(this.meter[i]!, boosting, dt);
+  private charge(i: number, boosting: boolean): void {
+    this.meter[i] = chargeBoost(this.meter[i]!, boosting, this.args[ARG_DT_IDX]!);
     this.burst[i] = boosting ? 1 : 0;
   }
 
@@ -388,8 +430,9 @@ export class RaceBrain {
   }
 
   /** Main loop or a designed shortcut: one seeded coin per car, lap and shortcut. */
-  private pickRoute(i: number, race: RaceAiState, mainS: number, self: AiCar, others: readonly AiCar[]): void {
+  private pickRoute(i: number, race: RaceAiState, self: AiCar, others: readonly AiCar[]): void {
     if (this.route[i]! >= 0) return;
+    const mainS = this.args[ARG_MAIN_S_IDX]!;
     const tr = this.track;
     const n = tr.gates.length;
     for (let k = 0; k < tr.shortcuts.length; k++) {
@@ -410,7 +453,10 @@ export class RaceBrain {
 
   /** A racer already on shortcut `k` within `MOUTH_GAP` m of `self`: the narrow mouth takes one car at a time, the next stays on the loop. */
   private crowded(k: number, self: AiCar, others: readonly AiCar[]): boolean {
-    for (const o of others) if (o.id !== self.id && o.id < this.racers && Math.hypot(o.x - self.x, o.z - self.z) < MOUTH_GAP) return true;
+    for (let n = 0; n < others.length; n++) {
+      const o = others[n]!;
+      if (o.id !== self.id && o.id < this.racers && hypot2(o.x - self.x, o.z - self.z) < MOUTH_GAP) return true;
+    }
     return false;
   }
 
@@ -423,7 +469,8 @@ export class RaceBrain {
    * Before the coin is tossed (just past the shortcut's from-gate, as little as 10 m short of its mouth):
    * the next mouth ahead this lap's coin will take, as `entry`, `lead` and `turnIn`.
    */
-  private upcoming(i: number, race: RaceAiState, mainS: number): void {
+  private upcoming(i: number, race: RaceAiState): void {
+    const mainS = this.args[ARG_MAIN_S_IDX]!;
     const tr = this.track;
     const n = tr.gates.length;
     for (let k = 0; k < tr.shortcuts.length; k++) {
@@ -442,14 +489,19 @@ export class RaceBrain {
   }
 
   /** Point `s` m along the route being driven, running on into the main loop past a shortcut's end. */
-  private pointAhead(path: TrackPath, route: number, s: number): TrackPoint {
+  private pointAhead(path: TrackPath, route: number): TrackPoint {
+    const s = this.args[ARG_AHEAD_IDX]!;
     if (route < 0) return this.track.pointAt(s, this.pt);
     if (s <= path.length) return pointOn(path, s, this.pt);
     return this.track.pointAt(this.exitS[route]! + (s - path.length), this.pt);
   }
 
   /** Highest speed now (up to `top`) that still makes every turn ahead within the braking budget. */
-  private plan(i: number, path: TrackPath, route: number, s: number, speed: number, top: number): number {
+  private plan(i: number, path: TrackPath, route: number): number {
+    const a = this.args;
+    const s = a[ARG_S_IDX]!;
+    const speed = a[ARG_SPEED_IDX]!;
+    const top = a[ARG_TOP_IDX]!;
     const tr = this.track;
     const cls = this.cls[i]!;
     const decel = cls.brake * PLAN_BRAKE;
@@ -491,23 +543,20 @@ export class RaceBrain {
    */
   private safeShove(s: number, half: number, oLat: number, side: number, ahead: number, along: number, oAlong: number): boolean {
     // The rival may be shoving too, so the sideways closing counts twice.
-    if (Math.hypot(along - oAlong, 2 * SHOVE_LAT) >= SHOVE_SPEED) return false;
+    if (hypot2(along - oAlong, 2 * SHOVE_LAT) >= SHOVE_SPEED) return false;
     if (half - (side >= 0 ? oLat : -oLat) < WALL_ROOM) return false;
     return crestSpeed(this.track.path, s + ahead) > Math.max(along, oAlong);
   }
 
   /** Lateral target (m, + = left of travel) on the main loop; sets `follow` when boxed in. */
-  private line(
-    self: AiCar,
-    p: Personality,
-    s: number,
-    half: number,
-    lat: number,
-    fx: number,
-    fz: number,
-    along: number,
-    others: readonly AiCar[],
-  ): number {
+  private line(self: AiCar, p: Personality, others: readonly AiCar[]): number {
+    const a = this.args;
+    const s = a[ARG_S_IDX]!;
+    const half = a[ARG_HALF_IDX]!;
+    const lat = a[ARG_LAT_IDX]!;
+    const fx = a[ARG_FX_IDX]!;
+    const fz = a[ARG_FZ_IDX]!;
+    const along = a[ARG_ALONG_IDX]!;
     const i = self.id;
     const tr = this.track;
     const room = Math.max(0, half - EDGE);
@@ -532,7 +581,8 @@ export class RaceBrain {
     let preyAhead = Infinity;
     let preySide = 0;
     let preyFight = 0;
-    for (const o of others) {
+    for (let n = 0; n < others.length; n++) {
+      const o = others[n]!;
       if (o.id === i || !o.alive) continue;
       const dx = o.x - self.x;
       const dz = o.z - self.z;

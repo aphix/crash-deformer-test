@@ -63,6 +63,15 @@ describe("given a car and the farthest rung (small parts beyond 35 m, only the b
       }
     });
   }
+
+  test("when it stands 60 m away, undamaged, then the camera still draws its hood, boot lid, doors and bumpers although they cast no shadow", () => {
+    const { camera, detail, car } = stage();
+    const probe = car(60);
+    detail.update([probe], camera, null, null);
+    const meshes = drawn(probe, camera);
+    assert.equal(casters(meshes), 1, "only the body casts");
+    for (const part of probe.flushCasters) assert.ok(meshes.includes(part), "a flush part left the camera");
+  });
 });
 
 describe("given a car 100 m away", () => {

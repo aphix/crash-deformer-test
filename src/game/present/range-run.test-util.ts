@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
-import type { RigidBody } from "@dimforge/rapier3d";
+import type { RigidBody } from "@dimforge/rapier3d-simd";
 import { makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { holdForThrow, PRE_IMPACT_LEAD, preImpact, type PhaseClock } from "../match/phase.ts";

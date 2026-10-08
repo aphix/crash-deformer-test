@@ -14,7 +14,6 @@ import { HunterBrain } from "../ai/hunter.ts";
 import type { AiCar } from "../ai/derby-ai.ts";
 import { onSurface } from "../ai/race-ai.ts";
 import { DRAFT, RaceSession } from "../match/session.ts";
-import { AutoWatch, type Cand, type Wreck } from "../match/auto-watch.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
 import {
   cleanName,
@@ -25,13 +24,19 @@ import {
   type RaceSnapshot,
   type RaceView
 } from "../match/types.ts";
-import { RaceField } from "./engine-race-field.ts";
+import type { Cand, Wreck } from "../match/auto-watch.ts";
+import { RaceWatch } from "./engine-race-watch.ts";
 
 /** Seconds between traffic-bubble passes. */
 const BUBBLE_EVERY = 0.25;
+/** A police unit's boost meter as the gauge shows it: always full (police boost with no meter, `cop-brain.ts`). */
+const POLICE_METER = 1;
 /** Seconds the finish card shows before the results menu (and the results reel), and the BUSTED banner before the camera moves on. */
 export const RESULTS_DELAY = 2.5;
 const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
+/** The sun's shadow-camera basis (unit; three's lookAt with world up): right = up x (eye - target), up = (eye - target) x right. */
+const SUN_RIGHT = new THREE.Vector3(0, 1, 0).cross(SUN_OFFSET).normalize();
+const SUN_UP = SUN_OFFSET.clone().cross(SUN_RIGHT).normalize();
 
 /**
  * Race scene glue: owns the course (track, art, ground), the field's controller slots, the rules
@@ -39,17 +44,11 @@ const SUN_OFFSET = new THREE.Vector3(-10, 22, 9);
  * respawns and the HUD read model. `CrashEngine` calls `drive` at the start and `collide` / `step`
  * at the end of every physics slice, `frame` once per rendered frame.
  */
-export class RaceDirector extends RaceField {
+export class RaceDirector extends RaceWatch {
   /** Per car id: the drafting bonuses (`CarRecord.drafts`) already put on a meter. */
   private readonly drafted = new Int32Array(MAX_CARS);
   /** The chasing police units handed to the rules each step (`BUST`; `PoliceBrain.chasers` fills it). */
   private readonly cops: AiCar[] = [];
-  /**
-   * Auto spectating (the Auto entry of the driver list, standings row and `watch` id -1): the director picks which car
-   * the camera rides (`autoStep`). Cleared whenever spectating ends or a car is picked by hand.
-   */
-  auto = false;
-  private readonly autoWatch = new AutoWatch();
   private readonly autoCands: Cand[] = [];
   /** The open ledger clusters as `AutoWatch` reads them: the pool, and the ones in use this frame. */
   private readonly wreckPool: Wreck[] = [];
@@ -214,63 +213,6 @@ export class RaceDirector extends RaceField {
   }
 
   /**
-   * Standings click / engine `watchCar`: follow another car only when the player is not racing. A car id turns Auto off;
-   * `id` -1 (the standings' Auto row) turns it on and keeps the car in view until Auto picks another.
-   */
-  watch(id: number): void {
-    if (!this.session || id < -1 || id >= this.entrants.length) return;
-    if (!this.mayWatch()) return;
-    if (id < 0) {
-      this.goAuto();
-      return;
-    }
-    this.auto = false;
-    if (this.mine(id)) {
-      this.spectating = false;
-      this.host.seat.focus(this.self);
-      return;
-    }
-    this.spectating = true;
-    this.host.seat.focus(id);
-  }
-
-  /**
-   * Q/E, LB/RB: next / previous racer still on track (never our own racing car; police and traffic cars stand past the
-   * racers and are never watched), then Auto (one more entry, after the last racer, before the list wraps), when
-   * watching is allowed.
-   */
-  cycle(dir: 1 | -1): void {
-    const s = this.session;
-    if (!s || !this.mayWatch()) return;
-    const n = this.entrants.length;
-    // Slots 0 … n − 1 are racers, slot n is Auto.
-    let i = this.auto ? n : this.host.seat.carIndex;
-    for (let k = 0; k <= n; k++) {
-      i = (((i + dir) % (n + 1)) + (n + 1)) % (n + 1);
-      if (i === n) {
-        this.goAuto();
-        return;
-      }
-      const st = s.cars[this.rowOf[i]!]!.status;
-      const ok = !this.mine(i) && (st === "racing" || st === "respawning" || st === "finished");
-      if (ok) {
-        this.spectating = true;
-        this.auto = false;
-        this.host.seat.focus(i);
-        return;
-      }
-    }
-  }
-
-  /** Auto on: the car in view stays until `autoStep` picks another; a fresh Auto starts its clocks over. */
-  private goAuto(): void {
-    this.spectating = true;
-    if (this.auto) return;
-    this.autoWatch.reset();
-    this.auto = true;
-  }
-
-  /**
    * Auto spectating, once per rendered frame while it is on (else nothing): scores every racing car off the live poses,
    * the rules records and the highlight ledger, and moves the camera's subject when `AutoWatch` says so. `cuts` is the
    * camera director's cut counter (-1: the camera makes no cuts), `atCut` whether it cuts right now (or never cuts).
@@ -347,6 +289,18 @@ export class RaceDirector extends RaceField {
     r.brake = input.brake;
     r.ebrake = input.ebrake;
     r.boost = input.boost;
+  }
+
+  /**
+   * Car `id`'s boost meter as its driver keeps it (0-1): this browser's seat, the race AI where this browser runs it, a police unit's
+   * always full (police boost with no meter: `cop-brain.ts`), else what netplay heard (a peer's own meter; on a client, the host's).
+   * Null for a car with no nitrous: traffic, nobody heard.
+   */
+  meterOf(id: number): number | null {
+    if (this.seatDrives(id)) return this.host.seat.boost;
+    if (this.aiDrives(id) && this.brain) return this.brain.meter[id]!;
+    if (id >= this.policeFrom && id < this.host.live().length) return POLICE_METER;
+    return this.host.heardMeter(id);
   }
 
   /** Host: the whole rules state as plain JSON (null outside a race). */
@@ -446,14 +400,14 @@ export class RaceDirector extends RaceField {
     const brain = this.brain;
     const ground = this.track?.ground();
     if (!s || !brain || !ground) {
-      for (const car of cars) applyDrive(car, this.hold, dt);
+      for (let i = 0; i < cars.length; i++) applyDrive(cars[i]!, this.hold, dt);
       return;
     }
     this.recorder.startStep(cars);
     const racing = s.phase === "racing";
     for (let i = 0; i < cars.length; i++) {
       const c = cars[i]!;
-      snapshotAiCar(this.snaps[i]!, i, c.group.position.x, c.group.position.z, c.yaw, c.velocity.x, c.velocity.z, c.deform.drivetrainAlive, c.deform.masses);
+      snapshotAiCar(this.snaps[i]!, i, c, c.deform.drivetrainAlive);
     }
     const snaps = this.snaps;
     const racers = this.entrants.length;
@@ -566,7 +520,8 @@ export class RaceDirector extends RaceField {
 
   /** Drafting bonuses the rules awarded since the last look: onto our seat's meter, or the race AI's (a peer's own client credits its seat). */
   private credit(s: RaceSession): void {
-    for (const c of s.cars) {
+    for (let k = 0; k < s.cars.length; k++) {
+      const c = s.cars[k]!;
       const n = c.drafts - this.drafted[c.id]!;
       this.drafted[c.id] = c.drafts;
       // Not `n <= 0`: an older host's snapshot has no `drafts` (NaN).
@@ -580,10 +535,7 @@ export class RaceDirector extends RaceField {
   frame(wallDt: number): void {
     if (!this.active) return;
     const s = this.session;
-    if (this.art) {
-      this.art.setLights(s ? s.lights : 0);
-      this.art.props.update(wallDt);
-    }
+    if (this.art) this.art.setLights(s ? s.lights : 0);
     if (s && s.phase === "finished" && (this.menu == null || this.menu === "dead")) {
       this.overFor += wallDt;
       if (this.overFor >= RESULTS_DELAY) {
@@ -601,8 +553,8 @@ export class RaceDirector extends RaceField {
     this.followSun();
   }
 
-  /** The race's part of the HUD read model; the engine adds the reel's (`reel`, `solo`, `saved`). */
-  hud(): Omit<RaceHud, "reel" | "solo" | "saved"> {
+  /** The race's part of the HUD read model; the engine adds the reel's (`reel`, `solo`, `shown`, `saved`). */
+  hud(): Omit<RaceHud, "reel" | "solo" | "shown" | "saved"> {
     const s = this.session;
     const tr = this.track;
     const cars = this.host.live();
@@ -676,8 +628,7 @@ export class RaceDirector extends RaceField {
             }
           : null,
         ...carGauge(car),
-        // ponytail: an AI meter shows only where this browser runs the AI (host / offline); a peer's car and police have none here.
-        boost: this.seatDrives(id) ? seat.boost : this.entrants[id]?.kind === "ai" && this.brain ? this.brain.meter[id]! : null,
+        boost: this.meterOf(id),
         chase: c !== undefined && c.status === "racing" && (cops > 0 || c.stopped > 0) ? { cops: Math.max(1, cops), hold: Math.min(1, c.stopped / s.bustTime), left: Math.max(0, s.bustTime - c.stopped) } : null,
         // R / D-pad ↓ acts unless `requestRespawn` refuses it (a menu is up, spectating) or the rules do (no-reset race, not racing); holding it acts wherever `holdReset` does: a no-reset race too, not Survival.
         canReset: asking && !s.noReset,
@@ -712,31 +663,6 @@ export class RaceDirector extends RaceField {
       fullUi: this.fullUi,
       survival: this.survivalHud(),
     };
-  }
-
-  private mayWatch(): boolean {
-    const s = this.session;
-    if (!s) return false;
-    if (this.entrants[this.self]?.kind !== "player") return true;
-    const st = s.cars[this.rowOf[this.self]!]!.status;
-    return this.spectating || st === "out" || st === "finished" || st === "dnf" || s.phase === "finished";
-  }
-
-  private watchLeader(): void {
-    const s = this.session;
-    if (!s) return;
-    for (const id of s.order()) {
-      const st = s.cars[this.rowOf[id]!]!.status;
-      if (!this.mine(id) && (st === "racing" || st === "respawning" || st === "finished")) {
-        this.host.seat.focus(id);
-        return;
-      }
-    }
-  }
-
-  /** Car `i` is this browser's player car (a spectator race has none). */
-  private mine(i: number): boolean {
-    return i === this.self && this.entrants[i]?.kind === "player";
   }
 
   private next(): void {
@@ -804,8 +730,19 @@ export class RaceDirector extends RaceField {
     if (!car) return;
     const p = car.group.position;
     const sun = this.host.sun;
-    sun.target.position.set(p.x, 0, p.z);
-    sun.position.set(p.x + SUN_OFFSET.x, SUN_OFFSET.y, p.z + SUN_OFFSET.z);
+    const cam = sun.shadow.camera;
+    const texX = (cam.right - cam.left) / sun.shadow.mapSize.x;
+    const texY = (cam.top - cam.bottom) / sun.shadow.mapSize.y;
+    // Snap the box centre to whole shadow-map texels in the light's right/up basis, so static casters' edges never crawl.
+    const a = SUN_RIGHT.x * p.x + SUN_RIGHT.z * p.z;
+    const b = SUN_UP.x * p.x + SUN_UP.z * p.z;
+    const da = Math.round(a / texX) * texX - a;
+    const db = Math.round(b / texY) * texY - b;
+    const tx = p.x + SUN_RIGHT.x * da + SUN_UP.x * db;
+    const ty = SUN_RIGHT.y * da + SUN_UP.y * db;
+    const tz = p.z + SUN_RIGHT.z * da + SUN_UP.z * db;
+    sun.target.position.set(tx, ty, tz);
+    sun.position.set(tx + SUN_OFFSET.x, ty + SUN_OFFSET.y, tz + SUN_OFFSET.z);
     sun.target.updateMatrixWorld();
   }
 

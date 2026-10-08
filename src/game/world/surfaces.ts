@@ -962,7 +962,7 @@ export function edgeCross(ax: number, ay: number, az: number, bx: number, by: nu
 /** The step (m) `ridgeCross` reads a segment at, and the span it narrows its highest reading down to. */
 const RIDGE_STEP = 0.05;
 const RIDGE_TOL = 0.002;
-let ridgeBest = NONE;
+const ridgeBest = new Float64Array(1);
 
 /** `ridgeCross`'s reading at `t` along A + t·D: the rise on patch `id` (NONE off it), kept in `EDGE_HIT` when the highest yet. */
 function ridgeAt(ax: number, ay: number, az: number, dx: number, dy: number, dz: number, t: number, skip: number, id: number): number {
@@ -975,8 +975,8 @@ function ridgeAt(ax: number, ay: number, az: number, dx: number, dy: number, dz:
   pointContact(_pq, skip, _x);
   if (patchOf(_x) !== id) return NONE;
   const r = _x[C_H]! - py;
-  if (r > ridgeBest) {
-    ridgeBest = r;
+  if (r > ridgeBest[0]!) {
+    ridgeBest[0] = r;
     EDGE_HIT.set(_x);
     EDGE_HIT[C_PX] = px;
     EDGE_HIT[C_PY] = py;
@@ -997,7 +997,7 @@ export function ridgeCross(ax: number, ay: number, az: number, bx: number, by: n
   const dz = bz - az;
   const len = Math.sqrt(dx * dx + dy * dy + dz * dz);
   const m = Math.ceil(len / RIDGE_STEP);
-  ridgeBest = NONE;
+  ridgeBest[0] = NONE;
   let at = -1;
   let top = NONE;
   for (let k = 1; k < m; k++) {
@@ -1015,7 +1015,7 @@ export function ridgeCross(ax: number, ay: number, az: number, bx: number, by: n
     if (ridgeAt(ax, ay, az, dx, dy, dz, ta, skip, id) < ridgeAt(ax, ay, az, dx, dy, dz, tb, skip, id)) t0 = ta;
     else t1 = tb;
   }
-  return ridgeBest;
+  return ridgeBest[0]!;
 }
 
 /** `hit` (a `pointContact` with its point in `C_PX`..`C_PZ`) as the wheel's contact in `out`: rise `r`, footprint index `k`. */

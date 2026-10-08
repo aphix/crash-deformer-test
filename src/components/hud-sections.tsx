@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import * as Accordion from "@radix-ui/react-accordion";
 import {
+  ArrowUp,
   Braces,
   ChevronDown,
   CircleDashed,
@@ -16,6 +17,9 @@ import {
   VolumeX,
 } from "lucide-react";
 import type { HudProps } from "@/components/hud";
+import { captureSubmitShown } from "@/game/hud/submit-rules";
+import { copyText } from "@/lib/clipboard";
+import { sendSubmission, type Parcel } from "@/lib/submissions/status";
 import { ChangedDot, FIELD, NumberField, RangeRow } from "@/components/hud-controls";
 import type { CrashEngine } from "@/game/engine/engine";
 import { DRIVER_CARS } from "@/game/match/types";
@@ -179,9 +183,11 @@ function PlaybackSection({ state, engine }: HudProps) {
               variant={state.fxTier === tier ? "default" : "ghost"}
               aria-pressed={state.fxTier === tier}
               aria-label={`Cinematic FX ${tier}`}
+              title={tier === "ultra" ? "Desktop GPU: HDRI daylight, soft shadows, PBR ground (about 3.5 MB, fetched on the first pick)" : undefined}
+              disabled={tier === "ultra" && state.fxLoading}
               onClick={() => engine.current?.setFxTier(tier)}
             >
-              {tier}
+              {tier === "ultra" && state.fxLoading ? "loading…" : tier}
             </Button>
           ))}
           <Button
@@ -224,7 +230,7 @@ function PlaybackSection({ state, engine }: HudProps) {
           Auto
         </Button>
       </div>
-      {state.fxTier === "off" || state.fxTier === "minimal" ? <p className="hud-label">Cel look needs FX low or high (a race runs minimal on Auto)</p> : null}
+      {state.fxTier === "off" || state.fxTier === "minimal" ? <p className="hud-label">Cel look needs FX low, high or ultra (a race runs minimal on Auto)</p> : null}
       <label className="flex items-center gap-2">
         <span className="hud-label relative w-12 shrink-0">
           Time
@@ -362,24 +368,15 @@ function TuningSection({ state, engine }: HudProps) {
   );
 }
 
-/** Spawn JSON to the clipboard; a hidden textarea and `execCommand` where the async clipboard is refused. */
+/** Spawn JSON to the clipboard. */
 async function copyTrace(engine: CrashEngine | null): Promise<boolean> {
   const json = engine?.copyTraceJson();
-  if (!json) return false;
-  try {
-    await navigator.clipboard.writeText(json);
-    return true;
-  } catch {
-    const ta = document.createElement("textarea");
-    ta.value = json;
-    ta.style.position = "fixed";
-    ta.style.left = "-9999px";
-    document.body.appendChild(ta);
-    ta.select();
-    const ok = document.execCommand("copy");
-    ta.remove();
-    return ok;
-  }
+  return json ? copyText(json) : false;
+}
+
+/** The capture's trace for Submit, or why there is none to send. */
+async function captureParcel(engine: CrashEngine | null): Promise<Parcel> {
+  return engine?.submitCapture() ?? "there is no capture data to send";
 }
 
 function DebugSection({ state, engine }: HudProps) {
@@ -417,7 +414,20 @@ function DebugSection({ state, engine }: HudProps) {
           <ClipboardCopy />
           {copied ? "Copied" : `JSON ${state.traceSamples}`}
         </Button>
+        {captureSubmitShown(state) ? (
+          <Button
+            onClick={() => void sendSubmission("capture", () => captureParcel(engine.current))}
+            variant="secondary"
+            aria-label="Submit capture JSON"
+            title="Send this capture to the developer; you get a receipt id"
+            className="col-span-2 h-11 justify-start gap-1.5 px-1.5 text-xs sm:h-8"
+          >
+            <ArrowUp />
+            Submit {state.traceSamples} samples
+          </Button>
+        ) : null}
       </div>
+      <p className="mt-1 text-[11px] text-muted">Build {__BUILD_SHA__}</p>
     </>
   );
 }

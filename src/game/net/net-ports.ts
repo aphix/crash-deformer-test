@@ -80,14 +80,17 @@ export interface NetGame {
   reelPlaying(): boolean;
   /** Client: the host's thrown driver (`MSG.eject`) flies as a dummy, launched from the host's own numbers. */
   launchEjection(e: Ejection): void;
+  /** Host: car `i`'s boost meter as its driver keeps it (0-1), null for a car with no nitrous; each snapshot carries it. */
+  meterOf(i: number): number | null;
   readonly seat: DriverSeat;
 }
 
 export type NetRole = "off" | "host" | "client";
 /** `bc`: BroadcastChannel (tabs of one browser); `rtc`: WebRTC via `/api/rtc`. */
-export type NetTx = "bc" | "rtc";
+export const NET_TX = { bc: "bc", rtc: "rtc" } as const;
+export type NetTx = (typeof NET_TX)[keyof typeof NET_TX];
 
-/** `NetPlay.status()`: what the Net panel and the live-rooms chip show. */
+/** `NetPlay.status()`: what the online entry's chip and panel show. */
 export interface NetStatus {
   role: NetRole;
   /** A public room's match (`publicMatch`): anyone pressing that Public button may land in it. */

@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { blankAiCar, type AiCar } from "./derby-ai.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { GUARD_BRAKE_IDX, GUARD_COUNT, GUARD_LEAD_IDX, GUARD_TURN_IDX } from "./constants.ts";
 import { guardContact } from "./contact-guard.ts";
 
 /** A car at (`x`, `z`) doing `speed` m/s along +z (`dir` 1) or −z (−1). */
@@ -13,7 +14,11 @@ function car(id: number, x: number, z: number, speed: number, dir: 1 | -1 = 1): 
 /** What the guard makes of the plan "full throttle, straight on" for `self` among `others` (class brake 20 m/s², lead brake 11 m/s², lock 1.5 rad/s). */
 function guarded(self: AiCar, others: AiCar[], spare = new Uint8Array(32)): DriveInput {
   const out: DriveInput = { ...idleDrive(), throttle: 1 };
-  guardContact(self, [self, ...others], others.length + 1, spare, 20, 11, 1.5, out);
+  const tune = new Float64Array(GUARD_COUNT);
+  tune[GUARD_BRAKE_IDX] = 20;
+  tune[GUARD_LEAD_IDX] = 11;
+  tune[GUARD_TURN_IDX] = 1.5;
+  guardContact(self, [self, ...others], others.length + 1, spare, tune, out);
   return out;
 }
 

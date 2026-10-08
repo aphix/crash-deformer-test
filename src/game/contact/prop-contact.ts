@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { PropCollider } from "../world/placements.ts";
@@ -49,7 +50,7 @@ function footprintOverlap(car: DeformableCar, s: Solid, out: Overlap): boolean {
     const lz = -(dx * fx + dz * fz);
     const ex = Math.max(-FOOT_W, Math.min(FOOT_W, lx)) - lx;
     const ez = Math.max(-FOOT_L, Math.min(FOOT_L, lz)) - lz;
-    const d = Math.hypot(ex, ez);
+    const d = hypot2(ex, ez);
     if (d >= s.r) return false;
     if (d > 1e-9) {
       pen = s.r - d;
@@ -168,7 +169,7 @@ export function propContact(car: DeformableCar, i: number, colliders: readonly P
   const v = car.velocity;
   const low = lowestY(car);
   // How far past a prop's reach a hard-driving car is still asked about (`markApproach`).
-  const ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? Math.hypot(v.x, v.z) * HIT_AHEAD : 0;
+  const ahead = v.x * v.x + v.z * v.z > WALL_CRUSH * WALL_CRUSH ? hypot2(v.x, v.z) * HIT_AHEAD : 0;
   for (let k = 0; k < colliders.length; k++) {
     const col = colliders[k]!;
     if (knocked[col.index] || low >= col.top) continue;
@@ -191,7 +192,7 @@ export function propContact(car: DeformableCar, i: number, colliders: readonly P
     _n.set(nx, 0, nz);
     if (col.body === "knock") {
       knocked[col.index] = 1;
-      const speed = Math.hypot(v.x, v.z);
+      const speed = hypot2(v.x, v.z);
       hits.knock(col.index, i, v.x * 1.1 - nx * 1.5, 2 + speed * 0.25, v.z * 1.1 - nz * 1.5);
       const keep = 1 - col.mass / (col.mass + 1400);
       if (car.deform.massActive) impulseCar(car, nx, 0, nz, col.mass * closing * 0.5);

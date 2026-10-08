@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { MIN_SCORE, QUIET_GAP } from "./highlights.ts";
 import { BUST } from "./session.ts";
 
@@ -105,7 +106,7 @@ function approach(a: Cand, b: Cand, out: Approach): boolean {
   if (t <= 0 || t > WATCH.horizon) return false;
   out.ttc = t;
   out.closing = Math.sqrt(vv);
-  out.miss = Math.hypot(rx + vx * t, rz + vz * t);
+  out.miss = hypot2(rx + vx * t, rz + vz * t);
   return true;
 }
 
@@ -231,7 +232,7 @@ export class AutoWatch {
       this.big[k] = false;
       if (!c.racing) continue;
       // The car's own history: a place change (an overtake), and a speed far off its smoothed speed (a hit, a hard brake).
-      const speed = Math.hypot(c.vx, c.vz);
+      const speed = hypot2(c.vx, c.vz);
       let h = this.hist[c.id];
       if (!h) h = this.hist[c.id] = { seen: -Infinity, speed, place: c.place, placeAt: -Infinity };
       if (t - h.seen > WATCH.gap || t < h.seen) {

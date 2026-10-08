@@ -199,6 +199,23 @@ export class EjectionWatch {
     this.pending = [];
   }
 
+  /**
+   * Before the world moves the cars: a car with no history yet (just placed or put back) gets its launch velocity as its
+   * one sample, so a kill within its first step still has a pre-hit closing speed (the post-hit velocity is already slowed).
+   */
+  seed(cars: readonly DeformableCar[]): void {
+    const n = cars.length;
+    if (n > this.cap) this.grow(n);
+    for (let i = 0; i < n; i++) {
+      if (this.count[i]! > 0) continue;
+      const o = i * RING * 2;
+      this.vel[o] = cars[i]!.velocity.x;
+      this.vel[o + 1] = cars[i]!.velocity.z;
+      this.head[i] = 1;
+      this.count[i] = 1;
+    }
+  }
+
   /** The events since the last call, oldest first (a shared empty array when there are none). */
   take(): readonly Ejection[] {
     if (this.pending.length === 0) return NONE;

@@ -17,6 +17,8 @@ plays one clip alone with no HUD; **Save** keeps it in this browser.
 | `present/shot-cam.ts` | `pickShot`, `ShotCam`: which shot comes next and how it is posed (the reel and the Auto cam share it). |
 | `present/auto-cam.ts` | `AutoCam`: the spectator "Auto" camera, the reel's shot director run live on the watched car. |
 | `present/auto-fx.ts` | `hardwareDesktop`, `AutoFx`: the automatic FX tier the reel runs on (docs/CINEMATIC.md). |
+| `present/frame-work.ts` | `FrameWork`: the window both quality governors read (median main-thread ms and GPU ms against the 60 fps budget). |
+| `present/gpu-timer.ts` | `GpuTimer`: the draw's GPU time from `EXT_disjoint_timer_query_webgl2` (none where the browser lacks it). |
 | `net/reel-codec.ts` | One byte layout for a clip on the wire (`MSG.reel`) and in storage. |
 | `engine/highlight-store.ts` | Saved clips in `localStorage`. |
 
@@ -43,12 +45,38 @@ it moves (measured on the stunt clips: the clusters' fit state 1.2 KB of that, t
 and a car put on a spot is some 400 bytes.
 
 An impact is any contact (car–car, wall or prop) closing at `IMPACT_MIN` (12.5 m/s, 45 km/h) or more, whose pair had been
-apart for `REHIT_S` (0.35 s), so grinding never re-counts. 12.5 m/s is the speed at which a lone sedan head-on reaches `MIN_SCORE`: a slower bump could only join a cluster and lift its car count and score (owner 10-05: "multi car pileups are just slow bumps"). Measured on 192 races (city, oval with police, breaker-yard, dam-spine, seeds 1-48): the old 5 m/s floor kept 81 of 150 oval-police clips as 3+-car pile-ups, 34 of them (and 8 of 9 on the city) only through bumps under 12 m/s; 49 of 56 city "pile-up" titles had two cars hit (the title counted the bystanders in the shot). The title now counts the cars hit (`HighlightClip.hit`, ≥ 3 for "N-car pile-up"). Impacts join an open cluster that shares
-a car or lies within 30 m. A cluster closes after `QUIET_GAP` (1.5 s) with no impact, or when it spans `MAX_SPAN` (6 s).
-Its score is energy, plus points per extra car, per engine destroyed and for impact density, each impact weighed by its
-force: `impactWeight(closing)` = closing speed over 50 km/h (×1 at 50, ×2 at 100, ×0.4 at 20), so hard hits count for
-more and taps for less (a 100 km/h head-on scores 15.4, a 50 km/h one 3.65, a 20 km/h bump 1.0). A cluster below
-`MIN_SCORE` (3) is dropped. A clip is `PRE_ROLL` (3 s) before the first impact to `POST_ROLL` (3 s) after the last.
+apart for `REHIT_S` (0.35 s), so grinding never re-counts. 12.5 m/s is the speed at which a lone sedan head-on reaches `MIN_SCORE`: a slower bump could only join a cluster and lift its car count and score (owner 10-05: "multi car pileups are just slow bumps"). Measured on 192 races (city, oval with police, breaker-yard, dam-spine, seeds 1-48): the old 5 m/s floor kept 81 of 150 oval-police clips as 3+-car pile-ups, 34 of them (and 8 of 9 on the city) only through bumps under 12 m/s; 49 of 56 city "pile-up" titles had two cars hit (the title counted the bystanders in the shot). The title now counts the cars hit (`HighlightClip.hit`, ≥ 3 for "N-car pile-up").
+A cluster closes after `QUIET_GAP` (1.5 s) with no impact, or when it spans `MAX_SPAN` (6 s).
+
+A slower contact is never an impact, however deep it crushes (owner 10-07: a car slowly crushing a roof is not a highlight); its
+crush still scores through the clip's `deform` term when an impact opens the clip.
+
+**Scope** (owner 10-07). A clip is about its main car (the faster car of its strongest impact), the cars it hit directly, and
+what happens within `SCOPE_R` (10 m) of an impact of those cars: one rule (`CrashCluster.takes`) that the ledger joins events
+by, that scores and titles the clip (`hit`, `ejects`, `kills`, `impacts`), that marks the throws the reel rides with and
+holds for (`ClipEjection.own`) and that lists the impacts the camera keeps in view (`HighlightClip.hits`). A car B hit by A
+counts with its own hits (B on C 18 m on is in), a bystander impact admitted only by distance starts no circle of its own,
+and another crash 12-25 m away that throws a driver opens a cluster, and a clip, of its own (the old rule, one cluster by
+sharing a car or lying within 30 m, called it "Driver thrown out" for two cars that never saw it). A cluster whose later
+events fall out of its scope (`rest`) files them as a clip of their own.
+
+The score is energy, plus points per extra car, per engine destroyed, for each driver thrown out and for impact density,
+each impact weighed by its force: `impactWeight(closing)` = closing speed over 50 km/h (×1 at 50, ×2 at 100, ×0.4 at
+20), so hard hits count for more and taps for less (a 100 km/h head-on scores 15.4, a 50 km/h one 3.65, a 20 km/h bump
+1.0), plus `DEFORM_POINTS` (4) a metre of the clip's `deform`, "the sum of all the deformations within a clip" (owner 10-07):
+per car of the scope the sum over its cages (`CAGES`, 21 panel frames, a fixed set whatever the mesh or the mass count) of how far
+each cage's `cageStrain` (the largest change of a corner-to-corner distance of the frame; rigid motion reads 0) rose from the car
+joining the crash to the most it reached, so a respawn before the clip is filed does not clear it and a dent it already had is
+no gain. The deepest cage alone (the first measure) saturates: 0.22 m a roof, 0.33 m for a 45 km/h head-on and 0.70 for a 100
+km/h one, against 2.2 and 5.3 m summed; pushing a roof straight down moves frames more than it distorts one. Head-on, two sedans
+crush (summed) 1.5 m at 30 km/h, 2.2 at 45, 2.8 at 60, 4.4 at 80, 5.3 at 100 and 7.6 at 130. 4 is what the owner's example needs: a lone
+sedan hit scores 1.67 at 30 km/h and 5.09 at 60, so a 2 m crush at 30 km/h outscores a 1 m crush at 60 only above 3.42
+points a metre (`highlights.test.ts`). A driver thrown out is worth 26: the softest ejection clip (55 km/h wall, 32.5 + 2.6 m
+of crush: 45.0) outscores the hardest hit that spares both engines (109 km/h head-on, 19.0 + 6.0 m: 43.0). A cluster below `MIN_SCORE` (3) is dropped. A clip is `PRE_ROLL` (3 s) before the
+first impact to `POST_ROLL` (3 s) after the last. The title's speed is the main car's own speed into its strongest impact
+(`hitKph`, from the step's start: the pair has traded momentum by the time the hit is reported), not the closing speed
+(`peakKph`, which the replayed hit's flash uses): "36 km/h smash" for a 72 km/h closing head-on; a wall hit's is its speed
+into the wall.
 
 A moment needs a racer. Traffic and police score only against one (`CrashRecorder.begin`'s `racers`): cop–cop,
 traffic–traffic, cop–traffic and a lone cop or traffic wall hit make no impact, and a traffic or police car's death
@@ -75,8 +103,8 @@ against a 16 B bound (`engine-record.test.ts`): `simState` reads a wreck's scala
 ## Ejections
 
 A driver thrown out of his car (`EjectionWatch`, `vehicle/ejection.ts`: a sim decision, once per fixed step; [RACE_DESIGN.md](RACE_DESIGN.md))
-is the biggest moment a crash can hold: `EJECT_POINTS` (24) per driver on top of the impacts' energy (a 100 km/h sedan head-on
-scores 15.4, a 4-car pile-up at 100 km/h 24; the softest ejection, a 55 km/h wall hit, 32.5), so a cluster with one ranks and tops the clips without; the first ejected car is
+is the biggest moment a crash can hold: `EJECT_POINTS` (26) per driver on top of the impacts' energy and the crush (a 100 km/h sedan head-on
+scores 15.4 + 5.3 m of crush; the softest ejection, a 55 km/h wall hit, 32.5 + 2.6 m), so a cluster with one ranks and tops the hardest hit that spares both engines; the first ejected car is
 the cluster's subject (`focus`), and the title reads "Driver thrown out". `CrashRecorder.eject` also keeps the event
 (`Ejection`: car, pane, torso position in the world and the car's frame, direction, orientation, velocity relative to the
 car and the car's own, spin; f32-exact) with the step it happened in (up to 64 a race). A clip carries those of its steps
@@ -86,14 +114,14 @@ A thrown-out driver's car freewheels (`DriveInput.neutral`, flag 8 of the step's
 output needs nothing else; keyframes carry `driverOut` in the snapshot flags.
 
 `ClipSim` fires each ejection after its step ran (`take()` hands them out with `car` the engine slot), sets `driverOut`, and
-the reel launches the dummy from the recorded numbers (`ReelHost.eject`); every driver thrown in the clip's own crash (`ownThrow`: from its first impact on, within 30 m of it) gets the ride-along
+the reel launches the dummy from the recorded numbers (`ReelHost.eject`); every driver thrown in the clip's scope (`ClipEjection.own`, above) gets the ride-along
 camera (`ReelDirector.aim`), over the clip's shots, until every dummy lies still. The ride frames only those drivers (`launch`'s `rides`): another crash's driver thrown faster elsewhere in the clip (a cop wrecking 120 m off) never pulls it away. Two replays of one clip fly the dummy along exactly
 the same path (`race-eject-reel.test.ts`); the live dummy and the replay's start from the same point (0 m) but part once
 they bounce off replayed cars (a free flight stayed within 0.9 m of the live one over 4 s, one that hit the oncoming car
 did not): the launch falls on another frame boundary (up to 1/60 s) and the replayed cars are cm to dm off the live ones.
 
 The replay marks the first hit by the recorder's own rule (`countsAsImpact`: at least `IMPACT_MIN` hard after a
-`REHIT_S` quiet spell), so a brush 0.35 s before the recorded impact no longer times it early.
+`REHIT_S` quiet spell; the marker sees no crush, so a hit counted by its crush alone is not marked), so a brush 0.35 s before the recorded impact no longer times it early.
 
 ## Replay
 
@@ -204,6 +232,27 @@ Each clip's shots come from `mulberry32(seed ^ clip)`, so the same seed gives th
 2. a run-in about a second before the hit;
 3. the aftermath, once the crash cam hands back (`crashCamEnd` of the clip's hold).
 
+**Camera lookahead.** The clip lists the impacts of its scope (`HighlightClip.hits`: when, where, between which cars). A
+hit that comes after the crash cam has handed back gets a *context shot* cut in `CONTEXT_LEAD` (0.8 s) ahead of it, or in
+the aftermath's place: a fixed eye over the hit and the one before it (`present/highlight-cam.ts` `contextEye`), so the
+viewer keeps the place. The eye is fitted in world space to the narrowest screen the reel plays on (0.44 wide over high:
+what `coverLens` leaves a phone held upright under its bottom sheet), so it shows both points inside 0.6 of the frame on
+every screen at least that wide, which puts them in the part of the view the panels leave free, and every peer picks the
+same eye. Its lens is its own: the widest up to 55° that keeps both points a car's size (2 m at least 1/14 of the frame's
+height) and in frame. The eyes are tried nearest first (the midpoint's 15° turns from a seeded one, 14 to 26 m out low,
+8 to 14 m out at 25 m for a street of buildings; then, for two points further apart than a narrow screen is wide, along
+their own line from behind either one, 30 to 60 m out near the ground, the narrower lens seeing the nearer point big and
+the far one in the same frame), each with a clear line to both over the course's static solids. Where no eye works, the
+aftermath shot stays. The judge (`reel-view.test.ts`) checks every impact point of every clip at its own time on three
+screens (desktop beside its panels, a phone on its side and upright), and the earlier one still in frame when the camera
+changed between two hits.
+
+A hit that comes *inside* the crash cam's window (the cuts from `CUTS[0]` to `crashCamEnd`: the car keeps being hit while
+the held cam stands on it) is looked at by the held cam itself (`ReelDirector.lookahead` → `CrashHold.later`): its aim
+turns to the impact `HIT_LEAD` (0.75 s) before it lands and stays `HIT_KEEP` (0.3 s) after, and `heldCut` picks the cut
+whose eye has room and sees the car and every impact still to come, falling back to the cuts that see the car alone when
+none sees them all.
+
 A shot is one of: chase (behind the car along its travel), trackside cinematic (`CineCam.pick`, searched in full when
 the shot starts, so the pick depends only on the poses and the seed), wheel-well dutch (`DutchCam.place` on a seeded
 mount) or a high static eye 22 m off the crash (the seeded angle, else the first eighth-turn from it whose eye is clear
@@ -258,9 +307,9 @@ it), so every rig's centred subject plays in the free part, clear of the panels 
 
 ### FX tier
 
-The reel has no FX switch of its own. A race starts on `minimal` under the automatic tier and lifts back to the ceiling at green + 3 s if it holds 57 fps (docs/CINEMATIC.md "Auto"); its end,
+The reel has no FX switch of its own. A race starts on `minimal` under the automatic tier and lifts back to the ceiling at green + 3 s if its frame work has room (docs/CINEMATIC.md "Auto"); its end,
 where the reel starts, returns the tier to the highest one that held this session, so a capable desktop plays the reel
-on "high" and steps down if it can't hold 50 fps. A manual pick keeps the user's tier through the reel. Switching tiers
+on "high" and steps down if its frame work (main thread or GPU) exceeds the 60 fps budget. A manual pick keeps the user's tier through the reel. Switching tiers
 only switches post passes: on the RTX 4080 laptop run, `renderer.info.programs` stayed at 84 before, through and after
 a switch to "high".
 

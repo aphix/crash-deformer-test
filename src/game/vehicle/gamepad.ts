@@ -1,3 +1,5 @@
+import { hypot2 } from "../kernel/physics-core.js";
+
 /**
  * Gamepad API reader for the W3C "standard" mapping (Xbox, DualSense/DualShock in
  * Chromium, Firefox and Safari). Polled once per frame into a pooled `PadState`.
@@ -70,7 +72,7 @@ export function blankPad(): PadState {
  * capped at 1, then a power curve for fine control near the centre.
  */
 export function stickScale(x: number, y: number): number {
-  const m = Math.hypot(x, y);
+  const m = hypot2(x, y);
   if (m <= PAD_DEAD.stick) return 0;
   const n = Math.min(1, (m - PAD_DEAD.stick) / (1 - PAD_DEAD.stick));
   return Math.pow(n, PAD_DEAD.curve) / m;

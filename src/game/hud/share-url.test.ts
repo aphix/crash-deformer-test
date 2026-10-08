@@ -78,9 +78,17 @@ describe("given the player's car type, any of the shared list's", () => {
   }
 });
 
+describe("given the Ultra effects tier pinned in a link", () => {
+  it("when the link is written and read, then it carries fx=ultra and reads back as the Ultra tier", () => {
+    const s: ShareState = { ...DEFAULTS, fx: "ultra" };
+    assert.equal(encodeShare(s), "fx=ultra");
+    assert.equal(decodeShare(`#${encodeShare(s)}`).fx, "ultra");
+  });
+});
+
 describe("given a link with malformed values and unknown keys", () => {
   it("when it is decoded, then every field falls back to its default and nothing throws", () => {
-    const d = decodeShare("#scene=nope&cars=abc&night=yes&seed=zz&fx=ultra&car=tank&dside=up&track=../x&foo=1&smin=&ts=1e3&%=%%&");
+    const d = decodeShare("#scene=nope&cars=abc&night=yes&seed=zz&fx=turbo&car=tank&dside=up&track=../x&foo=1&smin=&ts=1e3&%=%%&");
     assert.equal(json(d), json(DEFAULTS));
   });
 });

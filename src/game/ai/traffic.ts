@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { clearDrive, DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -126,11 +127,12 @@ export class TrafficBrain {
       this.scan[id]! += 37;
       const p = this.placeAt(id, s);
       let near = Infinity;
-      for (const o of observers) near = Math.min(near, Math.hypot(o.x - p.x, o.z - p.z));
+      for (let q = 0; q < observers.length; q++) near = Math.min(near, hypot2(observers[q]!.x - p.x, observers[q]!.z - p.z));
       if (near < SPAWN_NEAR || near > SPAWN_FAR) continue;
       let clear = true;
-      for (const c of cars) {
-        if (c.id !== id && Math.hypot(c.x - p.x, c.z - p.z) < SPAWN_CLEAR) {
+      for (let q = 0; q < cars.length; q++) {
+        const c = cars[q]!;
+        if (c.id !== id && hypot2(c.x - p.x, c.z - p.z) < SPAWN_CLEAR) {
           clear = false;
           break;
         }
@@ -176,7 +178,7 @@ export class TrafficBrain {
     const path = slot.path;
     const proj = projectPath(path, self.x, self.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     const fx = Math.sin(self.yaw);
     const fz = Math.cos(self.yaw);
 
@@ -184,7 +186,8 @@ export class TrafficBrain {
     let gap = Infinity;
     let gapAlong = 0;
     let gapYaw = 0;
-    for (const o of others) {
+    for (let q = 0; q < others.length; q++) {
+      const o = others[q]!;
       if (o.id === i) continue;
       const dx = o.x - self.x;
       const dz = o.z - self.z;

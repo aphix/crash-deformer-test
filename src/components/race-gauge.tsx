@@ -4,6 +4,7 @@ import { RESET_GLOW } from "@/components/reset-prompt";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { needsReset } from "@/game/hud/reset-prompt";
 import { formatSpeed } from "@/game/hud/speed-units";
+import { KPH_PER_MS } from "@/game/kernel/constants";
 import type { RaceView } from "@/game/match/types";
 import { cn } from "@/lib/utils";
 
@@ -60,8 +61,20 @@ const DialFace = memo(function DialFace() {
   );
 });
 
-/** The nitrous bottle: its fill is the boost meter; it glows while there is a burst in it, and brighter while burning. */
-function Nitro({ boost, boosting, drafting }: { boost: number; boosting: boolean; drafting: boolean }) {
+/**
+ * The nitrous bottle: its fill is the boost meter; it glows while there is a burst in it, and brighter while burning. A car with no nitrous
+ * (police, traffic, a car nobody drives: `boost` null) shows it empty and greyed, so the cluster always carries the bottle.
+ */
+function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: boolean; drafting: boolean }) {
+  if (boost === null) {
+    return (
+      <div className="relative flex flex-col items-center opacity-30" role="img" aria-label="No boost">
+        <div className="h-[0.5em] w-[0.9em] rounded-t-sm bg-fg/55" />
+        <div className="h-[0.5em] w-[0.5em] bg-fg/30" />
+        <div className="h-[2.6em] w-[1.5em] rounded-[0.4em] bg-fg/20 shadow-[var(--shadow-border)]" />
+      </div>
+    );
+  }
   const usable = boost > NITRO_USABLE;
   return (
     <div className="relative flex flex-col items-center" role="meter" aria-label="Boost" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(boost * 100)}>
@@ -103,7 +116,7 @@ export function DriveCluster({ view }: { view: RaceView }) {
         <path d={arc(100, DMG_FROM, DMG_TO)} className="stroke-fg/20" strokeWidth="6" strokeLinecap="round" fill="none" />
         {view.damage > 0.01 ? <path d={arc(100, DMG_FROM, dmgTo)} className={dmgTone} strokeWidth="6" strokeLinecap="round" fill="none" /> : null}
         <text x={C} y="112" textAnchor="middle" fontSize="46" className="fill-fg font-semibold" aria-label="Speed">
-          {formatSpeed(view.speedKph / 3.6, unit)}
+          {formatSpeed(view.speedKph / KPH_PER_MS, unit)}
         </text>
         <text x={C} y="127" textAnchor="middle" fontSize="10" letterSpacing="1.5" className="fill-fg/70 uppercase">
           {unit}
@@ -134,11 +147,9 @@ export function DriveCluster({ view }: { view: RaceView }) {
       >
         <Wrench className="size-3/5" />
       </div>
-      {view.boost === null ? null : (
-        <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)]">
-          <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
-        </div>
-      )}
+      <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)]">
+        <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+      </div>
     </div>
   );
 }

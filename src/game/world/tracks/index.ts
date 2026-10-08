@@ -7,6 +7,7 @@ import rally from "./rally.json" with { type: "json" };
 import razorShelf from "./razor-shelf.json" with { type: "json" };
 import stunt from "./stunt.json" with { type: "json" };
 import { HAVANA } from "./havana.ts";
+import { TRACK_ID } from "../constants.ts";
 
 /** Every course, in menu order. Raw JSON: `new Track(json)` validates and compiles it. */
 export const TRACKS: readonly unknown[] = [oval, rally, city, stunt, fourCount, damSpine, razorShelf, breakerYard];
@@ -15,4 +16,13 @@ export const TRACKS: readonly unknown[] = [oval, rally, city, stunt, fourCount, 
 export const OFF_MENU: readonly unknown[] = [HAVANA];
 
 /** Campaign playlist (track ids, raced in order). */
-export const CAMPAIGN: readonly string[] = ["oval", "rally", "city", "stunt", "four-count", "dam-spine", "razor-shelf", "breaker-yard"];
+export const CAMPAIGN: readonly string[] = [
+  TRACK_ID.oval,
+  TRACK_ID.rally,
+  TRACK_ID.city,
+  TRACK_ID.stunt,
+  TRACK_ID.fourCount,
+  TRACK_ID.damSpine,
+  TRACK_ID.razorShelf,
+  TRACK_ID.breakerYard,
+];

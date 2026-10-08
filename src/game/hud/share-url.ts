@@ -7,6 +7,7 @@
 
 import { INITIAL_HUD, KNOB_RANGES } from "./hud-store.ts";
 import { DEFAULT_RACE_OPTIONS, DRIVER_CARS } from "../match/types.ts";
+import { NET_TX } from "../net/net-ports.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
@@ -47,6 +48,15 @@ const roomCode: Field<string> = {
 /** Whether `room` is a code the `#` can carry (what `room=` accepts back). */
 export const isShareableRoom = (room: string): boolean => roomCode.parse(room) === room;
 
+/** The older `?net=host|join&room=CODE[&tx=bc]` link: `join` joins on load, `host` only fills in the Room field. Null when the code is not one the Room field takes. */
+export function netDeepLink(search: string): { join: boolean; code: string; tx: ShareState["tx"] } | null {
+  const params = new URLSearchParams(search);
+  const net = params.get("net");
+  const code = roomCode.parse(params.get("room") ?? "");
+  if ((net !== "host" && net !== "join") || code === undefined) return null;
+  return { join: net === "join", code, tx: params.get("tx") === NET_TX.bc ? NET_TX.bc : NET_TX.rtc };
+}
+
 const R = KNOB_RANGES;
 const D = INITIAL_HUD;
 const O = DEFAULT_RACE_OPTIONS;
@@ -58,7 +68,7 @@ const O = DEFAULT_RACE_OPTIONS;
 const FIELDS = {
   // The room first: it is what a link is for. `tx` is `bc` only for two tabs of one browser.
   room: roomCode,
-  tx: pick(["rtc", "bc"] as const, "rtc"),
+  tx: pick([NET_TX.rtc, NET_TX.bc] as const, NET_TX.rtc),
   scene: pick(SCENE_IDS, "fleet"),
   cars: num(1, MAX_CARS, D.carCount, true),
   smin: num(R.speed.min, R.speed.max, D.speedMin),

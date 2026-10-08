@@ -2,8 +2,9 @@
  * Data tables the track JSON refers to by id. Pure: no THREE, no DOM.
  * `prefabs.ts` builds the meshes and must cover every `PrefabId`.
  */
+import { SURFACE } from "./constants.ts";
 
-export const SURFACE_IDS = ["asphalt", "concrete", "cobble", "dirt", "gravel", "grass", "sand"] as const;
+export const SURFACE_IDS = [SURFACE.asphalt, SURFACE.concrete, SURFACE.cobble, SURFACE.dirt, SURFACE.gravel, SURFACE.grass, SURFACE.sand] as const;
 export type SurfaceId = (typeof SURFACE_IDS)[number];
 
 export type Surface = {

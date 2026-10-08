@@ -1,4 +1,6 @@
-import type { RigidBody } from "@dimforge/rapier3d";
+import { hypot3 } from "../kernel/physics-core.js";
+import * as THREE from "three";
+import type { RigidBody } from "@dimforge/rapier3d-simd";
 
 /**
  * The thrown dummy's body (`RagdollSystem` builds and steps it): its parts and joints, its damping, and the only
@@ -96,7 +98,7 @@ export function limit(bodies: readonly RigidBody[]): void {
   for (let j = 0; j < JOINTS.length; j++) {
     const a = 3 * JOINTS[j]![0];
     const b = 3 * JOINTS[j]![1];
-    const spin = Math.hypot(SPIN[a]! - SPIN[b]!, SPIN[a + 1]! - SPIN[b + 1]!, SPIN[a + 2]! - SPIN[b + 2]!);
+    const spin = hypot3(SPIN[a]! - SPIN[b]!, SPIN[a + 1]! - SPIN[b + 1]!, SPIN[a + 2]! - SPIN[b + 2]!);
     if (spin <= JOINT_SPIN) continue;
     shed(bodies[JOINTS[j]![0]]!, bodies[JOINTS[j]![1]]!, 0, 1 - JOINT_SPIN / spin);
     readSpin(bodies, JOINTS[j]![0]);
@@ -151,4 +153,25 @@ export function shed(a: RigidBody, b: RigidBody, lin: number, spin: number): voi
   _w.y = -_v.y;
   _w.z = -_v.z;
   a.applyTorqueImpulse(_w, false);
+}
+
+const _qb = new THREE.Quaternion();
+
+/** `body`'s pose into `into` at `o`: position xyz, rotation xyzw (what the dummies, purses and props capture after a step). */
+export function readPose(body: RigidBody, into: Float32Array, o: number): void {
+  const t = body.translation();
+  const r = body.rotation();
+  into[o] = t.x;
+  into[o + 1] = t.y;
+  into[o + 2] = t.z;
+  into[o + 3] = r.x;
+  into[o + 4] = r.y;
+  into[o + 5] = r.z;
+  into[o + 6] = r.w;
+}
+
+/** The pose `alpha` (0–1) of the way from the one at `o` in `a` to the one at `o` in `c` (position lerped, rotation slerped) into `p` and `q`: a body drawn between its last two steps. */
+export function blendPose(a: Float32Array, c: Float32Array, o: number, alpha: number, p: THREE.Vector3, q: THREE.Quaternion): void {
+  p.set(a[o]! + (c[o]! - a[o]!) * alpha, a[o + 1]! + (c[o + 1]! - a[o + 1]!) * alpha, a[o + 2]! + (c[o + 2]! - a[o + 2]!) * alpha);
+  q.set(a[o + 3]!, a[o + 4]!, a[o + 5]!, a[o + 6]!).slerp(_qb.set(c[o + 3]!, c[o + 4]!, c[o + 5]!, c[o + 6]!), alpha);
 }

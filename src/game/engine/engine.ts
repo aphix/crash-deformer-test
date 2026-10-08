@@ -16,6 +16,7 @@ import { FX_TIERS } from "../present/engine-post.ts";
 import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
 import { PHONE_LEVEL } from "../present/car-detail.ts";
 import { DetailGovernor } from "../present/detail-governor.ts";
+import { sortByDrawClass } from "../present/draw-order.ts";
 import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
 import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
@@ -27,7 +28,7 @@ import { FleetRamps } from "../scenes/fleet-ramps.ts";
 import { Corkscrew } from "../scenes/corkscrew.ts";
 import { TraceRecorder } from "./engine-trace.ts";
 import { snapshotAiCar } from "../match/derby.ts";
-import { LampLights } from "../vehicle/lamp-lights.ts";
+import { FULL_POOL, LampLights, PHONE_POOL } from "../vehicle/lamp-lights.ts";
 import { applyDrive } from "../vehicle/car-drive.ts";
 import { makeDerbyArena, WinnerSpot } from "../scenes/derby-arena.ts";
 import { NetPlay } from "../net/net-play.ts";
@@ -61,6 +62,25 @@ const SKIP_DARK = `if ( directLight.visible ) ${RE_DIRECT}`;
 const lightsChunk = THREE.ShaderChunk.lights_fragment_begin;
 if (!lightsChunk.includes(RE_DIRECT)) throw new Error("three's lights_fragment_begin changed: re-check the dark-light skip");
 if (!lightsChunk.includes(SKIP_DARK)) THREE.ShaderChunk.lights_fragment_begin = lightsChunk.replaceAll(RE_DIRECT, SKIP_DARK);
+
+/** The page's renderer: sRGB out, ACES at the game's exposure, PCF shadows, MSAA only at device pixel ratio 1. */
+function makeRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
+  const renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: (window.devicePixelRatio || 1) <= 1,
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+  renderer.setClearColor(0x12141a, 1);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.45;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.setOpaqueSort(sortByDrawClass);
+  return renderer;
+}
 
 export class CrashEngine extends EngineShare {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
@@ -114,6 +134,7 @@ export class CrashEngine extends EngineShare {
     playReel: (reel, startAt) => this.highlights.play(reel, startAt),
     reelPlaying: () => this.highlights.playing,
     launchEjection: (e) => this.ragdolls.launch(e, this.live()),
+    meterOf: (i) => this.meterOf(i),
     seat: this.seat,
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
@@ -146,19 +167,7 @@ export class CrashEngine extends EngineShare {
     this.lab.load("cards");
     this.lab.fx = this.hitFx;
 
-    this.renderer = new THREE.WebGLRenderer({
-      canvas,
-      antialias: (window.devicePixelRatio || 1) <= 1,
-      alpha: false,
-      powerPreference: "high-performance",
-    });
-    this.renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
-    this.renderer.setClearColor(0x12141a, 1);
-    this.renderer.outputColorSpace = THREE.SRGBColorSpace;
-    this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
-    this.renderer.toneMappingExposure = 1.45;
-    this.renderer.shadowMap.enabled = true;
-    this.renderer.shadowMap.type = THREE.PCFShadowMap;
+    this.renderer = makeRenderer(canvas);
 
     this.camera = new THREE.PerspectiveCamera(50, 1, 0.1, 180);
     this.view = new ChaseCamera(this.camera, canvas, this.seat, this.pad.state, this.clock.reduceMotion, (x, y) =>
@@ -198,9 +207,9 @@ export class CrashEngine extends EngineShare {
     this.ragdolls.poles = this.poles;
     this.lab.dolls = this.ragdolls;
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots, witness: this.witness }, MAX_CARS, this.clock.reduceMotion);
-    // `?fx=off|minimal|low|high` picks the tier for the session (bench A/B); the auto tier otherwise.
+    // `?fx=off|minimal|low|high|ultra` picks the tier for the session (bench A/B); the auto tier otherwise. Ultra loads after boot (below).
     const fxParam = FX_TIERS.find((t) => t === new URLSearchParams(window.location.search).get("fx"));
-    this.cine.setTier(fxParam ?? INITIAL_HUD.fxTier);
+    this.cine.setTier(fxParam === "ultra" ? "high" : (fxParam ?? INITIAL_HUD.fxTier));
     const gl = this.renderer.getContext();
     const gpu = gl.getExtension("WEBGL_debug_renderer_info");
     const desktop = hardwareDesktop(gpu ? String(gl.getParameter(gpu.UNMASKED_RENDERER_WEBGL)) : null, window.matchMedia("(pointer: fine)").matches);
@@ -218,8 +227,11 @@ export class CrashEngine extends EngineShare {
     });
     this.impactLight = new THREE.PointLight(0xffc27a, 0, 22, 2);
     this.scene.add(this.impactLight);
-    // Four body lamps per car plus at most one lit siren (police flash red, then blue).
-    this.lampLights = new LampLights(this.scene, MAX_CARS * 5);
+    // Four body lamps per car plus at most one lit siren (police flash red, then blue). `?lamps=lean` trims a phone's pool to 2 spots
+    // + 2 points (about 0.5 ms a frame at 4x CPU; at night the second-nearest car loses its tail wash). Fixed here, before the programs
+    // link: a light-count change relinks every lit shader.
+    const leanLamps = !desktop && new URLSearchParams(window.location.search).get("lamps") === "lean";
+    this.lampLights = new LampLights(this.scene, MAX_CARS * 5, leanLamps ? PHONE_POOL : FULL_POOL);
     this.race = new RaceDirector({
       scene: this.scene,
       camera: this.camera,
@@ -236,16 +248,19 @@ export class CrashEngine extends EngineShare {
       leave: () => this.setScene("fleet"),
       watchCam: () => void (this.view.spec = "auto"),
       hitFx: this.hitFx,
+      knockProp: (index, car, vx, vy, vz) => this.ragdolls.knockProp(index, car, vx, vy, vz),
       buildArt: (track, placed) => {
         this.queueWarm();
-        this.ragdolls.setCourse(track, placed, (i) => this.race.propKnocked(i));
-        return new TrackArt(track, placed, this.stage);
+        const art = new TrackArt(track, placed, this.stage);
+        this.ragdolls.setCourse(track, placed, art.props);
+        return art;
       },
       markBounds: (minX, minZ, maxX, maxZ) => this.cine.marks.setBounds(minX, minZ, maxX, maxZ),
       // tickInner's wreck-slide rule (`bleedAfterSlide` once the crash clock is past the hit).
       bleeds: () => this.clock.wallSinceImpact > 0.2,
       reelReady: (clips, since) => this.startReel(clips, since),
       clear: () => this.clearScene(),
+      heardMeter: (i) => this.net.heard(i),
     });
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
@@ -286,6 +301,7 @@ export class CrashEngine extends EngineShare {
       .catch((err: unknown) => console.error("Crush Stream program warm-up failed", err))
       .then(() => {
         this.warming = false;
+        if (fxParam === "ultra") this.setFxTier("ultra");
         // Only a throw needs Rapier, so boot never waits for it: it loads in the background from here, and a car
         // disabled before it is in simply throws nobody (`EjectionWatch` only judges edges it saw).
         this.ragdolls.preload().catch((err: unknown) => console.error("Crush Stream ragdoll load failed", err));
@@ -359,6 +375,7 @@ export class CrashEngine extends EngineShare {
 
   protected tickInner(now: number): void {
     if (this.disposed) return;
+    const t0 = performance.now();
     // The first rAF stamp can predate `start()`'s performance.now(): a negative dt froze the sim for seconds.
     const wallDt = Math.min(Math.max(0, (now - this.last) / 1000), 0.1);
     this.last = now;
@@ -397,7 +414,8 @@ export class CrashEngine extends EngineShare {
       this.scheduleSkins(cars);
       // A client draws the host's skins; the reel's replay (a client's too) skins its own cars, the hidden ones wait.
       if (reelDt !== null || !this.net.client) {
-        for (const car of cars) {
+        for (let i = 0; i < cars.length; i++) {
+          const car = cars[i]!;
           if (reelDt !== null || this.showStack ? car.group.visible : !this.rigScene || car === this.carA) car.updateSkin();
         }
       }
@@ -410,7 +428,6 @@ export class CrashEngine extends EngineShare {
       }
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
       if (this.barrierUp) this.barrier.step(simDt);
-      if (this.showLab) this.labArt?.update(simDt);
       const fxDt = Math.max(simDt, wallDt * 0.6);
       this.debris.update(fxDt, this.bounceWorld);
       this.sparks.update(fxDt, bounceGround);
@@ -442,11 +459,14 @@ export class CrashEngine extends EngineShare {
           }
         }
       }
-      if (this.trace.due(wallDt, this.captureTrace)) this.trace.push(this.traceSetup(), cars, this.traceClock());
+      if (this.trace.due(wallDt, this.captureTrace)) this.trace.sample(this.traceSetup(), cars, this.traceClock());
       this.stepDerby(simDt);
       this.seat.step(simDt);
       this.cine.update(wallDt, simDt, cars, this.followedCar(), this.seat.mode === "drive", this.fxDensity);
-      if (this.derbyMode) for (const id of this.derby.consumeBoosts()) this.takedownBoost(id);
+      if (this.derbyMode) {
+        const boosts = this.derby.consumeBoosts();
+        for (let k = 0; k < boosts.length; k++) this.takedownBoost(boosts[k]!);
+      }
     }
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
@@ -467,6 +487,7 @@ export class CrashEngine extends EngineShare {
       this.hudAcc = 0;
       this.emitHud();
     }
+    this.workMs = performance.now() - t0;
   }
 
   /**
@@ -539,17 +560,7 @@ export class CrashEngine extends EngineShare {
       const snaps = this.derby.snapshots(cars.length);
       for (let i = 0; i < cars.length; i++) {
         const c = cars[i]!;
-        snapshotAiCar(
-          snaps[i]!,
-          i,
-          c.group.position.x,
-          c.group.position.z,
-          c.yaw,
-          c.velocity.x,
-          c.velocity.z,
-          c.deform.drivetrainAlive,
-          c.deform.masses,
-        );
+        snapshotAiCar(snaps[i]!, i, c, c.deform.drivetrainAlive);
       }
       for (let i = 0; i < cars.length; i++) {
         if (i === driven || this.derbySeated.has(i)) continue;
@@ -576,7 +587,9 @@ export class CrashEngine extends EngineShare {
     w.fine = this.pace.fine;
     stepWorld(w, dt);
     // A driver thrown out this step (`EjectionWatch`): his dummy flies, the race recorder and the netplay peers hear of it.
-    for (const e of this.ejection.take()) {
+    const ejected = this.ejection.take();
+    for (let k = 0; k < ejected.length; k++) {
+      const e = ejected[k]!;
       this.ragdolls.launch(e, cars);
       if (this.race.active) this.race.recorder.eject(e);
       this.net.sendEject(e);
@@ -747,9 +760,11 @@ export class CrashEngine extends EngineShare {
       if (champ) look.set(champ.group.position.x, 0.7, champ.group.position.z);
     } else if (this.derbyMode) {
       const alive = this.aliveBuf;
-      alive.length = 0;
-      for (const c of this.live()) if (c.deform.drivetrainAlive) alive.push(c);
-      centroid(_v, alive.length ? alive : this.live());
+      const live = this.live();
+      let n = 0;
+      for (let i = 0; i < live.length; i++) if (live[i]!.deform.drivetrainAlive) alive[n++] = live[i]!;
+      alive.length = n;
+      centroid(_v, n ? alive : live);
       look.set(_v.x, 0.7, _v.z);
     } else if (this.showLab) {
       // A phone turned on its side (or back) gets that shape's shot, unless the user framed one.

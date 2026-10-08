@@ -1,30 +1,37 @@
-import type * as THREE from "three";
+import * as THREE from "three";
 import type { RaceCommand } from "../match/types.ts";
 import { DETAIL_LEVELS, type CarDetail } from "../present/car-detail.ts";
 import type { DetailGovernor } from "../present/detail-governor.ts";
 import type { Cinematics } from "../present/engine-cine.ts";
-import { describeDepthProbe, probeDepth, type DepthProbe } from "../present/depth-probe.ts";
-import { describePost, type FxTier } from "../present/engine-post.ts";
+import { probeDepth } from "../present/depth-probe.ts";
+import { describePost, FX_TIERS, type FxTier } from "../present/engine-post.ts";
 import type { DriverSeat } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
-import { benchPlan, labLine, leaderAhead, stripLines, type BenchPlan, type StripResult } from "./engine-bench-plan.ts";
+import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
+import { watchPage } from "./engine-bench-page.ts";
+import { browserName, describeBench, DETAIL_ARMS, perSecond, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_WARM, PHASE_WINDOW, stat, type BenchResult, type BenchSettings, type Block } from "./engine-bench-report.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
 import type { SimPacer } from "./sim-pace.ts";
 import type { World } from "./world-step.ts";
 
-/** The commit the page was built from (`vite.config.ts` `define`; "dev" where the build had no git). */
-declare const __BUILD_SHA__: string;
-
 /** The timings both benches share: the window, the A/B blocks. The warm-up and the course are the plan's. */
 const BENCH = { seed: 1, measureS: 30, blockS: 3, paceCycles: 3, fxCycles: 2, detailCycles: 2, settleFrames: 10 } as const;
-/** The detail A/B's arms: no cuts at all, then the ladder's rungs for 75, 50 and 30 m (`DETAIL_LEVELS`). */
-const DETAIL_ARMS: readonly { key: string; level: number | null }[] = [{ key: "off", level: null }, { key: "75 m", level: 0 }, { key: "50 m", level: 2 }, { key: "30 m", level: 4 }];
 /** The key a rung's share of the window is kept under. */
 const rungKey = (level: number): string => `${DETAIL_LEVELS[level]?.far ?? "?"} m`;
 /** Samples kept: far above any display rate, so the window always fits. */
 const CAP = BENCH.measureS * 400;
+/** The timer-query block of the main window (the A/B arms' blocks count up from 1). */
+const WINDOW_BLOCK = 0;
+/** Timer queries in flight at most (a draw finding them all out goes untimed); the results kept: the window and every A/B block at the sample rate cap. */
+const QUERY_POOL = 64;
+const GPU_LOG_CAP = CAP * 4;
+/** A detail rung's slot in the window's counts: 0 for a level the ladder has no rung for (`rungKey` "?"), else the level + 1. */
+const RUNG_SLOTS = DETAIL_LEVELS.length + 1;
+const rungSlot = (level: number): number => (level >= 0 && level < DETAIL_LEVELS.length ? level + 1 : 0);
+/** What the lead's card shows (in place of a race clock second) while the grid waits. */
+const GRID_SECOND = -Infinity;
 
 /** The engine's protected parts the bench times, handed over by `EngineInput.benchParts`. */
 export interface BenchParts {
@@ -58,233 +65,17 @@ interface BenchEngine {
   reset(): void;
   /** The HUD's time scale: a fixed one, or null for the automatic slow-mo. */
   setTimeScale(value: number | null): void;
-  /** Lab item `thing` thrown at item `target` at `speed` m/s (the plan direction dx, dz is a free throw's only). */
-  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void;
+  /** Lab item `thing` let go at `velocity` (m/s). */
+  flickLab(thing: number, velocity: THREE.Vector3): void;
   advance(seconds: number, opts?: { frameDt?: number; render?: boolean }): void;
   start(): void;
   setFxTier(tier: FxTier): void;
   setFxAuto(): void;
+  /** Fetch the Ultra look (the `ultra=1` arm needs it in before its first block); false when it did not load. */
+  loadUltra(): Promise<boolean>;
   benchParts(): BenchParts;
   /** Every non-police car wears `style` (null: the fleet's mix). */
   useOneBody(style: CarStyleId | null): void;
-}
-
-interface Stat {
-  mean: number;
-  p50: number;
-  p95: number;
-  p99: number;
-  max: number;
-}
-
-/** A stretch of frames under one setting (the A/B arms): what it cost and gave. */
-export interface Block {
-  frames: number;
-  wallS: number;
-  fps: number;
-  /** Race-clock seconds per wall second, %. */
-  simSpeedPct: number;
-  /** Wall ms of sim per race-clock second: the cost of a second of the game whatever the step. */
-  simMsPerSimS: number;
-  msPerStep: number;
-  stepsPerFrame: number;
-  cpuMs: number;
-  drawMs: number;
-  /** Mean draw time on the GPU (timer query), null where the device has none. */
-  gpuMs: number | null;
-  /** Steps cut to the pacer's fine slice for a hit about to land (`World.fineCuts`), per race-clock second. */
-  fineCutsPerSimS: number;
-}
-
-/** What was switched on while the bench ran. */
-interface BenchSettings {
-  fxTier: string;
-  fxAuto: boolean;
-  /** `describePost` of the tier the window mostly ran. */
-  post: string;
-  fxDensity: number;
-  celLook: number | null;
-  shadows: { enabled: boolean; type: string; map: string; casters: number };
-  pixelRatio: number;
-  deviceRatio: number;
-  canvas: string;
-  antialias: boolean;
-  toneMapping: number;
-  night: boolean;
-  wet: boolean;
-  realism: number;
-  squash: number;
-  buckle: number;
-  deformMode: string;
-  depth: { bits: number; subpixelBits: number; contextDepth: boolean; fragmentHighFloat: { precision: number; rangeMin: number; rangeMax: number } | null; near: number; far: number; logarithmicDepthBuffer: boolean; probe: DepthProbe };
-}
-
-export interface BenchResult {
-  course: string;
-  /** The commit the page was built from ("dev": built without git). */
-  build: string;
-  /** Cars in play (racers, traffic, police), and what the police did: stakeouts parked, pursuits begun, the largest pack. */
-  cars: number;
-  cops: { stakeouts: number; pursuits: number; maxPack: number } | null;
-  /** Cars that were wrecks (`crashed`): mean over the window's frames, and at its end. */
-  crashed: { mean: number; end: number };
-  frames: number;
-  wallS: number;
-  fps: number;
-  /** 1000 / the 99th-percentile frame interval: the rate of the slowest 1 % of frames. */
-  fpsLow1: number;
-  /** Mean fps of each third of the window (a falling row is the device throttling). */
-  fpsThirds: [number, number, number];
-  /** Frames drawn in each wall second of the window, and the sim's ms (`SimPacer.run`: physics, AI, breakage) in each. */
-  fpsPerSecond: number[];
-  simMsPerSecond: number[];
-  /** Frame interval (rAF to rAF), ms. */
-  frameMs: Stat;
-  /** Main-thread time inside the engine's frame, ms (sim + AI + skins + fx + draw submission). */
-  cpuMs: Stat;
-  /** Of it: the sim steps (`SimPacer.run`: physics, AI, breakage), and the draw (`Cinematics.render`). */
-  simMs: Stat;
-  renderMs: Stat;
-  /** Draw time on the GPU (timer query), null where the device has none. */
-  gpuMs: Stat | null;
-  stepsPerFrame: number;
-  msPerStep: number;
-  /** Wall ms of sim per race-clock second. */
-  simMsPerSimS: number;
-  /** Steps cut to the pacer's fine slice for a hit about to land (`World.fineCuts`), per race-clock second. */
-  fineCutsPerSimS: number;
-  /** Frames the pacer stopped early, and the sim seconds it gave up (never stepped). */
-  cutFrames: number;
-  lostSimS: number;
-  /** Share of the sampled frames the pacer ran at its coarse 1/120 s slice (`SimPacer` adaptive), %. */
-  coarsePct: number;
-  /** Sim seconds per wall second, %: below 100 the game runs slower than real time (the pacer's cuts, or the slow-motion). */
-  simSpeedPct: number;
-  /** The strip bench's settings and how far up the straight the lead racer got (null: the city bench). */
-  strip: StripResult | null;
-  /** The Lab bench's throws the window saw (null: a race bench). */
-  labThrown: number | null;
-  calls: number;
-  triangles: number;
-  /** Share of the window's frames at each FX tier, % (the auto tier moves). */
-  tierPct: Record<string, number>;
-  /** Share of the window's frames at each distance-detail rung, % (keyed by the distance beyond which only the body is drawn; the governor moves it). */
-  detailPct: Record<string, number>;
-  setupMs: { options: number; start: number };
-  settings: BenchSettings;
-  /** The pacer pinned to 1/240 s and to 1/120 s in alternating blocks (same tier), then the FX tier alternated minimal / low / high. */
-  abPace: { fine: Block; coarse: Block };
-  abFx: { minimal: Block; low: Block; high: Block };
-  /** The distance detail pinned: no cuts, then the rungs for 75, 50 and 30 m (the governor off, the FX tier held). */
-  abDetail: Record<string, Block>;
-  device: {
-    browser: string;
-    userAgent: string;
-    gpu: string;
-    /** The browser reports a generic GPU ("… or similar"): the name is not the machine's. */
-    gpuMasked: boolean;
-    cores: number;
-    memoryGB: number | null;
-    screen: string;
-    dpr: number;
-    canvas: string;
-    /** The smallest step `performance.now()` took in a 25 ms spin, ms (browsers round it to 0.1, 1 or 16.7 ms). */
-    timerStepMs: number;
-  };
-}
-
-/** Mean and percentiles of the first `n` values (order-free). */
-export function stat(values: ArrayLike<number>, n = values.length): Stat {
-  const s = Float64Array.from({ length: n }, (_, i) => values[i]!).sort();
-  let sum = 0;
-  for (const v of s) sum += v;
-  const at = (p: number): number => s[Math.min(n - 1, Math.floor(p * n))] ?? 0;
-  return { mean: n ? sum / n : 0, p50: at(0.5), p95: at(0.95), p99: at(0.99), max: n ? s[n - 1]! : 0 };
-}
-
-const BROWSERS: [string, RegExp][] = [
-  ["Edge", /Edg\/([\d.]+)/],
-  ["Opera", /OPR\/([\d.]+)/],
-  ["Samsung Internet", /SamsungBrowser\/([\d.]+)/],
-  ["Firefox", /(?:Firefox|FxiOS)\/([\d.]+)/],
-  ["Chrome", /(?:Chrome|CriOS)\/([\d.]+)/],
-  ["Safari", /Version\/([\d.]+).*Safari/],
-];
-
-/** The browser and its major version from a user agent string. */
-export function browserName(ua: string): string {
-  for (const [name, re] of BROWSERS) {
-    const m = re.exec(ua);
-    if (m) return `${name} ${m[1]!.split(".")[0]}`;
-  }
-  return "unknown browser";
-}
-
-/**
- * Per full wall second of the frame intervals (ms): the frames drawn, and the ms of `work` (one value per frame,
- * e.g. the sim's time) spent in it; both scaled to an exact 1000 ms. A partial last second is dropped.
- */
-export function perSecond(intervals: ArrayLike<number>, work: ArrayLike<number>, n = intervals.length): { fps: number[]; workMs: number[] } {
-  const fps: number[] = [];
-  const workMs: number[] = [];
-  let acc = 0;
-  let busy = 0;
-  let count = 0;
-  let k = 0;
-  for (let i = 0; i < n; i++) {
-    acc += intervals[i]!;
-    busy += work[i]!;
-    count++;
-    if (acc >= 1000) {
-      fps[k] = Math.round((count * 1000) / acc);
-      workMs[k++] = Math.round((busy * 1000) / acc);
-      acc = busy = count = 0;
-    }
-  }
-  return { fps, workMs };
-}
-
-const f1 = (v: number): string => v.toFixed(1);
-const row = (label: string, s: Stat): string => `${label.padEnd(10)}p50 ${f1(s.p50)}  p95 ${f1(s.p95)}  p99 ${f1(s.p99)}  max ${f1(s.max)} ms`;
-/** The GPU timer spans the draw, so a wait inside it (the display's back buffer, another process) counts: a p95 within 15 % of a frame's length is that wait, and p50 is the work. */
-const waited = (gpu: Stat, frame: Stat): boolean => gpu.p95 >= 0.85 * frame.p50 && gpu.p95 <= 1.15 * frame.p50;
-const gpuOf = (b: Block): string => (b.gpuMs === null ? "gpu n/a" : `gpu ${f1(b.gpuMs)}`);
-const arm = (label: string, b: Block): string => `${label} ${f1(b.fps)} fps, sim ${Math.round(b.simSpeedPct)} %, ${Math.round(b.simMsPerSimS)} ms/sim-s, cpu ${f1(b.cpuMs)}, draw ${f1(b.drawMs)}, ${gpuOf(b)}`;
-
-/** The results card's text, top line first: the numbers the owner reads off a screenshot. */
-export function describeBench(r: BenchResult): string[] {
-  const d = r.device;
-  const s = r.settings;
-  const tiers = Object.entries(r.tierPct).sort((a, b) => b[1] - a[1]).map(([t, p]) => `${t} ${Math.round(p)} %`).join(", ");
-  return [
-    `CRUSH BENCH  ${r.course}  ${r.cars} cars  ${f1(r.wallS)} s  ${r.frames} frames  (${d.browser})  build ${r.build}`,
-    ...(r.strip ? stripLines(r.strip) : []),
-    ...(r.labThrown !== null ? [labLine(r.labThrown)] : []),
-    `${f1(r.fps)} FPS   1% low ${f1(r.fpsLow1)}   by thirds ${r.fpsThirds.map(f1).join(" / ")}`,
-    `fps each second: ${r.fpsPerSecond.join(" ")}`,
-    `sim ms each second: ${r.simMsPerSecond.join(" ")}`,
-    `SIM SPEED ${Math.round(r.simSpeedPct)} %   pacer cut ${r.cutFrames} of ${r.frames} frames, gave up ${f1(r.lostSimS)} sim-s   1/120 s steps in ${Math.round(r.coarsePct)} % of frames   wrecks: mean ${f1(r.crashed.mean)}, end ${r.crashed.end}`,
-    row("frame", r.frameMs),
-    row("CPU", r.cpuMs),
-    row("  sim", r.simMs) + `   ${f1(r.stepsPerFrame)} steps/frame, ${r.msPerStep.toFixed(2)} ms/step, ${Math.round(r.simMsPerSimS)} ms per sim-second, ${f1(r.fineCutsPerSimS)} fine-slice cuts/sim-s`,
-    row("  draw", r.renderMs),
-    r.gpuMs ? row("GPU", r.gpuMs) + (waited(r.gpuMs, r.frameMs) ? "   p95 is one frame long: a wait on the display, p50 is the work" : "") : "GPU       no timer query on this device",
-    `draw ${r.calls} calls  ${Math.round(r.triangles / 1000)}k tris   cops: ${r.cops ? `${r.cops.stakeouts} stakeouts, ${r.cops.pursuits} pursuits, pack of ${r.cops.maxPack}` : "none"}`,
-    `fx tier: ${tiers}${s.fxAuto ? " (auto)" : ""}   post chain at the top tier: ${s.post}`,
-    `detail: only the body drawn beyond ${Object.entries(r.detailPct).sort((a, b) => b[1] - a[1]).map(([k, v]) => `${k} for ${Math.round(v)} %`).join(", ")} of the window`,
-    `shadows ${s.shadows.enabled ? `${s.shadows.type} ${s.shadows.map}, ${s.shadows.casters} casters` : "off"}   pixel ratio ${s.pixelRatio} of device ${s.deviceRatio}, canvas ${s.canvas}, ${s.antialias ? "MSAA" : "no MSAA"}   fx density ${f1(s.fxDensity)}, cel ${s.celLook === null ? "auto" : f1(s.celLook)}`,
-    `night ${s.night ? "on" : "off"}, wet ${s.wet ? "on" : "off"}, realism ${f1(s.realism)}, squash ${f1(s.squash)}, buckle ${f1(s.buckle)}, deform ${s.deformMode}`,
-    `depth: ${s.depth.bits} bits (drawing buffer${s.depth.contextDepth ? "" : ", none requested"}), subpixel ${s.depth.subpixelBits} bits, fragment highp ${s.depth.fragmentHighFloat ? `${s.depth.fragmentHighFloat.precision} bits, range 2^${s.depth.fragmentHighFloat.rangeMin}..2^${s.depth.fragmentHighFloat.rangeMax}` : "not supported"}, camera near ${s.depth.near} far ${s.depth.far}, log depth ${s.depth.logarithmicDepthBuffer ? "on" : "off"}, ${describeDepthProbe(s.depth.probe)}`,
-    `A/B pacer pinned: ${arm("1/240 s", r.abPace.fine)}, ${f1(r.abPace.fine.fineCutsPerSimS)} fine-slice cuts/sim-s`,
-    `                  ${arm("1/120 s", r.abPace.coarse)}, ${f1(r.abPace.coarse.fineCutsPerSimS)} fine-slice cuts/sim-s`,
-    `A/B fx pinned: ${arm("minimal", r.abFx.minimal)}`,
-    `               ${arm("low", r.abFx.low)}`,
-    `               ${arm("high", r.abFx.high)}`,
-    ...DETAIL_ARMS.map((a, i) => `${i ? "                   " : "A/B detail pinned: "}${arm(a.key === "off" ? "no cuts" : `body beyond ${a.key}`, r.abDetail[a.key]!)}`),
-    `load: options ${f1(r.setupMs.options)} ms, start ${f1(r.setupMs.start)} ms`,
-    `${d.gpu}${d.gpuMasked ? "   [masked by the browser: not the real GPU]" : ""}`,
-    `${d.cores} cores${d.memoryGB ? `, ${d.memoryGB} GB` : ""}  screen ${d.screen} @${d.dpr}  canvas ${d.canvas}  timer step ${f1(d.timerStepMs)} ms`,
-  ];
 }
 
 // ponytail: executor form, the project's TS lib predates Promise.withResolvers.
@@ -312,29 +103,64 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** A text card over the canvas; `set` rewrites it while the bench runs, `done` swaps in the results and a button that copies the full details as JSON. */
-function overlay(): { set(text: string): void; done(lines: string[], details: () => string): void } {
+/** A bench card posted: the receipt id the server gave, or why it did not go. */
+type BenchReceipt = { id: string } | { error: string };
+/** What posts a bench card's JSON (the page owns the server's address and the loop's context). */
+type SubmitBench = (payload: object) => Promise<BenchReceipt>;
+
+/**
+ * A text card over the canvas; `set` rewrites it while the bench runs, `done` swaps in the results and the buttons that copy
+ * the full details as JSON and submit them, `receipt` shows how a submit went.
+ */
+function overlay(loopProgress: string | null): {
+  set(text: string): void;
+  done(lines: string[], details: () => string, submit: () => void): void;
+  receipt(state: "sending" | BenchReceipt): void;
+} {
   const root = document.createElement("div");
   root.style.cssText =
     "position:fixed;left:8px;top:8px;max-width:calc(100vw - 16px);max-height:calc(100dvh - 16px);overflow:auto;z-index:99999;padding:8px 10px;" +
     "background:rgba(8,10,14,.92);color:#e8f0ff;font:11px/1.35 ui-monospace,Menlo,Consolas,monospace;border-radius:8px;pointer-events:none";
   const pre = document.createElement("pre");
   pre.style.cssText = "margin:0;white-space:pre-wrap";
-  root.append(pre);
+  const status = document.createElement("div");
+  status.style.cssText = "margin-top:6px";
+  root.append(pre, status);
   document.body.append(root);
+  const buttonStyle = "margin:6px 6px 0 0;padding:6px 10px;font:inherit;border-radius:6px;border:1px solid #7ee787;background:#14301c;color:#e8f0ff";
+  const submitButton = document.createElement("button");
   return {
-    set: (text) => void (pre.textContent = text),
-    done: (lines, details) => {
+    set: (text) => void (pre.textContent = loopProgress === null ? text : `${text} · ${loopProgress}`),
+    done: (lines, details, submit) => {
       pre.textContent = lines.join("\n");
       root.style.pointerEvents = "auto";
       root.style.borderLeft = "4px solid #7ee787";
-      const button = document.createElement("button");
-      button.textContent = "Copy details (JSON)";
-      button.style.cssText = "margin-top:6px;padding:6px 10px;font:inherit;border-radius:6px;border:1px solid #7ee787;background:#14301c;color:#e8f0ff";
-      button.onclick = () => {
-        void copyText(details()).then((ok) => void (button.textContent = ok ? "Copied" : "Copy failed: select the card text instead"));
+      const copy = document.createElement("button");
+      copy.textContent = "Copy details (JSON)";
+      copy.style.cssText = buttonStyle;
+      copy.onclick = () => {
+        void copyText(details()).then((ok) => void (copy.textContent = ok ? "Copied" : "Copy failed: select the card text instead"));
       };
-      root.append(button);
+      submitButton.textContent = "Submit \u2191";
+      submitButton.style.cssText = buttonStyle;
+      submitButton.onclick = submit;
+      root.append(copy, submitButton);
+    },
+    receipt: (state) => {
+      status.replaceChildren();
+      submitButton.disabled = state === "sending";
+      if (state === "sending") status.textContent = "Sending\u2026";
+      else if ("error" in state) status.textContent = `Not sent: ${state.error}`;
+      else {
+        const id = document.createElement("code");
+        id.textContent = state.id;
+        id.style.cssText = "user-select:all;font-size:13px;letter-spacing:.06em;padding:0 4px;background:#1c2530;border-radius:4px";
+        const copyId = document.createElement("button");
+        copyId.textContent = "Copy";
+        copyId.style.cssText = `${buttonStyle};margin:0 0 0 6px;padding:2px 8px`;
+        copyId.onclick = () => void copyText(state.id).then((ok) => void (copyId.textContent = ok ? "Copied" : "Select the id"));
+        status.append("Receipt ", id, copyId);
+      }
     },
   };
 }
@@ -355,6 +181,13 @@ function timerStep(): number {
   return min === Infinity ? 0 : min;
 }
 
+/** The timer-query results (ms) landed so far, with the block each belongs to (`Tap.block`); `n` entries, the rest of the arrays unwritten. */
+interface GpuLog {
+  n: number;
+  block: Int32Array;
+  ms: Float64Array;
+}
+
 /** Per-frame scratch the patches below add to, read and zeroed by the frame loop. */
 interface Tap {
   simMs: number;
@@ -363,12 +196,14 @@ interface Tap {
   simS: number;
   /** Draws are wrapped in a GPU timer query while true. */
   timing: boolean;
-  /** The block the queries belong to (0: the main window). */
+  /** The block the queries belong to (`WINDOW_BLOCK`: the main window). */
   block: number;
   /** Blocks numbered so far (the A/B arms' blocks count up from 1, across both A/Bs). */
   blocks: number;
-  /** Timer-query results (ms) once they land (a few frames late; up to 3 s), then every patch comes off. */
-  finish(): Promise<{ block: number; ms: number }[]>;
+  /** Moves the timer queries that have landed into the log (the frame loop calls it once per frame, outside the frame's timing). */
+  collect(): void;
+  /** The log once the last queries land (a few frames late; up to 3 s), then every patch comes off. */
+  finish(): Promise<GpuLog>;
 }
 
 /** Instance patches for the run only: the sim's time (`SimPacer.run`) and the draw's (`Cinematics.render`, with a GPU timer query). */
@@ -376,7 +211,13 @@ function tap(pace: SimPacer, parts: BenchParts): Tap {
   const { renderer, cine } = parts;
   const gl = renderer.getContext() as WebGL2RenderingContext;
   const timer = gl.getExtension("EXT_disjoint_timer_query_webgl2");
-  const queries: { q: WebGLQuery; block: number }[] = [];
+  const elapsedTarget = timer ? timer.TIME_ELAPSED_EXT : 0;
+  // The queries are made once and used round in a ring: `oldest` is the first still in flight, `inFlight` how many are.
+  const pool = timer ? Array.from({ length: QUERY_POOL }, () => gl.createQuery()) : [];
+  const poolBlock = new Int32Array(QUERY_POOL);
+  let oldest = 0;
+  let inFlight = 0;
+  const log: GpuLog = { n: 0, block: new Int32Array(GPU_LOG_CAP), ms: new Float64Array(GPU_LOG_CAP) };
   const run = pace.run;
   const render = cine.render;
   const t: Tap = {
@@ -384,68 +225,72 @@ function tap(pace: SimPacer, parts: BenchParts): Tap {
     drawMs: 0,
     simS: 0,
     timing: false,
-    block: 0,
+    block: WINDOW_BLOCK,
     blocks: 0,
+    collect() {
+      if (timer === null || inFlight === 0 || !gl.getQueryParameter(pool[oldest]!, gl.QUERY_RESULT_AVAILABLE)) return;
+      const disjoint = gl.getParameter(timer.GPU_DISJOINT_EXT) as boolean;
+      do {
+        if (!disjoint && log.n < GPU_LOG_CAP) {
+          log.block[log.n] = poolBlock[oldest]!;
+          log.ms[log.n++] = (gl.getQueryParameter(pool[oldest]!, gl.QUERY_RESULT) as number) / 1e6;
+        }
+        oldest = (oldest + 1) % QUERY_POOL;
+        inFlight--;
+      } while (inFlight > 0 && gl.getQueryParameter(pool[oldest]!, gl.QUERY_RESULT_AVAILABLE));
+    },
     async finish() {
-      const out: { block: number; ms: number }[] = [];
       const deadline = performance.now() + 3000;
-      let pending = queries;
-      while (pending.length && performance.now() < deadline) {
+      while (inFlight > 0 && performance.now() < deadline) {
         await sleep(100);
-        const disjoint = timer ? (gl.getParameter(timer.GPU_DISJOINT_EXT) as boolean) : false;
-        pending = pending.filter((e) => {
-          if (!gl.getQueryParameter(e.q, gl.QUERY_RESULT_AVAILABLE)) return true;
-          if (!disjoint) out.push({ block: e.block, ms: (gl.getQueryParameter(e.q, gl.QUERY_RESULT) as number) / 1e6 });
-          gl.deleteQuery(e.q);
-          return false;
-        });
+        t.collect();
       }
+      for (let i = 0; i < pool.length; i++) gl.deleteQuery(pool[i]!);
       pace.run = run;
       cine.render = render;
       renderer.info.autoReset = true;
-      return out;
+      return log;
     },
   };
-  pace.run = (...a: Parameters<SimPacer["run"]>): void => {
+  pace.run = (simDt, scale, vmax, deadline, step): void => {
     const t0 = performance.now();
     const lost0 = pace.lost;
-    run.apply(pace, a);
+    run.call(pace, simDt, scale, vmax, deadline, step);
     t.simMs += performance.now() - t0;
-    t.simS += a[0] - (pace.lost - lost0);
+    t.simS += simDt - (pace.lost - lost0);
   };
-  cine.render = (...a: Parameters<Cinematics["render"]>): void => {
+  cine.render = (scene, camera, wallDt): void => {
     const t0 = performance.now();
-    const q = t.timing && timer ? gl.createQuery() : null;
-    if (q) gl.beginQuery(timer!.TIME_ELAPSED_EXT, q);
-    try {
-      render.apply(cine, a);
-    } finally {
-      if (q) {
-        gl.endQuery(timer!.TIME_ELAPSED_EXT);
-        queries.push({ q, block: t.block });
-      }
-      t.drawMs += performance.now() - t0;
+    const timed = timer !== null && t.timing && inFlight < QUERY_POOL;
+    const slot = (oldest + inFlight) % QUERY_POOL;
+    if (timed) gl.beginQuery(elapsedTarget, pool[slot]!);
+    render.call(cine, scene, camera, wallDt);
+    if (timed) {
+      gl.endQuery(elapsedTarget);
+      poolBlock[slot] = t.block;
+      inFlight++;
     }
+    t.drawMs += performance.now() - t0;
   };
   renderer.info.autoReset = false;
   return t;
 }
 
-/** One frame the bench ran: the wall time since the last, and where the engine spent its own. */
-interface Frame {
-  now: number;
-  dt: number;
-  cpuMs: number;
-  simMs: number;
-  drawMs: number;
-}
+/** One frame the bench ran, as the slots of `Beat.frame`: the stamp, the wall time since the last (s), and the ms of the engine's own frame, of it the sim and the draw. */
+const FRAME_NOW = 0;
+const FRAME_DT = 1;
+const FRAME_CPU = 2;
+const FRAME_SIM = 3;
+const FRAME_DRAW = 4;
+const FRAME_FIELDS = 5;
 
 /**
- * The loop's state between rAFs: the last stamp, so a frame's dt is the real interval wherever the caller picks the loop up,
- * and the Lab bench's throws (null: a race).
+ * The loop's state between rAFs: the last stamp, so a frame's dt is the real interval wherever the caller picks the loop up, the
+ * last frame's readings (`FRAME_*`), and the Lab bench's throws (null: a race).
  */
 interface Beat {
   prev: number;
+  frame: Float64Array;
   lab: LabRun | null;
 }
 
@@ -463,10 +308,12 @@ interface LabRun {
   throws: number;
 }
 
+const _launch = new THREE.Vector3();
+
 /**
  * The Lab's sequence on the sim seconds stepped (`Tap.simS`): each `segmentS` the next throw's set loads (the player's set picker,
- * or Reset for the set already up), and `settleS` into the segment its thrower leaves for its target (the player's flick), so a
- * device steps the same throws per sim-second however fast it runs.
+ * or Reset for the set already up), and `settleS` into the segment its thrower leaves at the throw's stored velocity (the player's
+ * flick), so a device steps the same throws per sim-second however fast it runs.
  */
 function driveLab(engine: BenchEngine, t: Tap, run: LabRun): void {
   const k = Math.floor((t.simS - run.origin) / run.plan.segmentS);
@@ -481,7 +328,7 @@ function driveLab(engine: BenchEngine, t: Tap, run: LabRun): void {
   if (run.thrown || t.simS - run.origin - k * run.plan.segmentS < run.plan.settleS) return;
   run.thrown = true;
   run.throws++;
-  engine.flickLab(0, next.target, 0, 0, next.speed);
+  engine.flickLab(0, _launch.set(next.along, next.up, 0));
 }
 
 /** The Lab's sequence starts over now at throw `first` (an A/B block: every arm of a round replays the same throw from its set's load). */
@@ -491,23 +338,29 @@ function restartLab(run: LabRun, simS: number, first: number): void {
   run.segment = -1;
 }
 
-/** One rAF: the Lab's throw when one is due, then the engine handed its measured wall time through `advance` (the loop's own `tickInner`), timed together. */
-async function frame(engine: BenchEngine, renderer: THREE.WebGLRenderer, t: Tap, beat: Beat): Promise<Frame> {
+/** One rAF: the Lab's throw when one is due, then the engine handed its measured wall time through `advance` (the loop's own `tickInner`), timed together. Writes the frame to `beat.frame`. */
+async function frame(engine: BenchEngine, renderer: THREE.WebGLRenderer, t: Tap, beat: Beat): Promise<void> {
   const now = await nextFrame();
   const dt = Math.min(0.1, (now - beat.prev) / 1000);
   beat.prev = now;
+  t.collect();
   renderer.info.reset();
   t.simMs = t.drawMs = 0;
   const f0 = performance.now();
   if (beat.lab) driveLab(engine, t, beat.lab);
   engine.advance(dt, { frameDt: dt, render: true });
-  return { now, dt, cpuMs: performance.now() - f0, simMs: t.simMs, drawMs: t.drawMs };
+  beat.frame[FRAME_NOW] = now;
+  beat.frame[FRAME_DT] = dt;
+  beat.frame[FRAME_CPU] = performance.now() - f0;
+  beat.frame[FRAME_SIM] = t.simMs;
+  beat.frame[FRAME_DRAW] = t.drawMs;
 }
 
 /** How many of the cars in play are wrecks. */
 function wrecks(parts: BenchParts): number {
+  const cars = parts.live();
   let n = 0;
-  for (const car of parts.live()) if (car.crashed) n++;
+  for (let i = 0; i < cars.length; i++) if (cars[i]!.crashed) n++;
   return n;
 }
 
@@ -523,8 +376,13 @@ interface Samples {
   wrecks: Float64Array;
   calls: Float64Array;
   tris: Float64Array;
-  tiers: Map<string, number>;
-  levels: Map<string, number>;
+  /** Frames counted at each FX tier (an index into `FX_TIERS`) and each detail rung (`rungSlot`), the slots in the order first counted, and how many there are. */
+  tierCounts: Float64Array;
+  tierOrder: Uint8Array;
+  tiersSeen: number;
+  levelCounts: Float64Array;
+  levelOrder: Uint8Array;
+  levelsSeen: number;
 }
 
 /** The window: what the pacer lost, the sim clock covered and the Lab threw while it ran. */
@@ -540,20 +398,48 @@ interface Window {
 /** The grid and the warm-up: frames with no samples until `plan.warmS` has run, of race clock from the green or of the Lab's sim. */
 async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, plan: BenchPlan): Promise<void> {
   const { renderer, race } = parts;
+  let shownSecond = NaN;
   for (;;) {
     await frame(engine, renderer, t, beat);
     const going = plan.lab !== null || race.phase === "racing";
     const clock = plan.lab ? t.simS : race.time;
     if (going && clock >= plan.warmS) return;
-    ui.set(`CRUSH BENCH: ${going ? `warming ${Math.round(clock)} / ${plan.warmS} s` : "grid"}`);
+    const second = going ? Math.round(clock) : GRID_SECOND;
+    if (second === shownSecond) continue;
+    shownSecond = second;
+    ui.set(`CRUSH BENCH: ${going ? `warming ${second} / ${plan.warmS} s` : "grid"}`);
   }
+}
+
+/** Counts one frame in `slot`; a slot joins `order` the first time it is counted, so the shares come out in the order first seen. Returns the slots seen so far. */
+function countSlot(counts: Float64Array, order: Uint8Array, seen: number, slot: number): number {
+  if (counts[slot] === 0) order[seen++] = slot;
+  counts[slot] = counts[slot]! + 1;
+  return seen;
 }
 
 /** `measureS` wall seconds of one sample per frame, the engine's own auto FX tier and pacer as they are. */
 async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }): Promise<{ s: Samples; w: Window }> {
   const { renderer, cine } = parts;
   const arr = (): Float64Array => new Float64Array(CAP);
-  const s: Samples = { n: 0, iv: arr(), cpu: arr(), sim: arr(), draw: arr(), steps: arr(), coarse: arr(), wrecks: arr(), calls: arr(), tris: arr(), tiers: new Map(), levels: new Map() };
+  const s: Samples = {
+    n: 0,
+    iv: arr(),
+    cpu: arr(),
+    sim: arr(),
+    draw: arr(),
+    steps: arr(),
+    coarse: arr(),
+    wrecks: arr(),
+    calls: arr(),
+    tris: arr(),
+    tierCounts: new Float64Array(FX_TIERS.length),
+    tierOrder: new Uint8Array(FX_TIERS.length),
+    tiersSeen: 0,
+    levelCounts: new Float64Array(RUNG_SLOTS),
+    levelOrder: new Uint8Array(RUNG_SLOTS),
+    levelsSeen: 0,
+  };
   const pace = engine.pace;
   const lost0 = pace.lost;
   const cut0 = pace.cut;
@@ -561,25 +447,29 @@ async function sample(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat
   const clock0 = t.simS;
   const thrown0 = beat.lab?.throws ?? 0;
   let wall = 0;
+  let shownSecond = NaN;
   t.timing = true;
-  t.block = 0;
+  t.block = WINDOW_BLOCK;
   while (wall < BENCH.measureS && s.n < CAP) {
-    const f = await frame(engine, renderer, t, beat);
+    await frame(engine, renderer, t, beat);
+    const f = beat.frame;
     const i = s.n++;
-    wall += f.dt;
-    s.iv[i] = f.dt * 1000;
-    s.cpu[i] = f.cpuMs;
-    s.sim[i] = f.simMs;
-    s.draw[i] = f.drawMs;
+    wall += f[FRAME_DT]!;
+    s.iv[i] = f[FRAME_DT]! * 1000;
+    s.cpu[i] = f[FRAME_CPU]!;
+    s.sim[i] = f[FRAME_SIM]!;
+    s.draw[i] = f[FRAME_DRAW]!;
     s.steps[i] = pace.steps;
     s.coarse[i] = pace.coarse ? 1 : 0;
     s.wrecks[i] = wrecks(parts);
     s.calls[i] = renderer.info.render.calls;
     s.tris[i] = renderer.info.render.triangles;
-    s.tiers.set(cine.tier, (s.tiers.get(cine.tier) ?? 0) + 1);
-    const rung = rungKey(parts.detail.level);
-    s.levels.set(rung, (s.levels.get(rung) ?? 0) + 1);
-    ui.set(`CRUSH BENCH: measuring ${Math.round(wall)} / ${BENCH.measureS} s`);
+    s.tiersSeen = countSlot(s.tierCounts, s.tierOrder, s.tiersSeen, FX_TIERS.indexOf(cine.tier));
+    s.levelsSeen = countSlot(s.levelCounts, s.levelOrder, s.levelsSeen, rungSlot(parts.detail.level));
+    const second = Math.round(wall);
+    if (second === shownSecond) continue;
+    shownSecond = second;
+    ui.set(`CRUSH BENCH: measuring ${second} / ${BENCH.measureS} s`);
   }
   t.timing = false;
   return { s, w: { wallS: wall, lostSimS: pace.lost - lost0, cutFrames: pace.cut - cut0, fineCuts: parts.world.fineCuts - fine0, clockS: t.simS - clock0, thrown: (beat.lab?.throws ?? 0) - thrown0 } };
@@ -595,10 +485,13 @@ interface Acc {
   draw: number;
   steps: number;
   fineCuts: number;
-  gpu: number[];
+  calls: number;
+  tris: number;
+  gpuSum: number;
+  gpuCount: number;
 }
 
-const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, fineCuts: 0, gpu: [] });
+const emptyAcc = (): Acc => ({ frames: 0, wallS: 0, clockS: 0, sim: 0, cpu: 0, draw: 0, steps: 0, fineCuts: 0, calls: 0, tris: 0, gpuSum: 0, gpuCount: 0 });
 
 function toBlock(a: Acc): Block {
   const n = Math.max(1, a.frames);
@@ -612,8 +505,10 @@ function toBlock(a: Acc): Block {
     stepsPerFrame: a.steps / n,
     cpuMs: a.cpu / n,
     drawMs: a.draw / n,
-    gpuMs: a.gpu.length ? a.gpu.reduce((x, y) => x + y, 0) / a.gpu.length : null,
+    gpuMs: a.gpuCount ? a.gpuSum / a.gpuCount : null,
     fineCutsPerSimS: a.clockS ? a.fineCuts / a.clockS : 0,
+    calls: a.calls / n,
+    triangles: a.tris / n,
   };
 }
 
@@ -644,6 +539,7 @@ async function alternate(
   for (let c = 0; c < cycles; c++) {
     for (const a of arms) {
       a.set();
+      ui.set(`CRUSH BENCH: ${title} ${a.key}, round ${c + 1} / ${cycles}`);
       if (beat.lab) restartLab(beat.lab, t.simS, c);
       t.timing = false;
       for (let i = 0; i < BENCH.settleFrames; i++) await frame(engine, renderer, t, beat);
@@ -655,14 +551,16 @@ async function alternate(
       const fine0 = parts.world.fineCuts;
       let wall = 0;
       while (wall < BENCH.blockS) {
-        const f = await frame(engine, renderer, t, beat);
-        wall += f.dt;
+        await frame(engine, renderer, t, beat);
+        const f = beat.frame;
+        wall += f[FRAME_DT]!;
         acc.frames++;
-        acc.sim += f.simMs;
-        acc.cpu += f.cpuMs;
-        acc.draw += f.drawMs;
+        acc.sim += f[FRAME_SIM]!;
+        acc.cpu += f[FRAME_CPU]!;
+        acc.draw += f[FRAME_DRAW]!;
         acc.steps += engine.pace.steps;
-        ui.set(`CRUSH BENCH: ${title} ${a.key}, round ${c + 1} / ${cycles}`);
+        acc.calls += renderer.info.render.calls;
+        acc.tris += renderer.info.render.triangles;
       }
       acc.wallS += wall;
       acc.clockS += t.simS - clock0;
@@ -723,7 +621,14 @@ function settingsOf(parts: BenchParts, hud: Record<string, unknown>, top: string
   };
 }
 
-function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: number[], setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device"> {
+/** Each counted slot's share of `frames`, %, keyed by `keyOf(slot)` in the order the slots were first counted. */
+function sharesOf(counts: Float64Array, order: Uint8Array, seen: number, frames: number, keyOf: (slot: number) => string): Record<string, number> {
+  const shares: Record<string, number> = {};
+  for (let i = 0; i < seen; i++) shares[keyOf(order[i]!)] = (100 * counts[order[i]!]!) / Math.max(1, frames);
+  return shares;
+}
+
+function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gpu: Float64Array, setupMs: BenchResult["setupMs"]): Omit<BenchResult, "strip" | "labThrown" | "settings" | "abPace" | "abFx" | "abDetail" | "device" | "pageEvents"> {
   const { race } = parts;
   const { n, iv } = s;
   const third = Math.floor(n / 3);
@@ -769,8 +674,8 @@ function summarize(parts: BenchParts, plan: BenchPlan, s: Samples, w: Window, gp
     simSpeedPct: w.wallS ? (100 * w.clockS) / w.wallS : 0,
     calls: stat(s.calls, n).p50,
     triangles: stat(s.tris, n).p50,
-    tierPct: Object.fromEntries([...s.tiers].map(([tier, count]) => [tier, (100 * count) / Math.max(1, n)])),
-    detailPct: Object.fromEntries([...s.levels].map(([rung, count]) => [rung, (100 * count) / Math.max(1, n)])),
+    tierPct: sharesOf(s.tierCounts, s.tierOrder, s.tiersSeen, n, (slot) => FX_TIERS[slot]!),
+    detailPct: sharesOf(s.levelCounts, s.levelOrder, s.levelsSeen, n, (slot) => rungKey(slot - 1)),
     setupMs,
   };
 }
@@ -798,12 +703,37 @@ async function deviceOf(parts: BenchParts, timerStepMs: number): Promise<BenchRe
 }
 
 /** The arms' sums with the timer-query times of their blocks folded in, as blocks. */
-function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> }, gpu: { block: number; ms: number }[]): Record<string, Block> {
-  for (const g of gpu) {
-    const key = r.blockKeys.get(g.block);
-    if (key !== undefined) r.accs.get(key)!.gpu.push(g.ms);
+function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> }, gpu: GpuLog): Record<string, Block> {
+  for (let i = 0; i < gpu.n; i++) {
+    const key = r.blockKeys.get(gpu.block[i]!);
+    if (key === undefined) continue;
+    const acc = r.accs.get(key)!;
+    acc.gpuSum += gpu.ms[i]!;
+    acc.gpuCount++;
   }
   return Object.fromEntries([...r.accs].map(([key, acc]) => [key, toBlock(acc)]));
+}
+
+/** The window's timer-query times (ms), in the order they landed. */
+function windowGpuMs(gpu: GpuLog): Float64Array {
+  const ms = new Float64Array(gpu.n);
+  let count = 0;
+  for (let i = 0; i < gpu.n; i++) if (gpu.block[i] === WINDOW_BLOCK) ms[count++] = gpu.ms[i]!;
+  return ms.subarray(0, count);
+}
+
+/** The FX tier the most window frames ran (the first to reach it on a tie), `fallback` when none was sampled. */
+function topTier(s: Samples, fallback: FxTier): FxTier {
+  let top = fallback;
+  let topCount = 0;
+  for (let i = 0; i < s.tiersSeen; i++) {
+    const slot = s.tierOrder[i]!;
+    if (s.tierCounts[slot]! > topCount) {
+      topCount = s.tierCounts[slot]!;
+      top = FX_TIERS[slot]!;
+    }
+  }
+  return top;
 }
 
 /**
@@ -815,15 +745,17 @@ function blocksOf(r: { accs: Map<string, Acc>; blockKeys: Map<number, string> },
  * settings (auto FX tier, adaptive pacer). Then, on the same race, the pacer is pinned to 1/240 s and to 1/120 s in
  * alternating blocks, and the FX tier to minimal, low and high in alternating blocks, each arm scored the same way.
  * Afterwards the settings go back to automatic, the loop restarts and the scene plays on under the card. `hud` reads the
- * HUD's state (every setting the player can change); `search` is the page's query string. Null: no such bench.
+ * HUD's state (every setting the player can change); `search` is the page's query string. `opts.submit` posts the card's JSON (the
+ * card's Submit button, and the bench loop's `auto` post before it moves on). Null: no such bench.
  */
-export async function runBench(engine: BenchEngine, hud: () => object, search: string): Promise<BenchResult | null> {
+export async function runBench(engine: BenchEngine, hud: () => object, search: string, opts: { submit: SubmitBench; auto: boolean; loopProgress: string | null }): Promise<BenchResult | null> {
   const plan = benchPlan(search);
   if (!plan) return null;
-  const ui = overlay();
+  const ui = overlay(opts.loopProgress);
   ui.set("CRUSH BENCH: loading…");
   const timerStepMs = timerStep();
   await engine.ready;
+  if (plan.ultra && !(await engine.loadUltra())) throw new Error("CRUSH BENCH: ultra=1, but the Ultra look did not load (see the console)");
   const parts = engine.benchParts();
   parts.renderer.setAnimationLoop(null);
   engine.fadeScenes = false;
@@ -850,21 +782,29 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   }
 
   const t = tap(engine.pace, parts);
-  const beat: Beat = { prev: await nextFrame(), lab: plan.lab ? { plan: plan.lab, origin: 0, first: 0, segment: -1, preset: null, thrown: false, throws: 0 } : null };
+  const beat: Beat = { prev: await nextFrame(), frame: new Float64Array(FRAME_FIELDS), lab: plan.lab ? { plan: plan.lab, origin: 0, first: 0, segment: -1, preset: null, thrown: false, throws: 0 } : null };
+  const page = watchPage();
+  page.phase(PHASE_WARM);
   await lead(engine, parts, t, beat, ui, plan);
+  page.phase(PHASE_WINDOW);
   const { s, w } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
-  const top = [...s.tiers].sort((a, b) => b[1] - a[1])[0]?.[0] ?? parts.cine.tier;
+  const top = topTier(s, parts.cine.tier);
   const settings = settingsOf(parts, hud() as Record<string, unknown>, top);
 
   // The A/Bs hold the tier the window mostly ran, so the pacer arms differ in the pacer alone.
-  engine.setFxTier(top as FxTier);
+  engine.setFxTier(top);
+  page.phase(PHASE_AB_PACE);
   const pace = await alternate(engine, parts, t, beat, ui, "pacer", [{ key: "fine", set: () => void (engine.pace.pin = false) }, { key: "coarse", set: () => void (engine.pace.pin = true) }], BENCH.paceCycles);
   engine.pace.pin = null;
+  page.phase(PHASE_AB_DETAIL);
   // The detail arms run at the window's tier too (the governor is off with the tier pinned), then the governor's rung is put back.
   const detail = await alternate(engine, parts, t, beat, ui, "detail", DETAIL_ARMS.map((a) => ({ key: a.key, set: () => (a.level === null ? parts.detail.setDistances(Infinity, Infinity) : parts.detail.setLevel(a.level)) })), BENCH.detailCycles);
   parts.detail.setLevel(parts.governor.level);
-  const fx = await alternate(engine, parts, t, beat, ui, "fx", (["minimal", "low", "high"] as const).map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  page.phase(PHASE_AB_FX);
+  const fxTiers: FxTier[] = plan.ultra ? ["minimal", "low", "high", "ultra"] : ["minimal", "low", "high"];
+  const fx = await alternate(engine, parts, t, beat, ui, "fx", fxTiers.map((tier) => ({ key: tier, set: () => engine.setFxTier(tier) })), BENCH.fxCycles);
+  const pageEvents = page.stop();
   engine.setFxAuto();
   if (plan.lab) engine.setTimeScale(null);
 
@@ -873,19 +813,28 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const abFx = blocksOf(fx, gpu);
   const device = await deviceOf(parts, timerStepMs);
   const result: BenchResult = {
-    ...summarize(parts, plan, s, w, gpu.filter((g) => g.block === 0).map((g) => g.ms), setupMs),
+    ...summarize(parts, plan, s, w, windowGpuMs(gpu), setupMs),
+    pageEvents,
     strip: plan.strip ? { spec: plan.strip, body: plan.body, racers: plan.racers, leaderWindowM, leaderEndM: leaderAhead(parts, plan) } : null,
     labThrown: plan.lab ? w.thrown : null,
     settings,
     abPace: { fine: abPace["fine"]!, coarse: abPace["coarse"]! },
-    abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]! },
+    abFx: { minimal: abFx["minimal"]!, low: abFx["low"]!, high: abFx["high"]!, ...(plan.ultra ? { ultra: abFx["ultra"]! } : {}) },
     abDetail: blocksOf(detail, gpu),
     device,
   };
-  const details = (): string => JSON.stringify({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result }, null, 1);
-  ui.done(describeBench(result), details);
+  const payload = (): object => ({ at: new Date().toISOString(), url: location.href, userAgent: navigator.userAgent, hud: hud(), result });
+  const send = async (): Promise<BenchReceipt> => {
+    ui.receipt("sending");
+    const receipt = await opts.submit(payload());
+    ui.receipt(receipt);
+    return receipt;
+  };
+  ui.done(describeBench(result), () => JSON.stringify(payload(), null, 1), () => void send());
   (window as unknown as { __benchResult?: BenchResult }).__benchResult = result;
   console.log("CRUSH BENCH", JSON.stringify(result));
   engine.start();
+  // The bench loop posts each card as it finishes, before the page moves on to the next bench.
+  if (opts.auto) await send();
   return result;
 }

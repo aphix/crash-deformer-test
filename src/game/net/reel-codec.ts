@@ -1,7 +1,7 @@
 import { FLIGHT } from "../vehicle/car.ts";
 import { CAR_STYLE_IDS } from "../vehicle/car-variants.ts";
 import { VEHICLE_CLASS_IDS } from "../vehicle/vehicle-classes.ts";
-import { INPUT_BYTES, MAX_KNOCKS, MEMORY, simFingerprint, type ClipEjection, type ClipKnock, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
+import { INPUT_BYTES, MAX_HITS, MAX_KNOCKS, MEMORY, simFingerprint, type ClipEjection, type ClipHit, type ClipKnock, type HighlightClip, type Reel, type ReelCar } from "../match/highlights.ts";
 import { blankEjection } from "../vehicle/ejection.ts";
 import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapshot, Reader, writeEjection, Writer, type NetLayout } from "./codec.ts";
 
@@ -65,10 +65,14 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * cabin, crumpleWeight 1 only at the struck end; 39: a race reset puts a car at its last on-road spot between the last
  * checkpoint hit and the first owed, and a held reset moves a car there keeping its damage; 40: Survival's course sight
  * models trees and palms as a trunk under a crown, which moves cop drop-ins; 41: a hit square on a door at or above
- * killSpeed throws the driver out of that door's window with the engine running).
+ * killSpeed throws the driver out of that door's window with the engine running; 42: the sim's distances use the
+ * kernel's hypot2/hypot3, not Math.hypot, so every browser computes the same last bits; 43: a clip records the hit
+ * speed, the summed cage crush, each scoped hit and which ejections are its own, and a deep slow crush counts as a hit;
+ * 44: the ragdoll world runs on Rapier's SIMD wasm build, whose float results differ from the plain build's, so a thrown
+ * dummy's and a knocked prop's motion in a replayed clip changes).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 41;
+const REPLAY_VERSION = 44;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -77,18 +81,20 @@ export const REEL_BUDGET = 240 * 1024;
 const SAVE_MAGIC = 0x4c484353; // "SCHL"
 const utf8 = (s: string): number => Math.min(255, new TextEncoder().encode(s).length);
 
-/** A clip's ejection record: its step (u32), then `writeEjection`'s 2 + 22 × 4 bytes. */
-const EJECTION_BYTES = 4 + 2 + 22 * 4;
+/** A clip's ejection record: its step (u32), whether the scope owns it (u8), then `writeEjection`'s 2 + 22 × 4 bytes. */
+const EJECTION_BYTES = 4 + 1 + 2 + 22 * 4;
 /** A clip's knocked prop: its step (u32) and the prop (u16). */
 const KNOCK_BYTES = 4 + 2;
+/** A clip's scope hit: its time (f64), position (3 x f32) and cars (2 x u8). */
+const HIT_BYTES = 8 + 4 + 4 + 4 + 2;
 
 /** Exact encoded size of `clip` (`writeClip`). */
 export function clipBytes(c: HighlightClip): number {
   const nc = c.cars.length;
-  let n = 1 + utf8(c.trackId) + 83 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
+  let n = 1 + utf8(c.trackId) + 91 + c.cars.reduce((a, car) => a + 4 + utf8(car.name), 0);
   n += 4 + c.h.length * (8 + nc * INPUT_BYTES) + 2;
   for (const k of c.keys) n += 12 + k.length;
-  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES;
+  return n + 1 + c.ejections.length * EJECTION_BYTES + 2 + c.knocks.length * KNOCK_BYTES + 1 + c.hits.length * HIT_BYTES;
 }
 
 export function writeClip(w: Writer, c: HighlightClip): void {
@@ -99,6 +105,8 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.u8(Math.min(255, c.ejects));
   w.u8(c.hit);
   w.f32(c.peakKph);
+  w.f32(c.hitKph);
+  w.f32(c.deform);
   w.f64(c.t0);
   w.f64(c.firstImpact);
   w.u32(c.firstStep);
@@ -138,12 +146,22 @@ export function writeClip(w: Writer, c: HighlightClip): void {
   w.u8(c.ejections.length);
   for (const x of c.ejections) {
     w.u32(x.step);
+    w.u8(x.own ? 1 : 0);
     writeEjection(w, x.e);
   }
   w.u16(c.knocks.length);
   for (const x of c.knocks) {
     w.u32(x.step);
     w.u16(x.prop);
+  }
+  w.u8(c.hits.length);
+  for (const x of c.hits) {
+    w.f64(x.t);
+    w.f32(x.x);
+    w.f32(x.y);
+    w.f32(x.z);
+    w.u8(x.a);
+    w.u8(x.b < 0 ? 255 : x.b);
   }
 }
 
@@ -159,6 +177,8 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const ejects = r.u8();
   const hit = r.u8();
   const peakKph = r.fin32();
+  const hitKph = r.fin32();
+  const deform = r.fin32();
   const t0 = r.f64();
   const firstImpact = r.f64();
   const firstStep = r.u32();
@@ -249,10 +269,11 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
   const ejections: ClipEjection[] = [];
   for (let k = 0; k < ne; k++) {
     const step = r.u32();
+    const own = r.u8() === 1;
     const e = blankEjection();
     readEjection(r, e);
     if (step >= steps || e.car >= nc || (k > 0 && step < ejections[k - 1]!.step)) throw new RangeError("clip ejection");
-    ejections.push({ step, e });
+    ejections.push({ step, e, own });
   }
   const nkn = r.u16();
   if (nkn > MAX_KNOCKS) throw new RangeError("clip knocks");
@@ -263,7 +284,21 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     if (step >= steps || (k > 0 && step < knocks[k - 1]!.step)) throw new RangeError("clip knock");
     knocks.push({ step, prop });
   }
-  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, peakKph, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
+  const nh = r.u8();
+  if (nh > MAX_HITS) throw new RangeError("clip hits");
+  const hits: ClipHit[] = [];
+  for (let k = 0; k < nh; k++) {
+    const t = r.f64();
+    const hx = r.fin32();
+    const hy = r.fin32();
+    const hz = r.fin32();
+    const a = r.u8();
+    const hb = r.u8();
+    const b = hb === 255 ? -1 : hb;
+    if (!Number.isFinite(t) || a >= nc || b >= nc || (k > 0 && t < hits[k - 1]!.t)) throw new RangeError("clip hit");
+    hits.push({ t, x: hx, y: hy, z: hz, a, b });
+  }
+  return { trackId, score, impacts, kills, ejects, hit, ejections, knocks, peakKph, hitKph, deform, hits, t0, firstImpact, lastImpact, firstStep, x, z, focus, firstA, firstB, realism, bleed, squash, buckle, deformMode, look, cars, h, shape, inputs, keyStep, keyCars, keys };
 }
 
 /** A decoder never inflates past this (a hostile peer's or a corrupt store's deflate bomb). */

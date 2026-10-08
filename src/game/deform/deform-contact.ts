@@ -231,12 +231,11 @@ export abstract class DeformContact extends DeformState {
       this.rebaseShapeRest();
       let vy = 0;
       let mass = 0;
-      for (const m of this.masses) {
-        if (!m.dynamic || m.hub) continue;
-        vy += m.vel.y * m.mass;
-        mass += m.mass;
+      for (let i = 0; i < this.masses.length; i++) {
+        const m = this.masses[i]!;
+        if (m.dynamic && !m.hub) { vy += m.vel.y * m.mass; mass += m.mass; }
       }
-      if (mass > 0) for (const m of this.masses) if (m.dynamic && !m.hub) m.vel.y = vy / mass;
+      if (mass > 0) for (let i = 0; i < this.masses.length; i++) { const m = this.masses[i]!; if (m.dynamic && !m.hub) m.vel.y = vy / mass; }
     }
     this.shapeWasLive = this.shapeRan;
     this.updateDrivetrain();

@@ -21,7 +21,7 @@
 import { z } from "zod";
 import type { Sql } from "@/lib/db";
 import type { PeerRow, RtcPollResponse, SignalRow } from "./p2p";
-import { RateLimiter } from "./rate-limit.ts";
+import { clientIp, RateLimiter } from "./rate-limit.ts";
 import { PUBLIC_PREFIX, ROOM_MAX, TOKEN_HEADER } from "./rooms.ts";
 
 type GetSql = () => Promise<Sql>;
@@ -65,22 +65,6 @@ const PUBLIC_HOSTS_PER_IP = 2;
 const globalRef = globalThis as typeof globalThis & { __rtcLimiter__?: RateLimiter; __rtcSalt__?: string };
 const limiter = (globalRef.__rtcLimiter__ ??= new RateLimiter());
 const salt = (globalRef.__rtcSalt__ ??= crypto.randomUUID());
-
-/**
- * The caller's address: the reverse proxy's `x-forwarded-for` first hop, else one shared address. An
- * IPv6 caller is its /64, the block one subscriber gets, so minting addresses dodges no per-address limit.
- */
-function clientIp(request: Request): string {
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || request.headers.get("x-real-ip") || "direct";
-  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(ip);
-  if (v4) return v4[1]!;
-  if (!ip.includes(":")) return ip;
-  const [head = "", tail] = ip.split("::");
-  const left = head.split(":");
-  const right = tail === undefined ? [] : tail.split(":");
-  const groups = [...left, ...Array<string>(Math.max(0, 8 - left.length - right.length)).fill("0"), ...right];
-  return `${groups.slice(0, 4).map((g) => (parseInt(g, 16) || 0).toString(16)).join(":")}::/64`;
-}
 
 /** Hex SHA-256. Only a token's hash is stored, so reading the database never yields a usable token. */
 async function sha256(text: string): Promise<string> {

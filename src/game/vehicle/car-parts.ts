@@ -1,15 +1,16 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { DOOR } from "./car-mesh.ts";
-import { getCrackMap, LIGHT_BAR_FOOT } from "./car-materials.ts";
+import { LIGHT_BAR_FOOT } from "./car-materials.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { MASS_SPECS } from "../kernel/rig-spec.ts";
 import { flutterShell, layFlat, makeShell, poseShell, recentre, setPrimer, shellBox } from "./car-panels.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { applyDents } from "./loose-dent.ts";
 import { stepLoose } from "./loose-step.ts";
+import { CarGlass } from "./car-glass-break.ts";
 import {
-  CarCore,
   BUMPER_TEAR_MPS,
   type DetachPart,
   DOOR_AJAR,
@@ -18,8 +19,6 @@ import {
   DOOR_OPEN_MAX,
   DOOR_TEAR_MPS,
   type DoorHinge,
-  type GlassName,
-  type GlassPane,
   HINGE_TEAR_J,
   type Lamp,
   type PartNetState,
@@ -88,6 +87,8 @@ const WEAR_MIN_T = 0.04;
 /** A contact is fresh when the last was over `TOUCH_GAP` s ago and the next lands within `TOUCH_NOW` s. */
 const TOUCH_GAP = 0.15;
 const TOUCH_NOW = 0.03;
+/** A part hinged or swung no further than this (rad, or the hinge value) is still within a shadow texel of its rest (4.7 cm). */
+const FLUSH_HINGE = 0.02;
 
 /** The hinge value above which a part counts as folding (hung open, crushed, flapping), by hinge kind. */
 function foldAt(p: DetachPart): number {
@@ -107,7 +108,7 @@ function showOnCamera(o: THREE.Object3D): void {
  * Detachable parts: attached-part posing, door hinges and mirrors, glass following, breakage and detaching,
  * loose parts and wheels, and their netplay state.
  */
-export abstract class CarParts extends CarCore {
+export abstract class CarParts extends CarGlass {
   /** The car's torn shells, oldest first. */
   private readonly liveShells: DetachPart[] = [];
   /** The flap clock (rad) turns with speed and shakes every hinged panel and bumper (`flapAngle`). Cosmetic: no rule reads it. */
@@ -119,6 +120,20 @@ export abstract class CarParts extends CarCore {
   readonly motion = new Float64Array(3);
   /** Pendulum drive, car frame: acceleration right, acceleration forward (m/s²), yaw rate (rad/s), yaw acceleration (rad/s²). */
   readonly swingDrive = new Float64Array(4);
+  /**
+   * Once a frame, with the skin: the hood, boot lid, doors and bumpers cast into the sun's shadow map (one draw each) only
+   * when the car has been hit or a part has hinged, swung or come off. Until then they lie on the body's shell and the
+   * body's shadow is theirs to within a texel row at the bumpers (`flush-casters.test.ts` measures it).
+   */
+  protected settleCasters(): void {
+    let flush = !this.crashed;
+    for (let i = 0; i < this.parts.length && flush; i++) {
+      const p = this.parts[i]!;
+      flush = !p.detached && p.hingeT <= FLUSH_HINGE && (p.swing === null || p.swing.theta <= FLUSH_HINGE);
+    }
+    for (let i = 0; i < this.flushCasters.length; i++) this.flushCasters[i]!.castShadow = !flush;
+  }
+
   protected syncAttachedParts(dt: number): void {
     this.advanceFlap(dt);
     const ix = this.deform.impactInward.x;
@@ -382,7 +397,7 @@ export abstract class CarParts extends CarCore {
 
   /** The flap clock turns with the car's ground speed. */
   private advanceFlap(dt: number): void {
-    this.flapSpeed = Math.hypot(this.velocity.x, this.velocity.z);
+    this.flapSpeed = hypot2(this.velocity.x, this.velocity.z);
     this.flapClock += flapRate(this.flapSpeed) * dt;
   }
 
@@ -467,7 +482,7 @@ export abstract class CarParts extends CarCore {
 
   /** Whether any pane could still crack or shatter: its rule reads the cages' strain, so the steps solve the cages for it. */
   protected glassLeft(): boolean {
-    for (const g of this.glassPanes) if (g.state !== "shattered") return true;
+    for (let k = 0; k < this.glassPanes.length; k++) if (this.glassPanes[k]!.state !== "shattered") return true;
     return false;
   }
 
@@ -475,12 +490,13 @@ export abstract class CarParts extends CarCore {
   protected followGlass(): void {
     this.poseParts();
     const inward = this.deform.impactInward;
-    for (const g of this.glassPanes) {
+    for (let k = 0; k < this.glassPanes.length; k++) {
+      const g = this.glassPanes[k]!;
       if (g.state === "shattered" || g.skin) continue;
       const onDoor = g.parts.includes("doorLeft") || g.parts.includes("doorRight");
       if (onDoor) continue;
       let nearby = 0;
-      for (const part of g.parts) nearby = Math.max(nearby, this.deform.partCompression(part));
+      for (let q = 0; q < g.parts.length; q++) nearby = Math.max(nearby, this.deform.partCompression(g.parts[q]!));
       g.mesh.position.copy(g.restPos);
       if (nearby < 0.02) continue;
       g.mesh.position.x += inward.x * nearby * 0.32;
@@ -501,7 +517,8 @@ export abstract class CarParts extends CarCore {
   }
 
   protected evaluateBreakage(impulse: number, dt: number): void {
-    for (const g of this.glassPanes) {
+    for (let k = 0; k < this.glassPanes.length; k++) {
+      const g = this.glassPanes[k]!;
       if (g.state === "shattered") continue;
       const strain = this.deform.cageStrain(g.skin ?? (g.parts.includes("doorLeft") ? "doorLeft" : "doorRight"));
       if (g.state === "intact" && strain > GLASS_CRACK) this.crackGlass(g);
@@ -537,10 +554,11 @@ export abstract class CarParts extends CarCore {
       if (should) this.detachPart(p, impulse);
     }
 
-    for (const lamp of this.lamps) {
+    for (let k = 0; k < this.lamps.length; k++) {
+      const lamp = this.lamps[k]!;
       if (!lamp.intact) continue;
       let crush = 0;
-      for (const s of lamp.sensors) crush = Math.max(crush, this.deform.sensorCompression(s));
+      for (let q = 0; q < lamp.sensors.length; q++) crush = Math.max(crush, this.deform.sensorCompression(lamp.sensors[q]!));
       if (crush > 0.18 && this.deform.crushElapsed > 0.02) this.breakLamp(lamp);
     }
   }
@@ -672,85 +690,23 @@ export abstract class CarParts extends CarCore {
     setPrimer(p.region!, this.body.geometry, false);
   }
 
-  private shatterGlass(g: GlassPane): void {
-    g.state = "shattered";
-    g.mesh.visible = false;
-    this.group.updateMatrixWorld();
-    const origin = new THREE.Vector3();
-    g.mesh.getWorldPosition(origin);
-    origin.y += 0.12;
-    const vel = this.pointVelocity(origin, new THREE.Vector3());
-    vel.y += 1.5 + Math.abs(this.angular.x) * 2;
-    this.onGlass?.(origin, vel, 56);
-  }
-
-  /** Pane `g` cracks: the crack map over a hazier pane. Every crack goes through here (the frame strain, a thrown torso, a net state). */
-  protected crackGlass(g: GlassPane): void {
-    g.state = "cracked";
-    g.mat.map = getCrackMap();
-    g.mat.opacity = 0.55;
-    g.mat.roughness = 0.32;
-    g.mat.needsUpdate = true;
-  }
-
-  /**
-   * A thrown driver's torso struck pane `name` (`RagdollSystem`): an intact pane cracks and holds, a cracked one (by a
-   * torso or by its frame's strain) shatters. False if it was already gone. Authority only, as `smashGlass`.
-   */
-  hitGlass(name: GlassName): boolean {
-    for (const g of this.glassPanes) {
-      if (g.name !== name) continue;
-      if (g.state === "shattered") return false;
-      if (g.state === "intact") this.crackGlass(g);
-      else this.shatterGlass(g);
-      return true;
-    }
-    return false;
-  }
-
-  /** Every pane's state, 2 bits each in `GLASS_NAMES` order: 0 intact, 1 cracked, 2 shattered (the net state's `glass`). */
-  glassBits(): number {
-    let glass = 0;
-    for (let i = 0; i < this.glassPanes.length; i++) {
-      const s = this.glassPanes[i]!.state;
-      glass |= (s === "cracked" ? 1 : s === "shattered" ? 2 : 0) << (i * 2);
-    }
-    return glass;
-  }
-
-  /** Shatter pane `name` now (a driver thrown through it); false if it is already gone. Call it on the
-   *  authority only: netplay carries the pane to clients in the glass bits. */
-  smashGlass(name: GlassName): boolean {
-    const g = this.glassPanes.find((p) => p.name === name);
-    if (!g || g.state === "shattered") return false;
-    this.shatterGlass(g);
-    return true;
-  }
-
-  /** World centre of pane `name` (its rest shape's box centre on its current seat). */
-  glassWorld(name: GlassName, out: THREE.Vector3): THREE.Vector3 {
-    const g = this.glassPanes.find((p) => p.name === name)!;
-    const geo = g.mesh.geometry;
-    if (!geo.boundingBox) geo.computeBoundingBox();
-    g.mesh.updateWorldMatrix(true, false);
-    return geo.boundingBox!.getCenter(out).applyMatrix4(g.mesh.matrixWorld);
-  }
-
   protected stepLooseParts(dt: number, bounce?: WorldBounce): void {
-    for (const p of this.parts) {
+    for (let k = 0; k < this.parts.length; k++) {
+      const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
       stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
       if (p.region && p.object.position.y < 0.3) layFlat(p.object, dt);
       applyDents(p.dent, p.object);
     }
-    for (const w of this.looseWheels) if (w.loose) stepLoose(w, dt, TYRE_R, bounce);
+    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, bounce);
   }
 
-  /** Into `out`: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). */
-  freeObjects(out: THREE.Object3D[]): void {
-    for (const p of this.parts) if (p.detached && p.object.visible) out.push(p.object);
-    for (const w of this.looseWheels) if (w.loose) out.push(w.object);
+  /** Into `out` from index `n` on: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). Returns the count past the last one written. */
+  freeObjects(out: THREE.Object3D[], n: number): number {
+    for (let k = 0; k < this.parts.length; k++) if (this.parts[k]!.detached && this.parts[k]!.object.visible) out[n++] = this.parts[k]!.object;
+    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) out[n++] = this.looseWheels[k]!.object;
+    return n;
   }
 
   /** A popped hub's wheel leaves the car: a world object launched at the hub's speed, out and up. */
@@ -770,7 +726,7 @@ export abstract class CarParts extends CarCore {
     w.velocity.y = Math.max(w.velocity.y, 0) + 1;
     // Rolls on about its axle (the car's x) at the hub's ground speed.
     _n.set(1, 0, 0).applyQuaternion(this.group.quaternion);
-    w.angular.copy(_n).multiplyScalar(Math.hypot(w.velocity.x, w.velocity.z) / TYRE_R);
+    w.angular.copy(_n).multiplyScalar(hypot2(w.velocity.x, w.velocity.z) / TYRE_R);
   }
 
   /** Netplay: array sizes for a `PartNetState`; parts are `PART_SLOTS` on every style (one shared layout). */

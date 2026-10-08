@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { chargeBoost, clearDrive, DRIVE, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -5,6 +6,7 @@ import { mood } from "./ai-aggression.ts";
 import { DerbyPocket } from "./derby-pocket.ts";
 import { clamp, hash01 } from "../kernel/scalar.ts";
 import { OpeningWatch } from "./derby-opening.ts";
+import { personality, type Personality } from "./personality.ts";
 
 export type AiCar = {
   id: number;
@@ -49,36 +51,6 @@ export const DEFAULT_DERBY_AGGRESSION = 1;
 
 /** The steering wheel sits at local x −0.22 (car-mesh `makeInterior`): the driver's door is the −x side. */
 const DRIVER_SIDE = -1;
-
-export type Personality = {
-  /** 0 … 1: how much this driver keeps the tail as its bumper and how early a crumpled nose turns it round. */
-  reverse: number;
-  /** Seconds of throttle without motion before backing out. */
-  patience: number;
-  /** Seconds a target is held before a merely-better one may replace it. */
-  commit: number;
-  /** Tie-break side for flanking and unsticking, so a field never mirrors itself. */
-  side: number;
-  /** Intercept lead multiplier. */
-  lead: number;
-  /** Throttle used once lined up. */
-  cruise: number;
-  /** Seconds braking and lining up at the horn; 0 = charges straight away. */
-  hold: number;
-};
-
-/** Same id → same driver, every match. Aggression is not a trait: the match rolls it (`setAggression`). */
-export function personality(id: number): Personality {
-  return {
-    reverse: hash01(id, 2),
-    patience: 0.55 + 0.4 * hash01(id, 3),
-    commit: 1 + 2 * hash01(id, 4),
-    side: hash01(id, 5) < 0.5 ? -1 : 1,
-    lead: 0.75 + 0.4 * hash01(id, 6),
-    cruise: 0.82 + 0.18 * hash01(id, 7),
-    hold: hash01(id, 9) < 0.45 ? 0 : 0.35 + 1.1 * hash01(id, 10),
-  };
-}
 
 function wrapPi(a: number): number {
   let x = a;
@@ -278,7 +250,10 @@ export class DerbyBrain {
     this.yawWas[i] = self.yaw;
     this.spin[i]! += (rate - this.spin[i]!) * Math.min(1, dt / SPIN_LAG);
     this.nearFor[i]! -= dt;
-    for (const o of others) if (o.id !== i && Math.hypot(o.x - self.x, o.z - self.z) < SPIN_NEAR) this.nearFor[i] = SPIN_HOLD;
+    for (let q = 0; q < others.length; q++) {
+      const o = others[q]!;
+      if (o.id !== i && hypot2(o.x - self.x, o.z - self.z) < SPIN_NEAR) this.nearFor[i] = SPIN_HOLD;
+    }
     if (this.nearFor[i]! > 0 && out.steer * this.spin[i]! > 0) out.steer *= 1 - smooth(SPIN_EASE, SPIN_LET_GO, Math.abs(this.spin[i]!));
     return out;
   }
@@ -295,7 +270,7 @@ export class DerbyBrain {
     if (tgt && tgt.alive && out.throttle > 0.05) {
       const dx = tgt.x - self.x;
       const dz = tgt.z - self.z;
-      const d = Math.hypot(dx, dz);
+      const d = hypot2(dx, dz);
       const ahead = Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz;
       const faced = -(Math.sin(tgt.yaw) * dx + Math.cos(tgt.yaw) * dz) / d;
       want = d < BOOST_RANGE && d > BOOST_RELEASE && ahead > d * BOOST_CONE && faced < BOOST_FACED;
@@ -319,7 +294,7 @@ export class DerbyBrain {
     }
     const p = this.traits[i]!;
     const a = this.aggression[i]!;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     this.age[i]! += dt;
 
     // L0 — unstick.
@@ -334,7 +309,7 @@ export class DerbyBrain {
     }
     // Wedged (no motion) or grinding a shove against the target: back off for a run-up.
     const prev = findCar(others, this.target[i]!);
-    const near = prev != null && Math.hypot(prev.x - self.x, prev.z - self.z) < GRIND_RANGE;
+    const near = prev != null && hypot2(prev.x - self.x, prev.z - self.z) < GRIND_RANGE;
     const pushing = Math.abs(this.lastThrottle[i]!) > 0.35;
     if (pushing && speed < STUCK_SPEED) this.stuck[i]! += dt;
     else if (pushing && near && speed < GRIND_SPEED) this.stuck[i]! += dt * 0.6;
@@ -367,7 +342,7 @@ export class DerbyBrain {
 
     const dx = tgt.x - self.x;
     const dz = tgt.z - self.z;
-    const d = Math.hypot(dx, dz) || 1e-3;
+    const d = hypot2(dx, dz) || 1e-3;
     this.trackProgress(i, d, others, tgt, p, dt);
 
     // L3 — strike.
@@ -385,7 +360,7 @@ export class DerbyBrain {
     const due = self.idle > DERBY_RULES.hitClock * (0.5 - 0.3 * a);
     const m = mood(a, self.damage, tgt.damage);
     let rivals = 0;
-    for (const o of others) if (o.alive && o.id !== i) rivals++;
+    for (let q = 0; q < others.length; q++) if (others[q]!.alive && others[q]!.id !== i) rivals++;
     const clear = m <= 0 && !due && rivals > 2;
     const brave = a > 0 && this.pocket.bold(i, self.x, self.z, self.idle, clear, dt);
     if (a <= 0 || (clear && !brave)) {
@@ -421,7 +396,7 @@ export class DerbyBrain {
     const i = self.id;
     const dx = o.x - self.x;
     const dz = o.z - self.z;
-    const d = Math.hypot(dx, dz) || 1e-3;
+    const d = hypot2(dx, dz) || 1e-3;
     // Where we sit around the target: +1 at its nose, -1 behind it.
     const cosA = -(Math.sin(o.yaw) * dx + Math.cos(o.yaw) * dz) / d;
     const nose = Math.max(0, cosA);
@@ -449,11 +424,12 @@ export class DerbyBrain {
   private pick(self: AiCar, others: readonly AiCar[], p: Personality, a: number, cur: AiCar | null): AiCar | null {
     const i = self.id;
     const curId = cur ? cur.id : -1;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     let best: AiCar | null = null;
     let bestCost = Infinity;
     let curCost = Infinity;
-    for (const o of others) {
+    for (let q = 0; q < others.length; q++) {
+      const o = others[q]!;
       if (o.id === i || !o.alive) continue;
       const c = this.cost(self, o, a, speed, curId);
       if (o.id === curId) curCost = c;
@@ -478,7 +454,7 @@ export class DerbyBrain {
     this.chase[i]! += dt;
     if (this.chase[i]! < 2 + p.patience * 1.6) return;
     let alternatives = 0;
-    for (const o of others) if (o.alive && o.id !== i && o.id !== tgt.id) alternatives++;
+    for (let q = 0; q < others.length; q++) if (others[q]!.alive && others[q]!.id !== i && others[q]!.id !== tgt.id) alternatives++;
     if (alternatives > 0) {
       this.shunId[i] = tgt.id;
       this.shunFor[i] = 2.5;
@@ -520,7 +496,8 @@ export class DerbyBrain {
     const fz = Math.cos(self.yaw);
     const fwd = self.vx * fx + self.vz * fz;
     if (fwd < 4) return false;
-    for (const o of others) {
+    for (let q = 0; q < others.length; q++) {
+      const o = others[q]!;
       if (o.id === i || !o.alive) continue;
       const rx = o.x - self.x;
       const rz = o.z - self.z;
@@ -573,12 +550,12 @@ export class DerbyBrain {
     let px = tgt.x;
     let pz = tgt.z;
     for (let k = 0; k < 2; k++) {
-      const tau = Math.min(1.4, Math.hypot(px - self.x, pz - self.z) / ownSpeed) * p.lead;
+      const tau = Math.min(1.4, hypot2(px - self.x, pz - self.z) / ownSpeed) * p.lead;
       px = tgt.x + tgt.vx * tau;
       pz = tgt.z + tgt.vz * tau;
     }
     const lim = this.radius - 2.4;
-    const r = Math.hypot(px, pz);
+    const r = hypot2(px, pz);
     if (r > lim) {
       px *= lim / r;
       pz *= lim / r;
@@ -595,7 +572,7 @@ export class DerbyBrain {
     const ofz = Math.cos(tgt.yaw);
     const rx = self.x - _aim.x;
     const rz = self.z - _aim.z;
-    const rd = Math.hypot(rx, rz) || 1e-3;
+    const rd = hypot2(rx, rz) || 1e-3;
     const cosA = (ofx * rx + ofz * rz) / rd;
     const lat = (ofz * rx - ofx * rz) / rd;
     const side = lat > 0.05 ? 1 : lat < -0.05 ? -1 : p.side;
@@ -612,7 +589,7 @@ export class DerbyBrain {
       az += (wz - az) * w;
     }
     const lim = this.radius - 4;
-    const ar = Math.hypot(ax, az);
+    const ar = hypot2(ax, az);
     if (ar > lim) {
       ax *= lim / ar;
       az *= lim / ar;
@@ -649,7 +626,7 @@ export class DerbyBrain {
     const ofz = Math.cos(tgt.yaw);
     const rx = self.x - tgt.x;
     const rz = self.z - tgt.z;
-    const rd = Math.hypot(rx, rz) || 1e-3;
+    const rd = hypot2(rx, rz) || 1e-3;
     const lat = (ofz * rx - ofx * rz) / rd;
     const ahead = (ofx * rx + ofz * rz) / rd;
     const side = lat > 0.1 ? 1 : lat < -0.1 ? -1 : p.side;
@@ -662,7 +639,7 @@ export class DerbyBrain {
     let ax = _aim.x + ofx * reach + ofz * wide;
     let az = _aim.z + ofz * reach - ofx * wide;
     const lim = this.radius - 3;
-    const ar = Math.hypot(ax, az);
+    const ar = hypot2(ax, az);
     if (ar > lim) {
       ax *= lim / ar;
       az *= lim / ar;
@@ -684,7 +661,7 @@ export class DerbyBrain {
       // Slow: pivot forward to bring the tail round.
       out.throttle = 0.45;
     }
-    const r = Math.hypot(self.x, self.z);
+    const r = hypot2(self.x, self.z);
     if (r > this.radius - 3.6 && out.throttle < 0) {
       const tailOut = -(Math.sin(self.yaw) * self.x + Math.cos(self.yaw) * self.z) / r;
       if (tailOut > 0.4 && !(d < 5 && ae < 0.5)) {
@@ -702,9 +679,9 @@ export class DerbyBrain {
    */
   private layBack(self: AiCar, others: readonly AiCar[], p: Personality, speed: number): void {
     const out = this.out;
-    const r = Math.hypot(self.x, self.z);
+    const r = hypot2(self.x, self.z);
     this.openSpace(self, others, 14, 0.8 * smooth(this.radius - 9, this.radius - 4, r), _aim);
-    if (Math.hypot(_aim.x, _aim.z) < 0.25) {
+    if (hypot2(_aim.x, _aim.z) < 0.25) {
       out.throttle = 0.35;
       this.boards(self, p, speed);
       return;
@@ -724,7 +701,7 @@ export class DerbyBrain {
   /** Bend onto the tangent before the wall; J-turn off it when nosed in. */
   private boards(self: AiCar, p: Personality, speed: number): void {
     const out = this.out;
-    const r = Math.hypot(self.x, self.z);
+    const r = hypot2(self.x, self.z);
     if (r < this.radius - 6) return;
     const nx = self.x / r;
     const nz = self.z / r;
@@ -740,7 +717,7 @@ export class DerbyBrain {
     const look = 0.55;
     const lx = self.x + self.vx * look;
     const lz = self.z + self.vz * look;
-    if (Math.hypot(lx, lz) < this.radius - 2.9 || self.vx * nx + self.vz * nz < 0.5) return;
+    if (hypot2(lx, lz) < this.radius - 2.9 || self.vx * nx + self.vz * nz < 0.5) return;
     let tx = -nz;
     let tz = nx;
     if (fx * tx + fz * tz < 0) {
@@ -754,14 +731,15 @@ export class DerbyBrain {
 
   /** Direction (into `dir`) away from whoever is inside `reach`, plus `pull` toward the middle. */
   private openSpace(self: AiCar, others: readonly AiCar[], reach: number, pull: number, dir: { x: number; z: number }): void {
-    const r = Math.max(1, Math.hypot(self.x, self.z));
+    const r = Math.max(1, hypot2(self.x, self.z));
     let ox = (-self.x * pull) / r;
     let oz = (-self.z * pull) / r;
-    for (const o of others) {
+    for (let q = 0; q < others.length; q++) {
+      const o = others[q]!;
       if (o.id === self.id) continue;
       const dx = o.x - self.x;
       const dz = o.z - self.z;
-      const dd = Math.hypot(dx, dz);
+      const dd = hypot2(dx, dz);
       if (dd > reach || dd < 1e-3) continue;
       const w = (reach - dd) / reach / dd;
       ox -= dx * w;
@@ -773,7 +751,7 @@ export class DerbyBrain {
 
   private beginRecovery(self: AiCar, others: readonly AiCar[], p: Personality): void {
     const i = self.id;
-    this.openSpace(self, others, 7, Math.hypot(self.x, self.z) > 6 ? 1 : 0.3, _aim);
+    this.openSpace(self, others, 7, hypot2(self.x, self.z) > 6 ? 1 : 0.3, _aim);
     const err = wrapPi(Math.atan2(_aim.x, _aim.z) - self.yaw);
     // Either gear swings the nose the same way in this drive model.
     this.recoverSteer[i] = Math.abs(err) < 0.15 ? p.side : Math.sign(err);
@@ -794,6 +772,6 @@ function findCar(cars: readonly AiCar[], id: number): AiCar | null {
   if (id < 0) return null;
   const fast = cars[id];
   if (fast && fast.id === id) return fast;
-  for (const c of cars) if (c.id === id) return c;
+  for (let q = 0; q < cars.length; q++) if (cars[q]!.id === id) return cars[q]!;
   return null;
 }

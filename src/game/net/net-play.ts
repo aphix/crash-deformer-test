@@ -7,6 +7,7 @@ import { EjectQueue } from "./eject-queue.ts";
 import {
   ensureFrames,
   makeSnapshot,
+  MAX_NET_CARS,
   MSG,
   NET_VERSION,
   INPUT_HOLD,
@@ -24,7 +25,7 @@ import {
   type Snapshot,
   type DerbyNetState, readDerby, writeDerby, packEject,
 } from "./codec.ts";
-import { PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
+import { NET_TX, PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
 import { RtcTransport } from "./rtc-transport.ts";
@@ -42,7 +43,7 @@ import {
 /** Opens this peer's link to a room: `role` is the roster tag the relay knows it by. */
 type Connect = (tx: NetTx, room: string, id: string, role: "host" | "client", meta: () => string) => NetTransport;
 
-const connectDefault: Connect = (tx, room, id, role, meta) => (tx === "rtc" ? new RtcTransport(room, id, role, meta) : new BroadcastTransport(room, id));
+const connectDefault: Connect = (tx, room, id, role, meta) => (tx === NET_TX.rtc ? new RtcTransport(room, id, role, meta) : new BroadcastTransport(room, id));
 
 /** Test seams: the link (default WebRTC or BroadcastChannel), the clock (ms, default `performance.now`) and the matchmaker's pauses and dice. */
 interface NetPlayOptions {
@@ -65,7 +66,7 @@ export class NetPlay {
   private readonly now: () => number;
   /** The room this peer is in and the link it runs over; meaningful while `role` is not "off" (the page's `#` shows them). */
   room = "";
-  tx: NetTx = "bc";
+  tx: NetTx = NET_TX.bc;
   private publicKind: PublicKind | null = null;
   /** The running public search's token (a newer search, or `leave`, cancels it) and whether it still looks. */
   private finder = 0;
@@ -102,6 +103,10 @@ export class NetPlay {
   private readonly hasInput: boolean[] = [];
   /** Per car: `now()` its input last arrived. */
   private readonly inputAt: number[] = [];
+  /** Per car: its boost meter as netplay heard it (host: a peer's own, from its input; client: the host's, from the newest snapshot); -1 none. */
+  private readonly meters = new Float64Array(MAX_NET_CARS).fill(-1);
+  /** `readInput`'s meter out-slot. */
+  private readonly inMeter = new Float64Array(1);
   /** Hidden host: the heartbeat timer telling guests it is only paused. */
   private holdTimer: ReturnType<typeof setInterval> | undefined;
   private readonly out = makeSnapshot();
@@ -166,12 +171,18 @@ export class NetPlay {
     return this.role === "client";
   }
 
-  host(room: string, tx: NetTx = "bc"): void {
+  /** Car `i`'s boost meter as netplay heard it (`meters`), null when nothing was. */
+  heard(i: number): number | null {
+    const m = this.meters[i];
+    return m === undefined || m < 0 ? null : m;
+  }
+
+  host(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("host", room, tx);
     this.car = 0;
   }
 
-  join(room: string, tx: NetTx = "bc"): void {
+  join(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("client", room, tx);
     this.silentFor = 0;
     this.heardHost = false;
@@ -223,13 +234,13 @@ export class NetPlay {
 
   /** Join public room `room` of `kind` as a guest (the live-rooms list's Join). */
   publicJoin(room: string, kind: PublicKind): void {
-    this.join(room, "rtc");
+    this.join(room, NET_TX.rtc);
     this.publicKind = kind;
   }
 
   /** Host a fresh public room: the lobby counts `LOBBY_S` down on the course or in the bowl, then the match starts; `weak` runs a smaller field. */
   publicHost(kind: PublicKind, weak = !this.game.hostFit()): void {
-    this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), "rtc");
+    this.host(publicRoomName(kind, Math.random().toString(36).slice(2, 8).toUpperCase()), NET_TX.rtc);
     this.publicKind = kind;
     this.derbyField = weak ? WEAK_DERBY_FIELD : PUBLIC_DERBY_FIELD;
     if (kind === "race") {
@@ -288,6 +299,7 @@ export class NetPlay {
     this.role = "off";
     this.car = -1;
     this.slots.clear();
+    this.meters.fill(-1);
     this.vetted.clear();
     this.names.clear();
     this.heardAt.clear();
@@ -440,7 +452,8 @@ export class NetPlay {
       const now = this.now();
       this.heardAt.set(from, now);
       const input = (this.inputs[car] ??= idleDrive());
-      const ask = readInput(this.r, input);
+      const ask = readInput(this.r, input, this.inMeter);
+      this.meters[car] = this.inMeter[0]!;
       this.hasInput[car] = true;
       this.inputAt[car] = now;
       const race = this.game.race();
@@ -503,6 +516,7 @@ export class NetPlay {
       this.names.delete(id);
       this.heardAt.delete(id);
       this.hasInput[car] = false;
+      this.meters[car] = -1;
       race?.setRemoteInput(car, this.idle);
       left = true;
     }
@@ -525,6 +539,7 @@ export class NetPlay {
       const car = cars[i]!;
       const f = s.cars[i]!;
       readCarPose(car, f);
+      f.meter = this.game.meterOf(i) ?? -1;
       // A falling fake or a vaporized car shows no wreck: its mesh is frozen (falling) or hidden.
       if (!car.crashed || car.falling || car.vaporized) {
         this.lastWreckLen[i] = 0;
@@ -709,6 +724,7 @@ export class NetPlay {
     this.ringOrder[slot] = 0;
     readSnapshot(this.r, s, this.layoutOf(cars[0]!));
     for (let i = 0; i < s.count; i++) if (s.cars[i]!.style >= CAR_STYLE_IDS.length || s.cars[i]!.cls >= VEHICLE_CLASS_IDS.length) return;
+    for (let i = 0; i < s.count; i++) this.meters[i] = s.cars[i]!.meter;
     this.lastSeq = seq;
     this.ringOrder[slot] = ++this.order;
     this.offset = Math.min(this.now() / 1000 - s.time, this.offset + 0.001);
@@ -789,7 +805,7 @@ export class NetPlay {
     if (this.sendAcc < 1 / SEND_HZ) return;
     this.sendAcc = 0;
     this.w.off = 0;
-    writeInput(this.w, input, this.resetWanted);
+    writeInput(this.w, input, this.resetWanted, input === this.idle ? 0 : seat.boost);
     this.resetWanted = 0;
     t.send(this.w.done(), this.hostId);
   }

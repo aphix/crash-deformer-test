@@ -1,4 +1,5 @@
 import * as THREE from "three";
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { groundMesh } from "./ground-stack.ts";
 
@@ -117,7 +118,7 @@ export function clipToDerbyBowl(
   radius = DERBY_RADIUS,
 ): { x: number; z: number; vx: number; vz: number; hit: boolean } {
   const limit = radius - pad;
-  const r = Math.hypot(x, z);
+  const r = hypot2(x, z);
   if (r <= limit || r < 1e-6) return { x, z, vx, vz, hit: false };
   const nx = x / r;
   const nz = z / r;

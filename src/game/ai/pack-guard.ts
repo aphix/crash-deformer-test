@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -36,11 +37,11 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
   // A car that is reversing, or stopped (parked, knocked out), is left alone; one that is braking while still rolling forward is not: a lifted
   // throttle or a brake for the target (`attackTarget`) hits a mate as hard as a driven one, and bypassed it hit pack-mates at 11-19 m/s.
   if (out.throttle < 0 || (out.throttle === 0 && self.vx * fx + self.vz * fz <= MOVING)) return;
-  const speed = Math.hypot(self.vx, self.vz);
+  const speed = hypot2(self.vx, self.vz);
   const vx = speed < MOVING ? fx * MOVING : self.vx;
   const vz = speed < MOVING ? fz * MOVING : self.vz;
   // The car's yaw rate under the steer the drive asked for, as `applyDrive` turns it (full lock at `turn`, less below 8 m/s; tyres cap it at 1.05 grip / v).
-  const v = Math.hypot(vx, vz);
+  const v = hypot2(vx, vz);
   const cap = (1.05 * grip) / v;
   const omega = clamp(out.steer * turn * (0.35 + 0.65 * Math.min(1, v / 8)), -cap, cap);
   // The mate it reaches soonest steers it away; but one passing alongside or behind cannot be braked for, and read alone it hid the
@@ -58,7 +59,7 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
     if (m.id === self.id) continue;
     const rx = m.x - self.x;
     const rz = m.z - self.z;
-    const phantom = Math.hypot(m.vx, m.vz) < MOVING && pullsOut(k);
+    const phantom = hypot2(m.vx, m.vz) < MOVING && pullsOut(k);
     const wx = (phantom ? Math.sin(m.yaw) * MOVING : m.vx) - vx;
     const wz = (phantom ? Math.cos(m.yaw) * MOVING : m.vz) - vz;
     const dot = rx * wx + rz * wz;
@@ -68,20 +69,20 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
     if (tc >= tcAny && tc >= tcAhead) continue;
     const px = rx + wx * tc;
     const pz = rz + wz * tc;
-    const gap = Math.hypot(px, pz);
+    const gap = hypot2(px, pz);
     if (gap >= SOFT) continue;
     let hard = clamp((SOFT - gap) / (SOFT - CLEAR), 0, 1);
     // Against a mate that is stopped, the steer already on the wheel, held for `STEER_HOLD` s and then straight on, may take the car clear of it by
     // the time it is there: then the guard has nothing to add (read on a straight line, it cancelled a steer that was bending the car back to its road,
     // away from the stakeout parked beside it). Not against a mate that moves: it steers too, usually the same way (a pack aimed at one target), and
     // both then read themselves clear of each other and met.
-    if (omega !== 0 && !phantom && Math.hypot(m.vx, m.vz) < STOPPED) {
+    if (omega !== 0 && !phantom && hypot2(m.vx, m.vz) < STOPPED) {
       const tau = Math.min(tc, STEER_HOLD);
       const a = omega * tau;
       const rest = v * (tc - tau);
       const dn = (v / omega) * (1 - Math.cos(a)) + rest * Math.sin(a);
       const df = (v / omega) * Math.sin(a) - v * tau + rest * (Math.cos(a) - 1);
-      hard = Math.min(hard, clamp((SOFT - Math.hypot(px * fx + pz * fz - df, px * fz - pz * fx - dn)) / (SOFT - CLEAR), 0, 1));
+      hard = Math.min(hard, clamp((SOFT - hypot2(px * fx + pz * fz - df, px * fz - pz * fx - dn)) / (SOFT - CLEAR), 0, 1));
     }
     if (hard === 0) continue;
     const u = clamp(2 * (1 - tc / HORIZON), 0, 1) * hard;

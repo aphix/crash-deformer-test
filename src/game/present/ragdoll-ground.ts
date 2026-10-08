@@ -1,13 +1,13 @@
 import * as THREE from "three";
-import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d";
+import type { Collider, ColliderDesc, World } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
 import { activeGround } from "../world/ground.ts";
 import { GRID, P_AX, P_BX, P_CX, P_OX, P_OY, P_OZ, P_RAD2, P_STEP, P_STEPV, P_STRIDE, P_U0, P_V0, Q_KIND, Q_NU, Q_NV, Q_SOLID, Q_STRIDE, type Surface } from "../world/surfaces.ts";
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
 
-/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`); `knocked(i)`: prop `i` has been knocked off its spot. */
-type Course = { track: Track | null; solids: readonly Solid[]; knocked: (prop: number) => boolean };
+/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`). */
+type Course = { track: Track | null; solids: readonly Solid[] };
 /** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
 export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
 /** Half-thickness (m) of a flat solid's slab, and how far under its lowest node a tilted patch's prism reaches. */
@@ -15,11 +15,20 @@ const SLAB = 0.5;
 /** Sandbox lamp post height (m): the cinematic eye's occluder for it. */
 const POLE_H = 5.3;
 
-/** Course ground patch around a throw: cells per side and cell size (m), 96 m across. */
-const PATCH_N = 48;
+/** Course ground patch cell size (m). */
 const PATCH_CELL = 2;
+/** A dummy's patch around a throw (`groundColliders`' `half`): 96 m across. */
+export const PATCH_HALF = 48;
+/** Metres down a throw that the patch built for it is centred. */
+export const PATCH_AHEAD = 24;
 /** Half-size (m) of the sandbox's flat pad collider: past any spot a car reaches. */
 const FLAT_HALF = 1000;
+/**
+ * How far (m) a wall's box reaches under the ground: no bottom edge where it meets the ground for a body to be driven
+ * under. A lying cone slid at 38 m/s into a road wall that stopped at the ground went 46 mm into it (4 of 80 run-overs
+ * at 1/480); with the footing none over 23 mm.
+ */
+const FOOTING = 1;
 /** Derby bowl wall: `derby-arena.ts`'s 28 slabs, 1.15 m high, 0.42 m thick at the 16.4 m bowl. */
 const BOWL_SEGMENTS = 28;
 const BOWL_H = 1.15;
@@ -92,16 +101,17 @@ function cellSolid(R: Rapier, s: Surface, k: number, sand: boolean): ColliderDes
 
 /**
  * The ground under a throw at (`cx`, `cz`), `y` high: the active surface's own solids (`cellSolid` for its one-cell patches,
- * its `meshes`) and, where it has terrain (a multi-cell patch or a road deck), one heightfield patch of it around the throw;
+ * its `meshes`) and, where it has terrain (a multi-cell patch or a road deck), one heightfield patch of it `half` m to a side around the throw (its square, and the reach of the walls and solids built with it);
  * then the solids on it: the derby bowl's wall when `bowlR` > 0, the sandbox's standing `poles`, and on a `course` the road
  * walls, props, tunnels and decks near it. `sand`: the range's pad. `groups`: the collision groups of every collider built.
  */
-export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number): Collider[] {
+export function groundColliders(R: Rapier, world: World, groups: number, course: Course | null, sand: boolean, bowlR: number, poles: readonly Pole[], cx: number, cz: number, y: number, half: number): Collider[] {
   const ground = activeGround();
   const into: Collider[] = [];
   const place = (desc: ColliderDesc) => into.push(world.createCollider(desc.setCollisionGroups(groups)));
   const add = (desc: ColliderDesc, friction = 0.9) => place(desc.setFriction(friction));
-  const size = PATCH_N * PATCH_CELL;
+  const n = Math.round((2 * half) / PATCH_CELL);
+  const size = n * PATCH_CELL;
   let terrain = false;
   for (let k = 0; k < ground.count; k++) {
     if (ground.q[k * Q_STRIDE + Q_SOLID] === 0) continue;
@@ -115,17 +125,22 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   for (const m of ground.meshes) add(R.ColliderDesc.trimesh(m.vertices, m.indices));
   // A course's heightfield; a scene's own solids (the Lab's bench and floor, `setSolids`) carry its ground, edges sharp.
   if (terrain && course?.track !== null) {
-    const n = PATCH_N;
+    // Its vertices lie on the world's `PATCH_CELL` lattice, so every patch (any size, anywhere) has the same triangles where they
+    // overlap, and what a body lands on does not hang on where its patch was centred.
+    const x0 = Math.round((cx - size / 2) / PATCH_CELL) * PATCH_CELL;
+    const z0 = Math.round((cz - size / 2) / PATCH_CELL) * PATCH_CELL;
     const heights = new Float32Array((n + 1) * (n + 1));
     for (let ix = 0; ix <= n; ix++) {
       for (let iz = 0; iz <= n; iz++) {
         // A bridge deck counts only for a throw at its height: under it the heightfield is the road.
-        const h = ground.heightAt(cx - size / 2 + ix * PATCH_CELL, cz - size / 2 + iz * PATCH_CELL, y);
+        const h = ground.heightAt(x0 + ix * PATCH_CELL, z0 + iz * PATCH_CELL, y);
         // Rapier's heightfield: rows run along z, columns along x.
         heights[iz + ix * (n + 1)] = Number.isFinite(h) ? h : -40;
       }
     }
-    add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }).setTranslation(cx, 0, cz));
+    // Its triangles' inner edges are fixed (`FIX_INTERNAL_EDGES`): a body sliding over the seam between two never catches on
+    // it. Without, a crate slid flat at 11 m/s across the flat infield tipped 88° on a seam instead of sliding 7 m upright.
+    add(R.ColliderDesc.heightfield(n, n, heights, { x: size, y: 1, z: size }, R.HeightFieldFlags.FIX_INTERNAL_EDGES).setTranslation(x0 + size / 2, 0, z0 + size / 2));
   }
   // Off a course every wall is built (the bowl's are all within reach of any throw in it); on one, those near it.
   const reach = course ? size / 2 : Infinity;
@@ -143,8 +158,8 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
     const nz = (-(bx - ax) / len) * out;
     _q.setFromAxisAngle(_r.set(0, 1, 0), Math.atan2(bx - ax, bz - az));
     add(
-      R.ColliderDesc.cuboid(t / 2, h / 2, len / 2 + 0.05)
-        .setTranslation(mx + (nx * t) / 2, base + h / 2, mz + (nz * t) / 2)
+      R.ColliderDesc.cuboid(t / 2, (h + FOOTING) / 2, len / 2 + 0.05)
+        .setTranslation(mx + (nx * t) / 2, base + (h - FOOTING) / 2, mz + (nz * t) / 2)
         .setRotation({ x: _q.x, y: _q.y, z: _q.z, w: _q.w }),
     );
   };
@@ -163,7 +178,6 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   }
   if (course) {
     for (const s of course.solids) {
-      if (s.prop !== undefined && course.knocked(s.prop)) continue;
       if (Math.hypot(s.x - cx, s.z - cz) > reach + s.r) continue;
       const desc = s.make(R);
       if (desc) add(desc);

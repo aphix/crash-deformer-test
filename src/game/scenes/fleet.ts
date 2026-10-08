@@ -1,5 +1,6 @@
 /** Shared spawn layout so 1–N cars never start overlapping. */
 
+import { hypot2 } from "../kernel/physics-core.js";
 import { FLEET_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
 import { CLASSES, STYLE_CLASS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
@@ -86,7 +87,7 @@ export function layoutFleet(
       placed = true;
       for (let j = 0; j < i; j++) {
         const o = slots[j]!;
-        if (Math.hypot(x - o.x, z - o.z) < FLEET_MIN_SEP) {
+        if (hypot2(x - o.x, z - o.z) < FLEET_MIN_SEP) {
           placed = false;
           break;
         }
@@ -152,7 +153,7 @@ export function respawnSlot(x: number, z: number, others: readonly { x: number; 
   for (let k = 0; k < 24; k++) {
     const sx = Math.sin(a) * RESPAWN_R;
     const sz = Math.cos(a) * RESPAWN_R;
-    if (!others.some((o) => Math.hypot(o.x - sx, o.z - sz) < FLEET_MIN_SEP)) break;
+    if (!others.some((o) => hypot2(o.x - sx, o.z - sz) < FLEET_MIN_SEP)) break;
     a += 0.27;
   }
   return { x: Math.sin(a) * RESPAWN_R, z: Math.cos(a) * RESPAWN_R, yaw: a + Math.PI };

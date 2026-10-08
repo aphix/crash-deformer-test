@@ -27,7 +27,7 @@ small React HUD; it needs a WebGL2 browser and nothing else.
   ([`docs/SURVIVAL.md`](docs/SURVIVAL.md)).
 - **Crash highlights:** a race's five biggest crashes replay in slow motion behind the results; Watch or Save any clip
   ([`docs/HIGHLIGHTS.md`](docs/HIGHLIGHTS.md)).
-- **Cinematic FX:** off / minimal / low / high plus Auto: HDR bloom, a crash cam, hit-stop, tyre marks and smoke, night and
+- **Cinematic FX:** off / minimal / low / high / ultra plus Auto: HDR bloom, a crash cam, hit-stop, tyre marks and smoke, night and
   wet ([`docs/CINEMATIC.md`](docs/CINEMATIC.md)).
 - **Multiplayer:** host or join a room by code, or one-tap public race / derby; up to 8 players, host-authoritative, WebRTC
   data channels ([`docs/MULTIPLAYER.md`](docs/MULTIPLAYER.md)).

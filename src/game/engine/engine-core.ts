@@ -21,6 +21,7 @@ import { armKill, assignClass, carClass, HANDLING, killClass, STYLE_CLASS, type 
 import { DRIVER_CARS, type DriverCar } from "../match/types.ts";
 import { WorldStage, makeLamp } from "../present/engine-world.ts";
 import { Cinematics } from "../present/engine-cine.ts";
+import { loadHdrEnv, STUDIO_ENV_URL } from "../present/look-env.ts";
 import { CarDetail } from "../present/car-detail.ts";
 import { addCars, occluder, type Occluder, type Sight } from "../present/spectate-cam.ts";
 import { activeGround } from "../world/ground.ts";
@@ -51,6 +52,8 @@ import type { LabArt } from "../present/lab-art.ts";
 import { FLOOR } from "../scenes/lab.ts";
 
 const _v = new THREE.Vector3();
+/** The masses a wreck's engine smoke rises from (`puffEngine`). */
+const ENGINE_MASSES = ["engineL", "engineR"] as const;
 /**
  * A thrown driver's shard cover (`onExit`), half extents (m) in his way out's frame: 1.4 m across, 0.6 m tall, 1.6 m
  * out of the pane (to the nose over the bonnet; past the door).
@@ -76,8 +79,8 @@ const FLEET_PAINT: CarPaint[] = [
 
 /**
  * The engine's state (renderer, cars, rigs, FX systems, clock), the car roster and the queries and crash FX every
- * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineScenes` → `EngineRigs` →
- * `EngineInput` → `CrashEngine` (one class split by context; `CrashEngine` is the only one anything else constructs).
+ * other engine layer shares. Layers stack `EngineCore` → `EngineWarm` → `EngineHud` → `EngineDerby` → `EngineScenes` →
+ * `EngineRigs` → `EngineInput` → `CrashEngine` (one class split by context; `CrashEngine` is the only one anything else constructs).
  */
 export abstract class EngineCore {
   /** Defined by `CrashEngine` (its host callbacks reach every layer). */
@@ -168,6 +171,8 @@ export abstract class EngineCore {
   protected skipDraw = false;
   protected readonly clock = phaseClock();
   protected fps = 0;
+  /** Main-thread ms the last `tickInner` took (sim, camera, FX, draw submit): what the quality governors read as frame work. */
+  protected workMs = 0;
   protected impactKph: number | null = null;
   protected elapsedWall = 0;
   protected elapsedSim = 0;
@@ -176,6 +181,8 @@ export abstract class EngineCore {
   protected cine!: Cinematics;
   /** The automatic FX tier (`present/auto-fx.ts`); `fxFrame` applies it. */
   protected autoFx!: AutoFx;
+  /** The Ultra tier is being fetched (`setFxTier`); the HUD shows it. */
+  protected fxLoading = false;
   /** The distance detail's rung (`present/detail-governor.ts`), chosen by how the match runs; `fxFrame` applies it to `detail` while the tier is automatic. */
   protected detailGov!: DetailGovernor;
   protected impactLightLife = 0;
@@ -490,7 +497,8 @@ export abstract class EngineCore {
     if (this.showCompactor) return COMPACTOR.speed * 2;
     if (this.showPistons) {
       let u = 0;
-      for (const h of this.pistons.heads) u = Math.max(u, h.u);
+      const heads = this.pistons.heads;
+      for (let k = 0; k < heads.length; k++) u = Math.max(u, heads[k]!.u);
       return u;
     }
     if (this.showDoors) return this.doorRig.u;
@@ -513,7 +521,7 @@ export abstract class EngineCore {
   /** Sim seconds to the first hit coming between the live cars, or a car and the slab (`pairEta`), Infinity if none. */
   protected contactEta(): number {
     const cars = this.live();
-    for (const car of cars) car.refreshBasis();
+    for (let i = 0; i < cars.length; i++) cars[i]!.refreshBasis();
     const eta = pairEta(cars);
     return this.barrierUp ? this.barrier.contactEta(cars, eta) : eta;
   }
@@ -627,8 +635,8 @@ export abstract class EngineCore {
     if (!car.crashed || !car.deform.massActive) return;
     if (car.deform.drivetrainAlive && car.deform.partCompression("bonnet") < 0.08) return;
     const n = Math.max(2, (4 * this.fxDensity) | 0);
-    for (const name of ["engineL", "engineR"] as const) {
-      const m = car.deform.massWorld(name);
+    for (let k = 0; k < ENGINE_MASSES.length; k++) {
+      const m = car.deform.massWorld(ENGINE_MASSES[k]!);
       _v.copy(m);
       _v.y = 0.12;
       if (this.witness.sees(_v, FX_REACH.smoke)) this.smoke.plume(_v, car.velocity, n);
@@ -650,24 +658,14 @@ export abstract class EngineCore {
   /** The camera's lens for the canvas's new size (`EngineReel`: the results reel frames the part the sheet leaves free). */
   protected abstract fitLens(): void;
 
-  /** Pre-baked RoomEnvironment (public/env-studio.jpg) — PMREM from an equirect, not fromScene. Settles once attached or failed. */
+  /** The studio environment (public/env-studio.hdr, RGBE) prefiltered to PMREM at boot. Settles once attached or failed. */
   protected async attachStudioEnv(): Promise<void> {
-    const tex = await new THREE.TextureLoader().loadAsync(`${import.meta.env.BASE_URL}env-studio.jpg`).catch(() => null);
-    if (!tex) return;
-    if (this.disposed) {
-      tex.dispose();
-      return;
-    }
-    tex.colorSpace = THREE.SRGBColorSpace;
-    tex.mapping = THREE.EquirectangularReflectionMapping;
-    const gen = new THREE.PMREMGenerator(this.renderer);
-    const env = gen.fromEquirectangular(tex).texture;
+    const env = await loadHdrEnv(this.renderer, STUDIO_ENV_URL, () => !this.disposed);
+    if (!env) return;
     this.scene.environment = env;
     this.scene.environmentIntensity = this.stage.envIntensity;
     this.envMap?.dispose();
     this.envMap = env;
-    tex.dispose();
-    gen.dispose();
   }
 
   protected buildWorld(): void {

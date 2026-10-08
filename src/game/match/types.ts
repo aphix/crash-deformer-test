@@ -4,6 +4,7 @@
  * pick (`DRIVER_CARS`, `cleanName`), which the HUD stores and the engine and netplay read.
  */
 
+import { TRACK_ID } from "../world/constants.ts";
 import { CAR_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
 import { CLASSES, STYLE_CLASS, VEHICLE_CLASS_IDS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
@@ -66,7 +67,7 @@ export type RaceOptions = {
   police: boolean;
 };
 
-export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: "oval", laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false, police: false };
+export const DEFAULT_RACE_OPTIONS: RaceOptions = { trackId: TRACK_ID.oval, laps: 3, noReset: false, aiCount: 7, aggression: 0.35, spectate: false, police: false };
 
 /** Per-step input to the rules for one car (same order as the entrants). */
 export type CarPose = {
@@ -274,6 +275,12 @@ export type ReelHud = {
 /** A highlight saved in this browser; `key` names it to `savedPlay` / `savedDelete`. */
 export type SavedHud = { key: string; title: string; trackName: string; savedAt: number };
 
+/** A clip a player flags (`EngineReel.flagClip`): the clip as the game saves it, with its title and course, and whether it came from the results reel or a saved highlight. */
+export type FlagClip = { title: string; course: string; from: "reel" | "saved"; clip: string };
+
+/** What a submission says about where it came from: the scene and its flat settings (`EngineInput.submitContext`; the server stores both). */
+export type SubmitContext = { scene: string; settings: Record<string, string | number | boolean | null> };
+
 export type RaceMenu = "setup" | "pause" | "dead" | "results" | "standings" | null;
 
 export type RaceHudRow = {
@@ -402,6 +409,8 @@ export type RaceHud = {
   reel: ReelHud | null;
   /** Solo view: the title of the clip shown alone; the HUD draws nothing but its exit (tap anywhere, Esc). Null otherwise. */
   solo: string | null;
+  /** The clip on screen now, reel or solo (`ReelDirector`'s clip id, stable through every loop of the reel): what the [!] flag is bound to. Null during the flight between clips and outside the reel. */
+  shown: number | null;
   /** This browser's saved highlights, newest first (the setup menu lists them). */
   saved: SavedHud[];
   /** Survival mode's panel (docs/SURVIVAL.md); null in a race. */

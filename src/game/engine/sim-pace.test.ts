@@ -166,8 +166,7 @@ describe("given a head-on crash at 165 Hz frames, with or without the pose drawn
         scene.updateMatrixWorld(true);
         blended += cars.filter((c, i) => c.group.position.distanceTo(before[i]!) > 1e-9).length;
         const loose: THREE.Object3D[] = [];
-        for (const c of cars) c.freeObjects(loose);
-        freed += loose.length;
+        for (const c of cars) freed += c.freeObjects(loose, 0);
         pose.restore();
       }
       const s: number[] = [];
@@ -176,8 +175,8 @@ describe("given a head-on crash at 165 Hz frames, with or without the pose drawn
         for (const m of c.deform.masses) s.push(m.world.x, m.world.y, m.world.z);
         s.push(...c.group.matrixWorld.elements);
         const loose: THREE.Object3D[] = [];
-        c.freeObjects(loose);
-        for (const o of loose) s.push(...o.position.toArray(), ...o.quaternion.toArray(), o.rotation.x, o.rotation.y, o.rotation.z);
+        const n = c.freeObjects(loose, 0);
+        for (let k = 0; k < n; k++) s.push(...loose[k]!.position.toArray(), ...loose[k]!.quaternion.toArray(), loose[k]!.rotation.x, loose[k]!.rotation.y, loose[k]!.rotation.z);
       }
       states.push(Float64Array.from(s));
     }

@@ -3,9 +3,11 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { DRIVE, type DriverSeat, type SeatView } from "../vehicle/car-drive.ts";
 import type { PadState } from "../vehicle/gamepad.ts";
 import { DISC_RADIUS } from "../world/ground.ts";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { wrapPiClosed } from "../kernel/scalar.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { CineCam, DutchCam, EyePull, type Sight } from "./spectate-cam.ts";
+import { Spring, Spring3 } from "./spring.ts";
 
 /**
  * A followed (not driven) car's camera, cycled by View: the drive chase views, the trackside cinematic ("cine"),
@@ -32,7 +34,6 @@ const POST_TOP = 5.3;
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
 const _e = new THREE.Vector3();
-const _t = new THREE.Vector3();
 const _up = new THREE.Vector3(0, 1, 0);
 /** `watchFall`: the eye stands this far (m) inside the fleet disc's rim, at shoulder height (m) over the disc. */
 const FALL_EYE_IN = 1.5;
@@ -46,51 +47,13 @@ const CLICK_PX = 8;
 export function centroid(out: THREE.Vector3, cars: readonly DeformableCar[]): THREE.Vector3 {
   out.set(0, 0, 0);
   let n = 0;
-  for (const car of cars) {
+  for (let i = 0; i < cars.length; i++) {
+    const car = cars[i]!;
     if (car.falling || car.vaporized) continue;
     out.add(car.group.position);
     n++;
   }
   return n === 0 ? out : out.multiplyScalar(1 / n);
-}
-
-/** Critically damped spring, exact for any dt: no overshoot, ~98% settled after 6/omega s. */
-class Spring {
-  x = 0;
-  v = 0;
-
-  step(target: number, omega: number, dt: number): number {
-    const e = this.x - target;
-    const t = (this.v + omega * e) * dt;
-    const k = Math.exp(-omega * dt);
-    this.v = (this.v - omega * t) * k;
-    this.x = target + (e + t) * k;
-    return this.x;
-  }
-
-  snap(x: number): void {
-    this.x = x;
-    this.v = 0;
-  }
-}
-
-/** Vector critically damped spring; `v` is relative to whatever frame the caller carries `x` in. */
-class Spring3 {
-  readonly x = new THREE.Vector3();
-  readonly v = new THREE.Vector3();
-
-  step(target: THREE.Vector3, omega: number, dt: number): void {
-    const k = Math.exp(-omega * dt);
-    _e.subVectors(this.x, target);
-    _t.copy(this.v).addScaledVector(_e, omega).multiplyScalar(dt);
-    this.v.addScaledVector(_t, -omega).multiplyScalar(k);
-    this.x.copy(target).addScaledVector(_e.add(_t), k);
-  }
-
-  snap(x: THREE.Vector3): void {
-    this.x.copy(x);
-    this.v.set(0, 0, 0);
-  }
 }
 
 export const CHASE = {
@@ -226,7 +189,7 @@ export class DriveCam {
     } else {
       const c = view === "far" ? CHASE.far : CHASE.third;
       const dist = c.dist + Math.min(Math.abs(along), 30) * CHASE.pullback;
-      const r = Math.hypot(dist, c.height);
+      const r = hypot2(dist, c.height);
       const elev = THREE.MathUtils.clamp(Math.atan2(c.height, dist) + this.lookPitch.x, 0.02, 1.25);
       const flat = r * Math.cos(elev);
       _v.set(p.x - sy * flat, p.y + r * Math.sin(elev), p.z - cy * flat);
@@ -270,7 +233,7 @@ export class DriveCam {
       return;
     }
     const s = car.suspension;
-    const fade = Math.max(0, 1 - 20 * Math.hypot(this.lookYaw.x, this.lookPitch.x));
+    const fade = Math.max(0, 1 - 20 * hypot2(this.lookYaw.x, this.lookPitch.x));
     const y = RIDE.heave * s.heave + (view === "first" ? RIDE.lever : -RIDE.lever) * s.pitch;
     camera.position.y += this.rideY.step(RIDE.drop * Math.tanh(y / RIDE.drop) * fade, RIDE.omega, dt);
     camera.rotateX(this.rideTilt.step(RIDE.maxTilt * Math.tanh((RIDE.tilt * s.pitch) / RIDE.maxTilt) * fade, RIDE.omega, dt));
@@ -350,9 +313,10 @@ export class ChaseCamera {
   private pinchDist = 0;
   /**
    * A scene that takes presses from the drag (the Lab's flick): `down` (client px, `t` ms) claims a press or leaves it to the
-   * camera; a claimed press's moves and its release (`cancel`: the system took the pointer) go to it, never the orbit or a pick.
+   * camera; a claimed press's moves (the `pointermove` itself, with the moves coalesced into it) and its release (`cancel`: the
+   * system took the pointer) go to it, never the orbit or a pick.
    */
-  take: { down(x: number, y: number, t: number): boolean; move(x: number, y: number, t: number): void; up(x: number, y: number, t: number, cancel: boolean): void } | null = null;
+  take: { down(x: number, y: number, t: number): boolean; move(e: PointerEvent): void; up(x: number, y: number, t: number, cancel: boolean): void } | null = null;
   private taking = false;
 
   readonly camera: THREE.PerspectiveCamera;
@@ -529,11 +493,13 @@ export class ChaseCamera {
     const p = this.pos;
     const ex = p.x - this.look.x;
     const ez = p.z - this.look.z;
-    const R = Math.hypot(ex, ez);
+    const R = hypot2(ex, ez);
     if (R < 1e-3) return;
     const ux = ex / R;
     const uz = ez / R;
-    for (const post of this.posts) {
+    const posts = this.posts;
+    for (let k = 0; k < posts.length; k++) {
+      const post = posts[k]!;
       if (!post.intact || !post.group.visible) continue;
       const q = post.group.position;
       const h = Math.max(0, p.y - q.y - POST_TOP);
@@ -546,7 +512,7 @@ export class ChaseCamera {
       if (px * ux + pz * uz <= 0 || Math.abs(s) >= 3 * c) continue;
       const swell = 1 - (s * s) / (9 * c * c);
       // How far the post's circle lies beyond the orbit's (negative: inside it), and the shift that clears it on the chosen side.
-      const gap = Math.hypot(px, pz) - R;
+      const gap = hypot2(px, pz) - R;
       const shift = gap >= -c / 4 ? -Math.max(0, c - gap) : Math.max(0, c + gap);
       p.x += ux * shift * swell * swell;
       p.z += uz * shift * swell * swell;
@@ -674,7 +640,7 @@ export class ChaseCamera {
     const dy = this.camera.position.y - this.look.y;
     const dz = this.camera.position.z - this.look.z;
     this.angle = Math.atan2(dx, dz);
-    this.radius = THREE.MathUtils.clamp(Math.hypot(dx, dy, dz), 4.2, 32);
+    this.radius = THREE.MathUtils.clamp(hypot3(dx, dy, dz), 4.2, 32);
     this.pitch = THREE.MathUtils.clamp(Math.asin(THREE.MathUtils.clamp(dy / this.radius, -0.99, 0.99)), 0.08, 1.22);
   }
 
@@ -707,7 +673,7 @@ export class ChaseCamera {
       this.pinchId = e.pointerId;
       this.pinchX = e.clientX;
       this.pinchY = e.clientY;
-      this.pinchDist = Math.hypot(this.lastX - e.clientX, this.lastY - e.clientY);
+      this.pinchDist = hypot2(this.lastX - e.clientX, this.lastY - e.clientY);
       this.pointerTravel = Infinity;
       this.canvas.setPointerCapture(e.pointerId);
       return;
@@ -739,12 +705,12 @@ export class ChaseCamera {
     }
     if (e.pointerId !== this.dragId) return;
     if (this.taking) {
-      this.take?.move(e.clientX, e.clientY, e.timeStamp);
+      this.take?.move(e);
       return;
     }
     const dx = e.clientX - this.lastX;
     const dy = e.clientY - this.lastY;
-    this.pointerTravel += Math.hypot(dx, dy);
+    this.pointerTravel += hypot2(dx, dy);
     this.lastX = e.clientX;
     this.lastY = e.clientY;
     if (this.pinchId !== -1) {
@@ -778,7 +744,7 @@ export class ChaseCamera {
 
   /** Two fingers apart zoom in, together zoom out, on the wheel's radius range. */
   private pinch(): void {
-    const d = Math.hypot(this.lastX - this.pinchX, this.lastY - this.pinchY);
+    const d = hypot2(this.lastX - this.pinchX, this.lastY - this.pinchY);
     if (this.pinchDist > 0 && d > 0) this.radius = THREE.MathUtils.clamp((this.radius * this.pinchDist) / d, 4.2, 32);
     this.pinchDist = d;
     this.userFramed = true;

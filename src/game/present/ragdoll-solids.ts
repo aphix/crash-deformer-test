@@ -1,6 +1,7 @@
 import * as THREE from "three";
-import type { ColliderDesc } from "@dimforge/rapier3d";
+import type { ColliderDesc } from "@dimforge/rapier3d-simd";
 import type { Rapier } from "../kernel/rapier.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { blankPoint, pointOn, type Track, type TrackPath } from "../world/track.ts";
 import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, levelAt, RoadIndex, sampleStep, sections, surfY, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
@@ -8,10 +9,9 @@ import { pillarPieces } from "./track-structures.ts";
 
 /**
  * A fixed solid of a course that a thrown dummy hits (the cosmetic Rapier world's static colliders). `x`, `z`, `r`: its
- * centre and bounding radius in plan (the reach test); `make`: its collider; `prop`: the placement it is, for a prop.
- * Built once per course and shared by every throw.
+ * centre and bounding radius in plan (the reach test); `make`: its collider. Built once per course and shared by every throw.
  */
-export type Solid = { x: number; z: number; r: number; make: (R: Rapier) => ColliderDesc | null; prop?: number };
+export type Solid = { x: number; z: number; r: number; make: (R: Rapier) => ColliderDesc | null };
 
 /** Longest beam (m) a tunnel roof or a deck is cut into: bends and crests stay within a few cm of the drawn shell. */
 const BEAM = 8;
@@ -31,7 +31,7 @@ const UP = new THREE.Vector3(0, 1, 0);
 /** A cuboid `solid`: half extents (`hx`, `hy`, `hz`) about (`x`, `y`, `z`), turned by the current `_q`. */
 function box(x: number, y: number, z: number, hx: number, hy: number, hz: number): Solid {
   const { x: qx, y: qy, z: qz, w: qw } = _q;
-  return { x, z, r: Math.hypot(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation({ x: qx, y: qy, z: qz, w: qw }) };
+  return { x, z, r: hypot2(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, hy, hz).setTranslation(x, y, z).setRotation({ x: qx, y: qy, z: qz, w: qw }) };
 }
 
 /** The slab of depth `thick` on the far side of the quad a0 b0 b1 a1 from `away`: a0→b0 across, a→a1 along the run. */
@@ -157,25 +157,26 @@ function structures(track: Track, out: Solid[]): void {
       x /= pts.length / 3;
       z /= pts.length / 3;
       let r = 0;
-      for (let i = 0; i < pts.length; i += 3) r = Math.max(r, Math.hypot(pts[i]! - x, pts[i + 2]! - z));
+      for (let i = 0; i < pts.length; i += 3) r = Math.max(r, hypot2(pts[i]! - x, pts[i + 2]! - z));
       out.push({ x, z, r, make: (R) => R.ColliderDesc.convexHull(pts) });
     }
   }
 }
 
 /**
- * Every collider as a solid standing from its placement's base (`floor` for one with no placement: the Lab's wall) to its
- * top, at the footprint the cars hit, so a dummy meets exactly what a car does; `prop` is the collider's index, for the
- * knocked ones the scene says are gone. Appended to `out`.
+ * Every collider but the knockable props' (each of those is its own body, `PropBodies`) as a solid standing from its
+ * placement's base (`floor` for one with no placement: the Lab's wall) to its top, at the footprint the cars hit, so a
+ * dummy meets exactly what a car does. Appended to `out`.
  */
 export function colliderSolids(colliders: readonly PropCollider[], placed: readonly Placed[], floor: number, out: Solid[]): Solid[] {
   for (const c of colliders) {
+    if (c.body === "knock") continue;
     const y0 = placed[c.index]?.y ?? floor;
     const h = c.top - y0;
-    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, prop: c.index, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
+    if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
     else {
       _q.setFromAxisAngle(UP, c.yaw);
-      out.push({ ...box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz), prop: c.index });
+      out.push(box(c.x, y0 + h / 2, c.z, c.hx, h / 2, c.hz));
     }
   }
   return out;

@@ -3,6 +3,8 @@ import { Bookmark, BookmarkCheck, Play, Trash2 } from "lucide-react";
 import { NavButton } from "@/components/race-menu-shell";
 import { usePadMenu } from "@/components/use-pad-menu";
 import type { RaceCommand, ReelHud, SavedHud, SaveResult } from "@/game/match/types";
+import { flagButton } from "@/game/hud/submit-rules";
+import { FlagButton } from "@/components/flag-button";
 import { cn } from "@/lib/utils";
 
 type Send = (cmd: RaceCommand) => void;
@@ -18,10 +20,13 @@ const SAVE_REFUSED: Record<Exclude<SaveResult, "saved">, string> = {
 };
 
 /** The results reel's clips (docs/HIGHLIGHTS.md): the one on screen now, watch one alone, keep one in this browser. */
-export function ReelList({ reel, onCommand }: { reel: ReelHud; onCommand: Send }) {
+export function ReelList({ reel, shown, onCommand }: { reel: ReelHud; shown: number | null; onCommand: Send }) {
   return (
     <section className="mt-3" aria-label="Highlights">
-      <p className="hud-label">Highlights</p>
+      <div className="flex items-center justify-between gap-2">
+        <p className="hud-label">Highlights</p>
+        <FlagButton clip={flagButton({ reel, solo: null, shown }).clip} />
+      </div>
       <ol className="mt-1 grid gap-1.5">
         {reel.clips.map((c, i) => {
           const now = i === reel.playing;
@@ -90,19 +95,25 @@ export function SavedList({ saved, onCommand }: { saved: SavedHud[]; onCommand: 
 }
 
 /** Solo view (a reel clip or a saved one shown alone): the whole HUD is this transparent exit; a tap, Esc or pad B sends `reelBack`. */
-export function SoloExit({ title, onCommand }: { title: string; onCommand: Send }) {
+export function SoloExit({ title, shown, onCommand }: { title: string; shown: number | null; onCommand: Send }) {
   const ref = useRef<HTMLButtonElement>(null);
   const back = () => onCommand({ type: "reelBack" });
   // No `[data-nav]` inside: the hook only supplies Esc and B.
   usePadMenu(ref, "solo", { onBack: back, onStart: null });
   return (
-    <button
-      ref={ref}
-      type="button"
-      aria-label="Exit replay"
-      title={`${title} · tap or Esc to exit`}
-      onClick={back}
-      className="pointer-events-auto absolute inset-0 z-30 cursor-pointer bg-transparent outline-none"
-    />
+    <>
+      <button
+        ref={ref}
+        type="button"
+        aria-label="Exit replay"
+        title={`${title} · tap or Esc to exit`}
+        onClick={back}
+        className="pointer-events-auto absolute inset-0 z-30 cursor-pointer bg-transparent outline-none"
+      />
+      {/* Above the exit tap (its own element: a tap on [!] does not leave the view). */}
+      <div className="pointer-events-auto absolute right-3 top-3 z-40">
+        <FlagButton clip={flagButton({ reel: null, solo: title, shown }).clip} />
+      </div>
+    </>
   );
 }

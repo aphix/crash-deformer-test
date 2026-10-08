@@ -48,8 +48,22 @@ type TerrainChunks = {
   coarseAt: Int32Array;
 };
 
-function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m: Mesher; chunks: TerrainChunks } {
-  const m = new Mesher();
+/** The terrain's cell grid over the course and its margin: its corner, size in blocks and cells, and per cell the height, the drawn surface and the path covering it. */
+type TerrainGrid = {
+  x0: number;
+  z0: number;
+  bx: number;
+  bz: number;
+  per: number;
+  nx: number;
+  terrain: number;
+  tile: number;
+  h: Float32Array;
+  col: Uint8Array;
+  cov: Int16Array;
+};
+
+function sampleTerrain(track: Track, ground: TrackGround, index: RoadIndex): TerrainGrid {
   const far = Math.max(60, ...track.json.scatter.map((s) => s.far));
   const margin = Math.max(80, far + 40);
   const b = track.bounds;
@@ -93,20 +107,26 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
       }
     }
   }
-  // A cell wholly under one path's ribbon is not drawn.
-  const dropped = (i: number, j: number) => {
-    const c = j * nx + i;
-    const a = cov[c]!;
-    return a >= 0 && cov[c + 1] === a && cov[c + nx] === a && cov[c + nx + 1] === a;
-  };
-  // Block kind: 0 hidden, 1 one quad, 2 split into cells.
+  return { x0, z0, bx, bz, per, nx, terrain, tile, h, col, cov };
+}
+
+/** A cell wholly under one path's ribbon is not drawn. */
+function dropped(g: TerrainGrid, i: number, j: number): boolean {
+  const c = j * g.nx + i;
+  const a = g.cov[c]!;
+  return a >= 0 && g.cov[c + 1] === a && g.cov[c + g.nx] === a && g.cov[c + g.nx + 1] === a;
+}
+
+/** Block kind: 0 hidden, 1 one quad, 2 split into cells. */
+function blockKinds(g: TerrainGrid): Uint8Array {
+  const { bx, bz, per, nx, terrain, h, col } = g;
   const kind = new Uint8Array(bx * bz);
   for (let bj = 0; bj < bz; bj++) {
     for (let bi = 0; bi < bx; bi++) {
       const i0 = bi * per;
       const j0 = bj * per;
       let drops = 0;
-      for (let v = 0; v < per; v++) for (let u = 0; u < per; u++) if (dropped(i0 + u, j0 + v)) drops++;
+      for (let v = 0; v < per; v++) for (let u = 0; u < per; u++) if (dropped(g, i0 + u, j0 + v)) drops++;
       if (drops === per * per) continue;
       const h00 = h[j0 * nx + i0]!;
       const h10 = h[j0 * nx + i0 + per]!;
@@ -124,6 +144,14 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
       kind[bj * bx + bi] = simple ? 1 : 2;
     }
   }
+  return kind;
+}
+
+function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m: Mesher; chunks: TerrainChunks } {
+  const m = new Mesher();
+  const g = sampleTerrain(track, ground, index);
+  const { x0, z0, bx, bz, per, nx, terrain, tile, h, col } = g;
+  const kind = blockKinds(g);
   /** Cells between a block's vertices, by kind: 0 hidden, 1 one quad, 2 split into cells, 3 split into 4 m cells (far mesh only). */
   const STEP = [0, per, 1, 2];
   /**
@@ -212,7 +240,7 @@ function buildTerrain(track: Track, ground: TrackGround, index: RoadIndex): { m:
     }
     for (let v = 0; v < per; v += s) {
       for (let u = 0; u < per; u += s) {
-        if (dropped(i0 + u, j0 + v)) continue;
+        if (dropped(g, i0 + u, j0 + v)) continue;
         const a = (v / s) * row + u / s;
         // Rows run +z (ahead), columns +x: +x is left of +z, so the +x vertex is the left one.
         out.quad(ids[a]!, ids[a + 1]!, ids[a + row]!, ids[a + row + 1]!);

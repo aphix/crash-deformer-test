@@ -1,6 +1,8 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
+import { GUARD_BRAKE_IDX, GUARD_LEAD_IDX, GUARD_TURN_IDX } from "./constants.ts";
 
 /** Seconds ahead the guard looks for a contact, in steps of `STEP`. */
 const HORIZON = 1.5;
@@ -46,15 +48,19 @@ function sampleTimes(): Float64Array {
  * (by its off-centre share, or in full while there is time to move sideways out of the zone: `STEER_ACC`) and every contact
  * ahead that steering cannot clear is braked for, at the deceleration that takes the closing speed off, down to a `TAP`,
  * in the time left (`brake`, m/s²). A pair already touching and moving apart is left to the physics. No allocation.
+ * `brake`, `lead` and `turn` come in the `tune` buffer (`GUARD_*_IDX`).
  *
  * Cost: the guarded car's own arc is worked out once, and only when some other car is near enough to reach it: a pair
  * whose centres are further apart than the zone plus what the two cars can close in `HORIZON` s (their speeds added) cannot touch.
  */
-export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, brake: number, lead: number, turn: number, out: DriveInput): void {
+export function guardContact(self: AiCar, cars: readonly AiCar[], count: number, spare: Uint8Array, tune: Float64Array, out: DriveInput): void {
+  const brake = tune[GUARD_BRAKE_IDX]!;
+  const lead = tune[GUARD_LEAD_IDX]!;
+  const turn = tune[GUARD_TURN_IDX]!;
   const nose = self.yaw;
   const sx = self.vx;
   const sz = self.vz;
-  const speed = Math.hypot(sx, sz);
+  const speed = hypot2(sx, sz);
   // Under a nudge's speed it cannot start a hit, and a crawl is the plan's business (a creeping pair brawled on a wall).
   if (speed <= DERBY_RULES.hitSpeed) return;
   const heading = Math.atan2(sx, sz);
@@ -71,9 +77,9 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
   for (let k = 0; k < count; k++) {
     const o = cars[k]!;
     if (o.id === self.id || !o.alive || spare[o.id] === 1) continue;
-    const ospeed = Math.hypot(o.vx, o.vz);
+    const ospeed = hypot2(o.vx, o.vz);
     // Out of reach: the two centres are further apart than the zone and the most they can close in `HORIZON` s.
-    const gap = Math.hypot(o.x - self.x, o.z - self.z) - (speed + ospeed) * last;
+    const gap = hypot2(o.x - self.x, o.z - self.z) - (speed + ospeed) * last;
     if (gap >= LON) continue;
     if (!arc) {
       arc = true;
@@ -121,7 +127,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
           tc = 0;
           cn = n0;
           cl = l0;
-          cw = Math.hypot(ox * ospeed - VX[0]!, oz * ospeed - VZ[0]!);
+          cw = hypot2(ox * ospeed - VX[0]!, oz * ospeed - VZ[0]!);
         }
         break;
       }
@@ -131,7 +137,7 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
         tc = t;
         cn = pn;
         cl = pl;
-        cw = Math.hypot(ox * ov - VX[i]!, oz * ov - VZ[i]!);
+        cw = hypot2(ox * ov - VX[i]!, oz * ov - VZ[i]!);
         break;
       }
       // Moving apart from outside the zone: nothing further out is a contact.

@@ -195,6 +195,7 @@ function fakeGame(raceApplied?: number[], playerName = "") {
       this.clears++;
       for (const c of cars) c.resetVisual();
     },
+    meterOf: () => null,
   };
 }
 

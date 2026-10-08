@@ -20,7 +20,7 @@ variables do).
   becomes Vite's `base`. TanStack Start derives the router basepath from it and Nitro gets it as
   `baseURL`, so pages, `/_serverFn`, `/api/rtc` and public files all live under it. Client code
   builds URLs from `import.meta.env.BASE_URL` (always ends in `/`), never from a
-  hard-coded `/`: `${import.meta.env.BASE_URL}api/rtc`, `${import.meta.env.BASE_URL}env-studio.jpg`,
+  hard-coded `/`: `${import.meta.env.BASE_URL}api/rtc`, `${import.meta.env.BASE_URL}env-studio.hdr`,
   and for share links `location.origin + import.meta.env.BASE_URL + "?net=join&room=X"`. A
   request outside the base gets a redirect to it.
 
@@ -46,6 +46,16 @@ exit, so `db.ts` ends the process itself when no other listener for the signal r
 
 Signaling rows live 30-60 s, so a persistent PGLite store matters little: it keeps rooms across a
 restart that happens mid-handshake, nothing more.
+
+## Submissions and the update check
+
+The game posts three kinds of submission to `<base>api/submissions` (`src/lib/submissions/`): a bench card (`?bench=`, the Benchmark loop), a JSON trace capture (Debug views > Submit) and a flagged replay clip ([!] over the results reel and a solo view). Each carries the build sha (`__BUILD_SHA__`), user agent, screen and pixel ratio, scene settings and the client clock, and gets back a receipt id. Rows go in the `submissions` table (`migrations/0006_submissions.sql`) of the same database as signaling, so on the box they sit under `PGLITE_DATA_DIR` in `shared/` and survive deploys. The table is capped at 5000 rows and 128 MB of stored (gzipped, base64) text; a post past either answers 507 and evicts nothing. Caps per kind, measured on real captures, are in `src/lib/submissions/kinds.ts`; one post is processed at a time (a 16 MB capture is several times that in transient memory on a 2 GB service).
+
+Reads need `SUBMISSIONS_OWNER_TOKEN` in the env file (`deploy/deploy.env.example`), sent as `Authorization: Bearer`; unset or shorter than 24 characters, every read answers 503. Pull them down with `SUBMISSIONS_OWNER_TOKEN=<token> node scripts/fetch-submissions.mjs https://<host><base>` (saved as `.bench/submissions/<receipt>.json`; `--kind`, `--limit`, `--id`, `--out`). The nginx snippet gives `<base>api/submissions` its own 4 MB body limit (the app's wire cap is 3 MB, gzipped; the rest of the app keeps 64 kB): re-render and `nginx -t` it after pulling this.
+
+The build emits `<base>version.json` (`{"sha": "<short sha>"}`, `vite.config.ts`) beside its assets, from the same build as the page, so it can never name a release the server is not serving. A running page polls it (first check 5 s after load, every 3 minutes while visible, on returning to the tab after 30 s away) and shows "Update available: tap to refresh" unless a race is running. With `?auto=1` in the page's address it reloads by itself to `?v=<sha>` (no service worker, so the HTTP cache is the only cache and a new URL defeats it); on a bench page it does so between benches. A reload that comes back on the old build backs off 2, 4, 8 ... minutes up to an hour (`src/lib/deploy/update-check.ts`).
+
+The Benchmark entry starts a loop (strip, city, biggest course; `src/game/engine/bench-loop.ts`), each bench its own page load. The loop's whole state is the bench page's address: `loop=<session>&cycle=<n>&step=<i>`, then `keep=1` (run the cycle again when it ends), `auto=1` (reload onto a newly deployed build between benches), `loopultra=1` (each bench is followed by its Ultra pass, from the next cycle on) and `cycleultra=1` (this cycle's own Ultra choice, which the loop sets itself). The entry starts with keep, auto and, where the build has Ultra, loopultra. A hand-opened `?bench=strip` runs one bench; with `&loop=<session>` in its address it becomes a loop. To change an option, edit the address; keep and auto take effect from the next step, loopultra from the next cycle. The bench card's status line reads the loop's place (`loop 2, step 1/3`).
 
 ## The skin kernel (Rust -> WASM)
 
@@ -80,8 +90,10 @@ One pass of `deploy/crush-deploy.sh`:
    whose last build attempt is still inside its retry wait: exit. This is the whole cost of an idle
    poll.
 3. Defer if the 1-minute load average is at or above the core count.
-4. As the `crush` user: check out the commit, `npm ci`, `npm run build:node` with `APP_BASE`, copy
-   `.output` to `releases/<UTC stamp>-<sha>`.
+4. As the `crush` user: check out the commit, `npm ci` (skipped when `package.json`, the lockfile and
+   the node version are the ones the last finished install used: `state/deps-key`), `npm run build:node`
+   with `APP_BASE`, copy `.output` to `releases/<UTC stamp>-<sha>`. The journal logs the seconds each
+   phase took.
 5. Start that release on `CRUSH_CHECK_PORT` with an in-memory database. The page and `api/rtc`
    must both answer, and the client smoke must pass: the page's entry script and every built JS
    chunk (entry, routes, engine, three.js) come back 200 with a JavaScript MIME type. That catches

@@ -1,8 +1,10 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { DerbyBrain, blankAiCar, DEFAULT_DERBY_AGGRESSION, DERBY_PACE, DERBY_RULES, type AiCar } from "../ai/derby-ai.ts";
 import { aiRecoverDelay, DRIVE, FlipClock, idleDrive, mayRecoverFlipped, type DriveInput } from "../vehicle/car-drive.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { fieldAggression } from "../ai/ai-aggression.ts";
 import { derbyRadius } from "../scenes/derby-arena.ts";
+import { MAX_CARS } from "../scenes/fleet.ts";
 import { COUNTDOWN, GRID_TIME } from "./session.ts";
 
 /**
@@ -88,6 +90,8 @@ export class DerbyMatch {
   private lastAttacker = new Map<number, number>();
   private wasAlive = new Map<number, boolean>();
   private boostQueue: number[] = [];
+  /** The queue `consumeBoosts` handed out last; the two swap, so a frame's hand-off allocates nothing. */
+  private boostSpare: number[] = [];
   /** Per car: how long it has lain flipped (`recoverDue`). */
   private readonly flips: FlipClock[] = [];
   readonly brain = new DerbyBrain();
@@ -95,8 +99,10 @@ export class DerbyMatch {
   private readonly idle = idleDrive();
   /** Match time of each car's last aggressive hit on a live car. */
   private lastAggro = new Map<number, number>();
-  /** Where each car last stopped, and since when (the still clock). */
-  private still = new Map<number, { x: number; z: number; t: number }>();
+  /** Where each car (by id) last stopped, and since when (the still clock); `stillT` NaN: not seen this heat. */
+  private readonly stillX = new Float64Array(MAX_CARS);
+  private readonly stillZ = new Float64Array(MAX_CARS);
+  private readonly stillT = new Float64Array(MAX_CARS).fill(NaN);
   private readonly counted = new Set<number>();
   private hitClock = DERBY_RULES.hitClock;
   private timeLimit = STALEMATE;
@@ -118,7 +124,7 @@ export class DerbyMatch {
     this.brain.reset();
     this.brain.radius = opts.radius ?? derbyRadius(cars.length);
     this.lastAggro.clear();
-    this.still.clear();
+    this.stillT.fill(NaN);
     this.counted.clear();
     this.hitClock = opts.hitClock ?? DERBY_RULES.hitClock;
     this.timeLimit = opts.timeLimit ?? heatLimit(cars.length);
@@ -181,9 +187,12 @@ export class DerbyMatch {
     return true;
   }
 
-  consumeBoosts(): number[] {
-    const q = this.boostQueue.slice();
+  /** The attackers owed a takedown boost since the last call, oldest first; valid until the next call. */
+  consumeBoosts(): readonly number[] {
+    const q = this.boostQueue;
+    this.boostQueue = this.boostSpare;
     this.boostQueue.length = 0;
+    this.boostSpare = q;
     return q;
   }
 
@@ -219,7 +228,7 @@ export class DerbyMatch {
    */
   think(self: AiCar, others: readonly AiCar[], dt: number): DriveInput {
     if (!this.active || this.time < 0 || this.winnerId != null || !self.alive || this.counted.has(self.id)) return this.idle;
-    for (const o of others) if (this.counted.has(o.id)) o.alive = false;
+    for (let k = 0; k < others.length; k++) if (this.counted.has(others[k]!.id)) others[k]!.alive = false;
     self.idle = this.time - (this.lastAggro.get(self.id) ?? 0);
     const out = this.brain.think(self, others, dt);
     if (out.throttle > 0) out.throttle *= DERBY_PACE / DRIVE.maxFwd;
@@ -241,18 +250,17 @@ export class DerbyMatch {
     this.time += dt;
     // Before the green light nobody moves: no clock runs and nothing is decided.
     if (this.time < 0) return "running";
-    for (const f of flags) {
+    for (let k = 0; k < flags.length; k++) {
+      const f = flags[k]!;
       const row = this.row(f.id);
       if (row) row.alive = f.alive && !row.out;
       const was = this.wasAlive.get(f.id) ?? true;
       if (was && !f.alive) this.noteDisable(f.id);
       this.wasAlive.set(f.id, f.alive);
-      const s = this.still.get(f.id);
-      if (!s) this.still.set(f.id, { x: f.x, z: f.z, t: this.time });
-      else if (Math.hypot(f.x - s.x, f.z - s.z) > DERBY_RULES.stillRadius) {
-        s.x = f.x;
-        s.z = f.z;
-        s.t = this.time;
+      if (Number.isNaN(this.stillT[f.id]!) || hypot2(f.x - this.stillX[f.id]!, f.z - this.stillZ[f.id]!) > DERBY_RULES.stillRadius) {
+        this.stillX[f.id] = f.x;
+        this.stillZ[f.id] = f.z;
+        this.stillT[f.id] = this.time;
       }
     }
 
@@ -264,10 +272,12 @@ export class DerbyMatch {
 
     // Count-outs: no aggressive hit on a live car in `hitClock`, or no movement in `stillClock`.
     let countedNow = false;
-    for (const r of this.board) {
+    for (let k = 0; k < this.board.length; k++) {
+      const r = this.board[k]!;
       if (!r.alive) continue;
       const sinceHit = this.time - (this.lastAggro.get(r.id) ?? 0);
-      const sinceMoved = this.time - (this.still.get(r.id)?.t ?? this.time);
+      const stillT = this.stillT[r.id]!;
+      const sinceMoved = this.time - (Number.isNaN(stillT) ? this.time : stillT);
       r.clock = Math.max(0, Math.min(this.hitClock - sinceHit, DERBY_RULES.stillClock - sinceMoved));
       if (r.clock > 0) continue;
       r.alive = false;
@@ -278,7 +288,8 @@ export class DerbyMatch {
 
     let live = 0;
     let lone: DerbyBoardRow | undefined;
-    for (const r of this.board) {
+    for (let k = 0; k < this.board.length; k++) {
+      const r = this.board[k]!;
       if (!r.alive) continue;
       live++;
       lone = r;
@@ -325,6 +336,14 @@ type CrushMass = {
   readonly rest: { readonly z: number };
 };
 
+/** What `snapshotAiCar` reads of a `DeformableCar`. The car is passed whole: a number handed to a call V8 does not inline is boxed on the heap. */
+type SnapCar = {
+  readonly group: { readonly position: { readonly x: number; readonly z: number } };
+  readonly yaw: number;
+  readonly velocity: { readonly x: number; readonly z: number };
+  readonly deform: { readonly masses: readonly CrushMass[] };
+};
+
 function spent(nowLen: number, restLen: number): number {
   const span = restLen - 0.36;
   if (span <= 1e-6) return 0;
@@ -337,23 +356,14 @@ function spent(nowLen: number, restLen: number): number {
  * plastic, so these only grow; engine block travel was tried and is mostly
  * elastic slosh (0.5–1.0 on cars with untouched noses).
  */
-export function snapshotAiCar(
-  out: AiCar,
-  id: number,
-  x: number,
-  z: number,
-  yaw: number,
-  vx: number,
-  vz: number,
-  drivetrainAlive: boolean,
-  masses: readonly CrushMass[],
-): AiCar {
+export function snapshotAiCar(out: AiCar, id: number, car: SnapCar, drivetrainAlive: boolean): AiCar {
+  const masses = car.deform.masses;
   out.id = id;
-  out.x = x;
-  out.z = z;
-  out.yaw = yaw;
-  out.vx = vx;
-  out.vz = vz;
+  out.x = car.group.position.x;
+  out.z = car.group.position.z;
+  out.yaw = car.yaw;
+  out.vx = car.velocity.x;
+  out.vz = car.velocity.z;
   out.alive = drivetrainAlive;
   let cellNow = 0;
   let cellRest = 0;
@@ -361,7 +371,8 @@ export function snapshotAiCar(
   let noseRest = 0;
   let tailNow = 0;
   let tailRest = 0;
-  for (const m of masses) {
+  for (let k = 0; k < masses.length; k++) {
+    const m = masses[k]!;
     switch (m.name) {
       case "cell":
         cellNow = m.local.z;
@@ -389,7 +400,8 @@ export function snapshotAiCar(
 /** The board's leader: highest score, lowest id on a tie; `aliveOnly` skips cars out of the heat. */
 function leader(board: readonly DerbyBoardRow[], aliveOnly: boolean): DerbyBoardRow | undefined {
   let best: DerbyBoardRow | undefined;
-  for (const r of board) {
+  for (let k = 0; k < board.length; k++) {
+    const r = board[k]!;
     if (aliveOnly && !r.alive) continue;
     if (!best || r.score > best.score || (r.score === best.score && r.id < best.id)) best = r;
   }

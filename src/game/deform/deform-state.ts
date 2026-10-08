@@ -423,7 +423,7 @@ export abstract class DeformState extends DeformHit {
       this.pullSensorsFromMasses(dt);
 
       let maxC = 0;
-      for (const s of this.sensors) if (s.compression > maxC) maxC = s.compression;
+      for (let i = 0; i < this.sensors.length; i++) if (this.sensors[i]!.compression > maxC) maxC = this.sensors[i]!.compression;
       this.crushAmount = maxC;
       this.wrinkleAmp = THREE.MathUtils.clamp(maxC * (0.2 + this.buckle * 0.5), 0, 0.18 + this.buckle * 0.5);
       this.skinDue = true;

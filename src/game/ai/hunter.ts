@@ -1,10 +1,11 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp, wrapPi } from "../kernel/scalar.ts";
 import type { PropCollider } from "../world/placements.ts";
 import type { SurvivalSpec } from "../world/track-schema.ts";
 import type { Track } from "../world/track.ts";
-import { ATTACK, attackTarget, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type HunterWorld } from "./police.ts";
+import { ATTACK, attackTarget, CATCH_UP, CopBrain, HEAD_ON, PULL_OUT, pursuitSteer, RAM_TIME, TAIL_LANE, WAIT_BEHIND, type HunterWorld } from "./cop-brain.ts";
 
 /** Survival's pack (docs/SURVIVAL.md): how many cops, how fast more come, where a cop that is lost or wrecked is put back. */
 export const HUNT = {
@@ -233,12 +234,12 @@ export class HunterBrain extends CopBrain {
     if (u < 0 || u >= this.count || !self.alive || this.state[u] !== HUNTING || !this.go || this.target < 0) return out;
     out.brake = 0;
     if (this.wedge.backing(u, dt, out)) return out;
-    const speed = Math.hypot(self.vx, self.vz);
+    const speed = hypot2(self.vx, self.vz);
     const tg = cars[this.target]!;
     const dx = tg.x - self.x;
     const dz = tg.z - self.z;
-    const dist = Math.hypot(dx, dz);
-    const tv = Math.hypot(tg.vx, tg.vz);
+    const dist = hypot2(dx, dz);
+    const tv = hypot2(tg.vx, tg.vz);
     // How far the unit stands ahead of its target along the target's travel (+), and whether it faces it from there.
     const along = -(dx * Math.sin(tg.yaw) + dz * Math.cos(tg.yaw));
     const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
@@ -277,7 +278,7 @@ export class HunterBrain extends CopBrain {
     for (let v = 0; v < this.count; v++) {
       if (v === u || this.state[v] !== HUNTING || this.queued[v] !== lane) continue;
       const c = cars[this.first + v]!;
-      if (c.alive && Math.hypot(c.x - tg.x, c.z - tg.z) < dist) this.row++;
+      if (c.alive && hypot2(c.x - tg.x, c.z - tg.z) < dist) this.row++;
     }
   }
 
@@ -296,7 +297,7 @@ export class HunterBrain extends CopBrain {
     const lead = Math.min(2, dist / Math.max(8, speed));
     const ax = tg.x + tg.vx * lead;
     const az = tg.z + tg.vz * lead;
-    const aimDist = Math.hypot(ax - self.x, az - self.z);
+    const aimDist = hypot2(ax - self.x, az - self.z);
     const h = this.openHeading(u, self, Math.atan2(ax - self.x, az - self.z), speed, aimDist);
     const alpha = wrapPi(h - self.yaw);
     // Pure pursuit looks a speed-scaled way ahead, so a heading bent round a solid is followed as sharply as it was asked.
@@ -358,7 +359,7 @@ export class HunterBrain extends CopBrain {
         continue;
       }
       // Lost: far from the player and nobody to see it go.
-      const far = tg !== null && Math.hypot(car.x - tg.x, car.z - tg.z) > HUNT.far;
+      const far = tg !== null && hypot2(car.x - tg.x, car.z - tg.z) > HUNT.far;
       this.lost[u] = far && world.hidden(car.x, car.z) ? this.lost[u]! + dt : 0;
       if (this.lost[u]! > HUNT.farTime) {
         this.store(u, world);
@@ -403,7 +404,7 @@ export class HunterBrain extends CopBrain {
     const fx = Math.sin(tg.yaw);
     const fz = Math.cos(tg.yaw);
     const v2 = tg.vx * tg.vx + tg.vz * tg.vz;
-    const moving = Math.hypot(tg.vx, tg.vz) > 5;
+    const moving = hypot2(tg.vx, tg.vz) > 5;
     let tests = 0;
     for (let pass = moving ? 0 : 1; pass < 2; pass++) {
       const ahead = pass === 0;
@@ -412,10 +413,10 @@ export class HunterBrain extends CopBrain {
         const i = (from + k) % n;
         const dx = this.spotX[i]! - tg.x;
         const dz = this.spotZ[i]! - tg.z;
-        const d = Math.hypot(dx, dz);
+        const d = hypot2(dx, dz);
         if (d > HUNT.dropMax || (ahead && dx * fx + dz * fz < d * 0.3)) continue;
         const t = v2 > 0 ? clamp((dx * tg.vx + dz * tg.vz) / v2, 0, HUNT.lag) : 0;
-        if (Math.hypot(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
+        if (hypot2(dx - tg.vx * t, dz - tg.vz * t) < HUNT.dropMin) continue;
         if (this.crowded(this.spotX[i]!, this.spotZ[i]!, cars)) continue;
         if (tests++ >= HUNT.tests) return false;
         if (!world.hidden(this.spotX[i]!, this.spotZ[i]!)) continue;
@@ -431,7 +432,7 @@ export class HunterBrain extends CopBrain {
   }
 
   private crowded(x: number, z: number, cars: readonly AiCar[]): boolean {
-    for (const c of cars) if (Math.hypot(c.x - x, c.z - z) < HUNT.clear) return true;
+    for (const c of cars) if (hypot2(c.x - x, c.z - z) < HUNT.clear) return true;
     return false;
   }
 }

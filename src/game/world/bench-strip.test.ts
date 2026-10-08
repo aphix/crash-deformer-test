@@ -97,7 +97,7 @@ describe("given a page's bench query", () => {
 });
 
 describe("given a race field handed the strip as its bench course", () => {
-  test("when the strip bench's program races it for 25 s, then 16 racers run up the straight and 12 traffic cars drive their own road, the menu lists no strip and the player's options hold no bench value", () => {
+  test("when the strip bench's program races it for 25 s, then 16 racers run up the straight and the traffic in play drives its own road (a car the race has put away is parked off the course), the menu lists no strip and the player's options hold no bench value", () => {
     const w = makeWorld();
     w.race.enter();
     try {
@@ -118,7 +118,7 @@ describe("given a race field handed the strip as its bench course", () => {
       const lead = Math.max(...cars.slice(0, 16).map((c) => c.group.position.z));
       assert.ok(lead > 300, `the leader is ${lead.toFixed(0)} m up the strip`);
       assert.ok(cars.slice(0, 16).every((c) => Math.abs(c.group.position.x) < 40), "every racer is on the lane");
-      assert.ok(cars.slice(16).every((c) => c.group.position.x < -20), "traffic is on its road to the right");
+      assert.ok(cars.slice(16).every((c) => !c.group.visible || c.group.position.x < -20), "traffic in play is on its road to the right");
     } finally {
       w.race.exit();
       setGround(null);

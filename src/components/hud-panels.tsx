@@ -8,6 +8,7 @@ import type { CrashEngine } from "@/game/engine/engine";
 import type { CrashHudState, DoorHud, LabHud, PistonHud, StackHud } from "@/game/hud/hud-store";
 import { LAB_PRESETS, type LabPresetId } from "@/game/scenes/lab";
 import { formatSpeed } from "@/game/hud/speed-units";
+import { KPH_PER_MS } from "@/game/kernel/constants";
 
 /** Derby standings: name, score and seconds to a count-out; struck through once out. A name click follows that car. A phone on its side shows the three best scores and the watched car. */
 export function DerbyBoard({ board, engine }: { board: CrashHudState["derbyBoard"]; engine: RefObject<CrashEngine | null> }) {
@@ -53,7 +54,7 @@ export function PistonPanel({ pistons, engine }: { pistons: PistonHud; engine: R
       <div className="flex items-baseline justify-between gap-2">
         <p className="hud-label">Pistons</p>
         <p className="font-display text-xs tabular-nums text-muted">
-          {pistons.energyKj.toFixed(1)} kJ · EBS {formatSpeed(pistons.ebsKph / 3.6, unit)} {unit}
+          {pistons.energyKj.toFixed(1)} kJ · EBS {formatSpeed(pistons.ebsKph / KPH_PER_MS, unit)} {unit}
         </p>
       </div>
       <div className="grid grid-cols-3 gap-1" role="group" aria-label="Fire a piston">
@@ -77,7 +78,7 @@ export function PistonPanel({ pistons, engine }: { pistons: PistonHud; engine: R
         min={5}
         max={120}
         step={1}
-        shown={`${formatSpeed(pistons.speedKph / 3.6, unit)} ${unit}`}
+        shown={`${formatSpeed(pistons.speedKph / KPH_PER_MS, unit)} ${unit}`}
         onValue={(v) => engine.current?.setPistonConfig({ speedKph: v })}
       />
       <RangeRow
@@ -171,7 +172,7 @@ export function DoorPanel({ doors, engine }: { doors: DoorHud; engine: RefObject
         min={1}
         max={60}
         step={1}
-        shown={`${formatSpeed(doors.kph / 3.6, unit)} ${unit}`}
+        shown={`${formatSpeed(doors.kph / KPH_PER_MS, unit)} ${unit}`}
         onValue={(v) => engine.current?.setDoorConfig({ kph: v })}
       />
       <RangeRow
@@ -282,7 +283,7 @@ export function LabPanel({ lab, engine }: { lab: LabHud; engine: RefObject<Crash
       </div>
       <p className="truncate px-1 font-display text-xs tabular-nums text-muted idle:hidden" role="status">
         {shot === null
-          ? "Swipe from a car or a dummy to flick it"
+          ? "Swipe from a car or a dummy to throw it along the bench"
           : shot.hit === null
             ? `Flying at ${formatSpeed(shot.speed, unit)} ${unit}`
             : `Hit the ${shot.hit} at ${formatSpeed(shot.speed, unit)} ${unit} · ${shot.fell} moved`}

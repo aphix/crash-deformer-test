@@ -83,10 +83,11 @@ Switching back to GitHub is the same edit: `CRUSH_REPO=https://github.com/<owner
 
 **Package manager.** `crush-deploy.sh` installs with `npm ci`, which needs `package-lock.json`. A
 cutover to another package manager (pnpm, say) that deletes the lockfile must change the install
-line in `build()` *in the same commit*, and the new script must be installed on the box (step 2)
+line in `deps()` *in the same commit*, and the new script must be installed on the box (step 2)
 before that commit lands on the branch. Otherwise every new commit fails to build: it is marked
 failed and skipped while the old release keeps serving, so nothing visibly breaks and nothing
-deploys.
+deploys. `deps()` skips the install when `package.json`, the lockfile and the node version hash to
+`$ROOT/state/deps-key` (written after a finished install); `rm` that file to force a reinstall.
 
 ## 4. nginx route
 

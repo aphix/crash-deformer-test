@@ -2,7 +2,8 @@ import * as THREE from "three";
 import { beginFakeFall, DeformableCar } from "../vehicle/car.ts";
 import { BOOST } from "../vehicle/car-drive.ts";
 import { separateSphereFromAabb } from "../deform/physics-util.ts";
-import { COMPACTOR } from "../scenes/compactor.ts";
+import { COMPACTOR, PLATE as COMPACTOR_PLATE } from "../scenes/compactor.ts";
+import { KPH_PER_MS } from "../kernel/constants.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
 import { RANGE } from "../scenes/range.ts";
@@ -16,41 +17,25 @@ import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
 import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
 import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
-import type { DerbyNetState } from "../net/codec.ts";
 import type { RaceCommand } from "../match/types.ts";
 import { SOLO_SCENES, type SceneId } from "../scenes/scene-id.ts";
 import { mulberry32 } from "../world/placements.ts";
 import { celStrength } from "../present/scene-fade.ts";
-import { EngineHud } from "./engine-hud.ts";
+import { EngineDerby } from "./engine-derby.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
+import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
-/**
- * The Lab's opening orbit, low over the bench at toy height through a wider lens (`LAB_FOV`, deg): the bench, the board and
- * the tools on it loom over the set. Upright screens look over the thrower's shoulder down the throw (`toFocus`: the look point
- * that far from the thrower to the set's middle; `turn`: bearing off straight behind, rad), so the set runs up the screen's
- * length; wide ones look across the bench from its front at the set's middle, the thrower on the left, the targets on the
- * right and the pegboard behind, from just far enough back that every item of the set and `fit` m to spare fits the width,
- * the look point `lift` m over the set so the set sits low on the screen with the tools on the board above it, but never so high
- * that the thrower sits more than `low` of the half height below the middle (a dummy lying on the bench dropped under the dock
- * and the set panel). A wide screen `shortPx` CSS px tall or less (a phone on its side) has its dock and set panel along the
- * bottom: there the look point is the set's own height, so the thrower and the set sit mid-screen, clear of both.
- */
-const LAB_SHOT = {
-  upright: { toFocus: 0.8, turn: 0.06, radius: 21, pitch: 0.22, lift: 0 },
-  wide: { toFocus: 1, turn: Math.PI / 2, fit: 3.2, pitch: 0.12, lift: 3.5, low: 0.35, shortPx: 500 },
-};
-const LAB_FOV = 60;
 
 /** Race commands a netplay client may run: viewing only (the host starts, pauses and ends races). */
 const CLIENT_RACE_COMMANDS: ReadonlySet<RaceCommand["type"]> = new Set(["fullUi", "cycle", "watch", "spectate"]);
 
 /**
- * Scenes: switching between the fleet, the rigs, the derby and the race, resetting and spawning the field, the
- * derby's netplay mirror and the fleet disc's edge.
+ * Scenes: switching between the fleet, the rigs, the derby and the race, resetting and spawning the field and the
+ * fleet disc's edge.
  */
-export abstract class EngineScenes extends EngineHud {
+export abstract class EngineScenes extends EngineDerby {
   /** The corkscrew's car this run: not yet flown, in the air, or down again (`EngineRigs.watchCorkscrew`). */
   protected corkFlight: "ground" | "air" | "down" = "ground";
 
@@ -235,29 +220,27 @@ export abstract class EngineScenes extends EngineHud {
     this.labUpright = upright;
     const shot = upright ? LAB_SHOT.upright : LAB_SHOT.wide;
     const short = !upright && this.canvas.clientHeight <= LAB_SHOT.wide.shortPx;
-    this.labLook.lerpVectors(from, f, shot.toFocus).setY(f.y + (short ? 0 : shot.lift));
-    const behind = Math.atan2(from.x - f.x, from.z - f.z);
     const look = this.labLook;
+    const bearing = aimLabShot(from, f, shot, short, look);
     let radius = LAB_SHOT.upright.radius;
     if (!upright) {
       // The farthest item off the look point across the screen (along the camera's right), and the distance that fits it.
-      const a = behind + shot.turn;
       let span = 0;
       for (let k = 0; k < this.lab.layout.length; k++) {
         this.lab.centre(k, _w).sub(look);
-        span = Math.max(span, Math.abs(_w.x * Math.cos(a) - _w.z * Math.sin(a)));
+        span = Math.max(span, Math.abs(_w.x * Math.cos(bearing) - _w.z * Math.sin(bearing)));
       }
       radius = (span + LAB_SHOT.wide.fit) / (Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2) * this.camera.aspect);
       look.y = Math.min(look.y, from.y + LAB_SHOT.wide.low * radius * Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2));
     }
-    this.view.frameReset(true, this.live(), behind + shot.turn, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
+    this.view.frameReset(true, this.live(), bearing, { lookX: look.x, lookY: look.y, lookZ: look.z, radius, pitch: shot.pitch });
   }
 
-  /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves, and the crash starts over so the slow-mo and the crash cam catch its hit. */
-  flickLab(thing: number, target: number, dx: number, dz: number, speed: number): void {
+  /** A flick let go (`LabFlick`, or the `?bench=lab` page's throws): the thing leaves at `velocity`, and the crash starts over so the slow-mo and the crash cam catch its hit. */
+  flickLab(thing: number, velocity: THREE.Vector3): void {
     this.restartCrash();
     this.view.userFramed = false;
-    this.lab.flick(thing, target, dx, dz, speed);
+    this.lab.launch(thing, velocity);
     this.tryUnlockAudio();
     this.emitHud();
   }
@@ -278,24 +261,6 @@ export abstract class EngineScenes extends EngineHud {
 
   toggleDerby(): void {
     this.setScene("derby");
-  }
-
-  protected setDerby(on: boolean): void {
-    if (on) this.sceneId = "derby";
-    else if (this.sceneId === "derby") this.sceneId = "fleet";
-    this.arena.visible = on;
-    for (const p of this.poles) p.group.visible = !on;
-    if (on) {
-      this.barrier.group.visible = false;
-      this.ramps.group.visible = false;
-      if (this.clock.userTimeScale == null) {
-        this.clock.timeScale = 1;
-        this.clock.targetScale = 1;
-      }
-    } else {
-      this.derby.end();
-      this.winnerSpot.off();
-    }
   }
 
   /** Race scene on / off (scene picker, X). */
@@ -384,8 +349,8 @@ export abstract class EngineScenes extends EngineHud {
     this.ragdolls.sand = this.showRange;
     if (this.showLab && !this.labArt) {
       this.labArt = new LabArt();
-      this.labFlick = new LabFlick(this.camera, () => this.canvas.getBoundingClientRect(), this.lab, (thing, target, dx, dz, speed) => this.flickLab(thing, target, dx, dz, speed));
-      this.scene.add(this.labArt.group, this.labFlick.group);
+      this.labFlick = new LabFlick(this.camera, () => this.canvas.getBoundingClientRect(), this.lab, (thing, velocity) => this.flickLab(thing, velocity));
+      this.scene.add(this.labArt.group);
       this.queueWarm();
     }
     if (this.labArt) this.labArt.group.visible = this.showLab;
@@ -485,7 +450,7 @@ export abstract class EngineScenes extends EngineHud {
   private spawnRange(): void {
     const car = this.carA;
     car.group.visible = true;
-    car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / 3.6);
+    car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / KPH_PER_MS);
     this.dressCar(car);
   }
 
@@ -516,96 +481,6 @@ export abstract class EngineScenes extends EngineHud {
     this.parkExtras();
     this.arena.visible = true;
     for (const p of this.poles) p.group.visible = false;
-  }
-
-  /** Netplay host: this derby as clients render it (null outside derby mode). */
-  protected derbyNetState(): DerbyNetState | null {
-    if (!this.derbyMode) return null;
-    const d = this.derby;
-    let seats = 0;
-    for (const i of this.derbySeated) seats |= 1 << i;
-    return {
-      round: this.derbyRound,
-      active: d.active,
-      time: d.time,
-      hold: d.hold,
-      radius: this.derbyR,
-      winnerId: d.winnerId,
-      winnerName: d.winnerName,
-      decided: d.decided,
-      lobby: null,
-      seats,
-      board: d.board,
-    };
-  }
-
-  /**
-   * Netplay client: the host's derby as car `self` (null: leave derby mode). The board, clock and result
-   * are shown as they are, never stepped. A new match drives this peer's car if the host seated it;
-   * otherwise (joined mid-match, or a lobby) it watches the field until the next one.
-   */
-  protected applyNetDerby(s: DerbyNetState | null, self: number): void {
-    if (!s) {
-      if (this.derbyMode) {
-        this.setDerby(false);
-        this.randomizeAndReset();
-      }
-      this.emitHud();
-      return;
-    }
-    if (!this.derbyMode) {
-      if (this.race.active) this.setRace(false);
-      this.setDerby(true);
-      this.emitHud();
-    }
-    if (s.radius !== this.derbyR) {
-      this.derbyR = s.radius;
-      this.arena.scale.set(s.radius / DERBY_RADIUS, 1, s.radius / DERBY_RADIUS);
-    }
-    const seated = self >= 0 && ((s.seats >>> self) & 1) === 1;
-    for (const r of s.board) {
-      if (r.id === self && seated) r.name = "You";
-      else if (r.id === 0) r.name = "Host";
-    }
-    const d = this.derby;
-    d.active = s.active;
-    d.time = s.time;
-    d.hold = s.hold;
-    d.decided = s.decided;
-    d.board = s.board;
-    d.winnerId = s.winnerId;
-    d.winnerName = s.winnerId == null ? null : (s.board.find((r) => r.id === s.winnerId)?.name ?? s.winnerName);
-    if (s.round === this.derbyRound) return;
-    this.derbyRound = s.round;
-    if (seated) {
-      this.seat.focus(self);
-      this.seat.mode = "drive";
-      this.seat.boost = 1;
-      return;
-    }
-    const watch = s.board.find((r) => r.alive && r.id !== self);
-    if (watch) this.seat.focus(watch.id);
-    else this.seat.clear();
-  }
-
-  /** Netplay host's public derby: the lobby (a `field`-car field parked, no match), or a fresh match seating every peer. */
-  protected netDerbyMatch(start: boolean, field: number): void {
-    if (this.race.active) this.setRace(false);
-    if (!this.derbyMode) this.setDerby(true);
-    if (this.carCount < field) this.ensureCars(field);
-    this.randomizeAndReset();
-    if (start) {
-      this.seat.focus(0);
-      this.seat.mode = "drive";
-      this.seat.boost = 1;
-    } else {
-      this.derby.end();
-      for (const car of this.live()) {
-        car.velocity.set(0, 0, 0);
-        car.speed = 0;
-      }
-    }
-    this.emitHud();
   }
 
   /** One car parked at the origin facing +Z, everything else put away. */
@@ -707,7 +582,8 @@ export abstract class EngineScenes extends EngineHud {
   protected stackLookY(wallDt: number): number {
     if (this.camera.aspect < 1 !== this.stackPortrait && !this.view.userFramed) this.frameStack();
     let top = 0;
-    for (const car of this.live()) top = Math.max(top, car.group.position.y);
+    const cars = this.live();
+    for (let i = 0; i < cars.length; i++) top = Math.max(top, cars[i]!.group.position.y);
     this.stackEye += ((top + 1.3) / 2 - this.stackEye) * (1 - Math.exp(-3 * wallDt));
     return this.stackEye;
   }
@@ -885,14 +761,12 @@ export abstract class EngineScenes extends EngineHud {
   protected bounceWorld = (pos: THREE.Vector3, vel: THREE.Vector3, r: number): void => {
     // Loose parts and FX past the fleet disc's rim fall on: no ground there.
     if (activeGround().heightAt(pos.x, pos.z, pos.y) !== NO_FLOOR) bounceGround(pos, vel, r);
-    for (const car of this.live()) if (!car.vaporized) bounceOffCar(car, pos, vel, r);
+    const cars = this.live();
+    for (let i = 0; i < cars.length; i++) if (!cars[i]!.vaporized) bounceOffCar(cars[i]!, pos, vel, r);
     if (this.showCompactor) {
-      const hz = 0.24;
-      const hy = 1.05;
-      const hx = 1.8;
-      const z = this.compactor.face + 0.24;
-      separateSphereFromAabb(pos, vel, r, 0, 1.02, z, hx, hy, hz);
-      separateSphereFromAabb(pos, vel, r, 0, 1.02, -z, hx, hy, hz);
+      const z = this.compactor.face + COMPACTOR_PLATE.hz;
+      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
+      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, -z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
     }
     if (this.barrierUp) this.barrier.bounce(pos, vel, r);
   };

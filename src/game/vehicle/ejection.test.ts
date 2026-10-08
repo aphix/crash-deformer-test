@@ -236,3 +236,18 @@ describe("given the ejection range: a straight head-on into the barrier, at yaw 
     });
   }
 });
+
+describe("given a car placed so close to the barrier that its kill lands before the watch has one velocity sample", () => {
+  it("when a fleet sedan, 0.3 m into the barrier's run (killed within its first step), is driven into it at 30 m/s, then its driver is thrown out of the windshield as when it started 0.5 s back", () => {
+    const run = (nose: number): Ejection[] => {
+      const car = fleetCar();
+      launch(car, -BARRIER_HALF.x - 2.4 - nose, 0, Math.PI / 2, 30, 0);
+      const w = makeWorld([car], true, false);
+      for (let f = 0; f < 150; f++) tickWorld(w);
+      car.dispose();
+      return w.ejections;
+    };
+    assert.equal(run(15).length, 1, "from 0.5 s back the hit throws him");
+    assert.equal(run(-0.3).length, 1, "the same hit straight after placement throws him too");
+  });
+});
