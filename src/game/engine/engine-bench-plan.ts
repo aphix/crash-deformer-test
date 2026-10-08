@@ -6,7 +6,7 @@ import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { stripCourse, type StripProp, type StripSpec } from "../world/bench-strip.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
 import { BENCH_STRIP_ID, TRACK_ID } from "../world/constants.ts";
-import { BENCH_KIND, BENCH_QUERY, ULTRA_QUERY } from "./constants.ts";
+import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /** The city bench's race on course `trackId`: its own field and rules as a program over the player's options, which it never touches. */
 function benchRace(trackId: string): RaceCommand {
@@ -83,7 +83,7 @@ export function benchPlan(search: string): BenchPlan | null {
   const kind = q.get(BENCH_QUERY);
   const ultra = q.get(ULTRA_QUERY) === "1";
   if (kind === BENCH_KIND.city) {
-    const course = q.get("course");
+    const course = q.get(COURSE_QUERY);
     const id = course !== null && CAMPAIGN.includes(course) ? course : TRACK_ID.city;
     return { id, race: id === TRACK_ID.city ? BENCH_RACE : benchRace(id), course: null, warmS: 20, racers: 16, body: null, strip: null, lab: null, ultra };
   }

@@ -1,7 +1,7 @@
 import { FX_TIER_ULTRA } from "../present/constants.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { TRACK_ID } from "../world/constants.ts";
-import { BENCH_KIND, BENCH_QUERY, ULTRA_QUERY } from "./constants.ts";
+import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /**
  * The benchmark loop: one cycle of benches, each its own page load (`?bench=…&loop=<session>&cycle=<n>&step=<i>`, so every bench
@@ -26,7 +26,7 @@ const benchQuery = (kind: string): string => `${BENCH_QUERY}=${kind}`;
 const CYCLE: readonly BenchStep[] = [
   { id: BENCH_KIND.strip, query: benchQuery(BENCH_KIND.strip) },
   { id: BENCH_KIND.city, query: benchQuery(BENCH_KIND.city) },
-  { id: BIGGEST_COURSE, query: `${benchQuery(BENCH_KIND.city)}&course=${BIGGEST_COURSE}` },
+  { id: BIGGEST_COURSE, query: `${benchQuery(BENCH_KIND.city)}&${COURSE_QUERY}=${BIGGEST_COURSE}` },
 ];
 
 /** The Ultra tier exists in this build (`FX_TIERS`): the loop's Ultra pass (`loopultra=1`) exists only then. */
@@ -66,6 +66,22 @@ export function startRun(session: string): BenchRun {
   return { session, loop: 1, step: 0, ultra: ULTRA_AVAILABLE, keep: true, auto: true, ultraNext: ULTRA_AVAILABLE };
 }
 
+/**
+ * A bench page opened by its address alone (typed, shared, bookmarked): a new loop with every option on, as the Benchmark entry
+ * starts one, at the step that runs this page's own bench; null for a bench no step of the cycle runs (the lab, another course),
+ * which runs once as asked.
+ */
+export function runFromPage(search: string, session: string): BenchRun | null {
+  const run = startRun(session);
+  const q = new URLSearchParams(search);
+  const steps = cycleOf(run.ultra);
+  for (let i = 0; i < steps.length; i++) {
+    const s = new URLSearchParams(steps[i]!.query);
+    if (s.get(BENCH_QUERY) === q.get(BENCH_QUERY) && s.get(COURSE_QUERY) === q.get(COURSE_QUERY) && s.get(ULTRA_QUERY) === q.get(ULTRA_QUERY)) return { ...run, step: i };
+  }
+  return null;
+}
+
 /** The step a run is at. */
 export function stepOf(run: BenchRun): BenchStep {
   const cycle = cycleOf(run.ultra);
@@ -88,7 +104,7 @@ export function stepHref(href: string, run: BenchRun): string {
     [LOOP_QUERY.ultraCycle, run.ultra],
   ] as const;
   const query = [stepOf(run).query, `${LOOP_QUERY.session}=${run.session}`, `${LOOP_QUERY.cycle}=${run.loop}`, `${LOOP_QUERY.step}=${run.step}`];
-  for (const [name, on] of flags) if (on) query.push(`${name}=1`);
+  for (const [name, on] of flags) query.push(`${name}=${on ? 1 : 0}`);
   url.search = `?${query.join("&")}`;
   url.hash = "";
   return url.toString();
@@ -125,6 +141,8 @@ function countOf(q: URLSearchParams, name: string, fallback: number): number | n
 /**
  * The loop a bench page's address names (`loop=<session>`, a bench page only), or null when it names none or a broken one. The
  * cycle count (from 1) and the step default to the first, so a bench opened by hand with just a session becomes a loop from there.
+ * An option the address leaves out is on (`=0` turns it off), as for a loop the Benchmark entry starts; the cycle's own Ultra shape
+ * (`cycleultra`) is the exception, off when absent, since the step count it numbers must stay what it was.
  */
 export function parseRun(search: string): BenchRun | null {
   const q = new URLSearchParams(search);
@@ -133,6 +151,6 @@ export function parseRun(search: string): BenchRun | null {
   const loop = countOf(q, LOOP_QUERY.cycle, 1);
   const step = countOf(q, LOOP_QUERY.step, 0);
   if (loop === null || loop < 1 || step === null) return null;
-  const flag = (name: string): boolean => q.get(name) === "1";
-  return { session, loop, step, ultra: flag(LOOP_QUERY.ultraCycle), keep: flag(LOOP_QUERY.keep), auto: flag(LOOP_QUERY.auto), ultraNext: flag(LOOP_QUERY.ultraNext) };
+  const on = (name: string): boolean => q.get(name) !== "0";
+  return { session, loop, step, ultra: q.get(LOOP_QUERY.ultraCycle) === "1", keep: on(LOOP_QUERY.keep), auto: on(LOOP_QUERY.auto), ultraNext: on(LOOP_QUERY.ultraNext) && ULTRA_AVAILABLE };
 }

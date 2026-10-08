@@ -144,7 +144,17 @@ function overlay(loopProgress: string | null): {
       submitButton.textContent = "Submit \u2191";
       submitButton.style.cssText = buttonStyle;
       submitButton.onclick = submit;
-      root.append(copy, submitButton);
+      // The card covers most of the screen: Hide folds it to its receipt line and buttons, Show brings the text back.
+      const hide = document.createElement("button");
+      hide.textContent = "Hide";
+      hide.style.cssText = buttonStyle;
+      hide.onclick = () => {
+        const shown = pre.style.display !== "none";
+        pre.style.display = shown ? "none" : "";
+        copy.style.display = shown ? "none" : "";
+        hide.textContent = shown ? "Show card" : "Hide";
+      };
+      root.append(copy, submitButton, hide);
     },
     receipt: (state) => {
       status.replaceChildren();
