@@ -622,26 +622,25 @@ export function groundWalls(): boolean {
  * (`S_TU`, `S_TV`) and height out (`S_CH`) and, for a best `plainOffer` found, the point in its grid (`S_PFU`, `S_PFV`; `S_PFU` −1 for
  * any other best), its node, factor and partials left to `plainRest`.
  */
-const _s = new Float64Array(19);
+const _s = new Float64Array(18);
 const S_BEST = 0;
 const S_PATCH = 1;
 const S_G0 = 2;
 const S_G1 = 3;
 const S_NODE = 4;
-const S_OWNER = 5;
-const S_AUX = 6;
-const S_CG0 = 7;
-const S_CG1 = 8;
-const S_CN = 9;
-const S_CAUX = 10;
-const S_PU = 11;
-const S_PV = 12;
-const S_H = 13;
-const S_PFU = 14;
-const S_PFV = 15;
-const S_TU = 16;
-const S_TV = 17;
-const S_CH = 18;
+const S_AUX = 5;
+const S_CG0 = 6;
+const S_CG1 = 7;
+const S_CN = 8;
+const S_CAUX = 9;
+const S_PU = 10;
+const S_PV = 11;
+const S_H = 12;
+const S_PFU = 13;
+const S_PFV = 14;
+const S_TU = 15;
+const S_TV = 16;
+const S_CH = 17;
 /** `Surface.plainOne`: read `Surface.plainCells` per index cell. */
 const PLAIN_BY_CELL = -2;
 
@@ -860,13 +859,13 @@ function offer(s: Surface, i: number, q: Float64Array, skip: number, need: numbe
   _s[S_G1] = _s[S_CG1];
   _s[S_NODE] = _s[S_CN];
   _s[S_AUX] = _s[S_CAUX];
-  _s[S_OWNER] = owner;
   _s[S_PFU] = -1;
 }
 
 /**
- * `offer` and `gridAt` for plain grid patch `i` of `s` (`Surface.plain`), the point's one candidate: the same height to the bit, the
- * point in its grid kept for `plainRest`. False past the grid's nodes (its base terrain's hills), where `offer` answers.
+ * `offer` and `gridAt` for plain grid patch `i` of `s` (`Surface.plain`), the point's one candidate on `s` and the query's first (`find`
+ * on the static surface right after the best is reset, so any height that reaches is the best): the same height to the bit, the point
+ * in its grid kept for `plainRest`. False past the grid's nodes (its base terrain's hills), where `offer` answers.
  */
 function plainOffer(s: Surface, i: number, q: Float64Array): boolean {
   const P = s.p;
@@ -882,11 +881,10 @@ function plainOffer(s: Surface, i: number, q: Float64Array): boolean {
   _s[S_TV] = fv - cj;
   cellHeight(s, i, (cj | 0) * nu + (ci | 0), nu);
   const h = P[o + P_OY]! + (_s[S_CH] - P[o + P_DROP]!);
-  if (h !== h || h > q[PQ_Y]! + P[o + P_REACH]! || h < _s[S_BEST]) return true;
+  if (h !== h || h > q[PQ_Y]! + P[o + P_REACH]!) return true;
   _s[S_BEST] = h;
   live.surf = s;
   _s[S_PATCH] = i;
-  _s[S_OWNER] = -1;
   _s[S_PFU] = fu;
   _s[S_PFV] = fv;
   return true;
@@ -984,7 +982,7 @@ function report(out: Float64Array): void {
   const surf = bestSurf(w, qo, deck);
   out[C_SURF] = surf;
   out[C_GRIP] = P[o + P_GRIP]! * GRIPS[surf]!;
-  out[C_OWNER] = _s[S_OWNER];
+  out[C_OWNER] = w.q[qo + Q_OWNER]!;
   out[C_ARG] = _s[S_PATCH];
   out[C_AUX] = _s[S_AUX];
 }
@@ -1046,7 +1044,8 @@ function seekAll(q: Float64Array, skip: number): void {
 
 /** `patchOf` the contact `seek` found would report. */
 function seekPatch(): number {
-  return live.surf === null ? -1 * 1e6 + -1 : _s[S_OWNER] * 1e6 + _s[S_PATCH];
+  const w = live.surf;
+  return w === null ? -1 * 1e6 + -1 : w.q[_s[S_PATCH] * Q_STRIDE + Q_OWNER]! * 1e6 + _s[S_PATCH];
 }
 
 /** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
