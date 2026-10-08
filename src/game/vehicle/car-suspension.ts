@@ -109,6 +109,14 @@ function reach(j: number, i: number): number {
   return (1 + Math.sign(xj * xi) + Math.sign(zj * zi)) / 4;
 }
 
+/** The body's up (its up axis's world y) from which it stands on its wheels: below it the springs and the body's lift are off. */
+export const UPRIGHT_UP_Y = 0.5;
+
+/** The drawn body's class lift (m along its up) at up `upY`: the whole lift while upright, none once on its side, so a lifted body lying over is not drawn into the ground its stock hull rests on. */
+export function bodyLift(lift: number, upY: number): number {
+  return lift * Math.max(0, Math.min(1, upY / UPRIGHT_UP_Y));
+}
+
 /**
  * The offsets (`Suspension.offset`) a body resting on the corners of `gone` (bit i: wheel i is off) takes. The standing
  * springs are equal, so the least-offset pose that puts each empty hub's corner down at the underside's height there
@@ -206,7 +214,7 @@ export class Suspension {
         this.pose(lift);
         this.seat.fill(0);
       }
-      this.sag(lift, SPRINGS[cls].travel / 2, air || group.matrixWorld.elements[5]! < 0.5 ? 0 : gone, dt);
+      this.sag(lift, SPRINGS[cls].travel / 2, air || group.matrixWorld.elements[5]! < UPRIGHT_UP_Y ? 0 : gone, dt);
       return;
     }
     if (dt <= 0) return;
@@ -264,7 +272,7 @@ export class Suspension {
     for (let i = 0; i < 4; i++) {
       const w = wheels[i]!;
       let s = this.seat[i]! * Math.exp(-UNSEAT * dt);
-      if (!air && uy > 0.5) {
+      if (!air && uy > UPRIGHT_UP_Y) {
         // The lift that puts the tread on the surface: the wheel's footprint rise (`wheelContact`, the hub on its rest ride on the
         // physics pose). The hub's height picks the surface's layer.
         const need = hit[i * HIT_SIZE + C_H]!;
@@ -313,7 +321,7 @@ export class Suspension {
     const ground = activeGround();
     const o = this.offset;
     const uy = e[5]!;
-    if (uy < 0.5) return 0;
+    if (uy < UPRIGHT_UP_Y) return 0;
     // The body group's turn (x then z, `pose`) and its place over the ground pose.
     const rx = -this.pitch;
     const rz = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));

@@ -567,8 +567,10 @@ export class Track {
  * `gap`: how far (m) a cell lies beyond the main loop's road + runoff (0 on it). A side path's blend skirt never
  * replaces the main loop's road or runoff, and a side path's height meets the main loop's within `MEET` of it.
  * `under`: the field as the main loop left it; a side path's skirt eases back to it, not to the bare terrain.
+ * `level`: the main loop's road plane held level past its edge, what a side path's road meets: met at `under`, a mouth leaving
+ * a road on a shelf or a dam took that road's falling skirt as a trench 0.45-0.81 m deep across the shortcut.
  */
-type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; gap: Float32Array; under: Float32Array };
+type Stamp = { d2: Float32Array; h: Float32Array; surf: Uint8Array; gap: Float32Array; under: Float32Array; level: Float32Array };
 
 /** Heightfield + surface grid baked from a track: road plane (banked), shoulders, eased back to the base terrain. */
 export class TrackGround extends Ground {
@@ -597,7 +599,7 @@ export class TrackGround extends Ground {
     this.heights = new Float32Array(cells);
     this.surf = new Uint8Array(cells).fill(this.terrain);
     this.crease = new RoadCrease(cells);
-    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, gap: new Float32Array(cells).fill(Infinity), under: this.heights };
+    const stamp: Stamp = { d2: new Float32Array(cells).fill(Infinity), h: this.heights, surf: this.surf, gap: new Float32Array(cells).fill(Infinity), under: this.heights, level: new Float32Array(cells) };
     for (let j = 0; j < this.nz; j++) {
       for (let i = 0; i < this.nx; i++) this.heights[j * this.nx + i] = this.base(this.minX + i * CELL, this.minZ + j * CELL);
     }
@@ -701,6 +703,7 @@ export class TrackGround extends Ground {
           const edge = yc - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
           if (!side) {
             st.gap[c] = Math.max(0, out);
+            st.level[c] = edge;
             this.crease.set(c, out, lat, half, yc, bank);
           }
           let h = edge;
@@ -715,8 +718,11 @@ export class TrackGround extends Ground {
             st.surf[c] = this.terrain;
           }
           if (side) {
+            // Its road meets the main loop's road plane, its skirt eases from that plane to the field beneath over `MEET` off its edge.
             const m = clamp01(1 - st.gap[c]! / MEET);
-            h += (st.under[c]! - h) * m * m * (3 - 2 * m);
+            const u = clamp01(out / MEET);
+            const meet = st.level[c]! + (st.under[c]! - st.level[c]!) * u * u * (3 - 2 * u);
+            h += (meet - h) * m * m * (3 - 2 * m);
           }
           st.h[c] = h;
         }

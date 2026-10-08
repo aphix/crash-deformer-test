@@ -7,7 +7,7 @@ import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
 import { END_WINDOW, type PartNetState, REARM_QUIET_S, type WorldBounce } from "./car-core.ts";
 import { COM_Y, pressing, readContact, stepFree, wreckContact } from "./car-air.ts";
-import { Suspension, UNDERSIDE } from "./car-suspension.ts";
+import { bodyLift, Suspension, UNDERSIDE, UPRIGHT_UP_Y } from "./car-suspension.ts";
 import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
@@ -598,11 +598,13 @@ export class DeformableCar extends CarParts {
    */
   private ride(dt: number): void {
     const cls = carClass(this);
-    const air = this.airborne || this.group.matrixWorld.elements[5]! < 0.5;
+    const upY = this.group.matrixWorld.elements[5]!;
+    const air = this.airborne || upY < UPRIGHT_UP_Y;
+    const lift = bodyLift(CLASSES[cls].lift, upY);
     let gone = 0;
     for (let i = 0; i < 4; i++) if (this.looseWheels[i]!.loose) gone |= 1 << i;
-    this.suspension.step(this.group, this.wheels, cls, CLASSES[cls].lift, !this.crashed, air, gone, this.wheelHit, dt);
-    if (this.crashed) this.seatBody(CLASSES[cls].lift, dt);
+    this.suspension.step(this.group, this.wheels, cls, lift, !this.crashed, air, gone, this.wheelHit, dt);
+    if (this.crashed) this.seatBody(lift, dt);
   }
 
   /**
@@ -629,7 +631,7 @@ export class DeformableCar extends CarParts {
     // Along the body's up (a lift moves a point up by that y of it): the lift that brings the least margin to 0, a clear
     // body easing back to its frame; none on its side or roof.
     const up = body.matrixWorld.elements[5]!;
-    const target = Number.isFinite(margin) && up > 0.5 ? Math.min(HULL_LIFT_MAX, Math.max(0, this.hullLift - margin / up)) : 0;
+    const target = Number.isFinite(margin) && up > UPRIGHT_UP_Y ? Math.min(HULL_LIFT_MAX, Math.max(0, this.hullLift - margin / up)) : 0;
     this.hullLift += (target - this.hullLift) * (1 - Math.exp(-HULL_LIFT_RATE * dt));
     body.position.y = lift + this.suspension.heave + this.hullLift;
   }
