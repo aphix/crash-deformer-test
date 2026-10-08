@@ -102,6 +102,8 @@ export const TOUCH = 0.03;
  *  `Suspension`, take a landing) don't bounce. */
 const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
+/** The closing speed (m/s) from which a contact is a crash, not a touch: into a fixed solid's face (`wallBounce`), or onto another car's top (`CLOSING`). */
+export const WALL_CRUSH = 5.5;
 /** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
 const MU_BODY = 0.6;
 /** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
@@ -163,7 +165,11 @@ const FIRST = new Int32Array(CONTACTS);
 const ROOM = new Float64Array(CONTACTS);
 const DEMAND = new Float64Array(CONTACTS);
 const SUMF = new Float64Array(CONTACTS);
-/** Per contact: the speed (m/s) it closes on its surface at before the solve (0 for a point moving off). */
+/**
+ * Per contact: the speed (m/s) it closes on its surface at before the solve (0 for a point moving off). Only a contact closing slower than a
+ * crash (`WALL_CRUSH`) rests on the car under it (`CarSurfaces.commit`, `restsOn`): a monster's bumper meeting a sedan's bonnet head-on at
+ * 55 m/s each rode up it as a ramp, read as resting on it, and the pair's crush never ran.
+ */
 const CLOSING = new Float64Array(CONTACTS);
 /** Per contact: the speed (m/s) its gap to the surface lets it close at over this slice (0 for a point in the surface). */
 const GAPV = new Float64Array(CONTACTS);
@@ -220,13 +226,13 @@ function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: numbe
   OWN[n] = own;
   UNDER[n] = !hull && own < 0;
   FOLLOW[n] = own >= 0 ? hit[C_AUX]! : 1;
-  if (own >= 0) surf.touch(own);
   SLOT[n] = surf.slot(own, N[n]!, hull, q, FOLLOW[n]!);
   SOFT[n] = false;
   GAPV[n] = 0;
   SINK[n] = pen * N[n]!.y;
   carrier(surf, n, own, mass);
   CLOSING[n] = Math.max(0, -pointVel(n, v, w, _vp).dot(N[n]!));
+  if (own >= 0 && CLOSING[n]! < WALL_CRUSH) surf.touch(own);
 }
 
 /** Contact `n` (its arm `R[n]` set) on car `own`'s top (-1: the world's ground): the car that takes its reaction (`HELD`), for a stepping car of `mass`. */
@@ -573,7 +579,6 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     DIR[n] = N[n]!.y >= CLIMB_NY ? UP : N[n]!;
     UNDER[n] = false;
     FOLLOW[n] = own >= 0 ? hit[o + C_AUX]! : 1;
-    if (own >= 0) surf.touch(own);
     SLOT[n] = surf.slot(own, N[n]!, false, q, FOLLOW[n]!);
     // How far past what holds it the point is: a tyre's springs and their full travel; a wreck's tyre no deeper than its masses
     // hold it (`HUB_FLOOR` under its hub): sunk to the springs' stop, a wreck's front tyres sat 0.13 m in a wedge's face when it
@@ -585,6 +590,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
     PRESS[n] = pen;
     carrier(surf, n, own, mass);
     CLOSING[n] = Math.max(0, -pointVel(n, v, w, _vp).dot(N[n]!));
+    if (own >= 0 && CLOSING[n]! < WALL_CRUSH) surf.touch(own);
     n++;
   }
   const tyres = n;
@@ -710,7 +716,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // flat road's tyre listed before the face's soft one took an impulse the face's push then made unneeded (and never took back).
   for (let c = 0; c < tyres; c++) {
     if (!SOFT[c]) continue;
-    if (OWN[c]! >= 0) surf.press(OWN[c]!, ASK[c]!);
+    if (OWN[c]! >= 0 && CLOSING[c]! < WALL_CRUSH) surf.press(OWN[c]!, ASK[c]!);
     give(c, v, w, q, UP, ASK[c]!, ASK[c]! - Math.min(ASK[c]!, REST[c]!), surf);
   }
   // The tyres in their springs push straight up, so the world's face under them leaves the body its gravity along it, each tyre's share
@@ -817,7 +823,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   for (let c = 0; c < n; c++) {
     if (FIRST[c] === c) surf.take(SLOT[c]!, DEMAND[c]!, G, dt);
-    if (!SOFT[c] && OWN[c]! >= 0) surf.press(OWN[c]!, ACC[c]! * DIR[c]!.y);
+    if (!SOFT[c] && OWN[c]! >= 0 && CLOSING[c]! < WALL_CRUSH) surf.press(OWN[c]!, ACC[c]! * DIR[c]!.y);
   }
   // The deepest point the surface can still hold up lifts the body out (a face that yields sinks instead). The belly over the
   // world's ground only resists (impulse, no bounce, no lift while it moves): lifting a moving body out by a belly point's

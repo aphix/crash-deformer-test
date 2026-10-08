@@ -3,7 +3,8 @@ import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { PropCollider } from "../world/placements.ts";
 import { type ContactBox, makeBox, partContact, solidFace } from "./external-contact.ts";
-import { HIT_AHEAD, impulseCar, markApproach, wallBounce, WALL_CRUSH, WALL_HALF_L, WALL_PROBES } from "./pair-contact.ts";
+import { HIT_AHEAD, impulseCar, markApproach, wallBounce, WALL_HALF_L, WALL_PROBES } from "./pair-contact.ts";
+import { WALL_CRUSH } from "../vehicle/car-air.ts";
 
 /** The car's footprint on the ground for wall and prop contact: the rectangle the wall probes span (half width, half length; m). */
 const [FOOT_W, FOOT_L] = WALL_PROBES[1]!;

@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { WALL_CRUSH } from "../vehicle/car-air.ts";
 import type { MassNode } from "../deform/deform-rig.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { carCrushHulls, satCars, shareHeight } from "./sat.ts";
@@ -53,14 +54,13 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
 }
 
 /**
- * Wall restitution of a light touch; the closing speed (m/s) from which a hit on a fixed solid is a crash; how deep (m) a rigid
- * car's footprint may sit in a solid with its hull not on the face yet; and how deep (m) a wreck's footprint may, the most a
- * crushed nose is shorter than the box it was built in (a wreck driven in further, by a car ramming it, is put back).
+ * Wall restitution of a light touch (a crash is past `WALL_CRUSH`); how deep (m) a rigid car's footprint may sit in a solid with its
+ * hull not on the face yet; and how deep (m) a wreck's footprint may, the most a crushed nose is shorter than the box it was built in
+ * (a wreck driven in further, by a car ramming it, is put back).
  */
 const WALL_E = 0.15;
 /** Friction of a car's body scraping a fixed solid's face (`MU_BODY`, the rigid step's body against a surface). */
 const WALL_MU = 0.6;
-export const WALL_CRUSH = 5.5;
 const WALL_HOLD = 0.4;
 const WALL_REACH = 1.2;
 /** The closing speed (m/s) under which a wreck on a solid has stopped driving into it, and how deep (m) its crush hulls may then sit in it. */
