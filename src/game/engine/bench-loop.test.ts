@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
-import { advance, autoReloadAsked, BIGGEST_COURSE, cycleOf, isBenchPage, loopProgress, loopSettings, parseRun, runFromPage, startRun, stepHref, stepOf, ULTRA_AVAILABLE, type BenchRun } from "./bench-loop.ts";
+import { advance, autoReloadAsked, BIGGEST_COURSE, cycleOf, isBenchPage, loopProgress, loopSettings, newSession, parseRun, runFromPage, shareHashOf, startRun, stepHref, stepOf, ULTRA_AVAILABLE, type BenchRun } from "./bench-loop.ts";
 
 const RUN: BenchRun = { session: "k3x9q2", loop: 1, step: 0, ultra: false, keep: false, auto: false, ultraNext: false };
 
@@ -183,6 +183,22 @@ describe("given a bench page opened by its address alone, with no loop in it", (
       assert.equal(runFromPage(search, "k3x9q2"), null);
     });
   }
+  it("when the page is the strip with keep, auto and loopultra turned off, then the loop it starts has them off and the address it rewrites keeps them off", () => {
+    const run = runFromPage("?bench=strip&keep=0&auto=0&loopultra=0", "k3x9q2");
+    assert.ok(run !== null);
+    assert.equal(run.keep, false, "keep");
+    assert.equal(run.auto, false, "auto");
+    assert.equal(run.ultraNext, false, "loopultra");
+    const back = parseRun(new URL(stepHref("https://game.test/crush/", run)).search);
+    assert.ok(back !== null && back.session === "k3x9q2" && back.step === run.step && !back.keep && !back.auto && !back.ultraNext, "the rewritten address keeps them off");
+  });
+  it("when the page is the strip with only keep turned off, then the options it leaves out are on", () => {
+    const run = runFromPage("?bench=strip&keep=0", "k3x9q2");
+    assert.ok(run !== null);
+    assert.equal(run.keep, false, "keep");
+    assert.equal(run.auto, true, "auto");
+    assert.equal(run.ultraNext, ULTRA_AVAILABLE, "loopultra");
+  });
 });
 
 describe("given a loop address that leaves out its options (a loop carried over from an older build)", () => {
@@ -214,5 +230,29 @@ describe("given the address of a page", () => {
 
   it("when a loop is at the second step of its second cycle, then the bench card reads where it is", () => {
     assert.equal(loopProgress({ ...RUN, loop: 2, step: 1 }), "loop 2, step 2/3");
+  });
+});
+
+describe("given a page whose address carries a share # (a stale one, or one pasted with the bench's query)", () => {
+  const hash = "#scene=garage&night=1";
+  it("when the page is the bench of the biggest course, then it follows no # at all, so the garage never replaces the bench's own course", () => {
+    assert.equal(shareHashOf("?bench=city&course=dam-spine", hash), null);
+  });
+  it("when the page is a strip bench that a loop sent it to, then it follows no # at all", () => {
+    assert.equal(shareHashOf("?bench=strip&loop=af3fa60e&cycle=1&step=0", hash), null);
+  });
+  it("when the page is the plain game, then it follows its # as it is", () => {
+    assert.equal(shareHashOf("", hash), hash);
+  });
+});
+
+describe("given a page outside a secure context (a build opened over plain http on the LAN), where crypto.randomUUID is missing", () => {
+  it("when the Benchmark entry starts a loop, then it gets a session its own bench page reads back as that loop", (t) => {
+    t.mock.method(crypto, "randomUUID", () => {
+      throw new TypeError("crypto.randomUUID is not a function");
+    });
+    const run = startRun(newSession());
+    const back = parseRun(new URL(stepHref("http://192.168.1.20:3000/", run)).search);
+    assert.ok(back !== null && back.session === run.session && back.step === run.step, "the bench page reads its own loop back");
   });
 });

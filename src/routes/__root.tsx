@@ -10,7 +10,9 @@ export const Route = createRootRoute({
   head: () => ({
     meta: [
       { charSet: "utf-8" },
-      { name: "viewport", content: "width=device-width, initial-scale=1" },
+      // `viewport-fit=cover`: an installed app in fullscreen covers the camera cutout's edge too, so the canvas is the screen
+      // (without it Android offsets the page off the cutout at full width and the far edge is drawn off-screen).
+      { name: "viewport", content: "width=device-width, initial-scale=1, viewport-fit=cover" },
       { title: APP_NAME },
       {
         name: "description",

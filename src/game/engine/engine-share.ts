@@ -7,6 +7,7 @@ import { EngineReel } from "./engine-reel.ts";
 import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText, type CarPick, type PersonPick } from "../match/look-data.ts";
 import { pickedLook } from "../present/driver-look.ts";
 import { GARAGE } from "../present/garage-art.ts";
+import { shareHashOf } from "./bench-loop.ts";
 
 /**
  * The shareable URL (docs/CONTROLS.md): the page's `#` follows the HUD state (scene, settings that differ from the
@@ -20,8 +21,8 @@ export abstract class EngineShare extends EngineReel {
   private shareOn = false;
   /** True while `applyShare` runs: its setters publish half-applied states the URL must not show. */
   private sharing = false;
-  /** Off for a program that drives the player's setters to measure (the bench pins the fx tier in its A/Bs): the address bar then stays as the player left it. */
-  followUrl = true;
+  /** Off on a bench page (`attachShare`): its bench drives the player's setters to measure, and the address bar stays the bench's own. */
+  private followUrl = true;
 
   /** The shared state as the engine holds it now. */
   private shareState(): ShareState {
@@ -164,14 +165,19 @@ export abstract class EngineShare extends EngineReel {
     this.emitHud();
   }
 
-  /** Boot: apply the page's `#` (this is the first sandbox reset, so the first run already uses it), then follow it. */
+  /**
+   * Boot: apply the page's `#` (this is the first sandbox reset, so the first run already uses it), then follow it. A bench page
+   * (`shareHashOf`) boots on the defaults and neither reads nor writes the `#`: its bench switches the scene and pins the settings.
+   */
   protected attachShare(): void {
     this.shareOn = true;
-    const t = decodeShare(window.location.hash);
+    const hash = shareHashOf(window.location.search, window.location.hash);
+    this.followUrl = hash !== null;
+    const t = decodeShare(hash ?? "");
     // The stored car pick arrives after this (crash-lab's effect): a `#` that names a car keeps it (`driverCarApplies`).
     this.linkNamedCar = t.car !== decodeShare("").car;
     this.arrive(t, true);
-    window.addEventListener("hashchange", this.onShareHash);
+    if (hash !== null) window.addEventListener("hashchange", this.onShareHash);
   }
 
   protected detachShare(): void {

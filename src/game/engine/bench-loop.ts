@@ -67,13 +67,21 @@ export function startRun(session: string): BenchRun {
 }
 
 /**
- * A bench page opened by its address alone (typed, shared, bookmarked): a new loop with every option on, as the Benchmark entry
- * starts one, at the step that runs this page's own bench; null for a bench no step of the cycle runs (the lab, another course),
- * which runs once as asked.
+ * A bench page opened by its address alone (typed, shared, bookmarked): a new loop at the step that runs this page's own bench, with
+ * the options its address sets (`keep`, `auto`, `loopultra`, `cycleultra`; `=0` is off) and every option it leaves out on, as the
+ * Benchmark entry starts one; null for a bench no step of the cycle runs (the lab, another course), which runs once as asked.
  */
 export function runFromPage(search: string, session: string): BenchRun | null {
-  const run = startRun(session);
   const q = new URLSearchParams(search);
+  const fresh = startRun(session);
+  const option = (name: string, absent: boolean): boolean => (q.has(name) ? q.get(name) !== "0" : absent);
+  const run: BenchRun = {
+    ...fresh,
+    ultra: option(LOOP_QUERY.ultraCycle, fresh.ultra) && ULTRA_AVAILABLE,
+    keep: option(LOOP_QUERY.keep, fresh.keep),
+    auto: option(LOOP_QUERY.auto, fresh.auto),
+    ultraNext: option(LOOP_QUERY.ultraNext, fresh.ultraNext) && ULTRA_AVAILABLE,
+  };
   const steps = cycleOf(run.ultra);
   for (let i = 0; i < steps.length; i++) {
     const s = new URLSearchParams(steps[i]!.query);
@@ -113,6 +121,22 @@ export function stepHref(href: string, run: BenchRun): string {
 /** This page asks for a bench (`?bench=…`), whether a loop sent it there or someone opened it by hand. */
 export function isBenchPage(search: string): boolean {
   return new URLSearchParams(search).has(BENCH_QUERY);
+}
+
+/**
+ * The share `#` (`hud/share-url.ts`) this page follows: none on a bench page, whose bench plan owns the scene and every setting, so a
+ * `#` left in the address (a stale one, or one pasted with the bench's query) neither switches its scene at boot nor on an edit.
+ */
+export function shareHashOf(search: string, hash: string): string | null {
+  return isBenchPage(search) ? null : hash;
+}
+
+/**
+ * A new loop's session id: eight base-36 characters from `crypto.getRandomValues`, which every page has (`crypto.randomUUID` exists
+ * only in a secure context, so a build opened over plain http on the LAN could start no loop).
+ */
+export function newSession(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => (byte % 36).toString(36)).join("");
 }
 
 /** This page asks for reloading onto a newly deployed build (`?auto=1`), on a bench page between benches and on a plain page when idle. */
