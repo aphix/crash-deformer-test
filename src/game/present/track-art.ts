@@ -5,9 +5,10 @@ import { SURFACE_IDS, type PrefabId, type SurfaceId } from "../world/catalog.ts"
 import type { Placed } from "../world/placements.ts";
 import { box, makePrefabMaterials, makeRaceTextures, painted, prefabParts, type Piece, type RaceTextures } from "./prefabs.ts";
 import { blankPoint, type Track } from "../world/track.ts";
+import { sections } from "../world/track-sections.ts";
 import {
   BLACK, DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR, type DrawKind, GANTRY_BEAM, hash01, LIGHT_OFF, LIGHT_ON,
-  LIGHT_RGB, Mesher, RED, RoadIndex, sections, texClass,
+  LIGHT_RGB, Mesher, RED, RoadIndex, texClass,
 } from "./track-mesh.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 import { depthProxy, groundMaterial, groundMesh, levelOrder } from "../scenes/ground-stack.ts";

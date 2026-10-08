@@ -7,7 +7,7 @@ import { activeGround, DISC_GROUND, DISC_RADIUS, FLAT_GROUND } from "../world/gr
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
 
-/** The course under a throw: its road walls come from `track` (none for a scene's own solids, the Lab's), every other solid from `solids` (`courseSolids`). */
+/** The course under a throw: `track` gives its ground (none for a scene's own solids, the Lab's), `solids` its walls and every other solid (`courseSolids`). */
 type Course = { track: Track | null; solids: readonly Solid[] };
 /** A sandbox lamp post (`LampPole`'s fields that matter here): a thin upright cylinder while it stands. */
 export type Pole = { group: { position: { x: number; z: number }; visible: boolean }; intact: boolean; radius: number };
@@ -101,14 +101,13 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   }
   // Off a course every wall is built (the bowl's are all within reach of any throw in it); on one, those near it.
   const reach = course ? size / 2 : Infinity;
-  // `level`: the path's own height, so a wall under a bridge stands on the road and not on the deck above it.
-  const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number, level?: number) => {
+  const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number) => {
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
     if (Math.hypot(mx - cx, mz - cz) > reach) return;
     const len = Math.hypot(bx - ax, bz - az);
     if (len < 1e-3) return;
-    const y = ground.heightAt(mx, mz, level);
+    const y = ground.heightAt(mx, mz);
     const base = Number.isFinite(y) ? y : 0;
     // Box long axis along the segment, its inner face on the line (`out`: the outward normal's sign).
     const nx = ((bz - az) / len) * out;
@@ -138,22 +137,6 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
       if (Math.hypot(s.x - cx, s.z - cz) > reach + s.r) continue;
       const desc = s.make(R);
       if (desc) add(desc);
-    }
-    const track = course.track;
-    const wallH = track?.json.road.wallHeight ?? 0;
-    for (const p of track ? track.paths() : []) {
-      const segs = p.closed ? p.count : p.count - 1;
-      for (let k = 0; k < segs; k++) {
-        const b = (k + 1) % p.count;
-        if (Math.hypot(p.x[k]! - cx, p.z[k]! - cz) > reach + 10) continue;
-        // Left of travel = (tz, −tx); a wall stands half + run out on each flagged side.
-        for (const side of [1, -1]) {
-          if (!(side > 0 ? p.wallL[k] : p.wallR[k])) continue;
-          const la = side * (p.half[k]! + (side > 0 ? p.runL[k]! : p.runR[k]!));
-          const lb = side * (p.half[b]! + (side > 0 ? p.runL[b]! : p.runR[b]!));
-          wall(p.x[k]! + p.tz[k]! * la, p.z[k]! - p.tx[k]! * la, p.x[b]! + p.tz[b]! * lb, p.z[b]! - p.tx[b]! * lb, wallH, 0.4, side, p.y[k]!);
-        }
-      }
     }
   }
   return into;

@@ -3,9 +3,17 @@ import assert from "node:assert/strict";
 import { setGround } from "./ground.ts";
 import { FRAME, frame, makeWorld, type World } from "./race-world.test-util.ts";
 import { Track, blankProjection } from "./track.ts";
-import { placeProps, propColliders } from "./placements.ts";
+import { placeProps, propColliders, type PropCollider } from "./placements.ts";
+import { wallColliders } from "./track-sections.ts";
 import { TRACKS } from "./tracks/index.ts";
 import { parseTrack } from "./track-schema.ts";
+import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { bodyPoints } from "../vehicle/body-points.test-util.ts";
+import { makeCar } from "../vehicle/ground-probe.test-util.ts";
+import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
+import { WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
+import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
 
 /**
  * Owner-facing symptom (TurnSmooth, 10-04): on the city course a car "jumps along the road". The course wall pushed a car up to
@@ -135,7 +143,7 @@ describe("given a lone car in the city race driving at 20 m/s along the loop wit
 });
 
 describe("given a lone car in the city race on a walled stretch of the loop, 2 m inside the wall line on the road side", () => {
-  it("when it is shoved 3.5 m toward the wall in one step (a car-car shove), then the wall returns it to the road, having left it alone before the shove", () => {
+  it("when it is shoved 1.35 m toward the wall in one step (a car-car shove, five times a slice's passes at their cap), its flank 0.3 m into the 0.6 m wall, then the wall returns it to the road, having left it alone before the shove", () => {
     const w = raceWorld("city", 0);
     try {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
@@ -149,9 +157,10 @@ describe("given a lone car in the city race on a walled stretch of the loop, 2 m
       car.spawnFacing(p.x[k]! + p.tz[k]! * (limit - 2), p.z[k]! - p.tx[k]! * (limit - 2), Math.atan2(p.tx[k]!, p.tz[k]!), 0);
       w.race.courseHit(car, 0, 1 / 120);
       assert.ok(Math.abs(lat(limit - 2)) < 0.05, "on the road side, the wall leaves the car alone");
-      // A car-car shove: 3.5 m toward the wall in one step, the footprint 1.5-2.4 m past the line.
-      car.group.position.x += p.tz[k]! * 3.5;
-      car.group.position.z -= p.tx[k]! * 3.5;
+      // A car-car shove: 1.35 m toward the wall in one step, the flank 0.3 m into the drawn wall and the car's middle still on the
+      // road side of it. (A one-step shove of 3.5 m, this test's old one, carried the middle past the whole wall: through it.)
+      car.group.position.x += p.tz[k]! * 1.35;
+      car.group.position.z -= p.tx[k]! * 1.35;
       w.race.courseHit(car, 0, 1 / 120);
       const back = lat(0);
       assert.ok(back < limit - 0.9 && back > limit - 3, `returned to ${back.toFixed(2)} m, the wall line at ${limit.toFixed(2)} m`);
@@ -163,43 +172,185 @@ describe("given a lone car in the city race on a walled stretch of the loop, 2 m
 });
 
 describe("given a lone car in the city race on a walled stretch of the loop with no solid prop near, first on the road and then 2.8 m beyond the wall line", () => {
-  // A replay keyframe puts a car on its recorded spot with the wall memory the record held (`ClipSim` -> `remember`): a car the
-  // live race had just placed holds none (`Infinity` x, no segment), and a pose change under WALL_JUMP (4 m) alone forgets nothing.
-  it("when a replay keyframe puts it beyond the wall line from the road side and another then puts it just past the line, then the first is not pushed (a car arriving beyond the line is outside it) and the second, placed with no wall memory, is pushed back about 0.13 m", () => {
+  // A replay keyframe puts a car on its recorded spot with the course memory the record held (`ClipSim` -> `remember`): a car the
+  // live race had just placed holds no road segment.
+  it("when a replay keyframe puts it beyond the wall line, clear of the wall, and another then puts it with its footprint just into the wall from the road side, then the first is not pushed (it stands outside the wall) and the second is pushed back by its footprint's depth in the drawn wall", () => {
     const w = raceWorld("city", 0);
     try {
       const track = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
       const p = track.path;
-      // A walled stretch (10 samples either side) with no solid prop within 8 m of the three poses below: a prop would push the car too.
+      // A walled stretch (10 samples either side) with no prop within a car's length of the three poses below: a prop would push the car too.
       const props = propColliders(placeProps(track));
       const free = (j: number) =>
         [-2, -0.9, 2.8].every((d) => {
           const lat = p.half[j]! + p.runL[j]! + d;
-          return props.every((c) => Math.hypot(c.x - (p.x[j]! + p.tz[j]! * lat), c.z - (p.z[j]! - p.tx[j]! * lat)) > c.r + 8);
+          return props.every((c) => Math.hypot(c.x - (p.x[j]! + p.tz[j]! * lat), c.z - (p.z[j]! - p.tx[j]! * lat)) > c.r + 2 * WALL_HALF_L);
         });
       let k = 20;
-      while (!(free(k) && Array.from({ length: 21 }, (_, d) => p.wallL[(k + d - 10 + p.count) % p.count]).every(Boolean))) k++;
+      while (k < p.count && !(free(k) && Array.from({ length: 21 }, (_, d) => p.wallL[(k + d - 10 + p.count) % p.count]).every(Boolean))) k++;
+      assert.ok(k < p.count, "the city has a walled stretch with no prop near");
       const limit = p.half[k]! + p.runL[k]!;
       const car = w.cars[0]!;
       const lateral = () => track.project(car.group.position.x, car.group.position.z, k, blankProjection()).lateral;
       const put = (lat: number) => car.spawnFacing(p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, Math.atan2(p.tx[k]!, p.tz[k]!), 0);
-      // On the road first (the course hint finds this stretch), then 2.8 m beyond the line (its footprint 3.7 m): a 4.8 m pose
-      // change forgets the road-side history, and a car that arrives beyond the line is outside it: the wall leaves it alone.
+      // On the road first (the course hint finds this stretch), then 2.8 m beyond the line: its footprint (0.95 m to a side)
+      // clear of the 0.6 m wall behind the line.
       put(limit - 2);
       w.race.courseHit(car, 0, 1 / 120);
       put(limit + 2.8);
       w.race.courseHit(car, 0, 1 / 120);
-      assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car beyond the wall line from outside is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
-      // A keyframe puts it 3.7 m back, its footprint 0.13 m past the line (0.05 m at the flank, the rest the bend under the
-      // front probes; under WALL_CONTACT): freshly placed, so it is in contact and the wall returns it that 0.13 m.
+      assert.ok(Math.abs(lateral() - (limit + 2.8)) < 0.01, `a car outside the wall is not pushed (now ${lateral().toFixed(2)} m, line ${limit.toFixed(2)} m)`);
+      // A keyframe puts it 3.7 m back, its flank 0.05 m into the drawn wall: freshly placed, and the wall returns it that far.
+      // (The old line probe read 0.13 m: it measured the front probes across the bend in the frame of the car's middle.)
       put(limit - 0.9);
-      w.race.remember(0, Float64Array.of(Infinity, 0, 0, -1), 0);
+      const depth = footDepth(car);
+      w.race.remember(0, Float64Array.of(-1), 0);
       w.race.courseHit(car, 0, 1 / 120);
       const pushed = limit - 0.9 - lateral();
-      assert.ok(pushed > 0.1 && pushed < 0.2, `the placed car is pushed back ${pushed.toFixed(3)} m (expected about 0.13)`);
+      assert.ok(depth > 0.03 && Math.abs(pushed - depth) < 0.01, `the placed car, ${depth.toFixed(3)} m into the wall, is pushed back ${pushed.toFixed(3)} m`);
     } finally {
       w.race.exit();
       setGround(null);
     }
   });
+});
+
+/**
+ * Owner's highlight 'Wall hit, 74 km/h' (city, 2026-10-07): a muscle coupe, a wreck on its masses, left the road where the
+ * course narrows, crossed the open pavement inside the bend and drove into the BACK of the inner wall at 78-82 km/h, its
+ * path 9-21° off the wall as the wall bent across it, and went straight through: the course wall pushed only cars that came
+ * from the road side. Replayed headless (bdf8027a), the footprint met the back face at step 864 (77.7 km/h, 7.6 m/s into
+ * it), a mass crossed the road face at 913 and the car's middle at 945. `OWNER` is the recording's pose at step 840,
+ * 0.1 s before the touch; the front row is the same approach mirrored across the wall, from the road.
+ */
+const OWNER = { x: 162.101, z: 49.32, yaw: 1.3796, speed: 82.5 / 3.6 };
+/** Seconds of throttle into the wall, then of coasting off it. */
+const PRESS = 1.5;
+const COAST = 1.5;
+/** The shared solid rule's bars (prop-wall.test.ts): no body point more than 2 cm past the far face, at most 5 cm left in the wall once off the throttle. */
+const PAST = 0.02;
+const INSIDE = 0.05;
+
+type Approach = { label: string; wreck: boolean; front: boolean };
+const APPROACHES: Approach[] = [
+  { label: "a muscle coupe, intact, on the owner's path across the pavement into the wall's back", wreck: false, front: false },
+  { label: "a muscle coupe already a wreck on its masses (the owner's), on the owner's path into the wall's back", wreck: true, front: false },
+  { label: "a muscle coupe on the owner's path mirrored across the wall: from the road into its face", wreck: false, front: true },
+];
+
+/** The city's walls as drawn (`wallColliders`), and per piece the side (±1 along its local x) the road is on. */
+const CITY = new Track(TRACKS.find((j) => parseTrack(j).id === "city"));
+const CITY_WALLS = wallColliders(CITY);
+const ROAD_SIDE = CITY_WALLS.map((c) => {
+  const k = CITY.project(c.x, c.z, -1, blankProjection()).k;
+  return (CITY.path.x[k]! - c.x) * Math.cos(c.yaw) - (CITY.path.z[k]! - c.z) * Math.sin(c.yaw) > 0 ? 1 : -1;
+});
+
+/**
+ * How deep (m) the car's contact footprint (the rectangle `WALL_PROBES` span) stands in the city's drawn wall from its road
+ * face: its outline sampled every centimetre (on a bend the deepest point of a flank is between its corners).
+ */
+function footDepth(car: DeformableCar): number {
+  const p = car.group.position;
+  const [fw, fl] = WALL_PROBES[1]!;
+  let depth = 0;
+  for (let q = 0; q <= 400; q++) {
+    // Round the outline: t in [0, 1) per side, sides +x, −x (flanks) and +z, −z (ends).
+    const t = (q % 100) / 100;
+    const side = Math.floor(q / 100);
+    const ox = side < 2 ? (side === 0 ? fw : -fw) : -fw + 2 * fw * t;
+    const oz = side < 2 ? -fl + 2 * fl * t : side === 2 ? fl : -fl;
+    const x = p.x + car.rightFlat.x * ox + car.fwdFlat.x * oz;
+    const z = p.z + car.rightFlat.z * ox + car.fwdFlat.z * oz;
+    for (const c of CITY_WALLS) {
+      const u = (x - c.x) * Math.cos(c.yaw) - (z - c.z) * Math.sin(c.yaw);
+      const along = (x - c.x) * Math.sin(c.yaw) + (z - c.z) * Math.cos(c.yaw);
+      const d = c.hx - ROAD_SIDE[c.index]! * u;
+      if (Math.abs(along) <= c.hz && d > 0 && d < 2 * c.hx) depth = Math.max(depth, d);
+    }
+  }
+  return depth;
+}
+
+/**
+ * How far the body reaches past the far face of any wall piece it is over (m), and how deep it is inside one from the face it
+ * came at (m). `from`: per piece, the side (±1 along its local x) the car came from.
+ */
+function reachWall(car: DeformableCar, walls: readonly PropCollider[], from: (c: PropCollider) => number): { past: number; inside: number } {
+  let past = 0;
+  let inside = 0;
+  const p = car.group.position;
+  for (const c of walls) {
+    if (Math.hypot(c.x - p.x, c.z - p.z) > c.r + 4) continue;
+    const s = from(c);
+    const cs = Math.cos(c.yaw);
+    const sn = Math.sin(c.yaw);
+    for (const [x, z] of bodyPoints(car)) {
+      const u = (x - c.x) * cs - (z - c.z) * sn;
+      const along = (x - c.x) * sn + (z - c.z) * cs;
+      if (Math.abs(along) > c.hz) continue;
+      past = Math.max(past, -s * u - c.hx);
+      const depth = c.hx - s * u;
+      if (depth > 0 && depth < 2 * c.hx) inside = Math.max(inside, depth);
+    }
+  }
+  return { past, inside };
+}
+
+describe("given the city course's inner wall at the top of the bend past the course's narrowing, where the owner's highlight 'Wall hit, 74 km/h' went through it", () => {
+  for (const a of APPROACHES) {
+    it(`when ${a.label} at 82.5 km/h, gas held ${PRESS} s then off, then it hits the wall hard, no point of its body ever ends more than ${PAST * 100} cm past the wall's far face and at most ${INSIDE * 100} cm of it is left in the wall`, (t) => {
+      const w = makeWorld();
+      w.race.showLobby("city");
+      try {
+        const touch = CITY_WALLS.reduce((a, b) => (Math.hypot(b.x - 164.3, b.z - 51.1) < Math.hypot(a.x - 164.3, a.z - 51.1) ? b : a));
+        const car = makeCar("muscle");
+        w.dress(car);
+        // The front row: the owner's pose and heading mirrored across the middle plane of the piece the owner's car first met.
+        const n = { x: Math.cos(touch.yaw), z: -Math.sin(touch.yaw) };
+        const off = (OWNER.x - touch.x) * n.x + (OWNER.z - touch.z) * n.z;
+        const f = { x: Math.sin(OWNER.yaw), z: Math.cos(OWNER.yaw) };
+        const fn = f.x * n.x + f.z * n.z;
+        const pose = a.front ? { x: OWNER.x - 2 * off * n.x, z: OWNER.z - 2 * off * n.z, yaw: Math.atan2(f.x - 2 * fn * n.x, f.z - 2 * fn * n.z) } : OWNER;
+        car.spawnFacing(pose.x, pose.z, pose.yaw, OWNER.speed);
+        if (a.wreck) {
+          car.crashed = true;
+          car.deform.armMasses(car.group, car.velocity, car.angular);
+        }
+        const world = newWorld([car]);
+        world.collide = (c, i, h) => w.race.courseHit(c, i, h);
+        let hardest = 0;
+        w.race.onWallHit = (_i, closing) => (hardest = Math.max(hardest, closing));
+        // The side each piece's near face looks to: the road for the front row, away from it for the back.
+        const from = (c: PropCollider): number => (a.front ? ROAD_SIDE[c.index]! : -ROAD_SIDE[c.index]!);
+        const gas: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
+        const off2: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false };
+        let acc = 0;
+        let past = 0;
+        let deepest = 0;
+        for (let fr = 0; fr < (PRESS + COAST) / FRAME; fr++) {
+          acc = Math.min(0.05, acc + FRAME);
+          while (acc > 1e-5) {
+            const h = Math.fround(physicsSlice(acc, sliceSpeed(world.cars)));
+            applyDrive(car, fr * FRAME < PRESS ? gas : off2, h);
+            stepWorld(world, h);
+            settleStep(world.cars, h, false);
+            acc -= h;
+          }
+          car.updateSkin();
+          const r = reachWall(car, CITY_WALLS, from);
+          past = Math.max(past, r.past);
+          deepest = Math.max(deepest, r.inside);
+        }
+        const { inside } = reachWall(car, CITY_WALLS, from);
+        const note = `hit at ${hardest.toFixed(1)} m/s, ${car.deform.massActive ? "wreck" : "rigid"}, ${(Math.hypot(car.velocity.x, car.velocity.z) * 3.6).toFixed(1)} km/h at the end, deepest ${deepest.toFixed(3)} m in the wall, ${past.toFixed(3)} m past its far face, ${inside.toFixed(3)} m left in it`;
+        t.diagnostic(note);
+        assert.ok(hardest > 5, `${a.label}: met the wall at ${hardest.toFixed(1)} m/s, not the owner's hard hit (${note})`);
+        assert.ok(past <= PAST, `${a.label}: the body reached ${past.toFixed(3)} m past the wall's far face (${note})`);
+        assert.ok(inside <= INSIDE, `${a.label}: ${inside.toFixed(3)} m of the body left in the wall (${note})`);
+      } finally {
+        setGround(null);
+      }
+    });
+  }
 });

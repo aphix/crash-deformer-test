@@ -252,12 +252,9 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     let j = 0;
     for (; j < here && kr.off + FLIGHT * 8 + MEMORY * 8 + 2 <= len; j++) {
       kr.off += FLIGHT * 8;
-      // The wall memory (`RaceField.remember`): where the car stood (x ±Infinity: no history), how far past a wall line (m), the road segment its projection hint is on (-1: none).
-      const wallX = kr.f64();
-      const wallZ = kr.f64();
-      const beyond = kr.f64();
+      // The course memory (`RaceField.remember`): the road segment its projection hint is on (-1: none).
       const seg = kr.f64();
-      if (Number.isNaN(wallX) || !Number.isFinite(wallZ) || !(beyond >= 0 && beyond < Infinity) || !Number.isInteger(seg) || seg < -1) throw new RangeError("clip course memory");
+      if (!Number.isInteger(seg) || seg < -1) throw new RangeError("clip course memory");
       const n = kr.u16();
       kr.off += n * 8;
     }

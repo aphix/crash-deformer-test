@@ -4,7 +4,8 @@ import type { Rapier } from "../kernel/rapier.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
 import { blankPoint, pointOn, type Track, type TrackPath } from "../world/track.ts";
-import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, levelAt, RoadIndex, sampleStep, sections, surfY, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
+import { ARCH_STEPS, DECK_LIP, DECK_THICK, GANTRY_BEAM, RoadIndex, TUNNEL_GAP, TUNNEL_SHELL, TUNNEL_SIDE } from "./track-mesh.ts";
+import { levelAt, sampleStep, sections, surfY, wallColliders } from "../world/track-sections.ts";
 import { pillarPieces } from "./track-structures.ts";
 
 /**
@@ -165,13 +166,12 @@ function structures(track: Track, out: Solid[]): void {
 
 /**
  * Every collider but the knockable props' (each of those is its own body, `PropBodies`) as a solid standing from its
- * placement's base (`floor` for one with no placement: the Lab's wall) to its top, at the footprint the cars hit, so a
- * dummy meets exactly what a car does. Appended to `out`.
+ * base to its top, at the footprint the cars hit, so a dummy meets exactly what a car does. Appended to `out`.
  */
-export function colliderSolids(colliders: readonly PropCollider[], placed: readonly Placed[], floor: number, out: Solid[]): Solid[] {
+export function colliderSolids(colliders: readonly PropCollider[], out: Solid[]): Solid[] {
   for (const c of colliders) {
     if (c.body === "knock") continue;
-    const y0 = placed[c.index]?.y ?? floor;
+    const y0 = c.base;
     const h = c.top - y0;
     if (c.kind === "circle") out.push({ x: c.x, z: c.z, r: c.r, make: (R) => R.ColliderDesc.cylinder(h / 2, c.r).setTranslation(c.x, y0 + h / 2, c.z) });
     else {
@@ -183,11 +183,11 @@ export function colliderSolids(colliders: readonly PropCollider[], placed: reado
 }
 
 /**
- * Every solid of `track` a dummy can hit that the ground heightfield and the road walls do not already give: the props
- * (`colliderSolids`), the start gantry's legs, bridge decks and bents, and the tunnels' shell.
+ * Every solid of `track` a dummy can hit that the ground heightfield does not already give: the props and the road walls
+ * (`colliderSolids`: the very colliders the cars meet), the start gantry's legs, bridge decks and bents, and the tunnels' shell.
  */
 export function courseSolids(track: Track, placed: readonly Placed[]): Solid[] {
-  const out = colliderSolids(propColliders(placed), placed, 0, []);
+  const out = colliderSolids(wallColliders(track), colliderSolids(propColliders(placed), []));
   structures(track, out);
   return out;
 }

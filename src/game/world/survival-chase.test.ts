@@ -21,7 +21,9 @@ const RIM = track.json.props.filter((p) => p.prefab === "stucco");
 
 describe("given Havana's Survival course, a closed city with a ring of stucco blocks round it", () => {
   it("when a car-sized disc spreads from the player's start through the course's solids, then it cannot reach the edge of the world", (t) => {
-    const solids = propColliders(placeProps(track)).filter((c) => c.body === "solid");
+    const placed = placeProps(track);
+    // A car-sized disc drives under what starts over a car's roofline (1.36 m) above its prop's foot: a palm's crown.
+    const solids = propColliders(placed).filter((c) => c.body === "solid" && c.base - placed[c.index]!.y < 1.38);
     const half = 1.1;
     const b = track.bounds;
     const x0 = Math.floor(b.minX - 40);

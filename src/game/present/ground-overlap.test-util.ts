@@ -13,7 +13,8 @@
 import type { Track } from "../world/track.ts";
 import { GROUND_LIFT_PX, isBaseLevel, levelOrder } from "../scenes/ground-stack.ts";
 import { buildGroundLayers } from "./track-ground.ts";
-import { RoadIndex, sections } from "./track-mesh.ts";
+import { RoadIndex } from "./track-mesh.ts";
+import { sections } from "../world/track-sections.ts";
 
 export const DEPTH_BITS = 24;
 export const CAMERA_NEAR = 0.1;

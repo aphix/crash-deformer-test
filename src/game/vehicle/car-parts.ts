@@ -40,6 +40,8 @@ import {
 } from "./car-wear.ts";
 import { partState, PART_SLOTS } from "./part-state.ts";
 
+/** A door's drawn angle (rad) per unit of crash hinge value (`hingeT`): the jam that holds a door ajar. */
+const DOOR_JAM = 1.45;
 const _push = new THREE.Vector3();
 const _p = new THREE.Vector3();
 const _n = new THREE.Vector3();
@@ -230,7 +232,7 @@ export abstract class CarParts extends CarGlass {
       p.object.rotation.x = t * 0.5;
     } else if (p.hinge === "door") {
       const sign = p.name === "doorL" ? -1 : 1;
-      p.object.rotation.y = -sign * Math.max(t * 1.45, p.swing!.theta);
+      p.object.rotation.y = -sign * Math.max(t * DOOR_JAM, p.swing!.theta);
       p.object.position.x += sign * t * 0.06;
       p.object.updateWorldMatrix(true, false);
       _box.setFromObject(p.object);
@@ -279,6 +281,30 @@ export abstract class CarParts extends CarGlass {
     this.posePart(p);
   }
 
+  /** The angle (rad) door `side` is drawn open at: the free swing, or the crash's jam when that holds it further out; 0 once it is off. */
+  doorAngle(side: number): number {
+    const p = this.doorParts[side < 0 ? 0 : 1]!;
+    return p.detached ? 0 : Math.max(p.hingeT * DOOR_JAM, p.swing!.theta);
+  }
+
+  /**
+   * A fixed solid shuts door `side` to `angle` (rad) at closing rate `rate` (rad/s): the door swings in to it, latching at 0, and
+   * a slam past `SLAM_TEAR_J` wrenches it off (`closeDoor`). A door the crash jammed open past `angle` cannot shut: the solid
+   * tears it off. True if it tore off.
+   */
+  shutDoor(side: number, angle: number, rate: number): boolean {
+    const p = this.doorParts[side < 0 ? 0 : 1]!;
+    if (p.detached) return false;
+    if (p.hingeT * DOOR_JAM > angle) {
+      this.detachPart(p, 0, _push.set(side * 1.2, 0.6, 0));
+      return true;
+    }
+    p.swing!.omega = -rate;
+    const tore = this.closeDoor(p, side, angle);
+    if (!tore) this.posePart(p);
+    return tore;
+  }
+
   /**
    * The check strap takes `energy` (J) past the stop. Once the total passes `HINGE_TEAR_J` the
    * door tears off with `push` (car-space m/s on top of the car's velocity). Returns whether it did.
@@ -319,7 +345,7 @@ export abstract class CarParts extends CarGlass {
       const sign = i === 0 ? -1 : 1;
       if (!h.latched) {
         // A door the crash jammed open never shuts past its jam.
-        const jam = Math.min(p.hingeT * 1.45, DOOR_OPEN_MAX);
+        const jam = Math.min(p.hingeT * DOOR_JAM, DOOR_OPEN_MAX);
         h.omega += swingAccel(sign, h.theta, d[0]!, d[1]!, d[2]!, d[3]!) * dt;
         const dry = DOOR_DRY * dt;
         h.omega = Math.abs(h.omega) <= dry ? 0 : h.omega - Math.sign(h.omega) * dry;
@@ -370,7 +396,7 @@ export abstract class CarParts extends CarGlass {
       h.omega = 0;
       this.sampleMotion();
     }
-    h.theta = Math.max(h.theta, Math.min(p.hingeT * 1.45, DOOR_OPEN_MAX));
+    h.theta = Math.max(h.theta, Math.min(p.hingeT * DOOR_JAM, DOOR_OPEN_MAX));
   }
 
   /** Remember the car's velocity and yaw rate: the next `sampleDrive` reads their change as acceleration. Call after setting either by hand. */

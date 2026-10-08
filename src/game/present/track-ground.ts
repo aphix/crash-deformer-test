@@ -3,10 +3,11 @@ import { clamp } from "../kernel/scalar.ts";
 import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
 import { TILE } from "./prefabs.ts";
 import { type Track, type TrackGround, type TrackPath } from "../world/track.ts";
+import { sampleStep, surfY } from "../world/track-sections.ts";
 import type { GroundLevel } from "../scenes/ground-stack.ts";
 import {
   BLACK, BLOCK, CELL, CHEQUER, FLAT_TOL, KERB_CURV, KERB_FILL, KERB_LIFT, KERB_WIDTH, MARK_LIFT, Mesher, mottle, PAVED,
-  RED, ROAD_LIFT, RoadIndex, sampleAt, sampleStep, SKIRT_RADIUS, surfaceHex, surfY, texClass, WHITE,
+  RED, ROAD_LIFT, RoadIndex, sampleAt, SKIRT_RADIUS, surfaceHex, texClass, WHITE,
 } from "./track-mesh.ts";
 
 /** Track art on the ground: terrain with its far skirt, road / runoff ribbons, markings and kerbs. */

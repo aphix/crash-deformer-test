@@ -5,11 +5,10 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { blankAiCar, type AiCar } from "../ai/derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { setGround } from "../world/ground.ts";
-import { markApproach, wallBounce, WALL_PROBES } from "../contact/pair-contact.ts";
-import { makeBox, solidFace } from "../contact/external-contact.ts";
-import type { PropHits } from "../contact/prop-contact.ts";
+import { solidGrid, type PropHits, type SolidGrid } from "../contact/prop-contact.ts";
 import { Campaign } from "../match/campaign.ts";
 import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
+import { wallColliders } from "../world/track-sections.ts";
 import { RaceBrain } from "../ai/race-ai.ts";
 import { POLICE_CAP, PoliceBrain } from "../ai/police.ts";
 import type { CopBrain, HunterWorld } from "../ai/cop-brain.ts";
@@ -76,13 +75,6 @@ interface RaceHost {
 
 /** Seconds upside down before a car counts as dead. */
 const FLIP_DEAD = 2.5;
-/** A pose change (m) between two wall steps no car drives in one (240 m/s at 1/60 s): the car was placed, so `wall` forgets where it was. */
-const WALL_JUMP = 4;
-/**
- * How far past a wall line (m) a car may have been left last step and still count as in contact with it: what one step of travel
- * carries a car there (60 m/s at the finest 1/240 s slice). Further out it was not pushed back, so it is outside the wall.
- */
-const WALL_CONTACT = 0.25;
 /** Seconds a car no human drives (a rival; a peer or this browser's driver may sit, and press R) sits still mid-race before it counts as dead (respawned). */
 const STILL_DEAD = 8;
 /**
@@ -100,12 +92,6 @@ const PARK_Z = 4000;
 /** A Survival drop-in must be this many metres outside the camera's view (or behind a solid): the view swings while the cop is already on the road. */
 const HIDE_MARGIN = 8;
 const _c = new THREE.Vector3();
-const _n = new THREE.Vector3();
-/** The solid face of the wall or prop the car is meeting this slice (`solidFace`), reused. */
-const _face = makeBox();
-/** A course wall met as a slab: how far (m) it reaches along the road either side of the contact (more than a car's length), and how thick it is behind its face. */
-const WALL_SPAN = 6;
-const WALL_DEPTH = 2;
 
 /**
  * The race field: course loading (track, art, ground, props), the grid, spawns and respawns, the traffic bubble and
@@ -150,16 +136,13 @@ export abstract class RaceField {
   /** Crash highlights (docs/HIGHLIGHTS.md): records each race this browser simulates. */
   readonly recorder = new CrashRecorder({
     recall: (i, out) => {
-      out[0] = this.wallX[i]!;
-      out[1] = this.wallZ[i]!;
-      out[2] = this.wallBeyond[i]!;
-      out[3] = this.seg[i]!;
+      out[0] = this.seg[i]!;
     },
     knocks: () => this.knocked,
   });
   /** A wall or solid prop hit car `i` closing at `closing` m/s at (x, z): the recorder, or a highlight replay while one runs. */
   onWallHit: (i: number, closing: number, x: number, z: number) => void = (i, closing, x, z) => this.recorder.wallHit(i, closing, x, z);
-  /** The course's props as the shared rule meets them (`propContact`): the recorder and the art hear a knock, a solid hit is a wall hit. */
+  /** The course's walls and props as the shared rule meets them (`courseContact`): the recorder and the art hear a knock, a solid hit is a wall hit. */
   protected readonly propHits: PropHits = {
     knock: (index, car, vx, vy, vz) => {
       this.recorder.knock(index, car);
@@ -182,6 +165,9 @@ export abstract class RaceField {
   protected art: TrackArt | null = null;
   private placed: Placed[] = [];
   protected colliders: PropCollider[] = [];
+  /** The course's walls, piece by piece (`wallColliders`), and its walls and props by cell (`solidGrid`): what a car meets. */
+  protected walls: PropCollider[] = [];
+  protected solids: SolidGrid = solidGrid([], []);
   protected knocked = new Uint8Array(0);
   protected session: RaceSession | null = null;
   /** NPC world traffic (courses with `traffic`); its cars follow the racers in car index order. */
@@ -203,7 +189,6 @@ export abstract class RaceField {
       this.deadFor[id] = 0;
       this.flipFor[id] = 0;
       this.seg[id] = -1;
-      this.wallX[id] = Infinity;
       car.group.visible = true;
       this.place(car, x, z, yaw, y);
     },
@@ -228,11 +213,8 @@ export abstract class RaceField {
   protected readonly rowOf = new Int16Array(MAX_CARS);
   protected spectating = false;
   protected overFor = -1;
+  /** Per car, the road segment its last course contact projected it on (−1: none, as after a placement): the projection hint. A keyframe carries it (`CourseMemory`). */
   protected readonly seg = new Int32Array(MAX_CARS).fill(-1);
-  /** Per car, the end of its last wall step: where it stood (`Infinity` x: no history, as after a placement) and how far past a wall line (`wall`). A keyframe carries them (`CourseMemory`). */
-  protected readonly wallX = new Float64Array(MAX_CARS).fill(Infinity);
-  private readonly wallZ = new Float64Array(MAX_CARS);
-  private readonly wallBeyond = new Float64Array(MAX_CARS);
   private readonly flipFor = new Float64Array(MAX_CARS);
   private readonly stillFor = new Float64Array(MAX_CARS);
   /** Per AI racer: race time and track progress at the start of the current stall window. */
@@ -357,7 +339,6 @@ export abstract class RaceField {
       this.run = null;
     }
     this.seg.fill(-1);
-    this.wallX.fill(Infinity);
     this.flipFor.fill(0);
     this.stillFor.fill(0);
     this.markTime.fill(0);
@@ -386,14 +367,11 @@ export abstract class RaceField {
   }
 
   /**
-   * Car `i`'s wall memory and road projection hint as a keyframe held them (`MEMORY` doubles at `at` in `mem`, the order
-   * `CourseMemory.recall` writes): what a highlight replay's car must carry on from its record, not forget.
+   * Car `i`'s road projection hint as a keyframe held it (`MEMORY` doubles at `at` in `mem`, the order `CourseMemory.recall`
+   * writes): what a highlight replay's car must carry on from its record, not forget.
    */
   remember(i: number, mem: Float64Array, at: number): void {
-    this.wallX[i] = mem[at]!;
-    this.wallZ[i] = mem[at + 1]!;
-    this.wallBeyond[i] = mem[at + 2]!;
-    this.seg[i] = mem[at + 3]!;
+    this.seg[i] = mem[at]!;
   }
 
   /**
@@ -438,6 +416,8 @@ export abstract class RaceField {
     this.track = tr;
     this.placed = placeProps(tr);
     this.colliders = propColliders(this.placed);
+    this.walls = wallColliders(tr);
+    this.solids = solidGrid(this.walls, this.colliders);
     this.knocked = new Uint8Array(this.placed.length);
     this.art = this.host.buildArt(tr, this.placed);
     if (this.art) this.host.scene.add(this.art.group);
@@ -464,6 +444,8 @@ export abstract class RaceField {
     this.track = null;
     this.placed = [];
     this.colliders = [];
+    this.walls = [];
+    this.solids = solidGrid([], []);
     setGround(null);
     this.host.markBounds(-48, -48, 48, 48);
   }
@@ -486,7 +468,6 @@ export abstract class RaceField {
         this.brain?.respawned(e.id);
         this.police?.respawned?.(e.id, s.time);
         this.seg[e.id] = -1;
-        this.wallX[e.id] = Infinity;
         this.flipFor[e.id] = 0;
         this.stillFor[e.id] = 0;
         this.markTime[e.id] = s.time;
@@ -686,76 +667,4 @@ export abstract class RaceField {
     return this.stillFor[i]! <= STILL_DEAD;
   }
 
-  /**
-   * Probe the footprint against the wall line on each side; a hard hit crushes the car as the range's slab does (`wallBounce`),
-   * a light one pushes out and bounces. A push undoes a
-   * penetration, and a car only penetrates from the road side: it was at the wall (or on the road) last step, so it is at most a
-   * step of travel past the line. A car left more than `WALL_CONTACT` beyond the line last step was not pushed back then, so it
-   * came from outside, through a mouth or from another road (the back alley's exit): the wall is behind it and it is left alone
-   * until it is back on the road, instead of being thrown across the line. One left less beyond it (a wall starting under a
-   * car already at the line) is pushed only what it went further this step. A placement (`WALL_JUMP`) forgets the history: the
-   * car is in contact if it stands within `WALL_CONTACT` of the line, and outside it beyond. `dt` is the slice's time (s).
-   */
-  protected wall(car: DeformableCar, i: number, k: number, lateral: number, dt: number): void {
-    const p = this.track!.path;
-    const tx = p.tx[k]!;
-    const tz = p.tz[k]!;
-    const pos = car.group.position;
-    const rx = car.rightFlat.x;
-    const rz = car.rightFlat.z;
-    const fx = car.fwdFlat.x;
-    const fz = car.fwdFlat.z;
-    // Speed toward the wall on the left of travel (right: its negative).
-    const vl = car.velocity.x * tz - car.velocity.z * tx;
-    let pen = 0;
-    let beyond = 0;
-    let side = 0;
-    let cx = 0;
-    let cz = 0;
-    for (let q = 0; q < WALL_PROBES.length; q++) {
-      const ox = WALL_PROBES[q]![0];
-      const oz = WALL_PROBES[q]![1];
-      const wx = rx * ox + fx * oz;
-      const wz = rz * ox + fz * oz;
-      // Left of travel = (tz, −tx).
-      const lat = lateral + wx * tz - wz * tx;
-      const left = lat > 0;
-      const limit = p.half[k]! + (left ? p.runL[k]! : p.runR[k]!);
-      const over = Math.abs(lat) - limit;
-      beyond = Math.max(beyond, over);
-      const walled = left ? p.wallL[k] : p.wallR[k];
-      if (walled) markApproach(car, -over, left ? vl : -vl);
-      if (!walled || over <= pen) continue;
-      pen = over;
-      side = left ? 1 : -1;
-      cx = pos.x + wx;
-      cz = pos.z + wz;
-    }
-    if (hypot2(pos.x - this.wallX[i]!, pos.z - this.wallZ[i]!) > WALL_JUMP) this.wallBeyond[i] = beyond > WALL_CONTACT ? Infinity : 0;
-    const held = this.wallBeyond[i]!;
-    const push = pen - held;
-    if (held > WALL_CONTACT || push <= 0) {
-      this.wallMemo(i, pos, beyond);
-      return;
-    }
-    // Inward normal: back toward the road.
-    const nx = -side * tz;
-    const nz = side * tx;
-    const v = car.velocity;
-    const vn = v.x * nx + v.z * nz;
-    const closing = Math.max(0, -vn);
-    _c.set(cx, 0.5, cz);
-    _n.set(nx, 0, nz);
-    wallBounce(car, solidFace(_face, nx, nz, cx + nx * pen, cz + nz * pen, cx, cz, WALL_SPAN, WALL_DEPTH), nx, nz, push, dt);
-    this.wallMemo(i, pos, held);
-    if (closing >= 1.5) this.host.hitFx(_c, _n, closing);
-    this.onWallHit(i, closing, cx, cz);
-  }
-
-  /** Car `i`'s pose and how far past a wall line its deepest probe stood at the end of this step (0: on the road side). */
-  private wallMemo(i: number, pos: THREE.Vector3, beyond: number): void {
-    this.wallX[i] = pos.x;
-    this.wallZ[i] = pos.z;
-    this.wallBeyond[i] = Math.max(beyond, 0);
-  }
 }

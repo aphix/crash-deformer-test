@@ -11,7 +11,8 @@ import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { square } from "../world/track.test-util.ts";
 import { TRACKS } from "../world/tracks/index.ts";
-import { levelAt, surfY, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
+import { TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
+import { levelAt, surfY } from "../world/track-sections.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 
 const FRAME = 1 / 60;
@@ -54,33 +55,55 @@ function run(sys: RagdollSystem, secs: number, each: (part: V3, f: number) => vo
   }
 }
 
-/** Signed distance (m) from a point to an upright yawed box or cylinder (negative inside), prop frame: local x = (cos, −sin), z = (sin, cos). */
-function depth(s: { x: number; z: number; yaw: number; hx: number; hz: number; y1: number; circle: boolean }, p: V3): number {
+/** One piece of a prop (`PREFABS[..].collider`) in its prop's frame, an upright box or cylinder from y0 to y1. */
+type Piece = { x: number; z: number; hx: number; hz: number; y0: number; y1: number; circle: boolean };
+
+/** A prop placed on the square course: where it stands, its pieces, and `face`: the local x of the first of them a shot along local +x meets, at its height. */
+type Prop = { x: number; z: number; yaw: number; pieces: Piece[]; face: number };
+
+/** Where a shot is aimed (m up) where the prop's own 60 % of its height up to 1 m would miss it: a billboard's panel, over the opening between its posts. */
+const AIM: Partial<Record<PrefabId, number>> = { billboard: 3 };
+
+/** Signed distance (m) from a point to the nearest piece of a prop (negative inside one): prop frame local x = (cos, −sin), z = (sin, cos). */
+function depth(s: Prop, p: V3): number {
   const ex = p.x - s.x;
   const ez = p.z - s.z;
   const lx = ex * Math.cos(s.yaw) - ez * Math.sin(s.yaw);
   const lz = ex * Math.sin(s.yaw) + ez * Math.cos(s.yaw);
-  const dy = Math.max(-p.y, p.y - s.y1);
-  const side = s.circle ? Math.hypot(lx, lz) - s.hx : Math.max(Math.abs(lx) - s.hx, Math.abs(lz) - s.hz);
-  return Math.max(side, dy);
+  let d = Infinity;
+  for (const q of s.pieces) {
+    const dy = Math.max(q.y0 - p.y, p.y - q.y1);
+    const side = q.circle ? Math.hypot(lx - q.x, lz - q.z) - q.hx : Math.max(Math.abs(lx - q.x) - q.hx, Math.abs(lz - q.z) - q.hz);
+    d = Math.min(d, Math.max(side, dy));
+  }
+  return d;
 }
-
-type Prop = { x: number; z: number; yaw: number; hx: number; hz: number; y1: number; circle: boolean };
 
 /**
  * One `prefab` placed on the square course, a dummy fired head first along its local +x at 15 m/s from 6 m short of its
- * face, at 60 % of its height up to 1 m. With `solids` false the course's solids are dropped (the control).
+ * first face, at 60 % of its height up to 1 m (`AIM`). With `solids` false the course's solids are dropped (the control).
  */
 async function fireAt(prefab: PrefabId, solids: boolean): Promise<{ solid: Prop; deepest: number; reach: number; along: number }> {
   const spec = PREFABS[prefab];
-  const col = spec.collider!;
-  const solid = { x: -45, z: 30, yaw: 0.4, hx: col.kind === "circle" ? col.r : col.hx, hz: col.kind === "circle" ? col.r : col.hz, y1: spec.size[1], circle: col.kind === "circle" };
+  const y = AIM[prefab] ?? Math.min(1, 0.6 * spec.size[1]);
+  const pieces = spec.collider.map((c): Piece => {
+    const circle = c.kind === "circle";
+    return { x: c.x ?? 0, z: c.z ?? 0, hx: circle ? c.r : c.hx, hz: circle ? c.r : c.hz, y0: c.y0 ?? 0, y1: c.y1 ?? spec.size[1], circle };
+  });
+  // The first face of the pieces the shot's line (lateral 0, height y) runs into.
+  let face = Infinity;
+  for (const q of pieces) {
+    if (y < q.y0 || y > q.y1 || Math.abs(q.z) >= q.hz) continue;
+    face = Math.min(face, q.x - (q.circle ? Math.sqrt(q.hx * q.hx - q.z * q.z) : q.hx));
+  }
+  assert.ok(Number.isFinite(face), `${prefab}: nothing at ${y} m on the shot's line`);
+  const solid: Prop = { x: -45, z: 30, yaw: 0.4, pieces, face };
   const track = new Track(parseTrack(square({ props: [{ prefab, x: solid.x, z: solid.z, yaw: solid.yaw, scale: 1 }] })));
   const sys = await system(track.ground(), track);
   if (!solids) sys["solids"] = [];
   const dir = new THREE.Vector3(Math.cos(solid.yaw), 0, -Math.sin(solid.yaw));
   const flight = 6 / 15;
-  const start = new THREE.Vector3(solid.x, Math.min(1, 0.6 * spec.size[1]) + 0.5 * 9.6 * flight * flight, solid.z).addScaledVector(dir, -(solid.hx + 6));
+  const start = new THREE.Vector3(solid.x, y + 0.5 * 9.6 * flight * flight, solid.z).addScaledVector(dir, face - 6);
   throwFrom(sys, start, dir.clone().multiplyScalar(15), dir);
   let deepest = Infinity;
   let reach = -Infinity;
@@ -99,17 +122,27 @@ describe("given a thrown dummy (the ejected driver's ragdoll) and the solid prop
   for (const prefab of kinds) {
     it(`when a dummy is fired at a ${prefab} at 15 m/s, then it stops on the prop's face: no part inside it and none behind it`, async () => {
       const { solid, deepest, reach, along } = await fireAt(prefab, true);
-      assert.ok(reach > -solid.hx - 0.6, `the shot reached the face (${reach.toFixed(2)} vs ${(-solid.hx).toFixed(2)})`);
+      assert.ok(reach > solid.face - 0.6, `the shot reached the face (${reach.toFixed(2)} vs ${solid.face.toFixed(2)})`);
       assert.ok(deepest > -SOAK, `a part sank ${(-deepest).toFixed(2)} m into the ${prefab}`);
-      assert.ok(along < -solid.hx, `torso ended behind the face: ${along.toFixed(2)}`);
+      assert.ok(along < solid.face, `torso ended behind the face: ${along.toFixed(2)}`);
     });
   }
 
   it("when the course's solids are left out and the same shots are fired at props over 1.2 m tall, then the torso ends inside or behind the props", async () => {
     for (const prefab of kinds.filter((k) => PREFABS[k].size[1] > 1.2)) {
       const { solid, along } = await fireAt(prefab, false);
-      assert.ok(along > -solid.hx, `${prefab}: with no solid the torso ended ${along.toFixed(2)} along, face at ${(-solid.hx).toFixed(2)}`);
+      assert.ok(along > solid.face, `${prefab}: with no solid the torso ended ${along.toFixed(2)} along, face at ${solid.face.toFixed(2)}`);
     }
+  });
+
+  it("when a dummy is fired at a billboard between its posts, under the panel, then he flies through the opening and ends beyond it", async () => {
+    const track = new Track(parseTrack(square({ props: [{ prefab: "billboard", x: -45, z: 30, yaw: 0, scale: 1 }] })));
+    const sys = await system(track.ground(), track);
+    throwFrom(sys, new THREE.Vector3(-51, 1.2, 30), new THREE.Vector3(15, 0, 0), new THREE.Vector3(1, 0, 0));
+    run(sys, 3, () => {});
+    const x = dollsOf(sys)[0]!.bodies[0]!.translation().x;
+    sys.dispose();
+    assert.ok(x > -44, `through the opening: ${x.toFixed(2)}`);
   });
 
   it("when a crate has been knocked off its spot versus left standing and a dummy is fired at the spot, then the standing crate stops him and the knocked one, flown off sideways, lets him by", async () => {

@@ -452,7 +452,7 @@ export class PistonRig {
     box.hardness = this.config.hardness;
     let taken = bodyContact(car, box, dt, crush);
     const touching = d.faceContacts > 0;
-    if (crush) taken += box.kg * partContact(car, box).du;
+    if (crush) taken += box.kg * partContact(car, box, dt).du;
     if (h.phase === "coast") h.u = Math.max(0, h.u - taken / this.config.massKg);
     if (touching) {
       h.touch(this.time);

@@ -78,8 +78,8 @@ function record(): Recorded {
     car.applyImpact(new THREE.Vector3(car.group.position.x + 2.2, 0.5, car.group.position.z), new THREE.Vector3(-1, 0, 0), 16, 12);
     assert.ok(car.crashed, `car ${i} is a wreck`);
   }
-  // A course (the race's wall memory and 128 props, none knocked at the start): every keyframe reads them, a replay restores them.
-  const rec = new CrashRecorder({ recall: (_i, out) => out.set([Infinity, 0, 0, -1]), knocks: () => new Uint8Array(16) });
+  // A course (the race's road-segment hint and 128 props, none knocked at the start): every keyframe reads them, a replay restores them.
+  const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });
   rec.begin("flat", HANDLING.realism, false, ALL, (i) => `c${i}`, 1);
   const world = newWorld(cars);
   world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);

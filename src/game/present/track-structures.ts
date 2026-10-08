@@ -3,10 +3,11 @@ import { hypot2 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { TILE, box, type Piece } from "./prefabs.ts";
 import { blankPoint, pointOn, type TrackGround, type TrackPath } from "../world/track.ts";
+import { levelAt, runs, sampleStep, surfY, WALL_PERIOD, WALL_PROFILE, wallLateral, wallRuns } from "../world/track-sections.ts";
 import {
-  ARCH_STEPS, CONCRETE, CONCRETE_DARK, DECK_COL, DECK_LIP, DECK_THICK, levelAt, Mesher, PILLAR_EVERY, PILLAR_R, RED,
-  RoadIndex, sampleAt, sampleStep, sections, surfY, TUNNEL_GAP, TUNNEL_IN, TUNNEL_LIGHT, TUNNEL_LIGHT_EVERY, TUNNEL_SHELL,
-  TUNNEL_SIDE, TUNNEL_TILE, WALL_PERIOD, WALL_PROFILE, WHITE,
+  ARCH_STEPS, CONCRETE, CONCRETE_DARK, DECK_COL, DECK_LIP, DECK_THICK, Mesher, PILLAR_EVERY, PILLAR_R, RED,
+  RoadIndex, sampleAt, TUNNEL_GAP, TUNNEL_IN, TUNNEL_LIGHT, TUNNEL_LIGHT_EVERY, TUNNEL_SHELL,
+  TUNNEL_SIDE, TUNNEL_TILE, WHITE,
 } from "./track-mesh.ts";
 
 /** Track art above the ground: walls, bridge decks with pillars and tunnels. */
@@ -63,63 +64,36 @@ function face(m: Mesher, f: Frame, P: readonly number[], facing: number, hex: nu
   }
 }
 
-/** Runs [a, b] of section indices where `on(sample)` holds for the segment leaving each section. */
-function runs(p: TrackPath, secs: readonly number[], on: (k: number) => boolean): [number, number][] {
-  const out: [number, number][] = [];
-  const n = secs.length;
-  const last = p.closed ? n : n - 1;
-  let start = -1;
-  for (let i = 0; i < last; i++) {
-    const inRun = on(secs[i]!);
-    if (inRun && start < 0) start = i;
-    if (!inRun && start >= 0) {
-      out.push([start, i]);
-      start = -1;
-    }
-  }
-  if (start >= 0) {
-    // A run reaching the loop's end continues into one starting at section 0.
-    if (p.closed && out.length > 0 && out[0]![0] === 0) out[0] = [start, out[0]![1] + n];
-    else out.push([start, last]);
-  }
-  return out;
-}
-
-/** Continuous jersey barrier on each walled side, broken (and capped) where the flag is off. */
+/** Continuous jersey barrier on each walled side, broken (and capped) where the flag is off: `wallRuns`, the very walls the cars and the dummies meet. */
 export function addWalls(m: Mesher, p: TrackPath, ground: TrackGround, wallHeight: number): void {
-  const secs = sections(p, WALL_PERIOD);
-  const n = secs.length;
   const prof = WALL_PROFILE.map(([u, v]) => [u, v > 0 ? v * wallHeight : v] as const);
   const vlen: number[] = [0];
   for (let j = 1; j < prof.length; j++) vlen.push(vlen[j - 1]! + hypot2(prof[j]![0] - prof[j - 1]![0], prof[j]![1] - prof[j - 1]![1]));
   const ds = sampleStep(p);
-  for (const side of [1, -1]) {
-    const flag = side > 0 ? p.wallL : p.wallR;
+  for (const { side, ks } of wallRuns(p)) {
     // Left wall: the profile as written runs clockwise; the right wall is its mirror, so reversed.
     const order = side > 0 ? prof.map((_, j) => j) : prof.map((_, j) => prof.length - 1 - j);
     const at = (k: number): number[] => {
-      const w = p.half[k]! + (side > 0 ? p.runL[k]! : p.runR[k]!);
-      const y = surfY(ground, p, k, side * w);
-      return order.flatMap((j) => [side * (w + prof[j]![0]), y + prof[j]![1]]);
+      const lat = wallLateral(p, k, side);
+      const y = surfY(ground, p, k, lat);
+      return order.flatMap((j) => [lat + side * prof[j]![0], y + prof[j]![1]]);
     };
-    for (const [a, b] of runs(p, secs, (k) => flag[k] === 1)) {
-      for (let i = a; i < b; i++) {
-        const k = secs[i % n]!;
-        const k2 = secs[(i + 1) % n]!;
-        const A = at(k);
-        const B = at(k2);
-        const fa = frameOf(p, k);
-        const fb = frameOf(p, k2);
-        const stripe = Math.floor((k * ds) / WALL_PERIOD) % 2 ? RED : WHITE;
-        for (let q = 0; q < prof.length - 1; q++) {
-          const j = side > 0 ? q : prof.length - 2 - q;
-          const hex = j === 3 ? stripe : j < 3 ? CONCRETE : CONCRETE_DARK;
-          stripJ(m, fa, A, fb, B, q, hex, TILE.concrete, side > 0 ? vlen[q]! : vlen[prof.length - 1]! - vlen[prof.length - 1 - q]!);
-        }
+    for (let i = 0; i + 1 < ks.length; i++) {
+      const k = ks[i]!;
+      const k2 = ks[i + 1]!;
+      const A = at(k);
+      const B = at(k2);
+      const fa = frameOf(p, k);
+      const fb = frameOf(p, k2);
+      const stripe = Math.floor((k * ds) / WALL_PERIOD) % 2 ? RED : WHITE;
+      for (let q = 0; q < prof.length - 1; q++) {
+        const j = side > 0 ? q : prof.length - 2 - q;
+        const hex = j === 1 ? stripe : j < 1 ? CONCRETE : CONCRETE_DARK;
+        stripJ(m, fa, A, fb, B, q, hex, TILE.concrete, side > 0 ? vlen[q]! : vlen[prof.length - 1]! - vlen[prof.length - 1 - q]!);
       }
-      face(m, frameOf(p, secs[a % n]!), at(secs[a % n]!), -1, CONCRETE_DARK, TILE.concrete);
-      face(m, frameOf(p, secs[b % n]!), at(secs[b % n]!), 1, CONCRETE_DARK, TILE.concrete);
     }
+    face(m, frameOf(p, ks[0]!), at(ks[0]!), -1, CONCRETE_DARK, TILE.concrete);
+    face(m, frameOf(p, ks.at(-1)!), at(ks.at(-1)!), 1, CONCRETE_DARK, TILE.concrete);
   }
 }
 

@@ -613,13 +613,17 @@
       "y": 4,
       "wall": [
         true,
-        true
+        false
       ]
     },
     {
       "x": 610.6,
       "z": -579.6,
       "y": 4,
+      "wall": [
+        true,
+        true
+      ],
       "bank": 0.3
     },
     {

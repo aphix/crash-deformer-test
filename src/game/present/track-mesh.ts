@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { clamp } from "../kernel/scalar.ts";
 import { SURFACE_IDS, SURFACES } from "../world/catalog.ts";
-import { blankSegment, segmentAt, type TrackGround, type TrackPath } from "../world/track.ts";
+import { blankSegment, segmentAt, type TrackPath } from "../world/track.ts";
 
 /** Track art building blocks: sizes, colours, the `Mesher` vertex list, path sampling and the `RoadIndex` every piece shares. */
 
@@ -16,10 +16,6 @@ export const SKIRT_RADIUS = 900;
 export const ROAD_LIFT = 0.015;
 export const MARK_LIFT = 0.045;
 export const KERB_LIFT = 0.06;
-/** Section spacing cap (m); bends get closer sections (chord sagitta ≤ 2 cm). */
-const MAX_STEP = 4;
-/** Wall stripe length (m). */
-export const WALL_PERIOD = 4;
 /** Kerbs go on the inside of turns tighter than 60 m. */
 export const KERB_CURV = 1 / 60;
 /** A kerb takes the strongest curvature within this many samples (≈ m), so spline ripple never gaps it. */
@@ -53,18 +49,6 @@ export const DECK_COL = 0xb7b1a4;
 export const TUNNEL_IN = 0x34353a;
 export const TUNNEL_TILE = 0x6c6d70;
 export const TUNNEL_LIGHT = 0xfff0c8;
-
-/** Wall cross-section (u outward from the wall line, v up), v > 0 as fractions of the wall height. */
-export const WALL_PROFILE: readonly (readonly [number, number])[] = [
-  [0, -0.3],
-  [0, 0.09],
-  [0.14, 0.4],
-  [0.21, 1],
-  [0.39, 1],
-  [0.46, 0.4],
-  [0.6, 0.09],
-  [0.6, -0.3],
-];
 
 /** Start-light colours (linear RGB): red, yellow, green; lit × LIGHT_ON (HDR, so bloom catches it), unlit × LIGHT_OFF. */
 export const LIGHT_RGB: readonly (readonly [number, number, number])[] = [
@@ -172,71 +156,11 @@ export function mottle(x: number, z: number): number {
   return 0.9 + 0.2 * (a + (b - a) * fv);
 }
 
-/** Path height at lateral `lat` of sample k (banked plane, flat beyond the road edge): the ground layer hint. */
-export function levelAt(p: TrackPath, k: number, lat: number): number {
-  const h = p.half[k]!;
-  return p.y[k]! - clamp(lat, -h, h) * Math.tan(p.bank[k]!);
-}
-
-/** Surface height at lateral `lat` of sample k: the analytic deck on a bridge span, else the ground at the path's level. */
-export function surfY(ground: TrackGround, p: TrackPath, k: number, lat: number): number {
-  const y = levelAt(p, k, lat);
-  return p.deck[k] ? y : ground.heightAt(p.x[k]! + p.tz[k]! * lat, p.z[k]! - p.tx[k]! * lat, y);
-}
-
-export function sampleStep(p: TrackPath): number {
-  return p.length / (p.closed ? p.count : p.count - 1);
-}
-
 /** Sample index at arc length s (wrapped on a loop, clamped on an open path). */
 export function sampleAt(p: TrackPath, s: number): number {
   const segs = p.closed ? p.count : p.count - 1;
   const k = Math.floor((s / p.length) * segs);
   return p.closed ? ((k % p.count) + p.count) % p.count : clamp(k, 0, p.count - 1);
-}
-
-/**
- * Sample indices to build sections at: every flag change (deck, tunnel, walls, surfaces), at most
- * MAX_STEP m apart, closer where the path bends or crests (chord sagitta ≤ 2 cm) or its bank turns,
- * and on every multiple of `period` m when given. An open path ends on its last sample.
- *
- * A section quad across a bank that turns is twisted, and its two triangles meet along a diagonal
- * through the road's centre half × Δtan(bank) / 2 off the road's surface: 6.9 cm over stunt's bank
- * run-out at 4 m sections, wheels sunk in the drawn road. That too is held to 2 cm.
- */
-export function sections(p: TrackPath, period: number): number[] {
-  const n = p.count;
-  const ds = sampleStep(p);
-  const out = [0];
-  let run = 0;
-  let bend = 0;
-  let twist = 0;
-  for (let k = 1; k < n; k++) {
-    run += ds;
-    const a = k - 1;
-    const b = p.closed ? (k + 1) % n : Math.min(n - 1, k + 1);
-    const crest = Math.abs(p.y[b]! - 2 * p.y[k]! + p.y[a]!) / (ds * ds);
-    bend = Math.max(bend, Math.abs(p.curv[a]!), Math.abs(p.curv[k]!), crest);
-    twist = Math.max(twist, (p.half[k]! * Math.abs(Math.tan(p.bank[b]!) - Math.tan(p.bank[a]!))) / (2 * ds));
-    const step = Math.min(MAX_STEP, Math.max(ds, Math.sqrt(0.16 / Math.max(bend, 1e-6))));
-    // Twist: end the quad here if one more sample would take it past 2 cm (twist × length / 2).
-    const twisted = (run + ds) * twist > 0.04;
-    const flag =
-      p.deck[k] !== p.deck[a] ||
-      p.tunnel[k] !== p.tunnel[a] ||
-      p.wallL[k] !== p.wallL[a] ||
-      p.wallR[k] !== p.wallR[a] ||
-      p.surface[k] !== p.surface[a] ||
-      p.runSurface[k] !== p.runSurface[a];
-    const tick = period > 0 && Math.floor((k * ds) / period) !== Math.floor((a * ds) / period);
-    if (flag || tick || twisted || run >= step - 1e-6 || (!p.closed && k === n - 1)) {
-      out.push(k);
-      run = 0;
-      bend = 0;
-      twist = 0;
-    }
-  }
-  return out;
 }
 
 const IDX_CELL = 8;

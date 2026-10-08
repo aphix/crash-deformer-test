@@ -3,7 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
-import { type Mesher, RoadIndex, sections } from "./track-mesh.ts";
+import { type Mesher, RoadIndex } from "./track-mesh.ts";
+import { sections } from "../world/track-sections.ts";
 import { buildGroundLayers, TerrainBatch } from "./track-ground.ts";
 
 /** A course's terrain as `TrackArt` draws it: the near mesh (chunk after chunk, then the far skirt) and the chunks. */

@@ -15,14 +15,15 @@ import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmen
 export type Placed = { prefab: PrefabId; x: number; y: number; z: number; yaw: number; sx: number; sy: number; sz: number };
 
 /**
- * Footprint of a solid / knock placement. Box half-extents (`hx`, `hz`) lie in the prop's yawed
- * frame: local x = (cos yaw, −sin yaw), local z = (sin yaw, cos yaw). A circle has hx = hz = r;
- * `r` is the bounding radius for both kinds. `mass` (kg) scales with the prop's volume.
+ * Footprint of a solid / knock placement, or of a piece of a course wall (`wallColliders`). Box half-extents (`hx`, `hz`)
+ * lie in the collider's yawed frame: local x = (cos yaw, −sin yaw), local z = (sin yaw, cos yaw). A circle has
+ * hx = hz = r; `r` is the bounding radius for both kinds. `mass` (kg) scales with the prop's volume.
  */
 export type PropCollider = {
-  /** Index into `placeProps`. */
+  /** Index into `placeProps` (a wall piece: into `wallColliders`). */
   index: number;
-  prefab: PrefabId;
+  /** The prop's prefab; null for a piece of a course wall. */
+  prefab: PrefabId | null;
   body: "solid" | "knock";
   x: number;
   z: number;
@@ -32,8 +33,14 @@ export type PropCollider = {
   hx: number;
   hz: number;
   mass: number;
-  /** Height of the prop's top (m, world): its stand height plus its prefab's height scaled by `sy`. A car whose lowest point is above it flies over. */
+  /** Heights (m, world) of its foot and its top: a car whose highest point is under `base` passes beneath it (a deck's wall or prop over a road), one whose lowest point is above `top` flies over. */
+  base: number;
   top: number;
+  /**
+   * Which ends of a box are faces: bit 0 its −z end, bit 1 its +z end. A cleared bit is the joint to the next piece of a
+   * course wall, never met on its own: the wall there goes on. Every prop has both.
+   */
+  ends: number;
 };
 
 /** Scatter points closer than this (m) beyond a corridor's wall line, plus the prop's radius, are rejected. */
@@ -51,13 +58,6 @@ export function mulberry32(seed: number): () => number {
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
   };
-}
-
-/** Bounding radius (m) of a prefab's collider at scale (sx, sz); 0 without one. */
-function footRadius(prefab: PrefabId, sx: number, sz: number): number {
-  const c = PREFABS[prefab].collider;
-  if (!c) return 0;
-  return c.kind === "circle" ? c.r * Math.max(sx, sz) : Math.sqrt((c.hx * sx) ** 2 + (c.hz * sz) ** 2);
 }
 
 /** Signed distance (m) from (x, z) to the wall line of `path`'s corridor (< 0 inside road + runoff). */
@@ -198,7 +198,7 @@ export function placeProps(track: Track): Placed[] {
     const step = whole ? L / n : a.every;
     const segs = path.closed ? path.count : path.count - 1;
     const others = corridors.filter((c) => c !== path);
-    const r = footRadius(a.prefab, a.scale, a.scale);
+    const r = PREFABS[a.prefab].foot * a.scale;
     // On its own corridor the drawn footprint (oriented box) must clear the road and runoff too: on a
     // bend the box turns into the road, so a lot inside a corner stays empty. A knock prop (hay bale,
     // cone) may stand on that runoff when the author's `offset` puts it there.
@@ -252,7 +252,7 @@ export function placeProps(track: Track): Placed[] {
         const scale = sc.scaleMin + (sc.scaleMax - sc.scaleMin) * rnd();
         let gap = Infinity;
         for (const c of corridors) gap = Math.min(gap, wallGap(c, x, z, proj));
-        if (gap < sc.near || gap > sc.far || gap < SCATTER_CLEAR + footRadius(sc.prefab, scale, scale)) continue;
+        if (gap < sc.near || gap > sc.far || gap < SCATTER_CLEAR + PREFABS[sc.prefab].foot * scale) continue;
         if (segDist(x, z, g0.ax, g0.az, g0.bx, g0.bz) < START_CLEAR) continue;
         out.push({ prefab: sc.prefab, x, y: standY(track, x, z), z, yaw, sx: scale, sy: scale, sz: scale });
         break;
@@ -262,29 +262,40 @@ export function placeProps(track: Track): Placed[] {
   return out;
 }
 
-/** Colliders of the solid / knock placements, scaled by each placement's sx / sz. */
+/**
+ * Colliders of the solid / knock placements, scaled by each placement's sx / sy / sz: one per piece of the prefab's `collider`
+ * union, all with the placement's `index` (a knock prop is knocked as one), each piece's offset turned by the placement's yaw
+ * (a box also by its own).
+ */
 export function propColliders(placed: readonly Placed[]): PropCollider[] {
   const out: PropCollider[] = [];
   for (const [index, p] of placed.entries()) {
     const spec = PREFABS[p.prefab];
-    const c = spec.collider;
-    if (spec.body === "none" || !c) continue;
-    const hx = c.kind === "circle" ? c.r * Math.max(p.sx, p.sz) : c.hx * p.sx;
-    const hz = c.kind === "circle" ? hx : c.hz * p.sz;
-    out.push({
-      index,
-      prefab: p.prefab,
-      body: spec.body,
-      x: p.x,
-      z: p.z,
-      yaw: p.yaw,
-      kind: c.kind,
-      r: c.kind === "circle" ? hx : Math.sqrt(hx * hx + hz * hz),
-      hx,
-      hz,
-      mass: spec.mass * p.sx * p.sy * p.sz,
-      top: p.y + spec.size[1] * p.sy,
-    });
+    if (spec.body === "none") continue;
+    const cos = Math.cos(p.yaw);
+    const sin = Math.sin(p.yaw);
+    for (const c of spec.collider) {
+      const ox = (c.x ?? 0) * p.sx;
+      const oz = (c.z ?? 0) * p.sz;
+      const hx = c.kind === "circle" ? c.r * Math.max(p.sx, p.sz) : c.hx * p.sx;
+      const hz = c.kind === "circle" ? hx : c.hz * p.sz;
+      out.push({
+        index,
+        prefab: p.prefab,
+        body: spec.body,
+        x: p.x + ox * cos + oz * sin,
+        z: p.z - ox * sin + oz * cos,
+        yaw: p.yaw + (c.kind === "box" ? (c.yaw ?? 0) : 0),
+        kind: c.kind,
+        r: c.kind === "circle" ? hx : Math.sqrt(hx * hx + hz * hz),
+        hx,
+        hz,
+        mass: spec.mass * p.sx * p.sy * p.sz,
+        base: p.y + (c.y0 ?? 0) * p.sy,
+        top: p.y + (c.y1 ?? spec.size[1]) * p.sy,
+        ends: 3,
+      });
+    }
   }
   return out;
 }

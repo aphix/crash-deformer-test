@@ -3,8 +3,7 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { FLAT_GROUND, setGround } from "../world/ground.ts";
-import { PREFABS } from "../world/catalog.ts";
-import { placeProps, propColliders, type Placed, type PropCollider } from "../world/placements.ts";
+import { placeProps, propColliders, type PropCollider } from "../world/placements.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { blankPoint, blankProjection, projectPath, Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
@@ -12,21 +11,20 @@ import { FRAME, frame, makeWorld } from "../world/race-world.test-util.ts";
 import { aheadPoints, camUsable, CINE, CineCam, CLEAR, clearSpot, DutchCam, occluder, raceSight, SightLines, type Sight } from "./spectate-cam.ts";
 import { AutoCam, type AutoScene } from "./auto-cam.ts";
 import { WHEEL_POS } from "../vehicle/car-mesh.ts";
-import { levelAt } from "./track-mesh.ts";
+import { levelAt } from "../world/track-sections.ts";
 
 /** The dutch cam's mounts: each wheel well, looking forward and back. */
 const MOUNT_COUNT = WHEEL_POS.length * 2;
 
 /**
- * Oracle for the trackside eye, independent of `solid`: the cars' own collision footprints (props and the wall
- * line, `propContact` / `RaceField.wall`) at the props' drawn heights, the wall's 0.6 m body, and the ground.
+ * Oracle for the trackside eye, independent of `solid`: the cars' own collision footprints (props, `propContact`), each piece over its own
+ * heights, the wall's 0.6 m body on the wall line (`wallColliders`' pieces), and the ground.
  */
-function blocked(track: Track, placed: readonly Placed[], cols: readonly PropCollider[], x: number, y: number, z: number): string | null {
+function blocked(track: Track, cols: readonly PropCollider[], x: number, y: number, z: number): string | null {
   const ground = track.ground();
   if (y <= ground.heightAt(x, z, y)) return "under the ground";
   for (const c of cols) {
-    const p = placed[c.index]!;
-    if (y > p.y + PREFABS[p.prefab].size[1] * p.sy) continue;
+    if (y < c.base || y > c.top) continue;
     const ex = x - c.x;
     const ez = z - c.z;
     const cos = Math.cos(c.yaw);
@@ -43,14 +41,14 @@ function blocked(track: Track, placed: readonly Placed[], cols: readonly PropCol
 }
 
 /** What the oracle finds wrong with a camera at `e` filming the car at `p`: inside a solid, a blocked sight line (10 cm steps up to the car's `stop` margin), or a solid within 1.9 m flat (a spot may stand beside a bank, so not the ground). */
-function eyeProblems(track: Track, placed: readonly Placed[], cols: readonly PropCollider[], e: THREE.Vector3, p: THREE.Vector3): string[] {
+function eyeProblems(track: Track, cols: readonly PropCollider[], e: THREE.Vector3, p: THREE.Vector3): string[] {
   const bad: string[] = [];
-  const at = blocked(track, placed, cols, e.x, e.y, e.z);
+  const at = blocked(track, cols, e.x, e.y, e.z);
   if (at) bad.push(`eye (${e.x.toFixed(1)}, ${e.y.toFixed(1)}, ${e.z.toFixed(1)}) ${at}`);
   const len = e.distanceTo(p);
   for (let d = 0.1; d < len - CINE.stop; d += 0.1) {
     const f = d / len;
-    const why = blocked(track, placed, cols, e.x + (p.x - e.x) * f, e.y + (p.y + CINE.aimUp - e.y) * f, e.z + (p.z - e.z) * f);
+    const why = blocked(track, cols, e.x + (p.x - e.x) * f, e.y + (p.y + CINE.aimUp - e.y) * f, e.z + (p.z - e.z) * f);
     if (why) {
       bad.push(`sight line ${why} at ${d.toFixed(1)} m of ${len.toFixed(1)}`);
       break;
@@ -58,7 +56,7 @@ function eyeProblems(track: Track, placed: readonly Placed[], cols: readonly Pro
   }
   for (let i = 0; i < 12; i++) {
     const a = (i * Math.PI) / 6;
-    const why = blocked(track, placed, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
+    const why = blocked(track, cols, e.x + 1.9 * Math.cos(a), e.y, e.z + 1.9 * Math.sin(a));
     if (why && why !== "under the ground") bad.push(`${why} within 1.9 m of the eye`);
   }
   return bad;
@@ -97,7 +95,7 @@ describe("given the trackside cinematic camera (a fixed eye beside the course th
           if (!ok) continue;
           found++;
           const e = cine.eye;
-          for (const why of eyeProblems(track, placed, cols, e, car.group.position)) bad.push(`s ${s}: ${why}`);
+          for (const why of eyeProblems(track, cols, e, car.group.position)) bad.push(`s ${s}: ${why}`);
           if (e.y - ground.heightAt(e.x, e.z, e.y) > CINE.heights.at(-1)! + 0.01) bad.push(`s ${s}: eye ${e.y.toFixed(1)} m too high`);
         }
         t.diagnostic(`${track.id}: ${found}/${spots} spots framed, pick ${(total / spots).toFixed(2)} ms mean, ${worst.toFixed(2)} ms worst`);
@@ -375,7 +373,7 @@ describe("given the Auto spectator camera (the shot director that cuts between s
           // A wheel mount rides the car and a chase pose has no spot to find: only the searched spots promise room and sight.
           if (kind === "chase" || kind === "dutch" || !auto.cam.found) continue;
           checked++;
-          for (const why of eyeProblems(track, placed, cols, camera.position, car.group.position)) bad.push(`cut ${cuts} (${kind}) at ${(n * FRAME).toFixed(1)} s: ${why}`);
+          for (const why of eyeProblems(track, cols, camera.position, car.group.position)) bad.push(`cut ${cuts} (${kind}) at ${(n * FRAME).toFixed(1)} s: ${why}`);
         }
         t.diagnostic(`${id}: ${cuts} cuts in 90 s (${[...kinds].join(", ")}), ${checked} searched spots checked`);
         assert.deepEqual(bad, []);

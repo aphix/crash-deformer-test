@@ -6,6 +6,7 @@ import { INITIAL_HUD } from "../hud/hud-store.ts";
 import { EjectionWatch } from "../vehicle/ejection.ts";
 import { newWorld, settleStep, stepWorld } from "../engine/world-step.ts";
 import { physicsSlice, sliceSpeed, BARRIER_HALF } from "../contact/sat.ts";
+import { WALL_HALF_L } from "../contact/pair-contact.ts";
 import { launch, makeWorld as barrierWorld, relaunchDamaged, strikeReach, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { makeWorld as raceWorld } from "./race-world.test-util.ts";
 import { activeGround, setGround } from "./ground.ts";
@@ -27,6 +28,8 @@ const FRAME = 1 / 60;
 const SETTLE = 2.5;
 /** Nose-to-face gap (m) a car is sent from. */
 const RUN_IN = 3;
+/** How far out (m) from the face the ground under the car's run is read: the run-in and a car's length. */
+const APPROACH = RUN_IN + 2 * WALL_HALF_L;
 
 /** What one hit left of the car. */
 export type Outcome = {
@@ -151,16 +154,34 @@ function straightWall(track: Track): Face {
   throw new Error(`${track.id}: no straight wall`);
 }
 
-/** The collider of `prefab` whose nearest neighbour is farthest (a neighbour's own contact would answer for it), and its +x face (a thin box's wide side, a circle's x side). */
+/**
+ * The prop of `prefab` whose nearest neighbour prop is farthest (a neighbour's own contact would answer for it), its ground piece
+ * farthest out from the middle of its ground pieces, and that piece's +x face (a thin box's wide side, a circle's x side: a star's
+ * arm is met on its flank). Of equally far pieces (a star's five arms) the one with the most level ground before it: a wreck rolls
+ * off a slope by itself, and the slab it is held to stands on a flat range.
+ */
 function propFace(colliders: readonly PropCollider[], prefab: PrefabId): Face {
-  const gap = (c: PropCollider): number => Math.min(...colliders.filter((o) => o !== c).map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - c.r));
-  const c = colliders.filter((o) => o.prefab === prefab).reduce((a, b) => (gap(b) > gap(a) ? b : a));
-  // A box is met on the face of its thin axis (a block: its local x), a circle on its x side: the car comes along the prop's own axis.
-  const thinZ = c.kind === "box" && c.hz < c.hx;
-  const nx = thinZ ? Math.sin(c.yaw) : Math.cos(c.yaw);
-  const nz = thinZ ? Math.cos(c.yaw) : -Math.sin(c.yaw);
-  const depth = c.kind === "circle" ? c.r : thinZ ? c.hz : c.hx;
-  return { x: c.x + nx * depth, z: c.z + nz * depth, nx, nz };
+  const gap = (c: PropCollider): number => Math.min(...colliders.filter((o) => o.index !== c.index).map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - c.r));
+  const ground = (c: PropCollider): boolean => colliders.every((o) => o.index !== c.index || o.base >= c.base);
+  const lead = colliders.filter((o) => o.prefab === prefab && ground(o)).reduce((a, b) => (gap(b) > gap(a) ? b : a));
+  const own = colliders.filter((o) => o.index === lead.index && ground(o));
+  const mx = own.reduce((s, o) => s + o.x, 0) / own.length;
+  const mz = own.reduce((s, o) => s + o.z, 0) / own.length;
+  const reach = (c: PropCollider): number => Math.hypot(c.x - mx, c.z - mz);
+  const farthest = Math.max(...own.map(reach));
+  const faceOf = (c: PropCollider): Face => {
+    // A box is met on the face of its thin axis (a block: its local x), a circle on its x side: the car comes along the prop's own axis.
+    const thinZ = c.kind === "box" && c.hz < c.hx;
+    const nx = thinZ ? Math.sin(c.yaw) : Math.cos(c.yaw);
+    const nz = thinZ ? Math.cos(c.yaw) : -Math.sin(c.yaw);
+    const depth = c.kind === "circle" ? c.r : thinZ ? c.hz : c.hx;
+    return { x: c.x + nx * depth, z: c.z + nz * depth, nx, nz };
+  };
+  const rise = (f: Face): number => Math.abs(activeGround().heightAt(f.x + f.nx * APPROACH, f.z + f.nz * APPROACH) - activeGround().heightAt(f.x, f.z));
+  return own
+    .filter((c) => reach(c) > farthest - 1e-6)
+    .map(faceOf)
+    .reduce((a, b) => (rise(b) < rise(a) ? b : a));
 }
 
 export type Target = "barrier" | "oval" | "rally" | "stucco" | "wall" | "monument" | "palm";

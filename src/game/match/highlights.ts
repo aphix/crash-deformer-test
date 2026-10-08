@@ -491,11 +491,8 @@ export class HighlightLedger<C extends { score: number }> {
  * 4 drafting, 8 neutral: a thrown-out driver's freewheel). Exactly the pedals the sim ran: `applyDrive` puts them on this grid.
  */
 export const INPUT_BYTES = 4;
-/**
- * Doubles of course memory per car in a keyframe: where the race's wall contact last stood (x, z), how far past a wall
- * line it stood (m), and the road segment its projection hint is on (-1: none), as `RaceField` keeps them.
- */
-export const MEMORY = 4;
+/** Doubles of course memory per car in a keyframe: the road segment its projection hint is on (-1: none), as `RaceField` keeps it. */
+export const MEMORY = 1;
 
 export type ReelCar = { slot: number; style: CarStyleId; cls: VehicleClassId; name: string };
 

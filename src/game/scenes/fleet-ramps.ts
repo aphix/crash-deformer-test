@@ -184,7 +184,7 @@ export class FleetRamps implements Ground {
     _n.set(nx, 0, nz);
     // The face holds the masses within `CLIMB` of it: deeper, a mass is riding the wedge's slope (over the footprint of the flank and the end),
     // not in its wall. A 2 m thick face threw a wreck climbing the ramp out through the end it was climbing to (D1: 2.1 m in one slice).
-    wallBounce(car, solidFace(_face, nx, nz, this.mx, this.mz, this.mx, this.mz, this.hw, CLIMB), nx, nz, Math.min(this.pen, PUSH_CAP), dt);
+    wallBounce(car, solidFace(_face, nx, nz, this.mx, this.mz, this.mx, this.mz, this.hw, CLIMB), nx, nz, Math.min(this.pen, PUSH_CAP), dt, false);
     car.deform.notifyContact();
     return { impulse: Math.max(closing, 0.5), contact: _c.clone(), normal: _n.clone() };
   }

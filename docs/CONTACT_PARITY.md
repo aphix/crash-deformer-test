@@ -112,7 +112,7 @@ Every external body is a `ContactBox`: an oriented box (centre, half extents, he
 velocity, a mass (`Infinity` for a kinematic driver) and a `hardness` (share of the crush energy
 the struck car takes). The scene props only move their box; the car meets it through:
 
-- **`partContact(car, box)`**: the door slab and mirror colliders (formerly `DoorRig.hitMirror`
+- **`partContact(car, box, dt)`**: the door slab and mirror colliders (formerly `DoorRig.hitMirror`
   / `hitDoor`), for any striker running along the car (within 15°, `PARALLEL`) with its near edge
   outside the body's width (`CAR_HALF.x`). Folds, breaks and tears go through the hinge model in
   `car.ts` (`setMirrorFold`, `breakMirror`, `loadDoorStop`); the free swing (`swingDoors`) now
@@ -122,7 +122,11 @@ the struck car takes). The scene props only move their box; the car meets it thr
   test copies of `fixedStep`). A car striker is the box `carBox(car)`; what the parts take comes
   off its speed uniformly (all particles alike). The struck car is held, as the ram scene always
   held it: a door or mirror is light against either body. Angled strikers and strikers reaching
-  inside the body's width are body hits; the crash rules C1–C3 take the door and mirror then.
+  inside the body's width are body hits; the crash rules C1–C3 take the door and mirror then. A
+  `fixed` box (a solid standing in the world: a wall piece or solid prop, built by `prop-contact.ts`
+  `solidBox`) takes no lane: the door's drawn plan line is tested against the exact shape, and the door
+  is shut just far enough to clear it over the slice's `dt` (`shutDoor`: jammed open it is torn off,
+  slammed shut past `SLAM_TEAR_J` likewise). Mirrors and panels do not meet fixed solids yet.
 - **`bodyContact(car, box, dt, crush)`**: the first touch starts the crash with `applyImpact` and
   `strikeEbs` (the struck car's `hardness` share of ½·μ·v², which is pair-contact's
   closing·M/(m+M) for two cars of the same structure; a kinematic striker gives μ = m); the
@@ -216,7 +220,7 @@ A clip saved before this rule replays its pairs' pushes the other way round: `RE
 ## Fixed solids: race walls, props and ramp flanks meet the car as the jersey slab does
 
 Owner, 2026-10-04: a fixed, very hard object does what the range's jersey slab does, on every map. Race walls
-(`RaceField.wall`), solid props (`props`) and the fleet ramps' flanks (`FleetRamps.contact`) were met through `wallBounce`,
+(then `RaceField.wall`'s line probes; now solid pieces of `wallColliders`), solid props (`props`) and the fleet ramps' flanks (`FleetRamps.contact`) were met through `wallBounce`,
 which cancelled the whole closing speed and bounced the car in one step (`v += n·closing·(1 + 0.15)`), then crushed it from
 `applyImpact` at a footprint corner (or `kickNearest(closing·8)` on a wreck). Oval sedan, 55 m/s head-on: block travel 0.04 m
 from the hit itself (the slab at the same speed: 0.454 m, dead), later reaching 0.25 m only because the throttle squeezed the

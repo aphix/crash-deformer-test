@@ -283,14 +283,25 @@ every course to under 2 m² of ambiguous overlap at 250 m; the bench card's dept
 
 ## Contacts
 
-Walls: footprint probes against the wall line on each side with a wall flag; push out along the inward normal, reflect
-normal speed (e = 0.15), crumple above 5.5 m/s closing, sparks above 1.5 m/s. A wall remembers each car's last step
-(`RaceField.wall`): a car penetrates only from the road side, so a car that came through a mouth or from another road is
-not pushed back across it; a pose change over 4 m (spawn, respawn, a highlight keyframe) forgets the history. A hard hit on
-a fixed solid (race walls, solid props, ramp faces) goes through the range barrier's striker contact. Props: a solid or
-knock collider meets the car's whole footprint rectangle (`contact/prop-contact.ts` `footprintOverlap`) and pushes it out
-along the least overlap axis, toward the side the car's centre is on; knock props fly off (`TrackArt.knock`). Car-to-car
-contact is the sandbox's own.
+Walls: a course wall is a row of solid boxes (`world/track-sections.ts` `wallColliders`), one per drawn wall piece: the chord
+between two sections' road-face points, 0.6 m deep behind it, from the profile's foot to the wall's top. The art draws the
+same pieces (`wallRuns`, `wallLateral`, `WALL_PROFILE`: vertical faces, flat top, the box itself) and a dummy's Rapier walls are the same boxes (`courseSolids`). A car meets them,
+with the props, through `courseContact` (one 8 m cell of `solidGrid` per query) from either side: a piece meets the car's whole
+footprint rectangle, the push is along the least overlap toward the side the car's centre is on, normal speed is reflected
+(e = 0.15), the hit crumples above 5.5 m/s closing and sparks above 1.5 m/s. A run's two ends are faces; every other end is
+the joint to the next piece, so a piece is met there only across it, by the part of the footprint over its own length
+(`jointOverlap`). A car under a deck (`PropCollider.base`) misses that deck's walls and props. A hard hit on a fixed solid
+(race walls, solid props, ramp faces) goes through the range barrier's striker contact. Props: a solid or knock collider meets
+the car's whole footprint rectangle (`contact/prop-contact.ts` `footprintOverlap`) and pushes it out along the least overlap
+axis, toward the side the car's centre is on; knock props fly off (`TrackArt.knock`). A prefab's collider is the union of its drawn
+pieces (`PREFABS[..].collider`: a tree's trunk and its two crown cones, a billboard's posts and panel, a grandstand's terraces), each a
+box or circle with its own height range, all sharing the placement's index; `PrefabSpec.foot` is the separate clearance a
+placement keeps from roads. `world/collider-drawn.test.ts` holds the walls and every prefab piece to the drawn geometry, each kind to
+its own stated tolerance (`KIND_TOL`). A door a crash left hanging open stands out past the tyres, where the footprint test never
+looks: every solid in reach (wall piece or solid prop) is also asked about the door's plan line over the door's own heights
+(`partContact` on the fixed `ContactBox` `solidBox` builds from the collider). A door it meets is shut just far enough to clear it, at the
+closing rate that took (`shutDoor`); a door the crash jammed open past that cannot shut and is torn off, and so is one slammed shut
+past `SLAM_TEAR_J`. Knock props do not meet doors. Car-to-car contact is the sandbox's own.
 
 ## Courses
 

@@ -47,7 +47,7 @@ function pileUp(): { cars: DeformableCar[]; step: () => void } {
         const cb = cars[b]!;
         if (ca.group.position.distanceToSquared(cb.group.position) > 28) continue;
         if (ca.deform.massActive || cb.deform.massActive) ca.deform.collideWith(cb.deform, h);
-        partContactPair(ca, cb);
+        partContactPair(ca, cb, h);
       }
     }
     for (let k = 0; k < 3; k++) {

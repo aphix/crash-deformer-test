@@ -15,7 +15,7 @@ import type { Ejection } from "../vehicle/ejection.ts";
 /**
  * What a replay needs from its scene: dress a respawned car, the course's walls and props for car `slot`, and (a scene
  * with a course) what the course remembers: `restore` car `slot` as a keyframe held it (its `MEMORY` doubles at `at` in
- * `mem`: wall contact history and road projection hint, `RaceField.remember`), `knocks` the props a keyframe held knocked
+ * `mem`: its road projection hint, `RaceField.remember`), `knocks` the props a keyframe held knocked
  * (a bit each, `RaceField.knockTo`).
  */
 export type ReplayScene = {

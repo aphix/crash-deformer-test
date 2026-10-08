@@ -122,15 +122,17 @@ function shoveWreck(car: DeformableCar, nx: number, nz: number, d: number): void
  * on the face and the crush force spends the hit's stroke, so the car goes on into the face at its own speed until the stroke
  * is gone (the wall used to cancel and bounce the whole closing speed in one step, before the crush had anything to take).
  * A light touch of a whole car, or a hard one whose hull is still `WALL_HOLD` short of the face while the footprint is in it
- * (a corner the face does not reach), only pushes out and bounces by `WALL_E`.
+ * (a corner the face does not reach), only pushes out and bounces by `WALL_E`. `held`: the wall's plane was met already this
+ * slice by another face of it (the pieces of one wall share one hold face), so a hard hit has nothing left to do here.
  */
-export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number): void {
+export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number, held: boolean): void {
   const v = car.velocity;
   const pos = car.group.position;
   const fx = Math.sin(face.yaw);
   const fz = Math.cos(face.yaw);
   const into = -(v.x * fx + v.z * fz);
   if (into > WALL_CRUSH || car.deform.massActive) {
+    if (held) return;
     bodyContact(car, face, dt, true);
     if (car.deform.massActive) {
       const over = pen - WALL_REACH;
