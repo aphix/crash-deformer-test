@@ -9,7 +9,7 @@ import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
 import { WALL } from "./engine-lab.ts";
 import { lookColours } from "../present/car-look.ts";
-import { pickedLook } from "../present/look-pick.ts";
+import { pickedLook } from "../present/driver-look.ts";
 import { GARAGE } from "../present/garage-art.ts";
 
 /**

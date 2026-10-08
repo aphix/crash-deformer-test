@@ -11,7 +11,7 @@ import { NET_TX } from "../net/net-ports.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
-import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText } from "../present/look-pick.ts";
+import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText } from "../match/look-data.ts";
 import { STACK_DEFAULTS, STACK_RANGES } from "../scenes/stack-rig.ts";
 
 /** One URL value: its default, how to read it back (undefined = malformed) and how to write it. */

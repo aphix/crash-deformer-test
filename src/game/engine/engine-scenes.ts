@@ -12,7 +12,7 @@ import { LAB_LIGHT, LabArt } from "../present/lab-art.ts";
 import { LabFlick } from "./lab-flick.ts";
 import { Garage } from "./garage.ts";
 import { GARAGE } from "../present/garage-art.ts";
-import { pickedLook } from "../present/look-pick.ts";
+import { pickedLook } from "../present/driver-look.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { stackShot } from "../scenes/stack-rig.ts";

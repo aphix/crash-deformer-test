@@ -15,8 +15,7 @@ import { reelParts } from "./reel-wire.ts";
 import { makeClip, sameClip } from "./reel-clip.test-util.ts";
 import { HOST_WAIT_MS } from "./net-constants.ts";
 import type { LookData } from "./look-codec.ts";
-import { NO_CAR_PICK, NO_PERSON_PICK, carPickText, personPickText } from "../present/look-pick.ts";
-import { CAR_SPRAY, PERSON_SPRAY } from "../present/spray.ts";
+import { CAR_SPRAY, NO_CAR_PICK, NO_PERSON_PICK, PERSON_SPRAY, carPickText, personPickText } from "../match/look-data.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /** A player who picked nothing and sprayed nothing. */

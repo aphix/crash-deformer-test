@@ -1,9 +1,9 @@
 import type { LookData } from "../net/look-codec.ts";
-import { NO_CAR_PICK, NO_PERSON_PICK, type CarPick, type PersonPick } from "../present/look-pick.ts";
-import { CAR_SPRAY, packSpray, PERSON_SPRAY, SprayBitmap, unpackSpray } from "../present/spray.ts";
+import { CAR_SPRAY, NO_CAR_PICK, NO_PERSON_PICK, packSpray, PERSON_SPRAY, unpackSpray, type CarPick, type PersonPick } from "../match/look-data.ts";
+import { SprayBitmap } from "../present/spray.ts";
 
 /** A player's look as worn: the picks and both spray bitmaps, drawn. */
-export type PlayerLook = { car: CarPick; person: PersonPick; carSpray: SprayBitmap; personSpray: SprayBitmap };
+type PlayerLook = { car: CarPick; person: PersonPick; carSpray: SprayBitmap; personSpray: SprayBitmap };
 
 /** Where this browser keeps its spray between visits (its picks ride the URL). */
 const SPRAY_KEY = { car: "crush.spray.car", person: "crush.spray.person" } as const;

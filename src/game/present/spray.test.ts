@@ -2,7 +2,8 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
-import { CAR_SPRAY, packSpray, PERSON_SPRAY, SprayBitmap, sprayFace, unpackSpray, type SprayLayout } from "./spray.ts";
+import { CAR_SPRAY, packSpray, PERSON_SPRAY, sprayFace, unpackSpray, type SprayLayout } from "../match/look-data.ts";
+import { SprayBitmap } from "./spray.ts";
 
 const LAYOUTS: Record<string, SprayLayout> = { car: CAR_SPRAY, person: PERSON_SPRAY };
 /** Face order in a layout's `faces`. */

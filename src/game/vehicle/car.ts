@@ -11,6 +11,7 @@ import { AXLE, axleGround, landPose, settle, support, tilt, type Support } from 
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 import type { CarSurfaces } from "./car-surfaces.ts";
+import { LID } from "./constants.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -528,8 +529,8 @@ export class DeformableCar extends CarParts {
     let trunk = true;
     for (const p of this.parts) {
       if (!p.detached) continue;
-      if (p.name === "hood") hood = false;
-      else if (p.name === "trunk") trunk = false;
+      if (p.name === LID.hood) hood = false;
+      else if (p.name === LID.trunk) trunk = false;
     }
     if (hood) this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
     if (trunk) this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);

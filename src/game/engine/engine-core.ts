@@ -52,7 +52,7 @@ import type { LabArt } from "../present/lab-art.ts";
 import type { Garage } from "./garage.ts";
 import { PlayerLooks } from "./player-looks.ts";
 import { wearCarLook } from "../present/car-look.ts";
-import { NO_CAR_PICK } from "../present/look-pick.ts";
+import { NO_CAR_PICK } from "../match/look-data.ts";
 import { FLOOR } from "../scenes/lab.ts";
 
 const _v = new THREE.Vector3();

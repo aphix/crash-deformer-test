@@ -1,8 +1,8 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makePaintMaterial, trimMaterial } from "../vehicle/car-materials.ts";
-import { carPickText, NO_CAR_PICK, type CarPart, type CarPick } from "./look-pick.ts";
-import { applySpray, BARE_SPRAY, CAR_SPRAY, sprayUniforms, type SprayBitmap } from "./spray.ts";
+import { CAR_SPRAY, carPickText, NO_CAR_PICK, type CarPart, type CarPick } from "../match/look-data.ts";
+import { applySpray, BARE_SPRAY, sprayUniforms, type SprayBitmap } from "./spray.ts";
 
 /** What wearing a look changed on a car: its own lid and door paints, the spray's uniforms, and the colours it had before. */
 type Worn = {

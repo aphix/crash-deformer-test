@@ -1,7 +1,8 @@
 import * as THREE from "three";
 import { JEANS, type DriverLook } from "./driver-look.ts";
 import { PARTS } from "./ragdoll-body.ts";
-import { applySpray, PERSON_SPRAY, sprayUniforms, type SprayBitmap } from "./spray.ts";
+import { applySpray, sprayUniforms, type SprayBitmap } from "./spray.ts";
+import { PERSON_SPRAY } from "../match/look-data.ts";
 
 /** Colour roles a piece takes from its dummy's look. */
 const SHIRT = 0;

@@ -1,7 +1,6 @@
 import type { SprayTool } from "../hud/hud-store.ts";
 import type { LookData } from "../net/look-codec.ts";
-import type { CarPart, PersonPick } from "../present/look-pick.ts";
-import { SPRAY_PALETTE } from "../present/spray.ts";
+import { SPRAY_PALETTE, type CarPart, type PersonPick } from "../match/look-data.ts";
 import { EngineShare } from "./engine-share.ts";
 import { SPRAY_RADIUS } from "./garage.ts";
 import type { SprayTarget } from "./player-looks.ts";

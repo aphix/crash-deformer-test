@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { driverLook } from "./driver-look.ts";
-import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText, pickedLook } from "./look-pick.ts";
+import { driverLook, pickedLook } from "../present/driver-look.ts";
+import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText } from "./look-data.ts";
 
 describe("given a player's look picks as the URL and the look message carry them", () => {
   it("when a car pick with some parts picked is written and read back, then it is the same pick, and the unpicked parts stay unpicked", () => {

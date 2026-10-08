@@ -6,8 +6,7 @@ import { CarTypeButtons } from "@/components/hud-sections";
 import type { CrashEngine } from "@/game/engine/engine";
 import { SPRAY_RADIUS } from "@/game/engine/garage";
 import type { GarageHud } from "@/game/hud/hud-store";
-import { CAR_PARTS, hexOf, type CarPart } from "@/game/present/look-pick";
-import { SPRAY_PALETTE } from "@/game/present/spray";
+import { CAR_PARTS, hexOf, SPRAY_PALETTE, type CarPart } from "@/game/match/look-data";
 import { cn } from "@/lib/utils";
 
 const PART_LABEL: Record<CarPart, string> = { body: "Body", doors: "Doors", hood: "Hood", trunk: "Trunk", bumpers: "Bumpers", rims: "Rims", glass: "Glass tint" };

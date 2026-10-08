@@ -1,94 +1,11 @@
 import * as THREE from "three";
+import { SPRAY_FACE, SPRAY_PALETTE, sprayFace, type SprayLayout } from "../match/look-data.ts";
 
 /**
- * Spray paint (the garage's can): a small paletted bitmap per car and per driver, wrapped round the thing as a box. A
- * point on its rest shape (the car's frame before any dent, the driver standing) and its normal pick one of five faces
- * (left, right, top, front, back; the underside takes none) and the point's place across that face picks the texel. The
- * same mapping runs here (`sprayFace`, for the stamp) and in the shader (`SPRAY_FRAGMENT`), so paint lands where it was
- * sprayed. 4 bits a texel on the wire (`packSpray`).
+ * Spray paint drawn: a bitmap's texels as the premultiplied texture the paint shader samples (`SprayBitmap`), the can's
+ * stamp, and the shader patch that lays the paint over a material (`applySpray`), with the face mapping of `sprayFace`
+ * (`match/look-data.ts`) in GLSL.
  */
-
-/** The can's colours (sRGB); index 0 is bare (no paint). */
-export const SPRAY_PALETTE: readonly number[] = [
-  0, 0xf4f4f0, 0x141414, 0x808080, 0xd62828, 0xf77f00, 0xf5d300, 0x8ac926, 0x2a9d3f, 0x2ec4d6, 0x1d6fe0, 0x1b2a6b, 0x7b2cbf, 0xff5fa2, 0x7a4a24,
-  0xd9b98c,
-];
-
-/** Face order in a layout's `faces` and in the shader's `sprayFaces`. */
-const LEFT = 0;
-const RIGHT = 1;
-const TOP = 2;
-const FRONT = 3;
-const BACK = 4;
-
-/** A face's texels: x, y (from the bitmap's first row), width, height. */
-type Face = readonly [number, number, number, number];
-/** A bitmap's size, the rest-frame box it wraps (m) and its five faces (`LEFT` … `BACK`). */
-export type SprayLayout = { readonly w: number; readonly h: number; readonly min: readonly [number, number, number]; readonly max: readonly [number, number, number]; readonly faces: readonly Face[] };
-
-/** Bitmap side (texels): the wire's budget is 128 x 128 at 4 bits. */
-const SIDE = 128;
-
-/** A car in its own frame (+z forward, y up from the tyre plane): sides 128 x 30, roof 128 x 40, nose and tail 64 x 28. */
-export const CAR_SPRAY: SprayLayout = {
-  w: SIDE,
-  h: SIDE,
-  min: [-0.95, 0, -2.35],
-  max: [0.95, 1.6, 2.35],
-  faces: [
-    [0, 0, 128, 30],
-    [0, 30, 128, 30],
-    [0, 60, 128, 40],
-    [0, 100, 64, 28],
-    [64, 100, 64, 28],
-  ],
-};
-
-/** A driver standing (`PARTS` at rest, feet at y 0, facing +z): front and back 40 x 92, sides 24 x 92, the head's top 25 x 36. */
-export const PERSON_SPRAY: SprayLayout = {
-  w: SIDE,
-  h: SIDE,
-  min: [-0.4, 0, -0.25],
-  max: [0.4, 1.85, 0.25],
-  faces: [
-    [80, 0, 24, 92],
-    [104, 0, 24, 92],
-    [0, 92, 25, 36],
-    [0, 0, 40, 92],
-    [40, 0, 40, 92],
-  ],
-};
-
-/**
- * The face (`LEFT` … `BACK`) rest point (px, py, pz) with normal (nx, ny, nz) is painted on, and its place across that face
- * (0..1 each) into `uv`; -1 for the underside, which takes no paint. The shader's `sprayTexel` is this, line for line.
- */
-export function sprayFace(layout: SprayLayout, px: number, py: number, pz: number, nx: number, ny: number, nz: number, uv: Float64Array): number {
-  const ax = Math.abs(nx);
-  const ay = Math.abs(ny);
-  const az = Math.abs(nz);
-  const tx = across(px, layout.min[0], layout.max[0]);
-  const ty = across(py, layout.min[1], layout.max[1]);
-  const tz = across(pz, layout.min[2], layout.max[2]);
-  if (ax >= ay && ax >= az) {
-    uv[0] = tz;
-    uv[1] = ty;
-    return nx < 0 ? LEFT : RIGHT;
-  }
-  if (ay >= az) {
-    if (ny < 0) return -1;
-    uv[0] = tz;
-    uv[1] = tx;
-    return TOP;
-  }
-  uv[0] = tx;
-  uv[1] = ty;
-  return nz > 0 ? FRONT : BACK;
-}
-
-function across(v: number, min: number, max: number): number {
-  return Math.min(1, Math.max(0, (v - min) / (max - min)));
-}
 
 const _uv = new Float64Array(2);
 
@@ -127,8 +44,8 @@ export class SprayBitmap {
     const [fx, fy, fw, fh] = this.layout.faces[face]!;
     const { min, max } = this.layout;
     // The face's axes in metres: u runs along z on the sides and the top, x on the ends; v along y, x on the top.
-    const spanU = face === FRONT || face === BACK ? max[0] - min[0] : max[2] - min[2];
-    const spanV = face === TOP ? max[0] - min[0] : max[1] - min[1];
+    const spanU = face === SPRAY_FACE.front || face === SPRAY_FACE.back ? max[0] - min[0] : max[2] - min[2];
+    const spanV = face === SPRAY_FACE.top ? max[0] - min[0] : max[1] - min[1];
     const cu = fx + _uv[0]! * fw;
     const cv = fy + _uv[1]! * fh;
     const ru = (radius * fw) / spanU;
@@ -164,59 +81,6 @@ export class SprayBitmap {
     this.rgba[i * 4 + 2] = hex & 0xff;
     this.rgba[i * 4 + 3] = colour === 0 ? 0 : 255;
   }
-}
-
-/** `packSpray`'s first byte: the texels as nibbles, two to a byte, or as runs (length 1-255, then the index). */
-const PACKED = 0;
-const RUNS = 1;
-const MAX_RUN = 255;
-
-/** A bitmap's texels for the wire and for storage: runs when they come out shorter than the nibbles (a mostly bare bitmap). */
-export function packSpray(texels: Uint8Array): Uint8Array {
-  let runs = 0;
-  for (let i = 0; i < texels.length; runs++) i += runLength(texels, i);
-  if (runs * 2 < texels.length / 2) {
-    const out = new Uint8Array(1 + runs * 2);
-    out[0] = RUNS;
-    let o = 1;
-    for (let i = 0; i < texels.length; ) {
-      const n = runLength(texels, i);
-      out[o++] = n;
-      out[o++] = texels[i]!;
-      i += n;
-    }
-    return out;
-  }
-  const out = new Uint8Array(1 + Math.ceil(texels.length / 2));
-  out[0] = PACKED;
-  for (let i = 0; i < texels.length; i++) out[1 + (i >> 1)]! |= (texels[i]! & 0xf) << ((i & 1) * 4);
-  return out;
-}
-
-function runLength(texels: Uint8Array, at: number): number {
-  let n = 1;
-  while (n < MAX_RUN && at + n < texels.length && texels[at + n] === texels[at]) n++;
-  return n;
-}
-
-/** `packSpray`'s bytes back into `count` texels; null when they are not a packed bitmap of that size (untrusted: a peer's or storage's). */
-export function unpackSpray(bytes: Uint8Array, count: number): Uint8Array | null {
-  const out = new Uint8Array(count);
-  if (bytes[0] === PACKED) {
-    if (bytes.length !== 1 + Math.ceil(count / 2)) return null;
-    for (let i = 0; i < count; i++) out[i] = (bytes[1 + (i >> 1)]! >> ((i & 1) * 4)) & 0xf;
-    return out;
-  }
-  if (bytes[0] !== RUNS || bytes.length % 2 !== 1) return null;
-  let at = 0;
-  for (let o = 1; o < bytes.length; o += 2) {
-    const n = bytes[o]!;
-    const colour = bytes[o + 1]!;
-    if (n === 0 || colour >= SPRAY_PALETTE.length || at + n > count) return null;
-    out.fill(colour, at, at + n);
-    at += n;
-  }
-  return at === count ? out : null;
 }
 
 /** The shader's spray uniforms for a bitmap of `layout` sampled from `map`, `rows` bitmaps stacked up it (one per dummy slot). */

@@ -1,4 +1,5 @@
 import { mulberry32 } from "../world/placements.ts";
+import type { PersonPick } from "../match/look-data.ts";
 
 /**
  * A driver's look: tee, trousers, hair, a cap (its colour, null for none), a moustache, and whether she is a woman.
@@ -38,4 +39,16 @@ export function driverLook(seed: number, slot: number): DriverLook {
   const shirt = SHIRTS[Math.floor(rand() * SHIRTS.length)]!;
   const hair = HAIRS[Math.floor(rand() * HAIRS.length)]!;
   return { woman, shirt, pants: JEANS, hair, hat: null, mustache: false };
+}
+
+/** The driver `base` (his drawn look) with the player's picks over it. The cap and the moustache are the player's alone. */
+export function pickedLook(base: DriverLook, pick: PersonPick): DriverLook {
+  return {
+    woman: pick.woman ?? base.woman,
+    shirt: pick.shirt ?? base.shirt,
+    pants: pick.pants ?? base.pants,
+    hair: pick.hair ?? base.hair,
+    hat: pick.hat,
+    mustache: pick.mustache,
+  };
 }

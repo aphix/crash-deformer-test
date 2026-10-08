@@ -7,7 +7,7 @@ import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { SpecView } from "../present/engine-camera.ts";
-import type { CarPart, PersonPick } from "../present/look-pick.ts";
+import type { CarPart, PersonPick } from "../match/look-data.ts";
 import type { DriverLook } from "../present/driver-look.ts";
 
 type CompactStage = "open" | "contact" | "wells" | "mid" | "max";

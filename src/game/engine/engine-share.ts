@@ -4,7 +4,8 @@ import { NET_TX } from "../net/net-ports.ts";
 import { SEEDED_SCENES } from "../scenes/scene-id.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { EngineReel } from "./engine-reel.ts";
-import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText, pickedLook, type CarPick, type PersonPick } from "../present/look-pick.ts";
+import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText, type CarPick, type PersonPick } from "../match/look-data.ts";
+import { pickedLook } from "../present/driver-look.ts";
 import { GARAGE } from "../present/garage-art.ts";
 
 /**
