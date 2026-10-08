@@ -378,6 +378,15 @@ export class RaceBrain {
         target = boosted;
       }
     }
+    // Off the road, a pursuit asking for more than full lock is a corner the plan does not see: the car (pushed wide, off the
+    // road) slows to what it can turn back onto the line at, instead of holding the road's plan at full lock while it runs on out.
+    if (Math.abs(proj.lateral) > path.half[k]! && Math.abs(omega) > turnMax) {
+      const arc = cornerSpeed(cls, reach / (2 * Math.abs(Math.sin(alpha))), surf.grip);
+      if (arc < target) {
+        target = arc;
+        out.boost = false;
+      }
+    }
     const err = target - along;
     if (Math.abs(alpha) > 1.9 && speed < 6) {
       // Facing the wrong way: full lock and crawl round.
