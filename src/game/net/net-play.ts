@@ -28,6 +28,7 @@ import {
 import { NET_TX, PHASES, type NetGame, type NetRace, type NetRole, type NetStatus, type NetTx, type PublicKind } from "./net-ports.ts";
 import { cleanName } from "../match/types.ts";
 import { drawSnapshots } from "./net-view.ts";
+import { packLook, readLook } from "./look-codec.ts";
 import { RtcTransport } from "./rtc-transport.ts";
 import { BroadcastTransport, type NetTransport } from "./transport.ts";
 import { playHostReel } from "./reel-codec.ts";
@@ -97,6 +98,8 @@ export class NetPlay {
   private readonly names = new Map<string, string>();
   /** Peers whose hello carried this build's version: their input may (re)claim a car. */
   private readonly vetted = new Set<string>();
+  /** Host: each seated player's `MSG.look` as relayed (its car byte set), by car; a guest joining later gets every one. */
+  private readonly looks = new Map<number, Uint8Array<ArrayBuffer>>();
   /** Peer id → `now()` of its last message: a peer off the transport keeps its car until this is `SLOT_GRACE_MS` old. */
   private readonly heardAt = new Map<string, number>();
   private readonly inputs: DriveInput[] = [];
@@ -301,6 +304,8 @@ export class NetPlay {
     this.slots.clear();
     this.meters.fill(-1);
     this.vetted.clear();
+    this.looks.clear();
+    this.game.dropLooks();
     this.names.clear();
     this.heardAt.clear();
     this.hasInput.length = 0;
@@ -462,6 +467,8 @@ export class NetPlay {
         if ((ask & INPUT_RESPAWN) !== 0) race.requestRespawn(car);
         if ((ask & INPUT_HOLD) !== 0) race.holdReset(car);
       }
+    } else if (type === MSG.look) {
+      this.takeGuestLook(from, data);
     }
   }
 
@@ -513,6 +520,8 @@ export class NetPlay {
       // A connection blip drops a peer off the transport for a moment: its car waits `SLOT_GRACE_MS` for it.
       if (peers.some((p) => p.id === id) || now - (this.heardAt.get(id) ?? 0) < SLOT_GRACE_MS) continue;
       this.slots.delete(id);
+      this.looks.delete(car);
+      this.game.wearLook(car, null);
       this.names.delete(id);
       this.heardAt.delete(id);
       this.hasInput[car] = false;
@@ -637,6 +646,10 @@ export class NetPlay {
     else if (type === MSG.derby) this.takeDerby();
     else if (type === MSG.reelPart) this.takeReel(this.reelIn.take(data));
     else if (type === MSG.eject) this.ejects.take(this.r);
+    else if (type === MSG.look) {
+      const heard = readLook(data);
+      if (heard && heard.car !== this.car) this.game.wearLook(heard.car, heard.look);
+    }
   }
 
   /** The host's highlight reel (`playHostReel`) once its last part is in, its start moved onto this browser's clock by the snapshot offset. */
@@ -664,7 +677,28 @@ export class NetPlay {
     this.hostLost = false;
     if (car === this.car) return;
     this.car = car;
+    // Once seated, this player's look goes to the host, which shows it and hands it to everyone else.
+    this.transport?.send(packLook(car, this.game.playerLook()), from, true);
     if (!this.game.race() && !this.game.derbyPhase()) this.game.seat.focus(car);
+  }
+
+  /**
+   * Host: guest `from`'s look (`MSG.look`) for its seat: worn here and relayed to every guest. Its first one is also when the
+   * guest follows this host (it sends it after taking its seat), so it then gets the host's own look and every other player's.
+   */
+  private takeGuestLook(from: string, data: Uint8Array): void {
+    const car = this.slots.get(from);
+    const heard = readLook(data);
+    if (car === undefined || !heard) return;
+    const first = !this.looks.has(car);
+    this.game.wearLook(car, heard.look);
+    const relayed = data.slice();
+    relayed[1] = car;
+    this.looks.set(car, relayed);
+    this.transport!.send(relayed, undefined, true);
+    if (!first) return;
+    this.transport!.send(packLook(0, this.game.playerLook()), from, true);
+    for (const [other, look] of this.looks) if (other !== car) this.transport!.send(look, from, true);
   }
 
   /** Drop the followed host and everything heard from it: the next host starts its own clock and sequence. */

@@ -1,5 +1,7 @@
 import * as THREE from "three";
-import type { DriverLook } from "./driver-look.ts";
+import { JEANS, type DriverLook } from "./driver-look.ts";
+import { PARTS } from "./ragdoll-body.ts";
+import { applySpray, PERSON_SPRAY, sprayUniforms, type SprayBitmap } from "./spray.ts";
 
 /** Colour roles a piece takes from its dummy's look. */
 const SHIRT = 0;
@@ -12,10 +14,14 @@ const BADGE = 6;
 const EYES = 7;
 /** Hair that shows under a cop's cap and, on a woman, her long hair (a cop's HAIR is the cap). */
 const LOCKS = 8;
-/** FlatOut's thrown driver (sRGB, by role): skin, jeans, dark shoes and eyes are fixed; the tee and the hair roles take the driver's `DriverLook`. */
-const CIVILIAN = [0, 0xd8a27f, 0x3a4d6d, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0];
+/** A moustache in the hair's colour, drawn only on a driver who wears one. */
+const MUSTACHE = 9;
+/** FlatOut's thrown driver (sRGB, by role): skin, dark shoes and eyes are fixed; the tee, trousers and hair roles take the driver's `DriverLook`. */
+const CIVILIAN = [0, 0xd8a27f, 0, 0, 0x1c1c1e, 0, 0, 0x1a1410, 0, 0];
 /** A police driver: dark navy shirt and trousers, navy cap with a black peak, a gold badge, dark glasses; only the hair under the cap is the driver's. */
-const COP = [0x1b2a4a, 0xd8a27f, 0x121a2e, 0x16213b, 0x0e0e10, 0x0b0b0d, 0xd4a52a, 0x0a0a0a, 0];
+const COP = [0x1b2a4a, 0xd8a27f, 0x121a2e, 0x16213b, 0x0e0e10, 0x0b0b0d, 0xd4a52a, 0x0a0a0a, 0, 0];
+/** A civilian's cap peak against its crown. */
+const PEAK_SHADE = 0.6;
 const _c = new THREE.Color();
 
 /** `sex`: drawn on every dummy (BOTH), on a woman only (WOMAN) or on a man only (MAN). */
@@ -59,6 +65,7 @@ const PIECES: readonly Piece[] = [
   piece(1, [0, 0.025, 0.106], [0.12, 0.028, 0.012], EYES),
   piece(1, [0, 0.095, -0.02], [0.2, 0.075, 0.215], HAIR),
   piece(1, [0, 0.075, 0.1], [0.18, 0.025, 0.09], BRIM),
+  piece(1, [0, -0.04, 0.11], [0.085, 0.022, 0.016], MUSTACHE),
   // A man's hair at the nape and over the ears (under a cap); a woman's: the sides, the back and a ponytail.
   piece(1, [0, -0.045, -0.11], [0.18, 0.07, 0.04], LOCKS, MAN),
   piece(1, [-0.108, -0.06, -0.02], [0.05, 0.3, 0.2], LOCKS, WOMAN),
@@ -121,23 +128,62 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
   private shown = 0;
   /** Slots whose dummy is a woman, a bit each. */
   private women = 0;
+  /** Slots whose dummy wears a moustache, a bit each. */
+  private whiskers = 0;
+  /** Every slot's spray (`PERSON_SPRAY`), one bitmap's rows per slot, slot 0 lowest. */
+  private readonly sprayRgba: Uint8Array;
+  private readonly sprayAtlas: THREE.DataTexture;
 
   constructor(slots: number) {
-    super(block(), new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0 }), slots * PIECES.length);
+    const geo = block();
+    // Each piece's middle and size standing (`PARTS` at rest): the spray's rest frame (`PERSON_SPRAY`), the same in every slot.
+    const at = new Float32Array(slots * PIECES.length * 3);
+    const size = new Float32Array(slots * PIECES.length * 3);
+    for (let i = 0; i < slots * PIECES.length; i++) {
+      const t = PIECES[i % PIECES.length]!;
+      const c = PARTS[t.part]!.c;
+      at.set([c[0] + t.at.x, c[1] + t.at.y, c[2] + t.at.z], i * 3);
+      t.size.toArray(size, i * 3);
+    }
+    geo.setAttribute("sprayAt", new THREE.InstancedBufferAttribute(at, 3));
+    geo.setAttribute("spraySize", new THREE.InstancedBufferAttribute(size, 3));
+    super(geo, new THREE.MeshStandardMaterial({ roughness: 0.8, metalness: 0 }), slots * PIECES.length);
+    this.sprayRgba = new Uint8Array(PERSON_SPRAY.w * PERSON_SPRAY.h * 4 * slots);
+    this.sprayAtlas = new THREE.DataTexture(this.sprayRgba, PERSON_SPRAY.w, PERSON_SPRAY.h * slots);
+    this.sprayAtlas.colorSpace = THREE.SRGBColorSpace;
+    this.sprayAtlas.magFilter = THREE.LinearFilter;
+    this.sprayAtlas.minFilter = THREE.LinearFilter;
+    this.sprayAtlas.needsUpdate = true;
+    applySpray(
+      this.material,
+      sprayUniforms(PERSON_SPRAY, this.sprayAtlas, slots),
+      "attribute vec3 sprayAt;\nattribute vec3 spraySize;",
+      `vSprayP = sprayAt + position * spraySize;\nvSprayN = normal / spraySize;\nvSprayRow = floor(float(gl_InstanceID) / ${PIECES.length}.0);`,
+      "dummy",
+    );
+    this.material.addEventListener("dispose", () => this.sprayAtlas.dispose());
     for (let i = 0; i < this.count; i++) this.setMatrixAt(i, HIDDEN);
-    for (let s = 0; s < slots; s++) this.dress(s, false, { woman: false, shirt: 0x2b2d32, hair: 0x2a1d15 });
+    for (let s = 0; s < slots; s++) this.dress(s, false, { woman: false, shirt: 0x2b2d32, pants: JEANS, hair: 0x2a1d15, hat: null, mustache: false });
     this.count = 0;
   }
 
-  /** Slot `s`'s clothes: a civilian's tee and hair from `look`, or (`cop`) a police uniform with the driver's hair under the cap; her build when `look.woman`. */
+  /**
+   * Slot `s`'s clothes: a civilian's tee, trousers, hair, cap and moustache from `look`, or (`cop`) a police uniform with the
+   * driver's hair under the cap; her build when `look.woman`.
+   */
   dress(s: number, cop: boolean, look: DriverLook): void {
     if (look.woman) this.women |= 1 << s;
     else this.women &= ~(1 << s);
+    if (look.mustache) this.whiskers |= 1 << s;
+    else this.whiskers &= ~(1 << s);
     const base = cop ? COP : CIVILIAN;
     for (let i = 0; i < PIECES.length; i++) {
       const role = PIECES[i]!.role;
-      if (role === LOCKS || (!cop && (role === HAIR || role === BRIM))) _c.setHex(look.hair);
+      if (!cop && look.hat !== null && role === HAIR) _c.setHex(look.hat);
+      else if (!cop && look.hat !== null && role === BRIM) _c.setHex(look.hat).multiplyScalar(PEAK_SHADE);
+      else if (role === LOCKS || role === MUSTACHE || (!cop && (role === HAIR || role === BRIM))) _c.setHex(look.hair);
       else if (!cop && role === SHIRT) _c.setHex(look.shirt);
+      else if (!cop && role === LEGS) _c.setHex(look.pants);
       else if (!cop && role === BADGE) _c.setHex(look.shirt).multiplyScalar(0.7);
       else _c.setHex(base[role]!);
       this.setColorAt(s * PIECES.length + i, _c);
@@ -145,15 +191,24 @@ export class DummyMesh extends THREE.InstancedMesh<THREE.BufferGeometry, THREE.M
     this.instanceColor!.needsUpdate = true;
   }
 
-  /** Slot `s`'s body part `k` at pose `p`, `q`: the pieces it carries (those of the other sex stay hidden). */
+  /** Slot `s` wears `spray`'s paint (a `PERSON_SPRAY` bitmap), or none. */
+  spray(s: number, spray: SprayBitmap | null): void {
+    const at = s * PERSON_SPRAY.w * PERSON_SPRAY.h * 4;
+    if (spray) this.sprayRgba.set(spray.rgba, at);
+    else this.sprayRgba.fill(0, at, at + PERSON_SPRAY.w * PERSON_SPRAY.h * 4);
+    this.sprayAtlas.needsUpdate = true;
+  }
+
+  /** Slot `s`'s body part `k` at pose `p`, `q`: the pieces it carries (those of the other sex, and a moustache it does not wear, stay hidden). */
   pose(s: number, k: number, p: THREE.Vector3, q: THREE.Quaternion): void {
     this.shown |= 1 << s;
     this.count = (32 - Math.clz32(this.shown)) * PIECES.length;
     const woman = (this.women >> s) & 1;
+    const whiskers = (this.whiskers >> s) & 1;
     for (let i = 0; i < PIECES.length; i++) {
       const t = PIECES[i]!;
       if (t.part !== k) continue;
-      if (t.sex !== BOTH && (t.sex === WOMAN) !== (woman === 1)) {
+      if ((t.sex !== BOTH && (t.sex === WOMAN) !== (woman === 1)) || (t.role === MUSTACHE && whiskers === 0)) {
         this.setMatrixAt(s * PIECES.length + i, HIDDEN);
         continue;
       }

@@ -598,6 +598,11 @@ export class DeformableCar extends CarParts {
     this.group.traverse(free);
   }
 
+  /** The meshes a player's look recolours (`car-look.ts`): the body (on the body paint), the lids, the door skins and the glass panes. */
+  lookMeshes(): { body: THREE.Mesh; bodyPaint: THREE.MeshPhysicalMaterial; hood: THREE.Mesh; trunk: THREE.Mesh; doors: readonly THREE.Mesh[]; glass: readonly THREE.Mesh[] } {
+    return { body: this.body, bodyPaint: this.bodyMat, hood: this.hood, trunk: this.trunk, doors: [this.doorMeshL, this.doorMeshR], glass: this.glassPanes.map((g) => g.mesh) };
+  }
+
   /**
    * Netplay client: take the host's deform and part state with no physics, breakage, launch or FX,
    * so the skin, hulls, parts, lamps and glass match the host's. Set the pose first.
