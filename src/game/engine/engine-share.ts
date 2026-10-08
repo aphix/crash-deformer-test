@@ -4,6 +4,9 @@ import { NET_TX } from "../net/net-ports.ts";
 import { SEEDED_SCENES } from "../scenes/scene-id.ts";
 import { HANDLING } from "../vehicle/vehicle-classes.ts";
 import { EngineReel } from "./engine-reel.ts";
+import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText, type CarPick, type PersonPick } from "../match/look-data.ts";
+import { pickedLook } from "../present/driver-look.ts";
+import { GARAGE } from "../present/garage-art.ts";
 
 /**
  * The shareable URL (docs/CONTROLS.md): the page's `#` follows the HUD state (scene, settings that differ from the
@@ -31,8 +34,8 @@ export abstract class EngineShare extends EngineReel {
       room: this.net.role !== "off" && isShareableRoom(this.net.room) ? this.net.room : "",
       tx: this.net.role === "off" ? NET_TX.rtc : this.net.tx,
       scene: sc,
-      // The race, the range, the stack and Survival put their own field up; the sandbox's size waits in `sandboxCars`.
-      cars: sc === "race" || sc === "range" || sc === "stack" || sc === "survival" ? this.sandboxCars : this.carCount,
+      // The race, the range, the stack, Survival and the garage put their own field up; the sandbox's size waits in `sandboxCars`.
+      cars: sc === "race" || sc === "range" || sc === "stack" || sc === "survival" || sc === "garage" ? this.sandboxCars : this.carCount,
       smin: this.speedMin,
       smax: this.speedMax,
       night: this.stage.night,
@@ -49,6 +52,8 @@ export abstract class EngineShare extends EngineReel {
       ts: this.clock.userTimeScale,
       deform: this.deformMode,
       car: this.playerCar.id,
+      ck: carPickText(this.looks.mine.car),
+      pk: personPickText(this.looks.mine.person),
       // Fleet props of the fleet: another scene's own wall, balls and ramps are its state, not a setting (`SCENE_PROPS`).
       barrier: sc === "fleet" && this.showBarrier,
       balls: sc === "fleet" && this.showBalls,
@@ -96,8 +101,8 @@ export abstract class EngineShare extends EngineReel {
     try {
       let c = this.shareState();
       const differs = (...keys: (keyof ShareState)[]): boolean => keys.some((k) => t[k] !== c[k]);
-      // The race, the range, the stack and Survival ignore the sandbox's car count: leave them first, the switch below stores it again.
-      if ((c.scene === "race" || c.scene === "range" || c.scene === "stack" || c.scene === "survival") && (t.scene !== c.scene || differs("cars"))) {
+      // The race, the range, the stack, Survival and the garage ignore the sandbox's car count: leave them first, the switch below stores it again.
+      if ((c.scene === "race" || c.scene === "range" || c.scene === "stack" || c.scene === "survival" || c.scene === "garage") && (t.scene !== c.scene || differs("cars"))) {
         this.applyScene("fleet");
         c = this.shareState();
       }
@@ -117,6 +122,7 @@ export abstract class EngineShare extends EngineReel {
       if (differs("slomo")) this.toggleSlomo();
       if (differs("deform")) this.toggleDeformMode();
       if (differs("car")) this.setPlayerCar(t.car);
+      if (differs("ck", "pk")) this.wearPicks(parseCarPick(t.ck) ?? NO_CAR_PICK, parsePersonPick(t.pk) ?? NO_PERSON_PICK);
       if (differs("pkph", "pkg", "phard", "phold", "phop")) {
         this.setPistonConfig({ speedKph: t.pkph, massKg: t.pkg, hardness: t.phard, holdCar: t.phold, hopSeconds: t.phop });
       }
@@ -140,6 +146,21 @@ export abstract class EngineShare extends EngineReel {
       this.pinnedSeed = null;
       this.sharing = false;
     }
+    this.emitHud();
+  }
+
+  /** The player's own look takes these picks (the garage's pickers, or a link's `ck` / `pk`): worn on the player's car and driver at once. */
+  protected wearPicks(car: CarPick, person: PersonPick): void {
+    this.looks.mine.car = { ...car };
+    this.looks.mine.person = { ...person };
+    this.restyle();
+  }
+
+  /** The player's car and the garage's standing driver in the player's look as it is now. */
+  protected restyle(): void {
+    const car = this.cars[this.ownCar()];
+    if (car) this.dressCar(car);
+    this.garage?.art.stand(pickedLook(GARAGE.driver, this.looks.mine.person), this.looks.mine.personSpray);
     this.emitHud();
   }
 

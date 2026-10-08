@@ -11,6 +11,7 @@ import { NET_TX } from "../net/net-ports.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import { SCENE_IDS, SOLO_SCENES } from "../scenes/scene-id.ts";
+import { carPickText, NO_CAR_PICK, NO_PERSON_PICK, parseCarPick, parsePersonPick, personPickText } from "../match/look-data.ts";
 import { STACK_DEFAULTS, STACK_RANGES } from "../scenes/stack-rig.ts";
 
 /** One URL value: its default, how to read it back (undefined = malformed) and how to write it. */
@@ -34,6 +35,15 @@ const hex: Field<number | null> = {
   parse: (raw) => (/^[0-9a-f]{1,8}$/i.test(raw) ? parseInt(raw, 16) : undefined),
   fmt: (v) => (v ?? 0).toString(16),
 };
+/** A look pick (`look-pick.ts`) as its text: whatever `parse` reads back, written by `text`, so one pick is one string. */
+const lookText = <T>(def: T, parse: (raw: string) => T | null, text: (pick: T) => string): Field<string> => ({
+  def: text(def),
+  parse: (raw) => {
+    const p = parse(raw);
+    return p ? text(p) : undefined;
+  },
+  fmt: (v) => v,
+});
 /** `null` (the default) is "not set": the setting is not pinned by the URL. */
 const orNull = <T>(f: Field<T>): Field<T | null> => ({ def: null, parse: (raw) => f.parse(raw), fmt: (v) => f.fmt(v as T) });
 /**
@@ -88,6 +98,9 @@ const FIELDS = {
   ts: orNull(num(R.timeScale.min, R.timeScale.max, 1)),
   deform: pick(["shape", "lattice"] as const, D.deformMode),
   car: pick(DRIVER_CARS.map((c) => c.id), D.playerCar),
+  // The player's own look (the garage): the car's part colours and the driver's picks, as their text (`look-pick.ts`).
+  ck: lookText(NO_CAR_PICK, parseCarPick, carPickText),
+  pk: lookText(NO_PERSON_PICK, parsePersonPick, personPickText),
   barrier: flag(D.showBarrier),
   balls: flag(D.showBalls),
   ramps: flag(D.showRamps),
@@ -143,9 +156,12 @@ export function decodeShare(fragment: string): ShareState {
 
 const DEFAULTS = decodeShare("");
 
-/** A tab's `#` for state `s`: a host's is every setting plus its room; a client's scene is the host's, so its `#` is the room alone. */
+/**
+ * A tab's `#` for state `s`: a host's is every setting plus its room; a client's scene is the host's, so its `#` is the room
+ * and the player's own look alone.
+ */
 export function shareFragment(s: ShareState, client: boolean): string {
-  return encodeShare(client ? { ...DEFAULTS, room: s.room, tx: s.tx } : s);
+  return encodeShare(client ? { ...DEFAULTS, room: s.room, tx: s.tx, ck: s.ck, pk: s.pk } : s);
 }
 
 /**

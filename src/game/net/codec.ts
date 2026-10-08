@@ -15,9 +15,10 @@ import type { Ejection } from "../vehicle/ejection.ts";
  * `hold`: a hidden host's heartbeat (its tab cannot render, so nothing else comes); `hello`: type,
  * `NET_VERSION`, the player's name (`Writer.str`; the host cleans it, `cleanName`); `reel`: the end-of-race
  * highlight reel (`reel-codec.ts`; the message itself is `MSG.reel`, but on the wire it travels as `reelPart` frames,
- * `reel-wire.ts`), sent once, reliably; `eject`: a driver was thrown out (`writeEject`), reliably.
+ * `reel-wire.ts`), sent once, reliably; `eject`: a driver was thrown out (`writeEject`), reliably; `look`: a player's car and
+ * driver look with their spray paint (`look-codec.ts`), once per player, reliably.
  */
-export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8, eject: 9, reelPart: 10 } as const;
+export const MSG = { snapshot: 1, input: 2, hello: 3, assign: 4, race: 5, derby: 6, hold: 7, reel: 8, eject: 9, reelPart: 10, look: 11 } as const;
 
 /**
  * Wire format version, carried by hello and assign: peers on different builds (an auto-deploy mid-session)
@@ -41,8 +42,9 @@ ejection.
 16: a snapshot car carries its boost meter (a byte after the body byte: 0-254, 255 for a car with no nitrous), and `MSG.input`
 carries the peer's own meter (a sixth byte), so every browser shows any viewed car's bottle as its driver keeps it.
 17: a reel keyframe's course memory is 1 double, not 4 (race walls are solid colliders).
+18: MSG.look (11) carries a player's car and driver colour picks and their two spray bitmaps, sent once at seating.
 */
-export const NET_VERSION = 17;
+export const NET_VERSION = 18;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

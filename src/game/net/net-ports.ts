@@ -8,6 +8,7 @@ import type { VehicleClassId } from "../vehicle/vehicle-classes.ts";
 import type { DerbyNetState } from "./codec.ts";
 import type { Reel } from "../match/highlights.ts";
 import type { NetPeer } from "./transport.ts";
+import type { LookData } from "./look-codec.ts";
 
 /** The race director as netplay sees it (`CrashEngine.race`, while race mode is on). */
 export type NetRace = Pick<
@@ -82,6 +83,12 @@ export interface NetGame {
   launchEjection(e: Ejection): void;
   /** Host: car `i`'s boost meter as its driver keeps it (0-1), null for a car with no nitrous; each snapshot carries it. */
   meterOf(i: number): number | null;
+  /** This browser's player's look: what its `MSG.look` carries. */
+  playerLook(): LookData;
+  /** Car `i` wears another player's look (`MSG.look`), or (null) its own paint and drawn driver again. */
+  wearLook(i: number, look: LookData | null): void;
+  /** Leaving the room: every other player's look comes off. */
+  dropLooks(): void;
   readonly seat: DriverSeat;
 }
 

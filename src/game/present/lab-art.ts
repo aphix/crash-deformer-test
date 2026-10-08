@@ -22,7 +22,7 @@ const DARK_STEEL = 0x3d4147;
 type LabSet = { group: THREE.Group; props: PropTumble };
 
 /** A repeating sRGB canvas texture of `w` × `h` px drawn by `draw`. */
-function canvasTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
+export function canvasTexture(w: number, h: number, draw: (ctx: CanvasRenderingContext2D) => void): THREE.CanvasTexture {
   const c = document.createElement("canvas");
   c.width = w;
   c.height = h;
@@ -64,7 +64,7 @@ function butcherBlock(ctx: CanvasRenderingContext2D): void {
 }
 
 /** Painted cinder block, running bond: a 0.8 m tile of two blocks by four courses, mortar showing between. */
-function cinderBlock(ctx: CanvasRenderingContext2D): void {
+export function cinderBlock(ctx: CanvasRenderingContext2D): void {
   const shades = ["#b9b4a9", "#b3aea2", "#bdb8ad", "#b6b1a6", "#c0bbb0"];
   ctx.fillStyle = "#8d887e";
   ctx.fillRect(0, 0, 256, 256);
@@ -77,7 +77,7 @@ function cinderBlock(ctx: CanvasRenderingContext2D): void {
 }
 
 /** Trowelled concrete, mottled, with a control joint along two edges: one 3 m slab per tile. */
-function concrete(ctx: CanvasRenderingContext2D): void {
+export function concrete(ctx: CanvasRenderingContext2D): void {
   ctx.fillStyle = "#86837c";
   ctx.fillRect(0, 0, 512, 512);
   for (let i = 0; i < 900; i++) {

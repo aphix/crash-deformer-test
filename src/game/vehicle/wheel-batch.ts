@@ -2,6 +2,9 @@ import * as THREE from "three";
 import { makeWheelGeometry, makeWheelMaterial, treadNormalMap } from "./car-materials.ts";
 import { spokeSmear } from "./wheel-blur.ts";
 
+/** An untinted wheel: the instance colour that leaves the tyre and the alloy as toned. */
+const UNTINTED = new THREE.Color(1, 1, 1);
+
 /**
  * Every car's wheels (tyre, rim, hub) as one instanced draw plus one shadow draw. Cars keep a
  * bare Group per wheel as the transform that spins, steers, rides the hub and pops; `sync` copies
@@ -33,6 +36,9 @@ export class WheelBatch {
     // Instances span the pad and move every frame; a stale bound would cull live wheels.
     this.mesh.frustumCulled = false;
     this.mesh.count = 0;
+    // A player's rim colour (`userData.rim` on the wheel, `car-look.ts`) tints the instance: the alloy takes it, the black tyre stays black.
+    this.mesh.setColorAt(0, UNTINTED);
+    this.mesh.instanceColor!.setUsage(THREE.DynamicDrawUsage);
   }
 
   /** Pack the shown wheels of `cars` (world matrices must be current). */
@@ -51,6 +57,7 @@ export class WheelBatch {
         }
         if (shown) {
           this.blur.setX(n, spokeSmear(t.step));
+          this.mesh.setColorAt(n, (w.userData.rim as THREE.Color | undefined) ?? UNTINTED);
           this.mesh.setMatrixAt(n++, w.matrixWorld);
         }
       }
@@ -63,6 +70,10 @@ export class WheelBatch {
     this.blur.clearUpdateRanges();
     this.blur.addUpdateRange(0, n);
     this.blur.needsUpdate = true;
+    const tint = this.mesh.instanceColor!;
+    tint.clearUpdateRanges();
+    tint.addUpdateRange(0, n * 3);
+    tint.needsUpdate = true;
   }
 }
 

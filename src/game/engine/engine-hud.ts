@@ -8,6 +8,9 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { EngineWarm } from "./engine-warm.ts";
 import type { RaceHud } from "../match/types.ts";
 import { WALL } from "./engine-lab.ts";
+import { lookColours } from "../present/car-look.ts";
+import { pickedLook } from "../present/driver-look.ts";
+import { GARAGE } from "../present/garage-art.ts";
 
 /**
  * HUD publish: the engine's state as one `CrashHudState` snapshot.
@@ -74,6 +77,10 @@ export abstract class EngineHud extends EngineWarm {
       showCorkscrew: this.showCorkscrew,
       stack: this.showStack ? { ...this.stack.config, dropped: this.stack.dropped, ...stackLoads(cars, this.stack.dropped) } : null,
       lab: this.showLab ? { preset: this.lab.preset ?? "cards", shot: this.labShotHud() } : null,
+      garage:
+        this.showGarage && this.garage
+          ? { car: lookColours(this.carA, this.looks.mine.car), person: pickedLook(GARAGE.driver, this.looks.mine.person), picked: { ...this.looks.mine.person }, spray: { ...this.garage.tool } }
+          : null,
       pendingScene: this.sceneFade.pending,
       inRoom: this.net.role !== "off",
       doors: {
