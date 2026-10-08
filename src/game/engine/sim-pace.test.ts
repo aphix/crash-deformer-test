@@ -139,8 +139,8 @@ describe("given a frame that cannot afford all its steps (its time budget runs o
 });
 
 describe("given a head-on crash at 165 Hz frames, with or without the pose drawn between the steps", () => {
-  /** A head-on crash at 165 Hz frames, drawn between the steps (or not): every car's state after every frame. */
-  function crash(blend: boolean): { states: Float64Array[]; blended: number; freed: number } {
+  /** A head-on crash at 165 Hz frames, skinned every frame and drawn between the steps (or not): every car's state and skin after every frame. */
+  function crash(blend: boolean): { states: Float64Array[]; blended: number; freed: number; skinned: number } {
     const scene = new THREE.Scene();
     const cars = [0, 1].map((i) => {
       const car = new DeformableCar(paint(), scene);
@@ -153,6 +153,7 @@ describe("given a head-on crash at 165 Hz frames, with or without the pose drawn
     const states: Float64Array[] = [];
     let blended = 0;
     let freed = 0;
+    let skinned = 0;
     for (let f = 0; f < 165; f++) {
       pace.run(1 / 165, 1, 22, Infinity, (h) => {
         pose.begin(cars);
@@ -160,11 +161,14 @@ describe("given a head-on crash at 165 Hz frames, with or without the pose drawn
         settleStep(cars, h, false);
         pose.end(cars);
       });
+      for (const c of cars) c.updateSkin();
       const before = cars.map((c) => c.group.position.clone());
+      const written = cars.map((c) => Float32Array.from(c.skinGeometries()[0]!.getAttribute("position").array));
       if (blend) {
         pose.present(cars, pace.alpha);
         scene.updateMatrixWorld(true);
         blended += cars.filter((c, i) => c.group.position.distanceTo(before[i]!) > 1e-9).length;
+        skinned += cars.filter((c, i) => c.skinGeometries()[0]!.getAttribute("position").array.some((x, k) => x !== written[i]![k])).length;
         const loose: THREE.Object3D[] = [];
         for (const c of cars) freed += c.freeObjects(loose, 0);
         pose.restore();
@@ -177,19 +181,57 @@ describe("given a head-on crash at 165 Hz frames, with or without the pose drawn
         const loose: THREE.Object3D[] = [];
         const n = c.freeObjects(loose, 0);
         for (let k = 0; k < n; k++) s.push(...loose[k]!.position.toArray(), ...loose[k]!.quaternion.toArray(), loose[k]!.rotation.x, loose[k]!.rotation.y, loose[k]!.rotation.z);
+        for (const g of c.skinGeometries()) s.push(...g.getAttribute("position").array, ...g.getAttribute("normal").array);
       }
       states.push(Float64Array.from(s));
     }
     for (const c of cars) c.dispose();
-    return { states, blended, freed };
+    return { states, blended, freed, skinned };
   }
 
-  it("when the crash that tears parts off is run with the pose drawn between its steps every frame, then every frame ends in exactly the same bits as the same crash never drawn", () => {
+  it("when the crash that tears parts off is run with the pose and the skin drawn between its steps every frame, then every frame ends in exactly the same bits, skin included, as the same crash never drawn", () => {
     const off = crash(false);
     const on = crash(true);
     assert.ok(on.blended > 100, `the blend moved a car in only ${on.blended} frame-cars: nothing was drawn between steps`);
     assert.ok(on.freed > 0, "no part or wheel flew free: the free bodies were never blended");
+    assert.ok(on.skinned > 10, `the skin was drawn between writes in only ${on.skinned} frame-cars`);
     for (let f = 0; f < off.states.length; f++) assertSameNumbers(on.states[f]!, off.states[f]!, `frame ${f}`);
+  });
+});
+
+describe("given a car whose crush skin is written after each of two steps", () => {
+  it("when the frame is drawn 0, ½ and all of the way through the second step, then a skin vertex and its normal sit at the first write, halfway to the second, and at the second, and the second write is back in the mesh once the frame is drawn", () => {
+    const car = new DeformableCar(paint(), new THREE.Scene());
+    const pose = new PoseBlend();
+    const cars = [car];
+    const geometry = car.skinGeometries()[0]!;
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const normal = geometry.getAttribute("normal") as THREE.BufferAttribute;
+    /** One step, then the skin's write: vertex 0 at x = `x`, its normal's x at `x` / 4. */
+    const stepAndSkin = (x: number): void => {
+      pose.begin(cars);
+      pose.end(cars);
+      position.setX(0, x);
+      normal.setX(0, x / 4);
+      position.needsUpdate = true;
+      normal.needsUpdate = true;
+    };
+    stepAndSkin(1);
+    pose.present(cars, 1);
+    pose.restore();
+    stepAndSkin(3);
+    const drawn: number[][] = [];
+    for (const alpha of [0, 0.5, 1]) {
+      pose.present(cars, alpha);
+      drawn.push([position.getX(0), normal.getX(0)]);
+      pose.restore();
+    }
+    assert.deepEqual(drawn, [
+      [1, 0.25],
+      [2, 0.5],
+      [3, 0.75],
+    ]);
+    assert.deepEqual([position.getX(0), normal.getX(0)], [3, 0.75]);
   });
 });
 

@@ -171,8 +171,9 @@ if playing:  simDt = wallDt × timeScale × cine.timeWarp
                           pair + part contact, SAT passes, stepStructure, clips) → ejections → race.step → cinematic trigger
              stepEdge → scheduleSkins (Witness: off-camera cars defer, small ones stride) → updateSkin
              updatePhase → rigs → FX, ragdolls, smoke, trace → stepDerby → seat.step → cine.update
-always:      net.frame → PoseBlend.present → race.frame → updateCamera → flushVisibleSkins → detail / lamps
-             → cine.render → PoseBlend.restore → emitHud every 0.05–0.12 s
+always:      net.frame → PoseBlend.present (bodies, loose parts and the crush skin drawn at the frame's time between
+             the last two sim states) → race.frame → updateCamera → flushVisibleSkins → detail / lamps
+             → cine.render → PoseBlend.restore (the sim's own poses and skin back) → emitHud every 0.05–0.12 s
 ```
 
 `Witness` (`present/witness.ts`) is the one "could the camera see this?" test behind every cosmetic skip (skins, sparks,

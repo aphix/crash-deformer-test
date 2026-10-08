@@ -604,6 +604,14 @@ export class DeformableCar extends CarParts {
     return { body: this.body, bodyPaint: this.bodyMat, hood: this.hood, trunk: this.trunk, doors: [this.doorMeshL, this.doorMeshR], glass: this.glassPanes.map((g) => g.mesh) };
   }
 
+  /** The meshes the crush skin writes (`updateSkin`): the body, the lids, the light bar and the skinned panes. */
+  skinGeometries(): THREE.BufferGeometry[] {
+    const geometries = [this.body.geometry, this.hood.geometry, this.trunk.geometry];
+    if (this.lightBar) geometries.push(this.lightBar.geometry);
+    for (const pane of this.glassPanes) if (pane.skin) geometries.push(pane.mesh.geometry);
+    return geometries;
+  }
+
   /**
    * Netplay client: take the host's deform and part state with no physics, breakage, launch or FX,
    * so the skin, hulls, parts, lamps and glass match the host's. Set the pose first.
