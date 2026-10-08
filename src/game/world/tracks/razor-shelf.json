@@ -28,7 +28,8 @@
         {
           "x": 0,
           "z": 270,
-          "y": 12
+          "y": 12,
+          "surface": "cobble"
         },
         {
           "x": 48,
@@ -78,6 +79,20 @@
     "spacing": 8,
     "back": 8
   },
+  "props": [
+    { "prefab": "cone", "x": 14, "z": 259.7, "scale": 2.5 },
+    { "prefab": "cone", "x": 26, "z": 260, "scale": 2.5 },
+    { "prefab": "cone", "x": 38, "z": 260.4, "scale": 2.5 },
+    { "prefab": "cone", "x": 50, "z": 261.6, "scale": 2.5 },
+    { "prefab": "cone", "x": 14, "z": 280.7, "scale": 2.5 },
+    { "prefab": "cone", "x": 26, "z": 281, "scale": 2.5 },
+    { "prefab": "cone", "x": 38, "z": 281.4, "scale": 2.5 },
+    { "prefab": "cone", "x": 50, "z": 282.6, "scale": 2.5 },
+    { "prefab": "billboard", "x": 128, "z": -326, "yaw": -0.7854 }
+  ],
+  "along": [
+    { "prefab": "cone", "every": 10, "side": "left", "offset": -1, "fromNode": 5, "toNode": 8, "scale": 2.5 }
+  ],
   "scatter": [
     {
       "prefab": "rock",

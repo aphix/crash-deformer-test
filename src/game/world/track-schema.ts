@@ -39,6 +39,9 @@ const gateRef = z.object({ node: z.number().int().min(0), t: z.number().min(0).l
 
 const pathPoint = z.object({ x: z.number(), z: z.number(), y: z.number().optional() });
 
+/** A shortcut's path point: `surface` paves the run from this point to the next; omitted, the shortcut's own surface. */
+const shortcutPoint = pathPoint.extend({ surface: surface.optional() });
+
 const shortcut = z.object({
   id: z.string().min(1),
   /** Main checkpoint the shortcut leaves after. */
@@ -48,7 +51,7 @@ const shortcut = z.object({
   width: z.number().min(3).max(20).default(7),
   surface: surface.default(SURFACE.dirt),
   /** Open spline, entry first; a gate sits on every point. */
-  path: z.array(pathPoint).min(2),
+  path: z.array(shortcutPoint).min(2),
 });
 
 const lane = z.object({

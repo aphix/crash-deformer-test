@@ -236,9 +236,10 @@ export abstract class CarParts extends CarGlass {
       p.object.position.x += sign * t * 0.06;
       p.object.updateWorldMatrix(true, false);
       _box.setFromObject(p.object);
-      // Keep the door's bottom off the ground (not where there is none: off the fleet disc's rim).
+      // Keep the door's bottom off the ground under it (not where there is none: off the fleet disc's rim).
       const g = p.object.getWorldPosition(_doorW);
-      if (_box.min.y < 0.04 && activeGround().heightAt(g.x, g.z, g.y) !== NO_FLOOR) p.object.position.y += 0.04 - _box.min.y;
+      const gy = activeGround().heightAt(g.x, g.z, g.y);
+      if (gy !== NO_FLOOR && _box.min.y < gy + 0.04) p.object.position.y += gy + 0.04 - _box.min.y;
     } else if (p.hinge === "bar") {
       // Tilts on its far mount, the struck side dropping.
       const dir = this.deform.impactInward.x < 0 ? -1 : 1;
@@ -721,8 +722,8 @@ export abstract class CarParts extends CarGlass {
       const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
-      stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
-      if (p.region && p.object.position.y < 0.3) layFlat(p.object, dt);
+      const clearance = stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
+      if (p.region && clearance < 0.3) layFlat(p.object, dt);
       applyDents(p.dent, p.object);
     }
     for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, bounce);
@@ -744,7 +745,8 @@ export abstract class CarParts extends CarGlass {
     this.group.remove(w.object);
     this.world.add(w.object);
     w.object.position.copy(this.deform.massWorld(hub));
-    w.object.position.y = Math.max(TYRE_R, w.object.position.y);
+    const gy = activeGround().heightAt(w.object.position.x, w.object.position.z, w.object.position.y);
+    if (gy !== NO_FLOOR) w.object.position.y = Math.max(gy + TYRE_R, w.object.position.y);
     w.object.quaternion.copy(_lampQ);
     _p.copy(w.object.position).sub(this.group.position).setY(0);
     if (_p.lengthSq() > 1e-6) _p.normalize();
