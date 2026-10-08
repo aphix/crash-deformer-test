@@ -97,10 +97,10 @@ export function crashEye(out: THREE.Vector3, t: number, at: THREE.Vector3, n: TH
   return fov;
 }
 
-/** Where a crash's camera aims at a hit at (x, z) by a car standing at height `y`: `AIM_UP` over the ground there (on a course, `sight`). */
+/** Where a crash's camera aims at a hit at (x, z) by a car at height `y`: `AIM_UP` over the car, or over the ground there (on a course, `sight`) when the car is no higher. */
 export function hitAim(out: THREE.Vector3, x: number, y: number, z: number, sight: Sight | null): THREE.Vector3 {
   const g = sight ? sight.ground.heightAt(x, z, y + 1) : 0;
-  return out.set(x, (g === NO_FLOOR ? y : g) + AIM_UP, z);
+  return out.set(x, (g === NO_FLOOR ? y : Math.max(g, y)) + AIM_UP, z);
 }
 
 /**

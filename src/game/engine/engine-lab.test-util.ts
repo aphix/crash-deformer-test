@@ -74,6 +74,14 @@ export function throwAt(r: LabRig, thing: number, target: number, speed: number)
   return r.lab.launch(thing, _velocity.divideScalar(reach));
 }
 
+/** `throwAt` with no lift: item `thing` goes at `speed` m/s along the bench straight toward item `target`'s middle, level, so a car stays on its tyres and meets the target's side where it stands (a lob over 20 m at 10 m/s peaks 4.8 m up and lands on a roof). */
+export function throwLevelAt(r: LabRig, thing: number, target: number, speed: number): LabShot {
+  r.lab.centre(thing, _from);
+  r.lab.centre(target, _to);
+  _velocity.subVectors(_to, _from).setY(0).setLength(speed);
+  return r.lab.launch(thing, _velocity);
+}
+
 const UP = new THREE.Vector3(0, 1, 0);
 const _across = new THREE.Vector3();
 const _chest = new THREE.Vector3();

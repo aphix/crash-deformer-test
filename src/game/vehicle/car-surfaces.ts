@@ -197,13 +197,18 @@ function imprint(presser: DeformableCar, pressed: DeformableCar): void {
   const top = topGrid(pressed.style);
   const follow = topFollow(pressed.style);
   let relief = 0;
+  let overRoof = false;
   for (let k = 0; k < PAN.length; k++) {
     const x = _pl[3 * k]!;
     const z = _pl[3 * k + 2]!;
     let surface = gridAt(top, x, z) - drop * gridAt(follow, x, z);
     if (old) surface = Math.min(surface, im[0]! - drop + im[1]! * x + im[2]! * z);
-    if (c + a * x + b * z - surface > relief) relief = c + a * x + b * z - surface;
+    const gap = c + a * x + b * z - surface;
+    if (!(gap <= IMPRINT_REACH)) continue;
+    overRoof = true;
+    if (gap > relief) relief = gap;
   }
+  if (!overRoof) return;
   im[0] = old ? Math.min(im[0]!, c - relief + drop) : c - relief + drop;
   im[1] = a;
   im[2] = b;

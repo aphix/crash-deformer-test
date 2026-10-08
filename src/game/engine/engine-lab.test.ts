@@ -7,7 +7,7 @@ import { pairEta, PRE_IMPACT_LEAD, preImpact } from "../match/phase.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { glassCorners } from "../vehicle/car-glass.ts";
 import { glassOf, paneFrame } from "../vehicle/car-glass.test-util.ts";
-import { labDollRig, labRig, leaveLab, runLab, throwAt, throwFlatDummyAt, type LabRig } from "./engine-lab.test-util.ts";
+import { labDollRig, labRig, leaveLab, runLab, throwAt, throwFlatDummyAt, throwLevelAt, type LabRig } from "./engine-lab.test-util.ts";
 import { WALL, type LabShot } from "./engine-lab.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
 
@@ -114,15 +114,15 @@ describe("given the house of cards on the bench (two sedans nose to tail, a thir
 
 describe("given two sedans on the bench 20 m apart, the far one broadside to the near one", () => {
   const momentumCases = [
-    { it: "when the near one is thrown into the far one's side at 10 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 10 },
-    { it: "when the near one is thrown into the far one's side at 30 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 30 },
-    { it: "when the near one is thrown into the far one's side at 55 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 55 },
+    { it: "when the near one is thrown level into the far one's side at 10 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 10 },
+    { it: "when the near one is thrown level into the far one's side at 30 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 30 },
+    { it: "when the near one is thrown level into the far one's side at 55 m/s, then their momentum along the throw changes by under 4 % through the hit", speed: 55 },
   ] as const;
   for (const testCase of momentumCases) {
     it(testCase.it, () => {
       const r = labRig([car(at(-14, 0, Math.PI / 2)), car(at(6, 0, 0))]);
       runLab(r, 0.5);
-      const shot = throwAt(r, 0, 1, testCase.speed);
+      const shot = throwLevelAt(r, 0, 1, testCase.speed);
       runLab(r, 3);
       assert.notEqual(shot.momentumAfter, null, "the hit never ended");
       const change = Math.abs(shot.momentumAfter! - shot.momentumBefore) / shot.momentumBefore;

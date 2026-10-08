@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import { labRig, leaveLab, runLab, throwAt, type LabRig } from "./engine-lab.test-util.ts";
 import type { LabShot } from "./engine-lab.ts";
+import type { DeformableCar } from "../vehicle/car.ts";
+import { COM_Y } from "../vehicle/car-air.ts";
 import { FLICK, LabFlick } from "./lab-flick.ts";
 import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
 
@@ -25,6 +27,12 @@ const OBLIQUE = 35;
 const DOWN_THE_BENCH = 0;
 type Flick = { thing: number; velocity: THREE.Vector3 };
 type Px = [number, number];
+/** A car launched along the bench veers at most this fraction of its flight sideways: a stray sideways kick of that fraction of its speed would carry it as far. */
+const LINE_DRIFT = 0.01;
+
+function centreOfMass(car: DeformableCar, out: THREE.Vector3): THREE.Vector3 {
+  return out.set(0, COM_Y, 0).applyQuaternion(car.group.quaternion).add(car.group.position);
+}
 
 /** A 60° camera `degrees` off the bench's long axis (90: side-on, 0: straight down it from behind the thrower), at `CAMERA_RADIUS` from `LOOK`. */
 function cameraAt(degrees: number): THREE.PerspectiveCamera {
@@ -141,11 +149,13 @@ describe("given the house of cards on the bench, its thrower swiped on the throw
     assert.ok(swipe(v.flick, v.thrower, towardCamera, 200), "the press on the thrower was left to the camera");
     assert.equal(v.flicks.length, 1, "flicks");
     assert.equal(v.flicks[0]!.velocity.z, 0, "across the bench");
+    const from = centreOfMass(v.r.cars[0]!, new THREE.Vector3());
     v.r.lab.launch(0, v.flicks[0]!.velocity);
     runLab(v.r, 1);
-    const after = v.r.lab.centre(0, new THREE.Vector3());
-    assert.ok(after.distanceTo(centre) > 0.5, "it never left");
-    assert.ok(Math.abs(after.z - centre.z) < 1e-6, `it moved ${(after.z - centre.z).toFixed(4)} m across the bench`);
+    const to = centreOfMass(v.r.cars[0]!, new THREE.Vector3());
+    const flown = to.distanceTo(from);
+    assert.ok(flown > 0.5, "it never left");
+    assert.ok(Math.abs(to.z - from.z) < LINE_DRIFT * flown, `its centre of mass moved ${(to.z - from.z).toFixed(4)} m across the bench in ${flown.toFixed(2)} m of flight`);
   });
 
   const reachCases = [

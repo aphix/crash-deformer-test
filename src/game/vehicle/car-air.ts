@@ -617,8 +617,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       }
       continue;
     }
-    // Over a ground with walls a hull point deeper in the world's face than its own approach came from the side: the wall parts it.
-    if (walls && i < HULL.length && HIT[C_OWNER]! < 0) {
+    // A hull point deeper in a face than its own approach came from the side (over a ground with walls, or under another car's top
+    // edge: a car's nose into a flank at belt height, 0.1 m under its roof's shoulder): the wall or the car pair's SAT parts it.
+    if (i < HULL.length && (walls || HIT[C_OWNER]! >= 0)) {
       _vp.crossVectors(w, r).add(v);
       if (fromSide(pen * HIT[C_NY]!, _vp.x * HIT[C_NX]! + _vp.y * HIT[C_NY]! + _vp.z * HIT[C_NZ]!, dt)) continue;
     }
