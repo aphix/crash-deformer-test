@@ -305,7 +305,6 @@ export abstract class DeformContact extends DeformState {
     group.position.set(wx - _a.x, gy, wz - _a.z);
     group.updateWorldMatrix(false, false);
     _toLocal.copy(group.matrixWorld).invert();
-    this.takeAxes(group);
 
     let mx = 0,
       mz = 0,

@@ -475,7 +475,6 @@ export abstract class DeformHit extends DeformRig {
     this.aloft = false;
     // The first read lays the frame on the ground under its wheels: read with none (as the step after did), a quiet wreck
     // landing on a slope took the world's level for a slice, 0.07 m up, and its masses were pulled after it.
-    this.takeAxes(group);
     this.sampleGround(this.floorPost, this.gripPost);
     this.floorsFresh = true;
     this.frameY = group.position.y;

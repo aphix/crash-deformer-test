@@ -118,6 +118,8 @@ const WORLD = 1e9;
 
 const EMPTY32 = new Float32Array(0);
 const EMPTY64 = new Float64Array(0);
+/** A patch's plan box scratch (`Surface.nodeBox`): min x, max x, min z, max z. */
+const _box = new Float64Array(4);
 const EMPTY8 = new Uint8Array(0);
 
 const GRIPS = new Float64Array(SURFACE_IDS.length);
@@ -180,6 +182,8 @@ export class Surface {
   /** Per patch: per-node factors in [0, 1] (a roof's follow of its crush); empty: 1 everywhere. */
   auxs: Float32Array[] = [];
   hills: Float64Array[] = [];
+  /** Per patch whose heights never change (a grid added without `hmax`): the highest its surface stands in each cell (`cellTopsOf`); empty otherwise. */
+  cellTops: Float64Array[] = [];
   /** The cell index (built by `seal`, read by the query): per cell the patches listed, and the patches every query tests (`always[0 .. nAlways)`). */
   cellStart = new Int32Array(0);
   cellList = new Int32Array(0);
@@ -190,6 +194,15 @@ export class Surface {
   cnx = 0;
   cnz = 0;
   sealed = false;
+  /** The plan raster `staticTop` reads (built on first use): per `RASTER` m square from (`rasterX0`, `rasterZ0`), `rasterNx` wide, the highest any patch but the moving ones stands over it. */
+  raster = EMPTY64;
+  rasterX0 = 0;
+  rasterZ0 = 0;
+  rasterNx = 0;
+  rasterNz = 0;
+  rasterBuilt = false;
+  /** Patches whose box or drop changed after the raster was built (a slab top riding its car): read one by one, never rastered. */
+  readonly moving: number[] = [];
   /** Static triangle-mesh solids the scene has that are not height fields (the corkscrew's channel walls): world-space vertices and indices. */
   readonly meshes: { vertices: Float32Array; indices: Uint32Array }[] = [];
 
@@ -222,7 +235,9 @@ export class Surface {
     this.surfs[i] = EMPTY8;
     this.auxs[i] = EMPTY32;
     this.hills[i] = EMPTY64;
+    this.cellTops[i] = EMPTY64;
     this.sealed = false;
+    this.rasterBuilt = false;
     return i;
   }
 
@@ -266,6 +281,7 @@ export class Surface {
       this.q[qo + Q_SURF2] = g.outside.surface;
       this.hills[i] = g.outside.hills;
     }
+    if (g.hmax === undefined) this.cellTops[i] = cellTopsOf(g.nu, g.nv, g.heights, this.centre[i]!, this.lat[i]!, this.drop[i]!);
     this.setFrame(i, g.ox, g.oy, g.oz, g.axes ?? YAW0);
     return i;
   }
@@ -345,11 +361,18 @@ export class Surface {
     this.box(i);
   }
 
-  /** Grid patch `i`'s world box from its frame, node extent (`P_HMAX`) and drop. */
-  private box(i: number): void {
+  /** Patch `i`'s plan box over its own extent into `out` (min x, max x, min z, max z): a grid's corners from its frame, node extent (`P_HMAX`) and drop, even an unbounded one's. */
+  nodeBox(i: number, out: Float64Array): void {
     const o = i * P_STRIDE;
     const qo = i * Q_STRIDE;
     const P = this.p;
+    if (this.q[qo + Q_KIND] === DECK) {
+      out[0] = P[o + P_MINX]!;
+      out[1] = P[o + P_MAXX]!;
+      out[2] = P[o + P_MINZ]!;
+      out[3] = P[o + P_MAXZ]!;
+      return;
+    }
     const ox = P[o + P_OX]!;
     const oz = P[o + P_OZ]!;
     const u0 = P[o + P_U0]!;
@@ -374,11 +397,30 @@ export class Surface {
     }
     const tx = Math.abs(P[o + P_BX]!) * hmax;
     const tz = Math.abs(P[o + P_BX + 2]!) * hmax;
-    const unb = this.q[qo + Q_UNB] === 1;
-    P[o + P_MINX] = unb ? -WORLD : minX - tx;
-    P[o + P_MAXX] = unb ? WORLD : maxX + tx;
-    P[o + P_MINZ] = unb ? -WORLD : minZ - tz;
-    P[o + P_MAXZ] = unb ? WORLD : maxZ + tz;
+    out[0] = minX - tx;
+    out[1] = maxX + tx;
+    out[2] = minZ - tz;
+    out[3] = maxZ + tz;
+  }
+
+  /** Grid patch `i`'s world box (`nodeBox`; the whole plan for an unbounded one). */
+  private box(i: number): void {
+    const o = i * P_STRIDE;
+    const P = this.p;
+    const unb = this.q[i * Q_STRIDE + Q_UNB] === 1;
+    this.nodeBox(i, _box);
+    P[o + P_MINX] = unb ? -WORLD : _box[0]!;
+    P[o + P_MAXX] = unb ? WORLD : _box[1]!;
+    P[o + P_MINZ] = unb ? -WORLD : _box[2]!;
+    P[o + P_MAXZ] = unb ? WORLD : _box[3]!;
+    this.moved(i);
+  }
+
+  /** Patch `i` changed after the raster was built: it is read one by one from now on, the raster built again without it. */
+  private moved(i: number): void {
+    if (!this.rasterBuilt || this.moving.includes(i)) return;
+    this.moving.push(i);
+    this.rasterBuilt = false;
   }
 
   /** Narrow patch `i`'s box (after `setFrame`) to the square of half width `r` about plan (cx, cz): a roof's reach about its car. */
@@ -404,6 +446,7 @@ export class Surface {
     this.p[o + P_HMAX] = hmax;
     this.nodes[i] = heights;
     this.auxs[i] = aux;
+    this.cellTops[i] = EMPTY64;
     this.box(i);
   }
 
@@ -424,6 +467,7 @@ export class Surface {
     this.p[o + P_MAXX] = -Infinity;
     this.p[o + P_MINZ] = Infinity;
     this.p[o + P_MAXZ] = -Infinity;
+    this.moved(i);
   }
 
   /** Patch `i` is `owner`'s (a car's slot): its own queries skip it. */
@@ -434,6 +478,7 @@ export class Surface {
   /** Patch `i`'s crush drop (m). */
   setDrop(i: number, drop: number): void {
     this.p[i * P_STRIDE + P_DROP] = drop;
+    this.moved(i);
   }
 
   /** Build the spatial index over the patches' boxes (a scene's static surfaces: once, at registration). Few patches are all tested. */
@@ -642,6 +687,9 @@ function gridAt(s: Surface, i: number, q: Float64Array): void {
   _s[S_H] = P[o + P_OY]! + P[o + P_AX + 1]! * lu + P[o + P_BX + 1]! * h + P[o + P_CX + 1]! * lv;
 }
 
+/** How far (share of its length) a deck segment answers past either end, so consecutive segments meet without a seam. */
+const DECK_OVERRUN = 0.02;
+
 /** A bridge deck segment at (x, z): its height, NaN off it. Sets `_cg0`/`_cg1` (the height's world-plan partials) and `_cn` (0 the road, 1 its run). */
 function deckAt(s: Surface, i: number, q: Float64Array): void {
   const x = q[PQ_X]!;
@@ -655,7 +703,7 @@ function deckAt(s: Surface, i: number, q: Float64Array): void {
   const x0 = P[o + P_OX]!;
   const z0 = P[o + P_OZ]!;
   const f = ((x - x0) * ex + (z - z0) * ez) / len2;
-  if (f < -0.02 || f > 1.02) {
+  if (f < -DECK_OVERRUN || f > 1 + DECK_OVERRUN) {
     _s[S_H] = NaN;
     return;
   }
@@ -753,16 +801,28 @@ function report(out: Float64Array): void {
     out[C_NY] = ny / len;
     out[C_NZ] = nz / len;
   }
-  let surf = w.q[qo + Q_SURF]!;
-  if (deck) {
-    if (_s[S_NODE] !== 0) surf = w.q[qo + Q_SURF2]!;
-  } else if (surf < 0) surf = _s[S_NODE] >= 0 ? w.surfs[_s[S_PATCH]]![_s[S_NODE]]! : w.q[qo + Q_SURF2]!;
-  else if (_s[S_NODE] < 0) surf = w.q[qo + Q_SURF2]!;
+  const surf = bestSurf(w, qo, deck);
   out[C_SURF] = surf;
   out[C_GRIP] = P[o + P_GRIP]! * GRIPS[surf]!;
   out[C_OWNER] = _s[S_OWNER];
   out[C_ARG] = _s[S_PATCH];
   out[C_AUX] = _s[S_AUX];
+}
+
+/** The surface index of the best candidate, a patch of `w` (`qo`: its `q` offset; `deck`: a deck segment). */
+function bestSurf(w: Surface, qo: number, deck: boolean): number {
+  const surf = w.q[qo + Q_SURF]!;
+  if (deck) return _s[S_NODE] !== 0 ? w.q[qo + Q_SURF2]! : surf;
+  if (surf < 0) return _s[S_NODE] >= 0 ? w.surfs[_s[S_PATCH]]![_s[S_NODE]]! : w.q[qo + Q_SURF2]!;
+  return _s[S_NODE] < 0 ? w.q[qo + Q_SURF2]! : surf;
+}
+
+/** `contactIn`'s grip (`C_GRIP`) at what the last `heightIn` found, its normal never worked out; 0 where it found nothing. */
+export function heightGrip(): number {
+  const w = live.surf;
+  if (w === null) return 0;
+  const qo = _s[S_PATCH] * Q_STRIDE;
+  return w.p[_s[S_PATCH] * P_STRIDE + P_GRIP]! * GRIPS[bestSurf(w, qo, w.q[qo + Q_KIND] === DECK)]!;
 }
 
 /** The asked point of a query, in the typed array a caller passes: world x, z and the asking height y (no boxed doubles cross the call). */
@@ -827,9 +887,8 @@ export function heightIn(s: Surface, q: Float64Array): number {
 // (`TYRE_PROFILE`, car-materials.ts: the crown, its two edges and both shoulders), each over its lower half in `STEPS` arcs a side. A
 // tyre rolling off a face's edge rests on the edge with whichever ring and arc still reach it, up to its hub's height, so its hub comes
 // down that arc as the drawn tyre does. The whole tyre turns with the body, so a rolled or pitched car's tread meets the ground where
-// the drawn tyre does. The first `BASE` points (every ring's bottom and the crown's arc to 45°) are the whole footprint where no
-// patch ends within the tyre's reach (`edgeIn`): over one patch's surface the rings' arcs add nothing (11 points against 85 is
-// 10-40 % of a 32-car derby's frame, measured).
+// the drawn tyre does. Where no patch ends within the tyre's reach (`edgeIn`) the crown's bottom, turned to face the surface, is the
+// whole footprint (`BASE`): over one patch's surface the rest add nothing but queries, 11 of them every wheel every slice.
 const RINGS: readonly (readonly [number, number])[] = [
   [0, 0.32],
   [0.082, 0.314],
@@ -839,9 +898,7 @@ const RINGS: readonly (readonly [number, number])[] = [
 ];
 const STEPS = 12;
 const FOOT = RINGS.length * (2 * STEPS + 1);
-const BASE = RINGS.length + 6;
-/** The crown's arcs (in steps either side) that the base footprint carries: 7.5°, 15° and 45°. */
-const CROWN = [1, 2, STEPS / 2];
+const BASE = 1;
 const FX = new Float64Array(FOOT);
 const FY = new Float64Array(FOOT);
 const FZ = new Float64Array(FOOT);
@@ -860,12 +917,8 @@ function arc(at: number, ring: number, k: number): number {
 {
   let at = 0;
   for (let s = 0; s < RINGS.length; s++) at = arc(at, s, 0);
-  for (let c = 0; c < CROWN.length; c++) {
-    at = arc(at, 0, CROWN[c]!);
-    at = arc(at, 0, -CROWN[c]!);
-  }
   for (let k = -STEPS; k <= STEPS; k++) {
-    for (let s = 0; s < RINGS.length; s++) if (k !== 0 && (s !== 0 || !CROWN.includes(Math.abs(k)))) at = arc(at, s, k);
+    for (let s = 0; s < RINGS.length; s++) if (k !== 0) at = arc(at, s, k);
   }
 }
 /** How far (m at wheel scale 1, plan) a footprint point reaches from its hub, with a margin for the body's tilt. */
@@ -917,6 +970,206 @@ function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: nu
     }
   }
   return false;
+}
+
+/** Slack (m) on a height bound: the bilinear reading rounds up to a few ulps past its highest node. */
+const TOP_SLACK = 1e-9;
+
+/**
+ * Per cell of a grid (row-major, `nu - 1` wide) the highest its surface stands in its frame, -Infinity where it has none: its nodes'
+ * bilinear (`gridAt`), or the crease where all four corners have a lateral: the centre less the clamped lateral share of the drop,
+ * its highest of the four products of the lateral's and the drop's extremes over the cell.
+ */
+function cellTopsOf(nu: number, nv: number, nodes: Float32Array, centre: Float32Array, lat: Float32Array, drop: Float32Array): Float64Array {
+  const tops = new Float64Array((nu - 1) * (nv - 1));
+  const corners = [0, 1, nu, nu + 1];
+  for (let cj = 0; cj < nv - 1; cj++) {
+    for (let ci = 0; ci < nu - 1; ci++) {
+      const c = cj * nu + ci;
+      let top = -Infinity;
+      const creased = lat.length > 0 && corners.every((k) => !Number.isNaN(lat[c + k]!));
+      if (creased) {
+        let latLow = Infinity;
+        let latHigh = -Infinity;
+        let dropLow = Infinity;
+        let dropHigh = -Infinity;
+        for (const k of corners) {
+          top = Math.max(top, centre[c + k]!);
+          latLow = Math.min(latLow, Math.max(-1, Math.min(1, lat[c + k]!)));
+          latHigh = Math.max(latHigh, Math.max(-1, Math.min(1, lat[c + k]!)));
+          dropLow = Math.min(dropLow, drop[c + k]!);
+          dropHigh = Math.max(dropHigh, drop[c + k]!);
+        }
+        top += Math.max(-latLow * dropLow, -latLow * dropHigh, -latHigh * dropLow, -latHigh * dropHigh);
+      } else {
+        for (const k of corners) if (nodes[c + k]! > top) top = nodes[c + k]!;
+      }
+      tops[cj * (nu - 1) + ci] = top + TOP_SLACK;
+    }
+  }
+  return tops;
+}
+
+/**
+ * The highest patch `i` of `s` stands anywhere over the plan box [xMin, xMax] × [zMin, zMax] (m, world y; -Infinity: nowhere there):
+ * a level frame with fixed heights reads its cells under the box (`cellTops`), any other its whole extent (a crease or hills on one:
+ * unbounded).
+ */
+function patchTop(s: Surface, i: number, xMin: number, xMax: number, zMin: number, zMax: number, skip: number): number {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  if (xMax < P[o + P_MINX]! || xMin > P[o + P_MAXX]! || zMax < P[o + P_MINZ]! || zMin > P[o + P_MAXZ]!) return -Infinity;
+  const qo = i * Q_STRIDE;
+  if (skip >= 0 && s.q[qo + Q_OWNER] === skip) return -Infinity;
+  const originY = P[o + P_OY]!;
+  if (s.q[qo + Q_KIND] === DECK) return originY + Math.abs(P[o + D_DY]!) * (1 + DECK_OVERRUN) + P[o + D_HALF]! * Math.abs(P[o + D_TAN]!) + TOP_SLACK;
+  const step = P[o + P_STEP]!;
+  const stepV = P[o + P_STEPV]!;
+  const nu = s.q[qo + Q_NU]!;
+  const nv = s.q[qo + Q_NV]!;
+  const raised = Math.max(0, -P[o + P_DROP]!);
+  const tops = s.cellTops[i]!;
+  if (tops.length === 0 || P[o + P_BX + 1] !== 1) {
+    if (s.lat[i]!.length > 0 || s.q[qo + Q_SURF2]! >= 0) return Infinity;
+    const u0 = P[o + P_U0]!;
+    const v0 = P[o + P_V0]!;
+    const farU = Math.max(Math.abs(u0), Math.abs(u0 + (nu - 1) * step));
+    const farV = Math.max(Math.abs(v0), Math.abs(v0 + (nv - 1) * stepV));
+    const heightBound = Math.max(0, P[o + P_HMAX]!) + raised;
+    return originY + Math.abs(P[o + P_AX + 1]!) * farU + Math.abs(P[o + P_BX + 1]!) * heightBound + Math.abs(P[o + P_CX + 1]!) * farV + TOP_SLACK;
+  }
+  // The box's corners in the level frame: each frame axis in plan reaches its least and greatest along the box's matching corners.
+  const ax = P[o + P_AX]!;
+  const az = P[o + P_AX + 2]!;
+  const cx = P[o + P_CX]!;
+  const cz = P[o + P_CX + 2]!;
+  const dxMin = xMin - P[o + P_OX]!;
+  const dxMax = xMax - P[o + P_OX]!;
+  const dzMin = zMin - P[o + P_OZ]!;
+  const dzMax = zMax - P[o + P_OZ]!;
+  const u0 = P[o + P_U0]!;
+  const v0 = P[o + P_V0]!;
+  const fuMin = (ax * (ax >= 0 ? dxMin : dxMax) + az * (az >= 0 ? dzMin : dzMax) - u0) / step;
+  const fuMax = (ax * (ax >= 0 ? dxMax : dxMin) + az * (az >= 0 ? dzMax : dzMin) - u0) / step;
+  const fvMin = (cx * (cx >= 0 ? dxMin : dxMax) + cz * (cz >= 0 ? dzMin : dzMax) - v0) / stepV;
+  const fvMax = (cx * (cx >= 0 ? dxMax : dxMin) + cz * (cz >= 0 ? dzMax : dzMin) - v0) / stepV;
+  let top = -Infinity;
+  if ((fuMin < 0 || fvMin < 0 || fuMax >= nu - 1 || fvMax >= nv - 1) && s.q[qo + Q_SURF2]! >= 0) {
+    const hills = s.hills[i]!;
+    top = TOP_SLACK;
+    for (let k = 2; k < hills.length; k += 4) top += Math.max(0, hills[k]!);
+  }
+  const i0 = Math.max(0, Math.floor(fuMin));
+  const i1 = Math.min(nu - 2, Math.floor(fuMax));
+  const j0 = Math.max(0, Math.floor(fvMin));
+  const j1 = Math.min(nv - 2, Math.floor(fvMax));
+  for (let cj = j0; cj <= j1; cj++) {
+    for (let c = cj * (nu - 1) + i0; c <= cj * (nu - 1) + i1; c++) if (tops[c]! > top) top = tops[c]!;
+  }
+  return originY + top + raised;
+}
+
+/** The highest any patch of `s` but those in `except` stands over the plan box (m, world y; -Infinity: nothing there), patch by patch. */
+function topIn(s: Surface, xMin: number, xMax: number, zMin: number, zMax: number, except: readonly number[]): number {
+  if (!s.sealed) s.seal();
+  let top = -Infinity;
+  for (let k = 0; k < s.nAlways; k++) if (!except.includes(s.always[k]!)) top = Math.max(top, patchTop(s, s.always[k]!, xMin, xMax, zMin, zMax, -1));
+  if (s.cellList.length === 0) return top;
+  const i0 = Math.max(0, Math.floor(xMin / CELL) - s.cx0);
+  const i1 = Math.min(s.cnx - 1, Math.floor(xMax / CELL) - s.cx0);
+  const j0 = Math.max(0, Math.floor(zMin / CELL) - s.cz0);
+  const j1 = Math.min(s.cnz - 1, Math.floor(zMax / CELL) - s.cz0);
+  for (let cj = j0; cj <= j1; cj++) {
+    for (let ci = i0; ci <= i1; ci++) {
+      const c = cj * s.cnx + ci;
+      for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) if (!except.includes(s.cellList[k]!)) top = Math.max(top, patchTop(s, s.cellList[k]!, xMin, xMax, zMin, zMax, -1));
+    }
+  }
+  return top;
+}
+
+/** Raster cell (m): a static surface's height bounds are kept per square of this side, aligned to whole metres. */
+const RASTER = 1;
+/** A patch wider than this (m) is no part of the raster's extent (a scene's endless plane): its bound still is of every cell's. */
+const RASTER_SPAN = 4096;
+/** The most cells a raster takes; a larger extent keeps none (every bound read patch by patch). */
+const RASTER_MAX_CELLS = 1 << 22;
+/** A raster cell reads the patches over its square shrunk by this much (m) on its far sides, so a cell-aligned grid's neighbour cells stay out. */
+const RASTER_EDGE = 1e-9;
+const NO_PATCHES: readonly number[] = [];
+
+/** Build `s`'s raster (`Surface.raster`) over its patches' plan extent, the moving ones left out (`staticTop` tests them one by one). */
+function buildRaster(s: Surface): void {
+  if (!s.sealed) s.seal();
+  s.rasterBuilt = true;
+  s.raster = EMPTY64;
+  s.rasterNx = 0;
+  s.rasterNz = 0;
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minZ = Infinity;
+  let maxZ = -Infinity;
+  for (let i = 0; i < s.count; i++) {
+    if (s.moving.includes(i)) continue;
+    s.nodeBox(i, _box);
+    if (_box[1]! - _box[0]! > RASTER_SPAN || _box[3]! - _box[2]! > RASTER_SPAN) continue;
+    minX = Math.min(minX, _box[0]!);
+    maxX = Math.max(maxX, _box[1]!);
+    minZ = Math.min(minZ, _box[2]!);
+    maxZ = Math.max(maxZ, _box[3]!);
+  }
+  if (!(maxX >= minX && maxZ >= minZ)) return;
+  const x0 = Math.floor(minX / RASTER) * RASTER;
+  const z0 = Math.floor(minZ / RASTER) * RASTER;
+  const nx = Math.floor((maxX - x0) / RASTER) + 1;
+  const nz = Math.floor((maxZ - z0) / RASTER) + 1;
+  if (nx * nz > RASTER_MAX_CELLS) return;
+  const raster = new Float64Array(nx * nz);
+  for (let cj = 0; cj < nz; cj++) {
+    for (let ci = 0; ci < nx; ci++) {
+      const x = x0 + ci * RASTER;
+      const z = z0 + cj * RASTER;
+      raster[cj * nx + ci] = topIn(s, x, x + RASTER - RASTER_EDGE, z, z + RASTER - RASTER_EDGE, s.moving);
+    }
+  }
+  s.raster = raster;
+  s.rasterX0 = x0;
+  s.rasterZ0 = z0;
+  s.rasterNx = nx;
+  s.rasterNz = nz;
+}
+
+/**
+ * The highest the static surface `s` stands over the plan box [xMin, xMax] × [zMin, zMax] (m, world y; -Infinity: nothing there): a body
+ * above it meets nothing of `s`. Read off its raster, the patches that moved since tested one by one; past the raster, patch by patch,
+ * or with `cellsOnly` no bound at all (Infinity): the raster's answer never falls as the box grows, the patch by patch one can.
+ */
+export function staticTop(s: Surface, xMin: number, xMax: number, zMin: number, zMax: number, cellsOnly = false): number {
+  if (!s.rasterBuilt) buildRaster(s);
+  const i0 = Math.floor((xMin - s.rasterX0) / RASTER);
+  const i1 = Math.floor((xMax - s.rasterX0) / RASTER);
+  const j0 = Math.floor((zMin - s.rasterZ0) / RASTER);
+  const j1 = Math.floor((zMax - s.rasterZ0) / RASTER);
+  if (i0 < 0 || j0 < 0 || i1 >= s.rasterNx || j1 >= s.rasterNz) return cellsOnly ? Infinity : topIn(s, xMin, xMax, zMin, zMax, NO_PATCHES);
+  const raster = s.raster;
+  const nx = s.rasterNx;
+  let top = -Infinity;
+  for (let cj = j0; cj <= j1; cj++) {
+    for (let c = cj * nx + i0; c <= cj * nx + i1; c++) if (raster[c]! > top) top = raster[c]!;
+  }
+  const moving = s.moving;
+  for (let k = 0; k < moving.length; k++) top = Math.max(top, patchTop(s, moving[k]!, xMin, xMax, zMin, zMax, -1));
+  return top;
+}
+
+/** The highest the car tops near body `skip` (`CarSurfaces.near`) stand over the plan box (m, world y; -Infinity: none there). */
+export function topsTop(skip: number, xMin: number, xMax: number, zMin: number, zMax: number): number {
+  const tops = live.tops;
+  if (tops === null) return -Infinity;
+  tops.near(skip);
+  let top = -Infinity;
+  for (let k = 0; k < tops.nAlways; k++) top = Math.max(top, patchTop(tops, tops.always[k]!, xMin, xMax, zMin, zMax, skip));
+  return top;
 }
 
 const _w = new Float64Array(HIT_SIZE);

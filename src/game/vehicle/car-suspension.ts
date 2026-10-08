@@ -2,7 +2,7 @@ import * as THREE from "three";
 import type { VehicleClassId } from "./vehicle-classes.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
-import { C_H, HIT_SIZE } from "../world/surfaces.ts";
+import { C_H, HIT_SIZE, staticTop } from "../world/surfaces.ts";
 import { LoadTransfer } from "./car-load.ts";
 
 /**
@@ -342,6 +342,8 @@ export class Suspension {
       const px = e[0]! * x1 + e[4]! * y + e[8]! * z2 + e[12]!;
       const py = e[1]! * x1 + uy * y + e[9]! * z2 + e[13]!;
       const pz = e[2]! * x1 + e[6]! * y + e[10]! * z2 + e[14]!;
+      // The ground nowhere higher here than this point less the depth found so far: it cannot bottom out deeper on it.
+      if (staticTop(ground, px, px, pz, pz) - py <= pen) continue;
       const g = ground.heightAt(px, pz, py);
       if (g !== NO_FLOOR) pen = Math.max(pen, g - py);
     }

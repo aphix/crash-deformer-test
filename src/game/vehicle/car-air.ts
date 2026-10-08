@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "./car.ts";
-import { NO_FLOOR } from "../world/ground.ts";
-import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, ridgeCross, wheelContact } from "../world/surfaces.ts";
+import { activeGround, NO_FLOOR } from "../world/ground.ts";
+import { C_AUX, C_H, C_NX, C_NY, C_NZ, C_OWNER, C_PX, C_PY, C_PZ, C_TOUCH, EDGE_HIT, edgeCross, groundWalls, HIT_SIZE, MU_TYRE, patchOf, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, ridgeCross, staticTop, topsTop, wheelContact } from "../world/surfaces.ts";
 import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
@@ -84,6 +84,8 @@ const SEGS: Int16Array = (() => {
   }
   return pairs.slice(0, m);
 })();
+/** The farthest (m) any body point stands from the centre of mass, the belly's class lift aside. */
+const POINT_REACH = Math.max(...POINTS.map(([x, y, z]) => Math.hypot(x, y - COM_Y, z)));
 /** Contacts a body can hold in one slice: its tyres and points, and a belly segment's edge each. */
 const CONTACTS = POINTS.length + SEGS.length / 2;
 /** Bumper, beltline and roof corners (`HULL[4..]`): the body points whose face a hit crushes (`load-crush.ts`). */
@@ -210,12 +212,25 @@ const BY = new Float64Array(POINTS.length);
 const BZ = new Float64Array(POINTS.length);
 const BRISE = new Float64Array(POINTS.length);
 const BPATCH = new Float64Array(POINTS.length);
+/** Per belly point this slice: 1 while its reading is not taken (nothing stands within its slice's travel of it, `readBelly`). */
+const UNREAD = new Uint8Array(POINTS.length);
 /** The surfaces of a car in no world (a bare harness): the world's ground alone. */
 const LOCAL = new CarSurfaces();
 const _s = new THREE.Vector3();
 const HIT = new Float64Array(HIT_SIZE);
 /** The query point `pointContact` is asked (world x, z and the asking height y). */
 const PQ = new Float64Array(PQ_SIZE);
+
+/** Belly point `i`'s reading at (`BX`, `BY`, `BZ`) for body `slot`: its contact in `HIT`, its rise in `BRISE` and its patch in `BPATCH`. */
+function readBelly(i: number, slot: number): void {
+  PQ[PQ_X] = BX[i]!;
+  PQ[PQ_Z] = BZ[i]!;
+  PQ[PQ_Y] = BY[i]!;
+  pointContact(PQ, slot, HIT);
+  BRISE[i] = HIT[C_H]! - BY[i]!;
+  BPATCH[i] = patchOf(HIT);
+  UNREAD[i] = 0;
+}
 
 /** Contact `n`, a body point at `R[n]` from the centre `pen` m under the surface in `hit` (`pointContact`): `hull` a crushable hull point, else the belly. */
 function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: number, hull: boolean, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3, mass: number): void {
@@ -599,24 +614,65 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   }
   const tyres = n;
   let nearing = false;
-  for (let i = BODY_FROM; i < POINTS.length; i++) {
+  // A point that stays higher than the static surface anywhere within its slice's plan travel, by its descent over the slice and a
+  // speculative gap, neither meets nor nears it: no reading. The car tops are read whenever one stands within the body's reach.
+  const statics = activeGround();
+  const speed = v.length();
+  const turnRate = w.length();
+  const bodyReach = POINT_REACH + Math.abs(lift) + (speed + turnRate * (POINT_REACH + Math.abs(lift))) * dt;
+  const readAll = topsTop(car.slot, _com.x - bodyReach, _com.x + bodyReach, _com.z - bodyReach, _com.z + bodyReach) > -Infinity;
+  // The whole body at once first: each point's box below and each belly segment's lies within the points' boxes together, so a raster
+  // under all of them lower than the lowest point's clearance clears every point and segment in one read (measured: 84 % of the slices
+  // of a 32-car race at aggression 1, 93 % at 0).
+  let allClear = false;
+  if (!readAll) {
+    let xMin = Infinity;
+    let xMax = -Infinity;
+    let zMin = Infinity;
+    let zMax = -Infinity;
+    let low = Infinity;
+    for (let i = BODY_FROM; i < POINTS.length; i++) {
+      const r = hullPoint(i, q, -COM_Y, lift, R[n]!);
+      if (crushed && i < HULL.length) crushShift(i, q, cr, r);
+      const px = _com.x + r.x;
+      const pz = _com.z + r.z;
+      _vp.crossVectors(w, r).add(v);
+      const planTravel = hypot2(_vp.x, _vp.z) * dt;
+      xMin = Math.min(xMin, px - planTravel);
+      xMax = Math.max(xMax, px + planTravel);
+      zMin = Math.min(zMin, pz - planTravel);
+      zMax = Math.max(zMax, pz + planTravel);
+      low = Math.min(low, _com.y + r.y - (Math.max(0, -_vp.y) * dt + SPECULATIVE_GAP));
+    }
+    allClear = staticTop(statics, xMin, xMax, zMin, zMax, true) < low;
+  }
+  for (let i = allClear ? POINTS.length : BODY_FROM; i < POINTS.length; i++) {
     const r = hullPoint(i, q, -COM_Y, lift, R[n]!);
     if (crushed && i < HULL.length) crushShift(i, q, cr, r);
     const px = _com.x + r.x;
     const py = _com.y + r.y;
     const pz = _com.z + r.z;
-    PQ[PQ_X] = px;
-    PQ[PQ_Z] = pz;
-    PQ[PQ_Y] = py;
-    pointContact(PQ, car.slot, HIT);
-    const gy = HIT[C_H]!;
+    _vp.crossVectors(w, r).add(v);
+    const planTravel = hypot2(_vp.x, _vp.z) * dt;
+    const descent = Math.max(0, -_vp.y) * dt + SPECULATIVE_GAP;
+    const clear = !readAll && staticTop(statics, px - planTravel, px + planTravel, pz - planTravel, pz + planTravel) < py - descent;
     if (i >= HULL.length) {
       BX[i] = px;
       BY[i] = py;
       BZ[i] = pz;
-      BRISE[i] = gy - py;
-      BPATCH[i] = patchOf(HIT);
+      if (clear) {
+        UNREAD[i] = 1;
+        continue;
+      }
+      readBelly(i, car.slot);
+    } else {
+      if (clear) continue;
+      PQ[PQ_X] = px;
+      PQ[PQ_Z] = pz;
+      PQ[PQ_Y] = py;
+      pointContact(PQ, car.slot, HIT);
     }
+    const gy = HIT[C_H]!;
     if (gy === NO_FLOOR) continue;
     const pen = gy - py;
     if (pen <= 0 && -pen > SPECULATIVE_GAP) {
@@ -643,9 +699,19 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // (`ridgeCross`), pressed along the belly's own normal, not the windscreen's: a sedan on another's roof, its middle row on the roof and
   // its front row past the roof's front edge, tipped 10° nose-down onto the windscreen with its centre still 25 cm behind that edge.
   _up.set(0, 1, 0).applyQuaternion(q);
-  for (let s = 0; s < SEGS.length; s += 2) {
+  for (let s = allClear ? SEGS.length : 0; s < SEGS.length; s += 2) {
     let a = SEGS[s]!;
     let b = SEGS[s + 1]!;
+    // Both ends unread and the static surface under the segment lower than its lower end: the segment meets nothing.
+    if (UNREAD[a] === 1 && UNREAD[b] === 1) {
+      const xMin = Math.min(BX[a]!, BX[b]!);
+      const xMax = Math.max(BX[a]!, BX[b]!);
+      const zMin = Math.min(BZ[a]!, BZ[b]!);
+      const zMax = Math.max(BZ[a]!, BZ[b]!);
+      if (staticTop(statics, xMin, xMax, zMin, zMax) < Math.min(BY[a]!, BY[b]!)) continue;
+    }
+    if (UNREAD[a] === 1) readBelly(a, car.slot);
+    if (UNREAD[b] === 1) readBelly(b, car.slot);
     let pen: number;
     if (BPATCH[a] === BPATCH[b]) {
       if (!(BPATCH[a]! >= 0) || a < PAN_FROM || b < PAN_FROM) continue;

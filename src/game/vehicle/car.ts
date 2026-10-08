@@ -1,7 +1,6 @@
 import * as THREE from "three";
 import type { DeformNetState } from "../deform/streamed-deform.ts";
 import { applyGroundFriction, CRASH, hypot2 } from "../deform/physics-util.ts";
-import { HUB_FLOOR, TYRE_R } from "../deform/deform-state.ts";
 import { CAR_HALF, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { CarParts } from "./car-parts.ts";
@@ -236,7 +235,6 @@ export class DeformableCar extends CarParts {
   }
 
   syncPose(dt: number): void {
-    this.deform.slot = this.slot;
     this.deform.followGroup(this.group, this.velocity, this.angular, dt);
     this.yaw = this.group.rotation.y;
     this.roll = this.group.rotation.z;
@@ -469,11 +467,9 @@ export class DeformableCar extends CarParts {
         // Follows its hub along the car too: a face's shove, or a squeeze past the hubs, moves it off rest. Stood up
         // off the hub so the tyre meets the ground the hub floor holds it over, and at the hub's own height: the
         // stored one is clamped within 7 cm of rest (`clampLocal`), and a frame stood on a crest's middle put it
-        // 1.7 cm over the hub, the tyre off the road. The hub's floor is already where its tyre rests (`sampleGround`
-        // reads `wheelContact`, the slope included), so the tyre stands `TYRE_R - HUB_FLOOR` straight up over it: lifted
-        // again for the ground's slope it hung 2.1 cm over a −20° road.
+        // 1.7 cm over the hub, the tyre off the road.
         const at = this.deform.massWorld(hubs[i]!);
-        const lift = TYRE_R - HUB_FLOOR;
+        const lift = this.deform.wheelLift(at.x, at.y, at.z);
         const y = e[4]! * (at.x - e[12]!) + e[5]! * (at.y - e[13]!) + e[6]! * (at.z - e[14]!);
         w.position.set(hub.x + e[1]! * lift, THREE.MathUtils.clamp(y, 0.16, 0.55) + e[5]! * lift, hub.z + e[9]! * lift);
         w.visible = true;

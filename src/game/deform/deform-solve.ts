@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
-import { C_GRIP, C_H, contactIn, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, wheelContact } from "../world/surfaces.ts";
+import { C_GRIP, C_H, HIT_SIZE, heightGrip, heightIn, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "../world/surfaces.ts";
 import {
   leftoverCrumple,
   applyGroundFriction,
@@ -41,10 +41,7 @@ const _n = new THREE.Vector3();
  * the out-of-line call, all five were boxed per mass.
  */
 const _clamp = new Float64Array(5);
-/** `sampleGround`'s hub position and its tyre's contact (`wheelContact`). */
-const _hub = new Float64Array(3);
-const _tyre = new Float64Array(HIT_SIZE);
-/** `sampleGround`'s query point for a mass off the hubs. */
+/** `sampleGround`'s query point. */
 const _pq = new Float64Array(PQ_SIZE);
 /** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
 const SHAPE_REF_HZ = 240;
@@ -649,27 +646,13 @@ export abstract class DeformSolve extends DeformContact {
   }
 
   /** A course's ground (hills, bridge decks; 0 and grip 1 on the flat pad) under every dynamic mass on its own
-   *  layer, where it stands now, and the grip where there is ground. An attached hub's is what its tyre stands on, as a car's
-   *  wheel's is (`wheelContact`, the rigid step's and the driven car's answer, another car's top included): the height its
-   *  tread's footprint rests on below the hub, so `HUB_FLOOR` holds the tyre at most `TYRE_R - HUB_FLOOR` in it. Read under
-   *  the hub's centre alone, a wreck's rear hubs over the gap behind a wedge's high end read the floor 1 m below the edge its
-   *  tyres rested on in the rigid step, and the plane under the hubs turned the frame 25.6° in the slice it landed. */
+   *  layer, where it stands now, and the grip where there is ground: one read under each mass, its hubs' too. */
   protected sampleGround(floor: Float64Array, grip: Float64Array | null): void {
     const ground = activeGround();
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       const w = m.world;
-      if (m.hub && !m.popped) {
-        _hub[0] = w.x;
-        _hub[1] = w.y;
-        _hub[2] = w.z;
-        wheelContact(_hub, this.frameAxes, 1, this.slot, _tyre);
-        const h = w.y - TYRE_R + _tyre[C_H]!;
-        floor[i] = h;
-        if (grip && h !== NO_FLOOR) grip[i] = _tyre[C_GRIP]!;
-        continue;
-      }
       if (grip === null) {
         floor[i] = ground.heightAt(w.x, w.z, w.y);
         continue;
@@ -678,10 +661,9 @@ export abstract class DeformSolve extends DeformContact {
       _pq[PQ_X] = w.x;
       _pq[PQ_Z] = w.z;
       _pq[PQ_Y] = w.y;
-      contactIn(ground, _pq, _tyre);
-      const h = _tyre[C_H]!;
+      const h = heightIn(ground, _pq);
       floor[i] = h;
-      if (h !== NO_FLOOR) grip[i] = _tyre[C_GRIP]!;
+      if (h !== NO_FLOOR) grip[i] = heightGrip();
     }
   }
 
