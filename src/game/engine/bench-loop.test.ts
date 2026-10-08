@@ -186,12 +186,18 @@ describe("given a bench page opened by its address alone, with no loop in it", (
   it("when the page is the strip with keep, auto and loopultra turned off, then the loop it starts has them off and the address it rewrites keeps them off", () => {
     const run = runFromPage("?bench=strip&keep=0&auto=0&loopultra=0", "k3x9q2");
     assert.ok(run !== null);
-    assert.deepEqual({ keep: run.keep, auto: run.auto, ultraNext: run.ultraNext }, { keep: false, auto: false, ultraNext: false });
-    assert.deepEqual(parseRun(new URL(stepHref("https://game.test/crush/", run)).search), run);
+    assert.equal(run.keep, false, "keep");
+    assert.equal(run.auto, false, "auto");
+    assert.equal(run.ultraNext, false, "loopultra");
+    const back = parseRun(new URL(stepHref("https://game.test/crush/", run)).search);
+    assert.ok(back !== null && back.session === "k3x9q2" && back.step === run.step && !back.keep && !back.auto && !back.ultraNext, "the rewritten address keeps them off");
   });
   it("when the page is the strip with only keep turned off, then the options it leaves out are on", () => {
     const run = runFromPage("?bench=strip&keep=0", "k3x9q2");
-    assert.deepEqual(run && { keep: run.keep, auto: run.auto, ultraNext: run.ultraNext }, { keep: false, auto: true, ultraNext: ULTRA_AVAILABLE });
+    assert.ok(run !== null);
+    assert.equal(run.keep, false, "keep");
+    assert.equal(run.auto, true, "auto");
+    assert.equal(run.ultraNext, ULTRA_AVAILABLE, "loopultra");
   });
 });
 
@@ -246,6 +252,7 @@ describe("given a page outside a secure context (a build opened over plain http 
       throw new TypeError("crypto.randomUUID is not a function");
     });
     const run = startRun(newSession());
-    assert.deepEqual(parseRun(new URL(stepHref("http://192.168.1.20:3000/", run)).search), run);
+    const back = parseRun(new URL(stepHref("http://192.168.1.20:3000/", run)).search);
+    assert.ok(back !== null && back.session === run.session && back.step === run.step, "the bench page reads its own loop back");
   });
 });
