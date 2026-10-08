@@ -49,6 +49,10 @@ import { clearTransients } from "./scene-clear.ts";
 import { Lab } from "./engine-lab.ts";
 import type { LabFlick } from "./lab-flick.ts";
 import type { LabArt } from "../present/lab-art.ts";
+import type { Garage } from "./garage.ts";
+import { PlayerLooks } from "./player-looks.ts";
+import { wearCarLook } from "../present/car-look.ts";
+import { NO_CAR_PICK } from "../present/look-pick.ts";
 import { FLOOR } from "../scenes/lab.ts";
 
 const _v = new THREE.Vector3();
@@ -148,6 +152,10 @@ export abstract class EngineCore {
   get showLab(): boolean {
     return this.sceneId === "lab";
   }
+  /** The garage: the player's car and driver under a work light, recoloured and spray-painted from the HUD (`Garage`). */
+  get showGarage(): boolean {
+    return this.sceneId === "garage";
+  }
   /** A staged scene: the press, the piston bank or the door ram moves the car; the corkscrew only times it; the stack's cars fall under the world step alone. */
   protected get rigScene(): boolean {
     return this.sceneId === "press" || this.sceneId === "pistons" || this.sceneId === "doors" || this.sceneId === "corkscrew" || this.sceneId === "stack";
@@ -208,6 +216,10 @@ export abstract class EngineCore {
   protected readonly lab = new Lab();
   protected labArt: LabArt | null = null;
   protected labFlick: LabFlick | null = null;
+  /** Every player's look this browser draws (its own and its netplay peers'); worn on each dress (`dressCar`). */
+  protected readonly looks = new PlayerLooks();
+  /** The garage's room, standing driver and spray can; built on first entering the garage. */
+  protected garage: Garage | null = null;
   protected fxPoofed = false;
   protected sparkAt = -10;
   protected deadSmokeAcc: number[] = [];
@@ -440,6 +452,13 @@ export abstract class EngineCore {
     const cls = carClass(car);
     assignClass(car, cls);
     armKill(car.deform, killClass(car), HANDLING.realism, this.derbyMode ? "derby" : "default");
+    const look = this.looks.of(car.group.userData.carIndex as number, this.ownCar());
+    wearCarLook(car, look?.car ?? NO_CAR_PICK, look?.carSpray ?? null);
+  }
+
+  /** This browser's own car: its netplay seat as a guest, else the player's car 0. */
+  protected ownCar(): number {
+    return this.net.client ? this.net.status().car : 0;
   }
 
 

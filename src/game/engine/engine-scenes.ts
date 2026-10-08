@@ -10,6 +10,9 @@ import { RANGE } from "../scenes/range.ts";
 import { makeRangeArt } from "../present/range-art.ts";
 import { LAB_LIGHT, LabArt } from "../present/lab-art.ts";
 import { LabFlick } from "./lab-flick.ts";
+import { Garage } from "./garage.ts";
+import { GARAGE } from "../present/garage-art.ts";
+import { pickedLook } from "../present/look-pick.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { stackShot } from "../scenes/stack-rig.ts";
@@ -41,7 +44,7 @@ export abstract class EngineScenes extends EngineDerby {
 
   /** The fleet props are the host's (netplay), and ignored while the press, a rig, the range, the Lab or the race owns the pad (the HUD locks them too). */
   private get fleetPropsLocked(): boolean {
-    return this.net.client || this.rigScene || this.showRange || this.showLab || this.race.active;
+    return this.net.client || this.rigScene || this.showRange || this.showLab || this.showGarage || this.race.active;
   }
 
   toggleBarrier(): void {
@@ -119,10 +122,10 @@ export abstract class EngineScenes extends EngineDerby {
   /** Per wall frame: advances the transition, makes the switch on its black frame and feeds the cel pass and the veil. */
   protected stepSceneFade(wallDt: number): void {
     const fade = this.sceneFade;
-    // Survival and the Lab are single player: a room (hosted or joined) takes the player back to the fleet.
+    // Survival, the Lab and the garage are single player: a room (hosted or joined) takes the player back to the fleet.
     if (SOLO_SCENES[this.sceneId] && this.net.role !== "off") {
       this.setRace(false);
-      if (this.showLab) {
+      if (this.showLab || this.showGarage) {
         this.sceneId = "fleet";
         this.ensureCars(this.sandboxCars);
         this.followSceneTypes();
@@ -147,17 +150,18 @@ export abstract class EngineScenes extends EngineDerby {
    */
   protected applyScene(next: SceneId): void {
     if (this.net.client) return;
-    // The range is a one-car scene: the sandbox's field comes back after it (its wall is the range's own, never the user's).
+    // The range and the garage are one-car scenes: the sandbox's field comes back after them (the range's wall is its own, never the user's).
     // The stack and the Lab run their own car counts and give the sandbox's back.
     const wasLab = this.showLab;
-    if (this.showRange || this.showStack || this.showLab) this.ensureCars(this.sandboxCars);
+    const wasGarage = this.showGarage;
+    if (this.showRange || this.showStack || this.showLab || this.showGarage) this.ensureCars(this.sandboxCars);
     if (this.race.active && next !== this.sceneId) this.setRace(false);
-    // The workshop's lights go with the Lab, before a race lights its course.
-    if (wasLab && next !== "lab") this.stage.look(null);
+    // The workshop's lights go with the Lab and the garage, before a race lights its course.
+    if ((wasLab && next !== "lab") || (wasGarage && next !== "garage")) this.stage.look(null);
     if (this.derbyMode !== (next === "derby")) this.setDerby(next === "derby");
-    if (next === "range" || next === "stack" || next === "lab") {
+    if (next === "range" || next === "stack" || next === "lab" || next === "garage") {
       this.sandboxCars = this.carCount;
-      this.ensureCars(next === "range" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
+      this.ensureCars(next === "range" || next === "garage" ? 1 : next === "lab" ? this.lab.types.length : this.stack.config.cars);
     }
     if (next === "race" || next === "survival") this.setRace(true, next === "survival");
     else this.sceneId = next;
@@ -173,6 +177,7 @@ export abstract class EngineScenes extends EngineDerby {
       this.view.setLens(LAB_FOV);
       this.frameLab();
     } else if (wasLab) this.view.setLens(null);
+    if (next === "garage") this.stage.look(LAB_LIGHT);
     this.emitHud();
   }
 
@@ -195,6 +200,11 @@ export abstract class EngineScenes extends EngineDerby {
   /** The Lab (`scenes/lab.ts`): flick a toy car at a stack, a wall of props or a car on a stand, on a giant workbench. */
   toggleLab(): void {
     this.setScene("lab");
+  }
+
+  /** The garage: recolour and spray-paint the player's car and driver. */
+  toggleGarage(): void {
+    this.setScene("garage");
   }
 
   /** The Lab's set (HUD): its preset's cars and props in place, framed afresh. */
@@ -354,8 +364,14 @@ export abstract class EngineScenes extends EngineDerby {
       this.queueWarm();
     }
     if (this.labArt) this.labArt.group.visible = this.showLab;
-    // In the Lab a press on a car picks it for a flick; elsewhere every press is the camera's.
-    this.view.take = this.showLab ? this.labFlick : null;
+    if (this.showGarage && !this.garage) {
+      this.garage = new Garage(this.camera, () => this.canvas.getBoundingClientRect(), () => this.cars[0], this.looks, () => this.emitHud());
+      this.scene.add(this.garage.art.group);
+      this.queueWarm();
+    }
+    if (this.garage) this.garage.art.group.visible = this.showGarage;
+    // In the Lab a press on a car picks it for a flick, in the garage it sprays it (can on); elsewhere every press is the camera's.
+    this.view.take = this.showLab ? this.labFlick : this.showGarage ? this.garage : null;
     if (this.race.active) {
       this.race.reset();
       this.finishResetCommon();
@@ -364,9 +380,10 @@ export abstract class EngineScenes extends EngineDerby {
     // The fleet's ground ends at the disc's rim (with the ramps, they and the slab's top too); the derby bowl, the rigs
     // and the range keep the endless pad; the corkscrew's channel is the ground over a pad drawn three times wider for
     // its far landings; the Lab's is its bench, brackets, shelves and the workshop floor, and its art replaces the pad.
-    setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode || this.rigScene || this.showRange ? null : this.showRamps ? this.ramps : DISC_GROUND);
+    setGround(this.showCorkscrew ? this.corkscrew : this.showLab ? this.lab.ground : this.derbyMode || this.rigScene || this.showRange || this.showGarage ? null : this.showRamps ? this.ramps : DISC_GROUND);
     this.stage.ground.scale.setScalar(this.showCorkscrew ? 3 : 1);
-    for (const o of this.studio) o.visible = !this.showLab;
+    // The Lab's and the garage's art replace the pad.
+    for (const o of this.studio) o.visible = !this.showLab && !this.showGarage;
     if (this.showCompactor) {
       this.parkCompactor();
       this.finishResetCommon();
@@ -399,6 +416,7 @@ export abstract class EngineScenes extends EngineDerby {
     if (this.derbyMode) this.spawnDerby();
     else if (this.showRange) this.spawnRange();
     else if (this.showLab) this.spawnLab();
+    else if (this.showGarage) this.spawnGarage();
     else this.spawnFleet();
     this.barrierHits.fill(false);
     this.barrier.group.visible = this.barrierUp;
@@ -407,7 +425,7 @@ export abstract class EngineScenes extends EngineDerby {
     this.ramps.group.visible = this.rampsUp;
     this.ramps.place(this.barrier.yaw, this.barrierUp ? this.barrier : null);
     scatterRampBalls(this.balls, this.ballsUp, this.sceneRng(1));
-    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange && !this.showLab;
+    for (const p of this.poles) p.group.visible = !this.derbyMode && !this.showRange && !this.showLab && !this.showGarage;
     this.finishResetCommon();
   }
 
@@ -452,6 +470,16 @@ export abstract class EngineScenes extends EngineDerby {
     car.group.visible = true;
     car.spawnFacing(-RANGE.run, 0, Math.PI / 2, RANGE.kph / KPH_PER_MS);
     this.dressCar(car);
+  }
+
+  /** The player's car parked on the garage's turntable, nose to +z, and the player's driver standing beside it. */
+  private spawnGarage(): void {
+    const car = this.carA;
+    car.group.visible = true;
+    car.spawnFacing(0, 0, 0, 0);
+    this.dressCar(car);
+    this.garage!.art.stand(pickedLook(GARAGE.driver, this.looks.mine.person), this.looks.mine.personSpray);
+    this.parkExtras();
   }
 
   private spawnDerby(): void {

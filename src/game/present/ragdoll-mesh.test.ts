@@ -2,12 +2,12 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
-import { driverLook, type DriverLook } from "./driver-look.ts";
+import { driverLook, JEANS, type DriverLook } from "./driver-look.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { PARTS } from "./ragdoll-body.ts";
 
-const MAN: DriverLook = { woman: false, shirt: 0xc0392b, hair: 0x18120f };
-const WOMAN: DriverLook = { woman: true, shirt: 0x2a9d8f, hair: 0xd2b062 };
+const MAN: DriverLook = { woman: false, shirt: 0xc0392b, pants: JEANS, hair: 0x18120f, hat: null, mustache: false };
+const WOMAN: DriverLook = { woman: true, shirt: 0x2a9d8f, pants: JEANS, hair: 0xd2b062, hat: null, mustache: false };
 const NAVY = new THREE.Color(0x1b2a4a);
 
 /** Slot 0's pieces as (colour, x-size) rows after posing the whole standing dummy; hidden pieces (zero scale) leave out. */
@@ -59,6 +59,16 @@ describe("given the crash-test dummies drawn for thrown drivers", () => {
     const womanLow = lowest(woman, WOMAN);
     assert.ok(womanLow < manLow - 0.1, `her hair reaches ${womanLow.toFixed(2)} m, his ${manLow.toFixed(2)} m`);
     assert.notEqual(man.length, woman.length, "a different set of pieces");
+  });
+
+  it("when a driver picks trousers, a cap and a moustache, then his legs wear the trousers' colour, his crown the cap's, and his face gains one piece in his hair's colour", () => {
+    const plain = drawn(MAN, false);
+    const capped = drawn({ ...MAN, pants: 0x123456, hat: 0xee2211 }, false);
+    const picked = drawn({ ...MAN, pants: 0x123456, hat: 0xee2211, mustache: true }, false);
+    assert.ok(has(picked, 0x123456) && !has(plain, 0x123456), "the trousers' colour");
+    assert.ok(has(picked, 0xee2211) && !has(plain, 0xee2211), "the cap's colour");
+    const hairOnFace = (rows: typeof plain) => rows.filter((r) => r.color.getHex() === new THREE.Color(MAN.hair).getHex() && r.at.z > 0.08).length;
+    assert.equal(hairOnFace(picked), hairOnFace(capped) + 1, "one moustache piece in front of his face");
   });
 
   it("when a field of 8 drivers is dressed, then at least 6 of them look different, and dressing the same drivers again leaves every slot's colours unchanged", () => {

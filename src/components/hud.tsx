@@ -2,6 +2,7 @@ import { Fragment, type RefObject } from "react";
 import * as Popover from "@radix-ui/react-popover";
 import { BrickWall, ChevronDown, ChevronUp, CircleDot, CircleHelp, Pause, Play, RotateCcw, SlidersHorizontal, TriangleRight } from "lucide-react";
 import { DerbyBoard, DoorPanel, LabPanel, PistonPanel, RangePanel, StackPanel } from "@/components/hud-panels";
+import { GaragePanel } from "@/components/garage-panel";
 import { HudSections } from "@/components/hud-sections";
 import { RaceOverlay, RaceStandings, RaceViewToggle, SpectateBar } from "@/components/race-hud";
 import { BenchEntry } from "@/components/bench-controls";
@@ -53,8 +54,8 @@ const STAGE: Record<CrashHudState["compactStage"], string> = {
 /** Camera names: the drive views and the spectator cams. */
 const CAM_LABEL: Record<NonNullable<CrashHudState["cam"]>, string> = { third: "Chase cam", far: "Far chase", first: "Hood cam", cine: "Trackside", dutch: "Wheel cam", orbit: "Orbit", auto: "Auto" };
 
-/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range and the Lab mutually exclusive. */
-type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab";
+/** Fleet is "none of the others": the engine keeps derby, race, press, pistons, doors, corkscrew, stack, range, the Lab and the garage mutually exclusive. */
+type Scene = "fleet" | "derby" | "race" | "press" | "pistons" | "doors" | "corkscrew" | "stack" | "range" | "survival" | "lab" | "garage";
 /** `tone`: the mode's accent (a `--tone` variable), so the richer game modes carry a ring and a tinted fill; `quiet`: a test rig, muted until picked. */
 type SceneDef = { id: Scene; label: string; aria: string; tone?: string; quiet?: boolean };
 /** Richer game modes first, then the test rigs. */
@@ -65,6 +66,7 @@ const SCENES: SceneDef[] = [
   { id: "range", label: "Range", aria: "Ejection range scene", tone: "[--tone:var(--color-scene-range)]" },
   { id: "survival", label: "Survival", aria: "Survival scene: how long can you last", tone: "[--tone:var(--color-scene-survival)]" },
   { id: "lab", label: "Lab", aria: "Lab scene: flick a toy car at a stack of cars on a workbench", tone: "[--tone:var(--color-scene-lab)]" },
+  { id: "garage", label: "Garage", aria: "Garage: pick your car's and driver's colours and spray-paint them", tone: "[--tone:var(--color-scene-garage)]" },
   { id: "press", label: "Press", aria: "Car compactor scene", quiet: true },
   { id: "pistons", label: "Pistons", aria: "Piston rig scene", quiet: true },
   { id: "doors", label: "Doors", aria: "Door and mirror knock scene", quiet: true },
@@ -221,6 +223,7 @@ export function Hud(props: HudProps) {
         {state.stack ? <StackPanel stack={state.stack} engine={engine} /> : null}
         {state.range ? <RangePanel range={state.range} /> : null}
         {state.lab ? <LabPanel lab={state.lab} engine={engine} /> : null}
+        {state.garage ? <GaragePanel garage={state.garage} playerCar={state.playerCar} engine={engine} /> : null}
         {state.derby && state.derbyBoard.length > 0 ? <DerbyBoard board={state.derbyBoard} engine={engine} /> : null}
         {state.race && !state.race.survival ? <RaceStandings race={state.race} onCommand={raceCommand} /> : null}
         {state.race ? <ResetPrompt view={state.race.view} input={reset} race onTap={tapReset} className="mt-2 sm:hidden" /> : null}
@@ -233,8 +236,8 @@ export function Hud(props: HudProps) {
           <SpectateBar race={state.race} pad={state.pad !== null} cam={state.cam && CAM_LABEL[state.cam]} onCommand={raceCommand} onCam={() => engine.current?.cycleCamera()} />
         ) : null}
         {!focus && (state.seat !== "global" || state.pad) && !state.race?.spectating ? <DriveHint state={state} touch={touch} /> : null}
-        {/* The Lab's control is the flick on the view itself: no stick, no car buttons. */}
-        {touch && !state.lab ? <TouchControls {...props} /> : null}
+        {/* The Lab's control is the flick on the view itself, the garage's the pickers and the can: no stick, no car buttons. */}
+        {touch && !state.lab && !state.garage ? <TouchControls {...props} /> : null}
         {focus && state.race ? (
           // Under a race menu these would only peek out beside the card; on a phone on its side they leave the dock row to the pad and sit bottom centre.
           state.race.menu === null ? (
@@ -389,6 +392,7 @@ function sceneInPlay(state: CrashHudState): Scene {
   if (state.range) return "range";
   if (state.showCorkscrew) return "corkscrew";
   if (state.stack) return "stack";
+  if (state.garage) return "garage";
   return state.lab ? "lab" : "fleet";
 }
 
@@ -408,9 +412,10 @@ function Dock(props: HudProps & { raceCommand: (cmd: RaceCommand) => void; setti
     corkscrew: () => engine.current?.toggleCorkscrew(),
     stack: () => engine.current?.toggleStack(),
     lab: () => engine.current?.toggleLab(),
+    garage: () => engine.current?.toggleGarage(),
   };
-  // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range, the Lab or the race owns the pad.
-  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.lab !== null || state.race !== null;
+  // Barrier, balls and ramps are fleet props; the engine ignores them while the press, a rig, the range, the Lab, the garage or the race owns the pad.
+  const propsLocked = state.showCompactor || state.showPistons || state.showDoors || state.showCorkscrew || state.stack !== null || state.range !== null || state.lab !== null || state.garage !== null || state.race !== null;
   return (
     <div
       className="hud-panel pointer-events-auto flex w-full flex-wrap items-center gap-1 p-1 sm:w-auto idle:touch-none"

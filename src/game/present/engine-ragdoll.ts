@@ -33,6 +33,8 @@ import { carClass, classStats } from "../vehicle/vehicle-classes.ts";
 import { disable, loadRapier, type Rapier } from "../kernel/rapier.ts";
 import { DummyMesh } from "./ragdoll-mesh.ts";
 import { driverLook } from "./driver-look.ts";
+import { pickedLook, type PersonPick } from "./look-pick.ts";
+import type { SprayBitmap } from "./spray.ts";
 import { Purses } from "./ragdoll-purse.ts";
 import { CAR_BOX, PropBodies } from "./ragdoll-props.ts";
 import type { PropTumble } from "./prop-tumble.ts";
@@ -266,6 +268,8 @@ export class RagdollSystem {
   private readonly onThrow: (car: number) => void;
   /** The look seed (`driverLook`) the engine sets each frame: a driver keeps his tee and hair through a race. */
   lookSeed = 0;
+  /** A player's own driver for car `car` (the engine's looks: this browser's, or a netplay peer's), null for a drawn one. */
+  lookOf: (car: number) => { person: PersonPick; personSpray: SprayBitmap } | null = () => null;
   private purses: Purses | null = null;
   /** The course's or the scene's knockable props: standing fixed on their spots, knocked ones tumbling (`knockProp`); a car's front meets one over its lower box's height. */
   private readonly props = new PropBodies(knockedGroups, FIXED_GROUPS, GRACE, LOW_Y - LOW_HALF_Y, LOW_Y + LOW_HALF_Y, (cx, cz, y, half) => this.patchAt(cx, cz, y, half));
@@ -1142,8 +1146,10 @@ export class RagdollSystem {
       d.prev[o + 5] = _qb.z;
       d.prev[o + 6] = _qb.w;
     }
-    const look = driverLook(this.lookSeed, t.car);
+    const own = t.cop ? null : this.lookOf(t.car);
+    const look = own ? pickedLook(driverLook(this.lookSeed, t.car), own.person) : driverLook(this.lookSeed, t.car);
     this.mesh.dress(slot, t.cop, look);
+    this.mesh.spray(slot, own ? own.personSpray : null);
     if (look.woman && !t.cop) this.purses?.launch(slot, t.car, t.p, t.v, this.lookSeed);
     this.wake();
     this.live++;

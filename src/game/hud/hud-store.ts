@@ -7,6 +7,8 @@ import { DEFAULT_REALISM } from "../vehicle/vehicle-classes.ts";
 import { DRIVER_CARS, type RaceHud, type RaceView } from "../match/types.ts";
 import type { CrashPhase } from "../match/phase.ts";
 import type { SpecView } from "../present/engine-camera.ts";
+import type { CarPart, PersonPick } from "../present/look-pick.ts";
+import type { DriverLook } from "../present/driver-look.ts";
 
 type CompactStage = "open" | "contact" | "wells" | "mid" | "max";
 
@@ -50,6 +52,15 @@ export type StackHud = StackConfig & { dropped: number; loadKn: (number | null)[
  */
 export type LabHud = { preset: LabPresetId; shot: { hit: string | null; speed: number; fell: number } | null };
 
+/**
+ * The garage's HUD slice (`CrashHudState.garage`): each car part's colour as drawn, the driver as drawn and what the player
+ * picked for him, and the spray can (on, radius m, palette colour).
+ */
+export type GarageHud = { car: Record<CarPart, number>; person: DriverLook; picked: PersonPick; spray: SprayTool };
+
+/** The garage's spray can: on or off, its dot's radius (m) and its palette colour (`SPRAY_PALETTE` index, never 0). */
+export type SprayTool = { on: boolean; radius: number; colour: number };
+
 export type CrashHudState = {
   playing: boolean;
   looping: boolean;
@@ -75,6 +86,8 @@ export type CrashHudState = {
   stack: StackHud | null;
   /** The Lab (null in every other scene): its preset and the last throw's readback. */
   lab: LabHud | null;
+  /** The garage (null in every other scene). */
+  garage: GarageHud | null;
   /** The scene a pick is fading to (the switch comes at the transition's black), else null; the scene buttons light it. */
   pendingScene: SceneId | null;
   /** This browser is in a netplay room (hosting or joined): the single-player scenes are not offered. */
@@ -198,6 +211,7 @@ export const INITIAL_HUD: CrashHudState = {
   showCorkscrew: false,
   stack: null,
   lab: null,
+  garage: null,
   pendingScene: null,
   inRoom: false,
   autoRotate: true,

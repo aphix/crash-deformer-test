@@ -1,7 +1,7 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { makePaintMaterial, trimMaterial } from "../vehicle/car-materials.ts";
-import { carPickText, NO_CAR_PICK, type CarPick } from "./look-pick.ts";
+import { carPickText, NO_CAR_PICK, type CarPart, type CarPick } from "./look-pick.ts";
 import { applySpray, BARE_SPRAY, CAR_SPRAY, sprayUniforms, type SprayBitmap } from "./spray.ts";
 
 /** What wearing a look changed on a car: its own lid and door paints, the spray's uniforms, and the colours it had before. */
@@ -11,14 +11,19 @@ type Worn = {
   trunk: THREE.MeshPhysicalMaterial;
   doors: THREE.MeshPhysicalMaterial;
   bumpers: readonly THREE.Mesh[];
-  base: { body: number; doors: number; bumpers: number; glass: number };
+  base: CarBase;
 };
+
+/** A car's own colours: its body and door paint, bumper trim and glass (sRGB). */
+type CarBase = { body: number; doors: number; bumpers: number; glass: number };
 
 const worn = new WeakMap<DeformableCar, Worn>();
 const _m = new THREE.Matrix4();
 const _n = new THREE.Matrix3();
 const _v = new THREE.Vector3();
 const DEFAULT_PICK = carPickText(NO_CAR_PICK);
+/** Rims as built: white is the instance tint (`WheelBatch`) that leaves the alloy as toned. */
+const RIMS_AS_BUILT = 0xffffff;
 
 /**
  * Car `car` in a player's colours (`pick`, null fields: its own paint) and spray (`spray`, a `CAR_SPRAY` bitmap, or none).
@@ -34,36 +39,60 @@ export function wearCarLook(car: DeformableCar, pick: CarPick, spray: SprayBitma
     worn.set(car, w);
   }
   const m = car.lookMeshes();
-  const body = pick.body ?? w.base.body;
-  m.bodyPaint.color.setHex(body);
-  w.hood.color.setHex(pick.hood ?? body);
-  w.trunk.color.setHex(pick.trunk ?? body);
-  w.doors.color.setHex(pick.doors ?? pick.body ?? w.base.doors);
-  const trim = trimMaterial(pick.bumpers ?? w.base.bumpers);
+  const c = lookColours(car, pick);
+  m.bodyPaint.color.setHex(c.body);
+  w.hood.color.setHex(c.hood);
+  w.trunk.color.setHex(c.trunk);
+  w.doors.color.setHex(c.doors);
+  const trim = trimMaterial(c.bumpers);
   for (const bumper of w.bumpers) bumper.material = trim;
-  for (const pane of m.glass) (pane.material as THREE.MeshStandardMaterial).color.setHex(pick.glass ?? w.base.glass);
+  for (const pane of m.glass) (pane.material as THREE.MeshStandardMaterial).color.setHex(c.glass);
   for (const wheel of car.wheels) {
-    if (pick.rims === null) delete wheel.userData.rim;
-    else wheel.userData.rim = new THREE.Color(pick.rims);
+    if (c.rims === RIMS_AS_BUILT) delete wheel.userData.rim;
+    else wheel.userData.rim = new THREE.Color(c.rims);
   }
   w.uniforms.sprayMap!.value = spray?.texture ?? BARE_SPRAY;
 }
 
+/** Each part's colour (sRGB) as car `car` draws with `pick` on: a part not picked shows the car's own, the lids and doors the body's pick. */
+export function lookColours(car: DeformableCar, pick: CarPick): Record<CarPart, number> {
+  const base = worn.get(car)?.base ?? baseOf(car);
+  const body = pick.body ?? base.body;
+  return {
+    body,
+    doors: pick.doors ?? pick.body ?? base.doors,
+    hood: pick.hood ?? body,
+    trunk: pick.trunk ?? body,
+    bumpers: pick.bumpers ?? base.bumpers,
+    rims: pick.rims ?? RIMS_AS_BUILT,
+    glass: pick.glass ?? base.glass,
+  };
+}
+
+function baseOf(car: DeformableCar): CarBase {
+  const m = car.lookMeshes();
+  return {
+    body: m.bodyPaint.color.getHex(),
+    doors: (m.doors[0]!.material as THREE.MeshPhysicalMaterial).color.getHex(),
+    bumpers: car.style.livery?.accent ?? car.paint.accent,
+    glass: (m.glass[0]!.material as THREE.MeshStandardMaterial).color.getHex(),
+  };
+}
+
 function firstWear(car: DeformableCar): Worn {
   const m = car.lookMeshes();
-  const accent = car.style.livery?.accent ?? car.paint.accent;
+  const base = baseOf(car);
   const bumpers: THREE.Mesh[] = [];
   car.group.traverse((o) => {
-    if (o instanceof THREE.Mesh && o.material === trimMaterial(accent)) bumpers.push(o);
+    if (o instanceof THREE.Mesh && o.material === trimMaterial(base.bumpers)) bumpers.push(o);
   });
-  const doorPaint = m.doors[0]!.material as THREE.MeshPhysicalMaterial;
   const w: Worn = {
     uniforms: sprayUniforms(CAR_SPRAY, BARE_SPRAY, 1),
-    hood: makePaintMaterial(m.bodyPaint.color.getHex()),
-    trunk: makePaintMaterial(m.bodyPaint.color.getHex()),
-    doors: makePaintMaterial(doorPaint.color.getHex()),
+    hood: makePaintMaterial(base.body),
+    trunk: makePaintMaterial(base.body),
+    doors: makePaintMaterial(base.doors),
     bumpers,
-    base: { body: m.bodyPaint.color.getHex(), doors: doorPaint.color.getHex(), bumpers: accent, glass: (m.glass[0]!.material as THREE.MeshStandardMaterial).color.getHex() },
+    base,
   };
   m.hood.material = w.hood;
   m.trunk.material = w.trunk;
