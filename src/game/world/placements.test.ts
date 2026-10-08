@@ -161,22 +161,23 @@ describe("given props of different scales and sizes (crates, a cone and a gantry
       scatter: [],
     });
     const cols = propColliders(placeProps(t));
+    // The cone is three pieces (its base plate and the cone's two bands), one index.
     assert.deepEqual(
       cols.map((c) => c.index),
-      [0, 1, 2],
+      [0, 1, 2, 2, 2],
     );
-    const [crate, big, cone] = cols;
+    const [crate, big, ...cone] = cols;
     assert.equal(big!.hx, crate!.hx * 2);
     assert.equal(big!.hz, crate!.hz * 2);
     assert.equal(big!.mass, crate!.mass * 8);
-    assert.equal(cone!.kind, "circle");
-    assert.equal(cone!.r, 0.56);
-    assert.equal(cone!.mass, PREFABS.cone.mass * 8);
+    assert.deepEqual(cone.map((c) => c.kind), ["circle", "circle", "box"]);
+    assert.equal(cone[0]!.r, 0.33);
+    for (const piece of cone) assert.equal(piece.mass, PREFABS.cone.mass * 8);
   });
 });
 
 describe("given a yawed billboard prop", () => {
-  it("when its collider is built, then the box covers the prop's rotated footprint, and no more", () => {
+  it("when its colliders are built, then each piece is the prefab's piece through the prop's rotation and scale: its centre, its extents and its heights", () => {
     const t = new Track({
       ...oval,
       props: [{ prefab: "billboard", x: 3, z: -7, yaw: 0.6, size: [0.5, 5, 9] }],
@@ -184,28 +185,23 @@ describe("given a yawed billboard prop", () => {
       scatter: [],
     });
     const placed = placeProps(t);
-    const [c] = propColliders(placed);
+    const cols = propColliders(placed);
     const p = placed[0]!;
-    // The footprint as the art renders it: prefab-local corners through the instance transform.
+    // The art's instance transform: prefab-local points through it.
     const o = new THREE.Object3D();
-    o.position.set(p.x, 0, p.z);
+    o.position.set(p.x, p.y, p.z);
     o.rotation.y = p.yaw;
     o.scale.set(p.sx, p.sy, p.sz);
     o.updateMatrixWorld();
-    const [w, , d] = PREFABS.billboard.size;
-    const inside = (v: THREE.Vector3) => {
-      const dx = v.x - c!.x;
-      const dz = v.z - c!.z;
-      const lx = dx * Math.cos(c!.yaw) - dz * Math.sin(c!.yaw);
-      const lz = dx * Math.sin(c!.yaw) + dz * Math.cos(c!.yaw);
-      return Math.abs(lx) <= c!.hx + 1e-9 && Math.abs(lz) <= c!.hz + 1e-9;
-    };
-    for (const [sx, sz] of [[1, 1], [1, -1], [-1, 1], [-1, -1]] as const) {
-      const corner = new THREE.Vector3((sx * w) / 2, 0, (sz * d) / 2).applyMatrix4(o.matrixWorld);
-      assert.ok(inside(corner), `corner ${sx},${sz} outside the collider`);
-      const beyondX = new THREE.Vector3((sx * w * 1.1) / 2, 0, 0).applyMatrix4(o.matrixWorld);
-      const beyondZ = new THREE.Vector3(0, 0, (sz * d * 1.1) / 2).applyMatrix4(o.matrixWorld);
-      assert.ok(!inside(beyondX) && !inside(beyondZ), "collider larger than the footprint");
+    assert.equal(cols.length, PREFABS.billboard.collider.length);
+    for (const [k, piece] of PREFABS.billboard.collider.entries()) {
+      const c = cols[k]!;
+      assert.equal(piece.kind, "box");
+      const centre = new THREE.Vector3(piece.x ?? 0, 0, piece.z ?? 0).applyMatrix4(o.matrixWorld);
+      assert.ok(Math.abs(c.x - centre.x) < 1e-9 && Math.abs(c.z - centre.z) < 1e-9, `piece ${k} stands at (${c.x}, ${c.z}), the art's at (${centre.x}, ${centre.z})`);
+      assert.equal(c.yaw, p.yaw);
+      assert.ok(Math.abs(c.hx - (piece.kind === "box" ? piece.hx : 0) * p.sx) < 1e-9 && Math.abs(c.hz - (piece.kind === "box" ? piece.hz : 0) * p.sz) < 1e-9, `piece ${k} extents`);
+      assert.ok(Math.abs(c.base - (p.y + (piece.y0 ?? 0) * p.sy)) < 1e-9 && Math.abs(c.top - (p.y + (piece.y1 ?? PREFABS.billboard.size[1]) * p.sy)) < 1e-9, `piece ${k} heights`);
     }
   });
 });

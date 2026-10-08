@@ -112,7 +112,7 @@ const LAB_GROUND: readonly Solid[] = [
 ];
 
 /** What a dummy meets in the Lab besides the cars: the bench and floor, the props and the wall as the cars meet them (`colliderSolids`), and every bracket and shelf plate. */
-function labSolids(colliders: readonly PropCollider[], placed: readonly Placed[], surfaces: readonly LabSurface[]): Solid[] {
+function labSolids(colliders: readonly PropCollider[], surfaces: readonly LabSurface[]): Solid[] {
   const plates = surfaces.map((s): Solid => {
     const hx = (s.x1 - s.x0) / 2;
     const hz = (s.z1 - s.z0) / 2;
@@ -120,7 +120,7 @@ function labSolids(colliders: readonly PropCollider[], placed: readonly Placed[]
     const z = (s.z0 + s.z1) / 2;
     return { x, z, r: Math.hypot(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, BRACKET_T / 2, hz).setTranslation(x, s.top - BRACKET_T / 2, z) };
   });
-  return [...LAB_GROUND, ...colliderSolids(colliders, placed, FLOOR, []), ...plates];
+  return [...LAB_GROUND, ...colliderSolids(colliders, []), ...plates];
 }
 
 /**
@@ -229,7 +229,7 @@ export class Lab {
     this.propOf = new Int16Array(this.layout.length).fill(-1);
     for (const [n, k] of items.entries()) this.propOf[k] = n;
     this.things = new Int16Array(this.carItems.length + this.dummyItems.length + items.length);
-    this.solids = labSolids(this.colliders, placed, this.surfaces);
+    this.solids = labSolids(this.colliders, this.surfaces);
     this.rest = new Float64Array(this.carItems.length * 4);
     // Halfway from the thrower to the middle of the rest; a lone thrower looks 12 m down its own line.
     const first = heldPose(this.layout[0]!);

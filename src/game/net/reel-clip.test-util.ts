@@ -6,10 +6,10 @@ import { INPUT_BYTES, MEMORY, type HighlightClip } from "../match/highlights.ts"
 import { makeCarFrame, makeSnapshot, snapshotMaxBytes, writeSnapshot, Writer } from "./codec.ts";
 import { carLayout, readCarPose } from "./car-pose.ts";
 
-/** A keyframe's knocked props (bits), and each car's course memory (`MEMORY` doubles: wall x and z, how far past a wall line, the road segment). */
+/** A keyframe's knocked props (bits), and each car's course memory (`MEMORY` doubles: the road segment of its projection hint). */
 const KNOCKS = [0b101, 0, 0b10000001];
-const MEMORY_A = [Infinity, 0, 0, -1];
-const MEMORY_B = [12.5, -7.25, 0.125, 392];
+const MEMORY_A = [-1];
+const MEMORY_B = [392];
 
 /** Two cars, one a wreck (a crushed nose): a clip whose first keyframe carries a wreck section, and a later one only the second car (put on a spot in its step). */
 export function makeClip(): { clip: HighlightClip; car: DeformableCar } {

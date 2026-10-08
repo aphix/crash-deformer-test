@@ -118,7 +118,7 @@ function strike(part: "door" | "panel", dir: 1 | -1, kph: number, kg: number, ca
   for (let t = 0; t < 7 / u && t < 20; t += h) {
     car.group.position.z += car.velocity.z * h;
     box.z += box.vz * h;
-    const hit = partContact(car, box);
+    const hit = partContact(car, box, h);
     if (hit.du > 0) box.vz -= hit.nz * hit.du;
     car.swingDoors(h);
   }

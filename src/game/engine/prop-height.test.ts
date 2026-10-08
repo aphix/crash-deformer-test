@@ -32,13 +32,16 @@ function course(id: string) {
   const hits: number[] = [];
   w.race.onWallHit = (i) => hits.push(i);
   const props = (car: DeformableCar): void => propContact(car, 0, w.race["colliders"], w.race["knocked"], w.race["propHits"], 1 / 120);
-  return { w, colliders, placed, hits, props, top: (c: PropCollider) => placed[c.index]!.y + PREFABS[c.prefab].size[1] * placed[c.index]!.sy };
+  // A prop's top is its highest piece's (a palm's fronds), its foot where it stands.
+  const top = (c: PropCollider): number => Math.max(...colliders.filter((o) => o.index === c.index).map((o) => o.top));
+  return { w, colliders, placed, hits, props, top, foot: (c: PropCollider) => placed[c.index]!.y };
 }
 
-/** The collider of `prefab` whose nearest neighbour prop is farthest (a neighbour's own contact would answer for it). */
+/** The ground piece (the lowest) of the prop of `prefab` whose nearest neighbour prop is farthest (a neighbour's own contact would answer for it). */
 const pick = (colliders: readonly PropCollider[], prefab: PrefabId): PropCollider => {
-  const gap = (c: PropCollider): number => Math.min(...colliders.filter((o) => o !== c).map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - c.r));
-  return colliders.filter((c) => c.prefab === prefab).reduce((a, b) => (gap(b) > gap(a) ? b : a));
+  const gap = (c: PropCollider): number => Math.min(...colliders.filter((o) => o.index !== c.index).map((o) => Math.hypot(o.x - c.x, o.z - c.z) - o.r - c.r));
+  const ground = (c: PropCollider): boolean => colliders.every((o) => o.index !== c.index || o.base >= c.base);
+  return colliders.filter((c) => c.prefab === prefab && ground(c)).reduce((a, b) => (gap(b) > gap(a) ? b : a));
 };
 
 /** A car facing +z with its front-right wall probe 0.1 m off the middle of `c` (a circle has no normal at its middle), its lowest point at height `low` and `pitch` (rad, + nose down). */
@@ -60,10 +63,11 @@ describe("given a prop on a course, solid (palm, wall, dumpster) or knockable (c
 
   for (const [id, prefab] of [...SOLIDS, ...KNOCKS]) {
     describe(`given a ${prefab} (${PREFABS[prefab].body}) on the ${id} course and a sedan at 8 m/s with its front-right corner aimed at the prop's middle`, () => {
-      const hit = (low: number, pitch = 0) => {
+      /** A sedan whose lowest point is `low` m over the prop's top (or over its foot, `fromFoot`). */
+      const hit = (low: number, pitch = 0, fromFoot = false) => {
         const k = course(id);
         const c = pick(k.colliders, prefab);
-        const car = carOn(c, k.top(c) + low, pitch);
+        const car = carOn(c, (fromFoot ? k.foot(c) : k.top(c)) + low, pitch);
         const v = car.velocity.clone();
         k.props(car);
         return { k, c, car, v, touched: k.hits.length > 0 || k.w.race.propKnocked(c.index) };
@@ -80,7 +84,7 @@ describe("given a prop on a course, solid (palm, wall, dumpster) or knockable (c
       });
 
       it("when it is on the ground (its lowest point at the prop's foot), then it hits the prop", () => {
-        assert.equal(hit(-PREFABS[prefab].size[1]).touched, true);
+        assert.equal(hit(0, 0, true).touched, true);
       });
 
       it("when it is nose down 15° with its centre more than 0.4 m over the top but its front underside corner 0.14 m under, then it hits the prop, while a level car at that centre height passes", () => {

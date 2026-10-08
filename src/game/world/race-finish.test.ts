@@ -381,6 +381,9 @@ describe("given 2-lap Watch races of 4 AI rivals on a course with police cars on
         frame(w, state);
         t = n * FRAME;
         for (let r = 0; r < racers; r++) {
+          // Every frame, as the cops' brain reads its racers: a hint left to the wake checks lags its car by up to the road's corridor
+          // (a truck 9 m past a cop's spot read 8 m short of it, so the cop it woke looked like it pulled away unprompted).
+          arc(r);
           const p = w.cars[r]!.group.position;
           const on = track.project(p.x, p.z, -1, proj);
           // Only where the racer drives the road: a racer merging off a shortcut has no road under it, so the cop that lines

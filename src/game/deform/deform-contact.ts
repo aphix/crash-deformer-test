@@ -400,7 +400,7 @@ export abstract class DeformContact extends DeformState {
     const planePitch = plane.pitch;
     const planeRoll = plane.roll;
     // Pitch and roll stay absolute and clamped: they are re-read each call, never accumulated.
-    const plant = !this.bidirectional && this.quietTime() > 0.2;
+    const plant = !this.bidirectional && this.quietTime() > PLANT_QUIET;
     // A planted wreck levels out from 0.35 s quiet, to the ground plane under its hubs (the world's level on the
     // flat), and a hit tilts it back, each eased over LEVEL_TIME of sim time. Either switch in one call swung every
     // mass through the tilt: a stopped 64 km/h head-on's roof jumped 0.127 m in one slice (pitch −0.2 → 0), and a

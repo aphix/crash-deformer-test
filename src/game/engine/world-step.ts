@@ -199,7 +199,7 @@ export function stepWorld(w: World, dt: number): void {
       // Cars at different heights (one flying over the other, on a bridge over it) never touch; nor does a fake falling off the fleet disc.
       if (dx * dx + dz * dz > 28 || !shareHeight(ca, cb) || ca.falling || cb.falling) continue;
       const masses = (ca.deform.massActive || cb.deform.massActive) && ca.deform.collideWith(cb.deform, h);
-      if (partContactPair(ca, cb) || masses) w.partTouch?.(a, b);
+      if (partContactPair(ca, cb, h) || masses) w.partTouch?.(a, b);
     }
 
     let satBusy = false;

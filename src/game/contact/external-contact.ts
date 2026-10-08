@@ -37,10 +37,12 @@ export type ContactBox = {
    * wall's end is the joint to its neighbour, so the particle would stay in the wall).
    */
   fixed: boolean;
+  /** Whether the plan shape is a circle of radius `hx` (a palm, a lamp post) rather than a box (`partContact`, on a `fixed` box). */
+  round: boolean;
 };
 
 export function makeBox(): ContactBox {
-  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1, fixed: false };
+  return { x: 0, y: 0, z: 0, hx: 0, hy: 0, hz: 0, yaw: 0, vx: 0, vz: 0, kg: Infinity, hardness: 1, fixed: false, round: false };
 }
 
 /**
@@ -64,6 +66,7 @@ export function solidFace(out: ContactBox, nx: number, nz: number, fx: number, f
   out.kg = Infinity;
   out.hardness = 1;
   out.fixed = true;
+  out.round = false;
   return out;
 }
 
@@ -278,6 +281,20 @@ function hitMirror(car: DeformableCar, side: -1 | 1, lane: Lane): void {
   car.breakMirror(side, _push.set(side * 0.8, 0.6, s * lane.u));
 }
 
+/** The point `radius` m along a door's plan line from its hinge, the door open `theta` rad, in the car's frame: `across` outward from the car's middle, `along` forward (m). */
+const doorPoint = { across: 0, along: 0 };
+
+function doorPointAt(radius: number, theta: number): typeof doorPoint {
+  doorPoint.across = DOOR.hingeX + radius * Math.sin(theta);
+  doorPoint.along = DOOR.hingeZ - radius * Math.cos(theta);
+  return doorPoint;
+}
+
+/** Whether a body from `bottom` to `top` (m above the car's ground) reaches the door's own heights. */
+function doorInHeights(bottom: number, top: number): boolean {
+  return bottom <= DOOR.hingeY + DOOR.halfHeight && top >= DOOR.hingeY - DOOR.halfHeight;
+}
+
 /**
  * Door slab (top view: hinge → trailing edge) against the face. Free door: one restitution
  * impulse through the door's effective mass I/k² at the contact (k = lever across the travel).
@@ -286,18 +303,17 @@ function hitMirror(car: DeformableCar, side: -1 | 1, lane: Lane): void {
  */
 function hitDoor(car: DeformableCar, side: -1 | 1, lane: Lane): void {
   if (car.partOff(side < 0 ? "doorL" : "doorR")) return;
-  if (lane.bottom > DOOR.hingeY + DOOR.halfHeight || lane.top < DOOR.hingeY - DOOR.halfHeight) return;
+  if (!doorInHeights(lane.bottom, lane.top)) return;
   const door = car.doorHinge(side);
   const sin = Math.sin(door.theta);
   if (sin < 1e-3) return;
-  const cos = Math.cos(door.theta);
   const rLo = (lane.inner - DOOR.hingeX) / sin;
   const rHi = Math.min(DOOR.length, (lane.inner + lane.width - DOOR.hingeX) / sin);
   if (rLo > rHi || rHi <= 0) return;
   const s = lane.dir;
   // A rear→front face meets the trailing (lowest-z) end of the slab in the lane first.
   const r = s > 0 ? rHi : Math.max(rLo, 0);
-  const depth = s * (lane.face - (DOOR.hingeZ - r * cos));
+  const depth = s * (lane.face - doorPointAt(r, door.theta).along);
   if (depth <= 0 || depth > lane.length) return;
   partHit.touched = true;
   const k = Math.max(r * sin, 0.02);
@@ -368,14 +384,82 @@ function hitPanel(car: DeformableCar, side: -1 | 1, lane: Lane): void {
   lane.u = moved > 0 ? Math.sqrt(Math.max(0, lane.u * lane.u - (2 * PANEL_BEND_NM * moved) / lane.kg)) : 0;
 }
 
+/** Plan samples along a door, hinge to trailing edge, a fixed solid is asked about: a door is 0.57 m long, a lamp post 0.17 m across. */
+const DOOR_SAMPLES = 8;
+/** The door skin's reach (m) past its plan line, the angle step (rad) a door is walked shut by (1.7 cm of trailing edge) and the halvings that then find the angle it clears at. */
+const DOOR_SKIN = 0.03;
+const DOOR_STEP = 0.03;
+const DOOR_HALVINGS = 6;
+/** An open door narrower than this (rad) is a door shut. */
+const DOOR_SHUT = 0.02;
+
+/** Whether door `side`, open `angle` rad, has a point of its plan line inside the fixed solid `box` (its heights taken as read). */
+function doorMeetsSolid(car: DeformableCar, side: -1 | 1, angle: number, box: ContactBox): boolean {
+  const p = car.group.position;
+  const c = Math.cos(box.yaw);
+  const n = Math.sin(box.yaw);
+  for (let k = 1; k <= DOOR_SAMPLES; k++) {
+    const point = doorPointAt((DOOR.length * k) / DOOR_SAMPLES, angle);
+    const lx = side * point.across;
+    const dx = p.x + car.rightFlat.x * lx + car.fwdFlat.x * point.along - box.x;
+    const dz = p.z + car.rightFlat.z * lx + car.fwdFlat.z * point.along - box.z;
+    const meets = box.round ? dx * dx + dz * dz < (box.hx + DOOR_SKIN) * (box.hx + DOOR_SKIN) : Math.abs(dx * c - dz * n) < box.hx + DOOR_SKIN && Math.abs(dx * n + dz * c) < box.hz + DOOR_SKIN;
+    if (meets) return true;
+  }
+  return false;
+}
+
+/** The angle (rad) door `side`, open `angle`, clears the fixed solid `box` at: walked shut by `DOOR_STEP`, then halved to the edge; 0 when even shut it meets the solid. */
+function angleClearingSolid(car: DeformableCar, side: -1 | 1, angle: number, box: ContactBox): number {
+  let hi = angle;
+  let lo = angle - DOOR_STEP;
+  while (lo > 0 && doorMeetsSolid(car, side, lo, box)) {
+    hi = lo;
+    lo -= DOOR_STEP;
+  }
+  lo = Math.max(lo, 0);
+  if (lo === 0 && doorMeetsSolid(car, side, 0, box)) return 0;
+  for (let k = 0; k < DOOR_HALVINGS; k++) {
+    const mid = (lo + hi) / 2;
+    if (doorMeetsSolid(car, side, mid, box)) hi = mid;
+    else lo = mid;
+  }
+  return lo;
+}
+
 /**
- * Door and mirror colliders of `car` against `box`, both sides. Only travel along the car moves a
- * door or a mirror (a shut door struck square is body crush, the crash rules' C1–C3). Returns
- * `partHit`; the caller takes `du` off the striker's speed along (`nx`, `nz`).
+ * The car's open doors against a fixed solid over a slice of `dt` s, beyond the footprint where the body is held: a door stands
+ * out past the tyres (a crash leaves one hanging open, 1.4 m off the car's middle) and is drawn into whatever stands there. The
+ * solid shuts a door it meets just far enough to clear it (`shutDoor`), at the closing rate that took: a door the crash jammed
+ * open cannot shut and is torn off, and so is one slammed shut past the hinge's limit. A door the solid stands against even
+ * shut is the body's to hold.
  */
-export function partContact(car: DeformableCar, box: ContactBox): typeof partHit {
+function shutDoorsOnSolid(car: DeformableCar, box: ContactBox, dt: number): void {
+  const groundY = car.group.position.y;
+  if (!doorInHeights(box.y - box.hy - groundY, box.y + box.hy - groundY)) return;
+  for (let q = 0; q < SIDES.length; q++) {
+    const side = SIDES[q]!;
+    const angle = car.doorAngle(side);
+    if (angle < DOOR_SHUT || !doorMeetsSolid(car, side, angle, box)) continue;
+    const clearing = angleClearingSolid(car, side, angle, box);
+    car.shutDoor(side, clearing, (angle - clearing) / dt);
+    partHit.touched = true;
+  }
+}
+
+/**
+ * Door and mirror colliders of `car` against `box`, both sides. A striker that moves sweeps a lane, and only its travel along
+ * the car moves a door or a mirror (a shut door struck square is body crush, the crash rules' C1–C3). A `fixed` solid stands
+ * where the door is drawn and shuts it over a slice of `dt` s (`shutDoorsOnSolid`). Returns `partHit`; the caller takes `du`
+ * off the striker's speed along (`nx`, `nz`).
+ */
+export function partContact(car: DeformableCar, box: ContactBox, dt: number): typeof partHit {
   partHit.touched = false;
   partHit.du = 0;
+  if (box.fixed) {
+    shutDoorsOnSolid(car, box, dt);
+    return partHit;
+  }
   const ax = car.rightFlat;
   const az = car.fwdFlat;
   const p = car.group.position;
@@ -437,13 +521,13 @@ function slowStriker(car: DeformableCar, nx: number, nz: number, du: number): vo
  * assume a car held at the origin. Returns whether a door, mirror or panel met the other body: a sideswipe moves
  * and breaks parts with no SAT contact, and the highlight recorder keeps both cars of it.
  */
-export function partContactPair(a: DeformableCar, b: DeformableCar): boolean {
+export function partContactPair(a: DeformableCar, b: DeformableCar, dt: number): boolean {
   carBox(a, _ba);
   carBox(b, _bb);
-  let hit = partContact(a, _bb);
+  let hit = partContact(a, _bb, dt);
   const first = hit.touched;
   if (hit.du > 0) slowStriker(b, hit.nx, hit.nz, hit.du);
-  hit = partContact(b, _ba);
+  hit = partContact(b, _ba, dt);
   if (hit.du > 0) slowStriker(a, hit.nx, hit.nz, hit.du);
   return first || hit.touched;
 }

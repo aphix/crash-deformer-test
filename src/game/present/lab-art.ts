@@ -1,19 +1,14 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { BENCH, BOARD, BRACKET_T, FLOOR, LAB_LAYOUTS, LAB_SCALE, labPlaced, labSurfaces, PEG, type LabPresetId } from "../scenes/lab.ts";
+import { BENCH, BOARD, BOARD_T, BRACKET_T, FLOOR, LAB_BACK, LAB_LAYOUTS, LAB_SCALE, labPlaced, labSurfaces, PEG, ROOM_H, ROOM_HALF_W, type LabPresetId } from "../scenes/lab.ts";
 import { makePrefabMaterials, makeRaceTextures, type RaceTextures } from "./prefabs.ts";
 import { PropTumble } from "./prop-tumble.ts";
 import { DEPTH_INSTANCED, DEPTH_INSTANCED_COLOR } from "./track-mesh.ts";
 
 /** The bench top's thickness (m): a 1¾ in butcher block. */
 const TOP_T = 0.0445 * LAB_SCALE;
-/** The pegboard's thickness and its stand-off from the wall (m): ¼ in hardboard on ¾ in furring. */
-const BOARD_T = 0.00635 * LAB_SCALE;
-const STANDOFF = 0.019 * LAB_SCALE;
 /** A bench leg's side (m): 3½ in timber. */
 const LEG = 0.089 * LAB_SCALE;
-/** The garage around the bench (m): its side walls stand `ROOM_HALF_W` either side of the bench's middle (an 8.3 m garage). */
-const ROOM_HALF_W = 100;
 /** Real metres to the set's (the workshop is 24 times its real size). */
 const S = LAB_SCALE;
 
@@ -371,12 +366,11 @@ export class LabArt {
 
     // The garage: painted block on the back wall and both side walls, a concrete floor a bench's height down.
     const blocks = canvasTexture(256, 256, cinderBlock);
-    blocks.repeat.set((ROOM_HALF_W * 2) / (0.8 * S), 140 / (0.8 * S));
-    const back = BOARD.z - BOARD_T - STANDOFF;
+    blocks.repeat.set((ROOM_HALF_W * 2) / (0.8 * S), ROOM_H / (0.8 * S));
     const sides = [
-      new THREE.PlaneGeometry(ROOM_HALF_W * 2, 140).translate(0, FLOOR + 70, back),
-      new THREE.PlaneGeometry(ROOM_HALF_W * 2, 140).rotateY(-Math.PI / 2).translate(ROOM_HALF_W, FLOOR + 70, back + ROOM_HALF_W),
-      new THREE.PlaneGeometry(ROOM_HALF_W * 2, 140).rotateY(Math.PI / 2).translate(-ROOM_HALF_W, FLOOR + 70, back + ROOM_HALF_W),
+      new THREE.PlaneGeometry(ROOM_HALF_W * 2, ROOM_H).translate(0, FLOOR + ROOM_H / 2, LAB_BACK),
+      new THREE.PlaneGeometry(ROOM_HALF_W * 2, ROOM_H).rotateY(-Math.PI / 2).translate(ROOM_HALF_W, FLOOR + ROOM_H / 2, LAB_BACK + ROOM_HALF_W),
+      new THREE.PlaneGeometry(ROOM_HALF_W * 2, ROOM_H).rotateY(Math.PI / 2).translate(-ROOM_HALF_W, FLOOR + ROOM_H / 2, LAB_BACK + ROOM_HALF_W),
     ];
     const walls = new THREE.Mesh(mergeGeometries(sides)!, new THREE.MeshStandardMaterial({ map: blocks, roughness: 0.95, metalness: 0 }));
     for (const g of sides) g.dispose();

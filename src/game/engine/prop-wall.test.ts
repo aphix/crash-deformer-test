@@ -7,7 +7,7 @@ import { Track } from "../world/track.ts";
 import { parseTrack } from "../world/track-schema.ts";
 import { OFF_MENU, TRACKS } from "../world/tracks/index.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
-import { CAR_HALF } from "../vehicle/car-mesh.ts";
+import { bodyPoints } from "../vehicle/body-points.test-util.ts";
 import { makeCar } from "../vehicle/ground-probe.test-util.ts";
 import { WALL_HALF_L, WALL_PROBES } from "../contact/pair-contact.ts";
 import { propContact } from "../contact/prop-contact.ts";
@@ -17,7 +17,7 @@ import { newWorld, settleStep, stepWorld } from "./world-step.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 
 /**
- * A car never ends up through a thin solid prop (Havana's alley wall: 0.6 m thick panels in a row), and never stays hooked
+ * A car never ends up through a thin solid prop (Havana's alley wall: 0.44 m thick panels at a car's height, in a row), and never stays hooked
  * on one. The owner drove a truck into one with the handbrake and boost on and its tail ended up out of the far side. The
  * contact reads the car's whole footprint and pushes it to the side its centre is on (`footprintOverlap`); before it, six
  * probes each picked the NEAREST face, so a corner past the panel's middle plane was pushed on out through the far face.
@@ -27,8 +27,8 @@ const FRAME = 1 / 60;
 /** Seconds the driver keeps backing out after a hit. */
 const RECOVER = 3;
 const D = Math.PI / 180;
-/** The alley wall: five 10 m panels in a row across x = −40.25 (0.3 m either side) from z = −13 to 37, joined at z = −3, 7, 17 and 27; the approach is from +x. */
-const PANEL = { x: -40.25, z: 12, hx: 0.3 };
+/** The alley wall: five 10 m panels in a row across x = −40.25 (0.22 m either side at a car's height: the 0.44 m footing; the 0.6 m cap is 3 m up) from z = −13 to 37, joined at z = −3, 7, 17 and 27; the approach is from +x. */
+const PANEL = { x: -40.25, z: 12, hx: 0.22 };
 const WALL_Z = [-13, 37] as const;
 const NEAR = PANEL.x + PANEL.hx;
 const FAR = PANEL.x - PANEL.hx;
@@ -39,25 +39,9 @@ function alley() {
   const w = makeWorld();
   w.race.showLobby("havana");
   const track = new Track([...TRACKS, ...OFF_MENU].find((j) => parseTrack(j).id === "havana"));
-  const panels = propColliders(placeProps(track)).filter((c: PropCollider) => c.prefab === "wall" && Math.abs(c.x - PANEL.x) < 1e-3);
+  const panels = propColliders(placeProps(track)).filter((c: PropCollider) => c.prefab === "wall" && c.top - c.base > 1 && Math.abs(c.x - PANEL.x) < 1e-3);
   assert.equal(panels.length, 5, "the alley wall is five panels in a row");
   return w;
-}
-
-/**
- * The car's body as world points: a live car's box corners and crush hulls; a wreck's crush hulls and body masses (not the
- * wheel hubs). A crushed nose is shorter than the box it was built in, so a wreck's box corners are no longer its body.
- */
-function bodyPoints(car: DeformableCar): [number, number][] {
-  const out: [number, number][] = [];
-  const p = car.group.position;
-  const c = Math.cos(car.yaw);
-  const s = Math.sin(car.yaw);
-  const add = (lx: number, lz: number): void => void out.push([p.x + lx * c + lz * s, p.z - lx * s + lz * c]);
-  if (!car.deform.massActive) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(sx * CAR_HALF.x, sz * CAR_HALF.z);
-  for (const h of car.crushHulls()) for (const sx of [-1, 1]) for (const sz of [-1, 1]) add(h.cx + sx * h.hx, h.cz + sz * h.hz);
-  if (car.deform.massActive) for (const m of car.deform.masses) if (!m.hub) out.push([m.world.x, m.world.z]);
-  return out;
 }
 
 /** How far the body reaches past the wall's far face (m), and how deep inside the slab (m), along the wall. */
@@ -72,7 +56,7 @@ function reach(car: DeformableCar): { past: number; inside: number } {
   return { past, inside };
 }
 
-describe("given a panel of the Havana alley wall (0.6 m thick) and a car with one corner 0.2 m past the panel's middle plane", () => {
+describe("given a panel of the Havana alley wall (0.44 m thick) and a car with one corner 0.2 m past the panel's middle plane", () => {
   for (const cls of ["sedan", "truck"] as const) {
     it(`when a ${cls}'s tail corner is 0.2 m past the middle plane, then it is pushed out by the face it came in at, with no corner past the far face and under 2 cm left in the slab`, () => {
       const w = alley();

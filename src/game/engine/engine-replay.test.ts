@@ -6,7 +6,7 @@ import { sweepSeeds } from "./engine-replay.test-util.ts";
  * a restored wreck 18 mm off after one step): the solver state a keyframe restored left out each shape cluster's last
  * rotation and warm start (`simState`). Seeds 1 to 64 of the natural field replayed their involved cars up to 4.4 m off
  * (seeds 51, 54; which seeds did moved under a 1e-10 m nudge) until the clip carried what the live world and course knew
- * (the world's step schedule, the course's wall memory and knocked props) and every car that touched a clip car, mass to
+ * (the world's step schedule, the course's road-segment hint and knocked props) and every car that touched a clip car, mass to
  * mass included. `SEEDS=1,2,... node --experimental-strip-types --test src/game/engine/engine-replay.test.ts` runs any others.
  *
  * Then the three seeds of 9 to 64 that diverged, one per cause: 18 (a prop a car outside the clip knocked off its spot

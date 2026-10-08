@@ -3,11 +3,12 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CAR_HALF, WHEEL_POS } from "../vehicle/car-mesh.ts";
 import { NO_FLOOR, type Ground } from "../world/ground.ts";
-import { PREFABS, type PrefabId } from "../world/catalog.ts";
-import type { Placed } from "../world/placements.ts";
+import { PREFABS } from "../world/catalog.ts";
+import { propColliders, type Placed } from "../world/placements.ts";
 import { blankPoint, blankProjection, pointOn, projectPath, type Track, type TrackPath } from "../world/track.ts";
 import { projectGrid, roadGrid, type RoadGrid } from "./road-grid.ts";
-import { GANTRY_BEAM, levelAt, RoadIndex, sampleAt, sections, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
+import { GANTRY_BEAM, RoadIndex, sampleAt, TUNNEL_GAP, TUNNEL_SIDE } from "./track-mesh.ts";
+import { levelAt, sections } from "../world/track-sections.ts";
 import { pillarPieces } from "./track-structures.ts";
 
 /**
@@ -85,29 +86,21 @@ export const CINE = {
 const raceSights = new WeakMap<Track, Sight>();
 
 /**
- * Crowned props as `present/prefabs.ts` draws them: the share of the height where the crown (the prop's drawn width) starts.
- * Below it stands only the trunk: a tree's lower cone starts at 1.4 of its 7 m, a palm's fronds droop to 6.5 of its 8.5 m.
+ * The course's solids at their drawn size (the props' collider pieces, the start gantry's legs, bridge pillars); cached per track.
+ * A prop's pieces are what a car meets (`propColliders`: the union of what is drawn); a round one keeps 0.45 m at least, for the
+ * head and arm of a lamp or a trunk's bark. A prop with no collider (the gantry) is its size box.
  */
-const CROWN_FROM: Partial<Record<PrefabId, number>> = { tree: 0.2, palm: 0.75 };
-
-/** The course's solids at their drawn size (placed props, the start gantry's legs, bridge pillars); cached per track. */
 export function raceSight(track: Track, placed: readonly Placed[]): Sight {
   const hit = raceSights.get(track);
   if (hit) return hit;
-  const occ = placed.flatMap((p) => {
-    const spec = PREFABS[p.prefab];
-    const hx = (spec.size[0] * p.sx) / 2;
-    const hz = (spec.size[2] * p.sz) / 2;
-    const top = p.y + spec.size[1] * p.sy;
-    if (spec.collider?.kind !== "circle") return [occluder(p.x, p.z, p.yaw, hx, hz, false, p.y, top)];
-    // Thin round props (lamps, cones, trunks) get their heads and arms: 0.45 m at least.
-    const r = Math.max(hx, hz, 0.45);
-    const crown = CROWN_FROM[p.prefab];
-    if (crown === undefined) return [occluder(p.x, p.z, p.yaw, r, r, true, p.y, top)];
-    const trunk = Math.max(spec.collider.r * Math.max(p.sx, p.sz), 0.45);
-    const base = p.y + spec.size[1] * p.sy * crown;
-    return [occluder(p.x, p.z, p.yaw, trunk, trunk, true, p.y, base), occluder(p.x, p.z, p.yaw, r, r, true, base, top)];
+  const occ = propColliders(placed).map((c) => {
+    const r = Math.max(c.hx, 0.45);
+    return c.kind === "circle" ? occluder(c.x, c.z, c.yaw, r, r, true, c.base, c.top) : occluder(c.x, c.z, c.yaw, c.hx, c.hz, false, c.base, c.top);
   });
+  for (const p of placed) {
+    const spec = PREFABS[p.prefab];
+    if (spec.collider.length === 0) occ.push(occluder(p.x, p.z, p.yaw, (spec.size[0] * p.sx) / 2, (spec.size[2] * p.sz) / 2, false, p.y, p.y + spec.size[1] * p.sy));
+  }
   // Start gantry legs (art only, `TrackArt`): just past each side's wall line.
   const path = track.path;
   const ground = track.ground();

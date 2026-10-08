@@ -25,7 +25,7 @@
     { "x": 156, "z": 60, "wall": [true, true] },
     { "x": 166, "z": 60 },
     { "x": 175.9, "z": 55.9 },
-    { "x": 180, "z": 46 },
+    { "x": 180, "z": 46, "wall": [false, true] },
     { "x": 180, "z": 26, "wall": [false, true] },
     { "x": 180, "z": 12, "wall": [false, false] },
     { "x": 180, "z": -12, "wall": [true, true] },

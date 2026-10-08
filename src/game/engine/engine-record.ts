@@ -62,8 +62,8 @@ const CLIP_SHARE = (REEL_BUDGET / TOP) * 3.3;
 
 /**
  * What the course (the race's walls and props) remembers between steps, which a keyframe carries so a replay starts
- * from it rather than from a scene that forgot: per car its `MEMORY` doubles (the wall contact memory and the road
- * projection hint), and per placed prop whether a car has knocked it off its spot.
+ * from it rather than from a scene that forgot: per car its `MEMORY` doubles (the road projection hint), and per placed
+ * prop whether a car has knocked it off its spot.
  */
 interface CourseMemory {
   /** Car `i`'s `MEMORY` doubles into `out`. */
@@ -71,8 +71,8 @@ interface CourseMemory {
   /** One flag per placed prop: 1 knocked off its spot (the live array, not a copy). */
   knocks(): Uint8Array;
 }
-/** A car with no wall history on no road segment, as a placement leaves one (and what a recorder with no course writes). */
-const NO_MEMORY = [Infinity, 0, 0, -1];
+/** A car on no road segment, as a placement leaves one (and what a recorder with no course writes). */
+const NO_MEMORY = [-1];
 
 /**
  * Race highlight recorder (docs/HIGHLIGHTS.md), host or offline only. Per fixed step every car's drive output

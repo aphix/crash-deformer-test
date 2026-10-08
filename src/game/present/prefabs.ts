@@ -2,7 +2,7 @@ import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { makeAsphalt, makeJerseyBarrier, makeLamp } from "./engine-world.ts";
 import { tagSurface } from "./ultra/surface-tag.ts";
-import type { PrefabId } from "../world/catalog.ts";
+import { STAR_INNER, type PrefabId } from "../world/catalog.ts";
 
 /**
  * Prefab meshes and the race's shared procedural textures. A prefab is one or a few parts (geometry
@@ -366,7 +366,7 @@ function star(R: number, y0: number, y1: number): THREE.BufferGeometry {
   const s = new THREE.Shape();
   for (let i = 0; i < 10; i++) {
     const a = (i * Math.PI) / 5;
-    const r = i % 2 ? R * 0.45 : R;
+    const r = i % 2 ? R * STAR_INNER : R;
     if (i) s.lineTo(Math.sin(a) * r, -Math.cos(a) * r);
     else s.moveTo(0, -r);
   }

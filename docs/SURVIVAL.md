@@ -44,7 +44,7 @@ Havana minimap):
   throttle a sedan reaches about 91 % of its top speed at the foot (`havana-fit.test.ts`).
 - **The face and the plaza.** The plateau's near side rises 4 m over a nominal 16 m (14°), 24 m wide, grass
   (`havana-face-side.webp`). The plaza on top is 24 × 36 m of concrete with the monument at (4.5, 0): a star-plan stone
-  tower 55 m tall, its collider a 5.8 m circle; 12 m of plaza is clear on its left.
+  tower 55 m tall, its collider the star itself (`starPlan`: per step and per arm a box over the core and a few boxes along the tip, turned to the arm, within 0.35 m of the drawn stone) and three circles for its spire; 12 m of plaza is clear on its left.
 - **The crest and beyond.** The top meets the face in a parabola 6 m either side of the nominal edge, so a car leaves the
   ground over it at about 25 m/s and up (`havana-mid-air.webp`). The far side falls 4 m over 18 m to the ring's south leg;
   past it the landing area is the paseo between two lawns, 150 m long, with no solid prop within 60 m of the line.

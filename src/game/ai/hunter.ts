@@ -65,8 +65,10 @@ const TURN_COST = 6;
 const QUEUE = 30;
 /** Obstacle grid cell (m). */
 const CELL = 16;
+/** A piece of a prop that starts higher than this (m) over the prop's foot is driven under (a tree's crown, a billboard's panel): a car's roofline is 1.36 m. */
+const CLEARANCE = 1.38;
 
-/** The course's solid props (`body: "solid"`) on a grid: is a point inside one, grown by the swath. */
+/** The course's solid props (`body: "solid"`) on a grid, the pieces of them a car meets (not a crown over its roof): is a point inside one, grown by the swath. */
 export class Obstacles {
   private readonly cells = new Map<number, number[]>();
   private readonly x: Float64Array;
@@ -78,7 +80,11 @@ export class Obstacles {
   private readonly circle: Uint8Array;
 
   constructor(colliders: readonly PropCollider[]) {
-    const solid = colliders.filter((c) => c.body === "solid");
+    const all = colliders.filter((c) => c.body === "solid");
+    // A prop's foot is the lowest base among its pieces (they share an index).
+    const foot = new Map<number, number>();
+    for (const c of all) foot.set(c.index, Math.min(foot.get(c.index) ?? Infinity, c.base));
+    const solid = all.filter((c) => c.base - foot.get(c.index)! < CLEARANCE);
     this.x = Float64Array.from(solid, (c) => c.x);
     this.z = Float64Array.from(solid, (c) => c.z);
     this.cos = Float64Array.from(solid, (c) => Math.cos(c.yaw));

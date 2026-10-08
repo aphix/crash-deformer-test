@@ -98,11 +98,16 @@ function shapes(R: Rapier, p: Placed): { descs: ColliderDesc[]; volume: number }
   return { descs: [R.ColliderDesc.cuboid((w * p.sx) / 2, hy, (d * p.sz) / 2)], volume: w * p.sx * h * p.sy * d * p.sz };
 }
 
-/** The footprint `c` as a collider about the prop's middle (`hy` over its base `y0`): what a car and a standing-prop throw meet. */
-function footprint(R: Rapier, c: PropCollider, y0: number, hy: number): ColliderDesc {
-  const half = (c.top - y0) / 2;
+/** Piece `c` of placement `p`'s footprint as a collider about the prop's middle (`hy` over its base): what a car and a standing-prop throw meet. */
+function footprint(R: Rapier, c: PropCollider, p: Placed, hy: number): ColliderDesc {
+  const half = (c.top - c.base) / 2;
   const desc = c.kind === "circle" ? R.ColliderDesc.cylinder(half, c.r) : R.ColliderDesc.cuboid(c.hx, half, c.hz);
-  return desc.setTranslation(0, half - hy, 0).setDensity(0);
+  // The piece's offset from the placement, in the yawed frame the body turns in.
+  const dx = c.x - p.x;
+  const dz = c.z - p.z;
+  const cos = Math.cos(p.yaw);
+  const sin = Math.sin(p.yaw);
+  return desc.setTranslation(dx * cos - dz * sin, (c.base + c.top) / 2 - p.y - hy, dx * sin + dz * cos).setDensity(0);
 }
 
 /**
@@ -191,9 +196,9 @@ export class PropBodies {
   private draw: PropTumble | null = null;
   /** The standing bodies are in the world. */
   private built = false;
-  /** Per placement (null: not knockable): its body, its footprint collider, its own shape's colliders. */
+  /** Per placement (null: not knockable): its body, its footprint colliders (one per piece of its prefab's collider), its own shape's colliders. */
   private bodies: (RigidBody | null)[] = [];
-  private feet: (Collider | null)[] = [];
+  private feet: Collider[][] = [];
   private own: Collider[][] = [];
   /**
    * Per placement: `STAND`/`DUE`/`OUT`, the knock's velocity (3), the car it lets by (-1: none): the one that knocked it,
@@ -262,7 +267,7 @@ export class PropBodies {
     this.draw = draw;
     draw?.reset();
     this.bodies = Array.from({ length: n }, () => null);
-    this.feet = Array.from({ length: n }, () => null);
+    this.feet = Array.from({ length: n }, () => []);
     this.own = Array.from({ length: n }, () => []);
     this.state = new Uint8Array(n);
     this.kick = new Float32Array(n * 3);
@@ -522,15 +527,14 @@ export class PropBodies {
   private build(): void {
     const R = this.R!;
     const world = this.world!;
-    for (const c of propColliders(this.placed)) {
-      if (c.body !== "knock") continue;
-      const i = c.index;
-      const p = this.placed[i]!;
+    for (const [i, p] of this.placed.entries()) {
+      if (PREFABS[p.prefab].body !== "knock") continue;
+      const pieces = propColliders([p]);
       const body = world.createRigidBody(R.RigidBodyDesc.fixed().setLinearDamping(AIR_LINEAR).setAngularDamping(AIR_ANGULAR).setSoftCcdPrediction(SOFT_CCD).setCcdEnabled(true));
       this.bodies[i] = body;
-      this.feet[i] = world.createCollider(footprint(R, c, p.y, this.half[i]!).setCollisionGroups(this.footGroups), body);
+      this.feet[i] = pieces.map((c) => world.createCollider(footprint(R, c, p, this.half[i]!).setCollisionGroups(this.footGroups), body));
       const { descs, volume } = shapes(R, p);
-      this.own[i] = descs.map((d) => world.createCollider(d.setDensity(c.mass / volume).setFriction(FRICTION).setRestitution(0).setCollisionGroups(NONE), body));
+      this.own[i] = descs.map((d) => world.createCollider(d.setDensity(pieces[0]!.mass / volume).setFriction(FRICTION).setRestitution(0).setCollisionGroups(NONE), body));
       this.stand(i);
     }
     this.built = true;
@@ -543,7 +547,7 @@ export class PropBodies {
       const body = this.bodies[i];
       if (body) this.world!.removeRigidBody(body);
       this.bodies[i] = null;
-      this.feet[i] = null;
+      this.feet[i] = [];
       this.own[i] = [];
     }
     this.built = false;
@@ -565,7 +569,7 @@ export class PropBodies {
     _rot.z = _q.z;
     _rot.w = _q.w;
     body.setRotation(_rot, false);
-    this.feet[i]!.setCollisionGroups(this.footGroups);
+    for (const f of this.feet[i]!) f.setCollisionGroups(this.footGroups);
     for (const c of this.own[i]!) c.setCollisionGroups(NONE);
   }
 
@@ -578,7 +582,7 @@ export class PropBodies {
     let vz = this.kick[i * 3 + 2]!;
     if (this.state[i] !== OUT) {
       body.setBodyType(this.R!.RigidBodyType.Dynamic, false);
-      this.feet[i]!.setCollisionGroups(NONE);
+      for (const f of this.feet[i]!) f.setCollisionGroups(NONE);
       this.out[this.count++] = i;
       this.state[i] = OUT;
       readPose(body, this.cur, i * 7);

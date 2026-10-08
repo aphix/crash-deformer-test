@@ -1,3 +1,4 @@
+import { hypot2 } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
@@ -24,9 +25,16 @@ export const FLOOR = -0.9 * LAB_SCALE;
 /** How far (m) a bracket reaches past the footprint it carries, and its plate's thickness. */
 const BRACKET_LIP = 0.1;
 export const BRACKET_T = 0.12;
-/** The wall the board hangs on: deep enough behind its face that no slice of a 55 m/s throw crosses it (1/240 s: 0.23 m). */
+/** The pegboard's thickness and its stand-off from the wall (m): ¼ in hardboard on ¾ in furring. */
+export const BOARD_T = 0.00635 * LAB_SCALE;
+const STANDOFF = 0.019 * LAB_SCALE;
+/** The garage around the bench (m): its side walls stand `ROOM_HALF_W` either side of the bench's middle (an 8.3 m garage), all its walls `ROOM_H` high from the floor. */
+export const ROOM_HALF_W = 100;
+export const ROOM_H = 140;
+/** The garage's back wall (z): behind the pegboard and its stand-off. */
+export const LAB_BACK = BOARD.z - BOARD_T - STANDOFF;
+/** How deep (m) a wall is behind its face: enough that no slice of a 55 m/s throw crosses it (1/240 s: 0.23 m). */
 const WALL_DEPTH = 2;
-const WALL_TOP = 200;
 
 /** A pose: the thing's ground point (a car's wheel plane, a prop's base, a dummy's torso centre), yaw (rad, +Z forward at 0), pitch and roll. */
 export type LabPose = { x: number; y: number; z: number; yaw: number; pitch: number; roll: number };
@@ -124,14 +132,26 @@ export function labPlaced(layout: LabLayout): { placed: Placed[]; items: number[
   return { placed, items: props.map(({ k }) => k) };
 }
 
+/** A solid wall slab of the room for `labColliders`: centre (x, z), half extents, from `base` to `top` (m); each is a piece of the one wall (never knocked). */
+function roomSlab(index: number, x: number, z: number, hx: number, hz: number, base: number, top: number): PropCollider {
+  return { index, prefab: "wall", body: "solid", x, z, yaw: 0, kind: "box", r: hypot2(hx, hz), hx, hz, mass: 0, base, top, ends: 3 };
+}
+
 /**
- * What a car hits in the Lab besides other cars: the props (the race's colliders, `propColliders`) and the wall the
- * pegboard hangs on, a solid `WALL_DEPTH` deep behind the board's face (index `placed.length`: it is never knocked).
+ * What a car hits in the Lab besides other cars: the props (the race's colliders, `propColliders`) and the room as `lab-art.ts`
+ * draws it (indices from `placed.length`, never knocked): the pegboard's face over the board, the garage's back wall behind it
+ * (`LAB_BACK`) and its two side walls, each a solid `WALL_DEPTH` deep behind its face.
  */
 export function labColliders(placed: readonly Placed[]): PropCollider[] {
-  const hz = WALL_DEPTH / 2;
-  const hx = BENCH.halfW;
-  return [...propColliders(placed), { index: placed.length, prefab: "wall", body: "solid", x: 0, z: BOARD.z - hz, yaw: 0, kind: "box", r: Math.hypot(hx, hz), hx, hz, mass: 0, top: WALL_TOP }];
+  const n = placed.length;
+  const d = WALL_DEPTH / 2;
+  return [
+    ...propColliders(placed),
+    roomSlab(n, 0, BOARD.z - d, BOARD.halfW, d, 0, BOARD.h),
+    roomSlab(n + 1, 0, LAB_BACK - d, ROOM_HALF_W, d, FLOOR, FLOOR + ROOM_H),
+    roomSlab(n + 2, ROOM_HALF_W + d, LAB_BACK + ROOM_HALF_W, d, ROOM_HALF_W, FLOOR, FLOOR + ROOM_H),
+    roomSlab(n + 3, -ROOM_HALF_W - d, LAB_BACK + ROOM_HALF_W, d, ROOM_HALF_W, FLOOR, FLOOR + ROOM_H),
+  ];
 }
 
 /**

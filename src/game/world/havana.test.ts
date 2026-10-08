@@ -46,7 +46,7 @@ describe("given the Survival course Havana", () => {
     const colliders = propColliders(placed);
     const route = (id: string) => track.routes.find((r) => r.id === id)!;
     /** Solid props (not palms) as circles: centre, radius, height. */
-    const solids = colliders.filter((c) => c.prefab !== "palm").map((c) => ({ x: c.x, z: c.z, r: c.kind === "circle" ? c.r : Math.hypot(c.hx, c.hz), h: PREFABS[c.prefab].size[1] * placed[c.index]!.sy, prefab: c.prefab }));
+    const solids = colliders.filter((c) => c.prefab !== "palm").map((c) => ({ x: c.x, z: c.z, r: c.kind === "circle" ? c.r : Math.hypot(c.hx, c.hz), h: PREFABS[placed[c.index]!.prefab].size[1] * placed[c.index]!.sy, prefab: c.prefab }));
 
     it("when the plateau and its face are measured, then it rises 4-6 m over 15-22 m with a 20-25 m launch face, a plaza about 25 x 35 m and a ring road 10-12 m wide, the plaza paved, the face grass and the island round it lawn", () => {
       assert.ok(plateau.height >= 4 && plateau.height <= 6, `rise ${plateau.height} m`);
@@ -70,8 +70,8 @@ describe("given the Survival course Havana", () => {
       assert.ok(solids.every((s) => s.z < 60 || s.z > 470 || Math.abs(s.x) - s.r >= 10), "no solid in the corridor");
       // The sight line from the driver's eye at the start to the monument's top: no block taller than the line stands in it.
       const start = track.survival!.start;
-      const mon = solids.find((s) => s.prefab === "monument")!;
-      for (const s of solids.filter((q) => q !== mon)) {
+      const mon = placed.find((p) => p.prefab === "monument")!;
+      for (const s of solids.filter((q) => q.prefab !== "monument")) {
         const d = ((s.x - start.x) * (mon.x - start.x) + (s.z - start.z) * (mon.z - start.z)) / Math.hypot(mon.x - start.x, mon.z - start.z) ** 2;
         if (d < 0 || d > 1) continue;
         const off = Math.hypot(start.x + (mon.x - start.x) * d - s.x, start.z + (mon.z - start.z) * d - s.z);
@@ -80,12 +80,16 @@ describe("given the Survival course Havana", () => {
     });
 
     it("when the monument is measured, then it is a solid star-plan tower near the plaza's centre, with a clear driving strip on its left", () => {
-      const m = colliders.find((c) => c.prefab === "monument")!;
-      assert.ok(m.kind === "circle" && m.r >= 5, "a solid circle of the tower's footprint");
+      const m = placed.find((p) => p.prefab === "monument")!;
+      const pieces = colliders.filter((c) => c.prefab === "monument" && c.base === m.y);
+      // The ground step's farthest point from the tower's axis and its left-most x: every piece's corners (a circle's four extremes).
+      const corners = pieces.flatMap((c) => (c.kind === "circle" ? [[c.r, 0], [-c.r, 0], [0, c.r], [0, -c.r]] : [[c.hx, c.hz], [c.hx, -c.hz], [-c.hx, c.hz], [-c.hx, -c.hz]]).map(([u, w]) => [c.x + u! * Math.cos(c.yaw) + w! * Math.sin(c.yaw), c.z - u! * Math.sin(c.yaw) + w! * Math.cos(c.yaw)] as const));
+      assert.ok(pieces.length > 0 && pieces.every((c) => c.kind === "box"), "a ground step of star-plan boxes");
+      assert.ok(Math.max(...corners.map(([x, z]) => Math.hypot(x - m.x, z - m.z))) >= 5, "a footprint of the tower's size");
       assert.ok(Math.hypot(m.x - plateau.x, m.z - plateau.z) < 8, "near the centre");
-      assert.equal(placed[m.index]!.y, plateau.height, "standing on the plaza");
+      assert.equal(m.y, plateau.height, "standing on the plaza");
       assert.ok(PREFABS.monument.size[1] >= 40, "tall");
-      assert.ok(m.x - (m as { r: number }).r - (plateau.x - plateau.halfX) >= 8, "at least 8 m of plaza clear on its left");
+      assert.ok(Math.min(...corners.map(([x]) => x)) - (plateau.x - plateau.halfX) >= 8, "at least 8 m of plaza clear on its left");
     });
 
     it("when the escape alley is measured, then it is narrow and along the plaza's left edge, with stucco walls (solid) and a dumpster (a collider) at a corner", () => {
@@ -97,7 +101,7 @@ describe("given the Survival course Havana", () => {
       const stub = placed.find((p) => p.prefab === "wall" && Math.abs(Math.abs(p.yaw) - Math.PI / 2) < 0.01)!;
       const bin = placed.find((p) => p.prefab === "dumpster")!;
       assert.ok(stub && bin && Math.hypot(bin.x - stub.x, bin.z - stub.z) < 4, "the dumpster stands by the stub wall's corner");
-      for (const id of ["wall", "dumpster"] as const) assert.ok(PREFABS[id].body === "solid" && PREFABS[id].collider, `${id} is solid`);
+      for (const id of ["wall", "dumpster"] as const) assert.ok(PREFABS[id].body === "solid" && PREFABS[id].collider.length > 0, `${id} is solid`);
     });
 
     it("when the landing beyond the crest is checked, then the area is open with room for several cops (no solid within 60 m of the line, 70-215 m past the plaza), the paseo asphalt and the lawn beside it grass", () => {

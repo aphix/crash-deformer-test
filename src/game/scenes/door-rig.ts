@@ -252,7 +252,7 @@ export class DoorRig {
     box.vz = car.velocity.z + f.z * lane.dir * this.u;
     box.kg = this.kg;
     box.hardness = 1;
-    const hit = partContact(car, box);
+    const hit = partContact(car, box, h);
     if (hit.touched) this.touched = true;
     this.u = Math.max(0, this.u - hit.du);
     // A lane that reaches the skin dents it through the same body contact the other rigs use.

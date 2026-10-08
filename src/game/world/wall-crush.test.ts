@@ -19,6 +19,9 @@ const colliders = propColliders(placeProps(track));
 
 type Wall = { fx: number; fz: number; ox: number; oz: number; run: number };
 
+/** How far (m) the car's middle starts inside the far wall's road face: its 2.3 m tail is then 1 m clear of that wall, which is solid. */
+const START_INSET = 3.3;
+
 /** The oval's longest straight left wall with no prop within 4 m of a car crossing the road to it: its face point, the unit toward it and the run across the road. */
 function straightWall(): Wall {
   const p = track.path;
@@ -31,7 +34,7 @@ function straightWall(): Wall {
     }
     if (!straight) continue;
     const limit = p.half[k]! + p.runL[k]!;
-    const run = limit + p.half[k]! + p.runR[k]! - 1.5;
+    const run = limit + p.half[k]! + p.runR[k]! - START_INSET;
     const ox = p.tz[k]!;
     const oz = -p.tx[k]!;
     const fx = p.x[k]! + ox * limit;

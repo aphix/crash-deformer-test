@@ -36,14 +36,11 @@ describe(`given the highlight recorder fed a ${MAX_CARS}-car race with a third o
     for (const [i, c] of cars.entries()) c.spawnFacing(i * 6, 0, 0, 10);
     // A third are wrecks: every keyframe encodes their netplay wreck section.
     for (let i = 0; i < MAX_CARS; i += 3) cars[i]!.applyImpact(new THREE.Vector3(i * 6, 0.5, 2.2), new THREE.Vector3(0, 0, -1), 16, 12);
-    // With a course (the race's wall memory and props: every keyframe reads them too), not the flat field's.
+    // With a course (the race's road-segment hint and props: every keyframe reads them too), not the flat field's.
     const knocks = new Uint8Array(40);
     const rec = new CrashRecorder({
       recall: (i, out) => {
         out[0] = i;
-        out[1] = 1;
-        out[2] = 0.5;
-        out[3] = -1;
       },
       knocks: () => knocks,
     });

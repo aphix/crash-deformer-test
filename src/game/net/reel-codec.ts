@@ -69,10 +69,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * kernel's hypot2/hypot3, not Math.hypot, so every browser computes the same last bits; 43: a clip records the hit
  * speed, the summed cage crush, each scoped hit and which ejections are its own, and a deep slow crush counts as a hit;
  * 44: the ragdoll world runs on Rapier's SIMD wasm build, whose float results differ from the plain build's, so a thrown
- * dummy's and a knocked prop's motion in a replayed clip changes).
+ * dummy's and a knocked prop's motion in a replayed clip changes; 45: race walls and solid props are one solid shaped from
+ * the drawn pieces, and an open door meets them (shut or torn), so a replayed clip near a wall or prop moves differently).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 44;
+const REPLAY_VERSION = 45;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
@@ -252,12 +253,9 @@ export function readClip(r: Reader, L: NetLayout): HighlightClip {
     let j = 0;
     for (; j < here && kr.off + FLIGHT * 8 + MEMORY * 8 + 2 <= len; j++) {
       kr.off += FLIGHT * 8;
-      // The wall memory (`RaceField.remember`): where the car stood (x ±Infinity: no history), how far past a wall line (m), the road segment its projection hint is on (-1: none).
-      const wallX = kr.f64();
-      const wallZ = kr.f64();
-      const beyond = kr.f64();
+      // The course memory (`RaceField.remember`): the road segment its projection hint is on (-1: none).
       const seg = kr.f64();
-      if (Number.isNaN(wallX) || !Number.isFinite(wallZ) || !(beyond >= 0 && beyond < Infinity) || !Number.isInteger(seg) || seg < -1) throw new RangeError("clip course memory");
+      if (!Number.isInteger(seg) || seg < -1) throw new RangeError("clip course memory");
       const n = kr.u16();
       kr.off += n * 8;
     }

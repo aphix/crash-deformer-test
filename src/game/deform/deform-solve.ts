@@ -19,7 +19,7 @@ import {
 import { DeformContact, ENGINE_SLACK } from "./deform-contact.ts";
 import { HUB_OVERRUN, type MassNode } from "./deform-rig.ts";
 import { FACE_TOP } from "./load-crush.ts";
-import { ENGINE_PACK_GAP, GROUND_SKIN, HUB_FLOOR, POWER_HOLD, TYRE_R, WHEEL_DIAMETER } from "./deform-state.ts";
+import { ENGINE_PACK_GAP, GROUND_SKIN, HUB_FLOOR, PLANT_QUIET, POWER_HOLD, TYRE_R, WHEEL_DIAMETER } from "./deform-state.ts";
 import { resistYaw } from "./tyre-yaw.ts";
 import { tiltedRise } from "./hub-plane.ts";
 import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
@@ -91,7 +91,7 @@ export abstract class DeformSolve extends DeformContact {
     }
     const sideHit = Math.abs(ix) > Math.abs(iz);
     this.yawMomentum(0, false);
-    const pinned = !this.deepCrush && this.quietTime() > 0.2;
+    const pinned = !this.deepCrush && this.quietTime() > PLANT_QUIET;
     // A squeeze's plates pin the shape in the world frame and planted tyres pin a quiet wreck: both keep
     // the plain write-back. Undoing its turn on a planted wreck turned the body against its hubs each
     // call and let a capped door drift 36–118 µm off its cap (left piston 60–80 km/h).

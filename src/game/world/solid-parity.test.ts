@@ -49,9 +49,9 @@ describe("given the jersey barrier (the range's slab, the reference every other 
   }
 });
 
-describe("given a fixed solid (a course wall, a solid box prop, or a solid circle such as a monument or a palm) and the jersey barrier as the reference", () => {
+describe("given a fixed solid (a course wall, a solid box prop, the flank of a monument's star arm or a palm's trunk) and the jersey barrier as the reference", () => {
   const CELLS: [Target, VehicleClassId[]][] = [
-    // Course walls (`RaceField.wall`), solid box props (`props`): a rim block, a thin wall; a solid circle: a monument, a palm.
+    // Course walls (`wallColliders` pieces, met like props), solid box props (`props`): a rim block, a thin wall; the flank of a monument's star arm (a box turned to the arm), a palm's trunk (a circle).
     ["oval", ["sedan", "truck", "monster"]],
     ["rally", ["sedan"]],
     ["stucco", ["sedan", "monster"]],

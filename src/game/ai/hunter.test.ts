@@ -231,7 +231,7 @@ describe("given one cop at the origin facing +z, driven by the hunter brain, wit
   /** One cop at the origin facing +z, its quarry `dist` m ahead, optionally behind a wall of `hx` × `hz` m at `z = wallZ`. */
   function drive(dist: number, wall?: { hx: number; hz: number; z: number }) {
     const colliders: PropCollider[] = wall
-      ? [{ index: 0, prefab: "building", body: "solid", x: 0, z: wall.z, yaw: 0, kind: "box", r: Math.hypot(wall.hx, wall.hz), hx: wall.hx, hz: wall.hz, mass: 0, top: 14 }]
+      ? [{ index: 0, prefab: "building", body: "solid", x: 0, z: wall.z, yaw: 0, kind: "box", r: Math.hypot(wall.hx, wall.hz), hx: wall.hx, hz: wall.hz, mass: 0, base: 0, top: 14, ends: 3 }]
       : [];
     const r = rig({ colliders });
     r.run(0.25);
