@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
-import { C_GRIP, C_H, HIT_SIZE, wheelContact } from "../world/surfaces.ts";
+import { C_GRIP, C_H, contactIn, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, wheelContact } from "../world/surfaces.ts";
 import {
   leftoverCrumple,
   applyGroundFriction,
@@ -44,6 +44,8 @@ const _clamp = new Float64Array(5);
 /** `sampleGround`'s hub position and its tyre's contact (`wheelContact`). */
 const _hub = new Float64Array(3);
 const _tyre = new Float64Array(HIT_SIZE);
+/** `sampleGround`'s query point for a mass off the hubs. */
+const _pq = new Float64Array(PQ_SIZE);
 /** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
 const SHAPE_REF_HZ = 240;
 /** Largest goal step per SHAPE_REF_HZ slice (m): a 33.6 m/s pull limit. */
@@ -668,9 +670,18 @@ export abstract class DeformSolve extends DeformContact {
         if (grip && h !== NO_FLOOR) grip[i] = _tyre[C_GRIP]!;
         continue;
       }
-      const h = ground.heightAt(w.x, w.z, w.y);
+      if (grip === null) {
+        floor[i] = ground.heightAt(w.x, w.z, w.y);
+        continue;
+      }
+      // Height and grip from one read of the ground.
+      _pq[PQ_X] = w.x;
+      _pq[PQ_Z] = w.z;
+      _pq[PQ_Y] = w.y;
+      contactIn(ground, _pq, _tyre);
+      const h = _tyre[C_H]!;
       floor[i] = h;
-      if (grip && h !== NO_FLOOR) grip[i] = ground.frictionAt(w.x, w.z, w.y);
+      if (h !== NO_FLOOR) grip[i] = _tyre[C_GRIP]!;
     }
   }
 

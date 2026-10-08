@@ -1,5 +1,5 @@
 import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
-import { activate, C_GRIP, C_H, C_NX, C_NY, C_NZ, C_SURF, contactIn, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, Surface } from "./surfaces.ts";
+import { activate, C_GRIP, C_NX, C_NY, C_NZ, C_SURF, contactIn, heightIn, HIT_SIZE, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, Surface } from "./surfaces.ts";
 
 /** A surface this far (m) above a body still counts as under it (kerbs, ramp lips, a wreck's dropped hub). */
 export const STEP_UP = 1.2;
@@ -38,8 +38,10 @@ function ask(g: Ground, x: number, z: number, y: number): void {
 export class Ground extends Surface {
   /** Surface height (m) at world (x, z); `NO_FLOOR` where nothing is under the body. */
   heightAt(x: number, z: number, y = Infinity): number {
-    ask(this, x, z, y);
-    return _out[C_H]!;
+    _q[PQ_X] = x;
+    _q[PQ_Z] = z;
+    _q[PQ_Y] = y;
+    return heightIn(this, _q);
   }
 
   /** Writes the unit up-normal at (x, z) into `out` and returns it. */

@@ -56,6 +56,10 @@ const BELLY: readonly (readonly [number, number, number])[] = [
  * flight (a keel 4–5 cm in the road at 30 m/s, a car parked on a bank's crease, a car across a ramp's edge).
  */
 const POINTS: readonly (readonly [number, number, number])[] = [...HULL, ...BELLY];
+/** `POINTS` as flat car-local x, y, z rows: `hullPoint` reads them per slice without unpacking a tuple. */
+const POINT_X = Float64Array.from(POINTS, (p) => p[0]);
+const POINT_Y = Float64Array.from(POINTS, (p) => p[1]);
+const POINT_Z = Float64Array.from(POINTS, (p) => p[2]);
 /** Where `PAN` starts in `POINTS`. */
 const PAN_FROM = POINTS.length - PAN.length;
 /** Neighbouring belly points as `POINTS` index pairs (along x at one z, along z at one x): where the two stand on different patches,
@@ -302,8 +306,7 @@ function surrounds(n: number): boolean {
  * stock), so a lifted monster's keel is not 0.48 m under the body it draws.
  */
 function hullPoint(i: number, q: THREE.Quaternion, dy: number, lift: number, out: THREE.Vector3): THREE.Vector3 {
-  const [x, y, z] = POINTS[i]!;
-  return out.set(x, y + dy + (i >= HULL.length ? lift : 0), z).applyQuaternion(q);
+  return out.set(POINT_X[i]!, POINT_Y[i]! + dy + (i >= HULL.length ? lift : 0), POINT_Z[i]!).applyQuaternion(q);
 }
 
 /** Body point `i`'s world offset `r` moved inward by the faces' crush depths `cr` (the crushed car's hull shrinks with it). */

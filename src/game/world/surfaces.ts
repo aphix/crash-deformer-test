@@ -1,3 +1,4 @@
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { SURFACE_IDS, SURFACES } from "./catalog.ts";
 
 /**
@@ -606,7 +607,7 @@ function gridAt(s: Surface, i: number, q: Float64Array): void {
   }
   const ci = Math.floor(fu);
   const cj = Math.floor(fv);
-  const c = cj * nu + ci;
+  const c = (cj | 0) * nu + (ci | 0);
   const tu = fu - ci;
   const tv = fv - cj;
   let h: number;
@@ -632,7 +633,8 @@ function gridAt(s: Surface, i: number, q: Float64Array): void {
     _s[S_CG0] = _s[S_PU] / step;
     _s[S_CG1] = _s[S_PV] / stepV;
   }
-  _s[S_CN] = Math.round(fv) * nu + Math.round(fu);
+  // Math.round of fv and fu (halves up): the cell's corner plus one where the fraction reaches a half.
+  _s[S_CN] = (cj + (tv >= 0.5 ? 1 : 0)) * nu + ci + (tu >= 0.5 ? 1 : 0);
   const aux = s.auxs[i]!;
   if (aux.length > 0) _s[S_CAUX] = bil(aux, c, nu, tu, tv);
   h -= P[o + P_DROP]! * _s[S_CAUX];
@@ -737,7 +739,7 @@ function report(out: Float64Array): void {
   out[C_H] = _s[S_BEST];
   if (deck || _s[S_NODE] < 0) {
     // Partials in world plan.
-    const len = Math.hypot(_s[S_G0], 1, _s[S_G1]);
+    const len = hypot3(_s[S_G0], 1, _s[S_G1]);
     out[C_NX] = -_s[S_G0] / len;
     out[C_NY] = 1 / len;
     out[C_NZ] = -_s[S_G1] / len;
@@ -746,7 +748,7 @@ function report(out: Float64Array): void {
     const nx = -_s[S_G0] * P[o + P_AX]! + P[o + P_BX]! - _s[S_G1] * P[o + P_CX]!;
     const ny = -_s[S_G0] * P[o + P_AX + 1]! + P[o + P_BX + 1]! - _s[S_G1] * P[o + P_CX + 1]!;
     const nz = -_s[S_G0] * P[o + P_AX + 2]! + P[o + P_BX + 2]! - _s[S_G1] * P[o + P_CX + 2]!;
-    const len = Math.hypot(nx, ny, nz);
+    const len = hypot3(nx, ny, nz);
     out[C_NX] = nx / len;
     out[C_NY] = ny / len;
     out[C_NZ] = nz / len;
@@ -776,24 +778,49 @@ export const PQ_SIZE = 3;
  * than it), −1 none.
  */
 export function pointContact(q: Float64Array, skip: number, out: Float64Array): void {
+  seekAll(q, skip);
+  report(out);
+}
+
+/** No car tops to ask. */
+const NO_TOPS = new Int32Array(0);
+
+/**
+ * `pointContact` up to its report, over the static surface and patches `list[0..count)` of the car tops `tops` (`null`: none):
+ * the best candidate into the scratch (`report` reads it); a footprint or edge sample needs its whole contact only when it is the highest yet.
+ */
+function seek(q: Float64Array, skip: number, tops: Surface | null, list: Int32Array, count: number): void {
   _s[S_BEST] = NONE;
   live.surf = null;
   if (live.statics !== null) find(live.statics, q, skip);
+  if (tops !== null) for (let k = 0; k < count; k++) offer(tops, list[k]!, q, skip);
+}
+
+/** `seek` over every top near the asker `skip`. */
+function seekAll(q: Float64Array, skip: number): void {
   const t = live.tops;
-  if (t !== null) {
-    t.near(skip);
-    for (let k = 0; k < t.nAlways; k++) offer(t, t.always[k]!, q, skip);
-  }
-  report(out);
+  if (t !== null) t.near(skip);
+  seek(q, skip, t, t?.always ?? NO_TOPS, t?.nAlways ?? 0);
+}
+
+/** `patchOf` the contact `seek` found would report. */
+function seekPatch(): number {
+  return live.surf === null ? -1 * 1e6 + -1 : _s[S_OWNER] * 1e6 + _s[S_PATCH];
 }
 
 /** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
 export function contactIn(s: Surface, q: Float64Array, out: Float64Array): void {
+  heightIn(s, q);
+  report(out);
+}
+
+/** `contactIn`'s height alone (`C_H`), its normal, grip and owner never worked out. */
+export function heightIn(s: Surface, q: Float64Array): number {
   _s[S_BEST] = NONE;
   live.surf = null;
   if (!s.sealed) s.seal();
   find(s, q, -1);
-  report(out);
+  return _s[S_BEST];
 }
 
 // The tyre's footprint (wheel frame: axle x, then the rolling plane's y and z; at wheel scale 1): the drawn tyre's five tread rings
@@ -942,15 +969,16 @@ export function edgeCross(ax: number, ay: number, az: number, bx: number, by: nu
     _pq[PQ_X] = px;
     _pq[PQ_Z] = pz;
     _pq[PQ_Y] = Number.isNaN(ask) ? py : ask;
-    pointContact(_pq, skip, _x);
-    if (patchOf(_x) !== id) {
+    seekAll(_pq, skip);
+    if (seekPatch() !== id) {
       t1 = t;
       continue;
     }
     t0 = t;
-    const r = _x[C_H]! - py;
+    const r = _s[S_BEST] - py;
     if (!(r > best)) continue;
     best = r;
+    report(_x);
     EDGE_HIT.set(_x);
     EDGE_HIT[C_PX] = px;
     EDGE_HIT[C_PY] = py;
@@ -972,11 +1000,12 @@ function ridgeAt(ax: number, ay: number, az: number, dx: number, dy: number, dz:
   _pq[PQ_X] = px;
   _pq[PQ_Z] = pz;
   _pq[PQ_Y] = py;
-  pointContact(_pq, skip, _x);
-  if (patchOf(_x) !== id) return NONE;
-  const r = _x[C_H]! - py;
+  seekAll(_pq, skip);
+  if (seekPatch() !== id) return NONE;
+  const r = _s[S_BEST] - py;
   if (r > ridgeBest[0]!) {
     ridgeBest[0] = r;
+    report(_x);
     EDGE_HIT.set(_x);
     EDGE_HIT[C_PX] = px;
     EDGE_HIT[C_PY] = py;
@@ -1034,9 +1063,15 @@ function take(out: Float64Array, hit: Float64Array, r: number, k: number): void 
   out[C_PZ] = hit[C_PZ]!;
 }
 
+/** The car tops `wheelContact`'s footprint asks (`null`: none whose edge is within the tyre's reach) and their patches whose box is within reach of its hub. */
+let _reachOf: Surface | null = null;
+let _reach = new Int32Array(8);
+let _nReach = 0;
+
 /**
- * Footprint point `k` (wheel frame at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the hub's height:
- * its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when it is the highest yet.
+ * Footprint point `k` (wheel frame at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the hub's height
+ * over the statics and the tops within reach (`_reach`): its rise, patch and point into the footprint's store, and into `out` as the
+ * wheel's contact when it is the highest yet.
  */
 function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: number, c: number, s: number, k: number, out: Float64Array): void {
   const lx = FX[k]! * scale;
@@ -1048,14 +1083,15 @@ function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: numbe
   _pq[PQ_X] = px;
   _pq[PQ_Z] = pz;
   _pq[PQ_Y] = hub[1]!;
-  pointContact(_pq, skip, _w);
-  const r = _w[C_H]! - py;
+  seek(_pq, skip, _reachOf, _reach, _nReach);
+  const r = _s[S_BEST] - py;
   _rise[k] = r;
-  _pid[k] = patchOf(_w);
+  _pid[k] = seekPatch();
   _fx[k] = px;
   _fy[k] = py;
   _fz[k] = pz;
   if (!(r > out[C_H]!)) return;
+  report(_w);
   _w[C_PX] = px;
   _w[C_PY] = py;
   _w[C_PZ] = pz;
@@ -1091,20 +1127,35 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const z = hub[2]!;
   const y = hub[1]!;
   const tops = live.tops;
-  if (tops !== null) tops.near(skip);
-  const n = (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) || (tops !== null && edgeIn(tops, x, z, y, r, skip)) ? FOOT : BASE;
+  _nReach = 0;
+  if (tops !== null) {
+    tops.near(skip);
+    if (_reach.length < tops.nAlways) _reach = new Int32Array(tops.always.length);
+    // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it).
+    const P = tops.p;
+    for (let k = 0; k < tops.nAlways; k++) {
+      const i = tops.always[k]!;
+      const o = i * P_STRIDE;
+      if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) continue;
+      _reach[_nReach++] = i;
+    }
+  }
+  // No top's edge within the tyre's reach: the hub and its footprint never ask the tops.
+  _reachOf = tops !== null && edgeIn(tops, x, z, y, r, skip) ? tops : null;
+  const n = _reachOf !== null || (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) ? FOOT : BASE;
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   _pq[PQ_X] = x;
   _pq[PQ_Z] = z;
   _pq[PQ_Y] = y;
-  pointContact(_pq, skip, _w);
+  seek(_pq, skip, _reachOf, _reach, _nReach);
+  report(_w);
   let c = 1;
   let s = 0;
   if (_w[C_H]! !== NONE) {
     const ny = _w[C_NX]! * axes[3]! + _w[C_NY]! * axes[4]! + _w[C_NZ]! * axes[5]!;
     const nz = _w[C_NX]! * axes[6]! + _w[C_NY]! * axes[7]! + _w[C_NZ]! * axes[8]!;
-    const len = Math.hypot(ny, nz);
+    const len = hypot2(ny, nz);
     if (len > 1e-9) {
       c = ny / len;
       s = -nz / len;
