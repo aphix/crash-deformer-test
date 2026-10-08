@@ -1,4 +1,5 @@
 import { useState, type RefObject } from "react";
+import { ChevronDown, ChevronUp } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { RangeRow } from "@/components/hud-controls";
 import { CarTypeButtons } from "@/components/hud-sections";
@@ -49,10 +50,43 @@ function Segments<T extends string>({ label, value, options, onPick }: { label: 
  */
 export function GaragePanel({ garage, playerCar, engine }: { garage: GarageHud; playerCar: string; engine: RefObject<CrashEngine | null> }) {
   const [target, setTarget] = useState<"car" | "person">("car");
+  // Collapsed, the panel is one row (what to paint, look or spray, the can's size), leaving a phone's view to the paint.
+  const [collapsed, setCollapsed] = useState(false);
   const { person, picked, spray } = garage;
+  const edit = <Segments label="Edit" value={target} options={[["car", "Car"], ["person", "Driver"]]} onPick={setTarget} />;
+  const can = <Segments label="Spray can" value={spray.on ? "on" : "off"} options={[["off", "Look"], ["on", "Spray"]]} onPick={(v) => engine.current?.setSprayTool({ on: v === "on" })} />;
+  const size = (
+    <RangeRow
+      label="Size"
+      value={spray.radius}
+      min={SPRAY_RADIUS.min}
+      max={SPRAY_RADIUS.max}
+      step={0.01}
+      shown={`${Math.round(spray.radius * 100)} cm`}
+      onValue={(radius) => engine.current?.setSprayTool({ radius })}
+    />
+  );
+  const toggle = (
+    <Button variant="ghost" className={SEGMENT} aria-expanded={!collapsed} aria-label={collapsed ? "Show the garage editor" : "Hide the garage editor"} onClick={() => setCollapsed(!collapsed)}>
+      {collapsed ? <ChevronUp className="size-4" /> : <ChevronDown className="size-4" />}
+    </Button>
+  );
+  if (collapsed) {
+    return (
+      <div className="hud-panel pointer-events-auto flex w-full max-w-sm items-center gap-1 p-1 sm:mt-auto">
+        {edit}
+        {can}
+        <div className="min-w-0 flex-1">{size}</div>
+        {toggle}
+      </div>
+    );
+  }
   return (
     <div className="hud-panel pointer-events-auto w-full max-w-xs space-y-1 overflow-y-auto overscroll-contain p-1 max-h-[46vh] sm:max-h-[70vh] sm:mt-auto">
-      <Segments label="Edit" value={target} options={[["car", "Car"], ["person", "Driver"]]} onPick={setTarget} />
+      <div className="flex items-center gap-1">
+        <div className="min-w-0 flex-1">{edit}</div>
+        {toggle}
+      </div>
       {target === "car" ? (
         <>
           <CarTypeButtons playerCar={playerCar} engine={engine} className="grid-cols-4" />
@@ -78,16 +112,8 @@ export function GaragePanel({ garage, playerCar, engine }: { garage: GarageHud; 
         </>
       )}
       <div className="space-y-1 border-t border-border pt-1">
-        <Segments label="Spray can" value={spray.on ? "on" : "off"} options={[["off", "Look"], ["on", "Spray"]]} onPick={(v) => engine.current?.setSprayTool({ on: v === "on" })} />
-        <RangeRow
-          label="Size"
-          value={spray.radius}
-          min={SPRAY_RADIUS.min}
-          max={SPRAY_RADIUS.max}
-          step={0.01}
-          shown={`${Math.round(spray.radius * 100)} cm`}
-          onValue={(radius) => engine.current?.setSprayTool({ radius })}
-        />
+        {can}
+        {size}
         <div className="grid grid-cols-8 gap-0.5 px-1" role="group" aria-label="Spray colour">
           {SPRAY_PALETTE.slice(1).map((c, k) => (
             <button
