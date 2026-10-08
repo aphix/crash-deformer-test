@@ -408,7 +408,7 @@ describe("given a host and one guest seated in car 1", () => {
 });
 
 describe("given a host and a guest who each picked colours and sprayed paint in the garage", () => {
-  it("when the guest is seated, then the host's car 1 wears the guest's picks and spray texel for texel, and the guest's car 0 wears the host's", () => {
+  it("when the guest is seated, then the host's car 1 wears the guest's picks and spray texel for texel, the guest's car 0 wears the host's, and the guest's own car 1 wears the guest's own look", () => {
     const hostLook = bareLook();
     hostLook.car.body = 0x11aa33;
     hostLook.person.hat = 0xff0000;
@@ -428,7 +428,8 @@ describe("given a host and a guest who each picked colours and sprayed paint in 
     assert.equal(carPickText(onGuest.car), carPickText(hostLook.car), "the host's car picks on the guest");
     assert.equal(personPickText(onGuest.person), personPickText(hostLook.person), "the host's driver picks on the guest");
     assertSameNumbers(onGuest.carSpray, hostLook.carSpray, "the host's car spray on the guest");
-    assert.equal(s.cg.worn.some(([car]) => car === 1), false, "the guest never wears its own look back from the relay");
+    assert.equal(s.cg.worn.some(([car, look]) => car === 1 && look !== null), false, "the guest's own seat never wears a look from the relay");
+    assert.ok(s.cg.worn.some(([car, look]) => car === 1 && look === null), "the guest's own seat put on the guest's own look when seated");
   });
 });
 

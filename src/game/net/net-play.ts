@@ -677,8 +677,10 @@ export class NetPlay {
     this.hostLost = false;
     if (car === this.car) return;
     this.car = car;
-    // Once seated, this player's look goes to the host, which shows it and hands it to everyone else.
+    // Once seated, this player's look goes to the host, which shows it and hands it to everyone else; here the seat drops any
+    // other player's look it wore and wears this player's own.
     this.transport?.send(packLook(car, this.game.playerLook()), from, true);
+    this.game.wearLook(car, null);
     if (!this.game.race() && !this.game.derbyPhase()) this.game.seat.focus(car);
   }
 
