@@ -141,6 +141,13 @@
 .hud-grid {
   display: grid;
   gap: 0.5rem;
+  /* The HUD keeps clear of a camera cutout and the gesture bar (`viewport-fit=cover` lets the canvas run under them). */
+  --hud-pad: 0.5rem;
+  @media (min-width: 640px) {
+    --hud-pad: 1rem;
+  }
+  padding: max(var(--hud-pad), env(safe-area-inset-top)) max(var(--hud-pad), env(safe-area-inset-right))
+    max(var(--hud-pad), env(safe-area-inset-bottom)) max(var(--hud-pad), env(safe-area-inset-left));
   grid-template-columns: minmax(0, 1fr);
   grid-template-rows: auto auto minmax(0, 1fr) auto auto;
   grid-template-areas:

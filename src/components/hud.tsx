@@ -164,7 +164,7 @@ export function Hud(props: HudProps) {
   // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
   if (state.race?.solo != null) return <SoloExit title={state.race.solo} shown={state.race.shown} onCommand={raceCommand} />;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
+    <div className="hud-grid pointer-events-none absolute inset-0 text-fg" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
       <div className="flex min-w-0 flex-col items-start max-sm:min-h-11" style={{ gridArea: "title" }}>
         {focus && state.race ? (
           <header className="hud-ink min-w-0 font-display">
