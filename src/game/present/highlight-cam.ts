@@ -82,6 +82,28 @@ const CONTEXT = {
 
 type Vec3 = { x: number; y: number; z: number };
 
+/** `look`'s eye frame: forward (unit), right (flat, unit) and up. */
+const _f = { x: 0, y: 0, z: 0 };
+const _r = { x: 0, y: 0, z: 0 };
+const _u = { x: 0, y: 0, z: 0 };
+
+/** The frame of the eye `eye` looking at (ax, ay, az) into `_f`, `_r` and `_u`; false when it looks straight up or down. */
+function look(eye: Vec3, ax: number, ay: number, az: number): boolean {
+  const len = hypot3(ax - eye.x, ay - eye.y, az - eye.z);
+  _f.x = (ax - eye.x) / len;
+  _f.y = (ay - eye.y) / len;
+  _f.z = (az - eye.z) / len;
+  const flat = hypot2(_f.x, _f.z);
+  if (flat < 1e-6) return false;
+  // Right = forward x up, flat; up = right x forward.
+  _r.x = -_f.z / flat;
+  _r.z = _f.x / flat;
+  _u.x = -_r.z * _f.y;
+  _u.y = _r.z * _f.x - _r.x * _f.z;
+  _u.z = _r.x * _f.y;
+  return true;
+}
+
 /**
  * The least tan(half fov) at which `p` lies within `CONTEXT.fit` of the middle of the frame (`CONTEXT.aspect` wide) of the eye
  * `eye` looking along `f` (unit), with `r` its right (flat, unit) and `u` its up; Infinity when `p` is nearer than 4 m or behind it.
@@ -95,6 +117,11 @@ function tanNeeded(p: Vec3, eye: Vec3, f: Vec3, r: Vec3, u: Vec3): number {
   const x = Math.abs(vx * r.x + vz * r.z) / (CONTEXT.fit * CONTEXT.aspect);
   const y = Math.abs(vx * u.x + vy * u.y + vz * u.z) / CONTEXT.fit;
   return Math.max(x, y) / z;
+}
+
+/** `p` lies in the frame of the eye `eye` looking at `aim` through the lens `fov` (deg) on every screen the reel plays on (`tanNeeded`). */
+export function inFrame(eye: Vec3, aim: Vec3, p: Vec3, fov: number): boolean {
+  return look(eye, aim.x, aim.y, aim.z) && tanNeeded(p, eye, _f, _r, _u) <= Math.tan((fov * Math.PI) / 360);
 }
 
 /**
@@ -114,16 +141,10 @@ export function contextEye(s: Sight, a: Vec3, b: Vec3, turn: number, eye: THREE.
       const t = k < CONTEXT.turns ? turn + (k * 2 * Math.PI) / CONTEXT.turns : line + CONTEXT.line[k - CONTEXT.turns]!;
       const e = { x: mx + Math.cos(t) * reach!, y: my + up!, z: mz + Math.sin(t) * reach! };
       if (solid(s, e.x, e.y, e.z, 0.5)) continue;
-      const len = hypot3(mx - e.x, my - e.y, mz - e.z);
-      const f = { x: (mx - e.x) / len, y: (my - e.y) / len, z: (mz - e.z) / len };
-      const flat = hypot2(f.x, f.z);
-      if (flat < 1e-6) continue;
-      // Right = forward x up, flat; up = right x forward.
-      const r = { x: -f.z / flat, y: 0, z: f.x / flat };
-      const u = { x: -r.z * f.y, y: r.z * f.x - r.x * f.z, z: r.x * f.y };
+      if (!look(e, mx, my, mz)) continue;
       // The widest lens that keeps both points a car's size is the eye's; both must fit inside it.
       const tanH = Math.min(tanMax, CONTEXT.reach / Math.max(hypot3(a.x - e.x, a.y - e.y, a.z - e.z), hypot3(b.x - e.x, b.y - e.y, b.z - e.z)));
-      if (Math.max(tanNeeded(a, e, f, r, u), tanNeeded(b, e, f, r, u)) > tanH) continue;
+      if (Math.max(tanNeeded(a, e, _f, _r, _u), tanNeeded(b, e, _f, _r, _u)) > tanH) continue;
       if (sightLine(s, e.x, e.y, e.z, a.x, a.y, a.z) < 0 || sightLine(s, e.x, e.y, e.z, b.x, b.y, b.z) < 0) continue;
       eye.set(e.x, e.y, e.z);
       aim.set(mx, my, mz);

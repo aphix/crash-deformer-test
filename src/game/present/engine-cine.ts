@@ -7,6 +7,7 @@ import { TireSmokeSystem, type GlassDotSystem, type SparkSystem } from "./engine
 import { SkidMarks } from "./engine-marks.ts";
 import { PostFX, type FxTier } from "./engine-post.ts";
 import { GpuTimer } from "./gpu-timer.ts";
+import { inFrame } from "./highlight-cam.ts";
 import { camUsable, type Sight } from "./spectate-cam.ts";
 import type { Ultra } from "./ultra/ultra.ts";
 import { FX_REACH, type Witness } from "./witness.ts";
@@ -213,7 +214,8 @@ export class CrashPick {
 /**
  * The crash-cam cut a reel holds through one crash: `current` while its eye (still at the cut's start) is usable, that
  * is `CLEAR.radius` m of room round it and sight of `target` (`camUsable`), and of every impact of `later` from `ahead` on
- * (those still to come); otherwise the first of `HOLD_ORDER` that is. When no cut sees every later impact, the cuts that see
+ * (those still to come) with the impact before each in its frame as it turns to it (`inFrame`: the viewer keeps the place);
+ * otherwise the first of `HOLD_ORDER` that is. When no cut sees every later impact so, the cuts that see
  * `target` alone count as before. -1 when none is (the reel camera keeps the shot). `reach`: `crashAxis`'s, 0 = no eye on that
  * cut. `hit`: the hit itself is still to come, so a cut whose eye sees it (`crashAxis` checked that eye's room and its sight
  * of `at`) holds even when no eye sees the car (a car in the way, the other car of a head-on): `current` if it has one, else the first.
@@ -221,9 +223,9 @@ export class CrashPick {
 export function heldCut(s: Sight, at: THREE.Vector3, n: THREE.Vector3, reach: Float32Array, target: THREE.Vector3, current: number, hit = false, later: LaterHits = NO_LATER, ahead = 0): number {
   const usable = (cut: number, every: boolean): boolean => {
     if (reach[cut] === 0) return false;
-    crashEye(_eye, CUTS[cut]!, at, n, 0, reach[cut]!);
+    const fov = crashEye(_eye, CUTS[cut]!, at, n, 0, reach[cut]!);
     if (!camUsable(s, _eye, target, STILL, 0)) return false;
-    if (every) for (let k = ahead; k < later.n; k++) if (!camUsable(s, _eye, later.at[k]!, STILL, 0)) return false;
+    if (every) for (let k = ahead; k < later.n; k++) if (!camUsable(s, _eye, later.at[k]!, STILL, 0) || !inFrame(_eye, later.at[k]!, k === 0 ? at : later.at[k - 1]!, fov)) return false;
     return true;
   };
   // First the cuts that see every impact still to come, then those that see the car alone.
