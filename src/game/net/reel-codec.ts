@@ -73,10 +73,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * the drawn pieces, and an open door meets them (shut or torn), so a replayed clip near a wall or prop moves differently;
  * 46: Razor Shelf's inside cut opens on cobble and carries marker cones and a CRUSH sign, so a run through it replays on
  * different ground and props; 47: a race AI car that needs more than full lock to regain its line slows to its class's
- * corner speed and drops boost, so AI cars in a replayed race drive differently).
+ * corner speed and drops boost, so AI cars in a replayed race drive differently; 48: the course's path tangents and the
+ * AI's hashed dice use the kernel's engine-independent hypot and sin/cos, so a replayed race starts from different bits).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 47;
+const REPLAY_VERSION = 48;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
