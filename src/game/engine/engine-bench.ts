@@ -55,8 +55,6 @@ interface BenchEngine {
   readonly ready: Promise<void>;
   readonly pace: SimPacer;
   fadeScenes: boolean;
-  /** Off for the bench page's life: it enters the race scene and pins the fx tier through the player's setters, and none of that is the player's pick. */
-  followUrl: boolean;
   toggleRace(): void;
   raceCommand(cmd: RaceCommand): void;
   toggleLab(): void;
@@ -755,7 +753,6 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const parts = engine.benchParts();
   parts.renderer.setAnimationLoop(null);
   engine.fadeScenes = false;
-  engine.followUrl = false;
   // The Lab bench throws on the Lab's own sets (`LAB_BENCH`) at 1x: the slow-mo would stretch each hit over a different share
   // of each block. A race bench enters the race scene (no slow-mo in a race).
   if (plan.lab) {
