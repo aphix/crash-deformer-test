@@ -42,8 +42,9 @@ ejection.
 16: a snapshot car carries its boost meter (a byte after the body byte: 0-254, 255 for a car with no nitrous), and `MSG.input`
 carries the peer's own meter (a sixth byte), so every browser shows any viewed car's bottle as its driver keeps it.
 17: a reel keyframe's course memory is 1 double, not 4 (race walls are solid colliders).
+18: MSG.look (11) carries a player's car and driver colour picks and their two spray bitmaps, sent once at seating.
 */
-export const NET_VERSION = 17;
+export const NET_VERSION = 18;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;
