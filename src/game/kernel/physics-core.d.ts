@@ -32,3 +32,6 @@ export function round4(n: number): number;
 /** Math.hypot, bit for bit, without the builtin call (allocation-free once inlined). */
 export function hypot2(x: number, y: number): number;
 export function hypot3(x: number, y: number, z: number): number;
+/** Math.sin and Math.cos from + − × ÷ only: the same bits in every engine, under 1 ulp from correctly rounded for |x| < 1.6e6. */
+export function detSin(x: number): number;
+export function detCos(x: number): number;
