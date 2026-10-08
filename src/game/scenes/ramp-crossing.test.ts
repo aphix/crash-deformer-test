@@ -43,16 +43,16 @@ const FACE = Math.atan2(RAMP.top, RAMP.len);
 const [, CHIN_Z, CHIN_H] = UNDERSIDE.find((p) => p[0] === 0 && p[1] === Math.max(...UNDERSIDE.map((u) => u[1])))!;
 /**
  * The most (m/s) a crossing at `v` m/s changes the car's speed in a slice beyond `BAR.dv`: its chin, too low to clear the face, runs onto it
- * closing at v sin θ. That point's push along the face's normal n gives the body at most twice its closing speed (an impulse gives back
- * no more than it stopped) over its effective mass, 1 + |r × n|² / k² of the body's (r the chin's arm from the centre of mass, k² the
- * box's radius of gyration about its cross axis, (h² + l²) / 3 for half height h and half length l), and its scraping friction at most
- * `MU_BODY` of that along the face: of both, the plan part.
+ * closing at v sin θ. A belly point only resists the ground (no bounce): its push along the face's normal n stops that closing speed over
+ * the body's effective mass there, 1 + |r × n|² / k² of its own (r the chin's arm from the centre of mass, k² the box's radius of gyration
+ * about its cross axis, (h² + l²) / 3 for half height h and half length l), and its scraping friction takes at most `MU_BODY` of that
+ * push along the face: of both, the plan part.
  */
 function chinScrape(v: number): number {
   const armY = CHIN_H + CLASSES.sedan.lift - COM_Y;
   const lever = armY * Math.sin(FACE) + CHIN_Z * Math.cos(FACE);
   const gyration = (CAR_HALF.y ** 2 + CAR_HALF.z ** 2) / 3;
-  const normalDv = (2 * v * Math.sin(FACE)) / (1 + (lever * lever) / gyration);
+  const normalDv = (v * Math.sin(FACE)) / (1 + (lever * lever) / gyration);
   return normalDv * (Math.sin(FACE) + MU_BODY * Math.cos(FACE));
 }
 
