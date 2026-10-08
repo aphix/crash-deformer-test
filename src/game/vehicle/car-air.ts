@@ -110,7 +110,7 @@ const MU_BODY = 0.6;
 export const CONTACT_HZ = 480;
 /** How far (m) past its own approach a body point may be in a face and still have come down onto it (`fromSide`). */
 const STAND_SLOP = 0.005;
-/** A point on a face this shallow (normal's up component over it: a slope under 70°) pushes and lifts straight up: a tyre anywhere, in its springs and past their stop alike, and any body point on the world's ground (no drag on the world: the drive grips). A steeper face is a wall: the point pushes along its normal. */
+/** A tyre on a face this shallow (normal's up component over it: a slope under 70°) pushes and lifts straight up, in its springs and past their stop alike (no drag on the world: the drive grips). A steeper face is a wall: the tyre pushes along its normal. */
 const CLIMB_NY = 0.34;
 
 /**
@@ -222,7 +222,10 @@ function bodyContact(surf: CarSurfaces, n: number, hit: Float64Array, pen: numbe
   const own = hit[C_OWNER]!;
   N[n]!.set(hit[C_NX]!, hit[C_NY]!, hit[C_NZ]!);
   TYRE[n] = false;
-  DIR[n] = own < 0 && N[n]!.y >= CLIMB_NY ? UP : N[n]!;
+  // A body point does not roll: every face pushes it along its normal, so a face does no work along itself. Pushed straight up on the
+  // world's ground, a bumper scraping the corkscrew's climb at 27 m/s kept its travel along the road and gained the lift: 180 J/kg in
+  // 0.7 s, the car off the lip at 31.4 m/s from 27 m/s at the mouth.
+  DIR[n] = N[n]!;
   OWN[n] = own;
   UNDER[n] = !hull && own < 0;
   FOLLOW[n] = own >= 0 ? hit[C_AUX]! : 1;
@@ -517,9 +520,10 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   _com.copy(_r.set(0, COM_Y, 0).applyQuaternion(q)).add(pos).addScaledVector(_vMove, dt);
   const spin = w.length();
   if (spin > 1e-9) q.premultiply(_dq.setFromAxisAngle(_axis.copy(w).divideScalar(spin), spin * dt));
-  if (!car.crashed && !car.falling) {
-    // A driven car's heading is its steering's alone: a roll about a pitched body's horizontal axis swings its nose sideways (a lip's
-    // 23° of roll under 14° of pitch read as 4° of yaw), so the Euler yaw goes back to the car's own.
+  if (!car.crashed && !car.falling && car.wheelsDown !== 0) {
+    // A driven car's heading is its steering's alone, held by its tyres that touch: a roll about a pitched body's horizontal axis swings
+    // its nose sideways (a lip's 23° of roll under 14° of pitch read as 4° of yaw), so the Euler yaw goes back to the car's own. With no
+    // tyre on anything nothing holds it: held, a corkscrew's 27 m/s car rolled 1030° in 3.87 s of flight on a spin of 197°/s (762°).
     let drift = _eul.setFromQuaternion(q, "YXZ").y - car.yaw;
     drift -= 2 * Math.PI * Math.round(drift / (2 * Math.PI));
     if (Math.abs(drift) < YAW_HOLD) q.premultiply(_dq.setFromAxisAngle(UP, -drift));
