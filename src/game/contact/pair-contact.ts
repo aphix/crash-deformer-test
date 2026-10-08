@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { WALL_CRUSH } from "../vehicle/car-air.ts";
+import { MU_BODY, WALL_CRUSH } from "../vehicle/car-air.ts";
 import type { MassNode } from "../deform/deform-rig.ts";
 import { leftoverCrumple, cancelClosing, satPushCap, hypot2, CRASH } from "../deform/physics-util.ts";
 import { carCrushHulls, satCars, shareHeight } from "./sat.ts";
@@ -59,8 +59,6 @@ export function pushCar(car: DeformableCar, nx: number, ny: number, nz: number, 
  * (a wreck driven in further, by a car ramming it, is put back).
  */
 const WALL_E = 0.15;
-/** Friction of a car's body scraping a fixed solid's face (`MU_BODY`, the rigid step's body against a surface). */
-const WALL_MU = 0.6;
 const WALL_HOLD = 0.4;
 const WALL_REACH = 1.2;
 /** The closing speed (m/s) under which a wreck on a solid has stopped driving into it, and how deep (m) its crush hulls may then sit in it. */
@@ -171,14 +169,14 @@ export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz:
   }
   v.x += nx * j;
   v.z += nz * j;
-  // The body scrapes the face: its friction takes at most `WALL_MU` of the face's push from the speed along it. A face that
+  // The body scrapes the face: its friction takes at most `MU_BODY` of the face's push from the speed along it. A face that
   // takes all of it holds the car where it touched, so the push out takes it back the way it came in. Met one after the
   // other, the tyres kept the share of the face's along speed that lies along the nose, which drives into the face again,
   // and pushed out square to the face, a held car kept each slice's move along it and each crossing of the push's skin: a
   // car driven at a face 30° off it crept along it at 0.2–0.4 m/s.
   const along = v.z * nx - v.x * nz;
-  const stuck = Math.abs(along) <= WALL_MU * j;
-  const rub = stuck ? along : Math.sign(along) * WALL_MU * j;
+  const stuck = Math.abs(along) <= MU_BODY * j;
+  const rub = stuck ? along : Math.sign(along) * MU_BODY * j;
   v.x += nz * rub;
   v.z -= nx * rub;
   const back = stuck && closing > 0 ? (along0 * pen) / closing : 0;

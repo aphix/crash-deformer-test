@@ -1,15 +1,16 @@
 import { after, afterEach, before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
-import { DeformableCar } from "../vehicle/car.ts";
-import { COM_Y } from "../vehicle/car-air.ts";
+import { CAR_HALF, DeformableCar } from "../vehicle/car.ts";
+import { COM_Y, MU_BODY } from "../vehicle/car-air.ts";
+import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { JerseyBarrier } from "./engine-props.ts";
 import { FleetRamps, RAMP } from "./fleet-ramps.ts";
 import { setGround } from "../world/ground.ts";
 import { physicsSlice, sliceSpeed } from "../contact/sat.ts";
 import { paint } from "../vehicle/test-support.ts";
-import { assignClass } from "../vehicle/vehicle-classes.ts";
+import { assignClass, CLASSES } from "../vehicle/vehicle-classes.ts";
 import { newWorld, stepWorld } from "../engine/world-step.ts";
 import { fit } from "../vehicle/ground-probe.test-util.ts";
 import { STIFF_TRAVEL, useStiffSprings } from "../vehicle/stiff-springs.test-util.ts";
@@ -37,6 +38,24 @@ const ES = [-0.8, -0.6, -0.4, -0.2, 0, 0.2, 0.4, 0.6] as const;
 const SPEEDS = [8, 12, 20] as const;
 /** The bars (docs/UNIFIED_CONTACT.md E1). */
 const BAR = { yaw: 1.0, heading: 1.0, shove: 0.01, dv: 0.3, tilt: 1.5 } as const;
+/** The face's slope angle (rad), and the sedan's chin: the front of its keel (`UNDERSIDE`), 3 cm up and 0.66 m ahead of its front tyres. */
+const FACE = Math.atan2(RAMP.top, RAMP.len);
+const [, CHIN_Z, CHIN_H] = UNDERSIDE.find((p) => p[0] === 0 && p[1] === Math.max(...UNDERSIDE.map((u) => u[1])))!;
+/**
+ * The most (m/s) a crossing at `v` m/s changes the car's speed in a slice beyond `BAR.dv`: its chin, too low to clear the face, runs onto it
+ * closing at v sin θ. That point's push along the face's normal n gives the body at most twice its closing speed (an impulse gives back
+ * no more than it stopped) over its effective mass, 1 + |r × n|² / k² of the body's (r the chin's arm from the centre of mass, k² the
+ * box's radius of gyration about its cross axis, (h² + l²) / 3 for half height h and half length l), and its scraping friction at most
+ * `MU_BODY` of that along the face: of both, the plan part.
+ */
+function chinScrape(v: number): number {
+  const armY = CHIN_H + CLASSES.sedan.lift - COM_Y;
+  const lever = armY * Math.sin(FACE) + CHIN_Z * Math.cos(FACE);
+  const gyration = (CAR_HALF.y ** 2 + CAR_HALF.z ** 2) / 3;
+  const normalDv = (2 * v * Math.sin(FACE)) / (1 + (lever * lever) / gyration);
+  return normalDv * (Math.sin(FACE) + MU_BODY * Math.cos(FACE));
+}
+
 /** Gives the class springs back after each suite: the crossings run on very stiff short springs (`useStiffSprings`), so no sprung offset hides the plane and shove the text judges. */
 let restoreSprings = (): void => {};
 
@@ -251,7 +270,7 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
   for (const v of SPEEDS) {
     for (const th of THS) {
       for (const e of ES) {
-        it(`when it drives at ${v} m/s at ${th}° to the ramp's axis and its centreline crosses the toe ${e} m inside the ramp's edge, then through the crossing (until every tyre is past the toe line) it keeps its heading within 1°, is never shoved sideways by more than 1 cm or changes speed by more than 0.3 m/s in a slice, stays within 1.5° of the plane through its tyres standing in their springs, and is airborne only while all four tyres are over 3 cm off the ground`, (t) => {
+        it(`when it drives at ${v} m/s at ${th}° to the ramp's axis and its centreline crosses the toe ${e} m inside the ramp's edge, then through the crossing (until every tyre is past the toe line) it keeps its heading within 1°, is never shoved sideways by more than 1 cm or changes speed in a slice by more than 0.3 m/s and what its chin scraping onto the face takes, stays within 1.5° of the plane through its tyres standing in their springs, and is airborne only while all four tyres are over 3 cm off the ground`, (t) => {
           const r = cross(v, th, e);
           t.diagnostic(
             `yaw ${r.yaw.toFixed(2)}°, velocity heading ${r.heading.toFixed(2)}°, shove ${(r.shove * 100).toFixed(2)} cm, dv ${r.dv.toFixed(3)} m/s, plane ${r.tilt.toFixed(2)}° (${r.tiltAt}), airborne with a tyre down in ${r.airWhileTouching} of ${r.slices} slices`,
@@ -261,7 +280,7 @@ describe("given a sedan cruising at the fleet's jump ramp with steer 0 and the t
           if (r.yaw > BAR.yaw) failures.push(`yaw ${r.yaw.toFixed(2)}°`);
           if (r.heading > BAR.heading) failures.push(`velocity heading ${r.heading.toFixed(2)}°`);
           if (r.shove > BAR.shove) failures.push(`shove ${(r.shove * 100).toFixed(2)} cm`);
-          if (r.dv > BAR.dv) failures.push(`dv ${r.dv.toFixed(3)} m/s`);
+          if (r.dv > BAR.dv + chinScrape(v)) failures.push(`dv ${r.dv.toFixed(3)} m/s`);
           if (r.tilt > BAR.tilt) failures.push(`plane ${r.tilt.toFixed(2)}° (${r.tiltAt})`);
           if (r.airWhileTouching > 0) failures.push(`airborne with a tyre within 3 cm in ${r.airWhileTouching} slices`);
           assert.deepEqual(failures, []);

@@ -104,8 +104,8 @@ const RESTITUTION = 0.25;
 const BOUNCE_V = 1.5;
 /** The closing speed (m/s) from which a contact is a crash, not a touch: into a fixed solid's face (`wallBounce`), or onto another car's top (`CLOSING`). */
 export const WALL_CRUSH = 5.5;
-/** Friction: the body scraping, a tyre across its tread (it rolls freely along it). */
-const MU_BODY = 0.6;
+/** Friction: the body scraping (the rigid step's and a fixed solid's face, `wallBounce`), a tyre across its tread (it rolls freely along it). */
+export const MU_BODY = 0.6;
 /** Contact is solved at this rate (Hz) however long the physics step (`stepWorld` splits it): a face's crush depth is the slice's own discretisation otherwise (8 % apart at 60 and 240 Hz). */
 export const CONTACT_HZ = 480;
 /** How far (m) past its own approach a body point may be in a face and still have come down onto it (`fromSide`). */

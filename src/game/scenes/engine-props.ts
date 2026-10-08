@@ -190,8 +190,19 @@ export class JerseyBarrier {
     n = clipAxis(_clip, n, 0, -1, CAR_HALF.x, _poly);
     n = clipAxis(_poly, n, 2, 1, CAR_HALF.z, _clip);
     n = clipAxis(_clip, n, 2, -1, CAR_HALF.z, _poly);
-    if (n === 0) return false;
     const low = UNDER_LOW + CLASSES[carClass(car)].lift;
+    // The slab's top is under none of the car's box: the box meets the slab only with a bottom corner inside the slab under its top. The
+    // plan footprint overstates a pitched box's reach (a monster nose-up 17° at a ramp's high end read 0.1 m into the end of a slab its
+    // nose was 0.4 m above, and crashed).
+    if (n === 0) {
+      for (let k = 0; k < 4; k++) {
+        _sp.set(k < 2 ? -CAR_HALF.x : CAR_HALF.x, low, k % 2 === 0 ? -CAR_HALF.z : CAR_HALF.z).applyQuaternion(car.group.quaternion).add(p);
+        const dx = _sp.x - o.x;
+        const dz = _sp.z - o.z;
+        if (_sp.y < BARRIER_TOP && Math.abs(dx * ax + dz * az) <= hx && Math.abs(dz * ax - dx * az) <= BARRIER_HALF.z) return false;
+      }
+      return true;
+    }
     for (let k = 0; k < n; k++) if (_poly[k * 3 + 1]! > low) return false;
     return true;
   }

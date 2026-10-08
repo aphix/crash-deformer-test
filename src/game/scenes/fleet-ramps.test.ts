@@ -24,6 +24,14 @@ const SETTLED = 0.01;
 const RAMP_SLOPE = RAMP.top / RAMP.len;
 /** A tyre this far (m) off the ground is out of its springs' reach: the car's class (the default, a sedan) pushes it up no more. */
 const SPRING_REACH = droop("sedan") + TOUCH;
+/** A jump's origin rises at least this far (m) over the lip it leaves. */
+const PEAK_OVER = 0.3;
+/**
+ * The least flight (s) of a jump that peaks `PEAK_OVER` over its lip and comes down on ground no higher than the lip (the slab and the
+ * far face are under it): its tyres hang a droop under the origin and fly once a spring's reach clear, so the origin flies while it is
+ * more than droop + reach over the lip, a rise and fall of the rest of `PEAK_OVER` under gravity.
+ */
+const LEAST_AIR = 2 * Math.sqrt((2 * (PEAK_OVER - droop("sedan") - SPRING_REACH)) / G);
 
 /** Ramps on a slab whose long axis is +z (the engine's end-on placement), and one car `x0` across, `z0` along. */
 function scene(withSlab: boolean): { ramps: FleetRamps; w: World; car: DeformableCar } {
@@ -279,8 +287,8 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
         `air ${r.air.toFixed(2)} s, peak ${r.peak.toFixed(2)} m, centre off the parabola ≤ ${r.flightError.toExponential(1)} m, spin change ≤ ${r.spinChange.toExponential(1)} rad/s, most turn in a frame ${r.turn.toFixed(1)}°, deepest tyre ${r.sink.toFixed(3)} m, end z ${r.endZ.toFixed(1)}, gaps ${r.gaps.map((g) => g.toFixed(3)).join("/")} m, slab hit ${r.slabHit}`,
       );
       const failures: string[] = [];
-      if (r.air < 0.6) failures.push(`air ${r.air.toFixed(2)} s`);
-      if (r.peak < RAMP.top + 0.3) failures.push(`peak ${r.peak.toFixed(2)} m`);
+      if (r.air < LEAST_AIR) failures.push(`air ${r.air.toFixed(2)} s`);
+      if (r.peak < RAMP.top + PEAK_OVER) failures.push(`peak ${r.peak.toFixed(2)} m`);
       if (r.slabHit) failures.push("touched the slab");
       if (r.crashed) failures.push("crashed");
       if (r.endZ < landZ) failures.push(`ended at z ${r.endZ.toFixed(1)}, short of ${landZ.toFixed(1)}`);
@@ -315,16 +323,17 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
         if (car.airborne) flew = true;
         if (flew && touch < 0 && !car.airborne) touch = time;
         if (touch < 0) return;
-        const o = car.suspension.offset;
-        peak = Math.min(peak, ...o);
-        if (Math.max(...o.map(Math.abs)) > SETTLED) swung = time - touch;
+        // The springs are the physics tyres' own (`stepFree`): each drawn wheel's lift off its rest hub is its spring's compression.
+        const compression = car.suspension.seat;
+        peak = Math.max(peak, ...compression);
+        if (Math.max(...Array.from(compression, Math.abs)) > SETTLED) swung = time - touch;
         car.group.updateWorldMatrix(true, true);
         body.localToWorld(sill.set(0, 0.25, 0));
         low = Math.min(low, sill.y - ramps.heightAt(sill.x, sill.z, sill.y));
       });
-      t.diagnostic(`${cls}: peak compression ${(-peak * 100).toFixed(1)} cm, swinging until ${swung.toFixed(2)} s after touchdown, sill ≥ ${low.toFixed(3)} m`);
+      t.diagnostic(`${cls}: peak compression ${(peak * 100).toFixed(1)} cm, swinging until ${swung.toFixed(2)} s after touchdown, sill ≥ ${low.toFixed(3)} m`);
       if (touch < 0) failures.push(`${cls} never came down`);
-      if (peak > -SETTLED) failures.push(`${cls} springs took ${(-peak * 100).toFixed(1)} cm`);
+      if (peak < SETTLED) failures.push(`${cls} springs took ${(peak * 100).toFixed(1)} cm`);
       if (swung > 2) failures.push(`${cls} still swinging ${swung.toFixed(2)} s after touchdown`);
       if (low < 0.05) failures.push(`${cls} sill ${low.toFixed(3)} m off the ground`);
       car.dispose();
