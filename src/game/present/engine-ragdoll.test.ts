@@ -10,7 +10,7 @@ import { throwComing } from "./ragdoll-trigger.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 import { SHIRTS } from "./driver-look.ts";
 import { FLAT_GROUND } from "../world/ground.ts";
-import { occluder, solid, type Occluder, type Sight } from "./spectate-cam.ts";
+import { occluder, sightLine, solid, type Occluder, type Sight } from "./spectate-cam.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 
 const FRAME = 1 / 60;
@@ -342,6 +342,36 @@ describe("given the ride-along camera following a driver thrown in a head-on at 
     const beside = await open(bare);
     assert.ok(beside.y >= 3, `a wall 1.7 m beside the spot: ${beside.y.toFixed(2)} m up`);
   });
+
+  for (const wallTop of [0.5, 1, 1.15, 1.5, 2]) {
+    it(`when a wall ${wallTop} m high runs across the way ahead of the thrown car, then the windshield eye sees the point the driver left the car from`, async () => {
+      const cars = headOn(26);
+      const exits: { car: number; at: THREE.Vector3 }[] = [];
+      const threw: number[] = [];
+      const ragdolls: RagdollSystem = new RagdollSystem(new THREE.Scene(), (i) => { threw.push(i); ragdolls.follow(); }, () => {});
+      await ragdolls.preload();
+      const w = makeWorld(cars, false, false);
+      w.onEject = (e) => {
+        exits.push({ car: e.car, at: e.pos.clone() });
+        ragdolls.launch(e, cars);
+      };
+      const camera = new THREE.PerspectiveCamera(50, 16 / 9, 0.1, 180);
+      for (let f = 0; f < 120 && !ragdolls.rideAlong; f++) {
+        tickWorld(w);
+        ragdolls.update(FRAME, cars, true, true, 0, null);
+      }
+      const car = cars[threw[0]!]!;
+      const fwd = car.fwdFlat.clone();
+      const mid = car.group.position.clone().addScaledVector(fwd, 5);
+      const across = occluder(mid.x, mid.z, Math.atan2(fwd.x, fwd.z) + Math.PI / 2, 0.15, 12, false, -1, wallTop);
+      const sight = (): Sight => ({ ground: FLAT_GROUND, path: null, wallTop: 0, rim: Infinity, occ: [across] });
+      assert.equal(ragdolls.frameCamera(camera, FRAME, false, -1, false, 50, sight), "shot");
+      const eye = camera.position.clone();
+      ragdolls.dispose();
+      const left = exits.find((x) => x.car === threw[0])!.at;
+      assert.ok(sightLine(sight(), eye.x, eye.y, eye.z, left.x, left.y, left.z) >= 0, `eye ${eye.toArray().map((v) => v.toFixed(2))} cannot see the exit point ${left.toArray().map((v) => v.toFixed(2))}`);
+    });
+  }
 
   it("when a dummy flies under the eye through every shot change, then the shots go windshield, follow, trackside, no shot change moves the camera more than 0.1 m, and the aim never turns faster than 4 rad/s", async () => {
     const cars = headOn(26);

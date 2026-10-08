@@ -119,6 +119,8 @@ export class RideCam {
   private readonly aimQ = new THREE.Quaternion();
   private snap = true;
   private readonly exitAt = new THREE.Vector3();
+  /** Where the driver left the car (the pane's point, the throw's moment): the windshield eye must see it as well as the heads. */
+  private readonly exitPane = new THREE.Vector3();
   private readonly exitFwd = new THREE.Vector3();
   private reach = 0;
   /** Bearing (rad, atan2(x, z)) of `dir`. */
@@ -127,14 +129,15 @@ export class RideCam {
   private readonly probe = new THREE.PerspectiveCamera();
   private readonly subject: Subject = { group: { position: new THREE.Vector3() }, velocity: new THREE.Vector3(), fwdFlat: this.dir };
 
-  /** A ride starts. `car`: the thrown driver's car and `speed` his flat throw speed (the windshield shot, ahead of it on its forward axis); null: straight to the follow shot. */
-  begin(car: Pick<Subject, "group" | "fwdFlat"> | null, speed: number): void {
+  /** A ride starts. `car`: the thrown driver's car, `speed` his flat throw speed and `pane` the point he left it from (the windshield shot, ahead of it on its forward axis); null: straight to the follow shot. */
+  begin(car: Pick<Subject, "group" | "fwdFlat"> | null, speed: number, pane: THREE.Vector3): void {
     this.side = -this.side;
     this.fresh = true;
     this.resume = false;
     this.left = -1;
     if (car) {
       this.exitAt.copy(car.group.position);
+      this.exitPane.copy(pane);
       this.reach = THREE.MathUtils.clamp(speed * GLASS_LEAD + GLASS_STANDOFF, GLASS_REACH[0], GLASS_REACH[1]);
       this.exitFwd.copy(car.fwdFlat).setY(0).normalize();
       this.dir.copy(this.exitFwd);
@@ -336,7 +339,8 @@ export class RideCam {
   /**
    * The eye `dist` m from the exit along flat unit (dx, dz) and `up` m over the ground, set when it can be used: a low eye
    * passes `camUsable` (room round it, and sight of the heads now and `GLASS_LEAD` s on at their velocity); a
-   * high one stands clear of the solids and sees the heads.
+   * high one stands clear of the solids and sees the heads. Either also sees the pane the driver left from: a line that
+   * only skims a wall over the heads can lose him a hand's width away.
    */
   private tryEye(s: Sight, f: Framing, dx: number, dz: number, dist: number, up: number, low: boolean): boolean {
     const x = this.exitAt.x + dx * dist;
@@ -345,6 +349,7 @@ export class RideCam {
     if (g === NO_FLOOR) return false;
     const y = g + up;
     if (low ? !camUsable(s, _eye.set(x, y, z), f.c, _vel, GLASS_LEAD) : solid(s, x, y, z, CINE.pad) || sightLine(s, x, y, z, f.c.x, f.c.y, f.c.z) < 0) return false;
+    if (sightLine(s, x, y, z, this.exitPane.x, this.exitPane.y, this.exitPane.z) < 0) return false;
     this.pos.set(x, y, z);
     return true;
   }

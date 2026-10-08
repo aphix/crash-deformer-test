@@ -329,6 +329,8 @@ export class RagdollSystem {
   private exitCar = -1;
   /** His flat throw speed (m/s): how far ahead the windshield eye stands. */
   private exitSpeed = 0;
+  /** The point he left the car from: the windshield eye must see it (`RideCam.begin`). */
+  private readonly exitPane = new THREE.Vector3();
   /** The dummy slot the ride frames (`frameCamera`), -1 before its first pick. */
   private primary = -1;
   /** The framed dummies' heads, this frame. */
@@ -682,7 +684,7 @@ export class RagdollSystem {
     // Drivers thrown in the same frame (a head-on's two) open one ride: a far one counts once the ride has framed.
     const away = this.riding && !this.cam.fresh && d !== undefined && d.live && Math.hypot(d.cur[0]! - c.x, d.cur[1]! - c.y, d.cur[2]! - c.z) > CAM_NEAR;
     if (!this.riding || away) {
-      this.cam.begin(this.cars[this.exitCar] ?? null, this.exitSpeed);
+      this.cam.begin(this.cars[this.exitCar] ?? null, this.exitSpeed, this.exitPane);
       this.primary = away ? this.lastSlot : -1;
     }
     this.riding = true;
@@ -1149,6 +1151,7 @@ export class RagdollSystem {
     this.mesh.visible = true;
     this.exitCar = t.car;
     this.exitSpeed = Math.hypot(t.v.x, t.v.z);
+    this.exitPane.copy(t.p);
     if (this.sandbox && t.car >= 0) this.onThrow(t.car);
     return slot;
   }
