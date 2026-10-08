@@ -175,7 +175,7 @@ export function stepWorld(w: World, dt: number): void {
       // and left at that, it lost the slice's motion.
       if (car.deform.massActive) car.syncPose(h);
       if (car.deform.massActive) continue;
-      car.integrate(h);
+      car.integrate(h, w.bounce);
       if (car.deform.massActive) car.syncPose(h);
       else car.refreshBasis();
     }

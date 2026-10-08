@@ -343,21 +343,22 @@ export class DeformableCar extends CarParts {
     this.updateSkin();
   }
 
-  integrate(dt: number): void {
+  /** `bounce`: the world's walls, cars and props for this car's loose parts (`stepLooseParts`), on every path it takes. */
+  integrate(dt: number, bounce?: WorldBounce): void {
     if (this.vaporized) return;
     if (this.falling) {
       this.velocity.y -= 9.6 * dt;
       this.group.position.addScaledVector(this.velocity, dt);
       const spin = this.fallSpin.length();
       if (spin > 1e-6) this.group.quaternion.premultiply(_qSpin.setFromAxisAngle(_n.copy(this.fallSpin).multiplyScalar(1 / spin), spin * dt));
-      this.stepLooseParts(dt);
+      this.stepLooseParts(dt, bounce);
       return;
     }
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
       this.ride(dt);
-      this.stepLooseParts(dt);
+      this.stepLooseParts(dt, bounce);
       return;
     }
     if (this.airborne) {
@@ -367,7 +368,7 @@ export class DeformableCar extends CarParts {
       this.refreshBasis();
       this.ride(dt);
       if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
-      this.stepLooseParts(dt);
+      this.stepLooseParts(dt, bounce);
       return;
     }
     if (!this.crashed) {
@@ -474,7 +475,7 @@ export class DeformableCar extends CarParts {
     }
     this.refreshBasis();
     this.ride(dt);
-    this.stepLooseParts(dt);
+    this.stepLooseParts(dt, bounce);
   }
 
   /**
