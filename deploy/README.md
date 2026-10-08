@@ -12,7 +12,7 @@ alternative costs: [docs/DEPLOY.md](../docs/DEPLOY.md).
 | `nginx-crush.conf` | an nginx snippet, included in the site's 443 `server` block |
 | `deploy.env.example` | `$ENV` (root, 600), filled in for the box |
 
-Templates use `@ROOT@`, `@ENV@`, `@BASE@`, `@NOSLASH@`, `@PORT@` and `@ACCESS_LOG@`. Pick the
+Templates use `@ROOT@`, `@ENV@`, `@BASE@`, `@PORT@` and `@ACCESS_LOG@`. Pick the
 values once, as root, in one shell:
 
 ```bash
@@ -23,7 +23,7 @@ PORT=<unused port>          # ss -ltn shows what is taken
 CHECK_PORT=<another unused port>
 ACCESS_LOG=<nginx log file for the app>   # outside every 4xx jail's logpath, see step 4
 render() { sed -e "s|@ROOT@|$ROOT|g" -e "s|@ENV@|$ENV|g" -e "s|@BASE@|$BASE|g" \
-  -e "s|@NOSLASH@|${BASE%/}|g" -e "s|@PORT@|$PORT|g" -e "s|@ACCESS_LOG@|$ACCESS_LOG|g" "$1"; }
+  -e "s|@PORT@|$PORT|g" -e "s|@ACCESS_LOG@|$ACCESS_LOG|g" "$1"; }
 ```
 
 ## 1. User, directories, Node
@@ -91,14 +91,11 @@ deploys. `deps()` skips the install when `package.json`, the lockfile and the no
 
 ## 4. nginx route
 
-The snippet also claims a few root paths for the platform chrome (`/__grok/*`, `/og.jpg`,
-`/x-banner.jpg`, see docs/DEPLOY.md). Check the site does not already serve them; run this on the
-box, since a burst of 404s from an outside address can trip a fail2ban 404 jail:
-
-```bash
-for p in /__grok/manifest.webmanifest /__grok/icon-180.png /og.jpg /x-banner.jpg; do
-  curl -s -o /dev/null -w "$p %{http_code}\n" --resolve <host>:443:127.0.0.1 "https://<host>$p"; done   # expect 404s
-```
+The snippet is one `location ^~ <base>` block and claims nothing outside the base: the pages,
+the web app manifest and its icons, `/api` and signaling all live under it, so the site root is
+untouched. It also sets the 4 MB body limit the submissions route needs (the app enforces its own
+caps per route) and gzips `text/plain` (the studio environment map). A request for the base
+without its trailing slash (`/crush`) is not matched and falls to the site's own `location /`.
 
 **Put the app's access log outside any 4xx-probe jail's logpath.** Boxes exposed to the internet
 often run a fail2ban jail that bans an address for days, on every port, after a couple of

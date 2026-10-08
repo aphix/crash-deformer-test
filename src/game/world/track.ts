@@ -387,16 +387,17 @@ function roadHeight(p: TrackPath, x: number, z: number): number {
   return p.y[k]! + (p.y[b]! - p.y[k]!) * f - Math.max(-half, Math.min(half, lat)) * Math.tan(bank);
 }
 
-/** An unwalled side path (shortcut or traffic street) of one width and surface. */
-function sidePath(pts: readonly { x: number; z: number; y?: number }[], width: number, surface: SurfaceId, closed: boolean): { path: TrackPath; param: Float64Array } {
+/** An unwalled side path (shortcut or traffic street) of one width and surface; a point's own `surface` paves the run to the next point. */
+function sidePath(pts: readonly { x: number; z: number; y?: number; surface?: SurfaceId }[], width: number, surface: SurfaceId, closed: boolean): { path: TrackPath; param: Float64Array } {
   const n = pts.length;
   const fill = <T>(v: T) => Array.from({ length: n }, () => v);
   const ys = pts.map((p) => p.y ?? 0);
   const sid = SURFACE_IDS.indexOf(surface);
+  const pointSurfaces = pts.map((p) => (p.surface === undefined ? sid : SURFACE_IDS.indexOf(p.surface)));
   return samplePath(
     pts.map((p, i) => new THREE.Vector3(p.x, ys[i]!, p.z)),
     closed,
-    { y: ys, width: fill(width), bank: fill(0), surface: fill(sid), runL: fill(0), runR: fill(0), runSurface: fill(sid), wallL: fill(0), wallR: fill(0), deck: fill(0), tunnel: fill(0) },
+    { y: ys, width: fill(width), bank: fill(0), surface: pointSurfaces, runL: fill(0), runR: fill(0), runSurface: fill(sid), wallL: fill(0), wallR: fill(0), deck: fill(0), tunnel: fill(0) },
   );
 }
 
@@ -449,7 +450,7 @@ export class Track {
       // The mouths sit on the main road's surface: authored at centreline height, a mouth on a bank's low inside
       // edge stamped a lip up to 1.7 m high across the main road (stunt's quarry-cut).
       const last = sc.path.length - 1;
-      const pts = sc.path.map((q, i) => (i === 0 || i === last ? { x: q.x, z: q.z, y: roadHeight(path, q.x, q.z) } : q));
+      const pts = sc.path.map((q, i) => (i === 0 || i === last ? { ...q, y: roadHeight(path, q.x, q.z) } : q));
       const sub = sidePath(pts, sc.width, sc.surface, false);
       const n = sc.path.length;
       const gates = sc.path.map((_, i) => gateAt(sub.path, i === 0 ? 0 : i === n - 1 ? sub.path.length : sAtParam(sub.path, sub.param, i)));

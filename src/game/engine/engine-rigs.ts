@@ -201,7 +201,7 @@ export abstract class EngineRigs extends EngineScenes {
   private stepDoors(dt: number): void {
     const rig = this.doorRig;
     const was = rig.phase;
-    this.carA.integrate(dt);
+    this.carA.integrate(dt, this.bounceWorld);
     rig.step(dt);
     this.doorRam.sync(rig);
     if (rig.touched && !this.doorFx) {

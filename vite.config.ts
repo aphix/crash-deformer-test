@@ -7,8 +7,7 @@ import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import viteReact from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import { nitro } from "nitro/vite";
-// @ts-expect-error JS plugin alongside the TS vite config
-import { grokPwaPlugin } from "./scripts/grok-pwa-plugin.mjs";
+import { VitePWA, type VitePWAOptions } from "vite-plugin-pwa";
 // @ts-expect-error JS plugin alongside the TS vite config
 import { appEnvPlugin } from "./scripts/app-env-plugin.mjs";
 import { isMigrationFile } from "./scripts/migration-plan.mjs";
@@ -230,6 +229,37 @@ function versionFilePlugin(sha: string): Plugin {
   };
 }
 
+/**
+ * The installable-app manifest, served at `<base>manifest.webmanifest` with the icons from `public/icons/`: everything under
+ * the base, nothing at the domain root. `display: "fullscreen"` keeps a home-screen launch (and every reload of it) fullscreen.
+ *
+ * No service worker is registered: `injectRegister: false` leaves the page without a register script, and `selfDestroying`
+ * makes the `sw.js` the plugin must still emit one that unregisters itself and clears every cache. With nothing intercepting
+ * requests, a plain reload always reaches the server, so the bench loop and `src/lib/deploy/update-check.ts` land on the
+ * newest build (an offline precache would hand back the stale one).
+ */
+const pwa: Partial<VitePWAOptions> = {
+  injectRegister: false,
+  selfDestroying: true,
+  // Where Nitro puts the client build (the plugin reads the top-level `build.outDir`, which is not it) for the `sw.js` it writes.
+  outDir: ".output/public",
+  devOptions: { enabled: true },
+  manifest: {
+    name: "Crush Stream",
+    short_name: "Crush Stream",
+    id: base,
+    start_url: base,
+    scope: base,
+    display: "fullscreen",
+    background_color: "#09090b",
+    theme_color: "#09090b",
+    icons: [
+      { src: `${base}icons/icon-192.png`, sizes: "192x192", type: "image/png" },
+      { src: `${base}icons/icon-512.png`, sizes: "512x512", type: "image/png" },
+    ],
+  },
+};
+
 // `0.0.0.0:8080` is the live-preview contract — don't change host/port.
 // The dev server starts once `src/router.tsx` and `src/routes/` exist — see
 // AGENTS.md § "First scaffold".
@@ -267,8 +297,8 @@ export default defineConfig(({ command, isPreview }) => ({
     authPopupPlugin(),
     // Dev-only /__app-env, read by scripts/check-auth-invariant.mjs.
     appEnvPlugin(),
-    // PWA head + ?install=1 tutorial page; runs before Start/Nitro.
-    grokPwaPlugin(),
+    // Web app manifest under the base (see `pwa`).
+    VitePWA(pwa),
     tailwindcss(),
     tanstackStart(),
     ...(command === "build" ? [versionFilePlugin(BUILD_SHA)] : []),
@@ -280,10 +310,6 @@ export default defineConfig(({ command, isPreview }) => ({
             // The self-hosted server runs signaling on PGLite (Vercel uses Neon), and
             // PGLite loads its .wasm/.data beside its module: ship the whole package.
             ...(preset === "node-server" ? { traceDeps: ["@electric-sql/pglite*"] } : {}),
-            // Auto-registers server/middleware/* (the PWA install page +
-            // manifest + head-tag middleware). Nitro v3 defaults serverDir to
-            // false, so removing this silently unwires /?install=1 on deploys.
-            serverDir: "./server",
           }),
         ]
       : []),

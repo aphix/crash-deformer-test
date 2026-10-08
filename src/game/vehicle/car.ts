@@ -361,20 +361,21 @@ export class DeformableCar extends CarParts {
     this.updateSkin();
   }
 
-  integrate(dt: number): void {
+  /** `bounce`: the world's walls, cars and props for this car's loose parts (`stepLooseParts`), on every path it takes. */
+  integrate(dt: number, bounce?: WorldBounce): void {
     if (this.vaporized) return;
     if (this.deform.massActive) {
       this.syncPose(dt);
       this.nudgeWheels(dt);
       this.ride(dt);
-      this.stepLooseParts(dt);
+      this.stepLooseParts(dt, bounce);
       return;
     }
     if (!this.falling) this.spinWheels(dt, !this.airborne);
     this.flewDt = dt;
     const landed = stepFree(this, dt);
     if (this.falling) {
-      this.stepLooseParts(dt);
+      this.stepLooseParts(dt, bounce);
       return;
     }
     // The drive turns the stored pose each slice (`applyDrive`): it is what the rigid body is now, or the turn undoes its tumble.
@@ -385,7 +386,7 @@ export class DeformableCar extends CarParts {
     this.refreshBasis();
     this.ride(dt);
     if (!this.crashed) this.deform.bindKinematic(this.group, this.velocity, this.angular);
-    this.stepLooseParts(dt);
+    this.stepLooseParts(dt, bounce);
   }
 
   /**

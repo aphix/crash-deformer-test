@@ -105,6 +105,22 @@ describe("given the square course's ground and the oval course's ground", () => 
   });
 });
 
+describe("given the square course with a dirt shortcut whose first point carries cobble", () => {
+  it("when the ground is read along the shortcut, then the run from that first point is cobble, the rest of the shortcut is dirt and the loop keeps its asphalt", () => {
+    const cutPoints = [{ x: 0, z: 30, surface: "cobble" as const }, { x: 30, z: 40 }, { x: 60, z: 70 }, { x: 100, z: 112 }];
+    const track = new Track(square({ shortcuts: [{ id: "cut", from: 0, to: 2, width: 8, surface: "dirt", path: cutPoints }] }));
+    const ground = track.ground();
+    const path = track.shortcuts[0]!.path;
+    const nearMouth = path.count >> 4;
+    const nearExit = path.count - (path.count >> 4);
+    assert.equal(ground.surfaceAt(path.x[nearMouth]!, path.z[nearMouth]!), "cobble", "just inside the mouth");
+    assert.equal(ground.frictionAt(path.x[nearMouth]!, path.z[nearMouth]!), 0.85, "cobble grip");
+    assert.equal(ground.surfaceAt(path.x[nearExit]!, path.z[nearExit]!), "dirt", "near the exit");
+    assert.equal(ground.frictionAt(path.x[nearExit]!, path.z[nearExit]!), 0.72, "dirt grip");
+    assert.equal(ground.surfaceAt(0, 90), "asphalt", "the loop beside the mouth");
+  });
+});
+
 describe("given the stunt course, whose figure-of-eight crosses itself at the origin under a bridge deck", () => {
   it("when the ground is read at the crossing at different levels, then each car sees its own level", () => {
     const stunt = new Track(TRACKS.find((j) => parseTrack(j).id === "stunt"));

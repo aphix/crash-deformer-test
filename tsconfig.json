@@ -32,7 +32,6 @@
     "allowImportingTsExtensions": true
   },
   "include": [
-    "src",
-    "server"
+    "src"
   ]
 }

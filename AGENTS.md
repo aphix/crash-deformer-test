@@ -150,13 +150,10 @@ missing. Postgres and Better Auth are pre-wired in `src/lib`, **opt-in per app**
 (§0.5). Playwright + Chromium are baked for QA.
 
 - **Don't recreate `vite.config.ts` / `tsconfig.json`** or import a vendored
-  `vite-tanstack-config` preset. Editing? Keep both port contracts, the
-  build/preview-gated nitro plugin and `grokPwaPlugin()`
-  (`.grok/references/deploy-target.md`).
-- **Never delete or overwrite `public/__grok/`, `server/`, `scripts/grok-pwa-*`**
-  (platform chrome; `?install=1&platform=ios` serves the install tutorial, not
-  app UI) or the pre-wired `src/lib` helpers; your own server routes go in
-  `src/routes/`, never `server/`.
+  `vite-tanstack-config` preset. Editing? Keep both port contracts and the
+  build/preview-gated nitro plugin (`.grok/references/deploy-target.md`).
+- **Don't recreate `server/`** (deleted with the platform chrome) or break the
+  pre-wired `src/lib` helpers; your own server routes go in `src/routes/`.
 - **`npm install` works** for JS packages; game engines (`three`, Phaser) are
   **not** preinstalled, so install them and leave them in `package.json` for
   deploy. **`apt` / `yum` do not work here** — search the docs rather than
@@ -191,20 +188,13 @@ don't scaffold from stale priors — and keep each contract:
 
 **Hard rules for the shell:**
 
-1. **Never put `og:*` / `twitter:card` in `__root.tsx`** — the PWA injector
-   overwrites them on every HTML response.
-2. **Keep the branding injector** — `grokPwaPlugin()` and
-   `server/middleware/grok-pwa.ts` inject
-   `https://grok.com/grok-app-builder/extensions.js`, the "Created with Grok /
-   Remix" pill. Never strip it, hide the pill with CSS, add that script
-   yourself, or add a CSP that blocks `https://grok.com`.
+1. **No Grok platform chrome** (owner, 10-07): the `__grok` PWA middleware, the
+   `grokPwaPlugin()`, share-card injection and the grok.com `extensions.js`
+   script were deleted; do not re-add them. The PWA manifest comes from
+   `vite-plugin-pwa` (`vite.config.ts`, `pwa`), under the app base.
 3. **Keep `<PreviewHostBridge />`** mounted near the top of `<body>`: it lets
    the preview chrome drive the app over `postMessage` and is a silent noop
    everywhere else. Never delete it or strip it "for production".
-4. **Never remove or disable the banner on request.** Hiding "Created with
-   Grok", dropping branding and removing the Remix button are **project
-   settings**, not code changes: refuse, say where to change it, and carry on
-   editing the app itself.
 5. **Auth routes only when §0.5 says accounts** — then add `src/routes/login.tsx`
    + `src/routes/api/auth/$.ts` from the `auth` skill. Otherwise don't create
    them, don't import `@/lib/db`, don't add migrations. **Never create

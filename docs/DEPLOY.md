@@ -24,13 +24,10 @@ variables do).
   and for share links `location.origin + import.meta.env.BASE_URL + "?net=join&room=X"`. A
   request outside the base gets a redirect to it.
 
-  The exception is the platform chrome (`server/middleware/grok-pwa.ts`, `scripts/grok-pwa-*`,
-  `public/__grok/`), which is not ours to edit and keeps root-relative URLs: the manifest and
-  touch-icon links, the iOS install page's assets under `/__grok/`, and the share-card images
-  (`og:image` → `/og.jpg`, `x:game:image` → `/x-banner.jpg`). The proxy routes those root paths to
-  the app (`deploy/nginx-crush.conf`); the manifest is served by the middleware at the root path,
-  the rest from the app's public files under the base. One known limit: the manifest's
-  `start_url`/`scope` are `/`, so a home-screen install opens the site root, not the base.
+  The installable-app manifest (`<base>manifest.webmanifest`, `vite-plugin-pwa`; `display: fullscreen`,
+  `id`/`start_url`/`scope` = the base) and its icons (`<base>icons/`) live under the base too, so
+  `deploy/nginx-crush.conf` is the single `location ^~ <base>` block and the site root is not touched.
+  The plugin registers no service worker (`vite.config.ts`, `pwa`): it would serve a stale build.
 
 Runtime variables for the node server: `PORT` (default 3000), `HOST`, `PGLITE_DATA_DIR`
 (unset = in-memory, wiped on restart), `DATABASE_URL` (set it to use Postgres instead of PGLite).
@@ -139,7 +136,7 @@ repo; the box never runs a fetched copy of it as root.
 Logs: put the app's access log outside any 4xx-probe jail's logpath. Internet-facing boxes often
 run a fail2ban jail that bans an address for days, on all ports, after a couple of 4xx lines in
 the site's access log. Players produce those honestly: a stale asset after a deploy, a 405 from
-a misrouted signaling call, a 409 "room full". So every location in `deploy/nginx-crush.conf`
+a misrouted signaling call, a 409 "room full". So the `location` in `deploy/nginx-crush.conf`
 logs to its own file (`@ACCESS_LOG@`), named so that no jail's logpath or glob matches it
 (Debian's default `nginx_access_log` is a `*access.log` glob). The error log stays shared, and the
 jails themselves are left alone. Choosing the file: deploy/README.md step 4.
@@ -150,8 +147,7 @@ Install steps: [deploy/README.md](../deploy/README.md).
 
 The app came from a template whose files a template update may overwrite. These template-owned
 files carry changes the self-hosted deploy depends on. After any template update, diff them and
-re-apply what was lost. The platform chrome (`server/`, `public/__grok/`, `scripts/grok-pwa-*`) is
-deliberately *not* changed; the nginx snippet maps its root paths instead (see Build knobs).
+re-apply what was lost.
 
 | File | Change | Why the VPS needs it | If it is reverted |
 |---|---|---|---|

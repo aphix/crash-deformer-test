@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { Track } from "../world/track.ts";
 import { TRACKS } from "../world/tracks/index.ts";
 import { benchPlan } from "./engine-bench-plan.ts";
-import { advance, autoReloadAsked, BIGGEST_COURSE, cycleOf, isBenchPage, loopProgress, loopSettings, parseRun, startRun, stepHref, stepOf, ULTRA_AVAILABLE, type BenchRun } from "./bench-loop.ts";
+import { advance, autoReloadAsked, BIGGEST_COURSE, cycleOf, isBenchPage, loopProgress, loopSettings, parseRun, runFromPage, startRun, stepHref, stepOf, ULTRA_AVAILABLE, type BenchRun } from "./bench-loop.ts";
 
 const RUN: BenchRun = { session: "k3x9q2", loop: 1, step: 0, ultra: false, keep: false, auto: false, ultraNext: false };
 
@@ -100,9 +100,9 @@ describe("given a loop whose state is in the address of its bench page", () => {
     );
   });
 
-  it("when keep is taken out of the address on the second step, then the loop goes on to the last step and ends there", () => {
+  it("when keep is turned off (keep=0) in the address on the second step, then the loop goes on to the last step and ends there", () => {
     const second = new URL(stepHref(base, { ...RUN, step: 1, keep: true }));
-    second.searchParams.delete("keep");
+    second.searchParams.set("keep", "0");
     const secondRun = parseRun(second.search);
     assert.equal(secondRun?.keep, false, "the edited address reads as keep off");
     const last = advance(secondRun!);
@@ -122,7 +122,7 @@ describe("given a loop whose state is in the address of its bench page", () => {
   });
 
   const hrefCases = [
-    { it: "the address has a share fragment and a leftover v", from: `${base}?v=old#seed=7`, run: { ...RUN, step: 2 }, expected: `${base}?bench=city&course=dam-spine&loop=k3x9q2&cycle=1&step=2` },
+    { it: "the address has a share fragment and a leftover v", from: `${base}?v=old#seed=7`, run: { ...RUN, step: 2 }, expected: `${base}?bench=city&course=dam-spine&loop=k3x9q2&cycle=1&step=2&keep=0&auto=0&loopultra=0&cycleultra=0` },
     {
       it: "every option is on",
       from: base,
@@ -131,7 +131,7 @@ describe("given a loop whose state is in the address of its bench page", () => {
     },
   ];
   for (const testCase of hrefCases) {
-    it(`when a step's address is built and ${testCase.it}, then it names the step's bench, the session, the cycle, the step and the options that are on`, () => {
+    it(`when a step's address is built and ${testCase.it}, then it names the step's bench, the session, the cycle, the step and every option on or off`, () => {
       assert.equal(stepHref(testCase.from, testCase.run), testCase.expected);
     });
   }
@@ -150,8 +150,8 @@ describe("given a loop whose state is in the address of its bench page", () => {
 
   const parseCases = [
     { it: "it names every part of a loop", search: "?bench=city&loop=k3x9q2&cycle=2&step=1&keep=1&auto=1&loopultra=1&cycleultra=1", expected: "k3x9q2 2 1 keep auto ultra ultraNext" },
-    { it: "it names only a session, a bench opened by hand that becomes a loop from there", search: "?bench=strip&loop=k3x9q2", expected: "k3x9q2 1 0" },
-    { it: "an option is written as anything but 1", search: "?bench=city&loop=k3x9q2&keep=0&auto=true", expected: "k3x9q2 1 0" },
+    { it: "it names only a session, a bench opened by hand that becomes a loop from there", search: "?bench=strip&loop=k3x9q2", expected: ULTRA_AVAILABLE ? "k3x9q2 1 0 keep auto ultraNext" : "k3x9q2 1 0 keep auto" },
+    { it: "options are written as 0", search: "?bench=city&loop=k3x9q2&keep=0&auto=0&loopultra=0", expected: "k3x9q2 1 0" },
     { it: "it asks for a bench and names no session", search: "?bench=city", expected: "none" },
     { it: "it names a session but asks for no bench", search: "?loop=k3x9q2", expected: "none" },
     { it: "the session holds a path", search: "?bench=city&loop=../x", expected: "none" },
@@ -166,6 +166,36 @@ describe("given a loop whose state is in the address of its bench page", () => {
       assert.equal(read, testCase.expected);
     });
   }
+});
+
+describe("given a bench page opened by its address alone, with no loop in it", () => {
+  for (const step of cycleOf(ULTRA_AVAILABLE)) {
+    it(`when the page is ${step.query}, then it runs as a loop with every option on, at the step that runs that same bench, and moves on after it`, () => {
+      const run = runFromPage(`?${step.query}`, "k3x9q2");
+      assert.ok(run !== null, "a cycle bench becomes a loop");
+      assert.equal(stepOf(run).id, step.id);
+      assert.equal(run.keep && run.auto, true, "keep benching and auto-reload on");
+      assert.notEqual(advance(run), null, "the loop moves on after this bench");
+    });
+  }
+  for (const search of ["?bench=lab", "?bench=city&course=four-count"]) {
+    it(`when the page is ${search}, a bench the cycle doesn't run, then it runs once and is no loop`, () => {
+      assert.equal(runFromPage(search, "k3x9q2"), null);
+    });
+  }
+});
+
+describe("given a loop address that leaves out its options (a loop carried over from an older build)", () => {
+  it("when it is read, then keep benching and auto-reload are on, so the loop goes on past its cycle's last bench", () => {
+    const run = parseRun("?bench=city&course=dam-spine&loop=af3fa60e&cycle=1&step=2");
+    assert.ok(run !== null && run.keep && run.auto);
+    assert.notEqual(advance(run), null, "the loop starts its next cycle");
+  });
+  it("when an option is turned off with =0, then it is off and the address it writes keeps it off", () => {
+    const run = parseRun("?bench=strip&loop=af3fa60e&keep=0");
+    assert.ok(run !== null && !run.keep);
+    assert.equal(parseRun(new URL(stepHref("https://game.test/crush/", run)).search)!.keep, false);
+  });
 });
 
 describe("given the address of a page", () => {
