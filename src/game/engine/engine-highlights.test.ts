@@ -18,12 +18,8 @@ import { assertSameNumbers } from "../vehicle/test-support.ts";
 /** A ramming field on the city course: its first crash comes early in lap 1. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
 const SEED = 5;
-/**
- * The seed of the frames test, which needs the field's first clip to open with its focus car driving (a car moving
- * through the slow-mo). Any change to the car sim moves a seed's whole race, so the leftovers test no longer rides a seed:
- * it scripts its own first crash.
- */
-const CLEAN_SEED = 8;
+/** Fields of the ramming city race to try (its dice from each seed): a field that rams keeps a clip within a few of them. */
+const FIELD_SEEDS = [5, 6, 7, 8, 9, 10];
 
 describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
   it("when the clip plays, then it runs at normal speed up to the hit, holds the slow-motion over the hit, then catches up to the clip's last step", () => {
@@ -77,13 +73,23 @@ async function recordedReel(w: World, clips = 1): Promise<Reel> {
   return (await unpackReel(msg, carLayout(w.cars[0]!))).reel;
 }
 
+/** The reel of the first clip of the first of FIELD_SEEDS's ramming city fields that keeps one. */
+async function fieldReel(w: World): Promise<Reel> {
+  for (const seed of FIELD_SEEDS) {
+    race(w, FIELD, seed);
+    const state = { acc: 0 };
+    for (let n = 0; n * (1 / 60) < 120 && w.race.recorder.ledger.kept.length < 1 && w.race.phase !== "finished"; n++) frame(w, state);
+    if (w.race.recorder.ledger.kept.length >= 1) return recordedReel(w);
+  }
+  assert.fail(`none of ${FIELD_SEEDS.length} ramming fields kept a clip`);
+}
+
 describe("given two peers each playing the same recorded highlight reel on their own cars", () => {
   it("when one peer draws at 60 Hz and the other at 45 Hz, then at every shared moment both frame the same shot, the camera and focus car really move, and a solo view's first frame does not play the hit early", async () => {
     const a = makeWorld();
     const b = makeWorld();
     try {
-      race(a);
-      const reel = await recordedReel(a);
+      const reel = await fieldReel(a);
       // The second peer has its own cars and its own history: a few frames of the same race.
       race(b);
       for (let n = 0; n < 30; n++) frame(b, { acc: 0 });
@@ -224,8 +230,7 @@ describe("given a recorded highlight clip from a seeded city race that opens wit
   it("when it plays at 60 and at 240 Hz, then the car moving through the slow-motion is drawn moving on every frame, and drawing frames never changes the replay", async () => {
     const a = makeWorld();
     try {
-      race(a, FIELD, CLEAN_SEED);
-      const reel = await recordedReel(a);
+      const reel = await fieldReel(a);
       const clip = reel.clips[0]!;
       for (const hz of [60, 240]) {
         const d = new ReelDirector(hostOf(a));
