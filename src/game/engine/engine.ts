@@ -778,7 +778,7 @@ export class CrashEngine extends EngineGarage {
       if (this.camera.aspect < 1 !== this.labUpright && !this.view.userFramed) this.frameLab();
       look.copy(this.labLook);
     } else if (this.showGarage) {
-      look.copy(GARAGE.look);
+      look.set(GARAGE.shot.lookX, GARAGE.shot.lookY, GARAGE.shot.lookZ);
     } else {
       centroid(_v, this.live());
       look.set(_v.x, 0.7, _v.z);

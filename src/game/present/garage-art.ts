@@ -14,7 +14,9 @@ export const GARAGE = {
   turntableR: 2.8,
   /** The driver stands here beside the car, facing +z (the same way as the car): his rest frame is this point's. */
   person: new THREE.Vector3(1.9, 0, 0.6),
-  look: new THREE.Vector3(0.7, 0.8, 0.2),
+  /** The opening shot (`ChaseCamera.frameReset`): from the front right, the car and the driver beside it in view, and the point the orbit circles. */
+  angle: 0.75,
+  shot: { lookX: 0.7, lookY: 0.8, lookZ: 0.2, radius: 8.5, pitch: 0.3 },
   /** The driver the garage shows under the player's picks (a race draws his unpicked clothes from its own seed). */
   driver: driverLook(0, 0),
 } as const;

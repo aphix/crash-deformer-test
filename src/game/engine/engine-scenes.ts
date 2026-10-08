@@ -177,7 +177,10 @@ export abstract class EngineScenes extends EngineDerby {
       this.view.setLens(LAB_FOV);
       this.frameLab();
     } else if (wasLab) this.view.setLens(null);
-    if (next === "garage") this.stage.look(LAB_LIGHT);
+    if (next === "garage") {
+      this.stage.look(LAB_LIGHT);
+      this.view.frameReset(true, this.live(), GARAGE.angle, GARAGE.shot);
+    }
     this.emitHud();
   }
 
@@ -640,8 +643,8 @@ export abstract class EngineScenes extends EngineDerby {
     this.impactLightLife = 0;
     this.impactLight.intensity = 0;
 
-    // The pistons, the stack and the Lab frame on entering only (`applyScene`): their resets keep the user's view.
-    if (!this.showPistons && !this.showStack && !this.showLab) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
+    // The pistons, the stack, the Lab and the garage frame on entering only (`applyScene`): their resets keep the user's view.
+    if (!this.showPistons && !this.showStack && !this.showLab && !this.showGarage) this.view.frameReset(this.showCompactor || this.showDoors, this.live());
     this.smokeUntil.fill(0);
     this.deadSmokeAcc.length = 0;
     this.vaporAt.length = 0;
