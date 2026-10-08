@@ -721,8 +721,8 @@ export abstract class CarParts extends CarGlass {
       const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
-      stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
-      if (p.region && p.object.position.y < 0.3) layFlat(p.object, dt);
+      const clearance = stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
+      if (p.region && clearance < 0.3) layFlat(p.object, dt);
       applyDents(p.dent, p.object);
     }
     for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, bounce);
