@@ -9,7 +9,8 @@ import type { DeformMode } from "../deform/deform-rig.ts";
 import { mass, paint } from "../vehicle/test-support.ts";
 import { newWorld, stepWorld, type World } from "../engine/world-step.ts";
 import { EjectionWatch, type Ejection } from "../vehicle/ejection.ts";
-import { applyDrive } from "../vehicle/car-drive.ts";
+import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
+import { layOnGround } from "../vehicle/car-air.ts";
 import type { SimPacer } from "../engine/sim-pace.ts";
 
 /**
@@ -490,9 +491,17 @@ export function strikeReach(car: DeformableCar, approach: WallApproach): number 
   return -minX;
 }
 
+/** A parked car's pedals: on its brake. */
+const PARKED: DriveInput = { throttle: 0, steer: 0, brake: 1, ebrake: false, boost: false };
+/** A launched car's pedals: freewheeling, so it meets the other at its launch speed less the road's drag. */
+const FREEWHEEL: DriveInput = { throttle: 0, steer: 0, brake: 0, ebrake: false, boost: false, neutral: true };
+
 /**
  * Two-car hit. `head-on`: full overlap, nose to nose along X. `t-bone`: car B
  * (the bullet) drives its nose into the stationary car A's right door.
+ * Both cars stand as the engine has them: laid on the ground under them, their pedals applied every slice until they
+ * crash (a car launched at 0 on its brake, a moving one freewheeling). Unlaid and undriven, a car on a side slope slid
+ * down it on frictionless tyres and rocked on its springs into the hit.
  */
 export function runPair(kphA: number, kphB: number, kind: "head-on" | "t-bone" = "head-on", opts: ScenarioOpts = {}): [CrashResult, CrashResult] {
   const a = makeCar(opts.mode, opts.squash, opts.buckle);
@@ -504,7 +513,14 @@ export function runPair(kphA: number, kphB: number, kind: "head-on" | "t-bone" =
     launch(a, 0, 0, 0, 0, 0);
     launch(b, 6, 0, -Math.PI / 2, -kphB / 3.6, 0);
   }
+  layOnGround(a);
+  layOnGround(b);
   const w = makeWorld([a, b], false, opts.slomo ?? false);
+  const recordPreContact = w.world.beforeSlice!;
+  w.world.beforeSlice = (h) => {
+    for (const car of w.cars) if (!car.crashed) applyDrive(car, car.spawnSpeed === 0 ? PARKED : FREEWHEEL, h);
+    return recordPreContact(h);
+  };
   const dirA = kind === "head-on" ? new THREE.Vector3(1, 0, 0) : new THREE.Vector3(-1, 0, 0);
   const pa = new Probe(a, dirA);
   const pb = new Probe(b, new THREE.Vector3(-1, 0, 0));
