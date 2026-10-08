@@ -9,7 +9,7 @@
  * rolls back and accepts, so pairs converge without wedging.
  */
 
-import { TOKEN_HEADER } from "./rooms.ts";
+import { RELAY, TOKEN_HEADER } from "./rooms.ts";
 
 export type SignalKind = "offer" | "answer" | "ice";
 
@@ -162,7 +162,7 @@ export class P2PRoom {
     void fetch(RTC_URL, {
       method: "POST",
       headers: { "content-type": "application/json", [TOKEN_HEADER]: this.token },
-      body: JSON.stringify({ op: "leave", room: this.opts.room, peer: this.opts.selfId }),
+      body: JSON.stringify({ op: RELAY.LEAVE, room: this.opts.room, peer: this.opts.selfId }),
       keepalive: true,
     }).catch(() => {});
   }
@@ -223,7 +223,7 @@ export class P2PRoom {
       since: String(this.cursor),
     });
     const meta = this.opts.meta?.();
-    if (meta) params.set("meta", meta);
+    if (meta) params.set(RELAY.META, meta);
     const res = await fetch(`${RTC_URL}?${params}`, { headers: { [TOKEN_HEADER]: this.token } });
     if (this.closed) return;
     if (!res.ok) {
@@ -496,7 +496,7 @@ export class P2PRoom {
           method: "POST",
           headers: { "content-type": "application/json", [TOKEN_HEADER]: this.token },
           body: JSON.stringify({
-            op: "signal",
+            op: RELAY.SIGNAL,
             room: this.opts.room,
             from: this.opts.selfId,
             to,

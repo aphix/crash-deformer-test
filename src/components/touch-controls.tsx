@@ -2,7 +2,9 @@ import { useEffect, useRef, useSyncExternalStore, type PointerEvent as ReactPoin
 import { ChevronLeft, ChevronRight, CircleParking, LockOpen, LogOut, Maximize, Minimize, Mouse, Pause, SwitchCamera, Video, Wrench, Zap } from "lucide-react";
 import type { HudProps } from "@/components/hud";
 import { RESET_GLOW } from "@/components/reset-prompt";
+import { showsDriveReadouts } from "@/components/race-readouts";
 import { Button } from "@/components/ui/button";
+import { usePadHold } from "@/components/use-pad-hold";
 import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import { useCoarsePointer } from "@/components/use-coarse-pointer";
 import { resetGlow } from "@/game/hud/reset-prompt";
@@ -137,38 +139,13 @@ function Stick({ engine }: Pick<HudProps, "engine">) {
 
 /** One pad button (`PAD_BUTTON` index): held while a finger is on it, and a tap shorter than a frame still presses. */
 function PadButton({ engine, button, label, caption, className, children }: Pick<HudProps, "engine"> & { button: number; label: string; caption: string; className: string; children: ReactNode }) {
-  const mask = 1 << button;
-  // Unmounted under a finger (the seat changed): let go, or the bit would stay held.
-  useEffect(
-    () => () => {
-      const t = engine.current?.touch;
-      if (t) t.held &= ~mask;
-    },
-    [engine, mask],
-  );
-  const release = (e: ReactPointerEvent<HTMLButtonElement>): void => {
-    delete e.currentTarget.dataset.held;
-    const t = engine.current?.touch;
-    if (t) t.held &= ~mask;
-  };
   return (
     <Button
       variant="secondary"
       aria-label={label}
       title={label}
       className={cn("pointer-events-auto h-14 min-w-14 touch-none select-none flex-col gap-0.5 bg-surface/60 px-1 data-[held]:bg-accent data-[held]:text-accent-fg [&_svg]:size-5", className)}
-      onPointerDown={(e) => {
-        const t = engine.current?.touch;
-        if (!t) return;
-        e.currentTarget.setPointerCapture(e.pointerId);
-        e.currentTarget.dataset.held = "";
-        t.held |= mask;
-        t.tapped |= mask;
-      }}
-      onPointerUp={release}
-      onPointerCancel={release}
-      onLostPointerCapture={release}
-      onContextMenu={(e) => e.preventDefault()}
+      {...usePadHold(engine, button)}
     >
       {children}
       <span className="font-display text-xs leading-none">{caption}</span>
@@ -189,10 +166,12 @@ export function TouchControls({ state, engine }: HudProps) {
   const canDrive = driving || (state.seat === "follow" && !race?.spectating);
   // Whole field, no stick: the Prev / Next pair is the only thing here. Landscape puts it in the stick's corner, not mid-screen over the action.
   const pair = !watching && !race;
+  // The drive cluster sits bottom right on a phone on its side: the buttons go above it, each still 40 px tall.
+  const aboveCluster = race ? showsDriveReadouts(race) : state.derbyView !== null;
   return (
     <div data-keep-idle className={cn("pointer-events-none flex w-full items-end justify-between gap-2", pair && "landscape:flex-row-reverse")}>
       {canDrive ? <Stick engine={engine} /> : <span />}
-      <div className="grid grid-cols-3 gap-2">
+      <div className={cn("grid grid-cols-3 gap-2", aboveCluster && "pad-above-cluster")}>
         {race ? null : (
           <>
             <PadButton engine={engine} button={PAD_BUTTON.lb} label="Previous car" caption="Prev" className="col-start-1 row-start-1">

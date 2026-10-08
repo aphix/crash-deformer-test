@@ -24,9 +24,11 @@ describe("given an oval race with police on, whose player car the race AI drives
         w.seat.carIndex = id;
         return w.race.hud().view!.boost;
       };
+      // A seat meter no AI meter holds: an AI-driven car showing the seat's (the old bench bug's sibling) would read it back.
+      w.seat.boost = 0.123456;
       for (const id of [0, 1]) {
         const m = meterOf(id);
-        assert.ok(m !== null && m >= 0 && m <= 1, `car ${id} (${w.race.racers[id]!.kind}) shows meter ${m}`);
+        assert.ok(m !== null && m >= 0 && m <= 1 && m !== w.seat.boost, `car ${id} (${w.race.racers[id]!.kind}) shows meter ${m}`);
       }
       assert.equal(meterOf(racers), 1, "a police unit's bottle is full");
     } finally {

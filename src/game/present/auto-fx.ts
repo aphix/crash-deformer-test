@@ -2,6 +2,7 @@
 // a quick check after boot lifts a capable desktop with room to spare to "high"; two windows too full for 60 fps step it down
 // high → low → minimal; a run of windows with room climbs back one tier (never into "ultra": that one is the user's pick); a match
 // starts on minimal and runs the load check again 3 s after green. A manual pick turns it off.
+import { SLOW_WINDOWS } from "./constants.ts";
 import type { FxTier } from "./engine-post.ts";
 import { FrameWork } from "./frame-work.ts";
 
@@ -14,8 +15,6 @@ export function hardwareDesktop(renderer: string | null, pointerFine: boolean): 
 
 /** A tier holds while its windows can hold this wall rate where no GPU reading exists: the owner's 60 fps less 10. */
 const DROP_FPS = 50;
-/** Slow windows in a row that drop a tier: one hitch, however long, ends only one window, so it never drops. */
-const SLOW_WINDOWS = 2;
 /** Windows with room in a row that climb one tier above any that held. */
 const UP_STREAK = 8;
 /** Windows with room in a row that lift a match's minimal back to the ceiling (a tier that held before). */

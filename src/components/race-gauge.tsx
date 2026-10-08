@@ -1,9 +1,12 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import { Wrench } from "lucide-react";
+import { useEngine } from "@/components/engine-context";
 import { RESET_GLOW } from "@/components/reset-prompt";
+import { usePadHold } from "@/components/use-pad-hold";
 import { useSpeedUnit } from "@/components/use-speed-unit";
 import { needsReset } from "@/game/hud/reset-prompt";
 import { formatSpeed } from "@/game/hud/speed-units";
+import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import { KPH_PER_MS } from "@/game/kernel/constants";
 import type { RaceView } from "@/game/match/types";
 import { cn } from "@/lib/utils";
@@ -24,6 +27,18 @@ const DMG_AMBER = 0.6;
 const DMG_RED = 0.25;
 /** Boost level above which the bottle glows: a burst of more than a quarter second is in it. */
 const NITRO_USABLE = 0.15;
+
+const NITRO_GLOW_CLASSES = {
+  bottle: { soft: "shadow-[0_0_0.9em_0_var(--color-scene-race)]", bright: "shadow-[0_0_1.4em_0.25em_var(--color-scene-race)]" },
+  bar: { soft: "drop-shadow-[0_0_4px_var(--color-accent)]", bright: "drop-shadow-[0_0_8px_var(--color-accent)]" },
+};
+
+/** How a boost meter glows, for the bottle and the compact bar alike: softly while a burst is in it, bright while burning, not at all for a car with no nitrous. */
+export function nitroGlowClass(shape: keyof typeof NITRO_GLOW_CLASSES, boost: number | null, boosting: boolean): string | undefined {
+  if (boost === null) return undefined;
+  if (boosting) return NITRO_GLOW_CLASSES[shape].bright;
+  return boost > NITRO_USABLE ? NITRO_GLOW_CLASSES[shape].soft : undefined;
+}
 
 const rad = (deg: number) => (deg * Math.PI) / 180;
 const px = (r: number, deg: number) => (C + r * Math.sin(rad(deg))).toFixed(1);
@@ -75,7 +90,6 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
       </div>
     );
   }
-  const usable = boost > NITRO_USABLE;
   return (
     <div className="relative flex flex-col items-center" role="meter" aria-label="Boost" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(boost * 100)}>
       {drafting ? <span className="hud-ink absolute bottom-full mb-1 text-[10px] font-semibold uppercase tracking-[0.12em] text-accent">Draft</span> : null}
@@ -84,8 +98,7 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
       <div
         className={cn(
           "relative h-[2.6em] w-[1.5em] overflow-hidden rounded-[0.4em] bg-fg/20 shadow-[var(--shadow-border)] transition-shadow duration-[var(--motion-fast)]",
-          usable && "shadow-[0_0_0.9em_0_var(--color-scene-race)]",
-          boosting && "shadow-[0_0_1.4em_0.25em_var(--color-scene-race)]",
+          nitroGlowClass("bottle", boost, boosting),
         )}
       >
         <div
@@ -97,6 +110,15 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
   );
 }
 
+/** The bottle as a button, on a touch screen only: holding it holds the thumb pad's Boost button (`usePadHold`), padded out to a finger's size around the small bottle. */
+function BoostHold({ children }: { children: ReactNode }) {
+  return (
+    <button type="button" tabIndex={-1} aria-label="Nitrous bottle (hold to boost)" className="pointer-events-none -mx-4.5 -mb-2 -mt-6 block touch-none select-none px-4.5 pb-2 pt-6 phone-landscape:pointer-events-auto" {...usePadHold(useEngine(), PAD_BUTTON.west)}>
+      {children}
+    </button>
+  );
+}
+
 /**
  * The race's drive cluster, bottom right on a big screen: an arc rev dial with the redline, the speed in the centre and the
  * gear under it (the revs are faked from the speed inside the gear's bucket: `carRpm`); the damage arc on its left
@@ -104,7 +126,7 @@ function Nitro({ boost, boosting, drafting }: { boost: number | null; boosting: 
  * spectating) and glows like every reset control once the car needs one (`needsReset`); the nitrous bottle, the boost meter.
  * The needle and the bottle's fill move by `transform` transitions (the compositor, not a repaint) between the HUD's snapshots.
  */
-export function DriveCluster({ view }: { view: RaceView }) {
+export function DriveCluster({ view, boostable }: { view: RaceView; boostable: boolean }) {
   const unit = useSpeedUnit();
   const needle = -HALF_SWEEP + view.rpm * 2 * HALF_SWEEP;
   const dmgTo = DMG_FROM + (DMG_TO - DMG_FROM) * view.damage;
@@ -147,8 +169,14 @@ export function DriveCluster({ view }: { view: RaceView }) {
       >
         <Wrench className="size-3/5" />
       </div>
-      <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)]">
-        <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+      <div className="absolute left-[56%] top-[80%] text-[length:var(--g-em)] phone-landscape:left-[66%] phone-landscape:top-[76%]">
+        {boostable && view.boost !== null ? (
+          <BoostHold>
+            <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+          </BoostHold>
+        ) : (
+          <Nitro boost={view.boost} boosting={view.boosting} drafting={view.racer?.drafting ?? false} />
+        )}
       </div>
     </div>
   );

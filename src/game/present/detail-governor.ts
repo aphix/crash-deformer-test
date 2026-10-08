@@ -1,4 +1,5 @@
 import { DETAIL_LEVELS } from "./car-detail.ts";
+import { SLOW_WINDOWS } from "./constants.ts";
 import { FrameWork } from "./frame-work.ts";
 
 /**
@@ -14,7 +15,6 @@ import { FrameWork } from "./frame-work.ts";
  */
 const SLOW_FPS = 57;
 const LOST_SHARE = 0.02;
-const SLOW_WINDOWS = 2;
 const FIRST_HOLD = 10;
 const MAX_HOLD = 80;
 const LAST = DETAIL_LEVELS.length - 1;
