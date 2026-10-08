@@ -51,12 +51,14 @@ const _doorW = new THREE.Vector3();
 const _c = new THREE.Vector3();
 /**
  * Glass against its frame's strain (`cageStrain`, m): the windshield and rear glass read their own cage, side glass its
- * door's. Measured over the standard crashes: an unloaded pane reads ≤ 0.04, a loaded
- * frame 0.07–0.17, a collapsed one 0.2–0.4. Any load cracks a pane; tempered side and rear glass bursts once its frame
- * has clearly moved, the laminated windshield only once its frame has collapsed (a 50 km/h side hit reads 0.23 there).
+ * door's. Peaks measured over the standard crashes: an unloaded pane reads ≤ 0.055 (the far door of a 30–50 km/h side hit),
+ * a loaded frame 0.088–0.20 (the struck door of a 50 km/h side hit 0.088, the windshield of a 35 km/h wall hit 0.107), a
+ * collapsed one 0.266–0.43 (the windshield of a 56 km/h wall hit 0.266). Any load cracks a pane; tempered side and rear
+ * glass bursts once its frame has clearly moved, the laminated windshield only once its frame has collapsed. Each bound
+ * sits about 0.012 clear of the strains on either side of it.
  */
-const GLASS_CRACK = 0.05;
-const GLASS_TEMPERED = 0.11;
+const GLASS_CRACK = 0.063;
+const GLASS_TEMPERED = 0.075;
 const GLASS_LAMINATED = 0.25;
 
 /** Police light bar: shears off once the roof mass under it sinks this far (m below its rest height; a
