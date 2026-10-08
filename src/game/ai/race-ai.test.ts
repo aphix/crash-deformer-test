@@ -284,14 +284,17 @@ describe("given a road only 6 m wide with a driver at 15 m/s coming up on a 6 m/
   });
 });
 
-describe("given an AI driver at 30 m/s on the oval's back straight, alone", () => {
-  it("when its nose points 0.6 rad off the road, so steering back onto its line asks for more than full lock, then it brakes with the throttle off, and pointing along the road it drives on", () => {
-    const pointed = (yaw: number): AiCar => ({ ...blankAiCar(0), x: pt.x, z: pt.z, yaw, vx: 30 * Math.sin(yaw), vz: 30 * Math.cos(yaw) });
-    const off = pointed(0.6);
-    const wide = new RaceBrain(oval, 1).think(off, [off], { next: 1, lap: 0 }, DT);
-    assert.ok(wide.brake > 0 && wide.throttle === 0, `pointed off: brake ${wide.brake} throttle ${wide.throttle}`);
-    const along = pointed(0);
-    const on = new RaceBrain(oval, 1).think(along, [along], { next: 1, lap: 0 }, DT);
-    assert.ok(on.throttle > 0 && on.brake === 0, `pointed along: brake ${on.brake} throttle ${on.throttle}`);
+describe("given an AI driver at 30 m/s on the oval's back straight, alone, its nose 0.6 rad off the road's heading toward the left edge", () => {
+  it("when it is 1 m past the left edge, so steering back onto its line asks for more than full lock off the road, then it brakes with the throttle off; and on the road's centre line, pointed the same way, it keeps the throttle on", () => {
+    // Of the two headings 0.6 rad off the road's, the one with a component along the road's left (tz, -tx).
+    const roadYaw = Math.atan2(pt.tx, pt.tz);
+    const yaw = Math.sin(roadYaw + 0.6) * pt.tz - Math.cos(roadYaw + 0.6) * pt.tx > 0 ? roadYaw + 0.6 : roadYaw - 0.6;
+    const pointedOut = (off: number): AiCar => ({ ...onRoad(oval, 0, s0, off, 0), yaw, vx: 30 * Math.sin(yaw), vz: 30 * Math.cos(yaw) });
+    const offRoad = pointedOut(pt.half + 1);
+    const wide = new RaceBrain(oval, 1).think(offRoad, [offRoad], { next: 1, lap: 0 }, DT);
+    assert.ok(wide.brake > 0 && wide.throttle === 0, `off the road: brake ${wide.brake} throttle ${wide.throttle}`);
+    const centred = pointedOut(0);
+    const onLine = new RaceBrain(oval, 1).think(centred, [centred], { next: 1, lap: 0 }, DT);
+    assert.ok(onLine.throttle > 0 && onLine.brake === 0, `on the road: brake ${onLine.brake} throttle ${onLine.throttle}`);
   });
 });

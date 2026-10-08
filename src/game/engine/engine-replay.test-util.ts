@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { setGround } from "../world/ground.ts";
 import { makeWorld } from "../world/race-world.test-util.ts";
 import { clipBytes } from "../net/reel-codec.ts";
-import { agreement, recordField, type Recording } from "./replay-fidelity.test-util.ts";
+import { agreement, recordField } from "./replay-fidelity.test-util.ts";
 
 /**
  * A recorded race crash replayed headless (docs/HIGHLIGHTS.md), over many seeded races: the harness of
@@ -18,13 +18,11 @@ const RACE_S = 75;
 const CLIPS = 5;
 
 /**
- * A race with no clip by one of these race seconds gets a hit of its own: the player's car drives flat out straight ahead (the way
+ * A race with no clip by this race second gets a hit of its own: the player's car drives flat out straight ahead (the way
  * `replay-fidelity.test.ts` scripts its attacker) into the first wall it meets. A seed whose AI field races a clean lap
- * (every hit under `MIN_SCORE`) would leave nothing to replay: seed 14 of 1-64, and seed 7 once a trajectory changed. Where the
- * player starts from decides whether its wall hit keeps a clip (seed 6 from 12 s glances off, then leaves the city), so the race is
- * rerun with each start in turn until one keeps a clip.
+ * (every hit under `MIN_SCORE`) would leave nothing to replay: seed 14 of 1-64, and seed 7 once a trajectory changed.
  */
-const SCRIPTED_AT = [12, 14, 16, 18];
+const SCRIPTED_AT = 12;
 
 /**
  * One test per seed: its race's crashes recorded, then each clip replayed and held to the live sim: every car of it, every
@@ -40,24 +38,20 @@ export function sweepSeeds(list: readonly number[]): void {
       const w = makeWorld();
       w.race.enter();
       try {
-        let recs: Recording[] = [];
-        for (const at of SCRIPTED_AT) {
-          recs = recordField(w, {
-            options: FIELD,
-            seed,
-            before: () => {
-              if (w.race.recorder.now >= at && w.race.recorder.ledger.kept.length === 0 && w.seat.mode !== "drive") {
-                w.seat.mode = "drive";
-                w.seat.carIndex = 0;
-                w.seat.intent.gas = 1;
-              }
-            },
-            done: () => w.race.recorder.ledger.kept.length >= CLIPS,
-            maxFrames: RACE_S * 60,
-          });
-          if (recs.length >= 1) break;
-        }
-        assert.ok(recs.length >= 1, `seed ${seed}: no clip in ${RACE_S} s of a ramming field and a flat-out player from any of ${SCRIPTED_AT.join(", ")} s: the recorder or the ledger saw no crash`);
+        const recs = recordField(w, {
+          options: FIELD,
+          seed,
+          before: () => {
+            if (w.race.recorder.now >= SCRIPTED_AT && w.race.recorder.ledger.kept.length === 0 && w.seat.mode !== "drive") {
+              w.seat.mode = "drive";
+              w.seat.carIndex = 0;
+              w.seat.intent.gas = 1;
+            }
+          },
+          done: () => w.race.recorder.ledger.kept.length >= CLIPS,
+          maxFrames: RACE_S * 60,
+        });
+        assert.ok(recs.length >= 1, `seed ${seed}: no clip in ${RACE_S} s of a ramming field and a flat-out player: the recorder or the ledger saw no crash`);
         const rows: string[] = [];
         for (const rec of recs) {
           const { clip } = rec;

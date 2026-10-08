@@ -8,7 +8,6 @@ import { Track } from "../world/track.ts";
 import city from "../world/tracks/city.json" with { type: "json" };
 import stunt from "../world/tracks/stunt.json" with { type: "json" };
 import { HAVANA } from "../world/tracks/havana.ts";
-import type { HighlightClip } from "../match/highlights.ts";
 import { recordRace, reelViews, VIEW, type Crash, type MomentKind, type MomentView, type Screen } from "./reel-view.test-util.ts";
 
 /**
@@ -54,9 +53,6 @@ function crashes(len: number, shift: number): Crash[] {
   ];
 }
 
-/** Fields of the ramming city race to try (its dice from each seed): a field that rams keeps a clip within a few of them. */
-const FIELD_SEEDS = [5, 6, 7, 8, 9, 10];
-
 /** The city's straightest 60 m (arc length, m, `Track.pointAt`): a staged chain's three cars stand in line on it. */
 const STRAIGHT = 592;
 
@@ -97,8 +93,10 @@ after(() => {
   setGround(null);
 });
 
-async function playClips(name: string, w: World, clips: readonly HighlightClip[]): Promise<void> {
+async function scene(name: string, w: World, track: Track, staged: readonly Crash[], seconds: number): Promise<void> {
   world = w;
+  const clips = recordRace(w, track, staged, seconds);
+  assert.ok(clips.length >= 1, `${name}: no clip`);
   for (const v of await reelViews(w, clips, name)) views.push(v);
   for (const [i, { screen }] of LAYOUTS.entries()) for (const v of await reelViews(w, clips, name, screen)) covered[i]!.push(v);
   w.race.exit();
@@ -106,30 +104,10 @@ async function playClips(name: string, w: World, clips: readonly HighlightClip[]
   world = null;
 }
 
-async function scene(name: string, w: World, track: Track, staged: readonly Crash[], seconds: number): Promise<void> {
-  world = w;
-  const clips = recordRace(w, track, staged, seconds);
-  assert.ok(clips.length >= 1, `${name}: no clip`);
-  await playClips(name, w, clips);
-}
-
-async function cityField(name: string, track: Track, seconds: number): Promise<void> {
-  for (const seed of FIELD_SEEDS) {
-    const w = raceOn("city", seed, 11);
-    world = w;
-    const clips = recordRace(w, track, [], seconds);
-    if (clips.length >= 1) return playClips(name, w, clips);
-    w.race.exit();
-    setGround(null);
-    world = null;
-  }
-  assert.fail(`${name}: none of ${FIELD_SEEDS.length} ramming fields kept a clip`);
-}
-
 describe("given highlight reels from a ramming city race; staged head-ons, wall hits and T-bones among the city's buildings and on the stunt course's tight walls; the Survival player's own crashes among havana's blocks; jumps over the stunt crest onto a car on the landing; and launches up havana's plaza face into the monument", () => {
   before(async () => {
     const cityTrack = new Track(parseTrack(city));
-    await cityField("city field", cityTrack, 70);
+    await scene("city field", raceOn("city", 5, 11), cityTrack, [], 70);
     const stuntTrack = new Track(parseTrack(stunt));
     const havana = new Track(parseTrack(HAVANA));
     for (const [i, shift] of [0, 0.03, 0.07, 0.1, 0.13, 0.16].entries()) {
