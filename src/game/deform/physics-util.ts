@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { activeGround } from "../world/ground.ts";
 import { CRASH, hypot2, round4 } from "../kernel/physics-core.js";
 
 export {
@@ -42,6 +41,9 @@ export function clampSpeed(vel: THREE.Vector3, max = CRASH.maxMassMps): void {
   if (sp2 > max * max) vel.multiplyScalar(max / Math.sqrt(sp2));
 }
 
+/** The weight (N per kg) Coulomb friction presses with (`applyGroundFriction`): the real g, where the sim's falls use `GRAVITY`. */
+export const FRICTION_G = 9.81;
+
 export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, grounded: boolean): void {
   if (!grounded || dt <= 0) return;
   const s = hypot2(vel.x, vel.z);
@@ -50,7 +52,7 @@ export function applyGroundFriction(vel: THREE.Vector3, dt: number, mu: number, 
     vel.z = 0;
     return;
   }
-  const drop = Math.min(s, mu * 9.81 * dt);
+  const drop = Math.min(s, mu * FRICTION_G * dt);
   const k = (s - drop) / s;
   vel.x *= k;
   vel.z *= k;

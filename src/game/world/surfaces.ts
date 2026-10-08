@@ -256,8 +256,8 @@ export class Surface {
     this.q[i * Q_STRIDE + Q_SOLID] = solid ? 1 : 0;
   }
 
-  /** Readies `always` for a query asked by body slot `skip`: every query tests a static surface's alike; the cars' tops list the roofs near the asker (`CarSurfaces`). */
-  near(_skip: number): void {}
+  /** Readies `always` for a query at plan (`x`, `z`) asked by body slot `skip`: every query tests a static surface's alike; the cars' tops list the roofs near the asker (`CarSurfaces`). */
+  near(_skip: number, _x: number, _z: number): void {}
 
   /** A bilinear grid patch; returns its index. */
   addGrid(g: GridSpec): number {
@@ -1040,7 +1040,7 @@ function seek(q: Float64Array, skip: number, tops: Surface | null, list: Int32Ar
 /** `seek` over every top near the asker `skip`. */
 function seekAll(q: Float64Array, skip: number): void {
   const t = live.tops;
-  if (t !== null) t.near(skip);
+  if (t !== null) t.near(skip, q[PQ_X]!, q[PQ_Z]!);
   seek(q, skip, t, t?.always ?? NO_TOPS, t?.nAlways ?? 0);
 }
 
@@ -1369,7 +1369,7 @@ export function staticTop(s: Surface, xMin: number, xMax: number, zMin: number, 
 export function topsTop(skip: number, xMin: number, xMax: number, zMin: number, zMax: number): number {
   const tops = live.tops;
   if (tops === null) return -Infinity;
-  tops.near(skip);
+  tops.near(skip, (xMin + xMax) / 2, (zMin + zMax) / 2);
   let top = -Infinity;
   for (let k = 0; k < tops.nAlways; k++) top = Math.max(top, patchTop(tops, tops.always[k]!, xMin, xMax, zMin, zMax, skip));
   return top;
@@ -1593,7 +1593,7 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const tops = live.tops;
   _nReach = 0;
   if (tops !== null) {
-    tops.near(skip);
+    tops.near(skip, x, z);
     if (_reach.length < tops.nAlways) _reach = new Int32Array(tops.always.length);
     // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it).
     const P = tops.p;

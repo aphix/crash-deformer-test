@@ -1,11 +1,9 @@
 import * as THREE from "three";
-import { applyGroundFriction, hypot3, round4, snapshotPoints } from "../deform/physics-util.ts";
+import { hypot3, round4, snapshotPoints } from "../deform/physics-util.ts";
 import { GRAVITY } from "../kernel/constants.ts";
-import type { DeformableCar } from "../vehicle/car.ts";
-import { activeGround } from "../world/ground.ts";
+import type { WorldBounce } from "../vehicle/car-core.ts";
+import { landOn } from "../vehicle/loose-step.ts";
 
-const _ha = new THREE.Vector3();
-const _hb = new THREE.Vector3();
 const _pv = new THREE.Vector3();
 const STILL = new THREE.Vector3();
 /** Pale blue-white: powdered glass. */
@@ -14,66 +12,13 @@ const GLASS_DUST = new THREE.Color(0.86, 0.93, 1);
 /** Sliding friction of metal and glass bits on asphalt. */
 const FX_GROUND_MU = 0.6;
 
-/** Bounce for FX particles off the active ground (none past the fleet disc's rim: they fall on and fade). Friction is per second, in each system's update (`groundSlide`). */
-export function bounceGround(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-  const floor = activeGround().heightAt(pos.x, pos.z, pos.y);
-  if (pos.y < floor + r) {
-    pos.y = floor + r;
-    if (vel.y < 0) vel.y *= -0.28;
-  }
-}
-
-/** FX particles rest no lower than this (m) above the ground: each update clamps y to it after the bounce. */
+/** FX particles rest no lower than this (m) above what they land on. */
 const FX_FLOOR = 0.04;
 
-/** Coulomb slide for a particle on (or within a 5 mm hop of) its resting height above `floor` after the bounce. */
-function groundSlide(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number, floor: number): void {
-  if (pos.y <= floor + Math.max(r, FX_FLOOR) + 0.005) applyGroundFriction(vel, dt, FX_GROUND_MU, true);
-}
-
-/** Push an FX particle out of the car's hull boxes and reflect it off the side it entered. */
-export function bounceOffCar(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-  // Runs per FX particle per car: reject by distance before any matrix work.
-  const ex = pos.x - car.group.position.x;
-  const ez = pos.z - car.group.position.z;
-  const reach = 3.2 + r;
-  if (ex * ex + ez * ez > reach * reach) return;
-  car.group.updateWorldMatrix(false, false);
-  _ha.copy(pos);
-  car.group.worldToLocal(_ha);
-  if (_ha.y < 0.02 - r || _ha.y > 1.45 + r) return;
-  const hulls = car.hulls();
-  for (let k = 0; k < hulls.length; k++) {
-    const h = hulls[k]!;
-    const dx = _ha.x - h.cx;
-    const dz = _ha.z - h.cz;
-    const ox = h.hx + r - Math.abs(dx);
-    const oz = h.hz + r - Math.abs(dz);
-    if (ox <= 0 || oz <= 0) continue;
-    if (ox < oz) {
-      const s = dx >= 0 ? 1 : -1;
-      _ha.x += s * ox;
-      bounceRelative(car, pos, vel, car.rightFlat.x * s, car.rightFlat.z * s);
-    } else {
-      const s = dz >= 0 ? 1 : -1;
-      _ha.z += s * oz;
-      bounceRelative(car, pos, vel, car.fwdFlat.x * s, car.fwdFlat.z * s);
-    }
-    _hb.copy(_ha);
-    car.group.localToWorld(_hb);
-    pos.copy(_hb);
-    return;
-  }
-}
-
-/** Reflect off a moving car panel: restitution acts on the velocity relative to that point of the car. */
-function bounceRelative(car: DeformableCar, pos: THREE.Vector3, vel: THREE.Vector3, nx: number, nz: number): void {
-  car.pointVelocity(pos, _pv);
-  const vn = (vel.x - _pv.x) * nx + (vel.z - _pv.z) * nz;
-  if (vn >= 0) return;
-  vel.x -= vn * nx * 1.55;
-  vel.z -= vn * nz * 1.55;
-  vel.y += Math.abs(vn) * 0.15;
+/** An FX bit of radius `r` meets the world: the rigs (`bounce`), then the ground and the cars' tops (`landOn`, no car's own: -1). */
+function landBit(pos: THREE.Vector3, vel: THREE.Vector3, r: number, dt: number, bounce: WorldBounce): void {
+  bounce(pos, vel, r);
+  landOn(pos, vel, Math.max(r, FX_FLOOR), FX_GROUND_MU, dt, -1);
 }
 
 const HIDDEN = new THREE.Matrix4().makeScale(0, 0, 0);
@@ -175,7 +120,7 @@ export class DebrisSystem {
     this.mesh.setMatrixAt(i, d.matrix);
   }
 
-  update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+  update(dt: number, bounce: WorldBounce): void {
     if (this.mesh.count === 0) return;
     let any = false;
     const p = this.dummy.position;
@@ -193,10 +138,7 @@ export class DebrisSystem {
       p.y += this.vy[i]! * dt;
       p.z += this.vz[i]! * dt;
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
-      bounce(p, this.vel, 0.03);
-      const floor = activeGround().heightAt(p.x, p.z, p.y);
-      groundSlide(p, this.vel, 0.03, dt, floor);
-      p.y = Math.max(floor + FX_FLOOR, p.y);
+      landBit(p, this.vel, 0.03, dt, bounce);
       p.toArray(this.pos, i * 3);
       this.vx[i] = this.vel.x;
       this.vy[i] = this.vel.y;
@@ -240,11 +182,11 @@ type DotLook = {
   opacity: number;
   /** Downward accel (m/s²). */
   gravity: number;
-  /** Collision radius passed to the world bounce. */
+  /** Collision radius the bit meets the world with (`landBit`). */
   radius: number;
 };
 
-/** Ring buffer of additive billboard dots that fall, bounce off the world, and park at y=250 when dead. */
+/** Ring buffer of additive billboard dots that fall, land on the world (`landBit`), and park at y=250 when dead. */
 class DotPoints {
   protected readonly pos: Float32Array;
   protected readonly vx: Float32Array;
@@ -312,7 +254,7 @@ class DotPoints {
     (this.geo.getAttribute("position") as THREE.BufferAttribute).needsUpdate = true;
   }
 
-  update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+  update(dt: number, bounce: WorldBounce): void {
     if (!this.anyAlive) return;
     let any = false;
     for (let i = 0; i < this.n; i++) {
@@ -327,10 +269,7 @@ class DotPoints {
       this.vel.set(this.vx[i]!, this.vy[i]!, this.vz[i]!);
       this.tmp.addScaledVector(this.vel, dt);
       this.vel.y -= this.gravity * dt;
-      bounce(this.tmp, this.vel, this.radius);
-      const floor = activeGround().heightAt(this.tmp.x, this.tmp.z, this.tmp.y);
-      groundSlide(this.tmp, this.vel, this.radius, dt, floor);
-      this.tmp.y = Math.max(floor + FX_FLOOR, this.tmp.y);
+      landBit(this.tmp, this.vel, this.radius, dt, bounce);
       this.pos[i * 3] = this.tmp.x;
       this.pos[i * 3 + 1] = this.tmp.y;
       this.pos[i * 3 + 2] = this.tmp.z;
@@ -391,7 +330,7 @@ export class SparkSystem extends DotPoints {
     this.streaks.visible = on;
   }
 
-  override update(dt: number, bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void): void {
+  override update(dt: number, bounce: WorldBounce): void {
     super.update(dt, bounce);
     if (!this.streaks.visible) return;
     const p = this.streakPos;
@@ -655,12 +594,7 @@ export class TireSmokeSystem {
     return snapshotPoints(this.px, this.py, this.pz, this.life, false);
   }
 
-  update(
-    dt: number,
-    _bounce: (pos: THREE.Vector3, vel: THREE.Vector3, r: number) => void,
-    camera: THREE.Camera,
-  ): void {
-    void _bounce;
+  update(dt: number, camera: THREE.Camera): void {
     if (!this.anyAlive) return;
     const damp = Math.exp(-0.7 * dt);
     let any = false;

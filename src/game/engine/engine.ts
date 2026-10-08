@@ -17,12 +17,13 @@ import { AutoFx, hardwareDesktop } from "../present/auto-fx.ts";
 import { PHONE_LEVEL } from "../present/car-detail.ts";
 import { DetailGovernor } from "../present/detail-governor.ts";
 import { sortByDrawClass } from "../present/draw-order.ts";
-import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio, bounceGround } from "../present/engine-fx.ts";
+import { DebrisSystem, SparkSystem, GlassDotSystem, TireSmokeSystem, CrashAudio } from "../present/engine-fx.ts";
 import { FX_REACH } from "../present/witness.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { throwComing } from "../present/ragdoll-trigger.ts";
 import { ChaseCamera, centroid, type SpecScene } from "../present/engine-camera.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
+import { armTops } from "../world/surfaces.ts";
 import { CompactorPress, JerseyBarrier } from "../scenes/engine-props.ts";
 import { FleetRamps } from "../scenes/fleet-ramps.ts";
 import { Corkscrew } from "../scenes/corkscrew.ts";
@@ -436,10 +437,13 @@ export class CrashEngine extends EngineGarage {
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
       if (this.barrierUp) this.barrier.step(simDt);
       const fxDt = Math.max(simDt, wallDt * 0.6);
+      // The bits land on the ground and the cars' tops of the world this frame stepped, the replay's while a clip plays (`landOn`).
+      armTops(this.highlights.surfaces ?? this.world.surfaces);
       this.debris.update(fxDt, this.bounceWorld);
-      this.sparks.update(fxDt, bounceGround);
-      this.glassDots.update(fxDt, bounceGround);
-      this.smoke.update(fxDt, bounceGround, this.camera);
+      this.sparks.update(fxDt, this.bounceWorld);
+      this.glassDots.update(fxDt, this.bounceWorld);
+      armTops(null);
+      this.smoke.update(fxDt, this.camera);
       const sandbox = !this.race.active && !this.derbyMode;
       // Who the drivers look like: the clip on screen's race, else this race's, this derby round's, or this run's scene seed.
       this.ragdolls.lookSeed = this.highlights.look ?? (this.race.active ? this.race.look : this.derbyMode ? this.derbyRound : this.sceneSeed);

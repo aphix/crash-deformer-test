@@ -381,9 +381,6 @@ export class CrashCam {
   }
 }
 
-/** Tyre smoke rises free; it never bounces. */
-const NO_BOUNCE = (): void => {};
-
 type FxRefs = { sparks: SparkSystem; glass: GlassDotSystem; witness: Witness };
 
 /**
@@ -498,7 +495,7 @@ export class Cinematics {
     if (simDt > 1e-5) this.detectHits(cars, followed, driving, wallDt);
     this.marks.update(cars, simDt);
     if (this.marks.slipping) this.emitSlipFx(cars.length, wallDt, fxDensity);
-    this.tyreSmoke.update(Math.max(simDt, wallDt * 0.6), NO_BOUNCE, this.view.camera);
+    this.tyreSmoke.update(Math.max(simDt, wallDt * 0.6), this.view.camera);
 
     this.flash = Math.max(0, this.flash - wallDt * 4);
     this.punch = Math.max(0, this.punch - wallDt * 2.2);

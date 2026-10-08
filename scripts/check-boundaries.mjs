@@ -55,7 +55,7 @@ const HOT = {
   "src/game/vehicle/car.ts": ["syncPose", "stepBreakage", "updateSkin"],
   "src/game/vehicle/car-core.ts": ["hulls", "crushHulls"],
   "src/game/vehicle/car-parts.ts": ["syncAttachedParts", "advanceFlap", "poseParts", "followGlass", "glassLeft", "evaluateBreakage", "stepLooseParts", "freeObjects"],
-  "src/game/vehicle/loose-step.ts": ["stepLoose"],
+  "src/game/vehicle/loose-step.ts": ["stepLoose", "landOn"],
   "src/game/vehicle/loose-dent.ts": ["recordDent", "applyDents", "carve"],
   "src/game/deform/streamed-deform.ts": ["pullSensorsFromMasses", "bakeLocalSkin", "solveCages", "capCageCorners", "fitCagesToMasses"],
   "src/game/deform/deform-state.ts": ["stepCrush", "update", "flushSkin", "liveHulls", "liveCrushHulls"],

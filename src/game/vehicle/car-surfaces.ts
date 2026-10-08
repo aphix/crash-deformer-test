@@ -242,8 +242,12 @@ export class CarSurfaces extends Surface {
    * contacts lifted it back 0.4 mm a slice (1.9 mm a slice at the top): 28-34 kJ of lift every 0.5 s, and the column fell at 13-17 s.
    */
   private borne = new Float64Array(0);
-  /** The slot whose roofs within reach `always` lists (`reach`). */
+  /** The slot whose roofs within reach `carList` lists (`reach`), `carCount` of them. */
   private nearOf = -1;
+  private carList = new Int32Array(0);
+  private carCount = 0;
+  /** The roofs within reach of a free body's point (a loose part, an FX bit: `near`). */
+  private freeList = new Int32Array(0);
 
   /** A car's slice starts: nothing of any face is spent, yielded or pressed yet, and a query is asked of the roofs within reach of its plan. */
   begin(car: DeformableCar): void {
@@ -262,28 +266,47 @@ export class CarSurfaces extends Surface {
     this.grew.fill(0);
     this.react.fill(0);
     this.touched.fill(0);
-    this.reach(car);
+    this.nearOf = -1;
+    this.near(car.slot, car.group.position.x, car.group.position.z);
   }
 
-  /** A query asked by car `skip` tests the roofs within reach of that car's plan, whoever's slice is under way: a wreck's masses read the ground under their hubs at the end of the slice. */
-  override near(skip: number): void {
-    if (skip !== this.nearOf && skip >= 0 && skip < this.cars.length) this.reach(this.cars[skip]!);
-  }
-
-  /** `always`: the roofs that may meet `car`'s points, while the two plans are within 2·REACH (a hull point sits up to REACH from its car's origin). */
-  private reach(car: DeformableCar): void {
+  /**
+   * A query at plan (`x`, `z`) asked by car `skip` tests the roofs within reach of that car's plan, whoever's slice is under way: a wreck's
+   * masses read the ground under their hubs at the end of the slice. A point farther than REACH from car `skip` (a part off it, an FX bit:
+   * -1) is a free body's: the roofs within reach of the point, car `skip`'s left out, in a list of their own.
+   */
+  override near(skip: number, x: number, z: number): void {
     const m = this.cars.length;
-    if (this.always.length < m) this.always = new Int32Array(m);
-    const p = car.group.position;
+    if (this.carList.length < m) {
+      this.carList = new Int32Array(m);
+      this.freeList = new Int32Array(m);
+      this.nearOf = -1;
+    }
+    const p = skip >= 0 && skip < m ? this.cars[skip]!.group.position : null;
+    if (p !== null && Math.abs(p.x - x) < REACH && Math.abs(p.z - z) < REACH) {
+      if (skip !== this.nearOf) {
+        this.carCount = this.reach(p.x, p.z, skip, this.carList);
+        this.nearOf = skip;
+      }
+      this.always = this.carList;
+      this.nAlways = this.carCount;
+      return;
+    }
+    this.always = this.freeList;
+    this.nAlways = this.reach(x, z, skip, this.freeList);
+  }
+
+  /** Into `list`: the roofs but car `skip`'s that may meet a point within REACH of plan (`x`, `z`), while their plans are within 2·REACH (a hull point sits up to REACH from its car's origin); returns their count. */
+  private reach(x: number, z: number, skip: number, list: Int32Array): number {
+    const m = this.cars.length;
     const r = 2 * REACH + NEAR_SLACK;
     let k = 0;
     for (let i = 0; i < m && i < this.count; i++) {
       const o = this.cars[i]!;
-      if (i === car.slot || o.falling || o.vaporized) continue;
-      if (Math.abs(o.group.position.x - p.x) < r && Math.abs(o.group.position.z - p.z) < r) this.always[k++] = i;
+      if (i === skip || o.falling || o.vaporized) continue;
+      if (Math.abs(o.group.position.x - x) < r && Math.abs(o.group.position.z - z) < r) list[k++] = i;
     }
-    this.nAlways = k;
-    this.nearOf = car.slot;
+    return k;
   }
 
   /** The face slot a contact presses: car `own`'s top where the point (hit factor `follow`) follows its crush, else the stepping car's face under normal `nrm` (body points only; -1: rigid). */

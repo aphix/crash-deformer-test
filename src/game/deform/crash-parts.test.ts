@@ -10,7 +10,12 @@ import { DT, dummyGeom, forModes, mass, paint } from "../vehicle/test-support.ts
 import { makeCar, makeWorld, runPair, runWall, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { sliceSpeed } from "../contact/sat.ts";
 import { fleetStyle } from "../scenes/fleet.ts";
-import { bounceGround, bounceOffCar, DebrisSystem } from "../present/engine-fx.ts";
+import { DebrisSystem } from "../present/engine-fx.ts";
+import { bounceRigs } from "../engine/world-step.ts";
+import type { WorldBounce } from "../vehicle/car-core.ts";
+
+/** The engine's `bounceWorld` in a scene with no rigs up (no compactor plates, no jersey slab), as `CrashEngine` hands it to the FX. */
+const sceneBounce: WorldBounce = (pos, vel, r) => bounceRigs(pos, vel, r, NaN, null);
 
 type PartRow = { name: string; hingeT: number; detached: boolean };
 
@@ -660,7 +665,7 @@ describe("given a debris piece sliding along the ground at 6 m/s", () => {
       debris["vy"][0] = 0;
       debris["vz"][0] = 0;
       debris["life"][0] = 10;
-      for (let i = 0; i < hz * 0.5; i++) debris.update(1 / hz, bounceGround);
+      for (let i = 0; i < hz * 0.5; i++) debris.update(1 / hz, sceneBounce);
       return debris.snapshot().items[0]!.x;
     };
     const x60 = slide(60);
@@ -673,7 +678,7 @@ describe("given a debris system with room for 16 pieces, after a burst of 10 pie
   it("when a second burst of 3 pieces is fired, then 13 pieces are live and the first burst's 10 pieces stay where they flew instead of being cut or teleported", () => {
     const debris = new DebrisSystem(new THREE.Scene(), 16);
     debris.burst(new THREE.Vector3(5, 0, 0), new THREE.Vector3(0, 0, -1), 10);
-    debris.update(0.1, bounceGround);
+    debris.update(0.1, sceneBounce);
     debris.burst(new THREE.Vector3(-5, 0, 0), new THREE.Vector3(0, 0, -1), 3);
     const items = debris.snapshot().items;
     assert.equal(items.length, 13, "live pieces after a 10 then a 3 burst");
@@ -686,7 +691,7 @@ describe("given a debris system of 8 pieces whose first piece is nearly spent", 
     const debris = new DebrisSystem(new THREE.Scene(), 8);
     debris.burst(new THREE.Vector3(), new THREE.Vector3(0, 0, -1), 8);
     debris["life"][0] = 0.05;
-    for (let i = 0; i < 6; i++) debris.update(1 / 60, bounceGround);
+    for (let i = 0; i < 6; i++) debris.update(1 / 60, sceneBounce);
     const m = new THREE.Matrix4();
     const col = new THREE.Vector3();
     const qs = [0, 1, 2].map(() => new THREE.Quaternion());
@@ -699,18 +704,6 @@ describe("given a debris system of 8 pieces whose first piece is nearly spent", 
     assert.equal(scales[0], 0, "spent piece 0 is still drawn");
     assert.ok(new Set(scales.slice(1).map((x) => x.toFixed(4))).size > 1, `every live piece has scale ${scales[1]}`);
     assert.ok(qs[1]!.angleTo(qs[2]!) > 0.01, "pieces 1 and 2 share one rotation");
-  });
-});
-
-describe("given a car moving sideways at 8 m/s with debris touching its leading flank", () => {
-  it("when the flank sweeps the debris, then the debris leaves moving sideways faster than 8 m/s instead of being left inside the car", () => {
-    const car = new DeformableCar(paint(), new THREE.Scene());
-    car.spawnFacing(0, 0, 0, 0);
-    car.velocity.set(8, 0, 0);
-    const pos = new THREE.Vector3(0.85, 0.6, 0);
-    const vel = new THREE.Vector3();
-    bounceOffCar(car, pos, vel, 0.03);
-    assert.ok(vel.x > 8, `debris vx ${vel.x.toFixed(2)} after the 8 m/s flank swept it`);
   });
 });
 

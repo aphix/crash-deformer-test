@@ -1,7 +1,7 @@
 import { NO_FLOOR } from "../world/ground.ts";
 import { GROUND_SKIN, HUB_FLOOR } from "./deform-state.ts";
 import type { MassNode } from "./deform-rig.ts";
-import { CRASH, hypot2 } from "./physics-util.ts";
+import { CRASH, FRICTION_G, hypot2 } from "./physics-util.ts";
 import { MIN_INERTIA } from "./constants.ts";
 
 /**
@@ -38,7 +38,7 @@ export function resistYaw(masses: readonly MassNode[], floor: Float64Array, grip
     if (q.hub && floor[i] !== NO_FLOOR && q.world.y <= floor[i]! + HUB_FLOOR + GROUND_SKIN) n++;
   }
   if (n === 0 || inertia < MIN_INERTIA || Math.abs(l) < 1e-9) return;
-  const share = (m * 9.81) / n;
+  const share = (m * FRICTION_G) / n;
   let torque = 0;
   for (let i = 0; i < masses.length; i++) {
     const q = masses[i]!;

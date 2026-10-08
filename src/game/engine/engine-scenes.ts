@@ -1,8 +1,7 @@
 import * as THREE from "three";
 import { beginFakeFall, DeformableCar } from "../vehicle/car.ts";
 import { BOOST } from "../vehicle/car-drive.ts";
-import { separateSphereFromAabb } from "../deform/physics-util.ts";
-import { COMPACTOR, PLATE as COMPACTOR_PLATE } from "../scenes/compactor.ts";
+import { COMPACTOR } from "../scenes/compactor.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
 import { PISTON_ORBIT_RATE, pistonBearing } from "../present/engine-pistons.ts";
 import { VAPOR_DEPTH, edgeAction, layoutFleet, layoutDerby, respawnSlot } from "../scenes/fleet.ts";
@@ -16,8 +15,8 @@ import { pickedLook } from "../present/driver-look.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import { CORKSCREW } from "../scenes/corkscrew.ts";
 import { stackShot } from "../scenes/stack-rig.ts";
-import { bounceGround, bounceOffCar } from "../present/engine-fx.ts";
-import { activeGround, DISC_GROUND, NO_FLOOR, setGround } from "../world/ground.ts";
+import { bounceRigs } from "./world-step.ts";
+import { activeGround, DISC_GROUND, setGround } from "../world/ground.ts";
 import { type ContactHit, resolveLampPoles, resolveRampBalls, scatterRampBalls } from "../scenes/engine-props.ts";
 import { clipDerbyCar, DERBY_RADIUS, derbyRadius } from "../scenes/derby-arena.ts";
 import type { RaceCommand } from "../match/types.ts";
@@ -789,17 +788,9 @@ export abstract class EngineScenes extends EngineDerby {
     this.emitHud();
   }
 
+  /** The scene's rigs as they stand at each call (`bounceRigs`): the compactor's plates in the press scene, the jersey slab while it is up. */
   protected bounceWorld = (pos: THREE.Vector3, vel: THREE.Vector3, r: number): void => {
-    // Loose parts and FX past the fleet disc's rim fall on: no ground there.
-    if (activeGround().heightAt(pos.x, pos.z, pos.y) !== NO_FLOOR) bounceGround(pos, vel, r);
-    const cars = this.live();
-    for (let i = 0; i < cars.length; i++) if (!cars[i]!.vaporized) bounceOffCar(cars[i]!, pos, vel, r);
-    if (this.showCompactor) {
-      const z = this.compactor.face + COMPACTOR_PLATE.hz;
-      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
-      separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, -z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
-    }
-    if (this.barrierUp) this.barrier.bounce(pos, vel, r);
+    bounceRigs(pos, vel, r, this.showCompactor ? this.compactor.face : NaN, this.barrierUp ? this.barrier : null);
   };
 
 }

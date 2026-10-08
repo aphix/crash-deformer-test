@@ -2,14 +2,28 @@ import * as THREE from "three";
 import { bleedAfterSlide, DeformableCar } from "../vehicle/car.ts";
 import type { WorldBounce } from "../vehicle/car-core.ts";
 import { StrongestContact, type ContactHit, type JerseyBarrier } from "../scenes/engine-props.ts";
+import { PLATE as COMPACTOR_PLATE } from "../scenes/compactor.ts";
 import { partContactPair } from "../contact/external-contact.ts";
 import { markApproaches, resolveCarPair } from "../contact/pair-contact.ts";
 import { shareHeight } from "../contact/sat.ts";
-import { leftoverCrumple } from "../deform/physics-util.ts";
+import { leftoverCrumple, separateSphereFromAabb } from "../deform/physics-util.ts";
 import type { EjectionWatch } from "../vehicle/ejection.ts";
 import { contactHz } from "../vehicle/car-air.ts";
 import { CarSurfaces } from "../vehicle/car-surfaces.ts";
 import { armTops } from "../world/surfaces.ts";
+
+/**
+ * The scene's rigs a loose part or an FX bit bounces off (`World.bounce`): the compactor's plates with their faces `face` m either
+ * side of z = 0 (NaN: no compactor) and the jersey slab. The ground and the cars' tops they meet as a tyre does (`landOn`).
+ */
+export function bounceRigs(pos: THREE.Vector3, vel: THREE.Vector3, r: number, face: number, barrier: JerseyBarrier | null): void {
+  if (!Number.isNaN(face)) {
+    const z = face + COMPACTOR_PLATE.hz;
+    separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
+    separateSphereFromAabb(pos, vel, r, 0, COMPACTOR_PLATE.y, -z, COMPACTOR_PLATE.hx, COMPACTOR_PLATE.hy, COMPACTOR_PLATE.hz);
+  }
+  barrier?.bounce(pos, vel, r);
+}
 
 /**
  * Everything one physics step touches besides the cars. The engine fills it per scene; a headless harness
@@ -22,7 +36,7 @@ export type World = {
   barrier: JerseyBarrier | null;
   /** Per car index, set when the slab took a hit from it. */
   barrierHits: boolean[];
-  /** Loose parts bounce off the ground, cars and props (`afterContacts`). */
+  /** Loose parts bounce off the scene's rigs (`bounceRigs`; `afterContacts`). */
   bounce: WorldBounce | undefined;
   /** Cleared each step, then offered every hit: the strongest one is the step's impact. */
   readonly strongest: StrongestContact;

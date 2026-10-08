@@ -78,7 +78,8 @@ const PANEL_TEAR = 0.8;
 const PANEL_TEAR_MPS = 50 / 3.6;
 /** A panel's shell stands from this hinge value. */
 const PANEL_OPEN = 0.03;
-/** A torn sheet rests this high (m, its centre) and at most this many of a car's torn shells are drawn: the oldest vanish (each is a draw). */
+/** A torn part rests this high (m, its origin) over what it lies on; a torn sheet this high (its centre). At most `LIVE_SHELLS` of a car's torn shells are drawn: the oldest vanish (each is a draw). */
+const PART_FLOOR = 0.12;
 const PANEL_FLOOR = 0.03;
 const LIVE_SHELLS = 2;
 /** The light bar's tilt on its far mount at full load (rad). */
@@ -719,16 +720,17 @@ export abstract class CarParts extends CarGlass {
     setPrimer(p.region!, this.body.geometry, false);
   }
 
-  protected stepLooseParts(dt: number, bounce?: WorldBounce): void {
+  /** This car's torn parts and popped wheels (`stepLoose`): they land on the ground and the other cars' tops, never this car's (`slot`). */
+  protected stepLooseParts(dt: number, slot: number, bounce?: WorldBounce): void {
     for (let k = 0; k < this.parts.length; k++) {
       const p = this.parts[k]!;
       // A torn shell past `LIVE_SHELLS` is hidden for good (until the reset): nothing to see, nothing to move.
       if (!p.detached || !p.object.visible) continue;
-      const clearance = stepLoose(p, dt, p.region ? PANEL_FLOOR : 0.12, bounce, p.dent);
+      const clearance = stepLoose(p, dt, p.region ? PANEL_FLOOR : PART_FLOOR, slot, bounce, p.dent);
       if (p.region && clearance < 0.3) layFlat(p.object, dt);
       applyDents(p.dent, p.object);
     }
-    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, bounce);
+    for (let k = 0; k < this.looseWheels.length; k++) if (this.looseWheels[k]!.loose) stepLoose(this.looseWheels[k]!, dt, TYRE_R, slot, bounce);
   }
 
   /** Into `out` from index `n` on: the objects this car has put in the world instead of on its group, torn parts and popped wheels (`stepLooseParts` moves them). Returns the count past the last one written. */
@@ -747,8 +749,6 @@ export abstract class CarParts extends CarGlass {
     this.group.remove(w.object);
     this.world.add(w.object);
     w.object.position.copy(this.deform.massWorld(hub));
-    const gy = activeGround().heightAt(w.object.position.x, w.object.position.z, w.object.position.y);
-    if (gy !== NO_FLOOR) w.object.position.y = Math.max(gy + TYRE_R, w.object.position.y);
     w.object.quaternion.copy(_lampQ);
     _p.copy(w.object.position).sub(this.group.position).setY(0);
     if (_p.lengthSq() > 1e-6) _p.normalize();
