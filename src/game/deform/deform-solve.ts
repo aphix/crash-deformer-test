@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { activeGround, NO_FLOOR, type Ground } from "../world/ground.ts";
-import { C_GRIP, C_H, HIT_SIZE, heightGrip, heightIn, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "../world/surfaces.ts";
+import { C_GRIP, C_H, HIT_SIZE, heightGrip, heightIn, PQ_SIZE, PQ_X, PQ_Y, PQ_Z, staticTop } from "../world/surfaces.ts";
 import {
   leftoverCrumple,
   applyGroundFriction,
@@ -668,7 +668,9 @@ export abstract class DeformSolve extends DeformContact {
    *  along its rolling plane (the heading), each lowered by the tyre's arc there. Read under its centre alone, a wreck's
    *  hub 2 cm short of a wedge's high end, its tyre in the end's face, read the gap's floor 1.2 m down: the band's top
    *  over the hubs held the frame 0.25 m under its cell, and the anchor's read stepping onto the wedge snapped it there
-   *  in one slice (19.7 m/s). The grip is read once, at the read that wins: the centre's, taken last, or a side's again. */
+   *  in one slice (19.7 m/s). The fore and aft points are read only where the highest the ground stands within
+   *  `TREAD_FORE` of the hub (`staticTop`), lowered by `TREAD_DROP`, is above the centre's read: elsewhere neither can
+   *  win. The grip is read once, at the read that wins: the centre's, or a side's again. */
   protected sampleGround(floor: Float64Array, grip: Float64Array | null): void {
     const ground = activeGround();
     const withGrip = grip !== null;
@@ -678,30 +680,28 @@ export abstract class DeformSolve extends DeformContact {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       const w = m.world;
-      _pq[PQ_Y] = w.y;
-      let aft = NO_FLOOR;
-      let fore = NO_FLOOR;
-      if (m.hub && !m.popped) {
-        _pq[PQ_X] = w.x - fx;
-        _pq[PQ_Z] = w.z - fz;
-        aft = heightIn(ground, _pq) - TREAD_DROP;
-        _pq[PQ_X] = w.x + fx;
-        _pq[PQ_Z] = w.z + fz;
-        fore = heightIn(ground, _pq) - TREAD_DROP;
-      }
       _pq[PQ_X] = w.x;
       _pq[PQ_Z] = w.z;
+      _pq[PQ_Y] = w.y;
       readGround(ground, withGrip);
       let h = _read[READ_H]!;
       // The highest of the three; on a tie the centre's, then the aft one's.
       let side = 0;
-      if (aft > h) {
-        h = aft;
-        side = -1;
-      }
-      if (fore > h) {
-        h = fore;
-        side = 1;
+      if (m.hub && !m.popped && staticTop(ground, w.x - TREAD_FORE, w.x + TREAD_FORE, w.z - TREAD_FORE, w.z + TREAD_FORE) - TREAD_DROP > h) {
+        _pq[PQ_X] = w.x - fx;
+        _pq[PQ_Z] = w.z - fz;
+        const aft = heightIn(ground, _pq) - TREAD_DROP;
+        _pq[PQ_X] = w.x + fx;
+        _pq[PQ_Z] = w.z + fz;
+        const fore = heightIn(ground, _pq) - TREAD_DROP;
+        if (aft > h) {
+          h = aft;
+          side = -1;
+        }
+        if (fore > h) {
+          h = fore;
+          side = 1;
+        }
       }
       floor[i] = h;
       if (!withGrip || h === NO_FLOOR) continue;
