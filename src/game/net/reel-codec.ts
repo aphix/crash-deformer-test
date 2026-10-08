@@ -72,10 +72,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * dummy's and a knocked prop's motion in a replayed clip changes; 45: race walls and solid props are one solid shaped from
  * the drawn pieces, and an open door meets them (shut or torn), so a replayed clip near a wall or prop moves differently;
  * 46: Razor Shelf's inside cut opens on cobble and carries marker cones and a CRUSH sign, so a run through it replays on
- * different ground and props).
+ * different ground and props; 47: a race AI car that needs more than full lock to regain its line slows to its class's
+ * corner speed and drops boost, so AI cars in a replayed race drive differently).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 46;
+const REPLAY_VERSION = 47;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
