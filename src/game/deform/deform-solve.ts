@@ -703,15 +703,19 @@ export abstract class DeformSolve extends DeformContact {
 
   /**
    * The wheels' contact on a wreck's masses: each one's is its hub's (`sampleGround`'s last read under its tyre, the
-   * `floorPost` and `gripPost` a keyframe restores). Into `hit` (`HIT_SIZE` doubles per wheel, `WHEEL_POS` order) the rise
+   * `floorPost` and `gripPost` a keyframe restores; none since the crash armed the masses, `beginCrush`: read now, where they
+   * stand, as `armMasses` reads at arming). Into `hit` (`HIT_SIZE` doubles per wheel, `WHEEL_POS` order) the rise
    * its tyre needs where its hub now stands (`NO_FLOOR` popped or over nothing) and the grip under it; returns the wheels
    * whose hub is on its ground, bit i: within `GROUND_SKIN` of its `HUB_FLOOR`, as `dragGround` slides it.
    */
   hubContact(hit: Float64Array): number {
+    // Unread, a wreck struck on its four wheels read none on the ground: its drive idled a step (a cop wall-struck after its
+    // slice's read, race-finish seed 8), where the intact car it was had them all down.
+    if (!this.floorsFresh) this.sampleGround(this.floorPost, this.gripPost);
     let mask = 0;
     for (let i = 0; i < 4; i++) {
       const m = i === 0 ? this.at.hubFL : i === 1 ? this.at.hubFR : i === 2 ? this.at.hubRL : this.at.hubRR;
-      const f = this.floorsFresh ? this.floorPost[m.index]! : NO_FLOOR;
+      const f = this.floorPost[m.index]!;
       const o = i * HIT_SIZE;
       if (m.popped || f === NO_FLOOR) {
         hit[o + C_H] = NO_FLOOR;

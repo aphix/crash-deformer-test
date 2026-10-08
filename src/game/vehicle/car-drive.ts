@@ -1,4 +1,5 @@
 import type { DeformableCar } from "./car.ts";
+import { wreckContact } from "./car-air.ts";
 import { blankIntent, readIntent, shapeDrive, type DriveFeel } from "./drive-input.ts";
 import type { PadState } from "./gamepad.ts";
 import { hypot2 } from "../deform/physics-util.ts";
@@ -185,6 +186,9 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const throttle = pedal(input.throttle, -1, THROTTLE_STEPS);
   const command = pedal(input.steer, -1, THROTTLE_STEPS);
   const brake = pedal(input.brake, 0, BRAKE_STEPS);
+  // A wreck on its masses touches what its hubs do now (`wreckContact`), not what it touched when it was armed between two
+  // slices (a hit after the slice's own read, or a car wrecked before the step): a keyframe restores the same, so a replay drives the same.
+  if (car.deform.massActive) wreckContact(car);
   // No wheel within its springs' reach of a surface (flight, a belly on a roof): the car keeps its ballistic velocity and spin.
   const alive = car.deform.drivetrainAlive;
   car.airThrottle = alive && car.airborne ? throttle : 0; // in the air the gas winds the wheels (`spinWheels`)

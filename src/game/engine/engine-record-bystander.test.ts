@@ -2,6 +2,7 @@ import { before, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
+import { bellyY, roofHeight } from "../vehicle/car-surfaces.ts";
 import { applyDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { assignClass, HANDLING } from "../vehicle/vehicle-classes.ts";
 import { fleetClass, fleetStyle } from "../scenes/fleet.ts";
@@ -103,7 +104,7 @@ function record(): Recorded {
     stepWorld(world, H);
     rec.endStep(cars, H, world.shape);
     settleStep(cars, H, false);
-    trace.push(Float64Array.from(cars.flatMap((c) => [c.group.position.x, c.group.position.z])));
+    trace.push(Float64Array.from(cars.flatMap((c) => c.group.position.toArray())));
     t += H;
   }
   rec.end();
@@ -114,6 +115,24 @@ function record(): Recorded {
   return { clip: readClip(new Reader().reset(w.done()), carLayout(cars[0]!)), cars, trace, dress };
 }
 
+/** Each clip car's worst distance (m) from where the world's trace had it, over every step of the clip read back and replayed as a peer does. */
+function replayWorst({ clip, cars, trace, dress }: Recorded): Map<number, number> {
+  // The recorder's clock sums `H` as the record loop did, so the clip's first step is the trace step at `t0`.
+  const s0 = Math.round(clip.t0 / H);
+  const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, bounce: undefined });
+  sim.restart();
+  const worst = new Map<number, number>();
+  while (!sim.done) {
+    sim.advanceTo(sim.time + 1e-6);
+    const row = trace[s0 + sim.step - 1]!;
+    for (const { slot } of clip.cars) {
+      const p = cars[slot]!.group.position;
+      worst.set(slot, Math.max(worst.get(slot) ?? 0, Math.hypot(p.x - row[slot * 3]!, p.y - row[slot * 3 + 1]!, p.z - row[slot * 3 + 2]!)));
+    }
+  }
+  return worst;
+}
+
 describe("given a flat-field head-on recorded as a highlight with 19 bystander cars around it (near, far, touching, respawned, wrecked, torn-mirror)", () => {
   let run: Recorded;
   before(() => {
@@ -121,7 +140,7 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
   });
 
   it("when the clip is read back and replayed, then cars near the hit (and one a bystander touched, and one respawned after the hit) are in the clip and match the sim at every step, and a car 300 m away is not in it", (t) => {
-    const { clip, cars, trace, dress } = run;
+    const { clip } = run;
     const slots = clip.cars.map((c) => c.slot);
     t.diagnostic(`clip cars: ${slots.join(",")} (${(clipBytes(clip) / 1024).toFixed(0)} KB)`);
     assert.ok(slots.includes(A) && slots.includes(B), "the head-on pair is in the clip");
@@ -134,18 +153,7 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
     assert.ok(Math.abs(s0 * H - clip.t0) < 1e-9, "the clip starts on a step of the trace");
     const jump = clip.keyStep.indexOf(JUMP_STEP - s0);
     assert.ok(jump > 0 && ((clip.keyCars[jump]! >>> slots.indexOf(JUMPER)) & 1) === 1 && clip.keyCars[jump] === 1 << slots.indexOf(JUMPER), "the respawn has a keyframe of its own, with the respawned car alone");
-    // Replay it as a peer does, and compare each car with the world's trace at every step: the same sim, so the same numbers.
-    const sim = new ClipSim(clip, clip.cars.map((c) => cars[c.slot]!), { dress, collide: () => {}, bounce: undefined });
-    sim.restart();
-    const worst = new Map<number, number>();
-    while (!sim.done) {
-      sim.advanceTo(sim.time + 1e-6);
-      const row = trace[s0 + sim.step - 1]!;
-      for (const { slot } of clip.cars) {
-        const p = cars[slot]!.group.position;
-        worst.set(slot, Math.max(worst.get(slot) ?? 0, Math.hypot(p.x - row[slot * 2]!, p.z - row[slot * 2 + 1]!)));
-      }
-    }
+    const worst = replayWorst(run);
     t.diagnostic([...worst].map(([slot, d]) => `car ${slot}: ${d} m off`).join("\n"));
     assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
   });
@@ -185,5 +193,72 @@ describe("given a flat-field head-on recorded as a highlight with 19 bystander c
     assert.equal(heard.length, 0, "no prop is knocked in the first keyframe");
     while (!sim.done) sim.advanceTo(sim.time + 1e-6);
     assert.equal(JSON.stringify(heard), want, "the replay knocks the prop the step the record did, before it runs");
+  });
+});
+
+/** The stack scene's slots after the head-on pair: a car and, at the higher slot, a car standing on its roof, 300 m from the hit. */
+const UNDER = 2;
+const ON_TOP = 3;
+
+/** The head-on of `record` with only a two-car stack 300 m out; the head-on's `A` grazes the top car once, inside the clip, so it is dragged in. */
+function recordStack(): Recorded {
+  const { dress } = makeWorld();
+  const scene = new THREE.Scene();
+  const cars = Array.from({ length: 4 }, (_, i) => {
+    const car = new DeformableCar({ body: 0x808080, accent: 0, name: `c${i}` }, scene, null, fleetStyle(i));
+    assignClass(car, fleetClass(i));
+    dress(car);
+    return car;
+  });
+  cars[A]!.spawnFacing(0, 0, Math.PI / 2, 15);
+  cars[B]!.spawnFacing(2 * IMPACT_X, 0, -Math.PI / 2, 15);
+  const under = cars[UNDER]!;
+  const top = cars[ON_TOP]!;
+  under.spawnFacing(IMPACT_X, 300, Math.PI / 2, 0);
+  top.spawnFacing(IMPACT_X, 300, Math.PI / 2, 0);
+  // Its belly 2 cm over the drawn roof below: it settles onto that roof in its first slices and stands there.
+  top.group.position.y = under.group.position.y + roofHeight(under) - bellyY(top) + 0.02;
+  // What it touches read off that pose, as a scene that places a car reads it (`layOnGround`), and as a keyframe restore does.
+  top.restoreContact();
+  const rec = new CrashRecorder({ recall: (_i, out) => out.set([-1]), knocks: () => new Uint8Array(16) });
+  rec.begin("flat", HANDLING.realism, false, cars.length, (i) => `c${i}`, 1);
+  const world = newWorld(cars);
+  world.pairHit = (a, b, hit, first) => rec.pairHit(a, b, hit, first);
+  // As the race wires it (`RaceDirector.partTouch`).
+  world.partTouch = (a, b) => rec.touch(a, b);
+  const graze: ContactHit = { impulse: 2, contact: new THREE.Vector3(), normal: new THREE.Vector3(1, 0, 0) };
+  const trace: Float64Array[] = [];
+  const input: DriveInput = { throttle: 1, steer: 0, brake: 0, ebrake: false, boost: false };
+  for (let s = 0; s < STEPS; s++) {
+    rec.startStep(cars);
+    if (s === TOUCH_STEP) rec.pairHit(A, ON_TOP, graze, true);
+    // Every car takes its input each step, as in a race (and as the replay drives every clip car): the pair full throttle, the stack none.
+    for (const [i, car] of cars.entries()) {
+      input.throttle = i === A || i === B ? 1 : 0;
+      applyDrive(car, input, H);
+    }
+    stepWorld(world, H);
+    rec.endStep(cars, H, world.shape);
+    settleStep(cars, H, false);
+    trace.push(Float64Array.from(cars.flatMap((c) => c.group.position.toArray())));
+  }
+  rec.end();
+  assert.ok(rec.ledger.kept.length >= 1, "the head-on crash did not rank as a highlight");
+  const kept = rec.ledger.kept[0]!;
+  const w = new Writer(clipBytes(kept));
+  writeClip(w, kept);
+  return { clip: readClip(new Reader().reset(w.done()), carLayout(cars[0]!)), cars, trace, dress };
+}
+
+describe("given a flat-field head-on recorded as a highlight while 300 m away a car stands parked on another car's roof, and a car of the head-on grazes the top car", () => {
+  it("when the clip is read back and replayed, then the car under the top car is in it with the top car, and both are where the sim had them at every step", (t) => {
+    const run = recordStack();
+    const slots = run.clip.cars.map((c) => c.slot);
+    t.diagnostic(`clip cars: ${slots.join(",")}`);
+    assert.ok(slots.includes(ON_TOP), "the grazed top car is in the clip");
+    assert.ok(slots.includes(UNDER), "the car the top car stands on is in the clip, 300 m from the hit");
+    const worst = replayWorst(run);
+    t.diagnostic([...worst].map(([slot, d]) => `car ${slot}: ${d} m off`).join("\n"));
+    assert.deepEqual([...worst.values()].filter((d) => d !== 0), [], "every car of the clip is where the sim had it at every step");
   });
 });

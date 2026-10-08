@@ -30,7 +30,7 @@ export type World = {
   beforeSlice: ((h: number) => boolean) | null;
   /** Each SAT pair hit, before it is offered to `strongest`; `first` on the slice's first pass (cars in physical contact). */
   pairHit: ((a: number, b: number, hit: ContactHit, first: boolean) => void) | null;
-  /** A door, mirror or panel of one car met the other (`partContactPair`), or a mass of one met a mass of the other (`collideWith`): they touched without a SAT hit. */
+  /** A door, mirror or panel of one car met the other (`partContactPair`), a mass of one met a mass of the other (`collideWith`), or one stood on or touched the other's top (`CarSurfaces.met`): they touched without a SAT hit. */
   partTouch: ((a: number, b: number) => void) | null;
   /** Ramp balls against one car: its hit, if any. */
   ballHit: ((car: DeformableCar) => ContactHit | null) | null;
@@ -169,6 +169,7 @@ export function stepWorld(w: World, dt: number): void {
   for (let i = 0; i < slices; i++) {
     if (w.beforeSlice?.(h)) continue;
     w.surfaces.cars = cars;
+    w.surfaces.met = w.partTouch;
     for (let ci = 0; ci < n; ci++) {
       const car = cars[ci]!;
       car.deform.beginSlice(h);

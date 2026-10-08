@@ -222,6 +222,8 @@ const _axes = new Float64Array(9);
 export class CarSurfaces extends Surface {
   /** The world's cars (replaced per step by `stepWorld`); car `i`'s roof is patch `i`. */
   cars: readonly DeformableCar[] = [];
+  /** Called at each slice's end with the stepping car's slot and each car whose top it pressed or touched (`stepWorld` sets `World.partTouch`). */
+  met: ((a: number, b: number) => void) | null = null;
   /** The car being stepped: its own top is never its ground. */
   private self: DeformableCar | null = null;
   /** What each slot's surface shows: its style's shared top (`topGrid`) or its own pressed one (`cuts`). */
@@ -386,6 +388,8 @@ export class CarSurfaces extends Surface {
       if (f === FACE_TOP && car !== self && d.crush[f]! > before) imprint(self, car);
       d.bakeLoadCrush();
     }
+    // Every car the stepping car presses or touches this slice met it: a highlight clip that keeps one keeps the other (`World.partTouch`).
+    if (this.met) for (let i = 0; i < this.cars.length; i++) if (this.react[i] !== 0 || this.touched[i] !== 0) this.met(self.slot, i);
     let top = 0;
     self.restsOn = null;
     for (let i = 0; i < this.cars.length; i++) {

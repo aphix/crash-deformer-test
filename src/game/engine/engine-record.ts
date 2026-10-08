@@ -346,13 +346,15 @@ export class CrashRecorder {
   }
 
   /**
-   * `World.partTouch`: a door, mirror or panel of one car met the other, or their masses overlapped, with no SAT contact
+   * `World.partTouch`: a door, mirror or panel of one car met the other, their masses overlapped, or one stood on or touched the other's top, with no SAT contact
    * (a sideswipe, a wreck's parts pressed on a car). It is no impact, but the struck car's parts tear and the striker
    * slows, so a clip that left the striker out replays the struck car differently (a passing car 1.8 m off two wedged
-   * wrecks left them 61 cm out at the first impact; seed 25 of engine-replay.test.ts: a car left out of the clip pressed its masses on a clip car's, 1.4 m off by the impact).
+   * wrecks left them 61 cm out at the first impact; seed 25 of engine-replay.test.ts: a car left out of the clip pressed its masses on a clip car's, 1.4 m off by the impact;
+   * seed 1: a clip car came to rest on a wreck's top the clip left out, 9 mm off).
    */
   touch(a: number, b: number): void {
-    if (this.on && a < this.pre.count && b < this.pre.count) this.touchAt[a * MAX_CARS + b] = this.time;
+    // Keyed as `touched` reads it, lower slot first: a car on another's top reports its own slot first, whichever is lower.
+    if (this.on && a >= 0 && a < this.pre.count && b < this.pre.count && a !== b) this.touchAt[a < b ? a * MAX_CARS + b : b * MAX_CARS + a] = this.time;
   }
 
   /** A wall or prop touched car `i`, closing at `closing` m/s at (x, z). */
