@@ -35,7 +35,8 @@ import { NetPlay } from "../net/net-play.ts";
 import { RaceDirector } from "./engine-race.ts";
 import { ReelDirector } from "./engine-highlights.ts";
 import { TrackArt } from "../present/track-art.ts";
-import { EngineShare } from "./engine-share.ts";
+import { EngineGarage } from "./engine-garage.ts";
+import { GARAGE } from "../present/garage-art.ts";
 
 const FIXED = 1 / 60;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
@@ -82,7 +83,7 @@ function makeRenderer(canvas: HTMLCanvasElement): THREE.WebGLRenderer {
   return renderer;
 }
 
-export class CrashEngine extends EngineShare {
+export class CrashEngine extends EngineGarage {
   /** Resolves when `warmPrograms` is done (a failure is logged): the loop simulates and draws only after it, so play never links a program. */
   readonly ready: Promise<void>;
   /** Netplay (docs/MULTIPLAYER.md): a client draws host snapshots instead of simulating. */
@@ -135,6 +136,9 @@ export class CrashEngine extends EngineShare {
     reelPlaying: () => this.highlights.playing,
     launchEjection: (e) => this.ragdolls.launch(e, this.live()),
     meterOf: (i) => this.meterOf(i),
+    playerLook: () => this.playerLook(),
+    wearLook: (i, look) => this.wearLook(i, look),
+    dropLooks: () => this.dropLooks(),
     seat: this.seat,
   });
   /** The results reel and its solo view (docs/HIGHLIGHTS.md). */
@@ -205,6 +209,7 @@ export class CrashEngine extends EngineShare {
     this.smoke = new TireSmokeSystem(this.scene);
     this.ragdolls = new RagdollSystem(this.scene, (i) => this.onThrow(i), (at, frame, inherit) => this.onExit(at, frame, inherit));
     this.ragdolls.poles = this.poles;
+    this.ragdolls.lookOf = (car) => this.looks.of(car, this.ownCar());
     this.lab.dolls = this.ragdolls;
     this.cine = new Cinematics(this.renderer, this.scene, this.view, { sparks: this.sparks, glass: this.glassDots, witness: this.witness }, MAX_CARS, this.clock.reduceMotion);
     // `?fx=off|minimal|low|high|ultra` picks the tier for the session (bench A/B); the auto tier otherwise. Ultra loads after boot (below).
@@ -332,6 +337,8 @@ export class CrashEngine extends EngineShare {
     for (const car of this.cars) car.dispose();
     this.race.dispose();
     this.labArt?.dispose();
+    this.garage?.dispose();
+    this.looks.dispose();
     this.wheels.mesh.geometry.dispose();
     this.wheels.mesh.dispose();
     this.lampBatch.dispose();
@@ -676,7 +683,7 @@ export class CrashEngine extends EngineShare {
     // fleet's, after any ride-along with thrown drivers. The Lab never loops: the wreckage stays until the player resets.
     const still = this.showRange ? this.ragdolls.latest(_v) : -1;
     const shown = this.showRange && this.rangeRun.step(still >= 0, this.ragdolls.latestSettled, _v.x, wallDt);
-    if (this.looping && !this.showLab && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
+    if (this.looping && !this.showLab && !this.showGarage && (shown || (still < 0 && settled && !this.ragdolls.rideAlong && !this.showPistons && this.clock.wallSinceImpact > (this.showCompactor ? 14 : 10.4)))) this.randomizeAndReset();
   }
 
   /** `aimRigs`'s derby centroid set, refilled per frame. */
@@ -770,14 +777,16 @@ export class CrashEngine extends EngineShare {
       // A phone turned on its side (or back) gets that shape's shot, unless the user framed one.
       if (this.camera.aspect < 1 !== this.labUpright && !this.view.userFramed) this.frameLab();
       look.copy(this.labLook);
+    } else if (this.showGarage) {
+      look.set(GARAGE.shot.lookX, GARAGE.shot.lookY, GARAGE.shot.lookZ);
     } else {
       centroid(_v, this.live());
       look.set(_v.x, 0.7, _v.z);
     }
 
-    // The Lab holds still for the aim: a turning view would turn every flick.
+    // The Lab holds still for the aim, and the garage while the can is on: a turning view would turn every flick or stroke.
     let spinRate = 0;
-    if (this.autoRotate && this.playing && this.seat.mode !== "drive" && !this.showLab) {
+    if (this.autoRotate && this.playing && this.seat.mode !== "drive" && !this.showLab && !(this.showGarage && this.garage?.tool.on)) {
       spinRate = this.showPistons ? PISTON_ORBIT_RATE : this.clock.phase === "approach" ? 0.12 : 0.32;
     }
     this.view.orbit(wallDt, spinRate, this.playing);

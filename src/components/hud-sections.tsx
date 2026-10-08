@@ -432,9 +432,32 @@ function DebugSection({ state, engine }: HudProps) {
   );
 }
 
+/** The player's car type, one button per `DRIVER_CARS` entry: the settings' Driving section and the garage. */
+export function CarTypeButtons({ playerCar, engine, className }: { playerCar: string; engine: HudProps["engine"]; className?: string }) {
+  const driver = useDriver();
+  return (
+    <div className={cn(TRACK, className ?? "grid-cols-3")} role="group" aria-label="Your car type">
+      {DRIVER_CARS.map((c) => (
+        <Button
+          key={c.id}
+          className={SEGMENT}
+          variant={playerCar === c.id ? "default" : "ghost"}
+          aria-pressed={playerCar === c.id}
+          onClick={() => {
+            // The user's own pick is the saved one (`useDriver`, which the race setup reads too); the engine follows now, as a link or a reset does without saving.
+            driver.setCar(c.id);
+            engine.current?.setPlayerCar(c.id);
+          }}
+        >
+          {c.label}
+        </Button>
+      ))}
+    </div>
+  );
+}
+
 /** The player's car type (every `DRIVER_CARS` entry) and the one arcade ↔ realistic axis (assists, grip, when damage kills). */
 function DrivingSection({ state, engine }: HudProps) {
-  const driver = useDriver();
   return (
     <>
       <div className="flex items-center gap-2">
@@ -442,23 +465,7 @@ function DrivingSection({ state, engine }: HudProps) {
           Car
           <ChangedDot on={isChanged(state, "car")} />
         </span>
-        <div className={cn(TRACK, "grid-cols-3")} role="group" aria-label="Your car type">
-          {DRIVER_CARS.map((c) => (
-            <Button
-              key={c.id}
-              className={SEGMENT}
-              variant={state.playerCar === c.id ? "default" : "ghost"}
-              aria-pressed={state.playerCar === c.id}
-              onClick={() => {
-                // The user's own pick is the saved one (`useDriver`, which the race setup reads too); the engine follows now, as a link or a reset does without saving.
-                driver.setCar(c.id);
-                engine.current?.setPlayerCar(c.id);
-              }}
-            >
-              {c.label}
-            </Button>
-          ))}
-        </div>
+        <CarTypeButtons playerCar={state.playerCar} engine={engine} />
       </div>
       <RangeRow
         label="Realism"

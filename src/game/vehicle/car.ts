@@ -12,6 +12,7 @@ import { C_GRIP, C_NY, C_OWNER, HIT_SIZE } from "../world/surfaces.ts";
 import { carClass, CLASSES } from "./vehicle-classes.ts";
 import { clearDents } from "./loose-dent.ts";
 import type { CarSurfaces } from "./car-surfaces.ts";
+import { LID } from "./constants.ts";
 
 export { CAR_HALF, DOOR, WHEEL_POS };
 export type { Hull } from "../deform/hulls.ts";
@@ -430,8 +431,8 @@ export class DeformableCar extends CarParts {
     let trunk = true;
     for (const p of this.parts) {
       if (!p.detached) continue;
-      if (p.name === "hood") hood = false;
-      else if (p.name === "trunk") trunk = false;
+      if (p.name === LID.hood) hood = false;
+      else if (p.name === LID.trunk) trunk = false;
     }
     if (hood) this.deform.skinPanel(this.hood.geometry, this.hoodRest, "bonnet", this.hoodOrigin);
     if (trunk) this.deform.skinPanel(this.trunk.geometry, this.trunkRest, "boot", this.trunkOrigin);
@@ -500,6 +501,11 @@ export class DeformableCar extends CarParts {
       p.object.removeFromParent();
     }
     this.group.traverse(free);
+  }
+
+  /** The meshes a player's look recolours (`car-look.ts`): the body (on the body paint), the lids, the door skins and the glass panes. */
+  lookMeshes(): { body: THREE.Mesh; bodyPaint: THREE.MeshPhysicalMaterial; hood: THREE.Mesh; trunk: THREE.Mesh; doors: readonly THREE.Mesh[]; glass: readonly THREE.Mesh[] } {
+    return { body: this.body, bodyPaint: this.bodyMat, hood: this.hood, trunk: this.trunk, doors: [this.doorMeshL, this.doorMeshR], glass: this.glassPanes.map((g) => g.mesh) };
   }
 
   /**
