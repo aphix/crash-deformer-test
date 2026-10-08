@@ -1,3 +1,6 @@
+import { bodyTopY } from "../vehicle/car-mesh.ts";
+import { CAR_STYLES } from "../vehicle/car-variants.ts";
+import { UNDERSIDE } from "../vehicle/car-suspension.ts";
 import { hypot2 } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
@@ -162,14 +165,25 @@ export function labColliders(placed: readonly Placed[]): PropCollider[] {
  */
 const CARDS_X = 10;
 const CARDS_GAP = 0.2;
-/**
- * The top car's pose on the two roofs, at rest on them uncrushed: its underside's keel at the nose (0.032 m over its origin,
- * `UNDERSIDE`) and at the tail (0.161 m) each on a roof's plate (1.344 m), so it lies nose up by atan(0.129 / 4). Placed level
- * at its height over roofs already crushed (1.191 m), the nose started 12 cm inside a roof: lifted out, the car dropped its
- * tail onto the other roof at 0.9 m/s and crushed it 86 mm.
- */
-const ON_ROOF_PITCH = -Math.atan(0.129 / 4);
-const ON_ROOF = 1.344 - 0.161 * Math.cos(ON_ROOF_PITCH) - 2 * Math.sin(ON_ROOF_PITCH);
+/** The nose and tail keel points of a car's underside: car-local z and height over its origin (`UNDERSIDE`). */
+const [, NOSE_KEEL_Z, NOSE_KEEL_H] = UNDERSIDE[0]!;
+const [, TAIL_KEEL_Z, TAIL_KEEL_H] = UNDERSIDE[4]!;
+/** A base car under the top car's weight rides bottomed: its nose keel on the ground, pitched nose-up by the rear tyres at their stops (rad, measured on the lab's cards). */
+const BASE_PITCH = -0.00239;
+const BASE_RIDE = -NOSE_KEEL_H * Math.cos(BASE_PITCH) + NOSE_KEEL_Z * Math.sin(BASE_PITCH);
+
+/** The top car's height and pitch with its two keel ends on the base cars' roofs as drawn (`bodyTopY`), the base cars at `BASE_RIDE`. */
+function onRoofs(): { y: number; pitch: number } {
+  const reach = CAR_HALF.z + CARDS_GAP / 2;
+  const noseLocalZ = NOSE_KEEL_Z - reach;
+  const tailLocalZ = TAIL_KEEL_Z + reach;
+  const noseRoof = BASE_RIDE + bodyTopY(0, noseLocalZ, CAR_STYLES.sedan) - noseLocalZ * Math.sin(BASE_PITCH);
+  const tailRoof = BASE_RIDE + bodyTopY(0, tailLocalZ, CAR_STYLES.sedan) - tailLocalZ * Math.sin(BASE_PITCH);
+  let pitch = 0;
+  for (let i = 0; i < 4; i++) pitch = Math.asin(((NOSE_KEEL_H - TAIL_KEEL_H) * Math.cos(pitch) + tailRoof - noseRoof) / (NOSE_KEEL_Z - TAIL_KEEL_Z));
+  return { y: noseRoof - NOSE_KEEL_H * Math.cos(pitch) + NOSE_KEEL_Z * Math.sin(pitch), pitch };
+}
+const ON_ROOFS = onRoofs();
 
 /** A throw lane's start: a sedan on the bench left of the targets, facing them (+x). */
 const THROWER = pose(-14, 0, 0, Math.PI / 2);
@@ -190,9 +204,9 @@ export const LAB_LAYOUTS: Readonly<Record<LabPresetId, LabLayout>> = {
   ],
   cards: [
     { kind: "car", type: SEDAN, pose: THROWER, hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X - CAR_HALF.z - CARDS_GAP / 2, 0, 0, Math.PI / 2), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X + CAR_HALF.z + CARDS_GAP / 2, 0, 0, Math.PI / 2), hold: "free" },
-    { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOF, 0, Math.PI / 2, ON_ROOF_PITCH), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X - CAR_HALF.z - CARDS_GAP / 2, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X + CAR_HALF.z + CARDS_GAP / 2, BASE_RIDE, 0, Math.PI / 2, BASE_PITCH), hold: "free" },
+    { kind: "car", type: SEDAN, pose: pose(CARDS_X, ON_ROOFS.y, 0, Math.PI / 2, ON_ROOFS.pitch), hold: "free" },
   ],
   glass: [
     { kind: "dummy", pose: pose(0, 1, BOARD.z + CAR_HALF.x + BRACKET_LIP, Math.PI / 2), hold: "free" },

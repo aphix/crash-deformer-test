@@ -25,6 +25,7 @@ describe("given a car at its rest ride on flat ground, held by its tyre springs"
     it(testCase.it, () => {
       const car = makeCar(testCase.cls);
       car.spawnFacing(0, 0, 0, 0);
+      car.parked = true;
       stepSlices(car, PARK_S, testCase.hz);
       assert.ok(Math.abs(car.group.position.y) <= MILLIMETRE, `origin ${(car.group.position.y * 1000).toFixed(2)} mm off its rest ride`);
     });
@@ -69,6 +70,7 @@ describe("given a car let down onto flat ground from above its rest ride", () =>
     it(testCase.it, () => {
       const car = makeCar(testCase.cls);
       car.spawnFacing(0, 0, 0, 0);
+      car.parked = true;
       car.group.position.y = 0.3;
       stepSlices(car, PARK_S, testCase.hz);
       assert.ok(Math.abs(car.group.position.y) <= MILLIMETRE, `origin ${(car.group.position.y * 1000).toFixed(2)} mm off its rest ride`);
@@ -98,6 +100,7 @@ describe("given a car standing with its tyres on a 10° wedge's face, held by it
       const wedge = new Wedge(WEDGE_DEG);
       setGround(wedge);
       const car = layOnWedge(testCase.cls, wedge, testCase.yawDegrees * RAD);
+      car.parked = true;
       const spring = SPRINGS[testCase.cls];
       const settleS = Math.log(LARGEST_OFFSET / MILLIMETRE) / (spring.zeta * 2 * Math.PI * spring.hz);
       assert.ok(settleS < PARK_S, "the spring envelope outlasts the test");

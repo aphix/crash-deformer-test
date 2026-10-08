@@ -51,6 +51,8 @@ for (let i = 0; i < 4; i++) {
 export class DeformableCar extends CarParts {
   /** Derived each slice from the contacts: no wheel within its springs' reach of a surface and no hull point in one (flight); a body on its masses is in the air while they are (`aloft`). Drive and grip follow the wheels (`wheelsDown`), not this. */
   airborne = false;
+  /** A parked car's tyres grip the ground both ways (their wheels do not turn): set where a scene stands a car, cleared by any drive input. */
+  parked = false;
   /** Moved by the rigid contact solve (`stepFree`), not by its crush masses: derived, never stored. `velocity` is then its centre of mass's. */
   get rigid(): boolean {
     return !this.deform.massActive;
@@ -102,6 +104,7 @@ export class DeformableCar extends CarParts {
     this.pitch = 0;
     this.speed = speed;
     this.spawnSpeed = speed;
+    this.parked = false;
     this.crashed = false;
     this.resetContact();
     if (this.classBody) this.classBody.position.y -= this.hullLift;

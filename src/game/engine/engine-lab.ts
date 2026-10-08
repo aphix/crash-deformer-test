@@ -101,6 +101,7 @@ function placeCar(car: DeformableCar, item: LabItem): void {
   car.refreshBasis();
   car.deform.bindKinematic(car.group, car.velocity, car.angular);
   readContact(car);
+  car.parked = true;
 }
 
 /** The bench as one block from the floor to its top, and the workshop floor (half-size `FLOOR_HALF` m): the dummies' ground in the Lab. */
@@ -321,6 +322,7 @@ export class Lab {
       car.velocity.copy(v);
       car.angular.set(0, 0, 0);
       car.speed = Math.hypot(v.x, v.z);
+      car.parked = false;
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
       } else car.deform.bindKinematic(car.group, car.velocity, car.angular);

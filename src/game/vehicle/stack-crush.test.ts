@@ -37,6 +37,7 @@ function stack(n: number, hz = 60): { cars: DeformableCar[]; w: CrashWorld } {
       c.group.position.y = under.group.position.y + roofHeight(under) - bellyY(c) + GAP;
     }
     c.airborne = i > 0;
+    c.parked = true;
     cars.push(c);
   }
   const w = makeWorld(cars, false, false);
@@ -61,6 +62,7 @@ function drop(kind: keyof typeof ORIENT, h: number, hz = 60): DeformableCar {
   c.group.updateMatrixWorld(true);
   c.group.position.y += h - new THREE.Box3().setFromObject(c.group).min.y;
   c.airborne = true;
+  c.parked = true;
   run(makeWorld([c], false, false), 5, hz);
   return c;
 }

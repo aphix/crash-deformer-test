@@ -31,6 +31,7 @@ function car(cls: "sedan" | "monster", y: number, airborne: boolean): Deformable
   c.spawnFacing(0, 0, 0, 0);
   c.group.position.y = y;
   c.airborne = airborne;
+  c.parked = true;
   return c;
 }
 

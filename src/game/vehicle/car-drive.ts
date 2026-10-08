@@ -180,6 +180,7 @@ function pedal(v: number, lo: number, steps: number): number {
 export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, topScale = 1): void {
   if (dt <= 0) return;
   const d = car.drive;
+  car.parked = false;
   // The pedals the sim runs: clamped and on the grid a clip stores them on, so a replay of the recording runs the very same numbers.
   const throttle = pedal(input.throttle, -1, THROTTLE_STEPS);
   const command = pedal(input.steer, -1, THROTTLE_STEPS);

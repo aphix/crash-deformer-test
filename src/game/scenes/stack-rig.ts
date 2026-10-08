@@ -70,6 +70,7 @@ export function placeDrop(cars: readonly DeformableCar[], k: number, drop: numbe
   const car = cars[k]!;
   car.group.visible = true;
   car.spawnFacing(0, 0, 0, 0);
+  car.parked = true;
   car.group.position.y = top - bellyY(car) + drop;
   readContact(car);
   // The load crush reads the car below's matrixWorld in the next step; the renderer's update comes after it.
