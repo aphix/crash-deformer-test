@@ -939,31 +939,21 @@ function offerAll(s: Surface, q: Float64Array, skip: number, need: number): void
   for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, q, skip, need);
 }
 
-/**
- * `out` = [height, nx, ny, nz, grip, surface index, owner (−1 the world's, else a car's slot), patch, aux] of the best candidate
- * (aux: the patch's per-node factor there, 1 without one); height `-Infinity` and grip 0 where there is none.
- */
-function report(out: Float64Array): void {
+/** `out`'s height and normal (`C_H`, `C_NX`..`C_NZ`) at the best candidate: height `-Infinity` and straight up where there is none. */
+function normalOf(out: Float64Array): void {
   const w = live.surf;
   if (w === null) {
     out[C_H] = NONE;
     out[C_NX] = 0;
     out[C_NY] = 1;
     out[C_NZ] = 0;
-    out[C_GRIP] = 0;
-    out[C_SURF] = ASPHALT;
-    out[C_OWNER] = -1;
-    out[C_ARG] = -1;
-    out[C_AUX] = 1;
     return;
   }
   if (_s[S_PFU] >= 0) plainRest(w, true);
   const P = w.p;
   const o = _s[S_PATCH] * P_STRIDE;
-  const qo = _s[S_PATCH] * Q_STRIDE;
-  const deck = w.q[qo + Q_KIND] === DECK;
   out[C_H] = _s[S_BEST];
-  if (deck || _s[S_NODE] < 0) {
+  if (w.q[_s[S_PATCH] * Q_STRIDE + Q_KIND] === DECK || _s[S_NODE] < 0) {
     // Partials in world plan.
     const len = hypot3(_s[S_G0], 1, _s[S_G1]);
     out[C_NX] = -_s[S_G0] / len;
@@ -979,9 +969,27 @@ function report(out: Float64Array): void {
     out[C_NY] = ny / len;
     out[C_NZ] = nz / len;
   }
-  const surf = bestSurf(w, qo, deck);
+}
+
+/**
+ * `out` = [height, nx, ny, nz, grip, surface index, owner (−1 the world's, else a car's slot), patch, aux] of the best candidate
+ * (aux: the patch's per-node factor there, 1 without one); height `-Infinity` and grip 0 where there is none.
+ */
+function report(out: Float64Array): void {
+  normalOf(out);
+  const w = live.surf;
+  if (w === null) {
+    out[C_GRIP] = 0;
+    out[C_SURF] = ASPHALT;
+    out[C_OWNER] = -1;
+    out[C_ARG] = -1;
+    out[C_AUX] = 1;
+    return;
+  }
+  const qo = _s[S_PATCH] * Q_STRIDE;
+  const surf = bestSurf(w, qo, w.q[qo + Q_KIND] === DECK);
   out[C_SURF] = surf;
-  out[C_GRIP] = P[o + P_GRIP]! * GRIPS[surf]!;
+  out[C_GRIP] = w.p[_s[S_PATCH] * P_STRIDE + P_GRIP]! * GRIPS[surf]!;
   out[C_OWNER] = w.q[qo + Q_OWNER]!;
   out[C_ARG] = _s[S_PATCH];
   out[C_AUX] = _s[S_AUX];
@@ -1613,7 +1621,7 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   seek(_pq, skip, _reachOf, _reach, _nReach);
-  report(_w);
+  normalOf(_w);
   let c = 1;
   let s = 0;
   if (_w[C_H]! !== NONE) {
