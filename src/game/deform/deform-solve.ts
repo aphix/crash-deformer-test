@@ -41,9 +41,11 @@ const _n = new THREE.Vector3();
  * the out-of-line call, all five were boxed per mass.
  */
 const _clamp = new Float64Array(5);
-/** `sampleGround`'s query point, and the grip of its last `readGround`. */
+/** `sampleGround`'s query point, and the height and grip of its last `readGround` (no boxed doubles cross the call). */
 const _pq = new Float64Array(PQ_SIZE);
-const _readGrip = new Float64Array(1);
+const _read = new Float64Array(2);
+const READ_H = 0;
+const READ_GRIP = 1;
 /**
  * How far (m, plan) fore and aft of a wreck's hub `sampleGround` also reads what its tyre can rest on, and how far (m) the
  * tyre's arc stands there over its bottom: R − √(R² − d²), its whole radius at d = R.
@@ -51,15 +53,11 @@ const _readGrip = new Float64Array(1);
 const TREAD_FORE = TYRE_R;
 const TREAD_DROP = TYRE_R - Math.sqrt(TYRE_R * TYRE_R - TREAD_FORE * TREAD_FORE);
 
-/** The ground at (x, z) asked from height y; with `grip`, read with its grip into `_readGrip`. */
-function readGround(ground: Ground, x: number, z: number, y: number, grip: boolean): number {
-  if (!grip) return ground.heightAt(x, z, y);
-  _pq[PQ_X] = x;
-  _pq[PQ_Z] = z;
-  _pq[PQ_Y] = y;
-  const h = heightIn(ground, _pq);
-  if (h !== NO_FLOOR) _readGrip[0] = heightGrip();
-  return h;
+/** The ground under the query point `_pq` into `_read`: its height (`READ_H`) and, with `grip`, the grip there (`READ_GRIP`). */
+function readGround(ground: Ground, grip: boolean): void {
+  const h = heightIn(ground, _pq, grip);
+  _read[READ_H] = h;
+  if (grip && h !== NO_FLOOR) _read[READ_GRIP] = heightGrip();
 }
 
 /** Slice rate the shape-match pulls (goalAlpha, contact alpha) and the step cap were tuned at. */
@@ -680,14 +678,21 @@ export abstract class DeformSolve extends DeformContact {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;
       const w = m.world;
-      let h = readGround(ground, w.x, w.z, w.y, withGrip);
-      let g = _readGrip[0]!;
+      _pq[PQ_X] = w.x;
+      _pq[PQ_Z] = w.z;
+      _pq[PQ_Y] = w.y;
+      readGround(ground, withGrip);
+      let h = _read[READ_H]!;
+      let g = _read[READ_GRIP]!;
       if (m.hub && !m.popped) {
         for (let side = -1; side <= 1; side += 2) {
-          const r = readGround(ground, w.x + side * fx, w.z + side * fz, w.y, withGrip) - TREAD_DROP;
+          _pq[PQ_X] = w.x + side * fx;
+          _pq[PQ_Z] = w.z + side * fz;
+          readGround(ground, withGrip);
+          const r = _read[READ_H]! - TREAD_DROP;
           if (r > h) {
             h = r;
-            g = _readGrip[0]!;
+            g = _read[READ_GRIP]!;
           }
         }
       }

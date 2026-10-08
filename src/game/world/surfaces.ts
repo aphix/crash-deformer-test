@@ -90,7 +90,7 @@ const D_RUNR = 11;
 const D_TAN = 12;
 
 /** Patch integers, `Q_STRIDE` each. */
-export const Q_STRIDE = 8;
+export const Q_STRIDE = 9;
 export const Q_KIND = 0;
 export const Q_NU = 1;
 export const Q_NV = 2;
@@ -104,6 +104,8 @@ const Q_OWNER = 5;
 const Q_UNB = 6;
 /** 1: a body that collides by shape (the ragdoll's world) meets this patch; 0: height queries only (a moving slab, a floor baked into a mesh). */
 export const Q_SOLID = 7;
+/** 1: the patch changed after its surface was sealed (its frame, drop, node data, owner or box): no cell reads it as plain (`Surface.plain`) from then on. */
+const Q_DYN = 8;
 
 /** A patch's slots grow by this many at a time. */
 const GROW = 8;
@@ -194,6 +196,14 @@ export class Surface {
   cnx = 0;
   cnz = 0;
   sealed = false;
+  /**
+   * The plain cells (built by `seal`, read by `find`): where a point's one candidate is a plain grid (`plain`), that patch, else −1
+   * (`find` tests every candidate). `plainOne` is it for every point of a surface with no cell index, else `PLAIN_BY_CELL`: per index
+   * cell `plainCells`, past the index `plainOutside`.
+   */
+  plainOne = -1;
+  plainOutside = -1;
+  plainCells = new Int32Array(0);
   /** The plan raster `staticTop` reads (built on first use): per `RASTER` m square from (`rasterX0`, `rasterZ0`), `rasterNx` wide, the highest any patch but the moving ones stands over it. */
   raster = EMPTY64;
   rasterX0 = 0;
@@ -416,8 +426,9 @@ export class Surface {
     this.moved(i);
   }
 
-  /** Patch `i` changed after the raster was built: it is read one by one from now on, the raster built again without it. */
+  /** Patch `i` changed: after the seal no cell reads it as plain (`unplain`); after the raster was built it is read one by one from now on, the raster built again without it. */
   private moved(i: number): void {
+    this.unplain(i);
     if (!this.rasterBuilt || this.moving.includes(i)) return;
     this.moving.push(i);
     this.rasterBuilt = false;
@@ -431,6 +442,7 @@ export class Surface {
     P[o + P_MAXX] = Math.min(P[o + P_MAXX]!, cx + r);
     P[o + P_MINZ] = Math.max(P[o + P_MINZ]!, cz - r);
     P[o + P_MAXZ] = Math.min(P[o + P_MAXZ]!, cz + r);
+    this.unplain(i);
   }
 
   /** Point grid patch `i` at other node data (a slot changing style): `nu` × `nv` nodes `heights` and per-node factors `aux` (both row-major), `hmax` bounding |height|. Keeps the frame. */
@@ -473,6 +485,7 @@ export class Surface {
   /** Patch `i` is `owner`'s (a car's slot): its own queries skip it. */
   own(i: number, owner: number): void {
     this.q[i * Q_STRIDE + Q_OWNER] = owner;
+    this.unplain(i);
   }
 
   /** Patch `i`'s crush drop (m). */
@@ -484,6 +497,48 @@ export class Surface {
   /** Build the spatial index over the patches' boxes (a scene's static surfaces: once, at registration). Few patches are all tested. */
   seal(): void {
     this.sealed = true;
+    this.indexBoxes();
+    // The plain cells: the one candidate a plain grid.
+    this.plainOutside = this.nAlways === 1 && this.plain(this.always[0]!) ? this.always[0]! : -1;
+    if (this.cellList.length === 0) {
+      this.plainOne = this.plainOutside;
+      return;
+    }
+    this.plainOne = PLAIN_BY_CELL;
+    const cells = this.cellStart.length - 1;
+    this.plainCells = new Int32Array(cells);
+    for (let c = 0; c < cells; c++) {
+      const start = this.cellStart[c]!;
+      const listed = this.cellStart[c + 1]! - start;
+      if (listed === 0) this.plainCells[c] = this.plainOutside;
+      else this.plainCells[c] = listed === 1 && this.nAlways === 0 && this.plain(this.cellList[start]!) ? this.cellList[start]! : -1;
+    }
+  }
+
+  /**
+   * Whether patch `i` is a grid `plainOffer` reads as `offer` does: level and unturned (its frame's x, y and z the world's, its
+   * origin's height not −0, so the frame's zero terms change no bit of the height), unbounded (its box the whole plan, so its nodes
+   * alone bound it), the world's, no disc, no per-node factors, unchanged since the seal.
+   */
+  private plain(i: number): boolean {
+    const qo = i * Q_STRIDE;
+    const o = i * P_STRIDE;
+    const P = this.p;
+    const level = P[o + P_AX] === 1 && P[o + P_AX + 1] === 0 && P[o + P_AX + 2] === 0 && P[o + P_BX + 1] === 1 && P[o + P_CX] === 0 && P[o + P_CX + 1] === 0 && P[o + P_CX + 2] === 1;
+    return level && !Object.is(P[o + P_OY], -0) && this.q[qo + Q_UNB] === 1 && this.q[qo + Q_KIND] === GRID && this.q[qo + Q_DYN] === 0 && this.q[qo + Q_OWNER] === -1 && P[o + P_RAD2] === 0 && this.auxs[i]!.length === 0;
+  }
+
+  /** Patch `i` changed after the seal (`Q_DYN`): no cell reads it as plain from then on, every one that did tests its candidates. */
+  private unplain(i: number): void {
+    const qo = i * Q_STRIDE;
+    if (!this.sealed || this.q[qo + Q_DYN] === 1) return;
+    this.q[qo + Q_DYN] = 1;
+    if (this.plainOne === i) this.plainOne = -1;
+    if (this.plainOutside === i) this.plainOutside = -1;
+    for (let c = 0; c < this.plainCells.length; c++) if (this.plainCells[c] === i) this.plainCells[c] = -1;
+  }
+
+  private indexBoxes(): void {
     const P = this.p;
     if (this.count <= INDEX_FROM) {
       this.always = Int32Array.from({ length: this.count }, (_, i) => i);
@@ -561,8 +616,13 @@ export function groundWalls(): boolean {
   return live.statics !== null && live.statics.walls;
 }
 
-/** `offer`'s scratch: the best candidate so far (`S_BEST`..`S_AUX`), the candidate being evaluated (`S_CG0`..`S_CAUX`, its height `S_H`: NaN where it has none) and one cell's bilinear partials (per cell unit, `S_PU`, `S_PV`, set by `bil`). */
-const _s = new Float64Array(14);
+/**
+ * `offer`'s scratch: the best candidate so far (`S_BEST`..`S_AUX`), the candidate being evaluated (`S_CG0`..`S_CAUX`, its height `S_H`:
+ * NaN where it has none), one cell's bilinear partials (per cell unit, `S_PU`, `S_PV`, set by `bil`), `cellHeight`'s cell fractions in
+ * (`S_TU`, `S_TV`) and height out (`S_CH`) and, for a best `plainOffer` found, the point in its grid (`S_PFU`, `S_PFV`; `S_PFU` −1 for
+ * any other best), its node, factor and partials left to `plainRest`.
+ */
+const _s = new Float64Array(19);
 const S_BEST = 0;
 const S_PATCH = 1;
 const S_G0 = 2;
@@ -577,17 +637,82 @@ const S_CAUX = 10;
 const S_PU = 11;
 const S_PV = 12;
 const S_H = 13;
+const S_PFU = 14;
+const S_PFV = 15;
+const S_TU = 16;
+const S_TV = 17;
+const S_CH = 18;
+/** `Surface.plainOne`: read `Surface.plainCells` per index cell. */
+const PLAIN_BY_CELL = -2;
 
+/** What a query works out past the height: also the nearest node (a per-node surface's grip, `heightGrip`), or that and the slopes (`report`'s normal). */
+const NEED_HEIGHT = 0;
+const NEED_GRIP = 1;
+const NEED_ALL = 2;
+
+/** Bilinear value of `f` in cell `c` at (fu, fv). */
 function bil(f: Float32Array, c: number, nu: number, fu: number, fv: number): number {
+  const a = f[c]! + (f[c + 1]! - f[c]!) * fu;
+  const b = f[c + nu]! + (f[c + nu + 1]! - f[c + nu]!) * fu;
+  return a + (b - a) * fv;
+}
+
+/** `bil`'s partials per cell unit at the cell fractions (`S_TU`, `S_TV`) into `S_PU`, `S_PV`. */
+function bilSlopes(f: Float32Array, c: number, nu: number): void {
+  const fu = _s[S_TU];
+  const fv = _s[S_TV];
   const h00 = f[c]!;
   const h10 = f[c + 1]!;
   const h01 = f[c + nu]!;
   const h11 = f[c + nu + 1]!;
-  const a = h00 + (h10 - h00) * fu;
-  const b = h01 + (h11 - h01) * fu;
   _s[S_PU] = (1 - fv) * (h10 - h00) + fv * (h11 - h01);
-  _s[S_PV] = b - a;
-  return a + (b - a) * fv;
+  _s[S_PV] = h01 + (h11 - h01) * fu - (h00 + (h10 - h00) * fu);
+}
+
+/** Whether cell `c` of a grid `nu` nodes wide is on the road: its lateral `lat` set (not NaN) at all four corners. */
+function creased(lat: Float32Array, c: number, nu: number): boolean {
+  return lat.length > 0 && lat[c]! === lat[c]! && lat[c + 1]! === lat[c + 1]! && lat[c + nu]! === lat[c + nu]! && lat[c + nu + 1]! === lat[c + nu + 1]!;
+}
+
+/**
+ * Grid patch `i`'s height in its frame in cell `c` at the cell fractions (`S_TU`, `S_TV`), `nu` nodes wide, into `S_CH`. On the road
+ * (`creased`) the crease: centre height less the (clamped) lateral share of the drop, so the bank's edge stays sharp. In and out
+ * through the scratch, so no boxed double crosses the call where V8 leaves it out of line.
+ */
+function cellHeight(s: Surface, i: number, c: number, nu: number): void {
+  const fu = _s[S_TU];
+  const fv = _s[S_TV];
+  const lat = s.lat[i]!;
+  if (!creased(lat, c, nu)) {
+    _s[S_CH] = bil(s.nodes[i]!, c, nu, fu, fv);
+    return;
+  }
+  const k = Math.max(-1, Math.min(1, bil(lat, c, nu, fu, fv)));
+  _s[S_CH] = bil(s.centre[i]!, c, nu, fu, fv) - k * bil(s.drop[i]!, c, nu, fu, fv);
+}
+
+/** `cellHeight`'s partials per cell unit into `S_PU`, `S_PV`, at the same cell and fractions. */
+function cellSlopes(s: Surface, i: number, c: number, nu: number): void {
+  const lat = s.lat[i]!;
+  if (!creased(lat, c, nu)) {
+    bilSlopes(s.nodes[i]!, c, nu);
+    return;
+  }
+  const fu = _s[S_TU];
+  const fv = _s[S_TV];
+  const l = bil(lat, c, nu, fu, fv);
+  const k = Math.max(-1, Math.min(1, l));
+  const drop = bil(s.drop[i]!, c, nu, fu, fv);
+  bilSlopes(lat, c, nu);
+  const lu = _s[S_PU];
+  const lv = _s[S_PV];
+  bilSlopes(s.centre[i]!, c, nu);
+  const cu = _s[S_PU];
+  const cv = _s[S_PV];
+  bilSlopes(s.drop[i]!, c, nu);
+  const inside = l > -1 && l < 1;
+  _s[S_PU] = cu - k * _s[S_PU] - (inside ? lu * drop : 0);
+  _s[S_PV] = cv - k * _s[S_PV] - (inside ? lv * drop : 0);
 }
 
 /** The base terrain past a grid: its gaussian hills' height at (x, z), the gradient into `_cg0`/`_cg1` (world plan). */
@@ -612,11 +737,12 @@ function hillsAt(h: Float64Array, q: Float64Array): void {
 }
 
 /**
- * Grid patch `i` at (x, z), asked from height `y`: the surface's world height, NaN where it has none. Sets `_cg0`/`_cg1` (the
- * surface's partials along the frame's x and z; in world plan past the grid) and `_cn` (the nearest node, −1 past the grid). A
- * patch with per-node factors (`auxs`) lowers by `P_DROP × factor` and leaves the factor in `_caux` (`offer` presets it to 1).
+ * Grid patch `i` at (x, z), asked from height `y`: the surface's world height, NaN where it has none. Past `NEED_HEIGHT` sets
+ * `_cn` (the nearest node, −1 past the grid), at `NEED_ALL` also `_cg0`/`_cg1` (the surface's partials along the frame's x and z;
+ * in world plan past the grid). A patch with per-node factors (`auxs`) lowers by `P_DROP × factor` and leaves the factor in `_caux`
+ * (`offer` presets it to 1).
  */
-function gridAt(s: Surface, i: number, q: Float64Array): void {
+function gridAt(s: Surface, i: number, q: Float64Array, need: number): void {
   const x = q[PQ_X]!;
   const z = q[PQ_Z]!;
   const y = q[PQ_Y]!;
@@ -655,31 +781,18 @@ function gridAt(s: Surface, i: number, q: Float64Array): void {
   const c = (cj | 0) * nu + (ci | 0);
   const tu = fu - ci;
   const tv = fv - cj;
-  let h: number;
-  const lat = s.lat[i]!;
-  if (lat.length > 0 && lat[c]! === lat[c]! && lat[c + 1]! === lat[c + 1]! && lat[c + nu]! === lat[c + nu]! && lat[c + nu + 1]! === lat[c + nu + 1]!) {
-    // The road's crease: centre height less the (clamped) lateral share of the drop, so the bank's edge stays sharp.
-    const l = bil(lat, c, nu, tu, tv);
-    const lu1 = _s[S_PU];
-    const lv1 = _s[S_PV];
-    const centre = bil(s.centre[i]!, c, nu, tu, tv);
-    const cu = _s[S_PU];
-    const cv = _s[S_PV];
-    const drop = bil(s.drop[i]!, c, nu, tu, tv);
-    const du = _s[S_PU];
-    const dv = _s[S_PV];
-    const k = Math.max(-1, Math.min(1, l));
-    const inside = l > -1 && l < 1;
-    h = centre - k * drop;
-    _s[S_CG0] = (cu - k * du - (inside ? lu1 * drop : 0)) / step;
-    _s[S_CG1] = (cv - k * dv - (inside ? lv1 * drop : 0)) / stepV;
-  } else {
-    h = bil(s.nodes[i]!, c, nu, tu, tv);
+  const slopes = need === NEED_ALL;
+  _s[S_TU] = tu;
+  _s[S_TV] = tv;
+  cellHeight(s, i, c, nu);
+  let h = _s[S_CH];
+  if (slopes) {
+    cellSlopes(s, i, c, nu);
     _s[S_CG0] = _s[S_PU] / step;
     _s[S_CG1] = _s[S_PV] / stepV;
   }
   // Math.round of fv and fu (halves up): the cell's corner plus one where the fraction reaches a half.
-  _s[S_CN] = (cj + (tv >= 0.5 ? 1 : 0)) * nu + ci + (tu >= 0.5 ? 1 : 0);
+  if (need !== NEED_HEIGHT) _s[S_CN] = (cj + (tv >= 0.5 ? 1 : 0)) * nu + ci + (tu >= 0.5 ? 1 : 0);
   const aux = s.auxs[i]!;
   if (aux.length > 0) _s[S_CAUX] = bil(aux, c, nu, tu, tv);
   h -= P[o + P_DROP]! * _s[S_CAUX];
@@ -722,8 +835,8 @@ function deckAt(s: Surface, i: number, q: Float64Array): void {
   _s[S_H] = P[o + P_OY]! + P[o + D_DY]! * f - Math.max(-half, Math.min(half, lat)) * tan;
 }
 
-/** Test patch `i` of `s` for the point; a candidate that reaches and is the highest so far becomes the best. */
-function offer(s: Surface, i: number, q: Float64Array, skip: number): void {
+/** Test patch `i` of `s` for the point, working out what `need` asks; a candidate that reaches and is the highest so far becomes the best. */
+function offer(s: Surface, i: number, q: Float64Array, skip: number, need: number): void {
   const P = s.p;
   const o = i * P_STRIDE;
   const x = q[PQ_X]!;
@@ -735,7 +848,7 @@ function offer(s: Surface, i: number, q: Float64Array, skip: number): void {
   if (owner >= 0 && (owner === skip || (skip >= 0 && skip < s.count && P[o + P_OY]! > P[skip * P_STRIDE + P_OY]!))) return;
   _s[S_CAUX] = 1;
   if (s.q[qo + Q_KIND] === DECK) deckAt(s, i, q);
-  else gridAt(s, i, q);
+  else gridAt(s, i, q, need);
   const h = _s[S_H]!;
   // NaN (no surface) fails the first test; an unlimited reach under an asker at -Infinity is NaN and passes the second.
   const y = q[PQ_Y]!;
@@ -748,18 +861,84 @@ function offer(s: Surface, i: number, q: Float64Array, skip: number): void {
   _s[S_NODE] = _s[S_CN];
   _s[S_AUX] = _s[S_CAUX];
   _s[S_OWNER] = owner;
+  _s[S_PFU] = -1;
 }
 
-/** The highest surface at the point over `s`'s patches, into the best-candidate scratch. */
-function find(s: Surface, q: Float64Array, skip: number): void {
+/**
+ * `offer` and `gridAt` for plain grid patch `i` of `s` (`Surface.plain`), the point's one candidate: the same height to the bit, the
+ * point in its grid kept for `plainRest`. False past the grid's nodes (its base terrain's hills), where `offer` answers.
+ */
+function plainOffer(s: Surface, i: number, q: Float64Array): boolean {
+  const P = s.p;
+  const o = i * P_STRIDE;
+  const qo = i * Q_STRIDE;
+  const fu = (q[PQ_X]! - P[o + P_OX]! - P[o + P_U0]!) / P[o + P_STEP]!;
+  const fv = (q[PQ_Z]! - P[o + P_OZ]! - P[o + P_V0]!) / P[o + P_STEPV]!;
+  const nu = s.q[qo + Q_NU]!;
+  if (fu < 0 || fv < 0 || fu >= nu - 1 || fv >= s.q[qo + Q_NV]! - 1) return false;
+  const ci = Math.floor(fu);
+  const cj = Math.floor(fv);
+  _s[S_TU] = fu - ci;
+  _s[S_TV] = fv - cj;
+  cellHeight(s, i, (cj | 0) * nu + (ci | 0), nu);
+  const h = P[o + P_OY]! + (_s[S_CH] - P[o + P_DROP]!);
+  if (h !== h || h > q[PQ_Y]! + P[o + P_REACH]! || h < _s[S_BEST]) return true;
+  _s[S_BEST] = h;
+  live.surf = s;
+  _s[S_PATCH] = i;
+  _s[S_OWNER] = -1;
+  _s[S_PFU] = fu;
+  _s[S_PFV] = fv;
+  return true;
+}
+
+/**
+ * A best candidate `plainOffer` found on `w`: its nearest node and factor and, with `slopes`, its partials into the scratch as `offer`
+ * sets them at `NEED_GRIP` / `NEED_ALL`.
+ */
+function plainRest(w: Surface, slopes: boolean): void {
+  const i = _s[S_PATCH];
+  const o = i * P_STRIDE;
+  const nu = w.q[i * Q_STRIDE + Q_NU]!;
+  const fu = _s[S_PFU];
+  const fv = _s[S_PFV];
+  const ci = Math.floor(fu);
+  const cj = Math.floor(fv);
+  const tu = fu - ci;
+  const tv = fv - cj;
+  _s[S_NODE] = (cj + (tv >= 0.5 ? 1 : 0)) * nu + ci + (tu >= 0.5 ? 1 : 0);
+  _s[S_AUX] = 1;
+  if (!slopes) return;
+  _s[S_TU] = tu;
+  _s[S_TV] = tv;
+  cellSlopes(w, i, (cj | 0) * nu + (ci | 0), nu);
+  _s[S_G0] = _s[S_PU] / w.p[o + P_STEP]!;
+  _s[S_G1] = _s[S_PV] / w.p[o + P_STEPV]!;
+}
+
+/** The plain grid that is the point's one candidate on `s` by index cell (`Surface.plainCells`, past the index `plainOutside`), else −1. */
+function plainCell(s: Surface, q: Float64Array): number {
+  const ci = Math.floor(q[PQ_X]! / CELL) - s.cx0;
+  const cj = Math.floor(q[PQ_Z]! / CELL) - s.cz0;
+  return ci < 0 || cj < 0 || ci >= s.cnx || cj >= s.cnz ? s.plainOutside : s.plainCells[cj * s.cnx + ci]!;
+}
+
+/** The highest surface at the point over `s`'s patches, into the best-candidate scratch (`need`: what to work out past its height). */
+function find(s: Surface, q: Float64Array, skip: number, need: number): void {
+  const i = s.plainOne === PLAIN_BY_CELL ? plainCell(s, q) : s.plainOne;
+  if (i < 0 || !plainOffer(s, i, q)) offerAll(s, q, skip, need);
+}
+
+/** `find` over every candidate patch. */
+function offerAll(s: Surface, q: Float64Array, skip: number, need: number): void {
   const always = s.always;
-  for (let k = 0; k < s.nAlways; k++) offer(s, always[k]!, q, skip);
+  for (let k = 0; k < s.nAlways; k++) offer(s, always[k]!, q, skip, need);
   if (s.cellList.length === 0) return;
   const ci = Math.floor(q[PQ_X]! / CELL) - s.cx0;
   const cj = Math.floor(q[PQ_Z]! / CELL) - s.cz0;
   if (ci < 0 || cj < 0 || ci >= s.cnx || cj >= s.cnz) return;
   const c = cj * s.cnx + ci;
-  for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, q, skip);
+  for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) offer(s, s.cellList[k]!, q, skip, need);
 }
 
 /**
@@ -780,6 +959,7 @@ function report(out: Float64Array): void {
     out[C_AUX] = 1;
     return;
   }
+  if (_s[S_PFU] >= 0) plainRest(w, true);
   const P = w.p;
   const o = _s[S_PATCH] * P_STRIDE;
   const qo = _s[S_PATCH] * Q_STRIDE;
@@ -817,10 +997,11 @@ function bestSurf(w: Surface, qo: number, deck: boolean): number {
   return _s[S_NODE] < 0 ? w.q[qo + Q_SURF2]! : surf;
 }
 
-/** `contactIn`'s grip (`C_GRIP`) at what the last `heightIn` found, its normal never worked out; 0 where it found nothing. */
+/** `contactIn`'s grip (`C_GRIP`) at what the last `heightIn` asked `grip` found, its normal never worked out; 0 where it found nothing. */
 export function heightGrip(): number {
   const w = live.surf;
   if (w === null) return 0;
+  if (_s[S_PFU] >= 0) plainRest(w, false);
   const qo = _s[S_PATCH] * Q_STRIDE;
   return w.p[_s[S_PATCH] * P_STRIDE + P_GRIP]! * GRIPS[bestSurf(w, qo, w.q[qo + Q_KIND] === DECK)]!;
 }
@@ -852,8 +1033,8 @@ const NO_TOPS = new Int32Array(0);
 function seek(q: Float64Array, skip: number, tops: Surface | null, list: Int32Array, count: number): void {
   _s[S_BEST] = NONE;
   live.surf = null;
-  if (live.statics !== null) find(live.statics, q, skip);
-  if (tops !== null) for (let k = 0; k < count; k++) offer(tops, list[k]!, q, skip);
+  if (live.statics !== null) find(live.statics, q, skip, NEED_ALL);
+  if (tops !== null) for (let k = 0; k < count; k++) offer(tops, list[k]!, q, skip, NEED_ALL);
 }
 
 /** `seek` over every top near the asker `skip`. */
@@ -870,16 +1051,21 @@ function seekPatch(): number {
 
 /** `pointContact` over one surface alone: no other static and no car tops (a `Ground`'s own point queries). */
 export function contactIn(s: Surface, q: Float64Array, out: Float64Array): void {
-  heightIn(s, q);
+  look(s, q, NEED_ALL);
   report(out);
 }
 
-/** `contactIn`'s height alone (`C_H`), its normal, grip and owner never worked out. */
-export function heightIn(s: Surface, q: Float64Array): number {
+/** `contactIn`'s height alone (`C_H`), its normal, grip and owner never worked out; with `grip`, `heightGrip` then reads the grip there. */
+export function heightIn(s: Surface, q: Float64Array, grip = false): number {
+  return look(s, q, grip ? NEED_GRIP : NEED_HEIGHT);
+}
+
+/** The best candidate over `s` alone into the scratch, working out what `need` asks past its height; returns that height. */
+function look(s: Surface, q: Float64Array, need: number): number {
   _s[S_BEST] = NONE;
   live.surf = null;
   if (!s.sealed) s.seal();
-  find(s, q, -1);
+  find(s, q, -1, need);
   return _s[S_BEST];
 }
 
@@ -931,8 +1117,15 @@ function arc(at: number, ring: number, k: number): number {
 /** How far (m at wheel scale 1, plan) a footprint point reaches from its hub, with a margin for the body's tilt. */
 const FOOT_REACH = 0.4;
 
-/** Whether patch `i` of `s` ends within `r` (m, plan) of (x, z) asked from height `y` (`skip`: the asking car's slot, as `offer`). */
-function endsNear(s: Surface, i: number, x: number, z: number, y: number, r: number, skip: number): boolean {
+/**
+ * Whether patch `i` of `s` ends within the tyre's reach (`FOOT_REACH` at the `_foot` scale, m plan) of the query point `q` (`skip`: the
+ * asking car's slot, as `offer`).
+ */
+function endsNear(s: Surface, i: number, q: Float64Array, skip: number): boolean {
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
+  const y = q[PQ_Y]!;
+  const r = FOOT_REACH * _foot[FOOT_SCALE]!;
   const P = s.p;
   const o = i * P_STRIDE;
   if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) return false;
@@ -962,10 +1155,13 @@ function endsNear(s: Surface, i: number, x: number, z: number, y: number, r: num
   return lu < u0 + r || lu > u1 - r || lv < v0 + r || lv > v1 - r;
 }
 
-/** Whether any patch of `s` ends within `r` (m, plan) of (x, z): every cell `r` reaches, and the patches every query tests. */
-function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: number): boolean {
-  for (let k = 0; k < s.nAlways; k++) if (endsNear(s, s.always[k]!, x, z, y, r, skip)) return true;
+/** Whether any patch of `s` ends within the tyre's reach of the query point `q` (`endsNear`): every cell the reach spans, and the patches every query tests. */
+function edgeIn(s: Surface, q: Float64Array, skip: number): boolean {
+  for (let k = 0; k < s.nAlways; k++) if (endsNear(s, s.always[k]!, q, skip)) return true;
   if (s.cellList.length === 0) return false;
+  const x = q[PQ_X]!;
+  const z = q[PQ_Z]!;
+  const r = FOOT_REACH * _foot[FOOT_SCALE]!;
   const i0 = Math.max(0, Math.floor((x - r) / CELL) - s.cx0);
   const i1 = Math.min(s.cnx - 1, Math.floor((x + r) / CELL) - s.cx0);
   const j0 = Math.max(0, Math.floor((z - r) / CELL) - s.cz0);
@@ -973,7 +1169,7 @@ function edgeIn(s: Surface, x: number, z: number, y: number, r: number, skip: nu
   for (let cj = j0; cj <= j1; cj++) {
     for (let ci = i0; ci <= i1; ci++) {
       const c = cj * s.cnx + ci;
-      for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) if (endsNear(s, s.cellList[k]!, x, z, y, r, skip)) return true;
+      for (let k = s.cellStart[c]!; k < s.cellStart[c + 1]!; k++) if (endsNear(s, s.cellList[k]!, q, skip)) return true;
     }
   }
   return false;
@@ -1182,6 +1378,11 @@ export function topsTop(skip: number, xMin: number, xMax: number, zMin: number, 
 const _w = new Float64Array(HIT_SIZE);
 const _x = new Float64Array(HIT_SIZE);
 const _pq = new Float64Array(PQ_SIZE);
+/** The footprint's pose `tread` reads: its turn in the rolling plane (cos, sin) and the wheel's scale (no boxed doubles cross the call). */
+const _foot = new Float64Array(3);
+const FOOT_COS = 0;
+const FOOT_SIN = 1;
+const FOOT_SCALE = 2;
 /** Per footprint point of the last `wheelContact`: its rise, the patch that sets it (`patchOf`) and the point (world x, y, z). */
 const _rise = new Float64Array(FOOT);
 const _pid = new Float64Array(FOOT);
@@ -1329,11 +1530,14 @@ let _reach = new Int32Array(8);
 let _nReach = 0;
 
 /**
- * Footprint point `k` (wheel frame at wheel scale 1, turned by cos `c` / sin `s` in the rolling plane) asked from the hub's height
- * over the statics and the tops within reach (`_reach`): its rise, patch and point into the footprint's store, and into `out` as the
- * wheel's contact when it is the highest yet.
+ * Footprint point `k` (wheel frame at wheel scale 1, turned and scaled by `_foot`) asked from the hub's height over the statics and
+ * the tops within reach (`_reach`): its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when
+ * it is the highest yet.
  */
-function tread(hub: Float64Array, axes: Float64Array, scale: number, skip: number, c: number, s: number, k: number, out: Float64Array): void {
+function tread(hub: Float64Array, axes: Float64Array, skip: number, k: number, out: Float64Array): void {
+  const c = _foot[FOOT_COS]!;
+  const s = _foot[FOOT_SIN]!;
+  const scale = _foot[FOOT_SCALE]!;
   const lx = FX[k]! * scale;
   const ly = (FY[k]! * c + FZ[k]! * s) * scale;
   const lz = (FZ[k]! * c - FY[k]! * s) * scale;
@@ -1401,13 +1605,14 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     }
   }
   // No top's edge within the tyre's reach: the hub and its footprint never ask the tops.
-  _reachOf = tops !== null && edgeIn(tops, x, z, y, r, skip) ? tops : null;
-  const n = _reachOf !== null || (live.statics !== null && edgeIn(live.statics, x, z, y, r, skip)) ? FOOT : BASE;
-  // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
-  // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   _pq[PQ_X] = x;
   _pq[PQ_Z] = z;
   _pq[PQ_Y] = y;
+  _foot[FOOT_SCALE] = scale;
+  _reachOf = tops !== null && edgeIn(tops, _pq, skip) ? tops : null;
+  const n = _reachOf !== null || (live.statics !== null && edgeIn(live.statics, _pq, skip)) ? FOOT : BASE;
+  // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
+  // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
   seek(_pq, skip, _reachOf, _reach, _nReach);
   report(_w);
   let c = 1;
@@ -1422,7 +1627,9 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
     }
   }
   out[C_H] = NONE;
-  for (let k = 0; k < n; k++) tread(hub, axes, scale, skip, c, s, k, out);
+  _foot[FOOT_COS] = c;
+  _foot[FOOT_SIN] = s;
+  for (let k = 0; k < n; k++) tread(hub, axes, skip, k, out);
   // Near an edge a ring's highest point is where it crosses onto the patch that holds it, between two arcs: the chord to the
   // neighbour on another patch is halved (`edgeCross`; a front tyre leaving the wedge's side read 1.6 cm lower at its nearest arc
   // than the drawn tyre's tread).

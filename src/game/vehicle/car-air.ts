@@ -177,6 +177,8 @@ const CLOSING = new Float64Array(CONTACTS);
 const GAPV = new Float64Array(CONTACTS);
 /** A point this close (m) over its surface is a contact already: it is held where it would arrive within the slice, not after it. */
 const SPECULATIVE_GAP = 0.0002;
+/** Margin (m) the whole-body clear check keeps for its own rounding against each point's test (both are ~1e-15 of a few metres). */
+const CLEAR_ROUND = 1e-6;
 /** Passes of the contact solve over a slice's contacts: a contact parting gives back its rest impulse over them (a sedan on a roof stood still). */
 const PASSES = 12;
 /** The most (in G·dt) the solve's change of velocity moves the body within its own slice (half of it, the trapezoid rule). */
@@ -623,28 +625,33 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   const readAll = topsTop(car.slot, _com.x - bodyReach, _com.x + bodyReach, _com.z - bodyReach, _com.z + bodyReach) > -Infinity;
   // The whole body at once first: each point's box below and each belly segment's lies within the points' boxes together, so a raster
   // under all of them lower than the lowest point's clearance clears every point and segment in one read (measured: 84 % of the slices
-  // of a 32-car race at aggression 1, 93 % at 0).
+  // of a 32-car race at aggression 1, 93 % at 0). The points come off the body's axes (`_e`, `wheelsAt` set it from `q`), each moving at
+  // most the body's plan speed (fall) plus its turn at the farthest point, a crushed hull's moved in by at most the faces' depths, and
+  // `CLEAR_ROUND` covers these axes' rounding against `hullPoint`'s: a bound on every point's own test, so it clears only what that would.
   let allClear = false;
   if (!readAll) {
+    const slack = crushed ? Math.abs(cr[0]!) + Math.abs(cr[1]!) + Math.abs(cr[2]!) + Math.abs(cr[3]!) + Math.abs(cr[4]!) : 0;
+    const turn = turnRate * (POINT_REACH + Math.abs(lift) + slack);
+    const pad = (hypot2(v.x, v.z) + turn) * dt + slack + CLEAR_ROUND;
     let xMin = Infinity;
     let xMax = -Infinity;
     let zMin = Infinity;
     let zMax = -Infinity;
     let low = Infinity;
     for (let i = BODY_FROM; i < POINTS.length; i++) {
-      const r = hullPoint(i, q, -COM_Y, lift, R[n]!);
-      if (crushed && i < HULL.length) crushShift(i, q, cr, r);
-      const px = _com.x + r.x;
-      const pz = _com.z + r.z;
-      _vp.crossVectors(w, r).add(v);
-      const planTravel = hypot2(_vp.x, _vp.z) * dt;
-      xMin = Math.min(xMin, px - planTravel);
-      xMax = Math.max(xMax, px + planTravel);
-      zMin = Math.min(zMin, pz - planTravel);
-      zMax = Math.max(zMax, pz + planTravel);
-      low = Math.min(low, _com.y + r.y - (Math.max(0, -_vp.y) * dt + SPECULATIVE_GAP));
+      const x = POINT_X[i]!;
+      const y = POINT_Y[i]! - COM_Y + (i >= HULL.length ? lift : 0);
+      const z = POINT_Z[i]!;
+      const rx = _e[0]! * x + _e[3]! * y + _e[6]! * z;
+      const rz = _e[2]! * x + _e[5]! * y + _e[8]! * z;
+      xMin = Math.min(xMin, rx);
+      xMax = Math.max(xMax, rx);
+      zMin = Math.min(zMin, rz);
+      zMax = Math.max(zMax, rz);
+      low = Math.min(low, _e[1]! * x + _e[4]! * y + _e[7]! * z);
     }
-    allClear = staticTop(statics, xMin, xMax, zMin, zMax, true) < low;
+    const descent = (Math.max(0, -v.y) + turn) * dt + SPECULATIVE_GAP + slack + CLEAR_ROUND;
+    allClear = staticTop(statics, _com.x + xMin - pad, _com.x + xMax + pad, _com.z + zMin - pad, _com.z + zMax + pad, true) < _com.y + low - descent;
   }
   for (let i = allClear ? POINTS.length : BODY_FROM; i < POINTS.length; i++) {
     const r = hullPoint(i, q, -COM_Y, lift, R[n]!);
