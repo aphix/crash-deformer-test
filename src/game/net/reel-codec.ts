@@ -69,10 +69,11 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * kernel's hypot2/hypot3, not Math.hypot, so every browser computes the same last bits; 43: a clip records the hit
  * speed, the summed cage crush, each scoped hit and which ejections are its own, and a deep slow crush counts as a hit;
  * 44: the ragdoll world runs on Rapier's SIMD wasm build, whose float results differ from the plain build's, so a thrown
- * dummy's and a knocked prop's motion in a replayed clip changes).
+ * dummy's and a knocked prop's motion in a replayed clip changes; 45: race walls and solid props are one solid shaped from
+ * the drawn pieces, and an open door meets them (shut or torn), so a replayed clip near a wall or prop moves differently).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 44;
+const REPLAY_VERSION = 45;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;
