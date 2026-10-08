@@ -10,6 +10,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import type { CarStyleId } from "../vehicle/car-variants.ts";
 import { benchPlan, leaderAhead, type BenchPlan } from "./engine-bench-plan.ts";
 import { watchPage } from "./engine-bench-page.ts";
+import { warmUp } from "./engine-bench-warm.ts";
 import { browserName, describeBench, DETAIL_ARMS, perSecond, PHASE_AB_DETAIL, PHASE_AB_FX, PHASE_AB_PACE, PHASE_WARM, PHASE_WINDOW, stat, type BenchResult, type BenchSettings, type Block } from "./engine-bench-report.ts";
 import type { LabPresetId } from "../scenes/lab.ts";
 import type { RaceDirector } from "./engine-race.ts";
@@ -31,8 +32,6 @@ const GPU_LOG_CAP = CAP * 4;
 /** A detail rung's slot in the window's counts: 0 for a level the ladder has no rung for (`rungKey` "?"), else the level + 1. */
 const RUNG_SLOTS = DETAIL_LEVELS.length + 1;
 const rungSlot = (level: number): number => (level >= 0 && level < DETAIL_LEVELS.length ? level + 1 : 0);
-/** What the lead's card shows (in place of a race clock second) while the grid waits. */
-const GRID_SECOND = -Infinity;
 
 /** The engine's protected parts the bench times, handed over by `EngineInput.benchParts`. */
 export interface BenchParts {
@@ -394,22 +393,6 @@ interface Window {
   fineCuts: number;
   clockS: number;
   thrown: number;
-}
-
-/** The grid and the warm-up: frames with no samples until `plan.warmS` has run, of race clock from the green or of the Lab's sim. */
-async function lead(engine: BenchEngine, parts: BenchParts, t: Tap, beat: Beat, ui: { set(text: string): void }, plan: BenchPlan): Promise<void> {
-  const { renderer, race } = parts;
-  let shownSecond = NaN;
-  for (;;) {
-    await frame(engine, renderer, t, beat);
-    const going = plan.lab !== null || race.phase === "racing";
-    const clock = plan.lab ? t.simS : race.time;
-    if (going && clock >= plan.warmS) return;
-    const second = going ? Math.round(clock) : GRID_SECOND;
-    if (second === shownSecond) continue;
-    shownSecond = second;
-    ui.set(`CRUSH BENCH: ${going ? `warming ${second} / ${plan.warmS} s` : "grid"}`);
-  }
 }
 
 /** Counts one frame in `slot`; a slot joins `order` the first time it is counted, so the shares come out in the order first seen. Returns the slots seen so far. */
@@ -786,7 +769,7 @@ export async function runBench(engine: BenchEngine, hud: () => object, search: s
   const beat: Beat = { prev: await nextFrame(), frame: new Float64Array(FRAME_FIELDS), lab: plan.lab ? { plan: plan.lab, origin: 0, first: 0, segment: -1, preset: null, thrown: false, throws: 0 } : null };
   const page = watchPage();
   page.phase(PHASE_WARM);
-  await lead(engine, parts, t, beat, ui, plan);
+  await warmUp(() => frame(engine, parts.renderer, t, beat), { race: parts.race, simS: () => t.simS, plan, ui });
   page.phase(PHASE_WINDOW);
   const { s, w } = await sample(engine, parts, t, beat, ui);
   const leaderWindowM = leaderAhead(parts, plan);
