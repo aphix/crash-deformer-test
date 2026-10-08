@@ -3,9 +3,12 @@ import assert from "node:assert/strict";
 import * as THREE from "three";
 import "../kernel/rapier-node.test-util.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
-import { launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
+import { type CrashWorld, launch, makeCar, makeWorld, tickWorld } from "../contact/crash-scenarios.test-util.ts";
 import { assertSameDigest } from "../vehicle/test-support.ts";
 import { headOn } from "../vehicle/ejection.test-util.ts";
+import type { GlassName } from "../vehicle/car-core.ts";
+import { glassOf } from "../vehicle/car-glass.test-util.ts";
+import { B_PILLAR_Z } from "../vehicle/car-mesh.ts";
 import { RagdollSystem } from "./engine-ragdoll.ts";
 
 const FRAME = 1 / 60;
@@ -110,30 +113,86 @@ describe("given a head-on crash between two fleet cars whose physics engine for 
   });
 });
 
+/** A car's cabin at rest size in its own frame (m; +z forward, −x its left): a crushed nose ahead of it is not inside. */
+const CABIN = new THREE.Box3(new THREE.Vector3(-0.7, 0.8, -0.75), new THREE.Vector3(0.7, 1.34, 0.61));
+
+/**
+ * The cabin face a torso moving from `from` (outside) to `to` (inside) came in through: of the faces `from` is beyond, the
+ * one its path crosses last. A side face is a door's pane ahead of the B pillar and a quarter pane behind it.
+ */
+function entryFace(from: THREE.Vector3, to: THREE.Vector3): GlassName | "roof" | "lower body" | "B pillar" {
+  let axis = 0;
+  let last = -Infinity;
+  for (let a = 0; a < 3; a++) {
+    const start = from.getComponent(a);
+    const low = CABIN.min.getComponent(a);
+    const high = CABIN.max.getComponent(a);
+    if (start >= low && start <= high) continue;
+    const along = ((start < low ? low : high) - start) / (to.getComponent(a) - start);
+    if (along > last) {
+      last = along;
+      axis = a;
+    }
+  }
+  if (axis === 1) return from.y > CABIN.max.y ? "roof" : "lower body";
+  if (axis === 2) return from.z > CABIN.max.z ? "windshield" : "rear";
+  const z = from.z + (to.z - from.z) * last;
+  if (z >= B_PILLAR_Z.front) return from.x < 0 ? "doorL" : "doorR";
+  if (z <= B_PILLAR_Z.rear) return from.x < 0 ? "quarterL" : "quarterR";
+  return "B pillar";
+}
+
+/**
+ * Runs `w` and the dummies for 2 s and lists each time a dummy's torso came into the cabin of the car `facing(slot)` other
+ * than through a pane already shattered: the frame, the slot, its way in and that pane's state.
+ */
+function wrongCabinEntries(w: CrashWorld, ragdolls: RagdollSystem, facing: (slot: number) => DeformableCar): string[] {
+  const inv = new THREE.Quaternion();
+  // Each slot's torso last frame, in its car's frame.
+  const was = new Map<number, THREE.Vector3>();
+  const local = new THREE.Vector3();
+  const wrong: string[] = [];
+  for (let f = 0; f < 120; f++) {
+    tickWorld(w);
+    ragdolls.update(FRAME, w.cars, true, true, 0, null);
+    for (const [s, d] of ragdolls["dolls"].entries()) {
+      if (!d.live) continue;
+      const car = facing(s);
+      const t = d.bodies[0]!.translation();
+      local.set(t.x, t.y, t.z).sub(car.group.position).applyQuaternion(inv.copy(car.group.quaternion).invert());
+      const from = was.get(s);
+      if (CABIN.containsPoint(local) && !(from && CABIN.containsPoint(from))) {
+        const face = from ? entryFace(from, local) : "thrown in";
+        const pane = glassOf(car)[face];
+        if (pane !== "shattered") wrong.push(`frame ${f} dummy ${s} through ${face}${pane ? ` (${pane})` : ""}`);
+      }
+      was.set(s, (from ?? new THREE.Vector3()).copy(local));
+    }
+  }
+  ragdolls.dispose();
+  return wrong;
+}
+
 describe("given a fleet head-on crash that throws both drivers", () => {
-  it("when the dummies fly for 2 s, then each driver flies into the other car and never ends up inside its cabin", async () => {
+  it("when the dummies fly for 2 s, then each driver flies into the other car and enters its cabin only through a pane already shattered, never through its roof, its lower body, a pillar or standing glass", async () => {
     const cars = headOn(20);
     const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
     await ragdolls.preload();
     const w = makeWorld(cars, false, false);
     w.onEject = (e) => ragdolls.launch(e, cars);
-    const local = new THREE.Vector3();
-    const inv = new THREE.Quaternion();
-    const inside: string[] = [];
-    for (let f = 0; f < 120; f++) {
-      tickWorld(w);
-      ragdolls.update(FRAME, cars, true, true, 0, null);
-      // Slots fill in car order (car 0's driver first): each torso against the OTHER car's cabin (it never crushes;
-      // the crushed nose in front of it is not where the rest-size box says).
-      for (const [s, d] of ragdolls["dolls"].entries()) {
-        if (!d.live) continue;
-        const other = cars[1 - s]!;
-        const t = d.bodies[0]!.translation();
-        local.set(t.x, t.y, t.z).sub(other.group.position).applyQuaternion(inv.copy(other.group.quaternion).invert());
-        if (Math.abs(local.x) < 0.7 && local.y > 0.8 && local.y < 1.34 && local.z > -0.75 && local.z < 0.61) inside.push(`frame ${f} driver ${s} at ${local.toArray().map((v) => v.toFixed(2))}`);
-      }
-    }
-    ragdolls.dispose();
-    assert.deepEqual(inside, [], "a torso inside the other car's cabin");
+    // Slots fill in car order: car 0's driver first, and each flies at the other car.
+    assert.deepEqual(wrongCabinEntries(w, ragdolls, (slot) => cars[1 - slot]!), [], "a torso entered the other car's cabin where no pane is gone");
+  });
+});
+
+describe("given a parked car with its glass whole", () => {
+  it("when a dummy drops onto its roof from 1 m over it, then he never enters its cabin", async () => {
+    const car = makeCar();
+    const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
+    await ragdolls.preload();
+    const w = makeWorld([car], false, false);
+    const over = new THREE.Vector3(0, CABIN.max.y + 1, (CABIN.min.z + CABIN.max.z) / 2);
+    ragdolls.place(over, new THREE.Quaternion(), new THREE.Vector3(), new THREE.Vector3(), 2, -1);
+    assert.deepEqual(wrongCabinEntries(w, ragdolls, () => car), [], "a torso entered the cabin of a car with no pane gone");
   });
 });
