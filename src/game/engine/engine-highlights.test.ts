@@ -19,11 +19,20 @@ import { assertSameNumbers } from "../vehicle/test-support.ts";
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
 const SEED = 5;
 /**
- * The seed of the frames test, which needs the field's first clip to open with its focus car driving (a car moving
- * through the slow-mo). Any change to the car sim moves a seed's whole race, so the leftovers test no longer rides a seed:
- * it scripts its own first crash.
+ * A deliberate first crash on intact cars, a second into the race: cars 2 and 3 put head-on 8 m apart on the city road at `aMps` and
+ * `bMps` m/s. No seed's natural field guarantees one (any change to the car sim moves a seed's whole race, and slow bumps tear parts
+ * that no longer make a clip), as the stunt test below does.
  */
-const CLEAN_SEED = 8;
+function stageHeadOn(w: World, aMps: number, bMps: number): void {
+  const track = new Track(city);
+  const pt = blankPoint();
+  const state = { acc: 0 };
+  for (let n = 0; w.race.time < 1 && n < 900; n++) frame(w, state);
+  track.pointAt(150, pt);
+  w.cars[2]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), aMps);
+  track.pointAt(158, pt);
+  w.cars[3]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, bMps);
+}
 
 describe("given the highlight reel timeline of a 10 s clip whose first impact is at 4 s", () => {
   it("when the clip plays, then it runs at normal speed up to the hit, holds the slow-motion over the hit, then catches up to the clip's last step", () => {
@@ -138,17 +147,9 @@ describe("given a city race whose first crash is two cars put head-on a second i
   it("when a highlight reel plays and ends, then each clip's setup empties the scene (torn parts on hidden cars included), the reel ending empties what the clips left, and stopping with no reel up clears nothing", async () => {
     const a = makeWorld();
     try {
-      // A deliberate first crash on intact cars (no seed's natural field guarantees one: slow bumps tear parts that no longer make a clip):
-      // cars 2-3 are put head-on at 2 × 20 m/s a second into the race, as the stunt test below does.
+      // A deliberate first crash on intact cars (no seed's natural field guarantees one: slow bumps tear parts that no longer make a clip).
       race(a, FIELD, SEED);
-      const track = new Track(city);
-      const pt = blankPoint();
-      const state = { acc: 0 };
-      for (let n = 0; a.race.time < 1 && n < 900; n++) frame(a, state);
-      track.pointAt(150, pt);
-      a.cars[2]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz), 20);
-      track.pointAt(158, pt);
-      a.cars[3]!.spawnFacing(pt.x, pt.z, Math.atan2(pt.tx, pt.tz) + Math.PI, 20);
+      stageHeadOn(a, 20, 20);
       const reel = await recordedReel(a);
       const torn = (): number => a.cars.reduce((n, c) => n + c["parts"].filter((p) => p.detached).length, 0);
       // Precondition of the seed, not the rule: the first clip itself restores no torn part, so what a setup leaves is the race's.
@@ -220,11 +221,12 @@ function assertDrawingKeepsReplay(w: World, clip: Reel["clips"][number], hz: num
   assertSameNumbers(stateOf(cars), drawn, `${hz} Hz: the replay's final state with a drawn frame inside every step`);
 }
 
-describe("given a recorded highlight clip from a seeded city race that opens with its focus car driving", () => {
+describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s car head-on a second in, and its clip opens with its focus car driving", () => {
   it("when it plays at 60 and at 240 Hz, then the car moving through the slow-motion is drawn moving on every frame, and drawing frames never changes the replay", async () => {
     const a = makeWorld();
     try {
-      race(a, FIELD, CLEAN_SEED);
+      race(a, FIELD, SEED);
+      stageHeadOn(a, 30, 10);
       const reel = await recordedReel(a);
       const clip = reel.clips[0]!;
       for (const hz of [60, 240]) {
