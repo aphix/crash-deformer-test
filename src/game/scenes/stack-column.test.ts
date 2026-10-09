@@ -70,10 +70,11 @@ describe("given the owner's drops (11 cars, 0.15 m, one a second), run for 8 s a
   // 8 s after the last drop; one top car creeping at about 2.3 mm/s). Cause: the top muscle car's front tyres rest on the steep
   // sides of the sedan roof under it (normals ±0.85 / 0.52), and the load on its belly rows flips between belly points every other
   // slice, so the tyres' springs and the rigid belly rows trade the weight. A single solve of tyre and hull rows was built and measured
-  // (a sedan column then sways to 0.47 m at 20 s: the lagged coupling between stacked cars is open), so this closes with the
-  // one body solve in Stage 4. For a player: a stack of eleven cars dropped one a second drifts a hand's breadth at the top over a minute.
+  // (a sedan column then sways to 0.47 m at 20 s: the lagged coupling between stacked cars is open), so this closes in Stage 2, where
+  // tops and sides converge on one query and tyre and hull rows read the same contact (re-measured there; Stage 4 if still open). For a
+  // player: a stack of eleven cars dropped one a second drifts a hand's breadth at the top over a minute.
   for (const bodies of ["sedans", "fleet without the monster"] as const) {
-    const todo = bodies === "sedans" ? undefined : "the top car creeps off the column by 0.10 m: tyre and belly rows trade the weight every slice; closes with the one body solve (Stage 4)";
+    const todo = bodies === "sedans" ? undefined : "the top car creeps off the column by 0.10 m: tyre and belly rows trade the weight every slice; closes in Stage 2 (tops and sides on one query), re-measured there; Stage 4 if still open";
     it(`when the column is made of ${bodies}, then no car leaves it by 0.1 m or more, it ends within 5 cm of its axis leaning under 3°, every car reads a load, and the roof sink never grows toward the top, from over 300 mm at the bottom to under 5 mm at the top`, { todo }, () => {
       let worst = 0;
       const { cars, rig } = column(OWNER, bodies, OWNER_S, (cs) => {

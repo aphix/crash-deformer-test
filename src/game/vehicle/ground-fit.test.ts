@@ -168,8 +168,9 @@ describe("given a braked car placed at every heading across a matrix of ground s
   // that stops its closing, while its twin 0.7 mm short still pushes its spring (0.0097 against 0.005 a slice on a 0.74 m arm), so
   // the body rolls; first red where the four springs are solved together. For a player: a car braked at the very lip of a ramp's rear
   // edge sags a few centimetres into the slope on one side. Two fixes (keep the stopped tyre in the spring system) pass this cell but
-  // break corkscrew, fleet-ramps and stack-column, so it closes with the one solve of tyres and the hull (Stage 4).
-  it("when the car sits on the +z ramp's rear lip with its wheels on the edge, then it sits on the ground at every heading", { todo: "a tyre past its stop leaves the spring system while its twin still pushes: rolls the body 12°; closes with the one tyre-and-hull solve (Stage 4)" }, (t) => report(t, rampSites().filter((site) => site.name === OPEN_RAMP_SITE)));
+  // break corkscrew, fleet-ramps and stack-column, so it closes in Stage 2, where tyre and hull rows read the same contact
+  // (re-measured there; Stage 4 if still open).
+  it("when the car sits on the +z ramp's rear lip with its wheels on the edge, then it sits on the ground at every heading", { todo: "a tyre past its stop leaves the spring system while its twin still pushes: rolls the body 12°; closes in Stage 2 (tyre and hull rows on one contact), re-measured there; Stage 4 if still open" }, (t) => report(t, rampSites().filter((site) => site.name === OPEN_RAMP_SITE)));
 
   it("when the car brakes on the stunt course's CRUSH crest and descent, then it sits on the ground at every heading", (t) => report(t, crestSites()));
 
