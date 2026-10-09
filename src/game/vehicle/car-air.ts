@@ -327,6 +327,78 @@ function weightClosing(c: number, dt: number): number {
   return Math.max(0, -_vp.crossVectors(_lw, R[c]!).add(_lv).addScaledVector(UP, -G * dt).dot(N[c]!));
 }
 
+const WHEELS = WHEEL_POS.length;
+const AUGMENTED_STRIDE = WHEELS + 1;
+/** The tyre springs' system for the slice: matrix, right side, the tyres still pushing, their rows, the augmented rows and the solution. */
+const SPRING_LHS = new Float64Array(WHEELS * WHEELS);
+const SPRING_RHS = new Float64Array(WHEELS);
+const SPRING_PUSHING = Array.from({ length: WHEELS }, () => false);
+const SPRING_ROW = new Int32Array(WHEELS);
+const SPRING_AUGMENTED = new Float64Array(WHEELS * AUGMENTED_STRIDE);
+const SPRING_SOLUTION = new Float64Array(WHEELS);
+/** Per tyre: the spin one unit of impulse straight up at it gives the body (the body's inverse inertia on its arm × up). */
+const SPIN_PER_PUSH = Array.from({ length: WHEELS }, () => new THREE.Vector3());
+
+/** `SPRING_LHS` x = `SPRING_RHS` over the tyres still pushing, into `ASK` (Gaussian elimination: the matrix is the identity plus a positive-definite response). */
+function solveSpringSystem(tyres: number): void {
+  let rows = 0;
+  for (let c = 0; c < tyres; c++) if (SPRING_PUSHING[c]) SPRING_ROW[rows++] = c;
+  for (let a = 0; a < rows; a++) {
+    for (let b = 0; b < rows; b++) SPRING_AUGMENTED[a * AUGMENTED_STRIDE + b] = SPRING_LHS[SPRING_ROW[a]! * WHEELS + SPRING_ROW[b]!]!;
+    SPRING_AUGMENTED[a * AUGMENTED_STRIDE + rows] = SPRING_RHS[SPRING_ROW[a]!]!;
+  }
+  for (let pivot = 0; pivot < rows; pivot++) {
+    const diagonal = SPRING_AUGMENTED[pivot * AUGMENTED_STRIDE + pivot]!;
+    for (let r = pivot + 1; r < rows; r++) {
+      const factor = SPRING_AUGMENTED[r * AUGMENTED_STRIDE + pivot]! / diagonal;
+      for (let col = pivot; col <= rows; col++) SPRING_AUGMENTED[r * AUGMENTED_STRIDE + col] = SPRING_AUGMENTED[r * AUGMENTED_STRIDE + col]! - factor * SPRING_AUGMENTED[pivot * AUGMENTED_STRIDE + col]!;
+    }
+  }
+  for (let a = rows - 1; a >= 0; a--) {
+    let rest = SPRING_AUGMENTED[a * AUGMENTED_STRIDE + rows]!;
+    for (let b = a + 1; b < rows; b++) rest -= SPRING_AUGMENTED[a * AUGMENTED_STRIDE + b]! * SPRING_SOLUTION[b]!;
+    SPRING_SOLUTION[a] = rest / SPRING_AUGMENTED[a * AUGMENTED_STRIDE + a]!;
+  }
+  for (let a = 0; a < rows; a++) ASK[SPRING_ROW[a]!] = SPRING_SOLUTION[a]!;
+}
+
+/**
+ * The tyres in their springs push together, `ASK[c]` each (impulse per unit mass): `dt (G/4 + stiff x + damp u)` with u the press rate
+ * of the slice's start and x the press at the end of it, after every tyre's push, moved by half the rate's change (the trapezoid rule
+ * of the slice's move). One linear system over the four tyres, so no tyre's push depends on the order they are listed in, and a stiff
+ * spring cannot swing the body from one side to the other every slice (the push of the slice's start state did: the roll mode of a
+ * 24 Hz spring at 120 Hz, a limit cycle of 0.09°). A tyre the system would pull is left out and the rest solved again.
+ */
+function springPushes(tyres: number, stiff: number, damp: number, dt: number, q: THREE.Quaternion, v: THREE.Vector3, w: THREE.Vector3): void {
+  const endForce = 0.5 * dt * stiff;
+  for (let d = 0; d < tyres; d++) {
+    SPRING_PUSHING[d] = SOFT[d]!;
+    if (SOFT[d]) invInertia(SPIN_PER_PUSH[d]!.crossVectors(R[d]!, UP), q, _qi);
+  }
+  for (let c = 0; c < tyres; c++) {
+    if (!SOFT[c]) continue;
+    const rising = N[c]!.y > 0;
+    const gravityRate = rising ? G * dt : 0;
+    const startRate = rising ? -pointVel(c, v, w, _vp).dot(N[c]!) / N[c]!.y - G * dt : 0;
+    SPRING_RHS[c] = dt * (G / 4 + stiff * (PRESS[c]! + 0.5 * dt * gravityRate) + damp * startRate);
+    for (let d = 0; d < tyres; d++) {
+      const response = rising && SOFT[d] ? (N[c]!.y + _k.crossVectors(SPIN_PER_PUSH[d]!, R[c]!).dot(N[c]!)) / N[c]!.y : 0;
+      SPRING_LHS[c * WHEELS + d] = (c === d ? 1 : 0) + dt * endForce * response;
+    }
+  }
+  for (let round = 0; round < tyres; round++) {
+    solveSpringSystem(tyres);
+    let pulled = false;
+    for (let c = 0; c < tyres; c++) {
+      if (!SPRING_PUSHING[c] || ASK[c]! >= 0) continue;
+      SPRING_PUSHING[c] = false;
+      ASK[c] = 0;
+      pulled = true;
+    }
+    if (!pulled) break;
+  }
+}
+
 /**
  * Body point `i` of `POINTS` turned by the body's orientation `q`, from a point `dy` above the group's origin (car-local y).
  * The belly rides the class's body `lift` (the drawn body is what bottoms out; the bumper, beltline and roof hulls stay
@@ -751,11 +823,9 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
   // The tyres in their springs push together, from the slice's state, and share each face's budget (`take`) in proportion to what each
   // asks: in list order the first spent it, and a coupe's two rear tyres landing on a wagon's roof took 6.2 and 2.3 of 6.2 each and rolled
   // it off the column.
+  springPushes(tyres, stiff, damp, dt, q, v, w);
   for (let c = 0; c < tyres; c++) {
     if (!SOFT[c]) continue;
-    pointVel(c, v, w, _vp);
-    const rate = N[c]!.y > 0 ? -_vp.dot(N[c]!) / N[c]!.y - G * dt : 0;
-    ASK[c] = Math.max(0, G / 4 + stiff * PRESS[c]! + damp * rate) * dt;
     // A tyre within a speculative gap of its stop whose spring pushes less than the weight the slice brings onto it rests on the stop,
     // held there like a body point (`GAPV`): left on its springs, a wreck's rear tyres just short of their stop under a four-car stack
     // fell onto it every other slice and the stack slid 29 mm off. A spring that carries the weight stays a spring: held at the stop
