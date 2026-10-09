@@ -196,7 +196,7 @@ export abstract class EngineCore {
   protected impactLightLife = 0;
   protected envMap: THREE.Texture | null = null;
   protected debris!: DebrisSystem;
-  protected readonly wheels = new WheelBatch(MAX_CARS * 4);
+  protected readonly wheels = new WheelBatch(MAX_CARS * 4, (car) => this.detail.isFar(car));
   protected readonly lampBatch = new LampBatch(MAX_CARS * 2);
   protected lampLights!: LampLights;
   protected sparks!: SparkSystem;

@@ -1,6 +1,10 @@
 import * as THREE from "three";
 import { makeWheelGeometry, makeWheelGeometryFar, makeWheelMaterial, treadNormalMap } from "./car-materials.ts";
+import type { DeformableCar } from "./car.ts";
 import { spokeSmear } from "./wheel-blur.ts";
+
+/** What the batch needs of a renderer: its shadow pass, which it wraps to show the shadow prisms to that pass alone. */
+type ShadowPass = { readonly shadowMap: { render: THREE.WebGLShadowMap["render"] } };
 
 /** An untinted wheel: the instance colour that leaves the tyre and the alloy as toned. */
 const UNTINTED = new THREE.Color(1, 1, 1);
@@ -64,10 +68,10 @@ class WheelLane {
   }
 }
 
-/** The tyre's circumference as the shadow proxy's prism: twelve sides of equal area to the circle, so the shadow keeps its size. */
+/** The shadow proxy's prism is twelve-sided, of equal area to the tyre's circle so the shadow keeps its size. */
 const SHADOW_SIDES = 12;
-/** The proxy's circumradius (m): the tyre's crown radius (`TYRE_R`, 0.32) scaled by √(π / (SIDES · sin(2π / SIDES) / 2)) for equal area. */
-const SHADOW_RADIUS = 0.32 * Math.sqrt(Math.PI / ((SHADOW_SIDES * Math.sin((2 * Math.PI) / SHADOW_SIDES)) / 2));
+/** Its circumradius (m): the tyre's crown radius (`TYRE_R`, 0.32) times √(π / 3), since a twelve-sided polygon's area is 3 R². */
+const SHADOW_RADIUS = 0.32 * Math.sqrt(Math.PI / 3);
 /** The tyre's width (m) between its shoulders (±0.112 on `TYRE_PROFILE`). */
 const SHADOW_WIDTH = 0.224;
 
@@ -87,6 +91,8 @@ export class WheelBatch {
   private readonly near: WheelLane;
   private readonly far: WheelLane;
   private readonly shadow: THREE.InstancedMesh;
+  private readonly isFar: (car: DeformableCar) => boolean;
+  private attached: ShadowPass | null = null;
   private detach: (() => void) | null = null;
   /**
    * Each wheel's angle at its last change and the turn that change made: the turn between two drawn frames is what the
@@ -94,7 +100,9 @@ export class WheelBatch {
    */
   private readonly turn = new WeakMap<THREE.Object3D, { angle: number; step: number }>();
 
-  constructor(capacity: number) {
+  /** `isFar`: whether the distance detail has cut a car to its body (`CarDetail.isFar`): its wheels are drawn far wheels. */
+  constructor(capacity: number, isFar: (car: DeformableCar) => boolean) {
+    this.isFar = isFar;
     this.near = new WheelLane(makeWheelGeometry(), capacity);
     this.far = new WheelLane(makeWheelGeometryFar(), capacity);
     const prism = new THREE.CylinderGeometry(SHADOW_RADIUS, SHADOW_RADIUS, SHADOW_WIDTH, SHADOW_SIDES).rotateZ(Math.PI / 2);
@@ -111,7 +119,9 @@ export class WheelBatch {
   }
 
   /** Show the shadow prisms to `renderer`'s shadow pass and to nothing else. */
-  attach(renderer: { readonly shadowMap: { render: THREE.WebGLShadowMap["render"] } }): void {
+  private attach(renderer: ShadowPass): void {
+    this.detach?.();
+    this.attached = renderer;
     const map = renderer.shadowMap;
     const render = map.render;
     map.render = (lights, scene, camera) => {
@@ -127,13 +137,14 @@ export class WheelBatch {
     };
   }
 
-  /** Pack the shown wheels of `cars` (world matrices must be current); a car `isFar` says the detail has cut gets the far wheel. */
-  sync<C extends { readonly wheels: readonly THREE.Object3D[] }>(cars: readonly C[], isFar: (car: C) => boolean): void {
+  /** Pack the shown wheels of `cars` (world matrices must be current); a car the detail has cut gets the far wheel. `renderer` is the one drawing: its shadow pass is hooked once. */
+  sync(cars: readonly DeformableCar[], renderer: ShadowPass): void {
+    if (this.attached !== renderer) this.attach(renderer);
     this.near.begin();
     this.far.begin();
     let shadows = 0;
     for (const car of cars) {
-      const lane = isFar(car) ? this.far : this.near;
+      const lane = this.isFar(car) ? this.far : this.near;
       for (const w of car.wheels) {
         let shown = lane.open;
         for (let p: THREE.Object3D | null = w; p && shown; p = p.parent) shown = p.visible;
@@ -159,6 +170,7 @@ export class WheelBatch {
 
   dispose(): void {
     this.detach?.();
+    this.attached = null;
     for (const mesh of this.meshes) {
       mesh.geometry.dispose();
       mesh.dispose();
