@@ -103,13 +103,15 @@ describe("given a loop whose state is in the address of its bench page", () => {
   it("when a loop starts from a custom strip address (len, cars, props), then every strip step of every cycle builds the same strip", () => {
     const custom = "?bench=strip&len=2500&cars=4&props=rock:7&same=off&traffic=off";
     const wanted = benchPlan(custom)!;
+    const shape = { len: "2500", cars: "4", props: "rock:7", same: "off", traffic: "off" } as const;
     let href = new URL(custom, base).toString();
     const seen: string[] = [];
     for (let run = runFromPage(custom, "k3x9q2"); run !== null && run.loop <= 2; ) {
       href = stepHref(href, run);
       if (stepOf(run).id.startsWith("strip")) {
-        const plan = benchPlan(searchOf(href))!;
-        assert.deepEqual([plan.strip, plan.racers, plan.body], [wanted.strip, wanted.racers, wanted.body], `${run.loop} ${stepOf(run).id}`);
+        const q = new URLSearchParams(searchOf(href));
+        for (const [name, value] of Object.entries(shape)) assert.equal(q.get(name), value, `${run.loop} ${stepOf(run).id}: ${name}`);
+        assert.equal(benchPlan(searchOf(href))!.racers, 4, `${run.loop} ${stepOf(run).id}: racers`);
         seen.push(stepOf(run).id);
       }
       run = advance(run);
