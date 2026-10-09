@@ -560,3 +560,21 @@ export function makeWheelGeometry(): THREE.BufferGeometry {
   parts.push(smeared(flatPart(new THREE.CylinderGeometry(0.062, 0.062, 0.19, 10).rotateZ(Math.PI / 2), [0x8a909a, 0.35, 0.8]), 0));
   return mergeToned(parts, "wheel");
 }
+
+/** Which of `TYRE_PROFILE`'s nine points the far wheel keeps: bead, shoulder, crown, shoulder, bead. */
+const FAR_TYRE_POINTS = [0, 2, 4, 6, 8] as const;
+/** The far wheel's disc where the near one has spokes over a dark disc: their average at rest, and the blur tone once smeared. */
+const FAR_DISC = [0x4a4d53, 0.5, 0.6] as const;
+
+/**
+ * The wheel of a car the distance detail has cut to its body (`present/car-detail.ts`): the same tyre silhouette and width
+ * on twelve segments and a flat disc each side, 120 triangles for the near wheel's ~680. A far car is about 20 px at the
+ * rungs' far distances, its wheel a couple of pixels. Same attributes and axle as `makeWheelGeometry`, so the one material draws both.
+ */
+export function makeWheelGeometryFar(): THREE.BufferGeometry {
+  const profile = FAR_TYRE_POINTS.map((i) => TYRE_PROFILE[i]!);
+  const treadV = FAR_TYRE_POINTS.map((i) => TYRE_TREAD_V[i]!);
+  const parts = [smeared(latheX(profile, 12, treadV, TREAD_REPEATS, RUBBER), 0)];
+  for (const side of [1, -1]) parts.push(smeared(flatPart(new THREE.CircleGeometry(0.2, 12).rotateY((side * Math.PI) / 2), FAR_DISC), 1));
+  return mergeToned(parts, "far wheel");
+}

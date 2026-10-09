@@ -105,6 +105,11 @@ export class CarDetail {
     this.level = -1;
   }
 
+  /** Whether `car` is cut to its body alone right now: the wheel batch draws it its far wheels (`WheelBatch.sync`). */
+  isFar(car: DeformableCar): boolean {
+    return this.cuts.get(car)?.far != null;
+  }
+
   /** Once a frame, after the camera and the sim have settled and before the draw. `keepA` and `keepB` are never cut. */
   update(cars: readonly DeformableCar[], camera: THREE.PerspectiveCamera, keepA: DeformableCar | null, keepB: DeformableCar | null): void {
     _eye.setFromMatrixPosition(camera.matrixWorld);
