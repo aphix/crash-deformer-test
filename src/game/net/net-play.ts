@@ -152,10 +152,13 @@ export class NetPlay {
   private finishedFor = 0;
   /** Client: R was tapped or held (`INPUT_RESPAWN`, `INPUT_HOLD`); rides on the next input packet. */
   private resetWanted = 0;
-  /** Client: `performance.now()` of the host's last race message (race mode follows the host's). */
-  private raceAt = 0;
-  /** Client: `performance.now()` of the host's last derby message (0: not in derby mode). */
-  private derbyAt = 0;
+  /**
+   * Client: frame time (s) since the host's last race message, counted only while this client could hear
+   * (frames ran, the host not merely paused), so a hidden tab or a throttled host never ends the race.
+   */
+  private raceSilentFor = 0;
+  /** The same for the host's derby messages; null: not in derby mode. */
+  private derbySilentFor: number | null = null;
   /** A closed tab never runs the engine's dispose: leave the room so the relay drops us at once. */
   private readonly onPageHide = (): void => this.leave();
   /** A hidden tab draws no frames: a guest idles its car, a host tells its guests it is paused. */
@@ -188,6 +191,7 @@ export class NetPlay {
   join(room: string, tx: NetTx = NET_TX.bc): void {
     this.start("client", room, tx);
     this.silentFor = 0;
+    this.raceSilentFor = 0;
     this.heardHost = false;
   }
 
@@ -287,7 +291,7 @@ export class NetPlay {
     if (typeof window !== "undefined") window.removeEventListener("pagehide", this.onPageHide);
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.onVisibility);
     if (this.role === "client" && this.game.race()) this.game.exitRace();
-    if (this.role === "client" && this.derbyAt > 0) this.game.applyDerby(null, this.car);
+    if (this.role === "client" && this.derbySilentFor !== null) this.game.applyDerby(null, this.car);
     if (this.role === "host") {
       // Back to a solo game: no seat stays a network peer's, and no peer's last input keeps driving.
       const race = this.game.race();
@@ -296,7 +300,7 @@ export class NetPlay {
       this.game.setSeats(new Map());
     }
     this.setHidden(false);
-    this.derbyAt = 0;
+    this.derbySilentFor = null;
     this.transport?.close();
     this.transport = null;
     this.role = "off";
@@ -720,7 +724,7 @@ export class NetPlay {
     const s = readRace(data);
     if (!s) return;
     this.lobbyLeft = s.lobby;
-    this.raceAt = this.now();
+    this.raceSilentFor = 0;
     this.game.enterRace();
     const race = this.game.race();
     if (!race) return;
@@ -743,7 +747,7 @@ export class NetPlay {
       return;
     }
     this.lobbyLeft = state.lobby;
-    this.derbyAt = this.now();
+    this.derbySilentFor = 0;
     this.game.applyDerby(state, this.car);
   }
 
@@ -787,14 +791,19 @@ export class NetPlay {
       this.forgetHost();
       this.hostLost = true;
     }
-    // The host left race or derby mode (its messages stop): so does this client.
-    if (this.game.race() && this.heardHost && this.now() - this.raceAt > RACE_GONE_MS) {
+    // The host left race or derby mode (its messages stop): so does this client. Only frames this client ran
+    // while the host wasn't merely paused count: a hidden tab or a throttled host sends no race messages.
+    if (!paused) {
+      this.raceSilentFor += wallDt;
+      if (this.derbySilentFor !== null) this.derbySilentFor += wallDt;
+    }
+    if (this.game.race() && this.heardHost && this.raceSilentFor * 1000 > RACE_GONE_MS) {
       this.game.exitRace();
       this.lobbyLeft = null;
     }
-    if (this.derbyAt > 0 && this.now() - this.derbyAt > RACE_GONE_MS) {
+    if (this.derbySilentFor !== null && this.derbySilentFor * 1000 > RACE_GONE_MS) {
       this.game.applyDerby(null, this.car);
-      this.derbyAt = 0;
+      this.derbySilentFor = null;
       this.lobbyLeft = null;
     }
     if (this.hostId === null && !this.refused) {
@@ -816,7 +825,7 @@ export class NetPlay {
       this.game.setCarCount(count);
       this.applied.length = 0;
       // In race mode the race director seats this peer (applySnapshot); in Fleet it follows its car.
-      if (this.car >= 0 && !this.game.race() && this.derbyAt === 0) this.game.seat.focus(this.car);
+      if (this.car >= 0 && !this.game.race() && this.derbySilentFor === null) this.game.seat.focus(this.car);
     }
     const latest = this.ring[newest]!;
     if (Math.abs(latest.realism - HANDLING.realism) > 0.5 / 255) this.game.setRealism(latest.realism);
