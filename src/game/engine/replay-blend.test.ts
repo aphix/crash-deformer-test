@@ -36,10 +36,10 @@ function entities(cars: readonly DeformableCar[]): { cls: Class; object: THREE.O
   const out: { cls: Class; object: THREE.Object3D }[] = [];
   for (const c of cars) {
     out.push({ cls: "group", object: c.group });
-    const body = c.classBodyObject();
+    const body = c["classBodyObject"]();
     if (body) out.push({ cls: "classLift", object: body });
     for (const w of c.wheels) out.push({ cls: "wheel", object: w });
-    for (const p of c.parts) out.push({ cls: "part", object: p.object });
+    for (const p of c["parts"]) out.push({ cls: "part", object: p.object });
   }
   return out;
 }
