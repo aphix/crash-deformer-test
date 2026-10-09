@@ -18,7 +18,9 @@ import {
   LIGHT_BAR_FOOT,
   LIGHT_BAR_LENS,
   makeDoorLining,
-  makeGlassMaterial,
+  GLASS_COLOR,
+  glassMaterial,
+  type GlassLook,
   makeGrille,
   makeInterior,
   makeLightBar,
@@ -170,7 +172,9 @@ export const EXIT_PANES: readonly (ExitPane | null)[] = [null, "windshield", "do
 export interface GlassPane {
   name: GlassName;
   mesh: THREE.Mesh;
-  mat: THREE.MeshStandardMaterial;
+  /** The look it wears now and the colour it wears it in: it draws the shared `glassMaterial(look, tint)`. */
+  look: GlassLook;
+  tint: number;
   restPos: THREE.Vector3;
   restVerts: Float32Array | null;
   state: GlassState;
@@ -511,7 +515,8 @@ export abstract class CarCore {
       this.glassPanes.push({
         name,
         mesh,
-        mat: mesh.material as THREE.MeshPhysicalMaterial,
+        look: "fresh",
+        tint: GLASS_COLOR,
         restPos: mesh.position.clone(),
         restVerts: skin ? this.copyRest(mesh.geometry) : null,
         state: "intact",
@@ -519,18 +524,18 @@ export abstract class CarCore {
         skin,
       });
     };
-    const glassMat = makeGlassMaterial();
+    const glassMat = glassMaterial("fresh");
     const style = this.style;
-    addPane("windshield", new THREE.Mesh(makeWindshield(style), glassMat.clone()), this.group, ["roof", "bonnet"], "glassFront");
-    addPane("rear", new THREE.Mesh(makeRearGlass(style), glassMat.clone()), this.group, ["roof", "boot"], "glassRear");
-    const sideL = new THREE.Mesh(makeSideGlass(-1, style), glassMat.clone());
+    addPane("windshield", new THREE.Mesh(makeWindshield(style), glassMat), this.group, ["roof", "bonnet"], "glassFront");
+    addPane("rear", new THREE.Mesh(makeRearGlass(style), glassMat), this.group, ["roof", "boot"], "glassRear");
+    const sideL = new THREE.Mesh(makeSideGlass(-1, style), glassMat);
     sideL.position.set(0.02, 0.52, -0.28);
     addPane("doorL", sideL, this.doorL, ["doorLeft", "roof"]);
-    const sideR = new THREE.Mesh(makeSideGlass(1, style), glassMat.clone());
+    const sideR = new THREE.Mesh(makeSideGlass(1, style), glassMat);
     sideR.position.set(-0.02, 0.52, -0.28);
     addPane("doorR", sideR, this.doorR, ["doorRight", "roof"]);
-    addPane("quarterL", new THREE.Mesh(makeRearSideGlass(-1, style), glassMat.clone()), this.group, ["roof", "doorLeft"]);
-    addPane("quarterR", new THREE.Mesh(makeRearSideGlass(1, style), glassMat.clone()), this.group, ["roof", "doorRight"]);
+    addPane("quarterL", new THREE.Mesh(makeRearSideGlass(-1, style), glassMat), this.group, ["roof", "doorLeft"]);
+    addPane("quarterR", new THREE.Mesh(makeRearSideGlass(1, style), glassMat), this.group, ["roof", "doorRight"]);
   }
 
   private registerParts(): void {
@@ -646,10 +651,21 @@ export abstract class CarCore {
     g.mesh.visible = true;
     g.mesh.position.copy(g.restPos);
     if (g.restVerts) this.restoreRest(g.mesh.geometry, g.restVerts);
-    g.mat.opacity = 0.78;
-    g.mat.map = null;
-    g.mat.roughness = 0.06;
-    g.mat.needsUpdate = true;
+    this.wearGlass(g, "clear");
+  }
+
+  /** Pane `g` draws in `look`, in its own colour. */
+  protected wearGlass(g: GlassPane, look: GlassLook): void {
+    g.look = look;
+    g.mesh.material = glassMaterial(look, g.tint);
+  }
+
+  /** The player's glass colour (`car-look.ts`): every pane keeps its look, in `color`. */
+  setGlassTint(color: number): void {
+    for (const g of this.glassPanes) {
+      g.tint = color;
+      this.wearGlass(g, g.look);
+    }
   }
 
   /** Relight every lamp and re-seat it on the (rest) skin. */

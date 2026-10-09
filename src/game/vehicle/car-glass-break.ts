@@ -1,5 +1,4 @@
 import * as THREE from "three";
-import { getCrackMap } from "./car-materials.ts";
 import { CarCore, type GlassName, type GlassPane } from "./car-core.ts";
 
 /**
@@ -23,10 +22,7 @@ export abstract class CarGlass extends CarCore {
   /** Pane `g` cracks: the crack map over a hazier pane. Every crack goes through here (the frame strain, a thrown torso, a net state). */
   protected crackGlass(g: GlassPane): void {
     g.state = "cracked";
-    g.mat.map = getCrackMap();
-    g.mat.opacity = 0.55;
-    g.mat.roughness = 0.32;
-    g.mat.needsUpdate = true;
+    this.wearGlass(g, "cracked");
   }
 
   /**

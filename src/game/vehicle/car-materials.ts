@@ -291,9 +291,12 @@ function mergeToned(parts: THREE.BufferGeometry[], what: string): THREE.BufferGe
   return geo;
 }
 
+/** The glass colour a car is built with. */
+export const GLASS_COLOR = 0x1a2832;
+
 export function makeGlassMaterial(): THREE.MeshStandardMaterial {
   return new THREE.MeshStandardMaterial({
-    color: 0x1a2832,
+    color: GLASS_COLOR,
     metalness: 0.18,
     roughness: 0.08,
     transparent: true,
@@ -305,6 +308,35 @@ export function makeGlassMaterial(): THREE.MeshStandardMaterial {
     forceSinglePass: true,
     depthWrite: true,
   });
+}
+
+/** What a pane looks like: as built, cleared by a reset (`resetGlass`), or cracked (`crackGlass`). */
+export type GlassLook = "fresh" | "clear" | "cracked";
+const GLASS_LOOKS = {
+  fresh: { opacity: 0.72, roughness: 0.08 },
+  clear: { opacity: 0.78, roughness: 0.06 },
+  cracked: { opacity: 0.55, roughness: 0.32 },
+} as const satisfies Record<GlassLook, { opacity: number; roughness: number }>;
+const glassByLook = new Map<string, THREE.MeshStandardMaterial>();
+
+/**
+ * The one material every pane in `look` and `color` wears: a pane changes look by changing material, never by editing its own,
+ * so a car's six panes and every other car's share it (the renderer re-sends a material's uniforms each time the draw
+ * changes material, and a car's panes were six copies of one). Never edit what this returns.
+ */
+export function glassMaterial(look: GlassLook, color: number = GLASS_COLOR): THREE.MeshStandardMaterial {
+  const key = `${look}:${color}`;
+  let m = glassByLook.get(key);
+  if (m === undefined) {
+    m = makeGlassMaterial();
+    m.color.setHex(color);
+    m.opacity = GLASS_LOOKS[look].opacity;
+    m.roughness = GLASS_LOOKS[look].roughness;
+    if (look === "cracked") m.map = getCrackMap();
+    m.userData.shared = true;
+    glassByLook.set(key, m);
+  }
+  return m;
 }
 
 export const getCrackMap = once((): THREE.Texture => {

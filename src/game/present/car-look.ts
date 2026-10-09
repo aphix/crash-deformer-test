@@ -46,7 +46,7 @@ export function wearCarLook(car: DeformableCar, pick: CarPick, spray: SprayBitma
   w.doors.color.setHex(c.doors);
   const trim = trimMaterial(c.bumpers);
   for (const bumper of w.bumpers) bumper.material = trim;
-  for (const pane of m.glass) (pane.material as THREE.MeshStandardMaterial).color.setHex(c.glass);
+  car.setGlassTint(c.glass);
   for (const wheel of car.wheels) {
     if (c.rims === RIMS_AS_BUILT) delete wheel.userData.rim;
     else wheel.userData.rim = new THREE.Color(c.rims);
