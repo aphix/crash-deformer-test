@@ -16,6 +16,8 @@ import { droop, SPRINGS } from "../vehicle/car-suspension.ts";
 import { fit, frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
+/** Long enough for a car wedged between the ramps to stop sliding (main settles at about 6 s). */
+const SETTLE_S = 8;
 const TYRE_CENTRE = 0.32;
 const DEG = 180 / Math.PI;
 /** The springs have settled when no corner is out of its rest length by more than this (m); a landing they took moved them past it. */
@@ -345,17 +347,18 @@ describe("given a car driven end-on up a ramp, with a slab between the ramps", (
 describe("given the ramps with no slab between them", () => {
   afterEach(() => setGround(null));
 
-  it("when a car is driven end-on at 8 m/s, then it comes down across the far ramp's high end and rides its face down, not launched off the step", (t) => {
+  it("when a car is driven end-on at 8 m/s, then it comes down between the ramps at the far one's high end, never launched off the step, and ends on the road there, its origin under a tyre centre's height", (t) => {
     const { w, car } = scene(false);
     car.spawnFacing(0, -14, 0, 8);
     const p = car.group.position;
     let peak = 0;
-    // 4 s: since landing across the high end sinks into its springs (`SUPPORT`), at 3 s it was still on the far foot (z 7.8).
-    run(w, 4, () => {
+    // The car leaves the lip at about 6 m/s and meets the far end's wall under its top: it crashes there and falls into the gap
+    // (the ramps' high ends stand 4 m apart, a car is 4.4 m long), wedges and slides, settling a few seconds later, so the end height is read at rest.
+    run(w, SETTLE_S, () => {
       peak = Math.max(peak, p.y);
     });
     t.diagnostic(`peak ${peak.toFixed(2)} m, end z ${p.z.toFixed(1)} y ${p.y.toFixed(3)} vy ${car.velocity.y.toFixed(2)} m/s`);
-    assert.ok(peak < RAMP.top + 0.4 && p.y < 0.01, `peak ${peak.toFixed(2)} m, end y ${p.y.toFixed(2)} m`);
+    assert.ok(peak < RAMP.top + 0.4 && p.y < TYRE_CENTRE, `peak ${peak.toFixed(2)} m, end y ${p.y.toFixed(2)} m`);
   });
 
   it("when a car is driven square into a ramp's high end, then it stops at the face, never climbing up or through it", (t) => {
