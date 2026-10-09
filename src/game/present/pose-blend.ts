@@ -57,7 +57,7 @@ function write(o: THREE.Object3D, a: Float64Array, i: number, order: THREE.Euler
 
 /** One car's bodies (its group first, then the parts and wheels it has put in the world) and their poses around the last step. */
 class CarBlend {
-  /** The car's group, then its free objects (`DeformableCar.freeObjects`): `count` of them live. */
+  /** The car's group, then its free objects (`DeformableCar.freeObjects`), then the objects its ride writes each slice (`rideObjects`): `count` of them live. */
   readonly bodies: THREE.Object3D[] = [];
   count = 0;
   /** The group `present` drew, which `restore` puts back. */
@@ -75,7 +75,7 @@ class CarBlend {
 
   begin(car: DeformableCar): void {
     this.bodies[0] = car.group;
-    const n = car.freeObjects(this.bodies, 1);
+    const n = car.rideObjects(this.bodies, car.freeObjects(this.bodies, 1));
     this.count = n;
     if (this.from.length < n * N) {
       this.from = new Float64Array(n * N);

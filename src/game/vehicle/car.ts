@@ -613,6 +613,17 @@ export class DeformableCar extends CarParts {
   }
 
   /**
+   * Into `out` from index `n` on: the objects the ride writes every slice while they are on the car, its class body (heave, pitch and
+   * roll from the load transfer, `Suspension.pose`) and the four wheels still on it (`seatWheels`). Returns the count past the last.
+   */
+  rideObjects(out: THREE.Object3D[], n: number): number {
+    const body = (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+    if (body) out[n++] = body;
+    for (let i = 0; i < this.wheels.length; i++) if (!this.looseWheels[i]!.loose) out[n++] = this.wheels[i]!;
+    return n;
+  }
+
+  /**
    * A wreck's drawn body stood up off its frame until its underside (`UNDERSIDE`) clears the ground under it: the plane
    * through the hubs cuts the far side of a hollow (a kicker's foot: the nose 8.5 cm in the road). The wheels stay on
    * their hubs. Eased, so a wreck sliding over a kerb does not hop; drawn only, nothing reads it.

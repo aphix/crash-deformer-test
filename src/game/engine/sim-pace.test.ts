@@ -2,6 +2,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
+import { assignClass } from "../vehicle/vehicle-classes.ts";
 import { PoseBlend } from "../present/pose-blend.ts";
 import { assertSameNumbers, paint } from "../vehicle/test-support.ts";
 import { newWorld, settleStep, stepWorld } from "./world-step.ts";
@@ -87,6 +88,63 @@ describe("given a car moving straight at 30 m/s while turning at 1.2 rad/s, draw
       assert.ok(slow.worst < 1e-6, `${hz} Hz: ${slow.worst} m off`);
     }
   });
+});
+
+/** What the ride writes each slice, per second of sim time: the class body's height, heave and tilt, and a wheel's height. */
+const BODY_RISE = 0.04;
+const BODY_TILT = 0.02;
+const WHEEL_RISE = -0.03;
+/** The finest step the pacer runs a car this fast at (`FINE_SLICE`): undrawn, a frame shows the ride a fraction of a step's travel off. */
+const FINE_STEP = 1 / 240;
+
+/**
+ * A classed car whose class body and wheels move a little every step, as `Suspension.step` moves them, stepped by the pacer in `hz`
+ * frames, drawn by the blend or not: the worst distance (m, rad) of what is drawn from where that steady motion has it at the
+ * frame's time, and whether `restore` handed the sim its own values back.
+ */
+function drawnRide(hz: number, blend: boolean): { worstHeight: number; worstTilt: number; worstWheel: number } {
+  const car = new DeformableCar(paint(), new THREE.Scene());
+  assignClass(car, "sedan");
+  const body = car.group.getObjectByName("classLift")!;
+  const wheel = car.wheels[0]!;
+  const start = { height: body.position.y, tilt: body.rotation.x, wheel: wheel.position.y };
+  const pace = new SimPacer();
+  const pose = new PoseBlend();
+  const cars = [car];
+  const out = { worstHeight: 0, worstTilt: 0, worstWheel: 0 };
+  let simTime = 0;
+  for (let f = 0; f < 3 * hz; f++) {
+    simTime += 1 / hz;
+    pace.run(1 / hz, 1, FAST, Infinity, (h) => {
+      pose.begin(cars);
+      body.position.y += BODY_RISE * h;
+      body.rotation.x += BODY_TILT * h;
+      wheel.position.y += WHEEL_RISE * h;
+      pose.end(cars);
+    });
+    const sims = [body.position.y, body.rotation.x, wheel.position.y];
+    if (blend) pose.present(cars, pace.alpha);
+    if (f > 2) {
+      out.worstHeight = Math.max(out.worstHeight, Math.abs(body.position.y - (start.height + BODY_RISE * simTime)));
+      out.worstTilt = Math.max(out.worstTilt, Math.abs(body.rotation.x - (start.tilt + BODY_TILT * simTime)));
+      out.worstWheel = Math.max(out.worstWheel, Math.abs(wheel.position.y - (start.wheel + WHEEL_RISE * simTime)));
+    }
+    pose.restore();
+    assertSameNumbers([body.position.y, body.rotation.x, wheel.position.y], sims, "restore puts the sim's own ride back");
+  }
+  car.dispose();
+  return out;
+}
+
+describe("given a classed car whose class body and wheels ride the springs a little every sim step, drawn between its steps by the pose blend", () => {
+  for (const hz of [144, 165]) {
+    it(`when frames come at ${hz} Hz, so a frame holds one or two steps by turns, then the class body's height and tilt and a wheel's height are drawn on their steady motion at the frame's time (undrawn they alternate by a step's travel)`, () => {
+      const on = drawnRide(hz, true);
+      const off = drawnRide(hz, false);
+      assert.ok(on.worstHeight < 1e-9 && on.worstTilt < 1e-9 && on.worstWheel < 1e-9, `blended: ${on.worstHeight} m, ${on.worstTilt} rad, ${on.worstWheel} m off`);
+      assert.ok(off.worstHeight > (BODY_RISE * FINE_STEP) / 4 && off.worstTilt > (BODY_TILT * FINE_STEP) / 4, `undrawn control only ${off.worstHeight} m / ${off.worstTilt} rad off: this test could not have failed`);
+    });
+  }
 });
 
 describe("given a frame that cannot afford all its steps (its time budget runs out)", () => {
