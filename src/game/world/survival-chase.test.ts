@@ -225,4 +225,11 @@ describe("given the Survival pack chasing a scripted player who never stops", ()
       assert.equal(bad.length, ran, `${ran - bad.length} of ${ran} runs were busted by cops that never move`);
     });
   });
+
+  describe("given a police car closing on a car that creeps at 3 m/s in the Survival corner", () => {
+    // Measured over the corner pool (lane 9 first-touch episodes, main 31, closing above 20 m/s; per episode the struck car's velocity
+    // change 0.3 s after): side hits main 10.6 m/s (n 9), lane 6.3 (n 4); rear hits main 11.4 (n 20), lane 6.1 (n 3); nose hits at 37.5 m/s
+    // main 3.9, none thrown (n 2), lane both thrown (n 2). The struck car's tyres hold it on main (stop and spin); on the lane they push back less.
+    it.todo("when a police car closing at 30-35 m/s hits the side or the rear of that car and they separate, then the struck car has gained about 10-11 m/s, and a nose hit at 37 m/s does not throw its driver (closes in Stage 4: the struck car's tyres hold it, tyre stop and struck-car spin)");
+  });
 });
