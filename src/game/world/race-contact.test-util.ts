@@ -10,7 +10,7 @@ import { FRAME, raceOnce, type Outcome, type World } from "./race-world.test-uti
  *
  * With n the unit vector from car A's centre to car B's, car X "closes" on the other when its velocity
  * toward it (X·n, sign flipped for B) is at least `CLOSE_MIN` m/s and it was not knocked there: no car-car
- * contact on X in the `KNOCK` s before (a shove or a wreck's slide is the other car's doing). A car's
+ * contact on X in the `KNOCK` s before (a shove or a wreck's slide is the other car's doing, unless X is backing under its own reverse pedal). A car's
  * velocity is its own steer, throttle and brake integrated, so X closing means X turned into the other
  * or drove up to it without getting off its speed; a car that is the one rear-ended, passed or
  * pushed is moving away along n (or not at all), so it does not close. The contact must close at
@@ -21,6 +21,8 @@ import { FRAME, raceOnce, type Outcome, type World } from "./race-world.test-uti
  */
 export const KNOCK = 0.5;
 export const CLOSE_MIN = 0.5;
+/** Reverse pedal (throttle ≤ −this) that makes a car's backward motion its own driving, bump or no bump. */
+const REVERSE_PEDAL = 0.5;
 export const GRAZE = DERBY_RULES.hitSpeed;
 
 export type Sample = { x: number; z: number; vx: number; vz: number; yaw: number; throttle: number; steer: number; brake: number; bumped: boolean };
@@ -36,9 +38,10 @@ export function classifyContact(a: readonly Sample[], b: readonly Sample[]): Ver
   const towardA = (a[T]!.vx * dx + a[T]!.vz * dz) / d;
   const towardB = -(b[T]!.vx * dx + b[T]!.vz * dz) / d;
   const knocked = (s: readonly Sample[]) => s.slice(Math.max(0, T - Math.round(KNOCK / FRAME)), T + 1).some((x) => x.bumped);
+  const reversingOnItsOwnPedal = (s: Sample) => s.throttle <= -REVERSE_PEDAL && s.vx * Math.sin(s.yaw) + s.vz * Math.cos(s.yaw) <= -CLOSE_MIN;
   const closing = towardA + towardB;
-  const ca = closing >= GRAZE && towardA >= CLOSE_MIN && !knocked(a);
-  const cb = closing >= GRAZE && towardB >= CLOSE_MIN && !knocked(b);
+  const ca = closing >= GRAZE && towardA >= CLOSE_MIN && (!knocked(a) || reversingOnItsOwnPedal(a[T]!));
+  const cb = closing >= GRAZE && towardB >= CLOSE_MIN && (!knocked(b) || reversingOnItsOwnPedal(b[T]!));
   const role = (me: boolean, other: boolean): Role => (me && other ? "converging" : me ? "initiated" : other ? "suffered" : "none");
   return { a: role(ca, cb), b: role(cb, ca), closing, towardA, towardB };
 }

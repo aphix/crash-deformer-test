@@ -13,7 +13,7 @@ type Kin = Omit<Sample, "bumped">;
 const window = (s: Kin, knocked: boolean): Sample[] => [{ ...s, bumped: knocked }, { ...s, bumped: false }];
 
 /**
- * Seven contacts of real races, hand-checked against the geometry (n = unit vector from A's centre to B's;
+ * Eight contacts of real races, hand-checked against the geometry (n = unit vector from A's centre to B's;
  * "toward" = the car's velocity along n toward the other; the numbers are the frame before the contact).
  */
 const handCheckedContactCases: {
@@ -96,9 +96,20 @@ const handCheckedContactCases: {
     knockedB: false,
     want: ["initiated", "suffered"],
   },
+  {
+    // City, slider 0, frame 2923. A (car 1) is wedged on a stopped traffic car and backs out under its reverse pedal
+    // (throttle −0.9, full lock, 9.3 m/s backwards, bumped by the traffic car every frame) across the lane of B (car 5), which has been on
+    // full brake for 8 frames and is still doing 12.8 m/s 4.8 m away. A·n = 9.0, B toward = 12.4.
+    it: "when a car wedged on a stopped car backs out under its reverse pedal into the lane of one braking flat out, then both cars are classed as converging",
+    a: { x: 94.59, z: 58.24, vx: -8.34, vz: 4.14, yaw: 2.031, throttle: -0.9, steer: 1, brake: 0 },
+    b: { x: 89.93, z: 59.22, vx: 12.74, vz: 0.59, yaw: 1.524, throttle: 0, steer: -0.3, brake: 1 },
+    knockedA: true,
+    knockedB: false,
+    want: ["converging", "converging"],
+  },
 ];
 
-describe("given the contact classifier (it says which car of a racer-racer contact started the hit) reading the last frame's speeds, steering and pedals of seven real race contacts", () => {
+describe("given the contact classifier (it says which car of a racer-racer contact started the hit) reading the last frame's speeds, steering and pedals of eight real race contacts", () => {
   for (const testCase of handCheckedContactCases) {
     it(testCase.it, () => {
       const v = classifyContact(window(testCase.a, testCase.knockedA), window(testCase.b, testCase.knockedB));
