@@ -201,6 +201,13 @@ the Auto cam folds the same heading per frame). Second difference p99:
 0 stalled frames; slow-mo 0.1–10 m/s² at 60 Hz and 0.3–5 at 240 Hz; run-in at 60 Hz 310–390 (was 2850–5200) and 21–117
 rad/s² of rotation (was 480–490); chase aftermath at 240 Hz 2200–4200 (was 29000–35000).
 
+**One blend for live play and the reel (Stage 1).** `ClipSim` draws through the engine's `PoseBlend`, not a blend of its own: each run step
+is bracketed by `blend.begin` / `blend.end`, and `present(until)` is `blend.present(cars, u)`, so every car's group, class body, hubs, torn
+parts, popped wheels and crush skin are drawn between the pose before the step and the one it left. Before, only the groups were: in
+slow-mo a torn part moved only when a step ran (DYZ7-QCXS `6.bumperF` on 27.8 % of the frames it moves on, `3.archFR` 45.3 %, torn parts
+91.5 % / 94.2 % at 60 / 120 fps). After, on the same clips and window (2.8-5.8 s, `shot.sh --frames`): car groups, class bodies, wheels and
+torn parts 1.000 on both clips at both rates. The engine hands the sim's own poses back after the draw (`PoseBlend.restore`) and does not
+present the world pace's alpha while a reel plays. `engine/replay-blend.test.ts` holds every class at 95 % of its moving frames at 0.1x and 0.2x.
 
 ## The reel
 
