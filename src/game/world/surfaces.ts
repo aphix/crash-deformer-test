@@ -597,11 +597,11 @@ export class Surface {
 
 const YAW0 = [1, 0, 0, 0, 1, 0, 0, 0, 1] as const;
 
-/** The static surface in force (a scene's ground) and the cars' tops while a step runs; `surf` is `offer`'s best candidate's surface. */
-const live: { statics: Surface | null; tops: Surface | null; surf: Surface | null } = { statics: null, tops: null, surf: null };
-
-/** The height (m) over the asker a car's top may stand and still count (`offer`): each top's own reach (`Infinity` here), 0 while a tyre's footprint asks (`wheelContact`). */
-let topCap = Infinity;
+/**
+ * The static surface in force (a scene's ground) and the cars' tops while a step runs; `surf` is `offer`'s best candidate's surface; `topCap`
+ * the height (m) over the asker a car's top may stand and still count: each top's own reach (`Infinity` here), 0 while a tyre's footprint asks (`wheelContact`).
+ */
+const live: { statics: Surface | null; tops: Surface | null; surf: Surface | null; topCap: number } = { statics: null, tops: null, surf: null, topCap: Infinity };
 
 /** Make `s` the scene's static surface (`null`: none). Sealed on first use. */
 export function activate(s: Surface | null): void {
@@ -853,10 +853,10 @@ function offer(s: Surface, i: number, q: Float64Array, skip: number, need: numbe
   else gridAt(s, i, q, need);
   const h = _s[S_H]!;
   // NaN (no surface) fails the first test; an unlimited reach under an asker at -Infinity is NaN and passes the second. A car's top counts
-  // for a tyre (`wheelContact`) only up to the hub's height (`topCap`): one above it is a wall.
+  // for a tyre (`wheelContact`) only up to the hub's height (`live.topCap`): one above it is a wall.
   const y = q[PQ_Y]!;
   const reach = P[o + P_REACH]!;
-  if (h !== h || h > y + (owner >= 0 && reach > topCap ? topCap : reach) || h < _s[S_BEST]) return;
+  if (h !== h || h > y + (owner >= 0 && reach > live.topCap ? live.topCap : reach) || h < _s[S_BEST]) return;
   _s[S_BEST] = h;
   live.surf = s;
   _s[S_PATCH] = i;
@@ -1603,7 +1603,7 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   // Every footprint point asks from the hub's height, as a tread point of the drawn tyre does: a face lower than the hub is the ground
   // the tyre sits in, a taller one is a wall (a car's top too: `topCap`, not its 0.25 m skin over a hull point). The rings' arcs only
   // where a patch ends within the tyre's reach.
-  topCap = 0;
+  live.topCap = 0;
   const r = FOOT_REACH * scale;
   const x = hub[0]!;
   const z = hub[2]!;
@@ -1682,6 +1682,6 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
       }
     }
   }
-  topCap = Infinity;
+  live.topCap = Infinity;
   out[C_TOUCH] = out[C_H]!;
 }

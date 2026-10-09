@@ -4,6 +4,7 @@ import * as THREE from "three";
 import { recordFlat, type Spawn } from "./replay-fidelity.test-util.ts";
 import { ClipSim } from "./engine-replay.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 /**
  * Owner, 2026-10-09 (docs/HIGHLIGHTS.md, clip review issue 6): in a slow-mo replay every drawn part of a car moves on every drawn frame, the
@@ -95,17 +96,12 @@ describe("given a crash replayed in slow motion from its clip", () => {
     const sim = new ClipSim(rec.clip, cars, rec.scene);
     sim.restart();
     sim.advanceTo(2.3);
-    const before = cars.map((c) => [c.group.position.toArray(), c.group.quaternion.toArray()]);
+    const poses = (): number[] => cars.flatMap((c) => [...c.group.position.toArray(), ...c.group.quaternion.toArray()]);
+    const before = poses();
     sim.present(sim.time - 0.001);
-    assert.notDeepEqual(
-      before,
-      cars.map((c) => [c.group.position.toArray(), c.group.quaternion.toArray()]),
-      "the drawn pose is between the steps",
-    );
+    const drawn = poses();
+    assert.ok(drawn.some((v, i) => v !== before[i]), "the drawn pose is between the steps");
     rec.scene.blend.restore();
-    assert.deepEqual(
-      cars.map((c) => [c.group.position.toArray(), c.group.quaternion.toArray()]),
-      before,
-    );
+    assertSameNumbers(poses(), before, "the sim's own pose handed back");
   });
 });
