@@ -32,7 +32,7 @@ function stage() {
   return { batch, car, draw };
 }
 
-const triangles = (mesh: THREE.InstancedMesh): number => mesh.geometry.index!.count / 3;
+const triangles = (mesh: THREE.Mesh): number => mesh.geometry.index!.count / 3;
 
 describe("given the wheel batch and cars at two distances from the camera", () => {
   test("when a car is inside the farthest rung's distance and another beyond it, then the near car's four wheels take the full wheel and the far car's four the far wheel", () => {
@@ -62,5 +62,43 @@ describe("given the wheel batch and cars at two distances from the camera", () =
     const [full, far] = batch.meshes as [THREE.InstancedMesh, THREE.InstancedMesh];
     assert.ok(triangles(far) * 5 <= triangles(full), `${triangles(far)} of ${triangles(full)}`);
     assert.deepEqual(Object.keys(far.geometry.attributes).sort(), Object.keys(full.geometry.attributes).sort());
+  });
+});
+
+describe("given the wheel batch attached to a renderer's shadow pass", () => {
+  const attached = () => {
+    const made = stage();
+    const seen: boolean[] = [];
+    const shadow = made.batch.meshes[2]!;
+    const renderer: Parameters<WheelBatch["attach"]>[0] = { shadowMap: { render: () => void seen.push(shadow.visible) } };
+    made.batch.attach(renderer);
+    return { ...made, renderer, seen, shadow };
+  };
+
+  test("when the shadow pass runs, then the prisms are shown during it and hidden before and after, and the two wheel draws cast nothing", () => {
+    const { batch, renderer, seen, shadow } = attached();
+    assert.equal(shadow.visible, false, "hidden while the main pass builds its list");
+    renderer.shadowMap.render([], new THREE.Scene(), new THREE.PerspectiveCamera());
+    assert.deepEqual(seen, [true], "visible inside the pass");
+    assert.equal(shadow.visible, false, "hidden again once the pass is done");
+    assert.equal(shadow.castShadow, true);
+    assert.deepEqual(
+      batch.meshes.slice(0, 2).map((m) => m.castShadow),
+      [false, false],
+    );
+  });
+
+  test("when a near car and a far car are drawn, then one prism stands at each of the eight wheels and each prism is at most a tenth of a full wheel's triangles", () => {
+    const { batch, car, draw, shadow } = attached();
+    draw([car(10), car(FAR_BEYOND + 20)]);
+    assert.equal(shadow.count, 8);
+    assert.ok(triangles(shadow) * 10 <= triangles(batch.meshes[0] as THREE.InstancedMesh), `${triangles(shadow)} of ${triangles(batch.meshes[0] as THREE.InstancedMesh)}`);
+  });
+
+  test("when the batch is disposed, then the renderer's own shadow pass is back", () => {
+    const { batch, renderer, seen } = attached();
+    batch.dispose();
+    renderer.shadowMap.render([], new THREE.Scene(), new THREE.PerspectiveCamera());
+    assert.deepEqual(seen, [false]);
   });
 });

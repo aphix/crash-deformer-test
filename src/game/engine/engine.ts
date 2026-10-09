@@ -198,6 +198,7 @@ export class CrashEngine extends EngineGarage {
     this.glassDots = new GlassDotSystem(this.scene);
     this.ensureCars(INITIAL_HUD.carCount);
     this.scene.add(...this.wheels.meshes, ...this.lampBatch.meshes);
+    this.wheels.attach(this.renderer);
     // After the renderer's scene matrix update, before culling/upload: every render path draws current wheels and lamps.
     this.scene.onBeforeRender = () => {
       const live = this.live();
