@@ -9,6 +9,7 @@ import { DRAFT } from "../match/session.ts";
 import { makeSnapshot, readSnapshot, Reader, type Snapshot } from "../net/codec.ts";
 import { carLayout } from "../net/car-pose.ts";
 import { foldHeading } from "../present/shot-cam.ts";
+import type { PoseBlend } from "../present/pose-blend.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
 
@@ -24,15 +25,13 @@ export type ReplayScene = {
   restore?(slot: number, mem: Float64Array, at: number): void;
   knocks?(bits: Uint8Array): void;
   bounce: WorldBounce | undefined;
+  /** The blend the cars are drawn with, live play's (`PoseBlend`): the sim brackets its steps with it and draws between them. */
+  blend: PoseBlend;
 };
 
-const _q = new THREE.Quaternion();
-const _from = new THREE.Quaternion();
 /** A throw the clip fires: the recorded ejection, `car` the engine slot, `own` whether the clip's scope owns it (`ClipEjection.own`). */
 type FiredEjection = Ejection & { own: boolean };
 const NO_EJECTIONS: readonly FiredEjection[] = [];
-/** A car that moved further than this (m) in one step was placed (a keyframe's respawn), not driven: `present` draws it where it landed. */
-const TELEPORT = 5;
 
 /**
  * One highlight clip re-run through the real sim (docs/HIGHLIGHTS.md): its cars respawned from keyframe 0 (a wreck
@@ -54,13 +53,10 @@ export class ClipSim {
   /** The replay's own first impact at or after `watchFrom` (clip s; −1 none yet). */
   firstHit = -1;
   watchFrom = 0;
-  /** Clip second the last run step began at (`present`'s interpolation starts there, at `from`). */
+  /** Clip second the last run step began at (`present`'s blend runs from there). */
   private stepAt = 0;
-  /** Per car, before the last step: position (3) and rotation as a quaternion (4). */
-  private readonly from: Float64Array;
-  /** Per car, the sim's true pose `present` replaced: position (3), rotation as a quaternion (4) and Euler (3). */
-  private readonly kept: Float64Array;
-  private presented = false;
+  /** The engine's blend (`PoseBlend`): each run step is bracketed by it, `present` draws the cars between the step's two ends. */
+  private readonly blend: PoseBlend;
   /**
    * The focus car's travel direction (flat, unit: its velocity, its body's heading when nearly still), low-passed per
    * step by `foldHeading`: a wreck's own velocity swings 4° and more between frames, which a camera behind it must not copy.
@@ -102,8 +98,7 @@ export class ClipSim {
     this.pairAt = new Float64Array(cars.length * cars.length);
     this.wallAt = new Float64Array(cars.length);
     this.length = clip.h.reduce((a, h) => a + h, 0);
-    this.from = new Float64Array(cars.length * 7);
-    this.kept = new Float64Array(cars.length * 10);
+    this.blend = scene.blend;
     const L = carLayout(cars[0]!);
     const r = new Reader();
     this.keys = clip.keys.map((bytes, k) => {
@@ -200,7 +195,8 @@ export class ClipSim {
     this.knockAt = 0;
     this.fired = [];
     this.stepAt = 0;
-    this.presented = false;
+    // The cars go back on the sim's own poses before they are respawned (a drawn pose written back after it would undo the respawn).
+    this.blend.restore();
     this.heading.set(0, 0);
     this.firstHit = -1;
     this.pairAt.fill(-Infinity);
@@ -218,7 +214,7 @@ export class ClipSim {
    * ms), also stop once it passes after at least one step, to resume next call.
    */
   advanceTo(until: number, deadline = Infinity): void {
-    this.restore();
+    this.blend.restore();
     const { clip, cars } = this;
     const nc = cars.length;
     const saved = HANDLING.realism;
@@ -227,17 +223,7 @@ export class ClipSim {
     while (this.step < clip.h.length && this.time < until - 1e-9 && (this.step === s0 || performance.now() < deadline)) {
       const s = this.step;
       this.stepAt = this.time;
-      for (let j = 0; j < nc; j++) {
-        const g = cars[j]!.group;
-        const o = j * 7;
-        this.from[o] = g.position.x;
-        this.from[o + 1] = g.position.y;
-        this.from[o + 2] = g.position.z;
-        this.from[o + 3] = g.quaternion.x;
-        this.from[o + 4] = g.quaternion.y;
-        this.from[o + 5] = g.quaternion.z;
-        this.from[o + 6] = g.quaternion.w;
-      }
+      this.blend.begin(cars);
       // The cars the record put on a spot in this step (a respawn, a wake, a put-away) go there: the one thing the replay cannot drive.
       while (this.key < clip.keyStep.length && clip.keyStep[this.key]! <= s) {
         if (clip.keyStep[this.key] === s) for (let j = 0; j < nc; j++) if ((clip.keyCars[this.key]! >>> j) & 1) this.snap(j, this.key);
@@ -270,65 +256,24 @@ export class ClipSim {
       this.aliveA = a.deform.drivetrainAlive;
       this.time += h;
       this.step++;
+      this.blend.end(cars);
       foldHeading(this.heading, this.cars[this.clip.focus]!, h);
     }
     HANDLING.realism = saved;
   }
 
   /**
-   * Every car drawn at clip time `until`, inside the last run step (as `advanceTo` leaves it): its pose between the one
-   * before that step and the one it left, so a frame inside a step moves the cars on instead of repeating the last
-   * step's pose. A car the step placed (> `TELEPORT`) stays where it landed. The next `advanceTo` puts the true state back first: the replay itself never runs from a drawn pose.
+   * Every car drawn at clip time `until`, inside the last run step (as `advanceTo` leaves it): through the blend live play draws
+   * with (`PoseBlend`: the group, the class body, the hubs, the torn parts and popped wheels, the crush skin), between the pose before
+   * that step and the one it left, so a frame inside a step moves every drawn part on instead of repeating the last step's. A car the
+   * step placed (> `TELEPORT`) stays where it landed. The engine's frame hands the sim's own poses back (`PoseBlend.restore`) once it
+   * has drawn them, and so does the next `advanceTo`: the replay itself never runs from a drawn pose.
    */
   present(until: number): void {
-    this.restore();
+    this.blend.restore();
     const span = this.time - this.stepAt;
     const u = span > 1e-9 ? Math.min(1, Math.max(0, (until - this.stepAt) / span)) : 1;
-    if (u >= 1) return;
-    this.presented = true;
-    const f = this.from;
-    const k = this.kept;
-    for (let j = 0; j < this.cars.length; j++) {
-      const g = this.cars[j]!.group;
-      const o = j * 7;
-      const m = j * 10;
-      const p = g.position;
-      const q = g.quaternion;
-      const r = g.rotation;
-      k[m] = p.x;
-      k[m + 1] = p.y;
-      k[m + 2] = p.z;
-      k[m + 3] = q.x;
-      k[m + 4] = q.y;
-      k[m + 5] = q.z;
-      k[m + 6] = q.w;
-      k[m + 7] = r.x;
-      k[m + 8] = r.y;
-      k[m + 9] = r.z;
-      if (Math.abs(f[o]! - p.x) + Math.abs(f[o + 1]! - p.y) + Math.abs(f[o + 2]! - p.z) > TELEPORT) continue;
-      p.set(f[o]! + (p.x - f[o]!) * u, f[o + 1]! + (p.y - f[o + 1]!) * u, f[o + 2]! + (p.z - f[o + 2]!) * u);
-      _from.set(f[o + 3]!, f[o + 4]!, f[o + 5]!, f[o + 6]!);
-      q.copy(_from.slerp(_q.set(k[m + 3]!, k[m + 4]!, k[m + 5]!, k[m + 6]!), u));
-    }
-  }
-
-  /**
-   * Undo `present`: every car back on the sim's own pose, exactly. A car on its wheels (`stepPlane`) has its Euler angles read by
-   * the sim; a rigid (`stepFree`) or falling one's quaternion is (the Euler is derived from it), and quaternion -> Euler ->
-   * quaternion is not exact: write the quaternion, then the Euler only if the car's own differs.
-   */
-  private restore(): void {
-    if (!this.presented) return;
-    this.presented = false;
-    const k = this.kept;
-    for (let j = 0; j < this.cars.length; j++) {
-      const g = this.cars[j]!.group;
-      const m = j * 10;
-      g.position.set(k[m]!, k[m + 1]!, k[m + 2]!);
-      g.quaternion.set(k[m + 3]!, k[m + 4]!, k[m + 5]!, k[m + 6]!);
-      const r = g.rotation;
-      if (r.x !== k[m + 7] || r.y !== k[m + 8] || r.z !== k[m + 9]) r.set(k[m + 7]!, k[m + 8]!, k[m + 9]!);
-    }
+    this.blend.present(this.cars, u);
   }
 
   /** The course's wall or a prop touched the clip's car in race slot `slot`, closing at `closing` m/s (`RaceField.onWallHit`). */

@@ -271,7 +271,7 @@ export class CrashEngine extends EngineGarage {
     this.highlights = new ReelDirector({
       carsOf: (clip) => clip.cars.map((c) => this.cars[c.slot]!),
       live: () => this.live(),
-      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), bounce: this.bounceWorld },
+      scene: { dress: (car) => this.dressCar(car), collide: (car, slot, h) => this.race.courseHit(car, slot, h), restore: (slot, mem, at) => this.race.remember(slot, mem, at), knocks: (bits) => this.race.knockTo(bits), bounce: this.bounceWorld, blend: this.blend },
       resetProps: () => this.race.resetProps(),
       clear: () => this.clearLocal(),
       sight: (focus) => this.sceneSight(focus, true),
@@ -483,7 +483,8 @@ export class CrashEngine extends EngineGarage {
 
     // Paused or not: a paused host keeps serving its (frozen) world, so clients never think it is gone.
     this.net.frame(wallDt);
-    this.blend.present(this.live(), this.pace.alpha);
+    // The reel's replay presents its own steps through the same blend (`ClipSim.present`, before the skins above): the world's pace has no step to show.
+    if (!this.highlights.playing) this.blend.present(this.live(), this.pace.alpha);
     if (this.race.active) this.race.frame(this.playing && !held ? wallDt : 0);
     const focus = this.highlights.playing ? this.highlights.focus() : null;
     if (focus) this.race.followSun(focus);

@@ -10,6 +10,7 @@ import { CrashCam } from "../present/engine-cine.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { addCars, sightLine, type Sight } from "../present/spectate-cam.ts";
 import { coverLens, FLIGHT_S, ReelDirector, type ReelHost } from "./engine-highlights.ts";
+import { PoseBlend } from "../present/pose-blend.ts";
 
 /**
  * The results reel's cameras headless, as the engine runs them minus the renderer (`ReelDirector.aim`: the thrown driver's
@@ -170,7 +171,7 @@ export async function reelViews(w: World, clips: readonly HighlightClip[], scene
   const host: ReelHost = {
     carsOf: (clip) => clip.cars.map((c) => w.cars[c.slot]!),
     live: () => w.live(),
-    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined },
+    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined, blend: new PoseBlend() },
     resetProps: () => w.race.resetProps(),
     clear: () => ragdolls.reset(),
     sight,

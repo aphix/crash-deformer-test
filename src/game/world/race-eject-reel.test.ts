@@ -11,6 +11,7 @@ import { ClipSim } from "../engine/engine-replay.ts";
 import { RagdollSystem } from "../present/engine-ragdoll.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import { PoseBlend } from "../present/pose-blend.ts";
 
 /**
  * Owner, 2026-10-03: a driver thrown from his car "should definitely count as a bunch of points into the highlights
@@ -82,7 +83,7 @@ async function live(): Promise<{ clips: HighlightClip[]; trails: Trails; events:
  */
 async function replay(clip: HighlightClip, frameEnds: readonly number[]): Promise<Trails> {
   const cars = clip.cars.map((c) => w.cars[c.slot]!);
-  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined });
+  const sim = new ClipSim(clip, cars, { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined, blend: new PoseBlend() });
   const ragdolls = new RagdollSystem(new THREE.Scene(), () => {}, () => {});
   await ragdolls.preload();
   const trails: Trails = new Map();

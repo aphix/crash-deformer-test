@@ -15,6 +15,7 @@ import { carLayout } from "../net/car-pose.ts";
 import { clipBytes, readClip, writeClip } from "../net/reel-codec.ts";
 import { Reader, Writer } from "../net/codec.ts";
 import type { RaceOptions } from "../match/types.ts";
+import { PoseBlend } from "../present/pose-blend.ts";
 
 /**
  * Live vs replay (docs/HIGHLIGHTS.md): a crash recorded by the real recorder, then its clip re-simulated by `ClipSim`,
@@ -150,7 +151,7 @@ export function recordFlat(spawns: readonly Spawn[], seconds: number, derby: boo
   rec.end();
   const clip = rec.ledger.kept[0];
   if (!clip) throw new Error("the crash did not rank as a highlight");
-  return { clip, cars, scene: { dress, collide: () => {}, bounce: undefined }, trace, s0: clipStart(clip, times), frameEnd };
+  return { clip, cars, scene: { dress, collide: () => {}, bounce: undefined, blend: new PoseBlend() }, trace, s0: clipStart(clip, times), frameEnd };
 }
 
 /** The race of `race-eject-reel.test.ts` (oval, `ai` AI drivers besides the player's car, which the AI drives too; seed 1) a second in; `place` puts the crash's cars on the road. */
@@ -188,7 +189,7 @@ export function recordRace(w: World, place: () => void, seconds: number, ai: num
   }
   const clip = rec.ledger.kept[0];
   if (!clip) throw new Error("the crash did not rank as a highlight");
-  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), restore: (slot, mem, at) => r.remember(slot, mem, at), knocks: (bits) => r.knockTo(bits), bounce: undefined };
+  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), restore: (slot, mem, at) => r.remember(slot, mem, at), knocks: (bits) => r.knockTo(bits), bounce: undefined, blend: new PoseBlend() };
   return { clip, cars: w.cars, scene, trace, s0: clipStart(clip, times), frameEnd };
 }
 
@@ -302,7 +303,7 @@ export function recordField(w: World, f: Field): Recording[] {
     rec.startStep = startStep;
   }
   const L = carLayout(w.cars[0]!);
-  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), restore: (slot, mem, at) => r.remember(slot, mem, at), knocks: (bits) => r.knockTo(bits), bounce: undefined };
+  const scene: ReplayScene = { dress: w.dress, collide: (car, slot, h) => r.courseHit(car, slot, h), restore: (slot, mem, at) => r.remember(slot, mem, at), knocks: (bits) => r.knockTo(bits), bounce: undefined, blend: new PoseBlend() };
   return rec.ledger.kept.map((kept) => {
     const wr = new Writer(clipBytes(kept));
     writeClip(wr, kept);

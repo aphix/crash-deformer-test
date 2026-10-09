@@ -14,6 +14,7 @@ import { ClipSim } from "./engine-replay.ts";
 import type { DeformableCar } from "../vehicle/car.ts";
 import type { Reel } from "../match/highlights.ts";
 import { assertSameNumbers } from "../vehicle/test-support.ts";
+import { PoseBlend } from "../present/pose-blend.ts";
 
 /** A ramming field on the city course: its first crash comes early in lap 1. */
 const FIELD = { trackId: "city", laps: 1, aiCount: 11, noReset: false, aggression: 1 };
@@ -53,7 +54,7 @@ function hostOf(w: World): ReelHost {
   return {
     carsOf: (clip) => clip.cars.map((c) => w.cars[c.slot]!),
     live: () => w.live(),
-    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined },
+    scene: { dress: w.dress, collide: (car, slot, h) => w.race.courseHit(car, slot, h), restore: (slot, mem, at) => w.race.remember(slot, mem, at), knocks: (bits) => w.race.knockTo(bits), bounce: undefined, blend: new PoseBlend() },
     resetProps: () => w.race.resetProps(),
     clear: () => {},
     sight: () => w.race.courseSight()!,
