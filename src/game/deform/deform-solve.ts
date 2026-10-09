@@ -472,10 +472,12 @@ export abstract class DeformSolve extends DeformContact {
       }
     }
     // Internal goals exert no net torque. Yaw is always removed (no hub, wheel or ground restores it, so
-    // overlapping plastic rests would otherwise turn the wreck); once the contact is over pitch and roll go
-    // too: left in, the front clusters' nose-up fit (17 deg after a 50 km/h wall) lifted the wing and bumper
-    // 0.12 m above their seat while `clampLocal` pulled the cabin masses back, and a quiet wreck holds them there.
-    this.removeNetSpin(comX / comM, comY / comM, comZ / comM, contacting);
+    // overlapping plastic rests would otherwise turn the wreck); once nothing pushes the body (no fed contact, no
+    // face holding particles) pitch goes too: left in, the front clusters' nose-up fit (17 deg after a 50 km/h wall)
+    // lifted the wing and bumper 0.12 m above their seat while `clampLocal` pulled the cabin masses back, and a quiet
+    // wreck holds them there. Roll stays: the planted hubs' restoring roll is in the correction, and a side shove's
+    // spin is real motion that removal turned into a permanent opposite-signed tilt (the far side 0.07-0.10 m off).
+    this.removeNetSpin(comX / comM, comY / comM, comZ / comM, contacting || this.faceContacts > 0);
     if (!contacting) {
       let comX1 = 0,
         comY1 = 0,
@@ -511,10 +513,11 @@ export abstract class DeformSolve extends DeformContact {
   /**
    * Takes the net turn out of this step's shape-match correction (`startX/Y/Z` to the particles now) about the
    * centroid `(cx, cy, cz)`: a small-angle `ω = I⁻¹ Σ m r × Δ` (inertia tensor solved against the correction's
-   * angular momentum), then each particle takes `-ω × r`. In contact (`contacting`) only the turn about up
-   * goes: the wall's or the other car's push is the external torque on pitch and roll.
+   * angular momentum), then each particle takes the yaw and pitch part of `-ω × r`: roll is the planted hubs'
+   * to restore and a side shove's to keep. While the body is pushed (`pushed`) only the turn about up goes: the
+   * wall's, the face's or the other car's push is the external torque on pitch.
    */
-  private removeNetSpin(cx: number, cy: number, cz: number, contacting: boolean): void {
+  private removeNetSpin(cx: number, cy: number, cz: number, pushed: boolean): void {
     let lx = 0,
       ly = 0,
       lz = 0,
@@ -544,9 +547,8 @@ export abstract class DeformSolve extends DeformContact {
       iyz -= p.mass * ry * rz;
     }
     let wx = 0,
-      wy = 0,
-      wz = 0;
-    if (contacting) {
+      wy = 0;
+    if (pushed) {
       if (iyy < 1e-8) return;
       wy = ly / iyy;
     } else {
@@ -558,7 +560,6 @@ export abstract class DeformSolve extends DeformContact {
       if (Math.abs(det) < 1e-12) return;
       wx = (c0 * lx + c1 * ly + c2 * lz) / det;
       wy = (c1 * lx + (ixx * izz - ixz * ixz) * ly + (ixy * ixz - ixx * iyz) * lz) / det;
-      wz = (c2 * lx + (ixy * ixz - ixx * iyz) * ly + (ixx * iyy - ixy * ixy) * lz) / det;
     }
     for (let i = 0; i < this.shapeParticles.length; i++) {
       if (this.masses[i]!.hub && !this.deepCrush) continue;
@@ -566,8 +567,8 @@ export abstract class DeformSolve extends DeformContact {
       const rx = this.startX[i]! - cx,
         ry = this.startY[i]! - cy,
         rz = this.startZ[i]! - cz;
-      p.x -= wy * rz - wz * ry;
-      p.y -= wz * rx - wx * rz;
+      p.x -= wy * rz;
+      p.y += wx * rz;
       p.z -= wx * ry - wy * rx;
     }
   }
