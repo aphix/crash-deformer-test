@@ -1,3 +1,4 @@
+import { detSin, detCos } from "../kernel/physics-core.js";
 /** Steepest ground plane (rad, 34°) a planted wreck settles to; the stunt course's kicker is 21.5°. */
 const TILT = 0.6;
 /** Least spread (m⁴) of the hubs' x/z a ground plane is fitted on: four hubs read 16, three 5; a squeezed or lost set is no plane. */
@@ -72,8 +73,8 @@ export class HubPlane {
     this.height = this.base + mf - gx * mx - gz * mz;
     this.gx = gx;
     this.gz = gz;
-    const cy = Math.cos(yaw);
-    const sy = Math.sin(yaw);
+    const cy = detCos(yaw);
+    const sy = detSin(yaw);
     const along = gx * sy + gz * cy;
     const across = gx * cy - gz * sy;
     this.pitch = Math.max(-TILT, Math.min(TILT, -Math.atan(along))) * grounded;
@@ -83,5 +84,5 @@ export class HubPlane {
 
 /** The rise (m) across the car-local offset (dx, dy, dz) under a frame pitched `pitch` and rolled `roll` (Rz roll, then Rx pitch; yaw leaves y alone). On the level it is `dy` exactly. */
 export function tiltedRise(pitch: number, roll: number, dx: number, dy: number, dz: number): number {
-  return (dx * Math.sin(roll) + dy * Math.cos(roll)) * Math.cos(pitch) - dz * Math.sin(pitch);
+  return (dx * detSin(roll) + dy * detCos(roll)) * detCos(pitch) - dz * detSin(pitch);
 }

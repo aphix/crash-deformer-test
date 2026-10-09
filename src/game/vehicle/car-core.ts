@@ -1,3 +1,5 @@
+// First: every quaternion built from here on, constants at load included, takes the engine-identical trig (kernel/three-trig.ts).
+import "../kernel/three-trig.ts";
 import * as THREE from "three";
 import { StreamedDeformation } from "../deform/streamed-deform.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
@@ -36,7 +38,6 @@ import { CAR_STYLES, type BodyStyle, type CarStyleId } from "./car-variants.ts";
 import { anchorOnSkin, poseOnSkin, type GlowKind, type SkinAnchor } from "./lamp-lights.ts";
 import { panelRegions, type PanelName, type PanelRegion } from "./car-panels.ts";
 import { newDentState, type DentState } from "./loose-dent.ts";
-
 const _p = new THREE.Vector3();
 const _inv = new THREE.Quaternion();
 const _lampQ = new THREE.Quaternion();

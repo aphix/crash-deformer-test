@@ -77,10 +77,12 @@ import { makeSnapshot, MAX_NET_CARS, MSG, NET_VERSION, readEjection, readSnapsho
  * AI's hashed dice use the kernel's engine-independent hypot and sin/cos, so a replayed race starts from different bits;
  * 49: Stage 1 of the one-motion-path physics: every car steps one rigid body on tyre springs solved together, rest is derived,
  * wreck contact is derived in one place, a wreck's shape fit keeps its roll, debris rests and slides on the ground and car tops by
- * one query, so a replayed clip's cars, wrecks and parts move differently).
+ * one query, so a replayed clip's cars, wrecks and parts move differently; 50: every sine and cosine the sim takes, its own and
+ * three's quaternion from Euler angles or an axis and angle, is the kernel's engine-identical one, so a replayed clip starts from
+ * different last bits and replays to the same bits in every browser).
  * A saved clip also records `NET_VERSION` (its snapshots' layout).
  */
-const REPLAY_VERSION = 49;
+const REPLAY_VERSION = 50;
 /** Bounds a decoder enforces (a clip is ≤ 13 s at ≤ 300 steps/s, ≤ 15 keyframes). */
 const MAX_STEPS = 8192;
 const MAX_KEYS = 64;

@@ -1,6 +1,6 @@
 /** Shared spawn layout so 1–N cars never start overlapping. */
 
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { FLEET_STYLE_IDS, type CarStyleId } from "../vehicle/car-variants.ts";
 import { CLASSES, STYLE_CLASS, type VehicleClassId } from "../vehicle/vehicle-classes.ts";
 
@@ -68,8 +68,8 @@ export function layoutFleet(
     const a = rng() * Math.PI * 2;
     const r = 9.2;
     return [
-      { x: Math.sin(a) * r, z: Math.cos(a) * r, speed: spd() },
-      { x: Math.sin(a + Math.PI) * r, z: Math.cos(a + Math.PI) * r, speed: spd() },
+      { x: detSin(a) * r, z: detCos(a) * r, speed: spd() },
+      { x: detSin(a + Math.PI) * r, z: detCos(a + Math.PI) * r, speed: spd() },
     ];
   }
 
@@ -82,8 +82,8 @@ export function layoutFleet(
     for (let attempt = 0; attempt < 48; attempt++) {
       const ang = rng() * Math.PI * 2;
       const r = 6.4 + rng() * padR;
-      x = Math.sin(ang) * r;
-      z = Math.cos(ang) * r;
+      x = detSin(ang) * r;
+      z = detCos(ang) * r;
       placed = true;
       for (let j = 0; j < i; j++) {
         const o = slots[j]!;
@@ -97,8 +97,8 @@ export function layoutFleet(
     if (!placed) {
       const ang = (i / n) * Math.PI * 2;
       const r = Math.max(8.2, (FLEET_MIN_SEP * n) / (Math.PI * 1.7));
-      x = Math.sin(ang) * r;
-      z = Math.cos(ang) * r;
+      x = detSin(ang) * r;
+      z = detCos(ang) * r;
     }
     slots.push({ x, z, speed: spd() });
   }
@@ -113,7 +113,7 @@ export function layoutDerby(count: number, radius: number, rng: () => number = M
   const spin = rng() * Math.PI * 2;
   for (let i = 0; i < n; i++) {
     const a = spin + (i / n) * Math.PI * 2;
-    slots.push({ x: Math.sin(a) * r, z: Math.cos(a) * r, yaw: a + Math.PI });
+    slots.push({ x: detSin(a) * r, z: detCos(a) * r, yaw: a + Math.PI });
   }
   return slots;
 }
@@ -151,10 +151,10 @@ export function edgeAction(
 export function respawnSlot(x: number, z: number, others: readonly { x: number; z: number }[]): DerbySlot {
   let a = Math.atan2(x, z);
   for (let k = 0; k < 24; k++) {
-    const sx = Math.sin(a) * RESPAWN_R;
-    const sz = Math.cos(a) * RESPAWN_R;
+    const sx = detSin(a) * RESPAWN_R;
+    const sz = detCos(a) * RESPAWN_R;
     if (!others.some((o) => hypot2(o.x - sx, o.z - sz) < FLEET_MIN_SEP)) break;
     a += 0.27;
   }
-  return { x: Math.sin(a) * RESPAWN_R, z: Math.cos(a) * RESPAWN_R, yaw: a + Math.PI };
+  return { x: detSin(a) * RESPAWN_R, z: detCos(a) * RESPAWN_R, yaw: a + Math.PI };
 }

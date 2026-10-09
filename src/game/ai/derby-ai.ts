@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { chargeBoost, clearDrive, DRIVE, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RADIUS } from "../scenes/derby-arena.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -271,8 +271,8 @@ export class DerbyBrain {
       const dx = tgt.x - self.x;
       const dz = tgt.z - self.z;
       const d = hypot2(dx, dz);
-      const ahead = Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz;
-      const faced = -(Math.sin(tgt.yaw) * dx + Math.cos(tgt.yaw) * dz) / d;
+      const ahead = detSin(self.yaw) * dx + detCos(self.yaw) * dz;
+      const faced = -(detSin(tgt.yaw) * dx + detCos(tgt.yaw) * dz) / d;
       want = d < BOOST_RANGE && d > BOOST_RELEASE && ahead > d * BOOST_CONE && faced < BOOST_FACED;
     }
     const m = this.meter[i]!;
@@ -398,7 +398,7 @@ export class DerbyBrain {
     const dz = o.z - self.z;
     const d = hypot2(dx, dz) || 1e-3;
     // Where we sit around the target: +1 at its nose, -1 behind it.
-    const cosA = -(Math.sin(o.yaw) * dx + Math.cos(o.yaw) * dz) / d;
+    const cosA = -(detSin(o.yaw) * dx + detCos(o.yaw) * dz) / d;
     const nose = Math.max(0, cosA);
     const rev = this.mode[i] !== MODE_FWD;
     const heading = rev ? self.yaw + Math.PI : self.yaw;
@@ -492,8 +492,8 @@ export class DerbyBrain {
       this.applyMove(i);
       return true;
     }
-    const fx = Math.sin(self.yaw);
-    const fz = Math.cos(self.yaw);
+    const fx = detSin(self.yaw);
+    const fz = detCos(self.yaw);
     const fwd = self.vx * fx + self.vz * fz;
     if (fwd < 4) return false;
     for (let q = 0; q < others.length; q++) {
@@ -503,8 +503,8 @@ export class DerbyBrain {
       const rz = o.z - self.z;
       if (rx * rx + rz * rz > 36) continue;
       if (!due && mood(a, self.damage, o.damage) <= -0.2) continue;
-      const ofx = Math.sin(o.yaw);
-      const ofz = Math.cos(o.yaw);
+      const ofx = detSin(o.yaw);
+      const ofz = detCos(o.yaw);
       // Its nose in our frame (along +forward, lateral +left).
       const nx = rx + ofx * NOSE;
       const nz = rz + ofz * NOSE;
@@ -568,8 +568,8 @@ export class DerbyBrain {
   private attackForward(self: AiCar, tgt: AiCar, p: Personality, d: number, speed: number): void {
     const out = this.out;
     this.intercept(self, tgt, p, Math.max(speed, DERBY_PACE * p.cruise * 0.7), _aim);
-    const ofx = Math.sin(tgt.yaw);
-    const ofz = Math.cos(tgt.yaw);
+    const ofx = detSin(tgt.yaw);
+    const ofz = detCos(tgt.yaw);
     const rx = self.x - _aim.x;
     const rz = self.z - _aim.z;
     const rd = hypot2(rx, rz) || 1e-3;
@@ -622,8 +622,8 @@ export class DerbyBrain {
   private attackReverse(self: AiCar, tgt: AiCar, p: Personality, d: number): boolean {
     const out = this.out;
     this.intercept(self, tgt, p, DRIVE.maxRev * 0.85, _aim);
-    const ofx = Math.sin(tgt.yaw);
-    const ofz = Math.cos(tgt.yaw);
+    const ofx = detSin(tgt.yaw);
+    const ofz = detCos(tgt.yaw);
     const rx = self.x - tgt.x;
     const rz = self.z - tgt.z;
     const rd = hypot2(rx, rz) || 1e-3;
@@ -650,7 +650,7 @@ export class DerbyBrain {
     out.throttle = ae < 0.45 ? -1 : ae < 1.2 ? -0.75 : -0.5;
     if (ae > 2.3 && d > 6) {
       out.steer = Math.sign(err) || p.side;
-      const fwd = self.vx * Math.sin(self.yaw) + self.vz * Math.cos(self.yaw);
+      const fwd = self.vx * detSin(self.yaw) + self.vz * detCos(self.yaw);
       if (fwd > 5) {
         // Rolling at it nose first: handbrake and lock, the tail comes round (just under 5 rad/s).
         out.throttle = 0;
@@ -663,7 +663,7 @@ export class DerbyBrain {
     }
     const r = hypot2(self.x, self.z);
     if (r > this.radius - 3.6 && out.throttle < 0) {
-      const tailOut = -(Math.sin(self.yaw) * self.x + Math.cos(self.yaw) * self.z) / r;
+      const tailOut = -(detSin(self.yaw) * self.x + detCos(self.yaw) * self.z) / r;
       if (tailOut > 0.4 && !(d < 5 && ae < 0.5)) {
         // Backing into the boards: pull forward and let the swing bring the tail round.
         out.throttle = 0.6;
@@ -705,8 +705,8 @@ export class DerbyBrain {
     if (r < this.radius - 6) return;
     const nx = self.x / r;
     const nz = self.z / r;
-    const fx = Math.sin(self.yaw);
-    const fz = Math.cos(self.yaw);
+    const fx = detSin(self.yaw);
+    const fz = detCos(self.yaw);
     const noseOut = fx * nx + fz * nz;
     if (r > this.radius - 3.4 && noseOut > 0.55 && speed < 4) {
       out.throttle = -0.8;

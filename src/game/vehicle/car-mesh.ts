@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin } from "../kernel/physics-core.js";
 import { CAR_STYLES, type BodyStyle, type ProfileStation, type YZ } from "./car-variants.ts";
 
 export const WHEEL_POS: [number, number, number][] = [
@@ -203,7 +203,7 @@ const ROCKER_Y = 0.2;
 function sideX(y: number, hw: number, yb: number): number {
   const yF = yb - FEATURE_DROP;
   if (y >= yF) {
-    const sin = Math.min((y - yF) / SHOULDER[1], Math.sin(SHOULDER_TOP));
+    const sin = Math.min((y - yF) / SHOULDER[1], detSin(SHOULDER_TOP));
     return hw + SIDE_OUT - SHOULDER[0] * (1 - Math.sqrt(1 - sin * sin));
   }
   const v = Math.min((yF - y) / (yF - ROCKER_Y), 1);
@@ -235,7 +235,7 @@ function sectionPoints(s: ProfileStation, style: BodyStyle): Pt[] {
   const half: [number, number][] = [
     [lerp(hw - 0.22, hw - 0.06, tub.t), lerp(yb + 0.012, tub.floor, tub.t)],
     [lerp(hw - 0.07, hw - 0.06, tub.t), lerp(yb + 0.004, yb - 0.006, tub.t)],
-    ...SHOULDER_RING.map((a) => side(yF + SHOULDER[1] * Math.sin(a))),
+    ...SHOULDER_RING.map((a) => side(yF + SHOULDER[1] * detSin(a))),
     side(yF),
     side(lerp(yF, ROCKER_Y, 0.5)),
     side(ROCKER_Y),

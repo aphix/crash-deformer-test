@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { clearDrive, DRIVE, idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { MAX_CARS } from "../scenes/fleet.ts";
@@ -179,8 +179,8 @@ export class TrafficBrain {
     const proj = projectPath(path, self.x, self.z, this.seg[i]!, this.proj);
     this.seg[i] = proj.k;
     const speed = hypot2(self.vx, self.vz);
-    const fx = Math.sin(self.yaw);
-    const fz = Math.cos(self.yaw);
+    const fx = detSin(self.yaw);
+    const fz = detCos(self.yaw);
 
     // Anything in our lane ahead?
     let gap = Infinity;
@@ -206,7 +206,7 @@ export class TrafficBrain {
       this.waited[i] = 0;
       this.edge[i] = EDGE_TIME;
       // A car facing us (a racer met head-on in our lane): make room at our own kerb, not across its path.
-      this.kerb[i] = Math.cos(gapYaw - self.yaw) < -0.5 ? 1 : 0;
+      this.kerb[i] = detCos(gapYaw - self.yaw) < -0.5 ? 1 : 0;
     }
     // Edging round: toward the centreline (and a little past it) at walking pace until clear, or to our
     // own kerb for a car facing us.
@@ -222,7 +222,7 @@ export class TrafficBrain {
     const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
     const surf = SURFACES[SURFACE_IDS[path.surface[proj.k]!]!];
     const turnMax = DRIVE.turn * (0.35 + 0.65 * Math.min(1, speed / 8)) * steerGrip(surf.grip);
-    out.steer = clamp((2 * Math.max(speed, 3) * Math.sin(alpha)) / ld / Math.max(0.2, turnMax), -1, 1);
+    out.steer = clamp((2 * Math.max(speed, 3) * detSin(alpha)) / ld / Math.max(0.2, turnMax), -1, 1);
 
     const curv = Math.abs(path.curv[proj.k]!);
     let target = Math.min(this.speed, curv > 1e-4 ? (DRIVE.turn * 0.6) / curv : Infinity);

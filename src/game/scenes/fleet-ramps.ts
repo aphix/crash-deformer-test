@@ -10,6 +10,7 @@ import { makeBox, solidFace } from "../contact/external-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
 import type { ContactHit, JerseyBarrier } from "./engine-props.ts";
 import { BARRIER_HALF, BARRIER_TOP } from "../contact/sat.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /**
  * The fleet's jump ramps (owner's sketch): two wedges on the jersey slab's long axis, the high end against each
@@ -130,8 +131,8 @@ export class FleetRamps extends Ground {
 
   /** Line the wedges up on the slab's long axis (`JerseyBarrier.orient`'s yaw); `slab` while it is in the scene. */
   place(yaw: number, slab: JerseyBarrier | null): void {
-    this.ax = Math.sin(yaw);
-    this.az = Math.cos(yaw);
+    this.ax = detSin(yaw);
+    this.az = detCos(yaw);
     this.group.rotation.y = yaw;
     this.slab = slab;
     // Each wedge's frame: u runs from its high end (against the slab's end) out along the slab's axis, v across it.

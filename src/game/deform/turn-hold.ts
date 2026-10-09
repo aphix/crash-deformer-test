@@ -1,5 +1,6 @@
 /** What a position-only pass (a clamp, an overlap push, shape matching) does to a wreck's turn and its angular momentum. */
 import { MIN_INERTIA } from "./constants.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 type Body = { readonly mass: number; readonly world: { x: number; z: number }; readonly vel: { x: number; z: number } };
 
@@ -116,8 +117,8 @@ export function turnVelocities(masses: readonly Body[], heldX: Float64Array, hel
   }
   const w = turn / turnI;
   kept[0] = kept[0]! + w;
-  const c = Math.cos(w);
-  const s = Math.sin(w);
+  const c = detCos(w);
+  const s = detSin(w);
   for (let i = 0; i < masses.length; i++) {
     const m = masses[i]!;
     const ux = m.vel.x - vx;

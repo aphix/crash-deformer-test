@@ -261,7 +261,8 @@ function extractRotation(A, flip, q) {
 
 /** Largest rotation (rad) one cluster fit may apply; kept unchanged from the Newton polar in e4962a0. */
 const ROT_CLAMP = 0.85;
-const COS_ROT_CLAMP = Math.cos(ROT_CLAMP);
+/** cos(ROT_CLAMP) as the correctly rounded double (detCos(0.85) and every engine's Math.cos agree on it); a literal, as hot kernels import nothing (C3). */
+const COS_ROT_CLAMP = 0.6599831458849822;
 /**
  * A = R·S with R a proper rotation (|angle| clamped to 0.85 rad) and S = sym(R^T A)
  * (identity past |S − I| 1.8). q is the caller's warm start and receives the

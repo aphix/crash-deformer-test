@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -32,8 +32,8 @@ const SEDAN = classStats("sedan");
  * is not read. A car that is stopped or reversing is left alone; a braking one still rolling forward is not. No allocation.
  */
 export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, count: number, out: DriveInput, pullsOut: (unit: number) => boolean, turn = SEDAN.turn, grip = SEDAN.grip): void {
-  const fx = Math.sin(self.yaw);
-  const fz = Math.cos(self.yaw);
+  const fx = detSin(self.yaw);
+  const fz = detCos(self.yaw);
   // A car that is reversing, or stopped (parked, knocked out), is left alone; one that is braking while still rolling forward is not: a lifted
   // throttle or a brake for the target (`attackTarget`) hits a mate as hard as a driven one, and bypassed it hit pack-mates at 11-19 m/s.
   if (out.throttle < 0 || (out.throttle === 0 && self.vx * fx + self.vz * fz <= MOVING)) return;
@@ -60,8 +60,8 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
     const rx = m.x - self.x;
     const rz = m.z - self.z;
     const phantom = hypot2(m.vx, m.vz) < MOVING && pullsOut(k);
-    const wx = (phantom ? Math.sin(m.yaw) * MOVING : m.vx) - vx;
-    const wz = (phantom ? Math.cos(m.yaw) * MOVING : m.vz) - vz;
+    const wx = (phantom ? detSin(m.yaw) * MOVING : m.vx) - vx;
+    const wz = (phantom ? detCos(m.yaw) * MOVING : m.vz) - vz;
     const dot = rx * wx + rz * wz;
     // Only a mate it is closing on counts: one already touching and moving apart is left to the physics.
     if (dot >= 0) continue;
@@ -80,8 +80,8 @@ export function guardMates(self: AiCar, cars: readonly AiCar[], first: number, c
       const tau = Math.min(tc, STEER_HOLD);
       const a = omega * tau;
       const rest = v * (tc - tau);
-      const dn = (v / omega) * (1 - Math.cos(a)) + rest * Math.sin(a);
-      const df = (v / omega) * Math.sin(a) - v * tau + rest * (Math.cos(a) - 1);
+      const dn = (v / omega) * (1 - detCos(a)) + rest * detSin(a);
+      const df = (v / omega) * detSin(a) - v * tau + rest * (detCos(a) - 1);
       hard = Math.min(hard, clamp((SOFT - hypot2(px * fx + pz * fz - df, px * fz - pz * fx - dn)) / (SOFT - CLEAR), 0, 1));
     }
     if (hard === 0) continue;

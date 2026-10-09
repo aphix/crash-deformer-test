@@ -5,6 +5,7 @@ import { activeGround } from "../world/ground.ts";
 import { GRID, P_AX, P_BX, P_CX, P_OX, P_OY, P_OZ, P_RAD2, P_STEP, P_STEPV, P_STRIDE, P_U0, P_V0, Q_KIND, Q_NU, Q_NV, Q_SOLID, Q_STRIDE, type Surface } from "../world/surfaces.ts";
 import type { Track } from "../world/track.ts";
 import type { Solid } from "./ragdoll-solids.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 
 /** The course under a throw: `track` gives its ground (none for a scene's own solids, the Lab's), `solids` its walls and every other solid (`courseSolids`). */
 type Course = { track: Track | null; solids: readonly Solid[] };
@@ -147,8 +148,8 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   const wall = (ax: number, az: number, bx: number, bz: number, h: number, t: number, out: number) => {
     const mx = (ax + bx) / 2;
     const mz = (az + bz) / 2;
-    if (Math.hypot(mx - cx, mz - cz) > reach) return;
-    const len = Math.hypot(bx - ax, bz - az);
+    if (hypot2(mx - cx, mz - cz) > reach) return;
+    const len = hypot2(bx - ax, bz - az);
     if (len < 1e-3) return;
     const y = ground.heightAt(mx, mz);
     const base = Number.isFinite(y) ? y : 0;
@@ -177,7 +178,7 @@ export function groundColliders(R: Rapier, world: World, groups: number, course:
   }
   if (course) {
     for (const s of course.solids) {
-      if (Math.hypot(s.x - cx, s.z - cz) > reach + s.r) continue;
+      if (hypot2(s.x - cx, s.z - cz) > reach + s.r) continue;
       const desc = s.make(R);
       if (desc) add(desc);
     }

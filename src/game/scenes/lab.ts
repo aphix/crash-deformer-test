@@ -1,7 +1,7 @@
 import { bodyTopY } from "../vehicle/car-mesh.ts";
 import { CAR_STYLES } from "../vehicle/car-variants.ts";
 import { UNDERSIDE } from "../vehicle/car-suspension.ts";
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
 import { propColliders, type Placed, type PropCollider } from "../world/placements.ts";
@@ -81,8 +81,8 @@ function footprint(item: LabItem): { hx: number; hz: number } {
     ax = 0.3;
     az = 0.15;
   }
-  const c = Math.abs(Math.cos(item.pose.yaw));
-  const s = Math.abs(Math.sin(item.pose.yaw));
+  const c = Math.abs(detCos(item.pose.yaw));
+  const s = Math.abs(detSin(item.pose.yaw));
   return { hx: ax * c + az * s, hz: ax * s + az * c };
 }
 
@@ -170,18 +170,18 @@ const [, NOSE_KEEL_Z, NOSE_KEEL_H] = UNDERSIDE[0]!;
 const [, TAIL_KEEL_Z, TAIL_KEEL_H] = UNDERSIDE[4]!;
 /** A base car under the top car's weight rides bottomed: its nose keel on the ground, pitched nose-up by the rear tyres at their stops (rad, measured on the lab's cards). */
 const BASE_PITCH = -0.00239;
-const BASE_RIDE = -NOSE_KEEL_H * Math.cos(BASE_PITCH) + NOSE_KEEL_Z * Math.sin(BASE_PITCH);
+const BASE_RIDE = -NOSE_KEEL_H * detCos(BASE_PITCH) + NOSE_KEEL_Z * detSin(BASE_PITCH);
 
 /** The top car's height and pitch with its two keel ends on the base cars' roofs as drawn (`bodyTopY`), the base cars at `BASE_RIDE`. */
 function onRoofs(): { y: number; pitch: number } {
   const reach = CAR_HALF.z + CARDS_GAP / 2;
   const noseLocalZ = NOSE_KEEL_Z - reach;
   const tailLocalZ = TAIL_KEEL_Z + reach;
-  const noseRoof = BASE_RIDE + bodyTopY(0, noseLocalZ, CAR_STYLES.sedan) - noseLocalZ * Math.sin(BASE_PITCH);
-  const tailRoof = BASE_RIDE + bodyTopY(0, tailLocalZ, CAR_STYLES.sedan) - tailLocalZ * Math.sin(BASE_PITCH);
+  const noseRoof = BASE_RIDE + bodyTopY(0, noseLocalZ, CAR_STYLES.sedan) - noseLocalZ * detSin(BASE_PITCH);
+  const tailRoof = BASE_RIDE + bodyTopY(0, tailLocalZ, CAR_STYLES.sedan) - tailLocalZ * detSin(BASE_PITCH);
   let pitch = 0;
-  for (let i = 0; i < 4; i++) pitch = Math.asin(((NOSE_KEEL_H - TAIL_KEEL_H) * Math.cos(pitch) + tailRoof - noseRoof) / (NOSE_KEEL_Z - TAIL_KEEL_Z));
-  return { y: noseRoof - NOSE_KEEL_H * Math.cos(pitch) + NOSE_KEEL_Z * Math.sin(pitch), pitch };
+  for (let i = 0; i < 4; i++) pitch = Math.asin(((NOSE_KEEL_H - TAIL_KEEL_H) * detCos(pitch) + tailRoof - noseRoof) / (NOSE_KEEL_Z - TAIL_KEEL_Z));
+  return { y: noseRoof - NOSE_KEEL_H * detCos(pitch) + NOSE_KEEL_Z * detSin(pitch), pitch };
 }
 const ON_ROOFS = onRoofs();
 

@@ -1,5 +1,6 @@
 import type { PrefabId } from "./catalog.ts";
 import { BENCH_STRIP_ID, SURFACE } from "./constants.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** One kind of static prop along the strip's left, `count` copies spread evenly over the straight. */
 export interface StripProp {
@@ -42,11 +43,11 @@ export function stripCourse(spec: StripSpec): unknown {
   const endNode = nodes.length - 1;
   const round = (v: number): number => Math.round(v * 100) / 100;
   // The far U-turn to the left (+x), then the return leg down x = 2R.
-  for (const deg of [150, 120, 90, 60, 30]) nodes.push({ x: round(R + R * Math.cos((deg * Math.PI) / 180)), z: round(L + R * Math.sin((deg * Math.PI) / 180)) });
+  for (const deg of [150, 120, 90, 60, 30]) nodes.push({ x: round(R + R * detCos((deg * Math.PI) / 180)), z: round(L + R * detSin((deg * Math.PI) / 180)) });
   for (let z = L; z >= -300 - 1e-6; z -= 400) nodes.push({ x: 2 * R, z: Math.max(z, -300) });
   if (nodes[nodes.length - 1]!.z > -300) nodes.push({ x: 2 * R, z: -300 });
   // The near U-turn back to x = 0, then a 300 m straight into the start line (the grid sits there).
-  for (const deg of [-30, -60, -90, -120, -150]) nodes.push({ x: round(R + R * Math.cos((deg * Math.PI) / 180)), z: round(-300 + R * Math.sin((deg * Math.PI) / 180)) });
+  for (const deg of [-30, -60, -90, -120, -150]) nodes.push({ x: round(R + R * detCos((deg * Math.PI) / 180)), z: round(-300 + R * detSin((deg * Math.PI) / 180)) });
   nodes.push({ x: 0, z: -300 }, { x: 0, z: -150 });
   const midUp = Math.floor(endNode / 2);
   const returnMid = nodes.findIndex((n) => n.x === 2 * R && n.z <= L / 2);

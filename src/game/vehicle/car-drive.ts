@@ -6,6 +6,7 @@ import { hypot2 } from "../deform/physics-util.ts";
 import { C_GRIP, HIT_SIZE } from "../world/surfaces.ts";
 import { assists, carClass, carDrivability, CLASSES, HANDLING, SELF_RIGHT_SLOWEST, type Assists, type Drivability } from "./vehicle-classes.ts";
 import { LOSS_SIZE, wheelLoss } from "./wheel-loss.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** Shared by derby AI and the player seat. */
 export type DriveInput = {
@@ -277,8 +278,8 @@ export function applyDrive(car: DeformableCar, input: DriveInput, dt: number, to
   const dyaw = yawRate * dt;
 
   // New heading; velocity split along it.
-  const c = Math.cos(dyaw);
-  const s = Math.sin(dyaw);
+  const c = detCos(dyaw);
+  const s = detSin(dyaw);
   const fx = fx0 * c + fz0 * s;
   const fz = -fx0 * s + fz0 * c;
   let lon = vx * fx + vz * fz + (speed - along);

@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { groundMesh } from "./ground-stack.ts";
 
@@ -13,7 +13,7 @@ const SPAWN_PITCH = 5.64;
 /** Bowl radius for a field of `count`: today's bowl up to 12 cars, then wide enough that the spawn ring keeps `SPAWN_PITCH` (32 cars: ~34 m). */
 export function derbyRadius(count: number): number {
   const n = Math.max(2, Math.round(count) || 2);
-  return Math.max(DERBY_RADIUS, SPAWN_PITCH / (2 * Math.sin(Math.PI / n)) + SPAWN_INSET);
+  return Math.max(DERBY_RADIUS, SPAWN_PITCH / (2 * detSin(Math.PI / n)) + SPAWN_INSET);
 }
 /** Bowl wall: slabs, height and thickness (m), set by eye with derby mode (01d7d22), not measured; 28 slabs keep a ~3.7 m chord on the 16.4 m bowl. */
 const SEGMENTS = 28;
@@ -34,7 +34,7 @@ export function makeDerbyArena(): THREE.Group {
     metalness: 0.08,
   });
   const arc = (Math.PI * 2) / SEGMENTS;
-  const chord = 2 * DERBY_RADIUS * Math.sin(arc * 0.5);
+  const chord = 2 * DERBY_RADIUS * detSin(arc * 0.5);
   const box = new THREE.BoxGeometry(WALL_T, WALL_H, chord * 0.96);
   // Alternating slabs: one instanced draw per material instead of one per slab.
   const walls = [mat, stripe].map((m) => {
@@ -46,7 +46,7 @@ export function makeDerbyArena(): THREE.Group {
   const slab = new THREE.Object3D();
   for (let i = 0; i < SEGMENTS; i++) {
     const a = i * arc;
-    slab.position.set(Math.sin(a) * DERBY_RADIUS, WALL_H * 0.5, Math.cos(a) * DERBY_RADIUS);
+    slab.position.set(detSin(a) * DERBY_RADIUS, WALL_H * 0.5, detCos(a) * DERBY_RADIUS);
     // Box long axis is local Z. rotation.y = a points that axis down the radius.
     slab.rotation.y = a + Math.PI / 2;
     slab.updateMatrix();

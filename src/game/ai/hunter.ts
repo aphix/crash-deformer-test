@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
 import { clamp, wrapPi } from "../kernel/scalar.ts";
@@ -87,8 +87,8 @@ export class Obstacles {
     const solid = all.filter((c) => c.base - foot.get(c.index)! < CLEARANCE);
     this.x = Float64Array.from(solid, (c) => c.x);
     this.z = Float64Array.from(solid, (c) => c.z);
-    this.cos = Float64Array.from(solid, (c) => Math.cos(c.yaw));
-    this.sin = Float64Array.from(solid, (c) => Math.sin(c.yaw));
+    this.cos = Float64Array.from(solid, (c) => detCos(c.yaw));
+    this.sin = Float64Array.from(solid, (c) => detSin(c.yaw));
     this.hx = Float64Array.from(solid, (c) => c.hx + SWATH);
     this.hz = Float64Array.from(solid, (c) => c.hz + SWATH);
     this.circle = Uint8Array.from(solid, (c) => (c.kind === "circle" ? 1 : 0));
@@ -125,8 +125,8 @@ export class Obstacles {
 
   /** Metres from (x, z) along heading `h` to the first solid (`len` when the way is clear that far). */
   run(x: number, z: number, h: number, len: number): number {
-    const dx = Math.sin(h);
-    const dz = Math.cos(h);
+    const dx = detSin(h);
+    const dz = detCos(h);
     for (let d = PROBE_STEP; d <= len; d += PROBE_STEP) if (this.blocked(x + dx * d, z + dz * d)) return d - PROBE_STEP;
     return len;
   }
@@ -247,8 +247,8 @@ export class HunterBrain extends CopBrain {
     const dist = hypot2(dx, dz);
     const tv = hypot2(tg.vx, tg.vz);
     // How far the unit stands ahead of its target along the target's travel (+), and whether it faces it from there.
-    const along = -(dx * Math.sin(tg.yaw) + dz * Math.cos(tg.yaw));
-    const headOn = along > WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
+    const along = -(dx * detSin(tg.yaw) + dz * detCos(tg.yaw));
+    const headOn = along > WAIT_BEHIND && detSin(self.yaw) * dx + detCos(self.yaw) * dz > dist * HEAD_ON;
     const reach = along > 0 ? Math.max(ATTACK, tv * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
     if (dist <= reach) {
       this.slot(u, self, tg, dist, cars);
@@ -273,8 +273,8 @@ export class HunterBrain extends CopBrain {
    * Sets `lane`, `row`.
    */
   private slot(u: number, self: AiCar, tg: AiCar, dist: number, cars: readonly AiCar[]): void {
-    const lx = Math.cos(tg.yaw);
-    const lz = -Math.sin(tg.yaw);
+    const lx = detCos(tg.yaw);
+    const lz = -detSin(tg.yaw);
     const side = (self.x - tg.x) * lx + (self.z - tg.z) * lz;
     let lane = side > 1 ? 1 : side < -1 ? -1 : this.queued[u] || (side >= 0 ? 1 : -1);
     if (this.obstacles.run(tg.x + lx * lane * TAIL_LANE, tg.z + lz * lane * TAIL_LANE, tg.yaw + Math.PI, QUEUE) < QUEUE) lane = -lane;
@@ -407,8 +407,8 @@ export class HunterBrain extends CopBrain {
    */
   private dropSpot(tg: AiCar, cars: readonly AiCar[], world: HunterWorld): boolean {
     const n = this.spotX.length;
-    const fx = Math.sin(tg.yaw);
-    const fz = Math.cos(tg.yaw);
+    const fx = detSin(tg.yaw);
+    const fz = detCos(tg.yaw);
     const v2 = tg.vx * tg.vx + tg.vz * tg.vz;
     const moving = hypot2(tg.vx, tg.vz) > 5;
     let tests = 0;

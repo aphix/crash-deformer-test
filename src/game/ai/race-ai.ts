@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { chargeBoost, idleDrive, topUpBoost, type DriveInput } from "../vehicle/car-drive.ts";
 import { mood } from "./ai-aggression.ts";
 import { GUARD_BRAKE_IDX, GUARD_COUNT, GUARD_LEAD_IDX, GUARD_TURN_IDX } from "./constants.ts";
@@ -319,8 +319,8 @@ export class RaceBrain {
     const k = proj.k;
     const surf = surfaceAt(path, k);
     const turnMax = this.cls[i]!.turn * (0.35 + 0.65 * Math.min(1, speed / 8)) * steerGrip(surf.grip);
-    const fx = Math.sin(self.yaw);
-    const fz = Math.cos(self.yaw);
+    const fx = detSin(self.yaw);
+    const fz = detCos(self.yaw);
     const along = self.vx * fx + self.vz * fz;
 
     // L2: the line. A shortcut is narrow, drive its middle: only the following gap (`follow`) applies there.
@@ -359,7 +359,7 @@ export class RaceBrain {
     const tz = pt.z - pt.tx * lane;
     const alpha = wrapPi(Math.atan2(tx - self.x, tz - self.z) - self.yaw);
     const reach = early ? Math.max(4, hypot2(tx - self.x, tz - self.z)) : ld;
-    const omega = (2 * Math.max(speed, 4) * Math.sin(alpha)) / reach;
+    const omega = (2 * Math.max(speed, 4) * detSin(alpha)) / reach;
     out.steer = clamp(omega / Math.max(0.2, turnMax), -1, 1);
 
     const cls = this.cls[i]!;
@@ -381,7 +381,7 @@ export class RaceBrain {
     // Off the road, a pursuit asking for more than full lock is a corner the plan does not see: the car (pushed wide, off the
     // road) slows to what it can turn back onto the line at, instead of holding the road's plan at full lock while it runs on out.
     if (Math.abs(proj.lateral) > path.half[k]! && Math.abs(omega) > turnMax) {
-      const arc = cornerSpeed(cls, reach / (2 * Math.abs(Math.sin(alpha))), surf.grip);
+      const arc = cornerSpeed(cls, reach / (2 * Math.abs(detSin(alpha))), surf.grip);
       if (arc < target) {
         target = arc;
         out.boost = false;

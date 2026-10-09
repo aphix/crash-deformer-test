@@ -15,6 +15,7 @@ import { HubPlane } from "./hub-plane.ts";
 import { BodyFit } from "./body-fit.ts";
 import type { MassNode } from "./deform-rig.ts";
 import type { StreamedDeformation } from "./streamed-deform.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** Engine slack (m) a hit too slow to pack the nose still allows (mounts, not crush).
  *  This replaces the old first-hit ENGINE_LIGHT_CAP: the block's reach now
@@ -411,10 +412,10 @@ export abstract class DeformContact extends DeformState {
     const pitch = Math.max(-0.2, Math.min(0.22, Math.atan2(-fy, Math.max(yawLen, 0.15)))) * this.lean + planePitch * (1 - this.lean);
     const roll = Math.max(-0.5, Math.min(0.5, (engR.world.y - engL.world.y) * 0.55)) * this.lean + planeRoll * (1 - this.lean);
     const tilt = Number.isFinite(pitch + roll);
-    const cp = Math.cos(tilt ? pitch : 0);
-    const sp = Math.sin(tilt ? pitch : 0);
-    const cr = Math.cos(tilt ? roll : 0);
-    const sr = Math.sin(tilt ? roll : 0);
+    const cp = detCos(tilt ? pitch : 0);
+    const sp = detSin(tilt ? pitch : 0);
+    const cr = detCos(tilt ? roll : 0);
+    const sr = detSin(tilt ? roll : 0);
     const ax = (engL.local.x + engR.local.x) * 0.5 - axle.local.x;
     const ay = (engL.local.y + engR.local.y) * 0.5 - axle.local.y;
     const az = (engL.local.z + engR.local.z) * 0.5 - axle.local.z;
@@ -459,7 +460,7 @@ export abstract class DeformContact extends DeformState {
     }
     const p = this.pose;
     p[0] = pitch;
-    p[1] = Number.isFinite(yaw) ? Math.atan2(Math.sin(yaw), Math.cos(yaw)) : this.prevYaw;
+    p[1] = Number.isFinite(yaw) ? Math.atan2(detSin(yaw), detCos(yaw)) : this.prevYaw;
     p[2] = roll;
     p[3] = wx;
     p[4] = wy;
@@ -563,16 +564,16 @@ export abstract class DeformContact extends DeformState {
    */
   projectOutOfBox(cx: number, cz: number, hx: number, hz: number, yaw: number, ends = true): number {
     if (!this.massActive) return 0;
-    const rx = Math.cos(yaw);
-    const rz = -Math.sin(yaw);
-    const fx = Math.sin(yaw);
-    const fz = Math.cos(yaw);
+    const rx = detCos(yaw);
+    const rz = -detSin(yaw);
+    const fx = detSin(yaw);
+    const fz = detCos(yaw);
     const cell = this.at.cell;
     const side = (cell.world.x - cx) * rx + (cell.world.z - cz) * rz >= 0 ? 1 : -1;
     // Group yaw from the last followGroup: keeps `local` (and so crumpleTravelCorner,
     // which the slab clip reads) in step with the projected world positions.
-    const gc = Math.cos(this.prevYaw);
-    const gs = Math.sin(this.prevYaw);
+    const gc = detCos(this.prevYaw);
+    const gs = detSin(this.prevYaw);
     let removed = 0;
     let moved = false;
     this.faceContacts = 0;
@@ -666,8 +667,8 @@ export abstract class DeformContact extends DeformState {
   separateAlong(nx: number, ny: number, nz: number, amount: number, dv = 0): void {
     if (!this.massActive || (amount === 0 && dv === 0)) return;
     this.yawMomentum(1, false);
-    const gc = Math.cos(this.prevYaw);
-    const gs = Math.sin(this.prevYaw);
+    const gc = detCos(this.prevYaw);
+    const gs = detSin(this.prevYaw);
     const into = Math.max(0, (nx * gc - nz * gs) * this.impactInward.x + (nx * gs + nz * gc) * this.impactInward.z);
     for (let mi = 0; mi < this.masses.length; mi++) {
       const m = this.masses[mi]!;

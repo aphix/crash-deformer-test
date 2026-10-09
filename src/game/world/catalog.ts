@@ -2,7 +2,7 @@
  * Data tables the track JSON refers to by id. Pure: no THREE, no DOM.
  * `prefabs.ts` builds the meshes and must cover every `PrefabId`.
  */
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { SURFACE } from "./constants.ts";
 
 export const SURFACE_IDS = [SURFACE.asphalt, SURFACE.concrete, SURFACE.cobble, SURFACE.dirt, SURFACE.gravel, SURFACE.grass, SURFACE.sand] as const;
@@ -65,8 +65,8 @@ export const STAR_INNER = 0.45;
  */
 function starPlan(r: number, y0: number, y1: number, slices: number): Collider[] {
   const valley = r * STAR_INNER;
-  const reach = valley * Math.cos(Math.PI / 5);
-  const half = valley * Math.sin(Math.PI / 5);
+  const reach = valley * detCos(Math.PI / 5);
+  const half = valley * detSin(Math.PI / 5);
   const out: Collider[] = [];
   for (let a = 0; a < 5; a++) {
     const yaw = (a * 2 * Math.PI) / 5;
@@ -74,7 +74,7 @@ function starPlan(r: number, y0: number, y1: number, slices: number): Collider[]
       const from = i < 0 ? 0 : reach + ((r - reach) * i) / slices;
       const to = i < 0 ? reach : reach + ((r - reach) * (i + 1)) / slices;
       const mid = (from + to) / 2;
-      out.push({ kind: "box", hx: i < 0 ? half : (half * (r - mid)) / (r - reach), hz: (to - from) / 2, x: Math.sin(yaw) * mid, z: Math.cos(yaw) * mid, yaw, y0, y1 });
+      out.push({ kind: "box", hx: i < 0 ? half : (half * (r - mid)) / (r - reach), hz: (to - from) / 2, x: detSin(yaw) * mid, z: detCos(yaw) * mid, yaw, y0, y1 });
     }
   }
   return out;

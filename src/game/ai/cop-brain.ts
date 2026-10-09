@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { guardMates } from "./pack-guard.ts";
 import { idleDrive, type DriveInput } from "../vehicle/car-drive.ts";
 import { classStats, type ClassStats } from "../vehicle/vehicle-classes.ts";
@@ -63,7 +63,7 @@ export function pursuitSteer(alpha: number, reach: number, speed: number, turn: 
   // An aim behind the shoulder: sin(alpha) fades to nothing as it nears dead astern, which drove a unit straight away from it. Full lock toward it.
   if (Math.abs(alpha) > BEHIND) return Math.sign(alpha);
   const turnMax = turn * (0.35 + 0.65 * Math.min(1, speed / 8));
-  return clamp((2 * Math.max(speed, 4) * Math.sin(alpha)) / Math.max(4, reach) / Math.max(0.2, turnMax), -1, 1);
+  return clamp((2 * Math.max(speed, 4) * detSin(alpha)) / Math.max(4, reach) / Math.max(0.2, turnMax), -1, 1);
 }
 
 /** Wedge recovery of every police drive: throttle held without progress for `STUCK_FOR` s backs a unit off for `BACK_FOR` s, steering the other way. */
@@ -126,8 +126,8 @@ class Backoff {
  * stopped is not worth blocking.
  */
 export function attackTarget(self: AiCar, tg: AiCar, role: number, turn: number, speed: number, dist: number, headOn: boolean, out: DriveInput, block = true, lane = (role % 3) - 1, row = role % 5): void {
-  const tfx = Math.sin(tg.yaw);
-  const tfz = Math.cos(tg.yaw);
+  const tfx = detSin(tg.yaw);
+  const tfz = detCos(tg.yaw);
   // Left of the target's travel = (fz, −fx).
   const tlx = tfz;
   const tlz = -tfx;

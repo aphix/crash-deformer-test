@@ -1,5 +1,5 @@
 import * as THREE from "three";
-import { hypot3 } from "../kernel/physics-core.js";
+import { hypot3, detSin } from "../kernel/physics-core.js";
 import { regionSoftness, regionCrushBands } from "./physics-util.ts";
 import { makeCluster, type ShapeCluster, type ShapeParticle } from "./shape-match.ts";
 import {
@@ -16,7 +16,7 @@ import type { Beam, Cage, MassNode, RigOverrides, Sensor } from "./deform-rig.ts
 // The rig as built: wrinkle seeds, cages, sensors, masses and beams at rest, and the lattice skin's cage influences.
 
 function hash01(i: number, salt = 1): number {
-  const s = Math.sin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
+  const s = detSin(i * 127.1 * salt + salt * 311.7) * 43758.5453;
   return s - Math.floor(s);
 }
 

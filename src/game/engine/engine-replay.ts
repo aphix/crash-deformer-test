@@ -12,6 +12,7 @@ import { foldHeading } from "../present/shot-cam.ts";
 import type { PoseBlend } from "../present/pose-blend.ts";
 import { newWorld, settleStep, stepWorld, type World } from "./world-step.ts";
 import type { Ejection } from "../vehicle/ejection.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 
 /**
  * What a replay needs from its scene: dress a respawned car, the course's walls and props for car `slot`, and (a scene
@@ -345,7 +346,7 @@ export class ClipSim {
     car.driverOut = EXIT_PANES[f.driverOut] ?? null;
     car.flight(this.flight[k]!, j * FLIGHT, true);
     this.restoreCar?.(this.clip.cars[j]!.slot, this.memory[k]!, j * MEMORY);
-    car.speed = Math.hypot(car.velocity.x, car.velocity.z);
+    car.speed = hypot2(car.velocity.x, car.velocity.z);
     car.refreshBasis();
     car.deform.bindKinematic(car.group, car.velocity, car.angular);
   }

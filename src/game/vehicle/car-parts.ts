@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { TYRE_R } from "../deform/deform-state.ts";
 import { DOOR } from "./car-mesh.ts";
@@ -216,8 +216,8 @@ export abstract class CarParts extends CarGlass {
         const roll = t * BUMPER_ROLL * asym + (asym < 0 ? -1 : 1) * this.flapAngle(p);
         const px = (asym < 0 ? -0.6 : 0.6) * p.object.scale.x;
         p.object.rotation.z = roll;
-        p.object.position.x += px * (1 - Math.cos(roll));
-        p.object.position.y -= px * Math.sin(roll) + t * BUMPER_SAG;
+        p.object.position.x += px * (1 - detCos(roll));
+        p.object.position.y -= px * detSin(roll) + t * BUMPER_SAG;
       } else {
         const side = p.name === "mirrorL" ? -1 : 1;
         p.object.rotation.z += side * t * 1.4;
@@ -249,8 +249,8 @@ export abstract class CarParts extends CarGlass {
       const roll = dir * t * BAR_ROLL;
       const px = dir * LIGHT_BAR_FOOT.x;
       p.object.rotation.z = roll;
-      p.object.position.x += px * (1 - Math.cos(roll));
-      p.object.position.y -= px * Math.sin(roll);
+      p.object.position.x += px * (1 - detCos(roll));
+      p.object.position.y -= px * detSin(roll);
     } else if (p.region) {
       if (p.folding) {
         if (!p.open || p.hingeT !== p.posed) this.shellPose(p);
@@ -358,7 +358,7 @@ export abstract class CarParts extends CarGlass {
         if (h.theta >= DOOR_OPEN_MAX && h.omega > 0) {
           h.theta = DOOR_OPEN_MAX;
           // The trailing edge's velocity is what the strap stops.
-          _push.set(sign * Math.cos(h.theta), 0, Math.sin(h.theta)).multiplyScalar(h.omega * DOOR.length);
+          _push.set(sign * detCos(h.theta), 0, detSin(h.theta)).multiplyScalar(h.omega * DOOR.length);
           const e = 0.5 * DOOR_INERTIA * h.omega * h.omega;
           // The strap's detent holds it on the stop.
           h.omega = 0;
@@ -666,7 +666,7 @@ export abstract class CarParts extends CarGlass {
     }
     // A fixed hash of the part and the hit, not Math.random: a replay throws it the same way, so its dents land the same.
     const hash = (k: number): number => {
-      const s = Math.sin((this.parts.indexOf(p) + 1) * 12.9898 + k * 78.233 + impulse * 0.37) * 43758.5453;
+      const s = detSin((this.parts.indexOf(p) + 1) * 12.9898 + k * 78.233 + impulse * 0.37) * 43758.5453;
       return s - Math.floor(s) - 0.5;
     };
     p.angular.set(hash(1) * 6, hash(2) * 5, hash(3) * 6);
@@ -683,7 +683,7 @@ export abstract class CarParts extends CarGlass {
   /** A panel's shell, built if need be and bent to its hinge value on the current skin. */
   protected shellPose(p: DetachPart): void {
     this.openPanel(p);
-    poseShell(p.region!, (p.object as THREE.Mesh).geometry, this.body.geometry, p.hingeT, Math.sin(this.deform.crushElapsed * 22));
+    poseShell(p.region!, (p.object as THREE.Mesh).geometry, this.body.geometry, p.hingeT, detSin(this.deform.crushElapsed * 22));
     p.posed = p.hingeT;
   }
 

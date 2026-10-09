@@ -26,6 +26,7 @@ import { celStrength } from "../present/scene-fade.ts";
 import { EngineDerby } from "./engine-derby.ts";
 import type { DerbyCarFlag } from "../match/derby.ts";
 import { aimLabShot, LAB_FOV, LAB_SHOT } from "./lab-shot.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -240,7 +241,7 @@ export abstract class EngineScenes extends EngineDerby {
       let span = 0;
       for (let k = 0; k < this.lab.layout.length; k++) {
         this.lab.centre(k, _w).sub(look);
-        span = Math.max(span, Math.abs(_w.x * Math.cos(bearing) - _w.z * Math.sin(bearing)));
+        span = Math.max(span, Math.abs(_w.x * detCos(bearing) - _w.z * detSin(bearing)));
       }
       radius = (span + LAB_SHOT.wide.fit) / (Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2) * this.camera.aspect);
       look.y = Math.min(look.y, from.y + LAB_SHOT.wide.low * radius * Math.tan(THREE.MathUtils.degToRad(LAB_FOV) / 2));

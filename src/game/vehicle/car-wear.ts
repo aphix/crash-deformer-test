@@ -1,5 +1,6 @@
 import { DOOR } from "./car-mesh.ts";
 import { KPH_PER_MS } from "../kernel/constants.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /**
  * Hinged parts in motion (docs/PANEL_FLAP.md): the wind on a loosened quarter panel, arch flare or hanging bumper, and an
@@ -33,7 +34,7 @@ export function flapRate(speed: number): number {
 
 /** 0..1, never negative: a part lifts off its body and settles back, it does not fold into it. Two beats that never line up. */
 export function flapWave(phase: number): number {
-  return 0.5 + 0.35 * Math.sin(phase) + 0.15 * Math.sin(2.7 * phase + 1.3);
+  return 0.5 + 0.35 * detSin(phase) + 0.15 * detSin(2.7 * phase + 1.3);
 }
 
 /** Above this speed (m/s, 80 km/h) a hinged part wears: faster, and quicker still once stretched. */
@@ -78,8 +79,8 @@ export const PANEL_FRAGILE_J = 15;
  * accelerating shuts it; the outside of a turn opens, the inside shuts.
  */
 export function swingAccel(sx: number, theta: number, ax: number, az: number, w: number, al: number): number {
-  const s = Math.sin(theta);
-  const c = Math.cos(theta);
+  const s = detSin(theta);
+  const c = detCos(theta);
   const k = 3 / (2 * DOOR.length);
   const drive = -(sx * c * ax + s * az) + w * w * (DOOR.hingeX * c + DOOR.hingeZ * s);
   return k * drive - al * sx * (k * (DOOR.hingeZ * c - DOOR.hingeX * s) - 1);

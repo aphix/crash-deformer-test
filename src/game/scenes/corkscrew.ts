@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { Ground, STEP_UP } from "../world/ground.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /**
  * The corkscrew scene's channel (owner's Hot Wheels sketch): a floor between two walls that rises along +z from a
@@ -43,8 +44,8 @@ const PROFILE_Y = new Float64Array(N_SAMPLES);
 const PROFILE_Z = new Float64Array(N_SAMPLES);
 for (let i = 1; i < N_SAMPLES; i++) {
   const th = climbAt((i - 0.5) * STEP);
-  PROFILE_Y[i] = PROFILE_Y[i - 1]! + Math.sin(th) * STEP;
-  PROFILE_Z[i] = PROFILE_Z[i - 1]! + Math.cos(th) * STEP;
+  PROFILE_Y[i] = PROFILE_Y[i - 1]! + detSin(th) * STEP;
+  PROFILE_Z[i] = PROFILE_Z[i - 1]! + detCos(th) * STEP;
 }
 
 function climbAt(s: number): number {
@@ -69,8 +70,8 @@ function centre(s: number, out: THREE.Vector3): THREE.Vector3 {
   if (s < 0) out.z += s;
   else if (s > CORKSCREW.len) {
     const k = s - CORKSCREW.len;
-    out.y += Math.sin(CORKSCREW.climb) * k;
-    out.z += Math.cos(CORKSCREW.climb) * k;
+    out.y += detSin(CORKSCREW.climb) * k;
+    out.z += detCos(CORKSCREW.climb) * k;
   }
   return out;
 }
@@ -79,10 +80,10 @@ function centre(s: number, out: THREE.Vector3): THREE.Vector3 {
 function frame(s: number, b: THREE.Vector3, n: THREE.Vector3, t: THREE.Vector3): void {
   const th = climbAt(s);
   const ph = bankAt(s);
-  const ct = Math.cos(th);
-  const st = Math.sin(th);
-  const cp = Math.cos(ph);
-  const sp = Math.sin(ph);
+  const ct = detCos(th);
+  const st = detSin(th);
+  const cp = detCos(ph);
+  const sp = detSin(ph);
   t.set(0, st, ct);
   // Unbanked across (1, 0, 0) and up (0, cos, −sin), turned by the bank about t: the +x side rises.
   b.set(cp, sp * ct, -sp * st);

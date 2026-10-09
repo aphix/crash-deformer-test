@@ -23,6 +23,7 @@ import { ENGINE_PACK_GAP, GROUND_SKIN, HUB_FLOOR, PLANT_QUIET, POWER_HOLD, TYRE_
 import { resistYaw } from "./tyre-yaw.ts";
 import { tiltedRise } from "./hub-plane.ts";
 import { holdMomentum, holdPositions, turnVelocities, undoNetTurn } from "./turn-hold.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** Elastic part (m) of a crushed node's travel; the rest is permanent set. */
 const SPRINGBACK = 0.08;
@@ -722,8 +723,8 @@ export abstract class DeformSolve extends DeformContact {
   protected sampleGround(floor: Float64Array, grip: Float64Array | null): void {
     const ground = activeGround();
     const withGrip = grip !== null;
-    const fx = Math.sin(this.prevYaw) * TREAD_FORE;
-    const fz = Math.cos(this.prevYaw) * TREAD_FORE;
+    const fx = detSin(this.prevYaw) * TREAD_FORE;
+    const fz = detCos(this.prevYaw) * TREAD_FORE;
     for (let i = 0; i < this.masses.length; i++) {
       const m = this.masses[i]!;
       if (!m.dynamic) continue;

@@ -14,6 +14,7 @@ import type { Hull } from "./hulls.ts";
 import { bindLattice, buildRunStructures, INF_K, restoreInto, runTemplate, wrinkleSeeds } from "./deform-build.ts";
 import { FACES, faceFollow, IMPRINT_NONE } from "./load-crush.ts";
 import { PushBudget } from "./push-budget.ts";
+import { hypot3, hypot2 } from "../kernel/physics-core.js";
 
 /**
  * Burnout-style streamed deformation.
@@ -641,7 +642,7 @@ export abstract class DeformRig {
         otherW = 0;
       for (let ci = 0; ci < this.clusters.length; ci++) {
         const cm = cms[ci]!;
-        const d = Math.hypot(rx - cm.x, ry - cm.y, rz - cm.z);
+        const d = hypot3(rx - cm.x, ry - cm.y, rz - cm.z);
         if (d > 1.45) continue;
         if (ry > 1.02 && cm.y < 0.78) continue;
         const w = Math.exp(-d * 2.35);
@@ -671,7 +672,7 @@ export abstract class DeformRig {
         this.skinW[i * SKIN_K + k] = scored[k]!.w;
       }
       if (ry < 0.55) {
-        this.skinHub[i] = this.masses.findIndex((m) => m.hub && Math.hypot(rx - m.rest.x, rz - m.rest.z) <= 0.4);
+        this.skinHub[i] = this.masses.findIndex((m) => m.hub && hypot2(rx - m.rest.x, rz - m.rest.z) <= 0.4);
       }
     }
     // Cage corners follow the clusters within 1.4 m of their rest position (`solveCagesFromShape`).
@@ -685,7 +686,7 @@ export abstract class DeformRig {
       let wsum = 0;
       for (let ci = 0; ci < this.clusters.length; ci++) {
         const cm = cms[ci]!;
-        const d = Math.hypot(rest.x - cm.x, rest.y - cm.y, rest.z - cm.z);
+        const d = hypot3(rest.x - cm.x, rest.y - cm.y, rest.z - cm.z);
         if (d > 1.4) continue;
         const w = Math.exp(-d * 2.35);
         xf.push(ci * 9);

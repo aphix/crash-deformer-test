@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { ClassStats } from "../vehicle/vehicle-classes.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -202,7 +202,7 @@ export class PoliceBrain extends CopBrain {
     // Ahead of its target, a unit pulls out into its path once it is `PULL_OUT` s off (at racing speed a
     // pull-out from `ATTACK` m never reached the line in time: the racer swept past and only clipped its
     // nose); one facing it rams it head-on from `RAM_TIME` s off.
-    const headOn = arc < -WAIT_BEHIND && Math.sin(self.yaw) * dx + Math.cos(self.yaw) * dz > dist * HEAD_ON;
+    const headOn = arc < -WAIT_BEHIND && detSin(self.yaw) * dx + detCos(self.yaw) * dz > dist * HEAD_ON;
     const reach = arc < 0 ? Math.max(ATTACK, hypot2(tg.vx, tg.vz) * (headOn ? RAM_TIME : PULL_OUT)) : ATTACK;
     // The road between the two is no longer than the straight line: the same stretch (not across a crossover or under a bridge).
     if (dist > reach || Math.abs(arc) > dist * 1.3 + 6) {
@@ -397,7 +397,7 @@ export class PoliceBrain extends CopBrain {
       if (path.deck[k]) continue;
       const run = side > 0 ? path.runL[k]! : path.runR[k]!;
       const angle = run >= ANGLED_RUN ? PARK_ANGLE : 0;
-      const lat = side * (path.half[k]! + run - HALF_W - PARK_MARGIN - HALF_L * Math.sin(angle));
+      const lat = side * (path.half[k]! + run - HALF_W - PARK_MARGIN - HALF_L * detSin(angle));
       const pt = this.track.pointAt(ws, this.pt);
       const x = pt.x + pt.tz * lat;
       const z = pt.z - pt.tx * lat;
@@ -406,8 +406,8 @@ export class PoliceBrain extends CopBrain {
       for (const o of cars) if (hypot2(o.x - x, o.z - z) < PARK_CLEAR) clear = false;
       if (!clear) continue;
       // Nose toward the road: forward turned by `angle` toward the centreline.
-      const fx = facing * pt.tx * Math.cos(angle) - side * pt.tz * Math.sin(angle);
-      const fz = facing * pt.tz * Math.cos(angle) + side * pt.tx * Math.sin(angle);
+      const fx = facing * pt.tx * detCos(angle) - side * pt.tz * detSin(angle);
+      const fz = facing * pt.tz * detCos(angle) + side * pt.tx * detSin(angle);
       this.spotAt.x = x;
       this.spotAt.y = pt.y;
       this.spotAt.z = z;

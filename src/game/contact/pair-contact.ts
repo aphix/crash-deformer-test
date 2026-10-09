@@ -7,6 +7,7 @@ import { carCrushHulls, satCars, shareHeight } from "./sat.ts";
 import { bodyContact, faceOverlap, type ContactBox } from "./external-contact.ts";
 import { TYRE_HALF_W } from "../deform/deform-contact.ts";
 import { TYRE_R } from "../deform/deform-state.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 const _v = new THREE.Vector3();
 const _w = new THREE.Vector3();
@@ -129,8 +130,8 @@ function shoveWreck(car: DeformableCar, nx: number, nz: number, d: number): void
 export function wallBounce(car: DeformableCar, face: ContactBox, nx: number, nz: number, pen: number, dt: number, held: boolean): void {
   const v = car.velocity;
   const pos = car.group.position;
-  const fx = Math.sin(face.yaw);
-  const fz = Math.cos(face.yaw);
+  const fx = detSin(face.yaw);
+  const fz = detCos(face.yaw);
   const into = -(v.x * fx + v.z * fz);
   if (into > WALL_CRUSH || car.deform.massActive) {
     if (held) return;

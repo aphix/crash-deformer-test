@@ -16,6 +16,7 @@ import { CRUSH_HULLS, HULLS, type Hull } from "./hulls.ts";
 import { DeformHit } from "./deform-hit.ts";
 import type { Beam, MassNode } from "./deform-rig.ts";
 import { CageStrain, maxCompression, sensorsByPart } from "./cage-measure.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** Packed bumper-to-block-centre length (m): bumper beam and radiator crushed flat ahead of a
  *  0.36 m block. Nose crush past the 0.84 m rest gap minus this shoves the engine back. */
@@ -159,8 +160,8 @@ export abstract class DeformState extends DeformHit {
    * pin clampLocal holds it at. Without detachable wheels the shove stops at a wheel diameter.
    */
   shoveHub(m: MassNode, dx: number, dz: number): void {
-    const gc = Math.cos(this.prevYaw);
-    const gs = Math.sin(this.prevYaw);
+    const gc = detCos(this.prevYaw);
+    const gs = detSin(this.prevYaw);
     m.shoveX += dx * gc - dz * gs;
     m.shoveZ += dx * gs + dz * gc;
     const len = hypot2(m.shoveX, m.shoveZ);

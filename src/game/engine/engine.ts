@@ -1,3 +1,5 @@
+// First: every quaternion built from here on, constants at load included, takes the engine-identical trig (kernel/three-trig.ts).
+import "../kernel/three-trig.ts";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
 import { PISTON_ORBIT_RATE, PistonBank } from "../present/engine-pistons.ts";
@@ -38,6 +40,7 @@ import { ReelDirector } from "./engine-highlights.ts";
 import { TrackArt } from "../present/track-art.ts";
 import { EngineGarage } from "./engine-garage.ts";
 import { GARAGE } from "../present/garage-art.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 const FIXED = 1 / 60;
 /** Deform LoD: sphere around a car — rest half-diagonal 2.5 m plus crumple slack and the
@@ -665,7 +668,7 @@ export class CrashEngine extends EngineGarage {
       if (hitCar) {
         _bp.copy(hitCar.deform.massWorld("bumperFL")).add(hitCar.deform.massWorld("bumperFR")).multiplyScalar(0.5);
         _bp.y = 0.32;
-        _bn.set(Math.cos(this.barrier.yaw), 0, -Math.sin(this.barrier.yaw));
+        _bn.set(detCos(this.barrier.yaw), 0, -detSin(this.barrier.yaw));
         contact = _bp;
         normal = _bn;
       }

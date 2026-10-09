@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { MAX_CARS } from "../scenes/fleet.ts";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import type { AiCar } from "./derby-ai.ts";
@@ -22,8 +22,8 @@ const OPEN_BRAKE = 0.7;
 /** Lift and brake `out` (in place) when `self`'s nose is closing too fast on a live rival; no-op once the opening is over. */
 function openingCaution(out: DriveInput, self: AiCar, others: readonly AiCar[], seconds: number, hit: boolean): void {
   if (hit || seconds >= OPEN_S || out.throttle <= 0) return;
-  const fx = Math.sin(self.yaw);
-  const fz = Math.cos(self.yaw);
+  const fx = detSin(self.yaw);
+  const fz = detCos(self.yaw);
   for (const o of others) {
     if (o.id === self.id || !o.alive) continue;
     const dx = o.x - self.x;

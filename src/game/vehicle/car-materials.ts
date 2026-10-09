@@ -1,6 +1,7 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
 import { once } from "../kernel/scalar.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** The shared car textures and materials (paint, tone grid, glass, crack map, lamp mask) and the small multi-tone parts built on them. */
 
@@ -364,8 +365,8 @@ export const getCrackMap = once((): THREE.Texture => {
     let y = cy;
     const steps = 4 + Math.floor(Math.random() * 4);
     for (let s = 0; s < steps; s++) {
-      x += Math.cos(ang + (Math.random() - 0.5) * 0.8) * (40 + Math.random() * 50);
-      y += Math.sin(ang + (Math.random() - 0.5) * 0.8) * (40 + Math.random() * 50);
+      x += detCos(ang + (Math.random() - 0.5) * 0.8) * (40 + Math.random() * 50);
+      y += detSin(ang + (Math.random() - 0.5) * 0.8) * (40 + Math.random() * 50);
       ctx.lineTo(x, y);
     }
     ctx.stroke();

@@ -11,6 +11,7 @@ import type { CarType } from "../scenes/fleet.ts";
 import type { Ground } from "../world/ground.ts";
 import type { Placed, PropCollider } from "../world/placements.ts";
 import { PREFABS } from "../world/catalog.ts";
+import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
 
 /** Sim seconds after the first contact at which the throw's "after" speeds are read: the hit's pulse is over (crash pulses run 60–120 ms). */
 const AFTER_S = 0.3;
@@ -108,7 +109,7 @@ function placeCar(car: DeformableCar, item: LabItem): void {
 const BENCH_HZ = (BENCH.front - BOARD.z) / 2;
 const FLOOR_HALF = 1000;
 const LAB_GROUND: readonly Solid[] = [
-  { x: 0, z: BOARD.z + BENCH_HZ, r: Math.hypot(BENCH.halfW, BENCH_HZ), make: (R) => R.ColliderDesc.cuboid(BENCH.halfW, -FLOOR / 2, BENCH_HZ).setTranslation(0, FLOOR / 2, BOARD.z + BENCH_HZ) },
+  { x: 0, z: BOARD.z + BENCH_HZ, r: hypot2(BENCH.halfW, BENCH_HZ), make: (R) => R.ColliderDesc.cuboid(BENCH.halfW, -FLOOR / 2, BENCH_HZ).setTranslation(0, FLOOR / 2, BOARD.z + BENCH_HZ) },
   { x: 0, z: 0, r: FLOOR_HALF * Math.SQRT2, make: (R) => R.ColliderDesc.cuboid(FLOOR_HALF, 0.5, FLOOR_HALF).setTranslation(0, FLOOR - 0.5, 0) },
 ];
 
@@ -119,7 +120,7 @@ function labSolids(colliders: readonly PropCollider[], surfaces: readonly LabSur
     const hz = (s.z1 - s.z0) / 2;
     const x = (s.x0 + s.x1) / 2;
     const z = (s.z0 + s.z1) / 2;
-    return { x, z, r: Math.hypot(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, BRACKET_T / 2, hz).setTranslation(x, s.top - BRACKET_T / 2, z) };
+    return { x, z, r: hypot2(hx, hz), make: (R) => R.ColliderDesc.cuboid(hx, BRACKET_T / 2, hz).setTranslation(x, s.top - BRACKET_T / 2, z) };
   });
   return [...LAB_GROUND, ...colliderSolids(colliders, []), ...plates];
 }
@@ -234,8 +235,8 @@ export class Lab {
     this.rest = new Float64Array(this.carItems.length * 4);
     // Halfway from the thrower to the middle of the rest; a lone thrower looks 12 m down its own line.
     const first = heldPose(this.layout[0]!);
-    let mx = first.x + Math.sin(first.yaw) * 12;
-    let mz = first.z + Math.cos(first.yaw) * 12;
+    let mx = first.x + detSin(first.yaw) * 12;
+    let mz = first.z + detCos(first.yaw) * 12;
     if (this.layout.length > 1) {
       mx = 0;
       mz = 0;
@@ -321,7 +322,7 @@ export class Lab {
       const car = this.cars[slot]!;
       car.velocity.copy(v);
       car.angular.set(0, 0, 0);
-      car.speed = Math.hypot(v.x, v.z);
+      car.speed = hypot2(v.x, v.z);
       car.parked = false;
       if (car.deform.massActive) {
         for (const m of car.deform.masses) m.vel.copy(v);
@@ -505,7 +506,7 @@ export class Lab {
       const c = this.cars[slot]!;
       const o = slot * 4;
       const p = c.group.position;
-      const moved = Math.hypot(p.x - this.rest[o]!, p.y - this.rest[o + 1]!, p.z - this.rest[o + 2]!);
+      const moved = hypot3(p.x - this.rest[o]!, p.y - this.rest[o + 1]!, p.z - this.rest[o + 2]!);
       if (moved > FELL_M || c.group.matrixWorld.elements[5]! < UPRIGHT) s.fell[n++] = this.carItems[slot]!;
     }
     for (let k = 0; k < this.propItems.length; k++) if (this.knocked[k] && k !== this.thingProp) s.fell[n++] = this.propItems[k]!;

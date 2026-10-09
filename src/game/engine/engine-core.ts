@@ -54,6 +54,7 @@ import { PlayerLooks } from "./player-looks.ts";
 import { wearCarLook } from "../present/car-look.ts";
 import { NO_CAR_PICK } from "../match/look-data.ts";
 import { FLOOR } from "../scenes/lab.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 const _v = new THREE.Vector3();
 /** The masses a wreck's engine smoke rises from (`puffEngine`). */
@@ -726,7 +727,7 @@ export abstract class EngineCore {
     for (let i = 0; i < 6; i++) {
       const a = (i / 6) * Math.PI * 2;
       const pole = makeLamp();
-      pole.position.set(Math.sin(a) * 16, 0, Math.cos(a) * 16);
+      pole.position.set(detSin(a) * 16, 0, detCos(a) * 16);
       this.scene.add(pole);
       this.poles.push({ group: pole, intact: true, radius: 0.12, kicked: new Set() });
     }

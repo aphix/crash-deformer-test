@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import "./three-trig.ts";
+import { Euler, Object3D, Quaternion, Vector3 } from "three";
 import { detCos, detSin } from "./physics-core.js";
+import { assertSameNumbers } from "../vehicle/test-support.ts";
 
 // The oracle: sin and cos by Taylor series in 140-bit fixed point (BigInt), the argument reduced by a 140-bit π, so each result
 // is the correctly rounded double. It uses no Math function and no code from the kernel under test.
@@ -135,4 +138,99 @@ describe("given the game's own sine and cosine (the same bits in every browser, 
       assert.equal(detCos(testCase.angle), testCase.cos);
     });
   }
+});
+
+describe("given three's quaternion from Euler angles, from an axis and angle, and its slerp, with the game's own trig installed", () => {
+  // 1000 triples: headings up to two turns, pitch and roll within a quarter turn, as a car pose is.
+  const pitches = sequence(13, 1000, 0.8);
+  const rolls = sequence(14, 1000, 0.8);
+  const triples = sequence(12, 1000, 4 * Math.PI).map((heading, i) => [pitches[i]!, heading, rolls[i]!] as const);
+  // Each component is a sum of two triple products of factors no larger than 1, so a factor 1 ulp (2^-53 of at most 1) off moves
+  // the component by at most 2^-53; six such factors and the three roundings per term that may then land differently bound the
+  // gap between two evaluations at 12 · 2^-53.
+  const ONE_ULP_FACTORS = 12 * 2 ** -53;
+  /** three's 'YXZ' formula, the order every car pose uses (`rotation.set(pitch, yaw, roll, "YXZ")`). */
+  const yxz = (x: number, y: number, z: number, sin: (a: number) => number, cos: (a: number) => number): number[] => {
+    const c1 = cos(x / 2), c2 = cos(y / 2), c3 = cos(z / 2), s1 = sin(x / 2), s2 = sin(y / 2), s3 = sin(z / 2);
+    return [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 - s1 * s2 * c3, c1 * c2 * c3 + s1 * s2 * s3];
+  };
+  const q = new Quaternion();
+  const euler = new Euler();
+  const read = (): number[] => [q.x, q.y, q.z, q.w];
+
+  it("when a car pose is set in 'YXZ' order, then every component is bit-equal to three's formula fed with the game's own sine and cosine (the same bits in every engine)", () => {
+    for (const [x, y, z] of triples) {
+      q.setFromEuler(euler.set(x, y, z, "YXZ"));
+      assertSameNumbers(read(), yxz(x, y, z, detSin, detCos), `(${x}, ${y}, ${z})`);
+    }
+  });
+
+  it("when a car pose is set in 'YXZ' order, then every component is within six factors one unit off of the formula on correctly rounded trig, and of the same formula on the engine's own trig (a car keeps the pose it had)", () => {
+    for (const [x, y, z] of triples) {
+      q.setFromEuler(euler.set(x, y, z, "YXZ"));
+      const exact = yxz(x, y, z, (a) => oracle(a).sin, (a) => oracle(a).cos);
+      const before = yxz(x, y, z, Math.sin, Math.cos);
+      const now = read();
+      for (let k = 0; k < 4; k++) {
+        assert.ok(Math.abs(now[k]! - exact[k]!) <= ONE_ULP_FACTORS, `component ${k} of (${x}, ${y}, ${z}) is ${Math.abs(now[k]! - exact[k]!)} from the exact formula`);
+        assert.ok(Math.abs(now[k]! - before[k]!) <= ONE_ULP_FACTORS, `component ${k} of (${x}, ${y}, ${z}) is ${Math.abs(now[k]! - before[k]!)} from the engine's own`);
+      }
+    }
+  });
+
+  it("when the engine's Math.sin and Math.cos round differently (each nudged one unit up, as another browser's may), then a pose, a turn about an axis and a slerp come out bit for bit the same", () => {
+    const up = (v: number): number => (v === 0 ? v : v + Math.abs(v) * 2 ** -52);
+    const sin = Math.sin;
+    const cos = Math.cos;
+    const axis = new Vector3(1, 2, 2).normalize();
+    const run = (): number[] => {
+      const out: number[] = [];
+      for (const [x, y, z] of triples.slice(0, 200)) {
+        q.setFromEuler(euler.set(x, y, z, "YXZ"));
+        out.push(...read());
+        q.setFromAxisAngle(axis, y);
+        out.push(...read());
+        q.setFromEuler(euler.set(x, 0, z, "YXZ")).slerp(new Quaternion().setFromEuler(euler.set(z, y, x, "YXZ")), 0.37);
+        out.push(...read());
+      }
+      return out;
+    };
+    const plain = run();
+    try {
+      Math.sin = (a: number) => up(sin(a));
+      Math.cos = (a: number) => up(cos(a));
+      const nudged = run();
+      assertSameNumbers(nudged, plain, "with the engine's trig nudged");
+      // The control: the nudge does change the same formula on the engine's trig, so the bars above can fail.
+      const [x, y, z] = triples[0]!;
+      assert.notEqual(yxz(x, y, z, Math.sin, Math.cos)[3], yxz(x, y, z, sin, cos)[3]);
+    } finally {
+      Math.sin = sin;
+      Math.cos = cos;
+    }
+  });
+
+  it("when an object's rotation is set as Euler angles, then the angles read back exactly as set (the quaternion follows the angles, not the reverse)", () => {
+    const o = new Object3D();
+    for (const [x, y, z] of triples.slice(0, 200)) {
+      o.rotation.set(x, y, z, "YXZ");
+      assertSameNumbers([o.rotation.x, o.rotation.y, o.rotation.z], [x, y, z], `(${x}, ${y}, ${z})`);
+    }
+  });
+
+  it("when a part turns about an axis, then the quaternion is the axis times the game's sine of the half angle, and its cosine", () => {
+    const axis = new Vector3(1, 2, 2).normalize();
+    for (const angle of sequence(15, 500, 4 * Math.PI)) {
+      q.setFromAxisAngle(axis, angle);
+      const s = detSin(angle / 2);
+      assertSameNumbers(read(), [axis.x * s, axis.y * s, axis.z * s, detCos(angle / 2)], `angle ${angle}`);
+    }
+  });
+
+  it("when an Euler order the game never uses is given, then the quaternion still follows three's formula for it ('XYZ')", () => {
+    const [x, y, z] = triples[0]!;
+    q.setFromEuler(euler.set(x, y, z, "XYZ"));
+    const c1 = detCos(x / 2), c2 = detCos(y / 2), c3 = detCos(z / 2), s1 = detSin(x / 2), s2 = detSin(y / 2), s3 = detSin(z / 2);
+    assertSameNumbers(read(), [s1 * c2 * c3 + c1 * s2 * s3, c1 * s2 * c3 - s1 * c2 * s3, c1 * c2 * s3 + s1 * s2 * c3, c1 * c2 * c3 - s1 * s2 * s3], "XYZ");
+  });
 });

@@ -4,6 +4,7 @@ import { resetCluster } from "./shape-match.ts";
 import { BodyFit } from "./body-fit.ts";
 import { DeformRig, type DeformMode, type MassNode } from "./deform-rig.ts";
 import { FACES, FACE_AXIS } from "./load-crush.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /** Most (m/s) a wheel freed by the plant may slide off the body's speed (`seatHubs`). */
 const HUB_SLIP = 8;
@@ -323,7 +324,7 @@ export abstract class DeformHit extends DeformRig {
     this.bindKinematic(group, worldVel, worldOmega);
     for (const m of this.masses) m.dynamic = true;
     this.captureShapeRest();
-    this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
+    this.prevYaw = Math.atan2(detSin(group.rotation.y), detCos(group.rotation.y));
     this.leanAt = -Infinity;
     this.aloft = false;
     this.floorsFresh = false;
@@ -426,7 +427,7 @@ export abstract class DeformHit extends DeformRig {
       const bz = vz - spin * (m.world.x - cx);
       const sx = m.vel.x - bx;
       const sz = m.vel.z - bz;
-      const slip = Math.hypot(sx, sz);
+      const slip = hypot2(sx, sz);
       if (slip <= HUB_SLIP) continue;
       m.vel.x = bx + (sx * HUB_SLIP) / slip;
       m.vel.z = bz + (sz * HUB_SLIP) / slip;
@@ -470,7 +471,7 @@ export abstract class DeformHit extends DeformRig {
       m.vel.copy(worldVel).add(_r.subVectors(m.world, o).crossVectors(worldOmega, _r));
       m.dynamic = true;
     }
-    this.prevYaw = Math.atan2(Math.sin(group.rotation.y), Math.cos(group.rotation.y));
+    this.prevYaw = Math.atan2(detSin(group.rotation.y), detCos(group.rotation.y));
     this.leanAt = -Infinity;
     this.aloft = false;
     // The first read lays the frame on the ground under its wheels: read with none (as the step after did), a quiet wreck

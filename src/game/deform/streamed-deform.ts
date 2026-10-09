@@ -7,6 +7,7 @@ import { INF_K } from "./deform-build.ts";
 import { cageAxis, cageCoeffs } from "./deform-state.ts";
 import { skinKernel, skinKey, type SkinDynamic, type SkinKernel, type SkinStatic, type SkinTables } from "./skin-kernel.ts";
 import { FACE_TOP } from "./load-crush.ts";
+import { detSin } from "../kernel/physics-core.js";
 
 const _a = new THREE.Vector3();
 const _c = new THREE.Vector3();
@@ -333,7 +334,7 @@ export class StreamedDeformation extends DeformSolve {
           const alongCage = cage.spec.name === "bonnet"
             ? (rest.z - cage.min.z) / Math.max(cage.size.z, 1e-4)
             : (cage.max.z - rest.z) / Math.max(cage.size.z, 1e-4);
-          const pop = amount * cornerFall * Math.sin(THREE.MathUtils.clamp(alongCage, 0, 1) * Math.PI) * (0.45 + this.buckle * 0.9);
+          const pop = amount * cornerFall * detSin(THREE.MathUtils.clamp(alongCage, 0, 1) * Math.PI) * (0.45 + this.buckle * 0.9);
           corner.y += pop * 0.85;
           corner.x += Math.sign(rest.x || 1) * pop * 0.18;
           corner.z += inward.z * amount * cornerFall * alongCage * 0.25;
@@ -342,7 +343,7 @@ export class StreamedDeformation extends DeformSolve {
         }
         _e.copy(rest).sub(cage.center);
         const along = _e.dot(inward);
-        const crease = Math.sin(along * 9 + s.compression * 4) * s.compression * (lid ? 0.04 : 0.08) * cornerFall;
+        const crease = detSin(along * 9 + s.compression * 4) * s.compression * (lid ? 0.04 : 0.08) * cornerFall;
         if (lid) corner.y += Math.abs(crease) * 0.6;
         else corner.addScaledVector(inward, crease);
         const name = cage.spec.name;
@@ -558,7 +559,7 @@ export class StreamedDeformation extends DeformSolve {
           const n0 = this.wrinkleSeed[i]!;
           // Accordion folds along the crush axis (~12 cm wavelength), not a clay blob.
           // Wreckfest impact radius sweet spot is 0.3–0.5 m; 1.6 m wrinkled the whole nose.
-          const wave = Math.sin(rz * 18 + n0 * 1.2);
+          const wave = detSin(rz * 18 + n0 * 1.2);
           const amp = ampK * Math.exp(-Math.sqrt(d2) * 3.4);
           let ox = Math.sign(rx || 1) * n0 * amp * 0.12;
           let oy = Math.abs(wave) * amp * 0.28;

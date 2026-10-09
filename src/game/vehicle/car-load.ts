@@ -1,6 +1,14 @@
 import { WHEEL_POS } from "./car-mesh.ts";
 import type { VehicleClassId } from "./vehicle-classes.ts";
 
+/** tanh from `Math.exp` (the same bits in every engine; `Math.tanh` rounds differently in Chromium): saturated past |x| = 20, where it is ±1 in doubles. */
+function tanh(x: number): number {
+  if (x > 20) return 1;
+  if (x < -20) return -1;
+  const e = Math.exp(2 * x);
+  return (e - 1) / (e + 1);
+}
+
 /** Half the wheelbase and half the track (m). */
 const AXLE = WHEEL_POS[0]![2];
 const TRACK = Math.abs(WHEEL_POS[0]![0]);
@@ -100,8 +108,8 @@ export class LoadTransfer {
     // L the wheelbase and T the track; the springs' own scale is saturated at the class's limit.
     const capP = AXLE * Math.tan(c.pitch * RAD);
     const capR = TRACK * Math.tan(c.roll * RAD);
-    const p = alongRoad(capP * Math.tanh((along * c.cg) / (AXLE * k * capP)), e[9]!, c.pitch * RAD);
-    const r = alongRoad(capR * Math.tanh((side * c.cg) / (TRACK * k * capR)), e[1]!, c.roll * RAD);
+    const p = alongRoad(capP * tanh((along * c.cg) / (AXLE * k * capP)), e[9]!, c.pitch * RAD);
+    const r = alongRoad(capR * tanh((side * c.cg) / (TRACK * k * capR)), e[1]!, c.roll * RAD);
     // Front and the +x side rise under +along and +side; the rear and the −x side sink.
     this.target[0] = p - r;
     this.target[1] = p + r;

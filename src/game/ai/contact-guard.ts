@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import type { DriveInput } from "../vehicle/car-drive.ts";
 import { DERBY_RULES, type AiCar } from "./derby-ai.ts";
 import { clamp } from "../kernel/scalar.ts";
@@ -83,15 +83,25 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
     if (gap >= LON) continue;
     if (!arc) {
       arc = true;
+      // Each step's heading and nose are the start's turned by `turned`: one sine and cosine of the turn per step, rotated in by the
+      // angle-sum identities, instead of a sine and cosine for every sum.
+      const ch = detCos(heading);
+      const sh = detSin(heading);
+      const cosNose = detCos(nose);
+      const sinNose = detSin(nose);
       for (let i = 0; i < STEPS; i++) {
         const t = TIMES[i]!;
         const turned = omega * t;
-        DX[i] = straight ? sx * t : (speed / omega) * (Math.cos(heading) - Math.cos(heading + turned));
-        DZ[i] = straight ? sz * t : (speed / omega) * (Math.sin(heading + turned) - Math.sin(heading));
-        GX[i] = Math.sin(nose + turned);
-        GZ[i] = Math.cos(nose + turned);
-        VX[i] = straight ? sx : speed * Math.sin(heading + turned);
-        VZ[i] = straight ? sz : speed * Math.cos(heading + turned);
+        const ct = detCos(turned);
+        const st = detSin(turned);
+        const sinH = sh * ct + ch * st;
+        const cosH = ch * ct - sh * st;
+        DX[i] = straight ? sx * t : (speed / omega) * (ch - cosH);
+        DZ[i] = straight ? sz * t : (speed / omega) * (sinH - sh);
+        GX[i] = sinNose * ct + cosNose * st;
+        GZ[i] = cosNose * ct - sinNose * st;
+        VX[i] = straight ? sx : speed * sinH;
+        VZ[i] = straight ? sz : speed * cosH;
       }
     }
     // `prev`: the zone metric at the last step (2 = outside before the first); `tc` < 0 until a contact is found.
@@ -102,8 +112,8 @@ export function guardContact(self: AiCar, cars: readonly AiCar[], count: number,
     let cw = 0;
     let n0 = 0;
     let l0 = 0;
-    const ox = ospeed > 0.1 ? o.vx / ospeed : Math.sin(o.yaw);
-    const oz = ospeed > 0.1 ? o.vz / ospeed : Math.cos(o.yaw);
+    const ox = ospeed > 0.1 ? o.vx / ospeed : detSin(o.yaw);
+    const oz = ospeed > 0.1 ? o.vz / ospeed : detCos(o.yaw);
     for (let i = 0; i < STEPS; i++) {
       const t = TIMES[i]!;
       // The other keeps its heading and sheds speed at `lead` (a car ahead braking for what it sees), down to a stop.

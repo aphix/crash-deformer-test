@@ -9,6 +9,7 @@ import { droop, PAN, SPRINGS, UNDERSIDE } from "./car-suspension.ts";
 import { CLASSES, carClass } from "./vehicle-classes.ts";
 import { CarSurfaces } from "./car-surfaces.ts";
 import { FACES, FACE_AXIS, faceFollow } from "../deform/load-crush.ts";
+import { hypot3 } from "../kernel/physics-core.js";
 
 /**
  * How a car meets the surfaces under it, one pass per slice (`world/surfaces.ts` answers every query): each wheel's tread
@@ -85,7 +86,7 @@ const SEGS: Int16Array = (() => {
   return pairs.slice(0, m);
 })();
 /** The farthest (m) any body point stands from the centre of mass, the belly's class lift aside. */
-const POINT_REACH = Math.max(...POINTS.map(([x, y, z]) => Math.hypot(x, y - COM_Y, z)));
+const POINT_REACH = Math.max(...POINTS.map(([x, y, z]) => hypot3(x, y - COM_Y, z)));
 /** Contacts a body can hold in one slice: its tyres and points, and a belly segment's edge each. */
 const CONTACTS = POINTS.length + SEGS.length / 2;
 /** Bumper, beltline and roof corners (`HULL[4..]`): the body points whose face a hit crushes (`load-crush.ts`). */
@@ -898,7 +899,7 @@ export function stepFree(car: DeformableCar, dt: number): boolean {
       v.z += ASK[c]! * N[c]!.y * N[c]!.z;
       continue;
     }
-    const along = Math.hypot(N[c]!.x, N[c]!.z);
+    const along = hypot2(N[c]!.x, N[c]!.z);
     if (along > 0) push(v, w, q, R[c]!, _vp.set(N[c]!.x / along, 0, N[c]!.z / along), ASK[c]! * N[c]!.y * along);
   }
   for (let pass = 0; pass < PASSES; pass++) {

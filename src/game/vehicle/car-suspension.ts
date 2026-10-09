@@ -4,6 +4,7 @@ import { CAR_HALF, WHEEL_POS } from "./car-mesh.ts";
 import { activeGround, NO_FLOOR } from "../world/ground.ts";
 import { C_H, HIT_SIZE, staticTop } from "../world/surfaces.ts";
 import { LoadTransfer } from "./car-load.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 /**
  * The tyre springs and dampers of a body on the road (`stepFree`): a spring and a damper per corner push the physics body up, per
@@ -325,10 +326,10 @@ export class Suspension {
     // The body group's turn (x then z, `pose`) and its place over the ground pose.
     const rx = -this.pitch;
     const rz = Math.atan((o[1]! + o[3]! - o[0]! - o[2]!) / (4 * TRACK));
-    const sx = Math.sin(rx);
-    const cx = Math.cos(rx);
-    const sz = Math.sin(rz);
-    const cz = Math.cos(rz);
+    const sx = detSin(rx);
+    const cx = detCos(rx);
+    const sz = detSin(rz);
+    const cz = detCos(rz);
     const dy = lift + this.heave;
     let pen = 0;
     for (let i = 0; i < HULL_UNDER.length; i += HU_SIZE) {

@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { PREFABS, type PrefabId } from "./catalog.ts";
 import { blankPoint, blankProjection, blankSegment, pointOn, projectPath, segmentAt, type Projection, type Track, type TrackPath } from "./track.ts";
 
@@ -105,8 +105,8 @@ function segBoxDist(u0: number, v0: number, u1: number, v1: number, hw: number, 
  * the union of its segments, each widened by its half width + runoff on the box's side.
  */
 function boxClear(path: TrackPath, x: number, z: number, yaw: number, hw: number, hd: number): number {
-  const c = Math.cos(yaw);
-  const sn = Math.sin(yaw);
+  const c = detCos(yaw);
+  const sn = detSin(yaw);
   const reach = hypot2(hw, hd);
   const segs = path.closed ? path.count : path.count - 1;
   let best = Infinity;
@@ -272,8 +272,8 @@ export function propColliders(placed: readonly Placed[]): PropCollider[] {
   for (const [index, p] of placed.entries()) {
     const spec = PREFABS[p.prefab];
     if (spec.body === "none") continue;
-    const cos = Math.cos(p.yaw);
-    const sin = Math.sin(p.yaw);
+    const cos = detCos(p.yaw);
+    const sin = detSin(p.yaw);
     for (const c of spec.collider) {
       const ox = (c.x ?? 0) * p.sx;
       const oz = (c.z ?? 0) * p.sz;

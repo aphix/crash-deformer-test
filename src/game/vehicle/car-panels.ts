@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { computeNormalsFast } from "../deform/fast-normals.ts";
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import { ARCH_R, DOOR, WHEEL_POS } from "./car-mesh.ts";
 import type { BodyStyle } from "./car-variants.ts";
 
@@ -200,8 +200,8 @@ function bend(r: PanelRegion, k: number, x: number, z: number, t: number, flutte
     const phi = r.side * r.peel * t * w;
     const rx = x - r.pivot[0];
     const rz = z - r.pivot[1];
-    const sin = Math.sin(phi);
-    const cos = Math.cos(phi) - 1;
+    const sin = detSin(phi);
+    const cos = detCos(phi) - 1;
     _shift[0] = rx * cos + rz * sin;
     _shift[1] = PEEL_LIFT * t * w;
     _shift[2] = -rx * sin + rz * cos;
@@ -287,8 +287,8 @@ const _az = new THREE.Vector3(0, 0, 1);
 export function flutterShell(r: PanelRegion, object: THREE.Object3D, a: number): void {
   const o = r.origin;
   const phi = r.side * a;
-  const sin = Math.sin(phi);
-  const cos = Math.cos(phi);
+  const sin = detSin(phi);
+  const cos = detCos(phi);
   if (r.kind === "quarter") {
     const dx = o.x - r.pivot[0];
     const dz = o.z - r.pivot[1];

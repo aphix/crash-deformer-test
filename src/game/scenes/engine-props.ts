@@ -7,6 +7,7 @@ import { applyGroundFriction, leftoverCrumple, round4, satPushCap, vec3 } from "
 import { C_PY, HIT_SIZE } from "../world/surfaces.ts";
 import { BARRIER_HALF, BARRIER_MASS, BARRIER_TOP, clipCarToBarrier, satCarBarrier } from "../contact/sat.ts";
 import { impulseCar, pushCar } from "../contact/pair-contact.ts";
+import { detSin, detCos, hypot2, hypot3 } from "../kernel/physics-core.js";
 
 /** Fraction of a ramp ball's diameter left above the asphalt. */
 export const BALL_EXPOSE = 0.25;
@@ -114,7 +115,7 @@ export class JerseyBarrier {
 
   /** Face the slab broadside to the lead car's approach line, or (`endOn`, the fleet ramps on its ends) along it. */
   orient(a: THREE.Vector3, endOn = false): void {
-    const len = Math.hypot(a.x, a.z);
+    const len = hypot2(a.x, a.z);
     if (len < 0.01) {
       this.yaw = 0;
     } else {
@@ -175,8 +176,8 @@ export class JerseyBarrier {
     const o = this.group.position;
     const p = car.group.position;
     _qi.copy(car.group.quaternion).invert();
-    const ax = Math.cos(this.yaw);
-    const az = -Math.sin(this.yaw);
+    const ax = detCos(this.yaw);
+    const az = -detSin(this.yaw);
     const hx = this.hx();
     for (let k = 0; k < 4; k++) {
       const u = k === 1 || k === 2 ? hx : -hx;
@@ -224,8 +225,8 @@ export class JerseyBarrier {
   private hold(car: DeformableCar): boolean {
     const o = this.group.position;
     const held = car.deform.projectOutOfBox(o.x, o.z, this.hx(), BARRIER_HALF.z, this.yaw);
-    const rx = Math.cos(this.yaw);
-    const rz = -Math.sin(this.yaw);
+    const rx = detCos(this.yaw);
+    const rz = -detSin(this.yaw);
     const side = (car.group.position.x - o.x) * rx + (car.group.position.z - o.z) * rz >= 0 ? 1 : -1;
     this.faceN.set(rx * side, 0, rz * side);
     if (held > 0) this.vel.addScaledVector(this.faceN, -held / BARRIER_MASS);
@@ -319,7 +320,7 @@ export class JerseyBarrier {
 
   /** True when the slab sits between this pair so they must not SAT through it. */
   blocksPair(a: DeformableCar, b: DeformableCar): boolean {
-    _bRight.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
+    _bRight.set(detCos(this.yaw), 0, -detSin(this.yaw));
     const ax = a.group.position.x * _bRight.x + a.group.position.z * _bRight.z;
     const bx = b.group.position.x * _bRight.x + b.group.position.z * _bRight.z;
     const pad = BARRIER_HALF.x + 0.2;
@@ -328,8 +329,8 @@ export class JerseyBarrier {
 
   /** Earliest time-to-contact of any car closing on the slab faces, folded into `eta`. */
   contactEta(cars: readonly DeformableCar[], eta: number): number {
-    _bRight.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    _bFwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    _bRight.set(detCos(this.yaw), 0, -detSin(this.yaw));
+    _bFwd.set(detSin(this.yaw), 0, detCos(this.yaw));
     for (const car of cars) {
       const px = car.group.position.x;
       const pz = car.group.position.z;
@@ -359,8 +360,8 @@ export class JerseyBarrier {
 
   /** Push an FX particle out of the slab box. */
   bounce(pos: THREE.Vector3, vel: THREE.Vector3, r: number): void {
-    _bRight.set(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-    _bFwd.set(Math.sin(this.yaw), 0, Math.cos(this.yaw));
+    _bRight.set(detCos(this.yaw), 0, -detSin(this.yaw));
+    _bFwd.set(detSin(this.yaw), 0, detCos(this.yaw));
     const oxp = pos.x - this.group.position.x;
     const ozp = pos.z - this.group.position.z;
     const lx = oxp * _bRight.x + ozp * _bRight.z;
@@ -403,7 +404,7 @@ export class JerseyBarrier {
         const dx = _v.x - contact.x;
         const dy = _v.y - contact.y;
         const dz = _v.z - contact.z;
-        const dist = Math.hypot(dx, dy, dz);
+        const dist = hypot3(dx, dy, dz);
         const fall = Math.exp(-dist * 2.2);
         _v.x -= normal.x * amount * fall;
         _v.z -= normal.z * amount * fall;
@@ -444,7 +445,7 @@ export function scatterRampBalls(balls: readonly RampBall[], visible: boolean, r
     b.mesh.scale.setScalar(b.radius);
     const a = base + (i / 3) * Math.PI * 2 + (rng() - 0.5) * 0.55;
     const r = ringOuter + 3 + rng();
-    b.mesh.position.set(Math.sin(a) * r, -(1 - BALL_EXPOSE) * b.radius, Math.cos(a) * r);
+    b.mesh.position.set(detSin(a) * r, -(1 - BALL_EXPOSE) * b.radius, detCos(a) * r);
     b.intact = true;
     b.kicked.clear();
     b.mesh.visible = visible;
@@ -485,9 +486,9 @@ export function resolveRampBalls(
       nearestHullPoint(car, h, c, px, pz, 0.28);
       const dx = _hb.x - c.x;
       const dz = _hb.z - c.z;
-      const distXz = Math.hypot(dx, dz);
+      const distXz = hypot2(dx, dz);
       const ringR = Math.sqrt(Math.max(1e-6, ball.radius * ball.radius * (1 - (1 - BALL_EXPOSE) * (1 - BALL_EXPOSE))));
-      if (distXz > ringR + Math.hypot(h.hx, h.hz)) continue;
+      if (distXz > ringR + hypot2(h.hx, h.hz)) continue;
       const overlap = ringR + 0.22 - distXz;
       if (overlap <= 0) continue;
       if (distXz < 1e-4) continue;
@@ -546,7 +547,7 @@ export function resetLampPoles(poles: readonly LampPole[]): void {
     const a = (i / 6) * Math.PI * 2;
     pole.intact = true;
     pole.kicked.clear();
-    pole.group.position.set(Math.sin(a) * 16, 0, Math.cos(a) * 16);
+    pole.group.position.set(detSin(a) * 16, 0, detCos(a) * 16);
     pole.group.rotation.set(0, 0, 0);
   }
 }
@@ -563,7 +564,7 @@ export function resolveLampPoles(poles: readonly LampPole[], car: DeformableCar,
     for (const h of car.hulls()) {
       nearestHullPoint(car, h, c, px, pz, 0.4);
       _mtv.set(_hb.x - c.x, 0, _hb.z - c.z);
-      const dist = Math.hypot(_mtv.x, _mtv.z);
+      const dist = hypot2(_mtv.x, _mtv.z);
       if (dist >= pole.radius + 0.04 || dist < 1e-5) continue;
       _mtv.multiplyScalar(1 / dist);
       const overlap = pole.radius + 0.04 - dist;

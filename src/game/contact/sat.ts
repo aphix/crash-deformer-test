@@ -2,6 +2,7 @@ import * as THREE from "three";
 import { CAR_HALF, DeformableCar, type Hull } from "../vehicle/car.ts";
 import { hypot2 } from "../deform/physics-util.ts";
 import { bellyY, roofHeight, UPRIGHT } from "../vehicle/car-surfaces.ts";
+import { detSin, detCos } from "../kernel/physics-core.js";
 
 export const BARRIER_HALF = { x: 0.38, z: 1.96 };
 /** The slab's top (m): `makeJerseyBarrier`'s profile peak. A car whose every mass clears it flies over (a ramp jump). */
@@ -103,8 +104,8 @@ export function satCarBarrier(
   const pa = car.group.position;
   if ((pa.x - origin.x) ** 2 + (pa.z - origin.z) ** 2 > 64) return null;
   car.refreshBasis();
-  _bRight.set(Math.cos(yaw), 0, -Math.sin(yaw));
-  _bFwd.set(Math.sin(yaw), 0, Math.cos(yaw));
+  _bRight.set(detCos(yaw), 0, -detSin(yaw));
+  _bFwd.set(detSin(yaw), 0, detCos(yaw));
 
   let best = 0;
   let bestScore = 0;
@@ -178,8 +179,8 @@ export function clipCarToBarrier(
   leftover: number,
 ): boolean {
   car.refreshBasis();
-  _bRight.set(Math.cos(yaw), 0, -Math.sin(yaw));
-  _bFwd.set(Math.sin(yaw), 0, Math.cos(yaw));
+  _bRight.set(detCos(yaw), 0, -detSin(yaw));
+  _bFwd.set(detSin(yaw), 0, detCos(yaw));
   const px = car.group.position.x - origin.x;
   const pz = car.group.position.z - origin.z;
   const lx = px * _bRight.x + pz * _bRight.z;

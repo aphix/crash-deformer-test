@@ -1,4 +1,4 @@
-import { hypot2 } from "../kernel/physics-core.js";
+import { hypot2, detSin, detCos } from "../kernel/physics-core.js";
 import * as THREE from "three";
 import { CAR_HALF, type DeformableCar } from "../vehicle/car.ts";
 import type { PropCollider } from "../world/placements.ts";
@@ -135,8 +135,8 @@ function footprintOverlap(car: DeformableCar, s: Solid, out: Overlap): boolean {
       nz = -sign(lz) * fz;
     }
   } else {
-    const c = Math.cos(s.yaw);
-    const n = Math.sin(s.yaw);
+    const c = detCos(s.yaw);
+    const n = detSin(s.yaw);
     // The box's axes u = (c, −n) across and w = (n, c) along, the car's r and f; each of r, f as (u, w) parts.
     const ru = rx * c - rz * n;
     const rw = rx * n + rz * c;
@@ -254,9 +254,9 @@ function measure(car: DeformableCar): void {
 
 /** Whether wall piece `b` continues piece `a`'s face: its plane is within `SAME_WALL_GAP` (centres across `a`'s axis) and `SAME_WALL_COS` of it. */
 function coplanar(a: PropCollider, b: PropCollider): boolean {
-  const c = Math.cos(a.yaw);
-  const n = Math.sin(a.yaw);
-  return Math.abs(Math.cos(a.yaw - b.yaw)) >= SAME_WALL_COS && Math.abs((b.x - a.x) * c - (b.z - a.z) * n) <= SAME_WALL_GAP;
+  const c = detCos(a.yaw);
+  const n = detSin(a.yaw);
+  return Math.abs(detCos(a.yaw - b.yaw)) >= SAME_WALL_COS && Math.abs((b.x - a.x) * c - (b.z - a.z) * n) <= SAME_WALL_GAP;
 }
 
 /**
@@ -274,7 +274,7 @@ function jointFace(walls: readonly PropCollider[], col: PropCollider, face: Prop
   hi = Math.min(hi, JOINT_REACH);
   // Along the piece (its local z) the face's middle moves by half the difference of the two reaches.
   const s = (hi - lo) / 2;
-  return solidFace(_face, face.nx, face.nz, face.x, face.z, face.x + Math.sin(col.yaw) * s, face.z + Math.cos(col.yaw) * s, face.w + (lo + hi) / 2, face.d);
+  return solidFace(_face, face.nx, face.nz, face.x, face.z, face.x + detSin(col.yaw) * s, face.z + detCos(col.yaw) * s, face.w + (lo + hi) / 2, face.d);
 }
 
 /**
@@ -289,8 +289,8 @@ function approach(car: DeformableCar, col: PropCollider, dx: number, dz: number,
     markApproach(car, d - col.r - WALL_HALF_L, -(v.x * dx + v.z * dz) / d);
     return;
   }
-  const c = Math.cos(col.yaw);
-  const n = Math.sin(col.yaw);
+  const c = detCos(col.yaw);
+  const n = detSin(col.yaw);
   const rx = car.rightFlat.x;
   const rz = car.rightFlat.z;
   const fx = car.fwdFlat.x;

@@ -45,6 +45,7 @@ import { AIR_ANGULAR, AIR_LINEAR, ARM, blendPose, CALM_FOR, GROUND_ANGULAR, GROU
 import { joinUp } from "./ragdoll-joints.ts";
 import { groundColliders, PATCH_AHEAD, PATCH_HALF, type Pole } from "./ragdoll-ground.ts";
 import { courseSolids, type Solid } from "./ragdoll-solids.ts";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 
 /** Live dummies at once; a fifth throw recycles the oldest. */
 const SLOTS = 4;
@@ -106,7 +107,7 @@ const MAX_ACC = 0.05;
 /** A car moving faster than this (m/s) and this near (m) to a dummy that lies asleep keeps the world stepping (a car moves 1.2 m a frame at 70 m/s; a wreck lying beside him does not); the barrier's reach is its half diagonal. A sleeping knocked prop is stirred only by such a car that can touch it this frame (`PropBodies.touches`). */
 const WAKE_SPEED = 0.5;
 const WAKE_NEAR = 10;
-const BARRIER_REACH = Math.hypot(BARRIER_HALF.x, BARRIER_HALF.z);
+const BARRIER_REACH = hypot2(BARRIER_HALF.x, BARRIER_HALF.z);
 /** Rapier's solver iterations (default 4); no CCD on the parts (it tears the joints: 11–28 cm apart vs 0.9 cm at 8 iterations of 1/120). At 1/960 four hold a joint to 0.1 cm; two kicked one to 125 rad/s. */
 const ITERATIONS = 4;
 /** Rapier's internal solver passes per iteration (default 1): at the first touch of a 29 m/s throw one pass rose energy 75–325 J in a frame at 1/120 and 26–30 J (1 of 5 runs) at 1/480 and 1/960; two at most 0.6 J over 60 runs (60/144/240 Hz). */
@@ -286,7 +287,7 @@ export class RagdollSystem {
    * Each car proxy's reach (m): the farthest point of its lower box and slabs from the car's origin (`fitEnds`; the box as
    * built until it is first fitted), and of its slabs alone (`fitCabin`).
    */
-  private readonly reach = new Float32Array(MAX_CARS).fill(Math.hypot(LOW_HALF_X, Math.max(LOW_Y + LOW_HALF_Y, UNDER), LOW_HALF_Z));
+  private readonly reach = new Float32Array(MAX_CARS).fill(hypot3(LOW_HALF_X, Math.max(LOW_Y + LOW_HALF_Y, UNDER), LOW_HALF_Z));
   private readonly cabinReach = new Float32Array(MAX_CARS);
   /** Each car's cabin slabs, `CABIN` per car: its panes in `GLASS_NAMES` order, then its roof. */
   private readonly cabins: Collider[] = [];
@@ -516,7 +517,7 @@ export class RagdollSystem {
         continue;
       }
       const v = d.bodies[0]!.linvel();
-      d.speed = Math.hypot(v.x, v.y, v.z);
+      d.speed = hypot3(v.x, v.y, v.z);
       d.still = d.speed < REST_SPEED ? d.still + dt : 0;
       this.calm(d, dt);
       for (let k = 0; k < PARTS.length; k++) {
@@ -624,7 +625,7 @@ export class RagdollSystem {
       const v = d.bodies[k]!.linvel();
       const i = o + 4 * k;
       const fresh = this.vel[i + 3] === 3;
-      const jump = !fresh && Math.hypot(v.x - this.vel[i]!, v.y - this.vel[i + 1]!, v.z - this.vel[i + 2]!) > HIT_DV;
+      const jump = !fresh && hypot3(v.x - this.vel[i]!, v.y - this.vel[i + 1]!, v.z - this.vel[i + 2]!) > HIT_DV;
       if (jump && this.vel[i + 3] === 0) {
         give(d.bodies, k);
         gave = true;
@@ -686,7 +687,7 @@ export class RagdollSystem {
     const d = this.dolls[this.lastSlot];
     const c = this.cam.framing.c;
     // Drivers thrown in the same frame (a head-on's two) open one ride: a far one counts once the ride has framed.
-    const away = this.riding && !this.cam.fresh && d !== undefined && d.live && Math.hypot(d.cur[0]! - c.x, d.cur[1]! - c.y, d.cur[2]! - c.z) > CAM_NEAR;
+    const away = this.riding && !this.cam.fresh && d !== undefined && d.live && hypot3(d.cur[0]! - c.x, d.cur[1]! - c.y, d.cur[2]! - c.z) > CAM_NEAR;
     if (!this.riding || away) {
       this.cam.begin(this.cars[this.exitCar] ?? null, this.exitSpeed, this.exitPane);
       this.primary = away ? this.lastSlot : -1;
@@ -746,7 +747,7 @@ export class RagdollSystem {
         const d = this.dolls[s]!;
         if (!this.framed(d, keep)) continue;
         const v = d.bodies[0]!.linvel();
-        const score = Math.hypot(v.x, v.y, v.z) + (d.car === watched ? CAM_TIE : 0);
+        const score = hypot3(v.x, v.y, v.z) + (d.car === watched ? CAM_TIE : 0);
         if (score <= best) continue;
         best = score;
         this.primary = s;
@@ -855,7 +856,7 @@ export class RagdollSystem {
         _f.toArray(_hull, 3 * k);
         _f.addScaledVector(_n, -2 * PANE_HALF).toArray(_hull, 12 + 3 * k);
       }
-      for (let k = 0; k < 24; k += 3) far = Math.max(far, Math.hypot(_hull[k]!, _hull[k + 1]!, _hull[k + 2]!));
+      for (let k = 0; k < 24; k += 3) far = Math.max(far, hypot3(_hull[k]!, _hull[k + 1]!, _hull[k + 2]!));
       const desc = R.ColliderDesc.convexHull(_hull)!.setCollisionGroups(carGroups(i)).setRestitution(PANE_BOUNCE).setRestitutionCombineRule(R.CoefficientCombineRule.Max);
       world.removeCollider(this.cabins[i * CABIN + p]!, false);
       this.cabins[i * CABIN + p] = world.createCollider(desc, this.carBodies[i]!);
@@ -873,7 +874,7 @@ export class RagdollSystem {
     const roof = this.cabins[i * CABIN + PANES]!;
     roof.setHalfExtents({ x: half + PANE_PAD, y: ROOF_HALF, z: (front - rear) / 2 + PANE_PAD });
     roof.setTranslationWrtParent({ x: 0, y: top + lift + ROOF_HALF, z: (front + rear) / 2 });
-    this.cabinReach[i] = Math.max(far, Math.hypot(half + PANE_PAD, top + lift + 2 * ROOF_HALF, Math.max(front, -rear) + PANE_PAD));
+    this.cabinReach[i] = Math.max(far, hypot3(half + PANE_PAD, top + lift + 2 * ROOF_HALF, Math.max(front, -rear) + PANE_PAD));
   }
 
   /** Per dummy, the cars (never his own) with a pane standing that his torso may reach within this frame: `glassTouch` tries only those. */
@@ -953,7 +954,7 @@ export class RagdollSystem {
     const box = this.carBodies[i]!.collider(0);
     box.setHalfExtents({ x: LOW_HALF_X, y: BOX_HALF_Y, z: (front - rear) / 2 });
     box.setTranslationWrtParent({ x: 0, y: BOX_Y + this.lift[i]!, z: (front + rear) / 2 });
-    this.reach[i] = Math.max(this.cabinReach[i]!, Math.hypot(LOW_HALF_X, Math.max(LOW_Y + this.lift[i]! + LOW_HALF_Y, UNDER - this.lift[i]!), Math.max(front, -rear)));
+    this.reach[i] = Math.max(this.cabinReach[i]!, hypot3(LOW_HALF_X, Math.max(LOW_Y + this.lift[i]! + LOW_HALF_Y, UNDER - this.lift[i]!), Math.max(front, -rear)));
     const b = i * CAR_BOX;
     this.boxes[b] = BOX_Y + this.lift[i]!;
     this.boxes[b + 1] = (front + rear) / 2;
@@ -1107,7 +1108,7 @@ export class RagdollSystem {
       b.setEnabled(true);
       b.wakeUp();
     }
-    const speed = Math.hypot(t.v.x, t.v.z);
+    const speed = hypot2(t.v.x, t.v.z);
     this.buildPatch(d, t.p.x + (speed > 0.5 ? (t.v.x / speed) * PATCH_AHEAD : 0), t.p.z + (speed > 0.5 ? (t.v.z / speed) * PATCH_AHEAD : 0), t.p.y);
     d.live = true;
     d.age = 0;
@@ -1116,7 +1117,7 @@ export class RagdollSystem {
     d.car = t.car;
     d.rides = t.rides;
     d.calm = 0;
-    d.speed = Math.hypot(t.v.x, t.v.y, t.v.z);
+    d.speed = hypot3(t.v.x, t.v.y, t.v.z);
     this.touching.fill(0, slot * MAX_CARS, (slot + 1) * MAX_CARS);
     this.nearN[slot] = 0;
     for (let k = 0; k < PARTS.length; k++) this.vel[(slot * PARTS.length + k) * 4 + 3] = 3;
@@ -1156,7 +1157,7 @@ export class RagdollSystem {
     this.lastSlot = slot;
     this.mesh.visible = true;
     this.exitCar = t.car;
-    this.exitSpeed = Math.hypot(t.v.x, t.v.z);
+    this.exitSpeed = hypot2(t.v.x, t.v.z);
     this.exitPane.copy(t.p);
     if (this.sandbox && t.car >= 0) this.onThrow(t.car);
     return slot;

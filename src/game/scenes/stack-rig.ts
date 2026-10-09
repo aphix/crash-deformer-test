@@ -2,6 +2,7 @@ import type { DeformableCar } from "../vehicle/car.ts";
 import { readContact } from "../vehicle/car-air.ts";
 import { ROOF_REST_Y } from "../vehicle/car-parts.ts";
 import { BELLY_Y, bellyY, roofHeight, SKIN } from "../vehicle/car-surfaces.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 
 /**
  * The stack scene (docs/LOAD_CRUSH.md): cars dropped one at a time onto a base car, so the bottom roof crushes by the
@@ -112,5 +113,5 @@ function stands(lower: DeformableCar, upper: DeformableCar): boolean {
   const a = lower.group.position;
   const b = upper.group.position;
   const over = b.y + bellyY(upper) - (a.y + roofHeight(lower));
-  return upper.group.matrixWorld.elements[5]! > UPRIGHT && Math.hypot(b.x - a.x, b.z - a.z) < COLUMN_OFFSET && over > -SKIN && over < COLUMN_CLEAR;
+  return upper.group.matrixWorld.elements[5]! > UPRIGHT && hypot2(b.x - a.x, b.z - a.z) < COLUMN_OFFSET && over > -SKIN && over < COLUMN_CLEAR;
 }

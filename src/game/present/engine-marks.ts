@@ -2,6 +2,7 @@ import * as THREE from "three";
 import type { DeformableCar } from "../vehicle/car.ts";
 import { C_GRIP, C_H, C_OWNER, C_SURF, HIT_SIZE, pointContact, PQ_SIZE, PQ_X, PQ_Y, PQ_Z } from "../world/surfaces.ts";
 import { SURFACE_IDS, type SurfaceId } from "../world/catalog.ts";
+import { hypot2 } from "../kernel/physics-core.js";
 
 /**
  * Tyre marks on the GPU. Every slipping wheel stamps one short quad per frame into ONE ground-aligned render
@@ -381,7 +382,7 @@ export class SkidMarks {
   private queue(x0: number, z0: number, x1: number, z1: number, width: number, ch: number, a: number): void {
     const dx = x1 - x0;
     const dz = z1 - z0;
-    const len = Math.hypot(dx, dz);
+    const len = hypot2(dx, dz);
     if (len < 1e-4 || this.quads >= this.cap) return;
     const nx = (-dz / len) * width * 0.5;
     const nz = (dx / len) * width * 0.5;

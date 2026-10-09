@@ -1,4 +1,4 @@
-import { hypot2, hypot3 } from "../kernel/physics-core.js";
+import { hypot2, hypot3, detSin, detCos } from "../kernel/physics-core.js";
 import { SURFACE_IDS, SURFACES } from "./catalog.ts";
 
 /**
@@ -315,8 +315,8 @@ export class Surface {
 
   /** Face patch `i` (same data) turned `yaw` about its corner at (ox, oz). */
   setYaw(i: number, ox: number, oz: number, yaw: number): void {
-    const c = Math.cos(yaw);
-    const s = Math.sin(yaw);
+    const c = detCos(yaw);
+    const s = detSin(yaw);
     this.setFrame(i, ox, 0, oz, [c, 0, -s, 0, 1, 0, s, 0, c]);
   }
 
@@ -1114,8 +1114,8 @@ const KOF = new Int16Array(FOOT);
 function arc(at: number, ring: number, k: number): number {
   const a = (k / STEPS) * (Math.PI / 2);
   FX[at] = RINGS[ring]![0];
-  FY[at] = -RINGS[ring]![1] * Math.cos(a);
-  FZ[at] = RINGS[ring]![1] * Math.sin(a);
+  FY[at] = -RINGS[ring]![1] * detCos(a);
+  FZ[at] = RINGS[ring]![1] * detSin(a);
   KOF[ring * ARCS + k + STEPS] = at;
   return at + 1;
 }
