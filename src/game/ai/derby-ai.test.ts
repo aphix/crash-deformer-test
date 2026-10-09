@@ -179,6 +179,9 @@ const SEEDS = (process.env.DERBY_SEEDS ?? "1,2,3,4,5,6,7,8").split(",").map(Numb
 const REAR_SHARE = 0.4;
 /** Late-heat car windows that may scoot (set on the fix over seeds 1-72; see the scoot test). */
 const SCOOT_SHARE = 0.1;
+/** Fewest late-heat car windows the scoot bar may judge, and the most heats played to reach them (the seeds measured: 1-72). */
+const SCOOT_MIN_WINDOWS = 400;
+const SCOOT_MAX_SEEDS = 72;
 
 describe("given ten AI cars at the default aggression, each played through the fixed seeds 1-8", () => {
   const runs = SEEDS.map((seed) => runField(10, seed));
@@ -288,10 +291,18 @@ describe("given ten AI cars at the default aggression, each played through the f
   // 3-5 cars alive. Measured over seeds 1-72 as nine disjoint 8-seed windows: main 20.7-31.9 % (pooled 26.0 %,
   // 5145/19778), the deadlock breaker 1.3-5.2 % (pooled 3.0 %, 299/9880). The bar is 10 %, twice the fix's worst
   // window and half main's best: do not tighten it to the pooled 3 % without re-measuring on that many seeds.
-  it(`when late-heat 10 s car windows with 3-5 cars alive are judged, then under ${SCOOT_SHARE * 100} % of them have a cautious car pacing back and forth in place`, () => {
-    const windows = runs.reduce((a, r) => a + r.scoot.windows, 0);
-    const flagged = runs.reduce((a, r) => a + r.scoot.flagged, 0);
-    assert.ok(windows >= 400, `only ${windows} late-heat car windows: the bar below judges nothing\n${rows.join("\n")}`);
-    assert.ok(flagged <= SCOOT_SHARE * windows, `scoot ${flagged}/${windows} = ${((100 * flagged) / windows).toFixed(1)} %\n${rows.join("\n")}`);
+  it(`when late-heat 10 s car windows with 3-5 cars alive are judged over as many further seeds as it takes to reach ${SCOOT_MIN_WINDOWS} of them, then under ${SCOOT_SHARE * 100} % of them have a cautious car pacing back and forth in place`, () => {
+    // A heat's window count follows its trajectory (each car's 10 s spans with 3-5 cars alive), so the sample is grown seed by seed
+    // past the fixed set instead of assuming eight heats reach the floor.
+    const judged = [...runs];
+    let windows = judged.reduce((a, r) => a + r.scoot.windows, 0);
+    for (let seed = Math.max(...SEEDS) + 1; windows < SCOOT_MIN_WINDOWS && judged.length < SCOOT_MAX_SEEDS; seed++) {
+      const extra = runField(10, seed);
+      judged.push(extra);
+      windows += extra.scoot.windows;
+    }
+    const flagged = judged.reduce((a, r) => a + r.scoot.flagged, 0);
+    assert.ok(windows >= SCOOT_MIN_WINDOWS, `only ${windows} late-heat car windows in ${judged.length} heats: the bar below judges nothing\n${rows.join("\n")}`);
+    assert.ok(flagged <= SCOOT_SHARE * windows, `scoot ${flagged}/${windows} = ${((100 * flagged) / windows).toFixed(1)} % over ${judged.length} heats\n${rows.join("\n")}`);
   });
 });
