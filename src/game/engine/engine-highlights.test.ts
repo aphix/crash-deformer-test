@@ -260,6 +260,41 @@ describe("given a city race whose first crash is a 30 m/s car meeting a 10 m/s c
   });
 });
 
+describe("given a recorded clip played at 60 Hz through its slow-motion, where a recorded step is longer than a frame's share of clip time", () => {
+  it("when each frame asks the reel for its sim time, then it is the clip time the frame is drawn at less the last frame's, on every frame, so the dummies, debris and FX advance on most of them", async () => {
+    const a = makeWorld();
+    try {
+      race(a, FIELD, SEED);
+      stageHeadOn(a, 30, 10);
+      const reel = await recordedReel(a);
+      const d = new ReelDirector(hostOf(a));
+      d.stepBudgetMs = Infinity;
+      d.play(reel, 0);
+      const tl = d["clips"][0]!.tl;
+      let last = 0;
+      let slowFrames = 0;
+      let advancing = 0;
+      let wrong = 0;
+      for (let w = 0; w < tl.wall; w += 1 / 60) {
+        const dt = d.frame(FLIGHT_S + w);
+        const drawnAt = simAt(tl, w);
+        if (dt === null || Math.abs(dt - (drawnAt - last)) > 1e-9) wrong++;
+        last = drawnAt;
+        if (w > tl.impact + 0.3 && w < tl.impact + 3.3) {
+          slowFrames++;
+          if (dt !== null && dt > 0) advancing++;
+        }
+      }
+      assert.equal(wrong, 0, `${wrong} frames returned a sim time other than the clip time they drew less the last frame's`);
+      assert.ok(slowFrames > 100, `${slowFrames} frames in the slow-motion`);
+      assert.ok(advancing >= slowFrames * 0.95, `${advancing} of ${slowFrames} slow-motion frames advanced the dummies and FX`);
+    } finally {
+      a.race.exit();
+      setGround(null);
+    }
+  });
+});
+
 /**
  * A stunt-course race's results reel of three clips. Two laps: the field no longer wrecks itself at the start, so one lap records fewer
  * than 3 clips. And the race AI steers clear of what it closes on (`guardContact`), so the field's own crashes are too few for 3 clips in

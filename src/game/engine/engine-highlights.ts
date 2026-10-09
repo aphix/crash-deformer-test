@@ -261,6 +261,8 @@ export class ReelDirector {
   private pass = -1;
   private shot = -1;
   private impacted = false;
+  /** The clip time (s) the replay was last drawn at: what the ragdolls, debris and FX advance by, not the steps the replay ran to get there. */
+  private presentedAt = 0;
   private sparkAt = -Infinity;
   /** Reel clip on screen, −1 in a flight. */
   private showing = -1;
@@ -511,6 +513,7 @@ export class ReelDirector {
     this.host.clear();
     for (const c of this.host.live()) c.group.visible = false;
     p.sim.restart();
+    this.presentedAt = 0;
   }
 
   /** Clip `p` at wall `w` s into its timeline. */
@@ -530,14 +533,13 @@ export class ReelDirector {
       this.impact(p);
     }
     const target = simAt(tl, w);
-    const before = sim.time;
     const deadline = performance.now() + this.stepBudgetMs;
     // Each shot is framed from the car as drawn at the shot's own clip time: every peer picks the same.
     while (this.shot + 1 < shots.length && shots[this.shot + 1]!.at <= target) {
       const next = shots[this.shot + 1]!;
       sim.advanceTo(next.at, deadline);
       this.launch(p);
-      if (!sim.done && sim.time < next.at - 1e-9) return sim.time - before;
+      if (!sim.done && sim.time < next.at - 1e-9) return 0;
       sim.present(next.at);
       this.shot++;
       this.frameShot(p, next);
@@ -545,12 +547,16 @@ export class ReelDirector {
     sim.advanceTo(target, deadline);
     this.launch(p);
     sim.present(target);
+    const shownTo = Math.min(target, sim.time);
+    // A seek back (the replay restarts from a keyframe) shows no time passing; the next frame counts from there.
+    const shown = shownTo >= this.presentedAt ? shownTo - this.presentedAt : 0;
+    this.presentedAt = shownTo;
     const hit = sim.world.strongest;
     if (hit.contact && hit.normal && hit.impulse > 1.2 && performance.now() / 1000 - this.sparkAt > SPARK_GAP) {
       this.sparkAt = performance.now() / 1000;
       this.host.hit(hit.contact, hit.normal, hit.impulse);
     }
-    return sim.time - before;
+    return shown;
   }
 
   /**

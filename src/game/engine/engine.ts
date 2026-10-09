@@ -436,7 +436,8 @@ export class CrashEngine extends EngineGarage {
       }
       this.view.trauma = Math.max(0, this.view.trauma - wallDt * 1.6);
       if (this.barrierUp) this.barrier.step(simDt);
-      const fxDt = Math.max(simDt, wallDt * 0.6);
+      // Debris, sparks, glass and smoke run on the world's own time (the replay's presented clip time, or the slow-mo scaled frame), so they slow with it.
+      const fxDt = simDt;
       // The bits land on the ground and the cars' tops of the world this frame stepped, the replay's while a clip plays (`landOn`).
       armTops(this.highlights.surfaces ?? this.world.surfaces);
       this.debris.update(fxDt, this.bounceWorld);
