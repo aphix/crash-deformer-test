@@ -8,5 +8,7 @@ export const BENCH_KIND = { city: "city", lab: "lab", strip: "strip" } as const;
 export const ULTRA_QUERY = "ultra";
 /** The page query that picks the city bench's course (`?course=dam-spine`). */
 export const COURSE_QUERY = "course";
+/** The page queries that shape the strip bench (`benchPlan`): a loop carries them onto every step. */
+export const STRIP_QUERY = { cars: "cars", same: "same", len: "len", props: "props", traffic: "traffic" } as const;
 /** The settings the bench reads off the HUD and the HUD's reset command names (`night`, `wet`, `realism`, `fx`): one spelling for both. */
 export const SETTING_KEY = { night: "night", wet: "wet", realism: "realism", fx: "fx" } as const;

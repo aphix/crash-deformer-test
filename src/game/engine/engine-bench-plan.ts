@@ -6,7 +6,7 @@ import { PREFABS, type PrefabId } from "../world/catalog.ts";
 import { stripCourse, type StripProp, type StripSpec } from "../world/bench-strip.ts";
 import { CAMPAIGN } from "../world/tracks/index.ts";
 import { BENCH_STRIP_ID, TRACK_ID } from "../world/constants.ts";
-import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, ULTRA_QUERY } from "./constants.ts";
+import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, STRIP_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /** The city bench's race on course `trackId`: its own field and rules as a program over the player's options, which it never touches. */
 function benchRace(trackId: string): RaceCommand {
@@ -89,11 +89,11 @@ export function benchPlan(search: string): BenchPlan | null {
   }
   if (kind === BENCH_KIND.lab) return { id: "lab", race: null, course: null, warmS: LAB_BENCH.settleS, racers: 0, body: null, strip: null, lab: LAB_BENCH, ultra };
   if (kind !== BENCH_KIND.strip) return null;
-  const racers = Math.min(16, Math.max(2, Math.round(Number(q.get("cars") ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
-  const same = q.get("same") ?? STRIP_DEFAULTS.same;
+  const racers = Math.min(16, Math.max(2, Math.round(Number(q.get(STRIP_QUERY.cars) ?? STRIP_DEFAULTS.cars)) || STRIP_DEFAULTS.cars));
+  const same = q.get(STRIP_QUERY.same) ?? STRIP_DEFAULTS.same;
   const body = same === "off" ? null : Object.hasOwn(BODIES, same) ? (same as CarStyleId) : (STRIP_DEFAULTS.same as CarStyleId);
-  const length = Math.min(12000, Math.max(1500, Math.round(Number(q.get("len") ?? STRIP_DEFAULTS.length)) || STRIP_DEFAULTS.length));
-  const strip: StripSpec = { length, props: parseProps(q.get("props") ?? STRIP_DEFAULTS.props), traffic: parseTraffic(q.get("traffic") ?? STRIP_DEFAULTS.traffic) };
+  const length = Math.min(12000, Math.max(1500, Math.round(Number(q.get(STRIP_QUERY.len) ?? STRIP_DEFAULTS.length)) || STRIP_DEFAULTS.length));
+  const strip: StripSpec = { length, props: parseProps(q.get(STRIP_QUERY.props) ?? STRIP_DEFAULTS.props), traffic: parseTraffic(q.get(STRIP_QUERY.traffic) ?? STRIP_DEFAULTS.traffic) };
   return {
     id: BENCH_STRIP_ID,
     race: { type: "program", options: { trackId: BENCH_STRIP_ID, laps: 1, aiCount: racers - 1, police: false, aggression: 0.5, spectate: false, noReset: false } },

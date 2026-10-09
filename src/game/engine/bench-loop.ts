@@ -1,7 +1,7 @@
 import { FX_TIER_ULTRA } from "../present/constants.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { TRACK_ID } from "../world/constants.ts";
-import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, ULTRA_QUERY } from "./constants.ts";
+import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, STRIP_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /**
  * The benchmark loop: one cycle of benches, each its own page load (`?bench=…&loop=<session>&cycle=<n>&step=<i>`, so every bench
@@ -102,7 +102,7 @@ export function advance(run: BenchRun): BenchRun | null {
   return run.keep ? { ...run, loop: run.loop + 1, step: 0, ultra: run.ultraNext } : null;
 }
 
-/** The address that runs `run`'s step: this page's path, the bench's query and the loop's state; no fragment, no leftover `v`. */
+/** The address that runs `run`'s step: this page's path, the bench's query, the strip-shaping params this page carries (`len`, `cars`, …: the cycle's strip step reads them, whichever step this is) and the loop's state; no fragment, no leftover `v`. */
 export function stepHref(href: string, run: BenchRun): string {
   const url = new URL(href);
   const flags = [
@@ -112,6 +112,10 @@ export function stepHref(href: string, run: BenchRun): string {
     [LOOP_QUERY.ultraCycle, run.ultra],
   ] as const;
   const query = [stepOf(run).query, `${LOOP_QUERY.session}=${run.session}`, `${LOOP_QUERY.cycle}=${run.loop}`, `${LOOP_QUERY.step}=${run.step}`];
+  for (const name of Object.values(STRIP_QUERY)) {
+    const value = url.searchParams.get(name);
+    if (value !== null) query.push(`${name}=${encodeURIComponent(value)}`);
+  }
   for (const [name, on] of flags) query.push(`${name}=${on ? 1 : 0}`);
   url.search = `?${query.join("&")}`;
   url.hash = "";

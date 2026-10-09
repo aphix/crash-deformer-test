@@ -24,6 +24,7 @@ import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
+import { benchHoldsCommand } from "@/game/hud/submit-rules";
 import { SURVIVAL } from "@/game/match/survival";
 import { SOLO_SCENES } from "@/game/scenes/scene-id";
 import { cn } from "@/lib/utils";
@@ -145,7 +146,9 @@ export function Hud(props: HudProps) {
   const touch = useCoarsePointer();
   // What resets the driven car: the connected pad, the thumb pad's button, or R.
   const reset = resetInput(state.pad !== null, touch, state.seat === "drive");
-  const raceCommand = (cmd: RaceCommand) => engine.current?.raceCommand(cmd);
+  const raceCommand = (cmd: RaceCommand) => {
+    if (!benchHoldsCommand(cmd, !onlineShown)) engine.current?.raceCommand(cmd);
+  };
   // The prompt's tap presses the thumb pad's reset button (D-pad down).
   const tapReset = () => {
     const t = engine.current?.touch;
