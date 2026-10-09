@@ -100,6 +100,24 @@ describe("given a loop whose state is in the address of its bench page", () => {
     );
   });
 
+  it("when a loop starts from a custom strip address (len, cars, props), then every strip step of every cycle builds the same strip", () => {
+    const custom = "?bench=strip&len=2500&cars=4&props=rock:7&same=off&traffic=off";
+    const wanted = benchPlan(custom)!;
+    let href = new URL(custom, base).toString();
+    const seen: string[] = [];
+    for (let run = runFromPage(custom, "k3x9q2"); run !== null && run.loop <= 2; ) {
+      href = stepHref(href, run);
+      if (stepOf(run).id.startsWith("strip")) {
+        const plan = benchPlan(searchOf(href))!;
+        assert.deepEqual([plan.strip, plan.racers, plan.body], [wanted.strip, wanted.racers, wanted.body], `${run.loop} ${stepOf(run).id}`);
+        seen.push(stepOf(run).id);
+      }
+      run = advance(run);
+    }
+    assert.ok(seen.length >= 2, "the strip step ran in both cycles");
+    assert.equal(wanted.racers, 4);
+  });
+
   it("when keep is turned off (keep=0) in the address on the second step, then the loop goes on to the last step and ends there", () => {
     const second = new URL(stepHref(base, { ...RUN, step: 1, keep: true }));
     second.searchParams.set("keep", "0");

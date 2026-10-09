@@ -1,4 +1,4 @@
-import type { RaceHud } from "../match/types.ts";
+import type { RaceCommand, RaceHud } from "../match/types.ts";
 import type { CrashHudState } from "./hud-store.ts";
 
 /** The Debug section's Submit: drawn only while a JSON trace capture is on and has recorded samples (the capture it sends). */
@@ -19,4 +19,9 @@ export function flagButton(race: Pick<RaceHud, "reel" | "solo" | "shown"> | null
 /** The update notice: a newer build is deployed, and no race is under way. A countdown or a race (paused too) holds it until the race is over; every other scene shows it at once. */
 export function updateNoticeShown(newer: string | null, race: Pick<RaceHud, "phase"> | null): boolean {
   return newer !== null && race?.phase !== "countdown" && race?.phase !== "racing";
+}
+
+/** The results menu's actions (Retry, Next course, Menu) restart or leave the race; on a bench page the bench owns the race, so the HUD sends none of them. */
+export function benchHoldsCommand(cmd: Pick<RaceCommand, "type">, benchPage: boolean): boolean {
+  return benchPage && (cmd.type === "retry" || cmd.type === "next" || cmd.type === "quit");
 }
