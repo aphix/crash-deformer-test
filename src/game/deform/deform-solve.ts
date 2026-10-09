@@ -397,6 +397,7 @@ export abstract class DeformSolve extends DeformContact {
     comM = Math.max(comM, 1e-8);
     for (let i = 0; i < this.shapeParticles.length; i++) {
       this.startX[i] = this.shapeParticles[i]!.x;
+      this.startY[i] = this.shapeParticles[i]!.y;
       this.startZ[i] = this.shapeParticles[i]!.z;
     }
     const alphaRef = contacting
@@ -470,29 +471,11 @@ export abstract class DeformSolve extends DeformContact {
         p.z += az;
       }
     }
-    // Internal goals exert no net torque: remove the correction's spin about up (no hub, wheel
-    // or ground restores yaw, so overlapping plastic rests would otherwise turn the wreck).
-    const cx = comX / comM,
-      cz = comZ / comM;
-    let spin = 0,
-      inertia = 0;
-    for (let i = 0; i < this.shapeParticles.length; i++) {
-      if (this.masses[i]!.hub && !this.deepCrush) continue;
-      const p = this.shapeParticles[i]!;
-      const rx = this.startX[i]! - cx,
-        rz = this.startZ[i]! - cz;
-      spin += p.mass * (rz * (p.x - this.startX[i]!) - rx * (p.z - this.startZ[i]!));
-      inertia += p.mass * (rx * rx + rz * rz);
-    }
-    const w = inertia > 1e-8 ? spin / inertia : 0;
-    if (Math.abs(w) > 1e-12) {
-      for (let i = 0; i < this.shapeParticles.length; i++) {
-        if (this.masses[i]!.hub && !this.deepCrush) continue;
-        const p = this.shapeParticles[i]!;
-        p.x -= w * (this.startZ[i]! - cz);
-        p.z += w * (this.startX[i]! - cx);
-      }
-    }
+    // Internal goals exert no net torque. Yaw is always removed (no hub, wheel or ground restores it, so
+    // overlapping plastic rests would otherwise turn the wreck); once the contact is over pitch and roll go
+    // too: left in, the front clusters' nose-up fit (17 deg after a 50 km/h wall) lifted the wing and bumper
+    // 0.12 m above their seat while `clampLocal` pulled the cabin masses back, and a quiet wreck holds them there.
+    this.removeNetSpin(comX / comM, comY / comM, comZ / comM, contacting);
     if (!contacting) {
       let comX1 = 0,
         comY1 = 0,
@@ -523,6 +506,70 @@ export abstract class DeformSolve extends DeformContact {
       for (let ci = 0; ci < this.clusters.length; ci++) applyPlasticity(this.clusters[ci]!, this.shapeParticles, dt, this.squash, this.buckle);
     }
     this.writeShapeToMasses();
+  }
+
+  /**
+   * Takes the net turn out of this step's shape-match correction (`startX/Y/Z` to the particles now) about the
+   * centroid `(cx, cy, cz)`: a small-angle `ω = I⁻¹ Σ m r × Δ` (inertia tensor solved against the correction's
+   * angular momentum), then each particle takes `-ω × r`. In contact (`contacting`) only the turn about up
+   * goes: the wall's or the other car's push is the external torque on pitch and roll.
+   */
+  private removeNetSpin(cx: number, cy: number, cz: number, contacting: boolean): void {
+    let lx = 0,
+      ly = 0,
+      lz = 0,
+      ixx = 0,
+      iyy = 0,
+      izz = 0,
+      ixy = 0,
+      ixz = 0,
+      iyz = 0;
+    for (let i = 0; i < this.shapeParticles.length; i++) {
+      if (this.masses[i]!.hub && !this.deepCrush) continue;
+      const p = this.shapeParticles[i]!;
+      const rx = this.startX[i]! - cx,
+        ry = this.startY[i]! - cy,
+        rz = this.startZ[i]! - cz;
+      const ux = p.x - this.startX[i]!,
+        uy = p.y - this.startY[i]!,
+        uz = p.z - this.startZ[i]!;
+      lx += p.mass * (ry * uz - rz * uy);
+      ly += p.mass * (rz * ux - rx * uz);
+      lz += p.mass * (rx * uy - ry * ux);
+      ixx += p.mass * (ry * ry + rz * rz);
+      iyy += p.mass * (rx * rx + rz * rz);
+      izz += p.mass * (rx * rx + ry * ry);
+      ixy -= p.mass * rx * ry;
+      ixz -= p.mass * rx * rz;
+      iyz -= p.mass * ry * rz;
+    }
+    let wx = 0,
+      wy = 0,
+      wz = 0;
+    if (contacting) {
+      if (iyy < 1e-8) return;
+      wy = ly / iyy;
+    } else {
+      // ω = I⁻¹ L by the adjugate (I is symmetric).
+      const c0 = iyy * izz - iyz * iyz;
+      const c1 = ixz * iyz - ixy * izz;
+      const c2 = ixy * iyz - iyy * ixz;
+      const det = ixx * c0 + ixy * c1 + ixz * c2;
+      if (Math.abs(det) < 1e-12) return;
+      wx = (c0 * lx + c1 * ly + c2 * lz) / det;
+      wy = (c1 * lx + (ixx * izz - ixz * ixz) * ly + (ixy * ixz - ixx * iyz) * lz) / det;
+      wz = (c2 * lx + (ixy * ixz - ixx * iyz) * ly + (ixx * iyy - ixy * ixy) * lz) / det;
+    }
+    for (let i = 0; i < this.shapeParticles.length; i++) {
+      if (this.masses[i]!.hub && !this.deepCrush) continue;
+      const p = this.shapeParticles[i]!;
+      const rx = this.startX[i]! - cx,
+        ry = this.startY[i]! - cy,
+        rz = this.startZ[i]! - cz;
+      p.x -= wy * rz - wz * ry;
+      p.y -= wz * rx - wx * rz;
+      p.z -= wx * ry - wy * rx;
+    }
   }
 
   /** Plates past the hubs: cabin must actually yield, not stay a rigid Müller cell. */

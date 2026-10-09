@@ -22,8 +22,8 @@ export type CarState = {
   latched: boolean;
   /** Right mirror fold (deg); 0 once the mirror is off. */
   mirrorFoldDeg: number;
-  /** Per control particle: travel from rest in the passenger-cell frame (mm). */
-  travelMm: Record<string, number>;
+  /** Per control particle: plan-view travel from rest in the passenger-cell frame (mm): height is not crush (the body masses carry no gravity, so they keep the height the hit left them at). */
+  planMm: Record<string, number>;
   /** Per control particle: crush band reached (`-` under yield, `y` yield, `m` middle, `P` packed). */
   band: Record<string, string>;
   /** Largest particle travel, wheels (hubs) excluded (mm). */
@@ -65,14 +65,14 @@ export function carState(car: DeformableCar): CarState {
   const cabin = d.masses.filter((m) => CABIN.includes(m.name));
   const fitCabin = fitRigid(d.masses, (m) => CABIN.includes(m.name));
   const fit = new Map<string, THREE.Vector3>();
-  const travelMm: Record<string, number> = {};
+  const planMm: Record<string, number> = {};
   const band: Record<string, string> = {};
   let bodyMm = 0;
   for (const m of d.masses) {
     const f = fitCabin(m.local.x, m.local.y, m.local.z).clone();
     fit.set(m.name, f);
     const t = f.distanceTo(m.rest);
-    travelMm[m.name] = Math.round(t * 1000);
+    planMm[m.name] = Math.round(Math.hypot(f.x - m.rest.x, f.z - m.rest.z) * 1000);
     band[m.name] = t >= m.bands.max ? "P" : t >= m.bands.middle ? "m" : t >= m.bands.yield ? "y" : "-";
     if (!m.hub) bodyMm = Math.max(bodyMm, t * 1000);
   }
@@ -94,7 +94,7 @@ export function carState(car: DeformableCar): CarState {
     latched: door.latched,
     // A mirror that has left the car has no fold.
     mirrorFoldDeg: car.partOff("mirrorR") ? 0 : Math.abs(door.mirrorFold) / D2R,
-    travelMm,
+    planMm,
     band,
     bodyMm: Math.round(bodyMm),
     drivetrainAlive: d.drivetrainAlive,
@@ -226,13 +226,17 @@ export function carFront(kph: number, squash?: number): { a: CarState; b: CarSta
 
 // ── Comparison ─────────────────────────────────────────────────────────────────────────────
 
-/** Per-particle crush agrees within 15 % or 10 mm, whichever is larger. */
+/**
+ * Per-particle plan-view crush agrees within 15 % or 10 mm, whichever is larger. The cabin particles are the fit's
+ * own anchors: their travel is the fit's residual (a cabin tilt of θ reads as θ times the particle's height above
+ * the cell), and the cabin's intrusion is compared on its own as the change of every pair distance (`cabinMm`).
+ */
 export function crushMismatch(x: CarState, y: CarState): string[] {
   const out: string[] = [];
-  for (const name of Object.keys(x.travelMm)) {
-    if (name.startsWith("hub")) continue;
-    const p = x.travelMm[name]!;
-    const q = y.travelMm[name]!;
+  for (const name of Object.keys(x.planMm)) {
+    if (name.startsWith("hub") || CABIN.includes(name)) continue;
+    const p = x.planMm[name]!;
+    const q = y.planMm[name]!;
     if (Math.abs(p - q) > Math.max(10, 0.15 * Math.max(p, q))) out.push(`${name} ${p}/${q}`);
   }
   return out;

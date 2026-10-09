@@ -27,7 +27,7 @@ state, cabin intrusion (largest change of any cabin-particle pair distance), sho
 nose/tail crush.
 
 Tolerances (tests): same parts off; door angle and mirror fold within 3°; same latch; same
-drivetrain state; per-particle travel within 15 % or 10 mm, whichever is larger (hubs excluded);
+drivetrain state; per-particle plan-view travel (x, z of the cell-frame position against rest: height is not crush, the non-cabin masses carry no gravity and keep the height the hit left them at, within `clampLocal`'s lift band) within 15 % or 10 mm, whichever is larger (hubs and the cabin's own fit anchors excluded, which `cabin intrusion` compares);
 cabin intrusion within the same band.
 
 ## Before (main 26c0187 / b9c5647)
