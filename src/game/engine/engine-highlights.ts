@@ -110,6 +110,17 @@ function wallAt(tl: Timeline, t: number): number {
   return lo * TL_DT;
 }
 
+/** Clip time at which the replay starts showing a hit recorded at `t`: the start of the recorded step that ended on it (`ReplaySim.advanceTo` runs whole steps and `present` draws the cars between a step's ends). */
+function shownFrom(clip: HighlightClip, t: number): number {
+  let start = 0;
+  let end = 0;
+  for (let i = 0; i < clip.h.length && end < t - 1e-9; i++) {
+    start = end;
+    end += clip.h[i]!;
+  }
+  return start;
+}
+
 /** A camera from clip time `at`: a picked shot (`present/shot-cam.ts`, the director the Auto spectator cam shares), or a context shot (`ctx`: a fixed eye over two impact points); `hit`: the cars meet while it is on. */
 type Shot = PickedShot & { at: number; hit: boolean; ctx?: { eye: THREE.Vector3; aim: THREE.Vector3; fov: number } };
 
@@ -136,7 +147,7 @@ function shotsFor(clip: HighlightClip, tl: Timeline, rand: () => number, still: 
   if (after < tl.sim[tl.sim.length - 1]!) add(after, AFTERS);
   for (let k = 1; k < clip.hits.length; k++) {
     const h = clip.hits[k]!;
-    if (h.t <= after) continue;
+    if (shownFrom(clip, h.t) <= after) continue;
     const g = clip.hits[k - 1]!;
     const turn = rand() * 2 * Math.PI;
     const s = still();
@@ -601,7 +612,7 @@ export class ReelDirector {
     const s = this.host.still();
     for (let k = 1; k < clip.hits.length; k++) {
       const h = clip.hits[k]!;
-      const w = wallAt(tl, h.t) - tl.impact;
+      const w = wallAt(tl, shownFrom(clip, h.t)) - tl.impact;
       if (w >= end) break;
       l.from[l.n] = w - HIT_LEAD;
       l.until[l.n] = w + HIT_KEEP;
