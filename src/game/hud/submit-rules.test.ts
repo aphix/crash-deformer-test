@@ -1,7 +1,7 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import type { RaceHud } from "../match/types.ts";
-import { captureSubmitShown, flagButton, updateNoticeShown } from "./submit-rules.ts";
+import { benchHoldsCommand, captureSubmitShown, flagButton, updateNoticeShown } from "./submit-rules.ts";
 
 describe("given the Debug section's capture toggle and its recorded samples", () => {
   const cases = [
@@ -61,4 +61,20 @@ describe("given a newer build is deployed", () => {
   it("when no newer build is deployed, then the notice is never shown", () => {
     assert.equal(updateNoticeShown(null, null), false);
   });
+});
+
+describe("given the results menu's buttons", () => {
+  const cases = [
+    { it: "Retry is pressed on a bench page", type: "retry" as const, benchPage: true, held: true },
+    { it: "Next course is pressed on a bench page", type: "next" as const, benchPage: true, held: true },
+    { it: "Menu is pressed on a bench page", type: "quit" as const, benchPage: true, held: true },
+    { it: "Retry is pressed on an ordinary page", type: "retry" as const, benchPage: false, held: false },
+    { it: "Next course is pressed on an ordinary page", type: "next" as const, benchPage: false, held: false },
+    { it: "the bench itself starts its race on a bench page", type: "start" as const, benchPage: true, held: false },
+  ];
+  for (const testCase of cases) {
+    it(`when ${testCase.it}, then the HUD ${testCase.held ? "sends nothing" : "sends it"}`, () => {
+      assert.equal(benchHoldsCommand({ type: testCase.type }, testCase.benchPage), testCase.held);
+    });
+  }
 });

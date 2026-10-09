@@ -43,8 +43,9 @@ ejection.
 carries the peer's own meter (a sixth byte), so every browser shows any viewed car's bottle as its driver keeps it.
 17: a reel keyframe's course memory is 1 double, not 4 (race walls are solid colliders).
 18: MSG.look (11) carries a player's car and driver colour picks and their two spray bitmaps, sent once at seating.
+19: Stage 1 of the one-motion-path physics: a reel's keyframes and a snapshot's cars carry the trajectories of the one rigid step (derived rest and wreck contact; debris poses on one ground law), so peers on 18 would replay and mirror them differently.
 */
-export const NET_VERSION = 18;
+export const NET_VERSION = 19;
 
 /** Most cars a snapshot or derby board may carry (the engine's `MAX_CARS`). */
 export const MAX_NET_CARS = 32;

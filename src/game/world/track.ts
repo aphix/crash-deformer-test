@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { Ground, STEP_UP } from "./ground.ts";
+import { hypot2, hypot3 } from "../kernel/physics-core.js";
 import { clamp01, wrapPi } from "../kernel/scalar.ts";
 import { SURFACE_IDS, type SurfaceId } from "./catalog.ts";
 import { parseTrack, type SurvivalSpec, type TrackJson } from "./track-schema.ts";
@@ -226,7 +227,7 @@ function samplePath(pts: THREE.Vector3[], closed: boolean, attrs: NodeAttrs): { 
     const b = closed ? (k + 1) % n : Math.min(n - 1, k + 1);
     const dx = path.x[b]! - path.x[a]!;
     const dz = path.z[b]! - path.z[a]!;
-    const len = Math.hypot(dx, dz) || 1;
+    const len = hypot2(dx, dz) || 1;
     path.tx[k] = dx / len;
     path.tz[k] = dz / len;
   }
@@ -326,7 +327,7 @@ export function pointOn(path: TrackPath, s: number, out: TrackPoint): TrackPoint
   out.z = path.z[a]! + (path.z[b]! - path.z[a]!) * f;
   const tx = path.tx[a]! + (path.tx[b]! - path.tx[a]!) * f;
   const tz = path.tz[a]! + (path.tz[b]! - path.tz[a]!) * f;
-  const len = Math.hypot(tx, tz) || 1;
+  const len = hypot2(tx, tz) || 1;
   out.tx = tx / len;
   out.tz = tz / len;
   out.half = path.half[a]! + (path.half[b]! - path.half[a]!) * f;
@@ -406,7 +407,7 @@ function segDist(g: Gate, x: number, z: number): number {
   const ex = g.bx - g.ax;
   const ez = g.bz - g.az;
   const f = clamp01(((x - g.ax) * ex + (z - g.az) * ez) / (ex * ex + ez * ez || 1));
-  return Math.hypot(x - g.ax - ex * f, z - g.az - ez * f);
+  return hypot2(x - g.ax - ex * f, z - g.az - ez * f);
 }
 
 export class Track {
@@ -730,5 +731,4 @@ export class TrackGround extends Ground {
       }
     }
   }
-
 }

@@ -10,7 +10,6 @@ import {
   vec3,
   clampSpeed,
   separateSphereFromAabb,
-  separateSphereFromBounds,
   regionSoftness,
   crushGate,
   dtImpulseScale,
@@ -24,6 +23,7 @@ import {
   hypot2,
   hypot3,
 } from "./physics-util.ts";
+import { separateSphereFromBounds } from "./physics-util.test-util.ts";
 
 describe("given the CRASH constants (the tuned crash-physics numbers, researched for a sedan and from NCAP crash tests)", () => {
   it("when the pulse length, crush distance and tyre friction values are read, then they sit in the published bands (pulse 0.09–0.16 s, crush 0.45–0.75 m, friction 0.9 at peak, 0.75 sliding, 0.4 scuffing)", () => {

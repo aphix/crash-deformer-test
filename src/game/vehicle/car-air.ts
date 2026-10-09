@@ -96,8 +96,6 @@ const BODY_W = Float64Array.from({ length: HULL.length * FACES }, (_, k) => {
   const [x, y, z] = HULL[p]!;
   return p < BODY_FROM ? 0 : faceFollow(k % FACES, x, y, z);
 });
-/** A body at rest lifts out of its belly's depth in the ground by at most this (m) a slice: a body that has stopped on its belly can't pump energy, it only settles on it. */
-export const REST_LIFT = 0.02;
 /** A wheel this close (m) to the ground counts as down. */
 export const TOUCH = 0.03;
 /** Restitution of a body point closing faster than `BOUNCE_V` (m/s); slower contacts and tyres (their springs,

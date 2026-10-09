@@ -1,4 +1,6 @@
-/** Scalar helpers every context shares (kernel: no imports; `once` memoizes a constant, nothing here holds state). */
+import { detCos, detSin } from "./physics-core.js";
+
+/** Scalar helpers every context shares (kernel: imports only physics-core; `once` memoizes a constant, nothing here holds state). */
 
 export function clamp(v: number, lo: number, hi: number): number {
   return v < lo ? lo : v > hi ? hi : v;
@@ -15,12 +17,12 @@ export function wrapPi(a: number): number {
 
 /** Angle wrapped into (-π, π] by atan2 (the camera and piston-orbit form). */
 export function wrapPiClosed(a: number): number {
-  return Math.atan2(Math.sin(a), Math.cos(a));
+  return Math.atan2(detSin(a), detCos(a));
 }
 
 /** Deterministic 0..1 per (id, k): the shader-style sin hash the AIs roll their dice with. */
 export function hash01(id: number, k: number): number {
-  const x = Math.sin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
+  const x = detSin(id * 127.1 + k * 311.7 + 17.13) * 43758.5453;
   return x - Math.floor(x);
 }
 

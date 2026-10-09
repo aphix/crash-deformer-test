@@ -174,7 +174,12 @@ function fakeGame(raceApplied?: number[], playerName = "") {
       return this.raceOn ? race : null;
     },
     enterRace(): void {},
-    exitRace(): void {},
+    /** How many times the session left race mode. */
+    raceExits: 0,
+    exitRace(): void {
+      this.raceExits++;
+      this.raceOn = false;
+    },
     startRace(): void {},
     setSeats(m: ReadonlyMap<number, string>): void {
       seats.push([...m]);
@@ -186,7 +191,11 @@ function fakeGame(raceApplied?: number[], playerName = "") {
     remoteDrivable: () => true,
     derbyPhase: () => null,
     derbyState: () => null,
-    applyDerby(): void {},
+    /** How many times the session left derby mode (`applyDerby(null)`). */
+    derbyExits: 0,
+    applyDerby(state: unknown): void {
+      if (state === null) this.derbyExits++;
+    },
     derbyLobby(): void {},
     startDerby(): void {},
     setVaporized(): void {},
@@ -568,6 +577,57 @@ describe("given a guest connected to a host whose tab is hidden", () => {
     assert.equal(s.client.status().car, 1, "it keeps its car (camera, held pedal) while it asks for a seat again");
   });
 });
+
+const hostModeCases = [{ mode: "race" }, { mode: "derby" }] as const;
+const FRAMES_PER_SECOND = 30;
+
+/** What a host in race (or derby) mode sends its guests every few frames. */
+function hostModeMessage(mode: "race" | "derby"): Uint8Array {
+  if (mode === "derby") {
+    const w = new codec.Writer();
+    codec.writeDerby(w, { round: 1, active: true, time: 3, hold: 0, radius: 18, winnerId: null, winnerName: null, decided: null, lobby: null, seats: 0, board: [] });
+    return w.done();
+  }
+  const snap = { trackId: "oval", laps: 3, noReset: false, phase: "racing", time: 1, lights: 3, winnerId: null, winBy: null, cars: [], order: [], firstAt: [] };
+  return new Uint8Array([codec.MSG.race, ...new TextEncoder().encode(JSON.stringify({ lobby: null, trackId: "oval", look: 0, snap }))]);
+}
+
+/** A guest that has just heard its host's race (or derby) message. */
+function guestInHostMode(mode: "race" | "derby") {
+  const s = session({ raceApplied: [] });
+  s.hub.sendAs(s.hostId(), s.clientId(), hostModeMessage(mode));
+  s.hub.flush();
+  const exits = () => (mode === "race" ? s.cg.raceExits : s.cg.derbyExits);
+  return { s, exits };
+}
+
+for (const testCase of hostModeCases) {
+  describe(`given a guest following its host's ${testCase.mode}`, () => {
+    it("when its own frames stall for 3 s and the host's newest messages reach it only after the first frame back, then it stays in the mode", () => {
+      const { s, exits } = guestInHostMode(testCase.mode);
+      s.advance(3000);
+      s.hub.sendAs(s.hostId(), s.clientId(), hostModeMessage(testCase.mode));
+      s.client.frame(FRAME_MS / 1000);
+      s.hub.flush();
+      s.step(FRAMES_PER_SECOND, { host: false });
+      assert.equal(exits(), 0);
+    });
+
+    it("when its host's tab is hidden for 3 s (only the paused heartbeat arrives), then it stays in the mode", () => {
+      const { s, exits } = guestInHostMode(testCase.mode);
+      s.host.setHidden(true);
+      s.hub.flush();
+      s.step(3 * FRAMES_PER_SECOND, { host: false });
+      assert.equal(exits(), 0);
+    });
+
+    it("when its live host stops sending the mode for 3 s of the guest's frames, then it leaves the mode once", () => {
+      const { s, exits } = guestInHostMode(testCase.mode);
+      s.step(3 * FRAMES_PER_SECOND);
+      assert.equal(exits(), 1);
+    });
+  });
+}
 
 describe("given a client whose scene is cleared when the host's clear count changes (a scene change, loop or reset)", () => {
   const torn = (car: DeformableCar): number => car["parts"].filter((p) => p.detached).length;

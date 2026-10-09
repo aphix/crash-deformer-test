@@ -4,7 +4,7 @@
  */
 import type { CrashEngine } from "@/game/engine/engine";
 import type { runBench } from "@/game/engine/engine-bench";
-import { advance, loopProgress, loopSettings, parseRun, runFromPage, startRun, stepHref, stepOf, type BenchRun } from "@/game/engine/bench-loop";
+import { advance, loopProgress, loopSettings, newSession, parseRun, runFromPage, startRun, stepHref, stepOf, type BenchRun } from "@/game/engine/bench-loop";
 import { BENCH_QUERY } from "@/game/engine/constants";
 import { fetchDeployedSha, newerBuild, reloadTarget } from "@/lib/deploy/update-check";
 import { KIND } from "@/lib/submissions/kinds";
@@ -12,9 +12,6 @@ import { sendSubmission } from "@/lib/submissions/status";
 
 /** A bench's card and receipt stay on screen this long before the next bench's page loads. */
 const PAUSE_MS = 4_000;
-
-/** A new loop's session id. */
-const newSession = (): string => crypto.randomUUID().replaceAll("-", "").slice(0, 8);
 
 /** The Benchmark entry: a new loop from its first step. */
 export function startBenchLoop(): void {

@@ -1,7 +1,7 @@
 import { FX_TIER_ULTRA } from "../present/constants.ts";
 import { FX_TIERS } from "../present/engine-post.ts";
 import { TRACK_ID } from "../world/constants.ts";
-import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, ULTRA_QUERY } from "./constants.ts";
+import { BENCH_KIND, BENCH_QUERY, COURSE_QUERY, STRIP_QUERY, ULTRA_QUERY } from "./constants.ts";
 
 /**
  * The benchmark loop: one cycle of benches, each its own page load (`?bench=…&loop=<session>&cycle=<n>&step=<i>`, so every bench
@@ -67,13 +67,21 @@ export function startRun(session: string): BenchRun {
 }
 
 /**
- * A bench page opened by its address alone (typed, shared, bookmarked): a new loop with every option on, as the Benchmark entry
- * starts one, at the step that runs this page's own bench; null for a bench no step of the cycle runs (the lab, another course),
- * which runs once as asked.
+ * A bench page opened by its address alone (typed, shared, bookmarked): a new loop at the step that runs this page's own bench, with
+ * the options its address sets (`keep`, `auto`, `loopultra`, `cycleultra`; `=0` is off) and every option it leaves out on, as the
+ * Benchmark entry starts one; null for a bench no step of the cycle runs (the lab, another course), which runs once as asked.
  */
 export function runFromPage(search: string, session: string): BenchRun | null {
-  const run = startRun(session);
   const q = new URLSearchParams(search);
+  const fresh = startRun(session);
+  const option = (name: string, absent: boolean): boolean => (q.has(name) ? q.get(name) !== "0" : absent);
+  const run: BenchRun = {
+    ...fresh,
+    ultra: option(LOOP_QUERY.ultraCycle, fresh.ultra) && ULTRA_AVAILABLE,
+    keep: option(LOOP_QUERY.keep, fresh.keep),
+    auto: option(LOOP_QUERY.auto, fresh.auto),
+    ultraNext: option(LOOP_QUERY.ultraNext, fresh.ultraNext) && ULTRA_AVAILABLE,
+  };
   const steps = cycleOf(run.ultra);
   for (let i = 0; i < steps.length; i++) {
     const s = new URLSearchParams(steps[i]!.query);
@@ -94,7 +102,7 @@ export function advance(run: BenchRun): BenchRun | null {
   return run.keep ? { ...run, loop: run.loop + 1, step: 0, ultra: run.ultraNext } : null;
 }
 
-/** The address that runs `run`'s step: this page's path, the bench's query and the loop's state; no fragment, no leftover `v`. */
+/** The address that runs `run`'s step: this page's path, the bench's query, the strip-shaping params this page carries (`len`, `cars`, …: the cycle's strip step reads them, whichever step this is) and the loop's state; no fragment, no leftover `v`. */
 export function stepHref(href: string, run: BenchRun): string {
   const url = new URL(href);
   const flags = [
@@ -104,6 +112,10 @@ export function stepHref(href: string, run: BenchRun): string {
     [LOOP_QUERY.ultraCycle, run.ultra],
   ] as const;
   const query = [stepOf(run).query, `${LOOP_QUERY.session}=${run.session}`, `${LOOP_QUERY.cycle}=${run.loop}`, `${LOOP_QUERY.step}=${run.step}`];
+  for (const name of Object.values(STRIP_QUERY)) {
+    const value = url.searchParams.get(name);
+    if (value !== null) query.push(`${name}=${encodeURIComponent(value)}`);
+  }
   for (const [name, on] of flags) query.push(`${name}=${on ? 1 : 0}`);
   url.search = `?${query.join("&")}`;
   url.hash = "";
@@ -113,6 +125,22 @@ export function stepHref(href: string, run: BenchRun): string {
 /** This page asks for a bench (`?bench=…`), whether a loop sent it there or someone opened it by hand. */
 export function isBenchPage(search: string): boolean {
   return new URLSearchParams(search).has(BENCH_QUERY);
+}
+
+/**
+ * The share `#` (`hud/share-url.ts`) this page follows: none on a bench page, whose bench plan owns the scene and every setting, so a
+ * `#` left in the address (a stale one, or one pasted with the bench's query) neither switches its scene at boot nor on an edit.
+ */
+export function shareHashOf(search: string, hash: string): string | null {
+  return isBenchPage(search) ? null : hash;
+}
+
+/**
+ * A new loop's session id: eight base-36 characters from `crypto.getRandomValues`, which every page has (`crypto.randomUUID` exists
+ * only in a secure context, so a build opened over plain http on the LAN could start no loop).
+ */
+export function newSession(): string {
+  return Array.from(crypto.getRandomValues(new Uint8Array(8)), (byte) => (byte % 36).toString(36)).join("");
 }
 
 /** This page asks for reloading onto a newly deployed build (`?auto=1`), on a bench page between benches and on a plain page when idle. */

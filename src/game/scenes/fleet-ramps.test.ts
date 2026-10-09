@@ -2,7 +2,7 @@ import { afterEach, describe, it } from "node:test";
 import assert from "node:assert/strict";
 import * as THREE from "three";
 import { DeformableCar } from "../vehicle/car.ts";
-import { COM_Y, G, REST_LIFT, TOUCH } from "../vehicle/car-air.ts";
+import { COM_Y, G, TOUCH } from "../vehicle/car-air.ts";
 import { CAR_HALF } from "../vehicle/car-mesh.ts";
 import { LIFT_OFF } from "../deform/deform-contact.ts";
 import { JerseyBarrier } from "./engine-props.ts";
@@ -16,6 +16,8 @@ import { droop, SPRINGS } from "../vehicle/car-suspension.ts";
 import { fit, frame } from "../vehicle/ground-probe.test-util.ts";
 
 const FRAME = 1 / 60;
+/** The most (m) a slice's resting contact may lift a body that has stopped on its belly: the tolerance of the dy bound below. */
+const REST_LIFT = 0.02;
 /** Long enough for a car wedged between the ramps to stop sliding (main settles at about 6 s). */
 const SETTLE_S = 8;
 const TYRE_CENTRE = 0.32;

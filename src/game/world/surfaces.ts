@@ -1536,13 +1536,11 @@ function take(out: Float64Array, hit: Float64Array, r: number, k: number): void 
 }
 
 /** The car tops `wheelContact`'s footprint asks (`null`: none whose edge is within the tyre's reach) and their patches whose box is within reach of its hub. */
-let _reachOf: Surface | null = null;
-let _reach = new Int32Array(8);
-let _nReach = 0;
+const treadReach: { tops: Surface | null; list: Int32Array; count: number } = { tops: null, list: new Int32Array(8), count: 0 };
 
 /**
  * Footprint point `k` (wheel frame at wheel scale 1, turned and scaled by `_foot`) asked from the hub's height over the statics and
- * the tops within reach (`_reach`): its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when
+ * the tops within reach (`treadReach`): its rise, patch and point into the footprint's store, and into `out` as the wheel's contact when
  * it is the highest yet. Not asked where the highest the surfaces stand over the footprint (`FOOT_TOP`) is no higher over the point
  * than the rise so far: its rise cannot be greater (its store is left as it was; only the arcs' pass reads it).
  */
@@ -1560,7 +1558,7 @@ function tread(hub: Float64Array, axes: Float64Array, skip: number, k: number, o
   _pq[PQ_X] = px;
   _pq[PQ_Z] = pz;
   _pq[PQ_Y] = hub[1]!;
-  seek(_pq, skip, _reachOf, _reach, _nReach);
+  seek(_pq, skip, treadReach.tops, treadReach.list, treadReach.count);
   const r = _s[S_BEST] - py;
   _rise[k] = r;
   _pid[k] = seekPatch();
@@ -1604,17 +1602,17 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   const z = hub[2]!;
   const y = hub[1]!;
   const tops = live.tops;
-  _nReach = 0;
+  treadReach.count = 0;
   if (tops !== null) {
     tops.near(skip, x, z);
-    if (_reach.length < tops.nAlways) _reach = new Int32Array(tops.always.length);
+    if (treadReach.list.length < tops.nAlways) treadReach.list = new Int32Array(tops.always.length);
     // A top whose box ends farther than the tyre's reach from the hub holds none of the footprint's points (every one is within it).
     const P = tops.p;
     for (let k = 0; k < tops.nAlways; k++) {
       const i = tops.always[k]!;
       const o = i * P_STRIDE;
       if (x < P[o + P_MINX]! - r || x > P[o + P_MAXX]! + r || z < P[o + P_MINZ]! - r || z > P[o + P_MAXZ]! + r) continue;
-      _reach[_nReach++] = i;
+      treadReach.list[treadReach.count++] = i;
     }
   }
   // No top's edge within the tyre's reach: the hub and its footprint never ask the tops.
@@ -1622,11 +1620,11 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   _pq[PQ_Z] = z;
   _pq[PQ_Y] = y;
   _foot[FOOT_SCALE] = scale;
-  _reachOf = tops !== null && edgeIn(tops, _pq, skip) ? tops : null;
-  const n = _reachOf !== null || (live.statics !== null && edgeIn(live.statics, _pq, skip)) ? FOOT : BASE;
+  treadReach.tops = tops !== null && edgeIn(tops, _pq, skip) ? tops : null;
+  const n = treadReach.tops !== null || (live.statics !== null && edgeIn(live.statics, _pq, skip)) ? FOOT : BASE;
   // The footprint turns in the rolling plane to face the surface under the hub: each ring's bottom is then its point nearest that
   // surface, as the drawn tyre's is (a car pitched 10° on three wheels held a rear tyre's shoulder 5 mm off the floor at its body-down point).
-  seek(_pq, skip, _reachOf, _reach, _nReach);
+  seek(_pq, skip, treadReach.tops, treadReach.list, treadReach.count);
   normalOf(_w);
   let c = 1;
   let s = 0;
@@ -1642,10 +1640,10 @@ export function wheelContact(hub: Float64Array, axes: Float64Array, scale: numbe
   out[C_H] = NONE;
   _foot[FOOT_COS] = c;
   _foot[FOOT_SIN] = s;
-  // With no car top asked (`_reachOf` null: none within the tyre's reach) and the rings' bottoms alone (no patch ends within reach),
+  // With no car top asked (`treadReach.tops` null: none within the tyre's reach) and the rings' bottoms alone (no patch ends within reach),
   // the static surface's highest over the footprint bounds every point's surface; otherwise every point is asked (a top's own height
   // is not in the bound, and the arcs' pass reads every rise).
-  _foot[FOOT_TOP] = _reachOf !== null || n === FOOT ? Infinity : live.statics === null ? NONE : staticTop(live.statics, x - r, x + r, z - r, z + r);
+  _foot[FOOT_TOP] = treadReach.tops !== null || n === FOOT ? Infinity : live.statics === null ? NONE : staticTop(live.statics, x - r, x + r, z - r, z + r);
   for (let k = 0; k < n; k++) tread(hub, axes, skip, k, out);
   // Near an edge a ring's highest point is where it crosses onto the patch that holds it, between two arcs: the chord to the
   // neighbour on another patch is halved (`edgeCross`; a front tyre leaving the wedge's side read 1.6 cm lower at its nearest arc

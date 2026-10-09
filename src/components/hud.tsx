@@ -24,6 +24,7 @@ import { PAD_BUTTON } from "@/game/vehicle/gamepad";
 import type { CrashHudState } from "@/game/hud/hud-store";
 import { formatSpeed } from "@/game/hud/speed-units";
 import type { RaceCommand } from "@/game/match/types";
+import { benchHoldsCommand } from "@/game/hud/submit-rules";
 import { SURVIVAL } from "@/game/match/survival";
 import { SOLO_SCENES } from "@/game/scenes/scene-id";
 import { cn } from "@/lib/utils";
@@ -145,7 +146,9 @@ export function Hud(props: HudProps) {
   const touch = useCoarsePointer();
   // What resets the driven car: the connected pad, the thumb pad's button, or R.
   const reset = resetInput(state.pad !== null, touch, state.seat === "drive");
-  const raceCommand = (cmd: RaceCommand) => engine.current?.raceCommand(cmd);
+  const raceCommand = (cmd: RaceCommand) => {
+    if (!benchHoldsCommand(cmd, !onlineShown)) engine.current?.raceCommand(cmd);
+  };
   // The prompt's tap presses the thumb pad's reset button (D-pad down).
   const tapReset = () => {
     const t = engine.current?.touch;
@@ -164,7 +167,7 @@ export function Hud(props: HudProps) {
   // Solo view: one clip alone, full screen; the HUD is nothing but its exit.
   if (state.race?.solo != null) return <SoloExit title={state.race.solo} shown={state.race.shown} onCommand={raceCommand} />;
   return (
-    <div className="hud-grid pointer-events-none absolute inset-0 p-2 text-fg sm:p-4" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
+    <div className="hud-grid pointer-events-none absolute inset-0 text-fg" data-focus={focus || undefined} data-idle={menu.idle || undefined}>
       <div className="flex min-w-0 flex-col items-start max-sm:min-h-11" style={{ gridArea: "title" }}>
         {focus && state.race ? (
           <header className="hud-ink min-w-0 font-display">

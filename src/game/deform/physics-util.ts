@@ -92,33 +92,6 @@ export function snapshotPoints(
 }
 
 /**
- * Keep a sphere inside [lo, hi] along one axis. Used for kinematic press
- * faces, ground planes, etc. — same projection for masses and debris.
- */
-export function separateSphereFromBounds(
-  pos: THREE.Vector3,
-  vel: THREE.Vector3,
-  radius: number,
-  axis: "x" | "y" | "z",
-  lo: number,
-  hi: number,
-): boolean {
-  let hit = false;
-  const p = pos[axis];
-  if (p + radius > hi) {
-    pos[axis] = hi - radius;
-    if (vel[axis] > 0) vel[axis] = 0;
-    hit = true;
-  }
-  if (p - radius < lo) {
-    pos[axis] = lo + radius;
-    if (vel[axis] < 0) vel[axis] = 0;
-    hit = true;
-  }
-  return hit;
-}
-
-/**
  * Push a sphere out of an AABB and kill inbound speed on the contact axis.
  * Same response for cars, jersey barriers, press platens, poles.
  */

@@ -506,6 +506,14 @@ export class DeformableCar extends CarParts {
     return { body: this.body, bodyPaint: this.bodyMat, hood: this.hood, trunk: this.trunk, doors: [this.doorMeshL, this.doorMeshR], glass: this.glassPanes.map((g) => g.mesh) };
   }
 
+  /** The meshes the crush skin writes (`updateSkin`): the body, the lids, the light bar and the skinned panes. */
+  skinGeometries(): THREE.BufferGeometry[] {
+    const geometries = [this.body.geometry, this.hood.geometry, this.trunk.geometry];
+    if (this.lightBar) geometries.push(this.lightBar.geometry);
+    for (const pane of this.glassPanes) if (pane.skin) geometries.push(pane.mesh.geometry);
+    return geometries;
+  }
+
   /**
    * Netplay client: take the host's deform and part state with no physics, breakage, launch or FX,
    * so the skin, hulls, parts, lamps and glass match the host's. Set the pose first.
@@ -612,12 +620,17 @@ export class DeformableCar extends CarParts {
     if (this.crashed) this.seatBody(lift, dt);
   }
 
+  /** The class body the ride moves (`null` for a car with no class), found once. */
+  private classBodyObject(): THREE.Object3D | null {
+    return (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+  }
+
   /**
    * Into `out` from index `n` on: the objects the ride writes every slice while they are on the car, its class body (heave, pitch and
    * roll from the load transfer, `Suspension.pose`) and the four wheels still on it (`seatWheels`). Returns the count past the last.
    */
   rideObjects(out: THREE.Object3D[], n: number): number {
-    const body = (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+    const body = this.classBodyObject();
     if (body) out[n++] = body;
     for (let i = 0; i < this.wheels.length; i++) if (!this.looseWheels[i]!.loose) out[n++] = this.wheels[i]!;
     return n;
@@ -629,7 +642,7 @@ export class DeformableCar extends CarParts {
    * their hubs. Eased, so a wreck sliding over a kerb does not hop; drawn only, nothing reads it.
    */
   private seatBody(lift: number, dt: number): void {
-    const body = (this.classBody ??= this.group.getObjectByName("classLift") ?? null);
+    const body = this.classBodyObject();
     if (!body) return;
     let margin = Infinity;
     if (this.deform.massActive && !this.deform.aloft) {
