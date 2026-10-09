@@ -165,8 +165,11 @@ export type Chase = {
  */
 export type CopTamper = (input: DriveInput) => void;
 
-/** Controls on the pack: `tamper` its pedals, and `release` it that many seconds after the green (see `chase`). */
-export type ChaseOpts = { tamper?: CopTamper; release?: number };
+/**
+ * Controls on the pack: `tamper` its pedals, and `release` it that many seconds after the green (see `chase`). Watchers: `each` once per
+ * frame before the physics with the race clock, `pair` on every car pair the slice's contact passes find touching (the player's and the pack's own).
+ */
+export type ChaseOpts = { tamper?: CopTamper; release?: number; each?: (w: World, time: number) => void; pair?: (a: number, b: number) => void };
 
 /**
  * One Survival run on `course` (Havana) with `fleer` at the wheel, `seed` pinning the field's dice, for at most `seconds` of game time.
@@ -174,7 +177,7 @@ export type ChaseOpts = { tamper?: CopTamper; release?: number };
  * green, until race second `release`; from then on it is the real pack on the real rules. Cop contacts count only from the release.
  * `Chase.time` stays on the race clock.
  */
-export function chase(fleer: Fleer, seed: number, seconds: number, course?: unknown, { tamper, release = 0 }: ChaseOpts = {}): Chase {
+export function chase(fleer: Fleer, seed: number, seconds: number, course?: unknown, { tamper, release = 0, each, pair }: ChaseOpts = {}): Chase {
   const w = survivalWorld(course, seed);
   try {
     // The race's brain is a protected field of the engine class; a control has to reach it to change what the cops decide.
@@ -203,6 +206,13 @@ export function chase(fleer: Fleer, seed: number, seconds: number, course?: unkn
     let touches = 0;
     let lastTouch = -1;
     const reach = { minX: Infinity, maxX: -Infinity, minZ: Infinity, maxZ: -Infinity };
+    if (pair) {
+      const hit = w.step.pairHit!;
+      w.step.pairHit = (a, b, contact, first) => {
+        hit(a, b, contact, first);
+        pair(a, b);
+      };
+    }
     w.onPairContact = (a, b) => {
       if (a !== 0 && b !== 0) return;
       if (w.race.time < release || w.race.time - (drivenAt.get(a === 0 ? b : a) ?? -Infinity) > POWERED) return;
@@ -215,6 +225,7 @@ export function chase(fleer: Fleer, seed: number, seconds: number, course?: unkn
       seconds,
       retry: false,
       player: (ww) => {
+        each?.(ww, ww.race.time);
         const car = ww.cars[0]!;
         speed = car.velocity.length();
         const p = car.group.position;

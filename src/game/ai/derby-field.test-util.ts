@@ -66,6 +66,9 @@ function centroid(c: DeformableCar): { x: number; z: number } {
  */
 const MOVE_GAP = 1;
 
+/** A watcher on a heat: `step` after every physics slice of `h` s at match time `t` (`running(i)`: car i alive and not out), `pair` on every car pair in contact. */
+export type FieldWatch = { step?: (cars: DeformableCar[], t: number, h: number, running: (i: number) => boolean) => void; pair?: (a: number, b: number) => void };
+
 /**
  * A derby of `n` AI cars through the engine's stack (`stepWorld` with the derby's hit credit and bowl,
  * cars dressed as `dressCar` does at the game's defaults), at the default slider, to the end of the heat.
@@ -74,7 +77,7 @@ const MOVE_GAP = 1;
  * Zips: a live mass centroid moving more than 3·v·h + 5 cm in a step. Impacts: AI hits closing ≥ 3 m/s,
  * by the attacker's face. Moves: swings, J-turns and sideswipes, each a manoeuvre (`MOVE_GAP`).
  */
-export function runField(n: number, seed: number, playerClass?: VehicleClassId): Field {
+export function runField(n: number, seed: number, playerClass?: VehicleClassId, on?: FieldWatch): Field {
   const scene = new THREE.Scene();
   const cars = Array.from(
     { length: n },
@@ -152,6 +155,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
       }
     }
     w.pairHit = (a, b, pair) => {
+      on?.pair?.(a, b);
       const ca = cars[a]!;
       const cb = cars[b]!;
       touched[a] = t;
@@ -174,6 +178,7 @@ export function runField(n: number, seed: number, playerClass?: VehicleClassId):
       cars.map((c, i) => ({ id: i, name: `c${i}`, alive: c.deform.drivetrainAlive, x: c.group.position.x, z: c.group.position.z })),
     );
     const running = (i: number) => cars[i]!.deform.drivetrainAlive && !match.board[i]!.out;
+    on?.step?.(cars, t, h, running);
     if (watch.due(t)) watch.sample(t, cars.map((c, i) => ({ alive: running(i), x: c.group.position.x, z: c.group.position.z, fwd: c.velocity.x * c.fwdFlat.x + c.velocity.z * c.fwdFlat.z })));
     for (const [i, c] of cars.entries()) {
       if (t >= 0 && running(i)) out.carSeconds += h;
